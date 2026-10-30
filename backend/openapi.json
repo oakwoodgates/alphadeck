@@ -4199,6 +4199,52 @@
         }
       }
     },
+    "/dashboards/daily-digest": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Daily Digest Page",
+        "description": "The morning page at the as-of: what the newest recorded night changed against the one before, the Managing\ncards' positions, what is due this week, the insider buys filed since the earlier night, the armed names' last\nsession and the count of what is forming. Every section is a cut of an existing page, read by that page's own\nrules. Display only: it reads the calls log and never the live call, notifies nothing and ranks nothing by promise.\nA past as-of reads the nights recorded on or before it and what was public by the end of that date; a fill logged\nafter it is not a position then.",
+        "operationId": "daily_digest_page_dashboards_daily_digest_get",
+        "parameters": [
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; only what was recorded and public by then is read",
+              "title": "Asof"
+            },
+            "description": "as-of date; only what was recorded and public by then is read"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DailyDigestOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/dashboards/entry-windows": {
       "get": {
         "tags": [
@@ -15156,6 +15202,88 @@
         "title": "CrossTimelineRowOut",
         "description": "One group's crosses over the last ``history_sessions`` sessions (``golden`` / ``death`` count every\ncross), the price \u00d7 200d counts when that layer is on, and its posture bar."
       },
+      "DailyDigestOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "clock": {
+            "type": "string",
+            "enum": [
+              "record",
+              "public"
+            ],
+            "title": "Clock"
+          },
+          "nights": {
+            "$ref": "#/components/schemas/DigestNightsOut"
+          },
+          "last_night": {
+            "$ref": "#/components/schemas/DigestLastNightOut"
+          },
+          "positions": {
+            "items": {
+              "$ref": "#/components/schemas/DigestPositionOut"
+            },
+            "type": "array",
+            "title": "Positions"
+          },
+          "due": {
+            "$ref": "#/components/schemas/DigestDueOut"
+          },
+          "insider": {
+            "$ref": "#/components/schemas/DigestInsiderOut"
+          },
+          "tape": {
+            "$ref": "#/components/schemas/DigestTapeOut"
+          },
+          "forming": {
+            "$ref": "#/components/schemas/DigestFormingOut"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/DigestCountsOut"
+          },
+          "flagged": {
+            "items": {
+              "$ref": "#/components/schemas/DigestFlaggedOut"
+            },
+            "type": "array",
+            "title": "Flagged"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "clock",
+          "nights",
+          "last_night",
+          "positions",
+          "due",
+          "insider",
+          "tape",
+          "forming",
+          "counts",
+          "flagged",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "DailyDigestOut",
+        "description": "The whole page at the as-of. ``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was public\nby the end of that date). There is no aggregate over any row's return. ``cache`` / ``compute_ms`` = whether the read\ncame from the shared dashboard cache and how long it took when computed."
+      },
       "DataFlagEvidenceOut": {
         "properties": {
           "label": {
@@ -15737,6 +15865,1889 @@
         ],
         "title": "DecisionOut",
         "description": "One logged decision. ``call_state``/``call_verdict`` are the platform's stance when it was\nlogged (display denormalization \u2014 attribution re-derives from the calls-log join); ``voided``\nmarks a row a later ``void`` points at (the strip grays it \u2014 visible, never hidden)."
+      },
+      "DigestBuyCardOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "thesis_name",
+          "ticker"
+        ],
+        "title": "DigestBuyCardOut"
+      },
+      "DigestBuyCountsOut": {
+        "properties": {
+          "names_read": {
+            "type": "integer",
+            "title": "Names Read"
+          },
+          "filings_read": {
+            "type": "integer",
+            "title": "Filings Read"
+          },
+          "purchases": {
+            "type": "integer",
+            "title": "Purchases"
+          },
+          "routine_folded": {
+            "type": "integer",
+            "title": "Routine Folded"
+          },
+          "amendments_no_purchase": {
+            "type": "integer",
+            "title": "Amendments No Purchase"
+          },
+          "names_with_purchases": {
+            "type": "integer",
+            "title": "Names With Purchases"
+          },
+          "filer_unresolved": {
+            "type": "integer",
+            "title": "Filer Unresolved"
+          },
+          "cluster_rows": {
+            "type": "integer",
+            "title": "Cluster Rows"
+          },
+          "trigger_rows": {
+            "type": "integer",
+            "title": "Trigger Rows"
+          },
+          "nights_read": {
+            "type": "integer",
+            "title": "Nights Read"
+          },
+          "nights_unreadable": {
+            "type": "integer",
+            "title": "Nights Unreadable"
+          },
+          "silent_rows_left_out": {
+            "type": "integer",
+            "title": "Silent Rows Left Out"
+          },
+          "unresolved_rows": {
+            "type": "integer",
+            "title": "Unresolved Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "names_read",
+          "filings_read",
+          "purchases",
+          "routine_folded",
+          "amendments_no_purchase",
+          "names_with_purchases",
+          "filer_unresolved",
+          "cluster_rows",
+          "trigger_rows",
+          "nights_read",
+          "nights_unreadable",
+          "silent_rows_left_out",
+          "unresolved_rows"
+        ],
+        "title": "DigestBuyCountsOut",
+        "description": "What section 4 rests on. ``filings_read`` = the Form 4s and 4/As filed in (P, N] = ``purchases`` +\n``routine_folded`` + ``amendments_no_purchase``."
+      },
+      "DigestBuyRowOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "accession": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accession"
+          },
+          "form": {
+            "type": "string",
+            "title": "Form"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "filed": {
+            "type": "string",
+            "format": "date",
+            "title": "Filed"
+          },
+          "trade_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trade Date"
+          },
+          "filed_days_after": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filed Days After"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/DigestBuyCardOut"
+            },
+            "type": "array",
+            "title": "Cards"
+          },
+          "filer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filer"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          },
+          "role_classes": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "officer",
+                "director",
+                "ten_percent_owner",
+                "other"
+              ]
+            },
+            "type": "array",
+            "title": "Role Classes"
+          },
+          "co_filers": {
+            "type": "integer",
+            "title": "Co Filers"
+          },
+          "shares": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shares"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price"
+          },
+          "usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Usd"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags"
+          },
+          "headline": {
+            "type": "string",
+            "title": "Headline"
+          },
+          "cluster": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DigestClusterOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "triggers": {
+            "items": {
+              "$ref": "#/components/schemas/DigestTriggerOut"
+            },
+            "type": "array",
+            "title": "Triggers"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "security_id",
+          "ticker",
+          "accession",
+          "form",
+          "url",
+          "filed",
+          "trade_date",
+          "filed_days_after",
+          "cards",
+          "filer",
+          "role",
+          "role_classes",
+          "co_filers",
+          "shares",
+          "price",
+          "usd",
+          "tags",
+          "headline",
+          "cluster",
+          "triggers"
+        ],
+        "title": "DigestBuyRowOut",
+        "description": "One Form 4 (or applied 4/A) holding an open-market purchase, filed in (P, N]. ``filed`` = the filing date;\n``trade_date`` / ``filed_days_after`` as Insider Buying words them; ``filer`` / ``role`` = the first reporting owner\nand the filing's own role words (``null`` = not stated); ``shares`` / ``price`` / ``usd`` = the code-P lines' totals\n(``null`` = not stated); ``cluster`` = see ``DigestClusterOut``; ``triggers`` = the recorded insider triggers\ncarrying this accession (empty = not a trigger, which says nothing about why)."
+      },
+      "DigestCardOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "tier": {
+            "type": "string",
+            "enum": [
+              "armed",
+              "warming",
+              "incubating"
+            ],
+            "title": "Tier"
+          },
+          "state": {
+            "$ref": "#/components/schemas/State"
+          },
+          "previous_state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/State"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reconstructed": {
+            "type": "boolean",
+            "title": "Reconstructed"
+          },
+          "ingest_fresh": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ingest Fresh"
+          },
+          "headline": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DigestLineOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/DigestLineOut"
+            },
+            "type": "array",
+            "title": "Lines"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "thesis_name",
+          "tier",
+          "state",
+          "previous_state",
+          "reconstructed",
+          "ingest_fresh",
+          "headline",
+          "lines"
+        ],
+        "title": "DigestCardOut",
+        "description": "One card with a change. ``tier``: ``armed`` (an Armed or Managing card, now or at P), ``warming``,\n``incubating``, in that order. ``headline`` = the state move (or \"new card\"); ``lines`` = the rest in What Changed's\norder. ``ingest_fresh`` = ``false`` when the run that wrote the card's row did not ingest every name cleanly;\n``reconstructed`` = the row was written by ``pipeline.backfill``."
+      },
+      "DigestClusterOut": {
+        "properties": {
+          "buyers": {
+            "type": "integer",
+            "title": "Buyers"
+          },
+          "others": {
+            "items": {
+              "$ref": "#/components/schemas/DigestOtherBuyerOut"
+            },
+            "type": "array",
+            "title": "Others"
+          }
+        },
+        "type": "object",
+        "required": [
+          "buyers",
+          "others"
+        ],
+        "title": "DigestClusterOut",
+        "description": "Two or more distinct buyers filed within 30 days of the row's filing date; ``buyers`` counts the row's own."
+      },
+      "DigestCountsOut": {
+        "properties": {
+          "cards_counted": {
+            "type": "integer",
+            "title": "Cards Counted"
+          },
+          "live_cards": {
+            "type": "integer",
+            "title": "Live Cards"
+          },
+          "not_yet_created": {
+            "type": "integer",
+            "title": "Not Yet Created"
+          },
+          "roster_fallback": {
+            "type": "integer",
+            "title": "Roster Fallback"
+          },
+          "cards_recorded_on_night": {
+            "type": "integer",
+            "title": "Cards Recorded On Night"
+          },
+          "cards_carried": {
+            "type": "integer",
+            "title": "Cards Carried"
+          },
+          "cards_no_call": {
+            "type": "integer",
+            "title": "Cards No Call"
+          },
+          "cards_armed": {
+            "type": "integer",
+            "title": "Cards Armed"
+          },
+          "cards_warming": {
+            "type": "integer",
+            "title": "Cards Warming"
+          },
+          "cards_managing": {
+            "type": "integer",
+            "title": "Cards Managing"
+          },
+          "cards_incubating": {
+            "type": "integer",
+            "title": "Cards Incubating"
+          },
+          "cards_ingest_not_fresh": {
+            "type": "integer",
+            "title": "Cards Ingest Not Fresh"
+          },
+          "cards_reconstructed": {
+            "type": "integer",
+            "title": "Cards Reconstructed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "cards_counted",
+          "live_cards",
+          "not_yet_created",
+          "roster_fallback",
+          "cards_recorded_on_night",
+          "cards_carried",
+          "cards_no_call",
+          "cards_armed",
+          "cards_warming",
+          "cards_managing",
+          "cards_incubating",
+          "cards_ingest_not_fresh",
+          "cards_reconstructed"
+        ],
+        "title": "DigestCountsOut",
+        "description": "The work shown on the quiet line: counts of what was read and listed, never a statistic over returns.\n``cards_recorded_on_night`` + ``cards_carried`` + ``cards_no_call`` = ``cards_counted``."
+      },
+      "DigestDueItemOut": {
+        "properties": {
+          "item": {
+            "type": "string",
+            "enum": [
+              "catalyst",
+              "entry_window",
+              "exit_by"
+            ],
+            "title": "Item"
+          },
+          "on": {
+            "type": "string",
+            "format": "date",
+            "title": "On"
+          },
+          "days": {
+            "type": "integer",
+            "title": "Days"
+          },
+          "today": {
+            "type": "boolean",
+            "title": "Today"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "when_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "When Label"
+          },
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State"
+          }
+        },
+        "type": "object",
+        "required": [
+          "item",
+          "on",
+          "days",
+          "today",
+          "label",
+          "kind",
+          "when_label",
+          "thesis_id",
+          "thesis_name",
+          "state"
+        ],
+        "title": "DigestDueItemOut",
+        "description": "One dated line of this week: a catalyst, or a card's entry window or exit-by (the Catalyst Calendar's items).\n``today`` = dated the as-of; ``days`` = calendar days from the as-of; ``state`` = the card's state in effect."
+      },
+      "DigestDueOut": {
+        "properties": {
+          "start": {
+            "type": "string",
+            "format": "date",
+            "title": "Start"
+          },
+          "end": {
+            "type": "string",
+            "format": "date",
+            "title": "End"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/DigestDueItemOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "catalysts": {
+            "type": "integer",
+            "title": "Catalysts"
+          },
+          "deadlines": {
+            "type": "integer",
+            "title": "Deadlines"
+          },
+          "passed_since": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Passed Since"
+          },
+          "passed_total": {
+            "type": "integer",
+            "title": "Passed Total"
+          },
+          "cards_without_calls": {
+            "type": "integer",
+            "title": "Cards Without Calls"
+          }
+        },
+        "type": "object",
+        "required": [
+          "start",
+          "end",
+          "items",
+          "catalysts",
+          "deadlines",
+          "passed_since",
+          "passed_total",
+          "cards_without_calls"
+        ],
+        "title": "DigestDueOut",
+        "description": "Section 3: the Calendar's ``this_week`` bucket (``start`` to ``end`` inclusive, through the coming Sunday).\n``passed_since`` = the dated catalysts that passed after P and are not yet pruned (``null`` = no P)."
+      },
+      "DigestFlaggedOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "reason"
+        ],
+        "title": "DigestFlaggedOut",
+        "description": "A name on the tape or a position whose price history is flagged: kept on screen, never priced."
+      },
+      "DigestFormingOut": {
+        "properties": {
+          "warming": {
+            "type": "integer",
+            "title": "Warming"
+          },
+          "incubating": {
+            "type": "integer",
+            "title": "Incubating"
+          },
+          "key_turned": {
+            "items": {
+              "$ref": "#/components/schemas/DigestKeyTurnedOut"
+            },
+            "type": "array",
+            "title": "Key Turned"
+          }
+        },
+        "type": "object",
+        "required": [
+          "warming",
+          "incubating",
+          "key_turned"
+        ],
+        "title": "DigestFormingOut",
+        "description": "Section 6: counts only. ``key_turned`` = the Warming cards whose key turned last night, by name."
+      },
+      "DigestHoldOut": {
+        "properties": {
+          "exit_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit By"
+          },
+          "sessions_left": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sessions Left"
+          },
+          "passed_sessions": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Passed Sessions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "exit_by",
+          "sessions_left",
+          "passed_sessions"
+        ],
+        "title": "DigestHoldOut",
+        "description": "The card's exit-by as sessions: ``sessions_left`` = the Mon-Fri sessions after the as-of through it (0 on its\nlast day), or ``passed_sessions`` = the calendar's sessions after it through the as-of."
+      },
+      "DigestInsiderOut": {
+        "properties": {
+          "no_baseline": {
+            "type": "boolean",
+            "title": "No Baseline"
+          },
+          "span_start": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Span Start"
+          },
+          "span_end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Span End"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/DigestBuyRowOut"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/DigestBuyCountsOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "no_baseline",
+          "span_start",
+          "span_end",
+          "rows",
+          "counts"
+        ],
+        "title": "DigestInsiderOut",
+        "description": "Section 4. The span is the FILING dates in (``span_start``, ``span_end``] = (P, N]; ``no_baseline`` = there is\nno P, so no span (both dates null)."
+      },
+      "DigestKeyTurnedOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "labels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Labels"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "thesis_name",
+          "labels"
+        ],
+        "title": "DigestKeyTurnedOut"
+      },
+      "DigestLastNightOut": {
+        "properties": {
+          "no_baseline": {
+            "type": "boolean",
+            "title": "No Baseline"
+          },
+          "cards_with_change": {
+            "type": "integer",
+            "title": "Cards With Change"
+          },
+          "lines": {
+            "type": "integer",
+            "title": "Lines"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/DigestCardOut"
+            },
+            "type": "array",
+            "title": "Cards"
+          }
+        },
+        "type": "object",
+        "required": [
+          "no_baseline",
+          "cards_with_change",
+          "lines",
+          "cards"
+        ],
+        "title": "DigestLastNightOut",
+        "description": "Section 1. ``no_baseline`` = there is no earlier night to compare (no card, no line)."
+      },
+      "DigestLastSessionOut": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "priced",
+              "unpriced",
+              "flagged"
+            ],
+            "title": "Status"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "session": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session"
+          },
+          "previous_session": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Session"
+          },
+          "ret_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ret Pct"
+          },
+          "bench_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bench Pct"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "reason",
+          "session",
+          "previous_session",
+          "ret_pct",
+          "bench_pct"
+        ],
+        "title": "DigestLastSessionOut",
+        "description": "The name's as-traded return over the calendar's last session (the close before it to its close) and IWM's over\nthe same two sessions, in percent. ``unpriced`` / ``flagged`` carry the ``reason`` and keep the row."
+      },
+      "DigestLineOut": {
+        "properties": {
+          "section": {
+            "type": "string",
+            "enum": [
+              "column_moves",
+              "keys",
+              "names",
+              "triggers",
+              "clocks",
+              "new_cards"
+            ],
+            "title": "Section"
+          },
+          "change": {
+            "type": "string",
+            "enum": [
+              "state",
+              "key_on",
+              "key_off",
+              "armed",
+              "no_longer_armed",
+              "new_watch",
+              "trigger_new",
+              "trigger_gone",
+              "risk_new",
+              "trigger_redated",
+              "entry_window",
+              "exit_by",
+              "new_card"
+            ],
+            "title": "Change"
+          },
+          "security_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "from_state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/State"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "to_state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/State"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "signal_kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Kind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "On"
+          },
+          "previous_on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous On"
+          },
+          "days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days"
+          },
+          "tone": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "accent",
+                  "warm"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tone"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DigestSourceOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "section",
+          "change",
+          "security_id",
+          "ticker",
+          "from_state",
+          "to_state",
+          "label",
+          "signal_kind",
+          "on",
+          "previous_on",
+          "days",
+          "tone",
+          "source"
+        ],
+        "title": "DigestLineOut",
+        "description": "One line of a card: What Changed's own item. ``ticker`` / ``security_id`` are set for a name or a trigger line;\n``label`` = the key's own label, or the trigger's; ``on`` = the trigger's event date or the clock's date;\n``previous_on`` = a re-dated trigger's earlier date; ``days`` = calendar days from the newest night to the entry\nwindow's end. ``tone``: ``accent`` (a card that entered Armed, a name newly armed, an entry window closing within\n3 days) or ``warm`` (a card that left Armed, an exit-by reached); ``null`` on every other line. ``source`` = a\ntrigger or risk line's first source (``null`` = it states none)."
+      },
+      "DigestNightsOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "latest": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest"
+          },
+          "previous": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous"
+          },
+          "sessions_between": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sessions Between"
+          },
+          "days_after_night": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days After Night"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "latest",
+          "previous",
+          "sessions_between",
+          "days_after_night"
+        ],
+        "title": "DigestNightsOut",
+        "description": "The night pair. ``latest`` = N, the newest recorded night across the counted cards on or before the as-of;\n``previous`` = P, the newest before it (``null`` = none). ``sessions_between`` = the Mon-Fri sessions strictly\nafter P through N; ``days_after_night`` = the calendar days from N to the as-of (0 = the as-of is the night)."
+      },
+      "DigestOtherBuyerOut": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "filed": {
+            "type": "string",
+            "format": "date",
+            "title": "Filed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "filed"
+        ],
+        "title": "DigestOtherBuyerOut"
+      },
+      "DigestPositionOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "has_position": {
+            "type": "boolean",
+            "title": "Has Position"
+          },
+          "security_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "opened_on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opened On"
+          },
+          "logged_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logged Price"
+          },
+          "shares": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shares"
+          },
+          "fill_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fill Usd"
+          },
+          "since_fill": {
+            "$ref": "#/components/schemas/DigestSinceFillOut"
+          },
+          "last_session": {
+            "$ref": "#/components/schemas/DigestLastSessionOut"
+          },
+          "hold": {
+            "$ref": "#/components/schemas/DigestHoldOut"
+          },
+          "risk_signals": {
+            "type": "integer",
+            "title": "Risk Signals"
+          },
+          "risk_new": {
+            "type": "integer",
+            "title": "Risk New"
+          },
+          "kill_criteria": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Kill Criteria"
+          },
+          "reconstructed": {
+            "type": "boolean",
+            "title": "Reconstructed"
+          },
+          "ingest_fresh": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ingest Fresh"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "thesis_name",
+          "has_position",
+          "security_id",
+          "ticker",
+          "opened_on",
+          "logged_price",
+          "shares",
+          "fill_usd",
+          "since_fill",
+          "last_session",
+          "hold",
+          "risk_signals",
+          "risk_new",
+          "kill_criteria",
+          "reconstructed",
+          "ingest_fresh"
+        ],
+        "title": "DigestPositionOut",
+        "description": "One Managing card. ``has_position`` is false when the as-of thesis read carries no position (a fill logged after\nthe as-of is none then); ``security_id`` / ``ticker`` null = the position names no company. ``fill_usd`` = shares\ntimes the logged price, only when both were logged. ``risk_signals`` = the card's distinct risk signals,\n``risk_new`` = those section 1 carries as new last night. ``kill_criteria`` = the operator's own words."
+      },
+      "DigestSinceArmOut": {
+        "properties": {
+          "entry_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Date"
+          },
+          "entry_close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Close"
+          },
+          "last_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Date"
+          },
+          "last_close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Close"
+          },
+          "ret_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ret Pct"
+          },
+          "iwm_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Iwm Pct"
+          },
+          "gap": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "no_arm_night",
+                  "flagged",
+                  "before_window",
+                  "no_bar"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap"
+          }
+        },
+        "type": "object",
+        "required": [
+          "entry_date",
+          "entry_close",
+          "last_date",
+          "last_close",
+          "ret_pct",
+          "iwm_pct",
+          "gap"
+        ],
+        "title": "DigestSinceArmOut",
+        "description": "The name's as-traded return from the first close on or after the arm night to its last close on or before the\nas-of, and IWM's over the same dates, in percent; ``gap`` says why ``ret_pct`` is blank."
+      },
+      "DigestSinceFillOut": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "priced",
+              "unpriced",
+              "flagged",
+              "no_name",
+              "no_fill"
+            ],
+            "title": "Status"
+          },
+          "basis": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "logged_price",
+                  "first_close"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Basis"
+          },
+          "basis_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Basis Price"
+          },
+          "basis_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Basis Date"
+          },
+          "last_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Date"
+          },
+          "last_close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Close"
+          },
+          "ret_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ret Pct"
+          },
+          "bench_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bench Pct"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "basis",
+          "basis_price",
+          "basis_date",
+          "last_date",
+          "last_close",
+          "ret_pct",
+          "bench_pct",
+          "reason",
+          "note"
+        ],
+        "title": "DigestSinceFillOut",
+        "description": "The held name's as-traded return from the fill to the last close on or before the as-of. ``basis``:\n``logged_price`` (the operator's logged fill price) or ``first_close`` (the first close on or after the fill date);\n``note`` says why the logged price was not used when one was logged. ``bench_pct`` = IWM over the same dates.\n``status``: ``priced``; ``unpriced`` / ``flagged`` / ``no_name`` / ``no_fill`` with the ``reason``. Returns are\npercent."
+      },
+      "DigestSourceOut": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "ref": {
+            "type": "string",
+            "title": "Ref"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "ref",
+          "url"
+        ],
+        "title": "DigestSourceOut",
+        "description": "One place a trigger points at: ``source`` = the kind of source as stored (\"form4\", \"price\", \"xbrl\", a form),\n``ref`` = its reference, ``url`` = a link to it by the Evidence Ledger's rule (``null`` = none known)."
+      },
+      "DigestTapeCountsOut": {
+        "properties": {
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          },
+          "names": {
+            "type": "integer",
+            "title": "Names"
+          },
+          "names_priced": {
+            "type": "integer",
+            "title": "Names Priced"
+          },
+          "names_unpriced": {
+            "type": "integer",
+            "title": "Names Unpriced"
+          },
+          "names_flagged": {
+            "type": "integer",
+            "title": "Names Flagged"
+          },
+          "since_arm_priced": {
+            "type": "integer",
+            "title": "Since Arm Priced"
+          },
+          "since_arm_blank": {
+            "type": "integer",
+            "title": "Since Arm Blank"
+          },
+          "rises_shown": {
+            "type": "integer",
+            "title": "Rises Shown"
+          },
+          "falls_shown": {
+            "type": "integer",
+            "title": "Falls Shown"
+          }
+        },
+        "type": "object",
+        "required": [
+          "rows",
+          "names",
+          "names_priced",
+          "names_unpriced",
+          "names_flagged",
+          "since_arm_priced",
+          "since_arm_blank",
+          "rises_shown",
+          "falls_shown"
+        ],
+        "title": "DigestTapeCountsOut"
+      },
+      "DigestTapeOut": {
+        "properties": {
+          "session": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session"
+          },
+          "previous_session": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Session"
+          },
+          "iwm_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Iwm Pct"
+          },
+          "calendar_source": {
+            "type": "string",
+            "enum": [
+              "benchmarks",
+              "companies",
+              "none"
+            ],
+            "title": "Calendar Source"
+          },
+          "calendar_sessions": {
+            "type": "integer",
+            "title": "Calendar Sessions"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/DigestTapeRowOut"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/DigestTapeCountsOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session",
+          "previous_session",
+          "iwm_pct",
+          "calendar_source",
+          "calendar_sessions",
+          "rows",
+          "counts"
+        ],
+        "title": "DigestTapeOut",
+        "description": "Section 5: every armed row, the last session's return largest to smallest, the rows with no return after them.\n``session`` / ``previous_session`` = the calendar's last two sessions; ``iwm_pct`` = IWM over them (percent)."
+      },
+      "DigestTapeRowOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "arm_night": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arm Night"
+          },
+          "arm_reconstructed": {
+            "type": "boolean",
+            "title": "Arm Reconstructed"
+          },
+          "sessions_since": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sessions Since"
+          },
+          "arm_until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arm Until"
+          },
+          "sessions_left": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sessions Left"
+          },
+          "closed_ago": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed Ago"
+          },
+          "last_session": {
+            "$ref": "#/components/schemas/DigestLastSessionOut"
+          },
+          "since_arm": {
+            "$ref": "#/components/schemas/DigestSinceArmOut"
+          },
+          "cut": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "rise",
+                  "fall"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "thesis_id",
+          "thesis_name",
+          "security_id",
+          "ticker",
+          "arm_night",
+          "arm_reconstructed",
+          "sessions_since",
+          "arm_until",
+          "sessions_left",
+          "closed_ago",
+          "last_session",
+          "since_arm",
+          "cut"
+        ],
+        "title": "DigestTapeRowOut",
+        "description": "One (card, armed name). ``ticker`` = the card's roster ticker (the Cockpit's ``?name=`` key). ``sessions_since`` =\nthe sessions after the arm night through the as-of; ``sessions_left`` = the Mon-Fri sessions left in an open entry\nwindow; ``closed_ago`` = the sessions since a closed one. ``cut``: ``rise`` / ``fall`` = among the largest rises /\nfalls of the last session."
+      },
+      "DigestTriggerOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "recorded_on": {
+            "type": "string",
+            "format": "date",
+            "title": "Recorded On"
+          },
+          "live": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Live"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "thesis_name",
+          "recorded_on",
+          "live"
+        ],
+        "title": "DigestTriggerOut",
+        "description": "A recorded insider trigger that carries the filing's accession, on one card: ``recorded_on`` = the first night\nin (P, N] the record shows it; ``live`` = it is on the card in effect (``null`` = that card could not be read)."
       },
       "DisplayBasis": {
         "properties": {

@@ -2134,6 +2134,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboards/daily-digest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Daily Digest Page
+         * @description The morning page at the as-of: what the newest recorded night changed against the one before, the Managing
+         *     cards' positions, what is due this week, the insider buys filed since the earlier night, the armed names' last
+         *     session and the count of what is forming. Every section is a cut of an existing page, read by that page's own
+         *     rules. Display only: it reads the calls log and never the live call, notifies nothing and ranks nothing by promise.
+         *     A past as-of reads the nights recorded on or before it and what was public by the end of that date; a fill logged
+         *     after it is not a position then.
+         */
+        get: operations["daily_digest_page_dashboards_daily_digest_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dashboards/entry-windows": {
         parameters: {
             query?: never;
@@ -7285,6 +7310,42 @@ export interface components {
             members: components["schemas"]["CrossTimelineNameOut"][];
         };
         /**
+         * DailyDigestOut
+         * @description The whole page at the as-of. ``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was public
+         *     by the end of that date). There is no aggregate over any row's return. ``cache`` / ``compute_ms`` = whether the read
+         *     came from the shared dashboard cache and how long it took when computed.
+         */
+        DailyDigestOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Clock
+             * @enum {string}
+             */
+            clock: "record" | "public";
+            nights: components["schemas"]["DigestNightsOut"];
+            last_night: components["schemas"]["DigestLastNightOut"];
+            /** Positions */
+            positions: components["schemas"]["DigestPositionOut"][];
+            due: components["schemas"]["DigestDueOut"];
+            insider: components["schemas"]["DigestInsiderOut"];
+            tape: components["schemas"]["DigestTapeOut"];
+            forming: components["schemas"]["DigestFormingOut"];
+            counts: components["schemas"]["DigestCountsOut"];
+            /** Flagged */
+            flagged: components["schemas"]["DigestFlaggedOut"][];
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
          * DataFlagEvidenceOut
          * @description One piece of evidence behind a flag: a label, and a link when the source has one (an SEC filing).
          */
@@ -7510,6 +7571,636 @@ export interface components {
              * @default false
              */
             voided: boolean;
+        };
+        /** DigestBuyCardOut */
+        DigestBuyCardOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /** Ticker */
+            ticker: string;
+        };
+        /**
+         * DigestBuyCountsOut
+         * @description What section 4 rests on. ``filings_read`` = the Form 4s and 4/As filed in (P, N] = ``purchases`` +
+         *     ``routine_folded`` + ``amendments_no_purchase``.
+         */
+        DigestBuyCountsOut: {
+            /** Names Read */
+            names_read: number;
+            /** Filings Read */
+            filings_read: number;
+            /** Purchases */
+            purchases: number;
+            /** Routine Folded */
+            routine_folded: number;
+            /** Amendments No Purchase */
+            amendments_no_purchase: number;
+            /** Names With Purchases */
+            names_with_purchases: number;
+            /** Filer Unresolved */
+            filer_unresolved: number;
+            /** Cluster Rows */
+            cluster_rows: number;
+            /** Trigger Rows */
+            trigger_rows: number;
+            /** Nights Read */
+            nights_read: number;
+            /** Nights Unreadable */
+            nights_unreadable: number;
+            /** Silent Rows Left Out */
+            silent_rows_left_out: number;
+            /** Unresolved Rows */
+            unresolved_rows: number;
+        };
+        /**
+         * DigestBuyRowOut
+         * @description One Form 4 (or applied 4/A) holding an open-market purchase, filed in (P, N]. ``filed`` = the filing date;
+         *     ``trade_date`` / ``filed_days_after`` as Insider Buying words them; ``filer`` / ``role`` = the first reporting owner
+         *     and the filing's own role words (``null`` = not stated); ``shares`` / ``price`` / ``usd`` = the code-P lines' totals
+         *     (``null`` = not stated); ``cluster`` = see ``DigestClusterOut``; ``triggers`` = the recorded insider triggers
+         *     carrying this accession (empty = not a trigger, which says nothing about why).
+         */
+        DigestBuyRowOut: {
+            /** Key */
+            key: string;
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Accession */
+            accession: string | null;
+            /** Form */
+            form: string;
+            /** Url */
+            url: string | null;
+            /**
+             * Filed
+             * Format: date
+             */
+            filed: string;
+            /** Trade Date */
+            trade_date: string | null;
+            /** Filed Days After */
+            filed_days_after: number | null;
+            /** Cards */
+            cards: components["schemas"]["DigestBuyCardOut"][];
+            /** Filer */
+            filer: string | null;
+            /** Role */
+            role: string | null;
+            /** Role Classes */
+            role_classes: ("officer" | "director" | "ten_percent_owner" | "other")[];
+            /** Co Filers */
+            co_filers: number;
+            /** Shares */
+            shares: number | null;
+            /** Price */
+            price: number | null;
+            /** Usd */
+            usd: number | null;
+            /** Tags */
+            tags: string[];
+            /** Headline */
+            headline: string;
+            cluster: components["schemas"]["DigestClusterOut"] | null;
+            /** Triggers */
+            triggers: components["schemas"]["DigestTriggerOut"][];
+        };
+        /**
+         * DigestCardOut
+         * @description One card with a change. ``tier``: ``armed`` (an Armed or Managing card, now or at P), ``warming``,
+         *     ``incubating``, in that order. ``headline`` = the state move (or "new card"); ``lines`` = the rest in What Changed's
+         *     order. ``ingest_fresh`` = ``false`` when the run that wrote the card's row did not ingest every name cleanly;
+         *     ``reconstructed`` = the row was written by ``pipeline.backfill``.
+         */
+        DigestCardOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /**
+             * Tier
+             * @enum {string}
+             */
+            tier: "armed" | "warming" | "incubating";
+            state: components["schemas"]["State"];
+            previous_state: components["schemas"]["State"] | null;
+            /** Reconstructed */
+            reconstructed: boolean;
+            /** Ingest Fresh */
+            ingest_fresh: boolean | null;
+            headline: components["schemas"]["DigestLineOut"] | null;
+            /** Lines */
+            lines: components["schemas"]["DigestLineOut"][];
+        };
+        /**
+         * DigestClusterOut
+         * @description Two or more distinct buyers filed within 30 days of the row's filing date; ``buyers`` counts the row's own.
+         */
+        DigestClusterOut: {
+            /** Buyers */
+            buyers: number;
+            /** Others */
+            others: components["schemas"]["DigestOtherBuyerOut"][];
+        };
+        /**
+         * DigestCountsOut
+         * @description The work shown on the quiet line: counts of what was read and listed, never a statistic over returns.
+         *     ``cards_recorded_on_night`` + ``cards_carried`` + ``cards_no_call`` = ``cards_counted``.
+         */
+        DigestCountsOut: {
+            /** Cards Counted */
+            cards_counted: number;
+            /** Live Cards */
+            live_cards: number;
+            /** Not Yet Created */
+            not_yet_created: number;
+            /** Roster Fallback */
+            roster_fallback: number;
+            /** Cards Recorded On Night */
+            cards_recorded_on_night: number;
+            /** Cards Carried */
+            cards_carried: number;
+            /** Cards No Call */
+            cards_no_call: number;
+            /** Cards Armed */
+            cards_armed: number;
+            /** Cards Warming */
+            cards_warming: number;
+            /** Cards Managing */
+            cards_managing: number;
+            /** Cards Incubating */
+            cards_incubating: number;
+            /** Cards Ingest Not Fresh */
+            cards_ingest_not_fresh: number;
+            /** Cards Reconstructed */
+            cards_reconstructed: number;
+        };
+        /**
+         * DigestDueItemOut
+         * @description One dated line of this week: a catalyst, or a card's entry window or exit-by (the Catalyst Calendar's items).
+         *     ``today`` = dated the as-of; ``days`` = calendar days from the as-of; ``state`` = the card's state in effect.
+         */
+        DigestDueItemOut: {
+            /**
+             * Item
+             * @enum {string}
+             */
+            item: "catalyst" | "entry_window" | "exit_by";
+            /**
+             * On
+             * Format: date
+             */
+            on: string;
+            /** Days */
+            days: number;
+            /** Today */
+            today: boolean;
+            /** Label */
+            label: string;
+            /** Kind */
+            kind: string | null;
+            /** When Label */
+            when_label: string | null;
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /** State */
+            state: string | null;
+        };
+        /**
+         * DigestDueOut
+         * @description Section 3: the Calendar's ``this_week`` bucket (``start`` to ``end`` inclusive, through the coming Sunday).
+         *     ``passed_since`` = the dated catalysts that passed after P and are not yet pruned (``null`` = no P).
+         */
+        DigestDueOut: {
+            /**
+             * Start
+             * Format: date
+             */
+            start: string;
+            /**
+             * End
+             * Format: date
+             */
+            end: string;
+            /** Items */
+            items: components["schemas"]["DigestDueItemOut"][];
+            /** Catalysts */
+            catalysts: number;
+            /** Deadlines */
+            deadlines: number;
+            /** Passed Since */
+            passed_since: number | null;
+            /** Passed Total */
+            passed_total: number;
+            /** Cards Without Calls */
+            cards_without_calls: number;
+        };
+        /**
+         * DigestFlaggedOut
+         * @description A name on the tape or a position whose price history is flagged: kept on screen, never priced.
+         */
+        DigestFlaggedOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * DigestFormingOut
+         * @description Section 6: counts only. ``key_turned`` = the Warming cards whose key turned last night, by name.
+         */
+        DigestFormingOut: {
+            /** Warming */
+            warming: number;
+            /** Incubating */
+            incubating: number;
+            /** Key Turned */
+            key_turned: components["schemas"]["DigestKeyTurnedOut"][];
+        };
+        /**
+         * DigestHoldOut
+         * @description The card's exit-by as sessions: ``sessions_left`` = the Mon-Fri sessions after the as-of through it (0 on its
+         *     last day), or ``passed_sessions`` = the calendar's sessions after it through the as-of.
+         */
+        DigestHoldOut: {
+            /** Exit By */
+            exit_by: string | null;
+            /** Sessions Left */
+            sessions_left: number | null;
+            /** Passed Sessions */
+            passed_sessions: number | null;
+        };
+        /**
+         * DigestInsiderOut
+         * @description Section 4. The span is the FILING dates in (``span_start``, ``span_end``] = (P, N]; ``no_baseline`` = there is
+         *     no P, so no span (both dates null).
+         */
+        DigestInsiderOut: {
+            /** No Baseline */
+            no_baseline: boolean;
+            /** Span Start */
+            span_start: string | null;
+            /** Span End */
+            span_end: string | null;
+            /** Rows */
+            rows: components["schemas"]["DigestBuyRowOut"][];
+            counts: components["schemas"]["DigestBuyCountsOut"];
+        };
+        /** DigestKeyTurnedOut */
+        DigestKeyTurnedOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /** Labels */
+            labels: string[];
+        };
+        /**
+         * DigestLastNightOut
+         * @description Section 1. ``no_baseline`` = there is no earlier night to compare (no card, no line).
+         */
+        DigestLastNightOut: {
+            /** No Baseline */
+            no_baseline: boolean;
+            /** Cards With Change */
+            cards_with_change: number;
+            /** Lines */
+            lines: number;
+            /** Cards */
+            cards: components["schemas"]["DigestCardOut"][];
+        };
+        /**
+         * DigestLastSessionOut
+         * @description The name's as-traded return over the calendar's last session (the close before it to its close) and IWM's over
+         *     the same two sessions, in percent. ``unpriced`` / ``flagged`` carry the ``reason`` and keep the row.
+         */
+        DigestLastSessionOut: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "priced" | "unpriced" | "flagged";
+            /** Reason */
+            reason: string | null;
+            /** Session */
+            session: string | null;
+            /** Previous Session */
+            previous_session: string | null;
+            /** Ret Pct */
+            ret_pct: number | null;
+            /** Bench Pct */
+            bench_pct: number | null;
+        };
+        /**
+         * DigestLineOut
+         * @description One line of a card: What Changed's own item. ``ticker`` / ``security_id`` are set for a name or a trigger line;
+         *     ``label`` = the key's own label, or the trigger's; ``on`` = the trigger's event date or the clock's date;
+         *     ``previous_on`` = a re-dated trigger's earlier date; ``days`` = calendar days from the newest night to the entry
+         *     window's end. ``tone``: ``accent`` (a card that entered Armed, a name newly armed, an entry window closing within
+         *     3 days) or ``warm`` (a card that left Armed, an exit-by reached); ``null`` on every other line. ``source`` = a
+         *     trigger or risk line's first source (``null`` = it states none).
+         */
+        DigestLineOut: {
+            /**
+             * Section
+             * @enum {string}
+             */
+            section: "column_moves" | "keys" | "names" | "triggers" | "clocks" | "new_cards";
+            /**
+             * Change
+             * @enum {string}
+             */
+            change: "state" | "key_on" | "key_off" | "armed" | "no_longer_armed" | "new_watch" | "trigger_new" | "trigger_gone" | "risk_new" | "trigger_redated" | "entry_window" | "exit_by" | "new_card";
+            /** Security Id */
+            security_id: string | null;
+            /** Ticker */
+            ticker: string | null;
+            from_state: components["schemas"]["State"] | null;
+            to_state: components["schemas"]["State"] | null;
+            /** Label */
+            label: string | null;
+            signal_kind: components["schemas"]["Kind"] | null;
+            /** On */
+            on: string | null;
+            /** Previous On */
+            previous_on: string | null;
+            /** Days */
+            days: number | null;
+            /** Tone */
+            tone: ("accent" | "warm") | null;
+            source: components["schemas"]["DigestSourceOut"] | null;
+        };
+        /**
+         * DigestNightsOut
+         * @description The night pair. ``latest`` = N, the newest recorded night across the counted cards on or before the as-of;
+         *     ``previous`` = P, the newest before it (``null`` = none). ``sessions_between`` = the Mon-Fri sessions strictly
+         *     after P through N; ``days_after_night`` = the calendar days from N to the as-of (0 = the as-of is the night).
+         */
+        DigestNightsOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /** Latest */
+            latest: string | null;
+            /** Previous */
+            previous: string | null;
+            /** Sessions Between */
+            sessions_between: number | null;
+            /** Days After Night */
+            days_after_night: number | null;
+        };
+        /** DigestOtherBuyerOut */
+        DigestOtherBuyerOut: {
+            /** Name */
+            name: string;
+            /**
+             * Filed
+             * Format: date
+             */
+            filed: string;
+        };
+        /**
+         * DigestPositionOut
+         * @description One Managing card. ``has_position`` is false when the as-of thesis read carries no position (a fill logged after
+         *     the as-of is none then); ``security_id`` / ``ticker`` null = the position names no company. ``fill_usd`` = shares
+         *     times the logged price, only when both were logged. ``risk_signals`` = the card's distinct risk signals,
+         *     ``risk_new`` = those section 1 carries as new last night. ``kill_criteria`` = the operator's own words.
+         */
+        DigestPositionOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /** Has Position */
+            has_position: boolean;
+            /** Security Id */
+            security_id: string | null;
+            /** Ticker */
+            ticker: string | null;
+            /** Opened On */
+            opened_on: string | null;
+            /** Logged Price */
+            logged_price: number | null;
+            /** Shares */
+            shares: number | null;
+            /** Fill Usd */
+            fill_usd: number | null;
+            since_fill: components["schemas"]["DigestSinceFillOut"];
+            last_session: components["schemas"]["DigestLastSessionOut"];
+            hold: components["schemas"]["DigestHoldOut"];
+            /** Risk Signals */
+            risk_signals: number;
+            /** Risk New */
+            risk_new: number;
+            /** Kill Criteria */
+            kill_criteria: string[];
+            /** Reconstructed */
+            reconstructed: boolean;
+            /** Ingest Fresh */
+            ingest_fresh: boolean | null;
+        };
+        /**
+         * DigestSinceArmOut
+         * @description The name's as-traded return from the first close on or after the arm night to its last close on or before the
+         *     as-of, and IWM's over the same dates, in percent; ``gap`` says why ``ret_pct`` is blank.
+         */
+        DigestSinceArmOut: {
+            /** Entry Date */
+            entry_date: string | null;
+            /** Entry Close */
+            entry_close: number | null;
+            /** Last Date */
+            last_date: string | null;
+            /** Last Close */
+            last_close: number | null;
+            /** Ret Pct */
+            ret_pct: number | null;
+            /** Iwm Pct */
+            iwm_pct: number | null;
+            /** Gap */
+            gap: ("no_arm_night" | "flagged" | "before_window" | "no_bar") | null;
+        };
+        /**
+         * DigestSinceFillOut
+         * @description The held name's as-traded return from the fill to the last close on or before the as-of. ``basis``:
+         *     ``logged_price`` (the operator's logged fill price) or ``first_close`` (the first close on or after the fill date);
+         *     ``note`` says why the logged price was not used when one was logged. ``bench_pct`` = IWM over the same dates.
+         *     ``status``: ``priced``; ``unpriced`` / ``flagged`` / ``no_name`` / ``no_fill`` with the ``reason``. Returns are
+         *     percent.
+         */
+        DigestSinceFillOut: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "priced" | "unpriced" | "flagged" | "no_name" | "no_fill";
+            /** Basis */
+            basis: ("logged_price" | "first_close") | null;
+            /** Basis Price */
+            basis_price: number | null;
+            /** Basis Date */
+            basis_date: string | null;
+            /** Last Date */
+            last_date: string | null;
+            /** Last Close */
+            last_close: number | null;
+            /** Ret Pct */
+            ret_pct: number | null;
+            /** Bench Pct */
+            bench_pct: number | null;
+            /** Reason */
+            reason: string | null;
+            /** Note */
+            note: string | null;
+        };
+        /**
+         * DigestSourceOut
+         * @description One place a trigger points at: ``source`` = the kind of source as stored ("form4", "price", "xbrl", a form),
+         *     ``ref`` = its reference, ``url`` = a link to it by the Evidence Ledger's rule (``null`` = none known).
+         */
+        DigestSourceOut: {
+            /** Source */
+            source: string;
+            /** Ref */
+            ref: string;
+            /** Url */
+            url: string | null;
+        };
+        /** DigestTapeCountsOut */
+        DigestTapeCountsOut: {
+            /** Rows */
+            rows: number;
+            /** Names */
+            names: number;
+            /** Names Priced */
+            names_priced: number;
+            /** Names Unpriced */
+            names_unpriced: number;
+            /** Names Flagged */
+            names_flagged: number;
+            /** Since Arm Priced */
+            since_arm_priced: number;
+            /** Since Arm Blank */
+            since_arm_blank: number;
+            /** Rises Shown */
+            rises_shown: number;
+            /** Falls Shown */
+            falls_shown: number;
+        };
+        /**
+         * DigestTapeOut
+         * @description Section 5: every armed row, the last session's return largest to smallest, the rows with no return after them.
+         *     ``session`` / ``previous_session`` = the calendar's last two sessions; ``iwm_pct`` = IWM over them (percent).
+         */
+        DigestTapeOut: {
+            /** Session */
+            session: string | null;
+            /** Previous Session */
+            previous_session: string | null;
+            /** Iwm Pct */
+            iwm_pct: number | null;
+            /**
+             * Calendar Source
+             * @enum {string}
+             */
+            calendar_source: "benchmarks" | "companies" | "none";
+            /** Calendar Sessions */
+            calendar_sessions: number;
+            /** Rows */
+            rows: components["schemas"]["DigestTapeRowOut"][];
+            counts: components["schemas"]["DigestTapeCountsOut"];
+        };
+        /**
+         * DigestTapeRowOut
+         * @description One (card, armed name). ``ticker`` = the card's roster ticker (the Cockpit's ``?name=`` key). ``sessions_since`` =
+         *     the sessions after the arm night through the as-of; ``sessions_left`` = the Mon-Fri sessions left in an open entry
+         *     window; ``closed_ago`` = the sessions since a closed one. ``cut``: ``rise`` / ``fall`` = among the largest rises /
+         *     falls of the last session.
+         */
+        DigestTapeRowOut: {
+            /** Key */
+            key: string;
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Arm Night */
+            arm_night: string | null;
+            /** Arm Reconstructed */
+            arm_reconstructed: boolean;
+            /** Sessions Since */
+            sessions_since: number | null;
+            /** Arm Until */
+            arm_until: string | null;
+            /** Sessions Left */
+            sessions_left: number | null;
+            /** Closed Ago */
+            closed_ago: number | null;
+            last_session: components["schemas"]["DigestLastSessionOut"];
+            since_arm: components["schemas"]["DigestSinceArmOut"];
+            /** Cut */
+            cut: ("rise" | "fall") | null;
+        };
+        /**
+         * DigestTriggerOut
+         * @description A recorded insider trigger that carries the filing's accession, on one card: ``recorded_on`` = the first night
+         *     in (P, N] the record shows it; ``live`` = it is on the card in effect (``null`` = that card could not be read).
+         */
+        DigestTriggerOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /**
+             * Recorded On
+             * Format: date
+             */
+            recorded_on: string;
+            /** Live */
+            live: boolean | null;
         };
         /**
          * DisplayBasis
@@ -19290,6 +19981,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CrossRadarOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    daily_digest_page_dashboards_daily_digest_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; only what was recorded and public by then is read */
+                asof: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DailyDigestOut"];
                 };
             };
             /** @description Validation Error */
