@@ -1,0 +1,112 @@
+/* Hot Board (docs/dashboards/hot-board.md) — its own sheet, imported by the component, never index.css
+   (docs/DASHBOARDS.md rule 8). The trading set's TAPE look: dense rows about 26 px high, tabular numerals in the mono
+   font for every figure, a sticky header, no cards and no chrome, a hairline between rows, the quiet work lines
+   around the table, filters as text chips. Tone: the sign tone (the app's --pos / --neg mixed 55% into gray, the
+   Rotation Quadrant's recipe) only on signed returns; the Board's state colors only on a state chip; ONE accent for
+   the one exception the plan names (an entry window with at most two sessions left). Heat is a short gray bar behind
+   its number, never a color. Nothing bold but the ticker. On a phone the table scrolls sideways with the ticker
+   column pinned. Colors are the app's tokens only. */
+
+.hb {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 1900px;
+  --hb-pos: color-mix(in srgb, var(--pos) 55%, var(--txt-3));
+  --hb-neg: color-mix(in srgb, var(--neg) 55%, var(--txt-3));
+  --hb-row: 26px;
+}
+
+.hb-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; }
+.hb-field { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.hb-seg-label { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); margin-right: 2px; }
+.hb-chip { font: inherit; font-size: 11px; color: var(--txt-3); background: transparent; border: 0; border-bottom: 1px solid transparent; padding: 0 2px; cursor: pointer; }
+.hb-chip:hover { color: var(--txt-2); }
+.hb-chip.on { color: var(--txt); border-bottom-color: var(--txt-3); }
+.hb-check { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--txt-3); cursor: pointer; }
+.hb-check input { accent-color: var(--txt-3); }
+.hb-n { font-family: var(--mono); font-size: 10.5px; color: var(--txt-4); }
+.hb-select { font: inherit; font-size: 11.5px; color: var(--txt-2); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 1px 6px; max-width: 240px; }
+.hb-select option { background: var(--panel); color: var(--txt-2); }
+.hb-clear { font: inherit; font-size: 11px; color: var(--txt-3); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.hb-clear:hover { color: var(--txt); }
+
+.hb-work { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
+.hb-formula { font-size: 10.5px; line-height: 1.5; color: var(--txt-3); max-width: 1100px; }
+.hb-limits { margin: 4px 0 0; padding-left: 16px; font-size: 10.5px; line-height: 1.5; color: var(--txt-4); }
+.hb-empty { padding: 14px 0; }
+
+/* the table: scrolls inside its wrapper in both directions, so the header sticks to the wrapper's top and the
+   ticker column to its left edge */
+.hb-scroll { overflow: auto; max-height: 78vh; border-top: 1px solid var(--line); }
+table.hb-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 11.5px; font-variant-numeric: tabular-nums; }
+table.hb-table th {
+  position: sticky; top: 0; z-index: 2; background: var(--bg);
+  text-align: left; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); font-weight: 600;
+  padding: 5px 12px 5px 0; border-bottom: 1px solid var(--line-2); white-space: nowrap; vertical-align: bottom;
+}
+table.hb-table td {
+  height: var(--hb-row); padding: 0 12px 0 0; border-bottom: 1px solid var(--line);
+  white-space: nowrap; vertical-align: middle; color: var(--txt-2); font-family: var(--mono);
+}
+table.hb-table tbody tr:hover td { background: color-mix(in srgb, var(--panel) 60%, transparent); }
+table.hb-table .hb-num { text-align: right; padding-right: 14px; }
+table.hb-table th.hb-num .hb-sort { text-align: right; }
+.hb-sort { font: inherit; font-size: inherit; letter-spacing: inherit; text-transform: inherit; font-weight: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+.hb-sort:hover, .hb-sort.on { color: var(--txt-2); }
+.hb-sort:focus-visible { outline: 1px solid var(--line-2); outline-offset: 2px; border-radius: 2px; }
+
+/* the pinned ticker column; its header sits above the sticky header row of the others */
+table.hb-table th.hb-tk, table.hb-table td.hb-tk { position: sticky; left: 0; z-index: 1; background: var(--bg); min-width: 74px; }
+table.hb-table th.hb-tk { z-index: 3; }
+table.hb-table tbody tr:hover td.hb-tk { background: var(--panel); }
+.hb-tkbtn { font-family: var(--mono); font-size: 11.5px; font-weight: 700; color: var(--txt-2); background: none; border: 0; padding: 0; cursor: pointer; }
+.hb-tkbtn:hover { color: var(--txt); text-decoration: underline; text-underline-offset: 2px; }
+
+.hb-card-td { min-width: 150px; max-width: 280px; overflow: hidden; text-overflow: ellipsis; }
+.hb-card { font: inherit; font-size: 11px; color: var(--txt-3); background: none; border: 0; padding: 0; cursor: pointer; max-width: 170px; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
+.hb-card:hover { color: var(--txt); text-decoration: underline; text-underline-offset: 2px; }
+.hb-also { font-size: 9.5px; color: var(--txt-4); cursor: help; }
+
+/* heat: a short gray bar behind its number, never a color */
+.hb-heat { position: relative; display: inline-block; width: 52px; height: 16px; text-align: right; cursor: help; }
+.hb-heat-bar { position: absolute; left: 0; top: 2px; bottom: 2px; background: color-mix(in srgb, var(--txt-4) 45%, transparent); border-radius: 1px; }
+.hb-heat-n { position: relative; padding-right: 3px; font-size: 11.5px; color: var(--txt-2); }
+.hb-heat-n.gray { color: var(--txt-4); }
+
+/* a state chip: the Board's state color, only on the rows a toggle added */
+.hb-kind { margin-right: 6px; font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--txt-4); }
+.hb-kind.warming { color: var(--warm); }
+.hb-kind.managing { color: var(--manage); }
+
+/* the number cells: a plain figure, a signed return's sign tinted well toward gray, a reason or a blank gray */
+.hb-cell { font-family: var(--mono); font-size: 11.5px; color: var(--txt-2); cursor: default; }
+.hb-cell[title] { cursor: help; }
+.hb-cell.pos { color: var(--hb-pos); }
+.hb-cell.neg { color: var(--hb-neg); }
+.hb-cell.gray { color: var(--txt-4); font-size: 10.5px; }
+/* the page's ONE accent: an entry window with at most two sessions left */
+.hb-cell.accent { color: var(--armed); }
+.hb-mark { margin-left: 5px; font-size: 9px; letter-spacing: 0.06em; color: var(--txt-3); cursor: help; }
+
+/* the keys: a compact list, its detail (label, grade, fire date, source links) in a hover panel */
+.hb-keys-td { position: relative; }
+.hb-keys { position: relative; font-family: var(--mono); font-size: 11px; color: var(--txt-3); cursor: help; outline: none; }
+.hb-keys:hover, .hb-keys:focus-visible { color: var(--txt); }
+.hb-tip { display: none; position: absolute; left: 0; top: 100%; z-index: 5; min-width: 280px; max-width: 480px; white-space: normal; padding: 7px 9px; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 6px; font-size: 10.5px; line-height: 1.45; color: var(--txt-2); }
+.hb-keys:hover .hb-tip, .hb-keys:focus .hb-tip, .hb-keys:focus-within .hb-tip { display: flex; flex-direction: column; gap: 5px; }
+.hb-tip-row { display: flex; flex-direction: column; gap: 1px; }
+.hb-tip a { color: var(--txt-3); text-decoration: underline; text-underline-offset: 2px; word-break: break-all; }
+.hb-tip a:hover { color: var(--txt); }
+.hb-src { color: var(--txt-4); }
+
+.hb-spark { display: block; }
+.hb-spark path { stroke: var(--txt-3); }
+
+/* a phone: the table already scrolls sideways with the ticker pinned; tighten the controls */
+@media (max-width: 640px) {
+  .hb-controls { gap: 6px 12px; }
+  .hb-select { max-width: 180px; }
+  .hb-scroll { max-height: 70vh; }
+  .hb-tip { min-width: 220px; max-width: 280px; }
+}

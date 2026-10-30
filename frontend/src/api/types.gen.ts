@@ -2134,6 +2134,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboards/entry-windows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Entry Windows Page
+         * @description Each Armed card's entry window (to ``arm_until``) and hold horizon (to ``exit_by``) from its arm night, on
+         *     one date axis with the as-of marked, the IWM sessions into and left in the window, the dated catalysts inside
+         *     it, and the armed names' as-traded return since the arm night against IWM and SPY. Managing cards are rows too
+         *     (the page hides them behind a toggle). Display only; a past as-of reads the recorded call in effect then and
+         *     what was public by the end of that date.
+         */
+        get: operations["entry_windows_page_dashboards_entry_windows_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dashboards/evidence-ledger/cards": {
         parameters: {
             query?: never;
@@ -2226,6 +2250,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboards/forming-quietly": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Forming Quietly
+         * @description Every card the recorded calls in effect at the as-of show Warming or Incubating, in the default order: the
+         *     call's own keys and missing lines, the names behind the keys that turned, the quiet signals on the card's
+         *     counting roster (insider buying, coiling, leading, breadth) and the card's EDGAR term-mention slope. Armed and
+         *     Managing cards are counted, never rows. Display only: it reads the calls log and never the live call; the
+         *     Incubating toggle, filters and sorts are the page's. A past as-of reads what was public by the end of that date.
+         */
+        get: operations["forming_quietly_dashboards_forming_quietly_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dashboards/fundamentals-multiples/cards": {
         parameters: {
             query?: never;
@@ -2271,6 +2319,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboards/hot-board": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Hot Board
+         * @description Every name the recorded calls in effect at the as-of show Armed, one row each, with the tape beside it:
+         *     the call's own fields, the arm night and the session clocks, the return since the arm night against IWM, the
+         *     display members' readings and the approximate cap. Warming, watch and managing names ride along as candidate
+         *     rows for the page's toggles. Display only: it reads the calls log and never the live call; the heat ranking is
+         *     computed on the page from the rows it shows. A past as-of reads what was public by the end of that date.
+         */
+        get: operations["hot_board_dashboards_hot_board_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dashboards/idea-timeline": {
         parameters: {
             query?: never;
@@ -2285,6 +2357,32 @@ export interface paths {
          *     cards are excluded.
          */
         get: operations["idea_timeline_dashboards_idea_timeline_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboards/insider-tracker": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Insider Tracker Page
+         * @description Every open-market insider purchase (Form 4 code P) across the counted cards' names in the window, newest
+         *     filing first, one row per Form 4: the filer and the role as the filing gives them, the shares, price and dollar
+         *     size, whether other buyers filed on the same name within 30 days, whether a recorded insider trigger carries the
+         *     filing's accession, the name's as-traded return since the filing against IWM and its approximate cap and tier.
+         *     A row is dated by the day the filing was filed, never by the trade. Display only, with no aggregate over the rows.
+         *     A past as-of reads the filings and the bars public by the end of that date and the nights recorded on or before
+         *     it.
+         */
+        get: operations["insider_tracker_page_dashboards_insider_tracker_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2334,6 +2432,51 @@ export interface paths {
          *     only; a past as-of reads what was public by the end of that date.
          */
         get: operations["leaders_dashboards_leaders_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboards/narrative-adoption/cards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Adoption Cards
+         * @description The card picker: the live cards that existed by the as-of, A→Z, each with its link count today. Display
+         *     only.
+         */
+        get: operations["adoption_cards_dashboards_narrative_adoption_cards_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboards/narrative-adoption/{thesis_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Adoption For Card
+         * @description One card's narrative adoption: the filings that mention its SIGNAL terms per month over 36 months, split
+         *     into reports, 8-Ks, new-issuance paper and the rest, with the filers and the new filers per month, a table
+         *     of each term, and the card's equal-weighted basket line against SPY on the same axis. A month with no stored
+         *     count is absent, never zero. Display only; a past as-of reads the roster as of that date and ends the curve
+         *     at the last month that had closed by then. 404 when the card is not counted at the as-of.
+         */
+        get: operations["adoption_for_card_dashboards_narrative_adoption__thesis_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2522,6 +2665,130 @@ export interface paths {
          *     pair of cards that shares a company. A "now" view of today's baskets; archived cards are excluded.
          */
         get: operations["shared_names_dashboards_shared_names_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboards/theme-leaderboard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Theme Leaderboard
+         * @description Every counted card with the five parts a stated composite ranks it by: the median 30-day return of its priced
+         *     counting names minus IWM's, the share of those names above their 50-day SMA, the keys its recorded call has
+         *     turned, the slope of its EDGAR term-mention documents (the last three closed months against the three before)
+         *     and the distinct open-market insider buyers across those names in 30 days. Display only: it reads the calls log
+         *     and never the live call; the percentiles and the score are computed on the page from the cards it shows. A past
+         *     as-of reads what was public by the end of that date.
+         */
+        get: operations["theme_leaderboard_dashboards_theme_leaderboard_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboards/ticker-lookup/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ticker Lookup Resolve
+         * @description Resolve a typed ticker to its company: the master's exact ticker (upper-cased), else, with ``former=true``,
+         *     the company a former ticker belonged to. 404 when nothing matches; the suggestions as you type come from the
+         *     Workbench's company search. Display only.
+         */
+        get: operations["ticker_lookup_resolve_dashboards_ticker_lookup_resolve_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboards/ticker-lookup/{security_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ticker Lookup
+         * @description Everything the platform holds about one company at the as-of: its identity and approximate market cap, the
+         *     counted cards it sits on and its part in each (the recorded call in effect), the triggers the recorded calls
+         *     show on it over the last 365 days, its tape (the display members' readings), its filings and catalyst facts,
+         *     the catalysts of its cards and the operator's logged decisions on it. A past as-of reads what was public by the
+         *     end of that date (a roster row added or a filing filed after it never appears). Display only; 404 for an
+         *     unknown id.
+         */
+        get: operations["ticker_lookup_dashboards_ticker_lookup__security_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboards/track-record": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Track Record
+         * @description What the tape did after each arm episode the Scoreboard records, by market-cap tier at the event: one row per
+         *     episode with its cap tier and liquidity band, and, for the arm-night entry and the next session's, the return at
+         *     5, 10, 20 and 60 sessions of the name's own bars and to the episode's own exit_by, with IWM's and SPY's returns
+         *     over the same dates. The Scoreboard's own episodes and honesty filters: a censored start, an ingest-flagged
+         *     episode and a company with a flagged price history are left out of every cell and counted. Reads the record
+         *     (Edition 0) unless an edition is named. Display only; a past as-of reads what was public by the end of that
+         *     date, and a horizon that has not arrived by then is not counted.
+         */
+        get: operations["track_record_dashboards_track_record_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboards/trigger-log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Trigger Log Page
+         * @description Every entry trigger and risk signal the recorded calls show firing across the cards in the window, newest
+         *     recorded night first, for the role(s) asked: each trigger once (the same security, kind and fire date is one
+         *     row however its label changed night to night, dated the first night the record shows it and carrying that
+         *     night's label), with its fire date, role and key, source, the card's state that night beside the night
+         *     before, whether it is still live, the sessions since and the name's as-traded return since against IWM.
+         *     Display only, with no aggregate over the rows. A past as-of reads the nights recorded on or before it and
+         *     the bars public by the end of that date.
+         */
+        get: operations["trigger_log_page_dashboards_trigger_log_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4934,6 +5201,287 @@ export interface components {
             /** Price Symbol */
             price_symbol?: string | null;
             change?: components["schemas"]["AdminPriceSymbolChangeOut"] | null;
+        };
+        /**
+         * AdoptionCardOut
+         * @description A card in the picker: its name and its real links today (Context and Bench not counted).
+         */
+        AdoptionCardOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Name */
+            name: string;
+            /** Links */
+            links: number;
+        };
+        /**
+         * AdoptionCardsOut
+         * @description The picker: the cards counted at the as-of (the live cards that existed by then), A→Z. ``cache`` /
+         *     ``compute_ms`` = whether the list came from the shared dashboard cache and how long it took when computed.
+         */
+        AdoptionCardsOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /** Live Cards */
+            live_cards: number;
+            /** Not Yet Created */
+            not_yet_created: number;
+            /** Cards */
+            cards: components["schemas"]["AdoptionCardOut"][];
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * AdoptionCountsOut
+         * @description The work: the card's current SIGNAL terms and how many have a stored month, the BROAD terms never
+         *     counted, stored terms no longer in the term set (``retired_terms``, ignored), and the axis months by
+         *     state (counted, counted for every term, "at least" filers, read before they closed, not yet closed).
+         */
+        AdoptionCountsOut: {
+            /** Signal Terms */
+            signal_terms: number;
+            /** Terms Counted */
+            terms_counted: number;
+            /** Terms Not Counted */
+            terms_not_counted: number;
+            /** Broad Terms Left Out */
+            broad_terms_left_out: number;
+            /** Retired Terms */
+            retired_terms: number;
+            /** Months Total */
+            months_total: number;
+            /** Months Counted */
+            months_counted: number;
+            /** Months Complete */
+            months_complete: number;
+            /** Months Sampled */
+            months_sampled: number;
+            /** Months Read Early */
+            months_read_early: number;
+            /** Months Not Closed */
+            months_not_closed: number;
+            /** Last Counted Month */
+            last_counted_month: string | null;
+        };
+        /**
+         * AdoptionFlaggedOut
+         * @description A name left out of the card's line: its data flags reach its price readings at the as-of.
+         */
+        AdoptionFlaggedOut: {
+            /** Ticker */
+            ticker: string;
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * AdoptionMonthOut
+         * @description One axis month (``month`` = its first day), summed over the card's SIGNAL terms that have a stored
+         *     count that month. ``counted`` false = no term has one: every number is ``null`` (never zero), and
+         *     ``closed`` says whether the month had ended by the as-of (the as-of's own month has not). A document
+         *     matching two terms counts twice in the sums. ``terms_counted`` = how many terms the sums rest on.
+         *     ``filers`` = distinct CIKs summed over terms, "at least" when ``filers_sampled``; ``new_filers`` = the
+         *     terms' own new filers summed (``null`` = none has one). ``read_early`` = a count was read before the month
+         *     closed (partial until the next weekly run). ``top_terms`` = the three terms with the most documents.
+         */
+        AdoptionMonthOut: {
+            /**
+             * Month
+             * Format: date
+             */
+            month: string;
+            /** Closed */
+            closed: boolean;
+            /** Counted */
+            counted: boolean;
+            /** Terms Counted */
+            terms_counted: number;
+            /** Documents */
+            documents: number | null;
+            /** Reports */
+            reports: number | null;
+            /** Events */
+            events: number | null;
+            /** Issuance */
+            issuance: number | null;
+            /** Other */
+            other: number | null;
+            /** Filers */
+            filers: number | null;
+            /** Filers Sampled */
+            filers_sampled: boolean;
+            /** New Filers */
+            new_filers: number | null;
+            /** Read Early */
+            read_early: boolean;
+            /** Top Terms */
+            top_terms: components["schemas"]["AdoptionTermShareOut"][];
+        };
+        /**
+         * AdoptionOut
+         * @description One card's page. ``months`` = the ``months_window`` calendar months ending with the as-of's month, oldest
+         *     first; ``terms`` = the table, sorted by last-month documents; ``overlay`` = the Narrative Index line.
+         *     ``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was public by the end of that
+         *     date). ``roster_fallback`` = no roster snapshot by the as-of: today's roster stands in for the line (the
+         *     terms are today's too: a term set has no history). ``last_run`` = the job's newest run (``null`` = none on
+         *     record). ``cache`` / ``compute_ms`` = whether the page came from the shared dashboard cache and how long it
+         *     took when computed.
+         */
+        AdoptionOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /**
+             * Clock
+             * @enum {string}
+             */
+            clock: "record" | "public";
+            /** Roster Fallback */
+            roster_fallback: boolean;
+            /** Months Window */
+            months_window: number;
+            /** Months */
+            months: components["schemas"]["AdoptionMonthOut"][];
+            /** Terms */
+            terms: components["schemas"]["AdoptionTermOut"][];
+            overlay: components["schemas"]["AdoptionOverlayOut"];
+            counts: components["schemas"]["AdoptionCountsOut"];
+            last_run: components["schemas"]["AdoptionRunOut"] | null;
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * AdoptionOverlayOut
+         * @description The card's equal-weighted basket line and SPY over ``dates``, both 100 on the first. ``null`` line = none
+         *     (``card_reason`` / ``spy_reason`` say why). ``names`` = companies on the card (each once) plus rows with
+         *     no resolved security; ``priced`` = those that contributed a daily return; ``flagged`` = names left out for a
+         *     flagged price history (counted in ``names``, never in ``priced``).
+         */
+        AdoptionOverlayOut: {
+            /** Dates */
+            dates: string[];
+            /** Card */
+            card: number[] | null;
+            /** Spy */
+            spy: number[] | null;
+            /** Card Reason */
+            card_reason: string | null;
+            /** Spy Reason */
+            spy_reason: string | null;
+            /**
+             * Session Source
+             * @enum {string}
+             */
+            session_source: "benchmarks" | "companies" | "none";
+            /** Names */
+            names: number;
+            /** Priced */
+            priced: number;
+            /** Unresolved */
+            unresolved: number;
+            /** Silent Left Out */
+            silent_left_out: number;
+            /** Flagged */
+            flagged: components["schemas"]["AdoptionFlaggedOut"][];
+        };
+        /**
+         * AdoptionRunOut
+         * @description The term-mentions job's newest applied run, from its artifact: ``schedule`` weekly (re-reads the last two
+         *     months) or backfill (the whole window), the months it covered, and what it could not read. The totals are
+         *     the job's (every card); ``card_*`` are this card's share (a failed or deferred month is absent from the
+         *     curve, never a zero).
+         */
+        AdoptionRunOut: {
+            /** Schedule */
+            schedule: string;
+            /** Run Kind */
+            run_kind: string;
+            /** Status */
+            status: string;
+            /** Finished On */
+            finished_on: string | null;
+            /** Months From */
+            months_from: string;
+            /** Months To */
+            months_to: string;
+            /** Requests */
+            requests: number;
+            /** Failed Requests */
+            failed_requests: number;
+            /** Deferred Months */
+            deferred_months: number;
+            /** Card Failed Requests */
+            card_failed_requests: number;
+            /** Card Deferred Months */
+            card_deferred_months: number;
+        };
+        /**
+         * AdoptionTermOut
+         * @description One SIGNAL term, counted alone. ``counted`` false = no month stored yet ("not counted yet", never
+         *     zero). The windows end at the page's last counted month: ``last_3_documents`` / ``last_12_documents`` sum
+         *     the months stored (``months_last_3`` / ``months_last_12`` say how many of the 3 / 12), ``null`` = none
+         *     stored. ``filers`` = distinct CIKs in the last month. ``first_month`` = the first stored month with a
+         *     document; ``first_at_start`` = it is also the earliest stored month, so the term may be older.
+         */
+        AdoptionTermOut: {
+            /** Term */
+            term: string;
+            /** Counted */
+            counted: boolean;
+            /** Months Stored */
+            months_stored: number;
+            /** Last Month Documents */
+            last_month_documents: number | null;
+            /** Last 3 Documents */
+            last_3_documents: number | null;
+            /** Months Last 3 */
+            months_last_3: number;
+            /** Last 12 Documents */
+            last_12_documents: number | null;
+            /** Months Last 12 */
+            months_last_12: number;
+            /** Filers */
+            filers: number | null;
+            /** Filers Sampled */
+            filers_sampled: boolean;
+            /** First Month */
+            first_month: string | null;
+            /** First At Start */
+            first_at_start: boolean;
+        };
+        /**
+         * AdoptionTermShareOut
+         * @description One term's documents in a month (the month's top terms).
+         */
+        AdoptionTermShareOut: {
+            /** Term */
+            term: string;
+            /** Documents */
+            documents: number;
         };
         /**
          * AnnotatedNightOut
@@ -7613,6 +8161,279 @@ export interface components {
             error?: string | null;
         };
         /**
+         * EntryWindowsCatalystOut
+         * @description A dated catalyst of the recorded card inside the window. ``past`` = its date is before the as-of.
+         */
+        EntryWindowsCatalystOut: {
+            /** Label */
+            label: string;
+            /** Kind */
+            kind: string | null;
+            /**
+             * When Date
+             * Format: date
+             */
+            when_date: string;
+            /** Past */
+            past: boolean;
+        };
+        /**
+         * EntryWindowsCountsOut
+         * @description The work shown on the quiet line. The state counts add up to ``cards_counted``: ``armed`` + ``managing``
+         *     (rows) + ``managing_without_arm_night`` + ``warming`` + ``incubating`` + ``no_call``.
+         */
+        EntryWindowsCountsOut: {
+            /** Live Cards */
+            live_cards: number;
+            /** Cards Counted */
+            cards_counted: number;
+            /** Cards Not Yet Created */
+            cards_not_yet_created: number;
+            /** Armed */
+            armed: number;
+            /** Managing */
+            managing: number;
+            /** Managing Without Arm Night */
+            managing_without_arm_night: number;
+            /** Warming */
+            warming: number;
+            /** Incubating */
+            incubating: number;
+            /** No Call */
+            no_call: number;
+            /** Reconstructed Arm Nights */
+            reconstructed_arm_nights: number;
+            /** Armed Names */
+            armed_names: number;
+            /** Priced Names */
+            priced_names: number;
+            /** Unpriced Names */
+            unpriced_names: number;
+        };
+        /**
+         * EntryWindowsFlaggedOut
+         * @description A name left out of every number for a flagged price history (the reason the Cockpit grays its price
+         *     cells).
+         */
+        EntryWindowsFlaggedOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * EntryWindowsMemberOut
+         * @description An armed name. ``arm_night`` = the first night of the run on which the recorded card names it armed;
+         *     ``since`` = its as-traded return in percent from the first close on or after that night (``entry_on``) to the
+         *     last close on or before the as-of, ``above`` = that last close is above the entry close. ``flag`` = left out
+         *     for a flagged price history (the flags' labels); ``since`` null without a flag = no bar on or after its arm
+         *     night.
+         */
+        EntryWindowsMemberOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string | null;
+            /**
+             * Arm Night
+             * Format: date
+             */
+            arm_night: string;
+            /** Entry On */
+            entry_on: string | null;
+            /** Since */
+            since: number | null;
+            /** Above */
+            above: boolean | null;
+            /** Flag */
+            flag: string | null;
+            /** Triggers */
+            triggers: components["schemas"]["EntryWindowsTriggerOut"][];
+        };
+        /**
+         * EntryWindowsOut
+         * @description The whole page at the as-of. ``clock`` = how the as-of was read: ``record`` (the live read) or ``public``
+         *     (a past date: what was public by the end of it). ``axis_start`` / ``axis_end`` = the one date axis (``null`` with no row);
+         *     ``session_source`` = where the session calendar came from (IWM's bars, the armed names' bars when IWM has
+         *     none, or nothing); ``calendar_last`` = its last session. Rows come by card name. ``cache`` / ``compute_ms`` =
+         *     whether the page came from the shared dashboard cache and how long it took when computed.
+         */
+        EntryWindowsOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Clock
+             * @enum {string}
+             */
+            clock: "record" | "public";
+            /** Axis Start */
+            axis_start: string | null;
+            /** Axis End */
+            axis_end: string | null;
+            /**
+             * Session Source
+             * @enum {string}
+             */
+            session_source: "benchmarks" | "companies" | "none";
+            /** Calendar Sessions */
+            calendar_sessions: number;
+            /** Calendar Last */
+            calendar_last: string | null;
+            counts: components["schemas"]["EntryWindowsCountsOut"];
+            /** Flagged */
+            flagged: components["schemas"]["EntryWindowsFlaggedOut"][];
+            /** Rows */
+            rows: components["schemas"]["EntryWindowsRowOut"][];
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * EntryWindowsRowOut
+         * @description One Armed (``state`` ``armed``) or Managing card. ``arm_night`` = the first night of the card's current
+         *     recorded Armed run; ``in_effect`` = the recorded night whose card the row shows; ``reconstructed`` = the arm
+         *     night's row was written by ``pipeline.backfill`` (reported, never scored). ``arm_until`` / ``exit_by`` = the
+         *     entry window and the hold horizon (``null`` = no clock). ``sessions_into`` = the IWM sessions after the arm
+         *     night through the as-of; ``sessions_left`` = the Mon-Fri days after the as-of through ``arm_until`` (while the
+         *     window is open); ``closed_ago`` = the IWM sessions since it closed (``0`` on its last day); ``hold_days`` =
+         *     calendar days from the as-of to ``exit_by`` (negative = passed). The two flags are the headline member's.
+         */
+        EntryWindowsRowOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "armed" | "managing";
+            /**
+             * Arm Night
+             * Format: date
+             */
+            arm_night: string;
+            /**
+             * In Effect
+             * Format: date
+             */
+            in_effect: string;
+            /** Reconstructed */
+            reconstructed: boolean;
+            /** Reconstructed Nights */
+            reconstructed_nights: number;
+            /** Run Nights */
+            run_nights: number;
+            /** Arm Until */
+            arm_until: string | null;
+            /** Exit By */
+            exit_by: string | null;
+            /** Confidence */
+            confidence: number | null;
+            /** Entry Window Closing */
+            entry_window_closing: boolean;
+            /** Lapsing */
+            lapsing: boolean;
+            /** Sessions Into */
+            sessions_into: number | null;
+            /** Sessions Left */
+            sessions_left: number | null;
+            /** Closed Ago */
+            closed_ago: number | null;
+            /** Hold Days */
+            hold_days: number | null;
+            /** Catalysts */
+            catalysts: components["schemas"]["EntryWindowsCatalystOut"][];
+            /** Members */
+            members: components["schemas"]["EntryWindowsMemberOut"][];
+            since: components["schemas"]["EntryWindowsSinceOut"];
+            spark: components["schemas"]["EntryWindowsSparkOut"] | null;
+        };
+        /**
+         * EntryWindowsSinceOut
+         * @description A row's tape since its arm night, over its armed names: ``priced`` of ``names`` are in the median
+         *     (percent, as traded); the rest are ``flagged`` (a flagged price history) or ``no_bar``. ``above`` = priced
+         *     names above their arm-night close. ``iwm`` / ``spy`` = the benchmarks over the same span (``null`` = no bar).
+         */
+        EntryWindowsSinceOut: {
+            /** Names */
+            names: number;
+            /** Priced */
+            priced: number;
+            /** Flagged */
+            flagged: number;
+            /** No Bar */
+            no_bar: number;
+            /** Above */
+            above: number;
+            /** Median */
+            median: number | null;
+            /** Iwm */
+            iwm: number | null;
+            /** Spy */
+            spy: number | null;
+        };
+        /**
+         * EntryWindowsSourceOut
+         * @description A place a trigger points at. ``source`` = the kind as stored (``form4``, ``price``, ``xbrl``, a form),
+         *     ``ref`` = its reference (an accession, a price reference), ``url`` = a link (``null`` = none known; a price
+         *     reference stays text).
+         */
+        EntryWindowsSourceOut: {
+            /** Source */
+            source: string;
+            /** Ref */
+            ref: string;
+            /** Url */
+            url: string | null;
+        };
+        /**
+         * EntryWindowsSparkOut
+         * @description The armed names' equal-weighted line and IWM's, from 100 at ``dates[0]``, one point per session
+         *     (``iwm`` null = IWM has no steps over these sessions).
+         */
+        EntryWindowsSparkOut: {
+            /** Dates */
+            dates: string[];
+            /** Line */
+            line: number[];
+            /** Iwm */
+            iwm: number[] | null;
+        };
+        /**
+         * EntryWindowsTriggerOut
+         * @description A fired trigger on an armed name. ``event_date`` is the trigger's FIRE date (the market event), not the
+         *     arm night.
+         */
+        EntryWindowsTriggerOut: {
+            /** Label */
+            label: string;
+            kind: components["schemas"]["Kind"];
+            grade: components["schemas"]["Grade"] | null;
+            /** Event Date */
+            event_date: string | null;
+            /** Sources */
+            sources: components["schemas"]["EntryWindowsSourceOut"][];
+        };
+        /**
          * EpisodeOperatorOut
          * @description The operator's answer to an arm episode: took (with the operator's own prices/return —
          *     ``inferred`` marks a close used where no fill price was logged) or passed (no prices; the
@@ -8456,6 +9277,363 @@ export interface components {
             grounded: boolean;
         };
         /**
+         * FormingAdoptionOut
+         * @description The card's EDGAR term-mention slope: ``recent`` documents (the three closed months ``recent_from`` to
+         *     ``recent_to``, as first days) against ``prior`` (the three before), summed over the SIGNAL terms that have all six
+         *     closed months stored (``terms_counted`` of ``terms_signal``; ``terms_partial`` have some, ``terms_unstored``
+         *     none). ``counted`` false = not counted yet. ``percent`` is ``null`` without a nonzero prior span.
+         *     ``months_stored`` = the six closed months any signal term has a row for; ``latest_partial`` = a counted term's
+         *     latest closed month was read on or before its last day.
+         */
+        FormingAdoptionOut: {
+            /** Counted */
+            counted: boolean;
+            /** Percent */
+            percent: number | null;
+            /** Recent */
+            recent: number | null;
+            /** Prior */
+            prior: number | null;
+            /** Recent From */
+            recent_from: string | null;
+            /** Recent To */
+            recent_to: string | null;
+            /** Prior From */
+            prior_from: string | null;
+            /** Prior To */
+            prior_to: string | null;
+            /** Terms Signal */
+            terms_signal: number;
+            /** Terms Counted */
+            terms_counted: number;
+            /** Terms Partial */
+            terms_partial: number;
+            /** Terms Unstored */
+            terms_unstored: number;
+            /** Months Stored */
+            months_stored: number;
+            /** Latest Partial */
+            latest_partial: boolean;
+        };
+        /**
+         * FormingBreadthOut
+         * @description The card's theme breadth: ``above`` of ``counted`` names at or above their 50-day average (``pct`` of them),
+         *     ``delta_pts`` against 20 trading days ago, ``thin`` names with too little history not counted. ``thrust`` is the
+         *     member's own headline.
+         */
+        FormingBreadthOut: {
+            /** Above */
+            above: number | null;
+            /** Counted */
+            counted: number;
+            /** Thin */
+            thin: number;
+            /** Pct */
+            pct: number | null;
+            /** Delta Pts */
+            delta_pts: number | null;
+            /** Thrust */
+            thrust: boolean;
+        };
+        /**
+         * FormingCoilingOut
+         * @description A name whose base is coiling (the volatility-contraction member's headline); ``contraction`` = the newest
+         *     segment's depth over the oldest's.
+         */
+        FormingCoilingOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Contraction */
+            contraction: number | null;
+        };
+        /**
+         * FormingFlaggedOut
+         * @description A company left out of every reading for a flagged price history at the as-of: counted, never dropped.
+         */
+        FormingFlaggedOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * FormingInsiderOut
+         * @description A name with open-market insider buying in the last 30 days: the buys, the distinct buyers and whether that is
+         *     a cluster (at least two distinct buyers).
+         */
+        FormingInsiderOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Buys 30D */
+            buys_30d: number;
+            /** Buyers 30D */
+            buyers_30d: number;
+            /** Cluster */
+            cluster: boolean;
+        };
+        /**
+         * FormingKeyOut
+         * @description A key as the call recorded it: ``label`` and ``detail`` are the assembler's own words.
+         */
+        FormingKeyOut: {
+            /** Turned */
+            turned: boolean;
+            /** Label */
+            label: string;
+            /** Detail */
+            detail: string | null;
+        };
+        /**
+         * FormingLeadingOut
+         * @description A name whose relative strength is at a fresh 13-week high; ``vs`` = the benchmarks it leads.
+         */
+        FormingLeadingOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Vs */
+            vs: string[];
+        };
+        /**
+         * FormingNameOut
+         * @description A name behind the key that turned: its ticker on the card (the Cockpit's ``?name=`` key) and every trigger
+         *     that fired on it.
+         */
+        FormingNameOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Triggers */
+            triggers: components["schemas"]["FormingTriggerOut"][];
+        };
+        /**
+         * FormingQuietOut
+         * @description One card's quiet signals over its counting roster (Context and Bench never count). ``names`` = the counting
+         *     companies, ``read`` = those read (a flagged price history is counted in ``flagged``, never read),
+         *     ``unresolved`` = roster rows with no resolved security. ``no_form4`` / ``coiling_no_reading`` /
+         *     ``leading_no_reading`` = read names a member gave no reading for. ``lit`` = insider buying, coiling, leading or
+         *     a breadth thrust is on.
+         */
+        FormingQuietOut: {
+            /** Names */
+            names: number;
+            /** Read */
+            read: number;
+            /** Unresolved */
+            unresolved: number;
+            /** Flagged */
+            flagged: components["schemas"]["FormingFlaggedOut"][];
+            /** Insider */
+            insider: components["schemas"]["FormingInsiderOut"][];
+            /** No Form4 */
+            no_form4: number;
+            /** Coiling */
+            coiling: components["schemas"]["FormingCoilingOut"][];
+            /** Coiling No Reading */
+            coiling_no_reading: number;
+            /** Leading */
+            leading: components["schemas"]["FormingLeadingOut"][];
+            /** Leading No Reading */
+            leading_no_reading: number;
+            breadth: components["schemas"]["FormingBreadthOut"] | null;
+            /** Lit */
+            lit: boolean;
+        };
+        /**
+         * FormingQuietlyOut
+         * @description Every Warming and Incubating card of the recorded calls in effect at the as-of, in the default order (the page
+         *     derives the Incubating toggle, filters and sorts from this one read), and the counts its quiet line shows.
+         *     ``cards_*`` = the counted cards by their recorded state (``cards_no_call`` = nothing recorded by then;
+         *     ``cards_incubating_lit`` = Incubating cards with a quiet signal on); ``cards_with_term_months`` /
+         *     ``cards_without_term_months`` = row cards with and without a stored signal-term month in the six closed months;
+         *     ``names_read`` / ``names_flagged`` = distinct companies read and left out for a flagged price history;
+         *     ``members`` = the display members run. ``clock``: ``record`` (the live read) or ``public`` (a past as-of: what
+         *     was public by the end of that date). ``cache`` / ``compute_ms`` = whether the read came from the shared dashboard
+         *     cache and how long it took when computed.
+         */
+        FormingQuietlyOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Clock
+             * @enum {string}
+             */
+            clock: "record" | "public";
+            /** Live Cards */
+            live_cards: number;
+            /** Cards Counted */
+            cards_counted: number;
+            /** Cards Not Yet Created */
+            cards_not_yet_created: number;
+            /** Roster Fallback Cards */
+            roster_fallback_cards: number;
+            /** Cards Armed */
+            cards_armed: number;
+            /** Cards Warming */
+            cards_warming: number;
+            /** Cards Managing */
+            cards_managing: number;
+            /** Cards Incubating */
+            cards_incubating: number;
+            /** Cards Incubating Lit */
+            cards_incubating_lit: number;
+            /** Cards No Call */
+            cards_no_call: number;
+            /** Cards With Term Months */
+            cards_with_term_months: number;
+            /** Cards Without Term Months */
+            cards_without_term_months: number;
+            /** Names Read */
+            names_read: number;
+            /** Names Flagged */
+            names_flagged: number;
+            /** Members */
+            members: string[];
+            /** Rows */
+            rows: components["schemas"]["FormingRowOut"][];
+            /** Flagged */
+            flagged: components["schemas"]["FormingFlaggedOut"][];
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * FormingRiskOut
+         * @description One risk signal on the recorded card and the name it fired on.
+         */
+        FormingRiskOut: {
+            /** Label */
+            label: string;
+            kind: components["schemas"]["Kind"];
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+        };
+        /**
+         * FormingRowOut
+         * @description One card the record shows Warming or Incubating at the as-of. ``recorded_on`` = the night of the recorded call
+         *     in effect; ``run_start`` = the first night of its current run of that state, ``days_in_state`` the calendar days
+         *     from there to the as-of (``run_reconstructed`` = that night was rebuilt by ``pipeline.backfill``). The keys,
+         *     ``missing`` lines and ``risks`` are the recorded call's own; ``names`` = the names behind the keys that turned;
+         *     ``watch`` = its confirmation-only members.
+         */
+        FormingRowOut: {
+            /** Key */
+            key: string;
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "warming" | "incubating";
+            /**
+             * Recorded On
+             * Format: date
+             */
+            recorded_on: string;
+            /** Run Start */
+            run_start: string | null;
+            /** Run Nights */
+            run_nights: number;
+            /** Days In State */
+            days_in_state: number | null;
+            /** Run Reconstructed */
+            run_reconstructed: boolean;
+            key_conviction: components["schemas"]["FormingKeyOut"];
+            key_confirmation: components["schemas"]["FormingKeyOut"];
+            /** Names */
+            names: components["schemas"]["FormingNameOut"][];
+            /** Missing */
+            missing: string[];
+            /** Watch */
+            watch: components["schemas"]["FormingWatchOut"][];
+            /** Risks */
+            risks: components["schemas"]["FormingRiskOut"][];
+            quiet: components["schemas"]["FormingQuietOut"];
+            adoption: components["schemas"]["FormingAdoptionOut"];
+        };
+        /**
+         * FormingSourceOut
+         * @description One place a trigger points at: ``source`` = the kind of source as stored ("form4", "price", "xbrl", a form),
+         *     ``ref`` = its reference, ``url`` = a link to it by the Evidence Ledger's rule (``null`` = none known).
+         */
+        FormingSourceOut: {
+            /** Source */
+            source: string;
+            /** Ref */
+            ref: string;
+            /** Url */
+            url: string | null;
+        };
+        /**
+         * FormingTriggerOut
+         * @description A fired entry trigger on the recorded card. ``event_date`` = its FIRE date (the market event: an insider
+         *     trade date, a breakout bar), not the night the platform recorded it.
+         */
+        FormingTriggerOut: {
+            /** Label */
+            label: string;
+            kind: components["schemas"]["Kind"];
+            grade: components["schemas"]["Grade"] | null;
+            /** Event Date */
+            event_date: string | null;
+            /** Sources */
+            sources: components["schemas"]["FormingSourceOut"][];
+        };
+        /**
+         * FormingWatchOut
+         * @description A confirmation-only member of the recorded call (moving, no conviction yet).
+         */
+        FormingWatchOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+        };
+        /**
          * Grade
          * @enum {string}
          */
@@ -8481,6 +9659,300 @@ export interface components {
             degraded?: {
                 [key: string]: string;
             };
+        };
+        /**
+         * HotBoardOut
+         * @description Every candidate row of the cards' recorded calls in effect at the as-of (the page derives the toggles, filters,
+         *     sorts and heat from this one read) and the counts its quiet line shows. ``cards_*`` = the counted cards by their
+         *     recorded state (``cards_no_call`` = nothing recorded by then); ``calendar_*`` = IWM's bar calendar the
+         *     ``sessions_since`` count reads; ``price_window_start`` = the earliest bar the view reads (``null`` = unbounded);
+         *     ``no_ticker_rows`` = rows whose security has no ticker anywhere (shown under its id); ``flagged`` = the
+         *     companies on a row with a flagged price history. ``clock``: ``record`` (the live read) or ``public`` (a past
+         *     as-of: what was public by the end of that date). ``cache`` / ``compute_ms`` = whether the read came from the
+         *     shared dashboard cache and how long it took when computed.
+         */
+        HotBoardOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Clock
+             * @enum {string}
+             */
+            clock: "record" | "public";
+            /** Benchmark */
+            benchmark: string;
+            /** Live Cards */
+            live_cards: number;
+            /** Cards Counted */
+            cards_counted: number;
+            /** Cards Not Yet Created */
+            cards_not_yet_created: number;
+            /** Roster Fallback Cards */
+            roster_fallback_cards: number;
+            /** Cards Armed */
+            cards_armed: number;
+            /** Cards Warming */
+            cards_warming: number;
+            /** Cards Managing */
+            cards_managing: number;
+            /** Cards Incubating */
+            cards_incubating: number;
+            /** Cards No Call */
+            cards_no_call: number;
+            /**
+             * Calendar Source
+             * @enum {string}
+             */
+            calendar_source: "benchmarks" | "companies" | "none";
+            /** Calendar Sessions */
+            calendar_sessions: number;
+            /** Calendar First */
+            calendar_first: string | null;
+            /** Calendar Last */
+            calendar_last: string | null;
+            /** Price Window Start */
+            price_window_start: string | null;
+            /** No Ticker Rows */
+            no_ticker_rows: number;
+            /** Rows */
+            rows: components["schemas"]["HotRowOut"][];
+            /** Flagged */
+            flagged: components["schemas"]["HotFlaggedOut"][];
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * HotCapOut
+         * @description The approximate market cap (USD) and its tier: the latest close times the latest shares fact, the
+         *     Workbench's rule (the Peer Table's ``cap_cell``). ``gap`` says why it is blank.
+         */
+        HotCapOut: {
+            /** Value */
+            value: number | null;
+            tier: components["schemas"]["CapTier"] | null;
+            /** Gap */
+            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
+            /** Note */
+            note: string | null;
+            /** Close */
+            close: number | null;
+            /** Close Date */
+            close_date: string | null;
+            /** Shares */
+            shares: number | null;
+            /** Shares Date */
+            shares_date: string | null;
+            /** Ads Ratio */
+            ads_ratio: number | null;
+            /** Split Factor */
+            split_factor: number | null;
+        };
+        /** HotCardRefOut */
+        HotCardRefOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+        };
+        /**
+         * HotCellOut
+         * @description A number, or ``note`` = the reason it is blank (the display member's own words where it gave some). Blank
+         *     is never zero.
+         */
+        HotCellOut: {
+            /** Value */
+            value: number | null;
+            /** Note */
+            note: string | null;
+        };
+        /**
+         * HotClocksOut
+         * @description A row's clocks at the as-of. ``arm_night`` = the first night of the member's current recorded run
+         *     (``arm_reconstructed`` = that night was rebuilt by ``pipeline.backfill``); ``sessions_since`` = sessions after it
+         *     through the as-of on IWM's bar calendar; ``sessions_left`` = Mon-Fri sessions after the as-of through
+         *     ``arm_until`` (``null`` once it has passed, when ``closed_ago`` = the sessions since it ended); ``days_to_exit`` =
+         *     calendar days from the as-of to ``exit_by`` (negative = passed).
+         */
+        HotClocksOut: {
+            /** Arm Night */
+            arm_night: string | null;
+            /** Arm Reconstructed */
+            arm_reconstructed: boolean;
+            /** Sessions Since */
+            sessions_since: number | null;
+            /** Arm Until */
+            arm_until: string | null;
+            /** Sessions Left */
+            sessions_left: number | null;
+            /** Closed Ago */
+            closed_ago: number | null;
+            /** Exit By */
+            exit_by: string | null;
+            /** Days To Exit */
+            days_to_exit: number | null;
+        };
+        /**
+         * HotFlaggedOut
+         * @description A company on a row whose data flags reach its price readings at the as-of: its row stays, its price cells
+         *     name ``reason`` (the flags' labels) and it has no heat.
+         */
+        HotFlaggedOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * HotRowOut
+         * @description One (card, name). ``kind``: ``armed`` (the card's armed members: the default rows), ``warming`` (a name with a
+         *     live entry trigger on a Warming card; ``keys`` names the key each trigger turns), ``watch`` (an Armed card's
+         *     confirmation-only member) or ``managing`` (a Managing card's held and armed members). ``also_armed`` = the other
+         *     cards on which the same security is an armed row. ``confidence`` = setup strength, an experimental relative
+         *     indicator, not a probability. ``risk_kinds`` = one entry per risk signal on the card that names this security.
+         *     ``ticker`` is the card's roster ticker (the Cockpit's ``?name=`` key), else the master's, else the security id.
+         */
+        HotRowOut: {
+            /** Key */
+            key: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "armed" | "warming" | "watch" | "managing";
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Name */
+            name: string | null;
+            /** Also Armed */
+            also_armed: components["schemas"]["HotCardRefOut"][];
+            verdict: components["schemas"]["Verdict"] | null;
+            entry_grade: components["schemas"]["Grade"] | null;
+            /** Confidence */
+            confidence: number | null;
+            /** Keys */
+            keys: ("conviction" | "confirmation")[];
+            /** Triggers */
+            triggers: components["schemas"]["HotTriggerOut"][];
+            /** Risk Kinds */
+            risk_kinds: components["schemas"]["Kind"][];
+            clocks: components["schemas"]["HotClocksOut"];
+            /** Entry Window Closing */
+            entry_window_closing: boolean;
+            /** Lapsing */
+            lapsing: boolean;
+            since_arm: components["schemas"]["HotSinceArmOut"];
+            tape: components["schemas"]["HotTapeOut"];
+            cap: components["schemas"]["HotCapOut"];
+        };
+        /**
+         * HotSinceArmOut
+         * @description The name's as-traded return from the first close on or after the arm night (``entry_*``) to its last close
+         *     on or before the as-of (``last_*``), and IWM's over the same dates. ``gap`` says why ``ret_pct`` is blank:
+         *     ``no_arm_night`` (not an armed row), ``flagged``, ``before_window`` (the arm night is before the earliest bar
+         *     the view reads) or ``no_bar``.
+         */
+        HotSinceArmOut: {
+            /** Entry Date */
+            entry_date: string | null;
+            /** Entry Close */
+            entry_close: number | null;
+            /** Last Date */
+            last_date: string | null;
+            /** Last Close */
+            last_close: number | null;
+            /** Ret Pct */
+            ret_pct: number | null;
+            /** Iwm Pct */
+            iwm_pct: number | null;
+            /** Gap */
+            gap: ("no_arm_night" | "flagged" | "before_window" | "no_bar") | null;
+        };
+        /**
+         * HotSourceOut
+         * @description One place a trigger points at: ``source`` = the kind of source as stored ("form4", "price", "xbrl", a form),
+         *     ``ref`` = its reference, ``url`` = a link to it by the Evidence Ledger's rule (``null`` = none known).
+         */
+        HotSourceOut: {
+            /** Source */
+            source: string;
+            /** Ref */
+            ref: string;
+            /** Url */
+            url: string | null;
+        };
+        /**
+         * HotTapeOut
+         * @description One company's display-member readings at the as-of. ``flag`` = the data flags' labels when they reach its
+         *     price readings (every price-derived cell is then blank and says so; the insider counts stay). ``vs_iwm`` = the
+         *     30-trading-day return minus IWM's, in percentage points (``null`` when the two last closes are not the same
+         *     day). ``rs_leading`` = relative strength at a fresh 13-week high (``rs_leading_vs`` = against which benchmark;
+         *     ``null`` = no 13-week verdict yet). ``buys_30d`` / ``buyers_30d`` = open-market buys and distinct buyers in
+         *     the last 30 days (``null`` = no Form 4 ingested). Units: percent for the returns and the two distances, RVOL as
+         *     a ratio, dollar volume in USD. ``spark`` = the last 90 closes (``null`` = no bar; a thin tape is left-padded).
+         */
+        HotTapeOut: {
+            /** Flag */
+            flag: string | null;
+            rvol20: components["schemas"]["HotCellOut"];
+            vs_50d: components["schemas"]["HotCellOut"];
+            off_high: components["schemas"]["HotCellOut"];
+            vs_iwm: components["schemas"]["HotCellOut"];
+            /** Rs Leading */
+            rs_leading: boolean | null;
+            /** Rs Leading Vs */
+            rs_leading_vs: string[];
+            ret_7d: components["schemas"]["HotCellOut"];
+            ret_30d: components["schemas"]["HotCellOut"];
+            /** Buys 30D */
+            buys_30d: number | null;
+            /** Buyers 30D */
+            buyers_30d: number | null;
+            adv_usd_20d: components["schemas"]["HotCellOut"];
+            /** Spark */
+            spark: (number | null)[];
+        };
+        /**
+         * HotTriggerOut
+         * @description A fired entry trigger. ``event_date`` = its FIRE date (the market event: an insider trade date, a breakout
+         *     bar), not the night the platform recorded it.
+         */
+        HotTriggerOut: {
+            /** Label */
+            label: string;
+            kind: components["schemas"]["Kind"];
+            grade: components["schemas"]["Grade"] | null;
+            /** Event Date */
+            event_date: string | null;
+            /** Sources */
+            sources: components["schemas"]["HotSourceOut"][];
         };
         /** IdeaTimelineCatalystOut */
         IdeaTimelineCatalystOut: {
@@ -8871,6 +10343,299 @@ export interface components {
             transfer_with?: string[] | null;
         };
         /**
+         * InsiderTrackerCapOut
+         * @description The approximate market cap at the as-of (the Peer Table's rule) and its tier (``nano`` | ``micro`` | ``small`` |
+         *     ``mid`` | ``large``, a filter dimension only). ``gap`` says why it is blank (``flagged`` | ``no_price`` |
+         *     ``no_shares`` | ``ads_unread`` | ``no_cap``).
+         */
+        InsiderTrackerCapOut: {
+            /** Value */
+            value: number | null;
+            /** Tier */
+            tier: string | null;
+            /** Gap */
+            gap: string | null;
+            /** Note */
+            note: string | null;
+        };
+        /**
+         * InsiderTrackerCardOut
+         * @description A card the name sits on: ``ticker`` = the ticker the Cockpit's ``?name=`` key wants on that card; ``silent`` =
+         *     ``Context`` or ``Bench`` when the name sits there only silently (it never counts toward the call).
+         */
+        InsiderTrackerCardOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /** Ticker */
+            ticker: string;
+            /** Silent */
+            silent: string | null;
+        };
+        /**
+         * InsiderTrackerClusterOut
+         * @description Two or more distinct buyers on one name filed within 30 days of the row's filing date: ``buyers`` counts the
+         *     row's own buyer; ``others`` names the rest.
+         */
+        InsiderTrackerClusterOut: {
+            /** Buyers */
+            buyers: number;
+            /** Others */
+            others: components["schemas"]["InsiderTrackerOtherBuyerOut"][];
+        };
+        /**
+         * InsiderTrackerCountsOut
+         * @description The work shown on the quiet line: counts of what was read and listed, never a statistic over the rows' returns.
+         *     ``filings_read`` = the Form 4s and 4/As filed in the window = ``purchases`` + ``routine_folded`` (a Form 4 with no
+         *     purchase) + ``amendments_no_purchase`` (a 4/A whose applied rows hold none); ``cluster_rows`` / ``trigger_rows`` =
+         *     rows in a cluster / carried by a recorded insider trigger; ``filer_unresolved`` = rows whose filer the filing does
+         *     not name; ``cap_blank`` = rows whose cap is blank; ``names_*`` = distinct names.
+         */
+        InsiderTrackerCountsOut: {
+            /** Cards Counted */
+            cards_counted: number;
+            /** Live Cards */
+            live_cards: number;
+            /** Not Yet Created */
+            not_yet_created: number;
+            /** Roster Fallback */
+            roster_fallback: number;
+            /** Basket Rows */
+            basket_rows: number;
+            /** Silent Rows Left Out */
+            silent_rows_left_out: number;
+            /** Unresolved Rows */
+            unresolved_rows: number;
+            /** Names Read */
+            names_read: number;
+            /** Filings Read */
+            filings_read: number;
+            /** Purchases */
+            purchases: number;
+            /** Routine Folded */
+            routine_folded: number;
+            /** Amendments No Purchase */
+            amendments_no_purchase: number;
+            /** Names With Purchases */
+            names_with_purchases: number;
+            /** Filer Unresolved */
+            filer_unresolved: number;
+            /** Cluster Rows */
+            cluster_rows: number;
+            /** Cluster Names */
+            cluster_names: number;
+            /** Trigger Rows */
+            trigger_rows: number;
+            /** Nights Read */
+            nights_read: number;
+            /** Nights Unreadable */
+            nights_unreadable: number;
+            /** Names Unpriced */
+            names_unpriced: number;
+            /** Names Flagged */
+            names_flagged: number;
+            /** Cap Blank */
+            cap_blank: number;
+        };
+        /**
+         * InsiderTrackerDays
+         * @description The window: the last 30 or 90 days.
+         * @enum {integer}
+         */
+        InsiderTrackerDays: 30 | 90;
+        /**
+         * InsiderTrackerNameOut
+         * @description A name set aside from the tape, never from the list: ``reason`` = the flags' labels.
+         */
+        InsiderTrackerNameOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Reason */
+            reason: string | null;
+        };
+        /**
+         * InsiderTrackerOtherBuyerOut
+         * @description Another buyer in a cluster: the name and the filing date nearest the row's.
+         */
+        InsiderTrackerOtherBuyerOut: {
+            /** Name */
+            name: string;
+            /**
+             * Filed
+             * Format: date
+             */
+            filed: string;
+        };
+        /**
+         * InsiderTrackerOut
+         * @description The whole page at the as-of. ``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was
+         *     public by the end of that date). The window is ``window_start`` to ``asof``, inclusive, by FILING date; ``rows``
+         *     are newest filing first, then dollar size, then ticker. ``include_silent`` = whether Context and Bench names are
+         *     read. There is no aggregate over the rows (the Track Record page slices outcomes by market-cap tier). ``cache`` /
+         *     ``compute_ms`` = whether the read came from the shared dashboard cache and how long it took when computed.
+         */
+        InsiderTrackerOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /** Window Days */
+            window_days: number;
+            /**
+             * Window Start
+             * Format: date
+             */
+            window_start: string;
+            /** Include Silent */
+            include_silent: boolean;
+            /**
+             * Clock
+             * @enum {string}
+             */
+            clock: "record" | "public";
+            /** Rows */
+            rows: components["schemas"]["InsiderTrackerRowOut"][];
+            counts: components["schemas"]["InsiderTrackerCountsOut"];
+            /** Flagged */
+            flagged: components["schemas"]["InsiderTrackerNameOut"][];
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * InsiderTrackerRowOut
+         * @description One Form 4 (or applied 4/A) holding an open-market purchase. ``filed`` = the filing date (the public clock);
+         *     ``week`` = the Monday of its week; ``trade_date`` = the earliest purchase's trade date and ``filed_days_after`` =
+         *     the days from it to the filing when the filing is later; ``filer`` / ``role`` = the first reporting owner and the
+         *     filing's own role words as the reader gives them (``null`` = not stated) and ``co_filers`` = the "and N more"
+         *     count; ``role_classes`` = the role words as officer, director, 10% owner (a role can be several) or other;
+         *     ``shares`` / ``price`` / ``usd`` = the code-P lines' total, shares-weighted price and dollars (``null`` = not
+         *     stated; the dollars are the purchases', not net of sales in the same filing); ``tags`` / ``headline`` / ``detail``
+         *     = the reader's own field predicates and words, unchanged; ``cluster`` = see ``InsiderTrackerClusterOut``
+         *     (``null`` = none); ``triggers`` = the recorded insider triggers carrying this accession (empty = not a trigger);
+         *     ``silent_only`` = every card the name sits on holds it in Context or Bench.
+         */
+        InsiderTrackerRowOut: {
+            /** Key */
+            key: string;
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Accession */
+            accession: string | null;
+            /** Form */
+            form: string;
+            /** Url */
+            url: string | null;
+            /**
+             * Filed
+             * Format: date
+             */
+            filed: string;
+            /**
+             * Week
+             * Format: date
+             */
+            week: string;
+            /** Trade Date */
+            trade_date: string | null;
+            /** Filed Days After */
+            filed_days_after: number | null;
+            /** Cards */
+            cards: components["schemas"]["InsiderTrackerCardOut"][];
+            /** Silent Only */
+            silent_only: boolean;
+            /** Filer */
+            filer: string | null;
+            /** Role */
+            role: string | null;
+            /** Role Classes */
+            role_classes: ("officer" | "director" | "ten_percent_owner" | "other")[];
+            /** Co Filers */
+            co_filers: number;
+            /** Shares */
+            shares: number | null;
+            /** Price */
+            price: number | null;
+            /** Usd */
+            usd: number | null;
+            /** Tags */
+            tags: string[];
+            /** Headline */
+            headline: string;
+            /** Detail */
+            detail: string[];
+            cluster: components["schemas"]["InsiderTrackerClusterOut"] | null;
+            /** Triggers */
+            triggers: components["schemas"]["InsiderTrackerTriggerOut"][];
+            since: components["schemas"]["InsiderTrackerSinceOut"];
+            cap: components["schemas"]["InsiderTrackerCapOut"];
+        };
+        /**
+         * InsiderTrackerSinceOut
+         * @description The name's as-traded return from the first close on or after the filing date to the last close on or before the
+         *     as-of, with IWM on the same two dates. ``priced`` = both bars exist; ``unpriced`` = no bar since the filing;
+         *     ``flagged`` = the name's price history is on the flagged-price list (``reason``, never priced). ``bench_ret`` is
+         *     ``null`` when IWM has no bar on one of those two dates. Returns are fractions (0.05 = +5%).
+         */
+        InsiderTrackerSinceOut: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "priced" | "unpriced" | "flagged";
+            /** Reason */
+            reason: string | null;
+            /** Entry Date */
+            entry_date: string | null;
+            /** End Date */
+            end_date: string | null;
+            /** Ret */
+            ret: number | null;
+            /** Bench Ret */
+            bench_ret: number | null;
+        };
+        /**
+         * InsiderTrackerTriggerOut
+         * @description A recorded insider trigger that carries the filing's accession on one card: ``recorded_on`` = the first night in
+         *     the window the record shows it; ``live`` = it is on the card in effect at the as-of (``null`` = that card could
+         *     not be read).
+         */
+        InsiderTrackerTriggerOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /**
+             * Recorded On
+             * Format: date
+             */
+            recorded_on: string;
+            /** Live */
+            live: boolean | null;
+        };
+        /**
          * InstrumentKind
          * @description What an instrument IS on the security master — the modular foundation brick (ETF Sleeve, Slice 1).
          *
@@ -9190,6 +10955,252 @@ export interface components {
              * @default recorded after the next EDGAR open
              */
             reason: string;
+        };
+        /**
+         * LeaderboardAdoptionOut
+         * @description The adoption part: ``slope_pct`` = documents mentioning the card's SIGNAL terms in the last three closed
+         *     calendar months (``recent_*``) against the three before (``prior_*``), a signed percent; the spans are the
+         *     months' first days. ``terms_counted`` of ``terms`` = the current SIGNAL terms whose six closed months are all
+         *     stored (the slope rests on those). ``gap``: ``no_terms``, ``not_counted_yet`` (no term has all six months) or
+         *     ``no_base`` (no documents in the earlier three).
+         */
+        LeaderboardAdoptionOut: {
+            /** Slope Pct */
+            slope_pct: number | null;
+            /** Recent Docs */
+            recent_docs: number | null;
+            /** Prior Docs */
+            prior_docs: number | null;
+            /** Recent From */
+            recent_from: string | null;
+            /** Recent To */
+            recent_to: string | null;
+            /** Prior From */
+            prior_from: string | null;
+            /** Prior To */
+            prior_to: string | null;
+            /** Terms */
+            terms: number;
+            /** Terms Counted */
+            terms_counted: number;
+            /** Gap */
+            gap: ("no_terms" | "not_counted_yet" | "no_base") | null;
+        };
+        /**
+         * LeaderboardBreadthOut
+         * @description The breadth part: ``pct`` = the share of the counting names above their 50-day SMA, ``above`` of ``counted``
+         *     (``thin`` = names with too little history, shown but not counted). ``null`` = no name counted. ``above_200`` of
+         *     ``n_200`` = the share above the 200-day SMA, read per name.
+         */
+        LeaderboardBreadthOut: {
+            /** Pct */
+            pct: number | null;
+            /** Above */
+            above: number;
+            /** Counted */
+            counted: number;
+            /** Thin */
+            thin: number;
+            /** Above 200 */
+            above_200: number;
+            /** N 200 */
+            n_200: number;
+        };
+        /**
+         * LeaderboardBuyerOut
+         * @description A counting name with open-market buyers in the last 30 days: the card's ticker and the distinct buyers.
+         */
+        LeaderboardBuyerOut: {
+            /** Name */
+            name: string;
+            /** Buyers */
+            buyers: number;
+        };
+        /**
+         * LeaderboardCapMixOut
+         * @description The counting names by approximate-cap tier at the as-of (the Peer Table's cap rule); ``blank`` = no cap.
+         */
+        LeaderboardCapMixOut: {
+            /** Nano */
+            nano: number;
+            /** Micro */
+            micro: number;
+            /** Small */
+            small: number;
+            /** Mid */
+            mid: number;
+            /** Large */
+            large: number;
+            /** Blank */
+            blank: number;
+        };
+        /**
+         * LeaderboardCardOut
+         * @description One counted card. ``state`` = the recorded card in effect's state (``null`` = no recorded call by the as-of);
+         *     ``recorded_asof`` = its night (``reconstructed`` = written by the backfill). ``counting`` = distinct counting
+         *     names (Context and Bench never), ``priced`` of them with a close, ``flagged`` left out of every price reading
+         *     for a flagged price history. ``rs_leaders`` of ``rs_n`` = names whose relative strength is at a 13-week high.
+         *     ``armed_names`` = the recorded card's armed members when it is Armed.
+         */
+        LeaderboardCardOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            state: components["schemas"]["State"] | null;
+            /** Recorded Asof */
+            recorded_asof: string | null;
+            /** Reconstructed */
+            reconstructed: boolean;
+            /** Counting */
+            counting: number;
+            /** Priced */
+            priced: number;
+            /** Flagged */
+            flagged: number;
+            tape: components["schemas"]["LeaderboardTapeOut"];
+            ret_7d: components["schemas"]["LeaderboardMedianOut"];
+            breadth: components["schemas"]["LeaderboardBreadthOut"];
+            keys: components["schemas"]["LeaderboardKeysOut"];
+            adoption: components["schemas"]["LeaderboardAdoptionOut"];
+            insiders: components["schemas"]["LeaderboardInsidersOut"];
+            /** Rs Leaders */
+            rs_leaders: number;
+            /** Rs N */
+            rs_n: number;
+            cap_mix: components["schemas"]["LeaderboardCapMixOut"];
+            /** Armed Names */
+            armed_names: number | null;
+        };
+        /**
+         * LeaderboardFlaggedOut
+         * @description A counting company left out of every price reading: its data flags reach its price readings at the as-of
+         *     (the reason the Cockpit grays its price cells). ``reason`` = the flags' labels.
+         */
+        LeaderboardFlaggedOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * LeaderboardInsidersOut
+         * @description The insiders part: distinct open-market buyers in 30 days summed across the counting names with a Form 4
+         *     reading (``read`` of them); ``null`` = none has one. ``names`` = those with at least one buyer.
+         */
+        LeaderboardInsidersOut: {
+            /** Buyers */
+            buyers: number | null;
+            /** Read */
+            read: number;
+            /** Names */
+            names: components["schemas"]["LeaderboardBuyerOut"][];
+        };
+        /**
+         * LeaderboardKeysOut
+         * @description The keys the card's recorded call in effect has turned: ``turned`` = 0, 1 or 2 (Managing counts as 2);
+         *     ``null`` for all three = no recorded call by the as-of.
+         */
+        LeaderboardKeysOut: {
+            /** Turned */
+            turned: number | null;
+            /** Conviction */
+            conviction: boolean | null;
+            /** Confirmation */
+            confirmation: boolean | null;
+        };
+        /**
+         * LeaderboardMedianOut
+         * @description A median return (percent) over ``k`` priced names; ``null`` below ``min_priced``.
+         */
+        LeaderboardMedianOut: {
+            /** Median */
+            median: number | null;
+            /** K */
+            k: number;
+        };
+        /**
+         * LeaderboardOut
+         * @description The whole page in one view: every counted card in the default order (the score among every card counted,
+         *     highest first, a card with no score last). The five parts' values are the page's inputs: it recomputes the
+         *     percentiles and the score for the cards it shows. The counts are the quiet line. ``iwm_ret_30d`` = IWM's own
+         *     30-day return (``null`` = none at the as-of). ``cache`` / ``compute_ms`` = whether the heavy read was served from
+         *     the shared dashboard cache and how long it took when it ran.
+         */
+        LeaderboardOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Clock
+             * @enum {string}
+             */
+            clock: "record" | "public";
+            /** Benchmark */
+            benchmark: string;
+            /** Iwm Ret 30D */
+            iwm_ret_30d: number | null;
+            /** Live Cards */
+            live_cards: number;
+            /** Cards Counted */
+            cards_counted: number;
+            /** Cards Not Yet Created */
+            cards_not_yet_created: number;
+            /** Roster Fallback Cards */
+            roster_fallback_cards: number;
+            /** Basket Rows */
+            basket_rows: number;
+            /** Silent Rows Left Out */
+            silent_rows_left_out: number;
+            /** Unresolved Rows */
+            unresolved_rows: number;
+            /** Names */
+            names: number;
+            /** Names Flagged */
+            names_flagged: number;
+            /** Cards */
+            cards: components["schemas"]["LeaderboardCardOut"][];
+            /** Flagged */
+            flagged: components["schemas"]["LeaderboardFlaggedOut"][];
+            /** Min Priced */
+            min_priced: number;
+            /** Recent Months */
+            recent_months: number;
+            /** Prior Months */
+            prior_months: number;
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * LeaderboardTapeOut
+         * @description The tape part: ``median`` = the median 30-day return of the card's priced counting names, over ``k`` of them;
+         *     ``value`` = that minus IWM's 30-day return, in percentage points. ``gap`` says why ``value`` is blank: ``thin``
+         *     (fewer than ``min_priced`` priced names) or ``no_iwm`` (IWM has no 30-day return at the as-of).
+         */
+        LeaderboardTapeOut: {
+            /** Value */
+            value: number | null;
+            /** Median */
+            median: number | null;
+            /** K */
+            k: number;
+            /** Gap */
+            gap: ("thin" | "no_iwm") | null;
         };
         /**
          * LeadersCardOut
@@ -13081,6 +15092,565 @@ export interface components {
             archived: boolean;
         };
         /**
+         * TickerLookupCapOut
+         * @description The approximate market cap (latest close times the latest shares fact, the Peer Table's rule). ``gap`` is
+         *     why it is blank (``flagged`` = a data flag reaches the price, the reason in ``note``); ``value`` is never zero
+         *     for a blank.
+         */
+        TickerLookupCapOut: {
+            /** Value */
+            value: number | null;
+            /** Tier */
+            tier: string | null;
+            /** Gap */
+            gap: string | null;
+            /** Note */
+            note: string | null;
+            /** Close */
+            close: number | null;
+            /** Close Date */
+            close_date: string | null;
+            /** Shares */
+            shares: number | null;
+            /** Shares Date */
+            shares_date: string | null;
+            /** Ads Ratio */
+            ads_ratio: number | null;
+            /** Split Factor */
+            split_factor: number | null;
+        };
+        /**
+         * TickerLookupCardCatalystOut
+         * @description A thesis-level catalyst of a card the company counts on (``null`` ``when_date`` = undated).
+         */
+        TickerLookupCardCatalystOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /** Label */
+            label: string;
+            /** Kind */
+            kind: string | null;
+            /** When Date */
+            when_date: string | null;
+            /** When Label */
+            when_label: string | null;
+            /** Passed */
+            passed: boolean;
+        };
+        /** TickerLookupCardNameOut */
+        TickerLookupCardNameOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+        };
+        /**
+         * TickerLookupCardOut
+         * @description One counted card the company sits on, its links merged. ``state`` / ``verdict`` / ``recorded_on`` = the
+         *     recorded call in effect at the as-of (``null`` = none yet); ``silent`` = ``Context`` or ``Bench``.
+         */
+        TickerLookupCardOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /** Ticker */
+            ticker: string;
+            /** Links */
+            links: components["schemas"]["TickerLookupLinkOut"][];
+            /** Silent */
+            silent: string | null;
+            /** Context Role */
+            context_role: string | null;
+            /** Signed Off */
+            signed_off: boolean;
+            /** State */
+            state: string | null;
+            /** Verdict */
+            verdict: string | null;
+            /** Recorded On */
+            recorded_on: string | null;
+            /** Reconstructed */
+            reconstructed: boolean;
+            place: components["schemas"]["TickerLookupPlaceOut"];
+        };
+        /**
+         * TickerLookupCardsOut
+         * @description The cards section: ``counted`` = the cards that existed by the as-of (``live_cards`` today, ``not_yet_created``
+         *     left out, ``roster_fallback`` with today's roster standing in), the rows for the ones the company sits on, the
+         *     archived cards that hold it and the counted cards that exclude it.
+         */
+        TickerLookupCardsOut: {
+            /** Live Cards */
+            live_cards: number;
+            /** Not Yet Created */
+            not_yet_created: number;
+            /** Roster Fallback */
+            roster_fallback: number;
+            /** Counted */
+            counted: number;
+            /** Rows */
+            rows: components["schemas"]["TickerLookupCardOut"][];
+            /** Archived */
+            archived: components["schemas"]["TickerLookupCardNameOut"][];
+            /** Excluded */
+            excluded: components["schemas"]["TickerLookupExcludedOut"][];
+        };
+        /**
+         * TickerLookupDecisionOut
+         * @description A take / pass / close the operator logged on the company (or the void row striking one). ``voided`` = a void
+         *     row names it (shown struck through); shares and price are the operator's own fills.
+         */
+        TickerLookupDecisionOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /** Action */
+            action: string;
+            /**
+             * Decision Date
+             * Format: date
+             */
+            decision_date: string;
+            /** Shares */
+            shares: number | null;
+            /** Price */
+            price: number | null;
+            /** Reason */
+            reason: string | null;
+            /** Voided */
+            voided: boolean;
+            /** Voids */
+            voids: string | null;
+        };
+        /** TickerLookupExcludedOut */
+        TickerLookupExcludedOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /** Reason */
+            reason: string | null;
+        };
+        /**
+         * TickerLookupFigureOut
+         * @description One tape figure as the display member states it. ``value`` is ``null`` with the member's ``note`` when it
+         *     could not compute it. ``level`` / ``on`` = the 52-week high or low it is measured from, and its day.
+         */
+        TickerLookupFigureOut: {
+            /** Member */
+            member: string;
+            /** Key */
+            key: string;
+            /**
+             * Group
+             * @enum {string}
+             */
+            group: "price" | "returns" | "range" | "volume" | "strength" | "insider" | "flow";
+            /** Label */
+            label: string;
+            /** Value */
+            value: number | null;
+            /** Unit */
+            unit: ("pct" | "usd" | "price" | "count" | "ratio") | null;
+            /** Note */
+            note: string | null;
+            /** Tone */
+            tone: ("pos" | "neg") | null;
+            /** Level */
+            level: number | null;
+            /** On */
+            on: string | null;
+        };
+        /** TickerLookupFilingDayOut */
+        TickerLookupFilingDayOut: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Rows */
+            rows: components["schemas"]["TickerLookupFilingOut"][];
+        };
+        /**
+         * TickerLookupFilingOut
+         * @description One filing-derived row in the shared reader's shape (``dashboards/filings.py``).
+         */
+        TickerLookupFilingOut: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "8k" | "stake" | "form4" | "form4a" | "revenue" | "filing" | "split" | "dilution" | "catalyst" | "ratified";
+            /** Form */
+            form: string;
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Headline */
+            headline: string;
+            /** Detail */
+            detail: string[];
+            /** Url */
+            url: string | null;
+            /** Accession */
+            accession: string | null;
+            /** Tags */
+            tags: string[];
+            /** Routine */
+            routine: boolean;
+            /** Fold */
+            fold: ("form4" | "prospectus" | "ownership") | null;
+            /** Usd */
+            usd: number | null;
+            /** Ratifier */
+            ratifier: string | null;
+            /** Ratified On */
+            ratified_on: string | null;
+        };
+        /**
+         * TickerLookupFilingsOut
+         * @description The filing days (newest first) for the last ``read_days`` days; ``rows`` counts every row in the read, listed
+         *     or not (catalyst facts are under Catalysts); ``not_listed`` = routine rows the per-group cap left out.
+         */
+        TickerLookupFilingsOut: {
+            /** Read Days */
+            read_days: number;
+            /** Days */
+            days: components["schemas"]["TickerLookupFilingDayOut"][];
+            /** Rows */
+            rows: number;
+            /** By Kind */
+            by_kind: components["schemas"]["TickerLookupKindCountOut"][];
+            /** Routine */
+            routine: number;
+            /** Not Listed */
+            not_listed: components["schemas"]["TickerLookupNotListedOut"][];
+        };
+        /**
+         * TickerLookupIdentityOut
+         * @description Who the company is: the master's identity (``edgar_url`` from its CIK; ``price_symbol`` only when the
+         *     vendor symbol differs from the ticker; ``former_tickers`` oldest first), its approximate market cap, the 20-day
+         *     dollar volume (from the tape, ``adv_note`` when blank) and ``flag``: the data flags reaching its price readings
+         *     (never hidden).
+         */
+        TickerLookupIdentityOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string | null;
+            /** Name */
+            name: string | null;
+            /** Cik */
+            cik: string | null;
+            /** Edgar Url */
+            edgar_url: string | null;
+            /** Exchange */
+            exchange: string | null;
+            /** Business Type */
+            business_type: string | null;
+            /** Supersector */
+            supersector: string | null;
+            /** Royalty */
+            royalty: boolean;
+            /** Origin */
+            origin: string | null;
+            /** Instrument Kind */
+            instrument_kind: string;
+            /** Price Symbol */
+            price_symbol: string | null;
+            /** Former Tickers */
+            former_tickers: string[];
+            cap: components["schemas"]["TickerLookupCapOut"];
+            /** Adv Usd 20D */
+            adv_usd_20d: number | null;
+            /** Adv Note */
+            adv_note: string | null;
+            /** Flag */
+            flag: string | null;
+        };
+        /** TickerLookupKindCountOut */
+        TickerLookupKindCountOut: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "8k" | "stake" | "form4" | "form4a" | "revenue" | "filing" | "split" | "dilution" | "catalyst" | "ratified";
+            /** Rows */
+            rows: number;
+        };
+        /**
+         * TickerLookupLinkOut
+         * @description One basket row of the company on a card: its link (``null`` = no link), the thesis-fit prose with who wrote
+         *     it (``system_drafted`` or ``operator_edited``), whether the operator signed the name off and the operator's
+         *     1-5 weight (display only, never a call input).
+         */
+        TickerLookupLinkOut: {
+            /** Link */
+            link: string | null;
+            /** Thesis Fit */
+            thesis_fit: string | null;
+            /** Authored By */
+            authored_by: string;
+            /** Signed Off */
+            signed_off: boolean;
+            /** Weight */
+            weight: number | null;
+        };
+        /** TickerLookupMemberGapOut */
+        TickerLookupMemberGapOut: {
+            /** Member */
+            member: string;
+            /** Label */
+            label: string;
+            /** Note */
+            note: string;
+        };
+        /** TickerLookupNotListedOut */
+        TickerLookupNotListedOut: {
+            /** Fold */
+            fold: ("form4" | "prospectus" | "ownership") | null;
+            /** Rows */
+            rows: number;
+            /** Older Than */
+            older_than: string | null;
+        };
+        /**
+         * TickerLookupOut
+         * @description The whole page for one company. ``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was
+         *     public by the end of that date). ``catalyst_facts`` = the company's own catalyst facts (also rows of the
+         *     filing reader, listed here once); ``card_catalysts`` = the thesis-level catalysts of the cards it counts on.
+         *     ``cache`` / ``compute_ms`` = whether the page came from the shared dashboard cache and how long it took when
+         *     computed.
+         */
+        TickerLookupOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Clock
+             * @enum {string}
+             */
+            clock: "record" | "public";
+            identity: components["schemas"]["TickerLookupIdentityOut"];
+            cards: components["schemas"]["TickerLookupCardsOut"];
+            triggers: components["schemas"]["TickerLookupTriggersOut"];
+            tape: components["schemas"]["TickerLookupTapeOut"];
+            filings: components["schemas"]["TickerLookupFilingsOut"];
+            /** Catalyst Facts */
+            catalyst_facts: components["schemas"]["TickerLookupFilingOut"][];
+            /** Card Catalysts */
+            card_catalysts: components["schemas"]["TickerLookupCardCatalystOut"][];
+            /** Decisions */
+            decisions: components["schemas"]["TickerLookupDecisionOut"][];
+            /** Decisions Voided */
+            decisions_voided: number;
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * TickerLookupPlaceOut
+         * @description The company's part in the recorded call in effect: ``armed`` (verdict, grade, setup strength), ``watch``,
+         *     ``triggers`` (live entry triggers; ``turns`` = the keys they turn), ``none``, ``not_counted`` (Context or
+         *     Bench) or ``no_record`` (the card has no recorded call yet).
+         */
+        TickerLookupPlaceOut: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "armed" | "watch" | "triggers" | "none" | "not_counted" | "no_record";
+            /** Verdict */
+            verdict: string | null;
+            /** Grade */
+            grade: string | null;
+            /** Strength */
+            strength: number | null;
+            /** Live Triggers */
+            live_triggers: number;
+            /** Turns */
+            turns: string[];
+            /** Live Risks */
+            live_risks: number;
+        };
+        /**
+         * TickerLookupResolveOut
+         * @description A typed ticker resolved to its company. ``matched``: ``ticker`` (the master's current ticker) or
+         *     ``former`` (a former ticker the company was renamed from; only when asked for).
+         */
+        TickerLookupResolveOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Name */
+            name: string | null;
+            /**
+             * Matched
+             * @enum {string}
+             */
+            matched: "ticker" | "former";
+        };
+        /** TickerLookupSourceOut */
+        TickerLookupSourceOut: {
+            /** Source */
+            source: string;
+            /** Ref */
+            ref: string;
+            /** Url */
+            url: string | null;
+            /** Detail */
+            detail: string[];
+        };
+        /**
+         * TickerLookupSparklineOut
+         * @description The company's last closes and IWM's on the same sessions, both indexed to 100 at the first session both
+         *     have a bar (``null`` = no bar that session).
+         */
+        TickerLookupSparklineOut: {
+            /** Dates */
+            dates: string[];
+            /** Stock */
+            stock: (number | null)[];
+            /** Iwm */
+            iwm: (number | null)[];
+            /** Bars */
+            bars: number;
+            /** Iwm Bars */
+            iwm_bars: number;
+            /** Note */
+            note: string | null;
+        };
+        /** TickerLookupTapeOut */
+        TickerLookupTapeOut: {
+            /** Figures */
+            figures: components["schemas"]["TickerLookupFigureOut"][];
+            /** Leading */
+            leading: string[];
+            /** Coiling */
+            coiling: boolean;
+            /** Coiling Detail */
+            coiling_detail: string | null;
+            /** Headline Notes */
+            headline_notes: string[];
+            /** Gaps */
+            gaps: components["schemas"]["TickerLookupMemberGapOut"][];
+            /** Members Read */
+            members_read: number;
+            /** Members Without */
+            members_without: number;
+            /** Figures Blank */
+            figures_blank: number;
+            sparkline: components["schemas"]["TickerLookupSparklineOut"] | null;
+            /** Window End */
+            window_end: string | null;
+        };
+        /**
+         * TickerLookupTriggerOut
+         * @description One trigger the recorded calls show on the company (identity: role, kind, fire date; the label is not part
+         *     of it). ``recorded_on`` = the first night in the window the record shows it; ``label`` = its label that night
+         *     and ``label_changes`` = how many distinct other labels the record showed for it from then through the
+         *     as-of; ``recorded_after_days`` = how far that trails the fire date; ``turns`` = the key an entry trigger
+         *     turns; ``live`` = still on the card in effect at the as-of.
+         */
+        TickerLookupTriggerOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /** Ticker */
+            ticker: string;
+            /**
+             * Recorded On
+             * Format: date
+             */
+            recorded_on: string;
+            /** Reconstructed */
+            reconstructed: boolean;
+            /** Event Date */
+            event_date: string | null;
+            /** Recorded After Days */
+            recorded_after_days: number | null;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "entry_trigger" | "risk_signal";
+            /** Kind */
+            kind: string;
+            /** Grade */
+            grade: string | null;
+            /** Label */
+            label: string;
+            /** Label Changes */
+            label_changes: number;
+            /** Turns */
+            turns: ("conviction" | "confirmation") | null;
+            /** Sources */
+            sources: components["schemas"]["TickerLookupSourceOut"][];
+            /** Live */
+            live: boolean;
+        };
+        /** TickerLookupTriggersOut */
+        TickerLookupTriggersOut: {
+            /**
+             * Window Start
+             * Format: date
+             */
+            window_start: string;
+            /** Events */
+            events: components["schemas"]["TickerLookupTriggerOut"][];
+            /** Cards Read */
+            cards_read: number;
+            /** Nights Read */
+            nights_read: number;
+            /** Reconstructed Nights */
+            reconstructed_nights: number;
+            /** Before Window Live */
+            before_window_live: number;
+        };
+        /**
          * Tier
          * @enum {string}
          */
@@ -13100,6 +15670,313 @@ export interface components {
             recommended_tier: components["schemas"]["TermTier"];
             /** Reason */
             reason: string;
+        };
+        /**
+         * TrackCapOut
+         * @description The approximate market cap (USD) AT THE EVENT and its tier: the as-traded close of the last session before the
+         *     arm date times the newest share count whose cover date is before it (``close_date`` / ``shares_date`` are those
+         *     two dates), ``ads_ratio`` applied when known, ``split_factor`` = the multiplier put on the count when a split in
+         *     force sits between the count's date and the close's. ``gap`` says why a cap could not be pinned (``null`` when it
+         *     is); ``tier`` is ``null`` then.
+         */
+        TrackCapOut: {
+            /** Value */
+            value: number | null;
+            tier: components["schemas"]["CapTier"] | null;
+            /** Gap */
+            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
+            /** Note */
+            note: string | null;
+            /** Close */
+            close: number | null;
+            /** Close Date */
+            close_date: string | null;
+            /** Shares */
+            shares: number | null;
+            /** Shares Date */
+            shares_date: string | null;
+            /** Ads Ratio */
+            ads_ratio: number | null;
+            /** Split Factor */
+            split_factor: number | null;
+        };
+        /**
+         * TrackCellOut
+         * @description One table cell: n, how many were above zero (``held``) and the hit rate, the median and the quartiles of the
+         *     excess (the raw return under "raw"), the medians of the names' and the benchmark's raw returns over the same
+         *     episodes, and ``no_comparison`` = counted spans left out because the comparison had no bar. ``too_small`` = n is
+         *     under ``min_n``: read nothing from it.
+         */
+        TrackCellOut: {
+            /** N */
+            n: number;
+            /** Held */
+            held: number;
+            /** Hit Rate */
+            hit_rate: number | null;
+            /** Median */
+            median: number | null;
+            /** Q1 */
+            q1: number | null;
+            /** Q3 */
+            q3: number | null;
+            /** Name Median */
+            name_median: number | null;
+            /** Bench Median */
+            bench_median: number | null;
+            /** No Comparison */
+            no_comparison: number;
+            /** Too Small */
+            too_small: boolean;
+        };
+        /**
+         * TrackCountsOut
+         * @description What the page rests on. ``episodes`` = every Scoreboard episode in the record at the as-of; ``counted`` = those
+         *     in the cells; ``left_out_*`` = those set aside, each episode once (flagged price history first, then censored
+         *     start, then ingest flag); ``unpinned_cap`` / ``unpinned_liquidity`` = counted episodes with no cap tier / no
+         *     liquidity band; ``arm_night`` / ``next_session`` = per horizon, how the counted episodes read.
+         */
+        TrackCountsOut: {
+            /** Episodes */
+            episodes: number;
+            /** Counted */
+            counted: number;
+            /** Left Out Flagged */
+            left_out_flagged: number;
+            /** Left Out Censored */
+            left_out_censored: number;
+            /** Left Out Ingest */
+            left_out_ingest: number;
+            /** Unpinned Cap */
+            unpinned_cap: number;
+            /** Unpinned Liquidity */
+            unpinned_liquidity: number;
+            /** Arm Night */
+            arm_night: {
+                [key: string]: components["schemas"]["TrackHorizonCountOut"];
+            };
+            /** Next Session */
+            next_session: {
+                [key: string]: components["schemas"]["TrackHorizonCountOut"];
+            };
+        };
+        /**
+         * TrackEditionOut
+         * @description A Scoreboard edition: 0 = the original record (the calls log); N >= 1 = a stored re-run.
+         */
+        TrackEditionOut: {
+            /** Number */
+            number: number;
+            /** Label */
+            label: string;
+        };
+        /**
+         * TrackEntryOut
+         * @description One entry rule's read of an episode: the entry bar (``null`` when the name has none yet) and a ``TrackSpanOut``
+         *     per horizon (``h5`` / ``h10`` / ``h20`` / ``h60``: sessions of the name's own bars after the entry bar;
+         *     ``exit_by``: the last bar on or before the episode's own ``exit_by``).
+         */
+        TrackEntryOut: {
+            /** Entry Date */
+            entry_date: string | null;
+            /** Entry Close */
+            entry_close: number | null;
+            /** Spans */
+            spans: {
+                [key: string]: components["schemas"]["TrackSpanOut"];
+            };
+        };
+        /**
+         * TrackFlaggedOut
+         * @description A company on a Scoreboard episode whose data flags reach its price readings at the as-of (``reason`` = the
+         *     flags' labels): its episodes are left out of every cell.
+         */
+        TrackFlaggedOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * TrackHorizonCountOut
+         * @description How the counted episodes read at one horizon of one entry rule.
+         */
+        TrackHorizonCountOut: {
+            /** Counted */
+            counted: number;
+            /** Maturing */
+            maturing: number;
+            /** Path Ended */
+            path_ended: number;
+            /** None */
+            none: number;
+        };
+        /**
+         * TrackRecordOut
+         * @description The Track Record at the as-of: every episode's row (newest arm first), the counts, the companies left out for a
+         *     flagged price history and the opening table (IWM, the arm-night entry, by cap tier, every armed member; the page
+         *     recomputes any other reading from ``rows`` with the same arithmetic). ``edition`` and the two policies are the
+         *     Scoreboard's own (``annotated_policy`` / ``late_policy``: ``included`` | ``excluded`` | ``n/a`` for a stored
+         *     edition, which has no such rows). ``edition`` is the one READ (the record when the request named none);
+         *     ``newest_edition`` is the newest PUBLISHED edition (``null`` when none is), which the page offers beside the
+         *     record. ``market_source`` = whose bar dates are the market's session clock;
+         *     ``benchmarks_missing`` = a benchmark with no bar at the as-of; ``stale_days`` = how far a name's tape may sit
+         *     behind the market before an unreached horizon reads path ended; ``min_n`` = the smallest n a cell may be read
+         *     at. ``cards`` = cards with a recorded call, ``cards_unreadable`` = cards whose record could not be read.
+         *     ``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was public by the end of that date).
+         *     ``cache`` / ``compute_ms`` = whether the read came from the shared dashboard cache and how long it took.
+         */
+        TrackRecordOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Clock
+             * @enum {string}
+             */
+            clock: "record" | "public";
+            edition: components["schemas"]["TrackEditionOut"];
+            newest_edition: components["schemas"]["TrackEditionOut"] | null;
+            /**
+             * Annotated Policy
+             * @enum {string}
+             */
+            annotated_policy: "included" | "excluded" | "n/a";
+            /**
+             * Late Policy
+             * @enum {string}
+             */
+            late_policy: "included" | "excluded" | "n/a";
+            /** Horizons */
+            horizons: string[];
+            /** Min N */
+            min_n: number;
+            /** Market Source */
+            market_source: ("SPY" | "IWM") | null;
+            /** Benchmarks Missing */
+            benchmarks_missing: string[];
+            /** Stale Days */
+            stale_days: number;
+            /** Cards */
+            cards: number;
+            /** Cards Unreadable */
+            cards_unreadable: number;
+            counts: components["schemas"]["TrackCountsOut"];
+            /** Rows */
+            rows: components["schemas"]["TrackRowOut"][];
+            /** Flagged */
+            flagged: components["schemas"]["TrackFlaggedOut"][];
+            /** Opening */
+            opening: components["schemas"]["TrackTableRowOut"][];
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * TrackRowOut
+         * @description One Scoreboard arm episode: identity, the entry attributes the filter chips use, the cap and liquidity at the
+         *     event and both entry rules' reads. ``left_out`` (``flagged`` | ``censored_start`` | ``ingest_flagged``) = the
+         *     episode is in no cell (its reason in ``left_out_note``) and carries identity only. ``liquidity`` is the 20-day
+         *     average dollar volume band at the event (``under_1m`` | ``1m_10m`` | ``10m_plus``; ``null`` when fewer than 20
+         *     volume-bearing sessions precede it).
+         */
+        TrackRowOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /**
+             * Arm Date
+             * Format: date
+             */
+            arm_date: string;
+            /** Exit By */
+            exit_by: string | null;
+            /** Arm Until */
+            arm_until: string | null;
+            /** Close Reason */
+            close_reason: string;
+            /** Is Headline */
+            is_headline: boolean;
+            /** Key1 Source */
+            key1_source: string | null;
+            /** Entry Grade */
+            entry_grade: string | null;
+            /** Confirmation Grade */
+            confirmation_grade: string | null;
+            /** Co Arm Bucket */
+            co_arm_bucket: string;
+            /** Left Out */
+            left_out: ("flagged" | "censored_start" | "ingest_flagged") | null;
+            /** Left Out Note */
+            left_out_note: string | null;
+            cap: components["schemas"]["TrackCapOut"] | null;
+            /** Adv Usd */
+            adv_usd: number | null;
+            /** Liquidity */
+            liquidity: string | null;
+            arm_night: components["schemas"]["TrackEntryOut"] | null;
+            next_session: components["schemas"]["TrackEntryOut"] | null;
+        };
+        /**
+         * TrackSpanOut
+         * @description One horizon of one entry rule. ``counted``: the name's return from the entry close to the horizon bar's close
+         *     (as traded, no dividends), with IWM's and SPY's returns over the same two dates (``null`` when that benchmark has
+         *     no bar on one of them). ``maturing``: the horizon has not arrived yet. ``path_ended``: the market has had the
+         *     sessions and the name's bars stop short of them (a delisting, a halt, a stale tape). ``none``: nothing to measure
+         *     (no ``exit_by``, or no session between the entry and it). Only ``counted`` carries numbers. Returns are
+         *     fractions (0.05 = 5%).
+         */
+        TrackSpanOut: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "counted" | "maturing" | "path_ended" | "none";
+            /** End Date */
+            end_date: string | null;
+            /** Ret */
+            ret: number | null;
+            /** Iwm */
+            iwm: number | null;
+            /** Spy */
+            spy: number | null;
+        };
+        /**
+         * TrackTableRowOut
+         * @description One row of the opening table: the slice key (a cap tier, ``unpinned``, or ``pooled`` LAST), its counted
+         *     episodes and a cell per horizon.
+         */
+        TrackTableRowOut: {
+            /** Key */
+            key: string;
+            /** Episodes */
+            episodes: number;
+            /** Cells */
+            cells: {
+                [key: string]: components["schemas"]["TrackCellOut"];
+            };
         };
         /**
          * TransitionOut
@@ -13165,6 +16042,256 @@ export interface components {
             state: {
                 [key: string]: unknown;
             };
+        };
+        /**
+         * TriggerLogCountsOut
+         * @description The work shown on the quiet line: counts of what was read and listed, never a statistic over the rows'
+         *     returns. ``entry_rows`` / ``risk_rows`` = rows listed by role (zero for a role not loaded);
+         *     ``other_role_rows`` = the rows the role(s) NOT loaded would list (0 when ``role`` is ``both``);
+         *     ``cards_quiet`` = cards with a call by the as-of but no night in the window; ``carried_live`` = live
+         *     triggers of the loaded role(s) first recorded before the window (not listed); ``names_*`` = distinct names.
+         */
+        TriggerLogCountsOut: {
+            /** Cards Counted */
+            cards_counted: number;
+            /** Cards With Nights */
+            cards_with_nights: number;
+            /** Cards Quiet */
+            cards_quiet: number;
+            /** Cards No Call */
+            cards_no_call: number;
+            /** Live Cards */
+            live_cards: number;
+            /** Not Yet Created */
+            not_yet_created: number;
+            /** Roster Fallback */
+            roster_fallback: number;
+            /** Nights Read */
+            nights_read: number;
+            /** Nights Reconstructed */
+            nights_reconstructed: number;
+            /** Nights Unreadable */
+            nights_unreadable: number;
+            /** Entry Rows */
+            entry_rows: number;
+            /** Risk Rows */
+            risk_rows: number;
+            /** Other Role Rows */
+            other_role_rows: number;
+            /** Carried Live */
+            carried_live: number;
+            /** Names Unpriced */
+            names_unpriced: number;
+            /** Names Flagged */
+            names_flagged: number;
+            /** Rows No Ticker */
+            rows_no_ticker: number;
+        };
+        /**
+         * TriggerLogDays
+         * @description The window: the last 30, 90 or 180 days.
+         * @enum {integer}
+         */
+        TriggerLogDays: 30 | 90 | 180;
+        /**
+         * TriggerLogNameOut
+         * @description A name the page set aside from the tape, never from the list: ``reason`` = the flags' labels for a flagged
+         *     one, ``null`` for an unpriced one. ``ticker`` is ``null`` when neither the roster nor the master has one.
+         */
+        TriggerLogNameOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string | null;
+            /** Reason */
+            reason: string | null;
+        };
+        /**
+         * TriggerLogOut
+         * @description The whole page at the as-of. ``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was
+         *     public by the end of that date). ``role`` = which role(s) ``rows`` hold: ``entry`` (the default), ``risk`` or
+         *     ``both``. The window is ``window_start`` to ``asof``, inclusive; ``rows`` are
+         *     newest recorded night first, then ticker. There is no aggregate over the rows (the Track Record page slices
+         *     outcomes by market-cap tier). ``cache`` / ``compute_ms`` = whether the read came from the shared dashboard
+         *     cache and how long it took when computed.
+         */
+        TriggerLogOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /** Window Days */
+            window_days: number;
+            /**
+             * Window Start
+             * Format: date
+             */
+            window_start: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "entry" | "risk" | "both";
+            /**
+             * Clock
+             * @enum {string}
+             */
+            clock: "record" | "public";
+            /** Rows */
+            rows: components["schemas"]["TriggerLogRowOut"][];
+            counts: components["schemas"]["TriggerLogCountsOut"];
+            sessions: components["schemas"]["TriggerLogSessionsOut"];
+            /** Unpriced */
+            unpriced: components["schemas"]["TriggerLogNameOut"][];
+            /** Flagged */
+            flagged: components["schemas"]["TriggerLogNameOut"][];
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * TriggerLogRowOut
+         * @description One trigger on one card, dated by the first night in the window the record shows it. The same security,
+         *     kind and fire date within a role is one row whatever its label did night to night: ``label`` = the label of the
+         *     first recorded night, ``label_changes`` = how many distinct other labels the record showed for it from that
+         *     night on (a label can carry that night's numbers). ``event_date`` = the
+         *     fire date (``null`` = undated); ``recorded_days_after`` = days from the fire date to the recorded night when
+         *     the fire date is earlier; ``week`` = the Monday of the recorded night's week; ``turns`` = the key an entry
+         *     trigger turns (``null`` for a risk signal or a kind neither key takes); ``from_state`` / ``to_state`` = the
+         *     card's recorded state on the previous recorded night and on this one (``new_card`` = no earlier row);
+         *     ``live`` = the same trigger is on the card in effect at the as-of (``null`` = that card could not be read);
+         *     ``newest`` = the recorded night is the as-of's own night; ``sessions_since`` = the sessions the since-return
+         *     spans on IWM's calendar (``null`` = none); ``reconstructed`` = written by ``pipeline.backfill`` (reported,
+         *     never scored).
+         */
+        TriggerLogRowOut: {
+            /** Key */
+            key: string;
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string | null;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "entry_trigger" | "risk_signal";
+            kind: components["schemas"]["Kind"];
+            grade: components["schemas"]["Grade"] | null;
+            /** Turns */
+            turns: ("conviction" | "confirmation") | null;
+            /** Label */
+            label: string;
+            /** Label Changes */
+            label_changes: number;
+            /** Event Date */
+            event_date: string | null;
+            /**
+             * Recorded On
+             * Format: date
+             */
+            recorded_on: string;
+            /**
+             * Week
+             * Format: date
+             */
+            week: string;
+            /** Recorded Days After */
+            recorded_days_after: number | null;
+            /** Reconstructed */
+            reconstructed: boolean;
+            from_state: components["schemas"]["State"] | null;
+            to_state: components["schemas"]["State"];
+            /** New Card */
+            new_card: boolean;
+            /** Live */
+            live: boolean | null;
+            /** Newest */
+            newest: boolean;
+            /** Sessions Since */
+            sessions_since: number | null;
+            since: components["schemas"]["TriggerLogSinceOut"];
+            /** Sources */
+            sources: components["schemas"]["TriggerLogSourceOut"][];
+        };
+        /**
+         * TriggerLogSessionsOut
+         * @description The session calendar the sessions-since counts on: IWM's bar dates ending at the as-of (``source`` =
+         *     ``benchmarks``; ``companies`` / ``none`` when IWM has no bar).
+         */
+        TriggerLogSessionsOut: {
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "benchmarks" | "companies" | "none";
+            /** Count */
+            count: number;
+            /** First */
+            first: string | null;
+            /** Last */
+            last: string | null;
+        };
+        /**
+         * TriggerLogSinceOut
+         * @description The name's as-traded return from the first close on or after the recorded night to the last close on or
+         *     before the as-of, with IWM on the same two dates. ``priced`` = both bars exist; ``unpriced`` = no bar since the
+         *     recorded night; ``flagged`` = the name's price history is on the flagged-price list (``reason``, never
+         *     priced). ``bench_ret`` is ``null`` when IWM has no bar on one of those two dates. Returns are fractions (0.05 = +5%).
+         */
+        TriggerLogSinceOut: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "priced" | "unpriced" | "flagged";
+            /** Reason */
+            reason: string | null;
+            /** Entry Date */
+            entry_date: string | null;
+            /** End Date */
+            end_date: string | null;
+            /** Ret */
+            ret: number | null;
+            /** Bench Ret */
+            bench_ret: number | null;
+        };
+        /**
+         * TriggerLogSourceOut
+         * @description A place a trigger points at. ``source`` = the kind as stored (``form4``, ``price``, ``xbrl``), ``ref`` =
+         *     its reference, ``url`` = a link (an accession through the EDGAR index with the issuer's CIK, or a stored
+         *     URL; ``null`` = none known), ``bar_date`` = the bar a ``price:`` reference names (text, never a link),
+         *     ``detail`` = the computation's inputs as stored, one ``key: value`` line each.
+         */
+        TriggerLogSourceOut: {
+            /** Source */
+            source: string;
+            /** Ref */
+            ref: string | null;
+            /** Url */
+            url: string | null;
+            /** Bar Date */
+            bar_date: string | null;
+            /** Detail */
+            detail: string[];
         };
         /** TriggerRefOut */
         TriggerRefOut: {
@@ -15927,6 +19054,38 @@ export interface operations {
             };
         };
     };
+    entry_windows_page_dashboards_entry_windows_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; nothing recorded or published after it is read */
+                asof: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntryWindowsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     evidence_ledger_cards_dashboards_evidence_ledger_cards_get: {
         parameters: {
             query: {
@@ -16061,6 +19220,38 @@ export interface operations {
             };
         };
     };
+    forming_quietly_dashboards_forming_quietly_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; only what was recorded and public by then is read */
+                asof: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FormingQuietlyOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     multiples_cards_dashboards_fundamentals_multiples_cards_get: {
         parameters: {
             query: {
@@ -16127,6 +19318,38 @@ export interface operations {
             };
         };
     };
+    hot_board_dashboards_hot_board_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; only what was recorded and public by then is read */
+                asof: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HotBoardOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     idea_timeline_dashboards_idea_timeline_get: {
         parameters: {
             query?: never;
@@ -16143,6 +19366,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["IdeaTimelineOut"];
+                };
+            };
+        };
+    };
+    insider_tracker_page_dashboards_insider_tracker_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; no filing, night or bar public after it is read */
+                asof: string;
+                /** @description the window by filing date: the last 30 | 90 days */
+                days?: components["schemas"]["InsiderTrackerDays"];
+                /** @description also read the names the cards hold in Context and Bench (tagged; off by default) */
+                silent?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InsiderTrackerOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -16206,6 +19465,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LeadersOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    adoption_cards_dashboards_narrative_adoption_cards_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; only the cards that existed by then are listed */
+                asof: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdoptionCardsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    adoption_for_card_dashboards_narrative_adoption__thesis_id__get: {
+        parameters: {
+            query: {
+                /** @description as-of date; nothing published after it is read */
+                asof: string;
+            };
+            header?: never;
+            path: {
+                thesis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdoptionOut"];
                 };
             };
             /** @description Validation Error */
@@ -16484,6 +19809,180 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SharedNamesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    theme_leaderboard_dashboards_theme_leaderboard_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; only what was recorded and public by then is read */
+                asof: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaderboardOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ticker_lookup_resolve_dashboards_ticker_lookup_resolve_get: {
+        parameters: {
+            query: {
+                /** @description the ticker to resolve */
+                t: string;
+                /** @description also match a FORMER ticker (a company renamed in place), exactly */
+                former?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TickerLookupResolveOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ticker_lookup_dashboards_ticker_lookup__security_id__get: {
+        parameters: {
+            query: {
+                /** @description as-of date; nothing public after it is read */
+                asof: string;
+            };
+            header?: never;
+            path: {
+                security_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TickerLookupOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    track_record_dashboards_track_record_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; nothing published after it is read */
+                asof: string;
+                /** @description which Scoreboard EDITION to read: 0 (the default) = the original record (the calls log); N >= 1 = the stored re-run Edition N (404 if it does not exist). Unlike the Scoreboard, a request that names no edition reads the record, not the newest published edition, while the editions nightly is paused; the response's `newest_edition` names the newest published one */
+                edition?: number;
+                /** @description the Scoreboard's annotated-night reading: true = keep rows annotated `exclude` (phantom arms); false = set them aside; omitted = the server setting. The response names the reading used */
+                include_annotated?: boolean | null;
+                /** @description the Scoreboard's late-night reading: true = keep rows recorded after their night's next EDGAR open; false = set them aside; omitted = the server setting. The response names the reading used */
+                include_late?: boolean | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrackRecordOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    trigger_log_page_dashboards_trigger_log_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; no night recorded after it and no bar public after it is read */
+                asof: string;
+                /** @description the window: the last 30 | 90 | 180 days */
+                days?: components["schemas"]["TriggerLogDays"];
+                /** @description which role to load: entry (the default) | risk | both. Risk signals are the bulk of the record, so each choice is its own read; counts.other_role_rows says how many rows the other role holds */
+                role?: "entry" | "risk" | "both";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TriggerLogOut"];
                 };
             };
             /** @description Validation Error */

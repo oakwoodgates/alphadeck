@@ -1,0 +1,109 @@
+/* Theme Leaderboard (docs/dashboards/theme-leaderboard.md) — its own sheet, imported by the component, never
+   index.css (docs/DASHBOARDS.md rule 8). The trading set's TAPE look: dense rows about 26 px high, tabular numerals in
+   the mono font for every figure, a sticky header, no cards and no chrome, a hairline between rows, the quiet work
+   lines around the table, filters as text chips. Tone: the sign tone (the app's --pos / --neg mixed 55% into gray, the
+   Hot Board's recipe) only on the signed tape figures; the Board's state colors only on a state chip. NO accent on this
+   page: it has no exception to mark. The score is a short gray bar behind its number, never a color. Nothing bold but
+   the card name. On a phone each row wraps: the score, the card and its state on the first line, the parts under them.
+   Colors are the app's tokens only. */
+
+.tl {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 1700px;
+  --tl-pos: color-mix(in srgb, var(--pos) 55%, var(--txt-3));
+  --tl-neg: color-mix(in srgb, var(--neg) 55%, var(--txt-3));
+  --tl-row: 26px;
+}
+
+.tl-framing { font-size: 11px; line-height: 1.5; color: var(--txt-2); max-width: 900px; }
+
+.tl-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; }
+.tl-field { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.tl-seg-label { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); margin-right: 2px; }
+.tl-chip { font: inherit; font-size: 11px; color: var(--txt-3); background: transparent; border: 0; border-bottom: 1px solid transparent; padding: 0 2px; cursor: pointer; }
+.tl-chip:hover { color: var(--txt-2); }
+.tl-chip.on { color: var(--txt); border-bottom-color: var(--txt-3); }
+.tl-check { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--txt-3); cursor: pointer; }
+.tl-check input { accent-color: var(--txt-3); }
+.tl-search { font: inherit; font-size: 11.5px; color: var(--txt-2); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 1px 8px; width: 170px; }
+.tl-search::placeholder { color: var(--txt-4); }
+.tl-clear { font: inherit; font-size: 11px; color: var(--txt-3); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.tl-clear:hover { color: var(--txt); }
+
+.tl-work { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
+.tl-formula { font-size: 10.5px; line-height: 1.5; color: var(--txt-3); max-width: 1100px; }
+.tl-limits { margin: 4px 0 0; padding-left: 16px; font-size: 10.5px; line-height: 1.5; color: var(--txt-4); }
+.tl-empty { padding: 14px 0; }
+
+/* the table: scrolls inside its wrapper in both directions, so the header sticks to the wrapper's top */
+.tl-scroll { overflow: auto; max-height: 78vh; border-top: 1px solid var(--line); }
+table.tl-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 11.5px; font-variant-numeric: tabular-nums; }
+table.tl-table th {
+  position: sticky; top: 0; z-index: 2; background: var(--bg);
+  text-align: left; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); font-weight: 600;
+  padding: 5px 12px 5px 0; border-bottom: 1px solid var(--line-2); white-space: nowrap; vertical-align: bottom;
+}
+table.tl-table td {
+  height: var(--tl-row); padding: 0 12px 0 0; border-bottom: 1px solid var(--line);
+  white-space: nowrap; vertical-align: middle; color: var(--txt-2); font-family: var(--mono);
+}
+table.tl-table tbody tr:hover td { background: color-mix(in srgb, var(--panel) 60%, transparent); }
+table.tl-table .tl-num { text-align: right; padding-right: 14px; }
+table.tl-table th.tl-num .tl-sort { text-align: right; }
+.tl-sort { font: inherit; font-size: inherit; letter-spacing: inherit; text-transform: inherit; font-weight: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+.tl-sort:hover, .tl-sort.on { color: var(--txt-2); }
+.tl-sort:focus-visible { outline: 1px solid var(--line-2); outline-offset: 2px; border-radius: 2px; }
+
+.tl-td-card { min-width: 190px; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+.tl-card { font-family: var(--mono); font-size: 11.5px; font-weight: 700; color: var(--txt-2); background: none; border: 0; padding: 0; cursor: pointer; max-width: 300px; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; text-align: left; }
+.tl-card:hover { color: var(--txt); text-decoration: underline; text-underline-offset: 2px; }
+
+/* the state chip: the Board's state color, the one color on the page */
+.tl-state { font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--txt-4); cursor: help; }
+.tl-state.armed { color: var(--armed); }
+.tl-state.warming { color: var(--warm); }
+.tl-state.managing { color: var(--manage); }
+.tl-state.incubating { color: var(--incub); }
+.tl-mark { margin-left: 5px; font-size: 9px; letter-spacing: 0.06em; color: var(--txt-3); cursor: help; }
+
+/* the score: a short gray bar behind its number, never a color */
+.tl-score { position: relative; display: inline-block; width: 52px; height: 16px; text-align: right; cursor: help; }
+.tl-score-bar { position: absolute; left: 0; top: 2px; bottom: 2px; background: color-mix(in srgb, var(--txt-4) 45%, transparent); border-radius: 1px; }
+.tl-score-n { position: relative; padding-right: 3px; font-size: 11.5px; color: var(--txt-2); }
+.tl-score-n.gray { color: var(--txt-4); }
+
+/* the number cells: a plain figure, a signed tape figure's sign tinted well toward gray, a reason or a blank gray */
+.tl-cell { font-family: var(--mono); font-size: 11.5px; color: var(--txt-2); cursor: default; }
+.tl-cell[title] { cursor: help; }
+.tl-cell.pos { color: var(--tl-pos); }
+.tl-cell.neg { color: var(--tl-neg); }
+.tl-cell.gray { color: var(--txt-4); font-size: 10.5px; }
+.tl-note { margin-left: 6px; font-size: 9.5px; color: var(--txt-4); cursor: help; }
+
+/* a phone: the table becomes one block per card. The score, the card and its state share the first line; the cells
+   follow under them, three to a line, each with its column label above it */
+@media (max-width: 640px) {
+  .tl-controls { gap: 6px 12px; }
+  .tl-search { width: 140px; }
+  .tl-scroll { overflow: visible; max-height: none; }
+  table.tl-table, table.tl-table tbody { display: block; }
+  table.tl-table thead { display: none; }
+  table.tl-table tr.tl-row {
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px 12px; align-items: start;
+    padding: 8px 0; border-bottom: 1px solid var(--line);
+  }
+  table.tl-table tbody tr:hover td { background: transparent; }
+  table.tl-table td { display: block; height: auto; padding: 0; border-bottom: 0; white-space: normal; text-align: left; }
+  table.tl-table td.tl-num { text-align: left; padding-right: 0; }
+  table.tl-table td::before {
+    content: attr(data-label); display: block; font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4);
+  }
+  table.tl-table td.tl-td-score { grid-row: 1; grid-column: 1; }
+  table.tl-table td.tl-td-card { grid-row: 1; grid-column: 2; max-width: none; min-width: 0; }
+  table.tl-table td.tl-td-state { grid-row: 1; grid-column: 3; }
+  .tl-card { max-width: 100%; white-space: normal; }
+  .tl-score { text-align: left; }
+  .tl-score-n { padding-right: 0; padding-left: 3px; }
+}

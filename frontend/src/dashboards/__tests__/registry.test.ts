@@ -45,9 +45,18 @@ describe("the dashboard registry — the real entries", () => {
       "chain-map",
       "peer-table",
       "fundamentals-multiples",
+      "narrative-adoption",
       "evidence-ledger",
+      "hot-board",
+      "entry-windows",
+      "trigger-log",
+      "ticker-lookup",
+      "track-record",
+      "forming-quietly",
+      "theme-leaderboard",
+      "insider-tracker",
     ]);
-    expect(DASHBOARDS.map((d) => d.order)).toEqual([0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 180]);
+    expect(DASHBOARDS.map((d) => d.order)).toEqual([0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200, 210, 220, 230, 240, 250, 260]);
     expect(DASHBOARDS[0]).toMatchObject({ slug: "board", status: "core", layout: "fill", asofAware: true });
   });
 

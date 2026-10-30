@@ -1,0 +1,112 @@
+/* Entry Windows (docs/dashboards/entry-windows.md) — its own sheet, imported by the component, never index.css
+   (docs/DASHBOARDS.md rule 8). The trading set's TAPE look (docs/dashboards/hot-board.md §Look): dense rows,
+   tabular numerals in the mono font for every figure, a sticky header, no cards, no chrome, a hairline between
+   rows. Loudness marks the exception only (#7 / WB#3): the window bars are two grays, the as-of line is the only
+   line color, the sign tone (the app's positive and negative mixed 55% into gray, the Rotation Quadrant's recipe)
+   sits only on signed returns, and the page's ONE accent is the "sessions left" cell of a card whose own
+   entry_window_closing flag is set. Nothing is bold but the card's name. Colors are the app's tokens only. */
+
+.ew {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  --ew-pos: color-mix(in srgb, var(--pos) 55%, var(--txt-3));
+  --ew-neg: color-mix(in srgb, var(--neg) 55%, var(--txt-3));
+  --ew-asof: var(--leader);
+  --ew-accent: var(--warm);
+}
+.ew-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
+.ew-controls:empty { display: none; }
+.ew-check { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--txt-2); cursor: pointer; }
+.ew-check input { accent-color: var(--txt-3); margin: 0; }
+.ew-sort { display: inline-flex; align-items: center; gap: 6px; }
+.ew-seg-label { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); }
+.ew-select { font: inherit; font-size: 11.5px; color: var(--txt-2); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 7px; }
+.ew-select option { background: var(--panel); color: var(--txt-2); }
+
+/* the one readout line: a steady height, so hovering never moves the table */
+.ew-readout { min-height: 18px; font-family: var(--mono); font-size: 11px; line-height: 1.5; color: var(--txt-2); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.ew-prompt { color: var(--txt-4); font-family: inherit; }
+
+.ew-n { font-family: var(--mono); font-size: 9.5px; font-weight: 400; color: var(--txt-4); font-variant-numeric: tabular-nums; }
+
+/* the table: a sticky header over dense rows */
+.ew-table { border-collapse: collapse; width: 100%; font-size: 11.5px; color: var(--txt-2); }
+.ew-table th { position: sticky; top: 0; z-index: 2; background: var(--bg); text-align: left; font-size: 9.5px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); padding: 0 10px 4px 0; border-bottom: 1px solid var(--line); white-space: nowrap; vertical-align: bottom; }
+.ew-table th.ew-th-pic { padding: 0 10px 0 0; }
+.ew-table td { padding: 0 10px 0 0; vertical-align: middle; border-bottom: 1px solid var(--line); }
+.ew-row { cursor: pointer; outline: none; }
+.ew-row:hover td { background: color-mix(in srgb, var(--panel) 60%, transparent); }
+.ew-row:focus-visible td { background: var(--panel); }
+.ew-row:focus-visible td.ew-card { box-shadow: inset 2px 0 0 var(--txt-3); }
+
+/* the card cell: its name, the state, the setup strength, then the armed names as chips */
+.ew-card { min-width: 190px; max-width: 280px; padding: 4px 10px 4px 2px; }
+.ew-card-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+.ew-card-name { font: inherit; font-size: 12.5px; font-weight: 600; color: var(--txt); background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
+.ew-card-name:hover { text-decoration: underline; text-underline-offset: 3px; }
+.ew-state { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--txt-3); }
+/* the Board's state color only where it marks the minority: a Managing row among Armed ones */
+.ew-state.managing { color: var(--manage); }
+.ew-chips { display: flex; flex-wrap: wrap; gap: 3px 4px; margin-top: 2px; }
+.ew-chip { font-family: var(--mono); font-size: 10.5px; font-weight: 700; color: var(--txt-2); background: transparent; border: 1px solid var(--line-2); border-radius: 4px; padding: 0 5px; line-height: 16px; cursor: pointer; }
+.ew-chip:hover { color: var(--txt); border-color: var(--txt-3); }
+.ew-chip.flagged { opacity: 0.5; font-weight: 400; }
+
+/* the picture */
+.ew-pic { width: 440px; min-width: 440px; padding: 0 10px 0 0; }
+.ew-svg { display: block; overflow: visible; }
+.ew-grid { stroke: var(--line); stroke-width: 1; }
+.ew-axis-label { fill: var(--txt-4); font-family: var(--mono); font-size: 9px; }
+.ew-asof { stroke: var(--ew-asof); stroke-width: 1; }
+.ew-asof-label { fill: var(--ew-asof); font-family: var(--mono); font-size: 9px; }
+.ew-bar { stroke: none; }
+.ew-bar.entry { fill: var(--txt-2); }
+.ew-bar.hold { fill: var(--txt-3); }
+.ew-arm { stroke: var(--txt-2); stroke-width: 1; }
+.ew-tick { fill: var(--txt-2); stroke: var(--txt-2); stroke-width: 1; }
+.ew-tick.past { fill: var(--bg); }
+.ew-line { fill: none; stroke: var(--txt-2); stroke-width: 1.2; stroke-linejoin: round; }
+.ew-iwm { fill: none; stroke: var(--txt-4); stroke-width: 1; stroke-dasharray: 3 2; stroke-linejoin: round; }
+.ew-base { stroke: var(--line-2); stroke-width: 1; stroke-dasharray: 1 3; }
+
+/* the figures: mono, tabular, left-aligned under their headers */
+.ew-fig { font-family: var(--mono); font-variant-numeric: tabular-nums; min-width: 86px; max-width: 170px; padding-top: 3px; padding-bottom: 3px; }
+.ew-main { color: var(--txt-2); font-size: 11.5px; }
+.ew-sub { color: var(--txt-4); font-size: 9.5px; line-height: 1.4; }
+.ew-tag { color: var(--txt-3); }
+.ew-main.closing { color: var(--ew-accent); }
+.ew-main.pos, .ew-fig-n.pos { color: var(--ew-pos); }
+.ew-main.neg, .ew-fig-n.neg { color: var(--ew-neg); }
+
+/* the fold: one block per armed name, its triggers, and the catalysts as text */
+.ew-fold td { padding: 4px 10px 8px 14px; background: color-mix(in srgb, var(--panel) 45%, transparent); }
+.ew-members, .ew-trigs, .ew-cats { list-style: none; margin: 0; padding: 0; }
+.ew-members { display: flex; flex-direction: column; gap: 6px; }
+.ew-member-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
+.ew-member.flagged .ew-chip { opacity: 0.5; font-weight: 400; }
+.ew-fig-n { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); font-variant-numeric: tabular-nums; }
+.ew-trigs { margin: 1px 0 0 10px; display: flex; flex-direction: column; gap: 1px; }
+.ew-trig { font-size: 10.5px; color: var(--txt-3); overflow-wrap: anywhere; }
+.ew-src { color: var(--txt-3); text-decoration: underline; text-underline-offset: 2px; font-family: var(--mono); font-size: 10px; }
+a.ew-src:hover { color: var(--txt-2); }
+.ew-cats { margin-top: 6px; display: flex; flex-direction: column; gap: 1px; }
+.ew-fine { margin-top: 6px; font-size: 10px; color: var(--txt-4); }
+
+.ew-work { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
+.ew-legend { color: var(--txt-4); }
+.ew-limits { margin: 0; padding-left: 16px; font-size: 10.5px; line-height: 1.5; color: var(--txt-4); }
+
+/* a phone: the figures stack under the card name, and the picture scrolls sideways inside its own box */
+@media (max-width: 700px) {
+  .ew-table thead { display: none; }
+  .ew-table, .ew-table tbody { display: block; }
+  .ew-table tr.ew-row { display: flex; flex-wrap: wrap; align-items: flex-start; border-bottom: 1px solid var(--line); }
+  .ew-table tr.ew-row td { border-bottom: 0; }
+  .ew-table td.ew-card { flex: 0 0 100%; max-width: none; }
+  .ew-table td.ew-pic { flex: 0 0 100%; width: auto; min-width: 0; max-width: 100%; overflow-x: auto; }
+  .ew-table td.ew-fig { flex: 1 1 45%; max-width: none; padding-bottom: 4px; }
+  .ew-table td.ew-fig::before { content: attr(data-label); display: block; font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); }
+  .ew-table tr.ew-fold { display: block; }
+  .ew-table tr.ew-fold td { display: block; }
+}

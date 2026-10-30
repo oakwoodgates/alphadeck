@@ -1,0 +1,142 @@
+/* Insider Buying (docs/dashboards/insider-tracker.md) — its own sheet, imported by the component, never index.css
+   (docs/DASHBOARDS.md rule 8). The trading set's tape look (docs/dashboards/hot-board.md §Look): dense rows, mono
+   figures, a sticky header with the group headers sticky under it, no cards, a hairline between rows, the work
+   line quiet under the table. Loudness marks the exception only (#7 / WB#3): the page's ONE accent is the cluster
+   word, in --leader (the Leaders page's cluster tone: a blue no lifecycle state owns), because a cluster is the
+   exception among purchases; the sign tone (the app's positive and negative mixed 55% into gray, the Rotation
+   Quadrant's recipe) sits on the signed since-return only; tags and the trigger chips are gray words. Nothing is
+   bold but the ticker. */
+
+.ins {
+  --ins-pos: color-mix(in srgb, var(--pos) 55%, var(--txt-3));
+  --ins-neg: color-mix(in srgb, var(--neg) 55%, var(--txt-3));
+  --ins-accent: var(--leader);
+  --ins-cols: 78px 204px 58px minmax(70px, 120px) minmax(120px, 1fr) 104px 74px 62px 74px 128px 100px 150px 64px 58px 104px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ins-controls, .ins-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
+.ins-seg, .ins-field { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ins-seg-label { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); margin-right: 2px; }
+.ins-chipbtn { font: inherit; font-size: 11px; color: var(--txt-3); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 9px; cursor: pointer; }
+.ins-chipbtn:hover { color: var(--txt-2); }
+.ins-chipbtn.on { color: var(--txt); background: var(--panel-2); }
+.ins-select { font: inherit; font-size: 11.5px; color: var(--txt-2); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 7px; max-width: 280px; }
+.ins-select option { background: var(--panel); color: var(--txt-2); }
+.ins-n { font-family: var(--mono); font-size: 9.5px; font-weight: 400; color: var(--txt-4); font-variant-numeric: tabular-nums; }
+.ins-chipbtn .ins-n { color: inherit; opacity: 0.7; }
+.ins-clear { font: inherit; font-size: 11px; color: var(--txt-3); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 3px; }
+.ins-clear:hover { color: var(--txt-2); }
+.ins-empty { padding: 14px 0; }
+
+/* the table: its own scroll box, so the sticky header and group headers stick inside it */
+.ins-scroll { max-height: 72vh; overflow: auto; border-top: 1px solid var(--line); }
+.ins-table { min-width: 1600px; font-size: 11.5px; color: var(--txt-2); font-variant-numeric: tabular-nums; }
+.ins-head, .ins-row { display: grid; grid-template-columns: var(--ins-cols); align-items: center; gap: 0 8px; padding: 0 8px; }
+.ins-head { position: sticky; top: 0; z-index: 3; min-height: 26px; background: var(--bg); border-bottom: 1px solid var(--line); }
+.ins-h { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); font-weight: 600; white-space: nowrap; }
+.ins-h.ins-c-sh, .ins-h.ins-c-px, .ins-h.ins-c-usd, .ins-h.ins-c-since, .ins-h.ins-c-iwm { text-align: right; }
+.ins-gh { position: sticky; top: 26px; z-index: 2; background: var(--bg); border-bottom: 1px solid var(--line); padding: 0 8px; }
+.ins-gh-cell { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 10px; min-height: 26px; padding-top: 5px; font-size: 12px; font-weight: 400; color: var(--txt-2); letter-spacing: 0.02em; }
+.ins-cardname { font: inherit; color: var(--txt-2); background: none; border: 0; padding: 0; cursor: pointer; }
+.ins-cardname:hover { color: var(--txt); text-decoration: underline; text-underline-offset: 3px; }
+
+/* a row: about 26 px, a hairline under it, a quiet hover */
+.ins-row { min-height: 26px; border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
+.ins-row:hover { background: color-mix(in srgb, var(--panel) 70%, transparent); }
+.ins-c { min-width: 0; padding: 3px 0; line-height: 1.4; }
+.ins-c-filed, .ins-c-trade, .ins-c-sh, .ins-c-px, .ins-c-usd, .ins-c-cluster, .ins-c-since, .ins-c-iwm, .ins-c-cap { font-family: var(--mono); font-size: 10.5px; }
+.ins-c-filed { white-space: nowrap; display: flex; align-items: center; gap: 4px; }
+.ins-c-trade { white-space: nowrap; }
+.ins-c-sh, .ins-c-px, .ins-c-usd, .ins-c-since, .ins-c-iwm { text-align: right; white-space: nowrap; }
+.ins-c-since.ins-span { grid-column: span 2; white-space: normal; }
+.ins-c-cap { white-space: normal; }
+.ins-c-filer { overflow-wrap: anywhere; color: var(--txt-2); }
+.ins-c-role { color: var(--txt-3); overflow-wrap: anywhere; font-size: 11px; }
+.ins-c-card { display: flex; flex-wrap: wrap; gap: 2px 4px; overflow: hidden; }
+.ins-c-tags { display: flex; flex-wrap: wrap; gap: 0 6px; }
+.ins-c-trig { display: flex; flex-wrap: wrap; gap: 0 6px; font-size: 10.5px; }
+.ins-chip { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; font: inherit; font-size: 10px; color: var(--txt-3); background: none; border: 1px solid var(--line-2); border-radius: 6px; padding: 0 6px; cursor: pointer; }
+.ins-chip:hover { color: var(--txt-2); }
+.ins-silent { color: var(--txt-4); }
+.ins-tk { font-family: var(--mono); font-size: 11px; font-weight: 700; color: var(--txt-2); background: none; border: 0; padding: 0; cursor: pointer; }
+.ins-tk:hover { color: var(--txt); text-decoration: underline; text-underline-offset: 3px; }
+.ins-tk:disabled { cursor: default; }
+.ins-quiet { color: var(--txt-3); }
+.ins-note { margin-left: 6px; color: var(--txt-4); font-size: 9.5px; font-family: var(--sans); }
+.ins-form { color: var(--txt-4); font-size: 9.5px; }
+.ins-tag { color: var(--txt-3); font-size: 10.5px; }
+.ins-trig { color: var(--txt-3); cursor: help; }
+.ins-link, .ins-link:visited, .ins-link:active { color: var(--txt-2); text-decoration: none; }
+.ins-link:hover { color: var(--txt); text-decoration: underline; text-underline-offset: 3px; }
+.ins-chev { display: inline-block; width: 12px; color: var(--txt-4); font-size: 10px; background: none; border: 0; padding: 0; cursor: pointer; }
+.ins-chev:hover { color: var(--txt-2); }
+
+/* the one accent: the cluster word */
+.ins-cluster { color: var(--ins-accent); font-family: var(--mono); font-size: 10.5px; cursor: help; white-space: nowrap; }
+
+/* the sign tone: only on the signed since-return */
+.ins-ret.pos { color: var(--ins-pos); }
+.ins-ret.neg { color: var(--ins-neg); }
+.ins-ret.flat { color: var(--txt-2); }
+.ins-bench { color: var(--txt-4); }
+
+/* the filing's words, under an opened row */
+.ins-more { padding: 2px 8px 6px 28px; border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent); background: color-mix(in srgb, var(--panel) 40%, transparent); }
+.ins-more-cell { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); display: flex; flex-direction: column; gap: 1px; overflow-wrap: anywhere; }
+.ins-more-head { color: var(--txt-2); }
+
+/* the work line and what is set aside */
+.ins-work { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
+.ins-fixed { color: var(--txt-3); }
+.ins-limits { margin: 4px 0 0; padding-left: 16px; font-size: 10.5px; line-height: 1.5; color: var(--txt-4); }
+.ins-fold { font: inherit; font-size: 10.5px; color: var(--txt-3); background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
+.ins-fold:hover, .ins-fold[aria-expanded="true"] { color: var(--txt-2); }
+.ins-names { list-style: none; margin: 2px 0 0 12px; padding: 0 0 0 10px; border-left: 1px solid var(--line); }
+.ins-chipbtn:focus-visible, .ins-tk:focus-visible, .ins-fold:focus-visible, .ins-cardname:focus-visible, .ins-clear:focus-visible, .ins-link:focus-visible, .ins-chip:focus-visible, .ins-chev:focus-visible { outline: 1px solid var(--line-2); outline-offset: 2px; border-radius: 2px; }
+
+/* a phone: the table drops its sideways scroll and each row folds into lines: the filing date, ticker, dollar size
+   and since on the first; the trade date and the cards on the second; the filer and role on the third; shares,
+   price and the cluster on the fourth; the trigger and the tags folded under; IWM and the cap last. The column
+   header row is left off, so a cell whose meaning is not in its words carries its label in front of it
+   (``data-label``). */
+@media (max-width: 760px) {
+  .ins-scroll { max-height: none; overflow: visible; }
+  .ins-table { min-width: 0; }
+  .ins-head { display: none; }
+  .ins-gh { top: 0; }
+  .ins-row {
+    grid-template-columns: 96px 62px minmax(0, 1fr) auto;
+    grid-template-areas:
+      "filed tk usd since"
+      "trade trade card card"
+      "filer filer role role"
+      "sh px cluster cluster"
+      "trig trig tags tags"
+      "iwm cap cap cap";
+    row-gap: 1px;
+    padding-top: 3px;
+    padding-bottom: 3px;
+  }
+  .ins-c[data-label]::before { content: attr(data-label) ": "; font-family: var(--sans); font-size: 9.5px; color: var(--txt-4); }
+  .ins-c-filed { grid-area: filed; }
+  .ins-c-trade { grid-area: trade; white-space: normal; }
+  .ins-c-tk { grid-area: tk; }
+  .ins-c-card { grid-area: card; }
+  .ins-c-filer { grid-area: filer; }
+  .ins-c-role { grid-area: role; }
+  .ins-c-sh { grid-area: sh; text-align: left; }
+  .ins-c-px { grid-area: px; text-align: left; }
+  .ins-c-usd { grid-area: usd; }
+  .ins-c-cluster { grid-area: cluster; }
+  .ins-c-tags { grid-area: tags; }
+  .ins-c-trig { grid-area: trig; }
+  .ins-c-since { grid-area: since; text-align: right; }
+  .ins-c-since.ins-span { grid-column: auto; }
+  .ins-c-iwm { grid-area: iwm; text-align: left; }
+  .ins-c-cap { grid-area: cap; }
+  .ins-select { max-width: 200px; }
+  .ins-more { padding-left: 8px; }
+}

@@ -55,6 +55,11 @@ The rules, in one place:
   has no link.
 - **Window.** ``read_filing_rows(..., days=N)`` keeps rows dated from ``asof - N days`` through ``asof``,
   inclusive. A row dated after the as-of cannot occur on a well-formed clock; one is dropped, never shown (#1).
+- **Kinds.** ``read_filing_rows(..., kinds=...)`` reads ONLY the named kinds: every other kind's read and SQL is
+  skipped outright, not read and filtered (``None``, the default, is every kind, as before). A page that wants one
+  family (Insider Buying: ``FORM4_KINDS``) names it. The rows of a kind it does read are the same rows the full read
+  returns for it. The one cross-kind rule, the filing-index dedupe, compares against the kinds read, so a ``filing``
+  row is only deduped against the richer kinds in ``kinds``.
 
 Display only (rule 1): this module READS (the point-in-time view, one SELECT) and writes nothing.
 """
@@ -63,7 +68,7 @@ from __future__ import annotations
 
 import math
 import re
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Literal, NamedTuple
@@ -116,6 +121,10 @@ KIND_ORDER: tuple[FilingKind, ...] = (
 SEC_FILING_KINDS: frozenset[FilingKind] = frozenset(
     {"8k", "stake", "form4", "form4a", "revenue", "filing"}
 )
+# The Form 4 family: a Form 4 and a Form 4/A (the 4/A records plus the rows an applied 4/A put on the tape). The
+# reader's ``kinds=`` for a page that reads insider filings alone (Insider Buying).
+FORM4_KINDS: frozenset[FilingKind] = frozenset({"form4", "form4a"})
+ALL_KINDS: frozenset[FilingKind] = frozenset(KIND_ORDER)
 
 # THE FOLD GROUPS — the routine rows a page folds into one quiet line (honest loudness, Workbench principle 3: the
 # common noise goes quiet, the exception stays loud; nothing is removed). MEASURED on a dev copy of prod
@@ -1244,42 +1253,74 @@ def read_amendments(
     return out
 
 
+def check_kinds(kinds: Collection[str] | None) -> None:
+    """Fail loud on a kind the reader does not have (a typo would otherwise read as "no rows of that kind")."""
+    if kinds is None:
+        return
+    unknown = sorted(set(kinds) - ALL_KINDS)
+    if unknown:
+        raise ValueError(
+            f"filings: unknown kinds {unknown}; the reader's kinds are {sorted(ALL_KINDS)}"
+        )
+
+
 def rows_for_company(
     pit: Any,
     who: Who,
     *,
     clock: Literal["record", "public"],
     amendments: Sequence[Mapping[str, Any]] = (),
+    kinds: Collection[FilingKind] | None = None,
 ) -> list[FilingRow]:
     """Every source's rows for one company, through the point-in-time view ``pit`` (the accessors
     ``PointInTimeData`` serves), the 4/A records folded in. The window is the caller's.
+
+    ``kinds`` = read only these kinds (``None`` = every kind). A kind left out is never read: its accessor is not
+    called, so a ``PointInTimeData`` view never loads its table. ``form4`` and ``form4a`` share one accessor
+    (``insider_txns``); either one reads it, and each keeps only its own rows. ``amendments`` (the 4/A records)
+    matter to ``form4a`` alone.
 
     The EDGAR index rows come LAST and only for a filing no other row shows: an index row whose accession any
     other row carries (an 8-K, a Form 4 or 4/A, a 13D/G, a revenue print, a split, a dilution, a catalyst) is
     dropped, so each filing appears once, as its richest row. The comparison is over EVERY row built here,
     before the caller's window, so a richer row just outside the window still claims its filing."""
+    check_kinds(kinds)
+
+    def want(kind: FilingKind) -> bool:
+        return kinds is None or kind in kinds
+
     sid = who.security_id
-    revenue = pit.fundamentals_facts(sid)
     tape_4a: list[FilingRow] = []
     form4: list[FilingRow] = []
-    for row in rows_from_insider_txns(pit.insider_txns(sid), who):
-        (tape_4a if row.kind == "form4a" else form4).append(row)
-    rows = [
-        *rows_from_corporate_events(pit.corporate_event_facts(sid), who),
-        *rows_from_stakes(pit.activist_stake_facts(sid), who),
-        *form4,
-        *merge_4a(tape_4a, rows_from_amendments(amendments, who)),
-        *rows_from_revenue(revenue, who),
-        *rows_from_splits(pit.split_events(sid), who, clock=clock),
-        *rows_from_dilution(pit.dilution_facts(sid), who),
-        *rows_from_catalysts(pit.catalyst_facts(sid), who),
-        *rows_from_ratified(
+    if want("form4") or want("form4a"):
+        for row in rows_from_insider_txns(pit.insider_txns(sid), who):
+            (tape_4a if row.kind == "form4a" else form4).append(row)
+    rows: list[FilingRow] = []
+    if want("8k"):
+        rows += rows_from_corporate_events(pit.corporate_event_facts(sid), who)
+    if want("stake"):
+        rows += rows_from_stakes(pit.activist_stake_facts(sid), who)
+    if want("form4"):
+        rows += form4
+    if want("form4a"):
+        rows += merge_4a(tape_4a, rows_from_amendments(amendments, who))
+    if want("revenue"):
+        rows += rows_from_revenue(pit.fundamentals_facts(sid), who)
+    if want("split"):
+        rows += rows_from_splits(pit.split_events(sid), who, clock=clock)
+    if want("dilution"):
+        rows += rows_from_dilution(pit.dilution_facts(sid), who)
+    if want("catalyst"):
+        rows += rows_from_catalysts(pit.catalyst_facts(sid), who)
+    if want("ratified"):
+        rows += rows_from_ratified(
             pit.cash_burn_facts(sid),
             pit.shares_outstanding_facts(sid),
             pit.revenue_mix_facts(sid),
             who,
-        ),
-    ]
+        )
+    if not want("filing"):
+        return rows
     shown = {k for r in rows if (k := _accession_key(r.accession)) is not None}
     index = [
         r
@@ -1299,23 +1340,38 @@ def read_filing_rows(
     days: int,
     tickers: Mapping[UUID, str] | None = None,
     tenant_id: UUID = DEFAULT_TENANT_ID,
+    kinds: Collection[FilingKind] | None = None,
 ) -> dict[UUID, tuple[FilingRow, ...]]:
     """``{security_id: its FilingRows}`` dated from ``asof - days`` through ``asof``, each company's list in
     no particular order (a page sorts). ``known_at`` + ``clock`` are the request's ``serve_view(asof)`` pair,
     threaded into the point-in-time view and the 4/A SELECT alike. ``tickers`` = the ticker a page shows per
     company (a card's own, the Cockpit's ``?name=`` key); the master's ticker stands in for a company not named.
-    Every company in ``sids`` has an entry (``()`` = nothing in the window)."""
+    Every company in ``sids`` has an entry (``()`` = nothing in the window).
+
+    ``kinds`` = read only these kinds (``None`` = every kind, the default every existing page uses). A kind left
+    out costs nothing: its point-in-time table is never loaded, and the 4/A SELECT runs only when ``form4a`` is
+    read. The Form 4 / 4/A two-clock gate is the same either way (``FORM4_KINDS`` = the insider family).
+    """
+    check_kinds(kinds)
     ids = list(dict.fromkeys(sids))
     if not ids:
         return {}
+    if kinds is not None and not kinds:
+        return {sid: () for sid in ids}
     start = asof - timedelta(days=days)
     names = {k: v for k, v in master.tickers_for(conn, ids, tenant_id=tenant_id).items() if v}
     names.update({k: v for k, v in (tickers or {}).items() if v})
-    amendments = read_amendments(conn, ids, asof, known_at, clock, start=start, tenant_id=tenant_id)
+    amendments = (
+        read_amendments(conn, ids, asof, known_at, clock, start=start, tenant_id=tenant_id)
+        if kinds is None or "form4a" in kinds
+        else {}
+    )
 
     def read(pit: Any, sid: UUID) -> tuple[FilingRow, ...]:
         who = Who(sid, names.get(sid, "?"), pit.security_cik(sid), pit.security_name(sid))
-        rows = rows_for_company(pit, who, clock=clock, amendments=amendments.get(sid, ()))
+        rows = rows_for_company(
+            pit, who, clock=clock, amendments=amendments.get(sid, ()), kinds=kinds
+        )
         return tuple(r for r in rows if start <= r.date <= asof)
 
     return per_company(conn, ids, asof, known_at, clock, read)

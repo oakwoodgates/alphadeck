@@ -1,0 +1,2559 @@
+{
+ "asof": "2026-07-24",
+ "clock": "public",
+ "edition": {
+  "number": 0,
+  "label": "the original record"
+ },
+ "newest_edition": null,
+ "annotated_policy": "excluded",
+ "late_policy": "excluded",
+ "horizons": [
+  "h5",
+  "h10",
+  "h20",
+  "h60",
+  "exit_by"
+ ],
+ "min_n": 10,
+ "market_source": "SPY",
+ "benchmarks_missing": [],
+ "stale_days": 5,
+ "cards": 2,
+ "cards_unreadable": 0,
+ "counts": {
+  "episodes": 20,
+  "counted": 17,
+  "left_out_flagged": 1,
+  "left_out_censored": 1,
+  "left_out_ingest": 1,
+  "unpinned_cap": 1,
+  "unpinned_liquidity": 1,
+  "arm_night": {
+   "h5": {
+    "counted": 17,
+    "maturing": 0,
+    "path_ended": 0,
+    "none": 0
+   },
+   "h10": {
+    "counted": 9,
+    "maturing": 8,
+    "path_ended": 0,
+    "none": 0
+   },
+   "h20": {
+    "counted": 16,
+    "maturing": 0,
+    "path_ended": 1,
+    "none": 0
+   },
+   "h60": {
+    "counted": 0,
+    "maturing": 17,
+    "path_ended": 0,
+    "none": 0
+   },
+   "exit_by": {
+    "counted": 0,
+    "maturing": 17,
+    "path_ended": 0,
+    "none": 0
+   }
+  },
+  "next_session": {
+   "h5": {
+    "counted": 17,
+    "maturing": 0,
+    "path_ended": 0,
+    "none": 0
+   },
+   "h10": {
+    "counted": 9,
+    "maturing": 8,
+    "path_ended": 0,
+    "none": 0
+   },
+   "h20": {
+    "counted": 16,
+    "maturing": 0,
+    "path_ended": 1,
+    "none": 0
+   },
+   "h60": {
+    "counted": 0,
+    "maturing": 17,
+    "path_ended": 0,
+    "none": 0
+   },
+   "exit_by": {
+    "counted": 0,
+    "maturing": 17,
+    "path_ended": 0,
+    "none": 0
+   }
+  }
+ },
+ "rows": [
+  {
+   "thesis_id": "00000000-0000-0000-0000-0000000000a1",
+   "thesis_name": "Card A",
+   "security_id": "00000000-0000-0000-0000-00000000012a",
+   "ticker": "ING",
+   "arm_date": "2026-07-13",
+   "exit_by": null,
+   "arm_until": null,
+   "close_reason": "window_end",
+   "is_headline": true,
+   "key1_source": "insider",
+   "entry_grade": "core",
+   "confirmation_grade": "core",
+   "co_arm_bucket": "alone",
+   "left_out": "ingest_flagged",
+   "left_out_note": "armed inside the 2026-07 freeze",
+   "cap": null,
+   "adv_usd": null,
+   "liquidity": null,
+   "arm_night": null,
+   "next_session": null
+  },
+  {
+   "thesis_id": "00000000-0000-0000-0000-0000000000a2",
+   "thesis_name": "Card B",
+   "security_id": "00000000-0000-0000-0000-000000000129",
+   "ticker": "CEN",
+   "arm_date": "2026-07-12",
+   "exit_by": null,
+   "arm_until": null,
+   "close_reason": "window_end",
+   "is_headline": true,
+   "key1_source": "insider",
+   "entry_grade": "core",
+   "confirmation_grade": "core",
+   "co_arm_bucket": "alone",
+   "left_out": "censored_start",
+   "left_out_note": "armed on the card's first recorded night, so the true arm date is unknown",
+   "cap": null,
+   "adv_usd": null,
+   "liquidity": null,
+   "arm_night": null,
+   "next_session": null
+  },
+  {
+   "thesis_id": "00000000-0000-0000-0000-0000000000a1",
+   "thesis_name": "Card A",
+   "security_id": "00000000-0000-0000-0000-000000000128",
+   "ticker": "FLG",
+   "arm_date": "2026-07-11",
+   "exit_by": null,
+   "arm_until": null,
+   "close_reason": "window_end",
+   "is_headline": true,
+   "key1_source": "insider",
+   "entry_grade": "core",
+   "confirmation_grade": "core",
+   "co_arm_bucket": "alone",
+   "left_out": "flagged",
+   "left_out_note": "Price feed stopped: no price since 2026-07-01",
+   "cap": null,
+   "adv_usd": null,
+   "liquidity": null,
+   "arm_night": null,
+   "next_session": null
+  },
+  {
+   "thesis_id": "00000000-0000-0000-0000-0000000000a2",
+   "thesis_name": "Card B",
+   "security_id": "00000000-0000-0000-0000-00000000011f",
+   "ticker": "END",
+   "arm_date": "2026-07-02",
+   "exit_by": "2026-07-31",
+   "arm_until": "2026-07-31",
+   "close_reason": "window_end",
+   "is_headline": true,
+   "key1_source": "revenue_accel",
+   "entry_grade": "core",
+   "confirmation_grade": "core",
+   "co_arm_bucket": "alone",
+   "left_out": null,
+   "left_out_note": null,
+   "cap": {
+    "value": 100000000.0,
+    "tier": "mid",
+    "gap": null,
+    "note": null,
+    "close": 12.34,
+    "close_date": "2026-07-01",
+    "shares": 81000000.0,
+    "shares_date": "2026-05-12",
+    "ads_ratio": null,
+    "split_factor": null
+   },
+   "adv_usd": 2500000.0,
+   "liquidity": "1m_10m",
+   "arm_night": {
+    "entry_date": "2026-07-02",
+    "entry_close": 10.0,
+    "spans": {
+     "h5": {
+      "status": "counted",
+      "end_date": "2026-07-01",
+      "ret": 0.03,
+      "iwm": 0.01,
+      "spy": 0.0
+     },
+     "h10": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "h20": {
+      "status": "path_ended",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "h60": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "exit_by": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     }
+    }
+   },
+   "next_session": {
+    "entry_date": "2026-07-03",
+    "entry_close": 10.5,
+    "spans": {
+     "h5": {
+      "status": "counted",
+      "end_date": "2026-07-02",
+      "ret": 0.02,
+      "iwm": 0.01,
+      "spy": 0.0
+     },
+     "h10": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "h20": {
+      "status": "path_ended",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "h60": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "exit_by": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     }
+    }
+   }
+  },
+  {
+   "thesis_id": "00000000-0000-0000-0000-0000000000a2",
+   "thesis_name": "Card B",
+   "security_id": "00000000-0000-0000-0000-00000000011e",
+   "ticker": "UNP",
+   "arm_date": "2026-07-01",
+   "exit_by": "2026-07-31",
+   "arm_until": "2026-07-31",
+   "close_reason": "window_end",
+   "is_headline": true,
+   "key1_source": "insider",
+   "entry_grade": "core",
+   "confirmation_grade": "core",
+   "co_arm_bucket": "alone",
+   "left_out": null,
+   "left_out_note": null,
+   "cap": {
+    "value": null,
+    "tier": null,
+    "gap": "no_shares",
+    "note": null,
+    "close": null,
+    "close_date": null,
+    "shares": null,
+    "shares_date": null,
+    "ads_ratio": null,
+    "split_factor": null
+   },
+   "adv_usd": 2500000.0,
+   "liquidity": null,
+   "arm_night": {
+    "entry_date": "2026-07-01",
+    "entry_close": 10.0,
+    "spans": {
+     "h5": {
+      "status": "counted",
+      "end_date": "2026-07-01",
+      "ret": 0.03,
+      "iwm": 0.01,
+      "spy": 0.0
+     },
+     "h10": {
+      "status": "counted",
+      "end_date": "2026-07-08",
+      "ret": 0.04,
+      "iwm": 0.02,
+      "spy": 0.01
+     },
+     "h20": {
+      "status": "counted",
+      "end_date": "2026-07-22",
+      "ret": 0.27,
+      "iwm": 0.25,
+      "spy": 0.1
+     },
+     "h60": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "exit_by": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     }
+    }
+   },
+   "next_session": {
+    "entry_date": "2026-07-02",
+    "entry_close": 10.5,
+    "spans": {
+     "h5": {
+      "status": "counted",
+      "end_date": "2026-07-02",
+      "ret": 0.02,
+      "iwm": 0.01,
+      "spy": 0.0
+     },
+     "h10": {
+      "status": "counted",
+      "end_date": "2026-07-09",
+      "ret": 0.03,
+      "iwm": 0.02,
+      "spy": 0.01
+     },
+     "h20": {
+      "status": "counted",
+      "end_date": "2026-07-23",
+      "ret": 0.22000000000000003,
+      "iwm": 0.25,
+      "spy": 0.1
+     },
+     "h60": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "exit_by": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     }
+    }
+   }
+  },
+  {
+   "thesis_id": "00000000-0000-0000-0000-0000000000a1",
+   "thesis_name": "Card A",
+   "security_id": "00000000-0000-0000-0000-000000000116",
+   "ticker": "M03",
+   "arm_date": "2026-06-23",
+   "exit_by": "2026-07-31",
+   "arm_until": "2026-07-31",
+   "close_reason": "window_end",
+   "is_headline": true,
+   "key1_source": "theme",
+   "entry_grade": "core",
+   "confirmation_grade": "core",
+   "co_arm_bucket": "alone",
+   "left_out": null,
+   "left_out_note": null,
+   "cap": {
+    "value": 100000000.0,
+    "tier": "micro",
+    "gap": null,
+    "note": null,
+    "close": 12.34,
+    "close_date": "2026-06-22",
+    "shares": 81000000.0,
+    "shares_date": "2026-05-12",
+    "ads_ratio": null,
+    "split_factor": null
+   },
+   "adv_usd": 2500000.0,
+   "liquidity": "under_1m",
+   "arm_night": {
+    "entry_date": "2026-06-23",
+    "entry_close": 10.0,
+    "spans": {
+     "h5": {
+      "status": "counted",
+      "end_date": "2026-07-01",
+      "ret": 0.03,
+      "iwm": 0.01,
+      "spy": 0.0
+     },
+     "h10": {
+      "status": "counted",
+      "end_date": "2026-07-08",
+      "ret": 0.04,
+      "iwm": 0.02,
+      "spy": 0.01
+     },
+     "h20": {
+      "status": "counted",
+      "end_date": "2026-07-22",
+      "ret": 0.26,
+      "iwm": 0.25,
+      "spy": 0.1
+     },
+     "h60": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "exit_by": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     }
+    }
+   },
+   "next_session": {
+    "entry_date": "2026-06-24",
+    "entry_close": 10.5,
+    "spans": {
+     "h5": {
+      "status": "counted",
+      "end_date": "2026-07-02",
+      "ret": 0.02,
+      "iwm": 0.01,
+      "spy": 0.0
+     },
+     "h10": {
+      "status": "counted",
+      "end_date": "2026-07-09",
+      "ret": 0.03,
+      "iwm": 0.02,
+      "spy": 0.01
+     },
+     "h20": {
+      "status": "counted",
+      "end_date": "2026-07-23",
+      "ret": 0.21000000000000002,
+      "iwm": 0.25,
+      "spy": 0.1
+     },
+     "h60": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "exit_by": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     }
+    }
+   }
+  },
+  {
+   "thesis_id": "00000000-0000-0000-0000-0000000000a1",
+   "thesis_name": "Card A",
+   "security_id": "00000000-0000-0000-0000-000000000115",
+   "ticker": "M02",
+   "arm_date": "2026-06-22",
+   "exit_by": "2026-07-31",
+   "arm_until": "2026-07-31",
+   "close_reason": "window_end",
+   "is_headline": true,
+   "key1_source": "theme",
+   "entry_grade": "core",
+   "confirmation_grade": "core",
+   "co_arm_bucket": "alone",
+   "left_out": null,
+   "left_out_note": null,
+   "cap": {
+    "value": 100000000.0,
+    "tier": "micro",
+    "gap": null,
+    "note": null,
+    "close": 12.34,
+    "close_date": "2026-06-21",
+    "shares": 81000000.0,
+    "shares_date": "2026-05-12",
+    "ads_ratio": null,
+    "split_factor": null
+   },
+   "adv_usd": 2500000.0,
+   "liquidity": "under_1m",
+   "arm_night": {
+    "entry_date": "2026-06-22",
+    "entry_close": 10.0,
+    "spans": {
+     "h5": {
+      "status": "counted",
+      "end_date": "2026-07-01",
+      "ret": 0.03,
+      "iwm": 0.01,
+      "spy": 0.0
+     },
+     "h10": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "h20": {
+      "status": "counted",
+      "end_date": "2026-07-22",
+      "ret": 0.2,
+      "iwm": 0.25,
+      "spy": 0.1
+     },
+     "h60": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "exit_by": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     }
+    }
+   },
+   "next_session": {
+    "entry_date": "2026-06-23",
+    "entry_close": 10.5,
+    "spans": {
+     "h5": {
+      "status": "counted",
+      "end_date": "2026-07-02",
+      "ret": 0.02,
+      "iwm": 0.01,
+      "spy": 0.0
+     },
+     "h10": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "h20": {
+      "status": "counted",
+      "end_date": "2026-07-23",
+      "ret": 0.15000000000000002,
+      "iwm": 0.25,
+      "spy": 0.1
+     },
+     "h60": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "exit_by": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     }
+    }
+   }
+  },
+  {
+   "thesis_id": "00000000-0000-0000-0000-0000000000a1",
+   "thesis_name": "Card A",
+   "security_id": "00000000-0000-0000-0000-000000000114",
+   "ticker": "M01",
+   "arm_date": "2026-06-21",
+   "exit_by": "2026-07-31",
+   "arm_until": "2026-07-31",
+   "close_reason": "window_end",
+   "is_headline": true,
+   "key1_source": "theme",
+   "entry_grade": "core",
+   "confirmation_grade": "core",
+   "co_arm_bucket": "alone",
+   "left_out": null,
+   "left_out_note": null,
+   "cap": {
+    "value": 100000000.0,
+    "tier": "micro",
+    "gap": null,
+    "note": null,
+    "close": 12.34,
+    "close_date": "2026-06-20",
+    "shares": 81000000.0,
+    "shares_date": "2026-05-12",
+    "ads_ratio": null,
+    "split_factor": null
+   },
+   "adv_usd": 2500000.0,
+   "liquidity": "under_1m",
+   "arm_night": {
+    "entry_date": "2026-06-21",
+    "entry_close": 10.0,
+    "spans": {
+     "h5": {
+      "status": "counted",
+      "end_date": "2026-07-01",
+      "ret": 0.03,
+      "iwm": 0.01,
+      "spy": 0.0
+     },
+     "h10": {
+      "status": "counted",
+      "end_date": "2026-07-08",
+      "ret": 0.04,
+      "iwm": 0.02,
+      "spy": 0.01
+     },
+     "h20": {
+      "status": "counted",
+      "end_date": "2026-07-22",
+      "ret": 0.45,
+      "iwm": 0.25,
+      "spy": 0.1
+     },
+     "h60": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "exit_by": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     }
+    }
+   },
+   "next_session": {
+    "entry_date": "2026-06-22",
+    "entry_close": 10.5,
+    "spans": {
+     "h5": {
+      "status": "counted",
+      "end_date": "2026-07-02",
+      "ret": 0.02,
+      "iwm": 0.01,
+      "spy": 0.0
+     },
+     "h10": {
+      "status": "counted",
+      "end_date": "2026-07-09",
+      "ret": 0.03,
+      "iwm": 0.02,
+      "spy": 0.01
+     },
+     "h20": {
+      "status": "counted",
+      "end_date": "2026-07-23",
+      "ret": 0.4,
+      "iwm": 0.25,
+      "spy": 0.1
+     },
+     "h60": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "exit_by": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     }
+    }
+   }
+  },
+  {
+   "thesis_id": "00000000-0000-0000-0000-0000000000a2",
+   "thesis_name": "Card B",
+   "security_id": "00000000-0000-0000-0000-00000000010b",
+   "ticker": "S12",
+   "arm_date": "2026-06-12",
+   "exit_by": "2026-07-31",
+   "arm_until": "2026-07-31",
+   "close_reason": "window_end",
+   "is_headline": false,
+   "key1_source": "activist",
+   "entry_grade": "core",
+   "confirmation_grade": "core",
+   "co_arm_bucket": "2-3",
+   "left_out": null,
+   "left_out_note": null,
+   "cap": {
+    "value": 1000000000.0,
+    "tier": "small",
+    "gap": null,
+    "note": null,
+    "close": 12.34,
+    "close_date": "2026-06-11",
+    "shares": 81000000.0,
+    "shares_date": "2026-05-12",
+    "ads_ratio": null,
+    "split_factor": null
+   },
+   "adv_usd": 2500000.0,
+   "liquidity": "1m_10m",
+   "arm_night": {
+    "entry_date": "2026-06-12",
+    "entry_close": 10.0,
+    "spans": {
+     "h5": {
+      "status": "counted",
+      "end_date": "2026-07-01",
+      "ret": 0.03,
+      "iwm": 0.01,
+      "spy": 0.0
+     },
+     "h10": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "h20": {
+      "status": "counted",
+      "end_date": "2026-07-22",
+      "ret": 0.37,
+      "iwm": 0.25,
+      "spy": 0.1
+     },
+     "h60": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "exit_by": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     }
+    }
+   },
+   "next_session": {
+    "entry_date": "2026-06-13",
+    "entry_close": 10.5,
+    "spans": {
+     "h5": {
+      "status": "counted",
+      "end_date": "2026-07-02",
+      "ret": 0.02,
+      "iwm": 0.01,
+      "spy": 0.0
+     },
+     "h10": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "h20": {
+      "status": "counted",
+      "end_date": "2026-07-23",
+      "ret": 0.32,
+      "iwm": 0.25,
+      "spy": 0.1
+     },
+     "h60": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "exit_by": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     }
+    }
+   }
+  },
+  {
+   "thesis_id": "00000000-0000-0000-0000-0000000000a1",
+   "thesis_name": "Card A",
+   "security_id": "00000000-0000-0000-0000-00000000010a",
+   "ticker": "S11",
+   "arm_date": "2026-06-11",
+   "exit_by": "2026-07-31",
+   "arm_until": "2026-07-31",
+   "close_reason": "window_end",
+   "is_headline": true,
+   "key1_source": "activist",
+   "entry_grade": "core",
+   "confirmation_grade": "core",
+   "co_arm_bucket": "2-3",
+   "left_out": null,
+   "left_out_note": null,
+   "cap": {
+    "value": 1000000000.0,
+    "tier": "small",
+    "gap": null,
+    "note": null,
+    "close": 12.34,
+    "close_date": "2026-06-10",
+    "shares": 81000000.0,
+    "shares_date": "2026-05-12",
+    "ads_ratio": null,
+    "split_factor": null
+   },
+   "adv_usd": 2500000.0,
+   "liquidity": "1m_10m",
+   "arm_night": {
+    "entry_date": "2026-06-11",
+    "entry_close": 10.0,
+    "spans": {
+     "h5": {
+      "status": "counted",
+      "end_date": "2026-07-01",
+      "ret": 0.03,
+      "iwm": 0.01,
+      "spy": 0.0
+     },
+     "h10": {
+      "status": "counted",
+      "end_date": "2026-07-08",
+      "ret": 0.04,
+      "iwm": 0.02,
+      "spy": 0.01
+     },
+     "h20": {
+      "status": "counted",
+      "end_date": "2026-07-22",
+      "ret": 0.33,
+      "iwm": 0.25,
+      "spy": 0.1
+     },
+     "h60": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "exit_by": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     }
+    }
+   },
+   "next_session": {
+    "entry_date": "2026-06-12",
+    "entry_close": 10.5,
+    "spans": {
+     "h5": {
+      "status": "counted",
+      "end_date": "2026-07-02",
+      "ret": 0.02,
+      "iwm": 0.01,
+      "spy": 0.0
+     },
+     "h10": {
+      "status": "counted",
+      "end_date": "2026-07-09",
+      "ret": 0.03,
+      "iwm": 0.02,
+      "spy": 0.01
+     },
+     "h20": {
+      "status": "counted",
+      "end_date": "2026-07-23",
+      "ret": 0.28,
+      "iwm": 0.25,
+      "spy": 0.1
+     },
+     "h60": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "exit_by": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     }
+    }
+   }
+  },
+  {
+   "thesis_id": "00000000-0000-0000-0000-0000000000a2",
+   "thesis_name": "Card B",
+   "security_id": "00000000-0000-0000-0000-000000000109",
+   "ticker": "S10",
+   "arm_date": "2026-06-10",
+   "exit_by": "2026-07-31",
+   "arm_until": "2026-07-31",
+   "close_reason": "window_end",
+   "is_headline": false,
+   "key1_source": "activist",
+   "entry_grade": "flip",
+   "confirmation_grade": "flip",
+   "co_arm_bucket": "2-3",
+   "left_out": null,
+   "left_out_note": null,
+   "cap": {
+    "value": 1000000000.0,
+    "tier": "small",
+    "gap": null,
+    "note": null,
+    "close": 12.34,
+    "close_date": "2026-06-09",
+    "shares": 81000000.0,
+    "shares_date": "2026-05-12",
+    "ads_ratio": null,
+    "split_factor": null
+   },
+   "adv_usd": 2500000.0,
+   "liquidity": "1m_10m",
+   "arm_night": {
+    "entry_date": "2026-06-10",
+    "entry_close": 10.0,
+    "spans": {
+     "h5": {
+      "status": "counted",
+      "end_date": "2026-07-01",
+      "ret": 0.03,
+      "iwm": 0.01,
+      "spy": 0.0
+     },
+     "h10": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "h20": {
+      "status": "counted",
+      "end_date": "2026-07-22",
+      "ret": 0.31,
+      "iwm": 0.25,
+      "spy": 0.1
+     },
+     "h60": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "exit_by": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     }
+    }
+   },
+   "next_session": {
+    "entry_date": "2026-06-11",
+    "entry_close": 10.5,
+    "spans": {
+     "h5": {
+      "status": "counted",
+      "end_date": "2026-07-02",
+      "ret": 0.02,
+      "iwm": 0.01,
+      "spy": 0.0
+     },
+     "h10": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "h20": {
+      "status": "counted",
+      "end_date": "2026-07-23",
+      "ret": 0.26,
+      "iwm": 0.25,
+      "spy": 0.1
+     },
+     "h60": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "exit_by": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     }
+    }
+   }
+  },
+  {
+   "thesis_id": "00000000-0000-0000-0000-0000000000a1",
+   "thesis_name": "Card A",
+   "security_id": "00000000-0000-0000-0000-000000000108",
+   "ticker": "S09",
+   "arm_date": "2026-06-09",
+   "exit_by": "2026-07-31",
+   "arm_until": "2026-07-31",
+   "close_reason": "window_end",
+   "is_headline": true,
+   "key1_source": "activist",
+   "entry_grade": "core",
+   "confirmation_grade": "core",
+   "co_arm_bucket": "2-3",
+   "left_out": null,
+   "left_out_note": null,
+   "cap": {
+    "value": 1000000000.0,
+    "tier": "small",
+    "gap": null,
+    "note": null,
+    "close": 12.34,
+    "close_date": "2026-06-08",
+    "shares": 81000000.0,
+    "shares_date": "2026-05-12",
+    "ads_ratio": null,
+    "split_factor": null
+   },
+   "adv_usd": 2500000.0,
+   "liquidity": "1m_10m",
+   "arm_night": {
+    "entry_date": "2026-06-09",
+    "entry_close": 10.0,
+    "spans": {
+     "h5": {
+      "status": "counted",
+      "end_date": "2026-07-01",
+      "ret": 0.03,
+      "iwm": 0.01,
+      "spy": 0.0
+     },
+     "h10": {
+      "status": "counted",
+      "end_date": "2026-07-08",
+      "ret": 0.04,
+      "iwm": 0.02,
+      "spy": 0.01
+     },
+     "h20": {
+      "status": "counted",
+      "end_date": "2026-07-22",
+      "ret": 0.3,
+      "iwm": 0.25,
+      "spy": 0.1
+     },
+     "h60": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "exit_by": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     }
+    }
+   },
+   "next_session": {
+    "entry_date": "2026-06-10",
+    "entry_close": 10.5,
+    "spans": {
+     "h5": {
+      "status": "counted",
+      "end_date": "2026-07-02",
+      "ret": 0.02,
+      "iwm": 0.01,
+      "spy": 0.0
+     },
+     "h10": {
+      "status": "counted",
+      "end_date": "2026-07-09",
+      "ret": 0.03,
+      "iwm": 0.02,
+      "spy": 0.01
+     },
+     "h20": {
+      "status": "counted",
+      "end_date": "2026-07-23",
+      "ret": 0.25,
+      "iwm": 0.25,
+      "spy": 0.1
+     },
+     "h60": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "exit_by": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     }
+    }
+   }
+  },
+  {
+   "thesis_id": "00000000-0000-0000-0000-0000000000a2",
+   "thesis_name": "Card B",
+   "security_id": "00000000-0000-0000-0000-000000000107",
+   "ticker": "S08",
+   "arm_date": "2026-06-08",
+   "exit_by": "2026-07-31",
+   "arm_until": "2026-07-31",
+   "close_reason": "window_end",
+   "is_headline": false,
+   "key1_source": "activist",
+   "entry_grade": "core",
+   "confirmation_grade": "core",
+   "co_arm_bucket": "alone",
+   "left_out": null,
+   "left_out_note": null,
+   "cap": {
+    "value": 1000000000.0,
+    "tier": "small",
+    "gap": null,
+    "note": null,
+    "close": 12.34,
+    "close_date": "2026-06-07",
+    "shares": 81000000.0,
+    "shares_date": "2026-05-12",
+    "ads_ratio": null,
+    "split_factor": null
+   },
+   "adv_usd": 2500000.0,
+   "liquidity": "1m_10m",
+   "arm_night": {
+    "entry_date": "2026-06-08",
+    "entry_close": 10.0,
+    "spans": {
+     "h5": {
+      "status": "counted",
+      "end_date": "2026-07-01",
+      "ret": 0.03,
+      "iwm": 0.01,
+      "spy": 0.0
+     },
+     "h10": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "h20": {
+      "status": "counted",
+      "end_date": "2026-07-22",
+      "ret": 0.29,
+      "iwm": 0.25,
+      "spy": 0.1
+     },
+     "h60": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "exit_by": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     }
+    }
+   },
+   "next_session": {
+    "entry_date": "2026-06-09",
+    "entry_close": 10.5,
+    "spans": {
+     "h5": {
+      "status": "counted",
+      "end_date": "2026-07-02",
+      "ret": 0.02,
+      "iwm": 0.01,
+      "spy": 0.0
+     },
+     "h10": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "h20": {
+      "status": "counted",
+      "end_date": "2026-07-23",
+      "ret": 0.24,
+      "iwm": 0.25,
+      "spy": 0.1
+     },
+     "h60": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "exit_by": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     }
+    }
+   }
+  },
+  {
+   "thesis_id": "00000000-0000-0000-0000-0000000000a1",
+   "thesis_name": "Card A",
+   "security_id": "00000000-0000-0000-0000-000000000106",
+   "ticker": "S07",
+   "arm_date": "2026-06-07",
+   "exit_by": "2026-07-31",
+   "arm_until": "2026-07-31",
+   "close_reason": "window_end",
+   "is_headline": true,
+   "key1_source": "insider",
+   "entry_grade": "flip",
+   "confirmation_grade": "flip",
+   "co_arm_bucket": "alone",
+   "left_out": null,
+   "left_out_note": null,
+   "cap": {
+    "value": 1000000000.0,
+    "tier": "small",
+    "gap": null,
+    "note": null,
+    "close": 12.34,
+    "close_date": "2026-06-06",
+    "shares": 81000000.0,
+    "shares_date": "2026-05-12",
+    "ads_ratio": null,
+    "split_factor": null
+   },
+   "adv_usd": 2500000.0,
+   "liquidity": "1m_10m",
+   "arm_night": {
+    "entry_date": "2026-06-07",
+    "entry_close": 10.0,
+    "spans": {
+     "h5": {
+      "status": "counted",
+      "end_date": "2026-07-01",
+      "ret": 0.03,
+      "iwm": 0.01,
+      "spy": 0.0
+     },
+     "h10": {
+      "status": "counted",
+      "end_date": "2026-07-08",
+      "ret": 0.04,
+      "iwm": 0.02,
+      "spy": 0.01
+     },
+     "h20": {
+      "status": "counted",
+      "end_date": "2026-07-22",
+      "ret": 0.28,
+      "iwm": 0.25,
+      "spy": 0.1
+     },
+     "h60": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "exit_by": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     }
+    }
+   },
+   "next_session": {
+    "entry_date": "2026-06-08",
+    "entry_close": 10.5,
+    "spans": {
+     "h5": {
+      "status": "counted",
+      "end_date": "2026-07-02",
+      "ret": 0.02,
+      "iwm": 0.01,
+      "spy": 0.0
+     },
+     "h10": {
+      "status": "counted",
+      "end_date": "2026-07-09",
+      "ret": 0.03,
+      "iwm": 0.02,
+      "spy": 0.01
+     },
+     "h20": {
+      "status": "counted",
+      "end_date": "2026-07-23",
+      "ret": 0.23000000000000004,
+      "iwm": 0.25,
+      "spy": 0.1
+     },
+     "h60": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "exit_by": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     }
+    }
+   }
+  },
+  {
+   "thesis_id": "00000000-0000-0000-0000-0000000000a2",
+   "thesis_name": "Card B",
+   "security_id": "00000000-0000-0000-0000-000000000105",
+   "ticker": "S06",
+   "arm_date": "2026-06-06",
+   "exit_by": "2026-07-31",
+   "arm_until": "2026-07-31",
+   "close_reason": "window_end",
+   "is_headline": false,
+   "key1_source": "insider",
+   "entry_grade": "core",
+   "confirmation_grade": "core",
+   "co_arm_bucket": "alone",
+   "left_out": null,
+   "left_out_note": null,
+   "cap": {
+    "value": 1000000000.0,
+    "tier": "small",
+    "gap": null,
+    "note": null,
+    "close": 12.34,
+    "close_date": "2026-06-05",
+    "shares": 81000000.0,
+    "shares_date": "2026-05-12",
+    "ads_ratio": null,
+    "split_factor": null
+   },
+   "adv_usd": 2500000.0,
+   "liquidity": "1m_10m",
+   "arm_night": {
+    "entry_date": "2026-06-06",
+    "entry_close": 10.0,
+    "spans": {
+     "h5": {
+      "status": "counted",
+      "end_date": "2026-07-01",
+      "ret": 0.03,
+      "iwm": 0.01,
+      "spy": 0.0
+     },
+     "h10": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "h20": {
+      "status": "counted",
+      "end_date": "2026-07-22",
+      "ret": 0.27,
+      "iwm": 0.25,
+      "spy": 0.1
+     },
+     "h60": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "exit_by": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     }
+    }
+   },
+   "next_session": {
+    "entry_date": "2026-06-07",
+    "entry_close": 10.5,
+    "spans": {
+     "h5": {
+      "status": "counted",
+      "end_date": "2026-07-02",
+      "ret": 0.02,
+      "iwm": 0.01,
+      "spy": 0.0
+     },
+     "h10": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "h20": {
+      "status": "counted",
+      "end_date": "2026-07-23",
+      "ret": 0.22000000000000003,
+      "iwm": 0.25,
+      "spy": 0.1
+     },
+     "h60": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "exit_by": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     }
+    }
+   }
+  },
+  {
+   "thesis_id": "00000000-0000-0000-0000-0000000000a1",
+   "thesis_name": "Card A",
+   "security_id": "00000000-0000-0000-0000-000000000104",
+   "ticker": "S05",
+   "arm_date": "2026-06-05",
+   "exit_by": "2026-07-31",
+   "arm_until": "2026-07-31",
+   "close_reason": "window_end",
+   "is_headline": true,
+   "key1_source": "insider",
+   "entry_grade": "core",
+   "confirmation_grade": "core",
+   "co_arm_bucket": "alone",
+   "left_out": null,
+   "left_out_note": null,
+   "cap": {
+    "value": 1000000000.0,
+    "tier": "small",
+    "gap": null,
+    "note": null,
+    "close": 12.34,
+    "close_date": "2026-06-04",
+    "shares": 81000000.0,
+    "shares_date": "2026-05-12",
+    "ads_ratio": null,
+    "split_factor": null
+   },
+   "adv_usd": 2500000.0,
+   "liquidity": "1m_10m",
+   "arm_night": {
+    "entry_date": "2026-06-05",
+    "entry_close": 10.0,
+    "spans": {
+     "h5": {
+      "status": "counted",
+      "end_date": "2026-07-01",
+      "ret": 0.03,
+      "iwm": 0.01,
+      "spy": 0.0
+     },
+     "h10": {
+      "status": "counted",
+      "end_date": "2026-07-08",
+      "ret": 0.04,
+      "iwm": 0.02,
+      "spy": 0.01
+     },
+     "h20": {
+      "status": "counted",
+      "end_date": "2026-07-22",
+      "ret": 0.26,
+      "iwm": 0.25,
+      "spy": 0.1
+     },
+     "h60": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "exit_by": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     }
+    }
+   },
+   "next_session": {
+    "entry_date": "2026-06-06",
+    "entry_close": 10.5,
+    "spans": {
+     "h5": {
+      "status": "counted",
+      "end_date": "2026-07-02",
+      "ret": 0.02,
+      "iwm": 0.01,
+      "spy": 0.0
+     },
+     "h10": {
+      "status": "counted",
+      "end_date": "2026-07-09",
+      "ret": 0.03,
+      "iwm": 0.02,
+      "spy": 0.01
+     },
+     "h20": {
+      "status": "counted",
+      "end_date": "2026-07-23",
+      "ret": 0.21000000000000002,
+      "iwm": 0.25,
+      "spy": 0.1
+     },
+     "h60": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "exit_by": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     }
+    }
+   }
+  },
+  {
+   "thesis_id": "00000000-0000-0000-0000-0000000000a2",
+   "thesis_name": "Card B",
+   "security_id": "00000000-0000-0000-0000-000000000103",
+   "ticker": "S04",
+   "arm_date": "2026-06-04",
+   "exit_by": "2026-07-31",
+   "arm_until": "2026-07-31",
+   "close_reason": "window_end",
+   "is_headline": false,
+   "key1_source": "insider",
+   "entry_grade": "flip",
+   "confirmation_grade": "flip",
+   "co_arm_bucket": "alone",
+   "left_out": null,
+   "left_out_note": null,
+   "cap": {
+    "value": 1000000000.0,
+    "tier": "small",
+    "gap": null,
+    "note": null,
+    "close": 12.34,
+    "close_date": "2026-06-03",
+    "shares": 81000000.0,
+    "shares_date": "2026-05-12",
+    "ads_ratio": null,
+    "split_factor": null
+   },
+   "adv_usd": 2500000.0,
+   "liquidity": "1m_10m",
+   "arm_night": {
+    "entry_date": "2026-06-04",
+    "entry_close": 10.0,
+    "spans": {
+     "h5": {
+      "status": "counted",
+      "end_date": "2026-07-01",
+      "ret": 0.03,
+      "iwm": 0.01,
+      "spy": 0.0
+     },
+     "h10": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "h20": {
+      "status": "counted",
+      "end_date": "2026-07-22",
+      "ret": 0.25,
+      "iwm": 0.25,
+      "spy": 0.1
+     },
+     "h60": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "exit_by": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     }
+    }
+   },
+   "next_session": {
+    "entry_date": "2026-06-05",
+    "entry_close": 10.5,
+    "spans": {
+     "h5": {
+      "status": "counted",
+      "end_date": "2026-07-02",
+      "ret": 0.02,
+      "iwm": 0.01,
+      "spy": 0.0
+     },
+     "h10": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "h20": {
+      "status": "counted",
+      "end_date": "2026-07-23",
+      "ret": 0.2,
+      "iwm": 0.25,
+      "spy": 0.1
+     },
+     "h60": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "exit_by": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     }
+    }
+   }
+  },
+  {
+   "thesis_id": "00000000-0000-0000-0000-0000000000a1",
+   "thesis_name": "Card A",
+   "security_id": "00000000-0000-0000-0000-000000000102",
+   "ticker": "S03",
+   "arm_date": "2026-06-03",
+   "exit_by": "2026-07-31",
+   "arm_until": "2026-07-31",
+   "close_reason": "window_end",
+   "is_headline": true,
+   "key1_source": "insider",
+   "entry_grade": "core",
+   "confirmation_grade": "core",
+   "co_arm_bucket": "alone",
+   "left_out": null,
+   "left_out_note": null,
+   "cap": {
+    "value": 1000000000.0,
+    "tier": "small",
+    "gap": null,
+    "note": null,
+    "close": 12.34,
+    "close_date": "2026-06-02",
+    "shares": 81000000.0,
+    "shares_date": "2026-05-12",
+    "ads_ratio": null,
+    "split_factor": null
+   },
+   "adv_usd": 2500000.0,
+   "liquidity": "1m_10m",
+   "arm_night": {
+    "entry_date": "2026-06-03",
+    "entry_close": 10.0,
+    "spans": {
+     "h5": {
+      "status": "counted",
+      "end_date": "2026-07-01",
+      "ret": 0.03,
+      "iwm": 0.01,
+      "spy": 0.0
+     },
+     "h10": {
+      "status": "counted",
+      "end_date": "2026-07-08",
+      "ret": 0.04,
+      "iwm": 0.02,
+      "spy": 0.01
+     },
+     "h20": {
+      "status": "counted",
+      "end_date": "2026-07-22",
+      "ret": 0.23,
+      "iwm": 0.25,
+      "spy": 0.1
+     },
+     "h60": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "exit_by": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     }
+    }
+   },
+   "next_session": {
+    "entry_date": "2026-06-04",
+    "entry_close": 10.5,
+    "spans": {
+     "h5": {
+      "status": "counted",
+      "end_date": "2026-07-02",
+      "ret": 0.02,
+      "iwm": 0.01,
+      "spy": 0.0
+     },
+     "h10": {
+      "status": "counted",
+      "end_date": "2026-07-09",
+      "ret": 0.03,
+      "iwm": 0.02,
+      "spy": 0.01
+     },
+     "h20": {
+      "status": "counted",
+      "end_date": "2026-07-23",
+      "ret": 0.18,
+      "iwm": 0.25,
+      "spy": 0.1
+     },
+     "h60": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "exit_by": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     }
+    }
+   }
+  },
+  {
+   "thesis_id": "00000000-0000-0000-0000-0000000000a2",
+   "thesis_name": "Card B",
+   "security_id": "00000000-0000-0000-0000-000000000101",
+   "ticker": "S02",
+   "arm_date": "2026-06-02",
+   "exit_by": "2026-07-31",
+   "arm_until": "2026-07-31",
+   "close_reason": "window_end",
+   "is_headline": false,
+   "key1_source": "insider",
+   "entry_grade": "core",
+   "confirmation_grade": "core",
+   "co_arm_bucket": "alone",
+   "left_out": null,
+   "left_out_note": null,
+   "cap": {
+    "value": 1000000000.0,
+    "tier": "small",
+    "gap": null,
+    "note": null,
+    "close": 12.34,
+    "close_date": "2026-06-01",
+    "shares": 81000000.0,
+    "shares_date": "2026-05-12",
+    "ads_ratio": null,
+    "split_factor": null
+   },
+   "adv_usd": 2500000.0,
+   "liquidity": "1m_10m",
+   "arm_night": {
+    "entry_date": "2026-06-02",
+    "entry_close": 10.0,
+    "spans": {
+     "h5": {
+      "status": "counted",
+      "end_date": "2026-07-01",
+      "ret": 0.03,
+      "iwm": 0.01,
+      "spy": 0.0
+     },
+     "h10": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "h20": {
+      "status": "counted",
+      "end_date": "2026-07-22",
+      "ret": 0.21,
+      "iwm": 0.25,
+      "spy": 0.1
+     },
+     "h60": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "exit_by": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     }
+    }
+   },
+   "next_session": {
+    "entry_date": "2026-06-03",
+    "entry_close": 10.5,
+    "spans": {
+     "h5": {
+      "status": "counted",
+      "end_date": "2026-07-02",
+      "ret": 0.02,
+      "iwm": 0.01,
+      "spy": 0.0
+     },
+     "h10": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "h20": {
+      "status": "counted",
+      "end_date": "2026-07-23",
+      "ret": 0.15999999999999998,
+      "iwm": 0.25,
+      "spy": 0.1
+     },
+     "h60": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "exit_by": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     }
+    }
+   }
+  },
+  {
+   "thesis_id": "00000000-0000-0000-0000-0000000000a1",
+   "thesis_name": "Card A",
+   "security_id": "00000000-0000-0000-0000-000000000100",
+   "ticker": "S01",
+   "arm_date": "2026-06-01",
+   "exit_by": "2026-07-31",
+   "arm_until": "2026-07-31",
+   "close_reason": "window_end",
+   "is_headline": true,
+   "key1_source": "insider",
+   "entry_grade": "flip",
+   "confirmation_grade": "flip",
+   "co_arm_bucket": "alone",
+   "left_out": null,
+   "left_out_note": null,
+   "cap": {
+    "value": 1000000000.0,
+    "tier": "small",
+    "gap": null,
+    "note": null,
+    "close": 12.34,
+    "close_date": "2026-05-31",
+    "shares": 81000000.0,
+    "shares_date": "2026-05-12",
+    "ads_ratio": null,
+    "split_factor": null
+   },
+   "adv_usd": 2500000.0,
+   "liquidity": "1m_10m",
+   "arm_night": {
+    "entry_date": "2026-06-01",
+    "entry_close": 10.0,
+    "spans": {
+     "h5": {
+      "status": "counted",
+      "end_date": "2026-07-01",
+      "ret": 0.03,
+      "iwm": 0.01,
+      "spy": 0.0
+     },
+     "h10": {
+      "status": "counted",
+      "end_date": "2026-07-08",
+      "ret": 0.04,
+      "iwm": 0.02,
+      "spy": 0.01
+     },
+     "h20": {
+      "status": "counted",
+      "end_date": "2026-07-22",
+      "ret": 0.15,
+      "iwm": 0.25,
+      "spy": 0.1
+     },
+     "h60": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "exit_by": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     }
+    }
+   },
+   "next_session": {
+    "entry_date": "2026-06-02",
+    "entry_close": 10.5,
+    "spans": {
+     "h5": {
+      "status": "counted",
+      "end_date": "2026-07-02",
+      "ret": 0.02,
+      "iwm": 0.01,
+      "spy": 0.0
+     },
+     "h10": {
+      "status": "counted",
+      "end_date": "2026-07-09",
+      "ret": 0.03,
+      "iwm": 0.02,
+      "spy": 0.01
+     },
+     "h20": {
+      "status": "counted",
+      "end_date": "2026-07-23",
+      "ret": 0.09999999999999999,
+      "iwm": 0.25,
+      "spy": 0.1
+     },
+     "h60": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     },
+     "exit_by": {
+      "status": "maturing",
+      "end_date": null,
+      "ret": null,
+      "iwm": null,
+      "spy": null
+     }
+    }
+   }
+  }
+ ],
+ "flagged": [
+  {
+   "security_id": "00000000-0000-0000-0000-000000000128",
+   "ticker": "FLG",
+   "reason": "Price feed stopped: no price since 2026-07-01"
+  }
+ ],
+ "opening": [
+  {
+   "key": "nano",
+   "episodes": 0,
+   "cells": {
+    "h5": {
+     "n": 0,
+     "held": 0,
+     "hit_rate": null,
+     "median": null,
+     "q1": null,
+     "q3": null,
+     "name_median": null,
+     "bench_median": null,
+     "no_comparison": 0,
+     "too_small": false
+    },
+    "h10": {
+     "n": 0,
+     "held": 0,
+     "hit_rate": null,
+     "median": null,
+     "q1": null,
+     "q3": null,
+     "name_median": null,
+     "bench_median": null,
+     "no_comparison": 0,
+     "too_small": false
+    },
+    "h20": {
+     "n": 0,
+     "held": 0,
+     "hit_rate": null,
+     "median": null,
+     "q1": null,
+     "q3": null,
+     "name_median": null,
+     "bench_median": null,
+     "no_comparison": 0,
+     "too_small": false
+    },
+    "h60": {
+     "n": 0,
+     "held": 0,
+     "hit_rate": null,
+     "median": null,
+     "q1": null,
+     "q3": null,
+     "name_median": null,
+     "bench_median": null,
+     "no_comparison": 0,
+     "too_small": false
+    },
+    "exit_by": {
+     "n": 0,
+     "held": 0,
+     "hit_rate": null,
+     "median": null,
+     "q1": null,
+     "q3": null,
+     "name_median": null,
+     "bench_median": null,
+     "no_comparison": 0,
+     "too_small": false
+    }
+   }
+  },
+  {
+   "key": "micro",
+   "episodes": 3,
+   "cells": {
+    "h5": {
+     "n": 3,
+     "held": 3,
+     "hit_rate": 1.0,
+     "median": 0.019999999999999997,
+     "q1": 0.019999999999999997,
+     "q3": 0.019999999999999997,
+     "name_median": 0.03,
+     "bench_median": 0.01,
+     "no_comparison": 0,
+     "too_small": true
+    },
+    "h10": {
+     "n": 2,
+     "held": 2,
+     "hit_rate": 1.0,
+     "median": 0.02,
+     "q1": 0.02,
+     "q3": 0.02,
+     "name_median": 0.04,
+     "bench_median": 0.02,
+     "no_comparison": 0,
+     "too_small": true
+    },
+    "h20": {
+     "n": 3,
+     "held": 2,
+     "hit_rate": 0.6666666666666666,
+     "median": 0.010000000000000009,
+     "q1": -0.01999999999999999,
+     "q3": 0.10500000000000001,
+     "name_median": 0.26,
+     "bench_median": 0.25,
+     "no_comparison": 0,
+     "too_small": true
+    },
+    "h60": {
+     "n": 0,
+     "held": 0,
+     "hit_rate": null,
+     "median": null,
+     "q1": null,
+     "q3": null,
+     "name_median": null,
+     "bench_median": null,
+     "no_comparison": 0,
+     "too_small": false
+    },
+    "exit_by": {
+     "n": 0,
+     "held": 0,
+     "hit_rate": null,
+     "median": null,
+     "q1": null,
+     "q3": null,
+     "name_median": null,
+     "bench_median": null,
+     "no_comparison": 0,
+     "too_small": false
+    }
+   }
+  },
+  {
+   "key": "small",
+   "episodes": 12,
+   "cells": {
+    "h5": {
+     "n": 12,
+     "held": 12,
+     "hit_rate": 1.0,
+     "median": 0.019999999999999997,
+     "q1": 0.019999999999999997,
+     "q3": 0.019999999999999997,
+     "name_median": 0.03,
+     "bench_median": 0.01,
+     "no_comparison": 0,
+     "too_small": false
+    },
+    "h10": {
+     "n": 6,
+     "held": 6,
+     "hit_rate": 1.0,
+     "median": 0.02,
+     "q1": 0.02,
+     "q3": 0.02,
+     "name_median": 0.04,
+     "bench_median": 0.02,
+     "no_comparison": 0,
+     "too_small": true
+    },
+    "h20": {
+     "n": 12,
+     "held": 8,
+     "hit_rate": 0.6666666666666666,
+     "median": 0.025000000000000022,
+     "q1": -0.0049999999999999975,
+     "q3": 0.05249999999999999,
+     "name_median": 0.275,
+     "bench_median": 0.25,
+     "no_comparison": 0,
+     "too_small": false
+    },
+    "h60": {
+     "n": 0,
+     "held": 0,
+     "hit_rate": null,
+     "median": null,
+     "q1": null,
+     "q3": null,
+     "name_median": null,
+     "bench_median": null,
+     "no_comparison": 0,
+     "too_small": false
+    },
+    "exit_by": {
+     "n": 0,
+     "held": 0,
+     "hit_rate": null,
+     "median": null,
+     "q1": null,
+     "q3": null,
+     "name_median": null,
+     "bench_median": null,
+     "no_comparison": 0,
+     "too_small": false
+    }
+   }
+  },
+  {
+   "key": "mid",
+   "episodes": 1,
+   "cells": {
+    "h5": {
+     "n": 1,
+     "held": 1,
+     "hit_rate": 1.0,
+     "median": 0.019999999999999997,
+     "q1": 0.019999999999999997,
+     "q3": 0.019999999999999997,
+     "name_median": 0.03,
+     "bench_median": 0.01,
+     "no_comparison": 0,
+     "too_small": true
+    },
+    "h10": {
+     "n": 0,
+     "held": 0,
+     "hit_rate": null,
+     "median": null,
+     "q1": null,
+     "q3": null,
+     "name_median": null,
+     "bench_median": null,
+     "no_comparison": 0,
+     "too_small": false
+    },
+    "h20": {
+     "n": 0,
+     "held": 0,
+     "hit_rate": null,
+     "median": null,
+     "q1": null,
+     "q3": null,
+     "name_median": null,
+     "bench_median": null,
+     "no_comparison": 0,
+     "too_small": false
+    },
+    "h60": {
+     "n": 0,
+     "held": 0,
+     "hit_rate": null,
+     "median": null,
+     "q1": null,
+     "q3": null,
+     "name_median": null,
+     "bench_median": null,
+     "no_comparison": 0,
+     "too_small": false
+    },
+    "exit_by": {
+     "n": 0,
+     "held": 0,
+     "hit_rate": null,
+     "median": null,
+     "q1": null,
+     "q3": null,
+     "name_median": null,
+     "bench_median": null,
+     "no_comparison": 0,
+     "too_small": false
+    }
+   }
+  },
+  {
+   "key": "large",
+   "episodes": 0,
+   "cells": {
+    "h5": {
+     "n": 0,
+     "held": 0,
+     "hit_rate": null,
+     "median": null,
+     "q1": null,
+     "q3": null,
+     "name_median": null,
+     "bench_median": null,
+     "no_comparison": 0,
+     "too_small": false
+    },
+    "h10": {
+     "n": 0,
+     "held": 0,
+     "hit_rate": null,
+     "median": null,
+     "q1": null,
+     "q3": null,
+     "name_median": null,
+     "bench_median": null,
+     "no_comparison": 0,
+     "too_small": false
+    },
+    "h20": {
+     "n": 0,
+     "held": 0,
+     "hit_rate": null,
+     "median": null,
+     "q1": null,
+     "q3": null,
+     "name_median": null,
+     "bench_median": null,
+     "no_comparison": 0,
+     "too_small": false
+    },
+    "h60": {
+     "n": 0,
+     "held": 0,
+     "hit_rate": null,
+     "median": null,
+     "q1": null,
+     "q3": null,
+     "name_median": null,
+     "bench_median": null,
+     "no_comparison": 0,
+     "too_small": false
+    },
+    "exit_by": {
+     "n": 0,
+     "held": 0,
+     "hit_rate": null,
+     "median": null,
+     "q1": null,
+     "q3": null,
+     "name_median": null,
+     "bench_median": null,
+     "no_comparison": 0,
+     "too_small": false
+    }
+   }
+  },
+  {
+   "key": "unpinned",
+   "episodes": 1,
+   "cells": {
+    "h5": {
+     "n": 1,
+     "held": 1,
+     "hit_rate": 1.0,
+     "median": 0.019999999999999997,
+     "q1": 0.019999999999999997,
+     "q3": 0.019999999999999997,
+     "name_median": 0.03,
+     "bench_median": 0.01,
+     "no_comparison": 0,
+     "too_small": true
+    },
+    "h10": {
+     "n": 1,
+     "held": 1,
+     "hit_rate": 1.0,
+     "median": 0.02,
+     "q1": 0.02,
+     "q3": 0.02,
+     "name_median": 0.04,
+     "bench_median": 0.02,
+     "no_comparison": 0,
+     "too_small": true
+    },
+    "h20": {
+     "n": 1,
+     "held": 1,
+     "hit_rate": 1.0,
+     "median": 0.020000000000000018,
+     "q1": 0.020000000000000018,
+     "q3": 0.020000000000000018,
+     "name_median": 0.27,
+     "bench_median": 0.25,
+     "no_comparison": 0,
+     "too_small": true
+    },
+    "h60": {
+     "n": 0,
+     "held": 0,
+     "hit_rate": null,
+     "median": null,
+     "q1": null,
+     "q3": null,
+     "name_median": null,
+     "bench_median": null,
+     "no_comparison": 0,
+     "too_small": false
+    },
+    "exit_by": {
+     "n": 0,
+     "held": 0,
+     "hit_rate": null,
+     "median": null,
+     "q1": null,
+     "q3": null,
+     "name_median": null,
+     "bench_median": null,
+     "no_comparison": 0,
+     "too_small": false
+    }
+   }
+  },
+  {
+   "key": "pooled",
+   "episodes": 17,
+   "cells": {
+    "h5": {
+     "n": 17,
+     "held": 17,
+     "hit_rate": 1.0,
+     "median": 0.019999999999999997,
+     "q1": 0.019999999999999997,
+     "q3": 0.019999999999999997,
+     "name_median": 0.03,
+     "bench_median": 0.01,
+     "no_comparison": 0,
+     "too_small": false
+    },
+    "h10": {
+     "n": 9,
+     "held": 9,
+     "hit_rate": 1.0,
+     "median": 0.02,
+     "q1": 0.02,
+     "q3": 0.02,
+     "name_median": 0.04,
+     "bench_median": 0.02,
+     "no_comparison": 0,
+     "too_small": true
+    },
+    "h20": {
+     "n": 16,
+     "held": 11,
+     "hit_rate": 0.6875,
+     "median": 0.020000000000000018,
+     "q1": -0.0049999999999999975,
+     "q3": 0.05249999999999999,
+     "name_median": 0.27,
+     "bench_median": 0.25,
+     "no_comparison": 0,
+     "too_small": false
+    },
+    "h60": {
+     "n": 0,
+     "held": 0,
+     "hit_rate": null,
+     "median": null,
+     "q1": null,
+     "q3": null,
+     "name_median": null,
+     "bench_median": null,
+     "no_comparison": 0,
+     "too_small": false
+    },
+    "exit_by": {
+     "n": 0,
+     "held": 0,
+     "hit_rate": null,
+     "median": null,
+     "q1": null,
+     "q3": null,
+     "name_median": null,
+     "bench_median": null,
+     "no_comparison": 0,
+     "too_small": false
+    }
+   }
+  }
+ ],
+ "cache": "computed",
+ "compute_ms": 1234
+}

@@ -41,7 +41,9 @@ from dashboards.filing_stream import (
     stream_rows,
 )
 from dashboards.filings import (
+    ALL_KINDS,
     FOLD_GROUPS,
+    FORM4_KINDS,
     KIND_ORDER,
     SEC_FILING_KINDS,
     STANDARD_8K_ITEMS,
@@ -1029,6 +1031,173 @@ def test_each_filing_shows_ONCE_an_index_row_a_richer_row_carries_is_dropped():
         index=[index_row(form="8-K", accession=ACC), index_row()],
     )
     assert sorted(r.form for r in rows_for_company(alone, W, clock="public")) == ["8-K", "S-1"]
+
+
+# ---------------------------------------------------------------------------------------------------------
+# narrowing the read to some kinds (``kinds=``): the other kinds' reads are skipped, the rest is unchanged
+# ---------------------------------------------------------------------------------------------------------
+
+# an S-1 in the index that no other row of the fixture carries (the split fixture claims IDX_ACC)
+S1_ACC = "0000876543-26-000070"
+
+ACCESSORS = (
+    "corporate_event_facts",
+    "insider_txns",
+    "activist_stake_facts",
+    "fundamentals_facts",
+    "split_events",
+    "dilution_facts",
+    "catalyst_facts",
+    "cash_burn_facts",
+    "shares_outstanding_facts",
+    "revenue_mix_facts",
+    "filing_index",
+)
+
+
+def recording_pit(**data):
+    """A ``StubPit`` that records the name of every accessor the reader calls, in order."""
+    pit = StubPit(**data)
+    called: list[str] = []
+    for name in ACCESSORS:
+
+        def accessor(sid, _real=getattr(pit, name), _name=name):
+            called.append(_name)
+            return _real(sid)
+
+        setattr(pit, name, accessor)
+    return pit, called
+
+
+def every_source_pit():
+    """One company with a row of every kind the reader builds but a ratified fact: an 8-K, a 13D/G, a Form 4, an
+    applied 4/A (tape rows plus its record), two revenue prints, a split, a dilution, and two index rows (the
+    8-K's own, deduped in a full read, and an S-1 nothing else shows)."""
+    return recording_pit(
+        events=[event()],
+        insider=[
+            txn(),
+            txn(
+                accession=A_ACC,
+                accepted=utc(2026, 10, 22, 20, 0),
+                amends_accession="0000876543-26-000009",
+            ),
+        ],
+        stakes=[stake()],
+        fundamentals=[PRIOR, NOW],
+        splits=[split()],
+        dilution=[dilution()],
+        catalysts=[],
+        cash=[],
+        index=[index_row(form="8-K", accession=ACC), index_row(accession=S1_ACC)],
+    )
+
+
+def test_the_default_read_is_every_kind_in_the_order_it_has_always_had():
+    pit, called = every_source_pit()
+    rows = rows_for_company(pit, W, clock="public", amendments=[amendment()])
+    # the pinned order of a full read: the 8-K, the 13D/G, the Form 4, the folded 4/A, the revenue prints, the
+    # split, the dilution, then the index rows no richer row shows
+    assert [r.kind for r in rows] == [
+        "8k",
+        "stake",
+        "form4",
+        "form4a",
+        "revenue",
+        "revenue",
+        "split",
+        "dilution",
+        "filing",
+    ]
+    assert [r.accession for r in rows if r.kind == "filing"] == [S1_ACC]
+    assert sorted(called) == sorted(ACCESSORS)  # every source was read
+    # nothing passed, None and every kind named are the same read
+    again, _ = every_source_pit()
+    assert rows_for_company(again, W, clock="public", amendments=[amendment()], kinds=None) == rows
+    every, _ = every_source_pit()
+    assert (
+        rows_for_company(every, W, clock="public", amendments=[amendment()], kinds=ALL_KINDS)
+        == rows
+    )
+    assert ALL_KINDS == frozenset(KIND_ORDER)
+
+
+def test_the_form4_kinds_are_the_full_reads_form4_rows_and_nothing_else_is_read():
+    full_pit, _ = every_source_pit()
+    full = rows_for_company(full_pit, W, clock="public", amendments=[amendment()])
+    pit, called = every_source_pit()
+    got = rows_for_company(pit, W, clock="public", amendments=[amendment()], kinds=FORM4_KINDS)
+    assert FORM4_KINDS == {"form4", "form4a"}
+    assert got == [r for r in full if r.kind in FORM4_KINDS]  # the same rows, in the same order
+    assert {r.kind for r in got} == {
+        "form4",
+        "form4a",
+    }  # the 4/A is folded exactly as in a full read
+    assert [r.accession for r in got if r.kind == "form4a"] == [A_ACC]
+    # the other kinds' accessors were NEVER called (skipped, not read and filtered)
+    assert called == ["insider_txns"]
+
+
+@pytest.mark.parametrize("kind", [k for k in KIND_ORDER if k != "filing"])
+def test_a_single_kind_is_the_full_reads_rows_of_that_kind_and_calls_only_its_own_accessors(kind):
+    full_pit, _ = every_source_pit()
+    full = rows_for_company(full_pit, W, clock="public", amendments=[amendment()])
+    pit, called = every_source_pit()
+    got = rows_for_company(pit, W, clock="public", amendments=[amendment()], kinds={kind})
+    assert got == [r for r in full if r.kind == kind]
+    own = {
+        "8k": {"corporate_event_facts"},
+        "stake": {"activist_stake_facts"},
+        "form4": {"insider_txns"},
+        "form4a": {"insider_txns"},
+        "revenue": {"fundamentals_facts"},
+        "split": {"split_events"},
+        "dilution": {"dilution_facts"},
+        "catalyst": {"catalyst_facts"},
+        "ratified": {"cash_burn_facts", "shares_outstanding_facts", "revenue_mix_facts"},
+    }[kind]
+    assert set(called) == own and len(called) == len(own)
+
+
+def test_form4_alone_leaves_the_4a_out_and_form4a_alone_leaves_the_form4_out():
+    pit, _ = every_source_pit()
+    only_4 = rows_for_company(pit, W, clock="public", amendments=[amendment()], kinds={"form4"})
+    assert [r.kind for r in only_4] == ["form4"]
+    pit, _ = every_source_pit()
+    only_4a = rows_for_company(pit, W, clock="public", amendments=[amendment()], kinds={"form4a"})
+    assert [(r.kind, r.accession) for r in only_4a] == [("form4a", A_ACC)]
+
+
+def test_the_index_dedupe_compares_against_the_kinds_read():
+    """An index row is dropped when a richer row READ carries its accession. Read alone, the index's 8-K row stands
+    (no 8-K row was read to claim it); read with the 8-K, it is dropped again, as in a full read."""
+    pit, called = every_source_pit()
+    alone = rows_for_company(pit, W, clock="public", kinds={"filing"})
+    assert sorted(r.accession for r in alone) == sorted([ACC, S1_ACC])
+    assert called == ["filing_index"]
+    pit, _ = every_source_pit()
+    both = rows_for_company(pit, W, clock="public", kinds={"filing", "8k"})
+    assert sorted((r.kind, r.accession) for r in both) == sorted([("8k", ACC), ("filing", S1_ACC)])
+
+
+def test_no_kinds_reads_nothing_and_an_unknown_kind_fails_loud():
+    pit, called = every_source_pit()
+    assert (
+        rows_for_company(pit, W, clock="public", amendments=[amendment()], kinds=frozenset()) == []
+    )
+    assert called == []
+    for bad in ({"form_4"}, {"form4", "8-K"}):
+        with pytest.raises(ValueError, match="unknown kinds"):
+            rows_for_company(pit, W, clock="public", kinds=bad)  # type: ignore[arg-type]
+        with pytest.raises(ValueError, match="unknown kinds"):  # before any connection is touched
+            filings_mod.read_filing_rows(  # type: ignore[arg-type]
+                object(), [SID], ASOF, None, "public", days=30, kinds=bad
+            )
+    # nothing named: every company has an empty entry and no connection is touched
+    got = filings_mod.read_filing_rows(  # type: ignore[arg-type]
+        object(), [SID], ASOF, None, "public", days=30, kinds=frozenset()
+    )
+    assert got == {SID: ()}
 
 
 def test_an_index_row_is_in_the_window_from_its_filing_date_and_never_after_the_asof():
