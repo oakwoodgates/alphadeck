@@ -297,6 +297,11 @@ These are the numbers for the one-read version (every candidate row in one reque
   the cold compute) was accepted by the operator on 2026-10-30; see items 23 to 25.
 
 ### MEASURED, AFTER the on-demand change
+- Live as-of 2026-10-30: the default read (`rows=armed`) 95 rows, 257 KB, cold compute 8,485 ms, cache hit 100 ms, with
+  the toggle counts carried (122 Warming, 271 watch, 0 Managing); the full read on first toggle use (`rows=all`) 488
+  rows, 1.1 MB, cold 19,794 ms, hit 300 ms. The morning visit now waits 8.5 s cold instead of 19.6 s, and the
+  post-nightly warm-up (its own change) makes it a hit.
+
 
 Not yet measured: the orchestrator records the default read's payload and cold compute, and the `rows=all` read's,
 from dev with a prod data copy, on the same live and past as-ofs as above.
