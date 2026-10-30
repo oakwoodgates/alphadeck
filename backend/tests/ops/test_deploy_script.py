@@ -30,6 +30,11 @@ HEAD = "4f1c0de5" * 5  # the checkout's HEAD in every test (40 hex chars, like `
 OTHER = "b0b0cafe" * 5
 OLD = "0ld5ha00" * 5  # the sha a container NOT rebuilt by the test still carries
 _QUIET_HOUR = "2026-10-16 14:05 EDT"
+# The two loopback addresses every local read tries, IPv6 first (never plain `localhost`).
+ADMIN_V6 = "http://[::1]:8000/admin/status"
+ADMIN_V4 = "http://127.0.0.1:8000/admin/status"
+PROXY_V6 = "http://[::1]:8080/api/health"
+PROXY_V4 = "http://127.0.0.1:8080/api/health"
 
 
 def _find_bash() -> str | None:
@@ -81,20 +86,37 @@ case "${TZ-}" in
 esac
 """
 
-# /admin/status: the Nth read serves $SHIM_STATE/status_N.json (else status.json); no file = unreachable.
+# Per-address behavior (the Docker Desktop IPv4-loopback flake, 2026-10-29): FAKE_ADMIN_DOWN / FAKE_PROXY_DOWN
+# list the hosts (e.g. "[::1]") whose connection RESETS on that endpoint (curl 56, like the real flake), and
+# FAKE_ADMIN_FLAKY=N resets the first N /admin/status attempts at ANY address, then answers.
+# /admin/status: the Nth ANSWERED read serves $SHIM_STATE/status_N.json (else status.json); no file = unreachable.
 _FAKE_CURL = r"""#!/usr/bin/env bash
 echo "curl $*" >> "$SHIM_LOG"
 url="${!#}"
+host="${url#http://}"; host="${host%%/*}"; host="${host%:*}"   # http://[::1]:8000/x -> [::1]
+reset() { echo "curl: (56) Recv failure: Connection was reset" >&2; exit 56; }
+down() { case " $1 " in *" $host "*) return 0 ;; esac; return 1; }
 case "$url" in
   */admin/status)
+    if down "${FAKE_ADMIN_DOWN-}"; then reset; fi
+    t=$(( $(cat "$SHIM_STATE/tries" 2>/dev/null || echo 0) + 1 ))
+    echo "$t" > "$SHIM_STATE/tries"
+    if [ "$t" -le "${FAKE_ADMIN_FLAKY:-0}" ]; then reset; fi
     n=$(( $(cat "$SHIM_STATE/reads" 2>/dev/null || echo 0) + 1 ))
     echo "$n" > "$SHIM_STATE/reads"
     for f in "$SHIM_STATE/status_$n.json" "$SHIM_STATE/status.json"; do
       if [ -f "$f" ]; then cat "$f"; exit 0; fi
     done
-    echo "curl: (7) Failed to connect to localhost port 8000" >&2; exit 7 ;;
+    echo "curl: (7) Failed to connect to $host port 8000" >&2; exit 7 ;;
   */api/health)
-    printf '{"status":"ok"}\n%s' "${FAKE_PROXY_CODE:-200}" ;;
+    if down "${FAKE_PROXY_DOWN-}"; then echo "curl: (56) Recv failure: Connection was reset" >&2; printf '\n000'; exit 56; fi
+    code="${FAKE_PROXY_CODE:-200}"
+    case " $* " in
+      *" -fsS "*) if [ "$code" -ge 400 ]; then
+                    echo "curl: (22) The requested URL returned error: $code" >&2; printf '\n%s' "$code"; exit 22
+                  fi ;;
+    esac
+    printf '{"status":"ok"}\n%s' "$code" ;;
   *) echo "fake curl: unexpected: $*" >&2; exit 64 ;;
 esac
 """
@@ -234,6 +256,7 @@ def deploy(tmp_path):
             FAKE_OLD_SHA=OLD,
             DEPLOY_WAIT_S="0",  # one try per readiness poll: a failing fake fails at once
             DEPLOY_POLL_S="0",
+            DEPLOY_RETRY_S="0",  # no pause before the one retry of a local read
             DOCKER_HOST="tcp://127.0.0.1:9",  # belt and suspenders: no daemon answers here
             PYTHONIOENCODING="utf-8",
         )
@@ -447,9 +470,107 @@ def test_refuses_when_admin_status_cannot_be_read(deploy):
     """Fail-closed: no /admin/status means a running pass cannot be ruled out."""
     r = deploy("--label", "pre-deploy", "backend", statuses=None)
     assert r.code == 3, r.out
-    assert "REFUSE: cannot read cron.status from http://localhost:8000/admin/status" in r.out
+    assert f"REFUSE: cannot read cron.status from {ADMIN_V6} or {ADMIN_V4}" in r.out
     assert "stack-recovery" in r.out
     _no_stack_change(r)
+
+
+# --- local reads: [::1] then 127.0.0.1 (the Docker Desktop IPv4-loopback flake, 2026-10-29) -----------
+
+
+def _admin_urls(r: Result) -> list[str]:
+    """The /admin/status URL of each curl the script made, in order."""
+    return [c.split()[-1] for c in r.calls("curl") if c.endswith("/admin/status")]
+
+
+def test_every_local_read_goes_to_an_explicit_loopback_address_never_localhost(deploy):
+    r = deploy("--label", "pre-deploy", "backend")
+    assert r.code == 0, r.out
+    urls = [c.split()[-1] for c in r.calls("curl")]
+    assert urls and all(u.startswith(("http://[::1]:", "http://127.0.0.1:")) for u in urls), urls
+    assert "localhost" not in r.out
+    # the IPv6 literal has to survive curl's URL globbing
+    assert all(" -g " in c for c in r.calls("curl")), r.calls("curl")
+
+
+def test_the_first_address_answering_is_named_and_the_second_is_never_asked(deploy):
+    r = deploy("--label", "pre-deploy", "backend")
+    assert r.code == 0, r.out
+    assert set(_admin_urls(r)) == {ADMIN_V6}
+    assert "ok: no pass running (cron.status=healthy" in r.out
+    assert "/admin/status answered at [::1]" in r.out
+    assert f"ok: {PROXY_V6} -> 200 (the /api proxy) — answered at [::1]" in r.out
+    assert "ok: /admin/status reads; cron.status=healthy — answered at [::1]" in r.out
+
+
+def test_a_reset_ipv6_loopback_falls_through_to_ipv4(deploy):
+    """The plain fallback: the first address resets on both endpoints, the second answers every read."""
+    r = deploy("--label", "pre-deploy", "backend", FAKE_ADMIN_DOWN="[::1]", FAKE_PROXY_DOWN="[::1]")
+    assert r.code == 0, r.out
+    # pre-check and post-deploy verify: two tries at [::1], then 127.0.0.1 answers (x2 reads)
+    assert _admin_urls(r) == [ADMIN_V6, ADMIN_V6, ADMIN_V4, ADMIN_V6, ADMIN_V6, ADMIN_V4]
+    assert "/admin/status answered at 127.0.0.1" in r.out
+    assert f"ok: {PROXY_V4} -> 200 (the /api proxy) — answered at 127.0.0.1" in r.out
+    assert "ok: /admin/status reads; cron.status=healthy — answered at 127.0.0.1" in r.out
+
+
+def test_the_2026_10_29_flake_ipv4_resets_ipv6_answers(deploy):
+    """MEASURED on the deploy host: 127.0.0.1:8000 reset while [::1]:8000 answered. IPv6 is tried first, so
+    the wrapper never even reaches the dead address."""
+    r = deploy("--label", "pre-deploy", "backend", FAKE_ADMIN_DOWN="127.0.0.1")
+    assert r.code == 0, r.out
+    assert ADMIN_V4 not in _admin_urls(r)
+    assert "/admin/status answered at [::1]" in r.out
+
+
+def test_one_transient_reset_is_retried_at_the_same_address(deploy):
+    r = deploy("--label", "pre-deploy", "frontend", FAKE_ADMIN_FLAKY="1")
+    assert r.code == 0, r.out
+    urls = _admin_urls(r)
+    assert urls[:2] == [ADMIN_V6, ADMIN_V6], urls  # the retry stays on [::1] ...
+    assert ADMIN_V4 not in urls  # ... and it succeeds there
+    assert "/admin/status answered at [::1]" in r.out
+
+
+def test_refuses_only_when_every_address_fails_and_names_each_failure(deploy):
+    r = deploy(
+        "--label", "pre-deploy", "backend", FAKE_ADMIN_DOWN="[::1] 127.0.0.1"
+    )  # both reset, as a dead listener would
+    assert r.code == 3, r.out
+    assert _admin_urls(r) == [ADMIN_V6, ADMIN_V6, ADMIN_V4, ADMIN_V4]  # two tries at EACH address
+    assert (
+        f"REFUSE: cannot read cron.status from {ADMIN_V6} or {ADMIN_V4} "
+        "([::1]: curl: (56) Recv failure: Connection was reset; "
+        "127.0.0.1: curl: (56) Recv failure: Connection was reset)"
+    ) in r.out
+    assert "stack-recovery" in r.out
+    _no_stack_change(r)
+
+
+def test_an_address_that_answers_with_garbage_refuses_instead_of_falling_through(deploy):
+    """Fail-closed: the fallback walks ADDRESSES that fail to answer; it never second-guesses an answer
+    that arrived but cannot be read as a known verdict."""
+    r = deploy("--label", "pre-deploy", "backend", statuses=_status("surprise"))
+    assert r.code == 3, r.out
+    assert "REFUSE: cannot read cron.status from http://[::1]:8000/admin/status (" in r.out
+    assert "unrecognized cron.status 'surprise'" in r.out
+    assert set(_admin_urls(r)) == {ADMIN_V6}  # 127.0.0.1 was never asked
+    _no_stack_change(r)
+
+
+def test_verification_fails_when_the_proxy_answers_nothing_at_any_address(deploy):
+    r = deploy("--label", "pre-deploy", "backend", FAKE_PROXY_DOWN="[::1] 127.0.0.1")
+    assert r.code == 5, r.out
+    assert f"FAIL: {PROXY_V6} or {PROXY_V4}: no 200 after 0s — [::1]: 000; 127.0.0.1: 000" in r.out
+    proxy = [c.split()[-1] for c in r.calls("curl") if c.endswith("/api/health")]
+    assert proxy == [PROXY_V6, PROXY_V6, PROXY_V4, PROXY_V4]
+
+
+def test_verification_fails_when_the_post_deploy_status_read_fails_at_every_address(deploy):
+    """Only the first read (the pre-check) has a canned status; the one after the rebuild gets nothing."""
+    r = deploy("--label", "pre-deploy", "frontend", statuses=[_status("healthy")])
+    assert r.code == 5, r.out
+    assert f"FAIL: cannot read cron.status from {ADMIN_V6} or {ADMIN_V4} after the deploy" in r.out
 
 
 def test_every_refusal_is_reported_at_once(deploy):
@@ -479,11 +600,14 @@ def test_the_dry_run_prints_every_command_and_changes_nothing(deploy):
         f"would run: GIT_SHA={HEAD} {pc} up -d --build --no-deps backend",
         "would run: docker restart alphadeck-frontend-1",
         "would verify: docker inspect --format '{{.State.Health.Status}}' alphadeck-backend-1 -> healthy",
-        "would verify: curl -s --max-time 10 -w '\\n%{http_code}' http://localhost:8080/api/health -> 200",
+        f"would verify: curl -fsS -g --max-time 10 -w '\\n%{{http_code}}' {PROXY_V6} or {PROXY_V4} "
+        "(tried in turn, 2 tries each) -> 200",
         f"would verify: docker exec alphadeck-backend-1 printenv ALPHADECK_IMAGE_SHA -> {HEAD}",
         "would show:   docker exec alphadeck-cron-1 printenv ALPHADECK_IMAGE_SHA (not rebuilt",
-        "would verify: curl -fsS --max-time 60 http://localhost:8000/admin/status",
-        "would read: curl -fsS --max-time 60 http://localhost:8000/admin/status",
+        f"would verify: curl -fsS -g --connect-timeout 5 --max-time 60 {ADMIN_V6} or {ADMIN_V4} "
+        "(tried in turn, 2 tries each)",
+        f"would read: curl -fsS -g --connect-timeout 5 --max-time 60 {ADMIN_V6} or {ADMIN_V4} "
+        "(tried in turn, 2 tries each; refuse only if every address fails)",
         "would read: docker exec alphadeck-backend-1 python -c <pg_locks read>",
         "OK: dry-run",
     ]:
@@ -525,7 +649,7 @@ def test_the_happy_path_backs_up_builds_at_HEAD_restarts_and_verifies(deploy):
 
     # verification ran after the restart, and checked the sha in BOTH rebuilt containers
     assert restart < r.index("inspect --format {{.State.Health.Status}} alphadeck-backend-1")
-    assert restart < r.index("http://localhost:8080/api/health")
+    assert restart < r.index(PROXY_V6)
     assert restart < r.index("exec alphadeck-backend-1 printenv ALPHADECK_IMAGE_SHA")
     assert restart < r.index("exec alphadeck-cron-1 printenv ALPHADECK_IMAGE_SHA")
     assert f"ok: alphadeck-backend-1 ALPHADECK_IMAGE_SHA={HEAD} (the sha just built)" in r.out
@@ -533,7 +657,10 @@ def test_the_happy_path_backs_up_builds_at_HEAD_restarts_and_verifies(deploy):
     assert "ok: alphadeck-cron-1 is running and printed its boot lines" in r.out
     assert "daily-cron: each pass bounded at" in r.out  # the boot log tail is shown
     assert "ok: /admin/status reads; cron.status=healthy" in r.out
-    assert len(r.calls("curl -fsS --max-time 60 http://localhost:8000/admin/status")) == 2
+    assert _admin_urls(r) == [
+        ADMIN_V6,
+        ADMIN_V6,
+    ]  # the pre-check and the post-deploy read, one try each
 
 
 @pytest.mark.parametrize(
@@ -596,7 +723,10 @@ def test_a_sha_mismatch_fails_verification(deploy):
     "fake, says",
     [
         ({"FAKE_HEALTH": "starting"}, "alphadeck-backend-1 health is 'starting', not healthy"),
-        ({"FAKE_PROXY_CODE": "502"}, "http://localhost:8080/api/health -> 502"),
+        (
+            {"FAKE_PROXY_CODE": "502"},
+            f"{PROXY_V6} or {PROXY_V4}: no 200 after 0s — [::1]: 502; 127.0.0.1: 502",
+        ),
         ({"FAKE_CRON_STATE": "restarting"}, "alphadeck-cron-1 is 'restarting', not running"),
         (
             {"FAKE_CRON_BOOT_LINE": "daily-cron: DB not ready"},

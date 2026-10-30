@@ -30,7 +30,15 @@
 #
 # Exit: 0 deployed + verified (or a clean dry-run) · 2 usage · 3 refused (nothing changed) ·
 #       4 a step failed · 5 deployed but a verification failed. On 4/5: the stack-recovery skill.
-# Knobs: DEPLOY_WAIT_S (default 240) bounds each readiness poll; DEPLOY_POLL_S (default 5) is its interval.
+# Knobs: DEPLOY_WAIT_S (default 240) bounds each readiness poll; DEPLOY_POLL_S (default 5) is its interval;
+#        DEPLOY_RETRY_S (default 1) is the pause before the one retry of a local read at the same address.
+#
+# Local reads (/admin/status, /api/health) try [::1] then 127.0.0.1 — two tries at each, DEPLOY_RETRY_S
+# apart — and fail only when every address fails; the ok: line says which address answered. Never plain
+# `localhost`: on this host Docker Desktop's IPv4 loopback forward intermittently resets while [::1]
+# answers (MEASURED 2026-10-29: `curl 127.0.0.1:8000` reset, `curl [::1]:8000` 200 in 0.3 s) and
+# `localhost` resolves to either. An unreadable status still REFUSES (fail-closed): the fallback adds an
+# address to try, never a guess.
 #
 # Agent-legible by contract: non-interactive, exit-code-clean, greppable (--> progress, ok:/REFUSE:
 # lines, a terminal OK:/FAIL: line). Run it from the MAIN checkout, on a clean main; never from a worktree.
@@ -44,12 +52,17 @@ PROD=(-f docker-compose.yml -f docker-compose.prod.yml)   # relative -f names; w
 BACKEND_C="alphadeck-backend-1"
 CRON_C="alphadeck-cron-1"
 FRONTEND_C="alphadeck-frontend-1"
-ADMIN_URL="http://localhost:8000/admin/status"
-PROXY_URL="http://localhost:8080/api/health"
+# Every local READ of the stack tries these addresses in turn, never `localhost` (see the header). IPv6 first:
+# it is the one that answered when Docker Desktop's IPv4 loopback forward reset (2026-10-29).
+LOOPBACKS=('[::1]' '127.0.0.1')
+ADMIN_PATH=":8000/admin/status"
+PROXY_PATH=":8080/api/health"
+LOOPBACK_TRIES=2   # per address: the first try plus ONE short retry
 WINDOW_FROM=2220   # HHMM America/New_York, inclusive both ends: the nightly pass fires at 22:30
 WINDOW_TO=2250
 WAIT_S="${DEPLOY_WAIT_S:-240}"
 POLL_S="${DEPLOY_POLL_S:-5}"
+RETRY_S="${DEPLOY_RETRY_S:-1}"
 RECOVERY="see the stack-recovery skill (.claude/skills/stack-recovery/SKILL.md); the manual steps are docs/DEPLOY.md Flow A"
 
 # GIT_SHA is a provenance claim stamped on every call-of-record row: it comes from `git rev-parse HEAD`
@@ -120,16 +133,59 @@ ny_clock() {
   return 1
 }
 
-# Read /admin/status into S_STATUS (one cron.status word), S_RUNNING (0|1) and S_ALARMS (one line each).
+# Every URL a local read tries ("http://[::1]<path> or http://127.0.0.1<path>"), for the messages.
+urls_for() {
+  local a out=""
+  for a in "${LOOPBACKS[@]}"; do out+="${out:+ or }http://${a}$1"; done
+  echo "$out"
+}
+ADMIN_URLS="$(urls_for "$ADMIN_PATH")"
+PROXY_URLS="$(urls_for "$PROXY_PATH")"
+TRY_NOTE="tried in turn, ${LOOPBACK_TRIES} tries each"
+
+# GET http://<address><path> ($1; curl's other args follow) at each LOOPBACKS address in turn: LOOPBACK_TRIES
+# tries at each, RETRY_S apart, stopping at the first curl that exits 0. Succeeds with G_ADDR = the address
+# that answered and G_OUT = that curl's output. Fails, only when EVERY address failed, with G_ERR = each
+# address's last output line ("; "-joined) and G_OUT = the last failure's output. It only walks addresses:
+# whether an answer is usable (a parsable status, a 200) is the caller's call, and an unusable one refuses
+# there (fail-closed) instead of falling through to the next address. The error is curl's 56 ("Recv failure:
+# Connection was reset", 2026-10-29), which comes AFTER the connect, so curl's own `localhost` fallback
+# (a refused connect only) never ran: hence explicit addresses.
+G_OUT="" ; G_ADDR="" ; G_ERR=""
+loopback_get() {
+  local path="$1" addr n last
+  shift
+  G_OUT="" ; G_ADDR="" ; G_ERR=""
+  for addr in "${LOOPBACKS[@]}"; do
+    for ((n = 1; n <= LOOPBACK_TRIES; n++)); do
+      if G_OUT="$(curl "$@" "http://${addr}${path}" 2>&1)"; then
+        G_ADDR="$addr"
+        G_ERR=""
+        return 0
+      fi
+      if [ "$n" -lt "$LOOPBACK_TRIES" ]; then sleep "$RETRY_S"; fi
+    done
+    last="${G_OUT//$'\r'/}"
+    last="${last##*$'\n'}"
+    G_ERR+="${G_ERR:+; }${addr}: ${last}"
+  done
+  return 1
+}
+
+# Read /admin/status into S_STATUS (one cron.status word), S_RUNNING (0|1) and S_ALARMS (one line each),
+# with S_ADDR = the address that answered and S_WHERE = the URL(s) to name in a message.
 # Non-zero, with S_ERR, when it cannot be read or parsed into a known verdict (fail-closed).
-S_STATUS="" ; S_RUNNING="" ; S_ALARMS=() ; S_ERR=""
+S_STATUS="" ; S_RUNNING="" ; S_ALARMS=() ; S_ERR="" ; S_ADDR="" ; S_WHERE="$ADMIN_URLS"
 read_status() {
   local json parsed line
-  S_STATUS="" ; S_RUNNING="" ; S_ALARMS=() ; S_ERR=""
-  if ! json="$(curl -fsS --max-time 60 "$ADMIN_URL" 2>&1)"; then
-    S_ERR="curl: ${json##*$'\n'}"
+  S_STATUS="" ; S_RUNNING="" ; S_ALARMS=() ; S_ERR="" ; S_ADDR="" ; S_WHERE="$ADMIN_URLS"
+  if ! loopback_get "$ADMIN_PATH" -fsS -g --connect-timeout 5 --max-time 60; then
+    S_ERR="$G_ERR"
     return 1
   fi
+  json="$G_OUT"
+  S_ADDR="$G_ADDR"
+  S_WHERE="http://${S_ADDR}${ADMIN_PATH}"
   if ! parsed="$(printf '%s' "$json" | docker exec -i "$BACKEND_C" python -c "$STATUS_PY" 2>&1)"; then
     S_ERR="parse: ${parsed##*$'\n'}"
     return 1
@@ -174,12 +230,19 @@ backend_healthy() {
   LAST="${LAST//$'\r'/}"
   [ "$LAST" = "healthy" ]
 }
-proxy_200() {
-  local out
-  out="$(curl -s --max-time 10 -w '\n%{http_code}' "$PROXY_URL" 2>&1)" || true
-  LAST="${out##*$'\n'}"
-  LAST="${LAST//$'\r'/}"
-  [ "$LAST" = "200" ]
+PROXY_ADDR=""
+proxy_200() { # sets PROXY_ADDR when an address answered 200; else LAST says what each answered
+  local code
+  PROXY_ADDR=""
+  if ! loopback_get "$PROXY_PATH" -fsS -g --max-time 10 -w '\n%{http_code}'; then
+    LAST="$G_ERR" # -f makes an HTTP error a failure, so a 502 on every address lands here, as '<addr>: 502'
+    return 1
+  fi
+  code="${G_OUT##*$'\n'}"
+  code="${code//$'\r'/}"
+  LAST="${G_ADDR}: ${code}"
+  [ "$code" = "200" ] || return 1
+  PROXY_ADDR="$G_ADDR"
 }
 CRON_LOGS=""
 cron_up() {
@@ -315,7 +378,7 @@ PRE_ALARMS=0
 CRON_SHA_BEFORE=""
 if [ "$DRY_RUN" -eq 1 ]; then
   say "stack checks — a dry-run touches no stack; the real run makes these READS before it changes anything:"
-  echo "    would read: curl -fsS --max-time 60 $ADMIN_URL | docker exec -i $BACKEND_C python -c <parse> — refuse if a pass is running (cron.status running, or unfinished_run running inside its timeout)"
+  echo "    would read: curl -fsS -g --connect-timeout 5 --max-time 60 $ADMIN_URLS ($TRY_NOTE; refuse only if every address fails) | docker exec -i $BACKEND_C python -c <parse> — refuse if a pass is running (cron.status running, or unfinished_run running inside its timeout)"
   echo "    would read: docker exec $BACKEND_C python -c <pg_locks read> — refuse if the call-of-record lock is held (pipeline/run_lock.py)"
 elif [ "$REFUSED" -gt 0 ]; then
   say "stack checks skipped — a local check already refused"
@@ -327,11 +390,11 @@ else
     if [ "$S_RUNNING" = 1 ]; then
       refuse "a pass is running (cron.status=$S_STATUS) — never rebuild under a pass; wait for it to finish (/admin/status)"
     else
-      ok "no pass running (cron.status=$S_STATUS · ${PRE_ALARMS} alarm(s) before the deploy)"
+      ok "no pass running (cron.status=$S_STATUS · ${PRE_ALARMS} alarm(s) before the deploy) — /admin/status answered at $S_ADDR"
       print_alarms
     fi
   else
-    refuse "cannot read cron.status from $ADMIN_URL ($S_ERR) — a running pass cannot be ruled out. If the backend is down this is a recovery, not a deploy: $RECOVERY"
+    refuse "cannot read cron.status from $S_WHERE ($S_ERR) — a running pass cannot be ruled out. If the backend is down this is a recovery, not a deploy: $RECOVERY"
   fi
   if lock="$(docker exec "$BACKEND_C" python -c "$LOCK_PY" 2>&1)"; then
     lock="${lock//$'\r'/}"
@@ -397,7 +460,7 @@ if has cron; then recreated_cron=1; fi
 if [ "$DRY_RUN" -eq 1 ]; then
   say "verify (each check would poll up to ${WAIT_S}s where it waits on startup)"
   echo "    would verify: docker inspect --format '{{.State.Health.Status}}' $BACKEND_C -> healthy"
-  echo "    would verify: curl -s --max-time 10 -w '\\n%{http_code}' $PROXY_URL -> 200 (the /api proxy, not just :8000)"
+  echo "    would verify: curl -fsS -g --max-time 10 -w '\\n%{http_code}' $PROXY_URLS ($TRY_NOTE) -> 200 (the /api proxy, not just :8000)"
   for svc in backend cron; do
     if [ "$ENV_ONLY" -eq 1 ] && [ "$svc" = "cron" ]; then
       echo "    would verify: docker exec $CRON_C printenv ALPHADECK_IMAGE_SHA -> unchanged from before the recreate"
@@ -412,7 +475,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
   else
     echo "    would verify: docker inspect --format '{{.State.Status}}' $CRON_C -> running (the log tail is shown)"
   fi
-  echo "    would verify: curl -fsS --max-time 60 $ADMIN_URL -> cron.status + cron.alarms: no new alarm, no quiet -> loud status"
+  echo "    would verify: curl -fsS -g --connect-timeout 5 --max-time 60 $ADMIN_URLS ($TRY_NOTE) -> cron.status + cron.alarms: no new alarm, no quiet -> loud status"
   if [ "$REFUSED" -gt 0 ]; then
     echo "FAIL: dry-run — the real run would REFUSE: $REFUSED check(s) failed (the REFUSE: lines above); nothing was changed" >&2
     exit 3
@@ -430,9 +493,9 @@ else
 fi
 
 if poll proxy_200; then
-  ok "$PROXY_URL -> 200 (the /api proxy)"
+  ok "http://${PROXY_ADDR}${PROXY_PATH} -> 200 (the /api proxy) — answered at $PROXY_ADDR"
 else
-  vfail "$PROXY_URL -> ${LAST} after ${WAIT_S}s (a 502 is the stale-backend-IP trap: docker restart $FRONTEND_C)"
+  vfail "$PROXY_URLS: no 200 after ${WAIT_S}s — ${LAST} (a 502 is the stale-backend-IP trap: docker restart $FRONTEND_C)"
 fi
 
 backend_sha=""
@@ -490,12 +553,12 @@ if poll read_status; then
   elif is_quiet "$PRE_STATUS" && ! is_quiet "$S_STATUS"; then
     vfail "cron.status went $PRE_STATUS -> $S_STATUS during the deploy"
   elif ! is_quiet "$S_STATUS"; then
-    ok "/admin/status reads; cron.status=$S_STATUS was already $PRE_STATUS before the deploy (not caused by it)"
+    ok "/admin/status reads; cron.status=$S_STATUS was already $PRE_STATUS before the deploy (not caused by it) — answered at $S_ADDR"
   else
-    ok "/admin/status reads; cron.status=$S_STATUS"
+    ok "/admin/status reads; cron.status=$S_STATUS — answered at $S_ADDR"
   fi
 else
-  vfail "cannot read cron.status from $ADMIN_URL after the deploy ($S_ERR)"
+  vfail "cannot read cron.status from $S_WHERE after the deploy ($S_ERR)"
 fi
 
 if [ "$VFAILED" -gt 0 ]; then
