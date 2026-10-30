@@ -26,9 +26,11 @@ The rules, in one place. This is our own simple table, stated here and on the pa
   short of the market's last bar (a delisting, a halt, a stale tape: the recency monitor's own threshold).
   "The market" is SPY's bar dates, IWM's when SPY has none (the Narrative Index's session calendar). With no market
   tape at all nothing can read path ended.
-- **Entry** is the Scoreboard's own entry close, the first close on or after the arm date, so "to exit_by" reconciles
-  with its ``forward_return`` to the cent; the toggle's other entry is the first close strictly AFTER the arm date
-  (the first session the operator could have acted on a call recorded at 22:30 ET). A row carries both.
+- **Entry.** The page's default (and the ``opening`` table's) is the NEXT SESSION's close, the first close strictly
+  AFTER the arm date: the first session the operator could have acted on a call recorded at 22:30 ET (operator
+  decision 2026-10-30). The toggle's other entry is the Scoreboard's own entry close, the first close on or after
+  the arm date (the arm night's own), so "to exit_by" there reconciles with its ``forward_return`` to the cent. A
+  row carries both.
 - **Return** = horizon close / entry close - 1, as traded (no dividends). **Comparison** = the same span on IWM and
   on SPY, each benchmark's close on the entry bar's DATE and the horizon bar's DATE (an exact date, never a stale
   stand-in; a missing benchmark bar leaves that comparison blank, counted). **Excess** = the name's return minus the
@@ -75,7 +77,7 @@ EXIT_BY = "exit_by"
 HORIZONS: tuple[str, ...] = (*SESSION_HORIZONS, EXIT_BY)
 
 # The two entry rules a row carries: the Scoreboard's (the first close on or after the arm date) and the next
-# session's (the first close strictly after it).
+# session's (the first close strictly after it, the page's default).
 ENTRY_RULES: tuple[str, ...] = ("arm_night", "next_session")
 BENCHMARKS: tuple[str, ...] = ("IWM", "SPY")
 COMPARISONS: tuple[str, ...] = ("iwm", "spy", "raw")
@@ -635,7 +637,7 @@ def table_rows(
     rows: Iterable[RecordRow],
     *,
     slice_by: str = "tier",
-    entry: str = "arm_night",
+    entry: str = "next_session",
     comparison: str = "iwm",
 ) -> tuple[TableRow, ...]:
     """The table for the COUNTED rows: the slice's rows in size order, then ``unpinned``, then ``pooled`` LAST (the
@@ -726,7 +728,7 @@ def count_rows(rows: Sequence[RecordRow]) -> Counts:
 @dataclass(frozen=True)
 class TrackRecord:
     """The page's whole read: every episode's row (newest arm first), the counts, the companies whose flagged price
-    history leaves them out, the opening table (IWM, the arm-night entry, by cap tier, every armed member: the
+    history leaves them out, the opening table (IWM, the next-session entry, by cap tier, every armed member: the
     reference the page's own client-side arithmetic is tested against) and the market clock in force.
     """
 

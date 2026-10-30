@@ -546,7 +546,7 @@ function Page({
         <li>Medians are equal-weight over the names with a bar; returns are as-traded closes, with no dividends.</li>
         <li>
           The entry rule is the first close on or after the arm night, the night's own close: one the operator could not
-          have taken. The Track Record page has the next-session toggle.
+          have taken. The Track Record page opens on the next session's close.
         </li>
         <li>
           Loudness marks the exception: the one accent on this page is a card whose own flag says at most two sessions

@@ -119,7 +119,7 @@ on a new run or a basket edit (rule 7).
 - **Sessions are the benchmark's bars;** a name halted on a session still counts the session.
 - **Equal-weight medians, as-traded closes, no dividends.**
 - **The Scoreboard's entry rule** (the arm night's own close) is one the operator could not have taken; the Track
-  Record page has the next-session toggle.
+  Record page opens on the next session's close.
 
 ## Out of scope
 

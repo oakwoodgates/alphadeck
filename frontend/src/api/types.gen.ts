@@ -2756,7 +2756,7 @@ export interface paths {
         /**
          * Track Record
          * @description What the tape did after each arm episode the Scoreboard records, by market-cap tier at the event: one row per
-         *     episode with its cap tier and liquidity band, and, for the arm-night entry and the next session's, the return at
+         *     episode with its cap tier and liquidity band, and, for the next session's entry and the arm night's, the return at
          *     5, 10, 20 and 60 sessions of the name's own bars and to the episode's own exit_by, with IWM's and SPY's returns
          *     over the same dates. The Scoreboard's own episodes and honesty filters: a censored start, an ingest-flagged
          *     episode and a company with a flagged price history are left out of every cell and counted. Reads the record
@@ -15846,7 +15846,7 @@ export interface components {
         /**
          * TrackRecordOut
          * @description The Track Record at the as-of: every episode's row (newest arm first), the counts, the companies left out for a
-         *     flagged price history and the opening table (IWM, the arm-night entry, by cap tier, every armed member; the page
+         *     flagged price history and the opening table (IWM, the next-session entry, by cap tier, every armed member; the page
          *     recomputes any other reading from ``rows`` with the same arithmetic). ``edition`` and the two policies are the
          *     Scoreboard's own (``annotated_policy`` / ``late_policy``: ``included`` | ``excluded`` | ``n/a`` for a stored
          *     edition, which has no such rows). ``edition`` is the one READ (the record when the request named none);

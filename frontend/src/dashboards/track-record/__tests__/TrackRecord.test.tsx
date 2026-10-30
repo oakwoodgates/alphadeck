@@ -37,6 +37,8 @@ const cell = (row: string, horizon: string) => screen.getByTestId(`tr-cell-${row
 const cellText = (row: string, horizon: string) => cell(row, horizon).textContent;
 const listTickers = () => screen.queryAllByTestId("tr-row").map((r) => r.querySelector(".tr-tk")?.textContent);
 const click = (name: string | RegExp) => userEvent.click(screen.getByRole("button", { name }));
+// the page opens on the next session's close; the hand-computed vectors below are the arm night's, one toggle away
+const armNight = () => click("Arm night");
 
 describe("TrackRecord — the table", () => {
   it("lists the tiers in size order, then unpinned, then the pooled row LAST and labeled pooled", () => {
@@ -62,11 +64,12 @@ describe("TrackRecord — the table", () => {
     ]);
   });
 
-  it("states each readable cell as the median excess and how many held, with the four things in its hover", () => {
+  it("states each readable cell as the median excess and how many held, with the four things in its hover", async () => {
     setup();
+    await armNight();
     expect(cellText("small", "h20")).toBe("+2.5%8/12");
     const btn = within(cell("small", "h20")).getByRole("button");
-    for (const part of ["excess vs IWM", "20 sessions", "n = 12", "held 8 of 12 (67%)"]) {
+    for (const part of ["excess vs IWM", "20 sessions", "n = 12", "held 8 of 12 (67%)", "arm-night close entry"]) {
       expect(btn.getAttribute("title"), part).toContain(part);
     }
     expect(within(cell("small", "h20")).getByText("+2.5%")).toHaveClass("pos");
@@ -91,6 +94,7 @@ describe("TrackRecord — the table", () => {
 
   it("draws the thin cells' numbers, grayed, when asked", async () => {
     setup();
+    await armNight();
     await userEvent.click(screen.getByLabelText("show thin cells"));
     expect(cellText("micro", "h20")).toBe("+1.0%2/3");
     expect(within(cell("micro", "h20")).getByText("+1.0%")).toHaveClass("gray");
@@ -119,6 +123,7 @@ describe("TrackRecord — the toggles re-table the page with no request", () => 
 
   it("switches the comparison to SPY and to the raw return", async () => {
     setup();
+    await armNight();
     await click("vs SPY");
     expect(cellText("small", "h20")).toBe("+17.5%12/12");
     expect(screen.getByText(/Each cell: median excess vs SPY/)).toBeInTheDocument();
@@ -128,17 +133,30 @@ describe("TrackRecord — the toggles re-table the page with no request", () => 
     expect(screen.getByText(/Comparison: none shown \(the raw return\)/)).toBeInTheDocument();
   });
 
-  it("switches the entry to the next session's close and says so", async () => {
+  it("opens on the next session's close and says so", () => {
     setup();
-    expect(screen.getByText(/by horizon \(arm-night close entry\)/)).toBeInTheDocument();
-    await click("Next session");
+    expect(screen.getByRole("button", { name: "Next session" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Arm night" })).toHaveAttribute("aria-pressed", "false");
     expect(cellText("small", "h20")).toBe("−2.5%3/12");
     expect(screen.getByText(/by horizon \(next-session close entry\)/)).toBeInTheDocument();
     expect(screen.getByText(/Entry: the next session's close/)).toBeInTheDocument();
+    expect(within(cell("small", "h20")).getByRole("button").getAttribute("title")).toContain("next-session close entry");
+  });
+
+  it("still reaches the arm night's figures, the Scoreboard's own entry, with the toggle", async () => {
+    setup();
+    await armNight();
+    expect(screen.getByRole("button", { name: "Arm night" })).toHaveAttribute("aria-pressed", "true");
+    expect(cellText("small", "h20")).toBe("+2.5%8/12");
+    expect(screen.getByText(/by horizon \(arm-night close entry\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Entry: the arm night's close, the Scoreboard's own/)).toBeInTheDocument();
+    await click("Next session");
+    expect(cellText("small", "h20")).toBe("−2.5%3/12");
   });
 
   it("restates every cell under a chip filter and the line says how many are shown", async () => {
     setup();
+    await armNight();
     await click(/^activist/);
     expect(cellText("small", "h20")).toMatch(/^n 5/); // five activist names left in the small tier
     expect(cellText("micro", "h20")).toBe("—"); // the micro names are all 'theme'
@@ -185,7 +203,7 @@ describe("TrackRecord — the episode list", () => {
   });
 
   it("shows a name's cap tier and approximate cap, its liquidity band, its Key 1 source, grade and the five horizons", () => {
-    setup(payload({ rows: [row({ ticker: "AAA", key1_source: "revenue_accel", entry_grade: "flip", arm_night: entry({ h5: span(), h10: span({ status: "maturing" }), h20: span({ status: "path_ended" }) }) })] }));
+    setup(payload({ rows: [row({ ticker: "AAA", key1_source: "revenue_accel", entry_grade: "flip", next_session: entry({ h5: span(), h10: span({ status: "maturing" }), h20: span({ status: "path_ended" }) }) })] }));
     const r = screen.getByTestId("tr-row");
     expect(r.textContent).toContain("AAA");
     expect(r.textContent).toContain("small ~$576M");
@@ -332,7 +350,7 @@ describe("TrackRecord — the quiet work lines and the states", () => {
       /20 arm episodes on 2 cards · 17 in the cells · left out: 1 flagged price history, 1 censored start, 1 ingest flagged/,
       /1 with an unpinned cap · 1 with unpinned liquidity \(counted, never dropped\)/,
       /10 sessions 9 counted, 8 maturing/,
-      /Entry: the arm night's close, the Scoreboard's own/,
+      /Entry: the next session's close, the first one after the arm night/,
       /Comparison: IWM over the same two dates/,
       /Market clock: SPY's bar dates/,
       /computed · 1,234 ms/,
@@ -346,6 +364,7 @@ describe("TrackRecord — the quiet work lines and the states", () => {
     expect(screen.getByText(/A cell under 10 episodes is too small to read: it prints its n only/)).toBeInTheDocument();
     expect(screen.getByText(/Horizons are sessions of the name's own bars, never calendar days/)).toBeInTheDocument();
     expect(screen.getByText(/Market cap is approximate and measured the session before the arm date/)).toBeInTheDocument();
+    expect(screen.getByText(/The entry is a close, not a fill. The default is the next session's close/)).toBeInTheDocument();
   });
 
   it("never says a result works, wins or deserves anything", () => {

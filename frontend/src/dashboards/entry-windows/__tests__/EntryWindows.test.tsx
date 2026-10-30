@@ -237,7 +237,7 @@ describe("EntryWindows — the quiet lines and the states", () => {
     setup();
     expect(screen.getByText(/1 name left out for a flagged price history/)).toBeInTheDocument();
     expect(screen.getByText(/The arm night is the recorded night/)).toBeInTheDocument();
-    expect(screen.getByText(/The Track Record page has the next-session toggle/)).toBeInTheDocument();
+    expect(screen.getByText(/The Track Record page opens on the next session's close/)).toBeInTheDocument();
   });
 
   it("says so when no card is Armed, still showing the work", () => {
