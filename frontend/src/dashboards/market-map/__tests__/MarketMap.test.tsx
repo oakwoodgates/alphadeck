@@ -369,6 +369,44 @@ describe("the page's quiet lines", () => {
     expect(screen.getByText("2 names left out for a flagged price history")).toBeInTheDocument();
   });
 
+  it("the work line counts the flagged names the note lists: in view under the Context/Bench toggle", async () => {
+    // measured on a prod copy: 30 flagged, 16 of them Context/Bench only: toggle off the note listed 14
+    const data = twoCards();
+    data.flagged = Array.from({ length: 30 }, (_, i) => ({
+      security_id: `f${i}`,
+      ticker: `F${i}`,
+      reason: "price feed stopped",
+      silent_only: i >= 14,
+    }));
+    renderMap(data);
+    const line = () => screen.getByText(/priced for 1d/).textContent!;
+    expect(screen.getByText("14 names left out for a flagged price history")).toBeInTheDocument();
+    expect(line()).toContain("14 names left out for a flagged price history");
+    expect(line()).not.toContain("30 names left out");
+    await userEvent.click(screen.getByLabelText("Show Context and Bench"));
+    expect(screen.getByText("30 names left out for a flagged price history")).toBeInTheDocument();
+    expect(line()).toContain("30 names left out for a flagged price history");
+    await userEvent.click(screen.getByLabelText("Show Context and Bench"));
+    expect(line()).toContain("14 names left out for a flagged price history");
+  });
+
+  it("the info box says why a filing-cover count was not used", () => {
+    const data = twoCards();
+    const visa = data.companies.find((c) => c.security_id === "bbb")!;
+    Object.assign(visa, {
+      cap: null,
+      cap_tier: null,
+      cap_source: null,
+      cap_gap: "no_shares",
+      cap_note: "the filing cover's count is from 2010-11-02, too old to stand in",
+    });
+    const { container } = renderMap(data);
+    fireEvent.mouseMove(tile(container, "/card:t-grid/link:Turbines/co:bbb"), { clientX: 10, clientY: 10 });
+    const box = screen.getByRole("status");
+    expect(box).toHaveTextContent("the filing cover's count is from 2010-11-02, too old to stand in");
+    expect(box).toHaveTextContent("no market cap: drawn at the smallest size");
+  });
+
   it("says so when there is nothing to draw", async () => {
     renderMap(payload({ companies: [company("a", "A")], memberships: [mem("a", "t-grid", "X")] }));
     await userEvent.click(screen.getByLabelText("Show Context and Bench"));

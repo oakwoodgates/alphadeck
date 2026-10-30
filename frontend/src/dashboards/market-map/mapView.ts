@@ -282,6 +282,13 @@ export function inView(data: MarketMapOut, includeSilent: boolean) {
   return { companies, memberships };
 }
 
+/** The companies left off the map for a flagged price history that are in view under the Context/Bench toggle: a
+ *  flagged company with only Context or Bench rows is in view only when the toggle is on. The page's note lists
+ *  these and the work line counts them, so the two always agree. */
+export function flaggedInView(data: Pick<MarketMapOut, "flagged">, includeSilent: boolean) {
+  return data.flagged.filter((f) => includeSilent || !f.silent_only);
+}
+
 function entriesFor(
   data: MarketMapOut,
   opts: ViewOpts,

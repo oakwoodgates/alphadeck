@@ -19,11 +19,14 @@ from app.routers.dashboards import market_map as router_mod
 from dashboards.baskets import CardsAsOf, Membership
 from dashboards.cache import CACHE
 from dashboards.market_map import (
+    COVER_MAX_AGE_DAYS,
+    COVER_MIN_SHARES,
     DOLLAR_VOLUME_BARS,
     TRAILING,
     WINDOWS,
     CompanyCap,
     CompanyReading,
+    CoverPick,
     MapInputs,
     benchmark_returns,
     company_cap,
@@ -244,7 +247,7 @@ def test_the_workbench_count_wins_and_the_cover_is_never_consulted():
         }
     ]
     rows = [cover_row(999_000_000, date(2026, 5, 5), date(2026, 5, 10))]
-    shares, source = pick_shares(wb, rows)
+    shares, source, _ = pick_shares(wb, rows, ASOF)
     assert source == "workbench" and shares is not None and shares["shares"] == 40_000_000
     cap = company_cap(CLOSE, shares, source)
     assert cap.cell.value == 200_000_000.0 and cap.cell.tier is not None
@@ -257,7 +260,7 @@ def test_the_latest_workbench_fact_by_valid_from_is_the_pick():
         {"shares": 3, "valid_from": date(2026, 4, 1), "ads_ratio": None, "ads_ratio_status": None},
         {"shares": 2, "valid_from": date(2026, 2, 1), "ads_ratio": None, "ads_ratio_status": None},
     ]
-    shares, _ = pick_shares(wb, [])
+    shares, _, _ = pick_shares(wb, [], ASOF)
     assert shares is not None and shares["shares"] == 3
 
 
@@ -266,7 +269,7 @@ def test_the_cover_count_stands_in_for_a_quarterly_filer_and_is_labeled():
         cover_row(30_000_000, date(2026, 2, 20), date(2026, 3, 1), "FY"),
         cover_row(50_000_000, date(2026, 5, 5), date(2026, 5, 10), "Q1"),
     ]
-    shares, source = pick_shares([], rows)
+    shares, source, _ = pick_shares([], rows, ASOF)
     assert source == "cover" and shares is not None and shares["shares"] == 50_000_000.0
     assert shares["valid_from"] == date(2026, 5, 5)  # the cover's own date, not the filing's
     assert shares["ads_ratio"] is None and shares["ads_ratio_status"] is None
@@ -276,9 +279,11 @@ def test_the_cover_count_stands_in_for_a_quarterly_filer_and_is_labeled():
 
 def test_a_company_with_only_annual_cover_counts_is_not_stood_in_for():
     rows = [cover_row(30_000_000, date(2026, 2, 20), date(2026, 3, 1), "FY")]
-    assert cover_shares(rows) is None
-    shares, source = pick_shares([], rows)
-    assert (shares, source) == (None, None)
+    assert cover_shares(rows, ASOF) == CoverPick(
+        None
+    )  # not a 10-Q filer: no stand-in, and nothing to explain
+    assert pick_shares([], rows, ASOF) == (None, None, None)
+    shares, source, _ = pick_shares([], rows, ASOF)
     cap = company_cap(CLOSE, shares, source)
     assert cap.cell.value is None and cap.cell.gap == "no_shares" and cap.source is None
 
@@ -290,7 +295,7 @@ def test_other_share_metrics_and_null_fiscal_periods_do_not_count_as_a_quarterly
         ),
         cover_row(10_000_000, date(2026, 5, 5), date(2026, 5, 10), None),
     ]
-    assert cover_shares(rows) is None
+    assert cover_shares(rows, ASOF).shares is None
 
 
 def test_the_latest_cover_row_is_by_filing_date_then_period_end():
@@ -301,7 +306,7 @@ def test_the_latest_cover_row_is_by_filing_date_then_period_end():
             3_000_000, date(2026, 5, 4), date(2026, 5, 29), "Q1"
         ),  # same filing day, older period end
     ]
-    got = cover_shares(rows)
+    got = cover_shares(rows, ASOF).shares
     assert got is not None and got["shares"] == 2_000_000.0
 
 
@@ -310,7 +315,7 @@ def test_the_cover_count_is_scaled_by_the_split_list_from_the_covers_own_date():
     2026-04-01 (after the cover's date, before the filing): the count is put on today's scale, $5 x 10M = $50M.
     Dated from the filing (04-15) the split would be missed and the cap would read $500M."""
     rows = [cover_row(100_000_000, date(2026, 3, 1), date(2026, 4, 15), "Q1")]
-    shares, source = pick_shares([], rows)
+    shares, source, _ = pick_shares([], rows, ASOF)
     cap = company_cap(CLOSE, shares, source, [split(date(2026, 4, 1), 10, 1)])
     assert cap.cell.value == 50_000_000.0 and cap.cell.split_factor == pytest.approx(0.1)
     assert cap.cell.tier is not None and cap.cell.tier.value == "micro" and cap.source == "cover"
@@ -321,7 +326,7 @@ def test_the_cover_count_is_scaled_by_the_split_list_from_the_covers_own_date():
 
 def test_a_cover_date_later_than_its_filing_is_clamped_to_the_filing():
     rows = [cover_row(10_000_000, date(2034, 3, 5), date(2026, 5, 10), "Q1")]  # a date typo
-    got = cover_shares(rows)
+    got = cover_shares(rows, ASOF).shares
     assert got is not None and got["valid_from"] == date(2026, 5, 10)
 
 
@@ -334,7 +339,7 @@ def test_a_workbench_count_withheld_by_its_ads_ratio_keeps_the_gap_and_no_source
             "ads_ratio_status": "unread",
         }
     ]
-    shares, source = pick_shares(wb, [cover_row(1, date(2026, 5, 5), date(2026, 5, 10))])
+    shares, source, _ = pick_shares(wb, [cover_row(1, date(2026, 5, 5), date(2026, 5, 10))], ASOF)
     cap = company_cap(CLOSE, shares, source)
     assert cap.cell.value is None and cap.cell.gap == "ads_unread" and cap.source is None
 
@@ -342,6 +347,99 @@ def test_a_workbench_count_withheld_by_its_ads_ratio_keeps_the_gap_and_no_source
 def test_no_close_is_a_no_price_gap():
     cap = company_cap(None, {"shares": 1, "valid_from": date(2026, 1, 1)}, "cover")
     assert cap.cell.value is None and cap.cell.gap == "no_price" and cap.source is None
+
+
+# the cover stand-in is refused when it is stale or a placeholder (MEASURED on a prod copy, 2026-10-30: Visa's and
+# Mastercard's latest cover rows are from 2010, FOXA's is 2019 and the value 1)
+
+
+def test_the_two_thresholds_are_named_constants():
+    assert (COVER_MAX_AGE_DAYS, COVER_MIN_SHARES) == (200, 10_000)
+
+
+def test_a_recent_cover_count_is_used():
+    rows = [cover_row(50_000_000, date(2026, 5, 5), date(2026, 5, 10), "Q1")]
+    got = cover_shares(rows, ASOF)
+    assert got.refused is None and got.shares is not None and got.shares["shares"] == 50_000_000.0
+
+
+def test_a_stale_cover_count_is_refused_with_its_date_and_leaves_the_gap():
+    rows = [cover_row(5_000_000_000, date(2010, 10, 29), date(2010, 11, 2), "Q3")]  # Visa's shape
+    got = cover_shares(rows, ASOF)
+    assert got.shares is None
+    assert got.refused == "the filing cover's count is from 2010-11-02, too old to stand in"
+    picked = pick_shares([], rows, ASOF)
+    assert (picked.shares, picked.source, picked.refused) == (None, None, got.refused)
+    cap = company_cap(CLOSE, picked.shares, picked.source, (), picked.refused)
+    assert cap.cell.value is None and cap.cell.gap == "no_shares" and cap.source is None
+    assert cap.note == got.refused
+
+
+def test_a_placeholder_cover_count_is_refused():
+    rows = [cover_row(1, date(2026, 5, 5), date(2026, 5, 10), "Q1")]  # FOXA's and QVCG's shape
+    got = cover_shares(rows, ASOF)
+    assert got.shares is None
+    assert got.refused == "the filing cover's count (1) is not a share count"
+    # at the floor it is a share count, one below it is not
+    assert cover_shares(
+        [cover_row(COVER_MIN_SHARES, date(2026, 5, 5), date(2026, 5, 10))], ASOF
+    ).shares
+    below = cover_shares(
+        [cover_row(COVER_MIN_SHARES - 1, date(2026, 5, 5), date(2026, 5, 10))], ASOF
+    )
+    assert (
+        below.shares is None
+        and below.refused == "the filing cover's count (9,999) is not a share count"
+    )
+
+
+def test_the_200_days_are_inclusive_and_counted_from_the_filing_date():
+    filed = ASOF - timedelta(days=COVER_MAX_AGE_DAYS)
+    ok = cover_shares([cover_row(5_000_000, filed - timedelta(days=40), filed)], ASOF)
+    assert ok.shares is not None  # exactly 200 days: used
+    late = filed - timedelta(days=1)
+    gone = cover_shares([cover_row(5_000_000, late - timedelta(days=40), late)], ASOF)
+    assert (
+        gone.shares is None and gone.refused is not None and "too old" in gone.refused
+    )  # 201 days
+
+
+def test_the_age_is_judged_from_a_past_asof_not_from_today():
+    """One cover count filed 2026-01-15: at the as-of 2026-06-01 it is 137 days old and used; at 2026-09-01 it is
+    228 days old and refused; at 2026-02-01 it is 17 days old and used. The same rule, each against its own day
+    (today's date never enters)."""
+    rows = [cover_row(5_000_000, date(2026, 1, 10), date(2026, 1, 15), "Q1")]
+    assert cover_shares(rows, date(2026, 6, 1)).shares is not None
+    assert cover_shares(rows, date(2026, 2, 1)).shares is not None
+    late = cover_shares(rows, date(2026, 9, 1))
+    assert late.shares is None and "from 2026-01-15, too old" in (late.refused or "")
+
+
+def test_only_the_latest_cover_row_is_a_candidate_never_an_older_one():
+    """The latest row is a placeholder while an older one is a real count: the older is staler, so there is no
+    stand-in (the gap stays) rather than a quieter wrong number."""
+    rows = [
+        cover_row(50_000_000, date(2026, 2, 20), date(2026, 3, 1), "Q4"),
+        cover_row(50_000_000, date(2026, 2, 20), date(2026, 3, 1), "Q1"),
+        cover_row(1, date(2026, 5, 5), date(2026, 5, 10), "Q1"),
+    ]
+    got = cover_shares(rows, ASOF)
+    assert got.shares is None and got.refused == "the filing cover's count (1) is not a share count"
+
+
+def test_the_refusal_reason_rides_the_payload_as_cap_note():
+    rows = [ms(T1, "Grid", "VISA", S[0]), ms(T1, "Grid", "OK", S[1])]
+    refused = "the filing cover's count is from 2010-11-02, too old to stand in"
+    no_cap = CompanyCap(CapCell(gap="no_shares"), None, refused)
+    out = market_map(inputs(rows, {S[0]: reading(cap=no_cap), S[1]: reading()}), {}, asof=ASOF)
+    visa, ok = out.companies[1], out.companies[0]  # sorted by ticker: OK, VISA
+    assert (visa.ticker, visa.cap, visa.cap_gap, visa.cap_note) == (
+        "VISA",
+        None,
+        "no_shares",
+        refused,
+    )
+    assert (ok.ticker, ok.cap_note) == ("OK", None)
 
 
 # ---------------------------------------------------------------------------------------------------------

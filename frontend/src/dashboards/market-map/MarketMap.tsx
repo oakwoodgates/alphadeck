@@ -32,6 +32,7 @@ import {
   compareAvailability,
   fmtDay,
   fmtPct,
+  flaggedInView,
   fmtUsd,
   headerTitle,
   inView,
@@ -122,8 +123,9 @@ export function workLine(d: MarketMapOut, tree: Tree, opts: ViewOpts): string {
   );
   const unresolved = d.unresolved_rows + (opts.includeSilent ? d.unresolved_silent_rows : 0);
   parts.push(`${plural(unresolved, "basket row", "basket rows")} without a resolved security not drawn`);
+  // the same names the note below lists: the flagged ones in view under the Context/Bench toggle
   parts.push(
-    `${plural(d.flagged.length, "name", "names")} left out for a flagged price history`,
+    `${plural(flaggedInView(d, opts.includeSilent).length, "name", "names")} left out for a flagged price history`,
   );
   parts.push(`scale ±${legendSteps(opts.window)[8].label.slice(1)} for ${windowLabel(opts.window)}`);
   parts.push(
@@ -304,6 +306,7 @@ function InfoBox({
           </>
         )}
       </div>
+      {c.cap == null && c.cap_note && <div className="mm-info-note">{c.cap_note}</div>}
       {opts.sizeBy === "cap" && c.cap == null && (
         <div className="mm-info-note">no market cap: drawn at the smallest size</div>
       )}
@@ -840,9 +843,7 @@ function MapBody({
             : "A company on several cards is drawn once for each, so the areas here show the cards' structure, not the market."}
         </div>
       )}
-      <FlaggedNote
-        flagged={data.flagged.filter((f) => opts.includeSilent || !f.silent_only)}
-      />
+      <FlaggedNote flagged={flaggedInView(data, opts.includeSilent)} />
       {data.roster_fallback_cards > 0 && (
         <div className="dash-note mm-work">
           Today's roster stands in for {plural(data.roster_fallback_cards, "card", "cards")}: rosters are

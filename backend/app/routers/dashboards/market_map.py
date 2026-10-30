@@ -83,7 +83,9 @@ class MapCompanyOut(_Wire):
     ``ret_1y``; percent, trading bars for the trailing ones), ``null`` where there is no reading, with the reason
     in ``gaps``. ``cap`` = the approximate market cap in USD with its band (``cap_tier``) and the share count it
     rests on (``cap_source``: ``workbench`` = ratified in the Workbench, ``cover`` = the latest count from a
-    filing's cover page, not ratified); ``null`` with ``cap_gap`` / ``cap_note`` when there is none.
+    filing's cover page, not ratified: used only when filed within 200 days of the as-of and at least 10,000
+    shares); ``null`` with ``cap_gap`` / ``cap_note`` when there is none (``cap_note`` says why a cover count
+    that exists was refused).
     ``dollar_volume`` = the mean of close x volume over the last 20 sessions. ``business_type`` / ``supersector``
     are today's identity; ``silent_only`` = every row of the company is Context or Bench."""
 
@@ -152,12 +154,13 @@ def read_company(
     pit: PointInTimeData, sid: UUID, asof: date, member: DisplayMember
 ) -> CompanyReading:
     """One company from the point-in-time view: its as-of bars, the ``trailing_returns`` member, and the share
-    count the cap rests on (the Workbench's, else the filing cover's; the cover read only when there is no
-    Workbench count). The split list is read only when a count and a close are both on file."""
+    count the cap rests on (the Workbench's, else the filing cover's when it is recent and a share count, judged
+    against the as-of; the cover read only when there is no Workbench count). The split list is read only when a count and a close are both on file.
+    """
     bars = [b for b in pit.price_history(sid) if b.get("close") is not None]
     workbench = pit.shares_outstanding_facts(sid)
     fundamentals = pit.fundamentals_facts(sid) if not workbench else ()
-    shares, source = pick_shares(workbench, fundamentals)
+    shares, source, refused = pick_shares(workbench, fundamentals, asof)
     close = (bars[-1]["d"], float(bars[-1]["close"])) if bars else None
     splits = (
         tuple(listed_from_row(r) for r in pit.split_events(sid))
@@ -165,7 +168,7 @@ def read_company(
         else ()
     )
     return company_reading(
-        bars, member(pit, sid, asof), asof, company_cap(close, shares, source, splits)
+        bars, member(pit, sid, asof), asof, company_cap(close, shares, source, splits, refused)
     )
 
 

@@ -87,11 +87,18 @@ values for the window in force. A relative return (a benchmark set) uses the sam
   share count, the latest share count the nightly stored from its filings' cover pages (`fact_fundamentals`,
   `metric_key = 'shares_out_cover_xbrl'`, read through `pit.fundamentals_facts`, public from its filing date) stands
   in, for a company with at least one QUARTERLY cover count only (a 10-Q filer, so no ADS-ratio question); the split
-  list scales it the same way, from the cover's own date (`period_end`). The info box names the source: "share count
+  list scales it the same way, from the cover's own date (`period_end`). **The cover count stands in only when it is
+  recent and a share count** (2026-10-30 review fix): the latest cover row must be filed within 200 calendar days on or
+  before the AS-OF (judged against the as-of, so a past as-of reads the same rule against its own day) and be at least
+  10,000 shares. A company that stopped tagging the cover count keeps its last, old value forever (Visa's and
+  Mastercard's latest are from 2010, FOXA's from 2019 with the value 1, MOBX's from 2023); some tag a placeholder of 1.
+  A refused count leaves the gap and the info box says why ("the filing cover's count is from 2010-11-02, too old to
+  stand in", "the filing cover's count (1) is not a share count"). The info box names the source: "share count
   ratified in the Workbench" or "share count from the filing cover (not ratified)". A company with neither is drawn at
   the smallest weight in view with a dashed edge; its info box says "no market cap: drawn at the smallest size".
-  MEASURED on dev (prod copy, 2026-10-30): 881 of the 1,489 live basket companies have a Workbench share count; 177 of
-  the other 608 have a quarterly cover count, so about 1,058 (71%) get a cap and about 430 are drawn dashed.
+  MEASURED on dev (prod copy, 2026-10-30) BEFORE the gate: caps 870 Workbench / 173 cover / 416 none of 1,459 drawn
+  (about 71% with a cap). The gate moves some of the 173 to none; the count after it awaits the dev re-measure (the
+  work line shows it: "caps: N Workbench / N filing cover / N none").
 - **Dollar volume 20D:** needs 20 sessions; a company with fewer is drawn at the smallest weight, dashed.
 - **Equal:** every tile weighs 1.
 - A company appears once per group it belongs to: once per card-and-link membership in `Card › Link`, once per card in
@@ -154,8 +161,10 @@ flagged names; the window's color scale; the benchmark; "business type and secto
 
 ## Known limits (stated on the page too)
 
-- **Caps are approximate** and about 29% of the companies have none today (no Workbench share count and no quarterly
-  cover count). Filling share counts for every basket company is a separate data job.
+- **Caps are approximate** and about 29% of the companies had none before the cover count's recency gate (416 of 1,459
+  drawn: no Workbench share count and no usable quarterly cover count); the gate moves some cover-count companies to
+  none, and the figure after it awaits the dev re-measure. Filling share counts for every basket company is a separate
+  data job.
 - **Business type and sector are today's** at any as-of.
 - **The card views repeat a company once per card or link,** so their areas are the cards' structure, not the market.
 - **The color scale is fixed per window**, not relative to the day; a quiet day is a gray map.
@@ -189,7 +198,7 @@ Choices the build made that the plan above does not spell out (2026-10-30). Each
 2. **A flagged company's prices are never read** (the flags are read first, the point-in-time read runs over the rest). It is left off the map and listed with a `silent_only` mark, so the page hides a Context-only flagged name until the toggle is on.
 3. **YTD gaps.** Besides "no close on or before Dec 31", a company whose latest bar is still dated on or before that Dec 31 ("no session yet in 2026") or whose base close is not positive reads a stated gap, never 0%.
 4. **Dollar volume 20D is strict:** the last 20 sessions with a close, and a volume missing on ANY of them is a gap. This differs slightly from `volume_regime`'s `adv_usd_20d` (the Peer Table's figure), which skips volume-less bars.
-5. **The cover stand-in.** Gate: at least one cover count with `fiscal_period` Q1, Q2 or Q3 among the as-of rows. The latest cover row by filing date then period end is used even when it is a 10-K's (`FY`) row. Its date is `min(period_end, filing date)` (a cover date later than its own filing is a typo; ASLE's 2034 date is the known case). It is consulted only when there is NO Workbench count; a Workbench count that `cap_cell` withholds (an unread ADS ratio) is not replaced, and shows `cap_source` null with the gap reason.
+5. **The cover stand-in.** Gate: at least one cover count with `fiscal_period` Q1, Q2 or Q3 among the as-of rows. The latest cover row by filing date then period end is used even when it is a 10-K's (`FY`) row. Its date is `min(period_end, filing date)` (a cover date later than its own filing is a typo; ASLE's 2034 date is the known case). It is consulted only when there is NO Workbench count; a Workbench count that `cap_cell` withholds (an unread ADS ratio) is not replaced, and shows `cap_source` null with the gap reason. Review fix (2026-10-30): only the LATEST cover row is a candidate (never an older one: older is staler), and it is used only when filed within `COVER_MAX_AGE_DAYS` = 200 calendar days on or before the as-of and at least `COVER_MIN_SHARES` = 10,000 shares; otherwise `cap_note` carries the reason shown in the info box.
 6. **A company with no price bars is still drawn** (a hatched no-reading tile, its reason in the info box); only a flagged history is left out.
 7. **Color steps are the nearest of the nine** (a value rounds to the step; 0.3% on the 1d scale stays gray). Step colors are 13 / 26 / 39 / 52% of `--pos` / `--neg` over a neutral `#232932`; no-reading is a darker diagonal hatch.
 8. **Compare to** is disabled per window with the reason ("no IWM tape at this as-of", "SPY has no 1Y reading"). If the chosen benchmark stops being available after a window change, the page falls back to raw returns and says so; it never shows a raw figure as a relative one.
@@ -202,10 +211,15 @@ Choices the build made that the plan above does not spell out (2026-10-30). Each
 15. **Layout details:** a group box shows its header strip only when it is at least 36px wide and 36px tall; a tile shows ticker and return when both fit, the ticker alone on a smaller one, nothing on a tiny one. The map height is the viewport minus its own top and 96px for the legend and work lines (minimum 480px). Fullscreen fills the page body (controls, map and legend), and the button is not drawn where the browser has no Fullscreen API.
 16. **The work line** adds "tiles drawn", "caps: N Workbench / N filing cover / N none", "N companies drawn dashed at the smallest size", the scale end for the window and the roster-fallback line (as on the Rotation Map); the card views add the note that a company is drawn once per card or link.
 17. **The shared registry test** (`frontend/src/dashboards/__tests__/registry.test.ts`) lists every slug and order, so it gains `market-map` / 270: a parallel dashboard PR will conflict there as well as in the two contract files.
+18. **The work line counts what the note lists.** Its "names left out for a flagged price history" counts the flagged names in view under the Context/Bench toggle (a Context-or-Bench-only flagged company counts only when the toggle is on), the same set `FlaggedNote` lists (review fix: it had counted all 30 while the note listed 14).
 
 ### Measured at build time (2026-10-30)
 
-The plan asks for the cold compute, the cache hit, the payload and the render time on dev with a prod copy. The build agent does not touch the dev stack, so the two that need it are NOT measured yet: **the cold compute (the per-company point-in-time reads over about 1,500 companies, with the `fundamentals_facts` read for the ones with no Workbench count) and the cache hit on a prod copy** are the operator's to run on dev.
+The build agent does not touch the dev stack; the dev numbers below were measured by the reviewer.
+
+- **On dev with a prod copy, MEASURED (2026-10-30):** cold compute 62.6 s; cache hit 0.12 s; payload 1,013,283 bytes of raw JSON (the gzipped size is not measured on real data; 151,565 bytes on the synthetic payload below); the Rotation Map's cold read in the same session 51.8 s (the Market Map costs about 20% more than the Rotation Map).
+- **Caps before the recency gate, MEASURED:** 870 Workbench / 173 cover / 416 none of 1,459 drawn. The unfiltered cover count was wrong for companies that stopped tagging it: Visa's latest cover row is from 2010 (cap $193B), Mastercard's from 2010 ($78B), FOXA's from 2019 and QVCG's the value 1 (cap $0), MOBX's from 2023.
+- **The gate validated, MEASURED:** of the 855 companies with both a Workbench and a cover count, the gated cover count is within 5% of the Workbench count for 807, within 25% for 34 more and further off for 14; all 14 are a split between the two counts' dates or new shares issued.
 
 - **Payload, MEASURED on synthetic data** (1,489 companies, 2,255 memberships, 31 cards, random returns): 1,017,750 bytes of JSON, 151,565 bytes gzipped (bar: under 1 MB gzipped).
 - **Render, MEASURED on synthetic data in a Vite dev build** (React development mode, the in-app browser pane while hidden, JavaScript and commit only, no paint): 1,489 companies, 2,412 tiles in `Card › Link`. Switching Group by to `Card › Link` 130 to 140 ms; Sector 75 to 130 ms; Table to Map 215 to 240 ms; the table of 2,412 rows 790 ms. A production build will be faster; the real-data figure is still to measure.
