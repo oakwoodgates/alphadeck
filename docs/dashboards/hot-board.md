@@ -1,0 +1,148 @@
+# Hot Board
+
+> Slug `hot-board` · status `experimental` · follows the **as-of dial** (`asofAware: true`) · menu `order: 190`.
+> The operator approved the TRADING set and this page in it (2026-10-29: "write the plans"), including that a
+> dashboard may rank by an opinionated formula as long as code computes it from data and the formula is stated. The
+> choices the build makes that this plan does not spell out go under "Choices to confirm" for the operator's review.
+> The rules every dashboard follows: `docs/DASHBOARDS.md`. The first page of the TRADING set; §Look below defines the
+> set's shared look, which the other four plans reference.
+
+**Label:** Hot Board. **Description:** "Every name the record shows Armed, one row each, ranked by a stated heat
+formula: how recently it armed, how loud its tape is, how it leads the market, how far it has already moved."
+
+It answers "which armed names deserve my next hour": the Board shows cards, the Cockpit one card, Leaders the tape
+across every name whatever its card's state. The Hot Board starts from the CALL: the names the recorded card in effect
+at the as-of lists in `armed_members` (both keys on, on that name), and puts the tape beside each. Display only: it
+reads the `calls` log and the display members, never the live call; it never feeds a call, never writes, never calls
+the LLM. Its ranking is a formula the page prints; it is not a verdict on any idea (invariant #4).
+
+## Who is a row
+
+- **The cards counted at the as-of** (`baskets.cards_as_of`), each read as its recorded call in effect at the as-of
+  (the What Changed read: `DISTINCT ON (thesis_id) … WHERE asof <= D ORDER BY thesis_id, asof DESC, seq DESC`).
+- **Default rows:** every `armed_members[]` entry of every card whose card in effect is **Armed**: one row per
+  (card, name). A name armed on two cards is two rows, each with an "also armed on N other cards" chip; the tape
+  columns are the same, the call columns differ (grades and `confidence` are per card).
+- **Toggles, off by default:** "Warming names" adds, from each Warming card, the names with at least one live entry
+  trigger in `triggers_fired` (one key turned; the row says which key); "Watch names" adds each Armed card's
+  `watch_members` (confirmation only); "Managing" adds each Managing card's held and armed members. Every toggle's
+  count shows on the toggle. Incubating cards and cards with no recorded call are counted on the work line.
+- A name whose `security_id` is not on the roster snapshot (`thesis_repo.get_asof`) still has its row (the master's
+  ticker, `master.tickers_for`); a name with no ticker shows its id and is counted.
+
+## The columns
+
+**The call (per card):** ticker (opens the Cockpit on this card and name, `onSelectThesis(thesisId, ticker)`), the
+card chip, the member's `verdict` (starter entry · core entry · flip only, the Board's labels), `entry_grade` (flip ·
+core), `confidence` as "setup strength 0.62", the keys as a compact trigger list ("insider · breakout"; hover: each
+trigger's `label`, `kind`, `grade`, fire date and source link by the Evidence Ledger's rule,
+`dashboards/filings.py::source_url` with the issuer CIK), the risk signals on the card that name this security
+(count; kinds on hover).
+
+**The clocks:** the member's **arm night** (the first night of the card's current recorded Armed run on which it
+appears in `armed_members`; the walk is the Entry Windows plan's, §Who is a row, same rule, same test); **sessions
+since** the arm night on IWM's bar calendar (`dashboards/series.py::session_calendar`); **sessions left** to
+`arm_until` ("closed N ago" past it); **days to `exit_by`**; the card's `entry_window_closing` and `lapsing` flags
+as quiet tags.
+
+**Since the arm night:** the name's as-traded return from the first close on or after the arm night (the
+Scoreboard's entry rule) to the last close on or before the as-of (`pit.price_history`), and IWM over the same span
+(`pit.benchmark_prices`).
+
+**The tape (the display members at the as-of, `signals/display/`, run once per name through `baskets.per_company`
+with `display_bounds()`):** RVOL 20 (`rvol`.`rvol20`), vs 50d (`sma_position`.`pct_vs_fast`), % off the 52-week high
+(`range_52w`.`pct_off_52w_high`), RS vs IWM (`relative_strength`.`rs_iwm`, the headline `leading` as a mark), 7D and
+30D (`trailing_returns`), insider buys 30d as "buys/buyers" (`insider_flow_90d`.`buy_count_30d` /
+`distinct_buyers_30d`), $vol 20d (`volume_regime`.`adv_usd_20d`), a 90-bar sparkline (`price_path`). A name on the
+flagged-price list (`baskets.price_flags`, rule 5) KEEPS its row: its tape cells read "flagged: <reason>" and its
+heat is "—"; the work line counts it.
+
+**Size:** the approximate market cap at the as-of and its tier (the Peer Table's `cap_cell` rule and inputs,
+`dashboards/peer_table.py`; labeled approximate; blank with its gap reason when unpinned), a filter dimension only.
+
+## Heat (the stated formula)
+
+Heat ranks the rows on the page against each other; it is recomputed for the rows shown (toggles and filters change
+it) and the page says so. Four parts, each the row's percentile among the shown rows with a reading (0 to 1):
+
+1. **fresh** — fewer sessions since the arm night ranks higher;
+2. **loud** — higher RVOL 20 ranks higher;
+3. **leading** — higher RS vs IWM ranks higher;
+4. **unextended** — a smaller return since the arm night ranks higher (the platform's timing opinion: a name far
+   above its arm-night close has already moved).
+
+**Heat = the mean of the four, shown 0 to 100** with the four parts on hover ("fresh 0.90 · loud 0.40 · leading 0.70
+· unextended 0.80"). Equal weights (PROPOSED). A row missing any part (no tape, flagged, no bar since the arm night)
+reads "—", sorts after every scored row and is counted. Ties share a percentile. The formula is printed under the
+table in one line, and the column header reads "heat (stated formula)". Heat never feeds anything.
+
+**Default sort:** heat, descending. Every column sorts. **Filters** (chips, each restating the row count): grade,
+trigger kind, card, cap tier, "entry window open only".
+
+## Look (the trading set's shared look; the other trading plans reference this section)
+
+The research set is document-like; the trading set is a **tape**: dense rows about 26 px high, tabular numerals in
+the mono font for every figure, a sticky header, no cards, no chrome, no borders between rows beyond a hairline, the
+quiet work line above the table, filters as text chips. Tone: the sign tone (the app's positive and negative mixed
+55% into gray, the Rotation Quadrant's recipe, set in each page's own CSS) only on signed returns; the Board's state
+colors only on a state chip; ONE accent per page for the one exception the plan names (here `entry_window_closing`:
+at most two sessions left). Heat draws as a short gray bar behind its number, never a color. Nothing bold but the
+ticker. On a phone the table scrolls sideways with the ticker column pinned.
+
+## Past as-of
+
+The card in effect is the row recorded on or before the as-of; the run is walked on rows at or before it; the display
+members read at the as-of on the public clock; the bars end at the as-of. A card armed after the as-of has no rows; a
+member that joined later is not a row then.
+
+## The quiet "show the work" line
+
+The as-of; the clock; cards counted / Armed / Warming / Managing / Incubating / no call yet; rows shown and what the
+toggles add; names without a reading (per member), flagged (opens to the tickers), without a bar since the arm night;
+the session calendar; the entry rule; the heat formula in force; the cache state and `compute_ms`.
+
+## Cache
+
+`dashboards.cache.cached(conn, "hot-board", (clock,), asof, ...)` holds every candidate row (Armed, Warming,
+watch, Managing) with its call fields, clocks, since-arm returns, tape readings and cap; the toggles, filters,
+sorts and heat derive on the client from that one read. The cache clears on a new run or a basket edit (rule 7).
+Expected cold cost: the display members for about 100 to 200 names (about 16 ms a name, `docs/DISPLAY_SIGNALS.md`)
+plus their bars; MEASURE and record it here.
+
+## Backend and frontend
+
+- `backend/dashboards/hot_board.py`, pure: the row set from the cards in effect (armed, warming, watch, managing),
+  `arm_night(run_rows, security_id)`, the since-arm return, the tape readings per member key, `heat(rows)` (the
+  percentiles, the mean, the missing rule), the counts.
+- `backend/app/routers/dashboards/hot_board.py`: `GET /dashboards/hot-board?asof=` (every candidate row + the counts).
+  `known_at, clock = serve_view(asof)` threads into the `calls` read, `baskets.per_company`, the bars and the
+  benchmark. Wire models in the module (rule 8).
+- `backend/tests/dashboards/test_hot_board.py`: the row sets (an Armed card's members; a Warming card's trigger
+  names with the key named; watch; managing); the arm night per member (a member that joined the run later); heat
+  percentiles on hand-built rows (ties, a missing part → "—" last, recomputed on a subset); the since-arm return and
+  the IWM span; a flagged name keeps its row with grayed tape; and, DB-backed, **a card armed after the as-of has no
+  rows** and **a member added after the as-of is not a row then**; the router off one cached read.
+- `frontend/src/dashboards/hot-board/`: `entry.ts` (slug `hot-board`, order 190, `asofAware: true`), `HotBoard.tsx`
+  (the table; a pure `heat.ts` mirroring the backend's percentile rule for the client-side recompute, tested against
+  the same fixtures; sparklines as inline SVG), `useHotBoard.ts`, `hot-board.css`, tests.
+- **Layout:** §Look. The arm-run walk is also the Entry Windows page's: whichever lands second folds both copies
+  into one shared `backend/dashboards/arm_runs.py` at integration (the reviewer's job, not the builder's).
+
+## Known limits (stated on the page too)
+
+- **Heat compares the rows shown with each other;** it is not a score with a meaning across days.
+- **The arm night is the recorded night;** the fire dates are in the hover.
+- **The tape is the display members' own reading** (`docs/DISPLAY_SIGNALS.md`): split-adjusted closes, no dividends.
+- **A name on two cards is two rows.**
+
+## Out of scope
+
+Any wording that tells the operator what to do; sizing or instrument choice (#4, #5); writing heat anywhere; the
+Leaders lists (near-high, coiling) as columns; options or intraday data; any write.
+
+## Choices to confirm
+
+The build lists here every choice it made that this plan does not spell out, each the operator's to confirm or
+change. Pre-decided here for the operator's review: Armed members as the default rows with Warming, watch and
+Managing behind toggles; the four heat parts with equal weights; percentiles among the rows shown; IWM as the
+comparison and the session calendar; the one accent on `entry_window_closing`; the flagged name keeps its row.
