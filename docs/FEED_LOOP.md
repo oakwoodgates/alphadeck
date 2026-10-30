@@ -2201,6 +2201,11 @@ The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
   kill switch, an env-only cron deploy; compose `ALPHADECK_EDITIONS_NIGHTLY` / `ALPHADECK_EDITIONS_TIMEOUT_S`).
   Fail-open: any exit is one `daily-cron:` line and the loop goes on. In the scheduling layer, never inside
   `run_daily_pass`, so the Admin "Run daily now" never fires it. The section below has the job.
+- **Last in the nightly wake: the dashboards' cache warm-up (2026-10-30)** `[BUILT]`. After `editions_nightly`,
+  `warm_dashboards "${_last}"` fires `timeout -k 30 WARM_DASHBOARDS_TIMEOUT_S python -m pipeline.warm_dashboards
+  --night …` (default **1800 s**; `ALPHADECK_WARM_DASHBOARDS=0` is the kill switch, an env-only cron deploy;
+  compose `ALPHADECK_WARM_BASE_URL` / `ALPHADECK_WARM_DASHBOARDS_TIMEOUT_S`). Fail-open and always returns 0, so it
+  can never change the pass's status or exit code. The section "The dashboards' cache warm-up" below has the job.
 - **A third schedule: the weekly company-list refresh (2026-10-24)** `[BUILT]`. After the boot block, beside
   `onboard_loop`, the sidecar starts `master_refresh_loop` in the BACKGROUND: `timeout -k 60
   MASTER_REFRESH_TIMEOUT_S python -m pipeline.populate_master --live --apply --run-kind cron` every
@@ -2469,6 +2474,27 @@ Admin ignores) is that job; `editions/nightly.py` has the whole contract.
   `PIP_EXTRAS: replay`); the API image stays lean — the Scoreboard reads stored editions with psycopg alone.
 - **Never on the call-of-record path:** `pipeline/daily.py`, `pipeline/daily_job.py` and `calls/` import nothing
   from `editions/` (import-graph tests), and the job only ever reads `calls`.
+
+### The dashboards' cache warm-up — `pipeline.warm_dashboards` (2026-10-30)  `[BUILT]`
+
+The dashboards' in-process cache (`dashboards/cache.py`, `DASHBOARDS.md` rule 7) is emptied by every new cron run,
+so the first visit after the nightly pass used to pay each heavy page's cold compute (measured on a prod copy before
+this step: the Theme Leaderboard 69 to 96 s, the Peer Table's all-cards scope 69 s, Insider Buying 37 s, the Trigger Log
+33 s, the Hot Board 20 s, the Track Record 17 s, Forming Quietly 12 s, Entry Windows 7 s; this step's own effect is not
+measured yet, and a visit after a later run or a basket edit still computes cold). `python -m pipeline.warm_dashboards`
+(dry-run with `--dry-run`: the plan, no request) issues ONE GET per heavy page's default view to the running API
+(`ALPHADECK_WARM_BASE_URL`, default `http://backend:8000`), one at a time, and logs one line per page (status, `cache`,
+`compute_ms`, wall ms) plus `data/warm_dashboards/<started>.json`. It is read-only (GETs only: no database
+connection, no write). **The as-of is the next visit's date, not the pass's own:** the as-of dial opens on the browser's
+local calendar date and the cache keys on `(slug, params, asof)`, so a pass at 22:30 warms the day after it (plus the
+Monday after a weekend), a live read on the record clock exactly as that visit's read will be; `--night` names the pass's
+night, `--asof` overrides. `PAGES` is a hand-maintained mirror of each hook's default query (the Hot Board's is
+`rows=armed`; its `rows=all` read for the toggles is not warmed), a card-picker page warms its picker read only, and the
+Peer Table also reads its default scope and `all` (named by the scopes reply); `tests/pipeline/test_warm_dashboards.py`
+proves the warmed read is the next default read's cache hit against the real cache. Bounded by `--timeout-s` per request
+(300 s) and `--budget-s` overall (20 min; the requests the budget never reached are listed `skipped`), a failing page is
+one logged line and the exit code is 0, and `ALPHADECK_WARM_DASHBOARDS=0` skips the step. Deploy it like any cron change:
+the sidecar's image carries `daily_cron.sh` (`DEPLOY.md` Flow A, `backend cron`).
 
 ### The company list — the weekly security-master refresh (2026-10-24)  `[BUILT]`
 

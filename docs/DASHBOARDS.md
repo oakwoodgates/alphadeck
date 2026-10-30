@@ -123,6 +123,9 @@ the data flags). Its plan is `docs/BOARD.md`.
    them on a page, rule 5). A dashboard that groups cards' names reuses it rather than re-deriving the rule.
    A one-card dashboard starts from its picker, `picker_cards` (the counted cards A→Z with their link counts;
    built with the Chain Wave, shared since the Filing Stream).
+   The cron warms the heavy pages after each pass (`pipeline.warm_dashboards`, last in the nightly wake, GETs
+   only, each page's default view for the next visit's as-of; `FEED_LOOP.md` §the dashboards' cache warm-up), so a
+   dashboard whose default query changes updates its entry in that module's `PAGES`.
    The equal-weighted line math lives in `backend/dashboards/series.py` (the session calendar, the alignment
    and the chain; built with the Narrative Index, shared since the Rotation Quadrant): a dashboard that draws
    a basket as one line reuses it.
