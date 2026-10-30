@@ -2134,6 +2134,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboards/entry-windows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Entry Windows Page
+         * @description Each Armed card's entry window (to ``arm_until``) and hold horizon (to ``exit_by``) from its arm night, on
+         *     one date axis with the as-of marked, the IWM sessions into and left in the window, the dated catalysts inside
+         *     it, and the armed names' as-traded return since the arm night against IWM and SPY. Managing cards are rows too
+         *     (the page hides them behind a toggle). Display only; a past as-of reads the recorded call in effect then and
+         *     what was public by the end of that date.
+         */
+        get: operations["entry_windows_page_dashboards_entry_windows_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dashboards/evidence-ledger/cards": {
         parameters: {
             query?: never;
@@ -7611,6 +7635,279 @@ export interface components {
             companies: components["schemas"]["EditionCompanyDiffOut"][];
             /** Error */
             error?: string | null;
+        };
+        /**
+         * EntryWindowsCatalystOut
+         * @description A dated catalyst of the recorded card inside the window. ``past`` = its date is before the as-of.
+         */
+        EntryWindowsCatalystOut: {
+            /** Label */
+            label: string;
+            /** Kind */
+            kind: string | null;
+            /**
+             * When Date
+             * Format: date
+             */
+            when_date: string;
+            /** Past */
+            past: boolean;
+        };
+        /**
+         * EntryWindowsCountsOut
+         * @description The work shown on the quiet line. The state counts add up to ``cards_counted``: ``armed`` + ``managing``
+         *     (rows) + ``managing_without_arm_night`` + ``warming`` + ``incubating`` + ``no_call``.
+         */
+        EntryWindowsCountsOut: {
+            /** Live Cards */
+            live_cards: number;
+            /** Cards Counted */
+            cards_counted: number;
+            /** Cards Not Yet Created */
+            cards_not_yet_created: number;
+            /** Armed */
+            armed: number;
+            /** Managing */
+            managing: number;
+            /** Managing Without Arm Night */
+            managing_without_arm_night: number;
+            /** Warming */
+            warming: number;
+            /** Incubating */
+            incubating: number;
+            /** No Call */
+            no_call: number;
+            /** Reconstructed Arm Nights */
+            reconstructed_arm_nights: number;
+            /** Armed Names */
+            armed_names: number;
+            /** Priced Names */
+            priced_names: number;
+            /** Unpriced Names */
+            unpriced_names: number;
+        };
+        /**
+         * EntryWindowsFlaggedOut
+         * @description A name left out of every number for a flagged price history (the reason the Cockpit grays its price
+         *     cells).
+         */
+        EntryWindowsFlaggedOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * EntryWindowsMemberOut
+         * @description An armed name. ``arm_night`` = the first night of the run on which the recorded card names it armed;
+         *     ``since`` = its as-traded return in percent from the first close on or after that night (``entry_on``) to the
+         *     last close on or before the as-of, ``above`` = that last close is above the entry close. ``flag`` = left out
+         *     for a flagged price history (the flags' labels); ``since`` null without a flag = no bar on or after its arm
+         *     night.
+         */
+        EntryWindowsMemberOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string | null;
+            /**
+             * Arm Night
+             * Format: date
+             */
+            arm_night: string;
+            /** Entry On */
+            entry_on: string | null;
+            /** Since */
+            since: number | null;
+            /** Above */
+            above: boolean | null;
+            /** Flag */
+            flag: string | null;
+            /** Triggers */
+            triggers: components["schemas"]["EntryWindowsTriggerOut"][];
+        };
+        /**
+         * EntryWindowsOut
+         * @description The whole page at the as-of. ``clock`` = how the as-of was read: ``record`` (the live read) or ``public``
+         *     (a past date: what was public by the end of it). ``axis_start`` / ``axis_end`` = the one date axis (``null`` with no row);
+         *     ``session_source`` = where the session calendar came from (IWM's bars, the armed names' bars when IWM has
+         *     none, or nothing); ``calendar_last`` = its last session. Rows come by card name. ``cache`` / ``compute_ms`` =
+         *     whether the page came from the shared dashboard cache and how long it took when computed.
+         */
+        EntryWindowsOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Clock
+             * @enum {string}
+             */
+            clock: "record" | "public";
+            /** Axis Start */
+            axis_start: string | null;
+            /** Axis End */
+            axis_end: string | null;
+            /**
+             * Session Source
+             * @enum {string}
+             */
+            session_source: "benchmarks" | "companies" | "none";
+            /** Calendar Sessions */
+            calendar_sessions: number;
+            /** Calendar Last */
+            calendar_last: string | null;
+            counts: components["schemas"]["EntryWindowsCountsOut"];
+            /** Flagged */
+            flagged: components["schemas"]["EntryWindowsFlaggedOut"][];
+            /** Rows */
+            rows: components["schemas"]["EntryWindowsRowOut"][];
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * EntryWindowsRowOut
+         * @description One Armed (``state`` ``armed``) or Managing card. ``arm_night`` = the first night of the card's current
+         *     recorded Armed run; ``in_effect`` = the recorded night whose card the row shows; ``reconstructed`` = the arm
+         *     night's row was written by ``pipeline.backfill`` (reported, never scored). ``arm_until`` / ``exit_by`` = the
+         *     entry window and the hold horizon (``null`` = no clock). ``sessions_into`` = the IWM sessions after the arm
+         *     night through the as-of; ``sessions_left`` = the Mon-Fri days after the as-of through ``arm_until`` (while the
+         *     window is open); ``closed_ago`` = the IWM sessions since it closed (``0`` on its last day); ``hold_days`` =
+         *     calendar days from the as-of to ``exit_by`` (negative = passed). The two flags are the headline member's.
+         */
+        EntryWindowsRowOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "armed" | "managing";
+            /**
+             * Arm Night
+             * Format: date
+             */
+            arm_night: string;
+            /**
+             * In Effect
+             * Format: date
+             */
+            in_effect: string;
+            /** Reconstructed */
+            reconstructed: boolean;
+            /** Reconstructed Nights */
+            reconstructed_nights: number;
+            /** Run Nights */
+            run_nights: number;
+            /** Arm Until */
+            arm_until: string | null;
+            /** Exit By */
+            exit_by: string | null;
+            /** Confidence */
+            confidence: number | null;
+            /** Entry Window Closing */
+            entry_window_closing: boolean;
+            /** Lapsing */
+            lapsing: boolean;
+            /** Sessions Into */
+            sessions_into: number | null;
+            /** Sessions Left */
+            sessions_left: number | null;
+            /** Closed Ago */
+            closed_ago: number | null;
+            /** Hold Days */
+            hold_days: number | null;
+            /** Catalysts */
+            catalysts: components["schemas"]["EntryWindowsCatalystOut"][];
+            /** Members */
+            members: components["schemas"]["EntryWindowsMemberOut"][];
+            since: components["schemas"]["EntryWindowsSinceOut"];
+            spark: components["schemas"]["EntryWindowsSparkOut"] | null;
+        };
+        /**
+         * EntryWindowsSinceOut
+         * @description A row's tape since its arm night, over its armed names: ``priced`` of ``names`` are in the median
+         *     (percent, as traded); the rest are ``flagged`` (a flagged price history) or ``no_bar``. ``above`` = priced
+         *     names above their arm-night close. ``iwm`` / ``spy`` = the benchmarks over the same span (``null`` = no bar).
+         */
+        EntryWindowsSinceOut: {
+            /** Names */
+            names: number;
+            /** Priced */
+            priced: number;
+            /** Flagged */
+            flagged: number;
+            /** No Bar */
+            no_bar: number;
+            /** Above */
+            above: number;
+            /** Median */
+            median: number | null;
+            /** Iwm */
+            iwm: number | null;
+            /** Spy */
+            spy: number | null;
+        };
+        /**
+         * EntryWindowsSourceOut
+         * @description A place a trigger points at. ``source`` = the kind as stored (``form4``, ``price``, ``xbrl``, a form),
+         *     ``ref`` = its reference (an accession, a price reference), ``url`` = a link (``null`` = none known; a price
+         *     reference stays text).
+         */
+        EntryWindowsSourceOut: {
+            /** Source */
+            source: string;
+            /** Ref */
+            ref: string;
+            /** Url */
+            url: string | null;
+        };
+        /**
+         * EntryWindowsSparkOut
+         * @description The armed names' equal-weighted line and IWM's, from 100 at ``dates[0]``, one point per session
+         *     (``iwm`` null = IWM has no steps over these sessions).
+         */
+        EntryWindowsSparkOut: {
+            /** Dates */
+            dates: string[];
+            /** Line */
+            line: number[];
+            /** Iwm */
+            iwm: number[] | null;
+        };
+        /**
+         * EntryWindowsTriggerOut
+         * @description A fired trigger on an armed name. ``event_date`` is the trigger's FIRE date (the market event), not the
+         *     arm night.
+         */
+        EntryWindowsTriggerOut: {
+            /** Label */
+            label: string;
+            kind: components["schemas"]["Kind"];
+            grade: components["schemas"]["Grade"] | null;
+            /** Event Date */
+            event_date: string | null;
+            /** Sources */
+            sources: components["schemas"]["EntryWindowsSourceOut"][];
         };
         /**
          * EpisodeOperatorOut
@@ -15914,6 +16211,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CrossRadarOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    entry_windows_page_dashboards_entry_windows_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; nothing recorded or published after it is read */
+                asof: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntryWindowsOut"];
                 };
             };
             /** @description Validation Error */

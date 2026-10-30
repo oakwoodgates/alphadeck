@@ -4199,6 +4199,52 @@
         }
       }
     },
+    "/dashboards/entry-windows": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Entry Windows Page",
+        "description": "Each Armed card's entry window (to ``arm_until``) and hold horizon (to ``exit_by``) from its arm night, on\none date axis with the as-of marked, the IWM sessions into and left in the window, the dated catalysts inside\nit, and the armed names' as-traded return since the arm night against IWM and SPY. Managing cards are rows too\n(the page hides them behind a toggle). Display only; a past as-of reads the recorded call in effect then and\nwhat was public by the end of that date.",
+        "operationId": "entry_windows_page_dashboards_entry_windows_get",
+        "parameters": [
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; nothing recorded or published after it is read",
+              "title": "Asof"
+            },
+            "description": "as-of date; nothing recorded or published after it is read"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntryWindowsOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/dashboards/evidence-ledger/cards": {
       "get": {
         "tags": [
@@ -15618,6 +15664,719 @@
         ],
         "title": "EditionThesisDiffOut",
         "description": "One thesis: the nights compared (``first_night`` -> ``last_night``, the ones BOTH editions cover; null\nwhen they share none), the pages only one edition holds (``before_only`` / ``after_only`` spans, with\n``n_outside`` unpaired runs lying wholly there \u2014 counted, never compared), the nights its own state differs,\nthe matched-episode count, the armed companies with nothing to list, and the companies that changed."
+      },
+      "EntryWindowsCatalystOut": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "when_date": {
+            "type": "string",
+            "format": "date",
+            "title": "When Date"
+          },
+          "past": {
+            "type": "boolean",
+            "title": "Past"
+          }
+        },
+        "type": "object",
+        "required": [
+          "label",
+          "kind",
+          "when_date",
+          "past"
+        ],
+        "title": "EntryWindowsCatalystOut",
+        "description": "A dated catalyst of the recorded card inside the window. ``past`` = its date is before the as-of."
+      },
+      "EntryWindowsCountsOut": {
+        "properties": {
+          "live_cards": {
+            "type": "integer",
+            "title": "Live Cards"
+          },
+          "cards_counted": {
+            "type": "integer",
+            "title": "Cards Counted"
+          },
+          "cards_not_yet_created": {
+            "type": "integer",
+            "title": "Cards Not Yet Created"
+          },
+          "armed": {
+            "type": "integer",
+            "title": "Armed"
+          },
+          "managing": {
+            "type": "integer",
+            "title": "Managing"
+          },
+          "managing_without_arm_night": {
+            "type": "integer",
+            "title": "Managing Without Arm Night"
+          },
+          "warming": {
+            "type": "integer",
+            "title": "Warming"
+          },
+          "incubating": {
+            "type": "integer",
+            "title": "Incubating"
+          },
+          "no_call": {
+            "type": "integer",
+            "title": "No Call"
+          },
+          "reconstructed_arm_nights": {
+            "type": "integer",
+            "title": "Reconstructed Arm Nights"
+          },
+          "armed_names": {
+            "type": "integer",
+            "title": "Armed Names"
+          },
+          "priced_names": {
+            "type": "integer",
+            "title": "Priced Names"
+          },
+          "unpriced_names": {
+            "type": "integer",
+            "title": "Unpriced Names"
+          }
+        },
+        "type": "object",
+        "required": [
+          "live_cards",
+          "cards_counted",
+          "cards_not_yet_created",
+          "armed",
+          "managing",
+          "managing_without_arm_night",
+          "warming",
+          "incubating",
+          "no_call",
+          "reconstructed_arm_nights",
+          "armed_names",
+          "priced_names",
+          "unpriced_names"
+        ],
+        "title": "EntryWindowsCountsOut",
+        "description": "The work shown on the quiet line. The state counts add up to ``cards_counted``: ``armed`` + ``managing``\n(rows) + ``managing_without_arm_night`` + ``warming`` + ``incubating`` + ``no_call``."
+      },
+      "EntryWindowsFlaggedOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "reason"
+        ],
+        "title": "EntryWindowsFlaggedOut",
+        "description": "A name left out of every number for a flagged price history (the reason the Cockpit grays its price\ncells)."
+      },
+      "EntryWindowsMemberOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "arm_night": {
+            "type": "string",
+            "format": "date",
+            "title": "Arm Night"
+          },
+          "entry_on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry On"
+          },
+          "since": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since"
+          },
+          "above": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Above"
+          },
+          "flag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flag"
+          },
+          "triggers": {
+            "items": {
+              "$ref": "#/components/schemas/EntryWindowsTriggerOut"
+            },
+            "type": "array",
+            "title": "Triggers"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "arm_night",
+          "entry_on",
+          "since",
+          "above",
+          "flag",
+          "triggers"
+        ],
+        "title": "EntryWindowsMemberOut",
+        "description": "An armed name. ``arm_night`` = the first night of the run on which the recorded card names it armed;\n``since`` = its as-traded return in percent from the first close on or after that night (``entry_on``) to the\nlast close on or before the as-of, ``above`` = that last close is above the entry close. ``flag`` = left out\nfor a flagged price history (the flags' labels); ``since`` null without a flag = no bar on or after its arm\nnight."
+      },
+      "EntryWindowsOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "clock": {
+            "type": "string",
+            "enum": [
+              "record",
+              "public"
+            ],
+            "title": "Clock"
+          },
+          "axis_start": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Axis Start"
+          },
+          "axis_end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Axis End"
+          },
+          "session_source": {
+            "type": "string",
+            "enum": [
+              "benchmarks",
+              "companies",
+              "none"
+            ],
+            "title": "Session Source"
+          },
+          "calendar_sessions": {
+            "type": "integer",
+            "title": "Calendar Sessions"
+          },
+          "calendar_last": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Calendar Last"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/EntryWindowsCountsOut"
+          },
+          "flagged": {
+            "items": {
+              "$ref": "#/components/schemas/EntryWindowsFlaggedOut"
+            },
+            "type": "array",
+            "title": "Flagged"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/EntryWindowsRowOut"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "clock",
+          "axis_start",
+          "axis_end",
+          "session_source",
+          "calendar_sessions",
+          "calendar_last",
+          "counts",
+          "flagged",
+          "rows",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "EntryWindowsOut",
+        "description": "The whole page at the as-of. ``clock`` = how the as-of was read: ``record`` (the live read) or ``public``\n(a past date: what was public by the end of it). ``axis_start`` / ``axis_end`` = the one date axis (``null`` with no row);\n``session_source`` = where the session calendar came from (IWM's bars, the armed names' bars when IWM has\nnone, or nothing); ``calendar_last`` = its last session. Rows come by card name. ``cache`` / ``compute_ms`` =\nwhether the page came from the shared dashboard cache and how long it took when computed."
+      },
+      "EntryWindowsRowOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "armed",
+              "managing"
+            ],
+            "title": "State"
+          },
+          "arm_night": {
+            "type": "string",
+            "format": "date",
+            "title": "Arm Night"
+          },
+          "in_effect": {
+            "type": "string",
+            "format": "date",
+            "title": "In Effect"
+          },
+          "reconstructed": {
+            "type": "boolean",
+            "title": "Reconstructed"
+          },
+          "reconstructed_nights": {
+            "type": "integer",
+            "title": "Reconstructed Nights"
+          },
+          "run_nights": {
+            "type": "integer",
+            "title": "Run Nights"
+          },
+          "arm_until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arm Until"
+          },
+          "exit_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit By"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "entry_window_closing": {
+            "type": "boolean",
+            "title": "Entry Window Closing"
+          },
+          "lapsing": {
+            "type": "boolean",
+            "title": "Lapsing"
+          },
+          "sessions_into": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sessions Into"
+          },
+          "sessions_left": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sessions Left"
+          },
+          "closed_ago": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed Ago"
+          },
+          "hold_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hold Days"
+          },
+          "catalysts": {
+            "items": {
+              "$ref": "#/components/schemas/EntryWindowsCatalystOut"
+            },
+            "type": "array",
+            "title": "Catalysts"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/EntryWindowsMemberOut"
+            },
+            "type": "array",
+            "title": "Members"
+          },
+          "since": {
+            "$ref": "#/components/schemas/EntryWindowsSinceOut"
+          },
+          "spark": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EntryWindowsSparkOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "thesis_name",
+          "state",
+          "arm_night",
+          "in_effect",
+          "reconstructed",
+          "reconstructed_nights",
+          "run_nights",
+          "arm_until",
+          "exit_by",
+          "confidence",
+          "entry_window_closing",
+          "lapsing",
+          "sessions_into",
+          "sessions_left",
+          "closed_ago",
+          "hold_days",
+          "catalysts",
+          "members",
+          "since",
+          "spark"
+        ],
+        "title": "EntryWindowsRowOut",
+        "description": "One Armed (``state`` ``armed``) or Managing card. ``arm_night`` = the first night of the card's current\nrecorded Armed run; ``in_effect`` = the recorded night whose card the row shows; ``reconstructed`` = the arm\nnight's row was written by ``pipeline.backfill`` (reported, never scored). ``arm_until`` / ``exit_by`` = the\nentry window and the hold horizon (``null`` = no clock). ``sessions_into`` = the IWM sessions after the arm\nnight through the as-of; ``sessions_left`` = the Mon-Fri days after the as-of through ``arm_until`` (while the\nwindow is open); ``closed_ago`` = the IWM sessions since it closed (``0`` on its last day); ``hold_days`` =\ncalendar days from the as-of to ``exit_by`` (negative = passed). The two flags are the headline member's."
+      },
+      "EntryWindowsSinceOut": {
+        "properties": {
+          "names": {
+            "type": "integer",
+            "title": "Names"
+          },
+          "priced": {
+            "type": "integer",
+            "title": "Priced"
+          },
+          "flagged": {
+            "type": "integer",
+            "title": "Flagged"
+          },
+          "no_bar": {
+            "type": "integer",
+            "title": "No Bar"
+          },
+          "above": {
+            "type": "integer",
+            "title": "Above"
+          },
+          "median": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median"
+          },
+          "iwm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Iwm"
+          },
+          "spy": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spy"
+          }
+        },
+        "type": "object",
+        "required": [
+          "names",
+          "priced",
+          "flagged",
+          "no_bar",
+          "above",
+          "median",
+          "iwm",
+          "spy"
+        ],
+        "title": "EntryWindowsSinceOut",
+        "description": "A row's tape since its arm night, over its armed names: ``priced`` of ``names`` are in the median\n(percent, as traded); the rest are ``flagged`` (a flagged price history) or ``no_bar``. ``above`` = priced\nnames above their arm-night close. ``iwm`` / ``spy`` = the benchmarks over the same span (``null`` = no bar)."
+      },
+      "EntryWindowsSourceOut": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "ref": {
+            "type": "string",
+            "title": "Ref"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "ref",
+          "url"
+        ],
+        "title": "EntryWindowsSourceOut",
+        "description": "A place a trigger points at. ``source`` = the kind as stored (``form4``, ``price``, ``xbrl``, a form),\n``ref`` = its reference (an accession, a price reference), ``url`` = a link (``null`` = none known; a price\nreference stays text)."
+      },
+      "EntryWindowsSparkOut": {
+        "properties": {
+          "dates": {
+            "items": {
+              "type": "string",
+              "format": "date"
+            },
+            "type": "array",
+            "title": "Dates"
+          },
+          "line": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Line"
+          },
+          "iwm": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Iwm"
+          }
+        },
+        "type": "object",
+        "required": [
+          "dates",
+          "line",
+          "iwm"
+        ],
+        "title": "EntryWindowsSparkOut",
+        "description": "The armed names' equal-weighted line and IWM's, from 100 at ``dates[0]``, one point per session\n(``iwm`` null = IWM has no steps over these sessions)."
+      },
+      "EntryWindowsTriggerOut": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/Kind"
+          },
+          "grade": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Grade"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "event_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Date"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/EntryWindowsSourceOut"
+            },
+            "type": "array",
+            "title": "Sources"
+          }
+        },
+        "type": "object",
+        "required": [
+          "label",
+          "kind",
+          "grade",
+          "event_date",
+          "sources"
+        ],
+        "title": "EntryWindowsTriggerOut",
+        "description": "A fired trigger on an armed name. ``event_date`` is the trigger's FIRE date (the market event), not the\narm night."
       },
       "EpisodeOperatorOut": {
         "properties": {

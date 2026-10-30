@@ -132,3 +132,80 @@ The build lists here every choice it made that this plan does not spell out, eac
 change. Pre-decided here for the operator's review: Armed rows by default with Managing behind a toggle; the
 recorded run's first night as the arm night; IWM's bars as the session calendar; the Scoreboard's entry rule; IWM
 and SPY both shown; the one accent on `entry_window_closing`.
+
+### Built choices to confirm
+
+Choices the build made that the plan above does not spell out, each the operator's to confirm or change. The code
+lives in `backend/dashboards/entry_windows.py` (the rules are written at the top of that module), its router and
+`frontend/src/dashboards/entry-windows/`.
+
+**The run and the arm night**
+
+1. **A Managing card's window.** The plan walks back "while the winning row reads `armed`", which stops at once on a
+   Managing card. Built: a Managing card walks back through `armed` and `managing` nights and takes the first `armed`
+   night of that span as its arm night (the Armed run the position came out of); the run runs from there to the night
+   in effect. A Managing card whose span has no `armed` night has no window to draw: it is counted on the work line
+   ("Managing with no Armed night recorded"), never a row.
+2. **A card Armed with no armed name recorded** is still a row, with no chips ("no armed name recorded"). There is no
+   fallback to `armed_security_id`.
+3. **The two flags** (`entry_window_closing`, `lapsing`) exist on `MemberCall` only; `CallCard` has no card-level one.
+   Built: the row carries the headline member's (`armed_members[0]`, the member whose clocks the card carries), read
+   from the recorded card in effect. The accent therefore follows that one member.
+
+**Sessions**
+
+4. **"Sessions into the window"** = the IWM sessions strictly after the arm night through the as-of (`a < d <= b`);
+   the arm night's own session is not counted, so the arm night itself reads 0. The same rule makes "into" and "left"
+   add up to the window.
+5. **"Sessions left" after the as-of** cannot come from IWM's bars (none exist after the as-of). Built: the Mon-Fri
+   days after the as-of through `arm_until`, the call path's own `sessions_left` count, so a market holiday ahead
+   counts as a session (stated on the page). Everything up to the as-of is the IWM calendar.
+6. **The window's last day.** When `arm_until` equals the as-of the cell reads "last day of the entry window", not
+   "entry window closed 0 sessions ago". A later date reads "entry window closed N sessions ago", N on IWM's bars.
+7. **IWM's calendar** is extended by any priced armed name's bar dated after IWM's last bar (the shared
+   `session_calendar` rule, so a late benchmark never cuts a line short). With no IWM bars at all the calendar is the
+   armed names' bars, and the quiet line says so.
+
+**The picture**
+
+8. **The axis** ends at the latest of the as-of, every `arm_until` and every `exit_by` (the plan says the latest
+   `exit_by`; either clock may be the longer, and the as-of line must stay on the axis). It starts five IWM sessions
+   before the earliest arm night, or a week before when the calendar does not reach back that far. It is linear in
+   calendar days, one fixed 440 px picture per row.
+9. **A clock dated before the arm night** draws no bar (the figures still say what they say).
+10. **Catalyst ticks** are the card's dated catalysts from the arm night to `exit_by`; with no `exit_by` the window
+    ends at `arm_until`; with neither, no ticks. The fold lists the same catalysts as text.
+11. **Row height** is about 52 px (two bars, the dots and the sparkline stack), not the Hot Board's 26 px.
+12. **The sparkline** starts at the session the armed names' line first steps from (the shared `line_start`; an
+    earlier session would only carry it flat) and IWM is rebased to 100 at that same session. It ends at the as-of's
+    session; with fewer than two sessions, or no name that ever steps, the row has none.
+13. **The state chip** is gray text on an Armed row (every row of the default page, so a color would mark nothing)
+    and takes the Board's Managing color only on a Managing row. The accent is `--warm` (amber) and the as-of line
+    `--leader` (blue).
+14. **Controls render only when they discriminate:** "Show Managing" only when a Managing card exists, the order
+    control only for two or more shown rows.
+15. **Phone:** the header is hidden, each row stacks (card, picture in its own sideways-scrolling box, labeled
+    figures), and the faint date gridlines stay in every row's picture. The app's own top nav is wider than 390 px
+    (measured: the page scrolls sideways on the dashboards index and the Narrative Index too); nothing on this page
+    is.
+
+**The tape**
+
+16. **Row median.** Every armed name is measured from the CARD's arm night (the plan's rule); the fold's per-name
+    figure is from its OWN arm night. The page-level "armed names priced / unpriced" counts each name once, by its own
+    arm night.
+17. **Bars are read back to the earliest arm night** (plus 14 days, plus the horizon registry's 30-day margin), not
+    the Cockpit's display window, so an arm night older than that window is never entered at a later bar.
+18. **Returns are percents, as traded** (the view's split scale, no dividends), IWM and SPY from the first close on or
+    after the same arm night. A flagged name's bars are never read (not in the median, the line or the calendar).
+19. **Orders** (client side; the server sends rows by card name). "Sessions left": open windows soonest first, then
+    closed ones most recently closed first, then no clock. "Days to `exit_by`": the same shape. "Median since": largest
+    first, none last. "Arm night": newest first. Every order ends in the card's name.
+
+**Wire**
+
+20. The page carries `clock` (`record` | `public`) so the quiet line can say how the as-of was read. One GET holds
+    every Armed and Managing row; the Managing toggle and the sorts do not call the server.
+21. The counted cards come from `baskets.cards_as_of` as the plan says, which also reads each card's roster
+    snapshot at a past as-of; this page never uses a roster (a Context or Bench name cannot be armed), so that read
+    is cost without use. Not measured on production-sized data.
