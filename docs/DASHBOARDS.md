@@ -141,6 +141,9 @@ the data flags). Its plan is `docs/BOARD.md`.
    - `frontend/src/dashboards/<slug>/`: the body component (default export, takes `DashboardProps`),
      its `entry.ts` (below), its query hooks (TanStack Query over the shared `api/client.ts`, not in
      `api/hooks.ts`), its own CSS (imported by the component, not in `index.css`) and its tests.
+   - `frontend/src/dashboards/<slug>/thumbnail.svg`: its thumbnail, the drawing on its tile in the
+     `/dashboards` index (see "Thumbnails" below). The registry collects it from the folder the way it
+     collects `entry.ts`: nothing imports it.
    - `backend/dashboards/<slug>.py` (or a subpackage, `backend/dashboards/<slug>/`): the compute.
    - `backend/app/routers/dashboards/<slug>.py`: its router (a module-level
      `router = APIRouter(prefix="/<slug>")`, GET only) with its wire models in that same module, not
@@ -152,8 +155,11 @@ the data flags). Its plan is `docs/BOARD.md`.
    `DASHBOARDS` from every `<slug>/entry.ts` (`import.meta.glob`): each exports
    `entry: DashboardEntry` (its slug = its folder name, its label, description, status, `asofAware`,
    `layout`, a numeric menu `order` and `component: React.lazy(() => import("./<Component>"))`), sorted by
-   `order` then label; the Board is 0 and the rest step by 10, so a new dashboard picks a free number. A
-   duplicate slug, a slug that is not its folder, or an `entry.ts` without `entry` fails loud. The backend
+   `order` then label; the Board is 0 and the rest step by 10, so a new dashboard picks a free number. It
+   also globs every `<slug>/thumbnail.svg` (as URLs), pairs each with the entry of the same folder and sets
+   the entry's `thumbnail`; an `entry.ts` never writes it. A duplicate slug, a slug that is not its folder,
+   an `entry.ts` without `entry`, an `entry.ts` without a `thumbnail.svg` beside it, or a `thumbnail.svg`
+   without an `entry.ts` beside it fails loud, naming the folder. The backend
    package (`backend/app/routers/dashboards/__init__.py`) mounts every module in itself that defines a
    module-level `router` (an `APIRouter`), in sorted module-name order; a module without one (a shared
    helper) is skipped, and one that fails to import fails the app's start. `HOME_DASHBOARD` (one line in
@@ -167,11 +173,63 @@ the data flags). Its plan is `docs/BOARD.md`.
    PR. Parallel dashboard PRs will conflict in those two files: after a rebase, regenerate both
    rather than hand-merging. They are the only shared files a new dashboard touches (rule 8).
 
+## Thumbnails
+
+Every dashboard has a thumbnail: a small drawing at the top of its tile on the `/dashboards` index. The
+Dashboards ▾ menu stays a plain list, with no thumbnails.
+
+A thumbnail is one file in the dashboard's own folder, `frontend/src/dashboards/<slug>/thumbnail.svg`,
+beside its `entry.ts`. The registry finds it the way it finds the entry (rule 8): nothing imports it and
+there is no shared list. It goes when the folder goes, so the remove checklist does not change. The build
+keeps each thumbnail as its own small file, not inlined into the main chunk (`build.assetsInlineLimit` in
+`frontend/vite.config.ts` names `thumbnail.svg`).
+
+**It is drawn by code, not captured.** It shows the shape of the page, never its data. That is on purpose:
+
+- A screenshot would show card names, and this repo is public. A drawing cannot carry a name.
+- A drawing never goes stale and is never empty at a past as-of.
+- It costs no requests. The index does not call any dashboard's endpoint.
+- A builder draws it in the same PR, and GitHub renders the SVG in the diff, so a reviewer sees it without a
+  running stack.
+
+**The rules.** `frontend/src/dashboards/__tests__/thumbnails.test.ts` reads every folder's `thumbnail.svg`
+and enforces rules 1 to 7:
+
+1. **It exists for every dashboard folder.** `buildRegistry` refuses a folder without one too, so the app
+   never starts with a dashboard missing its thumbnail.
+2. **The root is** `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200">` (16:10, the shape of the
+   tile's frame). The background is transparent: the frame supplies it.
+3. **No words.** No `<text>`, `<tspan>`, `<textPath>`, `<title>`, `<desc>` or `<foreignObject>`, and no
+   text or comment anywhere in the file. A thumbnail can never carry a ticker, a card name or a number, so
+   it is always safe to commit to a public repo.
+4. **Self-contained and flat.**
+   - None of `<image>`, `<script>`, `<style>`, `<filter>`, `<linearGradient>`, `<radialGradient>` or
+     `<pattern>`.
+   - No `style=` attribute and no `on*` attribute.
+   - No `href` or `xlink:href` except `#id`, and no `url(` except `url(#id)`.
+5. **The app's colors only.** Every `fill`, `stroke` and `stop-color` is `none` or a hex from the first
+   `:root` block of `frontend/src/index.css`. The test reads the hexes from that file, so recoloring a
+   token fails the test and points at the drawings. `opacity`, `fill-opacity` and `stroke-opacity` are free.
+6. **Quiet** (inverse loudness, Workbench principle 3). Draw structure in the neutral tokens: `--bg`,
+   `--bg-2`, `--panel`, `--panel-2`, `--line`, `--line-2`, `--txt`, `--txt-2`, `--txt-3`, `--txt-4` and
+   `--incub`. Every other color token in `:root` is an accent, and a drawing uses at most three of them.
+   Use an accent where the page itself uses that color: the lifecycle colors for states, green and red for
+   a signed number, the one accent a page keeps for its one exception.
+7. **At most 4 KB.** Draw with paths and short strokes, and set shared styles on a `<g>`. A line of
+   placeholder "text" is one stroke with round caps.
+
+**One rule the test cannot check, so review does: draw what makes the page different, not a generic
+table.** About half the dashboards are tables, and fifteen identical row stripes tell you nothing. Draw the
+feature that sets the page apart: the heat bar that shrinks down a ranking, the diagonal wave across a
+grid, the as-of line through the windows.
+
 ## Add a dashboard: the checklist
 
 1. Write the plan, `docs/dashboards/<slug>.md`: what it shows, as-of or "now", its loudness, which
    names count (Context and Bench included or not), how groups are combined, what a thin-data name
-   does, and whether it needs the shared cache. The operator signs off the plan before the build.
+   does, and whether it needs the shared cache. The plan names, in one line, what the thumbnail draws
+   (see "Thumbnails"), so the operator signs it off with the plan. The operator signs off the plan before
+   the build.
 2. Backend compute: `backend/dashboards/<slug>.py`. Reads only; threads `serve_view(asof)` into every
    read (rule 2).
 3. Backend router: `backend/app/routers/dashboards/<slug>.py` with a module-level
@@ -182,13 +240,15 @@ the data flags). Its plan is `docs/BOARD.md`.
 5. Frontend: `frontend/src/dashboards/<slug>/` with the body component (default export), its hooks, CSS
    and tests, and its `entry.ts` exporting `entry: DashboardEntry` (`slug` = the folder name,
    `order` = a free menu place after the Board's 0, `component: React.lazy(() => import("./<Component>"))`,
-   `status: "experimental"`, `asofAware` per the plan, `layout` only if the plan needs `"fill"`). That is
-   all: the registry collects it.
+   `status: "experimental"`, `asofAware` per the plan, `layout` only if the plan needs `"fill"`). The
+   folder also carries `thumbnail.svg` beside `entry.ts` (see "Thumbnails"). Nothing imports it; the
+   registry finds it. Without it, the registry and the thumbnail test fail. That is all: the registry
+   collects both.
 6. Regenerate the contract pair (rule 9) and commit it with the change.
 
 ## Remove a dashboard: the checklist
 
-1. Delete `frontend/src/dashboards/<slug>/` (its `entry.ts` goes with it). If `HOME_DASHBOARD` names it,
+1. Delete `frontend/src/dashboards/<slug>/` (its `entry.ts` and `thumbnail.svg` go with it). If `HOME_DASHBOARD` names it,
    point that line at another slug first.
 2. Delete `backend/dashboards/<slug>.py` (or its subpackage), `backend/app/routers/dashboards/<slug>.py`
    and `backend/tests/dashboards/test_<slug>.py`.
@@ -199,5 +259,5 @@ the data flags). Its plan is `docs/BOARD.md`.
 
 ## Index
 
-The `/dashboards` page is the index; each plan lives in `docs/dashboards/<slug>.md` (the Board's is
-`docs/BOARD.md`).
+The `/dashboards` page is the index, one tile per dashboard under its thumbnail; each plan lives in
+`docs/dashboards/<slug>.md` (the Board's is `docs/BOARD.md`).

@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200">
+<path fill="none" stroke="#3c4450" stroke-width="15" stroke-dasharray="17 3" opacity="0.1" d="M64 45.5h237M64 64.5h237M64 83.5h237M64 102.5h237M64 121.5h237M64 140.5h237"/>
+<path fill="#46d07f" opacity="0.3" d="M64 38h17v15h-17zM104 57h17v15h-17zM204 114h17v15h-17z"/>
+<path fill="#46d07f" opacity="0.9" d="M84 38h17v15h-17z"/>
+<path fill="#46d07f" opacity="0.4" d="M104 38h17v15h-17zM184 76h17v15h-17z"/>
+<path fill="#ff5a6a" opacity="0.3" d="M144 38h17v15h-17zM224 76h17v15h-17z"/>
+<path fill="#46d07f" opacity="0.9" d="M124 57h17v15h-17zM164 76h17v15h-17zM224 114h17v15h-17z"/>
+<path fill="#46d07f" opacity="0.5" d="M144 57h17v15h-17zM204 95h17v15h-17z"/>
+<path fill="#ff5a6a" opacity="0.3" d="M184 57h17v15h-17z"/>
+<path fill="#46d07f" opacity="0.3" d="M124 76h17v15h-17zM264 133h17v15h-17z"/>
+<path fill="#46d07f" opacity="0.6" d="M144 76h17v15h-17z"/>
+<path fill="#46d07f" opacity="0.4" d="M164 95h17v15h-17z"/>
+<path fill="#46d07f" opacity="0.8" d="M184 95h17v15h-17z"/>
+<path fill="#ff5a6a" opacity="0.4" d="M244 95h17v15h-17z"/>
+<path fill="#46d07f" opacity="0.5" d="M244 114h17v15h-17z"/>
+<path fill="#46d07f" opacity="0.1" d="M244 133h17v15h-17z"/>
+<path fill="#46d07f" opacity="0.2" d="M284 133h17v15h-17z"/>
+<path fill="none" stroke="#5a6470" stroke-width="3.5" stroke-linecap="round" d="M17.8 45.5h20.5M17.8 64.5h24.5M17.8 83.5h28.5M17.8 102.5h32.5M17.8 121.5h20.5"/>
+<path fill="none" stroke="#3c4450" stroke-width="3.5" stroke-linecap="round" d="M17.8 140.5h24.5"/>
+<path fill="none" stroke="#3c4450" stroke-width="4" stroke-dasharray="1 19" d="M72.5 29h237"/>
+<path fill="none" stroke="#1e232c" d="M16 158L304 158"/>
+<path fill="#5a6470" opacity="0.8" d="M70 171.6h5v13.1h-5zM90 167.9h5v13.3h-5zM110 173.5h5v12.6h-5zM130 170.4h5v4.5h-5zM150 173.3h5v13.8h-5zM170 164.3h5v9.3h-5zM190 169.5h5v9.5h-5zM210 167.9h5v11.8h-5zM230 166.2h5v8.2h-5zM250 169.3h5v12.5h-5zM270 170.4h5v8.8h-5zM290 173.1h5v11.5h-5z"/>
+<path fill="none" stroke="#3c4450" stroke-width="3" stroke-linecap="round" d="M17.5 176h19"/>
+</svg>

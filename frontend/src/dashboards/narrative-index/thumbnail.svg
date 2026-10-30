@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200">
+<g fill="#101318" stroke="#1e232c">
+<rect x="16" y="16" width="138" height="82" rx="5"/>
+<rect x="166" y="16" width="138" height="82" rx="5"/>
+<rect x="16" y="102" width="138" height="82" rx="5"/>
+<rect x="166" y="102" width="138" height="82" rx="5"/>
+</g>
+<path fill="none" stroke="#9aa3b0" stroke-width="3.5" stroke-linecap="round" d="M27.8 26h40.5M177.8 26h40.5M27.8 112h40.5M177.8 112h40.5"/>
+<path fill="none" stroke="#3c4450" stroke-width="3" stroke-linecap="round" d="M83.5 26h19M233.5 26h19M83.5 112h19M233.5 112h19"/>
+<path fill="none" stroke="#e0a23c" stroke-width="5.2" stroke-linecap="round" d="M142 26h.01"/>
+<path fill="none" stroke="#2a313c" d="M26 90L144 90M176 90L294 90M26 176L144 176M176 176L294 176"/>
+<path fill="none" stroke="#5a6470" stroke-dasharray="2 2" d="M70.3 38L70.3 90M70.3 124L70.3 176"/>
+<path fill="none" stroke="#ff5733" stroke-width="5.2" stroke-linecap="round" d="M292 26h.01"/>
+<path fill="none" stroke="#34c2a0" stroke-width="5.2" stroke-linecap="round" d="M142 112h.01"/>
+<path fill="none" stroke="#586374" stroke-width="5.2" stroke-linecap="round" d="M292 112h.01"/>
+<path fill="none" stroke="#3c4450" stroke-linejoin="round" opacity="0.9" d="M26 76.2L40.8 75.3L55.5 75.7L70.3 73.9L85 72.5L99.8 73L114.5 70.7L129.3 69.8L144 68.4M176 76.2L190.8 75.3L205.5 75.7L220.3 73.9L235 72.5L249.8 73L264.5 70.7L279.3 69.8L294 68.4M26 162.2L40.8 161.3L55.5 161.7L70.3 159.9L85 158.5L99.8 159L114.5 156.7L129.3 155.8L144 154.4M176 162.2L190.8 161.3L205.5 161.7L220.3 159.9L235 158.5L249.8 159L264.5 156.7L279.3 155.8L294 154.4"/>
+<path fill="none" stroke="#5a6470" stroke-linejoin="round" opacity="0.6" d="M26 77.1L40.8 78.5L55.5 76.2L70.3 76.7L85 74.8L99.8 75.7L114.5 74.4L129.3 72.5L144 73.4M176 77.1L190.8 78.5L205.5 76.2L220.3 76.7L235 74.8L249.8 75.7L264.5 74.4L279.3 72.5L294 73.4M26 163.1L40.8 164.5L55.5 162.2L70.3 162.7L85 160.8L99.8 161.7L114.5 160.4L129.3 158.5L144 159.4M176 163.1L190.8 164.5L205.5 162.2L220.3 162.7L235 160.8L249.8 161.7L264.5 160.4L279.3 158.5L294 159.4"/>
+<path fill="none" stroke="#e7eaef" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M26 84.5L40.8 82.6L55.5 83.6L70.3 76.2L85 70.7L99.8 71.6L114.5 61.5L129.3 53.2L144 45.8M176 85.4L190.8 85.4L205.5 80.8L220.3 81.7L235 73.4L249.8 67L264.5 63.3L279.3 56L294 48.6M26 166.8L40.8 169.6L55.5 164L70.3 157.6L85 158.5L99.8 151.2L114.5 143.8L129.3 145.6L144 133.7M176 172.3L190.8 166.8L205.5 167.7L220.3 165L235 157.6L249.8 152.1L264.5 154.8L279.3 143.8L294 137.4"/>
+</svg>

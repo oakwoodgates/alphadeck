@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200">
+<path fill="none" stroke="#9aa3b0" stroke-width="3.5" stroke-linecap="round" d="M17.8 20h44.5M17.8 98h44.5M81.8 40h46.5M81.8 59h69.5M81.8 118h75.5M81.8 137h58.5M81.8 156h81.5M81.8 175h64.5"/>
+<path fill="none" stroke="#1e232c" d="M72 20L304 20M72 98L304 98"/>
+<path fill="none" stroke="#2a313c" d="M68 28L68 184"/>
+<g fill="none" stroke="#2a313c">
+<rect x="16" y="34" width="24" height="12" rx="3"/>
+<rect x="16" y="53" width="36" height="12" rx="3"/>
+<rect x="16" y="112" width="40" height="12" rx="3"/>
+<rect x="16" y="131" width="24" height="12" rx="3"/>
+<rect x="16" y="150" width="34" height="12" rx="3"/>
+<rect x="16" y="169" width="28" height="12" rx="3"/>
+</g>
+<path fill="none" stroke="#5a6470" stroke-width="3" stroke-linecap="round" d="M22.5 40h11M22.5 59h23M22.5 118h27M22.5 137h11M22.5 156h21M22.5 175h15"/>
+<path fill="none" stroke="#5a6470" stroke-width="4.4" stroke-linecap="round" d="M68 40h.01M68 59h.01M68 118h.01M68 137h.01M68 156h.01M68 175h.01"/>
+<path fill="none" stroke="#3c4450" stroke-width="3" stroke-linecap="round" d="M181.5 40h35M285.5 40h17M181.5 59h35M285.5 59h17M22.5 78h15M187.5 78h17M285.5 78h17M181.5 118h35M285.5 118h17M181.5 137h35M285.5 137h17M181.5 156h35M285.5 156h17M181.5 175h35M285.5 175h17"/>
+<g fill="none" stroke="#3c4450" stroke-dasharray="2 2">
+<rect x="16" y="72" width="28" height="12" rx="3"/>
+</g>
+<path fill="none" stroke="#3c4450" stroke-width="4.4" stroke-linecap="round" d="M68 78h.01"/>
+<path fill="none" stroke="#3c4450" stroke-width="3.5" stroke-linecap="round" d="M81.8 78h92.5"/>
+</svg>

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200">
+<path fill="none" stroke="#3c4450" d="M66 36C136 36 142 38 212 38M66 36C136 36 142 80 212 80M66 68C136 68 142 80 212 80M66 68C136 68 142 122 212 122M66 68C136 68 142 164 212 164M66 100C136 100 142 38 212 38M66 100C136 100 142 122 212 122M66 132C136 132 142 122 212 122M66 132C136 132 142 164 212 164M66 164C136 164 142 80 212 80M66 164C136 164 142 164 212 164"/>
+<g fill="#141821" stroke="#2a313c">
+<rect x="212" y="24" width="92" height="28" rx="5"/>
+<rect x="212" y="66" width="92" height="28" rx="5"/>
+<rect x="212" y="108" width="92" height="28" rx="5"/>
+<rect x="212" y="150" width="92" height="28" rx="5"/>
+</g>
+<path fill="none" stroke="#9aa3b0" stroke-width="3" stroke-linecap="round" d="M222.5 33.5h41M222.5 75.5h41M222.5 117.5h41M222.5 159.5h41"/>
+<path fill="none" stroke="#3c4450" stroke-width="3" stroke-linecap="round" d="M222.5 41.5h59M222.5 83.5h59M222.5 125.5h59M222.5 167.5h59"/>
+<path fill="none" stroke="#9aa3b0" stroke-width="8" stroke-linecap="round" d="M66 36h.01M66 100h.01M66 132h.01M66 164h.01"/>
+<path fill="none" stroke="#5a6470" stroke-width="3.5" stroke-linecap="round" d="M17.8 36h24.5M17.8 68h18.5M17.8 100h24.5M17.8 132h18.5M17.8 164h24.5"/>
+<path fill="none" stroke="#9aa3b0" stroke-width="10" stroke-linecap="round" d="M66 68h.01"/>
+</svg>

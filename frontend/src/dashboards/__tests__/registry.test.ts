@@ -7,8 +7,10 @@ import { describe, expect, it } from "vitest";
 import { DASHBOARDS, HOME_DASHBOARD, buildRegistry, type DashboardEntry } from "../registry";
 
 // The self-registering registry (docs/DASHBOARDS.md rule 8): every <slug>/entry.ts is collected by
-// import.meta.glob, sorted by `order` then label, and a duplicate slug fails loud. The real list is pinned
-// against the folders on disk, so a dashboard folder without an entry.ts can never silently fall off the menu.
+// import.meta.glob and paired with its <slug>/thumbnail.svg, sorted by `order` then label, and a duplicate
+// slug, an entry without a thumbnail or a thumbnail without an entry fails loud. The real list is pinned
+// against the folders on disk, so a dashboard folder without an entry.ts or a thumbnail.svg can never
+// silently fall off the menu or the index. (What a thumbnail may draw is thumbnails.test.ts.)
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DASHBOARDS_DIR = join(HERE, "..");
@@ -24,6 +26,10 @@ const fake = (slug: string, order: number, label = slug): DashboardEntry => ({
 });
 
 const mod = (entry: DashboardEntry) => ({ entry });
+
+/** The thumbnail map for fake slugs: `{ "./<slug>/thumbnail.svg": "/<slug>.svg" }`. */
+const thumbs = (...slugs: string[]): Record<string, string> =>
+  Object.fromEntries(slugs.map((s) => [`./${s}/thumbnail.svg`, `/${s}.svg`]));
 
 describe("the dashboard registry — the real entries", () => {
   it("collects every dashboard folder's entry.ts, the Board first, in today's menu order", () => {
@@ -60,13 +66,21 @@ describe("the dashboard registry — the real entries", () => {
     expect(DASHBOARDS[0]).toMatchObject({ slug: "board", status: "core", layout: "fill", asofAware: true });
   });
 
-  it("every folder under dashboards/ registers itself (no folder without an entry.ts, no entry without a folder)", () => {
+  it("every folder under dashboards/ registers itself (no folder without an entry.ts and a thumbnail.svg, no entry without a folder)", () => {
     const folders = readdirSync(DASHBOARDS_DIR, { withFileTypes: true })
       .filter((d) => d.isDirectory() && !d.name.startsWith("__"))
       .map((d) => d.name)
       .sort();
-    for (const f of folders) expect(existsSync(join(DASHBOARDS_DIR, f, "entry.ts")), `${f}/entry.ts`).toBe(true);
+    for (const f of folders) {
+      expect(existsSync(join(DASHBOARDS_DIR, f, "entry.ts")), `${f}/entry.ts`).toBe(true);
+      expect(existsSync(join(DASHBOARDS_DIR, f, "thumbnail.svg")), `${f}/thumbnail.svg`).toBe(true);
+    }
     expect([...DASHBOARDS.map((d) => d.slug)].sort()).toEqual(folders);
+  });
+
+  it("gives every real entry its OWN folder's thumbnail, as a URL", () => {
+    // Under Vitest the URL is the file's path; a production build serves a data URL or a hashed asset instead.
+    for (const d of DASHBOARDS) expect(d.thumbnail, `${d.slug} thumbnail`).toMatch(new RegExp(`/${d.slug}/thumbnail\\.svg$`));
   });
 
   it("names the home dashboard among its entries", () => {
@@ -76,28 +90,64 @@ describe("the dashboard registry — the real entries", () => {
 
 describe("the dashboard registry — buildRegistry", () => {
   it("sorts by order, then label, whatever order the modules arrive in", () => {
-    const got = buildRegistry({
-      "./zeta/entry.ts": mod(fake("zeta", 20, "Zeta")),
-      "./beta/entry.ts": mod(fake("beta", 10, "Beta")),
-      "./alpha/entry.ts": mod(fake("alpha", 10, "Alpha")),
-      "./home/entry.ts": mod(fake("home", 0, "Home")),
-    });
+    const got = buildRegistry(
+      {
+        "./zeta/entry.ts": mod(fake("zeta", 20, "Zeta")),
+        "./beta/entry.ts": mod(fake("beta", 10, "Beta")),
+        "./alpha/entry.ts": mod(fake("alpha", 10, "Alpha")),
+        "./home/entry.ts": mod(fake("home", 0, "Home")),
+      },
+      thumbs("zeta", "alpha", "home", "beta"),
+    );
     expect(got.map((d) => d.slug)).toEqual(["home", "alpha", "beta", "zeta"]);
+  });
+
+  it("pairs each entry with the thumbnail of its OWN folder, whatever order the maps arrive in", () => {
+    const got = buildRegistry(
+      { "./alpha/entry.ts": mod(fake("alpha", 10)), "./beta/entry.ts": mod(fake("beta", 20)) },
+      thumbs("beta", "alpha"),
+    );
+    expect(got.map((d) => [d.slug, d.thumbnail])).toEqual([
+      ["alpha", "/alpha.svg"],
+      ["beta", "/beta.svg"],
+    ]);
   });
 
   it("fails loud on a duplicate slug", () => {
     expect(() =>
-      buildRegistry({
-        "./alpha/entry.ts": mod(fake("alpha", 10)),
-        "./copy/alpha/entry.ts": mod(fake("alpha", 20)),
-      }),
+      buildRegistry(
+        {
+          "./alpha/entry.ts": mod(fake("alpha", 10)),
+          "./copy/alpha/entry.ts": mod(fake("alpha", 20)),
+        },
+        thumbs("alpha"),
+      ),
     ).toThrow('duplicate slug "alpha" (./alpha/entry.ts and ./copy/alpha/entry.ts)');
   });
 
   it("fails loud on a module with no entry, or an entry whose slug is not its folder", () => {
-    expect(() => buildRegistry({ "./alpha/entry.ts": {} })).toThrow("does not export `entry`");
-    expect(() => buildRegistry({ "./alpha/entry.ts": mod(fake("beta", 10)) })).toThrow(
+    expect(() => buildRegistry({ "./alpha/entry.ts": {} }, thumbs("alpha"))).toThrow("does not export `entry`");
+    expect(() => buildRegistry({ "./alpha/entry.ts": mod(fake("beta", 10)) }, thumbs("alpha"))).toThrow(
       'registers slug "beta", not its folder "alpha"',
     );
+  });
+
+  it("fails loud on an entry whose folder has no thumbnail.svg, naming the folder", () => {
+    expect(() =>
+      buildRegistry(
+        { "./alpha/entry.ts": mod(fake("alpha", 10)), "./beta/entry.ts": mod(fake("beta", 20)) },
+        thumbs("alpha"),
+      ),
+    ).toThrow('./beta/entry.ts has no thumbnail.svg beside it (folder "beta")');
+    expect(() => buildRegistry({ "./alpha/entry.ts": mod(fake("alpha", 10)) }, {})).toThrow(
+      'has no thumbnail.svg beside it (folder "alpha")',
+    );
+  });
+
+  it("fails loud on a thumbnail.svg whose folder has no entry.ts, naming the folder", () => {
+    expect(() =>
+      buildRegistry({ "./alpha/entry.ts": mod(fake("alpha", 10)) }, thumbs("alpha", "orphan")),
+    ).toThrow('./orphan/thumbnail.svg has no entry.ts beside it (folder "orphan")');
+    expect(() => buildRegistry({}, thumbs("orphan"))).toThrow('has no entry.ts beside it (folder "orphan")');
   });
 });

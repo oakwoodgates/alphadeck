@@ -5,6 +5,12 @@ import { defineConfig } from "vitest/config";
 // Dev: proxy API calls to the FastAPI backend so the SPA can use same-origin relative URLs (no CORS).
 export default defineConfig({
   plugins: [react()],
+  build: {
+    // A dashboard's thumbnail.svg (docs/DASHBOARDS.md, "Thumbnails") stays its own small file. Under 4 KB Vite
+    // would inline each drawing into the main chunk as a data URL (about 73 KB raw for 27 of them, measured),
+    // and every page loads that chunk. Every other asset keeps Vite's default (undefined = inline under 4 KB).
+    assetsInlineLimit: (file) => (/[\\/]thumbnail\.svg$/.test(file) ? false : undefined),
+  },
   server: {
     proxy: {
       // The whole API rides /api (see src/api/client.ts) so the SPA owns every other path for its

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200">
+<path fill="none" stroke="#1e232c" d="M100 40L304 40M100 62L304 62M100 84L304 84M100 106L304 106M100 128L304 128M100 150L304 150"/>
+<path fill="#9aa3b0" d="M118 36h32v8h-32zM136 58h34v8h-34zM100 80h26v8h-26zM166 102h34v8h-34zM150 124h26v8h-26zM196 146h28v8h-28z"/>
+<path fill="#5a6470" d="M150 36h64v8h-64zM170 58h74v8h-74zM126 80h64v8h-64zM200 102h76v8h-76zM176 124h56v8h-56zM224 146h76v8h-76z"/>
+<path fill="none" stroke="#9aa3b0" stroke-width="4" stroke-linecap="round" d="M18 40h36M18 62h40M18 84h44M18 106h48M18 128h36M18 150h40"/>
+<path fill="none" stroke="#3c4450" stroke-width="3" stroke-linecap="round" d="M75.5 40h11M75.5 62h11M75.5 84h11M75.5 106h11M75.5 150h11"/>
+<path fill="none" stroke="#e0a23c" stroke-width="3" stroke-linecap="round" d="M75.5 128h11"/>
+<path fill="none" stroke="#8ab4ff" d="M198 28L198 168"/>
+<path fill="none" stroke="#8ab4ff" stroke-width="3" stroke-linecap="round" d="M201.5 22h15"/>
+<path fill="none" stroke="#2a313c" d="M100 176L304 176"/>
+<path fill="none" stroke="#3c4450" d="M100 176v4M134 176v4M168 176v4M202 176v4M236 176v4M270 176v4M304 176v4"/>
+<path fill="none" stroke="#3c4450" stroke-width="2.5" stroke-linecap="round" d="M101.3 187h11.5M169.3 187h11.5M237.3 187h11.5"/>
+</svg>

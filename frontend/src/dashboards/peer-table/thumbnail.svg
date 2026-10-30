@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200">
+<path fill="none" stroke="#3c4450" stroke-width="2.5" stroke-linecap="round" d="M23.3 22h23.5M93.3 22h15.5M128.3 22h15.5M163.3 22h15.5M198.3 22h15.5M233.3 22h15.5M268.3 22h15.5M93.3 39h11.5M93.3 105h11.5M47.3 56h19.5M47.3 72h13.5M47.3 88h19.5M47.3 122h13.5M47.3 138h19.5M47.3 154h13.5M47.3 170h19.5"/>
+<path fill="none" stroke="#2a313c" d="M16 30L304 30M82 30L82 182"/>
+<g fill="#141821">
+<rect x="16" y="33" width="288" height="12" rx="2"/>
+<rect x="16" y="99" width="288" height="12" rx="2"/>
+</g>
+<path fill="none" stroke="#9aa3b0" stroke-width="3" stroke-linecap="round" d="M23.5 39h37M23.5 105h31"/>
+<path fill="none" stroke="#9aa3b0" stroke-width="4" stroke-linecap="round" d="M24 56h14M24 72h17M24 88h20M24 122h14M24 138h17M24 154h20M24 170h14"/>
+<path fill="none" stroke="#5a6470" stroke-width="3" stroke-linecap="round" d="M93.5 56h10M128.5 56h6.4M163.5 56h20.2M93.5 72h14.3M128.5 72h12.1M163.5 72h17M198.5 72h7.3M128.5 88h21.6M163.5 88h18.1M198.5 88h5.8M93.5 122h20.7M128.5 122h21.9M163.5 122h7.8M198.5 122h15.7M93.5 138h7.5M163.5 138h12.2M198.5 138h10M93.5 154h10M128.5 154h18.2M163.5 154h8.6M198.5 154h8.5M93.5 170h22.7M163.5 170h11.6M198.5 170h11.2"/>
+<path fill="none" stroke="#3c4450" stroke-dasharray="2 2" d="M197 56L209 56M92 88L104 88M127 138L139 138M267 138L279 138M267 154L279 154M127 170L139 170"/>
+<path fill="none" stroke="#46d07f" stroke-width="3" stroke-linecap="round" opacity="0.6" d="M233.5 56h6.7M268.5 56h9.3M233.5 72h17.4M233.5 88h17.4M268.5 88h18.8M233.5 122h11.6M268.5 122h12.3M233.5 138h7.3M233.5 154h11.2M268.5 170h18.5"/>
+<path fill="none" stroke="#ff5a6a" stroke-width="3" stroke-linecap="round" opacity="0.6" d="M268.5 72h7M233.5 170h20.6"/>
+</svg>
