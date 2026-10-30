@@ -275,6 +275,6 @@ recorded here as the brief gave them; the build re-measured nothing.
 - `role=risk`: rows 6,941 · payload 8.7 MB · cold compute 32,449 ms
 - `role=both`: rows 11,456 (was 23,526 with the label in the identity) · payload 13.6 MB · cold compute 33,811 ms
 - The cold compute is the same whatever the role: it is the read of 785 recorded nights' card blobs and the names' bars, not the rows. A narrower read (the three trigger arrays by jsonb path instead of validating every CallCard) is the next cut if the first visit after each nightly matters.
-- rows with `label_changes` > 0: ____ of ____ (largest `label_changes` ____)
-- the page renders in the browser: ____
+- rows with `label_changes` > 0: 364 of 4,515 entry rows (largest 5); 1,672 of 11,456 with both roles (largest 55, a breakdown risk signal whose label carries the night's close)
+- the page renders in the browser: yes at desktop width, 4,515 entry rows grouped by week with the Load, window and group controls and the kind / grade / card filters (before the fix the 25 MB read never finished rendering)
 
