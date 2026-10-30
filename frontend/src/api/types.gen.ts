@@ -2578,6 +2578,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboards/theme-leaderboard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Theme Leaderboard
+         * @description Every counted card with the five parts a stated composite ranks it by: the median 30-day return of its priced
+         *     counting names minus IWM's, the share of those names above their 50-day SMA, the keys its recorded call has
+         *     turned, the slope of its EDGAR term-mention documents (the last three closed months against the three before)
+         *     and the distinct open-market insider buyers across those names in 30 days. Display only: it reads the calls log
+         *     and never the live call; the percentiles and the score are computed on the page from the cards it shows. A past
+         *     as-of reads what was public by the end of that date.
+         */
+        get: operations["theme_leaderboard_dashboards_theme_leaderboard_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dashboards/ticker-lookup/resolve": {
         parameters: {
             query?: never;
@@ -9904,6 +9929,252 @@ export interface components {
              * @default recorded after the next EDGAR open
              */
             reason: string;
+        };
+        /**
+         * LeaderboardAdoptionOut
+         * @description The adoption part: ``slope_pct`` = documents mentioning the card's SIGNAL terms in the last three closed
+         *     calendar months (``recent_*``) against the three before (``prior_*``), a signed percent; the spans are the
+         *     months' first days. ``terms_counted`` of ``terms`` = the current SIGNAL terms whose six closed months are all
+         *     stored (the slope rests on those). ``gap``: ``no_terms``, ``not_counted_yet`` (no term has all six months) or
+         *     ``no_base`` (no documents in the earlier three).
+         */
+        LeaderboardAdoptionOut: {
+            /** Slope Pct */
+            slope_pct: number | null;
+            /** Recent Docs */
+            recent_docs: number | null;
+            /** Prior Docs */
+            prior_docs: number | null;
+            /** Recent From */
+            recent_from: string | null;
+            /** Recent To */
+            recent_to: string | null;
+            /** Prior From */
+            prior_from: string | null;
+            /** Prior To */
+            prior_to: string | null;
+            /** Terms */
+            terms: number;
+            /** Terms Counted */
+            terms_counted: number;
+            /** Gap */
+            gap: ("no_terms" | "not_counted_yet" | "no_base") | null;
+        };
+        /**
+         * LeaderboardBreadthOut
+         * @description The breadth part: ``pct`` = the share of the counting names above their 50-day SMA, ``above`` of ``counted``
+         *     (``thin`` = names with too little history, shown but not counted). ``null`` = no name counted. ``above_200`` of
+         *     ``n_200`` = the share above the 200-day SMA, read per name.
+         */
+        LeaderboardBreadthOut: {
+            /** Pct */
+            pct: number | null;
+            /** Above */
+            above: number;
+            /** Counted */
+            counted: number;
+            /** Thin */
+            thin: number;
+            /** Above 200 */
+            above_200: number;
+            /** N 200 */
+            n_200: number;
+        };
+        /**
+         * LeaderboardBuyerOut
+         * @description A counting name with open-market buyers in the last 30 days: the card's ticker and the distinct buyers.
+         */
+        LeaderboardBuyerOut: {
+            /** Name */
+            name: string;
+            /** Buyers */
+            buyers: number;
+        };
+        /**
+         * LeaderboardCapMixOut
+         * @description The counting names by approximate-cap tier at the as-of (the Peer Table's cap rule); ``blank`` = no cap.
+         */
+        LeaderboardCapMixOut: {
+            /** Nano */
+            nano: number;
+            /** Micro */
+            micro: number;
+            /** Small */
+            small: number;
+            /** Mid */
+            mid: number;
+            /** Large */
+            large: number;
+            /** Blank */
+            blank: number;
+        };
+        /**
+         * LeaderboardCardOut
+         * @description One counted card. ``state`` = the recorded card in effect's state (``null`` = no recorded call by the as-of);
+         *     ``recorded_asof`` = its night (``reconstructed`` = written by the backfill). ``counting`` = distinct counting
+         *     names (Context and Bench never), ``priced`` of them with a close, ``flagged`` left out of every price reading
+         *     for a flagged price history. ``rs_leaders`` of ``rs_n`` = names whose relative strength is at a 13-week high.
+         *     ``armed_names`` = the recorded card's armed members when it is Armed.
+         */
+        LeaderboardCardOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            state: components["schemas"]["State"] | null;
+            /** Recorded Asof */
+            recorded_asof: string | null;
+            /** Reconstructed */
+            reconstructed: boolean;
+            /** Counting */
+            counting: number;
+            /** Priced */
+            priced: number;
+            /** Flagged */
+            flagged: number;
+            tape: components["schemas"]["LeaderboardTapeOut"];
+            ret_7d: components["schemas"]["LeaderboardMedianOut"];
+            breadth: components["schemas"]["LeaderboardBreadthOut"];
+            keys: components["schemas"]["LeaderboardKeysOut"];
+            adoption: components["schemas"]["LeaderboardAdoptionOut"];
+            insiders: components["schemas"]["LeaderboardInsidersOut"];
+            /** Rs Leaders */
+            rs_leaders: number;
+            /** Rs N */
+            rs_n: number;
+            cap_mix: components["schemas"]["LeaderboardCapMixOut"];
+            /** Armed Names */
+            armed_names: number | null;
+        };
+        /**
+         * LeaderboardFlaggedOut
+         * @description A counting company left out of every price reading: its data flags reach its price readings at the as-of
+         *     (the reason the Cockpit grays its price cells). ``reason`` = the flags' labels.
+         */
+        LeaderboardFlaggedOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * LeaderboardInsidersOut
+         * @description The insiders part: distinct open-market buyers in 30 days summed across the counting names with a Form 4
+         *     reading (``read`` of them); ``null`` = none has one. ``names`` = those with at least one buyer.
+         */
+        LeaderboardInsidersOut: {
+            /** Buyers */
+            buyers: number | null;
+            /** Read */
+            read: number;
+            /** Names */
+            names: components["schemas"]["LeaderboardBuyerOut"][];
+        };
+        /**
+         * LeaderboardKeysOut
+         * @description The keys the card's recorded call in effect has turned: ``turned`` = 0, 1 or 2 (Managing counts as 2);
+         *     ``null`` for all three = no recorded call by the as-of.
+         */
+        LeaderboardKeysOut: {
+            /** Turned */
+            turned: number | null;
+            /** Conviction */
+            conviction: boolean | null;
+            /** Confirmation */
+            confirmation: boolean | null;
+        };
+        /**
+         * LeaderboardMedianOut
+         * @description A median return (percent) over ``k`` priced names; ``null`` below ``min_priced``.
+         */
+        LeaderboardMedianOut: {
+            /** Median */
+            median: number | null;
+            /** K */
+            k: number;
+        };
+        /**
+         * LeaderboardOut
+         * @description The whole page in one view: every counted card in the default order (the score among every card counted,
+         *     highest first, a card with no score last). The five parts' values are the page's inputs: it recomputes the
+         *     percentiles and the score for the cards it shows. The counts are the quiet line. ``iwm_ret_30d`` = IWM's own
+         *     30-day return (``null`` = none at the as-of). ``cache`` / ``compute_ms`` = whether the heavy read was served from
+         *     the shared dashboard cache and how long it took when it ran.
+         */
+        LeaderboardOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Clock
+             * @enum {string}
+             */
+            clock: "record" | "public";
+            /** Benchmark */
+            benchmark: string;
+            /** Iwm Ret 30D */
+            iwm_ret_30d: number | null;
+            /** Live Cards */
+            live_cards: number;
+            /** Cards Counted */
+            cards_counted: number;
+            /** Cards Not Yet Created */
+            cards_not_yet_created: number;
+            /** Roster Fallback Cards */
+            roster_fallback_cards: number;
+            /** Basket Rows */
+            basket_rows: number;
+            /** Silent Rows Left Out */
+            silent_rows_left_out: number;
+            /** Unresolved Rows */
+            unresolved_rows: number;
+            /** Names */
+            names: number;
+            /** Names Flagged */
+            names_flagged: number;
+            /** Cards */
+            cards: components["schemas"]["LeaderboardCardOut"][];
+            /** Flagged */
+            flagged: components["schemas"]["LeaderboardFlaggedOut"][];
+            /** Min Priced */
+            min_priced: number;
+            /** Recent Months */
+            recent_months: number;
+            /** Prior Months */
+            prior_months: number;
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * LeaderboardTapeOut
+         * @description The tape part: ``median`` = the median 30-day return of the card's priced counting names, over ``k`` of them;
+         *     ``value`` = that minus IWM's 30-day return, in percentage points. ``gap`` says why ``value`` is blank: ``thin``
+         *     (fewer than ``min_priced`` priced names) or ``no_iwm`` (IWM has no 30-day return at the as-of).
+         */
+        LeaderboardTapeOut: {
+            /** Value */
+            value: number | null;
+            /** Median */
+            median: number | null;
+            /** K */
+            k: number;
+            /** Gap */
+            gap: ("thin" | "no_iwm") | null;
         };
         /**
          * LeadersCardOut
@@ -18378,6 +18649,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SharedNamesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    theme_leaderboard_dashboards_theme_leaderboard_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; only what was recorded and public by then is read */
+                asof: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaderboardOut"];
                 };
             };
             /** @description Validation Error */

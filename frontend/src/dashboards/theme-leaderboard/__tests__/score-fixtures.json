@@ -1,0 +1,79 @@
+{
+  "note": "The Theme Leaderboard's score on hand-built cards (docs/dashboards/theme-leaderboard.md), derived by hand from the rule. The backend (backend/tests/dashboards/test_theme_leaderboard.py) and the page (score.test.ts) both assert these same cases, so the two implementations of the rule cannot drift. Each part is the card's percentile (the mid-rank over n - 1: (below + (equal - 1) / 2) / (n - 1)) among the cards with that reading; higher is better for all five parts; the score is the mean of the five x 100, null when any part is missing. Compared to 1e-9.",
+  "cases": [
+    {
+      "name": "four cards, every reading distinct but the keys",
+      "rows": [
+        { "key": "A", "tape": 8.0, "breadth": 80.0, "keys": 2, "adoption": 50.0, "insiders": 5 },
+        { "key": "B", "tape": 3.0, "breadth": 40.0, "keys": 1, "adoption": 10.0, "insiders": 1 },
+        { "key": "C", "tape": -2.0, "breadth": 60.0, "keys": 0, "adoption": 90.0, "insiders": 3 },
+        { "key": "D", "tape": 12.0, "breadth": 20.0, "keys": 1, "adoption": -20.0, "insiders": 0 }
+      ],
+      "expected": {
+        "A": { "tape": 0.6666666666666666, "breadth": 1.0, "keys": 1.0, "adoption": 0.6666666666666666, "insiders": 1.0, "score": 86.66666666666667 },
+        "B": { "tape": 0.3333333333333333, "breadth": 0.3333333333333333, "keys": 0.5, "adoption": 0.3333333333333333, "insiders": 0.3333333333333333, "score": 36.666666666666664 },
+        "C": { "tape": 0.0, "breadth": 0.6666666666666666, "keys": 0.0, "adoption": 1.0, "insiders": 0.6666666666666666, "score": 46.666666666666664 },
+        "D": { "tape": 1.0, "breadth": 0.0, "keys": 0.5, "adoption": 0.0, "insiders": 0.0, "score": 30.0 }
+      }
+    },
+    {
+      "name": "ties share the average of the ranks they span",
+      "rows": [
+        { "key": "A", "tape": 5.0, "breadth": 70.0, "keys": 2, "adoption": 20.0, "insiders": 0 },
+        { "key": "B", "tape": 5.0, "breadth": 70.0, "keys": 2, "adoption": 20.0, "insiders": 0 },
+        { "key": "C", "tape": 1.0, "breadth": 30.0, "keys": 0, "adoption": -5.0, "insiders": 2 }
+      ],
+      "expected": {
+        "A": { "tape": 0.75, "breadth": 0.75, "keys": 0.75, "adoption": 0.75, "insiders": 0.25, "score": 65.0 },
+        "B": { "tape": 0.75, "breadth": 0.75, "keys": 0.75, "adoption": 0.75, "insiders": 0.25, "score": 65.0 },
+        "C": { "tape": 0.0, "breadth": 0.0, "keys": 0.0, "adoption": 0.0, "insiders": 1.0, "score": 20.0 }
+      }
+    },
+    {
+      "name": "a missing part leaves the card without a score, and its other parts still rank the others",
+      "rows": [
+        { "key": "A", "tape": 4.0, "breadth": 50.0, "keys": 2, "adoption": 30.0, "insiders": 1 },
+        { "key": "B", "tape": 2.0, "breadth": 40.0, "keys": 1, "adoption": null, "insiders": 3 },
+        { "key": "C", "tape": 9.0, "breadth": 60.0, "keys": 0, "adoption": 10.0, "insiders": 0 }
+      ],
+      "expected": {
+        "A": { "tape": 0.5, "breadth": 0.5, "keys": 1.0, "adoption": 1.0, "insiders": 0.5, "score": 70.0 },
+        "B": { "tape": 0.0, "breadth": 0.0, "keys": 0.5, "adoption": null, "insiders": 1.0, "score": null },
+        "C": { "tape": 1.0, "breadth": 1.0, "keys": 0.0, "adoption": 0.0, "insiders": 0.0, "score": 40.0 }
+      }
+    },
+    {
+      "name": "a lone card has nothing to compare with: 0.5 on every part, a score of 50",
+      "rows": [
+        { "key": "A", "tape": -3.0, "breadth": 10.0, "keys": 0, "adoption": 4.0, "insiders": 0 }
+      ],
+      "expected": {
+        "A": { "tape": 0.5, "breadth": 0.5, "keys": 0.5, "adoption": 0.5, "insiders": 0.5, "score": 50.0 }
+      }
+    },
+    {
+      "name": "a card with no reading at all has no percentile and no score",
+      "rows": [
+        { "key": "A", "tape": 2.0, "breadth": 55.0, "keys": 1, "adoption": 8.0, "insiders": 2 },
+        { "key": "B", "tape": null, "breadth": null, "keys": null, "adoption": null, "insiders": null },
+        { "key": "C", "tape": 6.0, "breadth": 65.0, "keys": 2, "adoption": 12.0, "insiders": 4 }
+      ],
+      "expected": {
+        "A": { "tape": 0.0, "breadth": 0.0, "keys": 0.0, "adoption": 0.0, "insiders": 0.0, "score": 0.0 },
+        "B": { "tape": null, "breadth": null, "keys": null, "adoption": null, "insiders": null, "score": null },
+        "C": { "tape": 1.0, "breadth": 1.0, "keys": 1.0, "adoption": 1.0, "insiders": 1.0, "score": 100.0 }
+      }
+    },
+    {
+      "name": "equal readings share one percentile",
+      "rows": [
+        { "key": "A", "tape": 1.0, "breadth": 50.0, "keys": 1, "adoption": 0.0, "insiders": 0 },
+        { "key": "B", "tape": 1.0, "breadth": 50.0, "keys": 1, "adoption": 0.0, "insiders": 0 }
+      ],
+      "expected": {
+        "A": { "tape": 0.5, "breadth": 0.5, "keys": 0.5, "adoption": 0.5, "insiders": 0.5, "score": 50.0 },
+        "B": { "tape": 0.5, "breadth": 0.5, "keys": 0.5, "adoption": 0.5, "insiders": 0.5, "score": 50.0 }
+      }
+    }
+  ]
+}

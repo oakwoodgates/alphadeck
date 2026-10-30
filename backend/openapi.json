@@ -5313,6 +5313,52 @@
         }
       }
     },
+    "/dashboards/theme-leaderboard": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Theme Leaderboard",
+        "description": "Every counted card with the five parts a stated composite ranks it by: the median 30-day return of its priced\ncounting names minus IWM's, the share of those names above their 50-day SMA, the keys its recorded call has\nturned, the slope of its EDGAR term-mention documents (the last three closed months against the three before)\nand the distinct open-market insider buyers across those names in 30 days. Display only: it reads the calls log\nand never the live call; the percentiles and the score are computed on the page from the cards it shows. A past\nas-of reads what was public by the end of that date.",
+        "operationId": "theme_leaderboard_dashboards_theme_leaderboard_get",
+        "parameters": [
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; only what was recorded and public by then is read",
+              "title": "Asof"
+            },
+            "description": "as-of date; only what was recorded and public by then is read"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeaderboardOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/dashboards/ticker-lookup/resolve": {
       "get": {
         "tags": [
@@ -21160,6 +21206,663 @@
         ],
         "title": "LateNightOut",
         "description": "One late night (L1, operator Q5 = A): a (thesis, as-of) holding a call-of-record recorded at/after\nits night's on-time window closed \u2014 the next weekday's 06:00 ET EDGAR open \u2014 so it can have read a\nfiling SEC accepted after the night. Under the default reading such rows are set aside before the\nper-as-of dedup; under the ``include_late`` reading they are scored. ``recorded_at`` = the first late\nrow's stamp, ``edgar_open`` = the window end it missed, ``n_rows`` = late rows on the night,\n``earlier_recorded_at`` = the stamp of the earlier honest row the late-excluding reading scores instead\n(``null`` = none: the night reads like a cron gap), ``reason`` = the words."
+      },
+      "LeaderboardAdoptionOut": {
+        "properties": {
+          "slope_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slope Pct"
+          },
+          "recent_docs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recent Docs"
+          },
+          "prior_docs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prior Docs"
+          },
+          "recent_from": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recent From"
+          },
+          "recent_to": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recent To"
+          },
+          "prior_from": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prior From"
+          },
+          "prior_to": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prior To"
+          },
+          "terms": {
+            "type": "integer",
+            "title": "Terms"
+          },
+          "terms_counted": {
+            "type": "integer",
+            "title": "Terms Counted"
+          },
+          "gap": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "no_terms",
+                  "not_counted_yet",
+                  "no_base"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap"
+          }
+        },
+        "type": "object",
+        "required": [
+          "slope_pct",
+          "recent_docs",
+          "prior_docs",
+          "recent_from",
+          "recent_to",
+          "prior_from",
+          "prior_to",
+          "terms",
+          "terms_counted",
+          "gap"
+        ],
+        "title": "LeaderboardAdoptionOut",
+        "description": "The adoption part: ``slope_pct`` = documents mentioning the card's SIGNAL terms in the last three closed\ncalendar months (``recent_*``) against the three before (``prior_*``), a signed percent; the spans are the\nmonths' first days. ``terms_counted`` of ``terms`` = the current SIGNAL terms whose six closed months are all\nstored (the slope rests on those). ``gap``: ``no_terms``, ``not_counted_yet`` (no term has all six months) or\n``no_base`` (no documents in the earlier three)."
+      },
+      "LeaderboardBreadthOut": {
+        "properties": {
+          "pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pct"
+          },
+          "above": {
+            "type": "integer",
+            "title": "Above"
+          },
+          "counted": {
+            "type": "integer",
+            "title": "Counted"
+          },
+          "thin": {
+            "type": "integer",
+            "title": "Thin"
+          },
+          "above_200": {
+            "type": "integer",
+            "title": "Above 200"
+          },
+          "n_200": {
+            "type": "integer",
+            "title": "N 200"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pct",
+          "above",
+          "counted",
+          "thin",
+          "above_200",
+          "n_200"
+        ],
+        "title": "LeaderboardBreadthOut",
+        "description": "The breadth part: ``pct`` = the share of the counting names above their 50-day SMA, ``above`` of ``counted``\n(``thin`` = names with too little history, shown but not counted). ``null`` = no name counted. ``above_200`` of\n``n_200`` = the share above the 200-day SMA, read per name."
+      },
+      "LeaderboardBuyerOut": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "buyers": {
+            "type": "integer",
+            "title": "Buyers"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "buyers"
+        ],
+        "title": "LeaderboardBuyerOut",
+        "description": "A counting name with open-market buyers in the last 30 days: the card's ticker and the distinct buyers."
+      },
+      "LeaderboardCapMixOut": {
+        "properties": {
+          "nano": {
+            "type": "integer",
+            "title": "Nano"
+          },
+          "micro": {
+            "type": "integer",
+            "title": "Micro"
+          },
+          "small": {
+            "type": "integer",
+            "title": "Small"
+          },
+          "mid": {
+            "type": "integer",
+            "title": "Mid"
+          },
+          "large": {
+            "type": "integer",
+            "title": "Large"
+          },
+          "blank": {
+            "type": "integer",
+            "title": "Blank"
+          }
+        },
+        "type": "object",
+        "required": [
+          "nano",
+          "micro",
+          "small",
+          "mid",
+          "large",
+          "blank"
+        ],
+        "title": "LeaderboardCapMixOut",
+        "description": "The counting names by approximate-cap tier at the as-of (the Peer Table's cap rule); ``blank`` = no cap."
+      },
+      "LeaderboardCardOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/State"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "recorded_asof": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recorded Asof"
+          },
+          "reconstructed": {
+            "type": "boolean",
+            "title": "Reconstructed"
+          },
+          "counting": {
+            "type": "integer",
+            "title": "Counting"
+          },
+          "priced": {
+            "type": "integer",
+            "title": "Priced"
+          },
+          "flagged": {
+            "type": "integer",
+            "title": "Flagged"
+          },
+          "tape": {
+            "$ref": "#/components/schemas/LeaderboardTapeOut"
+          },
+          "ret_7d": {
+            "$ref": "#/components/schemas/LeaderboardMedianOut"
+          },
+          "breadth": {
+            "$ref": "#/components/schemas/LeaderboardBreadthOut"
+          },
+          "keys": {
+            "$ref": "#/components/schemas/LeaderboardKeysOut"
+          },
+          "adoption": {
+            "$ref": "#/components/schemas/LeaderboardAdoptionOut"
+          },
+          "insiders": {
+            "$ref": "#/components/schemas/LeaderboardInsidersOut"
+          },
+          "rs_leaders": {
+            "type": "integer",
+            "title": "Rs Leaders"
+          },
+          "rs_n": {
+            "type": "integer",
+            "title": "Rs N"
+          },
+          "cap_mix": {
+            "$ref": "#/components/schemas/LeaderboardCapMixOut"
+          },
+          "armed_names": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Armed Names"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "thesis_name",
+          "state",
+          "recorded_asof",
+          "reconstructed",
+          "counting",
+          "priced",
+          "flagged",
+          "tape",
+          "ret_7d",
+          "breadth",
+          "keys",
+          "adoption",
+          "insiders",
+          "rs_leaders",
+          "rs_n",
+          "cap_mix",
+          "armed_names"
+        ],
+        "title": "LeaderboardCardOut",
+        "description": "One counted card. ``state`` = the recorded card in effect's state (``null`` = no recorded call by the as-of);\n``recorded_asof`` = its night (``reconstructed`` = written by the backfill). ``counting`` = distinct counting\nnames (Context and Bench never), ``priced`` of them with a close, ``flagged`` left out of every price reading\nfor a flagged price history. ``rs_leaders`` of ``rs_n`` = names whose relative strength is at a 13-week high.\n``armed_names`` = the recorded card's armed members when it is Armed."
+      },
+      "LeaderboardFlaggedOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "reason"
+        ],
+        "title": "LeaderboardFlaggedOut",
+        "description": "A counting company left out of every price reading: its data flags reach its price readings at the as-of\n(the reason the Cockpit grays its price cells). ``reason`` = the flags' labels."
+      },
+      "LeaderboardInsidersOut": {
+        "properties": {
+          "buyers": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Buyers"
+          },
+          "read": {
+            "type": "integer",
+            "title": "Read"
+          },
+          "names": {
+            "items": {
+              "$ref": "#/components/schemas/LeaderboardBuyerOut"
+            },
+            "type": "array",
+            "title": "Names"
+          }
+        },
+        "type": "object",
+        "required": [
+          "buyers",
+          "read",
+          "names"
+        ],
+        "title": "LeaderboardInsidersOut",
+        "description": "The insiders part: distinct open-market buyers in 30 days summed across the counting names with a Form 4\nreading (``read`` of them); ``null`` = none has one. ``names`` = those with at least one buyer."
+      },
+      "LeaderboardKeysOut": {
+        "properties": {
+          "turned": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turned"
+          },
+          "conviction": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conviction"
+          },
+          "confirmation": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmation"
+          }
+        },
+        "type": "object",
+        "required": [
+          "turned",
+          "conviction",
+          "confirmation"
+        ],
+        "title": "LeaderboardKeysOut",
+        "description": "The keys the card's recorded call in effect has turned: ``turned`` = 0, 1 or 2 (Managing counts as 2);\n``null`` for all three = no recorded call by the as-of."
+      },
+      "LeaderboardMedianOut": {
+        "properties": {
+          "median": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median"
+          },
+          "k": {
+            "type": "integer",
+            "title": "K"
+          }
+        },
+        "type": "object",
+        "required": [
+          "median",
+          "k"
+        ],
+        "title": "LeaderboardMedianOut",
+        "description": "A median return (percent) over ``k`` priced names; ``null`` below ``min_priced``."
+      },
+      "LeaderboardOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "clock": {
+            "type": "string",
+            "enum": [
+              "record",
+              "public"
+            ],
+            "title": "Clock"
+          },
+          "benchmark": {
+            "type": "string",
+            "title": "Benchmark"
+          },
+          "iwm_ret_30d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Iwm Ret 30D"
+          },
+          "live_cards": {
+            "type": "integer",
+            "title": "Live Cards"
+          },
+          "cards_counted": {
+            "type": "integer",
+            "title": "Cards Counted"
+          },
+          "cards_not_yet_created": {
+            "type": "integer",
+            "title": "Cards Not Yet Created"
+          },
+          "roster_fallback_cards": {
+            "type": "integer",
+            "title": "Roster Fallback Cards"
+          },
+          "basket_rows": {
+            "type": "integer",
+            "title": "Basket Rows"
+          },
+          "silent_rows_left_out": {
+            "type": "integer",
+            "title": "Silent Rows Left Out"
+          },
+          "unresolved_rows": {
+            "type": "integer",
+            "title": "Unresolved Rows"
+          },
+          "names": {
+            "type": "integer",
+            "title": "Names"
+          },
+          "names_flagged": {
+            "type": "integer",
+            "title": "Names Flagged"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/LeaderboardCardOut"
+            },
+            "type": "array",
+            "title": "Cards"
+          },
+          "flagged": {
+            "items": {
+              "$ref": "#/components/schemas/LeaderboardFlaggedOut"
+            },
+            "type": "array",
+            "title": "Flagged"
+          },
+          "min_priced": {
+            "type": "integer",
+            "title": "Min Priced"
+          },
+          "recent_months": {
+            "type": "integer",
+            "title": "Recent Months"
+          },
+          "prior_months": {
+            "type": "integer",
+            "title": "Prior Months"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "clock",
+          "benchmark",
+          "iwm_ret_30d",
+          "live_cards",
+          "cards_counted",
+          "cards_not_yet_created",
+          "roster_fallback_cards",
+          "basket_rows",
+          "silent_rows_left_out",
+          "unresolved_rows",
+          "names",
+          "names_flagged",
+          "cards",
+          "flagged",
+          "min_priced",
+          "recent_months",
+          "prior_months",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "LeaderboardOut",
+        "description": "The whole page in one view: every counted card in the default order (the score among every card counted,\nhighest first, a card with no score last). The five parts' values are the page's inputs: it recomputes the\npercentiles and the score for the cards it shows. The counts are the quiet line. ``iwm_ret_30d`` = IWM's own\n30-day return (``null`` = none at the as-of). ``cache`` / ``compute_ms`` = whether the heavy read was served from\nthe shared dashboard cache and how long it took when it ran."
+      },
+      "LeaderboardTapeOut": {
+        "properties": {
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "median": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median"
+          },
+          "k": {
+            "type": "integer",
+            "title": "K"
+          },
+          "gap": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "thin",
+                  "no_iwm"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "median",
+          "k",
+          "gap"
+        ],
+        "title": "LeaderboardTapeOut",
+        "description": "The tape part: ``median`` = the median 30-day return of the card's priced counting names, over ``k`` of them;\n``value`` = that minus IWM's 30-day return, in percentage points. ``gap`` says why ``value`` is blank: ``thin``\n(fewer than ``min_priced`` priced names) or ``no_iwm`` (IWM has no 30-day return at the as-of)."
       },
       "LeadersCardOut": {
         "properties": {

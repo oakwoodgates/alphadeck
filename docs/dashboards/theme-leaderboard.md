@@ -110,3 +110,52 @@ Any wording that judges a thesis; any write of the score; sizing or instrument c
 The build lists here every choice it made that this plan does not spell out, each the operator's to confirm or
 change. Pre-decided here for the operator's review: the five parts with equal weights; keys as the record part (Managing
 = 2); the three-against-three closed-month slope; percentiles among the cards shown; no accent.
+
+### Built choices to confirm
+
+The build made these choices that the plan above does not spell out. Each is the operator's to confirm or change.
+
+1. **Keys is the count 0, 1 or 2.** Managing counts as 2. A card with no recorded call at the as-of has no keys part (it is
+   missing, so the card has no score), never 0. The count has three values, so most cards tie on it and share a percentile.
+2. **Breadth has no `MIN_PRICED` floor.** It is `theme_breadth.breadth_for`'s own reading ("x/n" is always shown, so a share
+   over two names reads as "2/2"). A name with too little history for it (under 70 bars) is shown and not counted, as the
+   Cockpit's basket header does. A flagged name is left out of the card's breadth read.
+3. **The 200-day share comes from a fourth display member.** The plan's cost line names three members. The share above the
+   200-day average is read per name from `sma_position` (`pct_vs_slow`), because `breadth_for` looks back 250 calendar days and
+   cannot reach 200 bars. It rides along as a column and is not one of the five parts.
+4. **Adoption: what "closed" and "the card's terms" mean.**
+   - A month is closed once its last day is before the as-of, so the as-of's own month never counts, even on its last day.
+   - The sum is over the card's CURRENT SIGNAL terms (the term set is not versioned, so at a past as-of today's terms stand;
+     a term removed since stays stored and is ignored).
+   - Only a term with all six closed months stored counts; a term added since the last weekly run, or missing a month, is left
+     out and counted ("4 terms of 5 counted" on hover).
+   - A document matching two terms counts twice (the page says so).
+5. **Adoption with no base.** When the earlier three months total 0 documents there is no percent to state, so the part is
+   missing ("no base"), even if the recent three have documents. The alternative (rank it highest) would put a 0-to-1 jump
+   above a real trend.
+6. **Insiders.** The buyers are summed over the counting names that have a Form 4 reading. A name with no Form 4 ingested is not
+   a zero; a card where no name has one has no insiders part. A flagged name keeps its Form 4 count (it is not a price reading,
+   the Hot Board's and the Peer Table's precedent) while every price reading leaves it out.
+7. **Tape against IWM.** IWM's 30-day return is read once (`trailing_returns` over `pit.benchmark_prices("IWM")`) and subtracted
+   from each card's median. The Hot Board's per-name "same last close day as IWM" check is not applied: a stopped feed is
+   already a data flag and the name is left out.
+8. **The percentile rule is copied, not imported.** `percentiles` in `theme_leaderboard.py` is the Hot Board's rule written
+   again (a dozen lines) so each dashboard deletes cleanly. The page's `score.ts` and the backend are both tested against
+   `frontend/src/dashboards/theme-leaderboard/__tests__/score-fixtures.json`, derived by hand.
+9. **The payload ships the five parts, not the score.** The cards arrive in the default order (the score among every card
+   counted); the page recomputes the percentiles and the score for the cards it shows, so two different scores are never on
+   the screen.
+10. **"has adoption months"** keeps the cards with at least one SIGNAL term whose six closed months are stored (the adoption
+    part is counted, or has no base). It shows only when some, not all, cards qualify.
+11. **Extra columns the plan implies.** The cap mix is five sortable columns (nano to large), one per band; the blanks (no cap)
+    are in each cell's hover. A small "R" marks a card whose recorded state was written by the backfill (shown only then).
+12. **Sorting.** State sorts in lifecycle order (Armed, Managing, Warming, Incubating) and a card with no call is always last;
+    a blank is last in either direction on every column.
+13. **Phone layout is CSS only.** On a narrow screen each row becomes a block: the score, the card and its state on the first
+    line, the parts under them with their labels. The build did not render it in a browser.
+14. **The recorded card in effect** is read as the What Changed and Hot Board pages read it: the greatest `(asof, seq)` with
+    `asof` on or before the as-of, not gated by `known_at`.
+15. **Cost not measured.** The plan asks to MEASURE the cold read here; the build did not (the orchestrator measures on dev
+    with a production copy). What the read does, per request: four display members plus the price, shares and split reads for
+    the cap, once per counting name (a name only on Context or Bench is never read); one `breadth_for` view per card (a second
+    read of each name's last 250 days of bars); one term-mention read per card; the data-flag read; IWM's bars.
