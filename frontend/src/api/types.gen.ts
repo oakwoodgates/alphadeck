@@ -2578,6 +2578,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboards/track-record": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Track Record
+         * @description What the tape did after each arm episode the Scoreboard records, by market-cap tier at the event: one row per
+         *     episode with its cap tier and liquidity band, and, for the arm-night entry and the next session's, the return at
+         *     5, 10, 20 and 60 sessions of the name's own bars and to the episode's own exit_by, with IWM's and SPY's returns
+         *     over the same dates. The Scoreboard's own episodes and honesty filters: a censored start, an ingest-flagged
+         *     episode and a company with a flagged price history are left out of every cell and counted. Display only; a past
+         *     as-of reads what was public by the end of that date, and a horizon that has not arrived by then is not counted.
+         */
+        get: operations["track_record_dashboards_track_record_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dashboards/trigger-log": {
         parameters: {
             query?: never;
@@ -13742,6 +13767,310 @@ export interface components {
             reason: string;
         };
         /**
+         * TrackCapOut
+         * @description The approximate market cap (USD) AT THE EVENT and its tier: the as-traded close of the last session before the
+         *     arm date times the newest share count whose cover date is before it (``close_date`` / ``shares_date`` are those
+         *     two dates), ``ads_ratio`` applied when known, ``split_factor`` = the multiplier put on the count when a split in
+         *     force sits between the count's date and the close's. ``gap`` says why a cap could not be pinned (``null`` when it
+         *     is); ``tier`` is ``null`` then.
+         */
+        TrackCapOut: {
+            /** Value */
+            value: number | null;
+            tier: components["schemas"]["CapTier"] | null;
+            /** Gap */
+            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
+            /** Note */
+            note: string | null;
+            /** Close */
+            close: number | null;
+            /** Close Date */
+            close_date: string | null;
+            /** Shares */
+            shares: number | null;
+            /** Shares Date */
+            shares_date: string | null;
+            /** Ads Ratio */
+            ads_ratio: number | null;
+            /** Split Factor */
+            split_factor: number | null;
+        };
+        /**
+         * TrackCellOut
+         * @description One table cell: n, how many were above zero (``held``) and the hit rate, the median and the quartiles of the
+         *     excess (the raw return under "raw"), the medians of the names' and the benchmark's raw returns over the same
+         *     episodes, and ``no_comparison`` = counted spans left out because the comparison had no bar. ``too_small`` = n is
+         *     under ``min_n``: read nothing from it.
+         */
+        TrackCellOut: {
+            /** N */
+            n: number;
+            /** Held */
+            held: number;
+            /** Hit Rate */
+            hit_rate: number | null;
+            /** Median */
+            median: number | null;
+            /** Q1 */
+            q1: number | null;
+            /** Q3 */
+            q3: number | null;
+            /** Name Median */
+            name_median: number | null;
+            /** Bench Median */
+            bench_median: number | null;
+            /** No Comparison */
+            no_comparison: number;
+            /** Too Small */
+            too_small: boolean;
+        };
+        /**
+         * TrackCountsOut
+         * @description What the page rests on. ``episodes`` = every Scoreboard episode in the record at the as-of; ``counted`` = those
+         *     in the cells; ``left_out_*`` = those set aside, each episode once (flagged price history first, then censored
+         *     start, then ingest flag); ``unpinned_cap`` / ``unpinned_liquidity`` = counted episodes with no cap tier / no
+         *     liquidity band; ``arm_night`` / ``next_session`` = per horizon, how the counted episodes read.
+         */
+        TrackCountsOut: {
+            /** Episodes */
+            episodes: number;
+            /** Counted */
+            counted: number;
+            /** Left Out Flagged */
+            left_out_flagged: number;
+            /** Left Out Censored */
+            left_out_censored: number;
+            /** Left Out Ingest */
+            left_out_ingest: number;
+            /** Unpinned Cap */
+            unpinned_cap: number;
+            /** Unpinned Liquidity */
+            unpinned_liquidity: number;
+            /** Arm Night */
+            arm_night: {
+                [key: string]: components["schemas"]["TrackHorizonCountOut"];
+            };
+            /** Next Session */
+            next_session: {
+                [key: string]: components["schemas"]["TrackHorizonCountOut"];
+            };
+        };
+        /**
+         * TrackEditionOut
+         * @description The Scoreboard edition read: 0 = the original record (the calls log); N >= 1 = a stored re-run.
+         */
+        TrackEditionOut: {
+            /** Number */
+            number: number;
+            /** Label */
+            label: string;
+        };
+        /**
+         * TrackEntryOut
+         * @description One entry rule's read of an episode: the entry bar (``null`` when the name has none yet) and a ``TrackSpanOut``
+         *     per horizon (``h5`` / ``h10`` / ``h20`` / ``h60``: sessions of the name's own bars after the entry bar;
+         *     ``exit_by``: the last bar on or before the episode's own ``exit_by``).
+         */
+        TrackEntryOut: {
+            /** Entry Date */
+            entry_date: string | null;
+            /** Entry Close */
+            entry_close: number | null;
+            /** Spans */
+            spans: {
+                [key: string]: components["schemas"]["TrackSpanOut"];
+            };
+        };
+        /**
+         * TrackFlaggedOut
+         * @description A company on a Scoreboard episode whose data flags reach its price readings at the as-of (``reason`` = the
+         *     flags' labels): its episodes are left out of every cell.
+         */
+        TrackFlaggedOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * TrackHorizonCountOut
+         * @description How the counted episodes read at one horizon of one entry rule.
+         */
+        TrackHorizonCountOut: {
+            /** Counted */
+            counted: number;
+            /** Maturing */
+            maturing: number;
+            /** Path Ended */
+            path_ended: number;
+            /** None */
+            none: number;
+        };
+        /**
+         * TrackRecordOut
+         * @description The Track Record at the as-of: every episode's row (newest arm first), the counts, the companies left out for a
+         *     flagged price history and the opening table (IWM, the arm-night entry, by cap tier, every armed member; the page
+         *     recomputes any other reading from ``rows`` with the same arithmetic). ``edition`` and the two policies are the
+         *     Scoreboard's own (``annotated_policy`` / ``late_policy``: ``included`` | ``excluded`` | ``n/a`` for a stored
+         *     edition, which has no such rows). ``market_source`` = whose bar dates are the market's session clock;
+         *     ``benchmarks_missing`` = a benchmark with no bar at the as-of; ``stale_days`` = how far a name's tape may sit
+         *     behind the market before an unreached horizon reads path ended; ``min_n`` = the smallest n a cell may be read
+         *     at. ``cards`` = cards with a recorded call, ``cards_unreadable`` = cards whose record could not be read.
+         *     ``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was public by the end of that date).
+         *     ``cache`` / ``compute_ms`` = whether the read came from the shared dashboard cache and how long it took.
+         */
+        TrackRecordOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Clock
+             * @enum {string}
+             */
+            clock: "record" | "public";
+            edition: components["schemas"]["TrackEditionOut"];
+            /**
+             * Annotated Policy
+             * @enum {string}
+             */
+            annotated_policy: "included" | "excluded" | "n/a";
+            /**
+             * Late Policy
+             * @enum {string}
+             */
+            late_policy: "included" | "excluded" | "n/a";
+            /** Horizons */
+            horizons: string[];
+            /** Min N */
+            min_n: number;
+            /** Market Source */
+            market_source: ("SPY" | "IWM") | null;
+            /** Benchmarks Missing */
+            benchmarks_missing: string[];
+            /** Stale Days */
+            stale_days: number;
+            /** Cards */
+            cards: number;
+            /** Cards Unreadable */
+            cards_unreadable: number;
+            counts: components["schemas"]["TrackCountsOut"];
+            /** Rows */
+            rows: components["schemas"]["TrackRowOut"][];
+            /** Flagged */
+            flagged: components["schemas"]["TrackFlaggedOut"][];
+            /** Opening */
+            opening: components["schemas"]["TrackTableRowOut"][];
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * TrackRowOut
+         * @description One Scoreboard arm episode: identity, the entry attributes the filter chips use, the cap and liquidity at the
+         *     event and both entry rules' reads. ``left_out`` (``flagged`` | ``censored_start`` | ``ingest_flagged``) = the
+         *     episode is in no cell (its reason in ``left_out_note``) and carries identity only. ``liquidity`` is the 20-day
+         *     average dollar volume band at the event (``under_1m`` | ``1m_10m`` | ``10m_plus``; ``null`` when fewer than 20
+         *     volume-bearing sessions precede it).
+         */
+        TrackRowOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /**
+             * Arm Date
+             * Format: date
+             */
+            arm_date: string;
+            /** Exit By */
+            exit_by: string | null;
+            /** Arm Until */
+            arm_until: string | null;
+            /** Close Reason */
+            close_reason: string;
+            /** Is Headline */
+            is_headline: boolean;
+            /** Key1 Source */
+            key1_source: string | null;
+            /** Entry Grade */
+            entry_grade: string | null;
+            /** Confirmation Grade */
+            confirmation_grade: string | null;
+            /** Co Arm Bucket */
+            co_arm_bucket: string;
+            /** Left Out */
+            left_out: ("flagged" | "censored_start" | "ingest_flagged") | null;
+            /** Left Out Note */
+            left_out_note: string | null;
+            cap: components["schemas"]["TrackCapOut"] | null;
+            /** Adv Usd */
+            adv_usd: number | null;
+            /** Liquidity */
+            liquidity: string | null;
+            arm_night: components["schemas"]["TrackEntryOut"] | null;
+            next_session: components["schemas"]["TrackEntryOut"] | null;
+        };
+        /**
+         * TrackSpanOut
+         * @description One horizon of one entry rule. ``counted``: the name's return from the entry close to the horizon bar's close
+         *     (as traded, no dividends), with IWM's and SPY's returns over the same two dates (``null`` when that benchmark has
+         *     no bar on one of them). ``maturing``: the horizon has not arrived yet. ``path_ended``: the market has had the
+         *     sessions and the name's bars stop short of them (a delisting, a halt, a stale tape). ``none``: nothing to measure
+         *     (no ``exit_by``, or no session between the entry and it). Only ``counted`` carries numbers. Returns are
+         *     fractions (0.05 = 5%).
+         */
+        TrackSpanOut: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "counted" | "maturing" | "path_ended" | "none";
+            /** End Date */
+            end_date: string | null;
+            /** Ret */
+            ret: number | null;
+            /** Iwm */
+            iwm: number | null;
+            /** Spy */
+            spy: number | null;
+        };
+        /**
+         * TrackTableRowOut
+         * @description One row of the opening table: the slice key (a cap tier, ``unpinned``, or ``pooled`` LAST), its counted
+         *     episodes and a cell per horizon.
+         */
+        TrackTableRowOut: {
+            /** Key */
+            key: string;
+            /** Episodes */
+            episodes: number;
+            /** Cells */
+            cells: {
+                [key: string]: components["schemas"]["TrackCellOut"];
+            };
+        };
+        /**
          * TransitionOut
          * @description One intra-run change in the record's read of the member (Slice C3) — the drawer's
          *     un-numbered "record trail" (deliberately NOT a chip: the numbered ledger stays
@@ -17423,6 +17752,44 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SharedNamesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    track_record_dashboards_track_record_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; nothing published after it is read */
+                asof: string;
+                /** @description which Scoreboard EDITION to read: 0 = the original record (the calls log); N >= 1 = the stored re-run Edition N (404 if it does not exist); omitted = the newest published edition, the Scoreboard's own default */
+                edition?: number | null;
+                /** @description the Scoreboard's annotated-night reading: true = keep rows annotated `exclude` (phantom arms); false = set them aside; omitted = the server setting. The response names the reading used */
+                include_annotated?: boolean | null;
+                /** @description the Scoreboard's late-night reading: true = keep rows recorded after their night's next EDGAR open; false = set them aside; omitted = the server setting. The response names the reading used */
+                include_late?: boolean | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrackRecordOut"];
                 };
             };
             /** @description Validation Error */

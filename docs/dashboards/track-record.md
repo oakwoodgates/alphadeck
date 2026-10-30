@@ -156,3 +156,81 @@ change. Pre-decided here for the operator's review: the Scoreboard's episodes an
 sessions 5 / 10 / 20 / 60 plus exit_by as the horizons; IWM as the default comparison with SPY and raw selectable;
 the arm-night close as the default entry with a next-session toggle; the three PROPOSED liquidity bands; n < 10
 prints n only; the pooled row last.
+
+### Built choices to confirm
+
+The build (2026-10-29) followed the plan above. These are the choices it had to make that the plan does not spell out,
+each the operator's to confirm or change. Nothing here was measured on a prod copy; the compute and the wire shape are
+pinned by tests on hand-built numbers, and the first real read is the orchestrator's.
+
+**Maturing against path ended (the plan names both and not the line between them).**
+- A horizon's bar is the Nth bar after the entry bar in the name's own bars. When it is not there the span reads
+  **path ended** only if BOTH hold: the market has had that many sessions since the entry, and the name's tape stops
+  more than `stale_days` calendar days behind the market's last bar. Otherwise it reads **maturing**. A name that is
+  current but short (a vendor gap) is maturing, never path ended.
+- "The market" is SPY's bar dates (IWM's when SPY has none), the Narrative Index's session calendar. With no market
+  tape at all nothing can read path ended.
+- `stale_days` is `Settings.tape_stale_days` (the recency monitor's threshold, 5); `0` disables that monitor, so the
+  page keeps 5. The comparison is strict: 5 days behind is not behind, 6 is.
+- No entry bar yet (no bar on or after the arm date): path ended if the tape is behind the market, else maturing
+  (tonight's bar is not in).
+- **to exit_by**: not counted before `exit_by` has arrived (maturing); no `exit_by`, or no bar between the entry and
+  `exit_by` for that entry rule, reads **none** (a fourth status, "nothing to measure"); the tape stopping short of
+  `exit_by` while behind the market is path ended. Otherwise it is the last bar on or before `exit_by`, so it equals
+  the Scoreboard's `forward_return` to the cent (a DB test pins that on the arm-night entry).
+
+**The comparison.**
+- A benchmark's return uses its close on exactly the entry bar's date and the horizon bar's date. A missing benchmark
+  bar leaves that comparison blank for that span, never a nearby stand-in; the cell counts those spans apart
+  ("1 more had no IWM bar") and a raw cell needs no benchmark.
+- A hit is strictly above zero (an excess of exactly 0.00 did not hold). The interquartile range is linear
+  interpolation between order statistics (the median of an even n is the mean of the two middle values).
+
+**The cap at the event.**
+- The share count is the newest fact whose `valid_from` is before the arm date, as the plan says. That date is the
+  cover date, which precedes the filing by weeks, so a count could in principle have been filed after the arm date.
+  The fact's public instant is the operator's ratification (later for every old fact), so requiring it before the arm
+  date would leave nearly every past event unpinned. At a past as-of the point-in-time view still hides a fact
+  ratified after the as-of.
+- The close is the last session before the arm date, put back to the price as traded that day (the bars are on the
+  view's split scale) before the Peer Table's `cap_cell` puts the count on the close's scale. A reverse split after the
+  event does not inflate the cap, and a test pins it.
+- A tier boundary belongs to the higher band (`domain/market_cap.py`'s own rule).
+
+**Liquidity.** The Volume Regime member's `compute` run over the last 20 volume-bearing bars strictly before the arm
+date (a bar with no volume is skipped, not read as zero). A value on a band's bound is in the higher band; a day of zero
+dollars is "under $1M" (a real measurement); under 20 volume-bearing bars is unpinned.
+
+**Which episodes.**
+- Archived cards are included (the Scoreboard's default). The route takes the Scoreboard's `edition`,
+  `include_annotated` and `include_late` and resolves the edition with the Scoreboard's own function (the newest
+  published edition by default, 404 on an unknown one). The page has no selector for them; its first work line states
+  the reading in force.
+- An episode left out is counted once, in this order: flagged price history, censored start, ingest flag. A left-out
+  row carries identity only (nothing is read for it).
+- **A stopped price feed is a flagged price history** by the shared rule (`baskets.price_flags` includes
+  `price_feed_stopped`, which reaches every price cell). So at the live as-of a delisted name, or one whose vendor
+  symbol went quiet, is "left out: flagged" with its reason named, not "path ended". Either way no cell counts it,
+  which is the plan's "no survivorship fix" limit; if the operator wants stopped-feed names to read path ended
+  instead (and stay visible in the denominators), it is one decision in `read_record`.
+- Reads use the default tenant, like every dashboard (auth is deferred).
+
+**The table and the page.**
+- The pooled row is every counted episode, unpinned ones included, so the rows add up to it. A left-out episode is in
+  no row. A tier with no episode is still a row (n = 0, "no matured episodes" in its hover).
+- A cell under 10 episodes prints `n 4` and "too small to read"; "show thin cells" draws its numbers grayed with no sign
+  tone. An empty cell is an em dash.
+- Filters default to every armed member. Within one chip group any picked value passes, across groups all must; a
+  group with a single value has no chips (WB#3). A null Key-1 source or entry grade is its own "none stated" chip.
+- A cell click lists exactly the episodes the cell rests on (a counted span at that horizon, and the comparison's
+  return unless raw); changing the slice, comparison, entry or filters clears the pick. The main list holds the
+  counted episodes whose slice row is pinned (the unpinned ones are in their own fold), newest arm first, 150 at a
+  time.
+- Cell statistics are written twice, a Python reference (`track_record.cell_stats`) and its mirror in `recordView.ts`,
+  with the same hand-computed vectors pinned in both test files. The response also carries `opening`, the table at the
+  opening choices (IWM, arm-night entry, by cap tier, every armed member) computed by the server; the page does not
+  draw it, but the frontend test reproduces it cell by cell from `rows`, so the two cannot drift apart.
+- The plan's `horizon_closes` is named `horizon_close` (it returns one bar). Price reads are unbounded in time and
+  chunked 40 companies per point-in-time view (an episode can sit anywhere in a name's history).
+- The cache key is the plan's tuple with the RESOLVED values: the edition number, then whether annotated and late
+  nights are included (fixed for a stored edition, which has none of those rows), then the clock.

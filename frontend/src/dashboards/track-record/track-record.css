@@ -1,0 +1,110 @@
+/* Track Record by Cap Tier (docs/dashboards/track-record.md) — its own sheet, imported by the component, never
+   index.css (docs/DASHBOARDS.md rule 8). The trading set's tape look: dense rows about 26px high, tabular numerals
+   in the mono font for every figure, a sticky list header, no cards, no chrome, a hairline between rows, filters as
+   text chips. The sign tone (the app's --pos / --neg mixed 55% into gray, the Rotation Quadrant's recipe) marks only
+   a signed number; nothing is bold but the ticker; the pooled row is the quietest row; a cell too small to read, a
+   horizon that has not arrived and a missing figure are gray. Colors are the app's tokens only. */
+
+.tr {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 1400px;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  --tr-pos: color-mix(in srgb, var(--pos) 55%, var(--txt-3));
+  --tr-neg: color-mix(in srgb, var(--neg) 55%, var(--txt-3));
+}
+
+/* the controls: text chips, the picked one underlined */
+.tr-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 20px; }
+.tr-field { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; }
+.tr-seg-label { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); }
+.tr-chip { font: inherit; font-size: 11px; color: var(--txt-3); background: transparent; border: 0; border-bottom: 1px solid transparent; padding: 1px 2px; cursor: pointer; }
+.tr-chip:hover { color: var(--txt-2); }
+.tr-chip.on { color: var(--txt); border-bottom-color: var(--txt-3); }
+.tr-chip-n { color: var(--txt-4); font-size: 10px; }
+.tr-check { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--txt-3); cursor: pointer; }
+.tr-check input { accent-color: var(--txt-3); }
+.tr-clear { font: inherit; font-size: 11px; color: var(--txt-3); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.tr-clear:hover { color: var(--txt); }
+
+/* the quiet work lines above the table */
+.tr-work { display: flex; flex-direction: column; gap: 1px; }
+.tr-line { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
+.tr-empty { padding: 14px 0; }
+
+/* the table: five horizons, scrolls sideways on a phone with the row names pinned */
+.tr-scroll { overflow-x: auto; margin-top: 2px; }
+table.tr-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.tr-caption { caption-side: top; text-align: left; font-size: 10px; color: var(--txt-4); padding: 0 0 6px; }
+table.tr-table th { text-align: left; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); font-weight: 600; padding: 0 12px 6px 0; border-bottom: 1px solid var(--line-2); white-space: nowrap; vertical-align: bottom; position: sticky; top: 0; background: var(--bg); }
+table.tr-table td, table.tr-table tbody th { height: 26px; padding: 0 12px 0 0; border-bottom: 1px solid var(--line); white-space: nowrap; color: var(--txt-2); vertical-align: middle; }
+table.tr-table tbody th { text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 400; color: var(--txt-2); position: sticky; top: auto; left: 0; background: var(--bg); min-width: 130px; z-index: 1; }
+table.tr-table th.tr-num, table.tr-table td.tr-num { text-align: right; padding-right: 18px; }
+table.tr-table tbody tr:hover td, table.tr-table tbody tr:hover th { background: color-mix(in srgb, var(--panel) 60%, transparent); }
+.tr-key-label { color: var(--txt-2); }
+.tr-band { margin-left: 8px; font-size: 10px; color: var(--txt-4); }
+/* the pooled row: last, labeled pooled, never bold, the quietest row */
+table.tr-table tr.tr-pooled td, table.tr-table tr.tr-pooled th { color: var(--txt-4); border-top: 1px solid var(--line-2); }
+tr.tr-pooled .tr-key-label { color: var(--txt-3); }
+
+.tr-cell { font: inherit; display: inline-flex; align-items: baseline; justify-content: flex-end; gap: 8px; background: none; border: 0; padding: 0; color: inherit; cursor: pointer; }
+.tr-cell.static { cursor: help; }
+.tr-cell:hover:not(.static) .tr-med { text-decoration: underline; text-underline-offset: 3px; }
+.tr-cell.on { outline: 1px solid var(--line-2); outline-offset: 3px; border-radius: 3px; }
+.tr-cell:focus-visible { outline: 1px solid var(--txt-3); outline-offset: 3px; }
+.tr-med { color: var(--txt-2); }
+.tr-med.pos { color: var(--tr-pos); }
+.tr-med.neg { color: var(--tr-neg); }
+.tr-med.gray, .tr-sub { color: var(--txt-4); }
+.tr-sub { font-size: 10px; }
+
+.tr-listhead { padding-top: 6px; }
+
+/* the episode list: a grid of one line per episode, the five horizons in a sub-grid */
+.tr-list { list-style: none; margin: 0; padding: 0; font-size: 11.5px; }
+.tr-li {
+  display: grid;
+  grid-template-columns: 64px minmax(90px, 1.1fr) 84px 118px 98px 118px 44px minmax(310px, 2.6fr);
+  align-items: center;
+  column-gap: 12px;
+  min-height: 26px;
+  border-bottom: 1px solid var(--line);
+  color: var(--txt-2);
+}
+.tr-li > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tr-li.head { position: sticky; top: 0; z-index: 2; background: var(--bg); min-height: 22px; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); border-bottom-color: var(--line-2); }
+.tr-tk { font: inherit; font-weight: 700; color: var(--txt); background: none; border: 0; padding: 0; text-align: left; cursor: pointer; }
+.tr-tk:hover, .tr-card:hover { text-decoration: underline; text-underline-offset: 3px; }
+.tr-card { font: inherit; color: var(--txt-3); background: none; border: 0; padding: 0; text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; }
+.tr-date, .tr-k1, .tr-grade { color: var(--txt-3); }
+.tr-cap, .tr-liq { cursor: help; }
+.tr-cap.gray, .tr-liq.gray { color: var(--txt-4); font-style: italic; }
+.tr-hzs { display: grid; grid-template-columns: repeat(5, minmax(56px, 1fr)); column-gap: 8px; text-align: right; }
+.tr-hz { color: var(--txt-2); cursor: help; }
+.tr-hz.pos { color: var(--tr-pos); }
+.tr-hz.neg { color: var(--tr-neg); }
+.tr-hz.gray { color: var(--txt-4); font-size: 10.5px; }
+.tr-li.head .tr-hz { color: var(--txt-4); font-size: 9.5px; cursor: default; }
+
+/* the left-out episodes: identity and the reason, nothing else */
+.tr-list.out .tr-li { grid-template-columns: 64px minmax(90px, 1.1fr) 84px 1fr; }
+.tr-note { color: var(--txt-4); font-size: 10.5px; }
+
+.tr-fold summary { cursor: pointer; width: fit-content; font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
+.tr-fold summary:hover { color: var(--txt-2); }
+.tr-fold .tr-list { margin-top: 4px; }
+.tr-limits { margin: 4px 0 0; padding-left: 16px; font-size: 10.5px; line-height: 1.5; color: var(--txt-4); }
+
+/* a phone: the table already scrolls sideways with the row names pinned; the list stacks each episode's horizons
+   under its line, each labeled */
+@media (max-width: 640px) {
+  .tr-li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; padding: 5px 0; }
+  .tr-li.head { display: none; }
+  .tr-li > * { overflow: visible; }
+  .tr-hzs { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 2px 14px; text-align: left; }
+  .tr-hz::before { content: attr(data-h) ": "; color: var(--txt-4); font-size: 10px; }
+  .tr-list.out .tr-li { display: flex; }
+  table.tr-table tbody th { min-width: 96px; }
+}

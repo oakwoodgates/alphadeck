@@ -5313,6 +5313,107 @@
         }
       }
     },
+    "/dashboards/track-record": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Track Record",
+        "description": "What the tape did after each arm episode the Scoreboard records, by market-cap tier at the event: one row per\nepisode with its cap tier and liquidity band, and, for the arm-night entry and the next session's, the return at\n5, 10, 20 and 60 sessions of the name's own bars and to the episode's own exit_by, with IWM's and SPY's returns\nover the same dates. The Scoreboard's own episodes and honesty filters: a censored start, an ingest-flagged\nepisode and a company with a flagged price history are left out of every cell and counted. Display only; a past\nas-of reads what was public by the end of that date, and a horizon that has not arrived by then is not counted.",
+        "operationId": "track_record_dashboards_track_record_get",
+        "parameters": [
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; nothing published after it is read",
+              "title": "Asof"
+            },
+            "description": "as-of date; nothing published after it is read"
+          },
+          {
+            "name": "edition",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "which Scoreboard EDITION to read: 0 = the original record (the calls log); N >= 1 = the stored re-run Edition N (404 if it does not exist); omitted = the newest published edition, the Scoreboard's own default",
+              "title": "Edition"
+            },
+            "description": "which Scoreboard EDITION to read: 0 = the original record (the calls log); N >= 1 = the stored re-run Edition N (404 if it does not exist); omitted = the newest published edition, the Scoreboard's own default"
+          },
+          {
+            "name": "include_annotated",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "the Scoreboard's annotated-night reading: true = keep rows annotated `exclude` (phantom arms); false = set them aside; omitted = the server setting. The response names the reading used",
+              "title": "Include Annotated"
+            },
+            "description": "the Scoreboard's annotated-night reading: true = keep rows annotated `exclude` (phantom arms); false = set them aside; omitted = the server setting. The response names the reading used"
+          },
+          {
+            "name": "include_late",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "the Scoreboard's late-night reading: true = keep rows recorded after their night's next EDGAR open; false = set them aside; omitted = the server setting. The response names the reading used",
+              "title": "Include Late"
+            },
+            "description": "the Scoreboard's late-night reading: true = keep rows recorded after their night's next EDGAR open; false = set them aside; omitted = the server setting. The response names the reading used"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackRecordOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/dashboards/trigger-log": {
       "get": {
         "tags": [
@@ -30527,6 +30628,866 @@
         ],
         "title": "TierRecommendation",
         "description": "An advisory tier recommendation for ONE term (INVARIANT #10 \u2014 the LLM recommends, the operator decides).\nDISPLAY-ONLY: it is the response of ``POST .../recommend-tiers``, never persisted, never mutating\n``authored_by``. The operator confirms it via the EXISTING tier toggle (``PUT .../terms/edit``), where\n``stamp_edited_term_set`` stamps ``operator_edited``. Deliberately a SEPARATE wire type \u2014 it never rides on\n``ThesisDetail.term_set``, so a produce/edit round-trip can't persist it (the ``matched_terms`` precedent).\nCarries NO number (#3): a tier label + a one-line reason."
+      },
+      "TrackCapOut": {
+        "properties": {
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "tier": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CapTier"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "gap": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "flagged",
+                  "no_price",
+                  "no_reading",
+                  "no_shares",
+                  "ads_unread",
+                  "no_cap",
+                  "no_revenue",
+                  "no_prior_year",
+                  "no_burn",
+                  "no_convert",
+                  "no_mix",
+                  "no_form4",
+                  "no_spy",
+                  "ends_differ"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close"
+          },
+          "close_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close Date"
+          },
+          "shares": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shares"
+          },
+          "shares_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shares Date"
+          },
+          "ads_ratio": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ads Ratio"
+          },
+          "split_factor": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Split Factor"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "tier",
+          "gap",
+          "note",
+          "close",
+          "close_date",
+          "shares",
+          "shares_date",
+          "ads_ratio",
+          "split_factor"
+        ],
+        "title": "TrackCapOut",
+        "description": "The approximate market cap (USD) AT THE EVENT and its tier: the as-traded close of the last session before the\narm date times the newest share count whose cover date is before it (``close_date`` / ``shares_date`` are those\ntwo dates), ``ads_ratio`` applied when known, ``split_factor`` = the multiplier put on the count when a split in\nforce sits between the count's date and the close's. ``gap`` says why a cap could not be pinned (``null`` when it\nis); ``tier`` is ``null`` then."
+      },
+      "TrackCellOut": {
+        "properties": {
+          "n": {
+            "type": "integer",
+            "title": "N"
+          },
+          "held": {
+            "type": "integer",
+            "title": "Held"
+          },
+          "hit_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hit Rate"
+          },
+          "median": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median"
+          },
+          "q1": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Q1"
+          },
+          "q3": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Q3"
+          },
+          "name_median": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name Median"
+          },
+          "bench_median": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bench Median"
+          },
+          "no_comparison": {
+            "type": "integer",
+            "title": "No Comparison"
+          },
+          "too_small": {
+            "type": "boolean",
+            "title": "Too Small"
+          }
+        },
+        "type": "object",
+        "required": [
+          "n",
+          "held",
+          "hit_rate",
+          "median",
+          "q1",
+          "q3",
+          "name_median",
+          "bench_median",
+          "no_comparison",
+          "too_small"
+        ],
+        "title": "TrackCellOut",
+        "description": "One table cell: n, how many were above zero (``held``) and the hit rate, the median and the quartiles of the\nexcess (the raw return under \"raw\"), the medians of the names' and the benchmark's raw returns over the same\nepisodes, and ``no_comparison`` = counted spans left out because the comparison had no bar. ``too_small`` = n is\nunder ``min_n``: read nothing from it."
+      },
+      "TrackCountsOut": {
+        "properties": {
+          "episodes": {
+            "type": "integer",
+            "title": "Episodes"
+          },
+          "counted": {
+            "type": "integer",
+            "title": "Counted"
+          },
+          "left_out_flagged": {
+            "type": "integer",
+            "title": "Left Out Flagged"
+          },
+          "left_out_censored": {
+            "type": "integer",
+            "title": "Left Out Censored"
+          },
+          "left_out_ingest": {
+            "type": "integer",
+            "title": "Left Out Ingest"
+          },
+          "unpinned_cap": {
+            "type": "integer",
+            "title": "Unpinned Cap"
+          },
+          "unpinned_liquidity": {
+            "type": "integer",
+            "title": "Unpinned Liquidity"
+          },
+          "arm_night": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/TrackHorizonCountOut"
+            },
+            "type": "object",
+            "title": "Arm Night"
+          },
+          "next_session": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/TrackHorizonCountOut"
+            },
+            "type": "object",
+            "title": "Next Session"
+          }
+        },
+        "type": "object",
+        "required": [
+          "episodes",
+          "counted",
+          "left_out_flagged",
+          "left_out_censored",
+          "left_out_ingest",
+          "unpinned_cap",
+          "unpinned_liquidity",
+          "arm_night",
+          "next_session"
+        ],
+        "title": "TrackCountsOut",
+        "description": "What the page rests on. ``episodes`` = every Scoreboard episode in the record at the as-of; ``counted`` = those\nin the cells; ``left_out_*`` = those set aside, each episode once (flagged price history first, then censored\nstart, then ingest flag); ``unpinned_cap`` / ``unpinned_liquidity`` = counted episodes with no cap tier / no\nliquidity band; ``arm_night`` / ``next_session`` = per horizon, how the counted episodes read."
+      },
+      "TrackEditionOut": {
+        "properties": {
+          "number": {
+            "type": "integer",
+            "title": "Number"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          }
+        },
+        "type": "object",
+        "required": [
+          "number",
+          "label"
+        ],
+        "title": "TrackEditionOut",
+        "description": "The Scoreboard edition read: 0 = the original record (the calls log); N >= 1 = a stored re-run."
+      },
+      "TrackEntryOut": {
+        "properties": {
+          "entry_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Date"
+          },
+          "entry_close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Close"
+          },
+          "spans": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/TrackSpanOut"
+            },
+            "type": "object",
+            "title": "Spans"
+          }
+        },
+        "type": "object",
+        "required": [
+          "entry_date",
+          "entry_close",
+          "spans"
+        ],
+        "title": "TrackEntryOut",
+        "description": "One entry rule's read of an episode: the entry bar (``null`` when the name has none yet) and a ``TrackSpanOut``\nper horizon (``h5`` / ``h10`` / ``h20`` / ``h60``: sessions of the name's own bars after the entry bar;\n``exit_by``: the last bar on or before the episode's own ``exit_by``)."
+      },
+      "TrackFlaggedOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "reason"
+        ],
+        "title": "TrackFlaggedOut",
+        "description": "A company on a Scoreboard episode whose data flags reach its price readings at the as-of (``reason`` = the\nflags' labels): its episodes are left out of every cell."
+      },
+      "TrackHorizonCountOut": {
+        "properties": {
+          "counted": {
+            "type": "integer",
+            "title": "Counted"
+          },
+          "maturing": {
+            "type": "integer",
+            "title": "Maturing"
+          },
+          "path_ended": {
+            "type": "integer",
+            "title": "Path Ended"
+          },
+          "none": {
+            "type": "integer",
+            "title": "None"
+          }
+        },
+        "type": "object",
+        "required": [
+          "counted",
+          "maturing",
+          "path_ended",
+          "none"
+        ],
+        "title": "TrackHorizonCountOut",
+        "description": "How the counted episodes read at one horizon of one entry rule."
+      },
+      "TrackRecordOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "clock": {
+            "type": "string",
+            "enum": [
+              "record",
+              "public"
+            ],
+            "title": "Clock"
+          },
+          "edition": {
+            "$ref": "#/components/schemas/TrackEditionOut"
+          },
+          "annotated_policy": {
+            "type": "string",
+            "enum": [
+              "included",
+              "excluded",
+              "n/a"
+            ],
+            "title": "Annotated Policy"
+          },
+          "late_policy": {
+            "type": "string",
+            "enum": [
+              "included",
+              "excluded",
+              "n/a"
+            ],
+            "title": "Late Policy"
+          },
+          "horizons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Horizons"
+          },
+          "min_n": {
+            "type": "integer",
+            "title": "Min N"
+          },
+          "market_source": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "SPY",
+                  "IWM"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Market Source"
+          },
+          "benchmarks_missing": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Benchmarks Missing"
+          },
+          "stale_days": {
+            "type": "integer",
+            "title": "Stale Days"
+          },
+          "cards": {
+            "type": "integer",
+            "title": "Cards"
+          },
+          "cards_unreadable": {
+            "type": "integer",
+            "title": "Cards Unreadable"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/TrackCountsOut"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/TrackRowOut"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "flagged": {
+            "items": {
+              "$ref": "#/components/schemas/TrackFlaggedOut"
+            },
+            "type": "array",
+            "title": "Flagged"
+          },
+          "opening": {
+            "items": {
+              "$ref": "#/components/schemas/TrackTableRowOut"
+            },
+            "type": "array",
+            "title": "Opening"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "clock",
+          "edition",
+          "annotated_policy",
+          "late_policy",
+          "horizons",
+          "min_n",
+          "market_source",
+          "benchmarks_missing",
+          "stale_days",
+          "cards",
+          "cards_unreadable",
+          "counts",
+          "rows",
+          "flagged",
+          "opening",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "TrackRecordOut",
+        "description": "The Track Record at the as-of: every episode's row (newest arm first), the counts, the companies left out for a\nflagged price history and the opening table (IWM, the arm-night entry, by cap tier, every armed member; the page\nrecomputes any other reading from ``rows`` with the same arithmetic). ``edition`` and the two policies are the\nScoreboard's own (``annotated_policy`` / ``late_policy``: ``included`` | ``excluded`` | ``n/a`` for a stored\nedition, which has no such rows). ``market_source`` = whose bar dates are the market's session clock;\n``benchmarks_missing`` = a benchmark with no bar at the as-of; ``stale_days`` = how far a name's tape may sit\nbehind the market before an unreached horizon reads path ended; ``min_n`` = the smallest n a cell may be read\nat. ``cards`` = cards with a recorded call, ``cards_unreadable`` = cards whose record could not be read.\n``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was public by the end of that date).\n``cache`` / ``compute_ms`` = whether the read came from the shared dashboard cache and how long it took."
+      },
+      "TrackRowOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "arm_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Arm Date"
+          },
+          "exit_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit By"
+          },
+          "arm_until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arm Until"
+          },
+          "close_reason": {
+            "type": "string",
+            "title": "Close Reason"
+          },
+          "is_headline": {
+            "type": "boolean",
+            "title": "Is Headline"
+          },
+          "key1_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key1 Source"
+          },
+          "entry_grade": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Grade"
+          },
+          "confirmation_grade": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmation Grade"
+          },
+          "co_arm_bucket": {
+            "type": "string",
+            "title": "Co Arm Bucket"
+          },
+          "left_out": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "flagged",
+                  "censored_start",
+                  "ingest_flagged"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Left Out"
+          },
+          "left_out_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Left Out Note"
+          },
+          "cap": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrackCapOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "adv_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Adv Usd"
+          },
+          "liquidity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Liquidity"
+          },
+          "arm_night": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrackEntryOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "next_session": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrackEntryOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "thesis_name",
+          "security_id",
+          "ticker",
+          "arm_date",
+          "exit_by",
+          "arm_until",
+          "close_reason",
+          "is_headline",
+          "key1_source",
+          "entry_grade",
+          "confirmation_grade",
+          "co_arm_bucket",
+          "left_out",
+          "left_out_note",
+          "cap",
+          "adv_usd",
+          "liquidity",
+          "arm_night",
+          "next_session"
+        ],
+        "title": "TrackRowOut",
+        "description": "One Scoreboard arm episode: identity, the entry attributes the filter chips use, the cap and liquidity at the\nevent and both entry rules' reads. ``left_out`` (``flagged`` | ``censored_start`` | ``ingest_flagged``) = the\nepisode is in no cell (its reason in ``left_out_note``) and carries identity only. ``liquidity`` is the 20-day\naverage dollar volume band at the event (``under_1m`` | ``1m_10m`` | ``10m_plus``; ``null`` when fewer than 20\nvolume-bearing sessions precede it)."
+      },
+      "TrackSpanOut": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "counted",
+              "maturing",
+              "path_ended",
+              "none"
+            ],
+            "title": "Status"
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date"
+          },
+          "ret": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ret"
+          },
+          "iwm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Iwm"
+          },
+          "spy": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spy"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "end_date",
+          "ret",
+          "iwm",
+          "spy"
+        ],
+        "title": "TrackSpanOut",
+        "description": "One horizon of one entry rule. ``counted``: the name's return from the entry close to the horizon bar's close\n(as traded, no dividends), with IWM's and SPY's returns over the same two dates (``null`` when that benchmark has\nno bar on one of them). ``maturing``: the horizon has not arrived yet. ``path_ended``: the market has had the\nsessions and the name's bars stop short of them (a delisting, a halt, a stale tape). ``none``: nothing to measure\n(no ``exit_by``, or no session between the entry and it). Only ``counted`` carries numbers. Returns are\nfractions (0.05 = 5%)."
+      },
+      "TrackTableRowOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "episodes": {
+            "type": "integer",
+            "title": "Episodes"
+          },
+          "cells": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/TrackCellOut"
+            },
+            "type": "object",
+            "title": "Cells"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "episodes",
+          "cells"
+        ],
+        "title": "TrackTableRowOut",
+        "description": "One row of the opening table: the slice key (a cap tier, ``unpinned``, or ``pooled`` LAST), its counted\nepisodes and a cell per horizon."
       },
       "TransitionOut": {
         "properties": {
