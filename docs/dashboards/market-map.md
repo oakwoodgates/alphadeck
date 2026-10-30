@@ -180,3 +180,32 @@ Pre-decided here for the operator's review:
 6. **Five cap bands** (the operator's fixed bands; no "mega" band as in the third screenshot).
 7. **A flagged price history is left off the map** and listed, as on every price dashboard.
 8. **Group figures are medians** over priced names with the floor of 3, as on the Rotation Map.
+
+### Built choices to confirm
+
+Choices the build made that the plan above does not spell out (2026-10-30). Each is one line to keep or change.
+
+1. **The payload is readings, not a layout.** `GET /dashboards/market-map?asof=` returns every drawable company (six returns with a reason for each blank, the cap with its band and source, the 20D dollar volume, today's sector and business type), the memberships (card, link, `silent`), the cards, SPY's and IWM's six returns and the work-line counts. Every control is client side, so the as-of is the only thing in the query key.
+2. **A flagged company's prices are never read** (the flags are read first, the point-in-time read runs over the rest). It is left off the map and listed with a `silent_only` mark, so the page hides a Context-only flagged name until the toggle is on.
+3. **YTD gaps.** Besides "no close on or before Dec 31", a company whose latest bar is still dated on or before that Dec 31 ("no session yet in 2026") or whose base close is not positive reads a stated gap, never 0%.
+4. **Dollar volume 20D is strict:** the last 20 sessions with a close, and a volume missing on ANY of them is a gap. This differs slightly from `volume_regime`'s `adv_usd_20d` (the Peer Table's figure), which skips volume-less bars.
+5. **The cover stand-in.** Gate: at least one cover count with `fiscal_period` Q1, Q2 or Q3 among the as-of rows. The latest cover row by filing date then period end is used even when it is a 10-K's (`FY`) row. Its date is `min(period_end, filing date)` (a cover date later than its own filing is a typo; ASLE's 2034 date is the known case). It is consulted only when there is NO Workbench count; a Workbench count that `cap_cell` withholds (an unread ADS ratio) is not replaced, and shows `cap_source` null with the gap reason.
+6. **A company with no price bars is still drawn** (a hatched no-reading tile, its reason in the info box); only a flagged history is left out.
+7. **Color steps are the nearest of the nine** (a value rounds to the step; 0.3% on the 1d scale stays gray). Step colors are 13 / 26 / 39 / 52% of `--pos` / `--neg` over a neutral `#232932`; no-reading is a darker diagonal hatch.
+8. **Compare to** is disabled per window with the reason ("no IWM tape at this as-of", "SPY has no 1Y reading"). If the chosen benchmark stops being available after a window change, the page falls back to raw returns and says so; it never shows a raw figure as a relative one.
+9. **The smallest weight** a no-weight company is drawn at is the smallest positive weight among the companies in view (after the Context/Bench toggle), across the whole map, so zooming never changes a size. If no company has a weight, every tile weighs 1 and is dashed.
+10. **Context and Bench off:** their rows are dropped from the card views and a company with only Context/Bench rows is in no view; a company with a voting row and a silent row is in view either way, and its silent card or link only when the toggle is on.
+11. **Tiles: Groups:** the innermost group becomes one tile (sum of weights, median color, no figure below 3 priced names). `All companies` + Groups is one tile. A group tile under a card opens that card on a click; any other group tile pins its info box.
+12. **The click rule outside the card views** counts the cards among the memberships in view: one opens the Cockpit on that card and the ticker it carries there, several pin the info box, whose card list is the Cockpit links. Escape unpins first, then steps out one zoom level.
+13. **Zoom** resets when Group by changes (not when the window or size changes); a path the tree no longer holds resolves to its longest valid prefix. The breadcrumb's "← All" and each earlier crumb step back.
+14. **The table** has one row per tile (so a company on three cards has three rows in the card views, each with its Group path), the cards as quiet Cockpit chips, and no color on its cells. Tiles: Groups lists the group tiles with a median per window. A phone (under 768px) opens on the table; the first view is chosen once, on mount.
+15. **Layout details:** a group box shows its header strip only when it is at least 36px wide and 36px tall; a tile shows ticker and return when both fit, the ticker alone on a smaller one, nothing on a tiny one. The map height is the viewport minus its own top and 96px for the legend and work lines (minimum 480px). Fullscreen fills the page body (controls, map and legend), and the button is not drawn where the browser has no Fullscreen API.
+16. **The work line** adds "tiles drawn", "caps: N Workbench / N filing cover / N none", "N companies drawn dashed at the smallest size", the scale end for the window and the roster-fallback line (as on the Rotation Map); the card views add the note that a company is drawn once per card or link.
+17. **The shared registry test** (`frontend/src/dashboards/__tests__/registry.test.ts`) lists every slug and order, so it gains `market-map` / 270: a parallel dashboard PR will conflict there as well as in the two contract files.
+
+### Measured at build time (2026-10-30)
+
+The plan asks for the cold compute, the cache hit, the payload and the render time on dev with a prod copy. The build agent does not touch the dev stack, so the two that need it are NOT measured yet: **the cold compute (the per-company point-in-time reads over about 1,500 companies, with the `fundamentals_facts` read for the ones with no Workbench count) and the cache hit on a prod copy** are the operator's to run on dev.
+
+- **Payload, MEASURED on synthetic data** (1,489 companies, 2,255 memberships, 31 cards, random returns): 1,017,750 bytes of JSON, 151,565 bytes gzipped (bar: under 1 MB gzipped).
+- **Render, MEASURED on synthetic data in a Vite dev build** (React development mode, the in-app browser pane while hidden, JavaScript and commit only, no paint): 1,489 companies, 2,412 tiles in `Card › Link`. Switching Group by to `Card › Link` 130 to 140 ms; Sector 75 to 130 ms; Table to Map 215 to 240 ms; the table of 2,412 rows 790 ms. A production build will be faster; the real-data figure is still to measure.

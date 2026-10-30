@@ -4897,6 +4897,52 @@
         }
       }
     },
+    "/dashboards/market-map": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Market Map",
+        "description": "Every company on the cards as a heat-map tile: per company the 1d / 7d / 30d / 90d / year-to-date / 1Y\nreturns, the 20-day dollar volume and the approximate market cap with the share count it rests on, with the\ncards and links it sits on and SPY's and IWM's own returns. A company whose data flags reach its price\nreadings is left out and listed. Display only; a past as-of reads what was public by the end of that date.",
+        "operationId": "market_map_dashboards_market_map_get",
+        "parameters": [
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; no price or share count published after it is read",
+              "title": "Asof"
+            },
+            "description": "as-of date; no price or share count published after it is read"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketMapOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/dashboards/narrative-adoption/cards": {
       "get": {
         "tags": [
@@ -25024,6 +25070,446 @@
         ],
         "title": "LocatedPassage",
         "description": "A deterministically-retrieved passage that backs a fact \u2014 the evidence put in front of the operator\n(or, later, S5). Retrieval only: a keyword/section match, never a model's reading."
+      },
+      "MapCardOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "name"
+        ],
+        "title": "MapCardOut",
+        "description": "A counted card that has a drawn company."
+      },
+      "MapCompanyOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "business_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Type"
+          },
+          "supersector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supersector"
+          },
+          "silent_only": {
+            "type": "boolean",
+            "title": "Silent Only"
+          },
+          "returns": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "object",
+            "title": "Returns"
+          },
+          "gaps": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Gaps"
+          },
+          "priced": {
+            "type": "boolean",
+            "title": "Priced"
+          },
+          "cap": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cap"
+          },
+          "cap_tier": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "nano",
+                  "micro",
+                  "small",
+                  "mid",
+                  "large"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cap Tier"
+          },
+          "cap_source": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "workbench",
+                  "cover"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cap Source"
+          },
+          "cap_gap": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cap Gap"
+          },
+          "cap_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cap Note"
+          },
+          "dollar_volume": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dollar Volume"
+          },
+          "dollar_volume_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dollar Volume Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "name",
+          "business_type",
+          "supersector",
+          "silent_only",
+          "returns",
+          "gaps",
+          "priced",
+          "cap",
+          "cap_tier",
+          "cap_source",
+          "cap_gap",
+          "cap_note",
+          "dollar_volume",
+          "dollar_volume_note"
+        ],
+        "title": "MapCompanyOut",
+        "description": "One company's readings at the as-of. ``returns`` holds the six windows (``ret_1d`` ... ``ret_90d``, ``ytd``,\n``ret_1y``; percent, trading bars for the trailing ones), ``null`` where there is no reading, with the reason\nin ``gaps``. ``cap`` = the approximate market cap in USD with its band (``cap_tier``) and the share count it\nrests on (``cap_source``: ``workbench`` = ratified in the Workbench, ``cover`` = the latest count from a\nfiling's cover page, not ratified); ``null`` with ``cap_gap`` / ``cap_note`` when there is none.\n``dollar_volume`` = the mean of close x volume over the last 20 sessions. ``business_type`` / ``supersector``\nare today's identity; ``silent_only`` = every row of the company is Context or Bench."
+      },
+      "MapFlaggedOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "silent_only": {
+            "type": "boolean",
+            "title": "Silent Only"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "reason",
+          "silent_only"
+        ],
+        "title": "MapFlaggedOut",
+        "description": "A company left off the map: its data flags reach its price readings at the as-of (the reason the Cockpit\ngrays its price cells). ``reason`` = the flags' labels."
+      },
+      "MapMembershipOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "link": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link"
+          },
+          "silent": {
+            "type": "boolean",
+            "title": "Silent"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "thesis_id",
+          "ticker",
+          "link",
+          "silent"
+        ],
+        "title": "MapMembershipOut",
+        "description": "One basket row of a drawn company: its card, the ticker it carries there (the Cockpit's ``?name=`` key),\nits link (``null`` = Unsegmented) and whether the row is Context or Bench (``silent``: it never counts\ntoward a call; the page shows it only when asked)."
+      },
+      "MarketMapOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "live_cards": {
+            "type": "integer",
+            "title": "Live Cards"
+          },
+          "cards_counted": {
+            "type": "integer",
+            "title": "Cards Counted"
+          },
+          "cards_not_yet_created": {
+            "type": "integer",
+            "title": "Cards Not Yet Created"
+          },
+          "roster_fallback_cards": {
+            "type": "integer",
+            "title": "Roster Fallback Cards"
+          },
+          "basket_rows": {
+            "type": "integer",
+            "title": "Basket Rows"
+          },
+          "silent_rows": {
+            "type": "integer",
+            "title": "Silent Rows"
+          },
+          "unresolved_rows": {
+            "type": "integer",
+            "title": "Unresolved Rows"
+          },
+          "unresolved_silent_rows": {
+            "type": "integer",
+            "title": "Unresolved Silent Rows"
+          },
+          "companies_total": {
+            "type": "integer",
+            "title": "Companies Total"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/MapCardOut"
+            },
+            "type": "array",
+            "title": "Cards"
+          },
+          "memberships": {
+            "items": {
+              "$ref": "#/components/schemas/MapMembershipOut"
+            },
+            "type": "array",
+            "title": "Memberships"
+          },
+          "companies": {
+            "items": {
+              "$ref": "#/components/schemas/MapCompanyOut"
+            },
+            "type": "array",
+            "title": "Companies"
+          },
+          "flagged": {
+            "items": {
+              "$ref": "#/components/schemas/MapFlaggedOut"
+            },
+            "type": "array",
+            "title": "Flagged"
+          },
+          "spy": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spy"
+          },
+          "iwm": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Iwm"
+          },
+          "windows": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Windows"
+          },
+          "dollar_volume_bars": {
+            "type": "integer",
+            "title": "Dollar Volume Bars"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "live_cards",
+          "cards_counted",
+          "cards_not_yet_created",
+          "roster_fallback_cards",
+          "basket_rows",
+          "silent_rows",
+          "unresolved_rows",
+          "unresolved_silent_rows",
+          "companies_total",
+          "cards",
+          "memberships",
+          "companies",
+          "flagged",
+          "spy",
+          "iwm",
+          "windows",
+          "dollar_volume_bars",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "MarketMapOut",
+        "description": "The whole page in one payload. ``companies`` holds every drawable company's readings, ``memberships`` the\ncards and links each sits on; the page builds every grouping from them. ``spy`` / ``iwm`` = the benchmark's own\nreturns for the same six windows (``null`` = no tape at the as-of). The counts are the work shown on the\npage's quiet line. ``cache`` / ``compute_ms`` = whether the heavy read was served from the shared dashboard\ncache and how long it took when it ran."
       },
       "MemberCallOut": {
         "properties": {
