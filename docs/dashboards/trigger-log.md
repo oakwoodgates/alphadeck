@@ -271,9 +271,10 @@ recorded here as the brief gave them; the build re-measured nothing.
 
 **AFTER (the orchestrator fills these in from the dev stack, same as-of 2026-10-29 and window 90 days):**
 
-- `role=entry` (the default): rows ____ · payload ____ MB · cold compute ____ ms · cache hit ____ ms
-- `role=risk`: rows ____ · payload ____ MB · cold compute ____ ms · cache hit ____ ms
-- `role=both`: rows ____ · payload ____ MB · cold compute ____ ms · cache hit ____ ms
+- `role=entry` (the default): rows 4,515 · payload 4.9 MB · cold compute 33,296 ms · cache hit 680 ms (the serialization of 4.9 MB)
+- `role=risk`: rows 6,941 · payload 8.7 MB · cold compute 32,449 ms
+- `role=both`: rows 11,456 (was 23,526 with the label in the identity) · payload 13.6 MB · cold compute 33,811 ms
+- The cold compute is the same whatever the role: it is the read of 785 recorded nights' card blobs and the names' bars, not the rows. A narrower read (the three trigger arrays by jsonb path instead of validating every CallCard) is the next cut if the first visit after each nightly matters.
 - rows with `label_changes` > 0: ____ of ____ (largest `label_changes` ____)
 - the page renders in the browser: ____
 

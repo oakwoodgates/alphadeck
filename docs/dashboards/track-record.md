@@ -270,7 +270,7 @@ build re-measured nothing.
 
 **AFTER (the orchestrator fills these in from the dev stack, same as-of 2026-10-29):**
 
-- no `edition` (now the record): cards ____ · episodes ____ · counted ____ · h20 counted ____ · `newest_edition` ____
-- `edition=1`: cards ____ · episodes ____ · counted ____
-- cold compute ____ ms · cache hit ____ ms · payload ____ KB
+- no `edition` (now the record): cards 46 · episodes 469 · counted 240 · h20 counted 148 · `newest_edition` {number 1, "first re-run"}
+- `edition=1`: cards 11 · episodes 501 · counted 439
+- cold compute 16,909 to 17,069 ms · cache hit 50 to 100 ms · payload 574 KB
 
