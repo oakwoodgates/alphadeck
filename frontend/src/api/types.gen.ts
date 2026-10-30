@@ -2250,6 +2250,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboards/forming-quietly": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Forming Quietly
+         * @description Every card the recorded calls in effect at the as-of show Warming or Incubating, in the default order: the
+         *     call's own keys and missing lines, the names behind the keys that turned, the quiet signals on the card's
+         *     counting roster (insider buying, coiling, leading, breadth) and the card's EDGAR term-mention slope. Armed and
+         *     Managing cards are counted, never rows. Display only: it reads the calls log and never the live call; the
+         *     Incubating toggle, filters and sorts are the page's. A past as-of reads what was public by the end of that date.
+         */
+        get: operations["forming_quietly_dashboards_forming_quietly_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dashboards/fundamentals-multiples/cards": {
         parameters: {
             query?: never;
@@ -9225,6 +9249,363 @@ export interface components {
             explanation: string;
             /** Grounded */
             grounded: boolean;
+        };
+        /**
+         * FormingAdoptionOut
+         * @description The card's EDGAR term-mention slope: ``recent`` documents (the three closed months ``recent_from`` to
+         *     ``recent_to``, as first days) against ``prior`` (the three before), summed over the SIGNAL terms that have all six
+         *     closed months stored (``terms_counted`` of ``terms_signal``; ``terms_partial`` have some, ``terms_unstored``
+         *     none). ``counted`` false = not counted yet. ``percent`` is ``null`` without a nonzero prior span.
+         *     ``months_stored`` = the six closed months any signal term has a row for; ``latest_partial`` = a counted term's
+         *     latest closed month was read on or before its last day.
+         */
+        FormingAdoptionOut: {
+            /** Counted */
+            counted: boolean;
+            /** Percent */
+            percent: number | null;
+            /** Recent */
+            recent: number | null;
+            /** Prior */
+            prior: number | null;
+            /** Recent From */
+            recent_from: string | null;
+            /** Recent To */
+            recent_to: string | null;
+            /** Prior From */
+            prior_from: string | null;
+            /** Prior To */
+            prior_to: string | null;
+            /** Terms Signal */
+            terms_signal: number;
+            /** Terms Counted */
+            terms_counted: number;
+            /** Terms Partial */
+            terms_partial: number;
+            /** Terms Unstored */
+            terms_unstored: number;
+            /** Months Stored */
+            months_stored: number;
+            /** Latest Partial */
+            latest_partial: boolean;
+        };
+        /**
+         * FormingBreadthOut
+         * @description The card's theme breadth: ``above`` of ``counted`` names at or above their 50-day average (``pct`` of them),
+         *     ``delta_pts`` against 20 trading days ago, ``thin`` names with too little history not counted. ``thrust`` is the
+         *     member's own headline.
+         */
+        FormingBreadthOut: {
+            /** Above */
+            above: number | null;
+            /** Counted */
+            counted: number;
+            /** Thin */
+            thin: number;
+            /** Pct */
+            pct: number | null;
+            /** Delta Pts */
+            delta_pts: number | null;
+            /** Thrust */
+            thrust: boolean;
+        };
+        /**
+         * FormingCoilingOut
+         * @description A name whose base is coiling (the volatility-contraction member's headline); ``contraction`` = the newest
+         *     segment's depth over the oldest's.
+         */
+        FormingCoilingOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Contraction */
+            contraction: number | null;
+        };
+        /**
+         * FormingFlaggedOut
+         * @description A company left out of every reading for a flagged price history at the as-of: counted, never dropped.
+         */
+        FormingFlaggedOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * FormingInsiderOut
+         * @description A name with open-market insider buying in the last 30 days: the buys, the distinct buyers and whether that is
+         *     a cluster (at least two distinct buyers).
+         */
+        FormingInsiderOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Buys 30D */
+            buys_30d: number;
+            /** Buyers 30D */
+            buyers_30d: number;
+            /** Cluster */
+            cluster: boolean;
+        };
+        /**
+         * FormingKeyOut
+         * @description A key as the call recorded it: ``label`` and ``detail`` are the assembler's own words.
+         */
+        FormingKeyOut: {
+            /** Turned */
+            turned: boolean;
+            /** Label */
+            label: string;
+            /** Detail */
+            detail: string | null;
+        };
+        /**
+         * FormingLeadingOut
+         * @description A name whose relative strength is at a fresh 13-week high; ``vs`` = the benchmarks it leads.
+         */
+        FormingLeadingOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Vs */
+            vs: string[];
+        };
+        /**
+         * FormingNameOut
+         * @description A name behind the key that turned: its ticker on the card (the Cockpit's ``?name=`` key) and every trigger
+         *     that fired on it.
+         */
+        FormingNameOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Triggers */
+            triggers: components["schemas"]["FormingTriggerOut"][];
+        };
+        /**
+         * FormingQuietOut
+         * @description One card's quiet signals over its counting roster (Context and Bench never count). ``names`` = the counting
+         *     companies, ``read`` = those read (a flagged price history is counted in ``flagged``, never read),
+         *     ``unresolved`` = roster rows with no resolved security. ``no_form4`` / ``coiling_no_reading`` /
+         *     ``leading_no_reading`` = read names a member gave no reading for. ``lit`` = insider buying, coiling, leading or
+         *     a breadth thrust is on.
+         */
+        FormingQuietOut: {
+            /** Names */
+            names: number;
+            /** Read */
+            read: number;
+            /** Unresolved */
+            unresolved: number;
+            /** Flagged */
+            flagged: components["schemas"]["FormingFlaggedOut"][];
+            /** Insider */
+            insider: components["schemas"]["FormingInsiderOut"][];
+            /** No Form4 */
+            no_form4: number;
+            /** Coiling */
+            coiling: components["schemas"]["FormingCoilingOut"][];
+            /** Coiling No Reading */
+            coiling_no_reading: number;
+            /** Leading */
+            leading: components["schemas"]["FormingLeadingOut"][];
+            /** Leading No Reading */
+            leading_no_reading: number;
+            breadth: components["schemas"]["FormingBreadthOut"] | null;
+            /** Lit */
+            lit: boolean;
+        };
+        /**
+         * FormingQuietlyOut
+         * @description Every Warming and Incubating card of the recorded calls in effect at the as-of, in the default order (the page
+         *     derives the Incubating toggle, filters and sorts from this one read), and the counts its quiet line shows.
+         *     ``cards_*`` = the counted cards by their recorded state (``cards_no_call`` = nothing recorded by then;
+         *     ``cards_incubating_lit`` = Incubating cards with a quiet signal on); ``cards_with_term_months`` /
+         *     ``cards_without_term_months`` = row cards with and without a stored signal-term month in the six closed months;
+         *     ``names_read`` / ``names_flagged`` = distinct companies read and left out for a flagged price history;
+         *     ``members`` = the display members run. ``clock``: ``record`` (the live read) or ``public`` (a past as-of: what
+         *     was public by the end of that date). ``cache`` / ``compute_ms`` = whether the read came from the shared dashboard
+         *     cache and how long it took when computed.
+         */
+        FormingQuietlyOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Clock
+             * @enum {string}
+             */
+            clock: "record" | "public";
+            /** Live Cards */
+            live_cards: number;
+            /** Cards Counted */
+            cards_counted: number;
+            /** Cards Not Yet Created */
+            cards_not_yet_created: number;
+            /** Roster Fallback Cards */
+            roster_fallback_cards: number;
+            /** Cards Armed */
+            cards_armed: number;
+            /** Cards Warming */
+            cards_warming: number;
+            /** Cards Managing */
+            cards_managing: number;
+            /** Cards Incubating */
+            cards_incubating: number;
+            /** Cards Incubating Lit */
+            cards_incubating_lit: number;
+            /** Cards No Call */
+            cards_no_call: number;
+            /** Cards With Term Months */
+            cards_with_term_months: number;
+            /** Cards Without Term Months */
+            cards_without_term_months: number;
+            /** Names Read */
+            names_read: number;
+            /** Names Flagged */
+            names_flagged: number;
+            /** Members */
+            members: string[];
+            /** Rows */
+            rows: components["schemas"]["FormingRowOut"][];
+            /** Flagged */
+            flagged: components["schemas"]["FormingFlaggedOut"][];
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * FormingRiskOut
+         * @description One risk signal on the recorded card and the name it fired on.
+         */
+        FormingRiskOut: {
+            /** Label */
+            label: string;
+            kind: components["schemas"]["Kind"];
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+        };
+        /**
+         * FormingRowOut
+         * @description One card the record shows Warming or Incubating at the as-of. ``recorded_on`` = the night of the recorded call
+         *     in effect; ``run_start`` = the first night of its current run of that state, ``days_in_state`` the calendar days
+         *     from there to the as-of (``run_reconstructed`` = that night was rebuilt by ``pipeline.backfill``). The keys,
+         *     ``missing`` lines and ``risks`` are the recorded call's own; ``names`` = the names behind the keys that turned;
+         *     ``watch`` = its confirmation-only members.
+         */
+        FormingRowOut: {
+            /** Key */
+            key: string;
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "warming" | "incubating";
+            /**
+             * Recorded On
+             * Format: date
+             */
+            recorded_on: string;
+            /** Run Start */
+            run_start: string | null;
+            /** Run Nights */
+            run_nights: number;
+            /** Days In State */
+            days_in_state: number | null;
+            /** Run Reconstructed */
+            run_reconstructed: boolean;
+            key_conviction: components["schemas"]["FormingKeyOut"];
+            key_confirmation: components["schemas"]["FormingKeyOut"];
+            /** Names */
+            names: components["schemas"]["FormingNameOut"][];
+            /** Missing */
+            missing: string[];
+            /** Watch */
+            watch: components["schemas"]["FormingWatchOut"][];
+            /** Risks */
+            risks: components["schemas"]["FormingRiskOut"][];
+            quiet: components["schemas"]["FormingQuietOut"];
+            adoption: components["schemas"]["FormingAdoptionOut"];
+        };
+        /**
+         * FormingSourceOut
+         * @description One place a trigger points at: ``source`` = the kind of source as stored ("form4", "price", "xbrl", a form),
+         *     ``ref`` = its reference, ``url`` = a link to it by the Evidence Ledger's rule (``null`` = none known).
+         */
+        FormingSourceOut: {
+            /** Source */
+            source: string;
+            /** Ref */
+            ref: string;
+            /** Url */
+            url: string | null;
+        };
+        /**
+         * FormingTriggerOut
+         * @description A fired entry trigger on the recorded card. ``event_date`` = its FIRE date (the market event: an insider
+         *     trade date, a breakout bar), not the night the platform recorded it.
+         */
+        FormingTriggerOut: {
+            /** Label */
+            label: string;
+            kind: components["schemas"]["Kind"];
+            grade: components["schemas"]["Grade"] | null;
+            /** Event Date */
+            event_date: string | null;
+            /** Sources */
+            sources: components["schemas"]["FormingSourceOut"][];
+        };
+        /**
+         * FormingWatchOut
+         * @description A confirmation-only member of the recorded call (moving, no conviction yet).
+         */
+        FormingWatchOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
         };
         /**
          * Grade
@@ -18507,6 +18888,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FilingStreamOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    forming_quietly_dashboards_forming_quietly_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; only what was recorded and public by then is read */
+                asof: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FormingQuietlyOut"];
                 };
             };
             /** @description Validation Error */

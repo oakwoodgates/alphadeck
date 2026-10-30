@@ -120,3 +120,66 @@ kind (#7); the LLM; any write.
 The build lists here every choice it made that this plan does not spell out, each the operator's to confirm or
 change. Pre-decided here for the operator's review: Warming rows plus Incubating rows with a quiet signal; three
 display members only; the three-against-three closed-month slope; the cluster word at two buyers; no accent on the page.
+
+### Built choices to confirm
+
+The build (2026-10-30) made these choices that the plan above does not spell out, each the operator's to confirm or change.
+Nothing in this list was measured against prod data: the build ran on neutral fixtures, and the timing under "Cost" below is for the
+orchestrator to measure on dev with a prod copy.
+
+1. **What lights an Incubating card.** The plan says an Incubating card "shows at least one quiet signal" but gives a
+   threshold for only two of the five. Built: insider buying (at least one open-market buy in 30 days, the Leaders rule),
+   coiling (`vcp`'s headline), leading (`relative_strength`'s headline) and the theme-breadth member's own `thrust` headline
+   light a card. The plain breadth count and the adoption slope are shown wherever they exist and never light a card alone
+   (the plan names no threshold for either; a threshold on adoption or on plain breadth is the operator's to pick). The
+   server sends every Incubating card with a `lit` flag; the toggle "Show every Incubating card" is client side.
+2. **Breadth is the 50-day only. The plan's "above the 200-day" is NOT built.** `theme_breadth.breadth_for` reads only the
+   50-day line (and its 250-calendar-day pull holds about 170 bars, fewer than a 200-day line needs); a 200-day reading
+   would need a fourth display member, which the plan rules out ("three members only"). The cell reads "x of n above the
+   50-day" with the thin-history names counted apart (a name with too little history is never counted as below the line).
+3. **A flagged price history is left out of every reading, the insider one included** (the Leaders rule: the insider
+   screen reads the price tape, and a scale break there changes which buys pass). The plan says "tape readings". The name is
+   counted in the card's `names`, listed under the card's quiet signals and on the page's flagged note, never read.
+4. **"The night the key turned" is the first night of the card's current run of its recorded state** (the Idea
+   Timeline's rule, the highest `seq` winning a night). No per-key history is walked, so a Warming card whose other key
+   turned later still reads from the run's first night. "Days in state" is calendar days from that night to the as-of
+   ("0 days" on the first night). The recorded night in effect (`recorded_on`) rides in the state cell's hover, since a
+   weekend as-of reads Friday's call. A reconstructed first night is marked "R".
+5. **The adoption slope's term set.** It sums the card's CURRENT SIGNAL terms (`thesis.term_set`, not versioned: a past
+   as-of uses today's terms; BROAD terms and a removed term's stored months are never summed). A term counts only when
+   all six closed months are stored (like for like); a card with no such term reads "not counted yet", with the
+   months stored and the terms partly stored or not stored in the hover. A month is closed when its last day is before the
+   as-of, so the as-of's own month never counts, not even on its last day. A zero earlier span has no percent (the two
+   counts show). The percent shows as a whole number. When a counted term's latest closed month was last read on or before its
+   last day (the weekly job had not yet re-read it after it closed), the hover says the count may be low (`latest_partial`);
+   the number is not dropped.
+6. **"Cards with term months / without"** on the work line = row cards with at least one stored SIGNAL-term month among
+   their six closed months, and the rest.
+7. **Breadth cost.** One `breadth_for` read per row card runs on its own point-in-time view over the card's unflagged
+   counting names, so a name on several row cards has its closes read once for the three members (through
+   `baskets.per_company`) and once more per card for breadth. This is the plan's wording taken literally; a shared read
+   would save the repeat if the measured cost asks for it.
+8. **Default order and the sorts.** Warming cards by the run's first night (newest first, ties by card name); then
+   Incubating cards with a slope percent (largest first); then the rest by card name. The server sends this order and
+   "the record order" is the page's default. The alternatives (card name, days in state, insider buyers, adoption percent)
+   are client side, a blank always last: "insider buyers" sorts on the distinct buyers summed over the names that had a
+   buy. No header says "best" or "strongest".
+9. **The cluster word** (two distinct buyers) sits beside the ticker of each such name in the insider cell, not as a badge
+   on the card. The insider, coiling and leading cells show up to three tickers and "+n".
+10. **The names behind the key** are every `triggers_fired` entry grouped by security (not split by which key the trigger
+    turns); the hover lists each trigger's label, kind, grade, fire date and its source links by the Evidence Ledger's rule.
+    The confirmation-only names are all of the recorded call's `watch_members`.
+11. **Filters and the toggle render only when they can tell the rows apart** (workflow principle 3): the state chips need
+    both states on show, "has insider buying" and "has coiling" need a card with one, the card list needs two cards, and
+    the Incubating toggle needs a hidden Incubating card.
+12. **Loudness.** No accent anywhere (the stylesheet names no Board state color), the state chip a gray outline, the sign
+    tone only on the adoption percent. A test reads the stylesheet and the rendered markup for this and for the words the page
+    never says.
+13. **Cache.** `cached(conn, "forming-quietly", (clock,), asof, ...)` holds every Warming and Incubating row; the toggle,
+    filters and orders are the page's.
+
+#### Cost (PROPOSED, not measured)
+
+The plan's expected cost is about 16 ms a name over the Warming and Incubating rosters, plus one breadth read per row card
+and one term-month read per row card. The build has not measured it: record the cold `compute_ms` and the name count from
+the page's own work line on dev with a prod copy here.

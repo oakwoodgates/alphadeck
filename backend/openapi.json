@@ -4460,6 +4460,52 @@
         }
       }
     },
+    "/dashboards/forming-quietly": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Forming Quietly",
+        "description": "Every card the recorded calls in effect at the as-of show Warming or Incubating, in the default order: the\ncall's own keys and missing lines, the names behind the keys that turned, the quiet signals on the card's\ncounting roster (insider buying, coiling, leading, breadth) and the card's EDGAR term-mention slope. Armed and\nManaging cards are counted, never rows. Display only: it reads the calls log and never the live call; the\nIncubating toggle, filters and sorts are the page's. A past as-of reads what was public by the end of that date.",
+        "operationId": "forming_quietly_dashboards_forming_quietly_get",
+        "parameters": [
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; only what was recorded and public by then is read",
+              "title": "Asof"
+            },
+            "description": "as-of date; only what was recorded and public by then is read"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FormingQuietlyOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/dashboards/fundamentals-multiples/cards": {
       "get": {
         "tags": [
@@ -19454,6 +19500,849 @@
         ],
         "title": "FlagExplanationOut",
         "description": "The model-drafted, plain-English explanation of a FLAG candidate, shown ALONGSIDE the raw passage.\n\nDeliberately carries NO value field: it is display-only and never rides the ratify rail (the ratified\nnumber comes solely from the operator's typed field on ``RatifyFactRequest``). ``grounded=False`` (with an\nempty ``explanation``) is the honest no-explanation / fail-open signal \u2014 the UI shows the raw passage and\nmanual ratify exactly as today. (INVARIANT #3.)"
+      },
+      "FormingAdoptionOut": {
+        "properties": {
+          "counted": {
+            "type": "boolean",
+            "title": "Counted"
+          },
+          "percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Percent"
+          },
+          "recent": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recent"
+          },
+          "prior": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prior"
+          },
+          "recent_from": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recent From"
+          },
+          "recent_to": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recent To"
+          },
+          "prior_from": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prior From"
+          },
+          "prior_to": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prior To"
+          },
+          "terms_signal": {
+            "type": "integer",
+            "title": "Terms Signal"
+          },
+          "terms_counted": {
+            "type": "integer",
+            "title": "Terms Counted"
+          },
+          "terms_partial": {
+            "type": "integer",
+            "title": "Terms Partial"
+          },
+          "terms_unstored": {
+            "type": "integer",
+            "title": "Terms Unstored"
+          },
+          "months_stored": {
+            "type": "integer",
+            "title": "Months Stored"
+          },
+          "latest_partial": {
+            "type": "boolean",
+            "title": "Latest Partial"
+          }
+        },
+        "type": "object",
+        "required": [
+          "counted",
+          "percent",
+          "recent",
+          "prior",
+          "recent_from",
+          "recent_to",
+          "prior_from",
+          "prior_to",
+          "terms_signal",
+          "terms_counted",
+          "terms_partial",
+          "terms_unstored",
+          "months_stored",
+          "latest_partial"
+        ],
+        "title": "FormingAdoptionOut",
+        "description": "The card's EDGAR term-mention slope: ``recent`` documents (the three closed months ``recent_from`` to\n``recent_to``, as first days) against ``prior`` (the three before), summed over the SIGNAL terms that have all six\nclosed months stored (``terms_counted`` of ``terms_signal``; ``terms_partial`` have some, ``terms_unstored``\nnone). ``counted`` false = not counted yet. ``percent`` is ``null`` without a nonzero prior span.\n``months_stored`` = the six closed months any signal term has a row for; ``latest_partial`` = a counted term's\nlatest closed month was read on or before its last day."
+      },
+      "FormingBreadthOut": {
+        "properties": {
+          "above": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Above"
+          },
+          "counted": {
+            "type": "integer",
+            "title": "Counted"
+          },
+          "thin": {
+            "type": "integer",
+            "title": "Thin"
+          },
+          "pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pct"
+          },
+          "delta_pts": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delta Pts"
+          },
+          "thrust": {
+            "type": "boolean",
+            "title": "Thrust"
+          }
+        },
+        "type": "object",
+        "required": [
+          "above",
+          "counted",
+          "thin",
+          "pct",
+          "delta_pts",
+          "thrust"
+        ],
+        "title": "FormingBreadthOut",
+        "description": "The card's theme breadth: ``above`` of ``counted`` names at or above their 50-day average (``pct`` of them),\n``delta_pts`` against 20 trading days ago, ``thin`` names with too little history not counted. ``thrust`` is the\nmember's own headline."
+      },
+      "FormingCoilingOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "contraction": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contraction"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "contraction"
+        ],
+        "title": "FormingCoilingOut",
+        "description": "A name whose base is coiling (the volatility-contraction member's headline); ``contraction`` = the newest\nsegment's depth over the oldest's."
+      },
+      "FormingFlaggedOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "reason"
+        ],
+        "title": "FormingFlaggedOut",
+        "description": "A company left out of every reading for a flagged price history at the as-of: counted, never dropped."
+      },
+      "FormingInsiderOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "buys_30d": {
+            "type": "integer",
+            "title": "Buys 30D"
+          },
+          "buyers_30d": {
+            "type": "integer",
+            "title": "Buyers 30D"
+          },
+          "cluster": {
+            "type": "boolean",
+            "title": "Cluster"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "buys_30d",
+          "buyers_30d",
+          "cluster"
+        ],
+        "title": "FormingInsiderOut",
+        "description": "A name with open-market insider buying in the last 30 days: the buys, the distinct buyers and whether that is\na cluster (at least two distinct buyers)."
+      },
+      "FormingKeyOut": {
+        "properties": {
+          "turned": {
+            "type": "boolean",
+            "title": "Turned"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "turned",
+          "label",
+          "detail"
+        ],
+        "title": "FormingKeyOut",
+        "description": "A key as the call recorded it: ``label`` and ``detail`` are the assembler's own words."
+      },
+      "FormingLeadingOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "vs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Vs"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "vs"
+        ],
+        "title": "FormingLeadingOut",
+        "description": "A name whose relative strength is at a fresh 13-week high; ``vs`` = the benchmarks it leads."
+      },
+      "FormingNameOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "triggers": {
+            "items": {
+              "$ref": "#/components/schemas/FormingTriggerOut"
+            },
+            "type": "array",
+            "title": "Triggers"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "triggers"
+        ],
+        "title": "FormingNameOut",
+        "description": "A name behind the key that turned: its ticker on the card (the Cockpit's ``?name=`` key) and every trigger\nthat fired on it."
+      },
+      "FormingQuietOut": {
+        "properties": {
+          "names": {
+            "type": "integer",
+            "title": "Names"
+          },
+          "read": {
+            "type": "integer",
+            "title": "Read"
+          },
+          "unresolved": {
+            "type": "integer",
+            "title": "Unresolved"
+          },
+          "flagged": {
+            "items": {
+              "$ref": "#/components/schemas/FormingFlaggedOut"
+            },
+            "type": "array",
+            "title": "Flagged"
+          },
+          "insider": {
+            "items": {
+              "$ref": "#/components/schemas/FormingInsiderOut"
+            },
+            "type": "array",
+            "title": "Insider"
+          },
+          "no_form4": {
+            "type": "integer",
+            "title": "No Form4"
+          },
+          "coiling": {
+            "items": {
+              "$ref": "#/components/schemas/FormingCoilingOut"
+            },
+            "type": "array",
+            "title": "Coiling"
+          },
+          "coiling_no_reading": {
+            "type": "integer",
+            "title": "Coiling No Reading"
+          },
+          "leading": {
+            "items": {
+              "$ref": "#/components/schemas/FormingLeadingOut"
+            },
+            "type": "array",
+            "title": "Leading"
+          },
+          "leading_no_reading": {
+            "type": "integer",
+            "title": "Leading No Reading"
+          },
+          "breadth": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FormingBreadthOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lit": {
+            "type": "boolean",
+            "title": "Lit"
+          }
+        },
+        "type": "object",
+        "required": [
+          "names",
+          "read",
+          "unresolved",
+          "flagged",
+          "insider",
+          "no_form4",
+          "coiling",
+          "coiling_no_reading",
+          "leading",
+          "leading_no_reading",
+          "breadth",
+          "lit"
+        ],
+        "title": "FormingQuietOut",
+        "description": "One card's quiet signals over its counting roster (Context and Bench never count). ``names`` = the counting\ncompanies, ``read`` = those read (a flagged price history is counted in ``flagged``, never read),\n``unresolved`` = roster rows with no resolved security. ``no_form4`` / ``coiling_no_reading`` /\n``leading_no_reading`` = read names a member gave no reading for. ``lit`` = insider buying, coiling, leading or\na breadth thrust is on."
+      },
+      "FormingQuietlyOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "clock": {
+            "type": "string",
+            "enum": [
+              "record",
+              "public"
+            ],
+            "title": "Clock"
+          },
+          "live_cards": {
+            "type": "integer",
+            "title": "Live Cards"
+          },
+          "cards_counted": {
+            "type": "integer",
+            "title": "Cards Counted"
+          },
+          "cards_not_yet_created": {
+            "type": "integer",
+            "title": "Cards Not Yet Created"
+          },
+          "roster_fallback_cards": {
+            "type": "integer",
+            "title": "Roster Fallback Cards"
+          },
+          "cards_armed": {
+            "type": "integer",
+            "title": "Cards Armed"
+          },
+          "cards_warming": {
+            "type": "integer",
+            "title": "Cards Warming"
+          },
+          "cards_managing": {
+            "type": "integer",
+            "title": "Cards Managing"
+          },
+          "cards_incubating": {
+            "type": "integer",
+            "title": "Cards Incubating"
+          },
+          "cards_incubating_lit": {
+            "type": "integer",
+            "title": "Cards Incubating Lit"
+          },
+          "cards_no_call": {
+            "type": "integer",
+            "title": "Cards No Call"
+          },
+          "cards_with_term_months": {
+            "type": "integer",
+            "title": "Cards With Term Months"
+          },
+          "cards_without_term_months": {
+            "type": "integer",
+            "title": "Cards Without Term Months"
+          },
+          "names_read": {
+            "type": "integer",
+            "title": "Names Read"
+          },
+          "names_flagged": {
+            "type": "integer",
+            "title": "Names Flagged"
+          },
+          "members": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Members"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/FormingRowOut"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "flagged": {
+            "items": {
+              "$ref": "#/components/schemas/FormingFlaggedOut"
+            },
+            "type": "array",
+            "title": "Flagged"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "clock",
+          "live_cards",
+          "cards_counted",
+          "cards_not_yet_created",
+          "roster_fallback_cards",
+          "cards_armed",
+          "cards_warming",
+          "cards_managing",
+          "cards_incubating",
+          "cards_incubating_lit",
+          "cards_no_call",
+          "cards_with_term_months",
+          "cards_without_term_months",
+          "names_read",
+          "names_flagged",
+          "members",
+          "rows",
+          "flagged",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "FormingQuietlyOut",
+        "description": "Every Warming and Incubating card of the recorded calls in effect at the as-of, in the default order (the page\nderives the Incubating toggle, filters and sorts from this one read), and the counts its quiet line shows.\n``cards_*`` = the counted cards by their recorded state (``cards_no_call`` = nothing recorded by then;\n``cards_incubating_lit`` = Incubating cards with a quiet signal on); ``cards_with_term_months`` /\n``cards_without_term_months`` = row cards with and without a stored signal-term month in the six closed months;\n``names_read`` / ``names_flagged`` = distinct companies read and left out for a flagged price history;\n``members`` = the display members run. ``clock``: ``record`` (the live read) or ``public`` (a past as-of: what\nwas public by the end of that date). ``cache`` / ``compute_ms`` = whether the read came from the shared dashboard\ncache and how long it took when computed."
+      },
+      "FormingRiskOut": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/Kind"
+          },
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          }
+        },
+        "type": "object",
+        "required": [
+          "label",
+          "kind",
+          "security_id",
+          "ticker"
+        ],
+        "title": "FormingRiskOut",
+        "description": "One risk signal on the recorded card and the name it fired on."
+      },
+      "FormingRowOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "warming",
+              "incubating"
+            ],
+            "title": "State"
+          },
+          "recorded_on": {
+            "type": "string",
+            "format": "date",
+            "title": "Recorded On"
+          },
+          "run_start": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Start"
+          },
+          "run_nights": {
+            "type": "integer",
+            "title": "Run Nights"
+          },
+          "days_in_state": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days In State"
+          },
+          "run_reconstructed": {
+            "type": "boolean",
+            "title": "Run Reconstructed"
+          },
+          "key_conviction": {
+            "$ref": "#/components/schemas/FormingKeyOut"
+          },
+          "key_confirmation": {
+            "$ref": "#/components/schemas/FormingKeyOut"
+          },
+          "names": {
+            "items": {
+              "$ref": "#/components/schemas/FormingNameOut"
+            },
+            "type": "array",
+            "title": "Names"
+          },
+          "missing": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Missing"
+          },
+          "watch": {
+            "items": {
+              "$ref": "#/components/schemas/FormingWatchOut"
+            },
+            "type": "array",
+            "title": "Watch"
+          },
+          "risks": {
+            "items": {
+              "$ref": "#/components/schemas/FormingRiskOut"
+            },
+            "type": "array",
+            "title": "Risks"
+          },
+          "quiet": {
+            "$ref": "#/components/schemas/FormingQuietOut"
+          },
+          "adoption": {
+            "$ref": "#/components/schemas/FormingAdoptionOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "thesis_id",
+          "thesis_name",
+          "state",
+          "recorded_on",
+          "run_start",
+          "run_nights",
+          "days_in_state",
+          "run_reconstructed",
+          "key_conviction",
+          "key_confirmation",
+          "names",
+          "missing",
+          "watch",
+          "risks",
+          "quiet",
+          "adoption"
+        ],
+        "title": "FormingRowOut",
+        "description": "One card the record shows Warming or Incubating at the as-of. ``recorded_on`` = the night of the recorded call\nin effect; ``run_start`` = the first night of its current run of that state, ``days_in_state`` the calendar days\nfrom there to the as-of (``run_reconstructed`` = that night was rebuilt by ``pipeline.backfill``). The keys,\n``missing`` lines and ``risks`` are the recorded call's own; ``names`` = the names behind the keys that turned;\n``watch`` = its confirmation-only members."
+      },
+      "FormingSourceOut": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "ref": {
+            "type": "string",
+            "title": "Ref"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "ref",
+          "url"
+        ],
+        "title": "FormingSourceOut",
+        "description": "One place a trigger points at: ``source`` = the kind of source as stored (\"form4\", \"price\", \"xbrl\", a form),\n``ref`` = its reference, ``url`` = a link to it by the Evidence Ledger's rule (``null`` = none known)."
+      },
+      "FormingTriggerOut": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/Kind"
+          },
+          "grade": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Grade"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "event_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Date"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/FormingSourceOut"
+            },
+            "type": "array",
+            "title": "Sources"
+          }
+        },
+        "type": "object",
+        "required": [
+          "label",
+          "kind",
+          "grade",
+          "event_date",
+          "sources"
+        ],
+        "title": "FormingTriggerOut",
+        "description": "A fired entry trigger on the recorded card. ``event_date`` = its FIRE date (the market event: an insider\ntrade date, a breakout bar), not the night the platform recorded it."
+      },
+      "FormingWatchOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker"
+        ],
+        "title": "FormingWatchOut",
+        "description": "A confirmation-only member of the recorded call (moving, no conviction yet)."
       },
       "Grade": {
         "type": "string",
