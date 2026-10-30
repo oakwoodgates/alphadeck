@@ -19,7 +19,7 @@ writes, never calls the LLM, and it re-derives none of the trigger path's screen
 
 - **The names:** the counting names of the cards counted at the as-of (`baskets.cards_as_of`, `counted_rows`); Context
   and Bench names join behind a toggle "Include Context and Bench" (off by default), tagged.
-- **The filings:** `dashboards/filings.py::read_filing_rows` for those names over the window (30 days by default; 90
+- **The filings:** `dashboards/filings.py::read_filing_rows(..., kinds=FORM4_KINDS)` for those names over the window (30 days by default; 90
   selectable), kind `form4` and `form4a` rows that are NOT routine (the Filing Stream's grouping: one row per accession,
   `routine` false means the filing holds a code-P purchase; `usd` is the net dollar size, `tags` carry issuer-self,
   internal-transfer, 10b5-1, applied 4/A, filer-unresolved; the headline and detail lines carry the filer, the role and
@@ -82,9 +82,10 @@ from the day it was filed; no aggregate here: outcomes by tier are on the Track 
 `dashboards.cache.cached(conn, "insider-tracker", (window_days, include_silent, clock), asof, ...)` holds the window's
 rows with their cluster, trigger and since fields; grouping, filters and sorts are client side. The cache clears on a
 new run or a basket edit (rule 7). **Cost:** the filing reader over about 1,500 names for 30 days plus bars for the
-names with a purchase; the Read-Throughs cold read (filings for about 250 names) measured 16 to 43 s, so expect the
-30-day window in the same range and the 90-day window above it; MEASURE and record it here, and if the 30-day cold
-read exceeds a minute, narrow the reader to the Form 4 kinds before anything else.
+names with a purchase. MEASURED on a dev stack with a prod copy (as-of 2026-10-29), with the reader reading every kind:
+the 30-day cold read took 67.7 s (1,150 names, 1,960 filings read, 90 purchases) and the 90-day read 72 s, over the
+minute this plan set, so the reader is narrowed to the Form 4 kinds (built choice 14 below). The re-measure after the
+narrowing is not recorded here yet.
 
 ## Backend and frontend
 
@@ -178,3 +179,14 @@ operator's to confirm or change. Nothing below is a measurement.
 13. **Cost is NOT measured by this build.** The read is `read_filing_rows` over every counted name for the window plus 30
     days, then bars, flags and the cap for the names with a purchase only. The plan's rule stands: measure the 30-day cold
     read on dev with a prod copy and, if it exceeds a minute, narrow the reader to the Form 4 kinds before anything else.
+    (The dev measure came back at 67.7 s, so choice 14 narrows it.)
+14. **The reader is narrowed to the Form 4 kinds.** `read_filing_rows` and `rows_for_company` take an optional
+    `kinds=` (`None`, the default, is every kind and every other page passes nothing, so the Filing Stream, the
+    Read-Throughs, the Ticker Lookup, the Chain Map and the Evidence Ledger read exactly as before). This page passes
+    `FORM4_KINDS` (`form4`, `form4a`): the 8-K, 13D/G, revenue, split, dilution, catalyst, ratified-fact and
+    filing-index reads, and their point-in-time tables, are skipped outright (not read and filtered), and the Form 4/A
+    SELECT runs only because `form4a` is asked for. The Form 4 / 4/A rows and their two-clock gate are untouched, and a
+    test pins that the narrowed rows equal the full read's Form 4 and 4/A rows and that the page is identical either
+    way. The page never shows another kind, so no row, count or note moves. A kind name the reader does not have
+    raises, so a typo cannot read as "no rows". The new post-narrowing cold time is to be measured on dev with a prod
+    copy and recorded in the Cache section.

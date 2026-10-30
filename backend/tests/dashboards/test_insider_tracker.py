@@ -23,9 +23,12 @@ from psycopg.types.json import Json
 from app.deps import get_conn
 from app.main import app
 from app.routers.dashboards import insider_tracker as router_mod
+from dashboards import filings as filings_mod
 from dashboards.baskets import Membership
 from dashboards.cache import CACHE
 from dashboards.filings import (
+    ALL_KINDS,
+    FORM4_KINDS,
     FilingRow,
     Who,
     fmt_price,
@@ -64,10 +67,12 @@ from domain.call import CallCard, KeyState, MemberCall, TriggerRef
 from domain.enums import Kind, State, Verdict
 from domain.insider_internal_transfers import INTERNAL_TRANSFER
 from domain.market_cap import CapTier
-from domain.market_time import market_today
+from domain.market_time import known_at_for_asof, market_today
 from domain.signal import Provenance
 from domain.thesis import BasketMember, Segment, Thesis
+from ingest.edgar.filing_index import ingest_filing_index
 from repositories import thesis_repo
+from signals.base import PointInTimeData
 
 UTC = timezone.utc
 T = date(2026, 10, 28)  # the as-of (a Wednesday)
@@ -1396,3 +1401,170 @@ def test_db_the_window_reaches_back_by_filing_date_and_ninety_days_reads_more(db
     assert acc(900) not in _accs(narrow) and acc(900) in _accs(wide)
     assert (wide["window_days"], wide["window_start"]) == (90, "2026-03-07")
     assert {E1, E2} <= set(_accs(wide))
+
+
+# ---------------------------------------------------------------------------------------------------------
+# 14. DB-backed: the page reads the Form 4 kinds ALONE (the reader's ``kinds=``), and that changes no row
+# ---------------------------------------------------------------------------------------------------------
+
+EIGHT_K, AMEND_EARLY, AMEND_LATE, S1_FORM = (acc(n) for n in (201, 202, 203, 204))
+OTHER_KINDS = {"8k", "filing"}  # what a full read returns beside the Form 4 family on this fixture
+
+
+def _other_kinds(db, w: World) -> None:
+    """On AAA: an 8-K, a stored 4/A record filed before PAST and one filed after it, and an S-1 in the EDGAR filing
+    index. The kinds a full read returns beside the Form 4s (and the 4/A is itself a Form 4 family row).
+    """
+    append_fact(
+        db,
+        "fact_corporate_event",
+        {
+            "tenant_id": DEFAULT_TENANT_ID,
+            "security_id": w.sa,
+            "form": "8-K",
+            "items": ["5.02", "9.01"],
+            "accession": EIGHT_K,
+            "filed": date(2026, 6, 3),
+            "source_ref": f"https://www.sec.gov/Archives/edgar/data/876543/{EIGHT_K.replace('-', '')}/",
+            "valid_from": date(2026, 6, 3),
+            "recorded_at": INGESTED,
+        },
+    )
+    for accession, filed in ((AMEND_EARLY, date(2026, 6, 4)), (AMEND_LATE, date(2026, 6, 10))):
+        with db.cursor() as cur:
+            cur.execute(
+                "INSERT INTO insider_amendment (tenant_id, security_id, accession, issuer_cik, owners, "
+                "date_of_original_submission, remarks, rows, filed, accepted, recorded_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                (
+                    DEFAULT_TENANT_ID,
+                    w.sa,
+                    accession,
+                    CIK,
+                    Json([{"cik": "0001111111", "name": "Jane Roe"}]),
+                    date(2026, 6, 1),
+                    f"remarks {accession}",
+                    Json([{"txn_code": "S"}]),
+                    filed,
+                    datetime.combine(filed, time(20, 0), tzinfo=UTC),
+                    INGESTED,
+                ),
+            )
+    ingest_filing_index(
+        db,
+        w.sa,
+        CIK,
+        [{"form": "S-1", "accession": S1_FORM, "primary_doc": "s1.htm", "filed": "2026-06-05"}],
+        recorded_at=INGESTED,
+    )
+    db.commit()
+
+
+@pytest.mark.parametrize("asof", [PAST, LATER])
+def test_db_the_narrowed_reader_returns_the_full_reads_form4_rows_and_no_other_kind(db, asof):
+    """The same names, as-of and clock through the real point-in-time view: the Form 4 kinds alone are exactly the
+    full read's Form 4 and 4/A rows (the 4/A gate unchanged: the later 4/A appears only at the later as-of), no row
+    of any other kind comes back, and naming nothing or every kind is the full read."""
+    w = World(db)
+    _other_kinds(db, w)
+    sids = [w.sa, w.sb, w.sc]
+    args = (db, sids, asof, known_at_for_asof(asof), "public")
+    full = filings_mod.read_filing_rows(*args, days=120)
+    narrow = filings_mod.read_filing_rows(*args, days=120, kinds=FORM4_KINDS)
+
+    assert set(narrow) == set(full) == set(sids)  # every company has an entry either way
+    for sid in sids:
+        assert narrow[sid] == tuple(r for r in full[sid] if r.kind in FORM4_KINDS)
+    assert OTHER_KINDS | FORM4_KINDS <= {r.kind for rs in full.values() for r in rs}  # not vacuous
+    assert {r.kind for rs in narrow.values() for r in rs} == FORM4_KINDS
+    four_a = sorted(r.accession for r in narrow[w.sa] if r.kind == "form4a")
+    assert four_a == ([AMEND_EARLY] if asof == PAST else [AMEND_EARLY, AMEND_LATE])
+
+    # the default is unchanged
+    assert filings_mod.read_filing_rows(*args, days=120, kinds=None) == full
+    assert filings_mod.read_filing_rows(*args, days=120, kinds=ALL_KINDS) == full
+
+
+def test_db_the_narrowed_reader_never_loads_another_kinds_table_or_runs_the_4a_select_without_form4a(
+    db, monkeypatch
+):
+    w = World(db)
+    _other_kinds(db, w)
+    tables: list[str] = []
+    amendment_selects: list[int] = []
+    real_rows, real_splits = PointInTimeData._rows, PointInTimeData._split_rows
+    real_amendments = filings_mod.read_amendments
+
+    def rows_spy(self, table, security_id):
+        tables.append(table)
+        return real_rows(self, table, security_id)
+
+    def splits_spy(self, security_id):
+        tables.append("split list")
+        return real_splits(self, security_id)
+
+    def amendments_spy(*a, **k):
+        amendment_selects.append(1)
+        return real_amendments(*a, **k)
+
+    monkeypatch.setattr(PointInTimeData, "_rows", rows_spy)
+    monkeypatch.setattr(PointInTimeData, "_split_rows", splits_spy)
+    monkeypatch.setattr(filings_mod, "read_amendments", amendments_spy)
+    args = (db, [w.sa, w.sb, w.sc], LATER, known_at_for_asof(LATER), "public")
+
+    filings_mod.read_filing_rows(*args, days=120, kinds=FORM4_KINDS)
+    assert set(tables) == {"fact_insider_txn"} and len(amendment_selects) == 1
+
+    tables.clear()
+    amendment_selects.clear()
+    form4 = filings_mod.read_filing_rows(*args, days=120, kinds={"form4"})
+    assert set(tables) == {"fact_insider_txn"} and amendment_selects == []
+    assert {r.kind for rs in form4.values() for r in rs} == {"form4"}
+
+    # the full read loads every kind's table, so the spy is not blind
+    tables.clear()
+    amendment_selects.clear()
+    filings_mod.read_filing_rows(*args, days=120)
+    assert {
+        "fact_insider_txn",
+        "fact_corporate_event",
+        "fact_activist_stake",
+        "fact_fundamentals",
+        "fact_dilution",
+        "fact_catalyst",
+        "fact_cash_burn",
+        "fact_shares_outstanding",
+        "fact_revenue_mix",
+        "fact_filing_index",
+        "split list",
+    } <= set(tables) and len(amendment_selects) == 1
+
+
+def test_db_the_page_asks_the_reader_for_the_form4_kinds_and_serves_the_page_a_full_read_would(
+    db, monkeypatch
+):
+    w = World(db)
+    _other_kinds(db, w)
+    real = router_mod.read_filing_rows
+    asked: list = []
+
+    def narrowed(*a, **k):
+        asked.append(k.get("kinds"))
+        return real(*a, **k)
+
+    def full(*a, kinds=None, **k):  # the same call with the narrowing taken off
+        asked.append("full")
+        return real(*a, **k)
+
+    monkeypatch.setattr(router_mod, "read_filing_rows", narrowed)
+    got = _get(db, LATER, silent=True)
+    monkeypatch.setattr(router_mod, "read_filing_rows", full)
+    want = _get(db, LATER, silent=True)
+
+    assert asked == [FORM4_KINDS, "full"]
+    assert got["rows"] and {E1, E2, L1, K1} <= set(_accs(got))  # not vacuous
+
+    def keep(body: dict) -> dict:  # the run's own state (cache status, timing) is not the page
+        return {k: v for k, v in body.items() if k not in ("cache", "compute_ms")}
+
+    assert keep(got) == keep(want)  # every row, count and note identical

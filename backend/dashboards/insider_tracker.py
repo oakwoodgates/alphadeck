@@ -3,9 +3,10 @@ the counted cards' names in a window, one row per Form 4, newest first: who boug
 too, whether it became a trigger, and what the tape did since. Follows the as-of dial.
 
 PURE: the router reads the counted cards and their rosters at the as-of (``dashboards/baskets.py``), every counted
-name's filings through the shared reader (``dashboards/filings.py``: the point-in-time view plus the Form 4/A SELECT,
-both on the request's one ``serve_view(asof)`` pair), the ``calls`` log's nights for the window, the bars and the data
-flags of the names with a purchase, and hands them in as ``TrackerInputs``; ``insider_tracker(...)`` builds the page.
+name's filings through the shared reader (``dashboards/filings.py``, narrowed to the Form 4 kinds: the point-in-time
+view's Form 4 tape plus the Form 4/A SELECT, both on the request's one ``serve_view(asof)`` pair), the ``calls`` log's
+nights for the window, the bars and the data flags of the names with a purchase, and hands them in as
+``TrackerInputs``; ``insider_tracker(...)`` builds the page.
 Display only: nothing here feeds a call, scores an idea or writes anything (``docs/DASHBOARDS.md`` rule 1), and
 NOTHING here aggregates the rows' returns (rule 6: a median move "after insider buys" is an event-outcome statistic,
 sliced by market-cap tier on the Track Record page; this page lists, and its only numbers across rows are counts).

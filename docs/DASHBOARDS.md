@@ -131,7 +131,8 @@ the data flags). Its plan is `docs/BOARD.md`.
    EDGAR index (`fact_filing_index`, migration 0070: display only, each filing shown once as its richest row),
    normalized to one `FilingRow` shape (`read_filing_rows`: the point-in-time view plus the Form 4/A SELECT, both on
    the request's one `serve_view(asof)` pair). A page that lists what a company filed reuses it rather than
-   re-reading the fact tables. A ratified fact, and a catalyst a person ratified, carry who ratified them and the
+   re-reading the fact tables; a page that wants one family names it (`kinds=`; Insider Buying reads `form4` and `form4a`
+   alone, and every other kind's read is skipped, not filtered). A ratified fact, and a catalyst a person ratified, carry who ratified them and the
    day (`ratifier`, `ratified_on`; the Evidence Ledger's authority classes read them).
 
 8. **Self-contained layout, self-registering**, so dashboards build in parallel and delete cleanly. A slug

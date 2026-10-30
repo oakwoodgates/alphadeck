@@ -1,11 +1,11 @@
 """The Insider Buying dashboard's API (``docs/dashboards/insider-tracker.md``): one GET, every open-market insider
 purchase (Form 4 code P) across the counted cards' names in a window, one row per Form 4, at the as-of dial. It READS
 the cards that existed by the as-of with their rosters then (``dashboards/baskets.py``), every counted name's filings
-through the shared reader (``dashboards/filings.py``: the point-in-time view plus the Form 4/A SELECT, both on the
-request's one ``serve_view(asof)`` pair), the ``calls`` log's nights for the window (one plain SELECT; never
-``call_for_thesis``), and, for the names with a purchase only, the data flags that reach a price reading and the
-as-traded bars, shares facts and splits through the same point-in-time view, plus IWM's bars. It then hands them to the
-pure compute in ``dashboards/insider_tracker.py``. The whole read is computed once per (window, Context-and-Bench
+through the shared reader (``dashboards/filings.py``, narrowed to the Form 4 kinds: the point-in-time view's Form 4
+tape plus the Form 4/A SELECT, both on the request's one ``serve_view(asof)`` pair), the ``calls`` log's nights for
+the window (one plain SELECT; never ``call_for_thesis``), and, for the names with a purchase only, the data flags that
+reach a price reading and the as-traded bars, shares facts and splits through the same point-in-time view, plus IWM's
+bars. It then hands them to the pure compute in ``dashboards/insider_tracker.py``. The whole read is computed once per (window, Context-and-Bench
 toggle, clock, as-of) in the shared dashboard cache (``dashboards/cache.py``, ``docs/DASHBOARDS.md`` rule 7);
 grouping, filters and sorts are the page's own. Its wire models live here, not in ``app/schemas_api.py`` (rule 8).
 """
@@ -35,7 +35,7 @@ from dashboards.baskets import (
     resolved_ids,
 )
 from dashboards.cache import cached
-from dashboards.filings import read_filing_rows
+from dashboards.filings import FORM4_KINDS, read_filing_rows
 from dashboards.insider_tracker import (
     CLUSTER_WINDOW_DAYS,
     DEFAULT_WINDOW,
@@ -340,8 +340,17 @@ def read_tracker(
     sids = resolved_ids(counted.rows)
     # the ticker a name shows under is the one most of its cards use (the Cockpit's ?name= key)
     tickers = {sid: display_ticker(cards) for sid, cards in companies_in(counted.rows)}
+    # the Form 4 family alone: this page never shows an 8-K, a revenue print, a split or an index row, so none of
+    # their reads run (MEASURED on a dev copy of prod, the full read was 67.7 s cold for the 30-day window)
     filings = read_filing_rows(
-        conn, sids, asof, known_at, clock, days=window_days + CLUSTER_WINDOW_DAYS, tickers=tickers
+        conn,
+        sids,
+        asof,
+        known_at,
+        clock,
+        days=window_days + CLUSTER_WINDOW_DAYS,
+        tickers=tickers,
+        kinds=FORM4_KINDS,
     )
     buying = purchase_security_ids(filings, asof, window_days)
     flagged = price_flags(conn, buying, asof, known_at=known_at, clock=clock)
