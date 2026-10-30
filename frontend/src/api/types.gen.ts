@@ -2390,6 +2390,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboards/narrative-adoption/cards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Adoption Cards
+         * @description The card picker: the live cards that existed by the as-of, A→Z, each with its link count today. Display
+         *     only.
+         */
+        get: operations["adoption_cards_dashboards_narrative_adoption_cards_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboards/narrative-adoption/{thesis_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Adoption For Card
+         * @description One card's narrative adoption: the filings that mention its SIGNAL terms per month over 36 months, split
+         *     into reports, 8-Ks, new-issuance paper and the rest, with the filers and the new filers per month, a table
+         *     of each term, and the card's equal-weighted basket line against SPY on the same axis. A month with no stored
+         *     count is absent, never zero. Display only; a past as-of reads the roster as of that date and ends the curve
+         *     at the last month that had closed by then. 404 when the card is not counted at the as-of.
+         */
+        get: operations["adoption_for_card_dashboards_narrative_adoption__thesis_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dashboards/narrative-index": {
         parameters: {
             query?: never;
@@ -5106,6 +5151,287 @@ export interface components {
             /** Price Symbol */
             price_symbol?: string | null;
             change?: components["schemas"]["AdminPriceSymbolChangeOut"] | null;
+        };
+        /**
+         * AdoptionCardOut
+         * @description A card in the picker: its name and its real links today (Context and Bench not counted).
+         */
+        AdoptionCardOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Name */
+            name: string;
+            /** Links */
+            links: number;
+        };
+        /**
+         * AdoptionCardsOut
+         * @description The picker: the cards counted at the as-of (the live cards that existed by then), A→Z. ``cache`` /
+         *     ``compute_ms`` = whether the list came from the shared dashboard cache and how long it took when computed.
+         */
+        AdoptionCardsOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /** Live Cards */
+            live_cards: number;
+            /** Not Yet Created */
+            not_yet_created: number;
+            /** Cards */
+            cards: components["schemas"]["AdoptionCardOut"][];
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * AdoptionCountsOut
+         * @description The work: the card's current SIGNAL terms and how many have a stored month, the BROAD terms never
+         *     counted, stored terms no longer in the term set (``retired_terms``, ignored), and the axis months by
+         *     state (counted, counted for every term, "at least" filers, read before they closed, not yet closed).
+         */
+        AdoptionCountsOut: {
+            /** Signal Terms */
+            signal_terms: number;
+            /** Terms Counted */
+            terms_counted: number;
+            /** Terms Not Counted */
+            terms_not_counted: number;
+            /** Broad Terms Left Out */
+            broad_terms_left_out: number;
+            /** Retired Terms */
+            retired_terms: number;
+            /** Months Total */
+            months_total: number;
+            /** Months Counted */
+            months_counted: number;
+            /** Months Complete */
+            months_complete: number;
+            /** Months Sampled */
+            months_sampled: number;
+            /** Months Read Early */
+            months_read_early: number;
+            /** Months Not Closed */
+            months_not_closed: number;
+            /** Last Counted Month */
+            last_counted_month: string | null;
+        };
+        /**
+         * AdoptionFlaggedOut
+         * @description A name left out of the card's line: its data flags reach its price readings at the as-of.
+         */
+        AdoptionFlaggedOut: {
+            /** Ticker */
+            ticker: string;
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * AdoptionMonthOut
+         * @description One axis month (``month`` = its first day), summed over the card's SIGNAL terms that have a stored
+         *     count that month. ``counted`` false = no term has one: every number is ``null`` (never zero), and
+         *     ``closed`` says whether the month had ended by the as-of (the as-of's own month has not). A document
+         *     matching two terms counts twice in the sums. ``terms_counted`` = how many terms the sums rest on.
+         *     ``filers`` = distinct CIKs summed over terms, "at least" when ``filers_sampled``; ``new_filers`` = the
+         *     terms' own new filers summed (``null`` = none has one). ``read_early`` = a count was read before the month
+         *     closed (partial until the next weekly run). ``top_terms`` = the three terms with the most documents.
+         */
+        AdoptionMonthOut: {
+            /**
+             * Month
+             * Format: date
+             */
+            month: string;
+            /** Closed */
+            closed: boolean;
+            /** Counted */
+            counted: boolean;
+            /** Terms Counted */
+            terms_counted: number;
+            /** Documents */
+            documents: number | null;
+            /** Reports */
+            reports: number | null;
+            /** Events */
+            events: number | null;
+            /** Issuance */
+            issuance: number | null;
+            /** Other */
+            other: number | null;
+            /** Filers */
+            filers: number | null;
+            /** Filers Sampled */
+            filers_sampled: boolean;
+            /** New Filers */
+            new_filers: number | null;
+            /** Read Early */
+            read_early: boolean;
+            /** Top Terms */
+            top_terms: components["schemas"]["AdoptionTermShareOut"][];
+        };
+        /**
+         * AdoptionOut
+         * @description One card's page. ``months`` = the ``months_window`` calendar months ending with the as-of's month, oldest
+         *     first; ``terms`` = the table, sorted by last-month documents; ``overlay`` = the Narrative Index line.
+         *     ``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was public by the end of that
+         *     date). ``roster_fallback`` = no roster snapshot by the as-of: today's roster stands in for the line (the
+         *     terms are today's too: a term set has no history). ``last_run`` = the job's newest run (``null`` = none on
+         *     record). ``cache`` / ``compute_ms`` = whether the page came from the shared dashboard cache and how long it
+         *     took when computed.
+         */
+        AdoptionOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /**
+             * Clock
+             * @enum {string}
+             */
+            clock: "record" | "public";
+            /** Roster Fallback */
+            roster_fallback: boolean;
+            /** Months Window */
+            months_window: number;
+            /** Months */
+            months: components["schemas"]["AdoptionMonthOut"][];
+            /** Terms */
+            terms: components["schemas"]["AdoptionTermOut"][];
+            overlay: components["schemas"]["AdoptionOverlayOut"];
+            counts: components["schemas"]["AdoptionCountsOut"];
+            last_run: components["schemas"]["AdoptionRunOut"] | null;
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * AdoptionOverlayOut
+         * @description The card's equal-weighted basket line and SPY over ``dates``, both 100 on the first. ``null`` line = none
+         *     (``card_reason`` / ``spy_reason`` say why). ``names`` = companies on the card (each once) plus rows with
+         *     no resolved security; ``priced`` = those that contributed a daily return; ``flagged`` = names left out for a
+         *     flagged price history (counted in ``names``, never in ``priced``).
+         */
+        AdoptionOverlayOut: {
+            /** Dates */
+            dates: string[];
+            /** Card */
+            card: number[] | null;
+            /** Spy */
+            spy: number[] | null;
+            /** Card Reason */
+            card_reason: string | null;
+            /** Spy Reason */
+            spy_reason: string | null;
+            /**
+             * Session Source
+             * @enum {string}
+             */
+            session_source: "benchmarks" | "companies" | "none";
+            /** Names */
+            names: number;
+            /** Priced */
+            priced: number;
+            /** Unresolved */
+            unresolved: number;
+            /** Silent Left Out */
+            silent_left_out: number;
+            /** Flagged */
+            flagged: components["schemas"]["AdoptionFlaggedOut"][];
+        };
+        /**
+         * AdoptionRunOut
+         * @description The term-mentions job's newest applied run, from its artifact: ``schedule`` weekly (re-reads the last two
+         *     months) or backfill (the whole window), the months it covered, and what it could not read. The totals are
+         *     the job's (every card); ``card_*`` are this card's share (a failed or deferred month is absent from the
+         *     curve, never a zero).
+         */
+        AdoptionRunOut: {
+            /** Schedule */
+            schedule: string;
+            /** Run Kind */
+            run_kind: string;
+            /** Status */
+            status: string;
+            /** Finished On */
+            finished_on: string | null;
+            /** Months From */
+            months_from: string;
+            /** Months To */
+            months_to: string;
+            /** Requests */
+            requests: number;
+            /** Failed Requests */
+            failed_requests: number;
+            /** Deferred Months */
+            deferred_months: number;
+            /** Card Failed Requests */
+            card_failed_requests: number;
+            /** Card Deferred Months */
+            card_deferred_months: number;
+        };
+        /**
+         * AdoptionTermOut
+         * @description One SIGNAL term, counted alone. ``counted`` false = no month stored yet ("not counted yet", never
+         *     zero). The windows end at the page's last counted month: ``last_3_documents`` / ``last_12_documents`` sum
+         *     the months stored (``months_last_3`` / ``months_last_12`` say how many of the 3 / 12), ``null`` = none
+         *     stored. ``filers`` = distinct CIKs in the last month. ``first_month`` = the first stored month with a
+         *     document; ``first_at_start`` = it is also the earliest stored month, so the term may be older.
+         */
+        AdoptionTermOut: {
+            /** Term */
+            term: string;
+            /** Counted */
+            counted: boolean;
+            /** Months Stored */
+            months_stored: number;
+            /** Last Month Documents */
+            last_month_documents: number | null;
+            /** Last 3 Documents */
+            last_3_documents: number | null;
+            /** Months Last 3 */
+            months_last_3: number;
+            /** Last 12 Documents */
+            last_12_documents: number | null;
+            /** Months Last 12 */
+            months_last_12: number;
+            /** Filers */
+            filers: number | null;
+            /** Filers Sampled */
+            filers_sampled: boolean;
+            /** First Month */
+            first_month: string | null;
+            /** First At Start */
+            first_at_start: boolean;
+        };
+        /**
+         * AdoptionTermShareOut
+         * @description One term's documents in a month (the month's top terms).
+         */
+        AdoptionTermShareOut: {
+            /** Term */
+            term: string;
+            /** Documents */
+            documents: number;
         };
         /**
          * AnnotatedNightOut
@@ -18371,6 +18697,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LeadersOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    adoption_cards_dashboards_narrative_adoption_cards_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; only the cards that existed by then are listed */
+                asof: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdoptionCardsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    adoption_for_card_dashboards_narrative_adoption__thesis_id__get: {
+        parameters: {
+            query: {
+                /** @description as-of date; nothing published after it is read */
+                asof: string;
+            };
+            header?: never;
+            path: {
+                thesis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdoptionOut"];
                 };
             };
             /** @description Validation Error */

@@ -33,16 +33,16 @@ untouched (`docs/DISCOVERY.md`): the job counts, it never places a name.
   rest, so the groups sum to the total), `filers` = the distinct CIKs in the hits (exact when `documents <= 100`, else
   "at least" the distinct CIKs of the first page, with `filers_sampled = true`), `new_filers` = filers not seen for
   that term in any earlier stored month, and the request's `fetched_at`.
-- **Request budget (PROPOSED, to be measured on the first run):** the backfill is 36 months × 775 terms = 27,900
-  requests, about 55 minutes if the lane runs alone at the 8.5/s budget and about two hours sharing it
-  (MEASURED by the job's dry run on a copy of dev's 62 live cards, 2026-10-29: 746 distinct terms, so **26,856**
-  requests, and **1,492** per weekly run after it; the run time is still to be measured on the first run); it runs ONCE,
-  on a weekend day outside the nightly's window, and is resumable (a stored month is never re-fetched). The weekly
-  run re-fetches only the current month and the one before (a filing accepted late settles the prior month):
-  about 1,550 requests, in the cron sidecar's weekly loop beside the company-list refresh (`scripts/daily_cron.sh`,
-  Saturday, after `master_refresh_loop`), with its own kill switch env. A term added to a card later gets its 36
-  months on the next weekly run. A term removed stays stored (history is never deleted) and the page shows the
-  card's CURRENT terms.
+- **Request budget (MEASURED by the one-time backfill on prod, 2026-10-29):** **26,856** EDGAR full-text requests in
+  **80 minutes**, about **5.6** requests a second (under the 8.5/s lane budget), appending **27,851** rows (cards that
+  share a term share its request, so the rows outnumber the requests). **3** requests failed with SEC 500s and left
+  **46** later months deferred and listed in the run record, never written as zeros; the next run that fills the gap
+  writes them. Each weekly run after it is **1,492** requests (the current month and the one before: a filing
+  accepted late settles the prior month). The backfill ran ONCE, on a weekend day outside the nightly's window, and is
+  resumable (a stored month is never re-fetched). The weekly run lives in the cron sidecar's weekly loop beside the
+  company-list refresh (`scripts/daily_cron.sh`, Saturday, after `master_refresh_loop`), with its own kill switch env.
+  A term added to a card later gets its 36 months on the next weekly run. A term removed stays stored (history is
+  never deleted) and the page shows the card's CURRENT terms.
 - **Idempotency is proven by counting the table** (the repo's rule), and a re-run after a finished month changes
   nothing. Honesty rules: a failed request leaves the month unstored and listed in the run report (never a zero);
   a 429 pauses the lane like every other SEC client; the run writes a summary line and a `data/term_mentions/`
@@ -94,7 +94,7 @@ its term table and its index line. The cache clears on a new run or a basket edi
   form grouping on a recorded EFTS response fixture, the filer rule exact vs sampled, new filers, idempotency by
   COUNTING the table, a failed month left unstored and reported, the accessor's two-clock gate), and a
   `docs/FEED_LOOP.md` paragraph. The first backfill runs on prod with the operator's go (the cost thread: cost is the
-  operator's to spend, never ambient); the numbers it measures replace the PROPOSED estimate above.
+  operator's to spend, never ambient); the numbers it measured are in the request budget above.
 - Page: `backend/dashboards/narrative_adoption.py` (pure: the monthly axis, the group stacking, the filer and new-filer
   lines, the term table, the overlay alignment), `backend/app/routers/dashboards/narrative_adoption.py`
   (`GET /dashboards/narrative-adoption/cards?asof=` and `GET /dashboards/narrative-adoption/{thesis_id}?asof=`),
@@ -162,3 +162,66 @@ filers exact only under 100 documents; the weekly refresh of two months; the 36-
   far outside the nightly window. A run refused or stopped (exit 75) retries hourly, at most six times.
 - **The page's month boundary:** `valid_from` is the month's last day, so on the live read the current
   (partial) month appears only from its last day; until the first weekly run after it closes it reads partial.
+
+### Built choices to confirm (the page build, 2026-10-30)
+
+Each is the build's own call where the plan was silent or the code said otherwise; the operator confirms or changes
+each. The first two are the places the plan's wording could not be followed as written.
+
+1. **The overlay reads its own 1,200-day price window.** The display view's price bound is 630 days, which would stop
+   the tape at about 21 of the 36 months, so the page widens only the price bound in its own view (same two-clock gate,
+   same split scale). Both lines start from the last session before the axis, so the first month's whole move is in
+   them, and they are drawn daily, each point placed by its day inside its month's slot.
+2. **The cache key carries the job's newest run.** The plan's key is `(str(thesis_id), clock)` and says the weekly run is
+   "a new run" for the cache. The cache's own generation token follows the nightly pass and basket edits only, and
+   changing `dashboards/cache.py` is outside rule 8 (and would change `test_cache.py`'s pinned token), so the key is
+   `(str(thesis_id), clock, the newest applied run's started_at / status / finished_at)`. A Saturday run is a new read; the
+   old entry ages out under the cache's bound.
+3. **A blank month is never a zero, and says which kind of blank.** An absent month (no stored count for any current
+   term: the as-of's own month before it closes, a failed or deferred month, a term added since the last run) draws
+   nothing and its readout says why. A stored zero is a real zero and draws a thin tick on the baseline. The as-of's own
+   month is on the axis and empty until its last day, because the job stores a month under its last day.
+4. **A month stored for only some terms is summed over those terms** and its readout says "only N of M terms stored: the
+   sums are a floor", rather than hiding the month or filling the rest with zeros.
+5. **A count read before its month closed is marked.** A stored row read (market time) on or before the month's last day
+   reads "counted before the month closed: partial until the next weekly run" (from the row's `fetched_at`), the
+   plan's "current month is partial" limit stated per month.
+6. **New filers are the sum of the terms' own new filers.** A term's first stored month has none (the job stores NULL);
+   a month where no term has one is a gap in the line, never zero. The new-filers line takes the filers line's "at least"
+   ring (an earlier sampled month can also skew a later month's new count; the page's limits say so).
+7. **The "at least" ring is dropped when every counted month reads "at least"** (a mark true of every point carries no
+   information), and the filers note says so once in words.
+8. **The term table's columns.** "Last month" is the page's last COUNTED month (named in the header), not the as-of's
+   month. "Last 3" and "Last 12" are calendar months ending there, summed over the months stored, with "(n of 3 months)"
+   where some are missing; "—" is none stored. "Its filers" is the filers in the last month ("at least" marked). "First
+   appeared" is the first stored month with a document, written "or earlier" when that is the earliest stored month (the
+   window can start after the term did). Sorted by last-month documents; a counted term with nothing stored in that
+   month follows; "not counted yet" terms come last.
+9. **The terms are today's at every as-of.** A term set has no history, so a past as-of counts today's SIGNAL terms
+   against the months public by then. A stored term no longer in the set is ignored and counted in the quiet line (not
+   listed). Rows match a term by its exact spelling, the job's own rule, so a case-edited term reads "not counted yet"
+   until the next weekly run.
+10. **BROAD terms are counted as left out** in the quiet line, never listed.
+11. **Context and Bench names are left out of the card's line** (the Narrative Index's default) and counted in the
+    quiet line. A name with a flagged price history is left out and named through the shared note. SPY only (no IWM).
+12. **Both lines are rebased to 100 at one common session:** the later of the two lines' first real step, so neither
+    line is drawn flat before it starts. A line the server cannot draw (no SPY tape, no priced name) is absent with its
+    reason in the note under the panel.
+13. **The last run comes from the job's artifact** (`pipeline.term_mentions.latest_run`, a file read: the newest
+    applied run, any schedule). "The months it refreshed" is the last two window months for a weekly run and the whole
+    window for a backfill. The card's share of failed requests is matched by card name (the artifact lists failed
+    requests by name) and of deferred months by thesis id.
+14. **The page imports four helpers from `pipeline.term_mentions`** (`signal_terms`, `month_window`, `month_last_day`,
+    `latest_run`) so it never re-implements the job's term and month rules. That module also holds the job's writer;
+    the page calls none of it (rule 1's scans read the dashboard files only, so review checks these imports).
+15. **The shared picker is used as is** (cards A→Z with their link counts); no per-card term count in the picker, which
+    would need one more read per card.
+16. **Reading the panels.** Hover or the arrow keys move one month cursor through all three panels and one readout;
+    Home and End jump, Escape clears, and the readout clears when the pointer leaves the panels. The three panels are
+    one tab stop. The double-count note shows only where more than one term was summed.
+17. **The four fills** are from the app's tokens: Reports the lightest gray, 8-Ks a mid gray, Issuance a muted blue-gray
+    (the only hue on the page), Other a dark gray, stacked in that order from the baseline. A legend swatch's hover names
+    the forms in its group. Each panel has its own y scale (documents and filers from 0 to a round maximum; the tape from
+    its range with 100 always shown, a tick label that would sit on another dropped).
+18. **On a phone** the panels scale down with the width (no sideways scroll for them) and only the term table scrolls
+    sideways, inside its own wrapper.

@@ -4782,6 +4782,108 @@
         }
       }
     },
+    "/dashboards/narrative-adoption/cards": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Adoption Cards",
+        "description": "The card picker: the live cards that existed by the as-of, A\u2192Z, each with its link count today. Display\nonly.",
+        "operationId": "adoption_cards_dashboards_narrative_adoption_cards_get",
+        "parameters": [
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; only the cards that existed by then are listed",
+              "title": "Asof"
+            },
+            "description": "as-of date; only the cards that existed by then are listed"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdoptionCardsOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboards/narrative-adoption/{thesis_id}": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Adoption For Card",
+        "description": "One card's narrative adoption: the filings that mention its SIGNAL terms per month over 36 months, split\ninto reports, 8-Ks, new-issuance paper and the rest, with the filers and the new filers per month, a table\nof each term, and the card's equal-weighted basket line against SPY on the same axis. A month with no stored\ncount is absent, never zero. Display only; a past as-of reads the roster as of that date and ends the curve\nat the last month that had closed by then. 404 when the card is not counted at the as-of.",
+        "operationId": "adoption_for_card_dashboards_narrative_adoption__thesis_id__get",
+        "parameters": [
+          {
+            "name": "thesis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thesis Id"
+            }
+          },
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; nothing published after it is read",
+              "title": "Asof"
+            },
+            "description": "as-of date; nothing published after it is read"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdoptionOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/dashboards/narrative-index": {
       "get": {
         "tags": [
@@ -10320,6 +10422,706 @@
         ],
         "title": "AdminUnpriceableRowOut",
         "description": "An UNPRICEABLE basket name (Q8): no stored price bar ever, and neither closed (T1) nor renamed (T2)\n\u2014 WONDF's shape. Loud until the operator ratifies one of: set a price symbol (validated by one vendor\nfetch), acknowledge it (\"keep it, unpriced\"), or remove it from the basket in the editor (``theses``).\n``vendor_error`` is what the price leg got that night (a 404); ``edgar_tickers`` what EDGAR lists\n(``[]`` = none). ``change`` = a standing operator Set (waiting for the next pass, with its Undo)."
+      },
+      "AdoptionCardOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "links": {
+            "type": "integer",
+            "title": "Links"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "name",
+          "links"
+        ],
+        "title": "AdoptionCardOut",
+        "description": "A card in the picker: its name and its real links today (Context and Bench not counted)."
+      },
+      "AdoptionCardsOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "live_cards": {
+            "type": "integer",
+            "title": "Live Cards"
+          },
+          "not_yet_created": {
+            "type": "integer",
+            "title": "Not Yet Created"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/AdoptionCardOut"
+            },
+            "type": "array",
+            "title": "Cards"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "live_cards",
+          "not_yet_created",
+          "cards",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "AdoptionCardsOut",
+        "description": "The picker: the cards counted at the as-of (the live cards that existed by then), A\u2192Z. ``cache`` /\n``compute_ms`` = whether the list came from the shared dashboard cache and how long it took when computed."
+      },
+      "AdoptionCountsOut": {
+        "properties": {
+          "signal_terms": {
+            "type": "integer",
+            "title": "Signal Terms"
+          },
+          "terms_counted": {
+            "type": "integer",
+            "title": "Terms Counted"
+          },
+          "terms_not_counted": {
+            "type": "integer",
+            "title": "Terms Not Counted"
+          },
+          "broad_terms_left_out": {
+            "type": "integer",
+            "title": "Broad Terms Left Out"
+          },
+          "retired_terms": {
+            "type": "integer",
+            "title": "Retired Terms"
+          },
+          "months_total": {
+            "type": "integer",
+            "title": "Months Total"
+          },
+          "months_counted": {
+            "type": "integer",
+            "title": "Months Counted"
+          },
+          "months_complete": {
+            "type": "integer",
+            "title": "Months Complete"
+          },
+          "months_sampled": {
+            "type": "integer",
+            "title": "Months Sampled"
+          },
+          "months_read_early": {
+            "type": "integer",
+            "title": "Months Read Early"
+          },
+          "months_not_closed": {
+            "type": "integer",
+            "title": "Months Not Closed"
+          },
+          "last_counted_month": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Counted Month"
+          }
+        },
+        "type": "object",
+        "required": [
+          "signal_terms",
+          "terms_counted",
+          "terms_not_counted",
+          "broad_terms_left_out",
+          "retired_terms",
+          "months_total",
+          "months_counted",
+          "months_complete",
+          "months_sampled",
+          "months_read_early",
+          "months_not_closed",
+          "last_counted_month"
+        ],
+        "title": "AdoptionCountsOut",
+        "description": "The work: the card's current SIGNAL terms and how many have a stored month, the BROAD terms never\ncounted, stored terms no longer in the term set (``retired_terms``, ignored), and the axis months by\nstate (counted, counted for every term, \"at least\" filers, read before they closed, not yet closed)."
+      },
+      "AdoptionFlaggedOut": {
+        "properties": {
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ticker",
+          "reason"
+        ],
+        "title": "AdoptionFlaggedOut",
+        "description": "A name left out of the card's line: its data flags reach its price readings at the as-of."
+      },
+      "AdoptionMonthOut": {
+        "properties": {
+          "month": {
+            "type": "string",
+            "format": "date",
+            "title": "Month"
+          },
+          "closed": {
+            "type": "boolean",
+            "title": "Closed"
+          },
+          "counted": {
+            "type": "boolean",
+            "title": "Counted"
+          },
+          "terms_counted": {
+            "type": "integer",
+            "title": "Terms Counted"
+          },
+          "documents": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Documents"
+          },
+          "reports": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reports"
+          },
+          "events": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Events"
+          },
+          "issuance": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Issuance"
+          },
+          "other": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Other"
+          },
+          "filers": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filers"
+          },
+          "filers_sampled": {
+            "type": "boolean",
+            "title": "Filers Sampled"
+          },
+          "new_filers": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Filers"
+          },
+          "read_early": {
+            "type": "boolean",
+            "title": "Read Early"
+          },
+          "top_terms": {
+            "items": {
+              "$ref": "#/components/schemas/AdoptionTermShareOut"
+            },
+            "type": "array",
+            "title": "Top Terms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "month",
+          "closed",
+          "counted",
+          "terms_counted",
+          "documents",
+          "reports",
+          "events",
+          "issuance",
+          "other",
+          "filers",
+          "filers_sampled",
+          "new_filers",
+          "read_early",
+          "top_terms"
+        ],
+        "title": "AdoptionMonthOut",
+        "description": "One axis month (``month`` = its first day), summed over the card's SIGNAL terms that have a stored\ncount that month. ``counted`` false = no term has one: every number is ``null`` (never zero), and\n``closed`` says whether the month had ended by the as-of (the as-of's own month has not). A document\nmatching two terms counts twice in the sums. ``terms_counted`` = how many terms the sums rest on.\n``filers`` = distinct CIKs summed over terms, \"at least\" when ``filers_sampled``; ``new_filers`` = the\nterms' own new filers summed (``null`` = none has one). ``read_early`` = a count was read before the month\nclosed (partial until the next weekly run). ``top_terms`` = the three terms with the most documents."
+      },
+      "AdoptionOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "clock": {
+            "type": "string",
+            "enum": [
+              "record",
+              "public"
+            ],
+            "title": "Clock"
+          },
+          "roster_fallback": {
+            "type": "boolean",
+            "title": "Roster Fallback"
+          },
+          "months_window": {
+            "type": "integer",
+            "title": "Months Window"
+          },
+          "months": {
+            "items": {
+              "$ref": "#/components/schemas/AdoptionMonthOut"
+            },
+            "type": "array",
+            "title": "Months"
+          },
+          "terms": {
+            "items": {
+              "$ref": "#/components/schemas/AdoptionTermOut"
+            },
+            "type": "array",
+            "title": "Terms"
+          },
+          "overlay": {
+            "$ref": "#/components/schemas/AdoptionOverlayOut"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/AdoptionCountsOut"
+          },
+          "last_run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdoptionRunOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "thesis_id",
+          "thesis_name",
+          "clock",
+          "roster_fallback",
+          "months_window",
+          "months",
+          "terms",
+          "overlay",
+          "counts",
+          "last_run",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "AdoptionOut",
+        "description": "One card's page. ``months`` = the ``months_window`` calendar months ending with the as-of's month, oldest\nfirst; ``terms`` = the table, sorted by last-month documents; ``overlay`` = the Narrative Index line.\n``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was public by the end of that\ndate). ``roster_fallback`` = no roster snapshot by the as-of: today's roster stands in for the line (the\nterms are today's too: a term set has no history). ``last_run`` = the job's newest run (``null`` = none on\nrecord). ``cache`` / ``compute_ms`` = whether the page came from the shared dashboard cache and how long it\ntook when computed."
+      },
+      "AdoptionOverlayOut": {
+        "properties": {
+          "dates": {
+            "items": {
+              "type": "string",
+              "format": "date"
+            },
+            "type": "array",
+            "title": "Dates"
+          },
+          "card": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Card"
+          },
+          "spy": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spy"
+          },
+          "card_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Card Reason"
+          },
+          "spy_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spy Reason"
+          },
+          "session_source": {
+            "type": "string",
+            "enum": [
+              "benchmarks",
+              "companies",
+              "none"
+            ],
+            "title": "Session Source"
+          },
+          "names": {
+            "type": "integer",
+            "title": "Names"
+          },
+          "priced": {
+            "type": "integer",
+            "title": "Priced"
+          },
+          "unresolved": {
+            "type": "integer",
+            "title": "Unresolved"
+          },
+          "silent_left_out": {
+            "type": "integer",
+            "title": "Silent Left Out"
+          },
+          "flagged": {
+            "items": {
+              "$ref": "#/components/schemas/AdoptionFlaggedOut"
+            },
+            "type": "array",
+            "title": "Flagged"
+          }
+        },
+        "type": "object",
+        "required": [
+          "dates",
+          "card",
+          "spy",
+          "card_reason",
+          "spy_reason",
+          "session_source",
+          "names",
+          "priced",
+          "unresolved",
+          "silent_left_out",
+          "flagged"
+        ],
+        "title": "AdoptionOverlayOut",
+        "description": "The card's equal-weighted basket line and SPY over ``dates``, both 100 on the first. ``null`` line = none\n(``card_reason`` / ``spy_reason`` say why). ``names`` = companies on the card (each once) plus rows with\nno resolved security; ``priced`` = those that contributed a daily return; ``flagged`` = names left out for a\nflagged price history (counted in ``names``, never in ``priced``)."
+      },
+      "AdoptionRunOut": {
+        "properties": {
+          "schedule": {
+            "type": "string",
+            "title": "Schedule"
+          },
+          "run_kind": {
+            "type": "string",
+            "title": "Run Kind"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "finished_on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished On"
+          },
+          "months_from": {
+            "type": "string",
+            "title": "Months From"
+          },
+          "months_to": {
+            "type": "string",
+            "title": "Months To"
+          },
+          "requests": {
+            "type": "integer",
+            "title": "Requests"
+          },
+          "failed_requests": {
+            "type": "integer",
+            "title": "Failed Requests"
+          },
+          "deferred_months": {
+            "type": "integer",
+            "title": "Deferred Months"
+          },
+          "card_failed_requests": {
+            "type": "integer",
+            "title": "Card Failed Requests"
+          },
+          "card_deferred_months": {
+            "type": "integer",
+            "title": "Card Deferred Months"
+          }
+        },
+        "type": "object",
+        "required": [
+          "schedule",
+          "run_kind",
+          "status",
+          "finished_on",
+          "months_from",
+          "months_to",
+          "requests",
+          "failed_requests",
+          "deferred_months",
+          "card_failed_requests",
+          "card_deferred_months"
+        ],
+        "title": "AdoptionRunOut",
+        "description": "The term-mentions job's newest applied run, from its artifact: ``schedule`` weekly (re-reads the last two\nmonths) or backfill (the whole window), the months it covered, and what it could not read. The totals are\nthe job's (every card); ``card_*`` are this card's share (a failed or deferred month is absent from the\ncurve, never a zero)."
+      },
+      "AdoptionTermOut": {
+        "properties": {
+          "term": {
+            "type": "string",
+            "title": "Term"
+          },
+          "counted": {
+            "type": "boolean",
+            "title": "Counted"
+          },
+          "months_stored": {
+            "type": "integer",
+            "title": "Months Stored"
+          },
+          "last_month_documents": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Month Documents"
+          },
+          "last_3_documents": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last 3 Documents"
+          },
+          "months_last_3": {
+            "type": "integer",
+            "title": "Months Last 3"
+          },
+          "last_12_documents": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last 12 Documents"
+          },
+          "months_last_12": {
+            "type": "integer",
+            "title": "Months Last 12"
+          },
+          "filers": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filers"
+          },
+          "filers_sampled": {
+            "type": "boolean",
+            "title": "Filers Sampled"
+          },
+          "first_month": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Month"
+          },
+          "first_at_start": {
+            "type": "boolean",
+            "title": "First At Start"
+          }
+        },
+        "type": "object",
+        "required": [
+          "term",
+          "counted",
+          "months_stored",
+          "last_month_documents",
+          "last_3_documents",
+          "months_last_3",
+          "last_12_documents",
+          "months_last_12",
+          "filers",
+          "filers_sampled",
+          "first_month",
+          "first_at_start"
+        ],
+        "title": "AdoptionTermOut",
+        "description": "One SIGNAL term, counted alone. ``counted`` false = no month stored yet (\"not counted yet\", never\nzero). The windows end at the page's last counted month: ``last_3_documents`` / ``last_12_documents`` sum\nthe months stored (``months_last_3`` / ``months_last_12`` say how many of the 3 / 12), ``null`` = none\nstored. ``filers`` = distinct CIKs in the last month. ``first_month`` = the first stored month with a\ndocument; ``first_at_start`` = it is also the earliest stored month, so the term may be older."
+      },
+      "AdoptionTermShareOut": {
+        "properties": {
+          "term": {
+            "type": "string",
+            "title": "Term"
+          },
+          "documents": {
+            "type": "integer",
+            "title": "Documents"
+          }
+        },
+        "type": "object",
+        "required": [
+          "term",
+          "documents"
+        ],
+        "title": "AdoptionTermShareOut",
+        "description": "One term's documents in a month (the month's top terms)."
       },
       "AnnotatedNightOut": {
         "properties": {
