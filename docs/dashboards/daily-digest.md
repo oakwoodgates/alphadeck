@@ -321,4 +321,6 @@ build ran on neutral fixtures only and has measured nothing.
   true of nearly every Armed card. On the morning page
   those lines are folded per card into one quiet count line that opens on click (honest loudness, Workbench principle
   3: the common noise collapses, the exception stays a line); the state moves, keys, names armed or no longer armed and
-  the clocks stay lines. The server payload is unchanged (nothing is dropped), so the cache and the numbers above hold.
+  the clocks stay lines. The server payload is unchanged (nothing is dropped), so the cache and the numbers above hold. MEASURED after the
+  fold on the same copy: 58 fold lines, 45 lines shown of 405, the 28 accent lines unchanged, the page 5,858 px tall
+  at 1,280 px wide (33,750 px before).
