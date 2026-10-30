@@ -217,3 +217,13 @@ measured on real data yet: the DB-backed tests and a dev run are still to come, 
   uses the equivalents above, for the reasons given.
 - The Filing Stream's day grouping is rewritten here (the dashboards import no other dashboard); the Peer Table's
   `cap_cell` is the one cross-dashboard import.
+
+### MEASURED (dev with a prod data copy, 2026-10-29, after the nightly pass)
+
+- Resolve: an exact ticker answers in under 10 ms; an unknown ticker is a 404 with the suggestions left to the search box.
+- One company on one card (72 roster rows on that card): 49 KB, cold compute 1,108 ms, cache hit 20 ms; the page at a
+  past as-of (2026-09-15, public clock) 627 ms, showing that date's roster snapshot (a different link label than today's)
+  and that date's recorded triggers.
+- Renders at desktop and phone width: identity, the cards table with the drafted prose and its authorship, the record's
+  triggers with sources, the tape grid, the filings by day. The one gap seen was honest: "market cap: not stated, awaiting
+  shares" for a company with no share count on file.
