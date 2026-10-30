@@ -123,3 +123,58 @@ The build lists here every choice it made that this plan does not spell out, eac
 change. Pre-decided here for the operator's review: the 30-day default window; Context and Bench behind a toggle; the
 cluster rule at two buyers within 30 days; the trigger match by accession; the PROPOSED size bands; the cluster word
 as the one accent.
+
+
+### Built choices to confirm
+
+The build (2026-10-30) made these choices where the plan did not spell one out, or departed from it. Each is the
+operator's to confirm or change. Nothing below is a measurement.
+
+1. **DEPARTURE: the trigger match reads every recorded night in the window, not only the card in effect at the as-of.**
+   A flip insider trigger lives 18 days (`insider_flip_alpha_liveness_days`) and the default window is 30, so reading
+   only the card in effect would label a buy that DID fire "not a trigger" once its trigger aged off the card. The page
+   reads each counted card's winning row per night in the window (one SELECT, the Trigger Log's), matches the
+   accession on an insider entry trigger (`triggers_fired` or a member's `triggers`; a risk-list copy never matches),
+   and the chip says the first night the record shows it and whether it is still on the card ("off the card" in the row,
+   in the hover). "Not a trigger" keeps the plan's hover. To follow the plan literally instead, read the one row in
+   effect per card and drop the `live` word.
+2. **The reader's words are read back; the reader is unchanged.** `FilingRow` has no structured purchase fields, so the
+   filer, role, trade date, shares, price and dollars come from the reader's own headline and detail lines
+   (`insider_tracker.purchase_of`), and a round-trip test builds the rows through the real reader so a change to its
+   wording fails loud. A Form 4 the reader did not fold as routine is ALWAYS a row (fields blank where they do not
+   parse, never dropped). Giving `FilingRow` structured purchase fields would remove the parsing; that is a change to the
+   shared reader and was not made here. A name that ends in a parenthetical with no role behind it reads that
+   parenthetical as the role (the text cannot tell them apart).
+3. **The `$ size` is the purchases' dollars, not the reader's `usd`.** The reader's `usd` is purchases minus sales for
+   the whole filing; a filing that holds both would understate what was bought. The page sums the code-P lines (the
+   reader's `_code_summary` rule: stated dollars, else shares times price). The two differ only for a filing with a sale.
+4. **Cluster details.** Dated by FILING date; row-centered and inclusive (two buyers 30 days apart are a cluster, 31 are
+   not; the middle buyer of a chain can be in a larger cluster than its ends). A buyer is the filer the headline names
+   (the first reporting owner, casefolded, whitespace collapsed); "and N more" co-filers are shown and not counted as
+   further buyers (their names are not on the row); a filing naming no filer joins no cluster and is counted ("filings
+   naming no filer"). The read reaches 30 days before the window so a row at the window's edge counts the buyers just
+   before it; those lead-in rows are neither listed nor counted as read.
+5. **Trade date** = the earliest code-P line's trade date; "filed N days after the trade" only when the filing is later.
+6. **Size bands** read the plan's three edges as a partition: under $100K · $100K to $1M · $1M to $10M · $10M and over ·
+   size not stated (PROPOSED). They live in `trackerView.ts` (`SIZE_FLOORS`).
+7. **Role classes** read the filing's role WORDS: officer (an officer word or a title such as CEO, CFO, President, VP,
+   General Counsel), director (director, chair), 10% owner; several can hold; none = other. "Director of Sales" reads as a
+   director. A 4/A record row states no role, so it reads "not stated" and class other.
+8. **Groupings.** By filing week (newest first); by name (newest filing first, then ticker; header: buyers, dollars
+   stated added up with a hover "from N of M purchases that state a size", the cluster word); by card (A to Z; a name on
+   two cards is listed under both, and the header says purchases and names). Chips render only where the payload holds two
+   or more values, and each restates its count with the other filters applied.
+9. **Cap at the as-of, not at the event.** The cap is the latest close at the as-of times the latest shares fact (the Peer
+   Table's `cap_cell`); it only filters. The page makes no outcome claim, so rule 6's "measured at the event" does not apply.
+10. **Reuse across dashboards.** The compute imports `Series`, `since_move`, `copies` and the night types from
+    `dashboards/trigger_log.py`, `CLUSTER_MIN_BUYERS` from `dashboards/leaders.py` and `cap_cell` from
+    `dashboards/peer_table.py` (the cross-import precedent: Hot Board, Ticker Lookup and Track Record import the Peer
+    Table). Cutting the Trigger Log or Leaders needs those few names moved first.
+11. **Added, not in the plan:** a row opens to the reader's headline, detail lines and accession ("show the work"); the card
+    chips each open the Cockpit on that card and its ticker; the 90-day window is the only other choice (the wire `days` is
+    30 or 90); the work line counts 4/As whose applied rows hold no purchase ("4/As with no purchase row").
+12. **"Filer unresolved" in the plan's work line** has no Form 4 tag behind it (that tag belongs to the 13D/G reader), so
+    the line counts filings that name no filer instead.
+13. **Cost is NOT measured by this build.** The read is `read_filing_rows` over every counted name for the window plus 30
+    days, then bars, flags and the cap for the names with a purchase only. The plan's rule stands: measure the 30-day cold
+    read on dev with a prod copy and, if it exceeds a minute, narrow the reader to the Form 4 kinds before anything else.

@@ -1,0 +1,145 @@
+import type { InsiderTrackerOut, InsiderTrackerRowOut } from "../useInsiderTracker";
+
+// Hand-built payloads for Insider Buying's tests: the shape the server returns, no more. Every name is invented.
+
+export const ACC = "0000876543-26-000010";
+export const EDGAR = "https://www.sec.gov/Archives/edgar/data/876543/000087654326000010/";
+export const MIXED = "mixed-scale price history";
+
+export const row = (key: string, over: Partial<InsiderTrackerRowOut> = {}): InsiderTrackerRowOut => ({
+  key,
+  security_id: "s-aaa",
+  ticker: "AAA",
+  accession: ACC,
+  form: "4",
+  url: EDGAR,
+  filed: "2026-10-27",
+  week: "2026-10-26",
+  trade_date: "2026-10-22",
+  filed_days_after: 5,
+  cards: [{ thesis_id: "t-a", thesis_name: "Card A", ticker: "AAA", silent: null }],
+  silent_only: false,
+  filer: "Jane Roe",
+  role: "CEO",
+  role_classes: ["officer"],
+  co_filers: 0,
+  shares: 12000,
+  price: 4.1,
+  usd: 49200,
+  tags: [],
+  headline: "Jane Roe (CEO): P purchase 12,000 sh @ $4.10 · $49,200",
+  detail: ["2026-10-22 · P · 12,000 sh @ $4.10 · $49,200 · direct", "Footnote: bought on the open market"],
+  cluster: null,
+  triggers: [],
+  since: { status: "priced", reason: null, entry_date: "2026-10-27", end_date: "2026-10-28", ret: 0.1, bench_ret: 0.01 },
+  cap: { value: 250_000_000, tier: "small", gap: null, note: null },
+  ...over,
+});
+
+/** Four purchases over two cards and two filing weeks: a CEO's buy with a cluster partner and a recorded trigger, the
+ *  partner's earlier buy (a director, 1.5M), a flagged name's 12M buy by a director who is also a 10% owner, and a
+ *  Context-only name's 4/A with no size, no cap and three filers. */
+export const R1 = row("r1", {
+  cluster: { buyers: 2, others: [{ name: "Sam Poe", filed: "2026-10-20" }] },
+  triggers: [{ thesis_id: "t-a", thesis_name: "Card A", recorded_on: "2026-10-27", live: true }],
+});
+export const R2 = row("r2", {
+  accession: "0000876543-26-000009",
+  filed: "2026-10-20",
+  week: "2026-10-19",
+  trade_date: "2026-10-19",
+  filed_days_after: 1,
+  filer: "Sam Poe",
+  role: "Director",
+  role_classes: ["director"],
+  shares: 300000,
+  price: 5,
+  usd: 1_500_000,
+  headline: "Sam Poe (Director): P purchase 300,000 sh @ $5.00 · $1,500,000",
+  cluster: { buyers: 2, others: [{ name: "Jane Roe", filed: "2026-10-27" }] },
+  since: { status: "priced", reason: null, entry_date: "2026-10-20", end_date: "2026-10-28", ret: -0.042, bench_ret: 0.02 },
+});
+export const R3 = row("r3", {
+  security_id: "s-bbb",
+  ticker: "BBB",
+  accession: "0000876543-26-000011",
+  filed: "2026-10-27",
+  week: "2026-10-26",
+  trade_date: "2026-10-27",
+  filed_days_after: null,
+  cards: [{ thesis_id: "t-b", thesis_name: "Card B", ticker: "BBB", silent: null }],
+  filer: "Kim Lee",
+  role: "Director, 10% owner",
+  role_classes: ["director", "ten_percent_owner"],
+  shares: 600000,
+  price: 20,
+  usd: 12_000_000,
+  tags: ["10b5-1 plan"],
+  headline: "Kim Lee (Director, 10% owner): P purchase 600,000 sh @ $20.00 · $12,000,000",
+  since: { status: "flagged", reason: MIXED, entry_date: null, end_date: null, ret: null, bench_ret: null },
+  cap: { value: null, tier: null, gap: "flagged", note: MIXED },
+});
+export const R4 = row("r4", {
+  security_id: "s-ccc",
+  ticker: "CCC",
+  accession: "0000876543-26-000008",
+  form: "4/A",
+  filed: "2026-10-20",
+  week: "2026-10-19",
+  trade_date: null,
+  filed_days_after: null,
+  cards: [{ thesis_id: "t-a", thesis_name: "Card A", ticker: "CCC", silent: "Context" }],
+  silent_only: true,
+  filer: "Cy Dunn",
+  role: null,
+  role_classes: ["other"],
+  co_filers: 2,
+  shares: null,
+  price: null,
+  usd: null,
+  tags: ["applied 4/A", "internal transfer"],
+  headline: "4/A by Cy Dunn amends the Form 4 filed 2026-10-15",
+  detail: ["Rows the system took from this 4/A, which amends accession 0000876543-26-000007"],
+  triggers: [{ thesis_id: "t-a", thesis_name: "Card A", recorded_on: "2026-10-21", live: false }],
+  since: { status: "unpriced", reason: null, entry_date: null, end_date: null, ret: null, bench_ret: null },
+  cap: { value: null, tier: null, gap: "no_shares", note: null },
+});
+
+export const ROWS = [R1, R3, R2, R4];
+
+export const page = (rows: InsiderTrackerOut["rows"] = ROWS, over: Partial<InsiderTrackerOut> = {}): InsiderTrackerOut => ({
+  asof: "2026-10-28",
+  window_days: 30,
+  window_start: "2026-09-28",
+  include_silent: false,
+  clock: "public",
+  rows,
+  counts: {
+    cards_counted: 2,
+    live_cards: 3,
+    not_yet_created: 1,
+    roster_fallback: 0,
+    basket_rows: 9,
+    silent_rows_left_out: 2,
+    unresolved_rows: 0,
+    names_read: 7,
+    filings_read: 11,
+    purchases: rows.length,
+    routine_folded: 6,
+    amendments_no_purchase: 1,
+    names_with_purchases: new Set(rows.map((r) => r.security_id)).size,
+    filer_unresolved: 0,
+    cluster_rows: rows.filter((r) => r.cluster !== null).length,
+    cluster_names: 1,
+    trigger_rows: rows.filter((r) => r.triggers.length > 0).length,
+    nights_read: 14,
+    nights_unreadable: 0,
+    names_unpriced: 1,
+    names_flagged: 1,
+    cap_blank: rows.filter((r) => r.cap.value === null).length,
+  },
+  flagged: [{ security_id: "s-bbb", ticker: "BBB", reason: MIXED }],
+  cache: "computed",
+  compute_ms: 412,
+  ...over,
+});

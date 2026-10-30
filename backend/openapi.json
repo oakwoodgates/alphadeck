@@ -4676,6 +4676,75 @@
         }
       }
     },
+    "/dashboards/insider-tracker": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Insider Tracker Page",
+        "description": "Every open-market insider purchase (Form 4 code P) across the counted cards' names in the window, newest\nfiling first, one row per Form 4: the filer and the role as the filing gives them, the shares, price and dollar\nsize, whether other buyers filed on the same name within 30 days, whether a recorded insider trigger carries the\nfiling's accession, the name's as-traded return since the filing against IWM and its approximate cap and tier.\nA row is dated by the day the filing was filed, never by the trade. Display only, with no aggregate over the rows.\nA past as-of reads the filings and the bars public by the end of that date and the nights recorded on or before\nit.",
+        "operationId": "insider_tracker_page_dashboards_insider_tracker_get",
+        "parameters": [
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; no filing, night or bar public after it is read",
+              "title": "Asof"
+            },
+            "description": "as-of date; no filing, night or bar public after it is read"
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/InsiderTrackerDays",
+              "description": "the window by filing date: the last 30 | 90 days",
+              "default": 30
+            },
+            "description": "the window by filing date: the last 30 | 90 days"
+          },
+          {
+            "name": "silent",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "also read the names the cards hold in Context and Bench (tagged; off by default)",
+              "default": false,
+              "title": "Silent"
+            },
+            "description": "also read the names the cards hold in Context and Bench (tagged; off by default)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InsiderTrackerOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/dashboards/landing": {
       "get": {
         "tags": [
@@ -22160,6 +22229,726 @@
         ],
         "title": "InsiderSellOut",
         "description": "One code-S insider sale inside an episode's window (Slice B \u2014 the sell mirror of\n``InsiderBuyOut``): an overlay chip / event-ledger row.\n\nSame shape and the same two honest clocks as the buy (``d`` = transaction date; ``disclosed`` =\n``accepted::date``, ``None`` when unresolved \u2192 the FE falls back to the \"ingested\" line, #9;\n``ingested`` = ``recorded_at::date``), both time axes asof-capped (no-lookahead #1, the\n``recorded_at`` gate like every fact table).\n\n``character`` is the sale's server-side classification via the CALL side's sell screen\n(``signals.insider_sell._screen`` \u2014 deterministic field predicates, #3), wire-mapped\n(``self`` \u2192 ``self_filing``, ``foreign`` \u2192 ``foreign_ordinary``): ``kept`` = what the risk\ndetector's cluster counts; ``planned`` (an explicit 10b5-1 True \u2014 near-noise), ``self_filing``\n(the issuer transacting its own stock), ``below_low`` (a discounted secondary \u2014 a different risk\nfamily), ``implausible`` (bad source data), and ``foreign_ordinary`` (a home-market ordinary line\nmis-filed on the ADR's tape) are SCREENED rows \u2014 surfaced grayed + labeled instead of hidden\n(WB #2), so the ledger shows why a sale did or didn't count (#6).\n\nDIAL-MIRROR CAVEAT: the labels are classified with ``DEFAULT_CONFIG`` pinned \u2014 a deployment\nrunning non-default insider dials could show characters that drift from the call's actual cluster\nscreens. The display rail's accepted posture; labels only, never the detector's math.\n\n``internal_transfer`` = a sale matched to a buy between LINKED filers (``domain.insider_internal_transfers``\n\u2014 a transfer within the filer group, never insider supply), screened like the call screens it;\n``transfer_with`` names the counterparties (``None`` on every other sale)."
+      },
+      "InsiderTrackerCapOut": {
+        "properties": {
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "tier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tier"
+          },
+          "gap": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "tier",
+          "gap",
+          "note"
+        ],
+        "title": "InsiderTrackerCapOut",
+        "description": "The approximate market cap at the as-of (the Peer Table's rule) and its tier (``nano`` | ``micro`` | ``small`` |\n``mid`` | ``large``, a filter dimension only). ``gap`` says why it is blank (``flagged`` | ``no_price`` |\n``no_shares`` | ``ads_unread`` | ``no_cap``)."
+      },
+      "InsiderTrackerCardOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "silent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Silent"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "thesis_name",
+          "ticker",
+          "silent"
+        ],
+        "title": "InsiderTrackerCardOut",
+        "description": "A card the name sits on: ``ticker`` = the ticker the Cockpit's ``?name=`` key wants on that card; ``silent`` =\n``Context`` or ``Bench`` when the name sits there only silently (it never counts toward the call)."
+      },
+      "InsiderTrackerClusterOut": {
+        "properties": {
+          "buyers": {
+            "type": "integer",
+            "title": "Buyers"
+          },
+          "others": {
+            "items": {
+              "$ref": "#/components/schemas/InsiderTrackerOtherBuyerOut"
+            },
+            "type": "array",
+            "title": "Others"
+          }
+        },
+        "type": "object",
+        "required": [
+          "buyers",
+          "others"
+        ],
+        "title": "InsiderTrackerClusterOut",
+        "description": "Two or more distinct buyers on one name filed within 30 days of the row's filing date: ``buyers`` counts the\nrow's own buyer; ``others`` names the rest."
+      },
+      "InsiderTrackerCountsOut": {
+        "properties": {
+          "cards_counted": {
+            "type": "integer",
+            "title": "Cards Counted"
+          },
+          "live_cards": {
+            "type": "integer",
+            "title": "Live Cards"
+          },
+          "not_yet_created": {
+            "type": "integer",
+            "title": "Not Yet Created"
+          },
+          "roster_fallback": {
+            "type": "integer",
+            "title": "Roster Fallback"
+          },
+          "basket_rows": {
+            "type": "integer",
+            "title": "Basket Rows"
+          },
+          "silent_rows_left_out": {
+            "type": "integer",
+            "title": "Silent Rows Left Out"
+          },
+          "unresolved_rows": {
+            "type": "integer",
+            "title": "Unresolved Rows"
+          },
+          "names_read": {
+            "type": "integer",
+            "title": "Names Read"
+          },
+          "filings_read": {
+            "type": "integer",
+            "title": "Filings Read"
+          },
+          "purchases": {
+            "type": "integer",
+            "title": "Purchases"
+          },
+          "routine_folded": {
+            "type": "integer",
+            "title": "Routine Folded"
+          },
+          "amendments_no_purchase": {
+            "type": "integer",
+            "title": "Amendments No Purchase"
+          },
+          "names_with_purchases": {
+            "type": "integer",
+            "title": "Names With Purchases"
+          },
+          "filer_unresolved": {
+            "type": "integer",
+            "title": "Filer Unresolved"
+          },
+          "cluster_rows": {
+            "type": "integer",
+            "title": "Cluster Rows"
+          },
+          "cluster_names": {
+            "type": "integer",
+            "title": "Cluster Names"
+          },
+          "trigger_rows": {
+            "type": "integer",
+            "title": "Trigger Rows"
+          },
+          "nights_read": {
+            "type": "integer",
+            "title": "Nights Read"
+          },
+          "nights_unreadable": {
+            "type": "integer",
+            "title": "Nights Unreadable"
+          },
+          "names_unpriced": {
+            "type": "integer",
+            "title": "Names Unpriced"
+          },
+          "names_flagged": {
+            "type": "integer",
+            "title": "Names Flagged"
+          },
+          "cap_blank": {
+            "type": "integer",
+            "title": "Cap Blank"
+          }
+        },
+        "type": "object",
+        "required": [
+          "cards_counted",
+          "live_cards",
+          "not_yet_created",
+          "roster_fallback",
+          "basket_rows",
+          "silent_rows_left_out",
+          "unresolved_rows",
+          "names_read",
+          "filings_read",
+          "purchases",
+          "routine_folded",
+          "amendments_no_purchase",
+          "names_with_purchases",
+          "filer_unresolved",
+          "cluster_rows",
+          "cluster_names",
+          "trigger_rows",
+          "nights_read",
+          "nights_unreadable",
+          "names_unpriced",
+          "names_flagged",
+          "cap_blank"
+        ],
+        "title": "InsiderTrackerCountsOut",
+        "description": "The work shown on the quiet line: counts of what was read and listed, never a statistic over the rows' returns.\n``filings_read`` = the Form 4s and 4/As filed in the window = ``purchases`` + ``routine_folded`` (a Form 4 with no\npurchase) + ``amendments_no_purchase`` (a 4/A whose applied rows hold none); ``cluster_rows`` / ``trigger_rows`` =\nrows in a cluster / carried by a recorded insider trigger; ``filer_unresolved`` = rows whose filer the filing does\nnot name; ``cap_blank`` = rows whose cap is blank; ``names_*`` = distinct names."
+      },
+      "InsiderTrackerDays": {
+        "type": "integer",
+        "enum": [
+          30,
+          90
+        ],
+        "title": "InsiderTrackerDays",
+        "description": "The window: the last 30 or 90 days."
+      },
+      "InsiderTrackerNameOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "reason"
+        ],
+        "title": "InsiderTrackerNameOut",
+        "description": "A name set aside from the tape, never from the list: ``reason`` = the flags' labels."
+      },
+      "InsiderTrackerOtherBuyerOut": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "filed": {
+            "type": "string",
+            "format": "date",
+            "title": "Filed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "filed"
+        ],
+        "title": "InsiderTrackerOtherBuyerOut",
+        "description": "Another buyer in a cluster: the name and the filing date nearest the row's."
+      },
+      "InsiderTrackerOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "window_days": {
+            "type": "integer",
+            "title": "Window Days"
+          },
+          "window_start": {
+            "type": "string",
+            "format": "date",
+            "title": "Window Start"
+          },
+          "include_silent": {
+            "type": "boolean",
+            "title": "Include Silent"
+          },
+          "clock": {
+            "type": "string",
+            "enum": [
+              "record",
+              "public"
+            ],
+            "title": "Clock"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/InsiderTrackerRowOut"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/InsiderTrackerCountsOut"
+          },
+          "flagged": {
+            "items": {
+              "$ref": "#/components/schemas/InsiderTrackerNameOut"
+            },
+            "type": "array",
+            "title": "Flagged"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "window_days",
+          "window_start",
+          "include_silent",
+          "clock",
+          "rows",
+          "counts",
+          "flagged",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "InsiderTrackerOut",
+        "description": "The whole page at the as-of. ``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was\npublic by the end of that date). The window is ``window_start`` to ``asof``, inclusive, by FILING date; ``rows``\nare newest filing first, then dollar size, then ticker. ``include_silent`` = whether Context and Bench names are\nread. There is no aggregate over the rows (the Track Record page slices outcomes by market-cap tier). ``cache`` /\n``compute_ms`` = whether the read came from the shared dashboard cache and how long it took when computed."
+      },
+      "InsiderTrackerRowOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "accession": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accession"
+          },
+          "form": {
+            "type": "string",
+            "title": "Form"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "filed": {
+            "type": "string",
+            "format": "date",
+            "title": "Filed"
+          },
+          "week": {
+            "type": "string",
+            "format": "date",
+            "title": "Week"
+          },
+          "trade_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trade Date"
+          },
+          "filed_days_after": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filed Days After"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/InsiderTrackerCardOut"
+            },
+            "type": "array",
+            "title": "Cards"
+          },
+          "silent_only": {
+            "type": "boolean",
+            "title": "Silent Only"
+          },
+          "filer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filer"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          },
+          "role_classes": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "officer",
+                "director",
+                "ten_percent_owner",
+                "other"
+              ]
+            },
+            "type": "array",
+            "title": "Role Classes"
+          },
+          "co_filers": {
+            "type": "integer",
+            "title": "Co Filers"
+          },
+          "shares": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shares"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price"
+          },
+          "usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Usd"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags"
+          },
+          "headline": {
+            "type": "string",
+            "title": "Headline"
+          },
+          "detail": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Detail"
+          },
+          "cluster": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InsiderTrackerClusterOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "triggers": {
+            "items": {
+              "$ref": "#/components/schemas/InsiderTrackerTriggerOut"
+            },
+            "type": "array",
+            "title": "Triggers"
+          },
+          "since": {
+            "$ref": "#/components/schemas/InsiderTrackerSinceOut"
+          },
+          "cap": {
+            "$ref": "#/components/schemas/InsiderTrackerCapOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "security_id",
+          "ticker",
+          "accession",
+          "form",
+          "url",
+          "filed",
+          "week",
+          "trade_date",
+          "filed_days_after",
+          "cards",
+          "silent_only",
+          "filer",
+          "role",
+          "role_classes",
+          "co_filers",
+          "shares",
+          "price",
+          "usd",
+          "tags",
+          "headline",
+          "detail",
+          "cluster",
+          "triggers",
+          "since",
+          "cap"
+        ],
+        "title": "InsiderTrackerRowOut",
+        "description": "One Form 4 (or applied 4/A) holding an open-market purchase. ``filed`` = the filing date (the public clock);\n``week`` = the Monday of its week; ``trade_date`` = the earliest purchase's trade date and ``filed_days_after`` =\nthe days from it to the filing when the filing is later; ``filer`` / ``role`` = the first reporting owner and the\nfiling's own role words as the reader gives them (``null`` = not stated) and ``co_filers`` = the \"and N more\"\ncount; ``role_classes`` = the role words as officer, director, 10% owner (a role can be several) or other;\n``shares`` / ``price`` / ``usd`` = the code-P lines' total, shares-weighted price and dollars (``null`` = not\nstated; the dollars are the purchases', not net of sales in the same filing); ``tags`` / ``headline`` / ``detail``\n= the reader's own field predicates and words, unchanged; ``cluster`` = see ``InsiderTrackerClusterOut``\n(``null`` = none); ``triggers`` = the recorded insider triggers carrying this accession (empty = not a trigger);\n``silent_only`` = every card the name sits on holds it in Context or Bench."
+      },
+      "InsiderTrackerSinceOut": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "priced",
+              "unpriced",
+              "flagged"
+            ],
+            "title": "Status"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "entry_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Date"
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date"
+          },
+          "ret": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ret"
+          },
+          "bench_ret": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bench Ret"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "reason",
+          "entry_date",
+          "end_date",
+          "ret",
+          "bench_ret"
+        ],
+        "title": "InsiderTrackerSinceOut",
+        "description": "The name's as-traded return from the first close on or after the filing date to the last close on or before the\nas-of, with IWM on the same two dates. ``priced`` = both bars exist; ``unpriced`` = no bar since the filing;\n``flagged`` = the name's price history is on the flagged-price list (``reason``, never priced). ``bench_ret`` is\n``null`` when IWM has no bar on one of those two dates. Returns are fractions (0.05 = +5%)."
+      },
+      "InsiderTrackerTriggerOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "recorded_on": {
+            "type": "string",
+            "format": "date",
+            "title": "Recorded On"
+          },
+          "live": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Live"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "thesis_name",
+          "recorded_on",
+          "live"
+        ],
+        "title": "InsiderTrackerTriggerOut",
+        "description": "A recorded insider trigger that carries the filing's accession on one card: ``recorded_on`` = the first night in\nthe window the record shows it; ``live`` = it is on the card in effect at the as-of (``null`` = that card could\nnot be read)."
       },
       "InstrumentKind": {
         "type": "string",

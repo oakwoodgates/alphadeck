@@ -2365,6 +2365,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboards/insider-tracker": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Insider Tracker Page
+         * @description Every open-market insider purchase (Form 4 code P) across the counted cards' names in the window, newest
+         *     filing first, one row per Form 4: the filer and the role as the filing gives them, the shares, price and dollar
+         *     size, whether other buyers filed on the same name within 30 days, whether a recorded insider trigger carries the
+         *     filing's accession, the name's as-traded return since the filing against IWM and its approximate cap and tier.
+         *     A row is dated by the day the filing was filed, never by the trade. Display only, with no aggregate over the rows.
+         *     A past as-of reads the filings and the bars public by the end of that date and the nights recorded on or before
+         *     it.
+         */
+        get: operations["insider_tracker_page_dashboards_insider_tracker_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dashboards/landing": {
         parameters: {
             query?: never;
@@ -10315,6 +10341,299 @@ export interface components {
             character: "kept" | "planned" | "self_filing" | "below_low" | "implausible" | "foreign_ordinary" | "internal_transfer";
             /** Transfer With */
             transfer_with?: string[] | null;
+        };
+        /**
+         * InsiderTrackerCapOut
+         * @description The approximate market cap at the as-of (the Peer Table's rule) and its tier (``nano`` | ``micro`` | ``small`` |
+         *     ``mid`` | ``large``, a filter dimension only). ``gap`` says why it is blank (``flagged`` | ``no_price`` |
+         *     ``no_shares`` | ``ads_unread`` | ``no_cap``).
+         */
+        InsiderTrackerCapOut: {
+            /** Value */
+            value: number | null;
+            /** Tier */
+            tier: string | null;
+            /** Gap */
+            gap: string | null;
+            /** Note */
+            note: string | null;
+        };
+        /**
+         * InsiderTrackerCardOut
+         * @description A card the name sits on: ``ticker`` = the ticker the Cockpit's ``?name=`` key wants on that card; ``silent`` =
+         *     ``Context`` or ``Bench`` when the name sits there only silently (it never counts toward the call).
+         */
+        InsiderTrackerCardOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /** Ticker */
+            ticker: string;
+            /** Silent */
+            silent: string | null;
+        };
+        /**
+         * InsiderTrackerClusterOut
+         * @description Two or more distinct buyers on one name filed within 30 days of the row's filing date: ``buyers`` counts the
+         *     row's own buyer; ``others`` names the rest.
+         */
+        InsiderTrackerClusterOut: {
+            /** Buyers */
+            buyers: number;
+            /** Others */
+            others: components["schemas"]["InsiderTrackerOtherBuyerOut"][];
+        };
+        /**
+         * InsiderTrackerCountsOut
+         * @description The work shown on the quiet line: counts of what was read and listed, never a statistic over the rows' returns.
+         *     ``filings_read`` = the Form 4s and 4/As filed in the window = ``purchases`` + ``routine_folded`` (a Form 4 with no
+         *     purchase) + ``amendments_no_purchase`` (a 4/A whose applied rows hold none); ``cluster_rows`` / ``trigger_rows`` =
+         *     rows in a cluster / carried by a recorded insider trigger; ``filer_unresolved`` = rows whose filer the filing does
+         *     not name; ``cap_blank`` = rows whose cap is blank; ``names_*`` = distinct names.
+         */
+        InsiderTrackerCountsOut: {
+            /** Cards Counted */
+            cards_counted: number;
+            /** Live Cards */
+            live_cards: number;
+            /** Not Yet Created */
+            not_yet_created: number;
+            /** Roster Fallback */
+            roster_fallback: number;
+            /** Basket Rows */
+            basket_rows: number;
+            /** Silent Rows Left Out */
+            silent_rows_left_out: number;
+            /** Unresolved Rows */
+            unresolved_rows: number;
+            /** Names Read */
+            names_read: number;
+            /** Filings Read */
+            filings_read: number;
+            /** Purchases */
+            purchases: number;
+            /** Routine Folded */
+            routine_folded: number;
+            /** Amendments No Purchase */
+            amendments_no_purchase: number;
+            /** Names With Purchases */
+            names_with_purchases: number;
+            /** Filer Unresolved */
+            filer_unresolved: number;
+            /** Cluster Rows */
+            cluster_rows: number;
+            /** Cluster Names */
+            cluster_names: number;
+            /** Trigger Rows */
+            trigger_rows: number;
+            /** Nights Read */
+            nights_read: number;
+            /** Nights Unreadable */
+            nights_unreadable: number;
+            /** Names Unpriced */
+            names_unpriced: number;
+            /** Names Flagged */
+            names_flagged: number;
+            /** Cap Blank */
+            cap_blank: number;
+        };
+        /**
+         * InsiderTrackerDays
+         * @description The window: the last 30 or 90 days.
+         * @enum {integer}
+         */
+        InsiderTrackerDays: 30 | 90;
+        /**
+         * InsiderTrackerNameOut
+         * @description A name set aside from the tape, never from the list: ``reason`` = the flags' labels.
+         */
+        InsiderTrackerNameOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Reason */
+            reason: string | null;
+        };
+        /**
+         * InsiderTrackerOtherBuyerOut
+         * @description Another buyer in a cluster: the name and the filing date nearest the row's.
+         */
+        InsiderTrackerOtherBuyerOut: {
+            /** Name */
+            name: string;
+            /**
+             * Filed
+             * Format: date
+             */
+            filed: string;
+        };
+        /**
+         * InsiderTrackerOut
+         * @description The whole page at the as-of. ``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was
+         *     public by the end of that date). The window is ``window_start`` to ``asof``, inclusive, by FILING date; ``rows``
+         *     are newest filing first, then dollar size, then ticker. ``include_silent`` = whether Context and Bench names are
+         *     read. There is no aggregate over the rows (the Track Record page slices outcomes by market-cap tier). ``cache`` /
+         *     ``compute_ms`` = whether the read came from the shared dashboard cache and how long it took when computed.
+         */
+        InsiderTrackerOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /** Window Days */
+            window_days: number;
+            /**
+             * Window Start
+             * Format: date
+             */
+            window_start: string;
+            /** Include Silent */
+            include_silent: boolean;
+            /**
+             * Clock
+             * @enum {string}
+             */
+            clock: "record" | "public";
+            /** Rows */
+            rows: components["schemas"]["InsiderTrackerRowOut"][];
+            counts: components["schemas"]["InsiderTrackerCountsOut"];
+            /** Flagged */
+            flagged: components["schemas"]["InsiderTrackerNameOut"][];
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * InsiderTrackerRowOut
+         * @description One Form 4 (or applied 4/A) holding an open-market purchase. ``filed`` = the filing date (the public clock);
+         *     ``week`` = the Monday of its week; ``trade_date`` = the earliest purchase's trade date and ``filed_days_after`` =
+         *     the days from it to the filing when the filing is later; ``filer`` / ``role`` = the first reporting owner and the
+         *     filing's own role words as the reader gives them (``null`` = not stated) and ``co_filers`` = the "and N more"
+         *     count; ``role_classes`` = the role words as officer, director, 10% owner (a role can be several) or other;
+         *     ``shares`` / ``price`` / ``usd`` = the code-P lines' total, shares-weighted price and dollars (``null`` = not
+         *     stated; the dollars are the purchases', not net of sales in the same filing); ``tags`` / ``headline`` / ``detail``
+         *     = the reader's own field predicates and words, unchanged; ``cluster`` = see ``InsiderTrackerClusterOut``
+         *     (``null`` = none); ``triggers`` = the recorded insider triggers carrying this accession (empty = not a trigger);
+         *     ``silent_only`` = every card the name sits on holds it in Context or Bench.
+         */
+        InsiderTrackerRowOut: {
+            /** Key */
+            key: string;
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Accession */
+            accession: string | null;
+            /** Form */
+            form: string;
+            /** Url */
+            url: string | null;
+            /**
+             * Filed
+             * Format: date
+             */
+            filed: string;
+            /**
+             * Week
+             * Format: date
+             */
+            week: string;
+            /** Trade Date */
+            trade_date: string | null;
+            /** Filed Days After */
+            filed_days_after: number | null;
+            /** Cards */
+            cards: components["schemas"]["InsiderTrackerCardOut"][];
+            /** Silent Only */
+            silent_only: boolean;
+            /** Filer */
+            filer: string | null;
+            /** Role */
+            role: string | null;
+            /** Role Classes */
+            role_classes: ("officer" | "director" | "ten_percent_owner" | "other")[];
+            /** Co Filers */
+            co_filers: number;
+            /** Shares */
+            shares: number | null;
+            /** Price */
+            price: number | null;
+            /** Usd */
+            usd: number | null;
+            /** Tags */
+            tags: string[];
+            /** Headline */
+            headline: string;
+            /** Detail */
+            detail: string[];
+            cluster: components["schemas"]["InsiderTrackerClusterOut"] | null;
+            /** Triggers */
+            triggers: components["schemas"]["InsiderTrackerTriggerOut"][];
+            since: components["schemas"]["InsiderTrackerSinceOut"];
+            cap: components["schemas"]["InsiderTrackerCapOut"];
+        };
+        /**
+         * InsiderTrackerSinceOut
+         * @description The name's as-traded return from the first close on or after the filing date to the last close on or before the
+         *     as-of, with IWM on the same two dates. ``priced`` = both bars exist; ``unpriced`` = no bar since the filing;
+         *     ``flagged`` = the name's price history is on the flagged-price list (``reason``, never priced). ``bench_ret`` is
+         *     ``null`` when IWM has no bar on one of those two dates. Returns are fractions (0.05 = +5%).
+         */
+        InsiderTrackerSinceOut: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "priced" | "unpriced" | "flagged";
+            /** Reason */
+            reason: string | null;
+            /** Entry Date */
+            entry_date: string | null;
+            /** End Date */
+            end_date: string | null;
+            /** Ret */
+            ret: number | null;
+            /** Bench Ret */
+            bench_ret: number | null;
+        };
+        /**
+         * InsiderTrackerTriggerOut
+         * @description A recorded insider trigger that carries the filing's accession on one card: ``recorded_on`` = the first night in
+         *     the window the record shows it; ``live`` = it is on the card in effect at the as-of (``null`` = that card could
+         *     not be read).
+         */
+        InsiderTrackerTriggerOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /**
+             * Recorded On
+             * Format: date
+             */
+            recorded_on: string;
+            /** Live */
+            live: boolean | null;
         };
         /**
          * InstrumentKind
@@ -19047,6 +19366,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["IdeaTimelineOut"];
+                };
+            };
+        };
+    };
+    insider_tracker_page_dashboards_insider_tracker_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; no filing, night or bar public after it is read */
+                asof: string;
+                /** @description the window by filing date: the last 30 | 90 days */
+                days?: components["schemas"]["InsiderTrackerDays"];
+                /** @description also read the names the cards hold in Context and Bench (tagged; off by default) */
+                silent?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InsiderTrackerOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
