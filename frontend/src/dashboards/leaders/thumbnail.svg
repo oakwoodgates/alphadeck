@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200">
+<g fill="#141821" stroke="#2a313c">
+<rect x="16" y="16" width="66" height="15" rx="7.5"/>
+</g>
+<g fill="none" stroke="#2a313c">
+<rect x="90" y="16" width="66" height="15" rx="7.5"/>
+<rect x="164" y="16" width="66" height="15" rx="7.5"/>
+<rect x="238" y="16" width="66" height="15" rx="7.5"/>
+</g>
+<path fill="none" stroke="#9aa3b0" stroke-width="3" stroke-linecap="round" d="M26.5 23.5h23"/>
+<path fill="none" stroke="#3c4450" stroke-width="3" stroke-linecap="round" d="M61.5 23.5h9M51.5 45.5h11M51.5 79.5h11M51.5 113.5h11M51.5 147.5h11M135.5 23.5h9M125.5 45.5h11M125.5 79.5h11M125.5 113.5h11M125.5 147.5h11M209.5 23.5h9M199.5 45.5h11M199.5 79.5h11M199.5 113.5h11M199.5 147.5h11M283.5 23.5h9M273.5 45.5h11M273.5 79.5h11M273.5 113.5h11M273.5 147.5h11"/>
+<path fill="none" stroke="#9aa3b0" stroke-width="3.5" stroke-linecap="round" d="M17.8 45.8h24.5M17.8 79.8h20.5M17.8 113.8h24.5M17.8 147.8h20.5M91.8 45.8h24.5M91.8 79.8h20.5M91.8 113.8h24.5M91.8 147.8h20.5M165.8 45.8h24.5M165.8 79.8h20.5M165.8 113.8h24.5M165.8 147.8h20.5M239.8 45.8h24.5M239.8 79.8h20.5M239.8 113.8h24.5M239.8 147.8h20.5"/>
+<path fill="none" stroke="#3c4450" stroke-width="5" stroke-linecap="round" d="M18.5 57.5h45M18.5 91.5h39M18.5 125.5h35M18.5 159.5h27M92.5 57.5h39M92.5 91.5h31M92.5 125.5h29M92.5 159.5h21M166.5 57.5h21M166.5 91.5h17M166.5 125.5h13M166.5 159.5h9M240.5 57.5h23M240.5 91.5h25M240.5 125.5h15M240.5 159.5h17"/>
+<path fill="none" stroke="#9aa3b0" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" d="M72 59l3 -4l3 4M66 93l3 -4l3 4M62 127l3 -4l3 4M54 161l3 -4l3 4M140 59l3 -4l3 4M132 93l3 -4l3 4M130 127l3 -4l3 4M122 161l3 -4l3 4M196 59l3 -4l3 4M192 93l3 -4l3 4M188 127l3 -4l3 4M184 161l3 -4l3 4M272 59l3 -4l3 4M274 93l3 -4l3 4M264 127l3 -4l3 4M266 161l3 -4l3 4"/>
+<path fill="none" stroke="#5a6470" stroke-width="3" stroke-linecap="round" d="M100.5 23.5h23M174.5 23.5h23M248.5 23.5h23"/>
+<path fill="none" stroke="#8ab4ff" stroke-width="3" stroke-linecap="round" d="M273.5 45.5h11M273.5 113.5h11"/>
+<path fill="none" stroke="#8ab4ff" stroke-width="4" stroke-linecap="round" opacity="0.9" d="M284 57.5h.01M290 57.5h.01M296 57.5h.01M284 125.5h.01M290 125.5h.01"/>
+</svg>

@@ -2163,5 +2163,10 @@ tr.adm-row-bad td { background: color-mix(in srgb, var(--warm) 5%, transparent);
 .dash-index { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
 .dash-tile { display: flex; flex-direction: column; gap: 6px; height: 100%; padding: 13px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: inherit; text-decoration: none; transition: border-color 0.14s, background 0.14s; }
 .dash-tile:hover { border-color: var(--line-2); background: var(--panel-2); }
+/* the thumbnail: a quiet frame at the tile's full width, 16:10 like the drawing (320 x 200); the drawing is
+   transparent, so the frame's fill is its background */
+.dash-tile-thumb { display: block; width: 100%; aspect-ratio: 16 / 10; margin-bottom: 4px; background: var(--bg-2); border: 1px solid var(--line); border-radius: 7px; overflow: hidden; transition: border-color 0.14s; }
+.dash-tile-thumb img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.dash-tile:hover .dash-tile-thumb { border-color: var(--line-2); }
 .dash-tile-head { display: flex; align-items: center; gap: 9px; }
 .dash-tile-label { font-size: 13px; font-weight: 600; }

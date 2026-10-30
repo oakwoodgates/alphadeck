@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200">
+<g fill="#101318" fill-opacity="0.7">
+<rect x="16" y="34" width="66" height="150" rx="3"/>
+</g>
+<path fill="none" stroke="#3c4450" stroke-width="2.5" stroke-linecap="round" d="M23.3 22h25.5M95.3 22h15.5M139.3 22h19.5M215.3 22h17.5M263.3 22h17.5"/>
+<path fill="none" stroke="#2a313c" d="M16 30L304 30M84 30L84 184"/>
+<path fill="none" stroke="#9aa3b0" stroke-width="4" stroke-linecap="round" d="M24 44h14M24 64h16M24 84h18M24 104h14M24 124h16M24 144h18M24 164h14"/>
+<path fill="none" stroke="#3c4450" stroke-width="3" stroke-linecap="round" d="M47.5 44h21M185.5 44h15M47.5 64h15M185.5 64h15M47.5 84h21M185.5 84h15M47.5 104h15M185.5 104h15M47.5 124h21M185.5 124h15M47.5 144h15M185.5 144h15M47.5 164h21M185.5 164h15"/>
+<g fill="none" stroke="#2a313c">
+<rect x="92" y="38" width="36" height="12" rx="3"/>
+<rect x="92" y="58" width="36" height="12" rx="3"/>
+<rect x="92" y="78" width="36" height="12" rx="3"/>
+<rect x="92" y="98" width="36" height="12" rx="3"/>
+<rect x="92" y="118" width="36" height="12" rx="3"/>
+<rect x="92" y="138" width="36" height="12" rx="3"/>
+<rect x="92" y="158" width="36" height="12" rx="3"/>
+</g>
+<path fill="none" stroke="#5a6470" stroke-width="3" stroke-linecap="round" d="M98.5 44h21M142.5 44h23M98.5 64h17M142.5 64h23M98.5 84h23M142.5 84h23M98.5 104h19M142.5 104h23M98.5 124h21M142.5 124h23M98.5 144h15M142.5 144h23M98.5 164h19M142.5 164h23"/>
+<g fill="none" stroke="#3c4450">
+<rect x="136" y="38" width="42" height="12" rx="3"/>
+<rect x="136" y="58" width="42" height="12" rx="3"/>
+<rect x="136" y="78" width="42" height="12" rx="3"/>
+<rect x="136" y="98" width="42" height="12" rx="3"/>
+<rect x="136" y="118" width="42" height="12" rx="3"/>
+<rect x="136" y="138" width="42" height="12" rx="3"/>
+<rect x="136" y="158" width="42" height="12" rx="3"/>
+</g>
+<path fill="none" stroke="#3c4450" opacity="0.5" d="M141 48.6h26M141 68.6h26M141 88.6h26M141 108.6h26M141 128.6h26M141 148.6h26M141 168.6h26"/>
+<path fill="none" stroke="#5a6470" stroke-linejoin="round" d="M214 48.8L222 47.2L230 50.4L238 44.8L246 42.4L254 39.2M214 64L222 66.4L230 63.2L238 65.6L246 68L254 66.4M214 80.8L222 82.4L230 80L238 84L246 85.6L254 88.8M214 106.4L222 104L230 107.2L238 108.8L246 105.6L254 107.2M214 128L222 128.8L230 125.6L238 123.2L246 121.6L254 120M214 142.4L222 144.8L230 141.6L238 144.8L246 144L254 147.2M214 167.2L222 165.6L230 168L238 164.8L246 166.4L254 162.4"/>
+<path fill="none" stroke="#46d07f" stroke-width="3" stroke-linecap="round" opacity="0.7" d="M263.5 44h13M287.5 44h11M263.5 84h13M287.5 84h11M263.5 104h13M287.5 124h11M263.5 144h13M263.5 164h13M287.5 164h11"/>
+<path fill="none" stroke="#ff5a6a" stroke-width="3" stroke-linecap="round" opacity="0.7" d="M263.5 64h13M287.5 64h11M287.5 104h11M263.5 124h13M287.5 144h11"/>
+</svg>

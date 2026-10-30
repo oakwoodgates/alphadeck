@@ -4,10 +4,11 @@ import type { ComponentType, LazyExoticComponent } from "react";
 // The ONE list of dashboards (docs/DASHBOARDS.md): self-contained cross-card views, the Board first. The
 // top nav's Dashboards menu, the /dashboards index, the /dashboards/:slug route and the home page (`/`,
 // HOME_DASHBOARD below) all read this list. It is SELF-REGISTERING: each dashboard's folder,
-// frontend/src/dashboards/<slug>/, carries an `entry.ts` exporting its `entry`, and the list below is built
-// from every one of them, so adding a dashboard is its folder (with its entry.ts) and cutting one is deleting
-// the folder: no shared line to edit. Every entry's body is lazy-loaded, so a page loads only the dashboard it
-// shows (the entries themselves are tiny and load eagerly).
+// frontend/src/dashboards/<slug>/, carries an `entry.ts` exporting its `entry` and a `thumbnail.svg` (the
+// drawing on the /dashboards index), and the list below is built from every pair of them, so adding a
+// dashboard is its folder (with those two files) and cutting one is deleting the folder: no shared line to
+// edit. Every entry's body is lazy-loaded, so a page loads only the dashboard it shows (the entries
+// themselves are tiny and load eagerly).
 
 /** What the shell hands a dashboard body. `asof` is the app's as-of date (YYYY-MM-DD) for an as-of
  *  aware dashboard and today's date for a "now" one. `onSelectThesis` opens the Cockpit (optionally on one
@@ -39,16 +40,33 @@ export type DashboardEntry = {
   component: LazyExoticComponent<ComponentType<DashboardProps>>;
 };
 
+/** A registry entry: what the dashboard's `entry.ts` writes, plus the URL of the `thumbnail.svg` in its folder
+ *  (the drawing on the /dashboards index). The registry fills `thumbnail`; an `entry.ts` never writes it, so
+ *  it stays typed `DashboardEntry`. */
+export type RegisteredDashboard = DashboardEntry & {
+  /** The URL of `frontend/src/dashboards/<slug>/thumbnail.svg`: its hashed file under /assets in a build (the
+   *  build keeps each thumbnail as its own file, `assetsInlineLimit` in vite.config.ts); its served path in dev
+   *  and under Vitest. */
+  readonly thumbnail: string;
+};
+
 /** The dashboard `/` renders (the top nav's Home tab), in place, never a redirect. Changing the home page
  *  is this one line: any slug a dashboard's entry.ts registers. */
 export const HOME_DASHBOARD = "board";
 
-/** The registry from the dashboards' own entry modules (`{ "./<slug>/entry.ts": { entry } }`), sorted by
- *  `order` then label. Fails loud, never quietly drops or shadows a page: a module with no `entry`, an entry
- *  whose slug is not its folder's name, or two entries with one slug. */
-export function buildRegistry(modules: Record<string, unknown>): DashboardEntry[] {
+/** The registry from the dashboards' own entry modules (`{ "./<slug>/entry.ts": { entry } }`) and their
+ *  thumbnails (`{ "./<slug>/thumbnail.svg": url }`), paired by folder and sorted by `order` then label. Fails
+ *  loud, never quietly drops or shadows a page: a module with no `entry`, an entry whose slug is not its
+ *  folder's name, two entries with one slug, an entry whose folder has no thumbnail.svg, or a thumbnail.svg
+ *  whose folder has no entry.ts. */
+export function buildRegistry(
+  modules: Record<string, unknown>,
+  thumbnails: Record<string, string>,
+): RegisteredDashboard[] {
+  const thumbByFolder = new Map<string | undefined, string>();
+  for (const [path, url] of Object.entries(thumbnails)) thumbByFolder.set(path.split("/").at(-2), url);
   const bySlug = new Map<string, string>();
-  const entries: DashboardEntry[] = [];
+  const entries: RegisteredDashboard[] = [];
   for (const [path, mod] of Object.entries(modules)) {
     const entry = (mod as { entry?: DashboardEntry } | undefined)?.entry;
     if (!entry) throw new Error(`Dashboard registry: ${path} does not export \`entry\``);
@@ -59,14 +77,28 @@ export function buildRegistry(modules: Record<string, unknown>): DashboardEntry[
     const prior = bySlug.get(entry.slug);
     if (prior) throw new Error(`Dashboard registry: duplicate slug "${entry.slug}" (${prior} and ${path})`);
     bySlug.set(entry.slug, path);
-    entries.push(entry);
+    const thumbnail = thumbByFolder.get(folder);
+    if (thumbnail === undefined) {
+      throw new Error(`Dashboard registry: ${path} has no thumbnail.svg beside it (folder "${folder}")`);
+    }
+    entries.push({ ...entry, thumbnail });
+  }
+  for (const path of Object.keys(thumbnails)) {
+    const folder = path.split("/").at(-2);
+    if (!bySlug.has(folder ?? "")) {
+      throw new Error(`Dashboard registry: ${path} has no entry.ts beside it (folder "${folder}")`);
+    }
   }
   return entries.sort(
     (a, b) => a.order - b.order || (a.label < b.label ? -1 : a.label > b.label ? 1 : 0),
   );
 }
 
-// Every <slug>/entry.ts, collected at build time (Vite; Vitest too). Order = menu order; see docs/DASHBOARDS.md.
-export const DASHBOARDS: readonly DashboardEntry[] = buildRegistry(
+// Every <slug>/entry.ts and <slug>/thumbnail.svg, collected at build time (Vite; Vitest too). The thumbnails
+// are URLs, not components: nothing imports one. The build keeps each as its own small file (`assetsInlineLimit`
+// in vite.config.ts), so the drawings stay out of the main chunk; dev and Vitest give the file's served path.
+// Order = menu order; see docs/DASHBOARDS.md.
+export const DASHBOARDS: readonly RegisteredDashboard[] = buildRegistry(
   import.meta.glob("./*/entry.ts", { eager: true }),
+  import.meta.glob<string>("./*/thumbnail.svg", { query: "?url", import: "default", eager: true }),
 );

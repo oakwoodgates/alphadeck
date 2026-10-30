@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200">
+<path fill="none" stroke="#5a6470" stroke-width="3.5" stroke-linecap="round" d="M17.8 35h30.5M17.8 63h25.5M17.8 91h20.5M17.8 119h30.5M17.8 147h25.5"/>
+<path fill="none" stroke="#1e232c" d="M62 35L304 35M62 63L304 63M62 91L304 91M62 119L304 119M62 147L304 147"/>
+<path fill="#586374" d="M62 30h50v10h-50zM92 58h58v10h-58zM232 58h38v10h-38zM62 86h78v10h-78zM152 142h84v10h-84z"/>
+<path fill="#e0a23c" d="M112 30h58v10h-58zM150 58h82v10h-82zM270 58h34v10h-34zM140 86h88v10h-88zM122 114h68v10h-68zM236 142h68v10h-68z"/>
+<path fill="#ff5733" d="M170 30h54v10h-54zM228 86h76v10h-76zM190 114h60v10h-60z"/>
+<path fill="#34c2a0" d="M224 30h80v10h-80zM250 114h54v10h-54z"/>
+<path fill="#9aa3b0" opacity="0.9" d="M139.3 26h1.5v18h-1.5zM195.3 26h1.5v18h-1.5zM261.3 26h1.5v18h-1.5zM179.3 54h1.5v18h-1.5zM249.3 54h1.5v18h-1.5zM117.3 82h1.5v18h-1.5zM285.3 82h1.5v18h-1.5zM159.3 110h1.5v18h-1.5zM219.3 110h1.5v18h-1.5zM269.3 138h1.5v18h-1.5z"/>
+<path fill="#e7eaef" d="M232 29L236 35L232 41L228 35zM244 85L248 91L244 97L240 91zM256 113L260 119L256 125L252 119z"/>
+<path fill="none" stroke="#08090b" stroke-width="1.2" d="M196 96l10 -10M201 96l10 -10M206 96l10 -10M211 96l10 -10M216 96l10 -10"/>
+<path fill="none" stroke="#2a313c" d="M62 176L304 176"/>
+<path fill="none" stroke="#3c4450" d="M62 176v4M102 176v4M142 176v4M182 176v4M222 176v4M262 176v4M302 176v4"/>
+</svg>

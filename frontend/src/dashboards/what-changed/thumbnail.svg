@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200">
+<path fill="none" stroke="#5a6470" stroke-width="3.5" stroke-linecap="round" d="M17.8 20h34.5"/>
+<path fill="none" stroke="#1e232c" d="M60 20L304 20"/>
+<path fill="none" stroke="#9aa3b0" stroke-width="4" stroke-linecap="round" d="M18 40h20M18 61h20M18 82h20M18 103h20M18 124h20M18 145h20M18 166h20"/>
+<path fill="none" stroke="#3c4450" stroke-width="3" stroke-linecap="round" d="M49.5 40h49M273.5 40h29M49.5 61h41M273.5 61h23M49.5 82h33M273.5 82h17M49.5 103h49M273.5 103h29M49.5 124h41M273.5 124h23M49.5 145h33M273.5 145h17M49.5 166h49M273.5 166h29"/>
+<g fill="none" stroke="#586374">
+<rect x="144" y="33.5" width="44" height="13" rx="3"/>
+<rect x="218" y="96.5" width="44" height="13" rx="3"/>
+<rect x="144" y="117.5" width="44" height="13" rx="3"/>
+</g>
+<path fill="none" stroke="#586374" stroke-width="3" stroke-linecap="round" d="M152.5 40h21M226.5 103h21M152.5 124h21"/>
+<path fill="none" stroke="#3c4450" d="M194 40L209 40M194 61L209 61M194 82L209 82M194 103L209 103M194 124L209 124M194 145L209 145M194 166L209 166"/>
+<path fill="#3c4450" d="M212 40L208 37.6L208 42.4zM212 61L208 58.6L208 63.4zM212 82L208 79.6L208 84.4zM212 103L208 100.6L208 105.4zM212 124L208 121.6L208 126.4zM212 145L208 142.6L208 147.4zM212 166L208 163.6L208 168.4z"/>
+<g fill="none" stroke="#e0a23c">
+<rect x="218" y="33.5" width="44" height="13" rx="3"/>
+<rect x="144" y="54.5" width="44" height="13" rx="3"/>
+<rect x="144" y="96.5" width="44" height="13" rx="3"/>
+<rect x="218" y="117.5" width="44" height="13" rx="3"/>
+<rect x="218" y="138.5" width="44" height="13" rx="3"/>
+<rect x="144" y="159.5" width="44" height="13" rx="3"/>
+</g>
+<path fill="none" stroke="#e0a23c" stroke-width="3" stroke-linecap="round" d="M226.5 40h27M152.5 61h27M152.5 103h27M226.5 124h27M226.5 145h21M152.5 166h21"/>
+<g fill="none" stroke="#ff5733">
+<rect x="218" y="54.5" width="44" height="13" rx="3"/>
+<rect x="144" y="75.5" width="44" height="13" rx="3"/>
+<rect x="144" y="138.5" width="44" height="13" rx="3"/>
+<rect x="218" y="159.5" width="44" height="13" rx="3"/>
+</g>
+<path fill="none" stroke="#ff5733" stroke-width="3" stroke-linecap="round" d="M226.5 61h21M152.5 82h21M152.5 145h27M226.5 166h27"/>
+<g fill="none" stroke="#34c2a0">
+<rect x="218" y="75.5" width="44" height="13" rx="3"/>
+</g>
+<path fill="none" stroke="#34c2a0" stroke-width="3" stroke-linecap="round" d="M226.5 82h27"/>
+</svg>

@@ -5,7 +5,7 @@ import { MemoryRouter, useLocation } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "../App";
-import type { DashboardEntry, DashboardProps } from "../dashboards/registry";
+import type { DashboardEntry, DashboardProps, RegisteredDashboard } from "../dashboards/registry";
 import { todayISO } from "../util/format";
 
 // The route-mapping suite. The pages are stubbed — each renders its `header` slot (the real shared
@@ -56,13 +56,14 @@ function FakeBody(p: DashboardProps) {
   );
 }
 
-const FAKE: DashboardEntry = {
+const FAKE: RegisteredDashboard = {
   slug: "fake-dash",
   order: 1000,
   label: "Fake Dash",
   description: "One fake dashboard for the route tests.",
   status: "experimental",
   asofAware: true,
+  thumbnail: "/assets/fake-thumbnail.svg",
   component: lazy(() => Promise.resolve({ default: FakeBody })),
 };
 
@@ -433,6 +434,23 @@ describe("App routes — the Dashboards (docs/DASHBOARDS.md)", () => {
     expect(link).toHaveTextContent("experimental");
     expect(link).toHaveTextContent("One fake dashboard for the route tests.");
     expect(screen.queryByText("No dashboards yet.")).not.toBeInTheDocument();
+  });
+
+  it("the index tile shows the entry's thumbnail on top: a decorative, lazy 320 x 200 image", () => {
+    h.dashboards.push(FAKE);
+    renderAt("/dashboards");
+    const link = screen.getByRole("link", { name: /Fake Dash/ });
+    const img = link.querySelector("img");
+    expect(img).not.toBeNull();
+    expect(img).toHaveAttribute("src", "/assets/fake-thumbnail.svg");
+    expect(img).toHaveAttribute("alt", "");
+    expect(img).toHaveAttribute("width", "320");
+    expect(img).toHaveAttribute("height", "200");
+    expect(img).toHaveAttribute("loading", "lazy");
+    expect(img).toHaveAttribute("decoding", "async");
+    // the frame comes first in the tile, then the label row
+    expect(link.firstElementChild).toHaveClass("dash-tile-thumb");
+    expect(link.children[1]).toHaveClass("dash-tile-head");
   });
 
   it("/dashboards/<slug> renders the entry's body inside the shell, with the as-of dial for an as-of view", async () => {
