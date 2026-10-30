@@ -38,10 +38,11 @@ tier. Display only: it never feeds a call, never writes, never calls the LLM, an
 
 ## The measurement (per episode)
 
-- **Entry** = the Scoreboard's own entry close: the first close on or after `arm_date` (`first_close_on_or_after`),
-  so this page's "to exit_by" column reconciles with the Scoreboard's `forward_return` to the cent. A toggle
-  **"Entry: next session"** moves the entry to the first close strictly after `arm_date` (the first session the
-  operator could have acted on a call recorded at 22:30 ET); the page says which is on.
+- **Entry** (default) = the **next session's close**: the first close strictly after `arm_date`, the first session
+  the operator could have acted on a call recorded at 22:30 ET (operator decision 2026-10-30). The toggle's other
+  choice, **"Entry: arm night"**, is the Scoreboard's own entry close: the first close on or after `arm_date`
+  (`first_close_on_or_after`), so the "to exit_by" column on that entry reconciles with the Scoreboard's
+  `forward_return` to the cent. The page says which is on.
 - **Horizons, in SESSIONS of the security's own bars, not calendar days:** 5, 10, 20, 60 sessions after the entry
   bar, plus **"to exit_by"** (the Scoreboard's horizon: the last bar on or before `exit_by`). A horizon's close is
   the as-traded close of the Nth bar after the entry bar; if the security's bars end before the Nth bar (a
@@ -102,15 +103,16 @@ on the page judges a result: the wording is "median excess vs IWM over 20 sessio
 The as-of; the clock; the edition and the honesty policies in force; episodes total / matured per horizon /
 maturing; unpinned caps; names left out for a flagged price history (opens to the tickers), censored starts, ingest
 flagged, paths ended; the entry rule in force; the comparison in force; the cache state and `compute_ms`. Below it,
-fixed: "cap is approximate and measured the session before the arm date"; "horizons are sessions of the name's own
-bars"; "as-traded closes, no dividends"; "a cell under 10 episodes is too small to read".
+fixed: "the entry is a close, not a fill" (the default is the next session's close); "cap is approximate and measured
+the session before the arm date"; "horizons are sessions of the name's own bars"; "as-traded closes, no dividends";
+"a cell under 10 episodes is too small to read".
 
 ## Cache
 
 `dashboards.cache.cached(conn, "track-record", (edition, include_annotated, include_late, clock), asof, ...)` holds
 every episode's row with all five horizons, both benchmarks' spans, the raw return, the cap and the liquidity
-figure. Tiering, slicing, filtering and the entry toggle derive from that one read (the "next session" entry needs
-the second entry close, so the row carries both entry closes and both sets of horizon returns). The cache clears on
+figure. Tiering, slicing, filtering and the entry toggle derive from that one read (the toggle needs both entry
+closes, so the row carries both and both sets of horizon returns). The cache clears on
 a new run or a basket edit (rule 7).
 
 ## Backend and frontend
@@ -138,8 +140,10 @@ a new run or a basket edit (rule 7).
 
 - **The record is young.** Most cards are weeks old; the 60-session and exit_by columns are mostly maturing. The
   page shows that as n and "maturing", never as a result.
-- **The entry is the arm night's close** by default (the Scoreboard's rule), which a trader could not have taken;
-  the "next session" toggle shows the actionable version.
+- **The entry is a close, not a fill.** The default is the next session's close, the first one after the arm night,
+  which a call recorded at 22:30 ET could be acted on at; the "arm night" toggle shows the Scoreboard's own entry (the
+  arm night's close), which no one could have taken but which reconciles with its `forward_return`. Stated on the
+  page as a fixed note and in the "Entry:" work line.
 - **Cap and liquidity are approximate** and measured the session before the arm date.
 - **As-traded closes, no dividends; no survivorship fix:** a delisted name's path ends and is counted as such.
 - **No null comparison here.** The timing null and the name null live in the backtest's pooled report
@@ -156,7 +160,8 @@ The build lists here every choice it made that this plan does not spell out, eac
 change. Pre-decided here for the operator's review: the Scoreboard's episodes and honesty filters as the events;
 the record (edition 0) as the default view while the editions nightly is paused, with a selector to the newest
 published edition (2026-10-29); sessions 5 / 10 / 20 / 60 plus exit_by as the horizons; IWM as the default comparison with SPY and raw selectable;
-the arm-night close as the default entry with a next-session toggle; the three PROPOSED liquidity bands; n < 10
+the next session's close as the default entry with an arm-night toggle (2026-10-30; the first build defaulted to the
+arm night); the three PROPOSED liquidity bands; n < 10
 prints n only; the pooled row last.
 
 ### Built choices to confirm
@@ -229,7 +234,7 @@ dollars is "under $1M" (a real measurement); under 20 volume-bearing bars is unp
   time.
 - Cell statistics are written twice, a Python reference (`track_record.cell_stats`) and its mirror in `recordView.ts`,
   with the same hand-computed vectors pinned in both test files. The response also carries `opening`, the table at the
-  opening choices (IWM, arm-night entry, by cap tier, every armed member) computed by the server; the page does not
+  opening choices (IWM, next-session entry, by cap tier, every armed member) computed by the server; the page does not
   draw it, but the frontend test reproduces it cell by cell from `rows`, so the two cannot drift apart.
 - The plan's `horizon_closes` is named `horizon_close` (it returns one bar). Price reads are unbounded in time and
   chunked 40 companies per point-in-time view (an episode can sit anywhere in a name's history).
@@ -254,6 +259,21 @@ dollars is "under $1M" (a real measurement); under 20 volume-bearing bars is unp
   editions nightly resumes, flip the route's default back to the Scoreboard's resolver and drop that clause in
   `recordView.ts::editionWords` in the same change.**
 - `include_annotated` and `include_late` are unchanged.
+
+**The entry: the next session's close by default (2026-10-30, the operator's decision).**
+- **The page opens on "Next session"** (`TrackRecord.tsx`'s entry state), the toggle lists it first, and "Arm night" is
+  the other choice. The row already carried both entry reads and all ten horizon sets, so the request and the cache
+  key are unchanged and the toggle still re-tables the page with no request.
+- **The server's `opening` table follows the default:** `table_rows` takes `entry="next_session"` unless told
+  otherwise, so `opening` is the next-session reading. The wire shape is unchanged (only the `TrackRecordOut`
+  description names the new entry, so the contract pair is regenerated). The frontend's fixture payload
+  (`server-payload.json`) keeps its rows and has its `opening` rebuilt from them by the backend's own `table_rows`; the
+  test that reproduces it cell by cell now reads the next-session entry.
+- **The page's words:** the "Entry:" work line names the entry in force and that the other is one toggle away, and a
+  fixed note under the table states the limit (a close, not a fill; the arm night's close was not actionable).
+- **Not changed:** the Scoreboard's entry rule, the horizons, the cap and liquidity measurement, and the DB test that
+  pins "to exit_by" to the Scoreboard's `forward_return` (it reads the arm-night entry, which is where that
+  reconciliation holds).
 
 ### MEASURED (dev, prod copy, 2026-10-29)
 

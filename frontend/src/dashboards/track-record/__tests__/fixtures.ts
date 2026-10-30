@@ -8,7 +8,7 @@ import type { TrackCapOut, TrackEntryOut, TrackRecordOut, TrackRowOut, TrackSpan
 // names whose 20-session excess against IWM is the hand-computed vector below (the same twelve numbers the
 // backend's test pins), three micro names (too thin to read), one unpinned cap, one mid name whose 20-session path
 // ended, and one episode each left out as a flagged price history, a censored start and an ingest flag. Its
-// `opening` table is the server's own reading at the opening choices (IWM, arm-night entry, by cap tier, every armed
+// `opening` table is the server's own reading at the opening choices (IWM, next-session entry, by cap tier, every armed
 // member): recordView.tableRows must reproduce it from `rows`, so the two implementations cannot drift apart.
 
 export const SERVER = raw as unknown as TrackRecordOut;

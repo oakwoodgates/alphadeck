@@ -8,6 +8,9 @@ import {
   intoWords,
   kindWords,
   leftWords,
+  cardHoldClosing,
+  memberEntryLines,
+  memberHoldLines,
   memberSinceWords,
   rowWords,
   shownRows,
@@ -17,7 +20,7 @@ import {
   triggerWords,
   workLine,
 } from "../windowsView";
-import { CLOSED, CLOSING, MANAGING, NO_CLOCKS, counts, member, payload, row, since } from "./fixtures";
+import { CLOSED, CLOSING, MANAGING, NO_CLOCKS, PAIR, counts, member, memberClock, payload, row, since } from "./fixtures";
 
 // The page's words and orders, pure. Neutral wording: where the as-of sits and what the closes did.
 
@@ -53,6 +56,35 @@ describe("the clock cells", () => {
     expect(leftWords(row({ sessions_left: null, closed_ago: 1 }))).toBe("entry window closed 1 session ago");
     expect(leftWords(row({ sessions_left: null, closed_ago: 0 }))).toBe("last day of the entry window");
     expect(leftWords(NO_CLOCKS)).toBe("no entry clock");
+  });
+
+  it("words a closing name's own entry window under the card's figure, but not the card's own clock", () => {
+    expect(memberEntryLines(PAIR)).toEqual(["BBB · 1 session left · to Oct 28"]);
+    // the headline's window IS the card's figure: nothing repeats it
+    expect(memberEntryLines(CLOSING)).toEqual([]);
+    expect(memberEntryLines(row())).toEqual([]);
+    // the same rule as the card's figure: a last day and a closed window
+    const clock = (over: Parameters<typeof memberClock>[0]) =>
+      row({ member_clocks: [memberClock({ entry_window_closing: true, arm_until: "2026-10-27", ...over })] });
+    expect(memberEntryLines(clock({ sessions_left: null, closed_ago: 0 }))).toEqual(["AAA · last day of the entry window · to Oct 27"]);
+    expect(memberEntryLines(clock({ arm_until: "2026-10-23", sessions_left: null, closed_ago: 2 }))).toEqual([
+      "AAA · entry window closed 2 sessions ago · to Oct 23",
+    ]);
+    expect(memberEntryLines(clock({ ticker: null, sessions_left: 2 }))).toEqual(["? · 2 sessions left · to Oct 27"]);
+    // a name flagged only for its hold clock draws no entry line
+    expect(memberEntryLines(row({ member_clocks: [memberClock({ lapsing: true })] }))).toEqual([]);
+  });
+
+  it("names a name whose hold clock is closing unless the card's own figure already says so", () => {
+    expect(cardHoldClosing(CLOSING)).toBe(true);
+    expect(memberHoldLines(CLOSING)).toEqual([]);
+    expect(cardHoldClosing(PAIR)).toBe(false);
+    expect(memberHoldLines(PAIR)).toEqual(["BBB · hold clock closing"]);
+    expect(memberHoldLines(row())).toEqual([]);
+    const both = row({
+      member_clocks: [memberClock({ headline: true, lapsing: true }), memberClock({ security_id: "s-bbb", ticker: "BBB", lapsing: true })],
+    });
+    expect(memberHoldLines(both)).toEqual([]); // the card's tag already says it
   });
 
   it("words the hold horizon: days while running, passed after, no clock without one", () => {

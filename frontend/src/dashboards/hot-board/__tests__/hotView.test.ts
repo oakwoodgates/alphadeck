@@ -23,6 +23,7 @@ import {
   noReadingLine,
   riskCell,
   rowMatches,
+  readLine,
   rowsOnShow,
   signTone,
   sinceArmCells,
@@ -35,7 +36,7 @@ import {
   verdictWords,
   workLines,
 } from "../hotView";
-import { ASOF, CARD_B, MIXED, cap, cell, clocks, payload, row, sample, since, tape, trigger } from "./fixtures";
+import { ASOF, CARD_B, MIXED, armedRead, cap, cell, clocks, countsOf, payload, row, sample, since, tape, trigger } from "./fixtures";
 
 // The Hot Board's pure view helpers: the toggles and filters, the sorts (a blank last in either direction), and the
 // words and numbers of every cell. Every figure is the server's; these only pick, order and word them.
@@ -59,7 +60,7 @@ describe("which rows are shown", () => {
 
   it("shows the armed rows by default and counts what each toggle adds", () => {
     expect(rowsOnShow(rows, DEFAULT_TOGGLES).map((r) => r.ticker)).toEqual(["AAA", "BBB", "CCC", "FLG"]);
-    expect(toggleCounts(rows)).toEqual({ warming: 1, watch: 1, managing: 1 });
+    expect(toggleCounts(countsOf(rows))).toEqual({ warming: 1, watch: 1, managing: 1 });
   });
 
   it("adds a kind when its toggle is on", () => {
@@ -279,7 +280,7 @@ describe("the work lines", () => {
 
   it("states the as-of, the clock, the cards by state, the rows, the flagged and the calendar", () => {
     const shown = rowsOnShow(rows, DEFAULT_TOGGLES);
-    const lines = workLines(payload(rows), shown, toggleCounts(rows), DEFAULT_TOGGLES, 3);
+    const lines = workLines(payload(rows), shown, toggleCounts(countsOf(rows)), DEFAULT_TOGGLES, 3);
     const text = lines.join("\n");
     expect(text).toContain(`as of ${ASOF}, read on the public clock`);
     expect(text).toContain("4 cards counted: 2 armed · 1 warming · 1 managing · 0 incubating · 0 no call yet");
@@ -296,7 +297,7 @@ describe("the work lines", () => {
     const lines = workLines(
       payload(withRecon, { cache: "hit", roster_fallback_cards: 2, no_ticker_rows: 1 }),
       rowsOnShow(withRecon, { warming: true, watch: false, managing: false }),
-      toggleCounts(withRecon),
+      toggleCounts(countsOf(withRecon)),
       { warming: true, watch: false, managing: false },
       2,
     ).join("\n");
@@ -306,6 +307,33 @@ describe("the work lines", () => {
     expect(lines).toContain("2 cards with no roster snapshot by then");
     expect(lines).toContain("1 row whose security has no ticker");
     expect(lines).toContain("served from the cache");
+  });
+
+  it("says which read is loaded: the armed names alone with the others waiting behind their toggles, or every row", () => {
+    const full = payload(rows);
+    const armed = armedRead(full);
+    const counts = toggleCounts(armed.candidate_counts);
+    expect(readLine(armed, counts)).toBe(
+      "read loaded: the armed names alone; 1 warming · 1 watch · 1 managing wait behind their toggles and load the first time one is used",
+    );
+    expect(readLine(full, toggleCounts(full.candidate_counts))).toBe(
+      "read loaded: every candidate row (4 armed · 1 warming · 1 watch · 1 managing)",
+    );
+    // nothing waiting behind a toggle: it says so rather than promising rows
+    const bare = armedRead(payload(rows.filter((r) => r.kind === "armed")));
+    expect(readLine(bare, toggleCounts(bare.candidate_counts))).toBe(
+      "read loaded: the armed names; no warming, watch or managing names are listed on the recorded cards",
+    );
+  });
+
+  it("does not claim a checked toggle's rows are shown until the full read is loaded", () => {
+    const armed = armedRead(payload(rows));
+    const counts = toggleCounts(armed.candidate_counts);
+    const on = { warming: true, watch: true, managing: true };
+    const text = workLines(armed, rowsOnShow(armed.rows, on), counts, on, 3).join("\n");
+    expect(text).toContain("4 rows shown;");
+    expect(text).not.toContain("the armed names plus");
+    expect(text).toContain("read loaded: the armed names alone");
   });
 });
 

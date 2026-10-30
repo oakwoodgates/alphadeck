@@ -31,6 +31,7 @@ from dashboards.entry_windows import (
     entry_windows,
     lookback_days,
     member_arm_nights,
+    member_clocks,
     night_winners,
     row_since,
     sessions_between,
@@ -494,7 +495,7 @@ def test_only_armed_and_managing_cards_are_rows_and_every_other_card_is_counted(
     )
 
 
-def test_a_row_carries_the_arm_night_the_clocks_the_sessions_and_the_headline_flags():
+def test_a_row_carries_the_arm_night_the_clocks_the_sessions_and_the_flags():
     got, (t_grid, _) = page()
     row = next(r for r in got.rows if r.thesis_id == t_grid)
     assert (row.arm_night, row.in_effect, row.run_nights) == (d(20), d(23), 2)
@@ -506,6 +507,105 @@ def test_a_row_carries_the_arm_night_the_clocks_the_sessions_and_the_headline_fl
     assert row.hold_days == 18
     assert (row.entry_window_closing, row.lapsing, row.reconstructed) == (True, False, False)
     assert [(t.label, t.past) for t in row.catalysts] == [("passed", True), ("readout", False)]
+
+
+def test_a_rows_flags_are_true_when_any_armed_member_s_flag_is_true():
+    """Operator decision 2026-10-30: the second name's window closing marks the card, not only the headline's."""
+    ds = weekdays(d(12), ASOF)
+
+    def one(*members: MemberCall):
+        t = uuid.uuid4()
+        got, _ = page(
+            cards=[(t, "Pair")],
+            nights={t: [nr(d(20), State.ARMED)]},
+            recorded={(t, d(20)): card(tid=t, asof=d(20), armed_members=list(members))},
+            closes={A: tape(ds, [10.0] * 12), B: tape(ds, [20.0] * 12)},
+        )
+        (row,) = got.rows
+        return row
+
+    # the headline (A) is quiet; B alone closing marks the card
+    row = one(mem(A), mem(B, entry_window_closing=True))
+    assert (row.entry_window_closing, row.lapsing) == (True, False)
+    # B alone lapsing (the hold clock) marks the other flag the same way
+    row = one(mem(A), mem(B, lapsing=True))
+    assert (row.entry_window_closing, row.lapsing) == (False, True)
+    # both flags, on different members
+    row = one(mem(A, lapsing=True), mem(B, entry_window_closing=True))
+    assert (row.entry_window_closing, row.lapsing) == (True, True)
+    # no armed member carries either flag: neither is set
+    row = one(mem(A), mem(B))
+    assert (row.entry_window_closing, row.lapsing) == (False, False)
+
+
+def test_a_marked_row_carries_each_flagged_members_own_clock_counted_to_its_own_arm_until():
+    """The card's figure counts to the headline name's clock; a second name's window is its own."""
+    ds = weekdays(d(12), ASOF)
+    t = uuid.uuid4()
+
+    def one(*members: MemberCall, arm_until=d(30)):
+        got, _ = page(
+            cards=[(t, "Pair")],
+            nights={t: [nr(d(20), State.ARMED)]},
+            recorded={
+                (t, d(20)): card(
+                    tid=t, asof=d(20), arm_until=arm_until, armed_members=list(members)
+                )
+            },
+            closes={A: tape(ds, [10.0] * 12), B: tape(ds, [20.0] * 12)},
+        )
+        (row,) = got.rows
+        return row
+
+    # the headline (A, to Fri 10-30) is quiet; B's own window ends Wed 10-28: one session left for B, three for the card
+    row = one(mem(A, arm_until=d(30)), mem(B, arm_until=d(28), entry_window_closing=True))
+    assert (row.sessions_left, row.entry_window_closing) == (3, True)
+    (clock,) = row.member_clocks
+    assert (clock.security_id, clock.ticker, clock.headline) == (B, "BBB", False)
+    assert (clock.entry_window_closing, clock.lapsing) == (True, False)
+    assert (clock.arm_until, clock.sessions_left, clock.closed_ago) == (d(28), 1, None)
+    # no member closing or lapsing: the row carries no member clock
+    assert one(mem(A), mem(B)).member_clocks == ()
+
+
+def test_member_clocks_list_the_flagged_members_in_ranked_order_each_name_once():
+    cal = weekdays(d(12), ASOF)  # the as-of is Tue 10-27
+    members = [
+        mem(A, arm_until=d(28), entry_window_closing=True),  # the headline: one session left
+        mem(B),  # no flag: not listed
+        mem(C, arm_until=d(30), lapsing=True),  # lapsing only: no entry figure
+        mem(B, arm_until=d(29), entry_window_closing=True),  # B's first FLAGGED entry
+        mem(B, arm_until=d(26), entry_window_closing=True, lapsing=True),  # a repeat of B: ignored
+    ]
+    got = member_clocks(members, TICKERS, cal, ASOF)
+    assert [(c.ticker, c.headline) for c in got] == [("AAA", True), ("CCC", False), ("BBB", False)]
+    a, c, b = got
+    assert (a.entry_window_closing, a.lapsing, a.arm_until, a.sessions_left) == (
+        True,
+        False,
+        d(28),
+        1,
+    )
+    # a lapsing-only name states no entry clock of its own
+    assert (c.entry_window_closing, c.lapsing) == (False, True)
+    assert (c.arm_until, c.sessions_left, c.closed_ago) == (None, None, None)
+    # B: Wed 10-28 and Thu 10-29 are the Mon-Fri days after the as-of through its own arm_until
+    assert (b.arm_until, b.sessions_left, b.closed_ago, b.lapsing) == (d(29), 2, None, False)
+    assert member_clocks([], TICKERS, cal, ASOF) == ()
+
+
+def test_a_member_clock_follows_the_card_rule_on_the_last_day_and_after_the_window_closed():
+    cal = weekdays(d(12), ASOF)
+    last = member_clocks([mem(A, arm_until=ASOF, entry_window_closing=True)], TICKERS, cal, ASOF)
+    assert (last[0].sessions_left, last[0].closed_ago) == (None, 0)  # the window's last day
+    shut = member_clocks([mem(A, arm_until=d(23), entry_window_closing=True)], TICKERS, cal, ASOF)
+    # IWM sessions after Fri 10-23 through the as-of: Mon 10-26 and Tue 10-27
+    assert (shut[0].sessions_left, shut[0].closed_ago) == (None, 2)
+    no_clock = member_clocks([mem(A, entry_window_closing=True)], TICKERS, cal, ASOF)
+    assert (no_clock[0].arm_until, no_clock[0].sessions_left, no_clock[0].closed_ago) == (None,) * 3
+    # a name without a ticker is still listed
+    anon = member_clocks([mem(UUID(int=7), lapsing=True)], TICKERS, cal, ASOF)
+    assert (anon[0].ticker, anon[0].lapsing) == (None, True)
 
 
 def test_each_armed_member_has_its_own_arm_night_its_triggers_and_its_own_return():

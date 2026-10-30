@@ -1,5 +1,6 @@
 import type {
   HotBoardOut,
+  HotCandidateCountsOut,
   HotCapOut,
   HotCellOut,
   HotClocksOut,
@@ -206,6 +207,15 @@ export function sample() {
   return { aaa, bbb, ccc, flagged, warming, watch, managing };
 }
 
+/** Every kind's row count, as the wire's `candidate_counts` states them. */
+export const countsOf = (rows: readonly HotRowOut[]): HotCandidateCountsOut => ({
+  armed: rows.filter((r) => r.kind === "armed").length,
+  warming: rows.filter((r) => r.kind === "warming").length,
+  watch: rows.filter((r) => r.kind === "watch").length,
+  managing: rows.filter((r) => r.kind === "managing").length,
+});
+
+/** The FULL read (`rows=all`): every row it is given, each kind counted. */
 export function payload(rows: HotRowOut[] = Object.values(sample()), over: Partial<HotBoardOut> = {}): HotBoardOut {
   return {
     asof: ASOF,
@@ -226,6 +236,8 @@ export function payload(rows: HotRowOut[] = Object.values(sample()), over: Parti
     calendar_last: ASOF,
     price_window_start: "2025-07-25",
     no_ticker_rows: 0,
+    rows_loaded: "all",
+    candidate_counts: countsOf(rows),
     rows,
     flagged: rows
       .filter((r) => r.tape.flag !== null)
@@ -233,5 +245,19 @@ export function payload(rows: HotRowOut[] = Object.values(sample()), over: Parti
     cache: "computed",
     compute_ms: 1234,
     ...over,
+  };
+}
+
+/** The DEFAULT read (`rows=armed`) of a full payload: the armed rows alone with their tape, every kind still
+ *  counted (the toggles' "+N"). */
+export function armedRead(full: HotBoardOut): HotBoardOut {
+  const rows = full.rows.filter((r) => r.kind === "armed");
+  const kept = new Set(rows.map((r) => r.security_id));
+  return {
+    ...full,
+    rows_loaded: "armed",
+    candidate_counts: full.candidate_counts,
+    rows,
+    flagged: full.flagged.filter((f) => kept.has(f.security_id)),
   };
 }

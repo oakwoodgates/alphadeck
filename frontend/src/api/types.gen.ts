@@ -2330,9 +2330,10 @@ export interface paths {
          * Hot Board
          * @description Every name the recorded calls in effect at the as-of show Armed, one row each, with the tape beside it:
          *     the call's own fields, the arm night and the session clocks, the return since the arm night against IWM, the
-         *     display members' readings and the approximate cap. Warming, watch and managing names ride along as candidate
-         *     rows for the page's toggles. Display only: it reads the calls log and never the live call; the heat ranking is
-         *     computed on the page from the rows it shows. A past as-of reads what was public by the end of that date.
+         *     display members' readings and the approximate cap. The default read carries the armed rows and only the COUNTS
+         *     of the warming, watch and managing names (no tape runs for them); `rows=all` carries all four kinds as rows for
+         *     the page's toggles. Display only: it reads the calls log and never the live call; the heat ranking is computed
+         *     on the page from the rows it shows. A past as-of reads what was public by the end of that date.
          */
         get: operations["hot_board_dashboards_hot_board_get"];
         put?: never;
@@ -2778,7 +2779,7 @@ export interface paths {
         /**
          * Track Record
          * @description What the tape did after each arm episode the Scoreboard records, by market-cap tier at the event: one row per
-         *     episode with its cap tier and liquidity band, and, for the arm-night entry and the next session's, the return at
+         *     episode with its cap tier and liquidity band, and, for the next session's entry and the arm night's, the return at
          *     5, 10, 20 and 60 sessions of the name's own bars and to the episode's own exit_by, with IWM's and SPY's returns
          *     over the same dates. The Scoreboard's own episodes and honesty filters: a censored start, an ingest-flagged
          *     episode and a company with a flagged price history are left out of every cell and counted. Reads the record
@@ -8250,6 +8251,34 @@ export interface components {
             reason: string;
         };
         /**
+         * EntryWindowsMemberClockOut
+         * @description An armed name whose own flag is true, with its own entry clock. ``headline`` = the name whose clocks the card
+         *     carries (``armed_members[0]``). ``sessions_left`` = the Mon-Fri days after the as-of through the NAME's own
+         *     ``arm_until`` (while that window is open), ``closed_ago`` = the IWM sessions since it closed (``0`` on its last
+         *     day); both ``null`` unless ``entry_window_closing``.
+         */
+        EntryWindowsMemberClockOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string | null;
+            /** Headline */
+            headline: boolean;
+            /** Entry Window Closing */
+            entry_window_closing: boolean;
+            /** Lapsing */
+            lapsing: boolean;
+            /** Arm Until */
+            arm_until: string | null;
+            /** Sessions Left */
+            sessions_left: number | null;
+            /** Closed Ago */
+            closed_ago: number | null;
+        };
+        /**
          * EntryWindowsMemberOut
          * @description An armed name. ``arm_night`` = the first night of the run on which the recorded card names it armed;
          *     ``since`` = its as-traded return in percent from the first close on or after that night (``entry_on``) to the
@@ -8334,7 +8363,9 @@ export interface components {
          *     entry window and the hold horizon (``null`` = no clock). ``sessions_into`` = the IWM sessions after the arm
          *     night through the as-of; ``sessions_left`` = the Mon-Fri days after the as-of through ``arm_until`` (while the
          *     window is open); ``closed_ago`` = the IWM sessions since it closed (``0`` on its last day); ``hold_days`` =
-         *     calendar days from the as-of to ``exit_by`` (negative = passed). The two flags are the headline member's.
+         *     calendar days from the as-of to ``exit_by`` (negative = passed). Each flag is true when ANY armed member's own
+         *     flag is true; ``member_clocks`` lists those members with their own entry clock, since the figures above count to
+         *     the card's (the headline name's) clocks.
          */
         EntryWindowsRowOut: {
             /**
@@ -8383,6 +8414,8 @@ export interface components {
             closed_ago: number | null;
             /** Hold Days */
             hold_days: number | null;
+            /** Member Clocks */
+            member_clocks: components["schemas"]["EntryWindowsMemberClockOut"][];
             /** Catalysts */
             catalysts: components["schemas"]["EntryWindowsCatalystOut"][];
             /** Members */
@@ -9685,14 +9718,17 @@ export interface components {
         };
         /**
          * HotBoardOut
-         * @description Every candidate row of the cards' recorded calls in effect at the as-of (the page derives the toggles, filters,
-         *     sorts and heat from this one read) and the counts its quiet line shows. ``cards_*`` = the counted cards by their
-         *     recorded state (``cards_no_call`` = nothing recorded by then); ``calendar_*`` = IWM's bar calendar the
-         *     ``sessions_since`` count reads; ``price_window_start`` = the earliest bar the view reads (``null`` = unbounded);
-         *     ``no_ticker_rows`` = rows whose security has no ticker anywhere (shown under its id); ``flagged`` = the
-         *     companies on a row with a flagged price history. ``clock``: ``record`` (the live read) or ``public`` (a past
-         *     as-of: what was public by the end of that date). ``cache`` / ``compute_ms`` = whether the read came from the
-         *     shared dashboard cache and how long it took when computed.
+         * @description The candidate rows of the cards' recorded calls in effect at the as-of that this read carries (the page derives
+         *     the toggles, filters, sorts and heat from them) and the counts its quiet line shows. ``rows_loaded`` says which:
+         *     ``armed`` (the default read: the armed rows alone, with their tape) or ``all`` (every kind, with its tape).
+         *     ``candidate_counts`` = every kind's rows on the recorded cards whichever read this is, so the toggles can show
+         *     "+N" before the rest is loaded. ``cards_*`` = the counted cards by their recorded state (``cards_no_call`` =
+         *     nothing recorded by then); ``calendar_*`` = IWM's bar calendar the ``sessions_since`` count reads;
+         *     ``price_window_start`` = the earliest bar the view reads (``null`` = unbounded); ``no_ticker_rows`` = rows whose
+         *     security has no ticker anywhere (shown under its id); ``flagged`` = the companies on a row with a flagged price
+         *     history. ``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was public by the end of that
+         *     date). ``cache`` / ``compute_ms`` = whether the read came from the shared dashboard cache and how long it took
+         *     when computed.
          */
         HotBoardOut: {
             /**
@@ -9740,6 +9776,12 @@ export interface components {
             price_window_start: string | null;
             /** No Ticker Rows */
             no_ticker_rows: number;
+            /**
+             * Rows Loaded
+             * @enum {string}
+             */
+            rows_loaded: "armed" | "all";
+            candidate_counts: components["schemas"]["HotCandidateCountsOut"];
             /** Rows */
             rows: components["schemas"]["HotRowOut"][];
             /** Flagged */
@@ -9751,6 +9793,22 @@ export interface components {
             cache: "hit" | "computed";
             /** Compute Ms */
             compute_ms: number;
+        };
+        /**
+         * HotCandidateCountsOut
+         * @description How many candidate rows of each kind the cards' recorded calls in effect list, whatever the read carries
+         *     (counted off the recorded cards: no display member runs for a row that is only counted). The default read's
+         *     toggles show the non-armed ones as their "+N".
+         */
+        HotCandidateCountsOut: {
+            /** Armed */
+            armed: number;
+            /** Warming */
+            warming: number;
+            /** Watch */
+            watch: number;
+            /** Managing */
+            managing: number;
         };
         /**
          * HotCapOut
@@ -16010,7 +16068,7 @@ export interface components {
         /**
          * TrackRecordOut
          * @description The Track Record at the as-of: every episode's row (newest arm first), the counts, the companies left out for a
-         *     flagged price history and the opening table (IWM, the arm-night entry, by cap tier, every armed member; the page
+         *     flagged price history and the opening table (IWM, the next-session entry, by cap tier, every armed member; the page
          *     recomputes any other reading from ``rows`` with the same arithmetic). ``edition`` and the two policies are the
          *     Scoreboard's own (``annotated_policy`` / ``late_policy``: ``included`` | ``excluded`` | ``n/a`` for a stored
          *     edition, which has no such rows). ``edition`` is the one READ (the record when the request named none);
@@ -19514,6 +19572,8 @@ export interface operations {
             query: {
                 /** @description as-of date; only what was recorded and public by then is read */
                 asof: string;
+                /** @description which candidate rows to carry: `armed` (the default) the armed names with their tape, plus the counts of the warming, watch and managing names the recorded cards list; `all` every candidate row with its tape */
+                rows?: "armed" | "all";
             };
             header?: never;
             path?: never;

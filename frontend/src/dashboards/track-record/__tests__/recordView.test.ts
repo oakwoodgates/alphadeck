@@ -129,8 +129,8 @@ describe("tableRows — the tiers in size order, unpinned, then pooled LAST", ()
     expect(t.find((r) => r.key === POOLED)?.members.every((r) => r.left_out == null)).toBe(true);
   });
 
-  it("reproduces the server's own opening table from the rows alone, cell by cell", () => {
-    const t = tableRows(rows, "tier", "arm_night", "iwm");
+  it("reproduces the server's own opening table (the next-session entry) from the rows alone, cell by cell", () => {
+    const t = tableRows(rows, "tier", "next_session", "iwm");
     expect(t.map((r) => r.key)).toEqual(SERVER.opening.map((r) => r.key));
     for (const srv of SERVER.opening) {
       const mine = t.find((r) => r.key === srv.key)!;
