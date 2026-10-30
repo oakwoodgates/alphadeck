@@ -238,3 +238,13 @@ written. Each is the operator's to confirm or change.
     Postgres is prod's). The orchestrator records it from dev with a prod copy. The read does one `per_company` pass
     over the distinct securities of the candidate rows (all four kinds), eight display members each, plus one
     data-flag read and one IWM read.
+
+### MEASURED (dev with a prod data copy, 2026-10-29, after the nightly pass)
+
+- Live as-of: 95 Armed rows shown by default; the one read carries 488 candidate rows (the Warming toggle adds 122,
+  the watch toggle 271), 1.1 MB, cold compute 19,586 ms, cache hit 70 ms; 5 names flagged (rows kept, tape grayed).
+- Past as-of 2026-09-15 on the public clock: 133 candidate rows, 298 KB, cold 5,858 ms, 1 flagged.
+- The 95 rows ranked by heat render with every column and filter at desktop width; the phone check waits for the
+  re-measure after the Trigger Log fix (the backend was busy computing another page during the first phone load).
+- Open question for the operator: the read carries every toggle's rows so the toggles cost nothing; a page that
+  loaded Warming and watch rows on demand would cut the payload and the cold compute by about half.

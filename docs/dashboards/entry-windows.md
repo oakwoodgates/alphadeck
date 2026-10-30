@@ -209,3 +209,14 @@ lives in `backend/dashboards/entry_windows.py` (the rules are written at the top
 21. The counted cards come from `baskets.cards_as_of` as the plan says, which also reads each card's roster
     snapshot at a past as-of; this page never uses a roster (a Context or Bench name cannot be armed), so that read
     is cost without use. Not measured on production-sized data.
+
+### MEASURED (dev with a prod data copy, 2026-10-29, after the nightly pass)
+
+- Live as-of: 43 Armed rows (18 Warming and 1 Incubating card counted, 0 Managing), 78 armed names all priced, 152 KB,
+  cold compute 6,705 ms, cache hit 30 to 70 ms; the session calendar from IWM's bars; axis 2026-07-14 to 2027-04-27.
+- Past as-of 2026-09-15 on the public clock: 10 cards counted (52 not yet created), 6 Armed rows, 19 names, 28 KB,
+  cold 2,802 ms, one reconstructed arm night marked.
+- Renders at desktop width with the window bars, the as-of line, the catalyst ticks and the since-arm figures per
+  row. The cold read validates one full card blob per night of every Armed run (the arm-night walk); 6.7 s is
+  acceptable for a cached page, so the narrower read (armed ids per night, the full card only for the night in
+  effect) stays a noted option, not a change.
