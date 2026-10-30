@@ -170,7 +170,9 @@ first visit after a pass is a hit (the warm-up's drift tests fail otherwise).
   `useDailyDigest.ts` hook, `daily-digest.css`, `thumbnail.svg`, tests (the rendered sections, the empty states, the
   loudness rule read off the stylesheet and the markup, the links carrying `?asof=`).
 - **Layout:** one column of six blocks in the order above, each a header row (page name as the link, count) over its
-  lines; the tape block a short table; on a phone the blocks stack and each line wraps under its ticker.
+  lines; the tape block a short table; on a phone the blocks stack and each line wraps under its ticker. In section 1 each
+  card's routine nightly churn (triggers re-dated, new or gone, new risk signals, names new on watch) is ONE quiet gray
+  count line under the card, closed by default and opened in place by a click (choice 17).
 
 ## Thumbnail
 
@@ -276,6 +278,18 @@ for the orchestrator to measure on dev with a prod copy.
     on its section-1 card header and its position line (not on every line, a gray tag by the name).
 16. **Cache and warm-up.** The whole payload is one cache entry per (clock, as-of); `("daily-digest", {})` sits after Insider
     Buying in the warm-up's `PAGES` (its cold read is mostly the same Form 4 read).
+17. **The fold (added after the dev measurement, client side only).** Per card in section 1, the lines whose change is a
+    trigger re-dated, a trigger new, a trigger gone, a new risk signal or a name new on watch fold into ONE gray count line
+    under the card ("12 triggers re-dated · 4 triggers new · 1 gone · 9 risk signals new · 2 new on watch": only the non-zero
+    parts, in that fixed order, singular for one). It is a button, closed by default, that opens the folded lines in place
+    (the server's order, each still a line that opens the Cockpit and shows its source) and closes them again: plain
+    component state, nothing removed, per card. A state move or new card (the headline), a key on or off, a name newly armed
+    or no longer armed, an entry window closing and an exit-by reached stay lines. No folded kind ever carries a tone (the
+    server's `tone_of` marks only state, new_card, armed, entry_window and exit_by, and a test reads that function and pins
+    it), so no accent or warm line is ever hidden. A card whose only lines are churn keeps its header and its count line. The
+    section header counts what is folded: "58 cards · 405 lines · 368 folded into counts" (the figure is a count of the
+    folded kinds above; the MEASURED section's 249 is the re-dates and new risk signals alone). The payload, the router, the
+    cache and the backend tests are unchanged.
 
 ### Cost (PROPOSED, not measured)
 

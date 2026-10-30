@@ -58,6 +58,12 @@ a.dd-title:hover { color: var(--txt); }
 .dd-src { font-family: var(--mono); font-size: 10px; color: var(--txt-4); text-decoration: none; }
 a.dd-src:hover { color: var(--txt-2); text-decoration: underline; }
 
+/* the fold: a card's routine churn as ONE quiet gray count line that opens in place (never a tone, never a badge) */
+.dd-fold { font: inherit; font-size: 11px; max-width: 100%; display: inline-flex; align-items: baseline; gap: 8px; padding: 2px 6px; border: 0; border-radius: 4px; background: transparent; color: var(--txt-4); text-align: left; cursor: pointer; }
+.dd-fold:hover { background: var(--panel); color: var(--txt-3); }
+.dd-fold:focus-visible { outline: 1px solid var(--line-2); outline-offset: -1px; }
+.dd-fold-mark { font-family: var(--mono); width: 9px; text-align: center; }
+
 /* an Incubating card: the grays, last */
 .dd-card.tier-incubating .dd-cardname,
 .dd-card.tier-incubating .dd-move,

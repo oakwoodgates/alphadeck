@@ -179,6 +179,60 @@ export const toneClass = (tone: DigestLineOut["tone"]): string =>
 /** The Cockpit key of a line's name: its ticker, else its security id. */
 export const nameKey = (l: DigestLineOut): string | null => l.ticker ?? l.security_id ?? null;
 
+// The fold (honest loudness, Workbench principle 3: the common noise collapses, the exception stays a line). MEASURED on
+// a dev copy of prod, two consecutive nights differ by about 400 What Changed lines, and nearly all of them are the nightly
+// churn on nearly every Armed card: a trigger re-dated, a trigger new or gone, a new risk signal, a name new on watch. Per
+// card those lines fold into ONE quiet count line that opens in place and closes again (nothing is removed). The server's
+// tone rule never marks one of these kinds (a test reads `tone_of` and pins it), so no accent or warm line is ever folded.
+
+/** The kinds of line a card folds, in the fixed order its count line words them. */
+export const FOLDED_CHANGES = ["trigger_redated", "trigger_new", "trigger_gone", "risk_new", "new_watch"] as const;
+export type FoldedChange = (typeof FOLDED_CHANGES)[number];
+
+export const isFolded = (l: DigestLineOut): boolean => (FOLDED_CHANGES as readonly string[]).includes(l.change);
+
+/** The count line's words for one kind (a count of 1 reads in the singular). */
+const FOLD_WORDS: Record<FoldedChange, (n: number) => string> = {
+  trigger_redated: (n) => `${plural(n, "trigger", "triggers")} re-dated`,
+  trigger_new: (n) => `${plural(n, "trigger", "triggers")} new`,
+  trigger_gone: (n) => `${n.toLocaleString("en-US")} gone`,
+  risk_new: (n) => `${plural(n, "risk signal", "risk signals")} new`,
+  new_watch: (n) => `${n.toLocaleString("en-US")} new on watch`,
+};
+
+export type CardFold = {
+  /** The lines that stay lines, in the server's order (the state moves, keys, names armed, the clocks). */
+  shown: DigestLineOut[];
+  /** The folded lines, in the server's order (opened in place by the count line). */
+  folded: DigestLineOut[];
+  /** The count line ("12 triggers re-dated · 4 triggers new · 1 gone · 9 risk signals new · 2 new on watch": only the
+   *  non-zero parts, in that order), `null` when the card folds nothing. */
+  words: string | null;
+};
+
+/** One card's lines split into the lines that stay and the lines that fold into its count line. */
+export function foldCard(card: DigestCardOut): CardFold {
+  const shown = card.lines.filter((l) => !isFolded(l));
+  const folded = card.lines.filter(isFolded);
+  const parts = FOLDED_CHANGES.flatMap((c) => {
+    const n = folded.filter((l) => l.change === c).length;
+    return n > 0 ? [FOLD_WORDS[c](n)] : [];
+  });
+  return { shown, folded, words: parts.length > 0 ? parts.join(" · ") : null };
+}
+
+/** How many lines of section 1 fold into counts (every card's, with its headline never one of them). */
+export const foldedLines = (cards: readonly DigestCardOut[]): number =>
+  cards.reduce((n, c) => n + c.lines.filter(isFolded).length, 0);
+
+/** The section header's count: the cards, every line the server carries and how many of them folded into counts. */
+export function lastNightCount(l: DailyDigestOut["last_night"]): string | null {
+  if (l.no_baseline || l.cards.length === 0) return null;
+  const folded = foldedLines(l.cards);
+  const base = ` · ${plural(l.cards_with_change, "card", "cards")} · ${plural(l.lines, "line", "lines")}`;
+  return folded > 0 ? `${base} · ${folded.toLocaleString("en-US")} folded into counts` : base;
+}
+
 // ---------------------------------------------------------------------------------------------------------
 // 2. positions
 // ---------------------------------------------------------------------------------------------------------

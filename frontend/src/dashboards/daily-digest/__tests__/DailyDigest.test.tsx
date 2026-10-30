@@ -11,7 +11,7 @@ import { todayISO } from "../../../util/format";
 import DailyDigest from "../DailyDigest";
 import { FRAMING, LIMITS } from "../digestView";
 import type { DailyDigestOut } from "../useDailyDigest";
-import { ASOF, CARD_A, CARD_B, CARD_C, CARD_D, CARD_E, emptyPayload, payload, position } from "./fixtures";
+import { ASOF, CARD_A, CARD_B, CARD_C, CARD_D, CARD_E, churnPayload, emptyPayload, payload, position } from "./fixtures";
 
 // The Daily Digest's body with its one hook stubbed: the six sections in order, each header opening its full page with
 // ?asof=, the cards in the server's Armed-first order with Incubating last, the page's one loud rule (the accent on
@@ -145,7 +145,7 @@ describe("DailyDigest — last night", () => {
       ["Card B", "warming"],
       ["Card A", "incubating"],
     ]);
-    expect(within(sec("Last night")).getByRole("heading", { level: 2 })).toHaveTextContent("5 cards, 9 lines");
+    expect(within(sec("Last night")).getByRole("heading", { level: 2 })).toHaveTextContent("5 cards · 9 lines · 1 folded into counts");
   });
 
   it("words a card's state move as its headline and each other line in What Changed's words", () => {
@@ -157,14 +157,18 @@ describe("DailyDigest — last night", () => {
     const lines = (name: string) => within(cardOf(name)).queryAllByTestId("dd-line").map((l) => l.textContent);
     expect(lines("Card C")).toEqual(["AAAnewly armed", "entry window closes in 2 days · Sep 19"]);
     expect(lines("Card D")).toEqual(["BBBno longer armed"]);
-    expect(lines("Card E")).toEqual(["CCCnew risk signal · going-concern note · dilution risk · Sep 16", "exit-by reached · Sep 17"]);
+    // the new risk signal is routine churn: it sits behind the card's count line, so only the exit-by stays a line
+    expect(lines("Card E")).toEqual(["exit-by reached · Sep 17"]);
+    expect(within(cardOf("Card E")).getByTestId("dd-fold")).toHaveTextContent("1 risk signal new");
     expect(lines("Card B")).toEqual(["Confirmation key turned on"]);
     expect(lines("Card A")).toEqual([]);
   });
 
-  it("carries a trigger line's first source as a link, and a plain label when it has no link", () => {
+  it("carries a trigger line's first source as a link (the line sits behind its card's count line until it is opened)", async () => {
     setup();
     const e = cardOf("Card E");
+    expect(within(e).queryByRole("link", { name: "form4 0000876543-26-000001" })).toBeNull();
+    await userEvent.click(within(e).getByTestId("dd-fold"));
     const link = within(e).getByRole("link", { name: "form4 0000876543-26-000001" });
     expect(link).toHaveAttribute("href", "https://www.sec.gov/Archives/edgar/data/876543/000087654326000001/");
   });
@@ -191,6 +195,102 @@ describe("DailyDigest — last night", () => {
   it("says nothing changed in one quiet sentence, never a hidden section", () => {
     setup(emptyPayload());
     expect(within(sec("Last night")).getByText("Nothing changed last night.")).toBeInTheDocument();
+  });
+});
+
+describe("DailyDigest — the fold (a card's routine churn is one quiet count line)", () => {
+  const lineTexts = (name: string) => within(cardOf(name)).queryAllByTestId("dd-line").map((l) => l.textContent);
+
+  it("folds the churn into one count line per card, the non-zero parts in a fixed order, closed by default", () => {
+    setup(churnPayload());
+    const fold = within(cardOf("Card F")).getByTestId("dd-fold");
+    expect(fold).toHaveTextContent("2 triggers re-dated · 2 triggers new · 1 gone · 3 risk signals new · 2 new on watch");
+    expect(fold).toHaveAttribute("aria-expanded", "false");
+    // the lines of every other kind stay lines, in the server's order
+    expect(lineTexts("Card F")).toEqual(["Conviction key turned on", "AAAnewly armed", "entry window closes in 2 days · Sep 19"]);
+  });
+
+  it("opens the folded lines in place, in the server's order, and closes them again with nothing removed", async () => {
+    setup(churnPayload());
+    const f = cardOf("Card F");
+    await userEvent.click(within(f).getByTestId("dd-fold"));
+    expect(within(f).getByTestId("dd-fold")).toHaveAttribute("aria-expanded", "true");
+    expect(lineTexts("Card F")).toEqual([
+      "Conviction key turned on",
+      "AAAnewly armed",
+      "entry window closes in 2 days · Sep 19",
+      "WA1new on watch",
+      "WA2new on watch",
+      "TN1fired · 8-day breakout · technical breakout · Sep 10",
+      "TN2fired · 8-day breakout · technical breakout · Sep 10",
+      "TG1no longer firing · 8-day breakout · technical breakout · Sep 10",
+      "RN1new risk signal · going-concern note · dilution risk · Sep 10",
+      "RN2new risk signal · going-concern note · dilution risk · Sep 10",
+      "RN3new risk signal · going-concern note · dilution risk · Sep 10",
+      "RD1re-dated · 8-day breakout · technical breakout · Sep 8 → Sep 10",
+      "RD2re-dated · 8-day breakout · technical breakout · Sep 8 → Sep 10",
+    ]);
+    // a folded line still shows its source; the count line stays to fold them back (reversible)
+    expect(within(f).getByRole("link", { name: "form4 0000876543-26-000009" })).toBeInTheDocument();
+    await userEvent.click(within(f).getByTestId("dd-fold"));
+    expect(within(f).getByTestId("dd-fold")).toHaveAttribute("aria-expanded", "false");
+    expect(lineTexts("Card F")).toHaveLength(3);
+    expect(within(f).queryByRole("link", { name: "form4 0000876543-26-000009" })).toBeNull();
+  });
+
+  it("folds per card: opening one card's churn leaves every other card's closed", async () => {
+    setup(churnPayload());
+    await userEvent.click(within(cardOf("Card F")).getByTestId("dd-fold"));
+    expect(within(cardOf("Card G")).getByTestId("dd-fold")).toHaveAttribute("aria-expanded", "false");
+    expect(within(cardOf("Card E")).getByTestId("dd-fold")).toHaveAttribute("aria-expanded", "false");
+    expect(lineTexts("Card G")).toEqual([]);
+  });
+
+  it("keeps a card with only folded lines: its header and its count line, never gone", async () => {
+    setup(churnPayload());
+    const g = cardOf("Card G");
+    expect(g.querySelector(".dd-cardname")).toHaveTextContent("Card G");
+    expect(within(g).getByTestId("dd-fold")).toHaveTextContent("2 triggers re-dated");
+    expect(lineTexts("Card G")).toEqual([]);
+    await userEvent.click(within(g).getByTestId("dd-fold"));
+    expect(lineTexts("Card G")).toHaveLength(2);
+  });
+
+  it("adds no count line to a card with nothing to fold", () => {
+    setup(churnPayload());
+    for (const name of ["Card C", "Card D", "Card B", "Card A"]) expect(within(cardOf(name)).queryByTestId("dd-fold")).toBeNull();
+  });
+
+  it("counts the folded lines honestly in the section header", () => {
+    setup(churnPayload());
+    // 7 cards, 24 lines in all; 13 of them are folded into count lines (1 on Card E, 10 on F, 2 on G)
+    expect(within(sec("Last night")).getByRole("heading", { level: 2 })).toHaveTextContent("7 cards · 24 lines · 13 folded into counts");
+  });
+
+  it("never hides a toned line: the accent and warm lines are the same with the fold closed or open", async () => {
+    const { container } = setup(churnPayload());
+    const toned = () => [...container.querySelectorAll(".dd-tone-accent, .dd-tone-warm")].map((e) => [e.className, e.textContent]);
+    const closed = toned();
+    // Card C's move, name and window; Card D's move; Card E's exit-by; Card F's name and window
+    expect(closed).toHaveLength(7);
+    for (const name of ["Card E", "Card F", "Card G"]) await userEvent.click(within(cardOf(name)).getByTestId("dd-fold"));
+    expect(toned()).toEqual(closed);
+    // and no line a fold opens carries a tone: every one reads data-tone=""
+    const churn = within(cardOf("Card F"))
+      .getAllByTestId("dd-line")
+      .filter((l) => /new on watch|fired|no longer firing|risk signal|re-dated/.test(l.textContent ?? ""));
+    expect(churn).toHaveLength(10);
+    for (const l of churn) expect(l.getAttribute("data-tone")).toBe("");
+  });
+
+  it("keeps the count line gray: no tone class and nothing else on it", () => {
+    const { container } = setup(churnPayload());
+    const folds = container.querySelectorAll('[data-testid="dd-fold"]');
+    expect(folds.length).toBe(3);
+    for (const fold of folds) {
+      expect(fold.className).toBe("dd-fold");
+      expect(fold.querySelector(".dd-tone-accent, .dd-tone-warm")).toBeNull();
+    }
   });
 });
 

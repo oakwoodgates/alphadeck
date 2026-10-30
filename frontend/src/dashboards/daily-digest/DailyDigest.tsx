@@ -21,12 +21,14 @@ import {
   dueWhen,
   fillWords,
   filedWords,
+  foldCard,
   formingWords,
   headlineWords,
   holdWords,
   insiderEmpty,
   killTitle,
   killWords,
+  lastNightCount,
   lastSessionFig,
   lineWords,
   loggedFillWords,
@@ -155,6 +157,10 @@ function Line({ card, line, onSelect }: { card: DigestCardOut; line: DigestLineO
 }
 
 function CardBlock({ card, onSelect }: { card: DigestCardOut; onSelect: Select }) {
+  // the routine nightly churn (triggers re-dated, new or gone, new risk signals, names new on watch) is ONE quiet count
+  // line, closed by default; opening it shows the folded lines in place and closing it puts them back (plain state)
+  const [open, setOpen] = useState(false);
+  const { shown, folded, words } = foldCard(card);
   return (
     <div className={`dd-card tier-${card.tier}`} data-testid="dd-card" data-tier={card.tier}>
       <div className="dd-card-h">
@@ -170,11 +176,30 @@ function CardBlock({ card, onSelect }: { card: DigestCardOut; onSelect: Select }
         </span>
         <Marks reconstructed={card.reconstructed} ingestFresh={card.ingest_fresh} />
       </div>
-      {card.lines.length > 0 && (
+      {(shown.length > 0 || words) && (
         <ul className="dd-lines">
-          {card.lines.map((ln, i) => (
+          {shown.map((ln, i) => (
             <Line key={i} card={card} line={ln} onSelect={onSelect} />
           ))}
+          {words && (
+            <li className="dd-li">
+              <button
+                type="button"
+                className="dd-fold"
+                data-testid="dd-fold"
+                aria-expanded={open}
+                title={open ? "Fold these lines back into the count" : "Show these lines"}
+                onClick={() => setOpen((o) => !o)}
+              >
+                <span className="dd-fold-mark" aria-hidden="true">
+                  {open ? "−" : "+"}
+                </span>
+                {words}
+              </button>
+            </li>
+          )}
+          {open &&
+            folded.map((ln, i) => <Line key={`f${i}`} card={card} line={ln} onSelect={onSelect} />)}
         </ul>
       )}
     </div>
@@ -183,8 +208,7 @@ function CardBlock({ card, onSelect }: { card: DigestCardOut; onSelect: Select }
 
 function LastNight({ data, asof, onSelect }: { data: DailyDigestOut; asof: string; onSelect: Select }) {
   const l = data.last_night;
-  const count =
-    !l.no_baseline && l.cards.length > 0 ? ` · ${plural(l.cards_with_change, "card", "cards")}, ${plural(l.lines, "line", "lines")}` : null;
+  const count = lastNightCount(l);
   return (
     <section className="dd-sec" aria-label="Last night" data-testid="dd-last-night">
       <Head section="last_night" asof={asof} extra={count} />

@@ -1,7 +1,12 @@
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 
 import { todayISO } from "../../../util/format";
 import {
+  FOLDED_CHANGES,
   SECTIONS,
   afterNightNote,
   asofParam,
@@ -12,12 +17,16 @@ import {
   dueWhen,
   filedWords,
   fillWords,
+  foldCard,
+  foldedLines,
   formingWords,
   headlineWords,
   holdWords,
   insiderEmpty,
+  isFolded,
   killTitle,
   killWords,
+  lastNightCount,
   lastSessionFig,
   lineWords,
   loggedFillWords,
@@ -38,7 +47,25 @@ import {
   triggerWords,
   workLines,
 } from "../digestView";
-import { ASOF, PREV, SEC_A, TAPE_ROWS, buy, card, due, emptyPayload, line, payload, position, tapeRow } from "./fixtures";
+import type { DigestLineOut } from "../useDailyDigest";
+import {
+  ASOF,
+  CARDS,
+  PREV,
+  SEC_A,
+  TAPE_ROWS,
+  buy,
+  card,
+  churnCard,
+  churnOnlyCard,
+  churnPayload,
+  due,
+  emptyPayload,
+  line,
+  payload,
+  position,
+  tapeRow,
+} from "./fixtures";
 
 // The Daily Digest's pure view: the section list and its links, the words of every line and the tape's cut. Every rule
 // (the grouping, the tone, the cut, the returns) is the server's; this only words and selects what the payload carries.
@@ -116,6 +143,106 @@ describe("last night's words", () => {
     expect(nameKey(line())).toBe("AAA");
     expect(nameKey(line({ ticker: null }))).toBe(SEC_A);
     expect(nameKey(line({ ticker: null, security_id: null }))).toBeNull();
+  });
+});
+
+describe("the fold of a card's routine churn", () => {
+  const ALL_CHANGES = [
+    "state",
+    "key_on",
+    "key_off",
+    "armed",
+    "no_longer_armed",
+    "new_watch",
+    "trigger_new",
+    "trigger_gone",
+    "risk_new",
+    "trigger_redated",
+    "entry_window",
+    "exit_by",
+    "new_card",
+  ] as const;
+
+  it("folds exactly the five churn kinds and keeps every other kind a line", () => {
+    expect([...FOLDED_CHANGES]).toEqual(["trigger_redated", "trigger_new", "trigger_gone", "risk_new", "new_watch"]);
+    expect(ALL_CHANGES.filter((c) => isFolded(line({ change: c })))).toEqual(["new_watch", "trigger_new", "trigger_gone", "risk_new", "trigger_redated"]);
+    for (const c of ["state", "new_card", "key_on", "key_off", "armed", "no_longer_armed", "entry_window", "exit_by"] as const) {
+      expect(isFolded(line({ change: c })), c).toBe(false);
+    }
+  });
+
+  it("splits a card's lines into those that stay and those that fold, each in the server's order", () => {
+    const f = foldCard(churnCard());
+    expect(f.shown.map((l) => l.change)).toEqual(["key_on", "armed", "entry_window"]);
+    expect(f.folded.map((l) => [l.change, l.ticker])).toEqual([
+      ["new_watch", "WA1"],
+      ["new_watch", "WA2"],
+      ["trigger_new", "TN1"],
+      ["trigger_new", "TN2"],
+      ["trigger_gone", "TG1"],
+      ["risk_new", "RN1"],
+      ["risk_new", "RN2"],
+      ["risk_new", "RN3"],
+      ["trigger_redated", "RD1"],
+      ["trigger_redated", "RD2"],
+    ]);
+    expect(f.shown.length + f.folded.length).toBe(churnCard().lines.length); // nothing is dropped
+  });
+
+  it("words the count line: the non-zero parts only, in the fixed order, singular for one", () => {
+    expect(foldCard(churnCard()).words).toBe("2 triggers re-dated · 2 triggers new · 1 gone · 3 risk signals new · 2 new on watch");
+    const one = (change: DigestLineOut["change"]) => foldCard(card({ lines: [line({ change })] })).words;
+    expect(one("trigger_redated")).toBe("1 trigger re-dated");
+    expect(one("trigger_new")).toBe("1 trigger new");
+    expect(one("trigger_gone")).toBe("1 gone");
+    expect(one("risk_new")).toBe("1 risk signal new");
+    expect(one("new_watch")).toBe("1 new on watch");
+    // a card with only some kinds names only those, in the fixed order whatever order the lines came in
+    const some = card({ lines: [line({ change: "new_watch" }), line({ change: "risk_new" }), line({ change: "trigger_gone" })] });
+    expect(foldCard(some).words).toBe("1 gone · 1 risk signal new · 1 new on watch");
+  });
+
+  it("keeps a card whose only lines are churn (all folded) and gives a card with none no count line", () => {
+    const only = foldCard(churnOnlyCard());
+    expect(only.shown).toEqual([]);
+    expect(only.folded).toHaveLength(2);
+    expect(only.words).toBe("2 triggers re-dated");
+    const none = foldCard(card({ lines: [line({ change: "armed" })] }));
+    expect(none.folded).toEqual([]);
+    expect(none.words).toBeNull();
+    expect(foldCard(card({ lines: [] })).words).toBeNull();
+  });
+
+  it("counts the folded lines and words the section header's count honestly", () => {
+    expect(foldedLines(CARDS)).toBe(1);
+    expect(lastNightCount(payload().last_night)).toBe(" · 5 cards · 9 lines · 1 folded into counts");
+    const churn = churnPayload().last_night;
+    expect(foldedLines(churn.cards)).toBe(13);
+    expect(lastNightCount(churn)).toBe(" · 7 cards · 24 lines · 13 folded into counts");
+    // nothing folded: no suffix; nothing to count: no count at all
+    const bare = card({ lines: [line({ change: "armed", tone: "accent" })] });
+    expect(lastNightCount({ no_baseline: false, cards_with_change: 1, lines: 2, cards: [bare] })).toBe(" · 1 card · 2 lines");
+    expect(lastNightCount({ no_baseline: false, cards_with_change: 0, lines: 0, cards: [] })).toBeNull();
+    expect(lastNightCount({ ...payload().last_night, no_baseline: true })).toBeNull();
+  });
+
+  it("never folds a line the server marks with a tone, by the server's own tone rule", () => {
+    // every toned line in the fixtures is a line that stays
+    for (const c of [...CARDS, churnCard(), churnOnlyCard()]) {
+      for (const l of [c.headline, ...c.lines]) if (l && l.tone !== null) expect(isFolded(l), `${c.thesis_name}: ${l.change}`).toBe(false);
+    }
+    // and the rule itself: read `tone_of` in the backend and pin that no kind it can tone is a folded kind
+    const here = dirname(fileURLToPath(import.meta.url));
+    const source = join(here, "..", "..", "..", "..", "..", "backend", "dashboards", "daily_digest.py");
+    if (!existsSync(source)) return; // the backend tree is not in this checkout
+    const text = readFileSync(source, "utf-8");
+    const start = text.indexOf("def tone_of(");
+    expect(start).toBeGreaterThan(-1);
+    const body = text.slice(start, text.indexOf("\ndef ", start + 1)); // up to the next top-level function
+    expect(body.length).toBeGreaterThan(100);
+    const tonable = ALL_CHANGES.filter((c) => body.includes(`"${c}"`));
+    expect([...tonable].sort()).toEqual(["armed", "entry_window", "exit_by", "new_card", "state"]);
+    for (const c of tonable) expect(FOLDED_CHANGES as readonly string[]).not.toContain(c);
   });
 });
 

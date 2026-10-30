@@ -116,6 +116,60 @@ export const CARDS: DigestCardOut[] = [
   }),
 ];
 
+export const CARD_F = "00000000-0000-0000-0000-0000000000f6";
+export const CARD_G = "00000000-0000-0000-0000-0000000000a7";
+
+const trig = (change: DigestLineOut["change"], ticker: string, over: Partial<DigestLineOut> = {}) =>
+  line({ section: "triggers", change, ticker, security_id: `00000000-0000-0000-0000-${ticker.padStart(12, "0")}`, label: "8-day breakout", signal_kind: "technical_breakout", on: "2026-09-10", ...over });
+
+/** An Armed card with the nightly churn What Changed carries on nearly every one, in the server's own order: a key, a name
+ *  newly armed (the accent), two names new on watch, two triggers new, one gone, three risk signals new, two re-dated and
+ *  an entry window closing (the accent). The fold takes the ten churn lines; the three others stay lines. */
+export function churnCard(): DigestCardOut {
+  return card({
+    thesis_id: CARD_F,
+    thesis_name: "Card F",
+    state: "armed",
+    previous_state: "armed",
+    headline: null,
+    lines: [
+      line({ section: "keys", change: "key_on", security_id: null, ticker: null, label: "Conviction" }),
+      line({ change: "armed", ticker: "AAA", tone: "accent" }),
+      line({ change: "new_watch", ticker: "WA1", security_id: SEC_B }),
+      line({ change: "new_watch", ticker: "WA2", security_id: SEC_C }),
+      trig("trigger_new", "TN1"),
+      trig("trigger_new", "TN2"),
+      trig("trigger_gone", "TG1"),
+      trig("risk_new", "RN1", { label: "going-concern note", signal_kind: "dilution_risk", source: { source: "form4", ref: "0000876543-26-000009", url: "https://www.sec.gov/Archives/edgar/data/876543/000087654326000009/" } }),
+      trig("risk_new", "RN2", { label: "going-concern note", signal_kind: "dilution_risk" }),
+      trig("risk_new", "RN3", { label: "going-concern note", signal_kind: "dilution_risk" }),
+      trig("trigger_redated", "RD1", { previous_on: "2026-09-08" }),
+      trig("trigger_redated", "RD2", { previous_on: "2026-09-08" }),
+      line({ section: "clocks", change: "entry_window", security_id: null, ticker: null, on: "2026-09-19", days: 2, tone: "accent" }),
+    ],
+  });
+}
+
+/** A Warming card whose only lines are churn: it keeps its header and its fold line, and nothing else. */
+export function churnOnlyCard(): DigestCardOut {
+  return card({
+    thesis_id: CARD_G,
+    thesis_name: "Card G",
+    tier: "warming",
+    state: "warming",
+    previous_state: "warming",
+    headline: null,
+    lines: [trig("trigger_redated", "RD3", { previous_on: "2026-09-08" }), trig("trigger_redated", "RD4", { previous_on: "2026-09-08" })],
+  });
+}
+
+/** The page with the two churn cards after the five of `CARDS` (the line count follows the cards). */
+export function churnPayload(): DailyDigestOut {
+  const cards = [...CARDS, churnCard(), churnOnlyCard()];
+  const lines = cards.reduce((n, c) => n + c.lines.length + (c.headline ? 1 : 0), 0);
+  return payload({ last_night: { no_baseline: false, cards_with_change: cards.length, lines, cards } });
+}
+
 export function position(over: Partial<DigestPositionOut> = {}): DigestPositionOut {
   return {
     thesis_id: CARD_E,
