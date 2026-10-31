@@ -18,6 +18,7 @@ vi.mock("../../api/hooks", () => ({
   useSetArchived: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
+import { ClockProvider } from "../../clock";
 import { todayISO } from "../../util/format";
 import { Board } from "../Board";
 
@@ -55,5 +56,23 @@ describe("Board — F11 past-asof recompute note", () => {
     const { container } = render(<Board asof={todayISO()} onSelect={noop} />);
     expect(screen.queryByText(/not the recorded call/)).toBeNull();
     expect(container.querySelector(".board-recompute")).toBeNull();
+  });
+
+  // F1 — the default view is the server's CURRENT NIGHT (read live by the server), so it is never labeled a
+  // recompute, though it is before today; only a date before the night is.
+  it("is ABSENT on the server's current night (the default view) and present before it", () => {
+    const server = { currentNight: "2026-10-26", marketToday: "2026-10-27", actionDay: "2026-10-27", failed: false };
+    const { container, rerender } = render(
+      <ClockProvider value={server}>
+        <Board asof="2026-10-26" onSelect={noop} />
+      </ClockProvider>,
+    );
+    expect(container.querySelector(".board-recompute")).toBeNull();
+    rerender(
+      <ClockProvider value={server}>
+        <Board asof="2026-10-23" onSelect={noop} />
+      </ClockProvider>,
+    );
+    expect(container.querySelector(".board-recompute")).not.toBeNull();
   });
 });

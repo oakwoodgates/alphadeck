@@ -81,6 +81,29 @@ export type PriceIngestOut = components["schemas"]["PriceIngestOut"];
 export type EtfHoldingOut = components["schemas"]["EtfHoldingOut"];
 export type EtfHoldingsOut = components["schemas"]["EtfHoldingsOut"];
 
+// F1 — the server's days (GET /clock): the current night (the app's default as-of), the action day, today.
+export type ClockOut = components["schemas"]["ClockOut"];
+
+/** The server's clock. The current night rolls at the nightly pass time (22:30 market time), so the read stays
+ *  fresh for a minute, re-polls every five, and refetches when the tab regains focus (a laptop woken the next
+ *  morning must not keep last night's date); it is one tiny read with no data behind it. App.tsx holds the app until
+ *  it settles, so no page renders on a wrong date first; if it fails the app falls back to the browser's date with
+ *  a quiet note (clock.tsx). */
+export function useClock() {
+  return useQuery({
+    queryKey: ["clock"] as const,
+    staleTime: 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
+    refetchOnWindowFocus: true,
+    retry: 1,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/clock");
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
 export function useTheses(includeArchived = false) {
   return useQuery({
     // the partial key ["theses"] still invalidates BOTH variants (every mutation that touches the

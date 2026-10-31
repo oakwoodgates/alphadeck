@@ -13,6 +13,7 @@ from app.routers import (
     admin_price_feed,
     admin_splits,
     backtest,
+    clock,
     dashboards,
     data_flags,
     radar,
@@ -46,6 +47,8 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.include_router(theses.router)
+# F1 — the server's current night / action day / today: the app's default as-of, never the browser's date
+app.include_router(clock.router)
 app.include_router(workbench.router)
 app.include_router(scoreboard.router)
 app.include_router(admin.router)

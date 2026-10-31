@@ -76,6 +76,8 @@ body {
 .spacer { flex: 1; }
 .asof { display: flex; align-items: center; gap: 8px; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--txt-3); }
 .asof input { font-family: var(--mono); font-size: 12px; color: var(--txt); background: var(--panel); border: 1px solid var(--line-2); border-radius: 7px; padding: 5px 9px; color-scheme: dark; }
+/* F1 — the one quiet word when the server's clock could not be read and the browser's date stands in */
+.asof-note { margin-left: 8px; font-size: 10px; color: var(--txt-3); cursor: help; }
 
 .cp-body { flex: 1; display: grid; grid-template-columns: 1fr 380px; }
 /* the rail collapsed: its 380px track goes to the basket table (the toggle lives in .cp-top) */

@@ -7,6 +7,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ClockProvider } from "../../../clock";
 import { todayISO } from "../../../util/format";
 import DailyDigest from "../DailyDigest";
 import { FRAMING, LIMITS } from "../digestView";
@@ -131,6 +132,19 @@ describe("DailyDigest — the headers open the full pages, carrying ?asof=", () 
   it("keeps the URL clean on a live visit, where an absent ?asof= already reads today", () => {
     const today = todayISO();
     setup(payload({ asof: today }), {}, today);
+    expect(screen.getByRole("link", { name: "Last night" }).getAttribute("href")).toBe("/dashboards/what-changed");
+  });
+
+  it("F1: the default as-of is the server's current night, so a link from it carries no ?asof=", () => {
+    h.hook.mockReturnValue(ok(payload()));
+    const server = { currentNight: ASOF, marketToday: "2026-09-18", actionDay: "2026-09-18", failed: false };
+    render(
+      <ClockProvider value={server}>
+        <MemoryRouter>
+          <DailyDigest asof={ASOF} onSelectThesis={vi.fn()} />
+        </MemoryRouter>
+      </ClockProvider>,
+    );
     expect(screen.getByRole("link", { name: "Last night" }).getAttribute("href")).toBe("/dashboards/what-changed");
   });
 });

@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 
 import type { CallCardResponse, ThesisSummary } from "../api/hooks";
 import { useCalls, useDataFlags, useSetArchived, useTheses } from "../api/hooks";
+import { useAppClock } from "../clock";
 import { DataFlagMark } from "../cockpit/DataFlagMark";
 import { flagsBySid } from "../cockpit/dataFlags";
 import {
@@ -57,6 +58,8 @@ export function Board({ header, asof, onSelect }: Props) {
   // progressive PAINT only: under one backend worker this orders what lands first, it does not
   // shorten the total (see useCalls)
   const callResults = useCalls(theses, asof);
+  // F1 — "past" is before the server's current night (the default view, read live), never before the browser's date
+  const { currentNight } = useAppClock();
   // S3 — the data flags across the active baskets (compute-on-read, display-only): a ticker the Board shows
   // (the Decision Queue's headline name, a single-name card) carries the same quiet mark as its Cockpit row
   // when a flag reaches a number on it. A separate read: the cards never wait on it.
@@ -113,7 +116,7 @@ export function Board({ header, asof, onSelect }: Props) {
           makes EVERY card on screen a recompute, not the recorded call-of-record — a per-card badge
           would be true of every row and so be noise (WB#3); one quiet line for the whole board says
           it once. Absent on the live/today board. */}
-      {isPastAsof(asof) && (
+      {isPastAsof(asof, currentNight) && (
         <div className="board-recompute" title={RECOMPUTE_TOOLTIP}>
           {recomputeNote(asof)}
         </div>

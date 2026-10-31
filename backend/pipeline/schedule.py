@@ -20,8 +20,10 @@ EARMARK (consultant watch-item): this is still the SECOND home of the Mon-Fri + 
 shell's sleep-loop is the first, and ``market_today()`` does NOT unify them (it answers "what day is it in
 market time", deliberately doing NO trading-calendar logic — no weekend skip, no holidays). The Mon-Fri
 schedule math belongs HERE (the bare weekday predicate ``is_scheduled_day`` is defined in
-``domain/trading_days.py`` and imported, so the call path can share it without importing ``pipeline``);
-the remaining consolidation is shrinking the shell to a dumb trigger. Until
+``domain/trading_days.py`` and imported, so the call path can share it without importing ``pipeline``;
+since F1 ``parse_run_at`` and ``last_expected_asof`` are defined there too, because the app's current night,
+``domain/market_time.current_night``, is built on them); the remaining consolidation is shrinking the
+shell to a dumb trigger. Until
 then keep the two in step — concretely, the shell's ``is_weekday`` / ``next_weekday`` /
 ``last_expected_asof`` mirror ``is_scheduled_day`` / ``last_expected_asof`` here, and since 2026-09-10 the
 shell's BOOT path targets ``last_expected_asof(now)`` too (the last expected night — exactly one, never
@@ -39,33 +41,25 @@ here is the hole-aware read that makes such a night VISIBLE on the admin surface
 from __future__ import annotations
 
 from collections.abc import Collection
-from datetime import date, datetime, time, timedelta
+from datetime import date, timedelta
 
 # The cron's Mon-Fri gate (the shell's ``date +%u <= 5``) — holidays included, weekends out. DEFINED in
 # ``domain/trading_days.py`` since Q14 (the call path counts entry-window sessions with it, and ``calls``
 # must never import ``pipeline``); imported here so this module's math and every
-# ``from pipeline.schedule import is_scheduled_day`` caller read the ONE definition.
-from domain.trading_days import is_scheduled_day
+# ``from pipeline.schedule import is_scheduled_day`` caller read the ONE definition. ``parse_run_at`` and
+# ``last_expected_asof`` followed it there in F1 (2026-10-30): the app's "current night"
+# (``domain/market_time.current_night``) is built on them and the serve path reads it, so they are domain math
+# too; re-exported here, so every ``from pipeline.schedule import ...`` caller is unchanged.
+from domain.trading_days import is_scheduled_day, last_expected_asof, parse_run_at
 
-
-def parse_run_at(raw: str) -> time:
-    """``"HH:MM"`` -> ``time`` (the sidecar's RUN_AT format, e.g. ``"22:30"``). Raises ``ValueError`` on
-    garbage — a malformed ``ALPHADECK_CRON_AT`` is a deploy error that must be LOUD, never a silently
-    wrong schedule read."""
-    return time.fromisoformat(raw.strip())
-
-
-def last_expected_asof(now: datetime, run_at: time) -> date:
-    """The most recent as-of whose scheduled run should have ALREADY fired by ``now``: today, once
-    ``run_at`` has passed on a weekday; else the most recent prior weekday. Total — always a date.
-    """
-    d = now.date()
-    if is_scheduled_day(d) and now.time() >= run_at:
-        return d
-    d -= timedelta(days=1)
-    while not is_scheduled_day(d):
-        d -= timedelta(days=1)
-    return d
+__all__ = [
+    "expected_runs_behind",
+    "is_scheduled_day",
+    "last_expected_asof",
+    "missed_asofs",
+    "parse_run_at",
+    "scheduled_window",
+]
 
 
 def expected_runs_behind(edge: date | None, expected: date) -> int | None:

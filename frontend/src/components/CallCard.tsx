@@ -1,4 +1,5 @@
 import type { CallCardResponse } from "../api/hooks";
+import { useAppClock } from "../clock";
 import {
   accentVar,
   byEventDateDesc,
@@ -62,6 +63,8 @@ export function CallCard({
 }) {
   const sc = STATE_CLASS[card.state] ?? "incub";
   const accent = accentVar(sc);
+  // F1 — a recompute is a date before the server's current night (the default view is read live)
+  const { currentNight } = useAppClock();
   const armed = card.state === "armed";
   // Setup strength (wire `confidence`) is an Armed-state metric (§7): the backend nulls it for a not-yet
   // card, so the bar only renders when armed — a Warming card never wears the Armed card's bar.
@@ -101,7 +104,7 @@ export function CallCard({
             card.asof alone — the same field that answers the entry/exit clocks below — so a stale
             (keepPreviousData) placeholder card is labeled for the date it actually answers, and the
             note updates the instant a scrub's new date resolves. */}
-        {isPastAsof(card.asof) && (
+        {isPastAsof(card.asof, currentNight) && (
           <div className="cc-recompute" title={RECOMPUTE_TOOLTIP}>
             {recomputeNote(card.asof)}
           </div>

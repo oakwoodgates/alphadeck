@@ -186,12 +186,14 @@ def run(**over) -> DailyDigest:
 
 
 def test_the_night_pair_counts_the_sessions_between_and_how_far_past_the_night_the_asof_is():
+    # the DEFAULT view (F1): the app's as-of is the current night, the night the pass last recorded — so on the
+    # default view the as-of IS the newest night and nothing is "past" it, the morning after or on a weekend alike
     on_the_night = night_pair(NIGHT, NIGHT, PREV)
     assert (on_the_night.latest, on_the_night.previous) == (NIGHT, PREV)
     assert (on_the_night.sessions_between, on_the_night.days_after_night) == (1, 0)
-    # the morning before the 22:30 pass reads the night before: the as-of is a day past it
+    # a hand-picked as-of a day after the night (or one whose pass has not recorded yet) says how far past it is
     assert night_pair(d(18), NIGHT, PREV).days_after_night == 1
-    # a Monday reads Friday against Thursday: one session between them, the as-of three days past
+    # a Monday as-of picked by hand reads Friday against Thursday: one session between them, three days past
     monday = night_pair(d(21), d(18), d(17))
     assert (monday.sessions_between, monday.days_after_night) == (1, 3)
     # Thursday to the next Monday: Friday and Monday are two sessions
@@ -1420,6 +1422,36 @@ def test_db_a_monday_reads_fridays_night_against_thursdays_and_says_so(db, world
     assert monday["last_night"]["cards"] == []  # Friday's row matches Thursday's: nothing changed
     assert (
         monday["counts"]["cards_recorded_on_night"] == 1 and monday["counts"]["cards_no_call"] == 1
+    )
+
+
+def test_db_the_default_view_on_a_monday_morning_is_fridays_night_zero_days_past_it(
+    db, world, monkeypatch
+):
+    """F1: the app's default as-of is the current night (``domain.market_time.current_night``, what ``GET /clock``
+    serves the dial), so at 09:00 ET on Monday the page opens on Friday's night — read live — and reads it against
+    Thursday's, 0 days past it (the pre-F1 Monday-date view, above, said 3)."""
+    from domain import market_time
+    from domain.settings import get_settings
+
+    monkeypatch.delenv("ALPHADECK_CRON_AT", raising=False)
+    get_settings.cache_clear()
+    monday_morning = datetime(2026, 9, 21, 13, 0, tzinfo=timezone.utc)  # 09:00 EDT
+    monkeypatch.setattr(
+        market_time,
+        "market_now",
+        lambda tz=None: monday_morning.astimezone(tz or market_time.market_tz()),
+    )
+    _record(db, world["a"], FRI, State.ARMED, [world["aaa"]])
+    db.commit()
+    night = market_time.current_night()
+    assert night == FRI and market_time.serve_view(night) == (None, "record")
+    n = _get(db, night)["nights"]
+    assert (n["latest"], n["previous"], n["days_after_night"], n["sessions_between"]) == (
+        "2026-09-18",
+        "2026-09-17",
+        0,
+        1,
     )
 
 

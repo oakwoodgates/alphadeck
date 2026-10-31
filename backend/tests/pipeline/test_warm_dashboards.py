@@ -4,14 +4,15 @@ cache warm-up, ``docs/DASHBOARDS.md`` rule 7).
 What is pinned here, and where it is real:
 
 - the PLAN: ``--dry-run`` lists every page with its exact query and makes no request, ``--pages`` scopes it;
-- the AS-OF rule (``visit_asofs``): the next visit's date, not the pass's own;
+- the AS-OF rule (``visit_asofs``): the night itself (F1: the app's dial opens on the server's current night);
 - the LOOP: a page that fails, times out or blows up the transport does not stop the others and the exit code is 0;
   the budget stops a run cleanly and lists what it never asked; the kill switch skips the whole step;
 - the ARTIFACT's shape, written atomically and fail-open;
 - the TRANSPORT against a real local HTTP server (a reply, an error status, a timeout, a refused connection);
 - the PROOF the warm-up exists for, DB-backed against the REAL FastAPI app and the REAL shared cache: the warm-up's
   request for a page, then the query the frontend's hook sends on that page's default view at the same as-of, is a
-  cache ``hit`` (for a live day tomorrow and today, and a past day); and a read of the pass's OWN date is not;
+  cache ``hit`` (for the current night, today and a past day); and a warm-up of the day AFTER the night (the
+  pre-F1 rule) misses the next morning's default read;
 - the WIRING: ``warm_dashboards`` is the last thing in the nightly wake, fail-open and always 0 (so it can never
   change the pass's status or exit code), and the compose service carries the env it reads.
 
@@ -33,7 +34,7 @@ import sys
 import threading
 import time
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qsl, urlparse
@@ -45,7 +46,9 @@ from app.deps import get_conn
 from app.main import app
 from dashboards.cache import CACHE, MAX_ENTRIES
 from db.session import DEFAULT_TENANT_ID
-from domain.market_time import market_today
+from domain import market_time
+from domain.market_time import current_night
+from domain.settings import get_settings
 from domain.thesis import BasketMember, Segment, Thesis
 from pipeline import warm_dashboards as wd
 from pipeline.warm_dashboards import (
@@ -152,34 +155,50 @@ class Recorder:
 
 
 @pytest.mark.parametrize(
-    "night, expected",
+    "night",
     [
-        (date(2026, 10, 26), [date(2026, 10, 27)]),  # Monday night -> Tuesday's visit
-        (date(2026, 10, 29), [date(2026, 10, 30)]),  # Thursday night -> Friday's
-        (
-            date(2026, 10, 30),
-            [date(2026, 10, 31), date(2026, 11, 2)],
-        ),  # Friday -> Saturday and Monday
-        (
-            date(2026, 10, 31),
-            [date(2026, 11, 1), date(2026, 11, 2)],
-        ),  # Saturday (a hand run) -> Sunday, Monday
-        (date(2026, 11, 1), [date(2026, 11, 2)]),  # Sunday -> Monday
+        date(2026, 10, 26),  # Monday night -> Tuesday's visits read Monday
+        date(2026, 10, 29),  # Thursday
+        date(2026, 10, 30),  # Friday -> the weekend and Monday's daytime read Friday
     ],
 )
-def test_the_asofs_are_the_next_visits_dates_not_the_passs_own(night, expected):
-    got = visit_asofs(night)
-    assert got == expected
-    assert night not in got  # the pass's own date is a key the next visit never asks for
-    assert all(d > night for d in got)
+def test_the_asof_is_the_night_itself(night):
+    assert visit_asofs(night) == [night]
 
 
-def test_the_first_asof_is_the_day_the_frontend_dial_opens_on_at_the_next_morning():
-    """The dial opens on the browser's local calendar date (``todayISO``). The pass for night N runs at 22:30 on
-    N, so the next morning's date is N + 1 — and ``market_today()`` that morning is the same date.
+@pytest.mark.parametrize(
+    "pass_done, visits",
+    [
+        # Wednesday's pass (22:45 ET), then Thursday's morning and afternoon visits
+        (
+            datetime(2026, 10, 28, 22, 45),
+            [datetime(2026, 10, 29, 9, 0), datetime(2026, 10, 29, 17, 0)],
+        ),
+        # Friday's pass, then Saturday, Sunday and Monday morning
+        (
+            datetime(2026, 10, 30, 22, 45),
+            [
+                datetime(2026, 10, 31, 12, 0),
+                datetime(2026, 11, 1, 20, 0),
+                datetime(2026, 11, 2, 9, 0),
+            ],
+        ),
+    ],
+)
+def test_the_warmed_asof_is_the_current_night_every_visit_until_the_next_pass_reads(
+    monkeypatch, pass_done, visits
+):
+    """The cron passes ``--night`` = the last expected night, which is the current night once its pass has run
+    (``domain.market_time.current_night``, what ``GET /clock`` serves the dial). Every visit until the next pass
+    time asks for that same date, so one key serves them all. Naive instants are market wall times.
     """
-    today = market_today()
-    assert visit_asofs(today - timedelta(days=1))[0] == today
+    monkeypatch.delenv("ALPHADECK_CRON_AT", raising=False)
+    get_settings.cache_clear()
+    night = current_night(pass_done)
+    assert night == pass_done.date()
+    for visit in visits:
+        assert visit_asofs(night) == [current_night(visit)], visit
+    get_settings.cache_clear()
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -259,9 +278,9 @@ def test_dry_run_lists_every_page_with_its_params_and_makes_no_request(tmp_path)
     )
     assert rc == 0
     text = "\n".join(lines)
-    assert "http://api:9" in text and "2026-10-29" in text
+    assert "http://api:9" in text and "as-of(s) 2026-10-28 " in text  # the night itself
     for path, params in PAGES:
-        want = build_request(ASOF, path, params)
+        want = build_request(NIGHT, path, params)
         assert f"GET /dashboards/{want.path}?{want.query()}" in text, want.path
     assert (
         "scope=<default scope>" in text and "scope=all" in text
@@ -269,13 +288,19 @@ def test_dry_run_lists_every_page_with_its_params_and_makes_no_request(tmp_path)
     assert not runs.exists()  # a plan writes no artifact
 
 
-def test_dry_run_on_a_friday_night_plans_saturday_and_monday():
+def test_dry_run_on_a_friday_night_plans_friday_only():
+    """F1: the weekend and Monday's daytime read Friday's night (the dial opens on the current night), so one key,
+    not the pre-F1 Saturday + Monday pair."""
     lines: list[str] = []
     assert (
         main(["--dry-run", "--night", "2026-10-30"], fetch=_never, env={}, emit=lines.append) == 0
     )
     text = "\n".join(lines)
-    assert "asof=2026-10-31" in text and "asof=2026-11-02" in text and "asof=2026-10-30" not in text
+    assert (
+        "asof=2026-10-30" in text
+        and "asof=2026-10-31" not in text
+        and "asof=2026-11-02" not in text
+    )
 
 
 def test_pages_scopes_the_run_and_an_unknown_page_is_a_usage_error(tmp_path, capsys):
@@ -496,19 +521,14 @@ def test_the_artifact_shape(tmp_path):
     doc = json.loads(path.read_text(encoding="utf-8"))
     assert set(doc) == ARTIFACT_KEYS
     assert doc["kind"] == "warm_dashboards" and doc["status"] == "done"
-    assert doc["night"] == "2026-10-30" and doc["asofs"] == [
-        "2026-10-31",
-        "2026-11-02",
-    ]  # Saturday and Monday
+    assert doc["night"] == "2026-10-30" and doc["asofs"] == ["2026-10-30"]  # the night itself
     assert doc["base_url"] == "http://api:1"
     assert datetime.fromisoformat(doc["started_at"]) <= datetime.fromisoformat(doc["finished_at"])
     assert all(set(p) == PAGE_KEYS for p in doc["pages"])
-    assert len(doc["pages"]) == 2 * (
-        len(PAGES) + 2
-    )  # two as-ofs, each with the peer table's two follow-ups
+    assert len(doc["pages"]) == len(PAGES) + 2  # one as-of, with the peer table's two follow-ups
     hot = next(p for p in doc["pages"] if p["path"] == "hot-board")
     assert hot == {
-        "asof": "2026-10-31",
+        "asof": "2026-10-30",
         "path": "hot-board",
         "params": {"rows": "armed"},
         "status": 200,
@@ -520,7 +540,7 @@ def test_the_artifact_shape(tmp_path):
     }
     c = doc["counts"]
     assert c["requests"] == c["ok"] == len(doc["pages"]) and c["failed"] == c["skipped"] == 0
-    assert c["hit"] == 2 and c["computed"] == c["ok"] - 2
+    assert c["hit"] == 1 and c["computed"] == c["ok"] - 1  # the one as-of's hot-board read
     assert not [
         p for p in (tmp_path / "w").iterdir() if p.name.startswith(".")
     ]  # no temp file left behind
@@ -787,10 +807,30 @@ def _frontend_default_reads(client: TestClient, asof: date, warmed: list) -> lis
     return reads
 
 
-@pytest.mark.parametrize("delta", [1, 0, -3], ids=["tomorrow", "today", "a-past-day"])
-def test_the_warmed_read_is_the_cache_hit_of_the_pages_default_read(api, pinned_today, delta):
+# The DB proofs pin the market clock to 09:00 ET on Thursday 2026-10-29, so "the current night" is an exact date
+# (Wednesday 10-28: the 22:30 pass has not run yet) whatever hour the suite runs at. Pinned through ``market_now``
+# (``pinned_today``'s seam, re-pinned after the ``api`` fixture's); transaction time stays real.
+_THU_MORNING = datetime(2026, 10, 29, 13, 0, tzinfo=timezone.utc)  # 09:00 EDT
+_THE_NIGHT, _TODAY, _A_PAST_DAY = date(2026, 10, 28), date(2026, 10, 29), date(2026, 10, 23)
+
+
+def _pin_thursday_morning(monkeypatch) -> None:
+    monkeypatch.delenv("ALPHADECK_CRON_AT", raising=False)
+    get_settings.cache_clear()
+    monkeypatch.setattr(
+        market_time,
+        "market_now",
+        lambda tz=None: _THU_MORNING.astimezone(tz or market_time.market_tz()),
+    )
+    assert current_night() == _THE_NIGHT
+
+
+@pytest.mark.parametrize(
+    "asof", [_THE_NIGHT, _TODAY, _A_PAST_DAY], ids=["the-night", "today", "a-past-day"]
+)
+def test_the_warmed_read_is_the_cache_hit_of_the_pages_default_read(api, monkeypatch, asof):
     client, fetch = api
-    asof = pinned_today + timedelta(days=delta)
+    _pin_thursday_morning(monkeypatch)
 
     outcome = run([asof], PAGES, base_url="http://testserver", fetch=fetch, emit=lambda line: None)
 
@@ -803,7 +843,7 @@ def test_the_warmed_read_is_the_cache_hit_of_the_pages_default_read(api, pinned_
     # the peer table's default scope and `all` were both warmed, from the real scopes reply
     peer = [r.params for r in warmed if r.path == wd.PEER_TABLE_PATH]
     assert peer == [{"scope": "business_type", "key": "biotech_pharma"}, {"scope": "all"}]
-    # one as-of's warm set fits the cache with room for a second (a Friday warms two)
+    # one as-of's warm set fits the cache with room for a second (a hand run's --asof can add one)
     assert len(CACHE) * 2 <= MAX_ENTRIES
 
     reads = _frontend_default_reads(client, asof, warmed)
@@ -816,27 +856,37 @@ def test_the_warmed_read_is_the_cache_hit_of_the_pages_default_read(api, pinned_
         ), f"{path} {query}: the warm-up did not fill the key the page reads"
 
 
-def test_the_clock_of_the_warmed_key_is_the_one_the_next_visit_reads(api, pinned_today):
-    """Tomorrow (a date after today) reads on the record clock, exactly as that day's own visit will, so the key
-    warmed tonight for tomorrow is tomorrow's; a past day reads on the public clock."""
+def test_the_clock_of_the_warmed_key_is_the_one_the_next_visit_reads(api, monkeypatch):
+    """The current night reads on the record clock (F1: live from the current night on), exactly as the morning's
+    default visit will, so the key warmed after the pass is the visit's; today and a later day read the same way; a
+    day before the night reads on the public clock."""
     client, fetch = api
-    for delta, clock in ((1, "record"), (0, "record"), (-3, "public")):
-        asof = pinned_today + timedelta(days=delta)
+    _pin_thursday_morning(monkeypatch)
+    for asof, clock in (
+        (_THE_NIGHT, "record"),
+        (_TODAY, "record"),
+        (_TODAY + timedelta(days=1), "record"),
+        (_A_PAST_DAY, "public"),
+    ):
         got = run([asof], [("theme-leaderboard", {})], base_url="http://testserver", fetch=fetch)
         assert got.counts()["ok"] == 1
         body = client.get("/dashboards/theme-leaderboard", params={"asof": asof.isoformat()}).json()
-        assert (body["clock"], body["cache"]) == (clock, "hit")
+        assert (body["clock"], body["cache"]) == (clock, "hit"), asof
 
 
-def test_warming_the_passs_own_date_would_not_have_helped_the_next_morning(api, pinned_today):
-    """The negative control for the as-of rule: the same page warmed at TODAY's date is a different key from
-    tomorrow's, so the next day's visit would have paid the cold compute."""
+def test_warming_the_day_after_the_night_would_not_have_helped_the_next_morning(api, monkeypatch):
+    """The negative control for the as-of rule: the pre-F1 warm-up's key (the day after the night) is a different
+    key from the night's, which is what the morning's default visit now reads — it would have paid the cold
+    compute."""
     client, fetch = api
-    run([pinned_today], [("read-through", {})], base_url="http://testserver", fetch=fetch)
-    today = client.get("/dashboards/read-through", params={"asof": pinned_today.isoformat()}).json()
-    tomorrow = (pinned_today + timedelta(days=1)).isoformat()
-    next_day = client.get("/dashboards/read-through", params={"asof": tomorrow}).json()
-    assert (today["cache"], next_day["cache"]) == ("hit", "computed")
+    _pin_thursday_morning(monkeypatch)
+    old_rule = _THE_NIGHT + timedelta(days=1)
+    run([old_rule], [("read-through", {})], base_url="http://testserver", fetch=fetch)
+    warmed = client.get("/dashboards/read-through", params={"asof": old_rule.isoformat()}).json()
+    visit = client.get(
+        "/dashboards/read-through", params={"asof": current_night().isoformat()}
+    ).json()
+    assert (warmed["cache"], visit["cache"]) == ("hit", "computed")
 
 
 # ---------------------------------------------------------------------------------------------------------

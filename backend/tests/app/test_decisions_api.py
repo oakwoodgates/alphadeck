@@ -95,12 +95,77 @@ def test_take_snapshots_the_platform_stance(client, db, pinned_today):
 # --- no lookahead: both time axes ------------------------------------------------------------------------
 
 
-def test_a_fill_is_invisible_to_a_past_asof(client, db, pinned_today):
-    """Valid time: a take dated today must not make YESTERDAY's call managing."""
+# F1 (2026-10-30): a past as-of is one BEFORE the current night (the night the pass last recorded), so these pin the
+# market clock to an exact instant — 09:00 ET on Wednesday 2026-10-28: the current night is Tuesday (the 22:30 pass
+# has not run yet), today and the action day Wednesday. Pinned through ``market_now`` (``pinned_today``'s seam) so
+# the route's ``market_today()`` / ``market_clock()`` and the test agree; transaction time stays real.
+_WED_MORNING = datetime(2026, 10, 28, 13, 0, tzinfo=timezone.utc)  # 09:00 EDT
+_MON, _TUE, _WED = date(2026, 10, 26), date(2026, 10, 27), date(2026, 10, 28)
+
+
+def _pin_clock(monkeypatch, instant: datetime) -> None:
+    from domain import market_time
+    from domain.settings import get_settings
+
+    monkeypatch.delenv("ALPHADECK_CRON_AT", raising=False)
+    get_settings.cache_clear()  # the 22:30 pass time these instants are read against
+    monkeypatch.setattr(
+        market_time, "market_now", lambda tz=None: instant.astimezone(tz or market_time.market_tz())
+    )
+
+
+def test_a_fill_is_invisible_to_a_past_asof(client, db, monkeypatch):
+    """Valid time: a take dated today must not make a PAST call managing (a day before the current night)."""
+    _pin_clock(monkeypatch, _WED_MORNING)
     t = _thesis(db)
-    _post(client, t.id, pinned_today, action="take", price=10.0)
-    assert _call_state(client, t.id, asof=pinned_today - timedelta(days=1)) == "incubating"
-    assert _call_state(client, t.id, pinned_today) == "managing"
+    _post(client, t.id, _WED, action="take", price=10.0)
+    assert _call_state(client, t.id, asof=_MON) == "incubating"
+    assert _call_state(client, t.id, _WED) == "managing"
+
+
+def test_a_fill_logged_this_morning_shows_on_the_current_night_view(client, db, monkeypatch):
+    """F1: the default view is last night's (Tuesday's), read live, and the operator's decisions read up to the
+    action day — so the take logged this morning (dated Wednesday) makes the card Managing before tonight's pass,
+    agreeing with the thesis-detail position. The record path is untouched: Tuesday's call of record, assembled
+    the way the nightly does (no action-day read), still reads the take as not yet made."""
+    _pin_clock(monkeypatch, _WED_MORNING)
+    t = _thesis(db)
+    assert _call_state(client, t.id, _TUE) == "incubating"
+    assert _post(client, t.id, _WED, action="take", price=10.0).status_code == 200
+    assert _call_state(client, t.id, _TUE) == "managing"
+    assert client.get(f"/theses/{t.id}").json()["position"]["opened_on"] == str(_WED)
+    # the record path: a call for Tuesday as the nightly assembles it never sees a Wednesday fill
+    assert call_for_thesis(db, t.id, _TUE, record=False).state.value == "incubating"
+    db.commit()
+    # after tonight's pass the night is Wednesday, so Tuesday is a past view and the take is after it again
+    _pin_clock(
+        monkeypatch, datetime(2026, 10, 29, 2, 45, tzinfo=timezone.utc)
+    )  # 22:45 EDT Wednesday
+    assert _call_state(client, t.id, _TUE) == "incubating"
+    assert _call_state(client, t.id, _WED) == "managing"
+
+
+def test_a_close_logged_this_morning_leaves_managing_on_the_current_night_view(
+    client, db, monkeypatch
+):
+    """The other half of the same read: a close dated today ends the position on the current-night view at once,
+    while Tuesday's call as the nightly assembles it still holds the position."""
+    _pin_clock(monkeypatch, _WED_MORNING)
+    t = _thesis(db)
+    decisions_repo.append(
+        db,
+        thesis_id=t.id,
+        tenant_id=DEFAULT_TENANT_ID,
+        action="take",
+        decision_date=_MON,
+        price=5.0,
+    )
+    db.commit()
+    assert _call_state(client, t.id, _TUE) == "managing"
+    assert _post(client, t.id, _WED, action="close", price=6.0).status_code == 200
+    assert _call_state(client, t.id, _TUE) == "incubating"
+    assert call_for_thesis(db, t.id, _TUE, record=False).state.value == "managing"
+    db.commit()
 
 
 def test_a_later_recorded_fill_is_invisible_to_a_pinned_known_at(db, pinned_today):

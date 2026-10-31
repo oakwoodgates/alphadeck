@@ -31,15 +31,21 @@ persisted for display. Change the as-of, and the whole board re-derives — it i
   manages the position or portfolio risk. The lifecycle is a loop, not a ratchet — cards move back
   when triggers age out or a position closes (`CALL_LOGIC.md` §2). Columns never rank theses against each
   other (#4: the platform is deferential on thesis — it times, it doesn't judge ideas).
-- **The as-of scrub** (top right) defaults to **local today** (`todayISO` — deliberately not UTC, which is
-  tomorrow after ~8pm ET; the gate-2 catch). Scrubbing back recomputes the board with TODAY's rules on
+- **The as-of scrub** (top right) defaults to **the current night** (F1, 2026-10-30): the night the nightly
+  pass last recorded, served by `GET /clock` (`domain/market_time.current_night` — today once the 22:30 pass
+  time has passed on a weekday, else the weekday before), never the browser's date. At 09:00 Tuesday the board
+  opens on Monday's night, read LIVE — the call that night recorded and alerted on, not a "Tuesday" recompute
+  from Monday's facts. On that live view the operator's decisions read up to the action day (the first weekday
+  after the night), so a fill logged this morning shows at once (decisions only; the facts follow the night).
+  If the clock read fails the dial falls back to the browser's date with a quiet "browser date" note.
+  Scrubbing back (before the current night) recomputes the board with TODAY's rules on
   what was PUBLIC by the end of that date — the no-lookahead rule applies to the UI too, judged on the public
   clock (operator decision 2026-10-21): a fact dated after the as-of is invisible, and so is one PUBLISHED
   after it (a Form 4 accepted later, a vendor correction made later); a fact public by then but ingested
   late by our database is NOT hidden for it (`GET /theses/{id}/call?asof=` threads `serve_view(asof)` —
-  `(known_at_for_asof(asof), "public")` for a past as-of, `(None, "record")` for the live one;
-  `INVARIANTS.md` #4, `db/public_clock.py`). A fill the operator logged after the as-of stays invisible too
-  (an operator decision counts from when it was made). The past board says so in one quiet line — "Recomputed
+  `(known_at_for_asof(asof), "public")` for an as-of before the current night, `(None, "record")` from the
+  current night on; `INVARIANTS.md` #4, `db/public_clock.py`). A fill the operator logged after a past as-of
+  stays invisible too (an operator decision counts from when it was made). The past board says so in one quiet line — "Recomputed
   as of <date> — today's rules on what was public then, not the recorded call" (F11). The remaining caveat:
   the roster is point-in-time only from 2026-09-15 (`basket_snapshot`; before that today's basket stands in —
   `INVARIANTS.md` §Known gaps), so a scrubbed-back card is a labeled recompute; what the platform actually said

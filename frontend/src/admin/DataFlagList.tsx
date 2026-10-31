@@ -1,7 +1,7 @@
 import type { MemberDataFlagsOut } from "../api/hooks";
 import { useDataFlags } from "../api/hooks";
+import { useAppClock } from "../clock";
 import { CELL_LABEL, LEVEL_WORD, rowLevel } from "../cockpit/dataFlags";
-import { todayISO } from "../util/format";
 import { errText } from "../workbench/format";
 
 /** One name's flags as Admin lists them: the ticker, the theses holding it, and each flag in full. */
@@ -34,7 +34,7 @@ function Row({ m }: { m: MemberDataFlagsOut }) {
 }
 
 /** The "Data flags" panel (split plan S3): the full current list of the shared "is this real?" flags across
- *  the active baskets, as of today — computed on read, never stored. The names whose flags reach a Cockpit
+ *  the active baskets, as of the current night — computed on read, never stored. The names whose flags reach a Cockpit
  *  number lead (each row there carries the quiet mark); the ones whose flags touch no number on the row
  *  (an old split, a stale tail outside every window) sit in a collapsed quiet list. Read-only: what clears
  *  each flag is named on it (the split review above, the price-feed repairs, the split repair). No alert,
@@ -42,7 +42,8 @@ function Row({ m }: { m: MemberDataFlagsOut }) {
  *  sit last, in their own collapsed list, never counted as flagged. Renders nothing when nothing is flagged
  *  or marked. */
 export function DataFlagList() {
-  const q = useDataFlags(todayISO());
+  // the server's current night (F1, clock.ts): the date every other default view reads, read live
+  const q = useDataFlags(useAppClock().currentNight);
   if (q.isError) {
     return (
       <section className="adm-card" data-testid="adm-flags">

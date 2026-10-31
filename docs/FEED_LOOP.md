@@ -2485,10 +2485,13 @@ measured yet, and a visit after a later run or a basket edit still computes cold
 (dry-run with `--dry-run`: the plan, no request) issues ONE GET per heavy page's default view to the running API
 (`ALPHADECK_WARM_BASE_URL`, default `http://backend:8000`), one at a time, and logs one line per page (status, `cache`,
 `compute_ms`, wall ms) plus `data/warm_dashboards/<started>.json`. It is read-only (GETs only: no database
-connection, no write). **The as-of is the next visit's date, not the pass's own:** the as-of dial opens on the browser's
-local calendar date and the cache keys on `(slug, params, asof)`, so a pass at 22:30 warms the day after it (plus the
-Monday after a weekend), a live read on the record clock exactly as that visit's read will be; `--night` names the pass's
-night, `--asof` overrides. `PAGES` is a hand-maintained mirror of each hook's default query (the Hot Board's is
+connection, no write). **The as-of is the night itself (F1, 2026-10-30):** the as-of dial opens on the server's current
+night (`GET /clock`, `domain/market_time.current_night` — the night the pass last recorded, until the next pass time) and
+the cache keys on `(slug, params, asof)`, so a pass warms its own night, ONE key that every visit until the next pass asks
+for (the next morning, the whole weekend after a Friday), a live read on the record clock exactly as that visit's read
+will be (`serve_view` reads the current night live); `--night` names the pass's night (default: the current night),
+`--asof` overrides. (Before F1 the dial read the browser's date and the job warmed the day after the night, plus the
+Monday after a weekend.) `PAGES` is a hand-maintained mirror of each hook's default query (the Hot Board's is
 `rows=armed`; its `rows=all` read for the toggles is not warmed), a card-picker page warms its picker read only, and the
 Peer Table also reads its default scope and `all` (named by the scopes reply); `tests/pipeline/test_warm_dashboards.py`
 proves the warmed read is the next default read's cache hit against the real cache. Bounded by `--timeout-s` per request

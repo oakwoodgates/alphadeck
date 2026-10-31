@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import { useRatifyFact } from "../api/hooks";
-import { todayISO } from "../util/format";
+import { useAppClock } from "../clock";
 import { errText } from "./format";
 
 const CATALYST_TYPES = [
@@ -22,11 +22,13 @@ const CATALYST_TYPES = [
  *  exception, not the rule); distinct from the Cockpit's catalyst CALENDAR (display events). */
 export function CatalystFactForm({ securityId }: { securityId: string }) {
   const ratify = useRatifyFact();
+  // the SERVER's today in market time (F1, clock.ts): a catalyst is "known since" a day that has happened
+  const { marketToday } = useAppClock();
   const [open, setOpen] = useState(false);
   const [ctype, setCtype] = useState<string>("contract");
   const [grade, setGrade] = useState<string>("core");
   const [label, setLabel] = useState("");
-  const [eventDate, setEventDate] = useState(todayISO());
+  const [eventDate, setEventDate] = useState(marketToday);
   const [horizonEnd, setHorizonEnd] = useState("");
   const [sourceRef, setSourceRef] = useState("");
 
@@ -69,7 +71,7 @@ export function CatalystFactForm({ securityId }: { securityId: string }) {
           type="date"
           aria-label="catalyst event date"
           value={eventDate}
-          max={todayISO()}
+          max={marketToday}
           onChange={(e) => setEventDate(e.target.value)}
         />
       </label>

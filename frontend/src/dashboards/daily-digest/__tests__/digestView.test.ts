@@ -4,7 +4,6 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { todayISO } from "../../../util/format";
 import {
   FOLDED_CHANGES,
   SECTIONS,
@@ -82,10 +81,14 @@ describe("sections and links", () => {
     ]);
   });
 
-  it("carries ?asof= for a day other than today and keeps a live visit's URL clean", () => {
-    expect(sectionHref("what-changed", "2026-09-17")).toBe("/dashboards/what-changed?asof=2026-09-17");
-    expect(asofParam(todayISO())).toBeNull();
-    expect(sectionHref("hot-board", todayISO())).toBe("/dashboards/hot-board");
+  it("carries ?asof= for a day other than the default as-of and keeps a default visit's URL clean", () => {
+    // F1: the default as-of is the server's current night (here Friday the 18th, read on a Monday morning)
+    const night = "2026-09-18";
+    expect(sectionHref("what-changed", "2026-09-17", night)).toBe("/dashboards/what-changed?asof=2026-09-17");
+    expect(asofParam(night, night)).toBeNull();
+    expect(sectionHref("hot-board", night, night)).toBe("/dashboards/hot-board");
+    // the browser's date is not the default any more: a link from it names its day
+    expect(asofParam("2026-09-21", night)).toBe("2026-09-21");
   });
 
   it("words a day with its weekday so a Monday visibly reads Friday", () => {

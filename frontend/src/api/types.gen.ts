@@ -235,6 +235,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/clock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Clock
+         * @description The server's current night, action day and today in the market's zone. The app's default as-of is the
+         *     current night, never the browser's date. Reads no data.
+         */
+        get: operations["get_clock_clock_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/workbench/theses/{thesis_id}/scored": {
         parameters: {
             query?: never;
@@ -6912,6 +6933,35 @@ export interface components {
          * @enum {integer}
          */
         ChainWaveWeeks: 13 | 26 | 52;
+        /**
+         * ClockOut
+         * @description The server's days, from one clock read in the market's zone.
+         */
+        ClockOut: {
+            /**
+             * Current Night
+             * Format: date
+             * @description the night the nightly pass last recorded or is recording: today once the pass time has passed on a weekday, else the weekday before; the app's default as-of
+             */
+            current_night: string;
+            /**
+             * Action Day
+             * Format: date
+             * @description the first weekday after the current night: the day the operator acts on its call
+             */
+            action_day: string;
+            /**
+             * Market Today
+             * Format: date
+             * @description today's calendar date in the market's zone
+             */
+            market_today: string;
+            /**
+             * Market Tz
+             * @description the market's zone, e.g. America/New_York
+             */
+            market_tz: string;
+        };
         /**
          * ContextRole
          * @description What part a company plays on THIS card — the operator-authored CONTEXT ROLE on a basket membership
@@ -17748,6 +17798,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_clock_clock_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClockOut"];
                 };
             };
         };

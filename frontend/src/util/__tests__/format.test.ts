@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { businessTypeLabel, supersectorLabel, todayISO } from "../format";
+import { businessTypeLabel, isPastAsof, supersectorLabel, todayISO } from "../format";
 
 describe("util/format", () => {
   afterEach(() => {
@@ -11,6 +11,12 @@ describe("util/format", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 5, 20, 12, 0, 0)); // local noon, 20 Jun 2026 — TZ-safe (no midnight flip)
     expect(todayISO()).toBe("2026-06-20");
+  });
+
+  it("isPastAsof is before the server's current night (F1), never before the browser's date", () => {
+    expect(isPastAsof("2026-10-26", "2026-10-26")).toBe(false); // the current night: the live default view
+    expect(isPastAsof("2026-10-27", "2026-10-26")).toBe(false); // today and later: live
+    expect(isPastAsof("2026-10-23", "2026-10-26")).toBe(true); // before the night: a recompute
   });
 
   it("businessTypeLabel / supersectorLabel map the taxonomy (raw-key fallback, honest '—')", () => {

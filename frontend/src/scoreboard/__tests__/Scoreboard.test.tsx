@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { ClockProvider } from "../../clock";
 import { ledgerColCount } from "../rows";
 import { Scoreboard } from "../Scoreboard";
 
@@ -400,6 +401,29 @@ describe("Scoreboard", () => {
       },
     });
     // asof 2026-07-11 < today 2026-07-20 → neither tone renders
+    expect(container.querySelector(".sb-fresh, .sb-stale")).toBeNull();
+  });
+
+  it("2a + F1: the server's current night is the live view, so its freshness line shows though it is before today", () => {
+    // Monday morning: the default as-of is Friday's night (the server's clock), today is Monday
+    Object.assign(fx, {
+      data: { ...PAYLOAD, summary: { ...PAYLOAD.summary, today: "2026-07-13" } },
+      isLoading: false,
+      error: null,
+    });
+    const server = { currentNight: "2026-07-10", marketToday: "2026-07-13", actionDay: "2026-07-13", failed: false };
+    const { container, rerender } = render(
+      <ClockProvider value={server}>
+        <Scoreboard asof="2026-07-10" onSelect={vi.fn()} />
+      </ClockProvider>,
+    );
+    expect(container.querySelector(".sb-fresh")?.textContent).toContain("record current");
+    // a day before the night is a past view: suppressed
+    rerender(
+      <ClockProvider value={server}>
+        <Scoreboard asof="2026-07-09" onSelect={vi.fn()} />
+      </ClockProvider>,
+    );
     expect(container.querySelector(".sb-fresh, .sb-stale")).toBeNull();
   });
 

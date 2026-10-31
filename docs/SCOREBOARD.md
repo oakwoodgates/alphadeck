@@ -567,7 +567,8 @@ asks (`ADMIN.md`), surfaced here because the Board-vs-Scoreboard confusion happe
 as-of, so it reads the same whether the view is scrubbed to the past or to today; it counts reconstructed rows
 too — freshness asks whether the log advanced, not whether a row is scoreable) measured against the last
 **expected** Mon-Fri + `RUN_AT` run (`pipeline/schedule.py` — ONE contract shared with the Admin surface,
-never raw `today − edge`). The FE shows it **only on the live view** (`asof >= today`): staleness answers
+never raw `today − edge`). The FE shows it **only on the live view** (`asof >= today`, or on or after the server's
+current night — F1: the app's default as-of, which is before today every morning): staleness answers
 "current now", not "as of a past date", so a scrubbed-back view suppresses it. It goes **loud only when
 stale** ("record last advanced ‹edge› · N expected run(s) behind"); **quiet** when current or never-begun
 (honest loudness, mirroring the Admin copy). Compute-on-read — the freshness read still writes nothing.

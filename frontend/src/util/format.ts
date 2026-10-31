@@ -136,7 +136,9 @@ export function byWhenDateAsc(a: { when_date?: string | null }, b: { when_date?:
   return a.when_date.localeCompare(b.when_date);
 }
 
-/** Today's date as YYYY-MM-DD in the user's LOCAL timezone — the default as-of on load. Built from the local
+/** Today's date as YYYY-MM-DD in the user's LOCAL timezone. Since F1 (2026-10-30) it is only the FALLBACK for the
+ *  server's clock (clock.ts: the default as-of is the server's current night, a decision is dated with the server's
+ *  today) — used when GET /clock fails, or by a component rendered without the app around it. Built from the local
  *  Y/M/D (not toISOString(), which is UTC and can land a day off near midnight). */
 export function todayISO(): string {
   const d = new Date();
@@ -145,13 +147,14 @@ export function todayISO(): string {
   return `${d.getFullYear()}-${mm}-${dd}`;
 }
 
-/** F11 — the past-as-of gate: true when `asof` (YYYY-MM-DD) is strictly before today (local).
- *  ISO date strings compare lexically == chronologically (byEventDateDesc above leans on the same
- *  fact), so a plain string compare avoids a timezone-sensitive Date parse. Today itself, and any
- *  date beyond it, read false — only a genuine past date is a recompute; the live view carries no
- *  caveat (honest loudness #7 / WB#3: the note marks the exception, not the rule). */
-export function isPastAsof(asof: string): boolean {
-  return asof < todayISO();
+/** F11 — the past-as-of gate: true when `asof` (YYYY-MM-DD) is strictly before `currentNight`, the server's current
+ *  night (clock.ts `useAppClock().currentNight`). Since F1 the server reads the current night and every later date
+ *  LIVE (`serve_view`), so the app's default view — the current night — is never labeled a recompute; only a date
+ *  before it is. ISO date strings compare lexically == chronologically (byEventDateDesc above leans on the same
+ *  fact), so a plain string compare avoids a timezone-sensitive Date parse. The live view carries no caveat
+ *  (honest loudness #7 / WB#3: the note marks the exception, not the rule). */
+export function isPastAsof(asof: string, currentNight: string): boolean {
+  return asof < currentNight;
 }
 
 /** F11 — the ONE wording for "you're looking at a recompute, not the record" (Board + Cockpit call

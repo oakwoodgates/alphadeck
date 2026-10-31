@@ -1,5 +1,5 @@
 import { dashboardPath } from "../../nav";
-import { STATE_LABEL, fmtDate, todayISO } from "../../util/format";
+import { STATE_LABEL, fmtDate } from "../../util/format";
 import { leftOutWords } from "../FlaggedNote";
 import type {
   DailyDigestOut,
@@ -77,12 +77,15 @@ export function dayWord(iso: string | null | undefined): string {
   return new Date(t).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
 }
 
-/** The ?asof= a link carries: a day other than today. Today is what an absent param already reads, so a live visit
+/** The ?asof= a link carries: a day other than the app's default as-of (F1: the server's current night,
+ *  `useAppClock().currentNight`). The default is what an absent param already reads, so a visit on the default view
  *  keeps clean URLs (the app's own rule: `asofParam` is null when the URL names none). */
-export const asofParam = (asof: string): string | null => (asof === todayISO() ? null : asof);
+export const asofParam = (asof: string, defaultAsof: string): string | null =>
+  asof === defaultAsof ? null : asof;
 
 /** A section header's link to a full page (a "now" page ignores the param). */
-export const sectionHref = (slug: string, asof: string): string => dashboardPath(slug, asofParam(asof));
+export const sectionHref = (slug: string, asof: string, defaultAsof: string): string =>
+  dashboardPath(slug, asofParam(asof, defaultAsof));
 
 /** "+1.23%", "-0.50%", "0.00%"; "—" when there is none. */
 export function signed(pct: number | null | undefined): string {

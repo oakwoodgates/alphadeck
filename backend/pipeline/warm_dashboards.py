@@ -17,17 +17,18 @@ database connection, no write, no fact, no call. The cache it fills lives in the
 through HTTP; it imports nothing from ``dashboards`` or the API (the dashboards leaf scan,
 ``tests/dashboards/test_isolation.py``).
 
-THE AS-OF IS THE NEXT VISIT'S DATE, NOT TONIGHT'S. The frontend's dial opens on the browser's LOCAL calendar date
-(``frontend/src/App.tsx`` ``useAsof`` -> ``todayISO``); the cache keys a read on ``(slug, params, asof)``
-(``dashboards/cache.py``). The pass runs at ~22:30 market time, so the operator's first visit is on the NEXT
-calendar day, and warming the pass's own date would fill a key that visit never asks for. ``visit_asofs`` derives
-the dates that visit sends: the day after the night, and, when that day is a weekend, the Monday after it (no pass
-runs on a weekend, so Monday is the first weekday visit). Both are LIVE reads on the record clock
-(``serve_view``: ``asof >= market_today()`` is ``(None, "record")``, and a future date reads the same way), so the
-key warmed tonight for tomorrow is the key tomorrow's visit asks for. Every dashboard computes from the as-of it is
-given, never the wall clock (the two that read ``market_today()``, the Catalyst Calendar and the Idea Timeline, are
-not in ``PAGES``). The date rule assumes the operator's browser clock is in the market's zone, as the cron's own
-``date`` is.
+THE AS-OF IS THE NIGHT ITSELF (F1, 2026-10-30). The frontend's dial opens on the server's CURRENT NIGHT
+(``GET /clock`` -> ``domain.market_time.current_night``: the night the nightly pass last recorded), never the
+browser's date; the cache keys a read on ``(slug, params, asof)`` (``dashboards/cache.py``). From the pass that
+records night N until the next scheduled pass time, the current night is N — the next morning, the weekend after
+a Friday, a holiday Monday's daytime — so the one key every visit in that stretch asks for is N, and ``visit_asofs``
+returns exactly that: one as-of, the night. (Before F1 the dial read the browser's date and this job warmed
+N + 1, plus the Monday after a weekend.) The night is a LIVE read on the record clock (``serve_view``: an as-of on
+or after the current night is ``(None, "record")``), so the key warmed tonight is the key the morning's visit
+reads. The cron passes ``--night`` = the last expected night, which is the current night once its pass has run;
+without ``--night`` the job reads ``current_night()`` itself. Every dashboard computes from the as-of it is given,
+never the wall clock (the two that read ``market_today()``, the Catalyst Calendar and the Idea Timeline, are not in
+``PAGES``).
 
 THE QUERIES. ``PAGES`` is a hand-maintained mirror of what each page's hook sends on its default view
 (``frontend/src/dashboards/<slug>/use*.ts`` and the page's initial state). Only the defaults are warmed: a page's
@@ -59,11 +60,11 @@ import urllib.parse
 import urllib.request
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from domain.market_time import market_today
+from domain.market_time import current_night
 
 _log = logging.getLogger("alphadeck.cron")
 
@@ -141,15 +142,11 @@ def known_slugs() -> tuple[str, ...]:
 
 
 def visit_asofs(night: date) -> list[date]:
-    """The calendar dates a browser's local clock shows at the first visit(s) after ``night``'s pass: the next
-    day, plus the Monday after it when that day is a Saturday or Sunday (no pass runs on a weekend, so the first
-    weekday visit is a Monday). Pure over its argument — no ambient clock; see the module docstring for why this
-    is the day AFTER the pass, not the pass's own date."""
-    first = night + timedelta(days=1)
-    out = [first]
-    if first.weekday() >= 5:  # Saturday (5) or Sunday (6)
-        out.append(first + timedelta(days=7 - first.weekday()))
-    return out
+    """The as-of(s) the visits after ``night``'s pass send: the night itself, one key. The app's default as-of is
+    the current night (``GET /clock``), which stays ``night`` until the next scheduled pass time — the next
+    morning, and the whole weekend after a Friday. Pure over its argument; see the module docstring.
+    """
+    return [night]
 
 
 # --- the requests ----------------------------------------------------------------------------------------------
@@ -527,8 +524,8 @@ def _build_parser() -> argparse.ArgumentParser:
         "--night",
         type=_parse_date,
         default=None,
-        help="the night whose pass just finished (default: today in market time); the as-ofs warmed are the "
-        "dates the NEXT visit sends (the day after, plus the Monday after a weekend)",
+        help="the night whose pass just finished (default: the current night in market time); the as-of warmed "
+        "is that night, the date the app's dial opens on until the next pass",
     )
     p.add_argument(
         "--asof",
@@ -581,7 +578,7 @@ def main(
         )
     except ValueError as exc:
         _build_parser().error(str(exc))
-    night = args.night or market_today()
+    night = args.night or current_night()
     asofs = list(dict.fromkeys(args.asof)) if args.asof else visit_asofs(night)
     base_url = args.base or environ.get(BASE_URL_ENV) or DEFAULT_BASE_URL
     if args.dry_run:

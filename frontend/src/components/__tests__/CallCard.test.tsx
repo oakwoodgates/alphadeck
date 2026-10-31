@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { CallCardResponse } from "../../api/hooks";
+import { ClockProvider } from "../../clock";
 import { byWhenDateAsc, SETUP_STRENGTH_TOOLTIP, todayISO } from "../../util/format";
 import { CallCard, counterCaseSummary } from "../CallCard";
 
@@ -232,6 +233,23 @@ describe("CallCard — F11 past-asof recompute line", () => {
     const { container } = render(<CallCard card={{ ...card, asof: todayISO() }} />);
     expect(screen.queryByText(/not the recorded call/)).toBeNull();
     expect(container.querySelector(".cc-recompute")).toBeNull();
+  });
+
+  // F1 — the server's current night is the default view, read live: no recompute line, though it is before today
+  it("is ABSENT on the server's current night and present on a date before it", () => {
+    const server = { currentNight: "2026-10-30", marketToday: "2026-10-31", actionDay: "2026-11-02", failed: false };
+    const { container, rerender } = render(
+      <ClockProvider value={server}>
+        <CallCard card={{ ...card, asof: "2026-10-30" }} />
+      </ClockProvider>,
+    );
+    expect(container.querySelector(".cc-recompute")).toBeNull();
+    rerender(
+      <ClockProvider value={server}>
+        <CallCard card={{ ...card, asof: "2026-10-29" }} />
+      </ClockProvider>,
+    );
+    expect(container.querySelector(".cc-recompute")).not.toBeNull();
   });
 });
 

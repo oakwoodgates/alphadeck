@@ -573,6 +573,28 @@
         }
       }
     },
+    "/clock": {
+      "get": {
+        "tags": [
+          "meta"
+        ],
+        "summary": "Get Clock",
+        "description": "The server's current night, action day and today in the market's zone. The app's default as-of is the\ncurrent night, never the browser's date. Reads no data.",
+        "operationId": "get_clock_clock_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClockOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/workbench/theses/{thesis_id}/scored": {
       "get": {
         "tags": [
@@ -14309,6 +14331,42 @@
         ],
         "title": "ChainWaveWeeks",
         "description": "The window: the last 13, 26 or 52 week columns."
+      },
+      "ClockOut": {
+        "properties": {
+          "current_night": {
+            "type": "string",
+            "format": "date",
+            "title": "Current Night",
+            "description": "the night the nightly pass last recorded or is recording: today once the pass time has passed on a weekday, else the weekday before; the app's default as-of"
+          },
+          "action_day": {
+            "type": "string",
+            "format": "date",
+            "title": "Action Day",
+            "description": "the first weekday after the current night: the day the operator acts on its call"
+          },
+          "market_today": {
+            "type": "string",
+            "format": "date",
+            "title": "Market Today",
+            "description": "today's calendar date in the market's zone"
+          },
+          "market_tz": {
+            "type": "string",
+            "title": "Market Tz",
+            "description": "the market's zone, e.g. America/New_York"
+          }
+        },
+        "type": "object",
+        "required": [
+          "current_night",
+          "action_day",
+          "market_today",
+          "market_tz"
+        ],
+        "title": "ClockOut",
+        "description": "The server's days, from one clock read in the market's zone."
       },
       "ContextRole": {
         "type": "string",

@@ -27,11 +27,22 @@ const h = vi.hoisted(() => ({
   dashboards: [] as unknown[],
   // HOME_DASHBOARD, read through a getter so a test can point Home at another slug
   home: "board",
+  // F1 — the server's clock (GET /clock): the default as-of is its current night, never the browser's date
+  clock: { isPending: false, data: undefined as unknown },
 }));
 
 vi.mock("../api/hooks", () => ({
   useTheses: () => h.theses,
+  useClock: () => h.clock,
 }));
+
+// A server clock whose current night is NOT the browser's date, so a default as-of read off the browser would show.
+const SERVER_CLOCK = {
+  current_night: "2026-10-26",
+  action_day: "2026-10-27",
+  market_today: "2026-10-27",
+  market_tz: "America/New_York",
+};
 
 vi.mock("../dashboards/registry", () => ({
   DASHBOARDS: h.dashboards,
@@ -173,6 +184,7 @@ const dashboardsMenu = () => screen.getByRole("button", { name: "Dashboards" });
 
 beforeEach(() => {
   h.theses = { isLoading: false, error: null, data: [{ id: "t-1", name: "Thesis One" }] };
+  h.clock = { isPending: false, data: SERVER_CLOCK };
   h.dashboards.length = 0;
   h.dashboards.push(BOARD);
   h.home = REAL.HOME_DASHBOARD;
@@ -223,14 +235,29 @@ describe("App routes — ?asof=", () => {
     expect(screen.getByTestId("sb-asof")).toHaveTextContent("2026-06-01");
   });
 
-  it("falls back to today when malformed", async () => {
+  it("falls back to the server's current night when malformed", async () => {
     renderAt("/?asof=junk");
-    expect(await screen.findByTestId("board-asof")).toHaveTextContent(todayISO());
+    expect(await screen.findByTestId("board-asof")).toHaveTextContent("2026-10-26");
   });
 
-  it("defaults to today when absent", async () => {
+  it("defaults to the server's current night when absent (F1), never the browser's date", async () => {
+    renderAt("/");
+    expect(await screen.findByTestId("board-asof")).toHaveTextContent("2026-10-26");
+    expect(screen.queryByText("browser date")).toBeNull(); // the quiet note is the failure's only
+  });
+
+  it("holds every page until the server's clock settles, so nothing renders on a wrong date first", () => {
+    h.clock = { isPending: true, data: undefined };
+    renderAt("/");
+    expect(screen.getByText("Loading…")).toBeInTheDocument();
+    expect(screen.queryByTestId("board-asof")).toBeNull();
+  });
+
+  it("falls back to the browser's date with a quiet note when the server's clock fails", async () => {
+    h.clock = { isPending: false, data: undefined };
     renderAt("/");
     expect(await screen.findByTestId("board-asof")).toHaveTextContent(todayISO());
+    expect(screen.getByText("browser date")).toHaveAttribute("title", expect.stringMatching(/server's clock/));
   });
 
   it("is carried across a Board → Cockpit navigation", async () => {
@@ -468,7 +495,7 @@ describe("App routes — the Dashboards (docs/DASHBOARDS.md)", () => {
     h.dashboards.push(FAKE_NOW);
     renderAt("/dashboards/fake-now?asof=2026-06-01");
     expect(await screen.findByText("FAKE BODY")).toBeInTheDocument();
-    expect(screen.getByTestId("dash-asof")).toHaveTextContent(todayISO());
+    expect(screen.getByTestId("dash-asof")).toHaveTextContent("2026-10-27"); // the server's today (F1)
     expect(screen.queryByLabelText("as-of")).not.toBeInTheDocument();
   });
 
