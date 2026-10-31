@@ -15,7 +15,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from domain.config import DEFAULT_CONFIG, CallConfig, _canonical_config
+from domain.config import DEFAULT_CONFIG, CallConfig, _canonical_config, config_hash
 
 
 class OverlayError(ValueError):
@@ -72,6 +72,45 @@ def load_overlay(path: str | Path, *, base: CallConfig = DEFAULT_CONFIG) -> Call
             f"overlay {p} must be a JSON object of {{dial: value}}, got {type(raw).__name__}"
         )
     return apply_overlay(raw, base=base)
+
+
+def load_overlay_ladder(path: str | Path) -> list[dict[str, Any]]:
+    """Read an OVERLAY LADDER — a JSON array of flat overlays, one per point of ONE curve — and validate
+    every point before any work (``backtest.sweep --overlay-ladder``).
+
+    For a family whose dials move TOGETHER, which ``--ladder dial=v1,v2`` cannot express: F4's unit and
+    session count are refused one without the other (``CallConfig._bar_window_units``), so each point has to
+    set both, and the baseline is the point that sets the unit back to ``"calendar"``. Each item is exactly
+    the ``backtest.run --config`` format. Refused, naming the file and the point: an empty ladder, a point
+    that is not a JSON object, an unknown dial or invalid value (``apply_overlay``'s two guards), and two
+    points that resolve to the same config — one measurement drawn twice on a curve reads as two.
+    """
+    p = Path(path)
+    try:
+        raw = json.loads(p.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise OverlayError(f"overlay ladder {p} is not valid JSON: {exc}") from exc
+    if not isinstance(raw, list) or not raw:
+        raise OverlayError(
+            f"overlay ladder {p} must be a non-empty JSON array of {{dial: value}} objects"
+        )
+    seen: dict[str, int] = {}
+    for i, point in enumerate(raw):
+        if not isinstance(point, dict) or not point:
+            raise OverlayError(
+                f"overlay ladder {p} point {i} must be a non-empty JSON object of {{dial: value}}"
+            )
+        try:
+            h = config_hash(apply_overlay(point))
+        except OverlayError as exc:
+            raise OverlayError(f"overlay ladder {p} point {i}: {exc}") from exc
+        if h in seen:
+            raise OverlayError(
+                f"overlay ladder {p} points {seen[h]} and {i} resolve to the same config; a curve that "
+                "draws one measurement twice reads as two"
+            )
+        seen[h] = i
+    return raw
 
 
 def overlay_diff(

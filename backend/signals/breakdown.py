@@ -34,7 +34,7 @@ from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.enums import Grade, Kind, Role
 from domain.signal import SignalEvent
 from signals.base import Detector, SignalPointInTimeData
-from signals.common import entry_signal_is_live, fired_signal, source_provenance
+from signals.common import breakout_window, fired_signal, source_provenance
 from signals.registry import register_detector
 
 DETECTOR_CORE_NAME = "breakdown_core"
@@ -148,10 +148,13 @@ def _recent_flip_base(
     """The 8-day base high of the most recent ``volume_breakout``-style breakout still inside the flip
     liveness window, plus that breakout's bar date — the base the live flip arm cleared (R11). None when no
     such breakout is in the window (so there is no live flip to de-arm). Reads the SAME 8-day base +
-    freshness dials the breakout cleared, so the breakdown is exactly its mirror."""
+    freshness dials the breakout cleared, so the breakdown is exactly its mirror — including the breakout's
+    window UNIT (F4's dormant ``breakout_alpha_liveness_unit``): ``breakout_window`` is the one resolver both
+    read, so a breakdown can never count on another clock than the breakout it watches."""
     earliest = max(cfg.breakout_base_window, cfg.breakout_return_days)
+    window = breakout_window(cfg)
     for i in range(len(bars) - 1, earliest - 1, -1):
-        if not entry_signal_is_live(bars[i]["d"], cfg.breakout_alpha_liveness_days, asof):
+        if not window.is_live(bars[i]["d"], asof):
             break  # bars are ascending; everything earlier is past the freshness window too
         base_high = max(closes[i - cfg.breakout_base_window : i])
         ret = closes[i] / closes[i - cfg.breakout_return_days] - 1.0

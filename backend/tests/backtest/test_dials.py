@@ -120,6 +120,12 @@ def test_a_representative_detector_dial_lands_in_detector():
         # it), so a cached event stream has to be keyed on it; `tests/signals/test_catalyst_conviction`
         # proves the behavior, this pins the classification.
         "catalyst_max_horizon_days",
+        # F4 — a bar-driven window counted in sessions changes what FIRES (a breakout is live on a night it
+        # was not), so the unit and the count both key a cached event stream
+        "breakout_alpha_liveness_unit",
+        "breakout_alpha_liveness_sessions",
+        "breakout_52w_alpha_liveness_unit",
+        "laggard_alpha_liveness_sessions",
     ):
         assert dial in p.detector, dial
 

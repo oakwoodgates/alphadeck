@@ -30,7 +30,7 @@ from domain.enums import Grade, Kind, Role
 from domain.signal import SignalEvent
 from domain.thesis import Thesis
 from signals.base import SignalPointInTimeData
-from signals.common import fired_signal, source_provenance
+from signals.common import fired_signal, laggard_window, source_provenance
 
 DETECTOR_NAME = "laggard"
 
@@ -149,7 +149,9 @@ def _event(
             f"median {med * 100:.0f}% by ≥{cfg.laggard_lag_pts * 100:.0f}pts, uptrend intact "
             f"(≥{cfg.laggard_trend_sma_window}d SMA) — a co-basket leader's breakout is the cue"
         ),
-        alpha_liveness_days=cfg.laggard_alpha_liveness_days,
+        # calendar days today; under F4's dormant dial, the session window as its calendar span from the
+        # leader's breakout date (``signals.common.BarWindow``)
+        alpha_liveness_days=laggard_window(cfg).span_days(leader_date),
         provenance=[
             source_provenance(
                 "price",
