@@ -32,6 +32,20 @@ Saturday -> Friday). It is the app's default as-of (served by ``GET /clock``), a
 (``action_day``): the day the operator acts on that night's call; a COUNTDOWN to a future date counts from it on a
 live view (``countdown_origin``, F2). ``market_today()`` itself is unchanged.
 
+**A night ends at EDGAR's next open (F6, 2026-10-31, rule log ``2026-11-night-ends-at-edgar-open``).** Night
+X's history read (``known_at_for_asof``) runs to the last instant before 06:00 market time on the first WEEKDAY
+after X (``next_edgar_open``; a Friday night runs to Monday 06:00), not to midnight. It is the SAME line the
+late-row rule draws (``pipeline/night_coverage``: a row recorded before it is the night's on-time record), so
+one definition serves history views, late rows and the acceptance repair. Weekdays with holidays INCLUDED, on
+purpose: EDGAR keeps SEC business days (it is open on Good Friday), not the NYSE's session calendar. EDGAR
+accepts filings 06:00-22:00 on weekdays, so the FILINGS a night reads are practically the same set as with a
+midnight end, and a stored time past midnight (the 10-23 acceptance drift) no longer moves a filing to the next
+night. What does move is everything else stamped before the open: between midnight and 06:00 on a weeknight,
+and for a Friday night the whole weekend — a vendor's re-version of a bar, an operator's ratification, basket
+edit or logged decision, a first-held instant (MEASURED on a committed real fixture: GAME's Saturday 13:19 ET
+re-version of its 08-27 bar now counts for Friday 08-28's view). ``edgar_night`` is the inverse: the night
+whose read first holds an instant.
+
 **What it is NOT, part two:** transaction time. ``datetime.now(timezone.utc)`` pins ``recorded_at`` (when
 we learned a fact) and is correctly UTC — bitemporal record-keeping, not a trading day. Do not route those
 through here; they are a different axis (``INVARIANTS.md`` §4).
@@ -54,12 +68,15 @@ it is no longer the mechanism.
 
 from __future__ import annotations
 
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone, tzinfo
 from typing import Literal, NamedTuple
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from domain.settings import get_settings
 from domain.trading_days import last_expected_asof, next_scheduled_day, parse_run_at
+
+# EDGAR's filing day opens at 06:00 ET (it accepts 06:00-22:00): the end of a night (``next_edgar_open``).
+EDGAR_OPEN = time(6, 0)
 
 
 def market_tz() -> ZoneInfo:
@@ -148,37 +165,109 @@ def current_night(now: datetime | None = None) -> date:
     return market_clock(now).night
 
 
+def next_edgar_open(asof: date, tz: tzinfo | None = None) -> datetime:
+    """06:00 market time on the first WEEKDAY after ``asof``: EDGAR's next open, where night ``asof`` ends.
+
+    THE one definition (F6): the end of a night's history read (``known_at_for_asof``) and the end of its
+    on-time window (``pipeline/night_coverage``, which re-exports this). Mon-Fri with holidays INCLUDED,
+    deliberately not ``domain.trading_days.is_scheduled_day`` (the NYSE session calendar): EDGAR keeps SEC
+    business days and accepts filings on Good Friday, so skipping NYSE closures here would stretch a
+    Thursday night to Monday and let a Good Friday filing count for Thursday; on a federal holiday EDGAR is
+    closed, so ending the night that morning drops nothing. A Friday night (and a Saturday or Sunday as-of)
+    ends Monday 06:00. Pure: ``tz`` defaults to the configured market zone (``market_tz``)."""
+    d = asof + timedelta(days=1)
+    while d.weekday() >= 5:
+        d += timedelta(days=1)
+    return datetime.combine(d, EDGAR_OPEN, tzinfo=tz or market_tz())
+
+
+def edgar_night(at: datetime, tz: tzinfo | None = None) -> date:
+    """The night whose history read first holds the instant ``at``: the latest WEEKDAY ``d`` with ``d`` 06:00
+    market time ``<= at`` — the inverse of ``next_edgar_open``, so ``at <= known_at_for_asof(n)`` iff
+    ``edgar_night(at) <= n`` (for a ``now`` past both). A time inside EDGAR's hours (06:00-22:00 on a weekday)
+    is its own market date; one between midnight and 06:00 belongs to the weekday before it, and a weekend time
+    to the Friday. ``at`` must be aware (a naive instant has no market date)."""
+    if at.tzinfo is None:
+        raise ValueError("edgar_night needs an aware instant")
+    local = at.astimezone(tz or market_tz())
+    d = local.date()
+    if local.time() < EDGAR_OPEN:
+        d -= timedelta(days=1)
+    while d.weekday() >= 5:
+        d -= timedelta(days=1)
+    return d
+
+
+def view_day(known_at: datetime) -> date:
+    """The market day a read bounded at ``known_at`` is a view OF — the day whose splits are in force for it
+    (``domain.splits``: ``on_view_scale`` / ``tape_scale`` ``through=``) and the day a date-clocked row must be
+    public by: ``edgar_night(known_at)``.
+
+    Before F6 every reader took ``known_at``'s market DATE, which was the as-of itself for a history view
+    (capped at midnight). Since F6 a night's cap runs past midnight (Friday's to Monday 05:59), so the date of
+    ``known_at`` is the NEXT weekday, and a Friday view would have applied a split effective Monday — a
+    lookahead. ``edgar_night`` maps the cap back to its own night (and a live ``now`` to tonight's: the same
+    date in EDGAR's hours, the previous weekday between midnight and 06:00, Friday on a weekend — the same
+    split reading, since a split's first session is a weekday)."""
+    return edgar_night(known_at)
+
+
+def day_clock_public_by(public: datetime, known_at: datetime) -> bool:
+    """Is a DATE-clocked row public by a read bounded at ``known_at``? "Has that DAY's night begun" — its date
+    ``<= view_day(known_at)``. A date-only public instant is now 06:00 of its date (``db.public_clock
+    ._start_of_day``), so on a current store the bare compare ``public <= known_at`` already agrees; this gate
+    is what keeps a mirror EXPORTED before that change (its split rows at 00:00, which F6's cap — to 06:00 on
+    the next weekday — would reach a night early) honest too. A fact table needs none of this (its ``valid_from
+    <= asof`` half guards the day); this is for a date-clocked read with no valid-time gate (the split list).
+    """
+    return public.astimezone(market_tz()).date() <= view_day(known_at)
+
+
 def known_at_for_asof(asof: date, now: datetime | None = None) -> datetime:
-    """The transaction-axis cap for a scrubbed-back read: ``min(now, end of asof's MARKET day)``, as UTC.
+    """The transaction-axis cap for a scrubbed-back read: ``min(now, the end of night asof)``, as UTC — the
+    night ending at the last instant before ``next_edgar_open(asof)`` (06:00 market time on the next weekday).
 
     The two-axis no-lookahead a forward reader owes (invariant #1 / ``INVARIANTS.md`` §4). The as-of gate
     is ``valid_from <= asof AND recorded_at <= known_at``, and with ``known_at = now`` the second half never
     bites for a past ``asof`` — a scrub-back reads TODAY's knowledge of that date (the serve-path leak:
     TPCS bars dated August, ingested 09-01, arming an 08-25 recompute the record had logged as watching).
-    Capping ``known_at`` at the as-of day's end hides every fact RECORDED after that day, not just every
-    fact dated after it. Shared by the Scoreboard drawer's dated overlays and, via ``serve_known_at``, the
-    Board/Cockpit/Workbench recomputes — one definition of "what was knowable by the end of that day".
+    Capping ``known_at`` at the night's end hides every fact that became knowable after that night, not just
+    every fact dated after it. Shared by the Scoreboard drawer's dated overlays, the editions engine and the
+    replay harness, and, via ``serve_known_at``, the Board/Cockpit/Workbench recomputes — one definition of
+    "what was knowable by the end of that night".
 
-    **The day ends in MARKET time, not UTC** — this module's whole point. The daily cron runs at ``RUN_AT``
+    **The night ends at EDGAR's next open (F6, 2026-10-31, rule log ``2026-11-night-ends-at-edgar-open``).**
+    Until F6 it ended at midnight market time. The late-row rule already ended a night at the next weekday's
+    06:00 (``pipeline/night_coverage.on_time_window``: a row recorded before it is the night's on-time record),
+    so the two now agree. EDGAR accepts filings 06:00-22:00, so between midnight and 06:00 almost nothing
+    becomes public; what moves is a stored time past midnight (the 10-23 SEC acceptance drift stored filings
+    +4/+5 h late, across midnight: it no longer moves them to the next night), an operator write or a pass
+    that ran past midnight, and, for a Friday night, everything up to Monday 06:00. The cap is the last
+    microsecond BEFORE the open (the gate is ``<=``), so an instant at exactly 06:00 is the next night's, the
+    late rule's half-open window. **The date-only trap is shut twice:** a date-clocked fact's public instant
+    is 06:00 market time of its date (``db.public_clock._start_of_day`` — the first instant of that date's
+    night, never inside the night before), and every date-clocked fact table also sets ``valid_from`` to that
+    public date, so the read's other half, ``valid_from <= asof``, keeps a Tuesday 8-K out of Monday's night
+    whatever the cap.
+
+    **The night ends in MARKET time, not UTC** — this module's whole point. The daily cron runs at ``RUN_AT``
     22:30 ET with ``asof = market_today()`` and ``known_at = now``, so the record for day X was computed at
-    X 22:30 ET = X+1 02:30 UTC. A UTC-midnight cap sits BEFORE the cron's own run and blinds a past-asof
-    recompute to the night's ingest (day X's bar, that evening's Form 4s) that the record for X saw — a
-    systematic one-bar-short disagreement with the record, on every past date. The market-day cap is the
-    tightest bound that is >= every nightly run's ``known_at`` for that asof, so the recompute's data view
-    is a superset of the record's (by at most the hours between the run and midnight ET), never a subset.
+    X 22:30 ET = X+1 02:30 UTC. A UTC cap sits BEFORE the cron's own run and blinds a past-asof recompute to
+    the night's ingest (day X's bar, that evening's Form 4s) that the record for X saw — a systematic
+    one-bar-short disagreement with the record, on every past date. The cap is >= every on-time nightly run's
+    ``known_at`` for that asof, so the recompute's data view is a superset of the record's, never a subset.
     It also makes the live identity exact: for ``asof == market_today()`` the cap is always in the future,
-    so ``min(now, cap) == now`` at every hour (the UTC cap broke this after 20:00 ET — the same time-of-day
-    window ``market_today`` exists for). Since the public-clock rule (2026-10-21) every HISTORY view —
+    so ``min(now, cap) == now`` at every hour. Since the public-clock rule (2026-10-21) every HISTORY view —
     the serve recomputes, the drawer, ``pipeline.backfill``'s missed-night reconstruction — bounds the
     PUBLIC instant of each fact by this same cap (``serve_view``): "what was public by the end of that
-    day". (The backfill's old record-clock ``next-run`` pin is retired.)
+    night". (The backfill's old record-clock ``next-run`` pin is retired.)
 
     ``now`` is injectable for tests; the default is the UTC instant (transaction time, correctly UTC — #4).
     Returns an aware UTC datetime either way.
     """
     now = now or datetime.now(timezone.utc)
-    asof_eod = datetime.combine(asof, time.max, tzinfo=market_tz()).astimezone(timezone.utc)
-    return min(now, asof_eod)
+    night_end = next_edgar_open(asof) - timedelta(microseconds=1)
+    return min(now, night_end.astimezone(timezone.utc))
 
 
 def _live_boundary(today: date | None, night: date | None) -> date:
@@ -197,7 +286,8 @@ def serve_known_at(
     asof: date, today: date | None = None, *, night: date | None = None
 ) -> datetime | None:
     """The ``known_at`` a SERVE-path recompute (``/call``, ``/display-signals``, ``/scored``) threads into
-    its ``PointInTimeData`` for ``asof``: ``None`` for a live view, the market-day cap for a scrubbed-back one.
+    its ``PointInTimeData`` for ``asof``: ``None`` for a live view, the night's cap (``known_at_for_asof``)
+    for a scrubbed-back one.
 
     **Live = on or after the current night (F1, 2026-10-30).** The app's default as-of is the current night
     (``current_night``: the night the nightly pass last recorded, or is recording), so at 09:00 Tuesday the
@@ -237,9 +327,10 @@ def serve_view(
       (``serve_known_at``). The current night itself is live, so the app's default view is never a recompute.
     - past (before the current night): ``(known_at_for_asof(asof), "public")`` — a HISTORY view, judged on the
       PUBLIC clock (operator decision 2026-10-21, ``docs/INVARIANTS.md`` §4): each fact version counts from
-      when it became public (``db.public_clock``) up to the end of that market day — so a scrub-back shows how
-      today's rules judge what was public then, not which rows our database happened to hold (our outages,
-      our onboarding order). The roster and the position (operator decisions) stay as of that same instant.
+      when it became public (``db.public_clock``) up to the end of that night (06:00 on the next weekday,
+      F6) — so a scrub-back shows how today's rules judge what was public then, not which rows our database
+      happened to hold (our outages, our onboarding order). The roster and the position (operator
+      decisions) stay as of that same instant.
     """
     known_at = serve_known_at(asof, today, night=night)
     return known_at, ("record" if known_at is None else "public")

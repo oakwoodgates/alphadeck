@@ -38,6 +38,20 @@ def test_402_fires_severe_grade_blind_and_not_a_dearm():
     assert e.provenance[0].ref == "ACC-R1" and e.provenance[0].detail["item"] == "4.02"
 
 
+def test_an_evening_8k_risk_fires_the_night_it_appeared_and_its_label_keeps_the_filing_date():
+    """F7: fired on the acceptance day (``valid_from``), worded with SEC's filing date (``filed``) — the headline,
+    the "also live" list and every provenance row."""
+    evening = ASOF - timedelta(days=1)
+    head = {**_fact("ACC-R1", items=("4.02",)), "valid_from": evening}
+    other = {**_fact("ACC-R2", items=("3.01",)), "valid_from": evening}
+    e = corporate_risk.score([head, other], SID, evening)
+    assert e is not None and e.asof == evening
+    assert f"(filed {ASOF.isoformat()}, 8-K)" in e.label
+    assert f"filed {ASOF.isoformat()})" in e.label.split("also live:")[1]
+    assert {p.detail["filed"] for p in e.provenance} == {ASOF.isoformat()}
+    assert evening.isoformat() not in e.label
+
+
 def test_301_fires_moderate_sub_veto():
     e = corporate_risk.score([_fact(items=("3.01",))], SID, ASOF)
     assert e is not None

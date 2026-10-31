@@ -46,7 +46,7 @@ from domain.enums import Grade, Kind, Role
 from domain.signal import SignalEvent
 from signals.base import Detector, SignalPointInTimeData
 from signals.common import fired_signal, source_provenance
-from signals.corporate_events import item_label, live_policy_items
+from signals.corporate_events import filed_date, item_label, live_policy_items
 from signals.registry import register_detector
 
 DETECTOR_NAME = "corporate_catalyst"
@@ -71,9 +71,9 @@ def score(
         live, key=lambda x: (x[2].grade is Grade.CORE, x[0]["valid_from"], x[0]["accession"], x[1])
     )
     label = (
-        f"8-K Item {item} — {item_label(item)} (filed {fact['valid_from'].isoformat()}, "
+        f"8-K Item {item} — {item_label(item)} (filed {filed_date(fact).isoformat()}, "
         f"{fact['form']})"
-    )
+    )  # SEC's filing date (the ``filed`` column) — the fire date is the acceptance's day (F7)
     # every LIVE trigger item rides the provenance (one ref per (filing, item), the firing one
     # included) — the work shown beside the call (#6), nothing surfaced is hidden.
     provenance = [
@@ -83,7 +83,7 @@ def score(
             detail={
                 "item": it,
                 "form": f["form"],
-                "filed": f["valid_from"].isoformat(),
+                "filed": filed_date(f).isoformat(),
                 "index_url": f["source_ref"],
             },
         )

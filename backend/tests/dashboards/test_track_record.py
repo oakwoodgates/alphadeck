@@ -12,7 +12,7 @@ as-of never reaches the cap, a flagged price history and a censored start are le
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from uuid import UUID
 
 import pytest
@@ -357,12 +357,16 @@ ARM = date(2026, 6, 10)  # a Wednesday
 VIEW_DAY = date(2026, 7, 1)
 
 
-def shares_fact(shares, valid_from, status=None, ratio=None):
+def shares_fact(shares, valid_from, status=None, ratio=None, public=None):
+    """A share fact as the page reads it. ``public`` = its filing's acceptance (F9); by default the cover date's
+    filing a few days later (a 10-Q filed four days after its cover's as-of date)."""
     return {
         "shares": shares,
         "valid_from": valid_from,
         "ads_ratio": ratio,
         "ads_ratio_status": status,
+        "filing_accepted": public
+        or datetime.combine(valid_from + timedelta(days=4), time(20), tzinfo=UTC),
     }
 
 
@@ -397,6 +401,31 @@ def test_the_cap_uses_the_close_before_the_arm_date_and_the_share_count_dated_be
     assert cap.gap is None and cap.close_date == date(2026, 6, 9) and cap.close == 10.0
     assert (cap.shares, cap.shares_date) == (1_000_000.0, date(2026, 5, 1))
     assert cap.value == 10_000_000.0 and cap.tier is CapTier.NANO
+
+
+def test_a_count_filed_after_the_arm_date_is_never_used_even_with_an_earlier_cover_date():
+    """F9: the cover date is not when a count was public. A 10-Q whose cover is dated 06-05 but that was
+    ACCEPTED 06-12 (after the 06-10 arm) was not public at the event — the older count, public on 05-05, is.
+    """
+    facts = [
+        shares_fact(1_000_000, date(2026, 5, 1)),  # public 05-05
+        shares_fact(3_000_000, date(2026, 6, 5), public=datetime(2026, 6, 12, 20, tzinfo=UTC)),
+    ]
+    cap = event_cap(EVENT_BARS, facts, [], ARM, VIEW_DAY)
+    assert (cap.shares, cap.shares_date) == (1_000_000.0, date(2026, 5, 1))
+    # public on the evening BEFORE the arm date: used
+    facts[1] = shares_fact(3_000_000, date(2026, 6, 5), public=datetime(2026, 6, 9, 22, tzinfo=UTC))
+    assert event_cap(EVENT_BARS, facts, [], ARM, VIEW_DAY).shares == 3_000_000.0
+
+
+def test_a_count_with_no_filing_counts_from_its_ratification_and_one_with_neither_is_not_used():
+    ratified_before = {**shares_fact(1_000_000, date(2026, 5, 1)), "filing_accepted": None}
+    ratified_before["recorded_at"] = datetime(2026, 5, 20, tzinfo=UTC)
+    assert event_cap(EVENT_BARS, [ratified_before], [], ARM, VIEW_DAY).shares == 1_000_000.0
+    ratified_after = {**ratified_before, "recorded_at": datetime(2026, 9, 1, tzinfo=UTC)}
+    assert event_cap(EVENT_BARS, [ratified_after], [], ARM, VIEW_DAY).gap == "no_shares"
+    unknown = {**ratified_before, "recorded_at": None}
+    assert event_cap(EVENT_BARS, [unknown], [], ARM, VIEW_DAY).gap == "no_shares"  # never guessed
 
 
 def test_a_share_fact_dated_on_or_after_the_arm_date_alone_is_no_shares_not_a_guess():
@@ -950,7 +979,7 @@ def _bars(
     db.commit()
 
 
-def _shares(db, sid, shares, valid_from, recorded, ref) -> None:
+def _shares(db, sid, shares, valid_from, recorded, ref, filing_accepted=None) -> None:
     append_fact(
         db,
         "fact_shares_outstanding",
@@ -962,6 +991,7 @@ def _shares(db, sid, shares, valid_from, recorded, ref) -> None:
             "source_ref": ref,
             "valid_from": valid_from,
             "recorded_at": recorded,
+            "filing_accepted": filing_accepted,
         },
     )
     db.commit()
@@ -1095,9 +1125,10 @@ def test_the_cap_and_the_liquidity_are_measured_at_the_event_not_at_the_asof(
 
 
 def test_a_share_fact_published_after_the_asof_never_reaches_the_cap(db, pinned_today, world):
-    """A newer count (cover date 05-28, before the arm) is ratified on 06-20. A view before that day reads the older
-    count; a view after it reads the newer one. A count whose cover date is AFTER the arm date is never used.
-    """
+    """A newer count (cover date 05-28, before the 06-03 arm) with no known filing is ratified on 06-20. F9: it was
+    not public at the event (its ratification is its only public instant), so NO view uses it for the cap at the
+    event — before F9 the 06-24 view used it (dated by its cover alone: the lookahead). A count whose cover date is
+    AFTER the arm date is never used."""
     dev = world["dev"]
     _shares(
         db, dev, 90_000_000, date(2026, 5, 28), datetime(2026, 6, 20, 12, tzinfo=UTC), "dev-10q-2"
@@ -1106,6 +1137,28 @@ def test_a_share_fact_published_after_the_asof_never_reaches_the_cap(db, pinned_
     early = _get(db, asof="2026-06-15").json()["rows"][0]["cap"]
     late = _get(db, asof="2026-06-24").json()["rows"][0]["cap"]
     assert (early["shares"], early["shares_date"]) == (40_000_000.0, "2026-05-12")
+    assert (late["shares"], late["shares_date"]) == (40_000_000.0, "2026-05-12")
+
+
+def test_a_share_fact_filed_before_the_arm_counts_from_its_filing_on_every_view(
+    db, pinned_today, world
+):
+    """The same 05-28 count, its 10-Q ACCEPTED 06-01 (before the arm) and ratified 06-20: it was public at the event,
+    so the cap uses it — and a history view on 06-15 (before the ratification) reads it too (F9: the public clock
+    counts it from its filing)."""
+    dev = world["dev"]
+    _shares(
+        db,
+        dev,
+        90_000_000,
+        date(2026, 5, 28),
+        datetime(2026, 6, 20, 12, tzinfo=UTC),
+        "dev-10q-2",
+        filing_accepted=datetime(2026, 6, 1, 20, tzinfo=UTC),
+    )
+    early = _get(db, asof="2026-06-15").json()["rows"][0]["cap"]
+    late = _get(db, asof="2026-06-24").json()["rows"][0]["cap"]
+    assert (early["shares"], early["shares_date"]) == (90_000_000.0, "2026-05-28")
     assert (late["shares"], late["shares_date"]) == (90_000_000.0, "2026-05-28")
 
 

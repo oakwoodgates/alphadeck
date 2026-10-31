@@ -182,7 +182,7 @@ class TriggerEvent:
     reconstructed: bool  # that night's row was written by pipeline.backfill
     event_date: (
         date | None
-    )  # its fire date (an insider's trade date, a breakout's bar date); None = undated
+    )  # its fire date (an insider cluster's filing night, a breakout's bar date); None = undated
     recorded_after_days: (
         int | None
     )  # the days the recorded night trails the fire date (None when not later)

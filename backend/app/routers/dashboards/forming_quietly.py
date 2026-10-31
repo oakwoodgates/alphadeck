@@ -96,8 +96,9 @@ class FormingSourceOut(_Wire):
 
 
 class FormingTriggerOut(_Wire):
-    """A fired entry trigger on the recorded card. ``event_date`` = its FIRE date (the market event: an insider
-    trade date, a breakout bar), not the night the platform recorded it."""
+    """A fired entry trigger on the recorded card. ``event_date`` = its FIRE date (the market event: a breakout
+    bar; for an insider cluster the night its latest Form 4 was public, its trade dates on the label), not the
+    night the platform recorded it."""
 
     label: str
     kind: Kind

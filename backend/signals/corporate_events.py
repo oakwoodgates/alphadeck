@@ -45,6 +45,14 @@ def item_label(item: str) -> str:
     return ITEM_LABELS.get(item, "corporate event")
 
 
+def filed_date(fact: dict[str, Any]) -> date:
+    """The date a card's "(filed …)" words show for a filing fact (8-K, 13D/G): SEC's FILING date, the stored
+    ``filed`` column — never the re-dated ``valid_from`` (F7 dates the fire by the acceptance's market day, so an
+    evening filing fires the night before its filing date; the label keeps saying what SEC says). A row with no
+    ``filed`` (a raw-row test input) falls back to ``valid_from`` — identical before F7."""
+    return fact.get("filed") or fact["valid_from"]
+
+
 def event_facts(facts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """The tape rows an event detector may read: every row EXCEPT a succession report (by form —
     ``domain.edgar_forms.is_succession_8k``). Order-preserving; the dropped rows stay on the tape (#9)
@@ -61,7 +69,8 @@ def live_policy_items(
     """The as-of-LIVE (fact, item, policy) triples for one side of the policy map.
 
     A fact contributes one triple per policy-mapped item it carries whose per-item liveness window
-    (anchored on the filing date — ``valid_from = filed``) still covers ``asof``; unmapped items and
+    (anchored on the PUBLIC date — ``valid_from``: since F7 the acceptance's market day, else ``filed``)
+    still covers ``asof``; unmapped items and
     NULL (unresolved) items contribute nothing — they stay on the tape (#9), the cut just doesn't
     read them. A succession report (8-K12B / 8-K12G3 / 8-K15D5) contributes nothing either, whatever
     its items (``event_facts``). ``valid_from <= asof`` is already guaranteed by the as-of read;

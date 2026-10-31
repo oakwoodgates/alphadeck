@@ -46,8 +46,8 @@ def test_a_transfer_buy_is_no_conviction_and_is_named():
     fired = insider_conviction.score([real, phantom], SID, ASOF, DEFAULT_CONFIG)
     assert fired is not None
     assert fired.label == (
-        "1 insider incl. senior officer bought $200,000 open-market (code P) across 1 txns; "
-        "1 internal-transfer txn ($18,999,995) screened"
+        "1 insider incl. senior officer bought $200,000 open-market (code P) across 1 txns"
+        " (traded 2025-02-26); 1 internal-transfer txn ($18,999,995) screened"
     )
     assert [p.ref for p in fired.provenance] == [
         "acc-Jane Doe-P"
@@ -64,9 +64,9 @@ def test_a_transfer_buy_is_no_conviction_and_is_named():
 def test_a_read_without_a_transfer_keeps_its_exact_label():
     real = _row("Jane Doe", "Director", 200_000.0, "P", d=date(2025, 2, 26))
     fired = insider_conviction.score([real], SID, ASOF, DEFAULT_CONFIG)
-    assert (
-        fired.label
-        == "1 insider incl. senior officer bought $200,000 open-market (code P) across 1 txns"
+    assert fired.label == (
+        "1 insider incl. senior officer bought $200,000 open-market (code P) across 1 txns"
+        " (traded 2025-02-26)"
     )
     # a transfer OUTSIDE the chosen cluster's window is not named on it
     old = _row(

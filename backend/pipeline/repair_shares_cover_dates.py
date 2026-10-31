@@ -32,9 +32,11 @@ is the ``source_ref``'s accession), screened by the same rule — exactly one va
 ``source_ref`` / ``ratified_by`` / ADS fields copied from the version it replaces; ``vouched`` NULL;
 ``supersedes`` = that version's id; ``recorded_at`` = now (the database instant); a note naming the correction.
 The as-of read keys this table on ``source_ref`` and picks the latest ``recorded_at`` among visible versions, so
-the correction wins at every asof from its own ``valid_from``. The table's public instant is ``recorded_at``
-(``db.public_clock``): a history view before today keeps the old version — dated 2034, it was invisible to every
-view before 2034 anyway.
+the correction wins at every asof from its own ``valid_from``. The correction carries its count's publication
+(F9: ``filing_accession`` / ``filing_accepted`` — the cited filing's, ``ingest.shares.count_publication``); the
+table's public instant is the running max of each version's publication, else its ``recorded_at``
+(``db.public_clock``), so a history view never reads the correction before the bad version it replaced counted —
+dated 2034, that one was invisible to every view before 2034 anyway.
 
 SAFETY (the ``set_aside_fundamentals`` / ``reingest_fundamentals`` shape):
 
@@ -79,7 +81,8 @@ from domain.market_time import market_today
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.converts import clean_filing_text
 from ingest.edgar.extract import companyfacts_url, cover_after_filing, screen_cover_rows
-from ingest.edgar.submissions import fetch_submissions
+from ingest.edgar.submissions import fetch_submissions, listings
+from ingest.shares import count_publication
 from pipeline.run_lock import repair_lock_or_exit
 from repositories import data_repair_repo
 
@@ -141,6 +144,8 @@ class Fact:
     corrected_asof: date | None = None
     cover_line: str | None = None  # the cited filing's own cover sentence (display-only evidence)
     appended_id: UUID | None = None
+    # F9: (accession, acceptance) of the filing whose cover carries the corrected count — stored on the correction
+    publication: tuple[str | None, datetime | None] = (None, None)
 
 
 @dataclass
@@ -354,6 +359,14 @@ def _classify(fact: Fact, docs: Docs, cik: int, today: date) -> None:
         else:
             fact.status = CORRECT
             fact.corrected_shares, fact.corrected_asof = got
+            # F9: the corrected count's own publication (the filing whose cover carries it, its acceptance)
+            fact.publication = count_publication(
+                docs.cover_rows(cik),
+                listings(docs.submissions(cik) or {}),
+                fact.corrected_shares,
+                fact.corrected_asof,
+                docs.cache_dir,
+            )
 
 
 def scan(
@@ -447,6 +460,8 @@ def apply(conn: psycopg.Connection, result: RepairResult) -> None:
                 "valid_from": f.corrected_asof,
                 "supersedes": old["id"],
                 "note": _note(f),
+                "filing_accession": f.publication[0],
+                "filing_accepted": f.publication[1],
             },
         )
     after = _count_rows(conn)

@@ -84,6 +84,17 @@ def _real_cmps_exit_amendment():
 # --- the pure score ---------------------------------------------------------------------------------
 
 
+def test_an_evening_13d_fires_the_night_it_appeared_and_its_label_keeps_the_filing_date():
+    """F7: a 13D accepted the evening before its filing date fires that night (``asof`` = ``valid_from``) and is
+    worded with SEC's filing date (``filed``), in the label and the provenance."""
+    evening = ASOF - timedelta(days=1)
+    f = {**_fact(pct=5.6), "valid_from": evening}
+    e = activist_stake.score([f], SID, evening)
+    assert e is not None and e.asof == evening
+    assert f"(filed {ASOF.isoformat()})" in e.label and evening.isoformat() not in e.label
+    assert e.provenance[0].detail["filed"] == ASOF.isoformat()
+
+
 def test_13d_original_fires_a_core_conviction_from_the_dials():
     e = activist_stake.score([_fact(pct=5.6)], SID, ASOF)
     assert e is not None and e.fired

@@ -249,11 +249,14 @@ def test_the_panel_lists_a_released_split_shaped_jump_no_source_listed(db):
         553700.0,
     )
     # what a history view on 08-28 read next (each bar's newest version public by then) — the frontend's
-    # SplitList test renders exactly these
+    # SplitList test renders exactly these. Friday 08-28's night runs to Monday 06:00 ET since F6, so the
+    # vendor's Saturday 13:19 ET re-version of 08-27 (volume 497,800) counts for it — before F6 the night
+    # ended at midnight and read the 23:16 ET version (497,773); 08-28's own re-version (Tuesday 00:31 ET)
+    # stays out either way
     assert [(b.d, b.close, b.volume) for b in j.after] == [
         (date(2026, 8, 25), 3.65000009536743, 447300.0),
         (date(2026, 8, 26), 3.4300000667572, 210800.0),
-        (date(2026, 8, 27), 3.22000002861023, 497773.0),
+        (date(2026, 8, 27), 3.22000002861023, 497800.0),
         (date(2026, 8, 28), 3.0, 212900.0),
     ]
 

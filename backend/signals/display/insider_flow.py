@@ -25,7 +25,7 @@ from uuid import UUID
 
 from domain.insider_internal_transfers import is_internal_transfer
 from domain.insider_joint_reports import joint_labels
-from domain.market_time import market_tz
+from domain.market_time import view_day
 from domain.splits import tape_scale
 from signals.display.base import (
     DisplayBasis,
@@ -385,9 +385,7 @@ def display(pit: DisplayPointInTimeData, security_id: UUID, asof: date) -> Displ
         pit.insider_txns(security_id),
         asof,
         day_lows=day_lows,
-        price_scale=tape_scale(
-            pit.split_events(security_id), through=pit.known_at.astimezone(market_tz()).date()
-        ),
+        price_scale=tape_scale(pit.split_events(security_id), through=view_day(pit.known_at)),
     )
 
 

@@ -44,7 +44,7 @@ from domain.enums import Kind, Role
 from domain.signal import SignalEvent
 from signals.base import Detector, SignalPointInTimeData
 from signals.common import fired_signal, source_provenance
-from signals.corporate_events import item_label, live_policy_items
+from signals.corporate_events import filed_date, item_label, live_policy_items
 from signals.registry import register_detector
 
 DETECTOR_NAME = "corporate_risk"
@@ -77,13 +77,13 @@ def score(
         else "counter-case input, below the timing-veto threshold"
     )
     label = (
-        f"8-K Item {item} — {item_label(item)} (filed {fact['valid_from'].isoformat()}, "
+        f"8-K Item {item} — {item_label(item)} (filed {filed_date(fact).isoformat()}, "
         f"{fact['form']}); {risk_read}"
-    )
+    )  # SEC's filing date (the ``filed`` column) — the fire date is the acceptance's day (F7)
     others = ordered[1:]
     if others:
         also = ", ".join(
-            f"Item {it} ({item_label(it)}, filed {f['valid_from'].isoformat()})"
+            f"Item {it} ({item_label(it)}, filed {filed_date(f).isoformat()})"
             for f, it, _ in others
         )
         label += f"; also live: {also}"
@@ -95,7 +95,7 @@ def score(
             detail={
                 "item": it,
                 "form": f["form"],
-                "filed": f["valid_from"].isoformat(),
+                "filed": filed_date(f).isoformat(),
                 "index_url": f["source_ref"],
                 "score": p.score,
             },

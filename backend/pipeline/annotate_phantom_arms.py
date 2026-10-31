@@ -16,7 +16,7 @@ annotations (``--revoke`` / ``--revoke-all``), and the record scores exactly as 
 THE ISOLATION REQUIREMENT — annotate ONLY what D3a changes. Code and config have drifted since most rows
 were recorded; that drift must never be blamed on D3a. So every honest (``NOT reconstructed``) row is
 re-assembled TWICE with the CURRENT code at the row's own as-of, on the PUBLIC clock (``asof = row.asof``,
-``clock="public"``, ``known_at`` = the end of that market day — every fact counted from when it became public;
+``clock="public"``, ``known_at`` = the end of that night (F6) — every fact counted from when it became public;
 operator decision 2026-10-21, ``docs/INVARIANTS.md`` §4: call effects are measured on the public clock, never by
 replaying what our database held at the row's ``recorded_at``. The applied annotations of 2026-10-17 were judged
 on that record-clock replay; a (call, action) already judged is never judged again, so a re-run judges only the

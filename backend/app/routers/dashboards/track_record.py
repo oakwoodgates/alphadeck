@@ -47,7 +47,7 @@ from dashboards.track_record import (
 )
 from db.session import DEFAULT_TENANT_ID
 from domain.market_cap import CapTier
-from domain.market_time import market_tz, serve_view
+from domain.market_time import serve_view, view_day
 from domain.settings import get_settings
 from domain.splits import listed_from_row
 from repositories import editions_repo
@@ -64,7 +64,15 @@ router = APIRouter(prefix="/track-record")
 READ_CHUNK = 40
 
 # The share-fact columns the cap reads; the rest of the row is dropped as the view is read.
-SHARE_COLUMNS = ("shares", "valid_from", "ads_ratio", "ads_ratio_status")
+# F9: ``filing_accepted`` / ``recorded_at`` say when a count was PUBLIC (``dashboards.track_record.share_public_at``)
+SHARE_COLUMNS = (
+    "shares",
+    "valid_from",
+    "ads_ratio",
+    "ads_ratio_status",
+    "filing_accepted",
+    "recorded_at",
+)
 
 
 class _Wire(BaseModel):
@@ -280,7 +288,7 @@ def read_companies(
             bounds=None,
             clock=clock,
         )
-        view_day = pit.known_at.astimezone(market_tz()).date()
+        day = view_day(pit.known_at)
         for sid in chunk:
             out[sid] = CompanyData(
                 bars=tuple(bars_of(pit.price_history(sid))),
@@ -288,7 +296,7 @@ def read_companies(
                     {k: f.get(k) for k in SHARE_COLUMNS} for f in pit.shares_outstanding_facts(sid)
                 ),
                 splits=tuple(listed_from_row(r) for r in pit.split_events(sid)),
-                view_day=view_day,
+                view_day=day,
             )
     return out
 

@@ -32,9 +32,10 @@ from db.bitemporal import (
     knowability_expr,
 )
 from db.insider_resolution import RESOLVED_TABLE
+from db.public_clock import INGESTED_COL
 from db.session import DEFAULT_TENANT_ID
 from domain.insider_amendments import ResolutionInputs, group_inputs
-from domain.market_time import market_tz
+from domain.market_time import day_clock_public_by, view_day
 from domain.splits import on_view_scale
 from replay.export import (
     AUX_PUBLIC_COL,
@@ -536,7 +537,7 @@ class ReplayPointInTimeData:
             self._scaled[security_id] = on_view_scale(
                 rows,
                 self._current_splits(security_id),
-                through=self.known_at.astimezone(market_tz()).date(),
+                through=view_day(self.known_at),
             )
         return window_prices(
             self._scaled[security_id], self.asof, lookback_days
@@ -592,8 +593,19 @@ class ReplayPointInTimeData:
         split's rows carry its public instant as ``recorded_at`` (one row per split, the export's newest), so
         the same gate is the public read. In key-date order. A mirror exported before the split list existed
         has no table and returns ``[]`` (``_splits_of``) — what the system knew when it was written.
+
+        A PUBLIC mirror's split row (it carries ``ingested_at``, ``db.public_clock.to_public_row``) is
+        DATE-clocked — public from its day's night (06:00 of the date; 00:00 in a mirror exported before
+        that change) — so it also passes the live public read's day gate
+        (``domain.market_time.day_clock_public_by``, F6): it counts from its own day's night, never the night
+        before. A record mirror's rows carry honest instants and keep the plain gate (the record read's).
         """
-        return self._newest_splits(security_id, self.known_at)
+        rows = self._newest_splits(security_id, self.known_at)
+        return [
+            r
+            for r in rows
+            if INGESTED_COL not in r or day_clock_public_by(r["recorded_at"], self.known_at)
+        ]
 
     def _current_splits(self, security_id: UUID) -> list[dict[str, Any]]:
         """The split list's reading AT EXPORT, ungated — what ``on_view_scale`` converts a public mirror's bars

@@ -25,9 +25,13 @@ An identity fetch/parse failure NEVER drops the row — it lands with NULL filer
 (``identity_skipped``); a later run retries and RE-VERSIONS the row when identity resolves
 (append-if-changed — a new version, never an UPDATE; the form8k semantics).
 
-``valid_from = filed`` (the EDGAR acceptance date IS the knowability — gold-doc trap #4: the stake
+``valid_from`` = the filing's PUBLIC date, never the in-document event date (gold-doc trap #4: the stake
 crossing inside the filing predates dissemination by up to 10 days, and the structured cover's
-``dateOfEvent`` is deliberately never read for time). ``recorded_at`` is left to the DB's ``now()``,
+``dateOfEvent`` is deliberately never read for time). Since F7 (rule ``2026-11-filings-dated-by-acceptance``)
+that is the market-time date of SEC's trusted acceptance, stored in ``accepted`` (``ingest.edgar.form8k
+.filing_acceptance`` — a schedule submitted after the cutoff carries the next business day's filing date
+although EDGAR disseminated it that evening), else ``filed`` as before; ``filed`` stays SEC's filing date, and
+a stored row is re-dated only by ``pipeline.repair_filing_dates``. ``recorded_at`` is left to the DB's ``now()``,
 NEVER backdated (invariant #4). The natural-key constraint carries ``security_id`` (migration 0039 —
 the 0037 lesson).
 """
@@ -38,6 +42,7 @@ import xml.etree.ElementTree as ET
 from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import date
+from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -46,7 +51,8 @@ import psycopg
 from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
 from domain.settings import get_settings
-from ingest.edgar.form8k import filing_index_url
+from ingest.edgar.acceptance import public_date
+from ingest.edgar.form8k import filing_acceptance, filing_index_url
 from ingest.edgar.submissions import SCHEDULE13_D_FORMS, form4_doc_url
 from ingest.skips import SCHEDULE13_IDENTITY, SCHEDULE13_OUTBOUND, clip_reason, is_known
 
@@ -236,7 +242,7 @@ def existing_schedule13(
     with conn.cursor() as cur:
         cur.execute(
             "SELECT DISTINCT ON (accession) accession, form, filed, filer_cik, filer_name, "
-            "pct_owned FROM fact_activist_stake WHERE tenant_id = %s AND security_id = %s "
+            "pct_owned, accepted FROM fact_activist_stake WHERE tenant_id = %s AND security_id = %s "
             "ORDER BY accession, recorded_at DESC, id DESC",
             (tenant_id, security_id),
         )
@@ -257,6 +263,7 @@ def ingest_schedule13(
     tenant_id: UUID = DEFAULT_TENANT_ID,
     recorded_at=None,
     known_skips: Collection[str] | None = None,
+    cache_dir: Path | None = None,
 ) -> Schedule13Result:
     """Append-if-changed the 13D/G tape for one SUBJECT security (the caller owns the txn — no
     commit here).
@@ -342,6 +349,7 @@ def ingest_schedule13(
             and _pct(prior["pct_owned"]) == pct_owned
         ):
             continue  # the tape already says this — no duplicate append
+        accepted = filing_acceptance(f, filed, prior, cache_dir)
         values = {
             "tenant_id": tenant_id,
             "security_id": security_id,
@@ -351,8 +359,11 @@ def ingest_schedule13(
             "pct_owned": pct_owned,
             "accession": f["accession"],
             "filed": filed,
+            "accepted": accepted,
             "source_ref": filing_index_url(cik, f["accession"]),
-            "valid_from": filed,  # = filed (knowability; never the in-document event date — trap #4)
+            # the PUBLIC date (F7): the trusted acceptance's market-time date, else the filing date — never the
+            # in-document event date (trap #4)
+            "valid_from": public_date(accepted, filed),
         }
         if recorded_at is not None:
             values["recorded_at"] = recorded_at

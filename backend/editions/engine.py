@@ -25,7 +25,7 @@ WHAT IS EDITION-SPECIFIC (and only this):
   mirror and its job (no database), and the output never depends on the worker count.
 
 WHAT IT READS PER NIGHT ``T`` (no lookahead, #1). The cap is ``known_at_for_asof(T, now=known_by)`` — the end
-of T's market day, never later than the cut — exactly the cap the Postgres past-asof card
+of T's night (EDGAR's next open, 06:00 ET the next weekday, F6), never later than the cut — exactly the cap the Postgres past-asof card
 (``/theses/{id}/call?asof=T``) reads with:
 
 - the facts: the public mirror at that cap (``recorded_at`` there IS the public instant);
@@ -118,7 +118,7 @@ def open_mirror(path: str | Path):
 
 
 def night_cap(night: date, known_by: datetime) -> datetime:
-    """The cap every read for ``night`` is bounded by: the end of its market day, never past the cut."""
+    """The cap every read for ``night`` is bounded by: the end of the night (F6), never past the cut."""
     return known_at_for_asof(night, known_by)
 
 

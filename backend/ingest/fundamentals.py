@@ -86,9 +86,10 @@ mixes concepts inside one computation (issued vs outstanding differ by treasury 
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime
+from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -98,6 +99,7 @@ from db.bitemporal import append_fact
 from db.clock import db_now
 from db.session import DEFAULT_TENANT_ID
 from domain.security import Security
+from ingest.edgar.acceptance import cached_listings, public_date, resolve_listed_filing
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.extract import REVENUE_CONCEPTS, companyfacts_url
 
@@ -175,6 +177,16 @@ class QuarterPoint:
     # column as ``companyfacts:<concept>``, so a card citing an accession can say WHICH tag's number it used
     # — two tags can share one accession (#6). Not a D3a value column: dating never reads it.
     concept: str | None = None
+    # F7 (rule ``2026-11-filings-dated-by-acceptance``): SEC's trusted acceptance of ``accession`` — stamped on
+    # a REVENUE point by ``date_revenue_points`` (request-free, the cached submissions index); ``None`` = not
+    # known, and the point is dated by ``filed`` exactly as before
+    accepted: datetime | None = None
+
+    @property
+    def valid_from(self) -> date:
+        """The stored ``valid_from`` — the PUBLIC date: the acceptance's market-time date (a 10-Q accepted after
+        17:30 ET carries the next business day's ``filed``), else ``filed``."""
+        return public_date(self.accepted, self.filed)
 
 
 @dataclass(frozen=True)
@@ -636,7 +648,10 @@ def fundamentals_row(
         # a revenue row names its XBRL tag (``select_revenue`` stamps ``concept``) — two tags can share one
         # accession, so the accession alone cannot say which tag's number a card cites (#6)
         "source": f"companyfacts:{q.concept}" if q.concept else "companyfacts",
-        "valid_from": q.filed,  # KNOWABILITY: the filing acceptance date, never today
+        # KNOWABILITY: the PUBLIC date — the acceptance's market-time date when known (F7), else the filing
+        # date — never the period end, never today
+        "valid_from": q.valid_from,
+        "accepted": q.accepted,
     }
 
 
@@ -671,7 +686,9 @@ def plan_versions(
     out: list[PlannedVersion] = []
     skipped = 0
     for q in quarters:
-        key = (q.metric_key, q.period_end, q.filed)
+        # the stored filing key: its PUBLIC date (``valid_from`` — the filing date unless F7 dated it by its
+        # acceptance; a stored filing keeps its stored dating, ``carry_stored_acceptance``)
+        key = (q.metric_key, q.period_end, q.valid_from)
         prior = held.get(key)
         if prior is None:
             out.append(PlannedVersion(q))
@@ -730,6 +747,90 @@ def append_planned(
     return n
 
 
+# --- F7: a revenue filing dated by its SEC acceptance (rule ``2026-11-filings-dated-by-acceptance``) ----------
+#
+# A 10-Q / 10-K submitted after 17:30 ET carries the NEXT business day's filing date (Regulation S-T 13(a)(2))
+# although EDGAR disseminated it that evening — and companyfacts' ``filed`` is that filing date. A REVENUE point
+# whose filing's acceptance is trusted (``ingest.edgar.acceptance.resolve_listed_filing`` over the CACHED
+# submissions index — request-free) is stored with it in ``accepted`` and dated by its market-time date
+# (``QuarterPoint.valid_from``), so the revenue detector reads it the night it appeared. Share series are not
+# re-dated (the declared rule names revenue). A filing ALREADY stored keeps its stored dating — the acceptance
+# its versions carry, ``None`` for one stored before F7 (``carry_stored_acceptance``): the nightly never
+# re-dates a stored filing; ``pipeline.repair_filing_dates`` does (a re-dated twin + a set-aside of the old
+# versions, so one filing is never read at two dates).
+
+
+def date_revenue_points(
+    points: Iterable[QuarterPoint],
+    listings: Mapping[str, tuple[str, str]],
+    cache_dir: Path | None = None,
+) -> list[QuarterPoint]:
+    """PURE but for cached header reads: each REVENUE point whose accession's listed filing date is the point's
+    own ``filed`` gets its trusted acceptance (``resolve_listed_filing``); every other point is unchanged. A
+    derived Q4 dated by the later of two filings never matches its listing's date unless that IS its filing.
+    """
+    out: list[QuarterPoint] = []
+    for q in points:
+        if q.metric_key == REVENUE_METRIC and q.accepted is None:
+            at = resolve_listed_filing(listings, q.accession, q.filed, cache_dir).at
+            if at is not None:
+                q = replace(q, accepted=at)
+        out.append(q)
+    return out
+
+
+def stored_acceptance(
+    conn: psycopg.Connection, security_id: UUID, tenant_id: UUID = DEFAULT_TENANT_ID
+) -> dict[tuple[str, date, str], datetime | None]:
+    """``{(metric_key, period_end, accession): the newest acceptance any stored version of that filing carries,
+    else None}`` — every stored version, set aside or not (the writers' view, like ``held_versions``).
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT metric_key, period_end, accession, accepted FROM fact_fundamentals "
+            "WHERE tenant_id = %s AND security_id = %s ORDER BY recorded_at, id",
+            (tenant_id, security_id),
+        )
+        out: dict[tuple[str, date, str], datetime | None] = {}
+        for r in cur.fetchall():
+            key = (r["metric_key"], r["period_end"], r["accession"])
+            if r["accepted"] is not None or key not in out:
+                out[key] = r["accepted"] if r["accepted"] is not None else out.get(key)
+        return out
+
+
+def carry_stored_acceptance(
+    points: Iterable[QuarterPoint],
+    stored: Mapping[tuple[str, date, str], datetime | None],
+) -> list[QuarterPoint]:
+    """PURE: a point whose filing is already stored takes the stored dating (its acceptance, or ``None`` for a
+    filing stored by its filing date) — so the plan compares it against the filing as stored and never appends a
+    second dating of one filing. A new filing keeps what ``date_revenue_points`` resolved."""
+    out: list[QuarterPoint] = []
+    for q in points:
+        key = (q.metric_key, q.period_end, q.accession)
+        if key in stored and stored[key] != q.accepted:
+            q = replace(q, accepted=stored[key])
+        out.append(q)
+    return out
+
+
+def dated_points(
+    conn: psycopg.Connection,
+    security_id: UUID,
+    cik: str | int | None,
+    points: Iterable[QuarterPoint],
+    *,
+    cache_dir: Path | None,
+    tenant_id: UUID = DEFAULT_TENANT_ID,
+) -> list[QuarterPoint]:
+    """``date_revenue_points`` from the CACHED submissions index, then ``carry_stored_acceptance`` — the dating
+    every fundamentals writer applies before it plans (the nightly ingest, ``pipeline.reingest_fundamentals``).
+    """
+    dated = date_revenue_points(points, cached_listings(cache_dir, cik), cache_dir)
+    return carry_stored_acceptance(dated, stored_acceptance(conn, security_id, tenant_id))
+
+
 def store_quarters(
     conn: psycopg.Connection,
     security_id: UUID,
@@ -767,7 +868,17 @@ def ingest_fundamentals_for_security(
         f"companyfacts/CIK{int(sec.cik):010d}.json",
     )
     sel = select_revenue(cf)
-    res = store_quarters(conn, sec.id, sel.points + extract_share_points(cf), tenant_id=tenant_id)
+    # F7: a revenue filing is dated by its trusted acceptance (the CACHED submissions index — the nightly re-pulled
+    # it this pass, ahead of this step; no request here); a stored filing keeps its stored dating
+    points = dated_points(
+        conn,
+        sec.id,
+        sec.cik,
+        sel.points + extract_share_points(cf),
+        cache_dir=getattr(client, "cache_dir", None),
+        tenant_id=tenant_id,
+    )
+    res = store_quarters(conn, sec.id, points, tenant_id=tenant_id)
     return FundamentalsResult(res.appended, res.skipped, screened=tuple(sel.screened))
 
 
@@ -794,5 +905,9 @@ __all__ = [
     "plan_versions",
     "append_planned",
     "store_quarters",
+    "date_revenue_points",
+    "stored_acceptance",
+    "carry_stored_acceptance",
+    "dated_points",
     "ingest_fundamentals_for_security",
 ]

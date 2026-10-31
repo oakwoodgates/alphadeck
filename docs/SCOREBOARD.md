@@ -783,7 +783,8 @@ events** as **colored numbered chips**:
   (collision-stacking spills to a visible "+N", never a silent drop).
 - **No-lookahead on both axes** — an insider buy is **positioned by its transaction date** (`valid_from`) but
   **gated by disclosure**: for a PAST as-of on the PUBLIC clock (since 2026-10-21 — its SEC acceptance, capped at
-  the end of the as-of's MARKET day, `domain.market_time.known_at_for_asof`; the same view the
+  the end of the as-of's night — EDGAR's next open, F6 — `domain.market_time.known_at_for_asof`; the same
+  view the
   Board/Cockpit/Workbench scrub-back threads through `serve_view`), for today's as-of on the record clock
   (`recorded_at ≤ now`, where the two coincide). So a scrubbed-back Scoreboard hides later bars AND
   later-*disclosed* buys — the honesty a filing's days-to-months lag demands — but no longer hides a buy that was

@@ -38,7 +38,8 @@ carries its located passage (``domain.insider_private_purchases`` — display on
 
 The transaction axis is the load-bearing bit: every event is positioned by ``valid_from`` (the
 transaction / filed date) and GATED by ``known_at``. ``domain.market_time.known_at_for_asof`` (the router
-threads it in) caps that at the request's as-of — the end of that MARKET day. For a PAST as-of the gate is
+threads it in) caps that at the request's as-of — the end of that night (EDGAR's next open, F6). For a PAST
+as-of the gate is
 the PUBLIC clock (``clock="public"``, operator decision 2026-10-21 — ``db.public_clock``): an event counts
 from when it became public (a Form 4 from its SEC acceptance, an 8-K / 13D from its filing date), so a
 scrubbed-back Scoreboard hides a buy disclosed after the as-of (the IBM 166-day disclosure-lag case) but
@@ -335,7 +336,8 @@ def episode_corporate_events(
     Read via the shared bitemporal ``as_of`` over ``fact_corporate_event`` (migration 0038): the
     latest version per accession, so a filing whose ``items`` resolved after first ingest reads with
     its real codes — and a ``known_at`` pinned BEFORE the resolve honestly reads ``items=None`` (the
-    not-yet-resolved past view). ``d`` = ``valid_from`` = ``filed`` — an 8-K is knowable exactly when
+    not-yet-resolved past view). ``d`` = ``valid_from`` = the public date (since F7 the market-time date of SEC's
+    acceptance, else ``filed``) — an 8-K is knowable exactly when
     EDGAR disseminates it, so the one event clock plus ``ingested`` (``recorded_at::date``) suffices.
     ``url`` is the row's ``source_ref`` (the EDGAR filing-index URL, #6). NO server-side item cut:
     loudness is a display concern, and a cut here would be a silent filter (#9) — the FE decides how
@@ -385,7 +387,8 @@ def episode_activist_stakes(
 
     Read via the shared bitemporal ``as_of`` over ``fact_activist_stake`` (migration 0039): the latest
     version per accession, so a filing whose filer identity / ``pct_owned`` resolved after first
-    ingest reads enriched. ``d`` = ``valid_from`` = ``filed`` (knowability — never the in-document
+    ingest reads enriched. ``d`` = ``valid_from`` = the public date (F7: SEC's acceptance day, else ``filed``;
+    knowability — never the in-document
     event date, gold-doc trap #4). Unresolved identity ships as ``None`` — ``filer_name`` /
     ``filer_cik`` / ``pct_owned`` null, the row KEPT (#9, never dropped). NO fire-policy filtering:
     13G rows and amendments ride too — the fire policy (13D-family originals only) lives in the

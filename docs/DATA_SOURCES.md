@@ -161,7 +161,9 @@ and the free proxy is demonstrably inadequate. Default to free + derive.
   otherwise unchanged. One older submissions page answered this way is a counted failed page
   (`submissions._tolerable_page_error`), like an HTTP error after the retries.
 - **The fundamentals' stamp (migration 0057, 2026-10-21).** `fact_fundamentals` rows carry `valid_from =` the
-  filing's acceptance date — the PUBLIC clock, what every detector and every history read dates by — and, since
+  filing's PUBLIC date — companyfacts' `filed`, or since F7 (2026-11) for a REVENUE row the market-time date of
+  its trusted SEC acceptance (`accepted`, read request-free from the cached submissions index; §Filings dated by
+  their acceptance) — what every detector and every history read dates by — and, since
   0057, `recorded_at =` the database instant the ingest stored them (`ingest.fundamentals.store_quarters`, one
   `db_now` per batch): honest bookkeeping, never backdated, never the history gate. Before 0057 the ingest
   backdated `recorded_at` to `filed 00:00 UTC` (MEASURED on prod 2026-10-21: all 120,876 rows, a median ~6.2
@@ -532,8 +534,10 @@ so any sales-derived signal would be dominated by autopilot and be actively misl
 **Why the stored time matters.** `fact_insider_txn.accepted` (and `insider_amendment` / `insider_amendment_link
 .accepted`) is the PUBLIC instant every history view dates an insider filing by (the editions, the drawer, a
 past-asof recompute, the backtest mirror — `db/public_clock.py`); the live nightly reads the record clock. A
-night ends at midnight ET, so an early time on the right date is harmless and a late time across midnight moves
-the filing to the next night.
+night ended at midnight ET until F6 (2026-10-31), so a late time across midnight moved the filing to the next
+night; it now ends at EDGAR's next open (06:00 ET the next weekday, `domain.market_time.known_at_for_asof`),
+so a late time before 06:00 stays on its night. An early time on the right date stays harmless; the repair
+below still puts the stored time right.
 
 **The drift (MEASURED on prod 2026-10-24, read-only).** The time comes from the submissions JSON's
 `acceptanceDateTime`. From ~2026-10-23 04:00 ET that list became inconsistent PER FILING: every capture since
@@ -556,6 +560,52 @@ ingest). The companyfacts gate stays request-free: it takes the earlier of the l
 4/A linker's order map keeps only a trusted listed time (else the filing dates order the pair). The nightly
 prints one quiet `acceptance · …` line when any listed time was set aside. Stored rows are repaired by
 `python -m pipeline.backfill_accepted --drift` (dry-run by default; `--execute` after a backup).
+
+## Filings dated by their acceptance — 8-K, 13D/G, revenue (F7) and share counts (F9) `[BUILT — 2026-11]`
+
+**The gap (F7).** `fact_corporate_event`, `fact_activist_stake` and the revenue rows of `fact_fundamentals`
+stored only SEC's `filingDate` as `valid_from`. Regulation S-T 13(a)(2) dates a filing whose submission
+commences after 17:30 ET the NEXT business day, though EDGAR disseminates it that evening; the detectors gate
+`valid_from <= asof`, so the live nightly and every history view counted an evening 8-K a night late (late,
+never early). Rule `2026-11-filings-dated-by-acceptance` (`domain/rule_log.py`) — a declared call-logic change.
+
+**The rule** (`ingest/edgar/acceptance.py` `resolve_public_acceptance`): trust the listed `acceptanceDateTime`
+when the Form 4 test passes (its ET date is the filing date, 06:00–22:00) OR it is the filing-date roll — its
+ET date is the business day BEFORE the filing date and its ET time 17:30–22:00 (no SEC holiday calendar exists,
+so one weekday may sit between the two dates — a holiday — never two, never a weekend acceptance). Otherwise
+the filing's header from the CACHE only (never a request: the 8-K tape stays zero-fetch), held to the same
+test. Otherwise nothing is stored and the filing date stands. A trusted time is stored in `accepted`, the row
+is dated by its MARKET-TIME date, and the public instant is the acceptance (a filing fact's newest acceptance
+on every version; a revenue version's own). The ingest never re-dates a stored row (an 8-K's acceptance is not
+in its compare surface; a revenue filing already stored keeps its stored dating) — the repair does.
+
+**Share counts (F9).** `fact_shares_outstanding` had no filing date: its `valid_from` is the cover date and its
+public instant was the ratification (`recorded_at`). Now each count carries `filing_accession` /
+`filing_accepted`: the EARLIEST filing whose companyfacts cover row states exactly this count on exactly this
+date (`ingest.shares.count_publication` — the cited filing when the citation is right; a later filing's count
+cited under an earlier one gets the later filing's, so it is never early; a cover row dated after its own
+filing never dates a count), its trusted acceptance else the end of its filing date in ET. A count no cover row
+states keeps its ratification instant. The public clock takes the running max over the fact's versions, so a
+version never counts before the one it replaced. The Workbench writers (auto-confirm, ratify) and
+`pipeline.ratify_shares` stamp it from the cache at write time.
+
+**The repair** — `python -m pipeline.repair_filing_dates` (dry-run by default, read-only, cache only;
+`--apply` under the REPAIR lock, one counted transaction, provenance under `data/repairs/`, a `data_repair`
+journal row; idempotent). An 8-K / 13D/G whose day moves gets one new version (`accepted` + the new
+`valid_from`); a revenue filing gets a TWIN at the acceptance date plus a set-aside of its old-date versions
+(rule family `filings-dated-by-acceptance`; the rows are kept, never deleted; the data-quality reads leave the
+family out) so one
+filing is never read at two dates; a share count gets a restating version carrying its publication.
+
+**MEASURED on the dev copy of prod (2026-10-31, dry run, the dev cache's submissions + companyfacts, no deep
+pages cached).** Rows the repair would move: 8-K 6,690 (of 149,604 stored versions; 128,930 same-day, 10,955
+not in the cached index, 3,029 listed times set aside — mostly the 10-23 drift); 13D/G 2,421 (of 66,618);
+revenue filings 5,129 (of 82,399 revenue versions); share counts 569 published of 997 facts (507 by the cited
+filing's own cover, 62 by ANOTHER filing's — the cited filing's acceptance would have been early for those;
+141 dated by the filing-date bound; 416 not judged — no cached companyfacts; 12 no cover row), each public a
+median 65 days before its ratification. Acceptances 17:30–22:00 ET among the resolved rows: 8-K 22,918, 13D/G
+10,325, revenue 14,978 — most of them on their own filing date (a submission commenced before 17:30 keeps the
+day). The listed times set aside are the 10-23 drift's shapes (22:00–05:59 ET on or after the filing date).
 
 ## Form 4/A — amendments, stored as filed and resolved at read `[BUILT — R8-A, R8-B]`
 
@@ -712,8 +762,12 @@ READ, so items outside the cut stay stored (#9) and a policy retune needs no re-
   reports are STORED but SKIPPED by every event detector, by form: their items describe the
   reorganization itself (3.01 = the listing transfer, 5.02 = the carried-over officers). Full rule:
   `docs/CORPORATE_EVENTS.md` §succession reports.
-- **Knowability:** `valid_from = filed` — the acceptance date IS when an 8-K became knowable (the
-  cleanest bitemporal source on the menu; no-lookahead is free).
+- **Knowability (F7, rule `2026-11-filings-dated-by-acceptance`):** `valid_from` = the market-time date of
+  SEC's ACCEPTANCE, stored in `accepted` when it is trusted — else `filed`, as before. An 8-K submitted after
+  17:30 ET carries the NEXT business day's `filingDate` (Reg S-T 13(a)(2)) although EDGAR disseminated it that
+  evening, so before F7 both the live nightly and every history view counted it a night late. `filed` stays
+  SEC's filing date. The public instant on history views is the acceptance (`db/public_clock.py`). See
+  §Filings dated by their acceptance below.
 - **`items` may be NULL** — EDGAR hadn't classified the filing yet; stored as NULL (never guessed)
   and re-versioned append-only when it resolves on a later run.
 - **Depth:** submissions `recent` (≥ 1 year / 1,000 filings), the same accepted depth as Form 4;
@@ -792,9 +846,11 @@ with intent", 13G = passive; the fire policy (13D-family ORIGINALS only) is appl
   2025-02-05). The ingest matches ALL EIGHT strings across both eras; an SC-only match silently
   drops every 2025+ filing. (EFTS's `forms=SC 13D` filter has exactly that gap — one reason the
   submissions path won.)
-- **Knowability (gold-doc trap #4):** `valid_from = filed` — the stake CROSSING inside the filing
-  predates dissemination by up to 10 days, and the structured cover's `dateOfEvent` is deliberately
-  never read for time.
+- **Knowability (gold-doc trap #4):** `valid_from` = the filing's PUBLIC date — never the stake CROSSING
+  inside the filing (it predates dissemination by up to 10 days; the structured cover's `dateOfEvent` is
+  deliberately never read for time). Since F7 that is the market-time date of SEC's trusted acceptance
+  (`accepted`), else `filed` — a schedule submitted after the cutoff is dated the next business day by SEC
+  although it appeared that evening. §Filings dated by their acceptance below.
 - **Filer identity (the 0024 capture pattern):** the subject's submissions rows carry no filer, so
   identity costs one small immutable-cached fetch per filing — structured era: the raw
   `primary_doc.xml` (`reportingPersonName`/`CIK`, `percentOfClass`); classic-era 13D-family: the

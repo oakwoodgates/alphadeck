@@ -116,8 +116,9 @@ Step 2, which runs against real history at scale.
 ## ⚠️ KNOWN LIMITATION — the ROSTER is replayed point-in-time; the rest of the definition is not
 
 **The roster half is CLOSED (F4).** At every session T the harness re-resolves each thesis's basket through
-`thesis_repo.get_asof` at `known_at = min(pin, known_at_for_asof(T))` — the same **market-day cap** every
-history view uses (`domain.market_time.serve_view`, `INVARIANTS.md` #4), never the run's bare pin. The
+`thesis_repo.get_asof` at `known_at = min(pin, known_at_for_asof(T))` — the same **night cap** every
+history view uses (since F6, 2026-10-31: the last instant before 06:00 ET on the next weekday, EDGAR's
+next open — not midnight; a Friday's runs to Monday 06:00) (`domain.market_time.serve_view`, `INVARIANTS.md` #4), never the run's bare pin. The
 per-session clock is the load-bearing part: the harness pins ONE `known_at` for the sweep, so resolving the
 roster once at that pin would return **today's** basket for any caller that pins `now` (the retired
 `scoreboard.replay_snapshot` CLI did) and the lookahead would have survived the fix. A member added after T is now invisible at T.

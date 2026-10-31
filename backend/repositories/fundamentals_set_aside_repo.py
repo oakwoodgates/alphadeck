@@ -144,22 +144,38 @@ def all_for_rule_family(conn: psycopg.Connection, family: str) -> list[SetAside]
     )
 
 
+# F7 (``pipeline.repair_filing_dates``): a revenue filing re-dated by its SEC acceptance is a new twin version
+# at the acceptance date, and its versions at the OLD (filing) date are set aside under this family so one filing
+# is never read at two dates. That is bookkeeping for a re-dated filing, not a data-quality judgment: the
+# family-less reads below (the Admin line, the Fundamentals Multiples note) leave it out, and the repair asks for
+# it by name.
+REDATE_FAMILY = "filings-dated-by-acceptance"
+_NOT_REDATE = " AND split_part(s.rule, '@', 1) <> %(redate)s"
+
+
 def active(conn: psycopg.Connection, *, family: str | None = None) -> list[SetAside]:
-    """Every ACTIVE set_aside (optionally of one rule ``family``), oldest first. Read-only."""
+    """Every ACTIVE set_aside (optionally of one rule ``family``), oldest first. Read-only. With no ``family``:
+    every family but the F7 re-dating one (``REDATE_FAMILY``) — the data-quality judgments."""
     where = ACTIVE_SQL
     if family is not None:
         where += " AND split_part(s.rule, '@', 1) = %(family)s"
-    return _rows(conn, where, {"family": family})
+    else:
+        where += _NOT_REDATE
+    return _rows(conn, where, {"family": family, "redate": REDATE_FAMILY})
 
 
 def count_active(conn: psycopg.Connection, *, tenant_id: UUID | None = None) -> int:
-    """How many stored versions are set aside right now (optionally for one tenant) — the Admin page's one
-    quiet line. Read-only."""
-    where = ACTIVE_SQL + (" AND s.tenant_id = %(tenant_id)s" if tenant_id is not None else "")
+    """How many stored versions the data-quality judgments set aside right now (optionally for one tenant;
+    never the F7 re-dating family) — the Admin page's one quiet line. Read-only."""
+    where = (
+        ACTIVE_SQL
+        + _NOT_REDATE
+        + (" AND s.tenant_id = %(tenant_id)s" if tenant_id is not None else "")
+    )
     with conn.cursor() as cur:
         cur.execute(
             f"SELECT count(*) AS n FROM fundamentals_set_aside s WHERE {where}",  # noqa: S608
-            {"tenant_id": tenant_id},
+            {"tenant_id": tenant_id, "redate": REDATE_FAMILY},
         )
         return cur.fetchone()["n"]
 
@@ -172,4 +188,5 @@ __all__ = [
     "all_for_rule_family",
     "active",
     "count_active",
+    "REDATE_FAMILY",
 ]

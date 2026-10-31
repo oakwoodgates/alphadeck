@@ -81,10 +81,13 @@ def test_a_bar_stored_late_is_public_at_its_own_settle(db, security_id, tmp_path
 
 
 def test_a_form4_accepted_after_T_is_invisible_at_T(db, security_id, tmp_path):
+    """Accepted Monday 06-22 10:00 ET: invisible on Friday 06-19's night — which since F6 runs to Monday 06:00
+    ET (a Saturday instant would be Friday's; EDGAR is closed then) — and on the weekend's, visible Monday.
+    """
     seed_big_buy(
         db,
         security_id,
-        accepted=datetime(2026, 6, 20, 14, 0, tzinfo=timezone.utc),  # 10:00 ET 06-20
+        accepted=datetime(2026, 6, 22, 14, 0, tzinfo=timezone.utc),  # 10:00 ET Monday 06-22
         recorded_at=datetime(
             2026, 6, 19, tzinfo=timezone.utc
         ),  # cannot happen live; the clock still wins
@@ -92,9 +95,10 @@ def test_a_form4_accepted_after_T_is_invisible_at_T(db, security_id, tmp_path):
     db.commit()
     con = _mirror(db, tmp_path)
     try:
-        assert _view(con, date(2026, 6, 19)).insider_txns(security_id) == []
+        for night in (date(2026, 6, 19), date(2026, 6, 20), date(2026, 6, 21)):
+            assert _view(con, night).insider_txns(security_id) == [], night
         assert [
-            r["valid_from"] for r in _view(con, date(2026, 6, 20)).insider_txns(security_id)
+            r["valid_from"] for r in _view(con, date(2026, 6, 22)).insider_txns(security_id)
         ] == [BUY_DAY]
     finally:
         con.close()

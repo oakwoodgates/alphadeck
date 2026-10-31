@@ -27,7 +27,8 @@ The Workbench scores each basket name from the **point-in-time facts**; the engi
   — see `ROADMAP.md` "the persistence seam"); the scores are recomputed every read.
 - **Every figure comes from a tenant-filtered as-of read** (`PointInTimeData`), so no-lookahead and tenant
   isolation hold for free (`INVARIANTS.md` #4, #5) — on the PUBLIC clock: a past `asof` on the scored read
-  (`serve_view`) reads each fact as it was public by the end of that market day. A RATIFIED scoring fact
+  (`serve_view`) reads each fact as it was public by the end of that night (EDGAR's next open, F6). A
+  RATIFIED scoring fact
   (purity, runway, shares) counts from its ratification — its `valid_from` is the filing period / cover date,
   earlier than the filing was public, and the row carries no filing date — so a scrubbed-back score never
   uses a number the operator had not yet ratified (`db/public_clock.py`).

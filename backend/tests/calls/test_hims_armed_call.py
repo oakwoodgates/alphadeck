@@ -21,6 +21,13 @@ from tests.form4a_fixtures import as_issuer
 _SEED = Path(__file__).resolve().parent.parent.parent / "seed_data"
 _KNOWN = datetime(2100, 1, 1, tzinfo=timezone.utc)
 _WELLS_ACCESSION = "0001773751-26-000086"
+# The Wells Form 4's acceptance, STATED as a test input: the committed XML carries none (SEC lists it in the
+# submissions index, which these fixtures do not hold), and since F8 the insider clock starts at the filing —
+# with no acceptance it would fall back to the instant this test stored the row (months after these as-ofs).
+# 17:00 ET 05-28 sits inside Section 16(a)'s two-business-day window for the 05-26 trade; it is NOT SEC's
+# recorded time, only a fixed input so the clock is deterministic.
+_WELLS_ACCEPTED = datetime(2026, 5, 28, 21, 0, tzinfo=timezone.utc)
+_WELLS_PUBLIC_NIGHT = date(2026, 5, 28)
 
 
 def _seed_hims(db, security_id):
@@ -32,6 +39,7 @@ def _seed_hims(db, security_id):
         security_id,
         (_SEED / "edgar" / "hims_wells_form4.xml").read_text(encoding="utf-8"),
         _WELLS_ACCESSION,
+        accepted=_WELLS_ACCEPTED,
     )
     bars = parse_yahoo_chart(
         json.loads((_SEED / "prices" / "HIMS.yahoo.json").read_text(encoding="utf-8"))
@@ -97,15 +105,18 @@ def test_hims_armed_core_entry_is_honest_on_real_data(db, security_id):
     # the real Form 4 accession rides the conviction trigger's provenance (the working source link)
     refs = [p.ref for t in card.triggers_fired for p in t.sources]
     assert _WELLS_ACCESSION in refs
-    # hold clock: the Wells buy (05-26) is graded CORE, so it now carries the multi-month conviction
+    # hold clock: the Wells buy (traded 05-26) is graded CORE, so it now carries the multi-month conviction
     # horizon (~6mo). DECISION: HIMS is intentionally armable / re-armable on a fresh breakout through
     # ~Nov (a core conviction supports a multi-month hold), and the longer window correctly pulls the
     # Aug earnings into its catalyst surface — the old 18d clock wrongly excluded it. This supersedes
-    # the pre-grading 06-13 exit_by.
-    hold_horizon = date(2026, 5, 26) + timedelta(
+    # the pre-grading 06-13 exit_by. Since F8 the clock counts from the night the Form 4 was public (the
+    # stated 05-28 acceptance), not the 05-26 trade, which stays on the label.
+    hold_horizon = _WELLS_PUBLIC_NIGHT + timedelta(
         days=DEFAULT_CONFIG.insider_core_alpha_liveness_days
     )
     assert card.exit_by == hold_horizon
+    (insider,) = [t for t in card.triggers_fired if t.kind.value == "insider"]
+    assert insider.event_date == _WELLS_PUBLIC_NIGHT and "(traded 2026-05-26)" in insider.label
     assert card.arm_until == date(2026, 6, 11)  # entry window: 06-01 breakout + 10d
     assert card.armed_security_id == security_id  # conviction + confirmation co-located on HIMS
 

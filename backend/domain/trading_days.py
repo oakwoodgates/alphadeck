@@ -7,7 +7,7 @@
 split's session distance, ``replay/harness.trading_sessions`` pages the editions and the backtest, the
 price leg withholds a fresh bar dated a closed day and ``signals/base.window_prices`` and the scoring reads
 (``scoreboard/prices.py``, ``replay/scoring.py``) skip a stored one. NOT read by
-``pipeline/night_coverage.next_edgar_open``: the on-time window ends at EDGAR's open, which follows SEC
+``market_time.next_edgar_open`` (the end of a night, F6, and of its on-time window): EDGAR's open follows SEC
 business days (EDGAR is open on Good Friday), so it stays plain Mon-Fri, holidays included. ``pipeline`` depends on
 ``calls``, never the reverse, so the predicate cannot live in ``pipeline/`` and be read by the assembler
 (``tests/calls/test_layering.py`` pins that). It sits here, beside ``market_time.py``, with one

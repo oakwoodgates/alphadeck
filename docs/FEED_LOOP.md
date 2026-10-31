@@ -111,6 +111,22 @@ ingests insider + price facts — and, for an ETF sleeve member, a fund shares-o
   under each of three mutations of the handoff. Cache files are written atomically (`ingest.write_atomic`),
   so a reader never sees a document a worker is still writing.
 
+### Filings dated by when they appeared on EDGAR — the 8-K, 13D/G and revenue legs (F7, 2026-11)  `[BUILT]`
+
+Rule `2026-11-filings-dated-by-acceptance` (a declared call-logic change, `domain/rule_log.py`). A filing whose
+submission commences after 17:30 ET carries the NEXT business day's `filingDate`, though EDGAR disseminated it
+that evening; the detectors gate `valid_from <= asof`, so before F7 the nightly counted an evening 8-K a night
+late. Now `_form8k_leg` / `_schedule13_leg` store SEC's acceptance (`accepted`) when it is trusted
+(`ingest.edgar.acceptance.resolve_public_acceptance`: the Form 4 test OR the evening-before roll; else the
+filing's CACHED header — never a request, the legs stay zero-fetch; else nothing) and date the row by its
+market-time date — Monday's 22:30 pass counts an 8-K accepted at 18:05 that Monday. `filed` stays SEC's date.
+The fundamentals step does the same for REVENUE rows, reading the acceptance by accession from the CACHED
+submissions index (re-pulled by tonight's thesis ingest just before; `ingest.fundamentals.dated_points`). None of
+the three re-dates a STORED row: an 8-K's acceptance is not in its compare surface, and a stored revenue filing
+keeps its stored dating (`carry_stored_acceptance`) — `python -m pipeline.repair_filing_dates` re-dates stored
+rows (DATA_SOURCES.md §Filings dated by their acceptance). History views read the acceptance as the public
+instant (`db/public_clock.py`); the `valid_from <= asof` gate still guards the day (the F6 trap).
+
 ### The filing-index leg — every form, display only (migration 0070, 2026-10-29)  `[BUILT]`
 
 `ingest_thesis._filing_index_leg` stores each basket company's whole EDGAR filing index in `fact_filing_index`: every
@@ -319,8 +335,8 @@ re-version pass either, the two market-hours bars it froze (SPY 2026-08-25 765.2
 
 *The visibility contract, checked against every reader:* the bar for D, ingested ~22:35 ET on D, is inside
 the night's own call (`known_at = db_now`, later), and every history view of D — the serve-path
-scrub-back and a backfilled night, both on the PUBLIC clock at `known_at_for_asof(D)`, the end of D's MARKET
-day, where a bar's first version counts from its session settle (`d` at `Settings.price_settle_time`) and a
+scrub-back and a backfilled night, both on the PUBLIC clock at `known_at_for_asof(D)`, the end of D's night
+(since F6 the last instant before EDGAR's next open, 06:00 ET on the next weekday), where a bar's first version counts from its session settle (`d` at `Settings.price_settle_time`) and a
 re-version from its own `recorded_at` (`db/public_clock.py`) — and outside every read with `asof < D`
 (`valid_from = D`). The **replay/backtest** read no benchmark bar at all (`ReplayPointInTimeData` has no
 `benchmark_prices` — RS is a display signal), and even the mirror's clocks would not care: a record-clock
@@ -457,7 +473,9 @@ transaction (an onboarding pull carries the original quarter and its later compa
 - **The writer** stamps `recorded_at = db_now()` — the DATABASE clock (the one-clock rule; D1's benchmark
   precedent), read once per batch after the companyfacts pull, so a name's history shares one instant. Not
   injectable. `valid_from = filed` is unchanged: it is this table's PUBLIC clock and what every detector dates
-  by. Existing rows are untouched — no rewrite of history.
+  by (since F7, 2026-11, a revenue row whose SEC acceptance is trusted is dated by the acceptance's market-time
+  date instead — §Filings dated by when they appeared on EDGAR). Existing rows are untouched — no rewrite of
+  history.
 - **The table's UNIQUE moved** (migration 0057) from `(tenant, security, metric_key, period_end, recorded_at)`
   to `(…, period_end, valid_from)`. The old key really meant "one version per FILING" because the stamp was a
   function of the filing; under one honest stamp per batch it would REJECT a history whose period carries
@@ -2214,9 +2232,10 @@ The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
   intersected with the calendar — Edition 1 holds 4 pages dated Labor Day from the OTC carries), and the
   shell sweep's weekly re-enrich (the week's FIRST session, so a
   Monday holiday moves it to Tuesday). One reader deliberately does NOT: the on-time window's end
-  (`night_coverage.next_edgar_open`) stays the next WEEKDAY, holidays included — it is EDGAR's open, and
-  EDGAR keeps SEC business days (it accepts filings on Good Friday), so the weekday rule can only over-flag
-  a row as late. The external heartbeat's own schedule (healthchecks.io, Mon-Fri) is
+  (`domain.market_time.next_edgar_open`, re-exported by `night_coverage`) stays the next WEEKDAY, holidays
+  included — it is EDGAR's open, and EDGAR keeps SEC business days (it accepts filings on Good Friday), so
+  the weekday rule can only over-flag a row as late. Since F6 (2026-10-31) the same line ends every night's
+  HISTORY read (`known_at_for_asof`, below). The external heartbeat's own schedule (healthchecks.io, Mon-Fri) is
   configured outside the repo: on a holiday it expects a ping no pass sends.
 - **A second schedule: the staged cold-ingest job (X1, 2026-10-21)** `[BUILT]`. After the boot block, the
   sidecar starts `onboard_loop` in the BACKGROUND: `timeout -k 60 ONBOARD_TIMEOUT_S python -m
@@ -2664,7 +2683,7 @@ display data flow, not a repair, so it never starts a Scoreboard editions repair
 
 When a night has no call-of-record (`/admin/status` says `gappy`; `schedule.missed_asofs` lists it),
 `python -m pipeline.backfill --asof <night>` reconstructs it: the SAME `call_for_thesis` assembly the cron
-runs, judged on the PUBLIC clock at the end of that night's market day, then `record_if_changed`. `--dry-run`
+runs, judged on the PUBLIC clock at the end of that night (EDGAR's next open, F6), then `record_if_changed`. `--dry-run`
 first.
 
 - **`pipeline.daily --asof <past>` is REFUSED (C3, 2026-10-16).** It used to be only a warning in these
@@ -2681,9 +2700,11 @@ first.
   backfilled as ARMED on four missed nights while the real nightly runs around them recorded INCUBATING).
   The backfill instead reads every fact on the PUBLIC clock (operator decision 2026-10-21, `INVARIANTS.md`
   #4; `db/public_clock.py`): a Form 4 from its SEC acceptance, a bar from its session settle (a vendor
-  correction from its own publication), an 8-K / 13D from its filing date — up to the END of the night's
-  market day (`reconstruction_known_at` = `known_at_for_asof`; EDGAR accepts until 22:00 ET, before the 22:30
-  run). So the row is how TODAY's rules judge what was PUBLIC that night: nothing published later leaks in,
+  correction from its own publication), an 8-K / 13D from its SEC acceptance (F7; else the start of its
+  filing date), a share count from its filing's acceptance (F9; else its ratification) — up to the END of
+  the night (`reconstruction_known_at` = `known_at_for_asof`: since F6 the last instant before 06:00 ET on
+  the next weekday; EDGAR accepts until 22:00 ET, before the 22:30 run, and reopens at 06:00). So the row is
+  how TODAY's rules judge what was PUBLIC that night: nothing published later leaks in,
   and a fact our database ingested late (an outage, a name onboarded afterwards) is not hidden for it. The
   roster and the logged position are operator decisions, read as of the same instant. Two things make a
   recorded neighbor differ honestly: `asof` is a LIVENESS parameter, so a drifted nightly row (a wrong-day
