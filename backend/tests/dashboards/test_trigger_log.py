@@ -56,6 +56,7 @@ from domain.enums import Grade, Kind, State, Verdict
 from domain.market_time import market_today
 from domain.signal import Provenance
 from domain.thesis import BasketMember, Segment, Thesis
+from domain.trading_days import is_scheduled_day
 from repositories import thesis_repo
 
 UTC = timezone.utc
@@ -136,10 +137,11 @@ def d(day: int, month: int = 10) -> date:
 
 
 def weekdays(start: date, end: date) -> list[date]:
-    """Every Monday-to-Friday date in ``[start, end]`` (the tests' sessions)."""
+    """Every session in ``[start, end]`` (the tests' sessions): Mon-Fri minus NYSE closures — a vendor
+    serves no holiday bar, and the point-in-time view skips one (F5)."""
     out, cur = [], start
     while cur <= end:
-        if cur.weekday() < 5:
+        if is_scheduled_day(cur):
             out.append(cur)
         cur += timedelta(days=1)
     return out

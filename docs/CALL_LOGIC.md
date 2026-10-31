@@ -730,14 +730,18 @@ actually ends an arm. Its meaning is unchanged; only its words are. The wire nam
 purpose: `MemberCall` is a strict schema (`extra="forbid"`), so renaming the field would make every
 recorded card unparseable and break the API contract, for no change in behavior.
 
-`entry_window_closing` counts sessions with the cron's Mon-Fri calendar (`domain.trading_days.is_scheduled_day`
-— the one definition `pipeline/schedule.py` also imports; `calls/` never imports `pipeline/`):
-asof Mon with `arm_until` Wed = 2 left (Tue, Wed) → on; the Friday before = 3 → off; Thu with a Monday
-close = 2 (Fri, Mon) → on, though it is four calendar days; a weekend `arm_until` (a calendar-day window
-can end on a Saturday) adds no session, so Friday is the last. **Holidays are not modeled** — that calendar
-fires the cron on market holidays too — so a holiday inside the last few days counts as a session and the
-flag comes on **one session late** (Labor Day 2026: `arm_until` Mon 09-07 read 3 on Wed 09-02, where an
-exchange calendar reads 2). The flag is computed from the card's own `asof` and the member's own
+`entry_window_closing` counts sessions with the ONE session calendar (`domain.trading_days.is_scheduled_day`
+— the one definition `pipeline/schedule.py` also imports and the cron sidecar asks; `calls/` never imports
+`pipeline/`): **Mon-Fri minus the NYSE's full-day closures** (F5, 2026-10-31, rule log
+`2026-11-market-holiday-calendar` — "market holidays are not sessions"; a hand-kept list checked against the
+NYSE's published calendars, 2020-2028, with a test that fails 180 days before it runs out; a half-day close
+IS a session). asof Mon with `arm_until` Wed = 2 left (Tue, Wed) → on; the Friday before = 3 → off; Thu
+with a Monday close = 2 (Fri, Mon) → on, though it is four calendar days; a weekend `arm_until` (a
+calendar-day window can end on a Saturday) adds no session, so Friday is the last. A **market holiday** inside
+the window is not a session either: Labor Day 2026, `arm_until` Mon 09-07, read 2 on Wed 09-02 (Thu, Fri) →
+on. Before F5 the calendar was the cron's plain Mon-Fri, a holiday counted, and that card read 3 → off: the
+flag came on one session late. Moving the calendar flips the recorded flag on nights near a holiday, so F5
+is a declared rule change (it cuts an edition). The flag is computed from the card's own `asof` and the member's own
 `arm_until` — no wall clock, so no lookahead — and only for an **armed** member: a watch member's
 confirmation clock is a decay, not an entry, and a held (Managing) member is past its entry, so neither ever
 carries it (#7). It is **display and timing context only (#4)**: computed after every decision and read by

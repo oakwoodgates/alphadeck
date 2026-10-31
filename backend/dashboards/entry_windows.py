@@ -24,9 +24,9 @@ The rules, in one place:
 - **Sessions** are counted on the IWM bar calendar (``dashboards/series.py::session_calendar``), the arm night
   excluded and the later date included: ``sessions_between(calendar, a, b)`` = the sessions ``d`` with
   ``a < d <= b``. "Into the window" = ``(arm night, as-of]`` on the bars. "Left to ``arm_until``" = the sessions
-  strictly after the as-of through ``arm_until``; no bar exists after the as-of, so those are the Mon-Fri days the
-  call path's own ``sessions_left`` counts (``domain/trading_days.py``: a market holiday is counted as a session,
-  stated on the page). At or past ``arm_until`` the window is closed: ``(arm_until, as-of]`` on the bars.
+  strictly after the as-of through ``arm_until``; no bar exists after the as-of, so those are the sessions the
+  call path's own ``sessions_left`` counts (``domain/trading_days.py``: Mon-Fri minus the NYSE's market holidays,
+  F5, stated on the page). At or past ``arm_until`` the window is closed: ``(arm_until, as-of]`` on the bars.
 - **Since the arm night.** As traded (the view's split scale, no dividends): the first close on or after the arm
   night to the last close on or before the as-of (the Scoreboard's entry rule: the arm night's own close). A row
   shows the median over its priced armed names (with n), IWM and SPY over the same span, and how many names sit above
@@ -173,8 +173,9 @@ def sessions_between(calendar: Sequence[date], a: date, b: date) -> int:
 
 
 def weekdays_between(a: date, b: date) -> int:
-    """The Mon-Fri days ``d`` with ``a < d <= b``: the call path's own session count
-    (``calls.assembler.sessions_left``; a market holiday counts as a session, ``domain/trading_days.py``).
+    """The sessions ``d`` with ``a < d <= b`` on the ONE session calendar (Mon-Fri minus the NYSE's full-day
+    closures, ``domain/trading_days.py``, F5): the call path's own count (``calls.assembler.sessions_left``).
+    The name predates F5, when holidays counted.
     """
     n = 0
     d = a + timedelta(days=1)

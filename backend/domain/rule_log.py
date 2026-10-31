@@ -61,6 +61,16 @@ RULE_LOG: tuple[RuleEntry, ...] = (
             "conviction, because a parent, founder or CEO is not an outside party committing new capital."
         ),
     ),
+    RuleEntry(
+        id="2026-11-market-holiday-calendar",
+        date=date(2026, 10, 31),
+        label="market holidays are not sessions",
+        description=(
+            "The session calendar now skips the NYSE's full-day closures, so the nightly no longer runs or "
+            "pages on a market holiday, entry-window and split session counts no longer count one, and a "
+            "price bar dated a holiday is neither stored nor read."
+        ),
+    ),
 )
 
 

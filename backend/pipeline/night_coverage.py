@@ -18,10 +18,13 @@ Three readers share this module, so each word has ONE definition:
 THE WORDS:
 
 - **The on-time window** (``on_time_window`` / ``is_on_time``, the ONE helper M2 and the late-row policy L1
-  share): ``[RUN_AT on D, 06:00 market time on the next weekday after D)`` — from the scheduled fire to the
+  share): ``[RUN_AT on D, 06:00 market time on the next session after D)`` — from the scheduled fire to the
   next EDGAR open (EDGAR accepts filings from 06:00 ET; anything recorded later can have read a filing the
-  night could not have). A Friday night's window runs to Monday 06:00 (the trigger's Mon-Fri calendar —
-  holidays are not modeled, the ``pipeline/schedule.py`` choice).
+  night could not have). A Friday night's window runs to Monday 06:00, and across a market holiday to the
+  session after it (the one session calendar, ``domain.trading_days.is_scheduled_day``, F5). That calendar
+  is the NYSE's, not EDGAR's: on Good Friday EDGAR accepts filings while the market is closed, so a
+  Thursday-night row recorded on Good Friday daytime reads as on time though it could have read a filing
+  accepted that morning — the window is anchored on the trading calendar the cron fires on, deliberately.
 - **Late** (``is_late`` — L1, operator Q5 = A) = a non-reconstructed row recorded at or after the window's
   END. The SCOREBOARD never lets one define an episode (``scoreboard/late.py``: dropped before the per-as-of
   dedup, so an on-time row for the night wins and a late-only night reads as a cron gap — reversible by
@@ -84,7 +87,8 @@ def night_cutoff(asof: date, run_at: time, tz: tzinfo) -> datetime:
 
 
 def next_edgar_open(asof: date, tz: tzinfo) -> datetime:
-    """06:00 market time on the first scheduled weekday AFTER ``asof`` — the on-time window's end."""
+    """06:00 market time on the first session AFTER ``asof`` (``is_scheduled_day``: a weekend or a market
+    holiday is skipped) — the on-time window's end."""
     d = asof + timedelta(days=1)
     while not is_scheduled_day(d):
         d += timedelta(days=1)

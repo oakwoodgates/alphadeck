@@ -40,6 +40,9 @@ implementation means the invariants can't fork:
   daytime boot catch-up, or a Workbench pull mid-session therefore stores yesterday's close and nothing of
   today; the next settled pass appends today's bar as an ordinary tail bar (withholding never loses one).
   ``BarsResult.withheld`` carries the count so the pass can say so ONCE, quietly.
+- **Session-dated bars only (F5, 2026-10-31)** — right after the settle guard, ``settle.withhold_closed_days``
+  drops a fresh bar dated a day with no session (a weekend, an NYSE full-day closure — the vendor's flat OTC
+  carries on Labor Day 2026). Never stored by any pass; ``BarsResult.closed_day`` carries the count.
 - **The split list (S2, 2026-10-20)** — after the settle guard and BEFORE the tail / overlap split, every fresh
   bar dated before a split IN FORCE (``domain.splits.applicable``: confirmed, or announced once its first
   session has arrived) is put on the store's scale (``split_normalize.normalize``): a vendor still / again
@@ -79,7 +82,7 @@ from ingest.prices.restatement import (
     restated_old,
     trailing_window_start,
 )
-from ingest.prices.settle import withhold_unsettled
+from ingest.prices.settle import withhold_closed_days, withhold_unsettled
 from ingest.prices.source import PriceSource, YahooPriceSource
 from ingest.prices.split_normalize import REASON_HOLE_AS_SERVED, normalize
 from repositories import split_repo
@@ -95,13 +98,16 @@ class BarsResult:
     ``withheld`` = fresh bars NOT stored because their session had not settled (D2 — today's bar on a
     pass before the settle time; written by the next settled pass); ``held`` = older restated bars NOT
     stored because they REVERT to a value the store held before and only one pull has said so (Q11 / T5 —
-    written once a pull on a later market date agrees). Neither is part of ``total``: nothing landed.
+    written once a pull on a later market date agrees); ``closed_day`` = fresh bars NOT stored because they are
+    dated a day with no session (F5 — a weekend or an NYSE full-day closure, e.g. the vendor's flat OTC carries
+    on Labor Day 2026; never written by any pass). None of them is part of ``total``: nothing landed.
     """
 
     appended: int
     reversioned: int
     withheld: int = 0
     held: int = 0
+    closed_day: int = 0
     # S2 — fresh bars put onto the split list's scale before the compare (``split_normalize``), PER REASON
     # (vendor_raw / vendor_doubled / mis_factored / first_night): a vendor flip back to an unadjusted basis it
     # absorbs writes nothing, so these count bars READ differently, not written. Carried into the run artifact
@@ -271,6 +277,9 @@ def ingest_bars_for_security(
     fresh, withheld = withhold_unsettled(
         src.get_bars(price_symbol, allow_live=allow_live, force_refresh=force_refresh), now=now
     )
+    # F5 — a bar dated a day with no session (a weekend, an NYSE closure) is never a close: dropped before
+    # every write path, counted, never stored (``settle.withhold_closed_days``)
+    fresh, closed_day = withhold_closed_days(fresh)
     last = latest_bar_date(conn, sec.id, tenant_id=tenant_id)
     stored = stored_bars(conn, sec.id, tenant_id=tenant_id) if last is not None else {}
 
@@ -323,6 +332,7 @@ def ingest_bars_for_security(
         reversioned,
         withheld,
         held,
+        closed_day=closed_day,
         split_normalized=split_normalized,
         split_first_night=split_first_night,
     )

@@ -30,7 +30,7 @@ WHAT ONE RUN DOES, in order (S7 put step 2b, the automatic cut, between the lock
    cut, or a whole thesis created after it) gets its join date frozen as an ``edition_entry`` (method
    ``snapshot``, exact); a company already in the edition keeps the join date the edition was cut with.
 5. **The missing sessions, per thesis**: every real session (the engine's rule: a date with bars on the
-   thesis's tape — a market holiday has no bars and no page) after the thesis's own newest page, through
+   thesis's tape that is also a session on the calendar — a market holiday has no page, F5) after the thesis's own newest page, through
    ``end``; a thesis with no page yet starts at its first join date, which is never before it existed (a
    join date is never earlier than the thesis's creation). Tonight's page is ``nightly``; an earlier missed
    session is ``catchup``. One run pages at most ``MAX_NIGHTS_PER_RUN`` sessions per thesis, the oldest

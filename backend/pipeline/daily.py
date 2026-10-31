@@ -72,6 +72,7 @@ from domain.feed_kinds import FEED_KINDS, StaleFeedLabel, feed_kind
 from domain.market_time import market_now, market_today, market_tz
 from domain.settings import Settings, get_settings
 from domain.thesis import Thesis
+from domain.trading_days import is_first_session_of_week
 from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
 from ingest.edgar.filing_index import SKIP_REASONS as FILING_INDEX_SKIP_REASONS
 from ingest.edgar.form25 import delisted_class_is_other
@@ -103,6 +104,7 @@ from pipeline.ingest_thesis import (
     OnboardingWindow,
     ingest_thesis,
     print_acceptance_line,
+    print_closed_day_line,
     print_held_lines,
     print_split_lines,
     print_withheld_line,
@@ -1389,10 +1391,12 @@ def _run_daily_pass_locked(
             # D1/D2 — in-window restatements and unsettled (today's in-progress) bars, only when nonzero
             bench_rs = sum(r.bars_restated for r in bench_results)
             bench_wh = sum(r.bars_withheld for r in bench_results)
+            bench_cd = sum(r.bars_closed_day for r in bench_results)  # F5 — no-session dates
             rs = f", {bench_rs} restated" if bench_rs else ""
             wh = f", {bench_wh} unsettled bar(s) withheld" if bench_wh else ""
+            cd = f", {bench_cd} bar(s) dated a day with no session not stored" if bench_cd else ""
             print(
-                f"benchmarks refresh: +{bench_bars} bars{rs}{wh}, {len(bench_results)} benchmarks"
+                f"benchmarks refresh: +{bench_bars} bars{rs}{wh}{cd}, {len(bench_results)} benchmarks"
             )
             for err in bench_errs:  # loud only when nonzero (loudness marks the exception)
                 print(f"  benchmarks refresh ERROR: {err}")
@@ -1725,10 +1729,12 @@ def _run_daily_pass_locked(
     # shells and collects their 8-K/proxy/25 events. The units-U / "Acquisition Corp" pattern only
     # SELECTS which CIKs to fetch; the SEC sicDescription is the sole shell-or-not authority (#3 —
     # the existing spacClass classifier does the flagging). Same discipline as the legs above: own
-    # connection + lazy import + fail-open; a sweep fault never fails the call cron. Mondays add
-    # the de-SPAC re-enrich (reenrich=True re-pulls the current Blank Checks set, least-recently-
-    # enriched first) so a completed merger's SIC flip stops the flag within a week — the gate must
-    # be a WEEKDAY because the cron fires Mon-Fri only (pipeline/schedule.py). Skipped on --no-live
+    # connection + lazy import + fail-open; a sweep fault never fails the call cron. The week's FIRST
+    # session adds the de-SPAC re-enrich (reenrich=True re-pulls the current Blank Checks set, least-
+    # recently-enriched first) so a completed merger's SIC flip stops the flag within a week — the gate
+    # must be a SESSION because the cron fires on sessions only (pipeline/schedule.py), and it is the
+    # first session rather than Monday because a Monday holiday has no pass since F5 (the Tuesday after
+    # it carries the week's re-enrich). Skipped on --no-live
     # (the recording-gate philosophy; `python -m pipeline.spac_sweep --live` is the manual path).
     if allow_live:
         try:
@@ -1737,7 +1743,7 @@ def _run_daily_pass_locked(
             sweep_conn = _pass_connect()
             try:
                 sw = timed("shell_sweep")(run_shell_sweep)(
-                    sweep_conn, allow_live=True, reenrich=(asof.weekday() == 0)
+                    sweep_conn, allow_live=True, reenrich=is_first_session_of_week(asof)
                 )
             finally:
                 sweep_conn.close()
@@ -2043,6 +2049,9 @@ def _report(
             print(line)
     # D2 — names whose in-progress bar was withheld (session not yet settled): ONE quiet line, deduped
     print_withheld_line(x for r in results for x in r.ingested)
+    # F5 — fresh bars dated a day with no session (the vendor's holiday OTC carries), not stored: ONE quiet
+    # line, deduped across theses
+    print_closed_day_line(x for r in results for x in r.ingested)
     # Q11 / T5 — names whose older restated bars were held (a vendor revert awaiting a second pull): one
     # quiet line each, deduped across theses
     print_held_lines(x for r in results for x in r.ingested)

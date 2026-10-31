@@ -4,8 +4,9 @@
 labeled "entry window closing" in the UI — wrong for 69% of arm-window expiries (MEASURED, 2026-10-16
 audit A3). Q14 relabels it "hold clock closing" (meaning unchanged, pinned below) and adds a SEPARATE
 flag on the real entry window, ``arm_until``: on once ``entry_window_closing_sessions`` (2) or fewer
-TRADING sessions remain after the card's asof, counted on the cron's Mon-Fri calendar
-(``domain.trading_days.is_scheduled_day``, which ``pipeline.schedule`` imports — one definition).
+TRADING sessions remain after the card's asof, counted on the ONE session calendar — Mon-Fri minus the
+NYSE's full-day closures since F5 (``domain.trading_days.is_scheduled_day``, which ``pipeline.schedule``
+imports — one definition).
 
 REAL SHAPES. Every event set below is a recorded armed member read off the PROD call-of-record
 (read-only, 2026-10-18): the trigger kinds, grades and fire dates are the card's own, the liveness
@@ -187,26 +188,33 @@ _TSNDF = [
 ]
 
 
-def test_holidays_are_not_modeled_the_flag_comes_on_one_session_late():
-    """The DOCUMENTED edge: ``is_scheduled_day`` is the cron's Mon-Fri calendar and knows no holidays,
-    so Labor Day counts as a session. Wed 09-02 reads 3 (Thu, Fri, Mon-the-holiday) → OFF, where an
-    exchange calendar would read 2 → ON; Thu 09-03 reads 2 → ON. The flag still lands before the
-    last real session (Fri 09-04), one session later than an exchange calendar would put it."""
+def test_a_market_holiday_is_not_a_session_so_the_flag_is_on_time():
+    """F5 (2026-10-31, "market holidays are not sessions"): ``is_scheduled_day`` skips the NYSE's full-day
+    closures, so Labor Day (Mon 09-07, TSNDF's ``arm_until``) is not counted. Wed 09-02 reads 2 (Thu, Fri)
+    → ON, two real sessions before the window ends; Tue 09-01 reads 3 → OFF. Before F5 the calendar counted
+    the holiday: Wed read 3 (Thu, Fri, Mon-the-holiday) → OFF and the flag came on one session late.
+    """
     wed = _member(assemble_call(_thesis("TSNDF"), _TSNDF, date(2026, 9, 2), _CFG), "TSNDF")
     assert wed.arm_until == date(2026, 9, 7) and wed.exit_by == date(2026, 9, 8)  # as recorded
-    assert sessions_left(date(2026, 9, 2), date(2026, 9, 7)) == 3
-    assert wed.entry_window_closing is False
-    thu = _member(assemble_call(_thesis("TSNDF"), _TSNDF, date(2026, 9, 3), _CFG), "TSNDF")
-    assert thu.entry_window_closing is True
+    assert sessions_left(date(2026, 9, 2), date(2026, 9, 7)) == 2
+    assert wed.entry_window_closing is True
+    tue = _member(assemble_call(_thesis("TSNDF"), _TSNDF, date(2026, 9, 1), _CFG), "TSNDF")
+    assert tue.arm_until == date(2026, 9, 7)  # the same window, one session earlier (computed)
+    assert sessions_left(date(2026, 9, 1), date(2026, 9, 7)) == 3
+    assert tue.entry_window_closing is False
 
 
 def test_hold_clock_and_entry_window_are_independent_flags():
-    """TSNDF on 09-02 is the mislabel in one row: the record carried ``lapsing=true`` (the HOLD clock —
-    exit_by 09-08 is 6 days out) while the entry window was NOT yet in its last two sessions. Under the
-    old label the UI said "entry window closing" for the wrong clock; now each flag names its own.
+    """TSNDF is the mislabel in one row: the record carried ``lapsing=true`` on 09-02 (the HOLD clock —
+    exit_by 09-08 is 6 days out). Under the old label the UI said "entry window closing" for the wrong
+    clock; now each flag names its own. Since F5 (Labor Day is not a session) its entry window IS in its
+    last two sessions on 09-02, so the independence is shown a session earlier: on Tue 09-01 (computed from
+    the same recorded event set) the hold clock is closing while the entry window has 3 sessions left.
     """
-    m = _member(assemble_call(_thesis("TSNDF"), _TSNDF, date(2026, 9, 2), _CFG), "TSNDF")
-    assert m.lapsing is True  # as recorded
+    rec = _member(assemble_call(_thesis("TSNDF"), _TSNDF, date(2026, 9, 2), _CFG), "TSNDF")
+    assert rec.lapsing is True  # as recorded
+    m = _member(assemble_call(_thesis("TSNDF"), _TSNDF, date(2026, 9, 1), _CFG), "TSNDF")
+    assert m.lapsing is True
     assert m.entry_window_closing is False
     mtus = _member(assemble_call(_thesis("MTUS"), _MTUS, date(2026, 10, 13), _CFG), "MTUS")
     assert mtus.lapsing is False and mtus.entry_window_closing is True  # the converse

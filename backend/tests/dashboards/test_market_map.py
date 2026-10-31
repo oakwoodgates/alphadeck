@@ -47,6 +47,7 @@ from domain.splits import ListedSplit
 from domain.thesis import BENCH_LABEL, CONTEXT_LABEL, BasketMember, Segment, Thesis
 from repositories import thesis_repo
 from signals.display import trailing_returns
+from tests.session_days import bar_days
 
 ASOF = date(2026, 6, 1)
 T1, T2 = uuid.uuid4(), uuid.uuid4()
@@ -831,9 +832,9 @@ def test_a_bar_a_cover_count_and_a_card_published_after_a_past_asof_stay_invisib
     ctx = _security(db, "CTXN", "Context Co", cik="0000222222")
     later_co = _security(db, "LATE", "Late Co", cik="0000333333")
 
-    start = asof - timedelta(days=364)  # 2025-06-02 .. 2026-06-01 inclusive
-    for i in range(365):
-        d = start + timedelta(days=i)
+    # 365 bars ending 2026-06-01: calendar days, minus the NYSE closures (no vendor bar on one, F5)
+    ds = bar_days(asof, 365)
+    for i, d in enumerate(ds):
         _price(db, mma, d, 10.0 + i * 0.05)
         _price(db, ctx, d, 5.0)
         _price(db, spy, d, 400.0 + i)
@@ -881,7 +882,7 @@ def test_a_bar_a_cover_count_and_a_card_published_after_a_past_asof_stay_invisib
     last_close = 10.0 + 364 * 0.05  # the as-of's own bar; the $90 bar is a day later
     assert a["priced"] and a["name"] == "Alpha Co"
     assert a["returns"]["ret_1d"] == round((last_close / (last_close - 0.05) - 1) * 100, 2)
-    base = 10.0 + (date(2025, 12, 31) - start).days * 0.05  # the Dec 31 2025 close
+    base = 10.0 + ds.index(date(2025, 12, 31)) * 0.05  # the Dec 31 2025 close
     assert a["returns"]["ytd"] == round((last_close / base - 1) * 100, 2)
     year_ago = (
         10.0 + (364 - 252) * 0.05

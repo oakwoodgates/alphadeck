@@ -30,6 +30,9 @@ Both callers share the rest:
   first, so today's in-progress bar is never stored as a close before ``Settings.price_settle_time``
   (MEASURED: a market-hours pass froze SPY 2026-08-25 at 765.27 against a final 765.91, and the same for
   08-27 and for IWM, each as the only version ever held). A withheld bar is appended by the next pass.
+- **Session-dated bars only (F5)** — then ``settle.withhold_closed_days``: a bar dated a weekend or an NYSE
+  full-day closure is never stored (counted in ``bars_closed_day``) — the thesis leg's twin, so both price
+  writers keep one rule.
 - **Incremental** — bars newer than the latest stored one append; a re-run appends ZERO
   (count-the-table safe).
 - **The restatement re-version, inside a trailing WINDOW** — the thesis path's compare
@@ -63,7 +66,7 @@ from db.write_lock import CompanyLockBusy, acquire_company_lock
 from domain.settings import get_settings
 from ingest.prices.eod_loader import ingest_prices, stored_bars
 from ingest.prices.ingest_security import _restated
-from ingest.prices.settle import withhold_unsettled
+from ingest.prices.settle import withhold_closed_days, withhold_unsettled
 from ingest.prices.source import PriceSource, YahooPriceSource
 from securities.benchmarks import seed_benchmarks
 
@@ -79,7 +82,8 @@ class BenchmarkResult:
     ``bars_appended`` = FIRST versions stored (the incremental tail, plus any date the vendor filled
     inside the restatement window); ``bars_restated`` = NEW versions of stored bars the vendor revised
     inside the window; ``bars_withheld`` = fresh bars not stored because their session had not settled
-    (D2 — appended by the next pass)."""
+    (D2 — appended by the next pass); ``bars_closed_day`` = fresh bars not stored because they are dated a
+    day with no session (F5 — never stored)."""
 
     ticker: str
     security_id: UUID
@@ -87,6 +91,7 @@ class BenchmarkResult:
     error: str | None = None
     bars_restated: int = 0
     bars_withheld: int = 0
+    bars_closed_day: int = 0
 
 
 @dataclass(frozen=True)
@@ -95,7 +100,8 @@ class BenchmarkPlan:
 
     ``tail`` = settled bars newer than the latest stored; ``holes`` = settled in-window dates with no
     stored bar; ``restated`` = in-window stored bars the vendor now reports differently (the new values);
-    ``withheld`` = unsettled bars dropped (D2); ``window`` = the session dates compared (ascending).
+    ``withheld`` = unsettled bars dropped (D2); ``closed_day`` = bars dated a day with no session dropped
+    (F5); ``window`` = the session dates compared (ascending).
     """
 
     tail: list[dict] = field(default_factory=list)
@@ -103,6 +109,7 @@ class BenchmarkPlan:
     restated: list[dict] = field(default_factory=list)
     withheld: int = 0
     window: list[date] = field(default_factory=list)
+    closed_day: int = 0
 
 
 def plan_benchmark_bars(
@@ -120,17 +127,23 @@ def plan_benchmark_bars(
     ``window_sessions <= 0`` disables the compare (tail only). A date that is both new and in the window is
     TAIL (the window adds only the compare + the in-window holes)."""
     settled, withheld = withhold_unsettled(fresh, now=now)
+    settled, closed_day = withhold_closed_days(settled)
     last = max(stored) if stored else None
     tail = [r for r in settled if last is None or r["d"] > last]
     if window_sessions <= 0 or last is None:
-        return BenchmarkPlan(tail=tail, withheld=withheld)
+        return BenchmarkPlan(tail=tail, withheld=withheld, closed_day=closed_day)
     window = sorted({r["d"] for r in settled})[-window_sessions:]
     start = window[0] if window else None
     inside = [r for r in settled if start is not None and start <= r["d"] <= last]
     holes = [r for r in inside if r["d"] not in stored]
     restated = [r for r in inside if r["d"] in stored and _restated(r, stored[r["d"]])]
     return BenchmarkPlan(
-        tail=tail, holes=holes, restated=restated, withheld=withheld, window=window
+        tail=tail,
+        holes=holes,
+        restated=restated,
+        withheld=withheld,
+        window=window,
+        closed_day=closed_day,
     )
 
 
@@ -201,6 +214,7 @@ def ingest_benchmarks(
                     appended,
                     bars_restated=restated,
                     bars_withheld=plan.withheld,
+                    bars_closed_day=plan.closed_day,
                 )
             )
         except Exception as e:  # noqa: BLE001 — fail-visible: capture, roll back, keep going
@@ -219,7 +233,12 @@ def _report(results: list[BenchmarkResult]) -> int:
         tail = f"   ERROR: {r.error}" if r.error else ""
         rs = f", {r.bars_restated} RESTATED (vendor revised)" if r.bars_restated else ""
         wh = f", {r.bars_withheld} unsettled bar(s) withheld" if r.bars_withheld else ""
-        print(f"  {r.ticker}: +{r.bars_appended} bars (recorded now){rs}{wh}{tail}")
+        cd = (
+            f", {r.bars_closed_day} bar(s) dated a day with no session not stored"
+            if r.bars_closed_day
+            else ""
+        )
+        print(f"  {r.ticker}: +{r.bars_appended} bars (recorded now){rs}{wh}{cd}{tail}")
     total = sum(r.bars_appended for r in results)
     print(f"done: {len(results)} benchmarks, +{total} price bars, {len(errored)} errored")
     return len(errored)
