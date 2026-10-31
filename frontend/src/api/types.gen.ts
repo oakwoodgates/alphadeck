@@ -949,8 +949,9 @@ export interface paths {
          *     instrument, not a claim, until n accrues.
          *
          *     On Edition 0 three kinds of recorded row are set aside before scoring: reconstructed rows
-         *     (always), rows annotated as phantom arms (by the annotated-night policy, which
-         *     ``include_annotated`` overrides per request), and rows recorded after their night's next EDGAR
+         *     (always), rows annotated ``exclude`` (phantom arms, and rows dated a day with no market session;
+         *     by the annotated-night policy, which ``include_annotated`` overrides per request), and rows
+         *     recorded after their night's next EDGAR
          *     open (by the late-night policy, which ``include_late`` overrides per request). Every reading is
          *     available; nothing is deleted. An edition has none of those rows: its lists come back empty and
          *     both policies read ``n/a``.
@@ -5555,11 +5556,12 @@ export interface components {
         };
         /**
          * AnnotatedNightOut
-         * @description One phantom-arm night (D3b): a (thesis, as-of) whose recorded row carries an ACTIVE ``exclude``
-         *     annotation — under the default reading it is set aside like a reconstructed night; under the
-         *     ``include_annotated`` reading it is scored. ``reasons`` are the annotation tokens (e.g.
-         *     ``stale_comparative_revenue``), ``rules`` the code identities that judged it
-         *     (``d3a-first-knowability@<sha>``), ``n_rows`` the annotated rows on the night.
+         * @description One annotated night (D3b, F10): a (thesis, as-of) whose recorded row carries an ACTIVE ``exclude``
+         *     annotation — a phantom arm, or a row dated a day with no market session — under the default reading it
+         *     is set aside like a reconstructed night; under the ``include_annotated`` reading it is scored.
+         *     ``reasons`` are the annotation tokens (e.g. ``stale_comparative_revenue``, ``no_session_day``), ``rules``
+         *     the code identities that judged it (``d3a-first-knowability@<sha>``, ``no-session-night@<sha>``),
+         *     ``n_rows`` the annotated rows on the night.
          */
         AnnotatedNightOut: {
             /**
@@ -18586,7 +18588,7 @@ export interface operations {
                 asof: string;
                 /** @description archived theses ride the record by default (archiving stops accrual, never erases the record); false is the explicit, reversible filter */
                 include_archived?: boolean;
-                /** @description the annotated-night reading: true = score rows annotated `exclude` (phantom arms) as before; false = set them aside like reconstructed rows; omitted = the server setting (ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED, default: set aside). The response's summary.annotated_policy names the reading used */
+                /** @description the annotated-night reading: true = score rows annotated `exclude` (phantom arms, and rows dated a day with no market session) as before; false = set them aside like reconstructed rows; omitted = the server setting (ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED, default: set aside). One reading covers every `exclude` whatever its rule. The response's summary.annotated_policy names the reading used */
                 include_annotated?: boolean | null;
                 /** @description the late-night reading: true = score rows recorded after their night's next EDGAR open (06:00 ET the next weekday) as before; false = set them aside, so an on-time row for the night wins and a late-only night reads like a cron gap; omitted = the server setting (ALPHADECK_SCOREBOARD_EXCLUDE_LATE, default: set aside). The response's summary.late_policy names the reading used */
                 include_late?: boolean | null;
@@ -21005,7 +21007,7 @@ export interface operations {
                 asof: string;
                 /** @description which Scoreboard EDITION to read: 0 (the default) = the original record (the calls log); N >= 1 = the stored re-run Edition N (404 if it does not exist). Unlike the Scoreboard, a request that names no edition reads the record, not the newest published edition, while the editions nightly is paused; the response's `newest_edition` names the newest published one */
                 edition?: number;
-                /** @description the Scoreboard's annotated-night reading: true = keep rows annotated `exclude` (phantom arms); false = set them aside; omitted = the server setting. The response names the reading used */
+                /** @description the Scoreboard's annotated-night reading: true = keep rows annotated `exclude` (phantom arms, and rows dated a day with no market session); false = set them aside; omitted = the server setting. The response names the reading used */
                 include_annotated?: boolean | null;
                 /** @description the Scoreboard's late-night reading: true = keep rows recorded after their night's next EDGAR open; false = set them aside; omitted = the server setting. The response names the reading used */
                 include_late?: boolean | null;

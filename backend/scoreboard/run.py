@@ -73,9 +73,9 @@ def render(result: ScoreboardResult, tickers: dict[UUID, str]) -> str:
         f"theses {result.n_theses} (with record {result.n_with_record}) · "
         f"episodes {result.n_episodes} (open {result.n_open}, matured {result.n_matured}, "
         f"censored {result.n_censored}, ingest-flagged {result.n_ingest_flagged})",
-        "reading: phantom-arm (annotated) nights "
+        "reading: annotated nights (phantom arms, no-session days) "
         + ("SET ASIDE" if result.exclude_annotated else "INCLUDED")
-        + " — D3b; --include-annotated flips it",
+        + " — D3b/F10; --include-annotated flips it",
     ]
     for t in result.theses:
         lines.append("")
@@ -114,8 +114,9 @@ def main() -> None:
     p.add_argument(
         "--include-annotated",
         action="store_true",
-        help="score rows annotated as phantom arms (D3b); the default reading follows "
-        "ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED (default: set them aside)",
+        help="score rows annotated `exclude` (phantom arms (D3b), rows dated a day with no market "
+        "session (F10)); the default reading follows ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED "
+        "(default: set them aside)",
     )
     p.add_argument(
         "--include-late",

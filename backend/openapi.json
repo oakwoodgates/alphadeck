@@ -1801,7 +1801,7 @@
           "scoreboard"
         ],
         "summary": "Get Scoreboard",
-        "description": "The Scoreboard (SCORE): one EDITION scored as-of ``asof`` \u2014 a READ-ONLY pass over the\nimmutable calls log (or a stored edition's frozen pages), the operator-decision log, and realized\nasof-capped prices. Edition 0 is the call-of-record: the RECORD is the scoring source, never a\nrecompute (this holds the platform to what it actually said). Edition N >= 1 is a stored re-run of\ntoday's rules from each company's join date on the public clock, scored on read the same way. A\nrequest that names no edition reads the NEWEST published one (Edition 0 when nothing is published).\nAggregate metrics judge only matured, non-censored episodes and gate below ``min_n`` \u2014 an\ninstrument, not a claim, until n accrues.\n\nOn Edition 0 three kinds of recorded row are set aside before scoring: reconstructed rows\n(always), rows annotated as phantom arms (by the annotated-night policy, which\n``include_annotated`` overrides per request), and rows recorded after their night's next EDGAR\nopen (by the late-night policy, which ``include_late`` overrides per request). Every reading is\navailable; nothing is deleted. An edition has none of those rows: its lists come back empty and\nboth policies read ``n/a``.",
+        "description": "The Scoreboard (SCORE): one EDITION scored as-of ``asof`` \u2014 a READ-ONLY pass over the\nimmutable calls log (or a stored edition's frozen pages), the operator-decision log, and realized\nasof-capped prices. Edition 0 is the call-of-record: the RECORD is the scoring source, never a\nrecompute (this holds the platform to what it actually said). Edition N >= 1 is a stored re-run of\ntoday's rules from each company's join date on the public clock, scored on read the same way. A\nrequest that names no edition reads the NEWEST published one (Edition 0 when nothing is published).\nAggregate metrics judge only matured, non-censored episodes and gate below ``min_n`` \u2014 an\ninstrument, not a claim, until n accrues.\n\nOn Edition 0 three kinds of recorded row are set aside before scoring: reconstructed rows\n(always), rows annotated ``exclude`` (phantom arms, and rows dated a day with no market session;\nby the annotated-night policy, which ``include_annotated`` overrides per request), and rows\nrecorded after their night's next EDGAR\nopen (by the late-night policy, which ``include_late`` overrides per request). Every reading is\navailable; nothing is deleted. An edition has none of those rows: its lists come back empty and\nboth policies read ``n/a``.",
         "operationId": "get_scoreboard_scoreboard_get",
         "parameters": [
           {
@@ -1841,10 +1841,10 @@
                   "type": "null"
                 }
               ],
-              "description": "the annotated-night reading: true = score rows annotated `exclude` (phantom arms) as before; false = set them aside like reconstructed rows; omitted = the server setting (ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED, default: set aside). The response's summary.annotated_policy names the reading used",
+              "description": "the annotated-night reading: true = score rows annotated `exclude` (phantom arms, and rows dated a day with no market session) as before; false = set them aside like reconstructed rows; omitted = the server setting (ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED, default: set aside). One reading covers every `exclude` whatever its rule. The response's summary.annotated_policy names the reading used",
               "title": "Include Annotated"
             },
-            "description": "the annotated-night reading: true = score rows annotated `exclude` (phantom arms) as before; false = set them aside like reconstructed rows; omitted = the server setting (ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED, default: set aside). The response's summary.annotated_policy names the reading used"
+            "description": "the annotated-night reading: true = score rows annotated `exclude` (phantom arms, and rows dated a day with no market session) as before; false = set them aside like reconstructed rows; omitted = the server setting (ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED, default: set aside). One reading covers every `exclude` whatever its rule. The response's summary.annotated_policy names the reading used"
           },
           {
             "name": "include_late",
@@ -5868,10 +5868,10 @@
                   "type": "null"
                 }
               ],
-              "description": "the Scoreboard's annotated-night reading: true = keep rows annotated `exclude` (phantom arms); false = set them aside; omitted = the server setting. The response names the reading used",
+              "description": "the Scoreboard's annotated-night reading: true = keep rows annotated `exclude` (phantom arms, and rows dated a day with no market session); false = set them aside; omitted = the server setting. The response names the reading used",
               "title": "Include Annotated"
             },
-            "description": "the Scoreboard's annotated-night reading: true = keep rows annotated `exclude` (phantom arms); false = set them aside; omitted = the server setting. The response names the reading used"
+            "description": "the Scoreboard's annotated-night reading: true = keep rows annotated `exclude` (phantom arms, and rows dated a day with no market session); false = set them aside; omitted = the server setting. The response names the reading used"
           },
           {
             "name": "include_late",
@@ -11413,7 +11413,7 @@
           "asof"
         ],
         "title": "AnnotatedNightOut",
-        "description": "One phantom-arm night (D3b): a (thesis, as-of) whose recorded row carries an ACTIVE ``exclude``\nannotation \u2014 under the default reading it is set aside like a reconstructed night; under the\n``include_annotated`` reading it is scored. ``reasons`` are the annotation tokens (e.g.\n``stale_comparative_revenue``), ``rules`` the code identities that judged it\n(``d3a-first-knowability@<sha>``), ``n_rows`` the annotated rows on the night."
+        "description": "One annotated night (D3b, F10): a (thesis, as-of) whose recorded row carries an ACTIVE ``exclude``\nannotation \u2014 a phantom arm, or a row dated a day with no market session \u2014 under the default reading it\nis set aside like a reconstructed night; under the ``include_annotated`` reading it is scored.\n``reasons`` are the annotation tokens (e.g. ``stale_comparative_revenue``, ``no_session_day``), ``rules``\nthe code identities that judged it (``d3a-first-knowability@<sha>``, ``no-session-night@<sha>``),\n``n_rows`` the annotated rows on the night."
       },
       "Authorship": {
         "type": "string",

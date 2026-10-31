@@ -208,7 +208,7 @@ export function EpisodeScorecard({
 
       {/* The annotation caption (D3b) — QUIET, and rendered only when an annotation actually touches this
           run: a `note` (the arm stands and is scored; the D3a rule changed its composition that night) or
-          a phantom-arm night scored only because this view includes annotated nights. Server-composed,
+          a night (a phantom arm, or one dated a day with no session) scored only because this view includes annotated nights. Server-composed,
           rendered verbatim (the run-identity precedent); a clean episode carries no line at all. */}
       {ep.annotation_note && <div className="sc-annot">{ep.annotation_note}</div>}
 

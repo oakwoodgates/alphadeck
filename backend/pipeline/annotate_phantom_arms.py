@@ -108,7 +108,7 @@ from signals.registry import Detector
 
 _log = logging.getLogger("alphadeck.annotate_phantom_arms")
 
-RULE_FAMILY = "d3a-first-knowability"
+RULE_FAMILY = call_annotations_repo.RULE_FAMILY_D3A  # named once, in the repo
 REASON = "stale_comparative_revenue"
 REVOKE_RULE_FAMILY = "operator-revoke"
 

@@ -429,7 +429,8 @@ def track_record(
     include_annotated: bool | None = Query(
         None,
         description="the Scoreboard's annotated-night reading: true = keep rows annotated `exclude` (phantom "
-        "arms); false = set them aside; omitted = the server setting. The response names the reading used",
+        "arms, and rows dated a day with no market session); false = set them aside; omitted = the server "
+        "setting. The response names the reading used",
     ),
     include_late: bool | None = Query(
         None,

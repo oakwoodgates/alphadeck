@@ -154,6 +154,7 @@ alphadeck/
     │   ├── backup.py · backup_job.py   #   the pg_dump snapshots (unlabeled keep-N; labeled 90 days or the newest 20, Q16) + the admin "create snapshot" job (#215)
     │   ├── ingest_skips.py             #   Q18: the cross-pass diff of skipped filings (known = a count, new = loud), the O1 twin
     │   ├── annotate_phantom_arms.py    #   D3b CLI: re-assemble each honest row D3a-off vs D3a-on at its own known_at; annotate phantom arms (exclude) / composition changes (note), dry-run default
+    │   ├── annotate_no_session_rows.py #   F10 CLI: annotate (exclude) honest call rows dated a day with no market session (`not is_scheduled_day`); dry-run default, reversible
     │   ├── backfill_fund_shares.py     #   CLI: backfill historical ETF fund-shares from Massive.com over a range (#237)
     │   ├── populate_master.py      #   the company-list refresh CLI (SEC universe -> master; dry-run default, weekly)
     │   ├── enrich_identity.py      #   re-enrich master identity from EDGAR submissions (--thesis/--baskets/--universe; the standing backfill for submissions-sourced fields)

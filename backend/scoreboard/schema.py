@@ -241,7 +241,8 @@ class ReplaySnapshot(BaseModel):
 
 class AnnotatedNight(BaseModel):
     """One (thesis, as-of) carrying at least one ACTIVE ``exclude`` annotation (D3b, migration 0045) — a
-    phantom-arm night under a named rule. The banner's unit, listed whichever reading the response is
+    phantom-arm night (D3b) or a night dated a day with no market session (F10), by the ``rules`` that judged
+    it. The banner's unit, listed whichever reading the response is
     (``ScoreboardSummary.annotated_policy`` says whether these were dropped or scored)."""
 
     thesis_id: UUID
@@ -264,7 +265,7 @@ class LateNight(BaseModel):
     the latest EARLIER non-late, non-reconstructed row (usually the honest on-time row the late one
     superseded — e.g. AI Memory & Storage's 22:42 row under its 10-13 17:04 re-version), or ``None`` when
     there is none and the night reads like a cron gap (the record last spoke on the prior honest row). It is
-    the LATE judgment's own answer: it does not apply the annotated filter (a phantom-arm row there is set
+    the LATE judgment's own answer: it does not apply the annotated filter (an annotated row there is set
     aside by that policy and named in ``annotated_nights``)."""
 
     thesis_id: UUID
@@ -301,7 +302,7 @@ class ScoreboardSummary(BaseModel):
     # in place a reconstructed row produces no ledger row). Empty = every night has an honest row.
     reconstructed_nights: list[date] = []
     # D3b — the annotated-night READ POLICY this summary was computed under, and the nights it concerns.
-    # "excluded" = rows carrying an active `exclude` annotation (phantom arms) were dropped before the
+    # "excluded" = rows carrying an active `exclude` annotation (phantom arms, no-session nights) were dropped before the
     # per-as-of dedup, like reconstructed rows; "included" = they were scored, exactly as before D3b. The
     # list is the same in both readings (as-ofs <= asof, ledger-wide), so the banner can name the nights
     # either way and an externally quoted number can say which reading produced it.
