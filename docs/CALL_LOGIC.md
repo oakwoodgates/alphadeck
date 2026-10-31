@@ -757,6 +757,17 @@ window) and every detector that calls it, risk signals included. The arm lapses 
 - It composes unchanged with the session calendar (F5: a holiday is not a session, so it can never be the
   "next session") and with a future change of liveness to sessions (F4).
 
+**A bar-driven window in sessions (F4 — DORMANT, operator decision 2026-10-30).** Each bar-driven family
+(the 8-day volume breakout, whose window the flip breakdown also reads; the 52-week breakout; the laggard)
+carries a unit dial, `<family>_alpha_liveness_unit` (`"calendar"`, today) or `"sessions"`, and a count,
+`<family>_alpha_liveness_sessions`. Under `"sessions"` the window end is the Nth session after the fire date
+on the one calendar, so every fire gives N sessions to act in whatever weekday it fired on; F3's rule above
+then applies unchanged. Insider, 13D, 8-K and catalyst windows stay calendar days. The end is computed in one
+place (`signals/common.window_end`); a session window reaches the event as its calendar span, so `_clock`,
+`entry_signal_is_live` and `sessions_left` read the same end with no unit and no per-kind branch. Every
+default is today's, byte for byte; a count is adopted only from the pre-registered sweep
+(`docs/RECALIBRATION.md` §A, "F4"), with the operator's sign-off and a rule-log entry.
+
 **The two clock FLAGS on an armed member (Q14, 2026-10-18).** Each clock has its own flag on
 `MemberCall`, and each is labeled for the clock it reads — they used to share one label, and it was the
 wrong one:

@@ -75,6 +75,10 @@
 | `breakout_return_days` / `min_return` | 10 / 0.08 | momentum thrust | |
 | `breakout_volume_mult` | 1.5 | vol ≥ mult × base avg → CORE (volume-backed) confirmation | below → flip (momentum-only) |
 | `breakout_alpha_liveness_days` | 10 | the entry window (`arm_until`) | |
+| **F4 — bar-driven windows in market sessions (DORMANT, operator decision 2026-10-30; the H1/H3 precedent: land at today's value, measure on the lab, flip only on a pre-registered pass + operator sign-off).** One unit + count pair per bar-driven family; insider, 13D, 8-K and catalyst windows stay calendar days. The defaults reproduce today byte for byte (`tests/signals/test_session_windows.py`, `tests/domain/test_bar_window_dials.py`). Adding them moved `config_hash` with no call change and no re-record churn, as with the H1/H3 dials. | | | |
+| `breakout_alpha_liveness_unit` / `breakout_alpha_liveness_sessions` | `calendar` / unset | **DORMANT (F4)**: the 8-day breakout's window in calendar days or in N sessions, and the FLIP BREAKDOWN's (it searches the same breakouts, so it has no pair of its own) | 10 calendar days gives 6–8 sessions by fire weekday (MEASURED 2025-09-01..2026-09-14: mostly 8 from a Monday fire, 6 from a Friday one). Count bounded 1–60 (60 keeps the window inside the 120-day pull with its 10 base bars on the worst night of the calendar). The two halves are refused one without the other |
+| `breakout_52w_alpha_liveness_unit` / `_sessions` | `calendar` / unset | **DORMANT (F4)**: the 52-week breakout's window | 45 calendar days gives 28–33 sessions (MEASURED, same span). Count bounded 1–45 (fits the 430-day pull with the 245 prior bars the 52-week check needs) |
+| `laggard_alpha_liveness_unit` / `_sessions` | `calendar` / unset | **DORMANT (F4)**: the laggard's window, from the leader's breakout date | 15 calendar days gives 8–11 sessions (MEASURED, same span). Count bounded 1–60 (a sanity cap: the laggard scans no window of its own) |
 | **Setup strength (wire/config names retain `confidence`; caps compose `min-of`):** | | | |
 | `single_detector_cap` | 0.80 | a one-detector call never reads "high" | |
 | `starter_confidence_cap` | 0.55 | **any** starter (weak entry key) caps here — incl. a theme-armed member | the inverse-loudness ceiling |
@@ -89,6 +93,72 @@
 | `catalyst_pip_multi_count` / `catalyst_pip_dense_count` | 2 / 3 | live-catalyst count → 3 / 4 pips | + the core/flip grade: 1 live core = 2 pips, 1 flip = 1; 0 live = 0 (a real reading, not "—") |
 | `dilution_pip_pct` (+ `dilution_overhang_severe_pct` as the 4-pip bar) | (2, 8, 15) + 25 | raw convert-overhang % → 1/2/3/4 pips | PRESSURE polarity; "—" when no convert fact (no fake zeros); the shared `dilution_clock.overhang_pct`, never backed out of severity |
 | `cash_runway_basis` | "cash + equivalents + all marketable securities (current and noncurrent)" | the runway numerator rule | a RATIFY-TIME convention (documented), NOT scorer-enforced — the scorer trusts `cash_usd` as ratified |
+
+### F4 — the pre-registered pass for the session-window dials (REGISTERED 2026-10-31, NOT RUN)
+
+The operator ruled (2026-10-30) that the numbers come from re-running the pre-registered backtest, not from
+averaging the sessions a calendar window gives today. One curve per family, each point a house-format
+overlay (`backend/backtest/overlays/`, read by `backtest.sweep --overlay-ladder`), point 0 the calendar
+baseline (the production config, shared by all three curves and measured once per window):
+
+| family | file | session points | today's calendar window gives |
+|---|---|---|---|
+| 8-day volume breakout (+ flip breakdown) | `f4-breakout-sessions.json` | 5, 6, 7, 8, 9, 10 | 6–8 sessions |
+| 52-week breakout | `f4-breakout-52w-sessions.json` | 28, 30, 32, 34, 36 | 28–33 sessions |
+| laggard | `f4-laggard-sessions.json` | 8, 9, 10, 11, 12, 13 | 8–11 sessions |
+
+Each ladder runs from the fewest sessions today's window gives to two or three past the most (the 52-week
+ladder steps by 2). 18 distinct configs × 9 windows = 162 window runs.
+
+- **Hypothesis:** counting bar-driven windows in sessions removes the fire-weekday dependence without hurting
+  the timing excess.
+- **Decision rule:** adopt a session count only on a plateau with STRICT sign agreement in 2+ disjoint windows
+  against the calendar baseline; else keep calendar days.
+
+```bash
+# from backend\ of the MAIN checkout (one venv for the whole pass), against DEV — never prod's 5544
+export DATABASE_URL="postgresql://alphadeck:alphadeck@localhost:5545/alphadeck_dev"
+export ALPHADECK_IMAGE_SHA="$(git rev-parse HEAD)" PYTHONPATH="$(pwd)"
+./.venv/Scripts/python.exe -u -m backtest.sweep \
+  --start 2025-09-01 --end 2026-09-14 \
+  --pin 2026-10-31T00:00:00+00:00 --clock public \
+  --overlay-ladder backtest/overlays/f4-breakout-sessions.json \
+  --overlay-ladder backtest/overlays/f4-breakout-52w-sessions.json \
+  --overlay-ladder backtest/overlays/f4-laggard-sessions.json \
+  --plateau-rule strict_sign_agreement \
+  --workers 3 --concurrency 2 --null-draws 20 \
+  --out-root "C:/Users/funky/sites/oakwoodgates/alphadeck/data/backtest" \
+  --hypothesis "counting bar-driven windows in sessions removes the fire-weekday dependence without hurting the timing excess" \
+  --decision-rule "adopt a session count only on a plateau with STRICT sign agreement in 2+ disjoint windows against the calendar baseline; else keep calendar days"
+```
+
+**How to read it (registered beside the text, before launch):**
+
+- The span and tiling are every earlier pass's (nine 42-day windows, 2025-09-01 → 2026-09-14), on a FRESH
+  public-clock mirror: the old ones predate F6–F9's clock changes and must not be reused across that line.
+- `strict_sign_agreement` is the house rule: every window strictly the same non-zero direction, none
+  unchanged. On these pooled curves every window holds episodes, so it is stricter than "2+ windows" and the
+  same as `strict_measurable_agreement`.
+- The curve's metric is the pooled median arm-timing forward return. "Without hurting the timing excess" is
+  read per point from each run's `pooled.json` (the timing null), beside the curve.
+- The weekday half of the hypothesis holds BY CONSTRUCTION (`tests/signals/test_session_windows.py`: a
+  session window gives N sessions from any weekday). The pass measures the cost half.
+- The 52-week and laggard families are small slices of the pool, and the sweep has no confirmation-kind slice
+  (`SLICE_KEYS`). A flat pooled curve for them is the pool's arithmetic, not evidence that the unit is inert.
+  The breakout curve also moves the flip de-arm, by design.
+- Adopting a count is a rule change: the operator's sign-off, the dial flipped in `domain/config.py`, and an
+  entry in `domain/rule_log.py` in the same PR.
+- **Rosters.** On dev's 2026-10-31 copy the probe below replayed 62 theses, all on TODAY's basket (no roster
+  snapshot reaches back that far — the run labels it a counterfactual). This pass is therefore not comparable
+  run for run with the 12-thesis passes of September.
+
+**Cost (2026-10-31, dev, this box: 6 cores / 12 threads).** MEASURED, one point (breakout 7 sessions) over ONE
+window (2026-08-03 → 2026-09-14), `--workers 3`, K=20, into a scratch store (not a registered trial; its
+outcomes are not reported and carry no weight): start to first run 2 m 10 s (the export), the window job 10 m 43 s (its timings
+sum: `replay_s` 614.5, `nulls_s` 22.0, the rest 6.9), total 12 m 55 s. PROPOSED, arithmetic: nine windows ≈ 96.6 min of job time, and two earlier passes measured a
+1.85–1.98× gain from `--concurrency 2` (their manifests), so ONE point ≈ 51–54 min and the whole pass (162
+window jobs) ≈ 14.6–15.7 h plus one export. One point over all windows was NOT run, because the projection
+is over the 45-minute ceiling the task set.
 
 ## B. Filed structural refinements (small changes, deferred — not just value tweaks)
 
