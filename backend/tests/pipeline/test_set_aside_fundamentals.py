@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 import math
 import uuid
-from datetime import date
+from datetime import date, datetime, timezone
 
 import psycopg
 import pytest
@@ -125,6 +125,30 @@ def test_no_lookahead_a_row_is_judged_only_by_filings_on_or_before_its_own():
         (date(2026, 3, 2), SCREEN_FY_IN_QUARTER)
     ]
     assert conflicts == []
+
+
+def test_a_version_dated_by_its_acceptance_is_still_reached_by_the_screen():
+    """F7 (``pipeline.repair_filing_dates``): a filing re-dated by its SEC acceptance has ``valid_from`` = the
+    evening BEFORE companyfacts' ``filed`` — the screen still matches it, by its filing (the accession), so a bad
+    row cannot escape the set-aside by being re-dated."""
+    doc = _cf(
+        [
+            ("2025-01-01", "2025-03-31", 10_000_000, "2025-05-12", "10-Q", "q1"),
+            ("2025-04-01", "2025-06-30", 2_000_000, "2025-08-11", "10-Q", "q2"),
+            ("2025-07-01", "2025-09-30", 2_000_000, "2025-11-10", "10-Q", "q3"),
+            ("2025-01-01", "2025-03-31", 10_000_000, "2026-03-02", "10-K", "k"),
+            ("2025-01-01", "2025-12-31", 10_000_000, "2026-03-02", "10-K", "k"),
+        ]
+    )
+    twin = {
+        **_stored(date(2025, 3, 31), date(2026, 3, 1), 10_000_000, "k"),
+        "accepted": datetime(2026, 3, 1, 23, 0, tzinfo=timezone.utc),  # 18:00 EST, filed 03-02
+    }
+    cands, _ = SA.match_company([twin], doc)
+    assert [(c.fact_id, c.hit.reason) for c in cands] == [(twin["id"], SCREEN_FY_IN_QUARTER)]
+    # a version WITHOUT an acceptance is matched by its filing date only, as before
+    plain = _stored(date(2025, 3, 31), date(2026, 3, 1), 10_000_000, "k")
+    assert SA.match_company([plain], doc)[0] == []
 
 
 def test_a_number_another_label_keeps_is_never_set_aside():

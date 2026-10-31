@@ -336,7 +336,8 @@ def episode_corporate_events(
     Read via the shared bitemporal ``as_of`` over ``fact_corporate_event`` (migration 0038): the
     latest version per accession, so a filing whose ``items`` resolved after first ingest reads with
     its real codes — and a ``known_at`` pinned BEFORE the resolve honestly reads ``items=None`` (the
-    not-yet-resolved past view). ``d`` = ``valid_from`` = ``filed`` — an 8-K is knowable exactly when
+    not-yet-resolved past view). ``d`` = ``valid_from`` = the public date (since F7 the market-time date of SEC's
+    acceptance, else ``filed``) — an 8-K is knowable exactly when
     EDGAR disseminates it, so the one event clock plus ``ingested`` (``recorded_at::date``) suffices.
     ``url`` is the row's ``source_ref`` (the EDGAR filing-index URL, #6). NO server-side item cut:
     loudness is a display concern, and a cut here would be a silent filter (#9) — the FE decides how
@@ -386,7 +387,8 @@ def episode_activist_stakes(
 
     Read via the shared bitemporal ``as_of`` over ``fact_activist_stake`` (migration 0039): the latest
     version per accession, so a filing whose filer identity / ``pct_owned`` resolved after first
-    ingest reads enriched. ``d`` = ``valid_from`` = ``filed`` (knowability — never the in-document
+    ingest reads enriched. ``d`` = ``valid_from`` = the public date (F7: SEC's acceptance day, else ``filed``;
+    knowability — never the in-document
     event date, gold-doc trap #4). Unresolved identity ships as ``None`` — ``filer_name`` /
     ``filer_cik`` / ``pct_owned`` null, the row KEPT (#9, never dropped). NO fire-policy filtering:
     13G rows and amendments ride too — the fire policy (13D-family originals only) lives in the

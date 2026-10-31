@@ -64,7 +64,15 @@ router = APIRouter(prefix="/track-record")
 READ_CHUNK = 40
 
 # The share-fact columns the cap reads; the rest of the row is dropped as the view is read.
-SHARE_COLUMNS = ("shares", "valid_from", "ads_ratio", "ads_ratio_status")
+# F9: ``filing_accepted`` / ``recorded_at`` say when a count was PUBLIC (``dashboards.track_record.share_public_at``)
+SHARE_COLUMNS = (
+    "shares",
+    "valid_from",
+    "ads_ratio",
+    "ads_ratio_status",
+    "filing_accepted",
+    "recorded_at",
+)
 
 
 class _Wire(BaseModel):

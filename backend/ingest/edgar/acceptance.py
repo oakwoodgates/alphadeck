@@ -45,22 +45,45 @@ THE REQUEST-FREE READS (never a header fetch):
 
 Pure except ``read_header_acceptance`` (one client read). One home: every leg that stores a listed acceptance
 and the repair (``pipeline/backfill_accepted.py --drift``) call it, so they cannot drift.
+
+THE PUBLIC DATE OF A FILING (F7, rule ``2026-11-filings-dated-by-acceptance``) — 8-K, 13D/G, 10-Q / 10-K.
+``resolve_public_acceptance`` adapts the rule above to the forms whose filing date ROLLS: Regulation S-T Rule
+13(a)(2) deems a filing submitted after 17:30 ET filed on the NEXT business day, though EDGAR disseminates it
+that evening (13(a)(4) gives Forms 3/4/5 — and, since 2024, Schedules 13D/G — a 22:00 cutoff instead). So:
+
+1. TRUST the listed time when it passes the test above, OR when its ET date is the business day BEFORE the
+   filing date and its ET time is 17:30-22:00 (``listed_is_trusted_rolled``; no holiday calendar exists for
+   SEC business days, so at most one weekday may sit between the two dates — a holiday — and none on a weekend).
+2. Otherwise the filing's own header — from the CACHE only (``cached_header_acceptance``), never a request:
+   the 8-K tape is built from the submissions index alone, and this rule adds no SEC traffic. A header time
+   must pass the same test.
+3. Otherwise NO acceptance (``None``, ``SOURCE_FILED``): the filing date stands, exactly as before F7 — late,
+   never early. (Unlike a Form 4 there is no bound to store: these tables fall back to the filing date.)
+
+``public_date`` turns a trusted acceptance into the row's ``valid_from``: its date in MARKET time
+(``domain.market_time.market_tz``), else the filing date.
 """
 
 from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
+from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from domain.market_time import market_tz
 from domain.settings import get_settings
 from ingest import CacheMiss
 from ingest.edgar.client import InvalidBody
-from ingest.edgar.submissions import parse_acceptance
+from ingest.edgar.submissions import (
+    _listing_map,
+    parse_acceptance,
+    submissions_page_names,
+)
 
 # EDGAR's own clock. Fixed, not ``Settings.market_tz``: SEC stamps acceptances and filing dates in Eastern time
 # whatever zone this deployment's trading day is configured in.
@@ -75,6 +98,12 @@ SOURCE_HEADER = "header"  # the filing's own header (the listed time was rejecte
 SOURCE_BOUND = "bound"  # the end of the filing date, ET (rejected, and the header was unreadable)
 SOURCE_UNCHECKED = "unchecked"  # a listed time with no filing date to judge it by — kept as given
 SOURCE_MISSING = "missing"  # no listed time and no filing date: nothing to store (NULL)
+SOURCE_FILED = (
+    "filed"  # F7: no trusted time (listed or cached header) — the filing date stands (NULL stored)
+)
+
+# Regulation S-T Rule 13(a)(2): submitted after 17:30 ET -> deemed filed the next business day (F7)
+FILING_DATE_ROLL = time(17, 30)
 
 _HEADER_FIELD = re.compile(r"ACCEPTANCE-DATETIME(?:>|&gt;)\s*(\d{14})")
 
@@ -275,6 +304,112 @@ def request_free_acceptance(
     return min(at, bound)
 
 
+# --- F7: the public date of an 8-K / 13D/G / 10-Q / 10-K (the module docstring's second rule) --------------
+
+
+def _rolls_to(acc_day: date, filed: date) -> bool:
+    """Is ``filed`` the SEC business day after ``acc_day``? Both weekdays, ``filed`` later, and at most ONE
+    weekday strictly between them (a federal holiday — no holiday calendar exists for SEC business days, so one
+    is allowed; two consecutive are not)."""
+    gap = (filed - acc_day).days
+    if gap < 1 or gap > 5 or acc_day.weekday() >= 5 or filed.weekday() >= 5:
+        return False
+    between = (acc_day + timedelta(days=d) for d in range(1, gap))
+    return sum(1 for d in between if d.weekday() < 5) <= 1
+
+
+def listed_is_trusted_rolled(listed: datetime | None, filed: date | None) -> bool:
+    """THE F7 TRUST TEST: ``listed_is_trusted`` (the ET date is the filing date, within EDGAR's hours), OR the
+    filing-date roll — the ET date is the business day BEFORE the filing date and the ET time is 17:30-22:00
+    (both ends inclusive), the evening an after-17:30 filing was disseminated."""
+    if listed is None or filed is None:
+        return False
+    if listed_is_trusted(listed, filed):
+        return True
+    et = listed.astimezone(EDGAR_TZ)
+    return FILING_DATE_ROLL <= et.time() <= EDGAR_CLOSES and _rolls_to(et.date(), filed)
+
+
+def cached_header_acceptance(cache_dir: Path | None, accession: str) -> datetime | None:
+    """The filing's own ``ACCEPTANCE-DATETIME`` from the EDGAR cache ON DISK (``header_cache_key``), never a
+    request; ``None`` when not cached or unreadable."""
+    if cache_dir is None or not accession:
+        return None
+    try:
+        text = (Path(cache_dir) / header_cache_key(accession)).read_text(
+            encoding="utf-8", errors="replace"
+        )
+    except OSError:
+        return None
+    return parse_header_acceptance(text)
+
+
+def resolve_public_acceptance(
+    listed: str | datetime | None,
+    filed: str | date | None,
+    header: Callable[[], datetime | None] | None = None,
+) -> Acceptance:
+    """THE F7 RULE (module docstring): the listed time when ``listed_is_trusted_rolled``; else the header
+    (``header()`` — a cache read; called only then) when it passes the same test; else ``None`` with
+    ``SOURCE_FILED`` — the filing date stands, as before (never early)."""
+    at = _as_instant(listed)
+    day = parse_filing_date(filed)
+    if day is None:
+        return Acceptance(None, SOURCE_MISSING, at)  # nothing to judge a time by: store none
+    if listed_is_trusted_rolled(at, day):
+        return Acceptance(at, SOURCE_LISTED, at)
+    from_header = header() if header is not None else None
+    if listed_is_trusted_rolled(from_header, day):
+        return Acceptance(from_header, SOURCE_HEADER, at)
+    return Acceptance(None, SOURCE_FILED, at)
+
+
+def public_date(accepted: datetime | None, filed: date) -> date:
+    """A filing row's ``valid_from`` (F7): the MARKET-TIME date of its trusted acceptance, else its filing date."""
+    if accepted is None:
+        return filed
+    return accepted.astimezone(market_tz()).date()
+
+
+def cached_listings(cache_dir: Path | None, cik: str | int | None) -> dict[str, tuple[str, str]]:
+    """``{accession: (filingDate, acceptanceDateTime)}`` for one company from the EDGAR cache ON DISK — its
+    submissions index and every older page that is cached — never a request (``submissions.listings_deep``'s
+    map without the fetches). ``{}`` when nothing is cached. The ``recent`` window wins an overlap.
+    """
+    if cache_dir is None or not cik:
+        return {}
+    root = Path(cache_dir) / "submissions"
+    try:
+        subs = json.loads((root / f"CIK{int(cik):010d}.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    merged: dict[str, tuple[str, str]] = {}
+    for name in submissions_page_names(subs):
+        try:
+            merged.update(_listing_map(json.loads((root / name).read_text(encoding="utf-8"))))
+        except (OSError, ValueError):
+            continue  # an older page not cached: its accessions stay unresolved (dated by filing date)
+    merged.update(_listing_map(subs.get("filings", {}).get("recent", {})))
+    return merged
+
+
+def resolve_listed_filing(
+    listings: Mapping[str, tuple[str, str]],
+    accession: str,
+    filed: date,
+    cache_dir: Path | None = None,
+) -> Acceptance:
+    """``resolve_public_acceptance`` for a STORED row by its accession, from a ``cached_listings`` map (+ the cached
+    header). The listing must carry the row's own filing date — a row dated by another filing (a derived Q4 dated
+    by the later of two filings) is never re-dated (``SOURCE_FILED``)."""
+    listing = listings.get(accession)
+    if listing is None or parse_filing_date(listing[0]) != filed:
+        return Acceptance(None, SOURCE_FILED, None)
+    return resolve_public_acceptance(
+        listing[1], filed, lambda: cached_header_acceptance(cache_dir, accession)
+    )
+
+
 __all__ = [
     "EDGAR_TZ",
     "SOURCE_LISTED",
@@ -282,17 +417,25 @@ __all__ = [
     "SOURCE_BOUND",
     "SOURCE_UNCHECKED",
     "SOURCE_MISSING",
+    "SOURCE_FILED",
+    "FILING_DATE_ROLL",
     "Acceptance",
     "AcceptanceTally",
+    "cached_header_acceptance",
+    "cached_listings",
     "filing_date_bound",
     "header_cache_key",
     "header_url",
     "listed_is_trusted",
+    "listed_is_trusted_rolled",
     "parse_filing_date",
     "parse_header_acceptance",
+    "public_date",
     "read_header_acceptance",
     "request_free_acceptance",
     "resolve_acceptance",
     "resolve_filing_acceptance",
+    "resolve_listed_filing",
+    "resolve_public_acceptance",
     "trusted_listed",
 ]

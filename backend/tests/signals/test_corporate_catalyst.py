@@ -52,6 +52,18 @@ def test_502_fires_a_flip_personnel_catalyst_the_only_remaining_trigger():
     assert e.provenance[0].detail["index_url"].endswith("-index.htm")  # checkable source (#6)
 
 
+def test_an_evening_8k_fires_the_night_it_appeared_and_its_label_keeps_the_filing_date():
+    """F7: an 8-K accepted the evening BEFORE its filing date is stored with ``valid_from`` = that evening's day.
+    It fires on that night (``asof`` = the acceptance day), but its words keep SEC's filing date (the ``filed``
+    column) — so the label is true and a re-dated filing's recorded label does not change."""
+    evening = ASOF - timedelta(days=1)
+    f = {**_fact(items=("5.02",)), "valid_from": evening}  # filed = ASOF (SEC's date)
+    e = corporate_catalyst.score([f], SID, evening)
+    assert e is not None and e.asof == evening
+    assert f"(filed {ASOF.isoformat()}, 8-K)" in e.label
+    assert e.provenance[0].detail["filed"] == ASOF.isoformat()
+
+
 def test_unmapped_null_and_risk_cut_items_fire_nothing():
     """Items outside the trigger cut stay ON the tape (#9) but fire no catalyst: an unmapped 2.02, an
     unresolved NULL, and the RISK-side 4.02 / the newly-added 3.02 all contribute nothing here."""

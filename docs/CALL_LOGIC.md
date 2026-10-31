@@ -67,6 +67,16 @@ So `insider_conviction` is `role=entry_trigger, kind=insider`; a DOE award is `r
 
 ## 2. State-transition rules  `[PINNED]` (STARTING calibration)
 
+> **A filing's fire date is the day it appeared on EDGAR (F7, rule `2026-11-filings-dated-by-acceptance`).**
+> An 8-K, 13D/G or 10-Q/10-K revenue fact is dated by the market-time date of SEC's trusted acceptance
+> (`valid_from`; `ingest.edgar.acceptance.resolve_public_acceptance`), not by its `filingDate` — a filing whose
+> submission commences after 17:30 ET carries the next business day's filing date though it was disseminated
+> that evening. So the fire date and the liveness anchor of `corporate_risk` / `corporate_catalyst`,
+> `activist_stake` and `revenue_acceleration` move one night earlier for an evening filing, on the live call
+> and every history view; an untrusted time keeps the filing date (late, never early). The card's "(filed …)"
+> text keeps showing SEC's filing date (the stored `filed` column), so a re-dated filing's words stay true and
+> no recorded label changes because of the re-dating.
+
 The lifecycle is a **loop**, not a ratchet: `Incubating → Warming → Armed → Managing`, and Armed/Warming can fall back. A fired entry trigger is **live** on night `asof` only while the **first session after that night** is inside its alpha-liveness window (`next_scheduled_day(asof) ≤ fire_date + alpha_liveness_days` — F3, §6); aged-out triggers stop counting. The numbers live in `CallConfig` (STARTING calibration), not here.
 
 | Transition | Condition |
@@ -546,7 +556,9 @@ only *coincide* for insider buys, which is exactly why the two conviction source
   latest version, a year-old inflection re-fired as fresh for another 180 days. The as-of read now annotates each
   fundamentals row with `knowable_from` / `knowable_accession` — the earliest knowable date (and filing) in the
   trailing run of value-identical versions ending at the picked one, counting only versions visible at
-  `(asof, known_at)`; a version's own knowable date is its FILING date (`valid_from`), and the picked version is the
+  `(asof, known_at)`; a version's own knowable date is its PUBLIC filing date (`valid_from` — since F7, rule
+  `2026-11-filings-dated-by-acceptance`, the market-time date of SEC's trusted acceptance, so a 10-Q accepted
+  after 17:30 ET counts the evening it appeared; else the filing date), and the picked version is the
   latest filing visible — and the detector's fire date, liveness anchor and provenance accession all come from it.
   (Migration 0057, operator-approved 2026-10-21: the date is the PUBLIC filing date, never our store time — the
   ingest now stamps `recorded_at` honestly, as bookkeeping. The earlier `max(valid_from, market date of
@@ -583,7 +595,8 @@ only *coincide* for insider buys, which is exactly why the two conviction source
   inflection instead. No state, verdict or armed name changes.
 - **`activist_stake` `[built — S5]` — grade-FIXED core, structural (Key 1).** A 13D-family **original** filed
   about a basket member (the outside party crossed 5% with intent to influence) fires a `core` conviction live
-  for `activist_13d_liveness_days` (180) from its filing date; the 13G family and every amendment fire nothing,
+  for `activist_13d_liveness_days` (180) from its public date (`valid_from`: since F7 the market-time date of
+  SEC's acceptance, else the filing date); the 13G family and every amendment fire nothing,
   and a same-filer sub-5% amendment after the fire terminates it (`activist_exit_terminates`). The form type is
   the decision (#3); the full fire policy is `docs/ACTIVIST_STAKE.md`.
   **The holder screen — control holders and insiders do not fire (option A, operator-approved 2026-10-28;

@@ -82,8 +82,18 @@ RULE_LOG: tuple[RuleEntry, ...] = (
         ),
     ),
     RuleEntry(
+        id="2026-11-filings-dated-by-acceptance",
+        date=date(2026, 11, 2),
+        label="8-Ks, 13D/Gs and revenue count from when they appeared on EDGAR",
+        description=(
+            "An 8-K, Schedule 13D/G or 10-Q/10-K revenue filing now counts from the market day SEC accepted "
+            "it, not from its filing date, so a filing submitted after 5:30 pm ET (which SEC dates the next "
+            "business day) counts on the night it appeared, on the live call and on every history view."
+        ),
+    ),
+    RuleEntry(
         id="2026-11-night-ends-at-edgar-open",
-        date=date(2026, 10, 31),
+        date=date(2026, 11, 2),
         label="a night's history read runs to 06:00 ET the next weekday",
         description=(
             "A night's history view now holds everything public before EDGAR's next open (06:00 ET on the "
@@ -94,7 +104,7 @@ RULE_LOG: tuple[RuleEntry, ...] = (
     ),
     RuleEntry(
         id="2026-11-insider-clock-from-filing",
-        date=date(2026, 10, 31),
+        date=date(2026, 11, 2),
         label="an insider cluster's window counts from its latest filing",
         description=(
             "An insider-buying cluster's liveness window and fire date now count from the night its latest "

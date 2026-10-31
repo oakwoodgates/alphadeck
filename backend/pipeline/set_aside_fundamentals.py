@@ -229,11 +229,23 @@ def match_company(
         named = _label_of(r.get("source") or "")
         labels = [named] if named else list(hits)
         found = [hits[c][key] for c in labels if c in hits and key in hits[c]]
+        if not found and r.get("accepted") is not None:
+            # F7: a version dated by its SEC acceptance (``pipeline.repair_filing_dates``' re-dated twin, or a
+            # filing the ingest dated so) has ``valid_from`` = the acceptance date, not companyfacts' ``filed`` —
+            # matched by its filing (the accession) instead, so the screen reaches it too
+            alias = (r["period_end"], r["accession"], r["basis"], value)
+            found = [
+                h
+                for c in labels
+                if c in hits
+                for k, h in hits[c].items()
+                if (k[0], k[2], k[3], k[4]) == alias
+            ]
         if not found:
             continue
         hit = found[0]  # REVENUE_CONCEPTS order: deterministic
         kept_under = tuple(
-            c for c, pts in kept.items() if (r["period_end"], r["valid_from"], value) in pts
+            c for c, pts in kept.items() if (r["period_end"], hit.filed, value) in pts
         )
         if kept_under:
             conflicts.append(
@@ -328,7 +340,7 @@ def stored_revenue(
     with conn.cursor() as cur:
         cur.execute(
             "SELECT id, tenant_id, security_id, metric_key, period_end, valid_from, value, accession, basis, "
-            "source, supersedes, recorded_at FROM fact_fundamentals "
+            "source, supersedes, recorded_at, accepted FROM fact_fundamentals "
             "WHERE tenant_id = %s AND security_id = %s AND metric_key = %s ORDER BY period_end, recorded_at, id",
             (tenant_id, security_id, REVENUE_METRIC),
         )

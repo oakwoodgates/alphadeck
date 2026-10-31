@@ -86,6 +86,7 @@ from db.session import connect
 from domain.security import Security
 from domain.settings import get_settings
 from ingest import CacheMiss
+from ingest.edgar.acceptance import cached_listings
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.extract import REVENUE_CONCEPTS, companyfacts_url
 from ingest.fundamentals import (
@@ -93,10 +94,13 @@ from ingest.fundamentals import (
     PlannedVersion,
     ScreenedRow,
     append_planned,
+    carry_stored_acceptance,
+    date_revenue_points,
     extract_share_points,
     held_versions,
     plan_versions,
     select_revenue,
+    stored_acceptance,
 )
 from pipeline.run_lock import EXIT_ALREADY_RUNNING, PassAlreadyRunning, acquire_repair_lock
 from repositories import data_repair_repo, thesis_repo
@@ -242,10 +246,18 @@ def plan_company(
     held: dict,
     *,
     source: str,
+    listings: dict[str, tuple[str, str]] | None = None,
+    stored: dict | None = None,
+    cache_dir: Path | None = None,
 ) -> CompanyPlan:
-    """PURE: one company's plan from its companyfacts and what the store holds for it."""
+    """PURE (but for cached header reads): one company's plan from its companyfacts and what the store holds for
+    it. F7: the points are dated exactly as the nightly ingest dates them (``ingest.fundamentals.dated_points``)
+    — a new filing by its trusted acceptance from ``listings`` (the cached submissions index), a stored filing by
+    its ``stored`` dating — so this CLI never appends a second dating of a stored filing."""
     sel = select_revenue(doc)
-    planned, _skipped = plan_versions(held, sel.points + extract_share_points(doc))
+    points = date_revenue_points(sel.points + extract_share_points(doc), listings or {}, cache_dir)
+    points = carry_stored_acceptance(points, stored or {})
+    planned, _skipped = plan_versions(held, points)
     held_ends = [pe for (m, pe, _f) in held if m == REVENUE_METRIC]
     new_ends = held_ends + [
         v.point.period_end for v in planned if v.point.metric_key == REVENUE_METRIC
@@ -315,7 +327,17 @@ def reingest_fundamentals(
                 )
                 continue
             held = held_versions(conn, sec.id, sec.tenant_id)
-            result.companies.append(plan_company(sec, doc, held, source=source))
+            result.companies.append(
+                plan_company(
+                    sec,
+                    doc,
+                    held,
+                    source=source,
+                    listings=cached_listings(client.cache_dir, sec.cik),
+                    stored=stored_acceptance(conn, sec.id, sec.tenant_id),
+                    cache_dir=client.cache_dir,
+                )
+            )
         if apply and result.planned:
             for c in result.companies:
                 if c.planned:

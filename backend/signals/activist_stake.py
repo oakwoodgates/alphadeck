@@ -79,6 +79,7 @@ from domain.enums import Grade, Kind, Role
 from domain.signal import SignalEvent
 from signals.base import Detector, SignalPointInTimeData
 from signals.common import entry_signal_is_live, fired_signal, source_provenance
+from signals.corporate_events import filed_date
 from signals.registry import register_detector
 
 DETECTOR_NAME = "activist_stake"
@@ -115,7 +116,9 @@ def _provenance_detail(
     unscreened filing's detail is exactly what it always was (no new key)."""
     detail = {
         "form": fact["form"],
-        "filed": fact["valid_from"].isoformat(),
+        "filed": filed_date(
+            fact
+        ).isoformat(),  # SEC's filing date (F7 dates the fire by the acceptance)
         "filer_cik": fact.get("filer_cik"),
         "filer_name": fact.get("filer_name"),
         "pct_owned": None if fact.get("pct_owned") is None else float(fact["pct_owned"]),
@@ -439,7 +442,7 @@ def score(
     pct_note = f", {float(pct):g}% of class" if pct is not None else ""
     label = (
         f"{anchor['form']} — {filer} disclosed a >5% activist stake"
-        f"{pct_note} (filed {anchor['valid_from'].isoformat()})"
+        f"{pct_note} (filed {filed_date(anchor).isoformat()})"
     )
     provenance = [
         source_provenance(
@@ -456,8 +459,7 @@ def score(
     switch = _switch_from_13g(facts, anchor, asof, cfg, subject_cik)
     if switch is not None:
         label += (
-            " — ESCALATED from a prior 13G passive stake filed "
-            f"{switch['valid_from'].isoformat()}"
+            " — ESCALATED from a prior 13G passive stake filed " f"{filed_date(switch).isoformat()}"
         )
         provenance = [
             source_provenance("schedule13", switch["accession"], detail=_provenance_detail(switch))
