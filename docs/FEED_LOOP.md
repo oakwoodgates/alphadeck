@@ -2746,6 +2746,30 @@ quarter at its later filing, so some nightly arms rested only on a year-old reve
 - **Runtime (MEASURED, prod dry-run, 2026-10-16):** 630 rows in ~9–10 minutes (580 s and 554 s on two runs;
   ~1 s per row on a 79-name basket, ~3 s on the 196-name one).
 
+### Annotating no-session rows — `pipeline.annotate_no_session_rows`  `[BUILT — F10]`
+
+The phantom-arm annotator's sibling, on the same `call_annotation` table and the same Scoreboard READ policy.
+Before the September fix a daytime hand run recorded the card under the date it ran, so honest `calls` rows are
+dated a day with no market session (MEASURED on dev: 49 on a Saturday or Sunday, 11 on Labor Day). They stay in
+the immutable log — they are what the system said — and are set aside from scoring, reversibly.
+
+- **The rule is the shared calendar, nothing else.** A row is a no-session night when `not
+  domain.trading_days.is_scheduled_day(row.asof)`; only honest (`NOT reconstructed`) rows are looked at. The CLI
+  keeps no holiday list: today the predicate is Mon–Fri (the weekend rows); when it becomes holiday-aware the
+  holiday rows are found with no change here.
+- **The annotation.** `exclude`, `reason = no_session_day`, `rule = no-session-night@<image sha>`, `detail`
+  = weekday, call seq, recorded_at, run_kind, code sha, the recorded state/verdict (no `affected_security_ids`:
+  the whole night is the judgment, so every member's drawer caption shows it). No migration.
+- **Safety — the phantom annotator's shape.** Dry-run is the DEFAULT on a READ-ONLY connection and prints every
+  row; `--report-json PATH` writes the evidence. `--apply` appends in ONE counted transaction, writes
+  `data/annotations/no-session-<utc-ts>.json`, and holds the call-of-record lock (exit 75 while a pass holds
+  it). Idempotent: a (call, exclude) its rule family already judged — active or revoked — is never judged again
+  (count the table: a second `--apply` appends zero; a revoke sticks). `--revoke <id>` / `--revoke-all` +
+  `--reason` append revokes (dry-run unless `--apply`; `--revoke-all` touches only this family). Not journaled
+  in `data_repair` (it touches `calls` annotations only, like the phantom annotator). The operator runs
+  `--apply` on prod after a backup, from the deployed image — never an agent. The Scoreboard side
+  (`docs/SCOREBOARD.md`): the one `include_annotated` reading covers these `exclude` rows too.
+
 ## Backups & restore (Slice 4)  `[BUILT]`
 
 The 2026-07-21 truncation cost the whole demo DB; recovery only worked because an **ad-hoc** `pg_dump`

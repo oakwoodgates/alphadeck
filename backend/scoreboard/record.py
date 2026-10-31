@@ -17,7 +17,13 @@ from domain.thesis import Thesis
 from replay.episodes import derive_episodes
 from replay.schema import CallSnapshot, Episode, MemberRow, Outcome
 from replay.scoring import score_episode
-from repositories import calls_repo, decisions_repo, editions_repo, thesis_repo
+from repositories import (
+    call_annotations_repo,
+    calls_repo,
+    decisions_repo,
+    editions_repo,
+    thesis_repo,
+)
 from repositories.call_annotations_repo import CallAnnotation
 from repositories.editions_repo import Edition, InkedOutcome, JoinDate
 from scoreboard import provenance
@@ -434,6 +440,16 @@ def _transitions(snaps: list[CallSnapshot], ep: Episode) -> list[Transition]:
 # the reason tokens the annotator writes -> the caption's words (an unknown token reads as itself)
 _REASON_WORDS = {"stale_comparative_revenue": "a stale-dated comparative revenue quarter"}
 
+# What the drawer calls a night an `exclude` annotation sets aside, by the RULE FAMILY that judged it (F10). One
+# `include_annotated` reading covers every `exclude`, so the caption must say WHICH kind of night this episode
+# leans on: a no-session row labeled a "phantom arm" would be a false statement. Ordered (the caption's part
+# order); a family not named here reads as the generic `set-aside night(s)`.
+_EXCLUDE_NIGHT_WORDS = {
+    call_annotations_repo.RULE_FAMILY_D3A: "phantom-arm night(s)",
+    call_annotations_repo.RULE_FAMILY_NO_SESSION: "no-session night(s)",
+}
+_EXCLUDE_NIGHT_GENERIC = "set-aside night(s)"
+
 
 def _annotation_note(
     by_asof: dict[date, list[CallAnnotation]], ep: Episode, *, exclude_annotated: bool
@@ -445,29 +461,35 @@ def _annotation_note(
     no line (honest loudness). Two shapes:
 
     - a ``note``: the arm stands and is scored; the rule only changed its composition on that night.
-    - an ``exclude`` on a reading that INCLUDES annotated nights: the night is a phantom arm the default
-      reading sets aside — said so the operator knows this episode's number depends on the reading.
+    - an ``exclude`` on a reading that INCLUDES annotated nights: the night is one the default reading sets
+      aside — said so the operator knows this episode's number depends on the reading. The caption names the
+      KIND of night by the rule family that judged it (``_EXCLUDE_NIGHT_WORDS``): a phantom arm (D3a), a night
+      dated a day with no market session (F10), or the generic ``set-aside night(s)`` for any other rule.
 
     Backend-authored copy, one authority (the ``ingest_note`` / ``run_identity_note`` precedent)."""
     walk_end = ep.dearm_date or ep.last_armed_date
     notes: list[tuple[date, CallAnnotation]] = []
-    excluded: list[date] = []
+    excluded: dict[str, list[date]] = {}  # the caption's words for the rule family -> the nights
     for d in sorted(x for x in by_asof if ep.arm_date <= x <= walk_end):
         for a in by_asof[d]:
             affected = (a.detail or {}).get("affected_security_ids")
             if isinstance(affected, list) and str(ep.security_id) not in {str(x) for x in affected}:
                 continue
             if a.action == "exclude" and not exclude_annotated:
-                excluded.append(d)
+                words = _EXCLUDE_NIGHT_WORDS.get(
+                    call_annotations_repo.rule_family(a.rule), _EXCLUDE_NIGHT_GENERIC
+                )
+                excluded.setdefault(words, []).append(d)
             elif a.action == "note":
                 notes.append((d, a))
     parts: list[str] = []
-    if excluded:
-        days = ", ".join(str(d) for d in sorted(set(excluded)))
-        parts.append(
-            f"phantom-arm night(s) {days} — annotated exclude; scored here only because this reading "
-            "includes annotated nights"
-        )
+    for words in (*_EXCLUDE_NIGHT_WORDS.values(), _EXCLUDE_NIGHT_GENERIC):
+        if words in excluded:
+            days = ", ".join(str(d) for d in sorted(set(excluded[words])))
+            parts.append(
+                f"{words} {days} — annotated exclude; scored here only because this reading "
+                "includes annotated nights"
+            )
     for d, a in notes:
         summary = (a.detail or {}).get("summary")
         why = _REASON_WORDS.get(a.reason, a.reason.replace("_", " "))

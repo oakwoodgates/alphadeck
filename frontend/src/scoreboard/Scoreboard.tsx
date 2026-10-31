@@ -397,8 +397,9 @@ export function Scoreboard({ header, asof, onSelect, edition = null, onEditionCh
               backfill · not scored
             </div>
           )}
-          {/* the phantom-arm (annotated) nights line — D3b: rows annotated `exclude` (an arm that rested
-              only on a stale-dated comparative revenue quarter) are set aside by the server's READ policy,
+          {/* the annotated nights line — D3b + F10: rows annotated `exclude` (a phantom arm that rested
+              only on a stale-dated comparative revenue quarter, or a row dated a day with no market
+              session; the line names which kind) are set aside by the server's ONE READ policy,
               exactly like reconstructed rows, and named once here. Rendered only when some night is
               annotated (a control that does not discriminate does not render), with the reading toggle:
               one click scores them again for this view, the next click returns to the default. Nothing is

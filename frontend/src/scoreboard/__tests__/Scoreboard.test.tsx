@@ -495,6 +495,50 @@ describe("Scoreboard", () => {
     expect(screen.getByText(/1 phantom-arm night included in this reading · scored/)).toBeInTheDocument();
   });
 
+  it("the annotated line names the KIND of night — a no-session night is never called a phantom arm (F10)", () => {
+    const night = (asof: string, reasons: string[], rules: string[]) => ({
+      thesis_id: "t1",
+      thesis_name: "Nuclear Buildout",
+      asof,
+      reasons,
+      rules,
+      n_rows: 1,
+    });
+    const noSession = (asof: string) => night(asof, ["no_session_day"], ["no-session-night@abc"]);
+    const phantom = night("2026-10-14", ["stale_comparative_revenue"], ["d3a-first-knowability@abc"]);
+
+    // only no-session nights: named as such, the hover says why, and nothing claims a phantom arm
+    renderBoard({
+      data: {
+        ...PAYLOAD,
+        summary: { ...PAYLOAD.summary, annotated_nights: [noSession("2026-08-15"), noSession("2026-08-16")] },
+      },
+    });
+    const line = screen.getByText(/2 no-session nights set aside · not scored/);
+    expect(line.closest("div")).toHaveAttribute(
+      "title",
+      expect.stringContaining("dated a day with no market session: Nuclear Buildout 2026-08-15"),
+    );
+    expect(screen.queryByText(/phantom-arm/)).not.toBeInTheDocument();
+    // the ONE toggle covers them (no second control)
+    expect(screen.getAllByRole("button", { name: "include annotated nights" })).toHaveLength(1);
+
+    // both kinds: the line breaks them out
+    renderBoard({
+      data: {
+        ...PAYLOAD,
+        summary: {
+          ...PAYLOAD.summary,
+          annotated_nights: [phantom, noSession("2026-08-15")],
+          annotated_policy: "included",
+        },
+      },
+    });
+    expect(
+      screen.getByText(/2 annotated nights \(1 phantom-arm, 1 no-session\) included in this reading · scored/),
+    ).toBeInTheDocument();
+  });
+
   it("the late-recorded line renders only when a night was recorded late, names the nights, and toggles the reading", () => {
     renderBoard(); // no late nights: no line, no toggle (a control that can't discriminate)
     expect(screen.queryByText(/late-recorded/)).not.toBeInTheDocument();

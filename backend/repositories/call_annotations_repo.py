@@ -13,8 +13,10 @@ ACTIVE = an exclude/note no revoke references. ``ACTIVE_SQL`` states that predic
 filter (``calls_repo``) and every read here use it, so "active" cannot mean two things.
 
 Value-free by design (the repository discipline): it stores and returns judgments; it decides nothing. The
-classifier that produces them is ``pipeline.annotate_phantom_arms``; the policy that reads them is the
-Scoreboard's (``Settings.scoreboard_exclude_annotated`` + the ``include_annotated`` query param).
+classifiers that produce them are ``pipeline.annotate_phantom_arms`` (D3b) and
+``pipeline.annotate_no_session_rows`` (F10); the policy that reads them is the Scoreboard's
+(``Settings.scoreboard_exclude_annotated`` + the ``include_annotated`` query param) — ONE policy over every
+``exclude`` whatever its rule.
 """
 
 from __future__ import annotations
@@ -28,6 +30,13 @@ from psycopg.types.json import Json
 from pydantic import BaseModel
 
 ACTIONS = ("exclude", "note")  # the judgments; 'revoke' is written only by `revoke`
+
+# The rule FAMILIES the annotators write (``rule_family(rule)`` of ``'<family>@<image sha>'``), named ONCE here so
+# the writers (the two CLIs) and the one reader that words them (the Scoreboard's drawer caption) cannot drift.
+# pipeline.annotate_phantom_arms — a phantom arm (D3b)
+RULE_FAMILY_D3A = "d3a-first-knowability"
+# pipeline.annotate_no_session_rows — a row dated a day with no market session (F10)
+RULE_FAMILY_NO_SESSION = "no-session-night"
 
 # THE ACTIVE PREDICATE, stated once: annotation `a` is active iff no revoke row references it. The one
 # revoke per annotation (0045's partial unique index) and the same-call / never-a-revoke trigger make this
