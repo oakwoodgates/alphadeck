@@ -92,7 +92,7 @@ export function holdWords(row: EntryWindowsRowOut): string {
 
 export const HOLD_TAG = "hold clock closing";
 export const CLOSING_TITLE =
-  "The accent marks any armed name's entry window at 2 trading sessions or fewer (Mon-Fri days; a market holiday counts as a session). A name whose window differs from the card's is named under the figure";
+  "The accent marks any armed name's entry window at 2 trading sessions or fewer (Mon-Fri days; a market holiday is not a session). A name whose window differs from the card's is named under the figure";
 
 export type SinceCell = {
   /** The median over the priced names, "—" with none. */

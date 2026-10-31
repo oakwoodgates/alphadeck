@@ -10,6 +10,7 @@ from backtest.pooled import build_report
 from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
 from domain.enums import Grade
+from domain.trading_days import closure_name
 from replay.export import export_snapshot
 from replay.pit import connect_mirror
 from replay.schema import Episode
@@ -137,9 +138,14 @@ def _security(db, ticker: str, *, seq: int) -> uuid.UUID:
 
 def _tape(db, sid: uuid.UUID, *, bars: int, base: float) -> None:
     """A simple ascending tape. Weekends included deliberately -- the reader slices whatever the mirror
-    holds, and a bar's existence is the tape's business, not the calendar's."""
+    holds, and a bar's existence is the tape's business, not the calendar's. NYSE full-day closures are
+    left out (no vendor bar on one): since F5 the scoring reader skips a closure-dated bar, a rule the
+    pre-memo oracle above predates, and this file isolates the MEMO, not that rule
+    (``tests/replay/test_scoring_holiday_bars.py`` pins it)."""
     for i in range(bars):
         d = _T0 + timedelta(days=i)
+        if closure_name(d) is not None:
+            continue
         px = base + i * 0.5
         append_fact(
             db,

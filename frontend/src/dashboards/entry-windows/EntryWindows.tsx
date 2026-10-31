@@ -553,8 +553,8 @@ function Page({
           fire date; the fold shows both.
         </li>
         <li>
-          Sessions are IWM's bars. Sessions after the as-of are counted Mon-Fri, so a market holiday ahead counts as a
-          session (the call path's own count).
+          Sessions are IWM's bars. Sessions after the as-of are counted Mon-Fri without the NYSE's market holidays (the
+          call path's own count).
         </li>
         <li>Medians are equal-weight over the names with a bar; returns are as-traded closes, with no dividends.</li>
         <li>

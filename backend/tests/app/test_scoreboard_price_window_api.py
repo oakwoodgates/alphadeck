@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 
 from app.deps import get_current_tenant
 from app.main import app
@@ -9,6 +9,7 @@ from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
 from scoreboard.prices import PgRealizedPrices
 from tests.scoreboard.helpers import bar, persist_thesis
+from tests.session_days import bar_days_from
 
 
 def ohlcv_bar(db, security_id, d, o, h, low, c, v):
@@ -303,11 +304,11 @@ def test_price_window_sma_warm_up_makes_the_left_edge_honest(client, db, securit
     None (< 200 prior bars — the honest gap, never padded)."""
     thesis = persist_thesis(db, security_id)
     _set_created_at(db, thesis.id, date(2026, 6, 1))  # floor = created−365 = 2025-06-01
-    base = date(2025, 4, 1)  # 61 bars of warm-up BEFORE the floor (2025-04-01 .. 2025-05-31)
-    for i in range(
-        90
-    ):  # close_i = 100 + i on consecutive days from 2025-04-01 (through 2025-06-29)
-        bar(db, security_id, base + timedelta(days=i), 100.0 + i)
+    # 59 bars of warm-up BEFORE the floor (2025-04-01 .. 2025-05-31): consecutive calendar days minus the NYSE
+    # closures — Good Friday 04-18, Memorial Day 05-26 and Juneteenth 06-19 carry no bar (no vendor serves one,
+    # and the scoring read skips one, F5). close_i = 100 + i by BAR index, through 2025-07-02.
+    for i, d in enumerate(bar_days_from(date(2025, 4, 1), 90)):
+        bar(db, security_id, d, 100.0 + i)
     r = _get(client, thesis.id, security_id, "2026-07-15", start="2025-01-01", end="2026-09-01")
     assert r.status_code == 200
     body = r.json()
@@ -316,11 +317,11 @@ def test_price_window_sma_warm_up_makes_the_left_edge_honest(client, db, securit
     )  # the EFFECTIVE floor, echoed (not the requested 2025-01-01)
     bars = body["bars"]
     assert bars[0]["d"] == "2025-06-01"  # only [floor, end] returned (warm-up bars trimmed off)
-    # 2025-06-01 is index 61 (closes 112..161) → sma50 = mean(112..161) = 136.5 (honest, from the warm-up)
-    assert bars[0]["sma50"] == 136.5
+    # 2025-06-01 is bar index 59 (closes 110..159) → sma50 = mean(110..159) = 134.5 (honest, from the warm-up)
+    assert bars[0]["sma50"] == 134.5
     assert bars[0]["sma200"] is None  # < 200 prior bars
-    # and the SMA tracks forward: the next bar (close 162) → mean(113..162) = 137.5
-    assert bars[1]["sma50"] == 137.5
+    # and the SMA tracks forward: the next bar (close 160) → mean(111..160) = 135.5
+    assert bars[1]["sma50"] == 135.5
 
 
 def test_price_window_universe_floor_excludes_a_pre_thesis_buy(client, db, security_id):

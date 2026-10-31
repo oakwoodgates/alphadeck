@@ -7,6 +7,13 @@ from uuid import UUID
 import psycopg
 
 from db.clock import db_now  # the ONE-CLOCK rule; see that module for why
+from domain.trading_days import NYSE_CLOSURES, closure_name
+
+# F5 — a bar dated an NYSE full-day closure is never a scoring bar: the vendor stored flat OTC carries on
+# Labor Day 2026 (MEASURED on dev: 10 bars, open = high = low, close = the prior close), and there was no
+# session. Every read below skips one — no entry, horizon, exit or tape-edge bar is ever a holiday — the
+# same rule as the point-in-time view (``signals.base.window_prices``) and the DuckDB twin
+# (``replay.scoring.RealizedPrices``). Nothing is deleted.
 
 
 def _f(x: Any) -> float | None:
@@ -35,8 +42,14 @@ def market_tape_edge(
     with conn.cursor() as cur:
         cur.execute(
             "SELECT max(d) AS edge FROM fact_price_eod "
-            "WHERE tenant_id = %s AND d <= %s AND recorded_at <= %s AND close IS NOT NULL",
-            [tenant_id, cap, known_at or db_now(conn)],  # the clock that STAMPS recorded_at
+            "WHERE tenant_id = %s AND d <= %s AND recorded_at <= %s AND close IS NOT NULL "
+            "AND d <> ALL(%s)",  # a closure-dated bar never proves the market printed (F5)
+            [
+                tenant_id,
+                cap,
+                known_at or db_now(conn),
+                list(NYSE_CLOSURES),
+            ],  # the clock that STAMPS recorded_at
         )
         row = cur.fetchone()
     return row["edge"] if row else None
@@ -93,7 +106,11 @@ class PgRealizedPrices:
                 [self.tenant_id, security_id, self.cap, self.known_at, *params],
             )
             rows = cur.fetchall()
-        return [(r["d"], float(r["close"])) for r in rows if r["close"] is not None]
+        return [
+            (r["d"], float(r["close"]))
+            for r in rows
+            if r["close"] is not None and closure_name(r["d"]) is None  # F5: no holiday bar
+        ]
 
     def first_close_on_or_after(self, security_id: UUID, d: date) -> tuple[date, float] | None:
         rows = self._closes(security_id, " AND d >= %s", [d])
@@ -132,7 +149,7 @@ class PgRealizedPrices:
                 "volume": _f(r["volume"]),
             }
             for r in rows
-            if r["close"] is not None
+            if r["close"] is not None and closure_name(r["d"]) is None  # F5: no holiday bar
         ]
 
     def bars_between(self, security_id: UUID, start: date, end: date) -> list[dict]:

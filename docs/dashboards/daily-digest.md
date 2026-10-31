@@ -256,7 +256,7 @@ for the orchestrator to measure on dev with a prod copy.
 7. **The last session is exactly the calendar's last two sessions** (`series.session_calendar`, as the Hot Board's clocks use
    it): a name needs a close on BOTH, and one missing either reads "unpriced" with the date it lacks, never a longer span
    under the "last session" label. The same return is used for the held names in section 2 and the armed names in section 5.
-8. **The hold clock** counts sessions left by the Hot Board's `sessions_left` (Mon-Fri, holidays count) and, once passed, the
+8. **The hold clock** counts sessions left by the Hot Board's `sessions_left` (Mon-Fri minus the NYSE's market holidays, since F5) and, once passed, the
    calendar's sessions after the exit-by through the as-of (the Hot Board's `closed_ago`). The exit-by date itself reads "its
    last day" with 0 left.
 9. **Risk signals** on a position are the card's distinct (kind, security, event date) signals, not its labels; "new last

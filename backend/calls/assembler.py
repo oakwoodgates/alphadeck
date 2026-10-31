@@ -592,9 +592,9 @@ def _verdict(
 def sessions_left(asof: date, until: date) -> int:
     """Trading sessions strictly AFTER ``asof`` through ``until`` (inclusive) — how many more sessions an
     inclusive window ending on ``until`` stays open once ``asof``'s session is done (the cron records after
-    the close). ``0`` when ``until <= asof``. Counted on the cron's Mon-Fri calendar
-    (``domain.trading_days.is_scheduled_day``) rather than a hand-rolled one; that calendar does NOT know
-    exchange holidays, so a holiday inside the window counts as a session (documented in CALL_LOGIC §6).
+    the close). ``0`` when ``until <= asof``. Counted on the ONE session calendar
+    (``domain.trading_days.is_scheduled_day``: Mon-Fri minus the NYSE's full-day closures, F5) rather than
+    a hand-rolled one, so a market holiday inside the window is not a session (CALL_LOGIC §6).
     Pure: both dates are parameters, never a wall clock."""
     n = 0
     d = asof + timedelta(days=1)

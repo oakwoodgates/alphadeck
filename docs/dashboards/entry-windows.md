@@ -174,8 +174,8 @@ lives in `backend/dashboards/entry_windows.py` (the rules are written at the top
    the arm night's own session is not counted, so the arm night itself reads 0. The same rule makes "into" and "left"
    add up to the window.
 5. **"Sessions left" after the as-of** cannot come from IWM's bars (none exist after the as-of). Built: the Mon-Fri
-   days after the as-of through `arm_until`, the call path's own `sessions_left` count, so a market holiday ahead
-   counts as a session (stated on the page). Everything up to the as-of is the IWM calendar.
+   days after the as-of through `arm_until` without the NYSE's market holidays (F5), the call path's own
+   `sessions_left` count (stated on the page). Everything up to the as-of is the IWM calendar.
 6. **The window's last day.** When `arm_until` equals the as-of the cell reads "last day of the entry window", not
    "entry window closed 0 sessions ago". A later date reads "entry window closed N sessions ago", N on IWM's bars.
 7. **IWM's calendar** is extended by any priced armed name's bar dated after IWM's last bar (the shared

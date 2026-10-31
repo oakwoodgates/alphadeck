@@ -6,8 +6,9 @@
 # (docker-compose.dev.yml, which omits cron), and the test suite never start it.
 #
 # - Schedules at RUN_AT in the container's TZ (set to US market close, e.g. America/New_York — never the
-#   default UTC), Mon-Fri only (markets closed on weekends -> no new EOD bars; a run would be an idempotent
-#   no-op + a needless API hit).
+#   default UTC), on market SESSIONS only: Mon-Fri minus the NYSE's full-day closures (F5, 2026-10-31). No
+#   session means no new EOD bars, and a call recorded for a night with no session ages every card a day (Labor
+#   Day 2026 got 11 call rows that way). The calendar is Python's (`is_session`, below), never a shell copy.
 # - FIRES FOR THE INTENDED NIGHT. The target as-of is fixed at SCHEDULE time (`target`, below) and passed
 #   as `--asof`; it is never re-read after the wait. A single long `sleep` used to overshoot by however long
 #   the host was suspended — MEASURED late fires at 23:37 / 23:43 / 23:49 ET, one at 00:24 the next day, and
@@ -44,7 +45,7 @@
 #   shape a re-run can fix. `--catch-up` stays as the guard anyway (belt-and-suspenders for the narrow
 #   case of a pass that wrote its artifact and then died). The retry sits BEFORE the in-loop catch-up
 #   window closes and before the nightly backup, so both still run after it.
-# - CATCHES UP the nights a long sleep ALSO skipped: after the scheduled run, every weekday strictly after
+# - CATCHES UP the nights a long sleep ALSO skipped: after the scheduled run, every session strictly after
 #   the target up to the last EXPECTED as-of at the instant the scheduled run FINISHES gets a `--catch-up`
 #   pass. The window closes AFTER the run, not at the wake: a live run takes 7-15 min, so a wake shortly
 #   before the next RUN_AT whose run crosses it (case F: target Tue, wake Wed 22:20, run ends 22:35) would
@@ -271,47 +272,62 @@ TERM_MENTIONS_RETRY_S="${TERM_MENTIONS_RETRY_S:-3600}"
 TERM_MENTIONS_RETRIES="${TERM_MENTIONS_RETRIES:-6}"
 [ "${TERM_MENTIONS_RETRIES}" -ge 0 ] 2>/dev/null || TERM_MENTIONS_RETRIES=6
 
-# --- schedule math (pure over their arguments; GNU date) ------------------------------------------------
+# --- schedule math (over their arguments; GNU date + the one session calendar, asked of Python) ----------
 
-# is_weekday YYYY-MM-DD -> true on Mon-Fri. The cron's calendar: holidays included, weekends out — the same
-# gate as pipeline/schedule.is_scheduled_day.
-is_weekday() {
+# is_session YYYY-MM-DD -> true on a market session: Mon-Fri minus the NYSE's full-day closures (F5,
+# 2026-10-31 — "market holidays are not sessions"). The calendar is NOT kept here: the shell asks Python's ONE
+# definition (domain/trading_days.is_scheduled_day, the predicate the call path and the Admin schedule math
+# read) through `python -m pipeline.schedule is-session D` — exit 0 = a session, 1 = not. Until F5 this was a
+# shell copy (`date +%u <= 5`, holidays included), so the nightly ran on Labor Day 2026, a night with no
+# session. FAIL-SAFE: any OTHER outcome (Python broken, an import error, a hang past the 30 s bound) logs ONE
+# loud line to stderr (stderr, so a caller's `$(...)` never captures it) and falls back to plain Mon-Fri, the
+# pre-F5 calendar — so a broken check can never stop the nightly; at worst it fires on a holiday, as it
+# always did before.
+is_session() {
+  _is_err=$(timeout -k 5 30 python -m pipeline.schedule is-session "$1" 2>&1 >/dev/null)
+  _is_rc=$?
+  case "${_is_rc}" in
+    0) return 0 ;;
+    1) return 1 ;;
+  esac
+  _is_err=$(printf '%s\n' "${_is_err}" | tail -n 1)
+  echo "daily-cron: SESSION CHECK FAILED for $1 (python -m pipeline.schedule is-session exit ${_is_rc}${_is_err:+: ${_is_err}}) — falling back to Mon-Fri" >&2
   [ "$(date -d "$1" +%u)" -le 5 ]
 }
 
-# next_weekday YYYY-MM-DD -> the first Mon-Fri date strictly AFTER it.
-next_weekday() {
+# next_session YYYY-MM-DD -> the first session (is_session) strictly AFTER it.
+next_session() {
   _nw=$(date -d "$1 + 1 day" +%F)
-  while ! is_weekday "${_nw}"; do
+  while ! is_session "${_nw}"; do
     _nw=$(date -d "${_nw} + 1 day" +%F)
   done
   echo "${_nw}"
 }
 
 # last_expected_asof EPOCH -> the most recent as-of whose scheduled run should ALREADY have fired by that
-# instant: that day itself once RUN_AT has passed on a weekday, else the most recent prior weekday
-# (pipeline/schedule.last_expected_asof, in shell).
+# instant: that day itself once RUN_AT has passed on a session, else the most recent prior session
+# (pipeline/schedule.last_expected_asof, in shell; both read the one calendar).
 last_expected_asof() {
   _le_today=$(date -d "@$1" +%F)
-  if is_weekday "${_le_today}" && [ "$(date -d "${_le_today} ${RUN_AT}" +%s)" -le "$1" ]; then
+  if is_session "${_le_today}" && [ "$(date -d "${_le_today} ${RUN_AT}" +%s)" -le "$1" ]; then
     echo "${_le_today}"
     return
   fi
   _le=$(date -d "${_le_today} - 1 day" +%F)
-  while ! is_weekday "${_le}"; do
+  while ! is_session "${_le}"; do
     _le=$(date -d "${_le} - 1 day" +%F)
   done
   echo "${_le}"
 }
 
-# catch_up_days TARGET LAST_EXPECTED -> the weekdays d with TARGET < d <= LAST_EXPECTED, one per line,
-# ascending (empty when nothing was skipped). Pure — the list the runner below walks.
+# catch_up_days TARGET LAST_EXPECTED -> the sessions d with TARGET < d <= LAST_EXPECTED, one per line,
+# ascending (empty when nothing was skipped). The list the runner below walks.
 catch_up_days() {
-  _cd=$(next_weekday "$1")
+  _cd=$(next_session "$1")
   _cd_end=$(date -d "$2" +%Y%m%d)
   while [ "$(date -d "${_cd}" +%Y%m%d)" -le "${_cd_end}" ]; do
     echo "${_cd}"
-    _cd=$(next_weekday "${_cd}")
+    _cd=$(next_session "${_cd}")
   done
 }
 
@@ -663,7 +679,7 @@ term_mentions_loop() {
 
 # --- the trigger ------------------------------------------------------------------------------------------
 
-echo "daily-cron: scheduled for ${RUN_AT} (${TZ:-UTC}), Mon-Fri — the daily CLI is idempotent + force-refreshes"
+echo "daily-cron: scheduled for ${RUN_AT} (${TZ:-UTC}), market sessions (Mon-Fri minus NYSE closures) — the daily CLI is idempotent + force-refreshes"
 # the failure signals' state, in one line the deploy check can read (on/off only: the URLs are credentials)
 _hb_run=off
 [ -n "${HEARTBEAT_URL}" ] && _hb_run=on
@@ -674,7 +690,7 @@ echo "daily-cron: each pass bounded at ${RUN_TIMEOUT_S}s · heartbeat ${_hb_run}
 # R6 — CATCH-UP ON BOOT, for the LAST EXPECTED night. A rebuild/restart AFTER today's RUN_AT re-anchors the
 # loop to TOMORROW and would silently skip tonight (Flag 6 — every `docker compose up` after the close dropped
 # a night, invisibly). `last_expected_asof(now)` is the most recent as-of whose scheduled run should ALREADY
-# have fired: today once RUN_AT has passed on a weekday, else the most recent prior weekday (always a weekday
+# have fired: today once RUN_AT has passed on a session, else the most recent prior session (always a session
 # — no separate gate). The old block was TODAY-ONLY ("booted past today's RUN_AT?"), which covered a rebuild
 # after the close but NOT a host that was OFF at RUN_AT and came back the next day: on 2026-09-09 prod was off
 # at 22:30, rebooted 03:34, and Docker (this sidecar) came back at 13:47 on Sep 10 — before Sep 10's RUN_AT, so
@@ -713,9 +729,9 @@ else
   fi
 fi
 # THE NIGHTS THE BOOT BLOCK ITSELF CROSSED. The wait + the catch-up + its retry can run for many minutes,
-# and the loop below anchors on the clock it finds: a block that ends past today's RUN_AT on a weekday gets
+# and the loop below anchors on the clock it finds: a block that ends past today's RUN_AT on a session gets
 # `next` = tomorrow, and tonight would never fire (a boot at 22:20 whose block ends at 22:35). Catch up
-# every weekday strictly after the boot target up to the last expected as-of NOW — exactly the nights that
+# every session strictly after the boot target up to the last expected as-of NOW — exactly the nights that
 # became expected during the block (empty on almost every boot), never an older one.
 catch_up_between "${_boot_target}" "$(last_expected_asof "$(date +%s)")" "boot block crossed ${RUN_AT}"
 # M3 — THE BOOT'S SNAPSHOT, after the catch-up so it holds the night just landed. The nightly dump used to
@@ -766,7 +782,7 @@ while :; do
     # the sleep drift, visible without forensics (a suspended laptop; the measured 23:37 / 00:24 / 09:09 wakes)
     echo "daily-cron: LATE WAKE — $(date) is ${late_min} min past the scheduled $(date -d "@${next}")"
   fi
-  if is_weekday "${target}"; then
+  if is_session "${target}"; then
     # the same bounded, fail-open DB wait as the boot (quiet when the DB is up): a Postgres restarting at
     # RUN_AT costs up to DB_WAIT_S of delay instead of a failed run and a RETRY_DELAY_S retry
     wait_for_db "scheduled run ${target}"
@@ -817,17 +833,17 @@ while :; do
       fi
     fi
   else
-    echo "daily-cron: $(date) — weekend (asof ${target}), no scheduled run"
+    echo "daily-cron: $(date) — not a market session (asof ${target}: a weekend or a market holiday), no scheduled run"
   fi
   # A long sleep can skip MORE than the target night (a weekend target that wakes on Tuesday skipped Monday):
-  # catch up every weekday strictly after the target up to the last expected as-of at the instant the run
+  # catch up every session strictly after the target up to the last expected as-of at the instant the run
   # above FINISHED — the clock NOW, not `woke`. A live run takes 7-15 min; anchored at the wake, a run that
   # crossed the next RUN_AT (case F in the header) lost that night — the window did not include it yet, and
   # the loop then re-anchored `next` past it. `woke` stays for the LATE WAKE line only.
   after=$(date +%s)
   _last=$(last_expected_asof "${after}")
   catch_up_between "${target}" "${_last}"
-  if is_weekday "${target}" || [ -n "$(catch_up_days "${target}" "${_last}")" ]; then
+  if is_session "${target}" || [ -n "$(catch_up_days "${target}" "${_last}")" ]; then
     # Slice 4 — a nightly DB snapshot right after the daily pass, ONCE PER WAKE (not per catch-up day),
     # fail-open (a failed backup never kills the loop). Deliberately in the SCHEDULING layer, NOT folded
     # into run_daily_pass (so the manual "Run daily now" button does not also dump). Retention

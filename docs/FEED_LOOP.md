@@ -247,8 +247,20 @@ Workbench pull) and the SPY/IWM leg — first passes the fresh pull through `ing
   the scheduled pass always stores its own night's bar;
 - **today's** bar is withheld before 18:00, and a withheld bar is dropped from BOTH the tail and the
   restatement compare (an in-progress value can neither append nor re-version a stored bar);
-- a **future-dated** bar is never settled; a **holiday** has no vendor bar, so nothing to withhold; a
-  **half-day** bar (13:00 close) is held until 18:00 too — conservative, never a loss.
+- a **future-dated** bar is never settled; a **half-day** bar (13:00 close) is held until 18:00 too —
+  conservative, never a loss;
+- a bar dated a day with **no session** — a weekend or an NYSE full-day closure, the ONE session calendar
+  (`domain.trading_days.is_scheduled_day`, F5, 2026-10-31) — is never a close at all: right after the settle
+  guard, `settle.withhold_closed_days` drops it from every write path and, unlike an unsettled bar, no later
+  pass stores it. A holiday normally has no vendor bar, but the vendor does print OTC carries on one
+  (MEASURED on dev: 10 bars dated Labor Day 2026-09-07, all OTC — AAPI, AGNPF, CNBX, EHVVF, ENDV, GMER, MVNC,
+  RAPH, RLBY, VUECF — each flat: open = high = low, close = the prior close, a token volume). The pass says
+  so in ONE quiet line (`N bar(s) on M name(s) dated a day with no market session … — not stored`; the
+  benchmark line's `, N bar(s) dated a day with no session not stored`). The bars already stored stay (nothing
+  is deleted) and are skipped on READ in one place, `signals.base.window_prices` — the post-process every
+  point-in-time price view (live and the replay mirror) shares — so no detector, display signal or dashboard
+  sees a holiday bar; the read skips the NYSE closures only, never weekends (no weekend bar was the stored
+  anomaly, and synthetic test tapes are often calendar-day series).
 - **Withholding never loses a bar**: the tail is "newer than the latest STORED bar", so the next settled
   pass appends it as an ordinary new bar. The pass says so ONCE, quietly — `N name(s): today's in-progress
   bar withheld …` (deduped across theses), and the benchmark line's `, N unsettled bar(s) withheld`.
@@ -2184,6 +2196,28 @@ written):
 
 The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
 
+- **It fires on market SESSIONS: Mon-Fri minus the NYSE's full-day closures (F5, 2026-10-31)** `[BUILT]`.
+  The calendar lives in ONE place, `domain/trading_days.py` (`is_scheduled_day` over a hand-kept closure list,
+  2020-2028, each date checked against the NYSE's published calendars; a half-day close IS a session; a test
+  fails once the list ends within 180 days of today). Until F5 the shell kept its own copy (`date +%u <= 5`,
+  holidays included), so Labor Day 2026 got a nightly pass and 11 call rows for a night with no session. Now
+  the shell's `is_session` asks Python — `python -m pipeline.schedule is-session YYYY-MM-DD`, exit 0 = a
+  session, 1 = not — and its `next_session` / `last_expected_asof` / `catch_up_days` walk that answer. A
+  holiday target logs `not a market session (asof D: a weekend or a market holiday), no scheduled run`.
+  **Fail-safe:** any other outcome (Python broken, an import error, a hang past 30 s) logs ONE loud line
+  (`daily-cron: SESSION CHECK FAILED for D (… exit N: …) — falling back to Mon-Fri`, to stderr) and answers
+  plain Mon-Fri, the pre-F5 calendar — so a broken check can never stop the nightly; at worst it runs on a
+  holiday. Every Python reader follows the same predicate: the Admin expected-run / missed-night math
+  (`pipeline/schedule.py`), the entry-window count
+  (`sessions_left`), the split session distance (`domain.splits.session_distance`, which the split-night hold
+  reads), the editions' and the backtest's pages (`replay/harness.trading_sessions`, now bar dates
+  intersected with the calendar — Edition 1 holds 4 pages dated Labor Day from the OTC carries), and the
+  shell sweep's weekly re-enrich (the week's FIRST session, so a
+  Monday holiday moves it to Tuesday). One reader deliberately does NOT: the on-time window's end
+  (`night_coverage.next_edgar_open`) stays the next WEEKDAY, holidays included — it is EDGAR's open, and
+  EDGAR keeps SEC business days (it accepts filings on Good Friday), so the weekday rule can only over-flag
+  a row as late. The external heartbeat's own schedule (healthchecks.io, Mon-Fri) is
+  configured outside the repo: on a holiday it expects a ping no pass sends.
 - **A second schedule: the staged cold-ingest job (X1, 2026-10-21)** `[BUILT]`. After the boot block, the
   sidecar starts `onboard_loop` in the BACKGROUND: `timeout -k 60 ONBOARD_TIMEOUT_S python -m
   pipeline.onboarding --run-kind cron`, then a sliced `wait_until` of `ONBOARD_EVERY_S` (compose
@@ -2283,8 +2317,8 @@ The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
   otherwise lose Wed outright — a wake-anchored window did not include it yet, and the loop then re-anchored
   `next` to Thu. Bounded by construction — it walks *forward* from the target
   it just fired for, never backwards, so a deploy can never silently backfill old holes. The nightly backup
-  still runs once per wake. The shell's `is_weekday` / `next_weekday` / `last_expected_asof` mirror
-  `pipeline/schedule.py` — keep the two in step. The run artifact carries `catch_up: true` (the Admin
+  still runs once per wake. The shell's `next_session` / `last_expected_asof` mirror `pipeline/schedule.py`
+  — keep the two in step; since F5 the calendar itself is not mirrored (`is_session` asks Python, above). The run artifact carries `catch_up: true` (the Admin
   history tags the row). A catch-up used to skip the R4 freeze page outright (it ran inside the EDGAR cache's
   12h TTL and legitimately fetched ~0); since G1's five-minute recurring TTL it re-pulls every company it
   ingests, so since O5 its freeze page judges the theses it processed like any pass and leaves out only the

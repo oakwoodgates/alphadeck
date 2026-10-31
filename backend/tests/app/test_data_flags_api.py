@@ -13,6 +13,7 @@ from pathlib import Path
 
 from db.session import DEFAULT_TENANT_ID
 from domain import market_time
+from domain.trading_days import is_scheduled_day
 from pipeline import fundamentals_lag
 from repositories import split_repo
 from tests.pipeline.test_data_flags import view
@@ -152,10 +153,12 @@ def test_todays_view_says_secs_data_is_behind_and_marks_a_short_history_quietly(
         cur.executemany(
             "INSERT INTO fact_price_eod (tenant_id, security_id, d, close, volume, valid_from) "
             "VALUES (%s, %s, %s, %s, %s, %s)",
-            [(DEFAULT_TENANT_ID, sid, d, 70.0, 1_000_000, d) for d in days if d.weekday() < 5],
+            # sessions only — no bar on an NYSE closure, as a vendor serves none (F5: the view skips one;
+            # 120 days before a late-October today lands on 07-03, the observed Independence Day)
+            [(DEFAULT_TENANT_ID, sid, d, 70.0, 1_000_000, d) for d in days if is_scheduled_day(d)],
         )
     db.commit()
-    first_bar = min(d for d in days if d.weekday() < 5)
+    first_bar = min(d for d in days if is_scheduled_day(d))
     before = _count(db)
     card_before = client.get(f"/theses/{tid}/call", params={"asof": str(pinned_today)}).json()
 

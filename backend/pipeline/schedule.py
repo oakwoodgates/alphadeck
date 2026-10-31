@@ -1,4 +1,4 @@
-"""Pure Mon-Fri + RUN_AT schedule math — "when was the daily cron last EXPECTED to have run?"
+"""Pure session + RUN_AT schedule math — "when was the daily cron last EXPECTED to have run?"
 
 The schedule's source of truth was SHELL-ONLY at first (``scripts/daily_cron.sh``: sleep until RUN_AT in
 the container's TZ, Mon-Fri, plus the R6 catch-up). The admin freshness read needs the same contract in
@@ -7,25 +7,29 @@ env read) that the status endpoint and its tests share.
 
 Two deliberate modeling choices:
 
-- **The TRIGGER's calendar, not the exchange's.** The cron fires Mon-Fri INCLUDING market holidays (a
-  holiday run is an idempotent near-no-op), so "expected" here is Mon-Fri too. A Monday-holiday evening
-  therefore expects a run — which the trigger genuinely fires — and a weekend never expects one, so a
-  Friday-dated record read on a Monday morning is NOT stale (the don't-cry-wolf case the spec names).
+- **The exchange's session calendar, and the trigger reads the same one (F5, 2026-10-31).** A night is
+  scheduled when its date is a market session: Mon-Fri minus the NYSE's full-day closures
+  (``domain.trading_days.is_scheduled_day``). Until F5 the trigger fired Mon-Fri INCLUDING holidays, so a
+  holiday evening expected a run and got one (Labor Day 2026: 11 call rows for a night with no session).
+  Now a holiday expects no run — so a Wednesday-dated record read on Thanksgiving Friday morning is NOT
+  stale — and the shell gets its answer from here (``python -m pipeline.schedule is-session D``, below)
+  instead of keeping a copy. A weekend never expects one, so a Friday-dated record read on a Monday morning
+  is NOT stale either (the don't-cry-wolf case the spec names).
 - **MARKET time, resolved by the caller.** The routers pass ``domain/market_time.market_now()`` (an
   explicit ``ZoneInfo``, no longer the container's ambient clock) plus the RUN_AT wall time. No TZ math
   lives here — and the injected ``now`` may be aware or naive, since ``.time()`` drops the tzinfo, so the
   RUN_AT comparison stays naive-vs-naive either way.
 
-EARMARK (consultant watch-item): this is still the SECOND home of the Mon-Fri + RUN_AT contract — the
-shell's sleep-loop is the first, and ``market_today()`` does NOT unify them (it answers "what day is it in
-market time", deliberately doing NO trading-calendar logic — no weekend skip, no holidays). The Mon-Fri
-schedule math belongs HERE (the bare weekday predicate ``is_scheduled_day`` is defined in
-``domain/trading_days.py`` and imported, so the call path can share it without importing ``pipeline``;
-since F1 ``parse_run_at`` and ``last_expected_asof`` are defined there too, because the app's current night,
-``domain/market_time.current_night``, is built on them); the remaining consolidation is shrinking the
-shell to a dumb trigger. Until
-then keep the two in step — concretely, the shell's ``is_weekday`` / ``next_weekday`` /
-``last_expected_asof`` mirror ``is_scheduled_day`` / ``last_expected_asof`` here, and since 2026-09-10 the
+EARMARK (consultant watch-item): this is still the SECOND home of the RUN_AT loop — the shell's sleep-loop
+is the first, and ``market_today()`` does NOT unify them (it answers "what day is it in market time",
+deliberately doing NO trading-calendar logic — no weekend skip, no holidays). The CALENDAR is no longer
+duplicated: the session predicate ``is_scheduled_day`` is defined once in ``domain/trading_days.py``
+(imported here, so the call path can share it without importing ``pipeline``; since F1 ``parse_run_at`` and
+``last_expected_asof`` are defined there too, because the app's current night,
+``domain/market_time.current_night``, is built on them), and since F5 the shell's
+``is_session`` asks it through this module's CLI — exit 0 = a session, 1 = not, anything else = the shell's
+fail-safe Mon-Fri fallback plus one loud log line. What remains duplicated is the loop shape: the shell's
+``next_session`` / ``last_expected_asof`` mirror ``last_expected_asof`` here, and since 2026-09-10 the
 shell's BOOT path targets ``last_expected_asof(now)`` too (the last expected night — exactly one, never
 older), the same function its late-wake catch-up window closes on.
 
@@ -40,22 +44,30 @@ here is the hole-aware read that makes such a night VISIBLE on the admin surface
 
 from __future__ import annotations
 
-from collections.abc import Collection
+import argparse
+import sys
+from collections.abc import Collection, Sequence
 from datetime import date, timedelta
 
-# The cron's Mon-Fri gate (the shell's ``date +%u <= 5``) — holidays included, weekends out. DEFINED in
+# The cron's session gate — Mon-Fri minus the NYSE's full-day closures (F5). DEFINED in
 # ``domain/trading_days.py`` since Q14 (the call path counts entry-window sessions with it, and ``calls``
-# must never import ``pipeline``); imported here so this module's math and every
-# ``from pipeline.schedule import is_scheduled_day`` caller read the ONE definition. ``parse_run_at`` and
-# ``last_expected_asof`` followed it there in F1 (2026-10-30): the app's "current night"
+# must never import ``pipeline``); imported here so this module's math, the shell (through ``main`` below)
+# and every ``from pipeline.schedule import is_scheduled_day`` caller read the ONE definition. ``parse_run_at``
+# and ``last_expected_asof`` followed it there in F1 (2026-10-30): the app's "current night"
 # (``domain/market_time.current_night``) is built on them and the serve path reads it, so they are domain math
 # too; re-exported here, so every ``from pipeline.schedule import ...`` caller is unchanged.
-from domain.trading_days import is_scheduled_day, last_expected_asof, parse_run_at
+from domain.trading_days import (
+    is_scheduled_day,
+    last_expected_asof,
+    parse_run_at,
+    why_not_a_session,
+)
 
 __all__ = [
     "expected_runs_behind",
     "is_scheduled_day",
     "last_expected_asof",
+    "main",
     "missed_asofs",
     "parse_run_at",
     "scheduled_window",
@@ -63,7 +75,7 @@ __all__ = [
 
 
 def expected_runs_behind(edge: date | None, expected: date) -> int | None:
-    """How many SCHEDULED runs (weekdays in ``(edge, expected]``) the record edge has missed. ``0`` =
+    """How many SCHEDULED runs (sessions in ``(edge, expected]``) the record edge has missed. ``0`` =
     current — a Friday edge on a Monday MORNING is 0 behind (no run was due yet; don't cry wolf over a
     weekend), the same edge Monday NIGHT is 1 behind. ``None`` when ``edge is None``: a record that never
     began has no schedule to be behind — the QUIET fresh-install state, never an alarm."""
@@ -97,11 +109,46 @@ def missed_asofs(
     """The HOLES: scheduled days in the last ``window`` scheduled days ending at ``expected`` (inclusive)
     that have NO call-of-record in ``recorded``, restricted to ``d >= first`` (``first`` = the earliest
     recorded as-of, so a record that began mid-window is not "missing" its pre-history; ``None`` = the
-    record never began → ``[]``, the quiet fresh-install state). Ascending. Weekends are never listed
-    (never scheduled). The edge check (``expected_runs_behind``) sees only MAX(asof) — a run that fired on
+    record never began → ``[]``, the quiet fresh-install state). Ascending. Weekends and market holidays
+    are never listed (never scheduled). The edge check (``expected_runs_behind``) sees only MAX(asof) — a run that fired on
     the wrong day advances the edge right over the night it skipped; this read sees the night. When the
     expected day itself is missing it appears here AND counts as 1 behind — the caller's verdict priority
     decides the wording (stale wins)."""
     if first is None:
         return []
     return [d for d in scheduled_window(expected, window) if d >= first and d not in recorded]
+
+
+# --- the shell's question: ``python -m pipeline.schedule is-session YYYY-MM-DD`` -------------------------
+# The sidecar (``scripts/daily_cron.sh`` ``is_session``) cannot import the closure list, so it asks here.
+# The EXIT CODE is the answer — 0 = a session, 1 = not (a weekend or a market holiday) — and one line on
+# stdout says which, for a human at a prompt. Anything else (2 for a malformed date — argparse's usage
+# exit — or a crash) is NOT an answer: the shell then logs one loud line and falls back to Mon-Fri, so a
+# broken check never stops the nightly. Imports only ``domain.trading_days``: no DB, no settings, no clock.
+
+SESSION = 0
+NOT_A_SESSION = 1
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="python -m pipeline.schedule",
+        description="The session calendar the cron sidecar fires on (Mon-Fri minus NYSE full-day closures).",
+    )
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    p = sub.add_parser(
+        "is-session",
+        help="exit 0 when the date is a market session, 1 when it is not (a weekend or a market holiday)",
+    )
+    p.add_argument("day", type=date.fromisoformat, help="YYYY-MM-DD")
+    args = parser.parse_args(argv)
+    why = why_not_a_session(args.day)
+    if why is None:
+        print(f"{args.day}: a market session")
+        return SESSION
+    print(f"{args.day}: not a session ({why})")
+    return NOT_A_SESSION
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -206,7 +206,7 @@ export function leftCell(r: HotRowOut): Cell {
   if (c.sessions_left !== null) {
     return {
       text: String(c.sessions_left),
-      title: `${plural(c.sessions_left, "session", "sessions")} left after the as-of through ${c.arm_until} (Mon to Fri; a market holiday counts)${r.entry_window_closing ? ". Entry window closing." : ""}`,
+      title: `${plural(c.sessions_left, "session", "sessions")} left after the as-of through ${c.arm_until} (Mon to Fri; a market holiday does not count)${r.entry_window_closing ? ". Entry window closing." : ""}`,
       accent: r.entry_window_closing,
     };
   }

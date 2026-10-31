@@ -335,9 +335,9 @@ def sessions_since(calendar: Sequence[date], arm: date | None, asof: date) -> in
 
 
 def sessions_left(asof: date, until: date) -> int:
-    """The Mon-Fri sessions strictly after ``asof`` through ``until`` (inclusive): how many more an entry window
-    ending on ``until`` stays open once the as-of's session is done. ``0`` when ``until <= asof``. The call path's
-    own count (``calls.assembler.sessions_left``, ``domain.trading_days``): market holidays count as sessions.
+    """The sessions strictly after ``asof`` through ``until`` (inclusive): how many more an entry window ending on
+    ``until`` stays open once the as-of's session is done. ``0`` when ``until <= asof``. The call path's own count
+    (``calls.assembler.sessions_left``, ``domain.trading_days``): Mon-Fri minus the NYSE's market holidays (F5).
     """
     n, d = 0, asof + timedelta(days=1)
     while d <= until:
