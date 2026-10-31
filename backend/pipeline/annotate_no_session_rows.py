@@ -10,8 +10,8 @@ are on them). They stay in the immutable log — they ARE what the system said �
 
 THE RULE. A row is a **no-session night** when ``not domain.trading_days.is_scheduled_day(row.asof)`` — the
 ONE session calendar the call path and the cron schedule already share. This CLI keeps NO calendar of its own:
-today the predicate is Mon-Fri, so it finds the weekend rows; when the holiday-aware calendar lands it finds
-the holiday rows with no change here. Only HONEST rows are looked at (``NOT reconstructed``): a reconstructed
+since F5 the predicate is Mon-Fri minus the NYSE's full-day closures, so it finds the weekend rows AND the
+holiday rows (Labor Day 2026-09-07) with no change here. Only HONEST rows are looked at (``NOT reconstructed``): a reconstructed
 row is already set aside by its own flag, and a second judgment on it would add nothing.
 
 THE ANNOTATION (the D3b shape — ``pipeline.annotate_phantom_arms``, no migration). ``calls`` is immutable (the

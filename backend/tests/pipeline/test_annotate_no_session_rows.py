@@ -100,16 +100,18 @@ def test_finds_the_weekend_dated_honest_rows_and_nothing_else(db, ledger):
 
 
 def test_the_cli_follows_the_one_session_calendar_and_keeps_none_of_its_own(db, monkeypatch):
-    """DIRECT-INPUT contract: swap ``is_scheduled_day`` for a holiday-aware predicate (what the sibling
-    calendar fix delivers) and the Labor Day row is found with no change to the CLI."""
+    """The CLI reads the ONE session calendar and keeps none of its own. Since F5 (market holidays are not
+    sessions) the real predicate skips Labor Day, so the Labor Day row is found; swap it back to plain Mon-Fri
+    (the calendar before F5) and the same row is a session day again — no change to the CLI either way.
+    """
     a = _thesis(db, "Alpha Card")
     friday = record_day(db, a, [], date(2026, 9, 4))
     labor_day = record_day(db, a, [], _LABOR_DAY, run_kind="manual")
-    assert ans.find_rows(db) == []  # Mon-Fri today: a holiday is a session day
-    monkeypatch.setattr(ans, "is_scheduled_day", lambda d: d.weekday() < 5 and d != _LABOR_DAY)
-    (row,) = ans.find_rows(db)
+    (row,) = ans.find_rows(db)  # the real calendar: a market holiday is not a session
     assert row.call_id == labor_day and row.weekday == "Monday"
     assert row.call_id != friday
+    monkeypatch.setattr(ans, "is_scheduled_day", lambda d: d.weekday() < 5)
+    assert ans.find_rows(db) == []  # plain Mon-Fri: a holiday counted as a session day
 
 
 # --- the CLI: dry run, apply, re-apply — counting the table -------------------------------------------------
