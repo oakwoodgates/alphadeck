@@ -24,9 +24,9 @@ The rules, in one place:
 - **Sessions** are counted on the IWM bar calendar (``dashboards/series.py::session_calendar``), the arm night
   excluded and the later date included: ``sessions_between(calendar, a, b)`` = the sessions ``d`` with
   ``a < d <= b``. "Into the window" = ``(arm night, as-of]`` on the bars. "Left to ``arm_until``" = the sessions
-  strictly after the as-of through ``arm_until``; no bar exists after the as-of, so those are the Mon-Fri days the
-  call path's own ``sessions_left`` counts (``domain/trading_days.py``: a market holiday is counted as a session,
-  stated on the page). At or past ``arm_until`` the window is closed: ``(arm_until, as-of]`` on the bars.
+  strictly after the as-of through ``arm_until``; no bar exists after the as-of, so those are the sessions the
+  call path's own ``sessions_left`` counts (``domain/trading_days.py``: Mon-Fri minus the NYSE's market holidays,
+  F5, stated on the page). At or past ``arm_until`` the window is closed: ``(arm_until, as-of]`` on the bars.
 - **Since the arm night.** As traded (the view's split scale, no dividends): the first close on or after the arm
   night to the last close on or before the as-of (the Scoreboard's entry rule: the arm night's own close). A row
   shows the median over its priced armed names (with n), IWM and SPY over the same span, and how many names sit above
@@ -39,6 +39,9 @@ The rules, in one place:
   ``lapsing``) are true when ANY armed member's own flag is true (operator decision 2026-10-30), so the page's one
   accent marks a card whose second name's window is closing, not only the headline name's; a card with no armed
   member records neither.
+- **Countdowns count from the origin (F2).** ``hold_days`` (days to ``exit_by``) and a catalyst's ``passed`` flag are
+  COUNTDOWNS, so they count from ``origin`` (``domain.market_time.countdown_origin``: the action day on a live view,
+  the as-of on a past one; the as-of when none is given). The session counts above stay on the as-of.
 - **The member clocks.** The row's own figures count to the CARD's ``arm_until`` / ``exit_by`` (the headline
   member's, ``armed_members[0]``), so a row marked by another name carries that name's own clock: one ``MemberClock``
   per armed member (each once) whose own ``entry_window_closing`` or ``lapsing`` is true, with the sessions left
@@ -64,7 +67,7 @@ from dashboards.series import aligned, chain, line_start, session_calendar
 from domain.call import CallCard, MemberCall, TriggerRef
 from domain.enums import Grade, Kind, State
 from domain.thesis import Catalyst
-from domain.trading_days import is_scheduled_day
+from domain.trading_days import is_scheduled_day, next_scheduled_day
 
 BENCHMARKS: tuple[str, ...] = ("IWM", "SPY")  # IWM's bars are the session calendar
 # the axis starts this many sessions before the earliest arm night
@@ -173,8 +176,9 @@ def sessions_between(calendar: Sequence[date], a: date, b: date) -> int:
 
 
 def weekdays_between(a: date, b: date) -> int:
-    """The Mon-Fri days ``d`` with ``a < d <= b``: the call path's own session count
-    (``calls.assembler.sessions_left``; a market holiday counts as a session, ``domain/trading_days.py``).
+    """The sessions ``d`` with ``a < d <= b`` on the ONE session calendar (Mon-Fri minus the NYSE's full-day
+    closures, ``domain/trading_days.py``, F5): the call path's own count (``calls.assembler.sessions_left``).
+    The name predates F5, when holidays counted.
     """
     n = 0
     d = a + timedelta(days=1)
@@ -189,14 +193,31 @@ def entry_clock(
     calendar: Sequence[date], asof: date, arm_until: date | None
 ) -> tuple[int | None, int | None]:
     """``(sessions left, sessions since it closed)`` for the entry window, one of them set: ``None, None`` with no
-    ``arm_until``; ``(left, None)`` while ``arm_until`` is after the as-of; ``(None, closed)`` at or past it, with
-    ``closed`` = the bar sessions after ``arm_until`` through the as-of (``0`` on the window's last day).
+    ``arm_until``; ``(left, None)`` while the window is open; ``(None, closed)`` once it is not, with ``closed`` = the
+    bar sessions after ``arm_until`` through the as-of. Open = the first session after the as-of is on or before
+    ``arm_until`` (F3 — the call path's own lapse test, ``signals.common.entry_signal_is_live``), so an open window
+    has at least one session left; a closed one reads ``0`` until a session after ``arm_until`` has printed (a
+    recorded card from before F3 could be Armed on its window's own last night, with no session left).
     """
     if arm_until is None:
         return None, None
-    if arm_until > asof:
+    if next_scheduled_day(asof) <= arm_until:
         return weekdays_between(asof, arm_until), None
     return None, sessions_between(calendar, arm_until, asof)
+
+
+def last_session(asof: date, arm_until: date | None) -> date | None:
+    """The entry window's LAST SESSION — the latest session on or before ``arm_until`` (``arm_until`` itself unless
+    it falls on a weekend or a market holiday) — while the window is open on night ``asof`` (``entry_clock``'s test,
+    F3), else ``None``. With one session left it is the first session after the as-of: the day the page names in
+    "1 session left: <date>". On the ONE session calendar (``domain/trading_days.py``), so a future date with no IWM
+    bar is known."""
+    if arm_until is None or next_scheduled_day(asof) > arm_until:
+        return None
+    d = arm_until
+    while not is_scheduled_day(d):
+        d -= timedelta(days=1)
+    return d
 
 
 @dataclass(frozen=True)
@@ -214,6 +235,7 @@ class MemberClock:
     arm_until: date | None
     sessions_left: int | None
     closed_ago: int | None
+    last_session: date | None  # the window's last session while it is open (``last_session``)
 
 
 def member_clocks(
@@ -240,6 +262,7 @@ def member_clocks(
             arm_until=m.arm_until if m.entry_window_closing else None,
             sessions_left=left,
             closed_ago=closed,
+            last_session=last_session(asof, m.arm_until) if m.entry_window_closing else None,
         )
     return tuple(out.values())
 
@@ -384,10 +407,10 @@ def window_end(arm_until: date | None, exit_by: date | None) -> date | None:
 
 
 def catalysts_in_window(
-    catalysts: Iterable[Catalyst], start: date, end: date | None, asof: date
+    catalysts: Iterable[Catalyst], start: date, end: date | None, origin: date
 ) -> tuple[CatalystTick, ...]:
     """The dated catalysts with ``start <= date <= end`` (a card with no clock to bound them places none), each
-    once by id, by date then label."""
+    once by id, by date then label. ``passed`` = dated before the countdown ``origin`` (F2)."""
     if end is None:
         return ()
     seen: set[UUID] = set()
@@ -396,7 +419,7 @@ def catalysts_in_window(
         if c.when_date is None or not (start <= c.when_date <= end) or c.id in seen:
             continue
         seen.add(c.id)
-        out.append(CatalystTick(c.label, c.kind, c.when_date, c.when_date < asof))
+        out.append(CatalystTick(c.label, c.kind, c.when_date, c.when_date < origin))
     out.sort(key=lambda t: (t.when_date, t.label))
     return tuple(out)
 
@@ -487,6 +510,7 @@ class Row:
     sessions_into: int | None
     sessions_left: int | None
     closed_ago: int | None
+    last_session: date | None  # the window's last session while open (F3)
     hold_days: int | None
     member_clocks: tuple[MemberClock, ...]
     catalysts: tuple[CatalystTick, ...]
@@ -561,14 +585,17 @@ def entry_windows(
     asof: date,
     live_cards: int,
     not_yet_created: int = 0,
+    origin: date | None = None,
 ) -> EntryWindows:
-    """The whole page for ``asof``.
+    """The whole page for ``asof``. ``origin`` = where the countdowns (``hold_days``, a catalyst's ``passed``) count
+    from (F2); the as-of when none is given.
 
     ``cards`` = the counted cards ``(id, name)``; ``nights`` = each card's ``calls`` rows at or before the as-of;
     ``recorded`` = the winning card of every night of every run, keyed ``(thesis id, night)``; ``closes`` = the
     armed names' closes (a flagged name need not be there: it is never read); ``flagged`` = ``security_id ->
     reason`` from ``price_flags``; ``bench`` = ``{"IWM": {day: close}, "SPY": ...}``.
     """
+    origin = origin or asof
     ordered = sorted(cards, key=lambda c: (c[1].casefold(), str(c[0])))
     runs: dict[UUID, Run] = {}
     states = {"warming": 0, "incubating": 0, "managing_no_run": 0, "no_call": 0}
@@ -654,13 +681,14 @@ def entry_windows(
                 sessions_into=sessions_between(calendar, arm_night, asof) if calendar else None,
                 sessions_left=left,
                 closed_ago=closed,
-                hold_days=(card.exit_by - asof).days if card.exit_by is not None else None,
+                last_session=last_session(asof, card.arm_until),
+                hold_days=(card.exit_by - origin).days if card.exit_by is not None else None,
                 member_clocks=member_clocks(card.armed_members, tickers, calendar, asof),
                 catalysts=catalysts_in_window(
                     card.catalyst_surface,
                     arm_night,
                     window_end(card.arm_until, card.exit_by),
-                    asof,
+                    origin,
                 ),
                 members=tuple(members),
                 since=row_since(sids, closes, flagged, bench, arm_night, asof),

@@ -104,6 +104,35 @@ def pinned_today(monkeypatch) -> date:
 
 
 @pytest.fixture
+def pin_market_clock(monkeypatch):
+    """Pin the market clock at an EXACT instant for one test: ``pin_market_clock(instant)`` (an AWARE datetime).
+
+    ``pinned_today`` freezes the clock at whatever instant the fixture happens to run, which is enough for a test
+    that only needs the DAY to hold still. A test that depends on the TIME of day (F2: the current night, and so the
+    action day a countdown counts from, change at the 22:30 pass) pins the instant itself. Same seam as
+    ``pinned_today`` (``domain.market_time.market_now``), so ``market_today`` / ``market_clock`` / ``current_night``
+    and every route they serve read the one pinned instant. The pass time and zone are the defaults the suite's
+    environment sets (an unset ``ALPHADECK_CRON_AT`` / ``ALPHADECK_MARKET_TZ``); transaction time is not pinned.
+    """
+    from domain import market_time
+    from domain.settings import get_settings
+
+    monkeypatch.delenv("ALPHADECK_CRON_AT", raising=False)
+    monkeypatch.delenv("ALPHADECK_MARKET_TZ", raising=False)
+    get_settings.cache_clear()
+
+    def pin(instant) -> None:
+        monkeypatch.setattr(
+            market_time,
+            "market_now",
+            lambda tz=None: instant.astimezone(tz or market_time.market_tz()),
+        )
+
+    yield pin
+    get_settings.cache_clear()
+
+
+@pytest.fixture
 def security_id(db) -> uuid.UUID:
     """Insert one security_master row so facts have something to reference."""
     sid = uuid.uuid4()

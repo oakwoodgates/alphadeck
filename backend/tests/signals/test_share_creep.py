@@ -14,6 +14,7 @@ from domain.config import DEFAULT_CONFIG
 from domain.enums import Kind, Role, State
 from signals import share_creep
 from tests.calls.factories import ASOF, SID, breakout_event, insider_event, make_thesis
+from tests.session_days import last_session_through
 
 
 def _row(
@@ -122,13 +123,17 @@ def test_declines_on_a_gap_in_the_series():
     assert share_creep.score(rows, SID, _UEC_ASOF) is None
 
 
-def test_declines_when_the_series_goes_dark_inclusive_at_the_horizon():
-    """Freshness is DETECTOR-enforced on the newest point's filed date: live inclusively AT the
-    liveness horizon, gone one day past — a stopped filer's stale series asserts nothing about today.
+def test_declines_when_the_series_goes_dark_at_the_horizon():
+    """Freshness is DETECTOR-enforced on the newest point's filed date: live while the first session after
+    the night is inside the liveness horizon (F3), gone on the horizon's last session's own night — a
+    stopped filer's stale series asserts nothing about today.
     """
-    horizon = date(2026, 6, 9) + timedelta(days=DEFAULT_CONFIG.share_creep_liveness_days)
-    assert share_creep.score(_uec_rows(), SID, horizon) is not None
-    assert share_creep.score(_uec_rows(), SID, horizon + timedelta(days=1)) is None
+    horizon = date(2026, 6, 9) + timedelta(
+        days=DEFAULT_CONFIG.share_creep_liveness_days
+    )  # Fri 11-06
+    last_session = last_session_through(horizon)
+    assert share_creep.score(_uec_rows(), SID, last_session - timedelta(days=1)) is not None
+    assert share_creep.score(_uec_rows(), SID, last_session) is None
 
 
 def test_declines_on_a_split_or_scale_artifact_pair():

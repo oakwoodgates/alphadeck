@@ -134,6 +134,10 @@ class NameResult:
     # before `Settings.price_settle_time`); the next settled pass appends them. Summed into ONE quiet count
     # line per run, never one line per name.
     price_bars_withheld: int = 0
+    # F5 — fresh bars NOT stored because they are dated a day with no session (a weekend or an NYSE full-day
+    # closure: the vendor's flat OTC carries on Labor Day 2026). Never stored by any pass. ONE quiet count line
+    # per run (`print_closed_day_line`), never one line per name.
+    price_bars_closed_day: int = 0
     # Q11 / T5 — older restated bars NOT stored because they REVERT to a value the store held before (a
     # vendor flipping a history between split bases) and only one pull has said so; stored once a pull on a
     # later market date agrees. Never silent: ONE quiet line per held name (`print_held_lines`) + the run
@@ -1001,6 +1005,7 @@ def _ingest_one(
             conn.rollback()
             split_detector.fault(sec, e)
     px_appended, px_reversioned, px_withheld, px_held = 0, 0, 0, 0
+    px_closed_day = 0
     px_split: dict[str, int] = {}
     px_first_night: tuple[str, ...] = ()
     px_not_found = False
@@ -1020,6 +1025,7 @@ def _ingest_one(
             bars.withheld,
             bars.held,
         )
+        px_closed_day = bars.closed_day
         px_split, px_first_night = dict(bars.split_normalized), bars.split_first_night
         conn.commit()
     except Exception as e:  # noqa: BLE001
@@ -1066,6 +1072,7 @@ def _ingest_one(
         form4_txn_rejected=f4_txn_rejected,
         price_bars_reversioned=px_reversioned,
         price_bars_withheld=px_withheld,
+        price_bars_closed_day=px_closed_day,
         price_bars_held=px_held,
         price_bars_split_normalized=px_split,
         price_split_first_night=px_first_night,
@@ -1196,6 +1203,7 @@ def _report(results: list[NameResult]) -> int:
         f"{fs}{efi}{sk}{rj}, {len(errored)} errored{bz}"
     )
     print_withheld_line(results)
+    print_closed_day_line(results)
     print_held_lines(results)
     print_split_lines(results)
     # the exit signal: an errored name, or one this run could not ingest because another writer held it
@@ -1211,6 +1219,22 @@ def print_withheld_line(results: Iterable[NameResult]) -> None:
         print(
             f"{len(withheld)} name(s): today's in-progress bar withheld — the session settles at "
             f"{get_settings().price_settle_time:%H:%M} market time; the next pass after that stores it"
+        )
+
+
+def print_closed_day_line(results: Iterable[NameResult]) -> None:
+    """F5 — ONE quiet line counting the fresh bars dated a day with no session (a weekend or an NYSE full-day
+    closure) that were not stored, and on how many names (deduped by security; a company in two segments is
+    one name, its count read once); nothing at all when there are none. Lowercase, never a page (#7): the
+    vendor printing a flat OTC carry on a holiday is expected noise the guard absorbs, not news."""
+    per_name: dict[UUID, int] = {}
+    for r in results:
+        if r.price_bars_closed_day:
+            per_name[r.security_id] = max(per_name.get(r.security_id, 0), r.price_bars_closed_day)
+    if per_name:
+        print(
+            f"{sum(per_name.values())} bar(s) on {len(per_name)} name(s) dated a day with no market session "
+            "(a weekend or a market holiday) — not stored"
         )
 
 

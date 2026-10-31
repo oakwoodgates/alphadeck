@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 
 import { AppHeader } from "../AppHeader";
-import { todayISO } from "../util/format";
+import { useAppClock } from "../clock";
 import type { DashboardEntry, DashboardProps } from "./registry";
 
 // The frame every dashboard renders inside (docs/DASHBOARDS.md): the shared top bar, a quiet title row
@@ -27,10 +27,12 @@ export function DashboardShell({
   navKey = "dashboards",
 }: Props) {
   const Body = entry.component;
+  // F1 — the server's today in market time (clock.ts), never the browser's date
+  const { marketToday } = useAppClock();
   // An as-of aware dashboard shows the dial and reads the app's as-of. A "now" view (like Admin and Radar)
   // shows no dial, so it is handed today's date: a stale ?asof= in the URL can never quietly pin a page that
   // shows no dial to a past date.
-  const bodyAsof = entry.asofAware ? asof : todayISO();
+  const bodyAsof = entry.asofAware ? asof : marketToday;
   const fill = entry.layout === "fill";
   return (
     <div className={fill ? "dash-shell fill" : "dash-shell"}>

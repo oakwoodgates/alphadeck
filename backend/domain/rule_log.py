@@ -62,6 +62,26 @@ RULE_LOG: tuple[RuleEntry, ...] = (
         ),
     ),
     RuleEntry(
+        id="2026-11-market-holiday-calendar",
+        date=date(2026, 10, 31),
+        label="market holidays are not sessions",
+        description=(
+            "The session calendar now skips the NYSE's full-day closures, so the nightly no longer runs or "
+            "pages on a market holiday, entry-window and split session counts no longer count one, and a "
+            "price bar dated a holiday is neither stored nor read."
+        ),
+    ),
+    RuleEntry(
+        id="2026-11-entry-window-next-session",
+        date=date(2026, 10, 31),
+        label="a trigger counts only while the next session is inside its window",
+        description=(
+            "A trigger is live on a night only while the first market session after that night falls on or "
+            "before its window's last day, so no card shows an arm, a warm-up or a risk on a night whose "
+            "next session is already outside the window."
+        ),
+    ),
+    RuleEntry(
         id="2026-11-filings-dated-by-acceptance",
         date=date(2026, 11, 2),
         label="8-Ks, 13D/Gs and revenue count from when they appeared on EDGAR",

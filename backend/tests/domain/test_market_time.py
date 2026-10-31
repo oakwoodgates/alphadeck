@@ -560,3 +560,230 @@ def test_serve_view_pairs_the_cap_with_the_PUBLIC_clock_and_the_live_read_with_t
     # branch is pinned above with ``today=``)
     _pin(monkeypatch, _UTC_EVENING)
     assert serve_view(date(2026, 7, 17)) == (None, "record")
+
+
+# --- F1 (2026-10-30): the current night, the action day, and the serve path's live test ---
+#
+# The app's default as-of is the CURRENT NIGHT (``last_expected_asof(market_now(), RUN_AT)``), and the serve path
+# reads it live: at 09:00 Tuesday the default view is Monday's night on the record clock — the call that night's
+# record (and its alert) showed — never a "Tuesday" recompute from Monday's facts. 2026-10-26 is a Monday.
+
+_ET = ZoneInfo("America/New_York")
+_MON, _TUE, _WED = date(2026, 10, 26), date(2026, 10, 27), date(2026, 10, 28)
+_FRI, _SAT, _SUN, _NEXT_MON = (
+    date(2026, 10, 30),
+    date(2026, 10, 31),
+    date(2026, 11, 1),
+    date(2026, 11, 2),
+)
+
+
+def _et(d: date, hh: int, mm: int = 0) -> datetime:
+    return datetime.combine(d, time(hh, mm), _ET)
+
+
+def _pin_now(monkeypatch, instant: datetime) -> None:
+    """Pin ``market_now`` (as ``tests/conftest.py``'s ``pinned_today`` does) rather than the module's
+    ``datetime``: the past branch's cap needs ``datetime.combine``, which ``_pin``'s frozen clock lacks.
+    """
+    monkeypatch.setattr(
+        market_time, "market_now", lambda tz=None: instant.astimezone(tz or market_time.market_tz())
+    )
+
+
+@pytest.fixture
+def _default_schedule(monkeypatch):
+    monkeypatch.delenv("ALPHADECK_MARKET_TZ", raising=False)
+    monkeypatch.delenv("ALPHADECK_CRON_AT", raising=False)
+    get_settings.cache_clear()
+
+
+@pytest.mark.parametrize(
+    "instant, night, action",
+    [
+        (_et(_TUE, 9), _MON, _TUE),  # the morning: last night, acted on today
+        (_et(_TUE, 17), _MON, _TUE),  # before the pass time, still last night
+        (_et(_TUE, 22, 30), _TUE, _WED),  # the pass time: tonight is the night
+        (_et(_TUE, 23, 59), _TUE, _WED),
+        (_et(_WED, 0, 5), _TUE, _WED),  # after midnight: still Tuesday's night, acted on Wednesday
+        (_et(_SAT, 12), _FRI, _NEXT_MON),  # the weekend reads Friday, acted on Monday
+        (_et(_SUN, 23), _FRI, _NEXT_MON),
+        (_et(_NEXT_MON, 9), _FRI, _NEXT_MON),  # Monday morning: Friday's night
+        (_et(_FRI, 22, 31), _FRI, _NEXT_MON),  # Friday's pass: acted on Monday
+    ],
+)
+def test_the_current_night_and_its_action_day(
+    monkeypatch, _default_schedule, instant, night, action
+):
+    c = market_time.market_clock(instant)
+    assert (c.night, c.action_day, c.today) == (night, action, instant.date())
+    assert c.night <= c.today <= c.action_day
+    assert market_time.current_night(instant) == night
+    # the same answer through the module's own clock (``_pin``: a real instant, read in the market zone)
+    _pin(monkeypatch, instant.astimezone(timezone.utc))
+    assert market_time.market_clock() == c and market_time.current_night() == night
+
+
+def test_the_current_night_reads_a_utc_instant_in_market_time(_default_schedule):
+    """01:30Z on the 28th is 21:30 EDT on the 27th: before the 22:30 pass, so the night is still the 26th."""
+    c = market_time.market_clock(datetime(2026, 10, 28, 1, 30, tzinfo=timezone.utc))
+    assert (c.today, c.night, c.action_day) == (_TUE, _MON, _TUE)
+
+
+def test_the_pass_time_is_the_configured_one_and_a_malformed_value_fails_LOUD(monkeypatch):
+    monkeypatch.delenv("ALPHADECK_MARKET_TZ", raising=False)
+    monkeypatch.setenv("ALPHADECK_CRON_AT", "08:00")
+    get_settings.cache_clear()
+    assert market_time.current_night(_et(_TUE, 9)) == _TUE  # an 08:00 pass has run by 09:00
+    monkeypatch.setenv("ALPHADECK_CRON_AT", "not-a-time")
+    get_settings.cache_clear()
+    with pytest.raises(ValueError):
+        market_time.current_night(_et(_TUE, 9))
+
+
+def test_serve_view_is_LIVE_from_the_current_night_and_history_before_it(
+    monkeypatch, _default_schedule
+):
+    """The live test is ``asof >= current night``: the night itself and every later as-of read live, unchanged;
+    a day before the night is the public-clock history view, capped at the end of its market day."""
+    _pin_now(monkeypatch, _et(_TUE, 9))  # Tuesday morning: the night is Monday
+    assert serve_view(_MON) == (None, "record")  # the default view: live, no recompute
+    assert serve_view(_TUE) == (None, "record")  # today: live, as before
+    assert serve_view(_WED) == (None, "record")  # a future day: live, as before
+    assert serve_known_at(_MON) is None
+    # the day before the night is history, on the public clock (cap: the end of that day, EDT)
+    assert serve_view(date(2026, 10, 23)) == (
+        datetime(2026, 10, 24, 3, 59, 59, 999999, tzinfo=timezone.utc),
+        "public",
+    )
+    # after the pass the night is Tuesday, so Monday becomes a past view
+    _pin_now(monkeypatch, _et(_TUE, 22, 45))
+    assert serve_view(_TUE) == (None, "record")
+    assert serve_view(_MON) == (
+        datetime(2026, 10, 27, 3, 59, 59, 999999, tzinfo=timezone.utc),
+        "public",
+    )
+    # a weekend reads Friday live, and Thursday is history
+    _pin_now(monkeypatch, _et(_SUN, 12))
+    assert serve_view(_FRI) == serve_view(_SAT) == (None, "record")
+    assert serve_view(date(2026, 10, 29))[1] == "public"
+
+
+def test_serve_view_injection_seams_keep_their_meaning():
+    """``night=`` is the live boundary itself; a lone ``today=`` is the pre-F1 boundary (asof >= today), so a test
+    that pins only the day reads exactly as it did. No clock read when a boundary is injected."""
+    assert serve_view(_MON, night=_MON) == (None, "record")
+    assert serve_view(_MON, today=_TUE)[1] == "public"  # the pre-F1 rule, kept for a day-only pin
+    assert serve_view(_MON, today=_TUE, night=_MON) == (None, "record")  # the night wins when given
+    assert serve_known_at(date(2026, 10, 23), night=_MON) is not None
+
+
+def test_for_every_asof_the_old_rule_called_live_the_read_is_unchanged(_default_schedule):
+    """Byte-identical for ``asof >= market_today()``: at every third hour across a week, an as-of on or after today
+    is live under the new rule exactly as under the old one; the only as-ofs that move are in [night, today).
+    """
+    for day in range(7):
+        for hour in range(0, 24, 3):
+            c = market_time.market_clock(_et(_MON + timedelta(days=day), hour, 40))
+            for k in range(-6, 4):
+                asof = c.today + timedelta(days=k)
+                new = serve_view(asof, night=c.night)
+                old = serve_view(asof, today=c.today)
+                if asof >= c.today:
+                    assert new == old == (None, "record"), (c, asof)
+                elif asof < c.night:
+                    assert new == old and new[1] == "public", (c, asof)
+                else:
+                    assert new == (None, "record") and old[1] == "public", (c, asof)
+
+
+def test_the_decisions_horizon_is_the_action_day_only_on_a_live_view_before_today():
+    """A live view of a night before today reads the operator's decisions up to the action day (a fill logged
+    this morning shows); a past view, and an as-of on or after today, read at the as-of — unchanged.
+    """
+    tue_morning = market_time.MarketClock(today=_TUE, night=_MON, action_day=_TUE)
+    assert market_time.serve_decisions_asof(_MON, tue_morning) == _TUE
+    assert (
+        market_time.serve_decisions_asof(_TUE, tue_morning) == _TUE
+    )  # today: the as-of, as before
+    assert market_time.serve_decisions_asof(_WED, tue_morning) == _WED  # future: the as-of
+    assert market_time.serve_decisions_asof(date(2026, 10, 23), tue_morning) == date(2026, 10, 23)
+    saturday = market_time.MarketClock(today=_SAT, night=_FRI, action_day=_NEXT_MON)
+    assert market_time.serve_decisions_asof(_FRI, saturday) == _NEXT_MON
+    assert market_time.serve_decisions_asof(_SAT, saturday) == _SAT
+    tue_night = market_time.MarketClock(today=_TUE, night=_TUE, action_day=_WED)
+    assert (
+        market_time.serve_decisions_asof(_TUE, tue_night) == _TUE
+    )  # after the pass: nothing moves
+    assert market_time.serve_decisions_asof(_MON, tue_night) == _MON
+
+
+# --- F2 (2026-10-30): the countdown origin — the day the WORDS count from ---------------------------------------
+#
+# The as-of is the night, for the data; the action day (the first scheduled day after it) is the day the operator
+# acts, so a COUNTDOWN to a future date counts from it on a live view. The default view at 09:00 Tuesday is Monday's
+# night: a catalyst dated Tuesday reads "today", one dated Monday reads "passed". A past view is unchanged.
+
+
+def test_a_live_view_counts_down_from_the_action_day_and_a_past_view_from_its_asof(
+    monkeypatch, _default_schedule
+):
+    """Tuesday 09:00, the night is Monday. The default view (Monday's night) and every later as-of count from
+    Tuesday, the action day; a day before the night is a past view and counts from itself."""
+    _pin_now(monkeypatch, _et(_TUE, 9))
+    clock = market_time.market_clock()
+    assert (clock.night, clock.action_day) == (_MON, _TUE)
+    assert market_time.countdown_origin(_MON, clock) == _TUE  # the default view
+    assert market_time.countdown_origin(_TUE, clock) == _TUE  # today: already the action day
+    assert market_time.countdown_origin(_WED, clock) == _TUE  # a future as-of is live too
+    assert market_time.countdown_origin(date(2026, 10, 23), clock) == date(2026, 10, 23)  # past
+    # one clock read when none is passed (the module's own clock, pinned above)
+    assert market_time.countdown_origin(_MON) == _TUE
+    assert market_time.countdown_origin(date(2026, 10, 23)) == date(2026, 10, 23)
+
+
+def test_the_words_a_catalyst_reads_by_the_origin_on_tuesday_morning(
+    monkeypatch, _default_schedule
+):
+    """The pinned rule: from Monday's night on Tuesday 09:00, a Tuesday catalyst is 'today' (0 days from the origin)
+    and a Monday one 'passed' (negative); a past view keeps counting from its own as-of."""
+    _pin_now(monkeypatch, _et(_TUE, 9))
+    live = market_time.countdown_origin(_MON)
+    assert (_TUE - live).days == 0  # "today"
+    assert (_MON - live).days == -1  # "passed"
+    assert (_WED - live).days == 1  # "in 1 day" (counted from the night it would read "in 2 days")
+    past_asof = date(2026, 10, 23)
+    past = market_time.countdown_origin(past_asof)
+    assert past == past_asof and (date(2026, 10, 24) - past).days == 1  # unchanged
+
+
+def test_the_origin_follows_the_clock_not_the_weekday(monkeypatch, _default_schedule):
+    """After the pass the night is tonight and the action day tomorrow; on a weekend the night is Friday and the
+    action day Monday; a view of an earlier night is a past view once the next pass has run."""
+    _pin_now(monkeypatch, _et(_TUE, 22, 45))
+    assert market_time.countdown_origin(_TUE) == _WED
+    assert (
+        market_time.countdown_origin(_MON) == _MON
+    )  # Monday is history once Tuesday's pass has run
+    _pin_now(monkeypatch, _et(_SAT, 12))
+    assert market_time.countdown_origin(_FRI) == _NEXT_MON
+    assert market_time.countdown_origin(_SAT) == _NEXT_MON
+    assert market_time.countdown_origin(date(2026, 10, 29)) == date(2026, 10, 29)
+    _pin_now(monkeypatch, _et(_FRI, 22, 31))
+    assert market_time.countdown_origin(_FRI) == _NEXT_MON
+
+
+def test_the_origin_is_the_asof_for_history_and_the_action_day_for_every_live_view(
+    _default_schedule,
+):
+    """For every third hour of a week and every as-of near it: a past view (before the current night) counts from its
+    own as-of; every other as-of counts from the action day. The live test is the one ``serve_view`` applies.
+    """
+    for day in range(7):
+        for hour in range(0, 24, 3):
+            c = market_time.market_clock(_et(_MON + timedelta(days=day), hour, 40))
+            for k in range(-6, 4):
+                asof = c.today + timedelta(days=k)
+                origin = market_time.countdown_origin(asof, c)
+                assert origin == (asof if asof < c.night else c.action_day), (c, asof)
+                assert (serve_view(asof, night=c.night)[1] == "record") == (asof >= c.night)

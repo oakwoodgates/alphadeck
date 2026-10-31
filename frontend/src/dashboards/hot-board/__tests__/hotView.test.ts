@@ -181,13 +181,26 @@ describe("cells", () => {
     expect(leftCell(row({ clocks: clocks({ sessions_left: 5 }) }))).toMatchObject({ text: "5", accent: false });
     expect(leftCell(s.bbb)).toMatchObject({ text: "closed 2 ago", gray: true });
     expect(leftCell(s.ccc)).toMatchObject({ text: "—", gray: true });
-    expect(leftCell(row({ clocks: clocks({ sessions_left: 0, arm_until: ASOF }) })).text).toBe("0");
+    // F3: a window ending on the as-of has no session left: the server sends it closed (0 since), not "0 left"
+    const none = leftCell(row({ clocks: clocks({ sessions_left: null, closed_ago: 0, arm_until: ASOF }) }));
+    expect(none).toMatchObject({ text: "closed", gray: true });
+    expect(none.title).toContain("No session of the entry window");
   });
 
   it("words the days to the hold horizon and a horizon that passed", () => {
     expect(exitCell(s.aaa).text).toBe("34d");
     expect(exitCell(row({ clocks: clocks({ days_to_exit: -8 }) })).text).toBe("passed 8d");
     expect(exitCell(s.ccc).text).toBe("—");
+  });
+
+  it("reads a horizon on the origin day as 'today', and carries the date on a past view (F2)", () => {
+    const ends = (days: number) => row({ clocks: clocks({ exit_by: "2026-12-01", days_to_exit: days }) });
+    expect(exitCell(ends(0)).text).toBe("today"); // the server counts from the action day on a live view
+    expect(exitCell(ends(-1)).text).toBe("passed 1d");
+    expect(exitCell(ends(0), true).text).toBe("today · Dec 1");
+    expect(exitCell(ends(34), true).text).toBe("34d · Dec 1");
+    expect(exitCell(ends(-8), true).text).toBe("passed 8d · Dec 1");
+    expect(exitCell(s.ccc, true).text).toBe("—"); // no hold clock: nothing to date
   });
 
   it("shows the return since the arm night with its sign, IWM's beside it, and why one is blank", () => {

@@ -12,7 +12,7 @@ from domain.config import CallConfig
 from domain.enums import Grade, Kind, Role, State, Verdict
 from domain.signal import SignalEvent
 from domain.thesis import Catalyst, Thesis
-from domain.trading_days import is_scheduled_day
+from domain.trading_days import is_scheduled_day, next_scheduled_day
 from signals.common import entry_signal_is_live
 from signals.conviction_source import is_computed_conviction
 from signals.revenue_acceleration import DETECTOR_NAME as REVENUE_ACCEL_DETECTOR
@@ -110,9 +110,11 @@ def assemble_call(
     block_risks = [r for r in active_risk if r.dearm_grade is None]
     dearm_risks = [r for r in active_risk if r.dearm_grade is not None]
 
-    # Date-aware liveness (§2): a fired entry trigger counts only while inside its alpha-liveness window.
-    # ``e.asof`` is the trigger's FIRE date (the event date), so an Armed call stays sticky across a
-    # consolidation (the breakout firing is still live) and lapses once that firing ages out.
+    # Date-aware liveness (§2): a fired entry trigger counts only while inside its alpha-liveness window —
+    # since F3, only while the first session AFTER this night is on or before the window's end
+    # (``entry_signal_is_live``), so no night shows a trigger nobody can act on. ``e.asof`` is the trigger's
+    # FIRE date (the event date), so an Armed call stays sticky across a consolidation (the breakout firing
+    # is still live) and lapses once that firing ages out.
     live_entry = [e for e in fired_entry if _live(e, asof)]
 
     # Two keys + CO-LOCATION (§2): a conviction trigger only warms; arming needs a confirmation on
@@ -238,8 +240,10 @@ def assemble_call(
     )
 
     # Two fire-date-anchored clocks (§6). exit_by = the HOLD horizon (the conviction key) and drives
-    # the catalyst surface; arm_until = the ENTRY window (the confirmation key) — the arm lapses once
-    # asof passes it. Both anchored to each trigger's fire date, so they don't slide as asof advances.
+    # the catalyst surface; arm_until = the ENTRY window (the confirmation key) — the arm lapses on the
+    # first night whose next session is after it (F3: ``next_scheduled_day(asof) > arm_until``, through
+    # ``_live``), so an armed card's arm_until is always on or after the session it is acted on. Both
+    # anchored to each trigger's fire date, so they don't slide as asof advances.
     exit_by = _clock(conviction_events)
     arm_until = _clock(confirmation_events)
 
@@ -371,7 +375,9 @@ def assemble_call(
 
 
 def _live(e: SignalEvent, asof: date) -> bool:
-    """A fired entry trigger counts only while inside its alpha-liveness window (``e.asof`` = its fire date)."""
+    """A fired entry trigger counts only while inside its alpha-liveness window (``e.asof`` = its fire date):
+    while the first session after ``asof`` is on or before ``fire date + alpha_liveness_days`` (F3).
+    """
     if e.alpha_liveness_days is None:
         raise ValueError("fired entry trigger is missing alpha_liveness_days")
     return entry_signal_is_live(e.asof, e.alpha_liveness_days, asof)
@@ -592,9 +598,9 @@ def _verdict(
 def sessions_left(asof: date, until: date) -> int:
     """Trading sessions strictly AFTER ``asof`` through ``until`` (inclusive) — how many more sessions an
     inclusive window ending on ``until`` stays open once ``asof``'s session is done (the cron records after
-    the close). ``0`` when ``until <= asof``. Counted on the cron's Mon-Fri calendar
-    (``domain.trading_days.is_scheduled_day``) rather than a hand-rolled one; that calendar does NOT know
-    exchange holidays, so a holiday inside the window counts as a session (documented in CALL_LOGIC §6).
+    the close). ``0`` when ``until <= asof``. Counted on the ONE session calendar
+    (``domain.trading_days.is_scheduled_day``: Mon-Fri minus the NYSE's full-day closures, F5) rather than
+    a hand-rolled one, so a market holiday inside the window is not a session (CALL_LOGIC §6).
     Pure: both dates are parameters, never a wall clock."""
     n = 0
     d = asof + timedelta(days=1)
@@ -609,9 +615,11 @@ def _entry_window_closing(asof: date, arm_until: date | None, cfg: CallConfig) -
     """The entry-window flag (Q14): an armed member's entry window (``arm_until``, the confirmation clock)
     has at most ``cfg.entry_window_closing_sessions`` trading sessions left. Computed from the card's own
     ``asof`` and the member's own ``arm_until`` only (no ambient clock — no lookahead). ``None`` (no
-    confirmation clock — the conviction-alone arming mode) and an already-passed window never flag.
+    confirmation clock — the conviction-alone arming mode) and a window with no session left never flag:
+    the same test as the lapse (F3 — the window is over once the first session after ``asof`` is past
+    ``arm_until``), so an armed member always has at least one session left here.
     """
-    if arm_until is None or arm_until < asof:
+    if arm_until is None or next_scheduled_day(asof) > arm_until:
         return False
     return sessions_left(asof, arm_until) <= cfg.entry_window_closing_sessions
 

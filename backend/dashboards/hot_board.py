@@ -31,6 +31,9 @@ The rules, in one place:
   bar calendar (``series.session_calendar``). ``sessions_left`` = the Mon-Fri sessions strictly after the as-of through
   ``arm_until`` (the call path's own count: ``entry_window_closing`` is computed the same way, and a future session
   has no bar yet); ``closed_ago`` = the calendar sessions strictly after ``arm_until`` through the as-of.
+- **Days to the exit-by** (``days_to_exit``) is a COUNTDOWN, so it counts calendar days from the countdown origin (F2,
+  ``domain.market_time.countdown_origin``): the action day on a live view, the as-of on a past one. ``assemble`` takes
+  it as ``origin`` (the as-of when none is given). The session counts above are not re-based.
 - **Since the arm night** (``since_arm``): the name's as-traded return from the first close on or after the arm night
   (the Scoreboard's entry rule) to the last close on or before the as-of, and the benchmark's over the same dates.
 - **Heat** (``heat``): four parts, each the row's percentile among the rows SHOWN that have that reading: fresh (fewer
@@ -56,7 +59,7 @@ from dashboards.peer_table import CapCell, metric_of
 from domain.call import CallCard, MemberCall, TriggerRef
 from domain.config import DEFAULT_CONFIG
 from domain.enums import Grade, Kind, State, Verdict
-from domain.trading_days import is_scheduled_day
+from domain.trading_days import is_scheduled_day, next_scheduled_day
 from signals.display import (
     insider_flow,
     price_path,
@@ -332,9 +335,10 @@ def sessions_since(calendar: Sequence[date], arm: date | None, asof: date) -> in
 
 
 def sessions_left(asof: date, until: date) -> int:
-    """The Mon-Fri sessions strictly after ``asof`` through ``until`` (inclusive): how many more an entry window
-    ending on ``until`` stays open once the as-of's session is done. ``0`` when ``until <= asof``. The call path's
-    own count (``calls.assembler.sessions_left``, ``domain.trading_days``): market holidays count as sessions.
+    """The sessions strictly after ``asof`` through ``until`` (inclusive): how many more an entry window ending on
+    ``until`` stays open once the as-of's session is done. ``0`` when no session is left (the window is closed,
+    ``window_open``). The call path's own count
+    (``calls.assembler.sessions_left``, ``domain.trading_days``): Mon-Fri minus the NYSE's market holidays (F5).
     """
     n, d = 0, asof + timedelta(days=1)
     while d <= until:
@@ -349,16 +353,26 @@ def closed_ago(calendar: Sequence[date], until: date, asof: date) -> int:
     return sum(1 for d in calendar if until < d <= asof)
 
 
+def window_open(asof: date, until: date | None) -> bool:
+    """Is a window ending on ``until`` still open on night ``asof``? Open = the first session after the night is on
+    or before ``until`` — the call path's own lapse test (F3, ``signals.common.entry_signal_is_live``). So an open
+    window always has at least one session left, and a window with none is closed (its ``closed_ago`` is ``0``
+    until a session after ``until`` has printed)."""
+    return until is not None and next_scheduled_day(asof) <= until
+
+
 @dataclass(frozen=True)
 class Clocks:
     arm_night: date | None
     arm_reconstructed: bool
     sessions_since: int | None
     arm_until: date | None
-    sessions_left: int | None  # the sessions left in an open window (0 on its last day)
+    sessions_left: int | None  # the sessions left in an open window (at least 1, F3)
     closed_ago: int | None  # the sessions since a closed window ended
     exit_by: date | None
-    days_to_exit: int | None  # calendar days from the as-of; negative = the horizon has passed
+    days_to_exit: (
+        int | None
+    )  # calendar days from the countdown origin; negative = the horizon has passed
 
 
 def clocks(
@@ -369,9 +383,13 @@ def clocks(
     asof: date,
     *,
     window_start: date | None = None,
+    origin: date | None = None,
 ) -> Clocks:
     """A row's clocks. An arm night before ``window_start`` (the earliest bar the point-in-time view reads) gets no
-    session count: the calendar would stop short of it."""
+    session count: the calendar would stop short of it. ``days_to_exit`` is a COUNTDOWN, so it counts from ``origin``
+    (F2: the action day on a live view; ``domain.market_time.countdown_origin``), the as-of when none is given. The
+    session counts (``sessions_since`` / ``sessions_left`` / ``closed_ago``) stay on the as-of: the call path's own.
+    """
     night = arm.night if arm is not None else None
     counted = (
         night if night is not None and (window_start is None or night >= window_start) else None
@@ -381,12 +399,14 @@ def clocks(
         arm_reconstructed=bool(arm and arm.reconstructed),
         sessions_since=sessions_since(calendar, counted, asof),
         arm_until=arm_until,
-        sessions_left=sessions_left(asof, arm_until) if arm_until and arm_until >= asof else None,
+        sessions_left=sessions_left(asof, arm_until) if window_open(asof, arm_until) else None,
         closed_ago=(
-            closed_ago(calendar, arm_until, asof) if arm_until and arm_until < asof else None
+            closed_ago(calendar, arm_until, asof)
+            if arm_until and not window_open(asof, arm_until)
+            else None
         ),
         exit_by=exit_by,
-        days_to_exit=(exit_by - asof).days if exit_by else None,
+        days_to_exit=(exit_by - (origin or asof)).days if exit_by else None,
     )
 
 
@@ -809,6 +829,7 @@ def assemble(
     cards_counted: int,
     rows_loaded: RowsRead = "all",
     candidate_counts: CandidateCounts | None = None,
+    origin: date | None = None,
 ) -> HotBoard:
     """The whole payload from the candidates and everything read for them. ``cands`` are the rows this read carries
     (``read_candidates``); ``candidate_counts`` are every kind's rows on the recorded cards (counted from ``cands``
@@ -855,7 +876,13 @@ def assemble(
                 ),
                 risk_kinds=tuple(t.kind for t in c.risks),
                 clocks=clocks(
-                    arm, c.arm_until, c.exit_by, calendar, asof, window_start=window_start
+                    arm,
+                    c.arm_until,
+                    c.exit_by,
+                    calendar,
+                    asof,
+                    window_start=window_start,
+                    origin=origin,
                 ),
                 entry_window_closing=bool(m and m.entry_window_closing),
                 lapsing=bool(m and m.lapsing),

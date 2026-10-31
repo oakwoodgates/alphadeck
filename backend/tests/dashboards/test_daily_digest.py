@@ -186,12 +186,14 @@ def run(**over) -> DailyDigest:
 
 
 def test_the_night_pair_counts_the_sessions_between_and_how_far_past_the_night_the_asof_is():
+    # the DEFAULT view (F1): the app's as-of is the current night, the night the pass last recorded — so on the
+    # default view the as-of IS the newest night and nothing is "past" it, the morning after or on a weekend alike
     on_the_night = night_pair(NIGHT, NIGHT, PREV)
     assert (on_the_night.latest, on_the_night.previous) == (NIGHT, PREV)
     assert (on_the_night.sessions_between, on_the_night.days_after_night) == (1, 0)
-    # the morning before the 22:30 pass reads the night before: the as-of is a day past it
+    # a hand-picked as-of a day after the night (or one whose pass has not recorded yet) says how far past it is
     assert night_pair(d(18), NIGHT, PREV).days_after_night == 1
-    # a Monday reads Friday against Thursday: one session between them, the as-of three days past
+    # a Monday as-of picked by hand reads Friday against Thursday: one session between them, three days past
     monday = night_pair(d(21), d(18), d(17))
     assert (monday.sessions_between, monday.days_after_night) == (1, 3)
     # Thursday to the next Monday: Friday and Monday are two sessions
@@ -599,7 +601,13 @@ def test_a_fill_after_the_last_close_or_before_the_price_window_reads_unpriced_w
 def test_the_hold_clock_counts_sessions_left_by_the_hot_boards_rule_or_the_sessions_since_it_passed():
     calendar = [d(14), d(15), d(16), d(17)]
     assert hold_clock(d(22), NIGHT, calendar).sessions_left == 3  # Fri, Mon, Tue
-    assert hold_clock(NIGHT, NIGHT, calendar).sessions_left == 0  # its last day
+    # F3: the horizon is open only while the session after the as-of is inside it; one ending ON the night has
+    # no session left, so it reads passed (0 sessions since: none has printed after it yet)
+    last = hold_clock(NIGHT, NIGHT, calendar)
+    assert (last.sessions_left, last.passed_sessions) == (None, 0)
+    assert (
+        hold_clock(d(18), NIGHT, calendar).sessions_left == 1
+    )  # Fri 09-18, the horizon's last day
     passed = hold_clock(d(15), NIGHT, calendar)
     assert (passed.sessions_left, passed.passed_sessions) == (None, 2)  # the 16th and the 17th
     assert hold_clock(None, NIGHT, calendar).exit_by is None
@@ -679,6 +687,33 @@ def test_due_this_week_is_the_calendars_bucket_with_the_today_mark_and_the_deadl
     assert (due.catalysts, due.deadlines) == (2, 1)
     assert all(i.state == "armed" for i in due.items if i.item != "catalyst")
     # the exit-by (Sep 30) is later than the week, monday's vote is next week: neither is here
+
+
+def test_due_this_week_counts_from_the_origin_on_a_live_view_and_the_asof_on_a_past_one():
+    """F2: the as-of is the night (Thursday 9-17) and a live view acts the next day, Friday 9-18. From that origin
+    Friday's catalyst is 'today', Thursday's has passed, and the entry window that ended on the night is gone
+    (a passed deadline is never listed); counted from the as-of, as a past view is, Thursday's reads 'today'.
+    """
+    fri, sat = d(18), d(19)
+    t = thesis(
+        T1,
+        "Card A",
+        catalysts=[cat("thursday readout", NIGHT), cat("friday readout", fri), cat("sat", sat)],
+    )
+    now = {T1: eff(cc(State.ARMED, tid=T1, arm_until=NIGHT, exit_by=d(30)))}
+    live = run(theses=[t], now=now, origin=fri).due
+    assert live.start == fri
+    assert [(i.label, i.days, i.today) for i in live.items] == [
+        ("friday readout", 0, True),
+        ("sat", 1, False),
+    ]
+    assert live.passed_total == 1  # Thursday's, to prune
+    past = run(theses=[t], now=now).due  # no origin: counted from the as-of
+    assert past.start == NIGHT
+    assert [(i.label, i.days, i.today) for i in past.items][:2] == [
+        ("thursday readout", 0, True),
+        ("entry window ends", 0, True),
+    ]
 
 
 def test_due_this_week_counts_the_catalysts_that_passed_since_p_and_are_not_yet_pruned():
@@ -1056,9 +1091,11 @@ def test_a_page_with_a_night_pair_but_no_change_has_every_section_empty_and_pres
 def client(monkeypatch):
     calls: list[tuple] = []
 
-    def fake_read(conn, asof, known_at, clock):
+    def fake_read(conn, asof, known_at, clock, origin=None):
         calls.append((asof, clock))
-        return daily_digest(inputs(asof=asof, clock=clock, theses=[thesis(T1, "Card A")]))
+        return daily_digest(
+            inputs(asof=asof, clock=clock, theses=[thesis(T1, "Card A")], origin=origin)
+        )
 
     monkeypatch.setattr(router_mod, "read_digest", fake_read)
     monkeypatch.setattr(CACHE, "_token_fn", lambda conn: "gen-1")
@@ -1096,6 +1133,26 @@ def test_the_router_serves_every_section_from_one_cached_read(client):
     assert again["cache"] == "hit" and len(calls) == 1  # one read for both requests
     http.get("/dashboards/daily-digest", params={"asof": "2026-09-18"})
     assert len(calls) == 2  # another as-of is another key
+
+
+def test_the_router_counts_a_live_view_from_the_action_day_and_a_past_one_from_its_asof(
+    client, pin_market_clock
+):
+    """F2: Tuesday 09:00 is Monday's night. The default view of that night is live, so what is due this week counts
+    from Tuesday, the action day (an item dated Tuesday is 'today'); a past view counts from itself.
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    pin_market_clock(datetime(2026, 10, 27, 9, 0, tzinfo=ZoneInfo("America/New_York")))
+    http, _ = client
+    live = http.get("/dashboards/daily-digest", params={"asof": "2026-10-26"}).json()
+    assert (live["clock"], live["due"]["start"]) == ("record", "2026-10-27")
+    past = http.get("/dashboards/daily-digest", params={"asof": "2026-10-23"}).json()
+    assert (past["clock"], past["due"]["start"]) == ("public", "2026-10-23")
+    keys = {k for k in CACHE._entries}
+    assert ("daily-digest", ("record", date(2026, 10, 27)), date(2026, 10, 26)) in keys
+    assert ("daily-digest", ("public", date(2026, 10, 23)), date(2026, 10, 23)) in keys
 
 
 def test_the_router_requires_an_asof_and_takes_no_other_parameter(client):
@@ -1420,6 +1477,36 @@ def test_db_a_monday_reads_fridays_night_against_thursdays_and_says_so(db, world
     assert monday["last_night"]["cards"] == []  # Friday's row matches Thursday's: nothing changed
     assert (
         monday["counts"]["cards_recorded_on_night"] == 1 and monday["counts"]["cards_no_call"] == 1
+    )
+
+
+def test_db_the_default_view_on_a_monday_morning_is_fridays_night_zero_days_past_it(
+    db, world, monkeypatch
+):
+    """F1: the app's default as-of is the current night (``domain.market_time.current_night``, what ``GET /clock``
+    serves the dial), so at 09:00 ET on Monday the page opens on Friday's night — read live — and reads it against
+    Thursday's, 0 days past it (the pre-F1 Monday-date view, above, said 3)."""
+    from domain import market_time
+    from domain.settings import get_settings
+
+    monkeypatch.delenv("ALPHADECK_CRON_AT", raising=False)
+    get_settings.cache_clear()
+    monday_morning = datetime(2026, 9, 21, 13, 0, tzinfo=timezone.utc)  # 09:00 EDT
+    monkeypatch.setattr(
+        market_time,
+        "market_now",
+        lambda tz=None: monday_morning.astimezone(tz or market_time.market_tz()),
+    )
+    _record(db, world["a"], FRI, State.ARMED, [world["aaa"]])
+    db.commit()
+    night = market_time.current_night()
+    assert night == FRI and market_time.serve_view(night) == (None, "record")
+    n = _get(db, night)["nights"]
+    assert (n["latest"], n["previous"], n["days_after_night"], n["sessions_between"]) == (
+        "2026-09-18",
+        "2026-09-17",
+        0,
+        1,
     )
 
 

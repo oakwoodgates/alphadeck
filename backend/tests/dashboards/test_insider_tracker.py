@@ -70,6 +70,7 @@ from domain.market_cap import CapTier
 from domain.market_time import known_at_for_asof, market_today
 from domain.signal import Provenance
 from domain.thesis import BasketMember, Segment, Thesis
+from domain.trading_days import is_scheduled_day
 from ingest.edgar.filing_index import ingest_filing_index
 from repositories import thesis_repo
 from signals.base import PointInTimeData
@@ -1071,9 +1072,10 @@ def test_the_router_rejects_an_unknown_window_and_a_missing_asof(stub_client):
 
 
 def weekdays(start: date, end: date) -> list[date]:
+    """The sessions in ``[start, end]``: Mon-Fri minus NYSE closures (a vendor serves no holiday bar, F5)."""
     out, cur = [], start
     while cur <= end:
-        if cur.weekday() < 5:
+        if is_scheduled_day(cur):
             out.append(cur)
         cur += timedelta(days=1)
     return out
@@ -1279,7 +1281,7 @@ def test_db_a_filing_filed_after_the_asof_is_not_a_row(db):
 
 
 def test_db_a_bar_printed_after_the_asof_is_not_read(db):
-    """Bars exist through June 19, and the as-of bar of AAA is re-versioned at double AFTER the as-of's day: the
+    """Bars exist through June 18 (06-19 is Juneteenth, no session), and the as-of bar of AAA is re-versioned at double AFTER the as-of's day: the
     June 5 view prices every row on the ORIGINAL bars ending June 5, IWM on the same two dates, and the cap rests
     on the as-of close."""
     w = World(db)
@@ -1299,11 +1301,12 @@ def test_db_a_bar_printed_after_the_asof_is_not_read(db):
     assert e1["cap"]["value"] == pytest.approx(w.close[w.sa][PAST] * 10_000_000, rel=1e-6)
     assert e1["cap"]["tier"] == "micro" and e1["cap"]["gap"] is None
 
-    # a later as-of reads the bars public by then
+    # a later as-of reads the bars public by then — LATER (06-19) is Juneteenth, no session (F5), so the
+    # newest bar on or before it is Thu 06-18
     later = next(r for r in _get(db, LATER)["rows"] if r["accession"] == E1)
-    assert later["since"]["end_date"] == "2026-06-19"
+    assert later["since"]["end_date"] == "2026-06-18"
     assert later["since"]["ret"] == pytest.approx(
-        w.close[w.sa][LATER] / w.close[w.sa][date(2026, 6, 2)] - 1.0
+        w.close[w.sa][date(2026, 6, 18)] / w.close[w.sa][date(2026, 6, 2)] - 1.0
     )
 
 

@@ -66,6 +66,7 @@ from domain.market_cap import CapTier
 from domain.market_time import market_today
 from domain.splits import ListedSplit, listed_from_row
 from domain.thesis import BasketMember, Thesis
+from domain.trading_days import NYSE_CLOSURES
 from repositories import editions_repo, thesis_repo
 from tests.calls.factories import insider_event, make_thesis
 from tests.scoreboard.helpers import keys_fired, record_day
@@ -940,7 +941,9 @@ def test_the_router_requires_an_asof(stub_client):
 # ---------------------------------------------------------------------------------------------------------
 
 # One weekday tape (06-19 is a trading day here: the holiday gap is the pure tests' job), Apr 1 - Sep 4.
-TAPE_DAYS = weekdays(date(2026, 4, 1), 110)
+# the DB world's tape runs on SESSIONS: no bar on an NYSE closure (a vendor serves none, and the
+# point-in-time view skips one, F5) — Good Friday, Memorial Day, Juneteenth and July 3rd fall inside it
+TAPE_DAYS = weekdays(date(2026, 4, 1), 110, skip=tuple(NYSE_CLOSURES))
 INGESTED = datetime(2026, 9, 10, tzinfo=UTC)  # our own ingest instant, after every as-of below
 
 

@@ -43,6 +43,7 @@ from db.session import DEFAULT_TENANT_ID
 from domain.enums import ContextRole
 from domain.market_time import market_today
 from domain.thesis import BENCH_LABEL, CONTEXT_LABEL, BasketMember, Catalyst, Segment, Thesis
+from domain.trading_days import is_scheduled_day
 from repositories import thesis_repo
 from signals.display import trailing_returns
 
@@ -435,6 +436,24 @@ def test_a_catalyst_dated_in_the_past_is_ignored_and_the_asof_day_counts():
     got = next_catalyst(cs, [T1], ASOF)
     assert got is not None and (got.label, got.days) == ("Today", 0)
     assert next_catalyst(cs[:1], [T1], ASOF) is None  # only a past one: none, not the past one
+
+
+def test_the_next_catalyst_counts_from_the_origin_so_the_action_day_reads_today():
+    """F2: from Wednesday's night 10-28 a live view acts on Thursday 10-29. A catalyst dated the night has passed by
+    then (not picked); one dated Thursday is 0 days away ('today'); a past view, counted from its as-of, is unchanged.
+    """
+    cs = [
+        cat(T1, "Grid", "The night", date(2026, 10, 28)),
+        cat(T1, "Grid", "Action day", date(2026, 10, 29)),
+        cat(T1, "Grid", "Later", date(2026, 11, 2)),
+    ]
+    origin = date(2026, 10, 29)
+    got = next_catalyst(cs, [T1], origin)
+    assert got is not None and (got.label, got.days) == ("Action day", 0)
+    again = next_catalyst(cs[:1], [T1], origin)
+    assert again is None  # only the night's own: it has passed
+    from_asof = next_catalyst(cs, [T1], ASOF)
+    assert from_asof is not None and (from_asof.label, from_asof.days) == ("The night", 0)
 
 
 def test_a_tie_on_the_date_goes_by_card_name_then_label():
@@ -850,8 +869,8 @@ def test_a_role_set_after_the_asof_does_not_show_and_a_filing_after_it_never_rea
     ds = [
         d
         for i in range(60)
-        if (d := date(2026, 4, 20) + timedelta(days=i)) <= LATER and d.weekday() < 5
-    ]
+        if (d := date(2026, 4, 20) + timedelta(days=i)) <= LATER and is_scheduled_day(d)
+    ]  # sessions: Mon-Fri minus NYSE closures (Memorial Day) — a vendor serves no holiday bar (F5)
     spy_close = {d: 100.0 + 0.2 * i for i, d in enumerate(ds)}
     rta_close = {d: 10.0 + 0.1 * i + (0.3 if i % 5 == 0 else 0.0) for i, d in enumerate(ds)}
     for d in ds:

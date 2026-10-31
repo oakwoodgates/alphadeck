@@ -235,6 +235,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/clock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Clock
+         * @description The server's current night, action day and today in the market's zone. The app's default as-of is the
+         *     current night, never the browser's date. Reads no data.
+         */
+        get: operations["get_clock_clock_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/workbench/theses/{thesis_id}/scored": {
         parameters: {
             query?: never;
@@ -928,8 +949,9 @@ export interface paths {
          *     instrument, not a claim, until n accrues.
          *
          *     On Edition 0 three kinds of recorded row are set aside before scoring: reconstructed rows
-         *     (always), rows annotated as phantom arms (by the annotated-night policy, which
-         *     ``include_annotated`` overrides per request), and rows recorded after their night's next EDGAR
+         *     (always), rows annotated ``exclude`` (phantom arms, and rows dated a day with no market session;
+         *     by the annotated-night policy, which ``include_annotated`` overrides per request), and rows
+         *     recorded after their night's next EDGAR
          *     open (by the late-night policy, which ``include_late`` overrides per request). Every reading is
          *     available; nothing is deleted. An edition has none of those rows: its lists come back empty and
          *     both policies read ``n/a``.
@@ -5534,11 +5556,12 @@ export interface components {
         };
         /**
          * AnnotatedNightOut
-         * @description One phantom-arm night (D3b): a (thesis, as-of) whose recorded row carries an ACTIVE ``exclude``
-         *     annotation — under the default reading it is set aside like a reconstructed night; under the
-         *     ``include_annotated`` reading it is scored. ``reasons`` are the annotation tokens (e.g.
-         *     ``stale_comparative_revenue``), ``rules`` the code identities that judged it
-         *     (``d3a-first-knowability@<sha>``), ``n_rows`` the annotated rows on the night.
+         * @description One annotated night (D3b, F10): a (thesis, as-of) whose recorded row carries an ACTIVE ``exclude``
+         *     annotation — a phantom arm, or a row dated a day with no market session — under the default reading it
+         *     is set aside like a reconstructed night; under the ``include_annotated`` reading it is scored.
+         *     ``reasons`` are the annotation tokens (e.g. ``stale_comparative_revenue``, ``no_session_day``), ``rules``
+         *     the code identities that judged it (``d3a-first-knowability@<sha>``, ``no-session-night@<sha>``),
+         *     ``n_rows`` the annotated rows on the night.
          */
         AnnotatedNightOut: {
             /**
@@ -6913,6 +6936,35 @@ export interface components {
          */
         ChainWaveWeeks: 13 | 26 | 52;
         /**
+         * ClockOut
+         * @description The server's days, from one clock read in the market's zone.
+         */
+        ClockOut: {
+            /**
+             * Current Night
+             * Format: date
+             * @description the night the nightly pass last recorded or is recording: today once the pass time has passed on a weekday, else the weekday before; the app's default as-of
+             */
+            current_night: string;
+            /**
+             * Action Day
+             * Format: date
+             * @description the first weekday after the current night: the day the operator acts on its call
+             */
+            action_day: string;
+            /**
+             * Market Today
+             * Format: date
+             * @description today's calendar date in the market's zone
+             */
+            market_today: string;
+            /**
+             * Market Tz
+             * @description the market's zone, e.g. America/New_York
+             */
+            market_tz: string;
+        };
+        /**
          * ContextRole
          * @description What part a company plays on THIS card — the operator-authored CONTEXT ROLE on a basket membership
          *     (Context roles, Phase 1). Display metadata only: stored, carried end to end, shown quietly, and never read
@@ -7750,7 +7802,8 @@ export interface components {
         /**
          * DigestDueItemOut
          * @description One dated line of this week: a catalyst, or a card's entry window or exit-by (the Catalyst Calendar's items).
-         *     ``today`` = dated the as-of; ``days`` = calendar days from the as-of; ``state`` = the card's state in effect.
+         *     ``today`` = dated the countdown origin; ``days`` = calendar days from the origin (the action day, the session
+         *     after the night, on a live view; the as-of on a past one); ``state`` = the card's state in effect.
          */
         DigestDueItemOut: {
             /**
@@ -7841,8 +7894,9 @@ export interface components {
         };
         /**
          * DigestHoldOut
-         * @description The card's exit-by as sessions: ``sessions_left`` = the Mon-Fri sessions after the as-of through it (0 on its
-         *     last day), or ``passed_sessions`` = the calendar's sessions after it through the as-of.
+         * @description The card's exit-by as sessions: ``sessions_left`` = the Mon-Fri sessions after the as-of through it while the
+         *     horizon is open (the first session after the as-of is on or before it, F3, so at least 1), or ``passed_sessions``
+         *     = the calendar's sessions after it through the as-of (``0`` when no session is left but none has printed yet).
          */
         DigestHoldOut: {
             /** Exit By */
@@ -7920,10 +7974,11 @@ export interface components {
          * DigestLineOut
          * @description One line of a card: What Changed's own item. ``ticker`` / ``security_id`` are set for a name or a trigger line;
          *     ``label`` = the key's own label, or the trigger's; ``on`` = the trigger's event date or the clock's date;
-         *     ``previous_on`` = a re-dated trigger's earlier date; ``days`` = calendar days from the newest night to the entry
-         *     window's end. ``tone``: ``accent`` (a card that entered Armed, a name newly armed, an entry window closing within
-         *     3 days) or ``warm`` (a card that left Armed, an exit-by reached); ``null`` on every other line. ``source`` = a
-         *     trigger or risk line's first source (``null`` = it states none).
+         *     ``previous_on`` = a re-dated trigger's earlier date; ``days`` = calendar days from the countdown origin (the action
+         *     day, the session after the newest night, on a live view) to the entry window's end. ``tone``: ``accent`` (a card
+         *     that entered Armed, a name newly armed, an entry window closing within 3 days) or ``warm`` (a card that left
+         *     Armed, an exit-by reached); ``null`` on every other line. ``source`` = a trigger or risk line's first source
+         *     (``null`` = it states none).
          */
         DigestLineOut: {
             /**
@@ -8945,8 +9000,10 @@ export interface components {
          * EntryWindowsMemberClockOut
          * @description An armed name whose own flag is true, with its own entry clock. ``headline`` = the name whose clocks the card
          *     carries (``armed_members[0]``). ``sessions_left`` = the Mon-Fri days after the as-of through the NAME's own
-         *     ``arm_until`` (while that window is open), ``closed_ago`` = the IWM sessions since it closed (``0`` on its last
-         *     day); both ``null`` unless ``entry_window_closing``.
+         *     ``arm_until`` (while that window is open: the first session after the as-of is on or before it, so at least 1),
+         *     ``closed_ago`` = the IWM sessions since it closed (``0`` when no session is left but none has printed after
+         *     ``arm_until`` yet); ``last_session`` = the window's last session while it is open (with one left, the first
+         *     session after the as-of); all three ``null`` unless ``entry_window_closing``.
          */
         EntryWindowsMemberClockOut: {
             /**
@@ -8968,6 +9025,8 @@ export interface components {
             sessions_left: number | null;
             /** Closed Ago */
             closed_ago: number | null;
+            /** Last Session */
+            last_session: string | null;
         };
         /**
          * EntryWindowsMemberOut
@@ -9053,8 +9112,12 @@ export interface components {
          *     night's row was written by ``pipeline.backfill`` (reported, never scored). ``arm_until`` / ``exit_by`` = the
          *     entry window and the hold horizon (``null`` = no clock). ``sessions_into`` = the IWM sessions after the arm
          *     night through the as-of; ``sessions_left`` = the Mon-Fri days after the as-of through ``arm_until`` (while the
-         *     window is open); ``closed_ago`` = the IWM sessions since it closed (``0`` on its last day); ``hold_days`` =
-         *     calendar days from the as-of to ``exit_by`` (negative = passed). Each flag is true when ANY armed member's own
+         *     window is open: the first session after the as-of is on or before it, F3, so at least 1); ``closed_ago`` = the
+         *     IWM sessions since it closed (``0`` when no session is left but none has printed after it yet); ``last_session``
+         *     = the window's last session (the latest session on or before ``arm_until``) while it is open, ``null`` once
+         *     closed: with one session left it is the first session after the as-of, the day the operator acts; ``hold_days`` =
+         *     calendar days from the countdown origin to ``exit_by`` (negative = passed; the origin is the action day, the
+         *     session after the night, on a live view and the as-of on a past one). Each flag is true when ANY armed member's own
          *     flag is true; ``member_clocks`` lists those members with their own entry clock, since the figures above count to
          *     the card's (the headline name's) clocks.
          */
@@ -9103,6 +9166,8 @@ export interface components {
             sessions_left: number | null;
             /** Closed Ago */
             closed_ago: number | null;
+            /** Last Session */
+            last_session: string | null;
             /** Hold Days */
             hold_days: number | null;
             /** Member Clocks */
@@ -10553,8 +10618,10 @@ export interface components {
          * @description A row's clocks at the as-of. ``arm_night`` = the first night of the member's current recorded run
          *     (``arm_reconstructed`` = that night was rebuilt by ``pipeline.backfill``); ``sessions_since`` = sessions after it
          *     through the as-of on IWM's bar calendar; ``sessions_left`` = Mon-Fri sessions after the as-of through
-         *     ``arm_until`` (``null`` once it has passed, when ``closed_ago`` = the sessions since it ended); ``days_to_exit`` =
-         *     calendar days from the as-of to ``exit_by`` (negative = passed).
+         *     ``arm_until`` while the window is open (the first session after the as-of is on or before ``arm_until``, F3, so
+         *     at least 1; ``null`` once closed, when ``closed_ago`` = the sessions since it ended); ``days_to_exit`` =
+         *     calendar days from the countdown origin to ``exit_by`` (negative = passed). The origin is the action day (the
+         *     session after the night) on a live view and the as-of on a past one.
          */
         HotClocksOut: {
             /** Arm Night */
@@ -14241,8 +14308,9 @@ export interface components {
         };
         /**
          * ReadThroughCatalystOut
-         * @description The nearest dated card-level catalyst on or after the as-of among the row's cards; ``days`` = its date
-         *     minus the as-of (0 = the as-of day).
+         * @description The nearest dated card-level catalyst on or after the countdown origin among the row's cards; ``days`` = its
+         *     date minus the origin (0 = the origin day). The origin is the action day (the session after the night) on a
+         *     live view and the as-of on a past one.
          */
         ReadThroughCatalystOut: {
             /**
@@ -16061,7 +16129,9 @@ export interface components {
         };
         /**
          * TickerLookupCardCatalystOut
-         * @description A thesis-level catalyst of a card the company counts on (``null`` ``when_date`` = undated).
+         * @description A thesis-level catalyst of a card the company counts on (``null`` ``when_date`` = undated). ``passed`` = dated
+         *     before the countdown origin: the action day (the session after the night) on a live view, the as-of on a past
+         *     one.
          */
         TickerLookupCardCatalystOut: {
             /**
@@ -17283,7 +17353,8 @@ export interface components {
          *     set for a name or a trigger line (``null`` = a card-level line; ``ticker`` is ``null`` when the master has
          *     none). ``label`` = the key's own label, or the trigger's. ``on`` = the trigger's event date, or the clock's
          *     date (``arm_until`` / ``exit_by``); ``previous_on`` = a re-dated trigger's event date on the baseline night
-         *     (``null`` on every other line); ``days`` = calendar days from the newest night to ``arm_until``.
+         *     (``null`` on every other line); ``days`` = calendar days from the countdown origin (the action day, the session
+         *     after the newest night) to ``arm_until``.
          *     ``reconstructed`` = the card's newest row was written by ``pipeline.backfill``.
          */
         WhatChangedItemOut: {
@@ -17748,6 +17819,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_clock_clock_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClockOut"];
                 };
             };
         };
@@ -18516,7 +18607,7 @@ export interface operations {
                 asof: string;
                 /** @description archived theses ride the record by default (archiving stops accrual, never erases the record); false is the explicit, reversible filter */
                 include_archived?: boolean;
-                /** @description the annotated-night reading: true = score rows annotated `exclude` (phantom arms) as before; false = set them aside like reconstructed rows; omitted = the server setting (ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED, default: set aside). The response's summary.annotated_policy names the reading used */
+                /** @description the annotated-night reading: true = score rows annotated `exclude` (phantom arms, and rows dated a day with no market session) as before; false = set them aside like reconstructed rows; omitted = the server setting (ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED, default: set aside). One reading covers every `exclude` whatever its rule. The response's summary.annotated_policy names the reading used */
                 include_annotated?: boolean | null;
                 /** @description the late-night reading: true = score rows recorded after their night's next EDGAR open (06:00 ET the next weekday) as before; false = set them aside, so an on-time row for the night wins and a late-only night reads like a cron gap; omitted = the server setting (ALPHADECK_SCOREBOARD_EXCLUDE_LATE, default: set aside). The response's summary.late_policy names the reading used */
                 include_late?: boolean | null;
@@ -20935,7 +21026,7 @@ export interface operations {
                 asof: string;
                 /** @description which Scoreboard EDITION to read: 0 (the default) = the original record (the calls log); N >= 1 = the stored re-run Edition N (404 if it does not exist). Unlike the Scoreboard, a request that names no edition reads the record, not the newest published edition, while the editions nightly is paused; the response's `newest_edition` names the newest published one */
                 edition?: number;
-                /** @description the Scoreboard's annotated-night reading: true = keep rows annotated `exclude` (phantom arms); false = set them aside; omitted = the server setting. The response names the reading used */
+                /** @description the Scoreboard's annotated-night reading: true = keep rows annotated `exclude` (phantom arms, and rows dated a day with no market session); false = set them aside; omitted = the server setting. The response names the reading used */
                 include_annotated?: boolean | null;
                 /** @description the Scoreboard's late-night reading: true = keep rows recorded after their night's next EDGAR open; false = set them aside; omitted = the server setting. The response names the reading used */
                 include_late?: boolean | null;

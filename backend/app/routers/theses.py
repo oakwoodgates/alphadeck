@@ -20,7 +20,7 @@ from app.schemas_api import (
     ThesisDetail,
     ThesisSummary,
 )
-from domain.market_time import market_today, serve_view
+from domain.market_time import market_clock, market_today, serve_decisions_asof, serve_view
 from domain.thesis import Catalyst, ExcludedName, KillCriterion, Thesis
 from pipeline.call_for_thesis import call_for_thesis
 from repositories import calls_repo, decisions_repo, thesis_repo
@@ -111,9 +111,21 @@ def get_call(
     # day, so the recompute shows how today's rules judge what was public then — a filing published after the
     # as-of is as invisible as a fact DATED after it, and a fact we happened to ingest late (an outage, a
     # name onboarded later) is not hidden for it. A live ``asof`` threads ``(None, "record")`` (the unchanged
-    # live read). See ``domain.market_time.serve_view`` / ``db.public_clock``.
-    known_at, clock = serve_view(asof)
-    card = call_for_thesis(conn, thesis.id, asof, known_at=known_at, clock=clock, record=False)
+    # live read). See ``domain.market_time.serve_view`` / ``db.public_clock``. LIVE = on or after the current
+    # night (F1): the default view is the night the pass last recorded, read live — and on that view the
+    # operator's decisions read up to the ACTION day, so a fill logged this morning shows before tonight's pass
+    # (``serve_decisions_asof``; decisions only, the facts follow the night). One clock read for both halves.
+    mclock = market_clock()
+    known_at, clock = serve_view(asof, night=mclock.night)
+    card = call_for_thesis(
+        conn,
+        thesis.id,
+        asof,
+        known_at=known_at,
+        clock=clock,
+        record=False,
+        decisions_asof=serve_decisions_asof(asof, mclock),
+    )
     sec_ids = (
         {t.security_id for t in card.triggers_fired}
         | {r.security_id for r in card.risk_signals}

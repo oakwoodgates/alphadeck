@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 // The Cockpit's catalyst calendar reads in DATE order — soonest first, a fuzzy "~Q3" last — with a date
@@ -34,10 +34,11 @@ vi.mock("../../api/hooks", () => ({
   usePutKillCriteria: () => ({ mutate: () => {}, isPending: false, isError: false, error: null }),
 }));
 
+import { type AppClock, ClockProvider } from "../../clock";
 import { Cockpit } from "../Cockpit";
 
-const renderCockpit = () =>
-  render(
+const renderCockpit = (server?: AppClock) => {
+  const cockpit = (
     <Cockpit
       thesisId="t-cal"
       asof="2026-10-22"
@@ -47,8 +48,10 @@ const renderCockpit = () =>
       onSelectName={() => {}}
       railOpen
       onRailChange={() => {}}
-    />,
+    />
   );
+  return render(server ? <ClockProvider value={server}>{cockpit}</ClockProvider> : cockpit);
+};
 
 const rows = () => [...document.querySelectorAll(".vt-cats .cat")] as HTMLElement[];
 
@@ -64,15 +67,32 @@ describe("Cockpit — the catalyst calendar", () => {
     ]);
   });
 
-  it("reads a past date as 'Nd ago', today and ahead as 'Nd', and a fuzzy one as its own label", () => {
+  it("reads a past date as 'Nd ago', today as 'today', ahead as 'Nd', and a fuzzy one as its own label", () => {
     renderCockpit();
+    // a PAST view (the browser's date, with no server clock around, is later than Oct 22): counted from the as-of
     expect(rows().map((r) => r.querySelector(".when")?.textContent)).toEqual([
       "Oct 1 · 21d ago",
-      "Oct 22 · 0d",
+      "Oct 22 · today",
       "Oct 30 · 8d",
       "Dec 15 · 54d",
       "~Q1",
     ]);
+  });
+
+  it("counts a LIVE view from the action day: the night's own date has passed, the action day reads today (F2)", () => {
+    // Oct 22 is the current night, read live on Oct 23 morning, the action day
+    const live = { currentNight: "2026-10-22", marketToday: "2026-10-23", actionDay: "2026-10-23", failed: false };
+    renderCockpit(live);
+    expect(rows().map((r) => r.querySelector(".when")?.textContent)).toEqual([
+      "Oct 1 · 22d ago",
+      "Oct 22 · 1d ago",
+      "Oct 30 · 7d",
+      "Dec 15 · 53d",
+      "~Q1",
+    ]);
+    cleanup();
+    renderCockpit({ ...live, actionDay: "2026-10-22" }); // when the action day IS Oct 22, that catalyst reads today
+    expect(rows().map((r) => r.querySelector(".when")?.textContent)[1]).toBe("Oct 22 · today");
   });
 
   it("grays a past date (never hides it) and accents only what is within 21 days ahead", () => {

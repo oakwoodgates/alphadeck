@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -23,6 +23,7 @@ vi.mock("../../api/hooks", () => ({
   useSetArchived: () => ({ mutate: h.setArchived, isPending: false }),
 }));
 
+import { ClockProvider } from "../../clock";
 import { Board } from "../Board";
 
 const noop = () => {};
@@ -115,9 +116,17 @@ describe("Board — Decision Queue deep-link (#4)", () => {
 // of its own, and never reorders the queue by it.
 describe("Board — Decision Queue act-by clock", () => {
   const clock = (container: HTMLElement) => container.querySelector(".dq-clock") as HTMLElement | null;
-  const queue = (members: Parameters<typeof armedCall>[0], extra: Record<string, unknown>) => {
+  // F2 — the clock is a COUNTDOWN: on a live view it counts from the ACTION day, the session after the night. These
+  // calls are the night of Oct 13 (Tuesday), read live on Wednesday Oct 14 morning, so "act within Nd" counts from
+  // Oct 14; a past view (the current night has moved on) counts from the call's own as-of, below.
+  const LIVE = { currentNight: "2026-10-13", marketToday: "2026-10-14", actionDay: "2026-10-14", failed: false };
+  const queue = (
+    members: Parameters<typeof armedCall>[0],
+    extra: Record<string, unknown>,
+    server = LIVE,
+  ) => {
     h.calls = { "t-a": { data: armedCall(members, extra) }, "t-b": { data: incubCall() } };
-    renderBoard();
+    render(<ClockProvider value={server}>{boardEl()}</ClockProvider>);
     return dq();
   };
 
@@ -125,7 +134,7 @@ describe("Board — Decision Queue act-by clock", () => {
     const el = clock(
       queue([{ ticker: "OKLO", security_id: "s-oklo" }], { asof: "2026-10-13", arm_until: "2026-10-18" }),
     );
-    expect(el?.textContent).toBe("act within 5d");
+    expect(el?.textContent).toBe("act within 4d"); // Oct 14 -> Oct 18 (it would read 5d from the night)
     expect(el?.className).not.toContain("closing");
     expect(el?.getAttribute("title")).toBe("the entry window — this entry signal is valid through Oct 18");
   });
@@ -137,7 +146,7 @@ describe("Board — Decision Queue act-by clock", () => {
         arm_until: "2026-10-15",
       }),
     );
-    expect(el?.textContent).toBe("act within 2d · entry window closing");
+    expect(el?.textContent).toBe("act within 1d · entry window closing");
     expect(el?.className).toContain("closing");
   });
 
@@ -152,14 +161,40 @@ describe("Board — Decision Queue act-by clock", () => {
       ),
     );
     expect(el?.className).not.toContain("closing");
-    expect(el?.textContent).toBe("act within 2d");
+    expect(el?.textContent).toBe("act within 1d");
   });
 
-  it("says the window lapsed when its date is already behind the card's as-of", () => {
+  it("says the window lapsed when its date is already behind the day the operator acts", () => {
     const el = clock(
       queue([{ ticker: "OKLO", security_id: "s-oklo" }], { asof: "2026-10-13", arm_until: "2026-10-10" }),
     );
     expect(el?.textContent).toBe("entry window lapsed");
+  });
+
+  it("reads a window ending on the action day as 'act today', and one that ended on the night as lapsed (F2)", () => {
+    const today = clock(
+      queue([{ ticker: "OKLO", security_id: "s-oklo" }], { asof: "2026-10-13", arm_until: "2026-10-14" }),
+    );
+    expect(today?.textContent).toBe("act today");
+    cleanup();
+    const night = clock(
+      queue([{ ticker: "OKLO", security_id: "s-oklo" }], { asof: "2026-10-13", arm_until: "2026-10-13" }),
+    );
+    expect(night?.textContent).toBe("entry window lapsed"); // the night is over: no session of it is left to act in
+  });
+
+  it("counts a PAST view from its own as-of and carries the date, since a bare count would name a day nobody sees (F2)", () => {
+    // the current night has moved on to Oct 20: the Oct 13 call is history, so nothing is re-based
+    const later = { currentNight: "2026-10-20", marketToday: "2026-10-21", actionDay: "2026-10-21", failed: false };
+    const el = clock(
+      queue([{ ticker: "OKLO", security_id: "s-oklo" }], { asof: "2026-10-13", arm_until: "2026-10-18" }, later),
+    );
+    expect(el?.textContent).toBe("act within 5d · Oct 18");
+    cleanup();
+    const lapsed = clock(
+      queue([{ ticker: "OKLO", security_id: "s-oklo" }], { asof: "2026-10-13", arm_until: "2026-10-10" }, later),
+    );
+    expect(lapsed?.textContent).toBe("entry window lapsed · Oct 10");
   });
 
   it("draws no clock at all when the card carries no entry window", () => {

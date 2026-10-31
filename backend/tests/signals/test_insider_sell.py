@@ -34,6 +34,7 @@ from tests.calls.factories import (
     insider_sell_event,
     make_thesis,
 )
+from tests.session_days import last_session_through
 
 ASOF = date(2026, 6, 4)
 SID = uuid4()
@@ -162,18 +163,26 @@ def test_silent_when_every_sale_is_planned():
     assert insider_sell.score(txns, SID, ASOF, DEFAULT_CONFIG) is None
 
 
-def test_stale_cluster_drops_out_with_the_inclusive_boundary():
-    """Freshness is DETECTOR-enforced (the assembler never ages risks): the cluster emits AT the
-    liveness horizon (the entry_signal_is_live inclusive idiom) and drops out one day past it."""
+def test_stale_cluster_drops_out_with_the_next_session_boundary():
+    """Freshness is DETECTOR-enforced (the assembler never ages risks): the cluster emits while the
+    first session after the night is inside its liveness horizon (``entry_signal_is_live``, F3) and drops
+    out on the horizon's own night — its next session is past the horizon."""
     anchor = date(2026, 3, 6)
     txns = [
         _sell("Jane Doe", "Chief Executive Officer", 400_000, d=anchor),
         _sell("John Roe", "Chief Financial Officer", 350_000, d=anchor),
     ]
-    at_horizon = anchor + timedelta(days=DEFAULT_CONFIG.insider_sell_liveness_days)
-    assert insider_sell.score(txns, SID, at_horizon, DEFAULT_CONFIG) is not None  # inclusive
-    past = at_horizon + timedelta(days=1)
-    assert insider_sell.score(txns, SID, past, DEFAULT_CONFIG) is None  # stale -> out of the stream
+    at_horizon = anchor + timedelta(
+        days=DEFAULT_CONFIG.insider_sell_liveness_days
+    )  # Thu 2026-06-04
+    last_session = last_session_through(at_horizon)
+    before = last_session - timedelta(days=1)
+    assert (
+        insider_sell.score(txns, SID, before, DEFAULT_CONFIG) is not None
+    )  # its next session is the last
+    assert (
+        insider_sell.score(txns, SID, last_session, DEFAULT_CONFIG) is None
+    )  # stale -> out of the stream
 
 
 def test_cohesion_window_scopes_the_cluster_to_one_episode():

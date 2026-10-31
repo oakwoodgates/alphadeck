@@ -452,5 +452,5 @@ export const LIMITS: readonly string[] = [
   "The record's triggers are the live ones the calls log kept: a trigger that lapsed between two recorded nights is not here. They are read from the cards the company sits on at the as-of, over the last 365 days; one first recorded before that window is counted, not listed. One row per trigger (role, kind and fire date): a label that changed night to night is still one row, showing the first night's label (hover it to see how many times it changed).",
   "The market cap is approximate: the latest close times the latest shares fact, with the ADS ratio and any split applied. A data flag on the price withholds it.",
   "Decisions are the operator's own fills, shown as logged; a decision counts from its date and, on a past view, only once it was logged by the end of that day.",
-  "The catalysts of a card are the operator's list as stored today, not as they stood on the as-of; passed dates are marked against the as-of.",
+  "The catalysts of a card are the operator's list as stored today, not as they stood on the as-of; a date is marked passed when it falls before the day you act (the session after the as-of's night) on the current view, and before the as-of on a past one.",
 ];

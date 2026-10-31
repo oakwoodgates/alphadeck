@@ -54,7 +54,7 @@ STEP_MIN = 3.0
 # x100 volume spike) is not a split's inverse volume.
 BETA_MAX = 3.0
 # HOLD_SESSIONS — how long a step holds: its first new-scale bar is on the asof's session or one of the two
-# before it (Mon-Fri sessions, ``domain.splits.session_distance``). Three, not "the newest bar": the vendor
+# before it (market sessions, ``domain.splits.session_distance``; a holiday is not one, F5). Three, not "the newest bar": the vendor
 # serves the re-scaled bar late (MDCX's 10-08 close arrived re-scaled on the 10-09 night) or early (NXL's
 # 08-28 bar arrived on the 1-for-30 scale a session before the 08-31 split, so its 09-01 card read the step on
 # the third-newest bar). Sessions, not bar positions: a missing bar (GAME's 08-24) or a stopped feed never

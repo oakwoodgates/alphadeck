@@ -38,9 +38,11 @@ from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
 from domain.market_time import market_today
 from domain.thesis import BENCH_LABEL, CONTEXT_LABEL, BasketMember, Segment, Thesis
+from domain.trading_days import closure_name
 from repositories import thesis_repo
 from signals.display import sma
 from signals.display.base import DisplayBasis, DisplayHeadline, DisplaySignal
+from tests.session_days import bar_days
 
 ASOF = date(2026, 6, 1)
 
@@ -920,10 +922,15 @@ def test_a_price_published_after_a_past_asof_stays_invisible(db):
     both."""
     sid = _security(db, "XRAD")
     before = WHIPSAW + [20.0] * 10  # 300 bars ending at the as-of
-    after = [20.0 + i * 3.0 for i in range(1, (_LATER - ASOF).days + 1)]
-    start = ASOF - timedelta(days=len(before) - 1)
-    for i, close in enumerate(before + after):
-        d = start + timedelta(days=i)
+    # calendar days minus the NYSE closures (no vendor bar on one; the real view skips one, F5)
+    days_before = bar_days(ASOF, len(before))
+    days_after = [
+        d
+        for d in (ASOF + timedelta(days=k) for k in range(1, (_LATER - ASOF).days + 1))
+        if closure_name(d) is None
+    ]
+    after = [20.0 + i * 3.0 for i in range(1, len(days_after) + 1)]
+    for d, close in zip(days_before + days_after, before + after):
         _price(db, sid, d, close, datetime.combine(d, time.min, tzinfo=timezone.utc))
     _price(db, sid, ASOF, 200.0, _THAW + timedelta(days=7))  # the as-of bar, corrected later
     thesis = Thesis(
@@ -949,8 +956,13 @@ def test_a_price_published_after_a_past_asof_stays_invisible(db):
         app.dependency_overrides.clear()
         CACHE.clear()
 
-    original = company_crosses(_bars(before), ASOF, None, None)
-    corrected = company_crosses(_bars(before[:-1] + [200.0] + after, _LATER), _LATER, None, None)
+    def on(days, closes):
+        return [{"d": d, "close": c} for d, c in zip(days, closes)]
+
+    original = company_crosses(on(days_before, before), ASOF, None, None)
+    corrected = company_crosses(
+        on(days_before + days_after, before[:-1] + [200.0] + after), _LATER, None, None
+    )
     (row,) = past["timeline"]
     (name,) = row["members"]
     assert name["ticker"] == "XRAD" and row["group"]["link"] == "Core"

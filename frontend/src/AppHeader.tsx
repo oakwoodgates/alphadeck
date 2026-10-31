@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
+import { CLOCK_FALLBACK_TITLE, useAppClock } from "./clock";
 import { DASHBOARDS } from "./dashboards/registry";
 import {
   ASOF,
@@ -59,6 +60,7 @@ export function AppHeader({ current, asof, onAsofChange }: Props) {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const asofParam = validAsof(params.get(ASOF));
+  const clockFailed = useAppClock().failed;
   return (
     <header className="topbar">
       <div className="brand">
@@ -92,6 +94,14 @@ export function AppHeader({ current, asof, onAsofChange }: Props) {
           as-of
           <input type="date" value={asof} onChange={(e) => onAsofChange(e.target.value)} />
         </label>
+      )}
+      {/* F1 — the default as-of is the server's current night; only when that read failed does the browser's
+          date stand in, and the dial says so once, quietly (#7: the exception, not the rule). Outside the label,
+          so the dial's accessible name stays "as-of". */}
+      {asof !== undefined && onAsofChange && clockFailed && (
+        <span className="asof-note" title={CLOCK_FALLBACK_TITLE}>
+          browser date
+        </span>
       )}
     </header>
   );

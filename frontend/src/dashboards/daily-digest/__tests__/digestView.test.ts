@@ -4,7 +4,6 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { todayISO } from "../../../util/format";
 import {
   FOLDED_CHANGES,
   SECTIONS,
@@ -82,10 +81,14 @@ describe("sections and links", () => {
     ]);
   });
 
-  it("carries ?asof= for a day other than today and keeps a live visit's URL clean", () => {
-    expect(sectionHref("what-changed", "2026-09-17")).toBe("/dashboards/what-changed?asof=2026-09-17");
-    expect(asofParam(todayISO())).toBeNull();
-    expect(sectionHref("hot-board", todayISO())).toBe("/dashboards/hot-board");
+  it("carries ?asof= for a day other than the default as-of and keeps a default visit's URL clean", () => {
+    // F1: the default as-of is the server's current night (here Friday the 18th, read on a Monday morning)
+    const night = "2026-09-18";
+    expect(sectionHref("what-changed", "2026-09-17", night)).toBe("/dashboards/what-changed?asof=2026-09-17");
+    expect(asofParam(night, night)).toBeNull();
+    expect(sectionHref("hot-board", night, night)).toBe("/dashboards/hot-board");
+    // the browser's date is not the default any more: a link from it names its day
+    expect(asofParam("2026-09-21", night)).toBe("2026-09-21");
   });
 
   it("words a day with its weekday so a Monday visibly reads Friday", () => {
@@ -132,7 +135,7 @@ describe("last night's words", () => {
     expect(w({ change: "risk_new", label: "note", signal_kind: "dilution_risk", on: null })).toBe("new risk signal · note · dilution risk");
     expect(w({ change: "trigger_redated", label: "breakout", signal_kind: "technical_breakout", previous_on: "2026-09-10", on: "2026-09-14" })).toBe("re-dated · breakout · technical breakout · Sep 10 → Sep 14");
     expect(w({ change: "entry_window", on: "2026-09-19", days: 2 })).toBe("entry window closes in 2 days · Sep 19");
-    expect(w({ change: "entry_window", on: "2026-09-17", days: 0 })).toBe("entry window closes on the night · Sep 17");
+    expect(w({ change: "entry_window", on: "2026-09-17", days: 0 })).toBe("entry window closes today · Sep 17");
     expect(w({ change: "exit_by", on: "2026-09-17" })).toBe("exit-by reached · Sep 17");
   });
 
@@ -290,7 +293,8 @@ describe("positions' words", () => {
   it("words the hold clock in sessions left or sessions since it passed", () => {
     expect(holdWords({ exit_by: "2026-09-22", sessions_left: 3, passed_sessions: null })).toBe("exit-by Sep 22 · 3 sessions left");
     expect(holdWords({ exit_by: "2026-09-18", sessions_left: 1, passed_sessions: null })).toBe("exit-by Sep 18 · 1 session left");
-    expect(holdWords({ exit_by: "2026-09-17", sessions_left: 0, passed_sessions: null })).toBe("exit-by Sep 17 · its last day");
+    // F3: an exit-by with no session left after the as-of reads "passed" (before F3 the night of it read "its last day")
+    expect(holdWords({ exit_by: "2026-09-17", sessions_left: null, passed_sessions: 0 })).toBe("exit-by Sep 17 · passed");
     expect(holdWords({ exit_by: "2026-09-15", sessions_left: null, passed_sessions: 2 })).toBe("exit-by Sep 15 · passed 2 sessions ago");
     expect(holdWords({ exit_by: "2026-09-16", sessions_left: null, passed_sessions: 0 })).toBe("exit-by Sep 16 · passed");
     expect(holdWords({ exit_by: null, sessions_left: null, passed_sessions: null })).toBe("no exit-by");
@@ -312,6 +316,9 @@ describe("positions' words", () => {
 describe("due this week's words", () => {
   it("marks today and counts days otherwise; words a deadline by what it is", () => {
     expect(dueWhen(due())).toBe("today");
+    // a past view carries the date: "today" would be the as-of, a day nobody sees (F2)
+    expect(dueWhen(due(), true)).toBe("Thu, Sep 17 · on the as-of date");
+    expect(dueWhen(due({ today: false, on: "2026-09-19", days: 2 }), true)).toBe("Sat, Sep 19 · in 2 days");
     expect(dueWhen(due({ today: false, on: "2026-09-19", days: 2 }))).toBe("Sat, Sep 19 · in 2 days");
     expect(dueWhat(due())).toBe("Readout · regulatory");
     expect(dueWhat(due({ kind: null }))).toBe("Readout");
@@ -374,6 +381,7 @@ describe("the tape's words and cut", () => {
   it("words the two clocks", () => {
     expect(clockWords(tapeRow())).toBe("2 in · 3 left");
     expect(clockWords(tapeRow({ sessions_left: null, closed_ago: 2 }))).toBe("2 in · window closed 2 sessions ago");
+    expect(clockWords(tapeRow({ sessions_left: null, closed_ago: 0 }))).toBe("2 in · window closed"); // F3: none left
     expect(clockWords(tapeRow({ sessions_left: null, closed_ago: null }))).toBe("2 in");
     expect(clockWords(tapeRow({ sessions_since: null, sessions_left: null }))).toBe("—");
   });

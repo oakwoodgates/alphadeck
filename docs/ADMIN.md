@@ -48,7 +48,8 @@ nights, and containers that don't always restart. Three questions and one safety
 ## Record freshness — "is the record current?"
 
 `GET /admin/status` → the summary the page opens on. The **record edge** is the calls-log `MAX(asof)`
-(`calls_repo.record_edge`), measured against the last **expected** Mon-Fri + `RUN_AT` run
+(`calls_repo.record_edge`), measured against the last **expected** session + `RUN_AT` run (a session = Mon-Fri
+minus the NYSE's full-day closures, `domain.trading_days`, F5)
 (`schedule.py::last_expected_asof` / `expected_runs_behind`, on the market clock — `market_now()`):
 
 - A **Friday** edge read on a **Monday morning** is `0` behind — **current**, never a weekend false alarm;
@@ -414,9 +415,10 @@ reads — artifact-sourced like the stopped-feed panel, so the surface still own
 This is the **same staleness the Scoreboard shows** (Slice 2, `SCOREBOARD.md`) — one contract
 (`pipeline/schedule.py`), two surfaces — both now feeding it `domain/market_time.market_now()` (an explicit
 `ZoneInfo`) rather than an ambient `datetime.now()`. *(Earmark, still open: `schedule.py` remains the second
-home of the Mon-Fri + `RUN_AT` contract alongside the shell's sleep-loop. `market_today()` did **not** unify
-them — it answers "what day is it in market time" and does no trading-calendar logic; the remaining work is
-shrinking the shell to a dumb trigger. See `ROADMAP.md` "what's next".)*
+home of the `RUN_AT` loop alongside the shell's sleep-loop. `market_today()` did **not** unify
+them — it answers "what day is it in market time" and does no trading-calendar logic; since F5 the session
+CALENDAR is not duplicated (the shell asks `python -m pipeline.schedule is-session`), and the remaining work
+is shrinking the shell to a dumb trigger. See `ROADMAP.md` "what's next".)*
 
 ### Onboarding — "are the new names' histories loaded?"  `[BUILT, X1 2026-10-21]`
 

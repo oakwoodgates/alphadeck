@@ -99,18 +99,20 @@ export function filingWords(f: ReadThroughFilingOut): { short: string; full: str
   };
 }
 
-/** "in 15 days", "in 1 day", "on the as-of date". */
-export function daysWords(days: number): string {
-  if (days === 0) return "on the as-of date";
+/** "in 15 days", "in 1 day", "today". A COUNTDOWN: the server counts `days` from the action day on a live view, so a
+ *  catalyst dated that day reads "today" (F2); on a PAST view (`past`: the response's clock is "public") it counts from
+ *  the as-of and a catalyst dated the as-of reads "on the as-of date", the date riding in the cell beside it. */
+export function daysWords(days: number, past = false): string {
+  if (days === 0) return past ? "on the as-of date" : "today";
   return `in ${plural(days, "day", "days")}`;
 }
 
 /** The next-catalyst cell: the date and days to go, the catalyst, its card; and the full line for the hover. */
-export function catalystWords(c: ReadThroughCatalystOut): { short: string; full: string } {
+export function catalystWords(c: ReadThroughCatalystOut, past = false): { short: string; full: string } {
   const when = c.when_label ? `${fmtDay(c.when_date)} (${c.when_label})` : fmtDay(c.when_date);
   return {
-    short: `${fmtShortDay(c.when_date)} · ${daysWords(c.days)} · ${c.label} · ${c.thesis_name}`,
-    full: `${when} · ${daysWords(c.days)} · ${c.label}${c.kind ? ` (${c.kind})` : ""} · on ${c.thesis_name}`,
+    short: `${fmtShortDay(c.when_date)} · ${daysWords(c.days, past)} · ${c.label} · ${c.thesis_name}`,
+    full: `${when} · ${daysWords(c.days, past)} · ${c.label}${c.kind ? ` (${c.kind})` : ""} · on ${c.thesis_name}`,
   };
 }
 

@@ -66,7 +66,7 @@ function redated(i: Item): string {
 function entryWindow(i: Item): string {
   const days = i.days ?? 0;
   return days === 0
-    ? `entry window closes on the newest night · ${fmtDate(i.on)}`
+    ? `entry window closes today · ${fmtDate(i.on)}`
     : `entry window closes in ${plural(days, "day", "days")} · ${fmtDate(i.on)}`;
 }
 

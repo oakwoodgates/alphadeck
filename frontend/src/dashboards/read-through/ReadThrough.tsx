@@ -238,7 +238,7 @@ export default function ReadThrough({ asof, onSelectThesis }: DashboardProps) {
               {shown.map((r) => {
                 const first = r.cards[0];
                 const filing = r.last_filing ? filingWords(r.last_filing) : null;
-                const next = r.next_catalyst ? catalystWords(r.next_catalyst) : null;
+                const next = r.next_catalyst ? catalystWords(r.next_catalyst, data.clock === "public") : null;
                 const edgar = r.last_filing?.url?.includes("sec.gov");
                 return (
                   <tr key={r.key} data-testid="rt-row">

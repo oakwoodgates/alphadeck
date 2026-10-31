@@ -11,6 +11,7 @@ from pydantic import ValidationError
 
 from domain.config import DEFAULT_CONFIG, CorporateEventItemPolicy
 from domain.enums import CatalystType, Grade, Kind, Role
+from domain.trading_days import next_scheduled_day
 from signals import corporate_catalyst
 from tests.calls.factories import ASOF, SID
 
@@ -60,13 +61,16 @@ def test_unmapped_null_and_risk_cut_items_fire_nothing():
     assert corporate_catalyst.score([_fact(items=("3.02",))], SID, ASOF) is None
 
 
-def test_liveness_is_per_item_inclusive_and_expires():
-    """The 90d [PROPOSED] 5.02 window, anchored on the filing date: inclusive AT the horizon,
-    expired one day past it — the same ``entry_signal_is_live`` arithmetic every trigger uses."""
+def test_liveness_is_per_item_and_expires_with_the_next_session():
+    """The 90d [PROPOSED] 5.02 window, anchored on the filing date: live while the session after the
+    as-of is inside it, expired once that session is past it (a window ending ON the as-of) — the same
+    ``entry_signal_is_live`` arithmetic every trigger uses (F3)."""
     days = DEFAULT_CONFIG.corporate_event_items["5.02"].liveness_days
-    filed = ASOF - timedelta(days=days)
+    filed = next_scheduled_day(ASOF) - timedelta(days=days)  # the window ends on the next session
     assert corporate_catalyst.score([_fact(filed=filed, items=("5.02",))], SID, ASOF) is not None
-    stale = ASOF - timedelta(days=days + 1)
+    stale = ASOF - timedelta(
+        days=days
+    )  # the window ends on the as-of itself: no session of it left
     assert corporate_catalyst.score([_fact(filed=stale, items=("5.02",))], SID, ASOF) is None
 
 

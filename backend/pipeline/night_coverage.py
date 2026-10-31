@@ -20,8 +20,13 @@ THE WORDS:
 - **The on-time window** (``on_time_window`` / ``is_on_time``, the ONE helper M2 and the late-row policy L1
   share): ``[RUN_AT on D, 06:00 market time on the next weekday after D)`` — from the scheduled fire to the
   next EDGAR open (EDGAR accepts filings from 06:00 ET; anything recorded later can have read a filing the
-  night could not have). A Friday night's window runs to Monday 06:00 (the trigger's Mon-Fri calendar —
-  holidays are not modeled, the ``pipeline/schedule.py`` choice).
+  night could not have). A Friday night's window runs to Monday 06:00. **Weekdays, holidays INCLUDED — on
+  purpose, NOT the session calendar** (``domain.trading_days.is_scheduled_day``, which F5 made skip the
+  NYSE's closures): the window's end is EDGAR's open, and EDGAR follows SEC business days, not the NYSE. On
+  Good Friday the market is closed but EDGAR accepts filings, so ending the window at the next SESSION would
+  stretch a Thursday night's window to Monday and let a Good Friday catch-up read that day's filings
+  without being called late. The plain weekday rule is the conservative one: on a federal holiday EDGAR is
+  closed, so ending the window that morning can only over-flag a row as late, never miss one.
 - **Late** (``is_late`` — L1, operator Q5 = A) = a non-reconstructed row recorded at or after the window's
   END. The SCOREBOARD never lets one define an episode (``scoreboard/late.py``: dropped before the per-as-of
   dedup, so an on-time row for the night wins and a late-only night reads as a cron gap — reversible by
@@ -71,7 +76,6 @@ from uuid import UUID
 
 import psycopg
 
-from pipeline.schedule import is_scheduled_day
 from repositories import calls_repo, thesis_repo
 
 # EDGAR's filing day opens at 06:00 ET (it accepts 06:00-22:00) — the on-time window's upper bound.
@@ -84,9 +88,14 @@ def night_cutoff(asof: date, run_at: time, tz: tzinfo) -> datetime:
 
 
 def next_edgar_open(asof: date, tz: tzinfo) -> datetime:
-    """06:00 market time on the first scheduled weekday AFTER ``asof`` — the on-time window's end."""
+    """06:00 market time on the first WEEKDAY after ``asof`` — the on-time window's end, EDGAR's next open.
+    Mon-Fri with holidays INCLUDED, deliberately not ``domain.trading_days.is_scheduled_day`` (the NYSE
+    session calendar): EDGAR keeps SEC business days and accepts filings on Good Friday, so skipping NYSE
+    closures here would stretch a Thursday night's window to Monday and let a Good Friday catch-up read new
+    filings without being called late; on a federal holiday EDGAR is closed, so ending the window that
+    morning can only over-flag (the module docstring)."""
     d = asof + timedelta(days=1)
-    while not is_scheduled_day(d):
+    while d.weekday() >= 5:
         d += timedelta(days=1)
     return datetime.combine(d, EDGAR_OPEN, tzinfo=tz)
 

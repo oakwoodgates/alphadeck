@@ -55,7 +55,7 @@ from dashboards.what_changed import Change, Section, security_ids
 from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard
 from domain.enums import Kind, State
-from domain.market_time import serve_view
+from domain.market_time import countdown_origin, market_clock, serve_view
 from domain.splits import listed_from_row
 from domain.thesis import Thesis
 from repositories import decisions_repo
@@ -131,10 +131,11 @@ class DigestSourceOut(_Wire):
 class DigestLineOut(_Wire):
     """One line of a card: What Changed's own item. ``ticker`` / ``security_id`` are set for a name or a trigger line;
     ``label`` = the key's own label, or the trigger's; ``on`` = the trigger's event date or the clock's date;
-    ``previous_on`` = a re-dated trigger's earlier date; ``days`` = calendar days from the newest night to the entry
-    window's end. ``tone``: ``accent`` (a card that entered Armed, a name newly armed, an entry window closing within
-    3 days) or ``warm`` (a card that left Armed, an exit-by reached); ``null`` on every other line. ``source`` = a
-    trigger or risk line's first source (``null`` = it states none).
+    ``previous_on`` = a re-dated trigger's earlier date; ``days`` = calendar days from the countdown origin (the action
+    day, the session after the newest night, on a live view) to the entry window's end. ``tone``: ``accent`` (a card
+    that entered Armed, a name newly armed, an entry window closing within 3 days) or ``warm`` (a card that left
+    Armed, an exit-by reached); ``null`` on every other line. ``source`` = a trigger or risk line's first source
+    (``null`` = it states none).
     """
 
     section: Section
@@ -211,8 +212,10 @@ class DigestLastSessionOut(_Wire):
 
 
 class DigestHoldOut(_Wire):
-    """The card's exit-by as sessions: ``sessions_left`` = the Mon-Fri sessions after the as-of through it (0 on its
-    last day), or ``passed_sessions`` = the calendar's sessions after it through the as-of."""
+    """The card's exit-by as sessions: ``sessions_left`` = the Mon-Fri sessions after the as-of through it while the
+    horizon is open (the first session after the as-of is on or before it, F3, so at least 1), or ``passed_sessions``
+    = the calendar's sessions after it through the as-of (``0`` when no session is left but none has printed yet).
+    """
 
     exit_by: date | None
     sessions_left: int | None
@@ -247,7 +250,8 @@ class DigestPositionOut(_Wire):
 
 class DigestDueItemOut(_Wire):
     """One dated line of this week: a catalyst, or a card's entry window or exit-by (the Catalyst Calendar's items).
-    ``today`` = dated the as-of; ``days`` = calendar days from the as-of; ``state`` = the card's state in effect.
+    ``today`` = dated the countdown origin; ``days`` = calendar days from the origin (the action day, the session
+    after the night, on a live view; the as-of on a past one); ``state`` = the card's state in effect.
     """
 
     item: Literal["catalyst", "entry_window", "exit_by"]
@@ -625,6 +629,7 @@ def read_digest(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    origin: date | None = None,
 ) -> DailyDigest:
     """The cached read: the counted cards and their rosters at the as-of, the night pair and the cards in effect on
     each, the Managing cards' positions, the Form 4 filings filed since P, the armed names' and the held names'
@@ -733,6 +738,7 @@ def read_digest(
             flagged=flagged,
             window_start=window_start,
             ciks=ciks,
+            origin=origin,
         )
     )
 
@@ -754,8 +760,18 @@ def daily_digest_page(
     A past as-of reads the nights recorded on or before it and what was public by the end of that date; a fill logged
     after it is not a position then.
     """
-    known_at, clock = serve_view(asof)
-    got = cached(conn, SLUG, (clock,), asof, lambda: read_digest(conn, asof, known_at, clock))
+    mclock = market_clock()
+    known_at, clock = serve_view(asof, night=mclock.night)
+    # F2: the countdowns (due this week, an entry window closing) count from the action day on a live view; the
+    # origin is part of the key because it moves when the night does
+    origin = countdown_origin(asof, mclock)
+    got = cached(
+        conn,
+        SLUG,
+        (clock, origin),
+        asof,
+        lambda: read_digest(conn, asof, known_at, clock, origin),
+    )
     return DailyDigestOut.model_validate(
         {**_payload(got.value), "cache": got.status, "compute_ms": got.compute_ms}
     )

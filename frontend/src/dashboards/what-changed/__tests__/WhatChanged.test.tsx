@@ -188,14 +188,12 @@ describe("What Changed — group by kind (the default)", () => {
     expect(section.textContent).not.toMatch(/no longer firing|expired|failed/i);
   });
 
-  it("an entry window closing on the newest night says so", () => {
+  it("an entry window closing on the action day says today (F2: the clock counts from that day)", () => {
     h.useWhatChanged.mockReturnValue(
       query({ ...DATA, items: [item(GRID, "clocks", "entry_window", { on: "2026-10-28", days: 0 })] }),
     );
     renderPage();
-    expect(
-      screen.getByText("entry window closes on the newest night · Oct 28"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("entry window closes today · Oct 28")).toBeInTheDocument();
   });
 
   it("shows the work in one quiet line: the two nights, the counts and the rule", () => {

@@ -41,6 +41,7 @@ from db.session import DEFAULT_TENANT_ID
 from domain.market_time import market_today
 from domain.thesis import BENCH_LABEL, CONTEXT_LABEL, BasketMember, Segment, Thesis
 from repositories import thesis_repo
+from tests.session_days import bar_days
 
 ASOF = date(2026, 6, 1)
 T1, T2 = uuid.uuid4(), uuid.uuid4()
@@ -659,7 +660,7 @@ def test_a_price_published_after_a_past_asof_stays_invisible(db, monkeypatch):
     The data flags ride the same views through the real reader: none at the past as-of; on today's view the
     tapes (they end 2026-06-01) are stopped feeds, so every name is left out and named."""
     n = 150
-    ds = days(n)
+    ds = bar_days(ASOF, n)  # through the real view: no bar on an NYSE closure (F5)
     spy_id = _security(db, "SPY", None, kind="etf")
     shapes = {
         "QRA": [10.0 + 0.1 * i for i in range(n)],

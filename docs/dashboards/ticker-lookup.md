@@ -192,7 +192,8 @@ measured on real data yet: the DB-backed tests and a dev run are still to come, 
 - **The company's catalyst facts leave the Filings list** and show once, under Catalysts (the plan lists them in both
   places; listing a row twice would double its count).
 - Card catalysts come from the cards where the company has a non-silent row, as the operator's list stands today (not
-  point-in-time); "passed" is judged against the as-of.
+  point-in-time); "passed" is a countdown word (F2, `DASHBOARDS.md` rule 2): a catalyst dated before the countdown
+  origin, which is the action day (the session after the night) on a live view and the as-of on a past one.
 
 **Decisions**
 - **A separate `SELECT`, not `read_decisions`:** the Idea Timeline's read has no shares or price columns. The rows

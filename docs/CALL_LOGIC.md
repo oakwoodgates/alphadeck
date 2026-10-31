@@ -74,9 +74,10 @@ So `insider_conviction` is `role=entry_trigger, kind=insider`; a DOE award is `r
 > that evening. So the fire date and the liveness anchor of `corporate_risk` / `corporate_catalyst`,
 > `activist_stake` and `revenue_acceleration` move one night earlier for an evening filing, on the live call
 > and every history view; an untrusted time keeps the filing date (late, never early). The card's "(filed …)"
-> text reads the same `valid_from`.
+> text keeps showing SEC's filing date (the stored `filed` column), so a re-dated filing's words stay true and
+> no recorded label changes because of the re-dating.
 
-The lifecycle is a **loop**, not a ratchet: `Incubating → Warming → Armed → Managing`, and Armed/Warming can fall back. A fired entry trigger is **live** only while inside its alpha-liveness window (`asof ≤ fire_date + alpha_liveness_days`); aged-out triggers stop counting. The numbers live in `CallConfig` (STARTING calibration), not here.
+The lifecycle is a **loop**, not a ratchet: `Incubating → Warming → Armed → Managing`, and Armed/Warming can fall back. A fired entry trigger is **live** on night `asof` only while the **first session after that night** is inside its alpha-liveness window (`next_scheduled_day(asof) ≤ fire_date + alpha_liveness_days` — F3, §6); aged-out triggers stop counting. The numbers live in `CallConfig` (STARTING calibration), not here.
 
 | Transition | Condition |
 |---|---|
@@ -84,7 +85,7 @@ The lifecycle is a **loop**, not a ratchet: `Incubating → Warming → Armed �
 | Incubating → **Warming** | ≥ `warming_min_entry_triggers` live entry triggers, but the two keys are **not** co-located (e.g. a conviction with no confirmation on the same security). |
 | Warming → **Armed** | A **conviction** key and a **confirmation** key are *live and co-located on the same security* (`arming_requires_confirmation`), and no severe risk signal is blocking. |
 | any → **Managing** | Operator has logged a fill (`position` exists, `opened_on ≤ asof`). Alpha Deck now **monitors the entered thesis**; it does not manage the position or portfolio risk. The position DERIVES from the **operator-decisions log** (`operator_decision` — decision capture): `take` opens, `close` closes, `void` un-does an append; read as-of BOTH time axes (`decision_date` = valid, `recorded_at` = transaction — a replayed past call never sees a later-logged fill), fed once at the `call_for_thesis` funnel (`decisions_repo.effective_position`; any log rows beat the seed-era `thesis.position_*` columns, including net-closed). The same log is the Scoreboard's operator column and the gate's override record (a take rides with the platform's stance at logging time — logged, never blocked, #5). A take logged **on a name** also attributes the held member on the menu — per-member Managing, §4. |
-| Armed → **Warming** | The **confirmation** key ages past its liveness window (the *entry window* `arm_until` lapses) with no fill — re-arming needs a fresh confirmation. A mild consolidation (a dip that doesn't age out the firing) is **not** a lapse. |
+| Armed → **Warming** | The **confirmation** key ages past its liveness window (the *entry window* `arm_until` lapses: the night's next session is after `arm_until`) with no fill — re-arming needs a fresh confirmation. A mild consolidation (a dip that doesn't age out the firing) is **not** a lapse. |
 | Armed/Warming → **Incubating** | All live entry triggers age out (past the signal-validity horizon `exit_by`). |
 
 > **Two clocks (sticky-on-confirmation).** The arm is sticky on the **confirmation's** clock — the *entry
@@ -719,13 +720,41 @@ Both are `null` when no live trigger of that kind exists. `exit_by` is the convi
 **valid-through horizon**: how long the thesis window behind the arm remains live. It drives the catalyst
 surface and supplies a post-fill monitoring/scoring yardstick; it is **not a mandatory trade exit, sell-by
 date, stop, or order instruction**. `arm_until` (the confirmation / entry clock) is the window in which the
-Armed call is live — when `asof` passes it, the arm lapses (§2). A trigger is **live** only inside its liveness
-window (`asof ≤ fire_date + alpha_liveness_days`). The conviction (insider) liveness window is **graded** (§3)
+Armed call is live — the arm lapses on the first night whose next session is after it (§2, and the rule below).
+The conviction (insider) liveness window is **graded** (§3)
 — a `core` cluster's horizon is multi-month, a `flip`'s is short — so the validity window scales with the
 strength of the conviction (and the detector's lookback reaches at least as far, or a still-live cluster
 would drop from the re-derived stream early). Undated/fuzzy catalysts (no `when_date`) are shown for context
 but excluded from the surface filter. The Cockpit flags binary events that fall within `catalyst_surface`;
 that inclusion is not an instruction to close the trade at the event or window end.
+
+**When a trigger is live — the next-session rule (F3, operator decision 2026-10-30, rule log
+`2026-11-entry-window-next-session`).** A trigger is live on night N **iff the first session after N
+(`domain.trading_days.next_scheduled_day(N)`) is on or before its window end** (`fire_date +
+alpha_liveness_days`). One rule, in one function (`signals/common.entry_signal_is_live`), for every
+trigger: both keys (the conviction key, so Warming and `exit_by`, and the confirmation key, so the entry
+window) and every detector that calls it, risk signals included. The arm lapses when
+`next_scheduled_day(asof) > arm_until`, not when `asof > arm_until`.
+
+- **Why.** The call is recorded after night N's close, so the earliest the operator can act on it is the
+  next session. Before F3 the test was `asof ≤ window end`: a name stayed Armed through night `arm_until`
+  itself, whose next session is outside the window — an arm nobody could act on (measured on the record in the
+  2026-10-30 day-boundaries audit:
+  15 arms gave 0 sessions to act in, and each of the 66 arms that ran to the end of their window ended on
+  such a night).
+- **What it changes.** The last live night is the night before the window's last session. A window ending
+  on a session (Fri `arm_until`) is last live Thursday; on Friday night itself the card no longer counts the
+  trigger. A window ending on a weekend or a market holiday (a calendar-day window can) is last live on the
+  night before its last session: `arm_until` Saturday → last live Thursday, closed Friday night (Monday is
+  past it). An armed card's `arm_until` is therefore always on or after the session it is acted on, so
+  `sessions_left` is at least 1 on every armed member and "entry window lapsed" can never sit next to Armed.
+- **What it does not change.** No window is stretched: the end date (`exit_by`, `arm_until`, a risk's
+  freshness horizon) is the same date as before; only the nights whose next session falls outside it stop
+  counting. A window too short to contain any session after its fire night (a Friday fire with one day of
+  liveness) is never live. Scoring still measures to the window end's own close (`exit_by`'s session is in the
+  window), and `lapsing` / the ranking runway still count calendar days from the as-of.
+- It composes unchanged with the session calendar (F5: a holiday is not a session, so it can never be the
+  "next session") and with a future change of liveness to sessions (F4).
 
 **The two clock FLAGS on an armed member (Q14, 2026-10-18).** Each clock has its own flag on
 `MemberCall`, and each is labeled for the clock it reads — they used to share one label, and it was the
@@ -734,7 +763,7 @@ wrong one:
 | Flag (wire field) | Reads | On when | UI label |
 |---|---|---|---|
 | `lapsing` | the **hold clock**, `exit_by` | `exit_by − asof < headline_lapsing_soon_days` (45) — the same freshness band the menu ranking uses | **"hold clock closing"** |
-| `entry_window_closing` | the **entry window**, `arm_until` | at most `entry_window_closing_sessions` (2) **trading sessions** remain after the card's `asof`, through `arm_until` inclusive | **"entry window closing"** |
+| `entry_window_closing` | the **entry window**, `arm_until` | at most `entry_window_closing_sessions` (2) **trading sessions** remain after the card's `asof`, through `arm_until` inclusive (at least 1 on any armed member since F3) | **"entry window closing"** |
 
 `lapsing` was labeled "entry window closing" until Q14; MEASURED on the record (audit A3), 69% of
 arm-window expiries never showed it — it tracks the 45-day hold band, not the confirmation clock that
@@ -742,14 +771,18 @@ actually ends an arm. Its meaning is unchanged; only its words are. The wire nam
 purpose: `MemberCall` is a strict schema (`extra="forbid"`), so renaming the field would make every
 recorded card unparseable and break the API contract, for no change in behavior.
 
-`entry_window_closing` counts sessions with the cron's Mon-Fri calendar (`domain.trading_days.is_scheduled_day`
-— the one definition `pipeline/schedule.py` also imports; `calls/` never imports `pipeline/`):
-asof Mon with `arm_until` Wed = 2 left (Tue, Wed) → on; the Friday before = 3 → off; Thu with a Monday
-close = 2 (Fri, Mon) → on, though it is four calendar days; a weekend `arm_until` (a calendar-day window
-can end on a Saturday) adds no session, so Friday is the last. **Holidays are not modeled** — that calendar
-fires the cron on market holidays too — so a holiday inside the last few days counts as a session and the
-flag comes on **one session late** (Labor Day 2026: `arm_until` Mon 09-07 read 3 on Wed 09-02, where an
-exchange calendar reads 2). The flag is computed from the card's own `asof` and the member's own
+`entry_window_closing` counts sessions with the ONE session calendar (`domain.trading_days.is_scheduled_day`
+— the one definition `pipeline/schedule.py` also imports and the cron sidecar asks; `calls/` never imports
+`pipeline/`): **Mon-Fri minus the NYSE's full-day closures** (F5, 2026-10-31, rule log
+`2026-11-market-holiday-calendar` — "market holidays are not sessions"; a hand-kept list checked against the
+NYSE's published calendars, 2020-2028, with a test that fails 180 days before it runs out; a half-day close
+IS a session). asof Mon with `arm_until` Wed = 2 left (Tue, Wed) → on; the Friday before = 3 → off; Thu
+with a Monday close = 2 (Fri, Mon) → on, though it is four calendar days; a weekend `arm_until` (a
+calendar-day window can end on a Saturday) adds no session, so Friday is the last. A **market holiday** inside
+the window is not a session either: Labor Day 2026, `arm_until` Mon 09-07, read 2 on Wed 09-02 (Thu, Fri) →
+on. Before F5 the calendar was the cron's plain Mon-Fri, a holiday counted, and that card read 3 → off: the
+flag came on one session late. Moving the calendar flips the recorded flag on nights near a holiday, so F5
+is a declared rule change (it cuts an edition). The flag is computed from the card's own `asof` and the member's own
 `arm_until` — no wall clock, so no lookahead — and only for an **armed** member: a watch member's
 confirmation clock is a decay, not an entry, and a held (Managing) member is past its entry, so neither ever
 carries it (#7). It is **display and timing context only (#4)**: computed after every decision and read by
@@ -863,7 +896,8 @@ late May) and real EOD bars.
   size a trade.
 - **Two clocks (§6):** `exit_by` (signal validity) = `2026-05-26 + 180d` (graded core-conviction horizon);
   `arm_until` (entry window) = `2026-06-01 + 10d = 2026-06-11` — the call stays Armed through a
-  consolidation until 06-11, then lapses to Warming unless a fresh breakout re-arms it.
+  consolidation until the night of 06-10 (its next session, 06-11, is the window's last), then lapses to
+  Warming on the night of 06-11 unless a fresh breakout re-arms it (the next-session rule, §6).
 - **catalyst_surface:** any dated catalyst ≤ `exit_by` is flagged as falling within the live thesis window.
 - **setup strength (`confidence` on the wire):** capped at `starter_confidence_cap` (≈0.55) — HIMS is a
   `starter` (entry `flip`), so the

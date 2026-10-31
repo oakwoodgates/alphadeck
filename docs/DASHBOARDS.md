@@ -79,6 +79,19 @@ the data flags). Its plan is `docs/BOARD.md`.
    dashboard calls `serve_view` once per request and threads that pair into every read; it never
    builds its own cutoff.
 
+   **Day counts (F2, 2026-10-30).** The as-of is the night, for the data; the **action day** (the first scheduled
+   day after the current night) is the day the operator acts, so it is the day the words count from. A
+   *countdown* to a future date ("in N days", "today", "passed", days to `exit_by`, a window "closing within N
+   days") counts from `domain.market_time.countdown_origin(asof, clock)`: the action day on a live view (as-of on
+   or after the current night), the as-of itself on a past one (unchanged). A date equal to the origin reads
+   "today"; a date before it reads "passed". Read the clock once per request (`market_clock()`, the same read
+   `serve_view(asof, night=clock.night)` takes its night from) and put the origin in the cache key beside the
+   clock, because it moves when the night does. An *age* of a past event (a filing's "Nd", "N days before the
+   as-of", days in state, `days_after_night`, "filed N days after the trade") describes the record and still counts
+   from the as-of; `sessions_left` is the call path's own count and is not re-based. On a past view a cell that
+   shows only a relative count carries its date too. The Catalyst Calendar and the Idea Timeline are "now" views
+   with no dial: their `today` is the real calendar day and stays `market_today()`.
+
 3. **Rankings and sorts are allowed** when they are computed by code from data, never sourced from an
    LLM, and their wording stays neutral. Say what the numbers show ("largest 1W move", "most names
    above the 50d"), never an instruction or a verdict ("buy", "must watch", "best idea"). A dashboard
@@ -124,7 +137,8 @@ the data flags). Its plan is `docs/BOARD.md`.
    A one-card dashboard starts from its picker, `picker_cards` (the counted cards A→Z with their link counts;
    built with the Chain Wave, shared since the Filing Stream).
    The cron warms the heavy pages after each pass (`pipeline.warm_dashboards`, last in the nightly wake, GETs
-   only, each page's default view for the next visit's as-of; `FEED_LOOP.md` §the dashboards' cache warm-up), so a
+   only, each page's default view at the night itself, the as-of the dial opens on until the next pass — F1;
+   `FEED_LOOP.md` §the dashboards' cache warm-up), so a
    dashboard whose default query changes updates its entry in that module's `PAGES`.
    The equal-weighted line math lives in `backend/dashboards/series.py` (the session calendar, the alignment
    and the chain; built with the Narrative Index, shared since the Rotation Quadrant): a dashboard that draws

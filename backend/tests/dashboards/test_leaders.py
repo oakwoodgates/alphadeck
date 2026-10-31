@@ -45,6 +45,7 @@ from signals.display.base import (
     DisplayMetric,
     DisplaySignal,
 )
+from tests.session_days import bar_days
 
 ASOF = date(2026, 6, 1)
 
@@ -726,9 +727,7 @@ def test_a_price_published_after_a_past_asof_stays_invisible(db, monkeypatch):
     same views through the real reader: none at the past as-of; on today's view the tape (it ends 2026-06-01)
     is a stopped feed, so the name is on no list for that reason too, and named."""
     sid = _security(db, "LEAD")
-    start = ASOF - timedelta(days=259)
-    for i in range(260):
-        d = start + timedelta(days=i)
+    for i, d in enumerate(bar_days(ASOF, 260)):  # no bar on an NYSE closure (F5)
         _price(db, sid, d, 10.0 + i * 0.1, datetime.combine(d, time.min, tzinfo=timezone.utc))
     _price(db, sid, ASOF, 18.95, _THAW + timedelta(days=7))  # the as-of bar (35.9), corrected later
     thesis = Thesis(

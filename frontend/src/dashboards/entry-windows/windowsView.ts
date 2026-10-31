@@ -44,29 +44,40 @@ export function tone(v: number | null | undefined): "pos" | "neg" | "" {
 export const intoWords = (row: EntryWindowsRowOut): string =>
   row.sessions_into == null ? "—" : row.sessions_into.toLocaleString("en-US");
 
-/** One entry clock in words: sessions left while it is open, "closed N sessions ago" after, its last day between. */
-function clockWords(armUntil: string | null, left: number | null, closedAgo: number | null): string {
+/** One entry clock in words: sessions left while it is open, "closed" once no session of it is left, then "closed N
+ *  sessions ago". F3: a window is open only while the session after the as-of is inside it, so an open one has at
+ *  least one session left, and its last night names that session: "1 session left: Oct 28" (`lastSession`). */
+function clockWords(
+  armUntil: string | null,
+  left: number | null,
+  closedAgo: number | null,
+  lastSession: string | null,
+): string {
   if (armUntil == null) return "no entry clock";
+  if (left === 1 && lastSession != null) return `1 session left: ${fmtDay(lastSession)}`;
   if (left != null) return plural(left, "session left", "sessions left");
   if (closedAgo == null) return "—";
-  if (closedAgo === 0) return "last day of the entry window";
+  if (closedAgo === 0) return "entry window closed";
   return `entry window closed ${plural(closedAgo, "session", "sessions")} ago`;
 }
 
 /** The entry window's cell: the CARD's clock (the headline name's `arm_until`). */
-export const leftWords = (row: EntryWindowsRowOut): string => clockWords(row.arm_until, row.sessions_left, row.closed_ago);
+export const leftWords = (row: EntryWindowsRowOut): string =>
+  clockWords(row.arm_until, row.sessions_left, row.closed_ago, row.last_session);
 
 const tickerOf = (c: EntryWindowsMemberClockOut) => c.ticker ?? "?";
 
 /** The quiet lines under the entry figure: one per armed name whose own entry window is closing and whose clock is
- *  not the card's own (the same `arm_until` is the figure above, already). "BBB · 1 session left · to Oct 28". */
+ *  not the card's own (the same `arm_until` is the figure above, already). "BBB · 2 sessions left · to Oct 29"; on the
+ *  last night the session is named instead of the window's end: "BBB · 1 session left: Oct 28". */
 export function memberEntryLines(row: EntryWindowsRowOut): string[] {
   return row.member_clocks
     .filter((c) => c.entry_window_closing && c.arm_until !== row.arm_until)
-    .map(
-      (c) =>
-        `${tickerOf(c)} · ${clockWords(c.arm_until, c.sessions_left, c.closed_ago)}${c.arm_until ? ` · to ${fmtDay(c.arm_until)}` : ""}`,
-    );
+    .map((c) => {
+      const words = clockWords(c.arm_until, c.sessions_left, c.closed_ago, c.last_session);
+      const named = c.sessions_left === 1 && c.last_session != null;
+      return `${tickerOf(c)} · ${words}${c.arm_until && !named ? ` · to ${fmtDay(c.arm_until)}` : ""}`;
+    });
 }
 
 /** Does the card's own hold clock (the headline name's) say "hold clock closing"? */
@@ -79,17 +90,20 @@ export function memberHoldLines(row: EntryWindowsRowOut): string[] {
   return row.member_clocks.filter((c) => c.lapsing).map((c) => `${tickerOf(c)} · ${HOLD_TAG}`);
 }
 
-/** Days to the hold horizon, or why there is none. */
+/** Days to the hold horizon, or why there is none. A COUNTDOWN: the server counts it from the action day on a live view
+ *  and from the as-of on a past one (F2), so a horizon that ends on the origin day reads "today". The horizon's date
+ *  rides under the figure on every view (`to Dec 3`), so a past view needs no date added. */
 export function holdWords(row: EntryWindowsRowOut): string {
   if (row.exit_by == null) return "no hold clock";
   if (row.hold_days == null) return "—";
   if (row.hold_days < 0) return "hold horizon passed";
+  if (row.hold_days === 0) return "today";
   return plural(row.hold_days, "day", "days");
 }
 
 export const HOLD_TAG = "hold clock closing";
 export const CLOSING_TITLE =
-  "The accent marks any armed name's entry window at 2 trading sessions or fewer (Mon-Fri days; a market holiday counts as a session). A name whose window differs from the card's is named under the figure";
+  "The accent marks any armed name's entry window at 2 trading sessions or fewer (Mon-Fri days; a market holiday is not a session). A name whose window differs from the card's is named under the figure";
 
 export type SinceCell = {
   /** The median over the priced names, "—" with none. */

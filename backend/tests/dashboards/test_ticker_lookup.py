@@ -741,6 +741,25 @@ def test_card_catalysts_come_from_the_cards_the_company_counts_on_dated_first_pa
     assert got[0].thesis_name == "Card A" and got[1].kind == "earnings"
 
 
+def test_a_card_catalyst_is_passed_when_dated_before_the_countdown_origin():
+    """F2: the night is Wednesday 10-28 and a live view acts on Thursday 10-29. A catalyst dated the night is passed
+    by then; one dated the action day is not (it reads 'today'); counted from the as-of, as a past view is, the
+    night's own catalyst is not passed."""
+    a = card(
+        "Card A",
+        T1,
+        [member()],
+        catalysts=[
+            _catalyst("The night", ASOF),
+            _catalyst("Action day", ASOF + timedelta(days=1)),
+        ],
+    )
+    live = card_catalysts([a], SID, ASOF + timedelta(days=1))
+    assert [(c.label, c.passed) for c in live] == [("The night", True), ("Action day", False)]
+    past = card_catalysts([a], SID, ASOF)
+    assert [(c.label, c.passed) for c in past] == [("The night", False), ("Action day", False)]
+
+
 # ---------------------------------------------------------------------------------------------------------
 # the operator's decisions
 # ---------------------------------------------------------------------------------------------------------
@@ -1198,9 +1217,10 @@ def sample_lookup():
 def stub_client(monkeypatch):
     seen: dict = {"reads": 0}
 
-    def fake_read(conn, security_id, asof, known_at, clock):
+    def fake_read(conn, security_id, asof, known_at, clock, origin=None):
         seen["reads"] += 1
         seen["view"] = (security_id, asof, known_at, clock)
+        seen["origin"] = origin
         return sample_lookup()
 
     known = {SID}
@@ -1228,6 +1248,35 @@ def test_the_router_serves_one_company_off_one_cached_read_on_the_requests_view(
     # another as-of is another read; the live as-of reads on the record clock with no cutoff
     client.get(url, params={"asof": market_today().isoformat()})
     assert seen["reads"] == 2 and seen["view"][2:] == (None, "record")
+
+
+def test_the_router_counts_a_live_view_from_the_action_day_and_a_past_one_from_its_asof(
+    stub_client, pin_market_clock
+):
+    """F2: Tuesday 09:00 is Monday's night. The default view of that night is live, so a card catalyst is 'passed'
+    when it is dated before Tuesday, the action day; a past view counts from itself. The origin is part of the key.
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    pin_market_clock(datetime(2026, 10, 27, 9, 0, tzinfo=ZoneInfo("America/New_York")))
+    client, seen = stub_client
+    url = f"/dashboards/ticker-lookup/{SID}"
+    client.get(url, params={"asof": "2026-10-26"})
+    assert seen["view"][2:] == (None, "record") and seen["origin"] == date(2026, 10, 27)
+    client.get(url, params={"asof": "2026-10-23"})
+    assert seen["view"][3] == "public" and seen["origin"] == date(2026, 10, 23)
+    keys = {k for k in CACHE._entries}
+    assert (
+        "ticker-lookup",
+        (str(SID), "record", date(2026, 10, 27)),
+        date(2026, 10, 26),
+    ) in keys
+    assert (
+        "ticker-lookup",
+        (str(SID), "public", date(2026, 10, 23)),
+        date(2026, 10, 23),
+    ) in keys
 
 
 def test_the_router_wire_shape(stub_client):

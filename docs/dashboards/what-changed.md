@@ -58,10 +58,14 @@ Comparing the two `CallCard`s (`calls.card`, parsed with `domain.call.CallCard.m
      signals are never re-dated.
    - Wording is neutral: "no longer firing", never "expired" or "failed".
 5. **Clocks (on the now card only, as of T):**
-   - `arm_until` within the next 3 calendar days ("entry window closes in N days")
+   - `arm_until` within the next 3 calendar days of the **countdown origin** ("entry window closes in N days",
+     "closes today" on the origin day). F2 (`DASHBOARDS.md` rule 2): the origin is the action day, the session after
+     the current night, because this page is always a live view; an entry window that ended on the night is passed
+     and not listed
    - `exit_by` on or before T and inside the window ("exit-by reached")
 
-   Calendar days, matching the Decision Queue's "act within Nd".
+   Calendar days, matching the Decision Queue's "act within Nd". The `exit_by` check is a span of the record
+   (after the baseline night, on or before T) and stays on T.
 
 - Tickers come from `securities.master.tickers_for(conn, ids)`.
 - Every item is ONE line. Clicking it calls `onSelectThesis(thesisId, ticker)`, or `onSelectThesis(thesisId)`

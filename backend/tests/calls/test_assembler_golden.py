@@ -181,11 +181,18 @@ def test_severe_dilution_blocks_arming_on_timing_not_thesis():
 def test_armed_is_sticky_across_the_entry_window():
     """A fixed dated firing stream stays Armed as the query asof advances through the entry window —
     the assembler trusts the dated firing and never re-evaluates a detector, so there is no flicker.
+
+    F3 (rule log ``2026-11-entry-window-next-session``): the last Armed night is Thu 06-11, the night whose
+    next session is ``arm_until`` (Fri 06-12, the breakout's fire date + 10). On 06-12 itself no session of
+    the window is left, so the confirmation is no longer live and the card falls back to Warming (the
+    conviction still is). Before F3 06-12 read Armed.
     """
     thesis = make_thesis()
     events = [insider_event(), breakout_event()]  # both fired on factories.ASOF (2026-06-02)
-    for q in (date(2026, 6, 2), date(2026, 6, 5), date(2026, 6, 8), date(2026, 6, 12)):
+    for q in (date(2026, 6, 2), date(2026, 6, 5), date(2026, 6, 8), date(2026, 6, 11)):
         assert assemble_call(thesis, events, q, DEFAULT_CONFIG).state is State.ARMED, q
+    last_day = assemble_call(thesis, events, date(2026, 6, 12), DEFAULT_CONFIG)
+    assert last_day.state is State.WARMING and last_day.arm_until is None
 
 
 def test_clocks_are_anchored_to_fire_date_not_query_asof():

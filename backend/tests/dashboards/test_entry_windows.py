@@ -29,6 +29,7 @@ from dashboards.entry_windows import (
     catalysts_in_window,
     entry_clock,
     entry_windows,
+    last_session,
     lookback_days,
     member_arm_nights,
     member_clocks,
@@ -240,9 +241,28 @@ def test_the_entry_clock_is_sessions_left_while_open_and_sessions_since_it_close
     cal = weekdays(d(1), d(27))
     assert entry_clock(cal, ASOF, d(30)) == (3, None)  # Wed, Thu, Fri
     assert entry_clock(cal, ASOF, d(28)) == (1, None)
-    assert entry_clock(cal, ASOF, ASOF) == (None, 0)  # its last day: closed after the session
+    assert entry_clock(cal, ASOF, ASOF) == (None, 0)  # its last day: no session of it left (F3)
+    # F3: a window ending on a Saturday is closed on the Friday night (its next session, Monday, is past it);
+    # before F3 the Friday read "0 sessions left", open
+    assert entry_clock(cal, d(23), d(24)) == (None, 0)
+    assert entry_clock(cal, d(22), d(24)) == (1, None)  # Thu: Friday is its one session left
     assert entry_clock(cal, ASOF, d(22)) == (None, 3)  # the bars of 10-23, 10-26 and 10-27
     assert entry_clock(cal, ASOF, None) == (None, None)
+
+
+def test_the_last_session_is_the_windows_last_session_while_it_is_open():
+    """F3: the session the operator last acts in — ``arm_until`` itself when it is a session, the Friday before a
+    weekend end, the session before a holiday end — and ``None`` once the window has no session left.
+    """
+    assert last_session(ASOF, d(28)) == d(28)  # 1 left: the next session, Wed 10-28
+    assert last_session(ASOF, d(30)) == d(30)  # 3 left, through Fri 10-30
+    assert last_session(d(22), d(24)) == d(23)  # a Saturday end: Friday 10-23
+    assert last_session(d(23), d(24)) is None  # the Friday night: no session left
+    assert last_session(ASOF, ASOF) is None  # a window ending on the as-of: none left
+    assert last_session(ASOF, None) is None
+    # Labor Day 2026 (Mon 09-07) is not a session: a window ending on it last trades Fri 09-04
+    assert last_session(date(2026, 9, 3), date(2026, 9, 7)) == date(2026, 9, 4)
+    assert last_session(date(2026, 9, 4), date(2026, 9, 7)) is None
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -343,6 +363,34 @@ def test_catalysts_inside_the_window_are_ticks_hollow_when_before_the_asof():
         ("ahead", False),
         ("on the hold end", False),
     ]
+
+
+def test_a_catalyst_is_hollow_when_dated_before_the_countdown_origin():
+    """F2: the night is Tuesday 10-27 and a live view counts from Wednesday 10-28, the action day: a catalyst dated
+    the night itself has passed by then (hollow), one dated the action day is still ahead (it reads 'today').
+    """
+    cs = [cat("the night", ASOF), cat("the action day", d(28)), cat("later", d(29))]
+    live = catalysts_in_window(cs, d(15), d(30), d(28))
+    assert [(t.label, t.past) for t in live] == [
+        ("the night", True),
+        ("the action day", False),
+        ("later", False),
+    ]
+    past = catalysts_in_window(cs, d(15), d(30), ASOF)  # a past view counts from its own as-of
+    assert [t.past for t in past] == [False, False, False]
+
+
+def test_the_hold_days_count_from_the_origin_and_the_sessions_stay_on_the_asof():
+    """F2: the hold horizon (Grid: 11-14) is 18 days from the night 10-27 and 17 from the action day 10-28; the entry
+    window's session counts are the call path's own and do not move."""
+    base, _ = page()
+    live, _ = page(origin=d(28))
+    g0 = next(r for r in base.rows if r.thesis_name == "Grid")
+    g1 = next(r for r in live.rows if r.thesis_name == "Grid")
+    assert (g0.hold_days, g1.hold_days) == (18, 17)
+    assert (g1.sessions_into, g1.sessions_left, g1.closed_ago) == (5, 3, None)
+    assert (g1.sessions_into, g1.sessions_left) == (g0.sessions_into, g0.sessions_left)
+    assert live.asof == ASOF  # the page's own as-of is the night
 
 
 def test_a_catalyst_dated_after_a_past_asof_is_a_solid_tick_still_ahead_then():
@@ -769,9 +817,10 @@ def test_the_axis_spans_five_sessions_before_the_earliest_arm_night_to_the_lates
 def stub_client(monkeypatch):
     seen: dict = {"reads": 0}
 
-    def fake_read(conn, asof, known_at, clock):
+    def fake_read(conn, asof, known_at, clock, origin=None):
         seen["reads"] += 1
         seen["view"] = (asof, known_at, clock)
+        seen["origin"] = origin
         got, _ = page(asof=asof)
         return got
 
@@ -806,6 +855,26 @@ def test_the_router_threads_the_view_and_serves_the_page_off_one_cached_read(stu
     # another as-of is its own read
     client.get("/dashboards/entry-windows", params={"asof": "2026-10-26"})
     assert seen["reads"] == 2
+
+
+def test_the_router_counts_a_live_view_from_the_action_day_and_a_past_one_from_its_asof(
+    stub_client, pin_market_clock
+):
+    """F2: Tuesday 09:00 is Monday's night. The default view of that night is live, so the hold days and a catalyst's
+    passed flag count from Tuesday, the action day; a past view counts from itself. The origin is part of the key.
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    pin_market_clock(datetime(2026, 10, 27, 9, 0, tzinfo=ZoneInfo("America/New_York")))
+    client, seen = stub_client
+    client.get("/dashboards/entry-windows", params={"asof": "2026-10-26"})
+    assert seen["view"][1:] == (None, "record") and seen["origin"] == date(2026, 10, 27)
+    client.get("/dashboards/entry-windows", params={"asof": "2026-10-23"})
+    assert seen["view"][2] == "public" and seen["origin"] == date(2026, 10, 23)
+    keys = {k for k in CACHE._entries}
+    assert ("entry-windows", ("record", date(2026, 10, 27)), date(2026, 10, 26)) in keys
+    assert ("entry-windows", ("public", date(2026, 10, 23)), date(2026, 10, 23)) in keys
 
 
 def test_the_router_reads_a_live_asof_on_the_record_clock(stub_client):
@@ -962,6 +1031,9 @@ def test_db_the_tape_the_sessions_and_the_links_come_off_the_real_reads(db):
     assert row["sessions_into"] == 5
     assert (row["sessions_left"], row["closed_ago"]) == (4, None)  # Tue 20 .. Fri 23
     assert body["session_source"] == "benchmarks" and body["calendar_last"] == "2026-10-19"
+    assert (
+        row["last_session"] == "2026-10-23"
+    )  # arm_until Fri 10-23 is a session: the window's last
     # WLD1 closes 10 + n for the n-th weekday from 10-05: 10-12 is the 6th (15), 10-19 the 11th (20)
     (m,) = row["members"]
     assert (
