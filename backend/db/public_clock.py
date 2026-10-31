@@ -40,20 +40,35 @@ fact_insider_txn               instant    SEC ACCEPTANCE (``accepted``) — the 
                                           — an upper bound: a filing we held was public by then, so it is
                                           never early, and never dropped — #9); the backtest export keeps its
                                           rule of excluding + COUNTING it.
-fact_corporate_event           date       ``filed`` (the 8-K's filing date, start of that market day)
-fact_activist_stake            date       ``filed`` (the 13D/G's filing date)
+fact_corporate_event           filing     F7 (2026-11): SEC ACCEPTANCE (``accepted``) — the FACT's, on every
+fact_activist_stake                       version: the newest version carrying a trusted one (all versions are
+                                          one filing; ``pipeline.repair_filing_dates`` re-dates a stored one);
+                                          none on any version: the start of the ``filed`` market day, exactly
+                                          as before (the 8-K's / 13D/G's filing date). ``valid_from`` is the
+                                          acceptance's market-time date, so an 8-K accepted after 17:30 ET
+                                          (filing date: the next business day) counts that evening's night
 fact_filing_index              date       ``filed`` (the EDGAR index row's filing date; display only, 0070)
-fact_fundamentals              date       ``valid_from`` (= the 10-Q/10-K ``filed`` date; a restatement is a
-                                          new version with its own ``filed``, so it counts from its OWN
-                                          publication)
+fact_fundamentals              dated      F7: the version's own SEC ACCEPTANCE (``accepted`` — a revenue row
+                                          the ingest or the repair dated by it), else the start of its
+                                          ``valid_from`` market day (= the 10-Q/10-K ``filed`` date). Each
+                                          version is its own filing (a restatement counts from its OWN
+                                          publication), so the instant is per version, not per fact
 fact_catalyst / fact_dilution  date       ``valid_from`` — the announcement date by construction (the
 / fact_theme_conviction                   backtest's existing operator decision; the ratification itself is
                                           later — the named hindsight caveat on the decision axis)
+fact_shares_outstanding        published  F9 (2026-11): the ACCEPTANCE of the filing whose companyfacts cover
+                                          row carries the version's count on its date (``filing_accepted`` —
+                                          on any version of the fact stating that same count and date: one
+                                          publication), else the version's ``recorded_at`` (an operator-typed
+                                          count counts from its ratification); then the RUNNING MAX over the
+                                          fact's versions in record order, so a version never counts before
+                                          the one it replaced (monotone — below). The named hindsight caveat:
+                                          a count the operator ratified later counts from its filing
 fact_revenue_mix /             recorded   ``recorded_at`` — operator-RATIFIED Workbench facts whose
-fact_shares_outstanding /                 ``valid_from`` is the filing PERIOD / cover date (``event_date``),
-fact_cash_burn                            earlier than the filing was public, and whose row carries no
-                                          filing date: the ratification instant is the only never-early bound
-                                          (an operator decision counts from when the operator made it)
+fact_cash_burn                            ``valid_from`` is the filing PERIOD (``event_date``), earlier than
+                                          the filing was public, and whose row carries no filing date: the
+                                          ratification instant is the only never-early bound (an operator
+                                          decision counts from when the operator made it)
 fact_fund_shares               recorded   ``recorded_at`` — a scraped issuer page states an as-of ``d`` but no
                                           publication time; we cannot know it earlier than we read it
 fact_term_mentions             date       ``valid_from`` (= the counted month's LAST day; THESIS-scoped,
@@ -102,15 +117,24 @@ PUBLIC instant (the axis the read was judged on — exactly what the backtest mi
 reader of ``recorded_at`` (D3a's knowable date) reads the public clock too.
 
 **Monotone, so the live read is unchanged by construction.** Within one fact, a version's public instant never
-decreases as ``recorded_at`` increases (a re-version's is ``max(settle, recorded_at)``; every other kind is
-constant per fact — an insider fact's acceptance is its newest statement, on every version — or IS
-``recorded_at``), so with every version visible the public pick IS the record pick.
+decreases as ``recorded_at`` increases (a re-version's is ``max(settle, recorded_at)``; a share count's is a
+running max in record order; every other kind is constant per fact — an insider fact's or an 8-K's acceptance
+is its newest statement, on every version — or IS ``recorded_at``), so with every version visible the public
+pick IS the record pick. (``fact_fundamentals`` is the exception by design — each version is its own filing —
+and its pick is the latest FILING by public date on both clocks, ``db.bitemporal._FIRST_KNOWABILITY``.)
+
+**F7's two gates (the F6 trap).** A date-kind fact is anchored at the START of its day, and a filing-kind fact
+at its acceptance — so with a history cutoff later than midnight a next-day filing's instant could fall before
+the cutoff. The read ALSO gates ``valid_from <= asof`` (``db.bitemporal``), and ``valid_from`` is the public
+DATE (the acceptance's market-time date, else the filing date), so a Tuesday 8-K never reaches Monday's night
+whatever the cutoff. Both gates stay.
 A split re-scaled bar puts every version at one instant (the settle), so its pick is the newest by
 ``recorded_at`` — the record pick again.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal
@@ -127,7 +151,7 @@ from domain.splits import STORE_THROUGH_COL as _STORE_THROUGH
 # behavior byte-for-byte); ``public`` = a history view (the public instant below ``<= known_at``).
 Clock = Literal["record", "public"]
 
-PublicKind = Literal["date", "instant", "settle", "recorded"]
+PublicKind = Literal["date", "instant", "settle", "recorded", "filing", "dated", "published"]
 
 
 @dataclass(frozen=True)
@@ -135,22 +159,26 @@ class PublicTime:
     """How one table's versions get their public instant (see the module table)."""
 
     kind: PublicKind
-    # the source column: a DATE (date / settle kinds), a timestamptz (instant), ``recorded_at`` (recorded)
+    # the source column: a DATE (date / settle kinds), a timestamptz (instant / filing / dated / published),
+    # ``recorded_at`` (recorded)
     column: str
+    # the DATE column a filing / dated instant falls back to (the start of that market day) when no acceptance
+    # is stored — ``None`` for every other kind
+    fallback: str | None = None
 
 
 PUBLIC_TIME: dict[str, PublicTime] = {
     "fact_price_eod": PublicTime("settle", "d"),
     "fact_insider_txn": PublicTime("instant", "accepted"),
-    "fact_corporate_event": PublicTime("date", "filed"),
-    "fact_activist_stake": PublicTime("date", "filed"),
+    "fact_corporate_event": PublicTime("filing", "accepted", "filed"),
+    "fact_activist_stake": PublicTime("filing", "accepted", "filed"),
     "fact_filing_index": PublicTime("date", "filed"),
-    "fact_fundamentals": PublicTime("date", "valid_from"),
+    "fact_fundamentals": PublicTime("dated", "accepted", "valid_from"),
     "fact_catalyst": PublicTime("date", "valid_from"),
     "fact_dilution": PublicTime("date", "valid_from"),
     "fact_theme_conviction": PublicTime("date", "valid_from"),
     "fact_revenue_mix": PublicTime("recorded", "recorded_at"),
-    "fact_shares_outstanding": PublicTime("recorded", "recorded_at"),
+    "fact_shares_outstanding": PublicTime("published", "filing_accepted"),
     "fact_cash_burn": PublicTime("recorded", "recorded_at"),
     "fact_fund_shares": PublicTime("recorded", "recorded_at"),
     "fact_term_mentions": PublicTime("date", "valid_from"),
@@ -224,13 +252,62 @@ def _start_of_day(col: sql.Composable) -> sql.Composable:
     return sql.SQL("({}::timestamp AT TIME ZONE %(pc_tz)s)").format(col)
 
 
-def public_time_sql(table: str, *, alias: str = "t", serve: bool = True) -> sql.Composable:
+# The columns that make two versions of a ``published`` fact ONE statement (the same count on the same date): a
+# publication stored on any of them is the publication of all of them (F9).
+_SAME_STATEMENT: dict[str, tuple[str, ...]] = {
+    "fact_shares_outstanding": ("shares", "valid_from"),
+}
+
+
+def _published_sql(table: str, alias: str, ceiling: bool) -> sql.Composable:
+    """A ``published`` version's public instant over ``{table} AS {alias}`` (F9, the module table): the running
+    max, over the fact's versions recorded up to and including this one, of each version's own instant — the
+    filing acceptance stored on ANY version stating its count on its date (the newest such statement), else its
+    own ``recorded_at``. Correlated subqueries over the WHOLE fact (never the read's ``where``), so the history
+    read and the backtest export compute the same instant; ``ceiling`` bounds the statement lookup to the rows
+    held at the cut (the earlier versions are older than this one, so held whenever it is)."""
+    tbl = sql.Identifier(table)
+    part = partition_cols(table)
+
+    def same(a: str, b: str, cols: Sequence[str]) -> sql.Composable:
+        return sql.SQL(" AND ").join(
+            sql.SQL("{} = {}").format(sql.Identifier(a, c), sql.Identifier(b, c)) for c in cols
+        )
+
+    col_w = sql.Identifier("w", PUBLIC_TIME[table].column)
+    statement = sql.SQL(
+        "(SELECT {col_w} FROM {tbl} w WHERE {same_fact} AND {same_count} AND {col_w} IS NOT NULL{ceil} "
+        "ORDER BY w.recorded_at DESC, w.id DESC LIMIT 1)"
+    ).format(
+        col_w=col_w,
+        tbl=tbl,
+        same_fact=same("w", "u", part),
+        same_count=same("w", "u", _SAME_STATEMENT[table]),
+        ceil=_ceil(sql.Identifier("w", "recorded_at"), ceiling),
+    )
+    return sql.SQL(
+        "(SELECT max(COALESCE({statement}, u.recorded_at)) FROM {tbl} u WHERE {same_fact} "
+        "AND (u.recorded_at, u.id) <= ({rec}, {id}))"
+    ).format(
+        statement=statement,
+        tbl=tbl,
+        same_fact=same("u", alias, part),
+        rec=sql.Identifier(alias, "recorded_at"),
+        id=sql.Identifier(alias, "id"),
+    )
+
+
+def public_time_sql(
+    table: str, *, alias: str = "t", serve: bool = True, ceiling: bool = False
+) -> sql.Composable:
     """The SQL expression for one version's PUBLIC instant over ``{table} AS {alias}``, inside a query that
     defines the window ``pc`` (``PARTITION BY partition_cols(table)`` — ``public_versions_sql`` does).
 
     ``serve=True`` is the history-view definition (an ``instant`` fact with no acceptance on any version counts
     from the first time we held it — never early, never dropped); ``serve=False`` is the backtest export's,
-    which leaves that instant NULL so the export can exclude + count the row (its existing contract).
+    which leaves that instant NULL so the export can exclude + count the row (its existing contract). The
+    ``filing`` / ``dated`` / ``published`` kinds always resolve (their fallback is a stored date / instant).
+    ``ceiling`` = the freeze ceiling, for the one kind that reads rows beyond the window (``published``).
     """
     spec = PUBLIC_TIME[table]
     col = sql.Identifier(alias, spec.column)
@@ -239,6 +316,22 @@ def public_time_sql(table: str, *, alias: str = "t", serve: bool = True) -> sql.
         return _start_of_day(col)
     if spec.kind == "recorded":
         return rec
+    if spec.kind == "dated":
+        # F7: the version's own acceptance, else the start of its public date (the pre-F7 instant)
+        return sql.SQL("COALESCE({}, {})").format(
+            col, _start_of_day(sql.Identifier(alias, spec.fallback or "valid_from"))
+        )
+    if spec.kind == "filing":
+        # F7: the FACT's acceptance on every version (the newest stored statement — one filing, one
+        # publication; a re-dated version moves the older ones with it), else the start of its filing day
+        newest = sql.SQL(
+            "first_value({col}) OVER (pc ORDER BY ({col} IS NULL), {rec} DESC, {id} DESC)"
+        ).format(col=col, rec=rec, id=sql.Identifier(alias, "id"))
+        return sql.SQL("COALESCE({}, {})").format(
+            newest, _start_of_day(sql.Identifier(alias, spec.fallback or "filed"))
+        )
+    if spec.kind == "published":
+        return _published_sql(table, alias, ceiling)
     if spec.kind == "settle":
         settle = sql.SQL("(({} + %(pc_settle)s::time) AT TIME ZONE %(pc_tz)s)").format(col)
         return sql.SQL(
@@ -259,7 +352,7 @@ def public_time_sql(table: str, *, alias: str = "t", serve: bool = True) -> sql.
 
 def needs_window(table: str) -> bool:
     """Does this table's public instant read across the fact's versions (the ``pc`` window)?"""
-    return PUBLIC_TIME[table].kind in ("settle", "instant")
+    return PUBLIC_TIME[table].kind in ("settle", "instant", "filing")
 
 
 # --- the split list (split plan S2) ------------------------------------------------------------------------
@@ -403,7 +496,7 @@ def public_versions_sql(
     if has_set_aside(table):
         at = sql.Placeholder(CEILING_PARAM) if ceiling else None
         where = sql.SQL("({}){}").format(where, exclusion_sql(table, alias="t", at=at))
-    expr = public_time_sql(table, serve=serve)
+    expr = public_time_sql(table, serve=serve, ceiling=ceiling)
     window = (
         sql.SQL(" WINDOW pc AS (PARTITION BY {})").format(
             sql.SQL(", ").join(sql.Identifier("t", c) for c in partition_cols(table))

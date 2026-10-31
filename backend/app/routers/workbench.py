@@ -83,7 +83,7 @@ from ingest.prices.eod_loader import latest_bar_date, recent_distinct_bar_counts
 from ingest.prices.ingest_security import ingest_bars_for_security
 from ingest.prices.resolve_symbol import resolve_price_symbol
 from ingest.revenue_mix import ingest_revenue_mix
-from ingest.shares import ingest_shares_outstanding
+from ingest.shares import cik_of_source_ref, ingest_shares_outstanding, shares_publication
 from llm.chain_decomposition import (
     TailSweepStatus,
     decompose_narrative,
@@ -1558,8 +1558,9 @@ def auto_confirm_fact(
     cik = master.ciks_for(conn, {req.security_id}, tenant_id=tenant_id).get(req.security_id)
     if not cik:
         raise HTTPException(status_code=404, detail="no CIK for this security — resolve it first")
+    client = EdgarClient(allow_live=True)
     try:
-        cands = extract_for_security(EdgarClient(allow_live=True), cik)
+        cands = extract_for_security(client, cik)
     except (
         Exception
     ) as exc:  # noqa: BLE001 — SEC unreachable / no UA / parse hiccup -> 502, not a 500
@@ -1571,6 +1572,10 @@ def auto_confirm_fact(
         return AutoConfirmOut(applied=False, reason="not_auto")
     if cand.value is None:
         return AutoConfirmOut(applied=False, reason="no_value")
+    # F9: the filing whose cover carries this count, and its acceptance — the count's public instant (cache only)
+    accession, accepted = shares_publication(
+        getattr(client, "cache_dir", None), cik, cand.value, cand.event_date
+    )
     fid = ingest_shares_outstanding(
         conn,
         req.security_id,
@@ -1582,6 +1587,8 @@ def auto_confirm_fact(
         ratified_by="auto",  # honest provenance: applied by the machine, NOT confirmed by a human
         vouched=None,  # no estimate was shown to anyone -> no confirm/override to record
         tenant_id=tenant_id,
+        filing_accession=accession,
+        filing_accepted=accepted,
     )
     conn.commit()
     return AutoConfirmOut(applied=True, reason="applied", fact_id=fid)
@@ -1625,11 +1632,21 @@ def ratify_fact(
             **common,
         )
     elif req.fact_type == "shares_outstanding":
+        # F9: the filing whose cover carries the ratified count (cache only; none = the ratification stands)
+        cik = master.ciks_for(conn, {req.security_id}, tenant_id=tenant_id).get(req.security_id)
+        accession, accepted = shares_publication(
+            EdgarClient(allow_live=False).cache_dir,
+            cik or cik_of_source_ref(req.source_ref),
+            req.shares,
+            req.event_date,
+        )
         fid = ingest_shares_outstanding(
             conn,
             req.security_id,
             shares=req.shares,
             vouched=_vouched(req.estimate, req.shares),
+            filing_accession=accession,
+            filing_accepted=accepted,
             # ADS-ratio derivation metadata from the annual-cover candidate (spec §10) — None/None on
             # every 10-Q / hand-authored ratify, so the scorer's 1:1 path is byte-identical for them.
             ads_ratio=req.ads_ratio,

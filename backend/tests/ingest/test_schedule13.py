@@ -138,30 +138,35 @@ def test_schedule13_filings_walks_both_eras_and_only_13dg():
             ("10-K", "ACC-10K", "2021-03-01", "form10k.htm"),
         ]
     )
+    # ``accepted`` = SEC's raw acceptanceDateTime ("" when the doc carries none — F7)
     assert schedule13_filings(subs) == [
         {
             "accession": "ACC-NEW-G",
             "form": "SCHEDULE 13G/A",
             "filed": "2026-05-15",
             "primary_doc": "xslSCHEDULE_13G_X02/primary_doc.xml",
+            "accepted": "",
         },
         {
             "accession": "ACC-NEW-D",
             "form": "SCHEDULE 13D/A",
             "filed": "2026-02-17",
             "primary_doc": "xslSCHEDULE_13D_X01/primary_doc.xml",
+            "accepted": "",
         },
         {
             "accession": "ACC-OLD-G",
             "form": "SC 13G",
             "filed": "2024-11-08",
             "primary_doc": "sc13g.htm",
+            "accepted": "",
         },
         {
             "accession": "ACC-OLD-D",
             "form": "SC 13D",
             "filed": "2021-05-24",
             "primary_doc": "d46702dsc13d.htm",
+            "accepted": "",
         },
     ]
 

@@ -85,10 +85,23 @@ def test_form8k_filings_walks_the_8k_family_only():
             ("8-K", "ACC-3", "2026-05-05", ""),
         ]
     )
+    # ``accepted`` = SEC's raw acceptanceDateTime ("" when the doc carries none — F7)
     assert form8k_filings(subs) == [
-        {"accession": "ACC-1", "form": "8-K", "filed": "2026-05-01", "items": ["1.01", "9.01"]},
-        {"accession": "ACC-2", "form": "8-K/A", "filed": "2026-05-03", "items": ["4.02"]},
-        {"accession": "ACC-3", "form": "8-K", "filed": "2026-05-05", "items": None},
+        {
+            "accession": "ACC-1",
+            "form": "8-K",
+            "filed": "2026-05-01",
+            "items": ["1.01", "9.01"],
+            "accepted": "",
+        },
+        {
+            "accession": "ACC-2",
+            "form": "8-K/A",
+            "filed": "2026-05-03",
+            "items": ["4.02"],
+            "accepted": "",
+        },
+        {"accession": "ACC-3", "form": "8-K", "filed": "2026-05-05", "items": None, "accepted": ""},
     ]
 
 
@@ -98,7 +111,7 @@ def test_form8k_filings_tolerates_a_missing_items_array():
     subs = _subs([("8-K", "ACC-1", "2026-05-01", "x")])
     del subs["filings"]["recent"]["items"]
     assert form8k_filings(subs) == [
-        {"accession": "ACC-1", "form": "8-K", "filed": "2026-05-01", "items": None}
+        {"accession": "ACC-1", "form": "8-K", "filed": "2026-05-01", "items": None, "accepted": ""}
     ]
 
 

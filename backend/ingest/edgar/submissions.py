@@ -571,7 +571,7 @@ def parse_item_codes(raw: str | None) -> list[str] | None:
 
 def form8k_filings(submissions: dict[str, Any]) -> list[dict[str, Any]]:
     """List a company's 8-K-family filings (newest first) from a submissions JSON, WITH their item
-    codes: ``{accession, form, filed, items}`` (``items``: ``list[str] | None`` — None = the parallel
+    codes: ``{accession, form, filed, items, accepted}`` (``items``: ``list[str] | None`` — None = the parallel
     ``items`` entry is absent/blank, i.e. not yet resolved).
 
     The forms are ``domain.edgar_forms.CORPORATE_EVENT_FORMS``: the ordinary ``8-K`` / ``8-K/A`` AND,
@@ -592,12 +592,16 @@ def form8k_filings(submissions: dict[str, Any]) -> list[dict[str, Any]]:
     accns = recent.get("accessionNumber", [])
     dates = recent.get("filingDate", [])
     items = recent.get("items", [])
+    accepts = recent.get("acceptanceDateTime", [])
     return [
         {
             "accession": accns[i],
             "form": f,
             "filed": dates[i],
             "items": parse_item_codes(items[i] if i < len(items) else None),
+            # F7: SEC's raw acceptanceDateTime ("" when absent) — the ingest stores it only when trusted
+            # (``ingest.edgar.acceptance.resolve_public_acceptance``)
+            "accepted": accepts[i] if i < len(accepts) else "",
         }
         for i, f in enumerate(forms)
         if f in CORPORATE_EVENT_FORMS
@@ -616,7 +620,7 @@ SCHEDULE13_FORMS = SCHEDULE13_D_FORMS | SCHEDULE13_G_FORMS
 
 def schedule13_filings(submissions: dict[str, Any]) -> list[dict[str, Any]]:
     """List the 13D/G-family filings a company is the SUBJECT of (newest first) from ITS OWN
-    submissions JSON: ``{accession, form, filed, primary_doc}``.
+    submissions JSON: ``{accession, form, filed, primary_doc, accepted}``.
 
     The S5-verified enumeration path (a): EDGAR indexes an ownership schedule under BOTH the filer
     and the subject, so the SUBJECT's submissions JSON lists every 13D/G filed about it — the same
@@ -632,12 +636,15 @@ def schedule13_filings(submissions: dict[str, Any]) -> list[dict[str, Any]]:
     accns = recent.get("accessionNumber", [])
     dates = recent.get("filingDate", [])
     docs = recent.get("primaryDocument", [])
+    accepts = recent.get("acceptanceDateTime", [])
     return [
         {
             "accession": accns[i],
             "form": f,
             "filed": dates[i],
             "primary_doc": docs[i] if i < len(docs) else "",
+            # F7: SEC's raw acceptanceDateTime ("" when absent), stored only when trusted
+            "accepted": accepts[i] if i < len(accepts) else "",
         }
         for i, f in enumerate(forms)
         if f in SCHEDULE13_FORMS

@@ -455,7 +455,15 @@ def _form8k_leg(
     if not sec.cik:
         return 0, 0
     filings = form8k_filings(fetch_submissions(client, sec.cik))
-    res = ingest_form8k(conn, sec.id, sec.cik, filings, tenant_id=tenant_id)
+    # F7: a set-aside listed acceptance is checked against the filing's CACHED header (never fetched)
+    res = ingest_form8k(
+        conn,
+        sec.id,
+        sec.cik,
+        filings,
+        tenant_id=tenant_id,
+        cache_dir=getattr(client, "cache_dir", None),
+    )
     return res.appended, res.reversioned
 
 
@@ -486,7 +494,14 @@ def _schedule13_leg(
         return 0, 0, 0, ()
     filings = filed_on_or_after(schedule13_filings(fetch_submissions(client, sec.cik)), filed_since)
     res = ingest_schedule13(
-        conn, sec.id, sec.cik, filings, client, tenant_id=tenant_id, known_skips=known_skips
+        conn,
+        sec.id,
+        sec.cik,
+        filings,
+        client,
+        tenant_id=tenant_id,
+        known_skips=known_skips,
+        cache_dir=getattr(client, "cache_dir", None),
     )
     skips = tuple(
         IngestSkip(SCHEDULE13_OUTBOUND, acc, sec.id, sec.ticker, why) for acc, why in res.outbound

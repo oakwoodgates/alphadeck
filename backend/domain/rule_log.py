@@ -61,6 +61,16 @@ RULE_LOG: tuple[RuleEntry, ...] = (
             "conviction, because a parent, founder or CEO is not an outside party committing new capital."
         ),
     ),
+    RuleEntry(
+        id="2026-11-filings-dated-by-acceptance",
+        date=date(2026, 11, 2),
+        label="8-Ks, 13D/Gs and revenue count from when they appeared on EDGAR",
+        description=(
+            "An 8-K, Schedule 13D/G or 10-Q/10-K revenue filing now counts from the market day SEC accepted "
+            "it, not from its filing date, so a filing submitted after 5:30 pm ET (which SEC dates the next "
+            "business day) counts on the night it appeared, on the live call and on every history view."
+        ),
+    ),
 )
 
 

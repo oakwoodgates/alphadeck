@@ -36,8 +36,9 @@ The rules, in one place. This is our own simple table, stated here and on the pa
   stand-in; a missing benchmark bar leaves that comparison blank, counted). **Excess** = the name's return minus the
   benchmark's.
 - **Market cap AT THE EVENT** (``CLAUDE.md``, ``docs/BACKTEST.md`` "Sliced by market cap"): the close of the last
-  session BEFORE the arm date, put back to the price as traded that day, times the last share count whose cover
-  date is BEFORE the arm date, divided by the ADS ratio when known, with a split between the count and the close
+  session BEFORE the arm date, put back to the price as traded that day, times the last share count (by cover date)
+  that was PUBLIC before the arm date (F9: its filing's acceptance, else its ratification), divided by the ADS
+  ratio when known, with a split between the count and the close
   putting the count on the close's scale (``domain.splits.scale_after``): the Peer Table's own pure ``cap_cell``
   with the inputs chosen at the event, so the two pages cannot disagree on the arithmetic. A cap that cannot be pinned
   (no close before the event, no share count before it, an unread ADS ratio) is **unpinned**: counted, never
@@ -59,13 +60,14 @@ from bisect import bisect_left, bisect_right
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, time
 from typing import Any, Literal, NamedTuple
 from uuid import UUID
 
 from dashboards.baskets import FlaggedCompany
 from dashboards.peer_table import CapCell, CompanyReads, cap_cell
 from domain.market_cap import CapTier
+from domain.market_time import market_tz
 from domain.splits import ListedSplit, scale_after
 from signals.display import volume_regime
 
@@ -313,6 +315,18 @@ def entry_read(
 # --- the cap and the liquidity at the event ------------------------------------------------------------------
 
 
+def share_public_at(fact: Mapping[str, Any]) -> datetime | None:
+    """When a share fact became PUBLIC (F9): the acceptance of the filing whose cover carries its count
+    (``filing_accepted``), else its ``recorded_at`` — the ratification instant on a live read, the public instant
+    itself on a history read (``db.public_clock``). ``None`` when neither is on the row (never guessed).
+    """
+    for key in ("filing_accepted", "recorded_at"):
+        v = fact.get(key)
+        if isinstance(v, datetime):
+            return v
+    return None
+
+
 def event_cap(
     bars: Sequence[Bar],
     shares_facts: Sequence[Mapping[str, Any]],
@@ -321,8 +335,10 @@ def event_cap(
     view_day: date,
 ) -> CapCell:
     """The approximate market cap AT THE EVENT, by the Peer Table's rule (``cap_cell``) with the inputs chosen at
-    the arm date: the close of the last session BEFORE it, and the newest share fact whose cover date (``valid_from``)
-    is BEFORE it (a fact dated on or after the arm date is never used).
+    the arm date: the close of the last session BEFORE it, and the newest share fact (by cover date, ``valid_from``)
+    that was PUBLIC before it (F9, ``share_public_at``: its filing's acceptance, else the instant it was ratified,
+    before the start of the arm date in market time) — a count filed on or after the arm date is never used, even
+    when its cover date is earlier (the lookahead the cover date alone allowed).
 
     The bars are on the VIEW's price scale (``view_day``: the splits in force by the view's day applied), so the close
     is put back to the price AS TRADED that session (divided by ``scale_after`` from that session through the view's
@@ -336,10 +352,16 @@ def event_cap(
         return CapCell(gap="no_price")
     prior = bars[i]
     traded = prior.close / float(scale_after(splits, prior.d, through=view_day))
+    start = datetime.combine(
+        arm_date, time(0), tzinfo=market_tz()
+    )  # the arm date's start, market time
     known = [
         f
         for f in shares_facts
-        if isinstance(f.get("valid_from"), date) and f["valid_from"] < arm_date
+        if isinstance(f.get("valid_from"), date)
+        and f["valid_from"] < arm_date
+        and (public := share_public_at(f)) is not None
+        and public < start
     ]
     newest = max(known, key=lambda f: f["valid_from"]) if known else None
     shares = (
