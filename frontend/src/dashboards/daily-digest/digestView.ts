@@ -290,11 +290,9 @@ export function lastSessionFig(l: DigestLastSessionOut): Fig {
 
 export function holdWords(h: DigestHoldOut): string {
   if (!h.exit_by) return "no exit-by";
-  if (h.sessions_left !== null) {
-    return h.sessions_left === 0
-      ? `exit-by ${fmtDate(h.exit_by)} · its last day`
-      : `exit-by ${fmtDate(h.exit_by)} · ${plural(h.sessions_left, "session", "sessions")} left`;
-  }
+  // F3: an open hold clock always has at least one session left (the server counts it open only while the session after
+  // the as-of is on or before the exit-by); one with none reads "passed"
+  if (h.sessions_left !== null) return `exit-by ${fmtDate(h.exit_by)} · ${plural(h.sessions_left, "session", "sessions")} left`;
   const ago = h.passed_sessions ?? 0;
   return ago === 0
     ? `exit-by ${fmtDate(h.exit_by)} · passed`
@@ -400,6 +398,7 @@ export function tapeNote(tape: DigestTapeOut): string {
 export function clockWords(r: DigestTapeRowOut): string {
   const since = r.sessions_since === null ? "—" : `${r.sessions_since} in`;
   if (r.sessions_left !== null) return `${since} · ${r.sessions_left} left`;
+  if (r.closed_ago === 0) return `${since} · window closed`; // F3: no session left, none printed after it yet
   if (r.closed_ago !== null) return `${since} · window closed ${plural(r.closed_ago, "session", "sessions")} ago`;
   return since;
 }

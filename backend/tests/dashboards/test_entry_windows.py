@@ -29,6 +29,7 @@ from dashboards.entry_windows import (
     catalysts_in_window,
     entry_clock,
     entry_windows,
+    last_session,
     lookback_days,
     member_arm_nights,
     member_clocks,
@@ -240,9 +241,28 @@ def test_the_entry_clock_is_sessions_left_while_open_and_sessions_since_it_close
     cal = weekdays(d(1), d(27))
     assert entry_clock(cal, ASOF, d(30)) == (3, None)  # Wed, Thu, Fri
     assert entry_clock(cal, ASOF, d(28)) == (1, None)
-    assert entry_clock(cal, ASOF, ASOF) == (None, 0)  # its last day: closed after the session
+    assert entry_clock(cal, ASOF, ASOF) == (None, 0)  # its last day: no session of it left (F3)
+    # F3: a window ending on a Saturday is closed on the Friday night (its next session, Monday, is past it);
+    # before F3 the Friday read "0 sessions left", open
+    assert entry_clock(cal, d(23), d(24)) == (None, 0)
+    assert entry_clock(cal, d(22), d(24)) == (1, None)  # Thu: Friday is its one session left
     assert entry_clock(cal, ASOF, d(22)) == (None, 3)  # the bars of 10-23, 10-26 and 10-27
     assert entry_clock(cal, ASOF, None) == (None, None)
+
+
+def test_the_last_session_is_the_windows_last_session_while_it_is_open():
+    """F3: the session the operator last acts in — ``arm_until`` itself when it is a session, the Friday before a
+    weekend end, the session before a holiday end — and ``None`` once the window has no session left.
+    """
+    assert last_session(ASOF, d(28)) == d(28)  # 1 left: the next session, Wed 10-28
+    assert last_session(ASOF, d(30)) == d(30)  # 3 left, through Fri 10-30
+    assert last_session(d(22), d(24)) == d(23)  # a Saturday end: Friday 10-23
+    assert last_session(d(23), d(24)) is None  # the Friday night: no session left
+    assert last_session(ASOF, ASOF) is None  # a window ending on the as-of: none left
+    assert last_session(ASOF, None) is None
+    # Labor Day 2026 (Mon 09-07) is not a session: a window ending on it last trades Fri 09-04
+    assert last_session(date(2026, 9, 3), date(2026, 9, 7)) == date(2026, 9, 4)
+    assert last_session(date(2026, 9, 4), date(2026, 9, 7)) is None
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -1011,6 +1031,9 @@ def test_db_the_tape_the_sessions_and_the_links_come_off_the_real_reads(db):
     assert row["sessions_into"] == 5
     assert (row["sessions_left"], row["closed_ago"]) == (4, None)  # Tue 20 .. Fri 23
     assert body["session_source"] == "benchmarks" and body["calendar_last"] == "2026-10-19"
+    assert (
+        row["last_session"] == "2026-10-23"
+    )  # arm_until Fri 10-23 is a session: the window's last
     # WLD1 closes 10 + n for the n-th weekday from 10-05: 10-12 is the 6th (15), 10-19 the 11th (20)
     (m,) = row["members"]
     assert (

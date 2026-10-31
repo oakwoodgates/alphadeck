@@ -211,7 +211,9 @@ export function leftCell(r: HotRowOut): Cell {
     };
   }
   const ago = c.closed_ago ?? 0;
-  return { text: ago > 0 ? `closed ${ago} ago` : "closed", title: `The entry window ended ${c.arm_until}`, gray: true };
+  // F3: a window with no session left after the as-of is closed, even before a session past `arm_until` has printed
+  const title = ago > 0 ? `The entry window ended ${c.arm_until}` : `No session of the entry window (to ${c.arm_until}) is left after the as-of`;
+  return { text: ago > 0 ? `closed ${ago} ago` : "closed", title, gray: true };
 }
 
 /** The days to the hold horizon: a COUNTDOWN, so the server counts it from the action day on a live view (a horizon that
@@ -276,7 +278,7 @@ export type Filters = {
   /** a card's thesis_id, or null for every card */
   card: string | null;
   tiers: readonly TierPick[];
-  /** only rows whose entry window is still open at the as-of */
+  /** only rows whose entry window still has a session left after the as-of (F3: the call path's own "open") */
   openOnly: boolean;
 };
 export const DEFAULT_FILTERS: Filters = { grades: [], triggerKinds: [], card: null, tiers: [], openOnly: false };

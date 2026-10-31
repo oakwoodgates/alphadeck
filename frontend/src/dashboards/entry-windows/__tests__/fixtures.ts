@@ -56,6 +56,7 @@ export const memberClock = (over: Partial<EntryWindowsMemberClockOut> = {}): Ent
   arm_until: null,
   sessions_left: null,
   closed_ago: null,
+  last_session: null,
   ...over,
 });
 
@@ -76,6 +77,7 @@ export const row = (over: Partial<EntryWindowsRowOut> = {}): EntryWindowsRowOut 
   sessions_into: 5,
   sessions_left: 3,
   closed_ago: null,
+  last_session: "2026-10-30",
   hold_days: 18,
   member_clocks: [],
   catalysts: [
@@ -99,6 +101,7 @@ export const CLOSING = row({
   arm_night: "2026-10-23",
   arm_until: "2026-10-28",
   sessions_left: 1,
+  last_session: "2026-10-28",
   sessions_into: 2,
   entry_window_closing: true,
   lapsing: true,
@@ -111,6 +114,7 @@ export const CLOSING = row({
       lapsing: true,
       arm_until: "2026-10-28",
       sessions_left: 1,
+      last_session: "2026-10-28",
     }),
   ],
   catalysts: [],
@@ -135,6 +139,7 @@ export const PAIR = row({
       lapsing: true,
       arm_until: "2026-10-28",
       sessions_left: 1,
+      last_session: "2026-10-28",
     }),
   ],
 });
@@ -146,6 +151,7 @@ export const CLOSED = row({
   arm_until: "2026-10-22",
   sessions_left: null,
   closed_ago: 3,
+  last_session: null,
   sessions_into: 9,
   hold_days: -2,
   exit_by: "2026-10-25",
@@ -163,6 +169,7 @@ export const NO_CLOCKS = row({
   exit_by: null,
   sessions_left: null,
   closed_ago: null,
+  last_session: null,
   hold_days: null,
   confidence: null,
   catalysts: [],
@@ -178,6 +185,7 @@ export const MANAGING = row({
   arm_night: "2026-10-15",
   arm_until: null,
   sessions_left: null,
+  last_session: null,
   catalysts: [],
   members: [member({ security_id: "s-mmm", ticker: "MMM", arm_night: "2026-10-15" })],
   spark: null,

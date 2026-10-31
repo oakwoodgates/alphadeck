@@ -67,7 +67,7 @@ from dashboards.series import aligned, chain, line_start, session_calendar
 from domain.call import CallCard, MemberCall, TriggerRef
 from domain.enums import Grade, Kind, State
 from domain.thesis import Catalyst
-from domain.trading_days import is_scheduled_day
+from domain.trading_days import is_scheduled_day, next_scheduled_day
 
 BENCHMARKS: tuple[str, ...] = ("IWM", "SPY")  # IWM's bars are the session calendar
 # the axis starts this many sessions before the earliest arm night
@@ -193,14 +193,31 @@ def entry_clock(
     calendar: Sequence[date], asof: date, arm_until: date | None
 ) -> tuple[int | None, int | None]:
     """``(sessions left, sessions since it closed)`` for the entry window, one of them set: ``None, None`` with no
-    ``arm_until``; ``(left, None)`` while ``arm_until`` is after the as-of; ``(None, closed)`` at or past it, with
-    ``closed`` = the bar sessions after ``arm_until`` through the as-of (``0`` on the window's last day).
+    ``arm_until``; ``(left, None)`` while the window is open; ``(None, closed)`` once it is not, with ``closed`` = the
+    bar sessions after ``arm_until`` through the as-of. Open = the first session after the as-of is on or before
+    ``arm_until`` (F3 — the call path's own lapse test, ``signals.common.entry_signal_is_live``), so an open window
+    has at least one session left; a closed one reads ``0`` until a session after ``arm_until`` has printed (a
+    recorded card from before F3 could be Armed on its window's own last night, with no session left).
     """
     if arm_until is None:
         return None, None
-    if arm_until > asof:
+    if next_scheduled_day(asof) <= arm_until:
         return weekdays_between(asof, arm_until), None
     return None, sessions_between(calendar, arm_until, asof)
+
+
+def last_session(asof: date, arm_until: date | None) -> date | None:
+    """The entry window's LAST SESSION — the latest session on or before ``arm_until`` (``arm_until`` itself unless
+    it falls on a weekend or a market holiday) — while the window is open on night ``asof`` (``entry_clock``'s test,
+    F3), else ``None``. With one session left it is the first session after the as-of: the day the page names in
+    "1 session left: <date>". On the ONE session calendar (``domain/trading_days.py``), so a future date with no IWM
+    bar is known."""
+    if arm_until is None or next_scheduled_day(asof) > arm_until:
+        return None
+    d = arm_until
+    while not is_scheduled_day(d):
+        d -= timedelta(days=1)
+    return d
 
 
 @dataclass(frozen=True)
@@ -218,6 +235,7 @@ class MemberClock:
     arm_until: date | None
     sessions_left: int | None
     closed_ago: int | None
+    last_session: date | None  # the window's last session while it is open (``last_session``)
 
 
 def member_clocks(
@@ -244,6 +262,7 @@ def member_clocks(
             arm_until=m.arm_until if m.entry_window_closing else None,
             sessions_left=left,
             closed_ago=closed,
+            last_session=last_session(asof, m.arm_until) if m.entry_window_closing else None,
         )
     return tuple(out.values())
 
@@ -491,6 +510,7 @@ class Row:
     sessions_into: int | None
     sessions_left: int | None
     closed_ago: int | None
+    last_session: date | None  # the window's last session while open (F3)
     hold_days: int | None
     member_clocks: tuple[MemberClock, ...]
     catalysts: tuple[CatalystTick, ...]
@@ -661,6 +681,7 @@ def entry_windows(
                 sessions_into=sessions_between(calendar, arm_night, asof) if calendar else None,
                 sessions_left=left,
                 closed_ago=closed,
+                last_session=last_session(asof, card.arm_until),
                 hold_days=(card.exit_by - origin).days if card.exit_by is not None else None,
                 member_clocks=member_clocks(card.armed_members, tickers, calendar, asof),
                 catalysts=catalysts_in_window(

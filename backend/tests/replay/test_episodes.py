@@ -88,6 +88,50 @@ def test_rearm_yields_two_episodes_with_close_reasons():
     assert second.arm_date == date(2025, 6, 1) and second.close_reason == "conviction_aged_out"
 
 
+def _armed(asof, *, exit_by, arm_until):
+    return _snap(
+        asof, State.ARMED, armed=True, conv=Grade.CORE, exit_by=exit_by, arm_until=arm_until
+    )
+
+
+def test_close_reason_reads_the_clocks_on_the_next_session_rule():
+    """F3: the arm lapses on the first night whose NEXT session is past its clock (the call path's own test), so
+    the de-arm night can be ``arm_until``'s own night, or the Friday before a weekend end — still the entry
+    window lapsing, never "dearmed_other". The same for the hold clock."""
+    # arm_until Thu 2025-05-15: armed through Wed 05-14, de-armed on 05-15 itself
+    eps = derive_episodes(
+        [
+            _armed(date(2025, 5, 14), exit_by=date(2025, 11, 3), arm_until=date(2025, 5, 15)),
+            _snap(date(2025, 5, 15), State.WARMING, conv=Grade.CORE),
+        ]
+    )
+    assert eps[0].close_reason == "arm_until_lapsed" and eps[0].dearm_date == date(2025, 5, 15)
+    # arm_until Sat 2025-05-17: de-armed on Fri 05-16, whose next session (Mon 05-19) is past it
+    eps = derive_episodes(
+        [
+            _armed(date(2025, 5, 15), exit_by=date(2025, 11, 3), arm_until=date(2025, 5, 17)),
+            _snap(date(2025, 5, 16), State.WARMING, conv=Grade.CORE),
+        ]
+    )
+    assert eps[0].close_reason == "arm_until_lapsed"
+    # a de-arm whose next session is still inside both clocks is another reason
+    eps = derive_episodes(
+        [
+            _armed(date(2025, 5, 14), exit_by=date(2025, 11, 3), arm_until=date(2025, 5, 16)),
+            _snap(date(2025, 5, 15), State.WARMING, conv=Grade.CORE),
+        ]
+    )
+    assert eps[0].close_reason == "dearmed_other"
+    # exit_by Mon 2025-11-03: aged out on 11-03 itself
+    eps = derive_episodes(
+        [
+            _armed(date(2025, 10, 31), exit_by=date(2025, 11, 3), arm_until=date(2025, 11, 10)),
+            _snap(date(2025, 11, 3), State.INCUBATING),
+        ]
+    )
+    assert eps[0].close_reason == "conviction_aged_out"
+
+
 def test_window_end_close_reason():
     """A run that reaches the timeline end closes as window_end with no de-arm date."""
     snaps = [

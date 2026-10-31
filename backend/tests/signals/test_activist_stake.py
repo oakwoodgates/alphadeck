@@ -21,6 +21,7 @@ from uuid import UUID
 from db.session import DEFAULT_TENANT_ID
 from domain.config import DEFAULT_CONFIG
 from domain.enums import Grade, Kind, Role, State
+from domain.trading_days import next_scheduled_day
 from ingest.edgar.submissions import SCHEDULE13_D_FORMS, SCHEDULE13_G_FORMS
 from pipeline.core import assemble_from_pit
 from signals import activist_stake
@@ -166,10 +167,12 @@ def test_real_mindmed_13g_tape_fires_nothing():
     assert activist_stake.score(tape, SID, date(2026, 8, 18)) is None
 
 
-def test_liveness_is_inclusive_at_the_horizon_and_expires():
-    at_horizon = _fact(filed=ASOF - timedelta(days=_LIVENESS))
+def test_liveness_needs_the_next_session_inside_the_horizon():
+    """F3: live while the session after the as-of is inside the window; a window ending on the as-of
+    itself has no session left, so it is out."""
+    at_horizon = _fact(filed=next_scheduled_day(ASOF) - timedelta(days=_LIVENESS))
     assert activist_stake.score([at_horizon], SID, ASOF) is not None
-    stale = _fact(filed=ASOF - timedelta(days=_LIVENESS + 1))
+    stale = _fact(filed=ASOF - timedelta(days=_LIVENESS))
     assert activist_stake.score([stale], SID, ASOF) is None
 
 

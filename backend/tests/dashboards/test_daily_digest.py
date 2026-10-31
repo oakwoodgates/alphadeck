@@ -601,7 +601,13 @@ def test_a_fill_after_the_last_close_or_before_the_price_window_reads_unpriced_w
 def test_the_hold_clock_counts_sessions_left_by_the_hot_boards_rule_or_the_sessions_since_it_passed():
     calendar = [d(14), d(15), d(16), d(17)]
     assert hold_clock(d(22), NIGHT, calendar).sessions_left == 3  # Fri, Mon, Tue
-    assert hold_clock(NIGHT, NIGHT, calendar).sessions_left == 0  # its last day
+    # F3: the horizon is open only while the session after the as-of is inside it; one ending ON the night has
+    # no session left, so it reads passed (0 sessions since: none has printed after it yet)
+    last = hold_clock(NIGHT, NIGHT, calendar)
+    assert (last.sessions_left, last.passed_sessions) == (None, 0)
+    assert (
+        hold_clock(d(18), NIGHT, calendar).sessions_left == 1
+    )  # Fri 09-18, the horizon's last day
     passed = hold_clock(d(15), NIGHT, calendar)
     assert (passed.sessions_left, passed.passed_sessions) == (None, 2)  # the 16th and the 17th
     assert hold_clock(None, NIGHT, calendar).exit_by is None

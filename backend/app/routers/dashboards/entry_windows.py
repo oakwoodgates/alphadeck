@@ -137,8 +137,10 @@ class EntryWindowsSparkOut(_Wire):
 class EntryWindowsMemberClockOut(_Wire):
     """An armed name whose own flag is true, with its own entry clock. ``headline`` = the name whose clocks the card
     carries (``armed_members[0]``). ``sessions_left`` = the Mon-Fri days after the as-of through the NAME's own
-    ``arm_until`` (while that window is open), ``closed_ago`` = the IWM sessions since it closed (``0`` on its last
-    day); both ``null`` unless ``entry_window_closing``."""
+    ``arm_until`` (while that window is open: the first session after the as-of is on or before it, so at least 1),
+    ``closed_ago`` = the IWM sessions since it closed (``0`` when no session is left but none has printed after
+    ``arm_until`` yet); ``last_session`` = the window's last session while it is open (with one left, the first
+    session after the as-of); all three ``null`` unless ``entry_window_closing``."""
 
     security_id: UUID
     ticker: str | None
@@ -148,6 +150,7 @@ class EntryWindowsMemberClockOut(_Wire):
     arm_until: date | None
     sessions_left: int | None
     closed_ago: int | None
+    last_session: date | None
 
 
 class EntryWindowsRowOut(_Wire):
@@ -156,7 +159,10 @@ class EntryWindowsRowOut(_Wire):
     night's row was written by ``pipeline.backfill`` (reported, never scored). ``arm_until`` / ``exit_by`` = the
     entry window and the hold horizon (``null`` = no clock). ``sessions_into`` = the IWM sessions after the arm
     night through the as-of; ``sessions_left`` = the Mon-Fri days after the as-of through ``arm_until`` (while the
-    window is open); ``closed_ago`` = the IWM sessions since it closed (``0`` on its last day); ``hold_days`` =
+    window is open: the first session after the as-of is on or before it, F3, so at least 1); ``closed_ago`` = the
+    IWM sessions since it closed (``0`` when no session is left but none has printed after it yet); ``last_session``
+    = the window's last session (the latest session on or before ``arm_until``) while it is open, ``null`` once
+    closed: with one session left it is the first session after the as-of, the day the operator acts; ``hold_days`` =
     calendar days from the countdown origin to ``exit_by`` (negative = passed; the origin is the action day, the
     session after the night, on a live view and the as-of on a past one). Each flag is true when ANY armed member's own
     flag is true; ``member_clocks`` lists those members with their own entry clock, since the figures above count to
@@ -179,6 +185,7 @@ class EntryWindowsRowOut(_Wire):
     sessions_into: int | None
     sessions_left: int | None
     closed_ago: int | None
+    last_session: date | None
     hold_days: int | None
     member_clocks: list[EntryWindowsMemberClockOut]
     catalysts: list[EntryWindowsCatalystOut]

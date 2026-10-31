@@ -257,8 +257,10 @@ for the orchestrator to measure on dev with a prod copy.
    it): a name needs a close on BOTH, and one missing either reads "unpriced" with the date it lacks, never a longer span
    under the "last session" label. The same return is used for the held names in section 2 and the armed names in section 5.
 8. **The hold clock** counts sessions left by the Hot Board's `sessions_left` (Mon-Fri minus the NYSE's market holidays, since F5) and, once passed, the
-   calendar's sessions after the exit-by through the as-of (the Hot Board's `closed_ago`). The exit-by date itself reads "its
-   last day" with 0 left.
+   calendar's sessions after the exit-by through the as-of (the Hot Board's `closed_ago`). It is open only while the first
+   session after the as-of is on or before the exit-by (F3, the Hot Board's `window_open`), so an open clock has at least 1
+   left; a horizon with no session left reads "passed" (before F3 the exit-by night read "its last day" with 0 left). The
+   entry clocks in section 5 follow the same rule (they are the Hot Board's).
 9. **Risk signals** on a position are the card's distinct (kind, security, event date) signals, not its labels; "new last
    night" is how many of them section 1 lists as new risk signals on that card (0 with no P). Kill criteria and catalysts are
    read as they stand today (they are edited in place, no history), and the page says so.

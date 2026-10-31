@@ -4,9 +4,9 @@
 environment fact* (``INVARIANTS.md`` §6). ``date.today()`` reads the process's ambient timezone, so the
 same code answered a different question depending on where it ran — and in production it did: a manual
 ``pipeline.daily`` in a UTC container after ~20:00 ET derived **tomorrow's** trading day and recorded a
-materially different call (``asof`` is a LIVENESS PARAMETER, not a label — ``calls/assembler.py``'s
-``entry_signal_is_live`` is inclusive, so a signal whose window closed that day drops out and the derived
-countdowns shift). That is a domain answer changing with the deployment, which is what makes this a
+materially different call (``asof`` is a LIVENESS PARAMETER, not a label — ``signals/common.py``'s
+``entry_signal_is_live`` keeps a trigger only while the first session after the as-of is inside its window, F3,
+so a signal whose window has no session left drops out and the derived countdowns shift). That is a domain answer changing with the deployment, which is what makes this a
 ``domain/`` concern rather than an ops one — it sits beside the other small shared helper, ``coerce.py``,
 for the same reason: one home, so a new module has something to reach for instead of a fresh
 ``date.today()``. (The count was 9 sites when the gap was written up and 18 by the time it was fixed —
@@ -122,7 +122,8 @@ class MarketClock(NamedTuple):
 
 def action_day(night: date) -> date:
     """The day the operator acts on ``night``'s call: the first scheduled day after it (Monday for a Friday
-    night; a holiday counts as a session, ``domain/trading_days``)."""
+    night; a market holiday is not a session, ``domain/trading_days``, F5). The same step the call path's liveness
+    test takes (F3): a trigger is live on ``night`` only while this day is inside its window."""
     return next_scheduled_day(night)
 
 

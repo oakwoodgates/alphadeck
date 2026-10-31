@@ -69,6 +69,7 @@ from dashboards.hot_board import (
     clocks,
     sessions_left,
     since_arm,
+    window_open,
 )
 from dashboards.insider_tracker import (
     CLUSTER_WINDOW_DAYS,
@@ -570,8 +571,10 @@ def since_fill(
 @dataclass(frozen=True)
 class HoldClock:
     """The card's exit-by (the signal-validity horizon, not an order) as sessions: ``sessions_left`` = the Mon-Fri
-    sessions strictly after the as-of through ``exit_by`` (the Hot Board's rule, 0 on its last day), or
-    ``passed_sessions`` = the calendar's sessions strictly after ``exit_by`` through the as-of."""
+    sessions strictly after the as-of through ``exit_by`` while the horizon is open (the Hot Board's rule,
+    ``window_open``: the first session after the as-of is on or before it, F3 — at least 1), or
+    ``passed_sessions`` = the calendar's sessions strictly after ``exit_by`` through the as-of (``0`` until a
+    session after it has printed)."""
 
     exit_by: date | None
     sessions_left: int | None
@@ -581,7 +584,7 @@ class HoldClock:
 def hold_clock(exit_by: date | None, asof: date, calendar: Sequence[date]) -> HoldClock:
     if exit_by is None:
         return HoldClock(None, None, None)
-    if exit_by >= asof:
+    if window_open(asof, exit_by):
         return HoldClock(exit_by, sessions_left(asof, exit_by), None)
     return HoldClock(exit_by, None, sum(1 for d in calendar if exit_by < d <= asof))
 

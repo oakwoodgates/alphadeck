@@ -238,7 +238,9 @@ written. Each is the operator's to confirm or change.
 
 16. **Controls render only when they discriminate** (Workbench principle 3): a toggle appears only when it adds at least
     one row (with its count), a filter chip group only when the rows on offer differ on it, and "Entry window open only"
-    only when some rows are open and some are not. "Open" = `arm_until` on or after the as-of.
+    only when some rows are open and some are not. "Open" = the first session after the as-of is on or before
+    `arm_until` (F3, the call path's own lapse test), so an open row always has at least one session left; a window
+    with none (`arm_until` on the as-of, or a weekend end after a Friday as-of) reads "closed".
 17. **Sorts:** a text column starts A to Z, a figure biggest first, a blank last in either direction, ties by ticker; a
     closed entry window sorts below every open one (more sessions since it ended = lower). The sparkline column is a
     picture and does not sort.

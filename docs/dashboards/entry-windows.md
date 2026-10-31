@@ -176,8 +176,14 @@ lives in `backend/dashboards/entry_windows.py` (the rules are written at the top
 5. **"Sessions left" after the as-of** cannot come from IWM's bars (none exist after the as-of). Built: the Mon-Fri
    days after the as-of through `arm_until` without the NYSE's market holidays (F5), the call path's own
    `sessions_left` count (stated on the page). Everything up to the as-of is the IWM calendar.
-6. **The window's last day.** When `arm_until` equals the as-of the cell reads "last day of the entry window", not
-   "entry window closed 0 sessions ago". A later date reads "entry window closed N sessions ago", N on IWM's bars.
+6. **The window's last session (F3, 2026-10-31).** A window is open only while the first session after the as-of is
+   on or before `arm_until` (the call path's own lapse test, CALL_LOGIC §6 "the next-session rule"), so an open window
+   always has at least one session left, and its last Armed night reads "1 session left: <that session's date>" (the
+   payload's `next_session`, on the session calendar). A window with no session left is closed: "entry window closed"
+   while no session after `arm_until` has printed yet (a recorded card from before F3 could be Armed on `arm_until`'s
+   own night, and a window ending on a weekend closes on the Friday night), then "entry window closed N sessions ago",
+   N on IWM's bars. Before F3 the `arm_until` night read "last day of the entry window": the session it named was
+   already over.
 7. **IWM's calendar** is extended by any priced armed name's bar dated after IWM's last bar (the shared
    `session_calendar` rule, so a late benchmark never cuts a line short). With no IWM bars at all the calendar is the
    armed names' bars, and the quiet line says so.

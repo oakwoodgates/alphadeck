@@ -385,7 +385,7 @@ export default function HotBoard({ asof, onSelectThesis }: DashboardProps) {
           </span>
         )}
         {controls.openOnly && (
-          <label className="hb-check" title="Only rows whose entry window (arm_until) has not passed at the as-of">
+          <label className="hb-check" title="Only rows whose entry window (to arm_until) still has a session left after the as-of">
             <input
               type="checkbox"
               checked={filters.openOnly}

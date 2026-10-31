@@ -84,7 +84,10 @@ arm_date)` — **per member** (not just the headline), so name-selection is scor
 `[arm_date, exit_by]` (the system's own **signal-validity horizon** — an honest scoring yardstick, not a
 mandatory trade exit) on realized closes. Re-arm = a new episode; never-armed theses → **0 episodes**
 (Warming-forever is a non-event). Close reasons:
-`arm_until_lapsed` · `conviction_aged_out` · `managing` · `window_end` · `dearmed_other`. **`managing` is
+`arm_until_lapsed` · `conviction_aged_out` · `managing` · `window_end` · `dearmed_other`. A clock counts as run out
+on the de-arm night when that night's NEXT session is past it — the call path's own lapse test (F3, CALL_LOGIC §6
+"the next-session rule"), so the de-arm night can be `arm_until`'s own night, or the Friday before a weekend end.
+**`managing` is
 expected-zero in pure replay** (no operator fills exist in historical facts); it denotes an
 operator-entered position being monitored, not portfolio risk management.
 

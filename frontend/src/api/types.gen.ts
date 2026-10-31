@@ -7894,8 +7894,9 @@ export interface components {
         };
         /**
          * DigestHoldOut
-         * @description The card's exit-by as sessions: ``sessions_left`` = the Mon-Fri sessions after the as-of through it (0 on its
-         *     last day), or ``passed_sessions`` = the calendar's sessions after it through the as-of.
+         * @description The card's exit-by as sessions: ``sessions_left`` = the Mon-Fri sessions after the as-of through it while the
+         *     horizon is open (the first session after the as-of is on or before it, F3, so at least 1), or ``passed_sessions``
+         *     = the calendar's sessions after it through the as-of (``0`` when no session is left but none has printed yet).
          */
         DigestHoldOut: {
             /** Exit By */
@@ -8999,8 +9000,10 @@ export interface components {
          * EntryWindowsMemberClockOut
          * @description An armed name whose own flag is true, with its own entry clock. ``headline`` = the name whose clocks the card
          *     carries (``armed_members[0]``). ``sessions_left`` = the Mon-Fri days after the as-of through the NAME's own
-         *     ``arm_until`` (while that window is open), ``closed_ago`` = the IWM sessions since it closed (``0`` on its last
-         *     day); both ``null`` unless ``entry_window_closing``.
+         *     ``arm_until`` (while that window is open: the first session after the as-of is on or before it, so at least 1),
+         *     ``closed_ago`` = the IWM sessions since it closed (``0`` when no session is left but none has printed after
+         *     ``arm_until`` yet); ``last_session`` = the window's last session while it is open (with one left, the first
+         *     session after the as-of); all three ``null`` unless ``entry_window_closing``.
          */
         EntryWindowsMemberClockOut: {
             /**
@@ -9022,6 +9025,8 @@ export interface components {
             sessions_left: number | null;
             /** Closed Ago */
             closed_ago: number | null;
+            /** Last Session */
+            last_session: string | null;
         };
         /**
          * EntryWindowsMemberOut
@@ -9107,7 +9112,10 @@ export interface components {
          *     night's row was written by ``pipeline.backfill`` (reported, never scored). ``arm_until`` / ``exit_by`` = the
          *     entry window and the hold horizon (``null`` = no clock). ``sessions_into`` = the IWM sessions after the arm
          *     night through the as-of; ``sessions_left`` = the Mon-Fri days after the as-of through ``arm_until`` (while the
-         *     window is open); ``closed_ago`` = the IWM sessions since it closed (``0`` on its last day); ``hold_days`` =
+         *     window is open: the first session after the as-of is on or before it, F3, so at least 1); ``closed_ago`` = the
+         *     IWM sessions since it closed (``0`` when no session is left but none has printed after it yet); ``last_session``
+         *     = the window's last session (the latest session on or before ``arm_until``) while it is open, ``null`` once
+         *     closed: with one session left it is the first session after the as-of, the day the operator acts; ``hold_days`` =
          *     calendar days from the countdown origin to ``exit_by`` (negative = passed; the origin is the action day, the
          *     session after the night, on a live view and the as-of on a past one). Each flag is true when ANY armed member's own
          *     flag is true; ``member_clocks`` lists those members with their own entry clock, since the figures above count to
@@ -9158,6 +9166,8 @@ export interface components {
             sessions_left: number | null;
             /** Closed Ago */
             closed_ago: number | null;
+            /** Last Session */
+            last_session: string | null;
             /** Hold Days */
             hold_days: number | null;
             /** Member Clocks */
@@ -10608,7 +10618,8 @@ export interface components {
          * @description A row's clocks at the as-of. ``arm_night`` = the first night of the member's current recorded run
          *     (``arm_reconstructed`` = that night was rebuilt by ``pipeline.backfill``); ``sessions_since`` = sessions after it
          *     through the as-of on IWM's bar calendar; ``sessions_left`` = Mon-Fri sessions after the as-of through
-         *     ``arm_until`` (``null`` once it has passed, when ``closed_ago`` = the sessions since it ended); ``days_to_exit`` =
+         *     ``arm_until`` while the window is open (the first session after the as-of is on or before ``arm_until``, F3, so
+         *     at least 1; ``null`` once closed, when ``closed_ago`` = the sessions since it ended); ``days_to_exit`` =
          *     calendar days from the countdown origin to ``exit_by`` (negative = passed). The origin is the action day (the
          *     session after the night) on a live view and the as-of on a past one.
          */

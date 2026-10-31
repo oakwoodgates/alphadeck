@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from domain.trading_days import closure_name
+from domain.trading_days import closure_name, is_scheduled_day
 
 
 def bar_days(end: date, n: int) -> list[date]:
@@ -24,6 +24,16 @@ def bar_days(end: date, n: int) -> list[date]:
         d -= timedelta(days=1)
     out.reverse()
     return out
+
+
+def last_session_through(end: date) -> date:
+    """The latest market session on or before ``end``. Under F3 (a trigger is live on night N iff the first session
+    after N is on or before its window end) it is the session a window ending on ``end`` is last acted in: the
+    trigger is live on the night before it and not on its own night."""
+    d = end
+    while not is_scheduled_day(d):
+        d -= timedelta(days=1)
+    return d
 
 
 def bar_days_from(start: date, n: int) -> list[date]:

@@ -174,7 +174,8 @@ class HotClocksOut(_Wire):
     """A row's clocks at the as-of. ``arm_night`` = the first night of the member's current recorded run
     (``arm_reconstructed`` = that night was rebuilt by ``pipeline.backfill``); ``sessions_since`` = sessions after it
     through the as-of on IWM's bar calendar; ``sessions_left`` = Mon-Fri sessions after the as-of through
-    ``arm_until`` (``null`` once it has passed, when ``closed_ago`` = the sessions since it ended); ``days_to_exit`` =
+    ``arm_until`` while the window is open (the first session after the as-of is on or before ``arm_until``, F3, so
+    at least 1; ``null`` once closed, when ``closed_ago`` = the sessions since it ended); ``days_to_exit`` =
     calendar days from the countdown origin to ``exit_by`` (negative = passed). The origin is the action day (the
     session after the night) on a live view and the as-of on a past one."""
 

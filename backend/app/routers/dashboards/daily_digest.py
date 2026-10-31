@@ -212,8 +212,10 @@ class DigestLastSessionOut(_Wire):
 
 
 class DigestHoldOut(_Wire):
-    """The card's exit-by as sessions: ``sessions_left`` = the Mon-Fri sessions after the as-of through it (0 on its
-    last day), or ``passed_sessions`` = the calendar's sessions after it through the as-of."""
+    """The card's exit-by as sessions: ``sessions_left`` = the Mon-Fri sessions after the as-of through it while the
+    horizon is open (the first session after the as-of is on or before it, F3, so at least 1), or ``passed_sessions``
+    = the calendar's sessions after it through the as-of (``0`` when no session is left but none has printed yet).
+    """
 
     exit_by: date | None
     sessions_left: int | None

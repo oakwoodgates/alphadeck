@@ -60,8 +60,10 @@ persisted for display. Change the as-of, and the whole board re-derives — it i
   call's own `entry_window_closing` flag on the headline name is set (Q14; read, never re-derived). It states
   the clock; it never reorders the queue by it (columns and queue do not rank theses, #4). The clock is a
   **countdown**, so on a live view it counts from the **action day** (F2): "act today" when the window ends on
-  that day, "entry window lapsed" when it ended on the night; on a past view it counts from the call's as-of and
-  carries the date ("act within 5d · Oct 18").
+  that day; on a past view it counts from the call's as-of and carries the date ("act within 5d · Oct 18"). Since F3
+  (the next-session rule, CALL_LOGIC §6) an Armed call's `arm_until` is always on or after the action day, so
+  "entry window lapsed" (a window that ended on the night) no longer appears next to Armed; the words stay for a
+  card that carries one anyway.
   **No armed item is ever clipped away.** The strip wraps; past **two rows** it folds the rest behind a quiet
   **"+N more"** at its right edge (N = the items held back, always on screen), and one click opens every item
   (**"show fewer"** folds it back — reversible, WB#1). The fold is by position in the existing order, never by

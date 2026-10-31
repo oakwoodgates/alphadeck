@@ -293,7 +293,8 @@ describe("positions' words", () => {
   it("words the hold clock in sessions left or sessions since it passed", () => {
     expect(holdWords({ exit_by: "2026-09-22", sessions_left: 3, passed_sessions: null })).toBe("exit-by Sep 22 · 3 sessions left");
     expect(holdWords({ exit_by: "2026-09-18", sessions_left: 1, passed_sessions: null })).toBe("exit-by Sep 18 · 1 session left");
-    expect(holdWords({ exit_by: "2026-09-17", sessions_left: 0, passed_sessions: null })).toBe("exit-by Sep 17 · its last day");
+    // F3: an exit-by with no session left after the as-of reads "passed" (before F3 the night of it read "its last day")
+    expect(holdWords({ exit_by: "2026-09-17", sessions_left: null, passed_sessions: 0 })).toBe("exit-by Sep 17 · passed");
     expect(holdWords({ exit_by: "2026-09-15", sessions_left: null, passed_sessions: 2 })).toBe("exit-by Sep 15 · passed 2 sessions ago");
     expect(holdWords({ exit_by: "2026-09-16", sessions_left: null, passed_sessions: 0 })).toBe("exit-by Sep 16 · passed");
     expect(holdWords({ exit_by: null, sessions_left: null, passed_sessions: null })).toBe("no exit-by");
@@ -380,6 +381,7 @@ describe("the tape's words and cut", () => {
   it("words the two clocks", () => {
     expect(clockWords(tapeRow())).toBe("2 in · 3 left");
     expect(clockWords(tapeRow({ sessions_left: null, closed_ago: 2 }))).toBe("2 in · window closed 2 sessions ago");
+    expect(clockWords(tapeRow({ sessions_left: null, closed_ago: 0 }))).toBe("2 in · window closed"); // F3: none left
     expect(clockWords(tapeRow({ sessions_left: null, closed_ago: null }))).toBe("2 in");
     expect(clockWords(tapeRow({ sessions_since: null, sessions_left: null }))).toBe("—");
   });

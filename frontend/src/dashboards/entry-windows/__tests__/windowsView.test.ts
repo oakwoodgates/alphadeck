@@ -49,24 +49,31 @@ describe("the clock cells", () => {
     expect(intoWords(row({ sessions_into: null }))).toBe("—");
   });
 
-  it("words the entry window: sessions left while open, closed N sessions ago after, its last day between", () => {
+  it("words the entry window: sessions left while open, the last session named on its last night, closed after", () => {
     expect(leftWords(row({ sessions_left: 3 }))).toBe("3 sessions left");
-    expect(leftWords(row({ sessions_left: 1 }))).toBe("1 session left");
+    // F3: an open window always has a session left; on its last night the page names that session
+    expect(leftWords(row({ sessions_left: 1, last_session: "2026-10-28" }))).toBe("1 session left: Oct 28");
+    expect(leftWords(row({ sessions_left: 1, last_session: null }))).toBe("1 session left");
     expect(leftWords(CLOSED)).toBe("entry window closed 3 sessions ago");
-    expect(leftWords(row({ sessions_left: null, closed_ago: 1 }))).toBe("entry window closed 1 session ago");
-    expect(leftWords(row({ sessions_left: null, closed_ago: 0 }))).toBe("last day of the entry window");
+    expect(leftWords(row({ sessions_left: null, closed_ago: 1, last_session: null }))).toBe("entry window closed 1 session ago");
+    // no session left, none printed after arm_until yet (a pre-F3 record's last night, a weekend end on a Friday)
+    expect(leftWords(row({ sessions_left: null, closed_ago: 0, last_session: null }))).toBe("entry window closed");
     expect(leftWords(NO_CLOCKS)).toBe("no entry clock");
   });
 
   it("words a closing name's own entry window under the card's figure, but not the card's own clock", () => {
-    expect(memberEntryLines(PAIR)).toEqual(["BBB · 1 session left · to Oct 28"]);
+    expect(memberEntryLines(PAIR)).toEqual(["BBB · 1 session left: Oct 28"]);
     // the headline's window IS the card's figure: nothing repeats it
     expect(memberEntryLines(CLOSING)).toEqual([]);
     expect(memberEntryLines(row())).toEqual([]);
-    // the same rule as the card's figure: a last day and a closed window
+    // the same rule as the card's figure: a window with no session left and a closed window
     const clock = (over: Parameters<typeof memberClock>[0]) =>
       row({ member_clocks: [memberClock({ entry_window_closing: true, arm_until: "2026-10-27", ...over })] });
-    expect(memberEntryLines(clock({ sessions_left: null, closed_ago: 0 }))).toEqual(["AAA · last day of the entry window · to Oct 27"]);
+    expect(memberEntryLines(clock({ sessions_left: null, closed_ago: 0 }))).toEqual(["AAA · entry window closed · to Oct 27"]);
+    // a weekend end: the one session left is the Friday, named, and the Saturday end is not repeated
+    expect(
+      memberEntryLines(clock({ arm_until: "2026-10-31", sessions_left: 1, last_session: "2026-10-30" })),
+    ).toEqual(["AAA · 1 session left: Oct 30"]);
     expect(memberEntryLines(clock({ arm_until: "2026-10-23", sessions_left: null, closed_ago: 2 }))).toEqual([
       "AAA · entry window closed 2 sessions ago · to Oct 23",
     ]);

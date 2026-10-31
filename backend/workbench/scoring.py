@@ -21,6 +21,7 @@ from domain.thesis import BasketMember, Thesis
 from domain.workbench import ScoredFigure, ScoredMember
 from signals import catalyst_conviction, dilution_clock
 from signals.base import PointInTimeData
+from signals.common import entry_signal_is_live
 from signals.horizons import derive_bounds
 
 _MONTHS_PER_QUARTER = 3  # quarterly burn -> monthly (a calendar fact, not a calibration dial)
@@ -122,7 +123,7 @@ def _catalysts(pit: PointInTimeData, sid, cfg: CallConfig) -> ScoredFigure:
     live = [
         f
         for f in facts
-        if (pit.asof - f["valid_from"]).days <= catalyst_conviction.liveness(f, cfg)
+        if entry_signal_is_live(f["valid_from"], catalyst_conviction.liveness(f, cfg), pit.asof)
     ]
     n = len(live)
     if n == 0:

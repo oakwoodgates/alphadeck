@@ -181,7 +181,10 @@ describe("cells", () => {
     expect(leftCell(row({ clocks: clocks({ sessions_left: 5 }) }))).toMatchObject({ text: "5", accent: false });
     expect(leftCell(s.bbb)).toMatchObject({ text: "closed 2 ago", gray: true });
     expect(leftCell(s.ccc)).toMatchObject({ text: "—", gray: true });
-    expect(leftCell(row({ clocks: clocks({ sessions_left: 0, arm_until: ASOF }) })).text).toBe("0");
+    // F3: a window ending on the as-of has no session left: the server sends it closed (0 since), not "0 left"
+    const none = leftCell(row({ clocks: clocks({ sessions_left: null, closed_ago: 0, arm_until: ASOF }) }));
+    expect(none).toMatchObject({ text: "closed", gray: true });
+    expect(none.title).toContain("No session of the entry window");
   });
 
   it("words the days to the hold horizon and a horizon that passed", () => {

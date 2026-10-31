@@ -56,6 +56,7 @@ from dashboards.hot_board import (
     since_arm,
     trigger_key,
     vs_iwm_cell,
+    window_open,
     winning_nights,
 )
 from dashboards.peer_table import CapCell
@@ -483,9 +484,19 @@ def test_the_clocks_of_a_row():
     closed = clocks(arm, d(26), d(20), CAL, ASOF)
     assert (closed.sessions_left, closed.closed_ago) == (None, 2)
     assert closed.days_to_exit == -8  # the hold horizon passed eight days ago
-    # a window ending on the as-of is open with none left, not closed
+    # F3: a window is open only while the session after the as-of is inside it. One ending ON the as-of has no
+    # session left, so it is closed (0 sessions since: none has printed after it yet), not "open, 0 left"
     last = clocks(arm, ASOF, None, CAL, ASOF)
-    assert (last.sessions_left, last.closed_ago, last.days_to_exit) == (0, None, None)
+    assert (last.sessions_left, last.closed_ago, last.days_to_exit) == (None, 0, None)
+    # the night before, its one session left is the window's last day
+    eve = clocks(arm, ASOF, None, CAL, d(27))
+    assert (eve.sessions_left, eve.closed_ago) == (1, None)
+    # a window ending on a Saturday is closed on the Friday night: Monday, the next session, is past it
+    fri = clocks(arm, d(31), None, CAL, d(30))
+    assert (fri.sessions_left, fri.closed_ago) == (None, 0)
+    assert (
+        window_open(d(29), d(31)) and not window_open(d(30), d(31)) and not window_open(ASOF, None)
+    )
 
 
 def test_the_days_to_exit_count_from_the_origin_and_the_session_counts_stay_on_the_asof():
