@@ -276,7 +276,9 @@ def test_the_public_clock_reads_a_detected_split_from_its_own_publication(db, tm
     assert public(datetime(2026, 8, 18, 23, 0, tzinfo=et)) == []
     (row,) = public(datetime(2026, 8, 19, 12, 0, tzinfo=et))
     assert (row["status"], row["effective_date"]) == (STATUS_CONFIRMED, date(2026, 8, 24))
-    assert row["recorded_at"] == datetime(2026, 8, 19, tzinfo=et)  # the publication, not our stamp
+    # the publication, not our stamp: the filing day at 06:00 ET, the first instant of its night (F6 —
+    # a date-only instant sits at EDGAR's open, never inside the night before)
+    assert row["recorded_at"] == datetime(2026, 8, 19, 6, 0, tzinfo=et)
     assert row["ingested_at"] > row["recorded_at"]  # the honest stamp is kept beside it
 
 

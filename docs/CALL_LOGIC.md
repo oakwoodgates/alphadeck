@@ -809,12 +809,20 @@ and the arm date the breakdown de-arm compares against — is the night its LATE
 latest SEC acceptance (`fact_insider_txn.accepted`) among the chosen cluster's KEPT buys (a screened buy never
 moves it), read as a night with F6's rule (`domain.market_time.edgar_night`: a time in EDGAR's hours is its
 own date, a stored time past midnight or on a weekend belongs to the night whose history read first holds
-it). A row with no acceptance uses the public clock's own fallback, the first instant we held it (the row's
-`recorded_at` on a public-clock read; the stored version's on the live read — never early). The clock is
-never before the cluster's latest trade (a stored time before it is bad data: the trade date, the rule
-before F8) and never after the night being read (only the live morning view of a past night can hold a
-later filing). The trade dates stay on the label and on each accession's provenance (`detail.traded`,
-beside `detail.public`, the instant the clock read). **Why:** a Form 4 is public a median 2 days after
+it). Each kept buy contributes its acceptance's night — never before its own trade (a stored time before it
+is bad data) — and a buy whose row carries **no acceptance contributes its TRADE date**, the rule before F8;
+the cluster takes the latest. The clock **never reads `recorded_at`**: when we stored a row is bookkeeping, and
+reading it made the card depend on the ingest (two ingests of one filing wrote different cards, every
+re-version re-recorded it, and a repair's night made a stale buy look fresh — caught by the fetch-ahead
+determinism test). The read still decides whether a row is visible at all (on the public clock a row with no
+acceptance counts from the first instant we held it), so the trade-date fallback is never a lookahead; it
+only keeps that buy's window where it was. The clock is never after the night being read (only the live
+morning view of a past night can hold a later filing). The trade dates stay on the label and on each
+accession's provenance (`detail.traded`, beside `detail.accepted`: the acceptance the clock read, or "no
+acceptance stored"). **Known gap:** the clock reads the acceptance on the version the read picks (the newest);
+a fact whose newest version lacks one that an OLDER version carries (6 of 53,891 newest-version code-P rows on
+dev) counts from its trade date — reading every version's acceptance needs a window in both engines' insider
+reads. **Why:** a Form 4 is public a median 2 days after
 the trade (MEASURED on dev, 3,830 purchase filings since 2025-01-01: 2,403 within 0–2 days, 1,099 in 3–4,
 236 in 5–17, **92 at 18+**), so on the trade clock a normal filing spent 2–4 days of the 18-day flip window
 before anyone could read it, and 92 filings arrived after their flip window had already ended. The 13D

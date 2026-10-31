@@ -628,8 +628,8 @@ def test_the_event_fires_on_the_night_its_latest_filing_was_public_and_the_label
     assert ev.label.endswith("across 2 txns (traded 2026-05-18 to 2026-05-22)")
     detail = {p.ref: p.detail for p in ev.provenance}
     assert detail == {
-        "acc-Jane Doe": {"traded": ["2026-05-18"], "public": "2026-05-20T22:00:00+00:00"},
-        "acc-John Roe": {"traded": ["2026-05-22"], "public": "2026-05-26T23:30:00+00:00"},
+        "acc-Jane Doe": {"traded": ["2026-05-18"], "accepted": "2026-05-20T22:00:00+00:00"},
+        "acc-John Roe": {"traded": ["2026-05-22"], "accepted": "2026-05-26T23:30:00+00:00"},
     }
 
 
@@ -677,19 +677,39 @@ def test_a_buy_the_screens_keep_out_never_moves_the_clock():
     assert [p.ref for p in ev.provenance] == ["acc-Jane Doe"]
 
 
-def test_no_acceptance_counts_from_the_rows_recorded_at_the_first_instant_held():
-    """No ``accepted``: the row's ``recorded_at`` — on a public-clock read the first instant we held it."""
-    row = _filed(
-        _buy("Jane Doe", "Chief Executive Officer", 200_000, d=date(2026, 5, 20)),
-        recorded=datetime(2026, 5, 28, 3, 0, tzinfo=timezone.utc),  # 23:00 EDT 05-27
-    )
-    ev = insider_conviction.score([row], SID, ASOF)
-    assert ev is not None and ev.asof == date(2026, 5, 27)
+def test_no_acceptance_keeps_the_trade_date_and_the_card_never_reads_when_we_stored_the_row():
+    """No ``accepted`` on the row: that buy counts from its TRADE date (the pre-F8 rule) and its provenance says
+    "no acceptance stored". ``recorded_at`` is never read: the same filing stored on two different nights (two
+    ingests, a repair's re-version) writes the SAME event — the fetch-ahead determinism contract."""
+    base = _buy("Jane Doe", "Chief Executive Officer", 200_000, d=date(2026, 5, 20))
+    first = _filed(base, recorded=datetime(2026, 5, 28, 3, 0, tzinfo=timezone.utc))
+    again = _filed(
+        base, recorded=datetime(2026, 6, 3, 23, 0, tzinfo=timezone.utc)
+    )  # a later re-version
+    ev = insider_conviction.score([first], SID, ASOF)
+    assert ev is not None and ev.asof == date(2026, 5, 20)
     (prov,) = ev.provenance
-    assert prov.detail == {"traded": ["2026-05-20"], "public": "2026-05-28T03:00:00+00:00"}
-    # an acceptance, when present, wins over recorded_at
-    both = {**row, "accepted": _et(date(2026, 5, 22), 18)}
+    assert prov.detail == {"traded": ["2026-05-20"], "accepted": insider_conviction.NO_ACCEPTANCE}
+    assert insider_conviction.score([again], SID, ASOF).model_dump() == ev.model_dump()
+    # an acceptance, when present, is the clock (recorded_at still ignored)
+    both = {**again, "accepted": _et(date(2026, 5, 22), 18)}
     assert insider_conviction.score([both], SID, ASOF).asof == date(2026, 5, 22)
+
+
+def test_a_cluster_mixing_filed_and_unfiled_buys_takes_the_latest_of_their_nights():
+    """Each kept buy contributes its acceptance's night, else its trade date; the cluster takes the latest."""
+    txns = [
+        _filed(
+            _buy("Jane Doe", "Chief Executive Officer", 120_000, d=date(2026, 5, 18)),
+            _et(date(2026, 5, 21), 16),
+        ),
+        _buy(
+            "John Roe", "Chief Financial Officer", 120_000, d=date(2026, 5, 22)
+        ),  # no acceptance stored
+    ]
+    assert insider_conviction.score(txns, SID, ASOF).asof == date(2026, 5, 22)  # John's trade date
+    txns[1] = _filed(txns[1], _et(date(2026, 5, 27), 9))
+    assert insider_conviction.score(txns, SID, ASOF).asof == date(2026, 5, 27)
 
 
 def test_the_clock_is_never_before_the_trade_nor_after_the_night_read():
@@ -703,12 +723,13 @@ def test_the_clock_is_never_before_the_trade_nor_after_the_night_read():
 
 
 def test_a_stored_time_past_midnight_or_on_a_weekend_belongs_to_the_night_that_first_reads_it():
-    """The clock uses the F6 night (``edgar_night``): a time between midnight and 06:00 ET is the previous
-    weekday's night, a weekend time is Friday's — the night whose history read first holds it."""
+    """The clock uses the F6 night (``edgar_night``): a stored acceptance between midnight and 06:00 ET is the
+    previous weekday's night, a weekend one is Friday's — the night whose history read first holds it.
+    """
     row = _buy("Jane Doe", "Chief Executive Officer", 200_000, d=date(2026, 5, 26))
     past_midnight = _filed(row, _et(date(2026, 5, 28), 0, 20))  # Thu 00:20 ET
     assert insider_conviction.score([past_midnight], SID, ASOF).asof == date(2026, 5, 27)
-    weekend = _filed(row, recorded=_et(date(2026, 5, 30), 11))  # Sat, first held (no acceptance)
+    weekend = _filed(row, _et(date(2026, 5, 30), 11))  # Sat (a mis-stored time; EDGAR is closed)
     assert insider_conviction.score([weekend], SID, ASOF).asof == date(2026, 5, 29)
 
 
