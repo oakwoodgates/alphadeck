@@ -3,10 +3,12 @@
 **Why this lives in ``domain/``.** Every layer that asks "is this a market session?" reads it:
 ``calls/assembler.py`` counts the trading sessions left in an armed member's entry window
 (``entry_window_closing``, Q14), ``pipeline/schedule.py`` gates the cron (and through its
-``is-session`` CLI the shell sidecar that actually fires the pass), ``pipeline/night_coverage.py`` ends
-a night's on-time window, ``domain/splits.py`` measures a split's session distance,
-``replay/harness.trading_sessions`` pages the editions and the backtest, the price leg withholds a fresh
-bar dated a closed day and ``signals/base.window_prices`` ignores a stored one. ``pipeline`` depends on
+``is-session`` CLI the shell sidecar that actually fires the pass), ``domain/splits.py`` measures a
+split's session distance, ``replay/harness.trading_sessions`` pages the editions and the backtest, the
+price leg withholds a fresh bar dated a closed day and ``signals/base.window_prices`` and the scoring reads
+(``scoreboard/prices.py``, ``replay/scoring.py``) skip a stored one. NOT read by
+``pipeline/night_coverage.next_edgar_open``: the on-time window ends at EDGAR's open, which follows SEC
+business days (EDGAR is open on Good Friday), so it stays plain Mon-Fri, holidays included. ``pipeline`` depends on
 ``calls``, never the reverse, so the predicate cannot live in ``pipeline/`` and be read by the assembler
 (``tests/calls/test_layering.py`` pins that). It sits here, beside ``market_time.py``, with one
 definition; ``pipeline/schedule.py`` imports it, so every ``from pipeline.schedule import

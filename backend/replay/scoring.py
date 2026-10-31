@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Callable, NamedTuple
 from uuid import UUID
 
 from db.session import DEFAULT_TENANT_ID
+from domain.trading_days import NYSE_CLOSURES, closure_name
 from replay.schema import Episode, Outcome
 
 if TYPE_CHECKING:  # duckdb is the optional .[replay] extra, annotation-only in this module — the
@@ -85,7 +86,11 @@ class RealizedPrices:
         close cannot price anything); the other OHLCV columns stay nullable per-column — a close-only
         free-EOD bar surfaces ``None``, never an invented number. No asof/known_at bound, copying THIS
         side's shape rather than the Postgres twin's double cap (the two readers are duck-typed peers,
-        not a harmonized pair — see ``scoreboard/prices.py``)."""
+        not a harmonized pair — see ``scoreboard/prices.py``).
+
+        A bar dated an NYSE full-day closure is skipped (F5, the same rule as ``signals.base.window_prices``
+        and the Postgres twin): the vendor's flat OTC carries on Labor Day 2026 are no session, so no entry,
+        horizon or exit bar is ever one. Nothing is deleted from the mirror."""
         tape = self._tapes.get(security_id)
         if tape is None:
             rows = self.con.execute(
@@ -99,7 +104,7 @@ class RealizedPrices:
             tape = [
                 _Bar(r[0], _f(r[1]), _f(r[2]), _f(r[3]), float(r[4]), _f(r[5]))
                 for r in rows
-                if r[4] is not None
+                if r[4] is not None and closure_name(r[0]) is None
             ]
             self._tapes[security_id] = tape
             self._dates[security_id] = [b.d for b in tape]
@@ -163,9 +168,11 @@ class RealizedPrices:
         ``security_id`` is unused — this reader is tenant-scoped — and taken only to keep the method
         the same shape as the routed peer's, which does need it to pick a tenant."""
         if self._market_edge is None:
+            # a bar dated an NYSE closure never proves the market printed (F5, like ``_tape``)
             rows = self.con.execute(
-                "SELECT max(d) FROM fact_price_eod WHERE tenant_id = ? AND close IS NOT NULL",
-                [str(self.tenant_id)],
+                "SELECT max(d) FROM fact_price_eod WHERE tenant_id = ? AND close IS NOT NULL "
+                "AND NOT list_contains(?, d)",
+                [str(self.tenant_id), list(NYSE_CLOSURES)],
             ).fetchone()
             self._market_edge = rows[0] if rows else None
         return self._market_edge

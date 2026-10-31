@@ -2208,13 +2208,15 @@ The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
   (`daily-cron: SESSION CHECK FAILED for D (… exit N: …) — falling back to Mon-Fri`, to stderr) and answers
   plain Mon-Fri, the pre-F5 calendar — so a broken check can never stop the nightly; at worst it runs on a
   holiday. Every Python reader follows the same predicate: the Admin expected-run / missed-night math
-  (`pipeline/schedule.py`), the on-time window's end (`night_coverage.next_edgar_open` — the NYSE's calendar,
-  not EDGAR's: on Good Friday EDGAR accepts filings while the market is closed), the entry-window count
+  (`pipeline/schedule.py`), the entry-window count
   (`sessions_left`), the split session distance (`domain.splits.session_distance`, which the split-night hold
   reads), the editions' and the backtest's pages (`replay/harness.trading_sessions`, now bar dates
   intersected with the calendar — Edition 1 holds 4 pages dated Labor Day from the OTC carries), the
   dashboard warm-up's next-visit date, and the shell sweep's weekly re-enrich (the week's FIRST session, so a
-  Monday holiday moves it to Tuesday). The external heartbeat's own schedule (healthchecks.io, Mon-Fri) is
+  Monday holiday moves it to Tuesday). One reader deliberately does NOT: the on-time window's end
+  (`night_coverage.next_edgar_open`) stays the next WEEKDAY, holidays included — it is EDGAR's open, and
+  EDGAR keeps SEC business days (it accepts filings on Good Friday), so the weekday rule can only over-flag
+  a row as late. The external heartbeat's own schedule (healthchecks.io, Mon-Fri) is
   configured outside the repo: on a holiday it expects a ping no pass sends.
 - **A second schedule: the staged cold-ingest job (X1, 2026-10-21)** `[BUILT]`. After the boot block, the
   sidecar starts `onboard_loop` in the BACKGROUND: `timeout -k 60 ONBOARD_TIMEOUT_S python -m
