@@ -80,7 +80,7 @@
 | `starter_confidence_cap` | 0.55 | **any** starter (weak entry key) caps here — incl. a theme-armed member | the inverse-loudness ceiling |
 | **Per-member ranking + theme conviction (M5):** | | | |
 | `headline_lapsing_soon_days` | 45 | freshness band: runway < this = "lapsing-soon", ranks below any fresh member; the same band sets `MemberCall.lapsing`, shown as **"hold clock closing"** (Q14 — the HOLD clock, never the entry window) | **load-bearing for belief-vs-data (M5b):** also gates how readily a *fresh theme starter* leapfrogs a *lapsing own core* — tune with that in mind |
-| `entry_window_closing_sessions` | 2 | `MemberCall.entry_window_closing` ("entry window closing") turns on when ≤ this many TRADING sessions remain through `arm_until` (Mon-Fri, holidays not modeled — CALL_LOGIC §6) | **display only (#4)** — never a call input; moving it re-records only cards whose flag flips |
+| `entry_window_closing_sessions` | 2 | `MemberCall.entry_window_closing` ("entry window closing") turns on when ≤ this many TRADING sessions remain through `arm_until` (Mon-Fri minus the NYSE's full-day closures since F5 — CALL_LOGIC §6) | **display only (#4)** — never a call input; moving it re-records only cards whose flag flips |
 | `theme_conviction_default_horizon_days` | 365 | theme-conviction liveness when no `horizon_end` is ratified | ~12mo; also the upper-bound / re-ratification-cadence knob (it expires unless re-ratified) |
 | within-band tiebreak (`is_own` placement) | own-above-theme, after grade | own-vs-theme ordering within a band | own-above-theme is *shape*; its placement/weight is the dial (M5b Q1) |
 | **Workbench scoring meters (0–4 pip cutoffs — Slice 3; PRE-REGISTERED, not fit to the n=4 seed):** | | | |

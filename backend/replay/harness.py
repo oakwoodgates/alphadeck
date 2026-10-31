@@ -11,6 +11,7 @@ from db.session import DEFAULT_TENANT_ID
 from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.market_time import known_at_for_asof
 from domain.thesis import Thesis
+from domain.trading_days import is_scheduled_day
 from pipeline.core import assemble_from_pit
 from replay.pit import ReplayPointInTimeData
 from replay.schema import CallSnapshot
@@ -26,7 +27,12 @@ def trading_sessions(
     tenant_id: UUID,
 ) -> list[date]:
     """The real EOD sessions to sweep — the union of ``fact_price_eod.d`` over the given securities within
-    ``[start, end]`` (so we step on actual trading days, not weekends/holidays with a stale tape).
+    ``[start, end]`` (so we step on actual trading days, not weekends/holidays with a stale tape),
+    INTERSECTED with the session calendar (``domain.trading_days.is_scheduled_day``, F5): a bar dated a day
+    with no session never makes that day a page. MEASURED on dev: the vendor stored 10 flat OTC bars dated
+    Labor Day 2026-09-07, and Edition 1 holds 4 pages dated that day because this union saw them. The
+    editions (``editions.engine`` / ``editions.nightly``) and the backtest's timing null
+    (``backtest.slice_nulls``) page through here, so none of them pages a closure.
     """
     if not security_ids:
         return []
@@ -37,7 +43,7 @@ def trading_sessions(
         f"ORDER BY d",
         [str(tenant_id), *[str(s) for s in security_ids], start, end],
     ).fetchall()
-    return [r[0] for r in rows]
+    return [r[0] for r in rows if is_scheduled_day(r[0])]
 
 
 # --- the roster clock (F4) -----------------------------------------------------------------------------

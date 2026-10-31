@@ -10,6 +10,7 @@ from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
 from domain.market_time import known_at_for_asof, market_today
 from domain.thesis import BasketMember, Thesis
+from domain.trading_days import closure_name
 from repositories import thesis_repo
 from signals.base import PointInTimeData
 
@@ -55,13 +56,20 @@ def _seed_bars(
 ) -> None:
     """n consecutive-day bars ending at ``end``: closes 10.0, 10.1, … + a flat volume (ascending,
     deterministic — enough for every price-fed member to compute). Each bar is knowable on its own date
-    unless ``recorded_at`` stamps them all at one instant (the leak test's thaw shape)."""
-    start = end - timedelta(days=n - 1)
-    for i in range(n):
+    unless ``recorded_at`` stamps them all at one instant (the leak test's thaw shape). No bar on an NYSE
+    full-day closure — a vendor serves none, and the point-in-time view skips one (F5) — so the n bars
+    run back past each holiday."""
+    days: list[date] = []
+    d = end
+    while len(days) < n:
+        if closure_name(d) is None:
+            days.append(d)
+        d -= timedelta(days=1)
+    for i, day in enumerate(reversed(days)):
         _price(
             db,
             security_id,
-            start + timedelta(days=i),
+            day,
             10.0 + i * 0.1,
             volume=1000.0,
             recorded_at=recorded_at,

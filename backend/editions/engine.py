@@ -279,8 +279,9 @@ def build_job(
     nights: set[date] | None = None,
     body: dict[str, Any] | None = None,
 ) -> ThesisJob | None:
-    """One thesis's job: every real trading session (on the union of its rosters, the harness rule — a market
-    holiday has no bars and no page) from its first join date to ``end``, each with its roster and its
+    """One thesis's job: every real trading session (on the union of its rosters, the harness rule — bar dates
+    intersected with the session calendar, so a market holiday has no page even when a vendor stored a bar
+    for it, F5) from its first join date to ``end``, each with its roster and its
     position at the night's cap. A night with no resolved member has no page. ``start`` / ``nights`` narrow
     the sweep (a diagnostic; S7's rules trial). ``body`` = a frozen thesis body (``thesis_body``'s form) in
     place of today's. ``None`` = nothing to re-run."""

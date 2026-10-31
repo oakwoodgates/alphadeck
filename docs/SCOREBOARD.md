@@ -566,7 +566,7 @@ asks (`ADMIN.md`), surfaced here because the Board-vs-Scoreboard confusion happe
 `GET /scoreboard` carries `record_edge` (the **uncapped** calls-log `MAX(asof)` — independent of the request
 as-of, so it reads the same whether the view is scrubbed to the past or to today; it counts reconstructed rows
 too — freshness asks whether the log advanced, not whether a row is scoreable) measured against the last
-**expected** Mon-Fri + `RUN_AT` run (`pipeline/schedule.py` — ONE contract shared with the Admin surface,
+**expected** session + `RUN_AT` run (Mon-Fri minus NYSE closures since F5; `pipeline/schedule.py` — ONE contract shared with the Admin surface,
 never raw `today − edge`). The FE shows it **only on the live view** (`asof >= today`): staleness answers
 "current now", not "as of a past date", so a scrubbed-back view suppresses it. It goes **loud only when
 stale** ("record last advanced ‹edge› · N expected run(s) behind"); **quiet** when current or never-begun

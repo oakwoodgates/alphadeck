@@ -967,6 +967,16 @@ def test_pass_shell_sweep_reenriches_on_mondays_only(monkeypatch):
     assert seen["shell_sweep"]["reenrich"] is False
 
 
+def test_pass_shell_sweep_reenriches_on_the_tuesday_after_a_monday_holiday(monkeypatch):
+    # F5: Labor Day 2026-09-07 has no pass, so the week's FIRST session (Tue 09-08) carries the weekly
+    # re-enrich — keyed to Monday, the week would skip it; the Wednesday after it does not re-run it
+    _, _, seen = _prime_pass(monkeypatch)
+    daily.run_daily_pass(asof=date(2026, 9, 8), allow_live=True, notifier=_Silent())
+    assert seen["shell_sweep"]["reenrich"] is True
+    daily.run_daily_pass(asof=date(2026, 9, 9), allow_live=True, notifier=_Silent())
+    assert seen["shell_sweep"]["reenrich"] is False
+
+
 def test_pass_benchmarks_FORCE_REFRESH(monkeypatch):
     """The load-bearing freshness KWARGS the benchmark leg is written with, asserted where a stub that
     swallowed `**k` couldn't: force_refresh=True (+ allow_live=True) — the recurring path bypasses a stale
@@ -1093,8 +1103,17 @@ def test_pass_counts_INDIVIDUAL_benchmark_errors_without_failing_the_leg(monkeyp
     monkeypatch.setattr(
         "pipeline.ingest_benchmarks.ingest_benchmarks",
         lambda conn, **k: [
-            SimpleNamespace(bars_appended=3, error=None, bars_restated=0, bars_withheld=0),
-            SimpleNamespace(bars_appended=0, error="yahoo 502", bars_restated=0, bars_withheld=0),
+            # the BenchmarkResult shape the leg reads (F5 added ``bars_closed_day``)
+            SimpleNamespace(
+                bars_appended=3, error=None, bars_restated=0, bars_withheld=0, bars_closed_day=0
+            ),
+            SimpleNamespace(
+                bars_appended=0,
+                error="yahoo 502",
+                bars_restated=0,
+                bars_withheld=0,
+                bars_closed_day=0,
+            ),
         ],
     )
     seen_health: dict = {}

@@ -57,6 +57,18 @@ def test_the_on_time_window_runs_from_RUN_AT_to_the_NEXT_WEEKDAYS_EDGAR_open():
     assert not is_on_time(_et(2026, 10, 12, 22, 29, 59), _OCT12, run_at=_RUN_AT, tz=_NY)
 
 
+def test_the_EDGAR_open_is_the_next_WEEKDAY_holidays_included_not_the_next_session():
+    """The window ends at EDGAR's open, which follows SEC business days, not the NYSE (F5 left it so):
+    Good Friday 2026-04-03 is an NYSE closure but EDGAR accepts filings, so a Thursday night's window still
+    ends Friday 06:00 — a Good Friday catch-up is LATE. A federal holiday (Labor Day 2026-09-07) ends a
+    Friday night's window on the Monday morning: EDGAR is closed then, so this can only over-flag.
+    """
+    assert next_edgar_open(date(2026, 4, 2), _NY) == _et(2026, 4, 3, 6, 0)
+    assert is_late(_et(2026, 4, 3, 10, 0), date(2026, 4, 2), tz=_NY)
+    assert next_edgar_open(date(2026, 9, 4), _NY) == _et(2026, 9, 7, 6, 0)
+    assert next_edgar_open(date(2026, 11, 25), _NY) == _et(2026, 11, 26, 6, 0)  # Thanksgiving
+
+
 def test_LATE_is_at_or_after_the_windows_END_only():
     """L1 — the same window, its upper bound only."""
     # the measured catch-up: 10-13 17:04 ET for the 10-12 night — ~11 h after the window closed

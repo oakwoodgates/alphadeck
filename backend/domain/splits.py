@@ -38,6 +38,8 @@ from decimal import Decimal
 from fractions import Fraction
 from typing import Any
 
+from domain.trading_days import is_scheduled_day
+
 STATUS_ANNOUNCED = "announced"
 STATUS_CONFIRMED = "confirmed"
 STATUS_NEEDS_REVIEW = "needs_review"
@@ -64,10 +66,11 @@ SOURCE_SEC = "sec"
 SOURCE_POLYGON = "polygon"
 SOURCE_BOTH = "both"
 
-# How far (in Mon-Fri sessions; market holidays are not modeled, the ``domain/trading_days`` calendar) a SEC
-# LEGAL effective date may sit from Massive.com's execution date and still agree. Two covers the shapes the real
-# filings use — effective 12:01 a.m. the same day (0), 5:00 p.m. the session before (1), a Friday-evening
-# certificate trading on the Monday after a holiday (2). A filing that states the first TRADING session itself
+# How far (in market sessions — the ``domain/trading_days`` calendar, Mon-Fri minus the NYSE's full-day
+# closures since F5) a SEC LEGAL effective date may sit from Massive.com's execution date and still agree.
+# Two covers the shapes the real filings use — effective 12:01 a.m. the same day (0), 5:00 p.m. the session
+# before (1), a Friday-evening certificate first trading on the Tuesday after a Monday holiday (2 before F5
+# counted the holiday as a session; 1 now). A filing that states the first TRADING session itself
 # must match exactly: a one-session disagreement there is a real disagreement, and it goes to the operator.
 SESSION_TOLERANCE = 2
 
@@ -334,8 +337,10 @@ def ratio_label(ratio_from: Decimal, ratio_to: Decimal) -> str:
 
 
 def session_distance(a: date, b: date) -> int:
-    """Signed Mon-Fri sessions from ``a`` to ``b``: 0 on the same day, +1 from a Friday to the next Monday,
-    negative when ``b`` is before ``a``. Holidays count as sessions (not modeled)."""
+    """Signed market sessions from ``a`` to ``b`` (the sessions in ``(lo, hi]``): 0 on the same day, +1 from a
+    Friday to the next Monday, +1 from the Friday before a Monday holiday to the Tuesday, negative when ``b``
+    is before ``a``. Sessions are ``domain.trading_days.is_scheduled_day`` (F5: a market holiday is not one).
+    """
     if a == b:
         return 0
     lo, hi = (a, b) if a < b else (b, a)
@@ -343,7 +348,7 @@ def session_distance(a: date, b: date) -> int:
     d = lo
     while d < hi:
         d += timedelta(days=1)
-        if d.weekday() < 5:
+        if is_scheduled_day(d):
             n += 1
     return n if b > a else -n
 

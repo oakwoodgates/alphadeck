@@ -33,6 +33,7 @@ from db.session import DEFAULT_TENANT_ID
 from domain.market_time import market_today
 from domain.thesis import BENCH_LABEL, CONTEXT_LABEL, BasketMember, Segment, Thesis
 from repositories import thesis_repo
+from tests.session_days import bar_days
 
 ASOF = date(2026, 6, 1)
 T1, T2 = uuid.uuid4(), uuid.uuid4()
@@ -571,9 +572,7 @@ def test_a_price_published_after_a_past_asof_stays_invisible(db, monkeypatch):
     today's view the tape (it ends 2026-06-01) is a stopped feed, so the name is left out of the line.
     """
     sid = _security(db, "NIDX")
-    start = ASOF - timedelta(days=59)
-    for i in range(60):
-        d = start + timedelta(days=i)
+    for i, d in enumerate(bar_days(ASOF, 60)):  # no bar on an NYSE closure (F5)
         _price(db, sid, d, 10.0 + i * 0.1, datetime.combine(d, time.min, tzinfo=timezone.utc))
     _price(db, sid, ASOF, 31.8, _THAW + timedelta(days=7))  # the as-of bar (15.9), corrected later
     thesis = Thesis(

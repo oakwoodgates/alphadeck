@@ -21,8 +21,8 @@ THE AS-OF IS THE NEXT VISIT'S DATE, NOT TONIGHT'S. The frontend's dial opens on 
 (``frontend/src/App.tsx`` ``useAsof`` -> ``todayISO``); the cache keys a read on ``(slug, params, asof)``
 (``dashboards/cache.py``). The pass runs at ~22:30 market time, so the operator's first visit is on the NEXT
 calendar day, and warming the pass's own date would fill a key that visit never asks for. ``visit_asofs`` derives
-the dates that visit sends: the day after the night, and, when that day is a weekend, the Monday after it (no pass
-runs on a weekend, so Monday is the first weekday visit). Both are LIVE reads on the record clock
+the dates that visit sends: the day after the night, and, when that day is not a session (a weekend or a market
+holiday), the next session after it (no pass runs on either, so that is the first session-day visit). Both are LIVE reads on the record clock
 (``serve_view``: ``asof >= market_today()`` is ``(None, "record")``, and a future date reads the same way), so the
 key warmed tonight for tomorrow is the key tomorrow's visit asks for. Every dashboard computes from the as-of it is
 given, never the wall clock (the two that read ``market_today()``, the Catalyst Calendar and the Idea Timeline, are
@@ -64,6 +64,7 @@ from pathlib import Path
 from typing import Any
 
 from domain.market_time import market_today
+from domain.trading_days import is_scheduled_day, next_scheduled_day
 
 _log = logging.getLogger("alphadeck.cron")
 
@@ -142,13 +143,14 @@ def known_slugs() -> tuple[str, ...]:
 
 def visit_asofs(night: date) -> list[date]:
     """The calendar dates a browser's local clock shows at the first visit(s) after ``night``'s pass: the next
-    day, plus the Monday after it when that day is a Saturday or Sunday (no pass runs on a weekend, so the first
-    weekday visit is a Monday). Pure over its argument — no ambient clock; see the module docstring for why this
-    is the day AFTER the pass, not the pass's own date."""
+    day, plus the next session after it when that day is not one — a weekend or a market holiday (no pass runs
+    on either, F5, so Friday's pass also serves Monday's visit, and Wednesday's serves the Friday after
+    Thanksgiving). Pure over its argument — no ambient clock; see the module docstring for why this is the day
+    AFTER the pass, not the pass's own date."""
     first = night + timedelta(days=1)
     out = [first]
-    if first.weekday() >= 5:  # Saturday (5) or Sunday (6)
-        out.append(first + timedelta(days=7 - first.weekday()))
+    if not is_scheduled_day(first):
+        out.append(next_scheduled_day(first))
     return out
 
 
@@ -528,7 +530,7 @@ def _build_parser() -> argparse.ArgumentParser:
         type=_parse_date,
         default=None,
         help="the night whose pass just finished (default: today in market time); the as-ofs warmed are the "
-        "dates the NEXT visit sends (the day after, plus the Monday after a weekend)",
+        "dates the NEXT visit sends (the day after, plus the next session after a weekend or a holiday)",
     )
     p.add_argument(
         "--asof",

@@ -27,7 +27,8 @@ _MON = date(2026, 7, 20)
 
 # The hole-aware read's fixtures — the MEASURED prod week: 2026-09-03 Thu, 09-04 Fri (a hole: the Friday
 # target woke on Saturday and the wake-day weekday check skipped it), 09-07 Mon, 09-08 Tue (a hole: the
-# Tuesday target fired Wed 09:09 and recorded Wednesday), 09-09 Wed, 09-10 Thu.
+# Tuesday target fired Wed 09:09 and recorded Wednesday), 09-09 Wed, 09-10 Thu. Since F5, 09-07 is LABOR
+# DAY to the schedule (not a session): its recorded rows are never a hole and never expected.
 _S_THU = date(2026, 9, 3)
 _S_FRI = date(2026, 9, 4)
 _S_MON = date(2026, 9, 7)
@@ -47,14 +48,27 @@ def test_parse_run_at_is_loud_on_garbage():
         parse_run_at("half past ten")
 
 
-def test_is_scheduled_day_is_mon_to_fri_holidays_included():
+def test_is_scheduled_day_is_mon_to_fri_minus_market_holidays():
     assert is_scheduled_day(_FRI) is True
     assert is_scheduled_day(_MON) is True
     assert is_scheduled_day(_SAT) is False
     assert is_scheduled_day(_SUN) is False
-    # 2026-07-03 (observed Independence Day, a Friday) is still a SCHEDULED day — the trigger's
-    # calendar, not the exchange's: the cron genuinely fires (an idempotent near-no-op)
-    assert is_scheduled_day(date(2026, 7, 3)) is True
+    # F5: 2026-07-03 (observed Independence Day, a Friday) is NOT a scheduled day any more — the cron
+    # fires on the exchange's sessions (until F5 it fired on it, and on Labor Day, for a night with none)
+    assert is_scheduled_day(date(2026, 7, 3)) is False
+    assert is_scheduled_day(date(2026, 9, 7)) is False  # Labor Day: 11 call rows recorded before F5
+
+
+def test_a_holiday_expects_no_run_and_the_night_before_it_is_current():
+    # Thanksgiving Thu 2026-11-26: Wednesday's record read on Thanksgiving night or the Friday morning
+    # after is CURRENT — the holiday expects no run (don't cry wolf over a closed market)
+    wed, fri = date(2026, 11, 25), date(2026, 11, 27)
+    assert last_expected_asof(datetime(2026, 11, 26, 23, 0), _RUN_AT) == wed
+    assert last_expected_asof(datetime(2026, 11, 27, 9, 0), _RUN_AT) == wed
+    assert expected_runs_behind(wed, wed) == 0
+    # ...and Friday night's run (a half-day close IS a session) makes it 1 behind
+    assert last_expected_asof(datetime(2026, 11, 27, 23, 0), _RUN_AT) == fri
+    assert expected_runs_behind(wed, fri) == 1
 
 
 def test_last_expected_before_run_at_is_the_prior_weekday():
@@ -113,9 +127,16 @@ def test_none_edge_is_none_not_a_number():
 # --- the hole-aware read: scheduled_window + missed_asofs (pure; no DB) ---
 
 
-def test_scheduled_window_is_the_last_n_weekdays_ascending():
-    # 5 scheduled days ending Tue 09-08: Wed 09-02, Thu, Fri, (weekend skipped), Mon, Tue — ascending
-    assert scheduled_window(_S_TUE, 5) == [date(2026, 9, 2), _S_THU, _S_FRI, _S_MON, _S_TUE]
+def test_scheduled_window_is_the_last_n_sessions_ascending():
+    # 5 scheduled days ending Tue 09-08: Tue 09-01, Wed, Thu, Fri, (weekend + Labor Day skipped), Tue
+    assert scheduled_window(_S_TUE, 5) == [
+        date(2026, 9, 1),
+        date(2026, 9, 2),
+        _S_THU,
+        _S_FRI,
+        _S_TUE,
+    ]
+    assert _S_MON not in scheduled_window(_S_TUE, 10)  # Labor Day is never scanned
     assert scheduled_window(_S_TUE, 0) == []  # 0 disables the scan
     # a weekend `expected` (a manual weekend run's date) walks back to Friday — never a weekend day
     assert scheduled_window(date(2026, 9, 6), 1) == [_S_FRI]
@@ -146,6 +167,14 @@ def test_missed_never_lists_weekends():
     )
 
 
+def test_missed_never_lists_a_market_holiday():
+    # F5: a record with NO Labor Day row has no hole there (Fri 09-04 -> Tue 09-08 is a clean record), and
+    # the expected night on Labor Day evening is still Friday's
+    assert missed_asofs({_S_FRI, _S_TUE}, expected=_S_TUE, first=_S_FRI, window=10) == []
+    assert last_expected_asof(datetime(2026, 9, 7, 23, 0), _RUN_AT) == _S_FRI
+    assert expected_runs_behind(_S_FRI, _S_TUE) == 1  # only Tuesday was owed
+
+
 def test_missed_ignores_pre_history_when_the_record_began_mid_window():
     # the record's first as-of is Monday: the window reaches back to late August, but nights before the
     # record began are pre-history, not holes (a fresh install must never show them)
@@ -155,10 +184,11 @@ def test_missed_ignores_pre_history_when_the_record_began_mid_window():
 
 
 def test_missed_is_bounded_by_the_window():
-    # first = Aug 31, only Tue 09-08 recorded: a 3-day window (Fri, Mon, Tue) lists Fri + Mon only —
-    # Aug 31 → Sep 3 are holes too, but OUTSIDE the window (loudness stays bounded, ascending order)
+    # first = Aug 31, only Tue 09-08 recorded: a 3-session window (Thu, Fri, Tue — Labor Day is not a
+    # session) lists Thu + Fri only — Aug 31 → Sep 2 are holes too, but OUTSIDE the window (loudness stays
+    # bounded, ascending order)
     missed = missed_asofs({_S_TUE}, expected=_S_TUE, first=date(2026, 8, 31), window=3)
-    assert missed == [_S_FRI, _S_MON]
+    assert missed == [_S_THU, _S_FRI]
     assert missed_asofs({_S_TUE}, expected=_S_TUE, first=date(2026, 8, 31), window=0) == []
 
 

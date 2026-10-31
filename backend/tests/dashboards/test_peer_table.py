@@ -51,6 +51,7 @@ from domain.market_cap import CapTier
 from domain.market_time import market_today
 from domain.splits import ListedSplit
 from domain.thesis import BENCH_LABEL, CONTEXT_LABEL, BasketMember, Segment, Thesis
+from domain.trading_days import is_scheduled_day
 from ingest.edgar.converts import ConvertTerms, ingest_convert_terms
 from repositories import thesis_repo
 from signals.display import insider_flow, range52w, rvol, sma, trailing_returns, volume_regime
@@ -1260,8 +1261,8 @@ def test_a_fact_published_after_a_past_asof_never_reaches_a_cell(db, pinned_toda
     ds = [
         d
         for i in range(60)
-        if (d := date(2026, 4, 20) + timedelta(days=i)) <= LATER and d.weekday() < 5
-    ]
+        if (d := date(2026, 4, 20) + timedelta(days=i)) <= LATER and is_scheduled_day(d)
+    ]  # sessions: Mon-Fri minus NYSE closures (Memorial Day) — a vendor serves no holiday bar (F5)
     spy_close = {d: 100.0 + 0.2 * i for i, d in enumerate(ds)}
     pta_close = {d: 10.0 + 0.1 * i + (0.3 if i % 5 == 0 else 0.0) for i, d in enumerate(ds)}
     for d in ds:

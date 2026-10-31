@@ -182,8 +182,8 @@ written. Each is the operator's to confirm or change.
    the same day. The headline `leading` stays as a quiet "RS" mark beside the figure (hover: which benchmark, SPY and/or
    IWM, the 13-week high is against).
 2. **Sessions left to `arm_until` are counted Mon to Fri, not on IWM's bars.** A future session has no IWM bar. The
-   count is the call path's own (`calls.assembler.sessions_left`, `domain.trading_days`: a market holiday counts as a
-   session), so the page's number and the card's `entry_window_closing` flag always agree. "Closed N ago" and "sessions
+   count is the call path's own (`calls.assembler.sessions_left`, `domain.trading_days`: Mon-Fri minus the NYSE's
+   market holidays since F5), so the page's number and the card's `entry_window_closing` flag always agree. "Closed N ago" and "sessions
    since the arm night" are counted on IWM's bar calendar, as planned.
 3. **The "card's `entry_window_closing` and `lapsing` flags" are the member's own** (`MemberCall`); `CallCard` has
    neither. `arm_until` and `exit_by` are the member's, falling back to the card's when the member has none.

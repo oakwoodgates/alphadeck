@@ -16,6 +16,7 @@ from domain.config import CallConfig
 from domain.market_time import market_tz
 from domain.signal import SignalEvent
 from domain.splits import on_view_scale
+from domain.trading_days import closure_name
 from repositories import split_repo
 
 
@@ -24,8 +25,19 @@ def window_prices(
 ) -> list[dict[str, Any]]:
     """Sort EOD bars ascending by ``d`` and trim to the lookback window. Shared by the live PIT and the
     replay mirror so the exact price view the breakout detector sees can't drift between Postgres and
-    DuckDB (the as-of READ differs by engine; this post-process is identical for both)."""
-    rows = sorted(rows, key=lambda r: r["d"])
+    DuckDB (the as-of READ differs by engine; this post-process is identical for both).
+
+    **A bar dated a market holiday is not in the view (F5, 2026-10-31).** The vendor printed flat OTC carries
+    on Labor Day 2026 (MEASURED on dev: 10 bars, open = high = low, close = the prior close) and the store
+    kept them; the price leg no longer writes such a bar (``ingest.prices.settle.withhold_closed_days``), and
+    the ones already stored are skipped HERE — the one post-process every point-in-time price read shares
+    (``price_history`` and ``benchmark_prices`` live, ``ReplayPointInTimeData.price_history`` in the
+    mirror) — so no detector, display signal or dashboard counts a holiday as a session. Nothing is deleted:
+    the row stays in ``fact_price_eod``, only the view leaves it out. The read skips the NYSE's full-day
+    closures (``domain.trading_days.closure_name``), not weekends: a weekend-dated bar was never the stored
+    anomaly, and many synthetic test tapes are calendar-day series (the write guard refuses both).
+    """
+    rows = sorted((r for r in rows if closure_name(r["d"]) is None), key=lambda r: r["d"])
     if lookback_days is not None:
         cutoff = asof - timedelta(days=lookback_days)
         rows = [r for r in rows if r["d"] >= cutoff]

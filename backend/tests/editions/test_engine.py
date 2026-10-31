@@ -190,7 +190,9 @@ def test_a_member_whose_entry_is_after_T_is_absent_at_T(db, security_id, tmp_pat
     kb = _cut(db, tmp_path / "mirror")
     job, _ = _cards(db, roster, entries, kb, tmp_path / "mirror")
     by = {n.asof: {m.security_id for m in n.basket} for n in job.nights}
-    assert by[date(2026, 6, 19)] == {security_id}  # LATECO joins 06-22: absent before it
+    assert by[date(2026, 6, 18)] == {security_id}  # LATECO joins 06-22: absent before it
+    # 06-19 is Juneteenth: no page since F5, though the weekday tape stores a bar for it
+    assert date(2026, 6, 19) not in by
     assert by[date(2026, 6, 22)] == {security_id, other}
 
 
@@ -257,4 +259,5 @@ def test_workers_1_and_6_are_byte_identical(db, security_id, tmp_path):
     for tid in one:
         assert [c.model_dump_json() for c in one[tid]] == [c.model_dump_json() for c in six[tid]]
         assert [_canonical(c) for c in one[tid]] == [_canonical(c) for c in six[tid]]
-    assert min(c.asof for c in one[jobs[-1].thesis_id]) == date(2026, 6, 19)
+    # the last thesis joins 06-19 (Juneteenth, no session since F5): its first page is the next session
+    assert min(c.asof for c in one[jobs[-1].thesis_id]) == date(2026, 6, 22)
