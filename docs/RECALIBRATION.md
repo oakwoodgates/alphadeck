@@ -112,8 +112,31 @@ ladder steps by 2). 18 distinct configs × 9 windows = 162 window runs.
 
 - **Hypothesis:** counting bar-driven windows in sessions removes the fire-weekday dependence without hurting
   the timing excess.
-- **Decision rule:** adopt a session count only on a plateau with STRICT sign agreement in 2+ disjoint windows
-  against the calendar baseline; else keep calendar days.
+- **Decision rule:** adopt a session count only on a plateau with STRICT sign agreement in every disjoint
+  window against the calendar baseline; else keep calendar days.
+  - *Amended 2026-10-31, before any run:* the first draft read "in 2+ disjoint windows". It was withdrawn
+    because it contradicted the strict rule the pass is keyed on (`strict_sign_agreement`: every window).
+
+**The pass the operator chose (2026-10-31): the BREAKOUT ladder only** — 7 configs × 9 windows = 63 window
+jobs, ≈ 5.7–6.1 h by the projection below (PROPOSED). The 52-week and laggard ladders stay registered and
+unrun.
+
+```bash
+# from backend\ of the MAIN checkout (one venv for the whole pass), against DEV — never prod's 5544
+export DATABASE_URL="postgresql://alphadeck:alphadeck@localhost:5545/alphadeck_dev"
+export ALPHADECK_IMAGE_SHA="$(git rev-parse HEAD)" PYTHONPATH="$(pwd)"
+./.venv/Scripts/python.exe -u -m backtest.sweep \
+  --start 2025-09-01 --end 2026-09-14 \
+  --pin 2026-10-31T00:00:00+00:00 --clock public \
+  --overlay-ladder backtest/overlays/f4-breakout-sessions.json \
+  --plateau-rule strict_sign_agreement \
+  --workers 3 --concurrency 2 --null-draws 20 \
+  --out-root "C:/Users/funky/sites/oakwoodgates/alphadeck/data/backtest" \
+  --hypothesis "counting bar-driven windows in sessions removes the fire-weekday dependence without hurting the timing excess" \
+  --decision-rule "adopt a session count only on a plateau with STRICT sign agreement in every disjoint window against the calendar baseline; else keep calendar days"
+```
+
+The full three-ladder pass, for the record (registered, not chosen):
 
 ```bash
 # from backend\ of the MAIN checkout (one venv for the whole pass), against DEV — never prod's 5544
@@ -129,16 +152,16 @@ export ALPHADECK_IMAGE_SHA="$(git rev-parse HEAD)" PYTHONPATH="$(pwd)"
   --workers 3 --concurrency 2 --null-draws 20 \
   --out-root "C:/Users/funky/sites/oakwoodgates/alphadeck/data/backtest" \
   --hypothesis "counting bar-driven windows in sessions removes the fire-weekday dependence without hurting the timing excess" \
-  --decision-rule "adopt a session count only on a plateau with STRICT sign agreement in 2+ disjoint windows against the calendar baseline; else keep calendar days"
+  --decision-rule "adopt a session count only on a plateau with STRICT sign agreement in every disjoint window against the calendar baseline; else keep calendar days"
 ```
 
 **How to read it (registered beside the text, before launch):**
 
 - The span and tiling are every earlier pass's (nine 42-day windows, 2025-09-01 → 2026-09-14), on a FRESH
   public-clock mirror: the old ones predate F6–F9's clock changes and must not be reused across that line.
-- `strict_sign_agreement` is the house rule: every window strictly the same non-zero direction, none
-  unchanged. On these pooled curves every window holds episodes, so it is stricter than "2+ windows" and the
-  same as `strict_measurable_agreement`.
+- `strict_sign_agreement` is the house rule the decision rule now states: every window strictly the same
+  non-zero direction, none unchanged. On these pooled curves every window holds episodes, so it is the same as
+  `strict_measurable_agreement`.
 - The curve's metric is the pooled median arm-timing forward return. "Without hurting the timing excess" is
   read per point from each run's `pooled.json` (the timing null), beside the curve.
 - The weekday half of the hypothesis holds BY CONSTRUCTION (`tests/signals/test_session_windows.py`: a
@@ -154,11 +177,12 @@ export ALPHADECK_IMAGE_SHA="$(git rev-parse HEAD)" PYTHONPATH="$(pwd)"
 
 **Cost (2026-10-31, dev, this box: 6 cores / 12 threads).** MEASURED, one point (breakout 7 sessions) over ONE
 window (2026-08-03 → 2026-09-14), `--workers 3`, K=20, into a scratch store (not a registered trial; its
-outcomes are not reported and carry no weight): start to first run 2 m 10 s (the export), the window job 10 m 43 s (its timings
-sum: `replay_s` 614.5, `nulls_s` 22.0, the rest 6.9), total 12 m 55 s. PROPOSED, arithmetic: nine windows ≈ 96.6 min of job time, and two earlier passes measured a
-1.85–1.98× gain from `--concurrency 2` (their manifests), so ONE point ≈ 51–54 min and the whole pass (162
-window jobs) ≈ 14.6–15.7 h plus one export. One point over all windows was NOT run, because the projection
-is over the 45-minute ceiling the task set.
+outcomes are not reported and carry no weight): start to first run 2 m 10 s (the export), the window job
+10 m 43 s (its timings sum: `replay_s` 614.5, `nulls_s` 22.0, the rest 6.9), total 12 m 55 s. PROPOSED,
+arithmetic: nine windows ≈ 96.6 min of job time, and two earlier passes measured a 1.85–1.98× gain from
+`--concurrency 2` (their manifests), so ONE point ≈ 51–54 min, the breakout-only pass (63 window jobs)
+≈ 5.7–6.1 h and the three-ladder pass (162) ≈ 14.6–15.7 h, each plus one export. One point over all
+windows was NOT run, because the projection is over the 45-minute ceiling the task set.
 
 ## B. Filed structural refinements (small changes, deferred — not just value tweaks)
 
