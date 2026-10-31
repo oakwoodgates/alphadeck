@@ -319,8 +319,8 @@ re-version pass either, the two market-hours bars it froze (SPY 2026-08-25 765.2
 
 *The visibility contract, checked against every reader:* the bar for D, ingested ~22:35 ET on D, is inside
 the night's own call (`known_at = db_now`, later), and every history view of D — the serve-path
-scrub-back and a backfilled night, both on the PUBLIC clock at `known_at_for_asof(D)`, the end of D's MARKET
-day, where a bar's first version counts from its session settle (`d` at `Settings.price_settle_time`) and a
+scrub-back and a backfilled night, both on the PUBLIC clock at `known_at_for_asof(D)`, the end of D's night
+(since F6 the last instant before EDGAR's next open, 06:00 ET on the next weekday), where a bar's first version counts from its session settle (`d` at `Settings.price_settle_time`) and a
 re-version from its own `recorded_at` (`db/public_clock.py`) — and outside every read with `asof < D`
 (`valid_from = D`). The **replay/backtest** read no benchmark bar at all (`ReplayPointInTimeData` has no
 `benchmark_prices` — RS is a display signal), and even the mirror's clocks would not care: a record-clock
@@ -2214,9 +2214,10 @@ The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
   intersected with the calendar — Edition 1 holds 4 pages dated Labor Day from the OTC carries), and the
   shell sweep's weekly re-enrich (the week's FIRST session, so a
   Monday holiday moves it to Tuesday). One reader deliberately does NOT: the on-time window's end
-  (`night_coverage.next_edgar_open`) stays the next WEEKDAY, holidays included — it is EDGAR's open, and
-  EDGAR keeps SEC business days (it accepts filings on Good Friday), so the weekday rule can only over-flag
-  a row as late. The external heartbeat's own schedule (healthchecks.io, Mon-Fri) is
+  (`domain.market_time.next_edgar_open`, re-exported by `night_coverage`) stays the next WEEKDAY, holidays
+  included — it is EDGAR's open, and EDGAR keeps SEC business days (it accepts filings on Good Friday), so
+  the weekday rule can only over-flag a row as late. Since F6 (2026-10-31) the same line ends every night's
+  HISTORY read (`known_at_for_asof`, below). The external heartbeat's own schedule (healthchecks.io, Mon-Fri) is
   configured outside the repo: on a holiday it expects a ping no pass sends.
 - **A second schedule: the staged cold-ingest job (X1, 2026-10-21)** `[BUILT]`. After the boot block, the
   sidecar starts `onboard_loop` in the BACKGROUND: `timeout -k 60 ONBOARD_TIMEOUT_S python -m
@@ -2664,7 +2665,7 @@ display data flow, not a repair, so it never starts a Scoreboard editions repair
 
 When a night has no call-of-record (`/admin/status` says `gappy`; `schedule.missed_asofs` lists it),
 `python -m pipeline.backfill --asof <night>` reconstructs it: the SAME `call_for_thesis` assembly the cron
-runs, judged on the PUBLIC clock at the end of that night's market day, then `record_if_changed`. `--dry-run`
+runs, judged on the PUBLIC clock at the end of that night (EDGAR's next open, F6), then `record_if_changed`. `--dry-run`
 first.
 
 - **`pipeline.daily --asof <past>` is REFUSED (C3, 2026-10-16).** It used to be only a warning in these
@@ -2681,9 +2682,9 @@ first.
   backfilled as ARMED on four missed nights while the real nightly runs around them recorded INCUBATING).
   The backfill instead reads every fact on the PUBLIC clock (operator decision 2026-10-21, `INVARIANTS.md`
   #4; `db/public_clock.py`): a Form 4 from its SEC acceptance, a bar from its session settle (a vendor
-  correction from its own publication), an 8-K / 13D from its filing date — up to the END of the night's
-  market day (`reconstruction_known_at` = `known_at_for_asof`; EDGAR accepts until 22:00 ET, before the 22:30
-  run). So the row is how TODAY's rules judge what was PUBLIC that night: nothing published later leaks in,
+  correction from its own publication), an 8-K / 13D from its filing date — up to the END of the night
+  (`reconstruction_known_at` = `known_at_for_asof`: since F6 the last instant before 06:00 ET on the next
+  weekday; EDGAR accepts until 22:00 ET, before the 22:30 run, and reopens at 06:00). So the row is how TODAY's rules judge what was PUBLIC that night: nothing published later leaks in,
   and a fact our database ingested late (an outage, a name onboarded afterwards) is not hidden for it. The
   roster and the logged position are operator decisions, read as of the same instant. Two things make a
   recorded neighbor differ honestly: `asof` is a LIVENESS parameter, so a drifted nightly row (a wrong-day

@@ -104,7 +104,7 @@ def scan_unlisted_jumps(
     known_at: datetime | None = None,
 ) -> tuple[UnlistedJump, ...]:
     """Every released, unlisted split-shaped jump on the active basket union, as of ``asof`` on the public clock
-    (``known_at`` defaults to the end of the asof's market day, capped at now). SELECTs only; ordered by step
+    (``known_at`` defaults to the end of the asof's night, F6, capped at now). SELECTs only; ordered by step
     date (newest first), then ticker."""
     with conn.cursor() as cur:
         cur.execute(_UNION, (tenant_id,))

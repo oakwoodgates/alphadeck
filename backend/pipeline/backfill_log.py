@@ -51,7 +51,7 @@ def build_backfill_payload(
 ) -> dict:
     """The provenance payload — PURE (no I/O). ``known_at`` is normalized to UTC ISO so the artifact reads
     the same from any zone; ``known_at_policy`` is ``"public-clock"`` (the night judged on the PUBLIC clock at
-    the end of its market day — the retired record-clock pins were ``"explicit"`` / ``"next-run"``). ``dry_run`` is
+    the end of the night, F6 — the retired record-clock pins were ``"explicit"`` / ``"next-run"``). ``dry_run`` is
     carried for honesty, but the pass never WRITES a dry run's artifact (a dry run touches neither the DB
     nor the disk), so a written artifact always reads ``false`` here."""
     return {

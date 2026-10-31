@@ -52,11 +52,13 @@ _HIMS_BARS = parse_yahoo_chart(
 _TZ = ZoneInfo("America/New_York")
 
 # The missed night, and the clocks around it. The night is 2026-06-03; the reconstruction is judged at the END
-# of that market day (06-04 03:59:59Z). The bars are backfill-stamped (recorded_at = the bar date). The Wells
+# of that night — since F6 the last instant before EDGAR's next open, 06-04 05:59:59.999999 EDT (09:59:59Z). The bars are backfill-stamped (recorded_at = the bar date). The Wells
 # Form 4 is INGESTED 06-20 — long after the night — and its ACCEPTANCE is the variable: 05-28 (public before
 # the night: the row must see it) or 06-10 (published after the night: the row must not).
 _ASOF = date(2026, 6, 3)
-_CAP = datetime(2026, 6, 4, 3, 59, 59, 999999, tzinfo=timezone.utc)  # 06-03 23:59:59.999999 EDT
+_CAP = datetime(
+    2026, 6, 4, 9, 59, 59, 999999, tzinfo=timezone.utc
+)  # 06-04 05:59:59.999999 EDT (F6)
 _LATE = datetime(2026, 6, 20, 14, 0, 0, tzinfo=timezone.utc)
 _PUBLIC_BEFORE = datetime(2026, 5, 28, 12, 0, 0, tzinfo=timezone.utc)
 _PUBLIC_AFTER = datetime(2026, 6, 10, 21, 0, 0, tzinfo=timezone.utc)
@@ -144,7 +146,7 @@ def _reconstructed_flags(db, thesis_id):
 # --- 1. THE load-bearing ones: the reconstruction is judged on the PUBLIC clock -----------------------------
 
 
-def test_the_cap_is_the_end_of_the_nights_market_day():
+def test_the_cap_is_the_end_of_the_night():
     assert reconstruction_known_at(_ASOF) == _CAP == known_at_for_asof(_ASOF)
 
 
@@ -252,7 +254,7 @@ def test_dry_run_writes_no_row_and_no_artifact(db, security_id, monkeypatch, tmp
     assert _count(db, tid) == 1
     assert out.log_path is not None and out.log_path.parent == tmp_path
     doc = json.loads(out.log_path.read_text(encoding="utf-8"))
-    assert doc["asof"] == "2026-06-03" and doc["known_at"] == "2026-06-04T03:59:59.999999+00:00"
+    assert doc["asof"] == "2026-06-03" and doc["known_at"] == "2026-06-04T09:59:59.999999+00:00"
     assert doc["known_at_policy"] == PUBLIC_CLOCK_POLICY == "public-clock"
     assert doc["dry_run"] is False
     assert doc["summary"] == {
@@ -350,8 +352,8 @@ def test_main_threads_the_night_and_prints_the_public_cap_in_both_clocks(monkeyp
     backfill.main(["--asof", "2026-09-08", "--thesis", str(tid), "--dry-run"])
     assert seen == {"asof": date(2026, 9, 8), "thesis_id": tid, "dry_run": True}
     out = capsys.readouterr().out
-    assert "public clock, capped at 2026-09-09T03:59:59.999999+00:00 (UTC)" in out  # the instant...
-    assert "2026-09-08T23:59:59.999999-04:00 (market)" in out  # ...and in market time (EDT)
+    assert "public clock, capped at 2026-09-09T09:59:59.999999+00:00 (UTC)" in out  # the instant...
+    assert "2026-09-09T05:59:59.999999-04:00 (market)" in out  # ...and in market time (EDT, F6)
     assert "DRY-RUN" in out
 
 

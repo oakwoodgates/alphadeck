@@ -38,7 +38,8 @@ carries its located passage (``domain.insider_private_purchases`` — display on
 
 The transaction axis is the load-bearing bit: every event is positioned by ``valid_from`` (the
 transaction / filed date) and GATED by ``known_at``. ``domain.market_time.known_at_for_asof`` (the router
-threads it in) caps that at the request's as-of — the end of that MARKET day. For a PAST as-of the gate is
+threads it in) caps that at the request's as-of — the end of that night (EDGAR's next open, F6). For a PAST
+as-of the gate is
 the PUBLIC clock (``clock="public"``, operator decision 2026-10-21 — ``db.public_clock``): an event counts
 from when it became public (a Form 4 from its SEC acceptance, an 8-K / 13D from its filing date), so a
 scrubbed-back Scoreboard hides a buy disclosed after the as-of (the IBM 166-day disclosure-lag case) but

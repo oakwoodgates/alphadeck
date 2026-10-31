@@ -22,7 +22,7 @@ SignalEvent[]  ──►  call-assembler (this spec)  ──►  CallCard
 (from detectors)     pure f(thesis, events, asof)     (served by API, rendered in Cockpit)
 ```
 
-The assembler is **pure and deterministic**: same thesis + same signal events + same `asof` → same CallCard. The LLM stub fills only `counter_case` and explanatory prose (citing existing evidence IDs); it never sets state, verdict, grade, or triggers. The `calls` table stores assembled CallCards as the **accountability record** (what the platform asserted, when) — it is **not** the read path. The API recomputes the CallCard live at the requested `asof` — for a past `asof` on the PUBLIC clock, capped at the end of that market day (`serve_view`: each fact from when it became public — today's code and rules over what was public then; the roster point-in-time from 2026-09-15 — `INVARIANTS.md` #4 + §Known gaps).
+The assembler is **pure and deterministic**: same thesis + same signal events + same `asof` → same CallCard. The LLM stub fills only `counter_case` and explanatory prose (citing existing evidence IDs); it never sets state, verdict, grade, or triggers. The `calls` table stores assembled CallCards as the **accountability record** (what the platform asserted, when) — it is **not** the read path. The API recomputes the CallCard live at the requested `asof` — for a past `asof` on the PUBLIC clock, capped at the end of that night — EDGAR's next open, 06:00 ET on the next weekday, F6 (`serve_view`: each fact from when it became public — today's code and rules over what was public then; the roster point-in-time from 2026-09-15 — `INVARIANTS.md` #4 + §Known gaps).
 
 ## The through-line — factor behavior on the property that drives it  `[PRINCIPLE]`
 
@@ -301,7 +301,8 @@ only *coincide* for insider buys, which is exactly why the two conviction source
   edge-horizon genuinely move together, so grade sets the `alpha_liveness_days` window: a `core` cluster ≈
   **180d** (the insider-purchase literature measures abnormal returns over ~6 months, multi-insider *cluster*
   buys the most persistent — the conservative low end), a `flip` ≈ short weeks. It is a hard liveness window
-  (full weight until it expires, not a 50%-decay point) and doubles as the cap so a conviction can't arm on an
+  (full weight until it expires, not a 50%-decay point), counted since F8 from the night the cluster's latest
+  Form 4 was public, not its trade date (§6, "The insider clock starts at the filing"), and doubles as the cap so a conviction can't arm on an
   unrelated breakout half a year later — the fix for the *"right but early"* case (UNH: CEO-led cluster in May,
   the volume-backed breakout confirms ~3 months later, still inside the core window). **Built rule:** `core` if
   a senior cluster (≥2 distinct, code `P`, CEO/CFO/director) **or** a single high-USD senior buy clears the
@@ -782,10 +783,33 @@ calendar days" tint, so there is one definition of "closing".
 event.asof` (its fire date), rendered as a muted right-aligned date on the row and used to order the list
 **newest-first** (display only — the assembled `triggers_fired` order is unchanged, so the Scoreboard's
 arm-time snapshot stays stable). For a technical breakout that's the breakout bar date; for an **insider
-cluster** it is the **most-recent buy in the CHOSEN cluster** (the anchor in §3/the detector), **not** the
-earliest or the largest — so a cluster spanning e.g. Jan 30 → Feb 25 reads **Feb 25**. That is the freshness
-anchor (when the conviction last strengthened) and is the same date the liveness/`exit_by` clocks key on, so
-the row date and the clocks never disagree.
+cluster** it is the night the CHOSEN cluster's **latest filing became public** (F8, below) — so a cluster
+traded Jan 30 → Feb 25 whose last Form 4 SEC accepted Feb 27 reads **Feb 27**, and its label says
+"(traded 2026-01-30 to 2026-02-25)". That is the same date the liveness/`exit_by` clocks key on, so the row
+date and the clocks never disagree.
+
+**The insider clock starts at the filing (F8, operator decision 2026-10-31, rule log
+`2026-11-insider-clock-from-filing`).** A cluster's COMPOSITION is on trade dates — the anchor walk, the
+`[anchor − insider_cluster_window_days, anchor]` window, the grade and "prefer `core`, then the most recent
+anchor" below are unchanged. Its CLOCK — the event's `asof`, so `event_date`, the liveness test, `exit_by`
+and the arm date the breakdown de-arm compares against — is the night its LATEST filing became public: the
+latest SEC acceptance (`fact_insider_txn.accepted`) among the chosen cluster's KEPT buys (a screened buy never
+moves it), read as a night with F6's rule (`domain.market_time.edgar_night`: a time in EDGAR's hours is its
+own date, a stored time past midnight or on a weekend belongs to the night whose history read first holds
+it). A row with no acceptance uses the public clock's own fallback, the first instant we held it (the row's
+`recorded_at` on a public-clock read; the stored version's on the live read — never early). The clock is
+never before the cluster's latest trade (a stored time before it is bad data: the trade date, the rule
+before F8) and never after the night being read (only the live morning view of a past night can hold a
+later filing). The trade dates stay on the label and on each accession's provenance (`detail.traded`,
+beside `detail.public`, the instant the clock read). **Why:** a Form 4 is public a median 2 days after
+the trade (MEASURED on dev, 3,830 purchase filings since 2025-01-01: 2,403 within 0–2 days, 1,099 in 3–4,
+236 in 5–17, **92 at 18+**), so on the trade clock a normal filing spent 2–4 days of the 18-day flip window
+before anyone could read it, and 92 filings arrived after their flip window had already ended. The 13D
+detector already fires from its filing date. **The bound the walk keeps:** a candidate anchor (a trade
+date) older than the longest graded liveness (180 days) before the as-of is never asked, so a trade that
+old cannot fire however late its filing — it keeps the detector's read window (`horizons()`) exact. A
+Form 4/A-corrected buy carries the 4/A's acceptance (`domain.insider_amendments.emitted_row`), so a cluster
+holding one counts from the amendment — a correction counts from its own filing (#1).
 
 **Which cluster is chosen (the anchor walk).** The detector does **not** pin the anchor to the single
 most-recent kept buy. Every distinct kept-buy date is a *candidate* anchor; each gathers the buys inside
@@ -797,7 +821,8 @@ this) let one small, late, non-senior buy *shadow* an older still-live CORE: the
 the big buy, the grade fell to `flip`, and the flip's short liveness then expired the conviction outright —
 so *more* insider buying read *less* bullish. To display the *earliest* buy (when the cluster began) or the
 *largest* buy's date instead, change the chosen candidate's `asof` in
-`backend/signals/insider_conviction.py` — `event_date`, `exit_by`, and the liveness window all follow it.
+`backend/signals/insider_conviction.py` — `event_date`, `exit_by`, and the liveness window all follow it
+(today it is the chosen cluster's public night, `_public_night`, F8).
 
 ## 7. Setup strength  `[built]` (wire field: `confidence`; values experimental)
 

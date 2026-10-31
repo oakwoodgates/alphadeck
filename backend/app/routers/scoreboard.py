@@ -30,7 +30,7 @@ from app.schemas_api import (
 )
 from db.clock import db_now
 from db.session import DEFAULT_TENANT_ID
-from domain.market_time import known_at_for_asof, market_now, market_tz, serve_view
+from domain.market_time import known_at_for_asof, market_now, serve_view, view_day
 from domain.settings import get_settings
 from domain.splits import tape_scale
 from domain.thesis import Thesis
@@ -511,12 +511,13 @@ def get_price_window(
         split_repo.as_of_rows(
             conn, tenant_id=tenant, security_ids=[security_id], known_at=reader.known_at
         )[security_id],
-        through=reader.known_at.astimezone(market_tz()).date(),
+        through=view_day(reader.known_at),
     )
-    # ONE knowability cap for every event family (Slice B): min(now, asof-EOD) — the two-axis
+    # ONE knowability cap for every event family (Slice B): min(now, end of the asof's night — EDGAR's
+    # next open, F6) — the two-axis
     # no-lookahead every dated overlay read shares (invariant #1).
-    # ``now`` from the DATABASE clock (``db.clock``): for a PAST asof the market-day cap dominates and
-    # the host clock never binds, but for asof == TODAY ``min(now, asof-EOD)`` IS ``now`` — and that
+    # ``now`` from the DATABASE clock (``db.clock``): for a PAST asof the night cap dominates and
+    # the host clock never binds, but for asof == TODAY ``min(now, night end)`` IS ``now`` — and that
     # bound is compared against database-stamped ``recorded_at`` values. One clock, per db/clock.py.
     # WHICH axis it bounds (operator decision 2026-10-21): a PAST asof is a history view, judged on the
     # PUBLIC clock — an event counts from when it became public (``db.public_clock``), not from when we

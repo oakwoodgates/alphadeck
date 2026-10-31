@@ -26,7 +26,10 @@ THE WORDS:
   Good Friday the market is closed but EDGAR accepts filings, so ending the window at the next SESSION would
   stretch a Thursday night's window to Monday and let a Good Friday catch-up read that day's filings
   without being called late. The plain weekday rule is the conservative one: on a federal holiday EDGAR is
-  closed, so ending the window that morning can only over-flag a row as late, never miss one.
+  closed, so ending the window that morning can only over-flag a row as late, never miss one. The end is
+  ``domain.market_time.next_edgar_open``, the ONE definition: since F6 (2026-10-31) the same line ends a
+  night's HISTORY read (``known_at_for_asof``), so a row on time for a night and a fact public by that
+  night's end are judged against one instant.
 - **Late** (``is_late`` — L1, operator Q5 = A) = a non-reconstructed row recorded at or after the window's
   END. The SCOREBOARD never lets one define an episode (``scoreboard/late.py``: dropped before the per-as-of
   dedup, so an on-time row for the night wins and a late-only night reads as a cron gap — reversible by
@@ -70,34 +73,22 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta, tzinfo
+from datetime import date, datetime, time, tzinfo
 from typing import Literal
 from uuid import UUID
 
 import psycopg
 
+# EDGAR's next open — the on-time window's upper bound — is defined ONCE in ``domain.market_time`` (F6): it is
+# also where a night's history read ends (``known_at_for_asof``). Re-exported here for every existing
+# ``from pipeline.night_coverage import next_edgar_open`` caller.
+from domain.market_time import next_edgar_open
 from repositories import calls_repo, thesis_repo
-
-# EDGAR's filing day opens at 06:00 ET (it accepts 06:00-22:00) — the on-time window's upper bound.
-EDGAR_OPEN = time(6, 0)
 
 
 def night_cutoff(asof: date, run_at: time, tz: tzinfo) -> datetime:
     """That night's ``RUN_AT`` in market time — the on-time bar (the G2c covered-day cutoff)."""
     return datetime.combine(asof, run_at, tzinfo=tz)
-
-
-def next_edgar_open(asof: date, tz: tzinfo) -> datetime:
-    """06:00 market time on the first WEEKDAY after ``asof`` — the on-time window's end, EDGAR's next open.
-    Mon-Fri with holidays INCLUDED, deliberately not ``domain.trading_days.is_scheduled_day`` (the NYSE
-    session calendar): EDGAR keeps SEC business days and accepts filings on Good Friday, so skipping NYSE
-    closures here would stretch a Thursday night's window to Monday and let a Good Friday catch-up read new
-    filings without being called late; on a federal holiday EDGAR is closed, so ending the window that
-    morning can only over-flag (the module docstring)."""
-    d = asof + timedelta(days=1)
-    while d.weekday() >= 5:
-        d += timedelta(days=1)
-    return datetime.combine(d, EDGAR_OPEN, tzinfo=tz)
 
 
 def on_time_window(asof: date, run_at: time, tz: tzinfo) -> tuple[datetime, datetime]:

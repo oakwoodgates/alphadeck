@@ -75,7 +75,8 @@ the data flags). Its plan is `docs/BOARD.md`.
    read, `call_for_thesis(conn, thesis.id, asof, known_at=known_at, clock=clock, record=False)`; its
    display-signals route hands the same pair to `PointInTimeData`. A live as-of gets
    `(None, "record")`, the unchanged live read. A past one gets `(known_at_for_asof(asof), "public")`:
-   each fact counts from when it became public, up to the end of that market day (invariant #1). A
+   each fact counts from when it became public, up to the end of that night — EDGAR's next open, 06:00 ET
+   the next weekday (F6; invariant #1). A
    dashboard calls `serve_view` once per request and threads that pair into every read; it never
    builds its own cutoff.
 

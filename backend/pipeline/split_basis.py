@@ -560,9 +560,9 @@ SETTLED_REASON = (
 
 
 def view_known_at(night: date) -> datetime:
-    """The ``known_at`` a HISTORY view of ``night`` reads with — the market-day cap the serve recomputes,
-    the Scoreboard drawer and the backfill share (``domain.market_time.known_at_for_asof``): what was public
-    by the end of that day."""
+    """The ``known_at`` a HISTORY view of ``night`` reads with — the night cap the serve recomputes, the
+    Scoreboard drawer and the backfill share (``domain.market_time.known_at_for_asof``): what was public
+    by the end of that night (EDGAR's next open, F6)."""
     from domain.market_time import known_at_for_asof
 
     return known_at_for_asof(night)
@@ -695,7 +695,7 @@ def _view_example(
 ) -> tuple[date, float, float] | None:
     """One off-basis bar as the night's view read it and as the newest tape reads it, both on the night's
     scale (``domain.splits.on_view_scale``, the history views' own conversion)."""
-    from domain.market_time import market_tz
+    from domain.market_time import view_day
     from domain.splits import STORE_THROUGH_COL, on_view_scale
 
     d, _r, seen = off
@@ -706,7 +706,7 @@ def _view_example(
         {"d": d, "close": seen, STORE_THROUGH_COL: store_through},
         {"d": d, "close": ref, STORE_THROUGH_COL: store_through},
     ]
-    through = known_at.astimezone(market_tz()).date()
+    through = view_day(known_at)
     a, b = on_view_scale(rows, split_rows, through=through)
     return d, float(a["close"]), float(b["close"])
 

@@ -1625,8 +1625,8 @@ def test_scored_threads_the_public_clock_for_a_past_view_and_the_live_read_for_t
     assert r.status_code == 200
     assert seen == [(known_at_for_asof(date(2026, 6, 2)), "public"), (None, "record")]
     assert seen[0][0] == datetime(
-        2026, 6, 3, 3, 59, 59, 999999, tzinfo=timezone.utc
-    )  # 06-02 23:59 EDT
+        2026, 6, 3, 9, 59, 59, 999999, tzinfo=timezone.utc
+    )  # 06-03 05:59 EDT: Tuesday's night ends at EDGAR's next open (F6)
 
 
 def test_ratify_stamps_vouched_confirmed_overridden_or_null(client, db, security_id):

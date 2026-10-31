@@ -61,9 +61,10 @@ def trading_sessions(
 #
 #     known_at = min(pin, known_at_for_asof(T))      == known_at_for_asof(T, now=pin)
 #
-# the SAME market-day cap the serve path adopted for its scrub-back (`domain.market_time`, INVARIANTS #4):
-# the end of T's MARKET day, never later than the run's own pin. One definition of "what was knowable by
-# the end of that day", shared with `serve_known_at` rather than re-derived here.
+# the SAME night cap the serve path adopted for its scrub-back (`domain.market_time`, INVARIANTS #4):
+# the end of T's night (EDGAR's next open, 06:00 ET the next weekday, F6), never later than the run's own
+# pin. One definition of "what was knowable by the end of that night", shared with `serve_known_at`
+# rather than re-derived here.
 #
 # THE ASYMMETRY IS DELIBERATE AND CONSERVATIVE: the ROSTER is capped at T while the FACTS stay capped at the
 # run's single pin (the determinism pin, usually "everything we know now"). So the replay can know a fact

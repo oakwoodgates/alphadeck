@@ -466,8 +466,8 @@ def test_display_threads_the_public_clock_for_a_past_view_and_the_live_read_for_
     assert r.status_code == 200
     assert seen == [(known_at_for_asof(_ASOF), "public"), (None, "record")]
     assert seen[0][0] == datetime(
-        2026, 6, 2, 3, 59, 59, 999999, tzinfo=timezone.utc
-    )  # 06-01 23:59 EDT
+        2026, 6, 2, 9, 59, 59, 999999, tzinfo=timezone.utc
+    )  # 06-02 05:59 EDT: Monday's night ends at EDGAR's next open (F6)
 
 
 def test_display_live_view_holds_a_bar_recorded_a_moment_ago(client, db, security_id):

@@ -13,7 +13,7 @@ from db.clock import db_now
 from db.public_clock import Clock
 from db.session import DEFAULT_TENANT_ID
 from domain.config import CallConfig
-from domain.market_time import market_tz
+from domain.market_time import day_clock_public_by, view_day
 from domain.signal import SignalEvent
 from domain.splits import on_view_scale
 from domain.trading_days import closure_name
@@ -118,8 +118,9 @@ class PointInTimeData:
         # sid -> the split list this view reads from: recorded by known_at (record), or the list's current
         # reading with each split's PUBLIC instant as recorded_at (public — gated per read, S2)
         self._splits: dict[UUID, list[dict[str, Any]]] = {}
-        # the VIEW's market day — the scale a history view's bars are put on (``domain.splits``, S2)
-        self._view_day = self.known_at.astimezone(market_tz()).date()
+        # the VIEW's market day — the scale a history view's bars are put on (``domain.splits``, S2): the
+        # night ``known_at`` bounds (``view_day``, F6), never the cap's own date (a Friday cap is Monday's)
+        self._view_day = view_day(self.known_at)
 
     # --- the memo + prefetch seam (every fact accessor below goes through here) ---------------------
 
@@ -411,7 +412,9 @@ class PointInTimeData:
         the row — and the view reads the split's newest version (today's reading)."""
         rows = self._split_rows(security_id)
         if self.clock == "public":
-            rows = [r for r in rows if r["recorded_at"] <= self.known_at]
+            # a split is DATE-clocked (public from the start of its day): it counts from its own day's night,
+            # never the night before, which the F6 cap (to the next weekday's 06:00) would otherwise reach
+            rows = [r for r in rows if day_clock_public_by(r["recorded_at"], self.known_at)]
         return list(rows)
 
     def security_name(self, security_id: UUID) -> str | None:

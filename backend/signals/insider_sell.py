@@ -68,7 +68,7 @@ from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.enums import Kind, Role
 from domain.insider_internal_transfers import is_internal_transfer, screened_label
 from domain.insider_joint_reports import JOINT_REPORTERS, joint_accessions, joint_labels, roles_of
-from domain.market_time import market_tz
+from domain.market_time import view_day
 from domain.signal import SignalEvent
 from domain.splits import tape_scale
 from signals.base import Detector, SignalPointInTimeData
@@ -408,9 +408,7 @@ def detect(
         cfg,
         day_lows=day_lows,
         issuer_name=pit.security_name(security_id),
-        price_scale=tape_scale(
-            pit.split_events(security_id), through=pit.known_at.astimezone(market_tz()).date()
-        ),
+        price_scale=tape_scale(pit.split_events(security_id), through=view_day(pit.known_at)),
     )
 
 

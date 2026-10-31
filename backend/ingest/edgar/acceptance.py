@@ -4,9 +4,9 @@ right night and never early.
 WHY IT MATTERS. Since the public-clock rule (operator decision 2026-10-21, ``db/public_clock.py``) the stored
 ``accepted`` IS the public instant of an insider fact on every history view (the Scoreboard editions, the
 drawer, a past-asof recompute, the backtest mirror) and of a 4/A record and its system decisions. A night ends
-at midnight ET (``domain.market_time.known_at_for_asof``), so a time EARLY on the right date is harmless, a
-LATE time that crosses midnight moves the filing to the next night, and an early one across midnight is a
-lookahead. The live nightly call reads the record clock and is unaffected.
+at EDGAR's next open, 06:00 ET the next weekday (``domain.market_time.known_at_for_asof``; midnight until F6,
+2026-10-31), so a time EARLY on the right date is harmless, a LATE time past that open moves the filing to the
+next night, and an early one into the night before is a lookahead. The live nightly reads the record clock.
 
 WHAT WENT WRONG (MEASURED on prod 2026-10-24, read-only). The time comes from SEC's submissions JSON
 (``acceptanceDateTime``), and from about 2026-10-23 04:00 ET that list became inconsistent PER FILING: every

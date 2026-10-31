@@ -73,7 +73,8 @@ The payload is **generic on purpose**: adding a metrics/events member changes ze
 uniformly (`series[]` was the one deliberate widening — a SHAPE needed a field of its own; the next
 series member rides it with zero schema change). Because every read is the bitemporal as-of, an old `asof` time-travels the tape for free
 (#1) — on the PUBLIC clock: the route threads `serve_view(asof)`, so a past as-of reads every bar from its
-session settle (a vendor correction from its own publication) up to the end of that market day — a bar we
+session settle (a vendor correction from its own publication) up to the end of that night (EDGAR's next
+open, F6) — a bar we
 ingested late is not hidden for it (`INVARIANTS.md` #4, `db/public_clock.py`; the roster is point-in-time from
 2026-09-15 — `INVARIANTS.md` §Known gaps). A member with nothing computable returns `signals: []` — an honest empty, never a dropped row.
 

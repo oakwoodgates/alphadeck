@@ -15,7 +15,7 @@ daily now", a boot catch-up) and this module's CLI — and ONE transaction-time 
   operator's "no backdated recorded_at" bar, and the self-audit's ``no_unsettled_bars`` check, which pages
   on any stored close the store claims was known before its session settled). The visibility contract
   for every honest reader: the bar for day D, ingested at ~22:35 ET on D, is inside
-  ``known_at_for_asof(D)`` (the end of D's MARKET day — the serve-path scrub-back and the Scoreboard's
+  ``known_at_for_asof(D)`` (the end of D's night, EDGAR's next open — the serve-path scrub-back and the Scoreboard's
   dated overlays) and inside the night's own call (``known_at = now``, later), and outside every read with
   ``asof < D`` (``valid_from = D``) or pinned before it was ingested. (The replay/backtest read no
   benchmark bar at all — RS is display-only — and a public-clock mirror rewrites ``recorded_at`` to the bar

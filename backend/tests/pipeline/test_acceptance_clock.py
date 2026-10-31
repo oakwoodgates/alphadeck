@@ -508,7 +508,10 @@ def test_a_filing_stored_a_night_late_appears_on_its_filing_night_after_the_repa
 ):
     _plant(db, security_id)
     night = known_at_for_asof(FILED, now=FAR)
-    assert _visible(db, security_id, FILED, night) == set()  # THE DEFECT: a night late
+    # THE DEFECT was "a night late": the stored 00:00:20 ET the next day crossed midnight. Since F6 a night
+    # runs to EDGAR's next open (06:00 the next weekday), so the crossing no longer moves the filing — it is
+    # already on its filing night; the repair still re-dates the stored time to SEC's header (below)
+    assert _visible(db, security_id, FILED, night) == {ACC}
     run_drift(db, client=_late_client(), execute=True, log=lambda *_: None)
     assert _visible(db, security_id, FILED, night) == {ACC}  # its filing date's night
     # ...and never before SEC's own header instant: not the night before, not 18:59 EDT that day

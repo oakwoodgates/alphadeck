@@ -532,8 +532,10 @@ so any sales-derived signal would be dominated by autopilot and be actively misl
 **Why the stored time matters.** `fact_insider_txn.accepted` (and `insider_amendment` / `insider_amendment_link
 .accepted`) is the PUBLIC instant every history view dates an insider filing by (the editions, the drawer, a
 past-asof recompute, the backtest mirror — `db/public_clock.py`); the live nightly reads the record clock. A
-night ends at midnight ET, so an early time on the right date is harmless and a late time across midnight moves
-the filing to the next night.
+night ended at midnight ET until F6 (2026-10-31), so a late time across midnight moved the filing to the next
+night; it now ends at EDGAR's next open (06:00 ET the next weekday, `domain.market_time.known_at_for_asof`),
+so a late time before 06:00 stays on its night. An early time on the right date stays harmless; the repair
+below still puts the stored time right.
 
 **The drift (MEASURED on prod 2026-10-24, read-only).** The time comes from the submissions JSON's
 `acceptanceDateTime`. From ~2026-10-23 04:00 ET that list became inconsistent PER FILING: every capture since

@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from pathlib import Path
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 import pytest
 from pydantic import ValidationError
@@ -101,7 +102,8 @@ def test_core_cluster_stays_live_for_months():
 
 
 def test_event_dated_at_latest_buy_not_query_asof():
-    # the cluster's fire date is the most recent buy, not the query asof (ASOF = 2026-06-04)
+    # the cluster's fire date is the most recent buy, not the query asof (ASOF = 2026-06-04). These hand-built
+    # rows carry no filing time, so the F8 clock falls back to the latest trade (the F8 tests below file them)
     txns = [
         _buy("Jane Doe", "Chief Executive Officer", 120_000, d=date(2026, 5, 18)),
         _buy("John Roe", "Chief Financial Officer", 120_000, d=date(2026, 5, 22)),
@@ -161,6 +163,7 @@ def test_pbls_ipo_subscription_inflates_the_call_without_price_context():
     assert ev is not None and ev.grade is Grade.CORE
     assert ev.label == (
         "3 insiders incl. senior officer bought $434,498,529 open-market (code P) across 8 txns"
+        " (traded 2026-06-11 to 2026-06-15)"
     )
 
 
@@ -174,6 +177,7 @@ def test_pbls_ipo_subscription_excluded_by_day_low_cross_check():
     assert ev.grade is Grade.FLIP  # 1 insider, ~$473k < the $500k strong-single CORE floor
     assert ev.label == (
         "1 insider incl. senior officer bought $473,529 open-market (code P) across 3 txns"
+        " (traded 2026-06-12 to 2026-06-15)"
     )
     # the excluded RA Capital / Levy subscriptions are gone from the provenance too (Sebulsky-only)
     refs = {p.ref for p in ev.provenance}
@@ -198,9 +202,9 @@ def test_ceiling_drops_the_garbage_row_but_keeps_a_real_buy_beside_it():
     ]
     ev = insider_conviction.score(txns, SID, ASOF, DEFAULT_CONFIG)
     assert ev is not None
-    assert (
-        ev.label
-        == "1 insider incl. senior officer bought $200,000 open-market (code P) across 1 txns"
+    assert ev.label == (
+        "1 insider incl. senior officer bought $200,000 open-market (code P) across 1 txns"
+        " (traded 2026-05-21)"
     )
 
 
@@ -245,6 +249,7 @@ def test_detect_builds_day_lows_from_price_history_and_filters():
     assert ev is not None and ev.grade is Grade.FLIP
     assert ev.label == (
         "1 insider incl. senior officer bought $473,529 open-market (code P) across 3 txns"
+        " (traded 2026-06-12 to 2026-06-15)"
     )
 
 
@@ -583,3 +588,154 @@ def test_real_mixed_tsm_filing_before_and_after_the_screen():
     # AFTER: the captured title screens the ordinary row; the genuine ADR rows miss the $10k floor
     after = insider_conviction.score(txns, SID, asof)
     assert after is None
+
+
+# --- F8: the clock starts at the filing (rule log 2026-11-insider-clock-from-filing) ----------------------
+# ASOF = Thursday 2026-06-04; its next session is Friday 06-05. Flip liveness 18 d, core 180 d.
+
+_NY = ZoneInfo("America/New_York")
+_DAY2 = date(2026, 6, 2)
+
+
+def _filed(row, at=None, *, recorded=None):
+    """A buy as the store holds it: its SEC acceptance (``accepted``) and/or the instant we stored it."""
+    out = dict(row)
+    if at is not None:
+        out["accepted"] = at
+    if recorded is not None:
+        out["recorded_at"] = recorded
+    return out
+
+
+def _et(d, hh, mm=0):
+    return datetime(d.year, d.month, d.day, hh, mm, tzinfo=_NY)
+
+
+def test_the_event_fires_on_the_night_its_latest_filing_was_public_and_the_label_keeps_the_trades():
+    txns = [
+        _filed(
+            _buy("Jane Doe", "Chief Executive Officer", 120_000, d=date(2026, 5, 18)),
+            _et(date(2026, 5, 20), 18),
+        ),
+        _filed(
+            _buy("John Roe", "Chief Financial Officer", 120_000, d=date(2026, 5, 22)),
+            _et(date(2026, 5, 26), 19, 30),
+        ),
+    ]
+    ev = insider_conviction.score(txns, SID, ASOF, DEFAULT_CONFIG)
+    assert ev is not None and ev.grade is Grade.CORE
+    assert ev.asof == date(2026, 5, 26)  # the latest filing's night, not the latest trade (05-22)
+    assert ev.label.endswith("across 2 txns (traded 2026-05-18 to 2026-05-22)")
+    detail = {p.ref: p.detail for p in ev.provenance}
+    assert detail == {
+        "acc-Jane Doe": {"traded": ["2026-05-18"], "public": "2026-05-20T22:00:00+00:00"},
+        "acc-John Roe": {"traded": ["2026-05-22"], "public": "2026-05-26T23:30:00+00:00"},
+    }
+
+
+def test_a_flip_filed_late_stays_live_from_its_filing_where_the_trade_date_had_expired_it():
+    """The 92-of-3,830 case: a single buy traded 05-11, its Form 4 accepted 06-02. On the trade clock the 18-day
+    flip window ended 05-29 — before anyone could read the filing; on the filing clock it runs to 06-20.
+    """
+    row = _buy("Jane Doe", "Chief Executive Officer", 50_000, d=date(2026, 5, 11))
+    assert (
+        insider_conviction.score([row], SID, ASOF) is None
+    )  # no filing time: the trade clock, expired
+    ev = insider_conviction.score([_filed(row, _et(date(2026, 6, 2), 17))], SID, ASOF)
+    assert ev is not None and ev.grade is Grade.FLIP
+    assert ev.asof == date(2026, 6, 2)
+    assert ev.alpha_liveness_days == DEFAULT_CONFIG.insider_flip_alpha_liveness_days
+    assert ev.label.endswith("(traded 2026-05-11)")
+
+
+def test_the_clock_is_the_LATEST_acceptance_among_the_kept_buys_not_the_anchor_buys():
+    """An older trade filed later than the anchor's own filing moves the clock to that later filing."""
+    txns = [
+        _filed(
+            _buy("Jane Doe", "Chief Executive Officer", 120_000, d=date(2026, 5, 18)),
+            _et(date(2026, 5, 28), 9),
+        ),
+        _filed(
+            _buy("John Roe", "Chief Financial Officer", 120_000, d=date(2026, 5, 22)),
+            _et(date(2026, 5, 22), 20),
+        ),
+    ]
+    ev = insider_conviction.score(txns, SID, ASOF)
+    assert ev is not None and ev.asof == date(2026, 5, 28)
+
+
+def test_a_buy_the_screens_keep_out_never_moves_the_clock():
+    """Only the cluster's KEPT buys date it: an issuer self-filing accepted later is screened out of the total
+    and so out of the clock."""
+    real = _filed(
+        _buy("Jane Doe", "Chief Executive Officer", 200_000, d=date(2026, 5, 20)),
+        _et(date(2026, 5, 21), 16),
+    )
+    selfie = _filed(_buy("Acme Corp", "10% owner", 300_000, d=date(2026, 5, 20)), _et(_DAY2, 10))
+    ev = insider_conviction.score([real, selfie], SID, ASOF, issuer_name="ACME CORP")
+    assert ev is not None and ev.asof == date(2026, 5, 21)
+    assert [p.ref for p in ev.provenance] == ["acc-Jane Doe"]
+
+
+def test_no_acceptance_counts_from_the_rows_recorded_at_the_first_instant_held():
+    """No ``accepted``: the row's ``recorded_at`` — on a public-clock read the first instant we held it."""
+    row = _filed(
+        _buy("Jane Doe", "Chief Executive Officer", 200_000, d=date(2026, 5, 20)),
+        recorded=datetime(2026, 5, 28, 3, 0, tzinfo=timezone.utc),  # 23:00 EDT 05-27
+    )
+    ev = insider_conviction.score([row], SID, ASOF)
+    assert ev is not None and ev.asof == date(2026, 5, 27)
+    (prov,) = ev.provenance
+    assert prov.detail == {"traded": ["2026-05-20"], "public": "2026-05-28T03:00:00+00:00"}
+    # an acceptance, when present, wins over recorded_at
+    both = {**row, "accepted": _et(date(2026, 5, 22), 18)}
+    assert insider_conviction.score([both], SID, ASOF).asof == date(2026, 5, 22)
+
+
+def test_the_clock_is_never_before_the_trade_nor_after_the_night_read():
+    row = _buy("Jane Doe", "Chief Executive Officer", 200_000, d=date(2026, 5, 22))
+    # a stored time before the trade is bad data: the clock stays the trade date (the pre-F8 rule), never earlier
+    early = insider_conviction.score([_filed(row, _et(date(2026, 5, 1), 12))], SID, ASOF)
+    assert early is not None and early.asof == date(2026, 5, 22)
+    # only the live read of a past night can hold a filing public after it: it counts from the night read
+    later = insider_conviction.score([_filed(row, _et(date(2026, 6, 5), 9))], SID, ASOF)
+    assert later is not None and later.asof == ASOF
+
+
+def test_a_stored_time_past_midnight_or_on_a_weekend_belongs_to_the_night_that_first_reads_it():
+    """The clock uses the F6 night (``edgar_night``): a time between midnight and 06:00 ET is the previous
+    weekday's night, a weekend time is Friday's — the night whose history read first holds it."""
+    row = _buy("Jane Doe", "Chief Executive Officer", 200_000, d=date(2026, 5, 26))
+    past_midnight = _filed(row, _et(date(2026, 5, 28), 0, 20))  # Thu 00:20 ET
+    assert insider_conviction.score([past_midnight], SID, ASOF).asof == date(2026, 5, 27)
+    weekend = _filed(row, recorded=_et(date(2026, 5, 30), 11))  # Sat, first held (no acceptance)
+    assert insider_conviction.score([weekend], SID, ASOF).asof == date(2026, 5, 29)
+
+
+def test_a_trade_older_than_the_longest_liveness_never_fires_however_late_its_filing():
+    """The NAMED bound the walk keeps: a candidate anchor (trade date) older than ``max(core, flip)`` liveness
+    before the as-of is never asked, so a trade that old cannot fire even filed yesterday — the read window
+    (``horizons()``) stays exact."""
+    old = _buy("Jane Doe", "Chief Executive Officer", 50_000, d=date(2025, 11, 3))
+    assert (ASOF - old["valid_from"]).days > DEFAULT_CONFIG.insider_core_alpha_liveness_days
+    assert insider_conviction.score([_filed(old, _et(date(2026, 6, 3), 10))], SID, ASOF) is None
+
+
+def test_the_selection_is_unchanged_core_first_then_the_newest_trade_anchor():
+    """F8 changes only the clock: an older CORE still beats a newer flip filed later, and fires on its OWN
+    filing's night."""
+    core = [
+        _filed(
+            _buy("Jane Doe", "Chief Executive Officer", 200_000, d=date(2026, 3, 2)),
+            _et(date(2026, 3, 4), 17),
+        ),
+        _filed(
+            _buy("John Roe", "Chief Financial Officer", 150_000, d=date(2026, 3, 2)),
+            _et(date(2026, 3, 4), 18),
+        ),
+    ]
+    flip = _filed(_buy("Small Buyer", "VP Sales", 20_000, d=date(2026, 5, 25)), _et(_DAY2, 9))
+    ev = insider_conviction.score([*core, flip], SID, ASOF)
+    assert ev is not None and ev.grade is Grade.CORE
+    assert ev.asof == date(2026, 3, 4)
+    assert ev.label.endswith("(traded 2026-03-02)")

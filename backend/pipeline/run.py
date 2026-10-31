@@ -19,7 +19,8 @@ def main() -> None:
 
     asof = date.fromisoformat(args.asof)
     # a PAST asof (before the current night) is a history view, judged on the PUBLIC clock (what was public by
-    # the end of that market day — ``domain.market_time.serve_view``), never today's knowledge of that date; the
+    # the end of that night, EDGAR's next open — ``domain.market_time.serve_view``), never today's knowledge of
+    # that date; the
     # current night and later are the live read (F1). The decisions log reads at the as-of here: this writes a
     # call of record, so it never takes the serve path's action-day read (``serve_decisions_asof``).
     known_at, clock = serve_view(asof)

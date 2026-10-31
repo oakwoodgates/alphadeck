@@ -925,10 +925,12 @@ def test_the_settle_check_reads_the_PUBLIC_CLOCK_and_WRITES_NOTHING(db, partial,
         assert done[0].reason.startswith(SETTLED_REASON)
     else:
         assert done == () and len(kept) == 1
-        # _T1 (02:30 UTC on 07-20) is 22:30 ET on 07-19 — the nightly pass of 07-19, so the view of that
-        # MARKET day (known through its end, ``known_at_for_asof``) already reads the re-based bars
-        assert "the history view of 2026-07-19 read 10 bar(s)" in kept[0].evidence
-        assert "(2 night(s) mixed)" in kept[0].evidence
+        # _T1 (02:30 UTC on 07-20) is 22:30 ET on Sunday 07-19. Since F6 a night runs to EDGAR's next open
+        # (the next weekday's 06:00, ``known_at_for_asof``), so Friday 07-17's night — like the weekend's —
+        # runs to Monday 06:00 and already reads the 10 re-based bars; the rest land at _T1 + 2 days (Tuesday
+        # 22:30), so Friday through Monday read two bases (before F6: Sunday and Monday, 2 nights)
+        assert "the history view of 2026-07-17 read 10 bar(s)" in kept[0].evidence
+        assert "(4 night(s) mixed)" in kept[0].evidence
         assert kept[0].to_json()["evidence"] == kept[0].evidence  # rides the artifact
 
 

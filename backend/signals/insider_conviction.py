@@ -1,15 +1,20 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-from datetime import date, timedelta
+from collections.abc import Callable, Sequence
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, NamedTuple
 from uuid import UUID
 
 from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.enums import Grade, Kind, Role
 from domain.insider_internal_transfers import is_internal_transfer, screened_label
-from domain.insider_joint_reports import joint_accessions, joint_labels, roles_of
-from domain.market_time import market_tz
+from domain.insider_joint_reports import (
+    JOINT_ACCESSIONS,
+    joint_accessions,
+    joint_labels,
+    roles_of,
+)
+from domain.market_time import edgar_night, view_day
 from domain.signal import SignalEvent
 from domain.splits import tape_scale
 from signals.base import Detector, SignalPointInTimeData
@@ -168,7 +173,8 @@ class _Candidate(NamedTuple):
 
     Only QUALIFYING candidates are built (total >= ``insider_min_usd`` and live for their own
     grade), so the selection below is a pure ranking — ``is_core`` first, then ``anchor`` — never a
-    second round of floors.
+    second round of floors. ``anchor`` is the cluster's latest TRADE date (its composition); ``public`` is
+    the night its latest filing became public (its CLOCK — ``_public_night``, F8).
     """
 
     is_core: bool
@@ -178,6 +184,39 @@ class _Candidate(NamedTuple):
     n_distinct: int
     senior: bool
     liveness: int
+    public: date
+
+
+def _public_instant(txn: dict[str, Any]) -> datetime | None:
+    """When the market could first read this buy (F8): its SEC acceptance (``accepted``), else the row's
+    ``recorded_at`` — on a public-clock read (every history view, the editions mirror) that IS the version's
+    public instant, which for a fact with no acceptance on any version is the FIRST instant we held it
+    (``db.public_clock``, never early); on the live read it is the instant the picked version was stored (never
+    earlier than that). The pair is the existing "disclosed" convention (``COALESCE(accepted, recorded_at)``,
+    the joint-report first-reporter order). ``None`` only for a hand-built row carrying neither — every stored
+    row has a ``recorded_at``. A naive value (no engine returns one) is read as UTC."""
+    for col in ("accepted", "recorded_at"):
+        v = txn.get(col)
+        if isinstance(v, datetime):
+            return v if v.tzinfo is not None else v.replace(tzinfo=timezone.utc)
+    return None
+
+
+def _public_night(buys: Sequence[dict[str, Any]], anchor: date, asof: date) -> date:
+    """THE INSIDER CLOCK (F8, operator decision 2026-10-31, rule log ``2026-11-insider-clock-from-filing``): the
+    night the cluster's LATEST filing became public — ``domain.market_time.edgar_night`` of the latest
+    ``_public_instant`` among its kept buys (a time inside EDGAR's hours is its own market date; a stored time
+    past midnight or on a weekend belongs to the night whose read first holds it, F6).
+
+    Two bounds, both so the clock is never early and never past the night being read:
+    - never before ``anchor`` (the cluster's latest trade): a filing cannot precede its trade, so a stored time
+      that does is bad data, and the clock falls back to the trade date — the rule before F8 — rather than
+      counting earlier;
+    - never after ``asof``: only the live read of a past night (F1's morning view, which reads everything held
+      by now) can hold a filing public after that night; it counts from the night read.
+    A row with no instant at all (a hand-built row) leaves the trade date as the clock."""
+    nights = [edgar_night(at) for t in buys if (at := _public_instant(t)) is not None]
+    return min(max([anchor, *nights]), asof)
 
 
 def _cluster_at(
@@ -189,6 +228,8 @@ def _cluster_at(
     upper bound is what keeps a LATER buy out of an older anchor's total (an unbounded gather would
     let the walk double-count the very buy that shadowed this anchor). Floors + grade + graded
     liveness are exactly the single-anchor rules, unchanged — only WHICH anchors get asked is new.
+    The window is on TRADE dates (what the cluster IS); the liveness counts from the night its latest
+    filing became public (``_public_night``, F8 — when the market could first read it).
     """
     floor = anchor - timedelta(days=cfg.insider_cluster_window_days)
     buys = [t for t in p_buys if floor <= t["valid_from"] <= anchor]
@@ -213,9 +254,44 @@ def _cluster_at(
     )
     # Freshness floor at the GRADED horizon (mirrors volume_breakout): drop the cluster once its edge
     # has decayed for its grade, so re-derivation/replay stays honest and a flip can't linger for months.
-    if not entry_signal_is_live(anchor, liveness, asof):
+    # F8: the window counts from the night the cluster's latest filing was public, not its trade date — a
+    # Form 4 is public a median 2 days after the trade, and a late one could otherwise expire before anyone
+    # could read it.
+    public = _public_night(buys, anchor, asof)
+    if not entry_signal_is_live(public, liveness, asof):
         return None
-    return _Candidate(is_core, anchor, buys, total_usd, len(distinct), senior, liveness)
+    return _Candidate(is_core, anchor, buys, total_usd, len(distinct), senior, liveness, public)
+
+
+def _accession_detail(
+    buys: Sequence[dict[str, Any]], accessions: set[str]
+) -> dict[str, dict[str, Any]]:
+    """Each cited filing's work (#6, F8): ``traded`` = the trade dates of the cluster's buys it reports (a joint
+    report's co-reporter filings list the trade they share), ``public`` = the instant the clock read for the
+    buys under its OWN accession (``_public_instant``; absent for a co-reporter's filing, which the read
+    holds no row of)."""
+    traded: dict[str, set[date]] = {acc: set() for acc in accessions}
+    public: dict[str, datetime] = {}
+    for t in buys:
+        own = str(t["accession"]) if t.get("accession") else None
+        cited = {str(a) for a in t.get(JOINT_ACCESSIONS) or ()}
+        if own is not None:
+            cited.add(own)
+        for acc in cited:
+            traded.setdefault(acc, set()).add(t["valid_from"])
+        at = _public_instant(t)
+        if own is not None and at is not None and (own not in public or at > public[own]):
+            public[own] = at
+    # keys in jsonb's own order (shorter first, then bytewise: "public" < "traded"), so a card stored in a jsonb
+    # column (calls, edition pages) reads back byte-identical to the engine's
+    out: dict[str, dict[str, Any]] = {}
+    for acc in accessions:
+        d: dict[str, Any] = {}
+        if acc in public:
+            d["public"] = public[acc].astimezone(timezone.utc).isoformat()
+        d["traded"] = [x.isoformat() for x in sorted(traded.get(acc, ()))]
+        out[acc] = d
+    return out
 
 
 def score(
@@ -265,8 +341,19 @@ def score(
     so *more* insider buying read *less* bullish, contradicting this docstring's own "the lookback
     never drops a still-live conviction". The walk is what makes that sentence true.
 
-    Fire-date semantics are unchanged: the event's ``asof`` is the CHOSEN cluster's anchor and the
-    provenance is that cluster's accessions (a cluster spanning Jan 30 → Feb 25 reads Feb 25).
+    **The clock starts at the filing (F8, operator decision 2026-10-31, rule log
+    ``2026-11-insider-clock-from-filing``).** The cluster's COMPOSITION is on trade dates (the walk, the
+    window, the grade and the selection above are unchanged); its CLOCK is the night its LATEST filing became
+    public (``_public_night``: the latest SEC acceptance among the CHOSEN cluster's kept buys, else the first
+    instant we held it, never early). The event's ``asof`` — its fire date, so ``event_date``, the liveness
+    test, ``exit_by`` and the arm date — is that night: a cluster traded Jan 30 → Feb 25 whose last Form 4 was
+    accepted Feb 27 fires Feb 27. Before F8 it fired on the latest trade (Feb 25), so a normal filing spent 2-4
+    days of an 18-day flip window before anyone could read it, and a late one could expire unseen. The trade
+    dates stay in the label ("traded 2026-01-30 to 2026-02-25") and on every accession's provenance
+    (``detail["traded"]``, beside its ``detail["public"]`` instant). **What the walk still bounds:** a
+    candidate anchor (trade date) older than the longest graded liveness before ``asof`` is never asked, so a
+    trade more than ``max(core, flip liveness)`` days old cannot fire however late its filing (named: it keeps
+    ``horizons()`` — the read window — exact). The provenance is the chosen cluster's accessions.
     Grade rule (§3, config-driven): core if a senior officer + >= N distinct insiders + >= $ threshold.
     """
     lows = day_lows or {}
@@ -303,14 +390,16 @@ def score(
     ]
     if not p_buys:
         return None
-    # THE ANCHOR WALK (see the docstring): every distinct kept-buy date is a candidate FIRE date, newest
+    # THE ANCHOR WALK (see the docstring): every distinct kept-buy date is a candidate anchor, newest
     # -> oldest, each evaluated on its own window so unrelated buys months apart aren't fused into one
     # cluster. Stopping short of the newest anchor is the whole point — a small late buy must not shadow
-    # an older, still-live CORE. Stamping the event at the CHOSEN anchor (not the query asof) anchors
-    # exit_by/liveness to when that conviction actually formed; that anchor is ALSO the date shown on the
-    # call-card trigger row (event_date). See docs/CALL_LOGIC.md §6.
-    # The walk stops once an anchor is older than the LONGEST configured horizon: no older candidate can
-    # be live under any grade's window, so nothing is missed (and history stays cheap to walk).
+    # an older, still-live CORE. Stamping the event at the CHOSEN cluster's public night (F8 — not the query
+    # asof, and no longer its trade date) anchors exit_by/liveness to when the market could first read that
+    # conviction; that night is ALSO the date shown on the call-card trigger row (event_date). See
+    # docs/CALL_LOGIC.md §6.
+    # The walk stops once an anchor (a TRADE date) is older than the LONGEST configured horizon. Before F8 no
+    # older candidate could be live; since F8 one filed late could be, and the stop deliberately keeps it out
+    # (a trade that old is stale however late its filing — the docstring), which keeps horizons() exact.
     earliest_live_anchor = asof - timedelta(
         days=max(cfg.insider_core_alpha_liveness_days, cfg.insider_flip_alpha_liveness_days)
     )
@@ -328,10 +417,18 @@ def score(
     best = max(candidates, key=lambda c: (c.is_core, c.anchor))
     # the cluster's filings — a joint report's co-reporters' filings included (the work shown, #6)
     by_accession = joint_accessions(best.buys)
+    detail = _accession_detail(best.buys, by_accession)
+    # the trade dates — the cluster's composition — stay on the label now that the fire date is the filing's
+    traded = sorted({t["valid_from"] for t in best.buys})
+    span = (
+        traded[0].isoformat()
+        if len(traded) == 1
+        else f"{traded[0].isoformat()} to {traded[-1].isoformat()}"
+    )
     label = (
         f"{best.n_distinct} insider{'s' if best.n_distinct != 1 else ''}"
         f"{' incl. senior officer' if best.senior else ''} bought "
-        f"${best.total_usd:,.0f} open-market (code P) across {len(best.buys)} txns"
+        f"${best.total_usd:,.0f} open-market (code P) across {len(best.buys)} txns (traded {span})"
     )
     # the internal transfers inside THIS cluster's window, named beside the number (only when present — a card
     # without one keeps its exact label, no record churn)
@@ -351,8 +448,10 @@ def score(
         score=_score(best.n_distinct, best.total_usd, best.senior, cfg),
         label=label,
         alpha_liveness_days=best.liveness,
-        provenance=[source_provenance("form4", acc) for acc in sorted(by_accession)],
-        asof=best.anchor,
+        provenance=[
+            source_provenance("form4", acc, detail=detail[acc]) for acc in sorted(by_accession)
+        ],
+        asof=best.public,
     )
 
 
@@ -380,9 +479,7 @@ def detect(
         cfg,
         day_lows=day_lows,
         issuer_name=pit.security_name(security_id),
-        price_scale=tape_scale(
-            pit.split_events(security_id), through=pit.known_at.astimezone(market_tz()).date()
-        ),
+        price_scale=tape_scale(pit.split_events(security_id), through=view_day(pit.known_at)),
     )
 
 

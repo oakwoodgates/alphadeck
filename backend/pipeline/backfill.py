@@ -10,8 +10,8 @@ always now. A naive backfill — ``python -m pipeline.daily --asof <past>`` — 
 on nights whose real nightly neighbors recorded INCUBATING, because its facts arrived AFTER those nights. This
 module reconstructs the night on the PUBLIC clock instead (operator decision 2026-10-21, ``docs/INVARIANTS.md``
 §4): every fact counts from when it became public — a Form 4 from its SEC acceptance, a bar from its settled
-session, an 8-K / 13D from its filing, a correction from its OWN publication — up to the end of that night's
-MARKET day (``domain.market_time.known_at_for_asof``). So the row is how TODAY's rules judge what was PUBLIC
+session, an 8-K / 13D from its filing, a correction from its OWN publication — up to the end of that night,
+EDGAR's next open (``domain.market_time.known_at_for_asof``, F6). So the row is how TODAY's rules judge what was PUBLIC
 that night: a filing published later can never leak in, and a fact our database happened to ingest late (an
 outage, a name onboarded afterwards) is not hidden for it. The assembly is ``call_for_thesis(clock="public")``;
 this CLI adds nothing to it.
@@ -128,9 +128,10 @@ def thesis_existed_on(created_at: datetime, asof: date, tz: tzinfo) -> bool:
 
 
 def reconstruction_known_at(asof: date) -> datetime:
-    """The instant a missed night is judged at: the END of ``asof``'s MARKET day (``known_at_for_asof``) —
-    on the PUBLIC clock, "everything public by the end of that night" (the night's settled bar, every filing
-    EDGAR accepted that day — it accepts until 22:00 ET, before the 22:30 nightly). The roster and position
+    """The instant a missed night is judged at: the END of the night ``asof`` (``known_at_for_asof``: since F6
+    the last instant before 06:00 ET on the next weekday, EDGAR's next open) — on the PUBLIC clock,
+    "everything public by the end of that night" (the night's settled bar, every filing EDGAR accepted that
+    day — it accepts until 22:00 ET, before the 22:30 nightly, and reopens at 06:00). The roster and position
     (operator decisions) are read as of the same instant."""
     return known_at_for_asof(asof)
 
@@ -329,7 +330,7 @@ def _report(results: list[BackfillResult], *, dry_run: bool) -> int:
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(
         description="Backfill a MISSED night's call-of-record, reconstructed on the PUBLIC clock: every fact "
-        "counts from when it became public, up to the end of that night's market day (a pure "
+        "counts from when it became public, up to the end of that night, EDGAR's next open (a pure "
         "recompute-and-record over facts already in the store: no ingest, no notify). Every row it writes is "
         "marked reconstructed (the Scoreboard reports, never scores, such rows); a thesis that did not exist "
         "on the night is skipped and reported."
@@ -353,7 +354,7 @@ def main(argv: list[str] | None = None) -> None:
     if args.known_at is not None:
         p.error(
             "--known-at is retired: a missed night is reconstructed on the PUBLIC clock (every fact from "
-            "when it became public, up to the end of that night's market day) — not on what our database "
+            "when it became public, up to the end of that night, EDGAR's next open) — not on what our database "
             "held at some later instant. Drop --known-at."
         )
     try:

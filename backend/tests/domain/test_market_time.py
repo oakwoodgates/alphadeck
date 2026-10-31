@@ -466,20 +466,25 @@ def test_pinned_today_pins_the_route_too_and_holds_across_midnight(monkeypatch, 
 _NOW_LATE_JULY = datetime(2026, 7, 24, 12, 0, tzinfo=timezone.utc)
 
 
-def test_known_at_caps_a_past_asof_at_the_end_of_its_MARKET_day(monkeypatch):
-    """A scrubbed-back as-of caps the transaction axis at that day's end IN MARKET TIME, rendered in UTC:
-    2026-06-10 ends at 23:59:59.999999 EDT = 2026-06-11 03:59:59.999999Z. A UTC end-of-day
-    (2026-06-10 23:59:59Z = 19:59 EDT) would sit BEFORE the 22:30 ET cron run that records the 10th, so a
-    fact the record for 06-10 saw (that night's bar, that evening's Form 4) would be invisible to a 06-10
-    recompute — a systematic one-bar-short disagreement with the record on every past date."""
+def test_known_at_caps_a_past_asof_at_the_next_EDGAR_open_in_MARKET_time(monkeypatch):
+    """A scrubbed-back as-of caps the transaction axis at the END OF ITS NIGHT (F6): the last instant before
+    06:00 MARKET time on the next weekday — EDGAR's next open, the late-row rule's line — rendered in UTC.
+    Wednesday 2026-06-10 ends at Thursday 05:59:59.999999 EDT = 2026-06-11 09:59:59.999999Z (it ended at
+    midnight before F6). A UTC cap (2026-06-10 23:59:59Z = 19:59 EDT) would sit BEFORE the 22:30 ET cron run
+    that records the 10th, so a fact the record for 06-10 saw (that night's bar, that evening's Form 4) would
+    be invisible to a 06-10 recompute — a systematic one-bar-short disagreement with the record."""
     monkeypatch.delenv("ALPHADECK_MARKET_TZ", raising=False)
     get_settings.cache_clear()
     got = known_at_for_asof(date(2026, 6, 10), now=_NOW_LATE_JULY)
-    assert got == datetime(2026, 6, 11, 3, 59, 59, 999999, tzinfo=timezone.utc)
+    assert got == datetime(2026, 6, 11, 9, 59, 59, 999999, tzinfo=timezone.utc)
     assert got.tzinfo is timezone.utc  # an instant, normalized — never a wall time
-    # a winter date is -5h (EST): the zone is real, not a fixed offset
+    # a winter date is -5h (EST): the zone is real, not a fixed offset. Saturday 2026-01-10's night runs to
+    # Monday 01-12 06:00 EST (the next WEEKDAY), as Friday 01-09's does
     assert known_at_for_asof(date(2026, 1, 10), now=_NOW_LATE_JULY) == datetime(
-        2026, 1, 11, 4, 59, 59, 999999, tzinfo=timezone.utc
+        2026, 1, 12, 10, 59, 59, 999999, tzinfo=timezone.utc
+    )
+    assert known_at_for_asof(date(2026, 1, 9), now=_NOW_LATE_JULY) == known_at_for_asof(
+        date(2026, 1, 10), now=_NOW_LATE_JULY
     )
 
 
@@ -507,9 +512,9 @@ def test_the_cap_follows_the_configured_zone(monkeypatch):
     """The day's end is the CONFIGURED market zone's — never the process's, and not New York's by fiat."""
     monkeypatch.setenv("ALPHADECK_MARKET_TZ", "Asia/Tokyo")
     get_settings.cache_clear()
-    # Tokyo is +9 (no DST): 2026-06-10 ends at 2026-06-10 14:59:59.999999Z
+    # Tokyo is +9 (no DST): 2026-06-10's night ends at 06-11 05:59:59.999999 JST = 06-10 20:59:59.999999Z
     assert known_at_for_asof(date(2026, 6, 10), now=_NOW_LATE_JULY) == datetime(
-        2026, 6, 10, 14, 59, 59, 999999, tzinfo=timezone.utc
+        2026, 6, 10, 20, 59, 59, 999999, tzinfo=timezone.utc
     )
 
 
@@ -524,7 +529,7 @@ def test_serve_known_at_is_None_for_a_live_or_future_asof_and_the_cap_for_a_past
     assert serve_known_at(today, today=today) is None
     assert serve_known_at(date(2026, 8, 1), today=today) is None  # a future asof is live too
     assert serve_known_at(date(2026, 6, 10), today=today) == datetime(
-        2026, 6, 11, 3, 59, 59, 999999, tzinfo=timezone.utc
+        2026, 6, 11, 9, 59, 59, 999999, tzinfo=timezone.utc
     )
 
 
@@ -543,7 +548,7 @@ def test_serve_view_pairs_the_cap_with_the_PUBLIC_clock_and_the_live_read_with_t
     monkeypatch,
 ):
     """The ONE place a history read decides both halves (operator decision 2026-10-21): a past as-of is a
-    history view — the market-day cap on the PUBLIC clock (each fact from when it became public); a live or
+    history view — the night's cap on the PUBLIC clock (each fact from when it became public); a live or
     future as-of is the unchanged live read — ``(None, "record")``, where the two clocks coincide. Decided
     from ONE ``market_today()`` read, so the two halves can never straddle midnight and disagree."""
     monkeypatch.delenv("ALPHADECK_MARKET_TZ", raising=False)
@@ -552,7 +557,7 @@ def test_serve_view_pairs_the_cap_with_the_PUBLIC_clock_and_the_live_read_with_t
     assert serve_view(today, today=today) == (None, "record")
     assert serve_view(date(2026, 8, 1), today=today) == (None, "record")
     assert serve_view(date(2026, 6, 10), today=today) == (
-        datetime(2026, 6, 11, 3, 59, 59, 999999, tzinfo=timezone.utc),
+        datetime(2026, 6, 11, 9, 59, 59, 999999, tzinfo=timezone.utc),
         "public",
     )
     # 21:30 ET on the 17th (01:30Z on the 18th): the market is still on the 17th, so the 17th is LIVE —
@@ -645,22 +650,23 @@ def test_serve_view_is_LIVE_from_the_current_night_and_history_before_it(
     monkeypatch, _default_schedule
 ):
     """The live test is ``asof >= current night``: the night itself and every later as-of read live, unchanged;
-    a day before the night is the public-clock history view, capped at the end of its market day."""
+    a day before the night is the public-clock history view, capped at the end of its night (F6)."""
     _pin_now(monkeypatch, _et(_TUE, 9))  # Tuesday morning: the night is Monday
     assert serve_view(_MON) == (None, "record")  # the default view: live, no recompute
     assert serve_view(_TUE) == (None, "record")  # today: live, as before
     assert serve_view(_WED) == (None, "record")  # a future day: live, as before
     assert serve_known_at(_MON) is None
-    # the day before the night is history, on the public clock (cap: the end of that day, EDT)
+    # the day before the night is history, on the public clock (cap: the end of that night — Friday's
+    # runs to Monday 06:00 EDT, F6)
     assert serve_view(date(2026, 10, 23)) == (
-        datetime(2026, 10, 24, 3, 59, 59, 999999, tzinfo=timezone.utc),
+        datetime(2026, 10, 26, 9, 59, 59, 999999, tzinfo=timezone.utc),
         "public",
     )
     # after the pass the night is Tuesday, so Monday becomes a past view
     _pin_now(monkeypatch, _et(_TUE, 22, 45))
     assert serve_view(_TUE) == (None, "record")
     assert serve_view(_MON) == (
-        datetime(2026, 10, 27, 3, 59, 59, 999999, tzinfo=timezone.utc),
+        datetime(2026, 10, 27, 9, 59, 59, 999999, tzinfo=timezone.utc),
         "public",
     )
     # a weekend reads Friday live, and Thursday is history
@@ -787,3 +793,67 @@ def test_the_origin_is_the_asof_for_history_and_the_action_day_for_every_live_vi
                 origin = market_time.countdown_origin(asof, c)
                 assert origin == (asof if asof < c.night else c.action_day), (c, asof)
                 assert (serve_view(asof, night=c.night)[1] == "record") == (asof >= c.night)
+
+
+# --- F6: a night ends at EDGAR's next open (rule log 2026-11-night-ends-at-edgar-open) ---------------------
+
+
+def test_next_edgar_open_is_06_00_on_the_next_weekday_holidays_included(monkeypatch):
+    """The ONE definition (domain, re-exported by ``pipeline.night_coverage``): 06:00 market time on the next
+    WEEKDAY — a Friday (and a Saturday or Sunday as-of) runs to Monday; a holiday weekday still ends a night,
+    because EDGAR keeps SEC business days (Good Friday 2026-04-03 is open), not the NYSE's sessions.
+    """
+    monkeypatch.delenv("ALPHADECK_MARKET_TZ", raising=False)
+    get_settings.cache_clear()
+    from pipeline import night_coverage
+
+    assert (
+        night_coverage.next_edgar_open is market_time.next_edgar_open
+    )  # one definition, re-exported
+    assert market_time.next_edgar_open(_MON) == _et(_TUE, 6)
+    for d in (_FRI, _SAT, _SUN):
+        assert market_time.next_edgar_open(d) == _et(_NEXT_MON, 6)
+    assert market_time.next_edgar_open(date(2026, 4, 2)) == _et(date(2026, 4, 3), 6)  # Good Friday
+    assert market_time.next_edgar_open(date(2026, 11, 25)) == _et(
+        date(2026, 11, 26), 6
+    )  # Thanksgiving
+
+
+def test_the_night_ends_one_microsecond_before_the_open_so_06_00_is_the_next_nights(monkeypatch):
+    """The cap is the last instant BEFORE the open (the gates are ``<=``): a time at exactly 06:00 is the next
+    night's, the late-row rule's half-open window ``[RUN_AT, next open)``."""
+    monkeypatch.delenv("ALPHADECK_MARKET_TZ", raising=False)
+    get_settings.cache_clear()
+    far = datetime(2100, 1, 1, tzinfo=timezone.utc)
+    cap = known_at_for_asof(_MON, now=far)
+    assert cap == _et(_TUE, 6) - timedelta(microseconds=1)
+    assert (
+        _et(_TUE, 0, 30) <= cap
+    )  # past midnight: still Monday's night (before F6 it was Tuesday's)
+    assert not _et(_TUE, 6) <= cap
+    assert known_at_for_asof(_FRI, now=far) == _et(_NEXT_MON, 6) - timedelta(microseconds=1)
+
+
+def test_edgar_night_is_the_inverse_of_the_cap(monkeypatch):
+    """``edgar_night(at)`` is the night whose read first holds ``at``: for every instant across a week (every
+    20 minutes) and every as-of near it, ``at <= known_at_for_asof(n)`` iff ``edgar_night(at) <= n``. A time
+    in EDGAR's hours is its own date; 00:00-06:00 is the weekday before; a weekend is the Friday."""
+    monkeypatch.delenv("ALPHADECK_MARKET_TZ", raising=False)
+    get_settings.cache_clear()
+    far = datetime(2100, 1, 1, tzinfo=timezone.utc)
+    assert market_time.edgar_night(_et(_TUE, 14)) == _TUE
+    assert market_time.edgar_night(_et(_TUE, 0, 30)) == _MON
+    assert market_time.edgar_night(_et(_TUE, 6)) == _TUE
+    assert market_time.edgar_night(_et(_SAT, 10)) == _FRI
+    assert market_time.edgar_night(_et(_NEXT_MON, 5, 59)) == _FRI
+    assert market_time.edgar_night(_et(_TUE, 14).astimezone(timezone.utc)) == _TUE  # any aware zone
+    with pytest.raises(ValueError):
+        market_time.edgar_night(datetime(2026, 10, 27, 14))  # naive: no market date
+    caps = {
+        n: known_at_for_asof(n, now=far) for n in (_MON + timedelta(days=k) for k in range(-3, 10))
+    }
+    at = _et(_MON, 0)
+    while at < _et(_NEXT_MON + timedelta(days=1), 0):
+        for n, cap in caps.items():
+            assert (at <= cap) == (market_time.edgar_night(at) <= n), (at, n)
+        at += timedelta(minutes=20)

@@ -31,7 +31,9 @@ The rules, in one place:
   window already shows was first recorded BEFORE the window: it is not a row (the Hot Board holds it while it
   is live) and the page counts those still live (``carried_live``).
 - **Its fire date** is ``event_date`` (``None`` = undated). A fire date before the recorded night is "recorded N
-  days after" (a Form 4 filed days after its trade: the system knew it only when it was public, invariant #1).
+  days after" (the system knew it only when it was public, invariant #1). Since F8 an insider trigger's fire
+  date is the night its latest Form 4 was public, not the trade, so its gap is days from the FILING to the
+  first recorded night (0 on a normal night); a row recorded before F8 still carries the trade date.
 - **Its role** is the list it came from; **its key** is conviction or confirmation by kind against
   ``DEFAULT_CONFIG.conviction_kinds`` / ``confirmation_kinds``, with the one exception the assembler keeps (a
   revenue-acceleration screen turns ``revenue_accel_key``); an entry trigger whose kind is in neither set turns

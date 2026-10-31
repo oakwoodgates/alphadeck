@@ -81,6 +81,27 @@ RULE_LOG: tuple[RuleEntry, ...] = (
             "next session is already outside the window."
         ),
     ),
+    RuleEntry(
+        id="2026-11-night-ends-at-edgar-open",
+        date=date(2026, 10, 31),
+        label="a night's history read runs to 06:00 ET the next weekday",
+        description=(
+            "A night's history view now holds everything public before EDGAR's next open (06:00 ET on the "
+            "next weekday, the line the late-row rule already used) instead of stopping at midnight, so a "
+            "filing time stored past midnight no longer moves the filing to the next night, and a Friday "
+            "night's view holds what became known over the weekend."
+        ),
+    ),
+    RuleEntry(
+        id="2026-11-insider-clock-from-filing",
+        date=date(2026, 10, 31),
+        label="an insider cluster's window counts from its latest filing",
+        description=(
+            "An insider-buying cluster's liveness window and fire date now count from the night its latest "
+            "Form 4 became public (its SEC acceptance) instead of its latest trade date, because the market "
+            "could not act on a buy before the filing; the trade dates stay in the label and provenance."
+        ),
+    ),
 )
 
 
