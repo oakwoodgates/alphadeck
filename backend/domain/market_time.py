@@ -213,12 +213,13 @@ def view_day(known_at: datetime) -> date:
 
 
 def day_clock_public_by(public: datetime, known_at: datetime) -> bool:
-    """Is a DATE-clocked row public by a read bounded at ``known_at``? Its public instant is the START of its
-    market day (``db.public_clock``: a split's first filing or session, a filing date), so the answer is "has
-    that DAY's night begun" — its date ``<= view_day(known_at)`` — never the bare instant compare: F6's cap
-    runs to 06:00 on the next weekday, past the next day's 00:00, so ``public <= known_at`` alone would show a
-    Tuesday-dated row on Monday's night. A fact table needs none of this (its ``valid_from <= asof`` half
-    guards the day); this is for a date-clocked read with no valid-time gate (the split list)."""
+    """Is a DATE-clocked row public by a read bounded at ``known_at``? "Has that DAY's night begun" — its date
+    ``<= view_day(known_at)``. A date-only public instant is now 06:00 of its date (``db.public_clock
+    ._start_of_day``), so on a current store the bare compare ``public <= known_at`` already agrees; this gate
+    is what keeps a mirror EXPORTED before that change (its split rows at 00:00, which F6's cap — to 06:00 on
+    the next weekday — would reach a night early) honest too. A fact table needs none of this (its ``valid_from
+    <= asof`` half guards the day); this is for a date-clocked read with no valid-time gate (the split list).
+    """
     return public.astimezone(market_tz()).date() <= view_day(known_at)
 
 
@@ -243,10 +244,11 @@ def known_at_for_asof(asof: date, now: datetime | None = None) -> datetime:
     +4/+5 h late, across midnight: it no longer moves them to the next night), an operator write or a pass
     that ran past midnight, and, for a Friday night, everything up to Monday 06:00. The cap is the last
     microsecond BEFORE the open (the gate is ``<=``), so an instant at exactly 06:00 is the next night's, the
-    late rule's half-open window. **The date-only trap stays guarded:** a date-clocked fact's public instant
-    is the START of its day (``db.public_clock``), so a Tuesday 8-K is "public" at Tuesday 00:00, before
-    Monday's cap — but every date-clocked table sets ``valid_from`` to that public date, and the read's other
-    half, ``valid_from <= asof``, keeps it out of Monday's night whatever the cap.
+    late rule's half-open window. **The date-only trap is shut twice:** a date-clocked fact's public instant
+    is 06:00 market time of its date (``db.public_clock._start_of_day`` — the first instant of that date's
+    night, never inside the night before), and every date-clocked fact table also sets ``valid_from`` to that
+    public date, so the read's other half, ``valid_from <= asof``, keeps a Tuesday 8-K out of Monday's night
+    whatever the cap.
 
     **The night ends in MARKET time, not UTC** — this module's whole point. The daily cron runs at ``RUN_AT``
     22:30 ET with ``asof = market_today()`` and ``known_at = now``, so the record for day X was computed at

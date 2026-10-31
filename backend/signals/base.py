@@ -412,8 +412,8 @@ class PointInTimeData:
         the row — and the view reads the split's newest version (today's reading)."""
         rows = self._split_rows(security_id)
         if self.clock == "public":
-            # a split is DATE-clocked (public from the start of its day): it counts from its own day's night,
-            # never the night before, which the F6 cap (to the next weekday's 06:00) would otherwise reach
+            # a split is DATE-clocked: it counts from its own day's night, never the night before (its instant
+            # is that day's 06:00; the day gate also holds for a row stamped at 00:00 before that change)
             rows = [r for r in rows if day_clock_public_by(r["recorded_at"], self.known_at)]
         return list(rows)
 

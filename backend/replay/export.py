@@ -55,7 +55,7 @@ MANIFEST_NAME = "manifest.json"
 # never early). Nothing is modeled or estimated from a neighbouring column (#6).
 #
 # Fundamentals: there is NO ``filed`` column; ``valid_from`` IS the filing date (R17), and the public instant
-# is the start of that day. Rows written before migration 0057 were ALSO stamped ``recorded_at = filed 00:00
+# is 06:00 market time of that day (the first instant of its night, F6). Rows written before migration 0057 were ALSO stamped ``recorded_at = filed 00:00
 # UTC`` (MEASURED on prod: all 120,876), rows since carry the honest ingest instant; either way the public
 # mirror clocks every version at its filing (one row per (identity, filing) — the key 0057 enforces), so the
 # clock change reveals nothing for fundamentals on its own.

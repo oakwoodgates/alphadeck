@@ -595,7 +595,8 @@ class ReplayPointInTimeData:
         has no table and returns ``[]`` (``_splits_of``) — what the system knew when it was written.
 
         A PUBLIC mirror's split row (it carries ``ingested_at``, ``db.public_clock.to_public_row``) is
-        DATE-clocked — public from the start of its day — so it also passes the live public read's day gate
+        DATE-clocked — public from its day's night (06:00 of the date; 00:00 in a mirror exported before
+        that change) — so it also passes the live public read's day gate
         (``domain.market_time.day_clock_public_by``, F6): it counts from its own day's night, never the night
         before. A record mirror's rows carry honest instants and keep the plain gate (the record read's).
         """

@@ -464,7 +464,8 @@ def get_price_window(
       future ``end`` still gets only bars ``<= asof`` — the window can never be widened past the as-of. Its
       ``known_at`` stays the reader's default (now), matching the live scorer's construction, so the line
       matches the bars behind the ledger's numbers.
-    - the insider read caps the transaction axis too (``known_at_for_asof(asof)`` = ``min(now, asof-EOD)``),
+    - the insider read caps the transaction axis too (``known_at_for_asof(asof)`` = ``min(now, the end of the
+      as-of's night)`` — EDGAR's next open, 06:00 ET on the next weekday),
       so a scrubbed-back as-of hides not just later bars but later-DISCLOSED buys — the honesty a filing's
       days-to-months disclosure lag demands (the IBM 166-day case), the price bar's ``valid_from == d`` does
       not need.

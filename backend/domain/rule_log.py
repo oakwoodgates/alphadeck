@@ -98,8 +98,9 @@ RULE_LOG: tuple[RuleEntry, ...] = (
         description=(
             "A night's history view now holds everything public before EDGAR's next open (06:00 ET on the "
             "next weekday, the line the late-row rule already used) instead of stopping at midnight, so a "
-            "filing time stored past midnight no longer moves the filing to the next night, and a Friday "
-            "night's view holds what became known over the weekend."
+            "filing time stored past midnight no longer moves the filing to the next night, a Friday "
+            "night's view holds what became known over the weekend, and a fact known only by its date "
+            "counts from 06:00 ET that day, never on the night before."
         ),
     ),
     RuleEntry(

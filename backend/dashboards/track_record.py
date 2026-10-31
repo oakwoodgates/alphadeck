@@ -60,14 +60,14 @@ from bisect import bisect_left, bisect_right
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime, time
+from datetime import date, datetime
 from typing import Any, Literal, NamedTuple
 from uuid import UUID
 
 from dashboards.baskets import FlaggedCompany
 from dashboards.peer_table import CapCell, CompanyReads, cap_cell
 from domain.market_cap import CapTier
-from domain.market_time import market_tz
+from domain.market_time import edgar_night
 from domain.splits import ListedSplit, scale_after
 from signals.display import volume_regime
 
@@ -352,16 +352,15 @@ def event_cap(
         return CapCell(gap="no_price")
     prior = bars[i]
     traded = prior.close / float(scale_after(splits, prior.d, through=view_day))
-    start = datetime.combine(
-        arm_date, time(0), tzinfo=market_tz()
-    )  # the arm date's start, market time
+    # public BEFORE the arm date: on a night before it (``edgar_night``, F6 — an instant between midnight and
+    # EDGAR's 06:00 open on the arm date belongs to the night before; a weekend one to Friday's)
     known = [
         f
         for f in shares_facts
         if isinstance(f.get("valid_from"), date)
         and f["valid_from"] < arm_date
         and (public := share_public_at(f)) is not None
-        and public < start
+        and edgar_night(public) < arm_date
     ]
     newest = max(known, key=lambda f: f["valid_from"]) if known else None
     shares = (

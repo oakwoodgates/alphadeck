@@ -60,8 +60,8 @@ that evening (13(a)(4) gives Forms 3/4/5 — and, since 2024, Schedules 13D/G �
 3. Otherwise NO acceptance (``None``, ``SOURCE_FILED``): the filing date stands, exactly as before F7 — late,
    never early. (Unlike a Form 4 there is no bound to store: these tables fall back to the filing date.)
 
-``public_date`` turns a trusted acceptance into the row's ``valid_from``: its date in MARKET time
-(``domain.market_time.market_tz``), else the filing date.
+``public_date`` turns a trusted acceptance into the row's ``valid_from``: its NIGHT (F6,
+``domain.market_time.edgar_night`` — for a trusted time, its date in MARKET time), else the filing date.
 """
 
 from __future__ import annotations
@@ -75,7 +75,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from domain.market_time import market_tz
+from domain.market_time import edgar_night
 from domain.settings import get_settings
 from ingest import CacheMiss
 from ingest.edgar.client import InvalidBody
@@ -365,10 +365,13 @@ def resolve_public_acceptance(
 
 
 def public_date(accepted: datetime | None, filed: date) -> date:
-    """A filing row's ``valid_from`` (F7): the MARKET-TIME date of its trusted acceptance, else its filing date."""
+    """A filing row's ``valid_from`` (F7): the NIGHT of its trusted acceptance (``domain.market_time.edgar_night``,
+    F6 — the night whose history read first holds it), else its filing date. A trusted time is inside EDGAR's
+    06:00-22:00 on a weekday, so its night IS its market-time date; the one definition keeps the date and the
+    F6 cap from ever disagreeing."""
     if accepted is None:
         return filed
-    return accepted.astimezone(market_tz()).date()
+    return edgar_night(accepted)
 
 
 def cached_listings(cache_dir: Path | None, cik: str | int | None) -> dict[str, tuple[str, str]]:

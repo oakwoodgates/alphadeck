@@ -125,7 +125,7 @@ def test_a_tuesday_8k_never_reaches_mondays_view_whatever_the_cutoff(db, securit
     ] == ["ACC-TUE"]
 
 
-def test_an_8k_with_no_acceptance_keeps_the_start_of_its_filing_day(db, security_id):
+def test_an_8k_with_no_acceptance_counts_from_06_00_of_its_filing_day(db, security_id):
     append_fact(
         db,
         "fact_corporate_event",
@@ -139,9 +139,9 @@ def test_an_8k_with_no_acceptance_keeps_the_start_of_its_filing_day(db, security
     )
     db.commit()
     (row,) = _read(db, "fact_corporate_event", security_id, TUE, _end_of(TUE))
-    assert row["recorded_at"] == datetime.combine(
-        TUE, time(0), tzinfo=market_tz()
-    )  # exactly as before
+    # its filing day at EDGAR's open — the first instant of that day's night (F6; it was 00:00, which the night
+    # before's cap, to 06:00, would have reached)
+    assert row["recorded_at"] == datetime.combine(TUE, time(6), tzinfo=market_tz())
 
 
 def test_the_mirror_keeps_the_re_dated_version_at_the_acceptance(db, security_id):
@@ -168,7 +168,7 @@ def test_the_freeze_ceiling_reads_an_8k_as_it_stood_at_the_cut(db, security_id):
             cur.execute(q, {"t": T, "s": security_id, **public_params(cut)})
             return {r[PUBLIC_COL] for r in cur.fetchall()}
 
-    start_tue = datetime.combine(TUE, time(0), tzinfo=market_tz())
+    start_tue = datetime.combine(TUE, time(6), tzinfo=market_tz())  # the filing day's 06:00 (F6)
     assert instants(datetime(2026, 10, 29, tzinfo=UTC)) == {
         start_tue
     }  # the cut held the old version only

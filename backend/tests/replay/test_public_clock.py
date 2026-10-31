@@ -546,10 +546,11 @@ def test_the_harness_threads_the_known_at_mode(db, tmp_path):
         con.close()
 
 
-def test_a_date_clock_lands_at_the_start_of_the_market_day(db, security_id, tmp_path):
-    """A DATE clock (an 8-K's ``filed``) becomes an instant in MARKET time, not UTC — this repo's rule that a
-    trading day is a domain fact. Inert on visibility (``valid_from <= asof`` already decides these rows),
-    pinned so the next reader knows it was a decision."""
+def test_a_date_clock_lands_at_06_00_of_its_market_day(db, security_id, tmp_path):
+    """A DATE clock (an 8-K's ``filed``, here with no acceptance stored) becomes an instant in MARKET time, not
+    UTC — this repo's rule that a trading day is a domain fact — at 06:00, EDGAR's open: the first instant of that
+    date's night (F6), never inside the night before. Inert on visibility for a fact table (``valid_from <= asof``
+    already decides these rows), pinned so the next reader knows it was a decision."""
     d = date(2026, 6, 1)
     append_fact(
         db,
@@ -573,7 +574,7 @@ def test_a_date_clock_lands_at_the_start_of_the_market_day(db, security_id, tmp_
         (row,) = ReplayPointInTimeData(con, asof=d, known_at=_PIN).corporate_event_facts(
             security_id
         )
-        assert row["recorded_at"] == datetime(2026, 6, 1, tzinfo=market_tz())  # 00:00 ET
+        assert row["recorded_at"] == datetime(2026, 6, 1, 6, tzinfo=market_tz())  # 06:00 ET (F6)
         assert row["ingested_at"] == datetime(2026, 9, 1, tzinfo=timezone.utc)  # the honest ingest
     finally:
         con.close()
