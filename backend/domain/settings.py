@@ -387,7 +387,7 @@ class Settings(BaseSettings):
     # --- D3b — the Scoreboard's ANNOTATED-NIGHT read policy (operator decision Q2, 2026-10-16) ---
     # `call_annotation` (migration 0045) holds append-only judgments about recorded `calls` rows; an ACTIVE
     # `exclude` marks a PHANTOM ARM (an arm that rested only on a stale-dated comparative revenue quarter,
-    # the bug D3a fixed). True = the Scoreboard's record read drops those rows BEFORE the per-as-of dedup
+    # the bug D3a fixed) or, since F10, a row dated a day with no market session. True = the Scoreboard's record read drops those rows BEFORE the per-as-of dedup
     # (the `calls.reconstructed` precedent) and the banner names the nights; False = they are scored again,
     # exactly as before D3b. A READ policy, never a write: flipping it re-scores the record and deletes
     # nothing, so the operator can go back and forth. `GET /scoreboard?include_annotated=` overrides it per
