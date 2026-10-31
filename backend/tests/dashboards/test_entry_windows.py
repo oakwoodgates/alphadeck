@@ -345,6 +345,34 @@ def test_catalysts_inside_the_window_are_ticks_hollow_when_before_the_asof():
     ]
 
 
+def test_a_catalyst_is_hollow_when_dated_before_the_countdown_origin():
+    """F2: the night is Tuesday 10-27 and a live view counts from Wednesday 10-28, the action day: a catalyst dated
+    the night itself has passed by then (hollow), one dated the action day is still ahead (it reads 'today').
+    """
+    cs = [cat("the night", ASOF), cat("the action day", d(28)), cat("later", d(29))]
+    live = catalysts_in_window(cs, d(15), d(30), d(28))
+    assert [(t.label, t.past) for t in live] == [
+        ("the night", True),
+        ("the action day", False),
+        ("later", False),
+    ]
+    past = catalysts_in_window(cs, d(15), d(30), ASOF)  # a past view counts from its own as-of
+    assert [t.past for t in past] == [False, False, False]
+
+
+def test_the_hold_days_count_from_the_origin_and_the_sessions_stay_on_the_asof():
+    """F2: the hold horizon (Grid: 11-14) is 18 days from the night 10-27 and 17 from the action day 10-28; the entry
+    window's session counts are the call path's own and do not move."""
+    base, _ = page()
+    live, _ = page(origin=d(28))
+    g0 = next(r for r in base.rows if r.thesis_name == "Grid")
+    g1 = next(r for r in live.rows if r.thesis_name == "Grid")
+    assert (g0.hold_days, g1.hold_days) == (18, 17)
+    assert (g1.sessions_into, g1.sessions_left, g1.closed_ago) == (5, 3, None)
+    assert (g1.sessions_into, g1.sessions_left) == (g0.sessions_into, g0.sessions_left)
+    assert live.asof == ASOF  # the page's own as-of is the night
+
+
 def test_a_catalyst_dated_after_a_past_asof_is_a_solid_tick_still_ahead_then():
     c = cat("Oct 29 readout", d(29))
     now = catalysts_in_window([c], d(15), d(30), date(2026, 10, 31))
@@ -769,9 +797,10 @@ def test_the_axis_spans_five_sessions_before_the_earliest_arm_night_to_the_lates
 def stub_client(monkeypatch):
     seen: dict = {"reads": 0}
 
-    def fake_read(conn, asof, known_at, clock):
+    def fake_read(conn, asof, known_at, clock, origin=None):
         seen["reads"] += 1
         seen["view"] = (asof, known_at, clock)
+        seen["origin"] = origin
         got, _ = page(asof=asof)
         return got
 
@@ -806,6 +835,26 @@ def test_the_router_threads_the_view_and_serves_the_page_off_one_cached_read(stu
     # another as-of is its own read
     client.get("/dashboards/entry-windows", params={"asof": "2026-10-26"})
     assert seen["reads"] == 2
+
+
+def test_the_router_counts_a_live_view_from_the_action_day_and_a_past_one_from_its_asof(
+    stub_client, pin_market_clock
+):
+    """F2: Tuesday 09:00 is Monday's night. The default view of that night is live, so the hold days and a catalyst's
+    passed flag count from Tuesday, the action day; a past view counts from itself. The origin is part of the key.
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    pin_market_clock(datetime(2026, 10, 27, 9, 0, tzinfo=ZoneInfo("America/New_York")))
+    client, seen = stub_client
+    client.get("/dashboards/entry-windows", params={"asof": "2026-10-26"})
+    assert seen["view"][1:] == (None, "record") and seen["origin"] == date(2026, 10, 27)
+    client.get("/dashboards/entry-windows", params={"asof": "2026-10-23"})
+    assert seen["view"][2] == "public" and seen["origin"] == date(2026, 10, 23)
+    keys = {k for k in CACHE._entries}
+    assert ("entry-windows", ("record", date(2026, 10, 27)), date(2026, 10, 26)) in keys
+    assert ("entry-windows", ("public", date(2026, 10, 23)), date(2026, 10, 23)) in keys
 
 
 def test_the_router_reads_a_live_asof_on_the_record_clock(stub_client):

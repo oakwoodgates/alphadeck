@@ -73,10 +73,13 @@ price history (`baskets.price_flags`) reads the flag's reason in its price cells
 ### 3. Due this week: the Catalyst Calendar's bucket
 
 The Catalyst Calendar's items by its own pure function (`dashboards/catalyst_calendar.py::catalyst_calendar`, with
-`today = D` and each card's `LatestCall` built from the card in effect at D, not the newest row of the log), cut to the
-**`this_week` bucket** (through the coming Sunday; D alone on a Sunday): every dated catalyst on a counted card, and
-each card's two deadlines ("entry window ends" = `arm_until`, "exit-by" = `exit_by`) when they fall in it. An item dated
-D is marked **today**. The Calendar's limit stands and is stated: catalysts are edited in place with no history, so a
+`today = O`, the **countdown origin** (F2, `DASHBOARDS.md` rule 2: the action day, the session after the night, on a
+live view; the as-of D on a past one), and each card's `LatestCall` built from the card in effect at D, not the newest
+row of the log), cut to the **`this_week` bucket** (through the coming Sunday; O alone on a Sunday): every dated
+catalyst on a counted card, and each card's two deadlines ("entry window ends" = `arm_until`, "exit-by" = `exit_by`)
+when they fall in it. An item dated O is marked **today** (on a past view the line carries its date instead). The
+"Last night" clocks (an entry window closing within 3 days) count from O too; `days_after_night` is an age and stays
+on the as-of. The Calendar's limit stands and is stated: catalysts are edited in place with no history, so a
 past as-of reads today's catalysts against that day's cards. Below the bucket, one quiet count: the catalysts that
 PASSED since P and are not yet pruned (the Calendar's "passed" list is the place to prune them). Each line opens the
 Cockpit; the header opens the Calendar.

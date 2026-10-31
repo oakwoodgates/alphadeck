@@ -8,6 +8,7 @@ import type {
   TriggerRefOut,
 } from "../api/hooks";
 import { useDecisions } from "../api/hooks";
+import { useCountdownOrigin } from "../clock";
 import { TriggerRow } from "../components/CallCard";
 import { DataFlagsSection, FlagWrap } from "./DataFlagMark";
 import { cellFlag } from "./dataFlags";
@@ -17,6 +18,7 @@ import { formatMarketCap, meterValueLabel, originWithFiler } from "../workbench/
 import {
   businessTypeLabel,
   byEventDateDesc,
+  dayCount,
   daysFrom,
   fmtDate,
   gradeClass,
@@ -115,8 +117,10 @@ export function NamePanel({
     : [];
   const held = Boolean(position?.security_id && position.security_id === member.security_id);
 
-  const armDays = daysFrom(asof, call?.arm_until);
-  const exitDays = daysFrom(asof, call?.exit_by);
+  // F2 — both clocks are COUNTDOWNS: they count from the action day on a live view, the as-of on a past one
+  const origin = useCountdownOrigin(asof);
+  const armDays = daysFrom(origin, call?.arm_until);
+  const exitDays = daysFrom(origin, call?.exit_by);
   const conf = call?.confidence == null ? null : Math.round(call.confidence * 100);
 
   const grades: [string, string][] = [];
@@ -250,8 +254,12 @@ export function NamePanel({
                   (armDays < 0
                     ? " · lapsed"
                     : call.verdict
-                      ? ` · act within ${armDays}d`
-                      : ` · decays in ${armDays}d`)}
+                      ? armDays === 0
+                        ? " · act today"
+                        : ` · act within ${armDays}d`
+                      : armDays === 0
+                        ? " · decays today"
+                        : ` · decays in ${armDays}d`)}
                 {call.entry_window_closing && " · entry window closing"}
               </span>
             </div>
@@ -265,7 +273,9 @@ export function NamePanel({
                 Hold exit-by · conviction clock
                 {exitDays !== null &&
                   exitDays >= 0 &&
-                  (call.lapsing ? ` · hold clock closing · ${exitDays}d` : ` · ${exitDays}d`)}
+                  (call.lapsing
+                    ? ` · hold clock closing · ${dayCount(exitDays)}`
+                    : ` · ${dayCount(exitDays)}`)}
               </span>
             </div>
           )}

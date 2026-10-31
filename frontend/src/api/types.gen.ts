@@ -7802,7 +7802,8 @@ export interface components {
         /**
          * DigestDueItemOut
          * @description One dated line of this week: a catalyst, or a card's entry window or exit-by (the Catalyst Calendar's items).
-         *     ``today`` = dated the as-of; ``days`` = calendar days from the as-of; ``state`` = the card's state in effect.
+         *     ``today`` = dated the countdown origin; ``days`` = calendar days from the origin (the action day, the session
+         *     after the night, on a live view; the as-of on a past one); ``state`` = the card's state in effect.
          */
         DigestDueItemOut: {
             /**
@@ -7972,10 +7973,11 @@ export interface components {
          * DigestLineOut
          * @description One line of a card: What Changed's own item. ``ticker`` / ``security_id`` are set for a name or a trigger line;
          *     ``label`` = the key's own label, or the trigger's; ``on`` = the trigger's event date or the clock's date;
-         *     ``previous_on`` = a re-dated trigger's earlier date; ``days`` = calendar days from the newest night to the entry
-         *     window's end. ``tone``: ``accent`` (a card that entered Armed, a name newly armed, an entry window closing within
-         *     3 days) or ``warm`` (a card that left Armed, an exit-by reached); ``null`` on every other line. ``source`` = a
-         *     trigger or risk line's first source (``null`` = it states none).
+         *     ``previous_on`` = a re-dated trigger's earlier date; ``days`` = calendar days from the countdown origin (the action
+         *     day, the session after the newest night, on a live view) to the entry window's end. ``tone``: ``accent`` (a card
+         *     that entered Armed, a name newly armed, an entry window closing within 3 days) or ``warm`` (a card that left
+         *     Armed, an exit-by reached); ``null`` on every other line. ``source`` = a trigger or risk line's first source
+         *     (``null`` = it states none).
          */
         DigestLineOut: {
             /**
@@ -9106,7 +9108,8 @@ export interface components {
          *     entry window and the hold horizon (``null`` = no clock). ``sessions_into`` = the IWM sessions after the arm
          *     night through the as-of; ``sessions_left`` = the Mon-Fri days after the as-of through ``arm_until`` (while the
          *     window is open); ``closed_ago`` = the IWM sessions since it closed (``0`` on its last day); ``hold_days`` =
-         *     calendar days from the as-of to ``exit_by`` (negative = passed). Each flag is true when ANY armed member's own
+         *     calendar days from the countdown origin to ``exit_by`` (negative = passed; the origin is the action day, the
+         *     session after the night, on a live view and the as-of on a past one). Each flag is true when ANY armed member's own
          *     flag is true; ``member_clocks`` lists those members with their own entry clock, since the figures above count to
          *     the card's (the headline name's) clocks.
          */
@@ -10606,7 +10609,8 @@ export interface components {
          *     (``arm_reconstructed`` = that night was rebuilt by ``pipeline.backfill``); ``sessions_since`` = sessions after it
          *     through the as-of on IWM's bar calendar; ``sessions_left`` = Mon-Fri sessions after the as-of through
          *     ``arm_until`` (``null`` once it has passed, when ``closed_ago`` = the sessions since it ended); ``days_to_exit`` =
-         *     calendar days from the as-of to ``exit_by`` (negative = passed).
+         *     calendar days from the countdown origin to ``exit_by`` (negative = passed). The origin is the action day (the
+         *     session after the night) on a live view and the as-of on a past one.
          */
         HotClocksOut: {
             /** Arm Night */
@@ -14293,8 +14297,9 @@ export interface components {
         };
         /**
          * ReadThroughCatalystOut
-         * @description The nearest dated card-level catalyst on or after the as-of among the row's cards; ``days`` = its date
-         *     minus the as-of (0 = the as-of day).
+         * @description The nearest dated card-level catalyst on or after the countdown origin among the row's cards; ``days`` = its
+         *     date minus the origin (0 = the origin day). The origin is the action day (the session after the night) on a
+         *     live view and the as-of on a past one.
          */
         ReadThroughCatalystOut: {
             /**
@@ -16113,7 +16118,9 @@ export interface components {
         };
         /**
          * TickerLookupCardCatalystOut
-         * @description A thesis-level catalyst of a card the company counts on (``null`` ``when_date`` = undated).
+         * @description A thesis-level catalyst of a card the company counts on (``null`` ``when_date`` = undated). ``passed`` = dated
+         *     before the countdown origin: the action day (the session after the night) on a live view, the as-of on a past
+         *     one.
          */
         TickerLookupCardCatalystOut: {
             /**
@@ -17335,7 +17342,8 @@ export interface components {
          *     set for a name or a trigger line (``null`` = a card-level line; ``ticker`` is ``null`` when the master has
          *     none). ``label`` = the key's own label, or the trigger's. ``on`` = the trigger's event date, or the clock's
          *     date (``arm_until`` / ``exit_by``); ``previous_on`` = a re-dated trigger's event date on the baseline night
-         *     (``null`` on every other line); ``days`` = calendar days from the newest night to ``arm_until``.
+         *     (``null`` on every other line); ``days`` = calendar days from the countdown origin (the action day, the session
+         *     after the newest night) to ``arm_until``.
          *     ``reconstructed`` = the card's newest row was written by ``pipeline.backfill``.
          */
         WhatChangedItemOut: {

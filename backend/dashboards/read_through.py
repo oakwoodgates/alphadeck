@@ -22,8 +22,10 @@ The rules, in one place. This is our own simple listing, stated here and on the 
   the company's EDGAR index (``filings.SEC_FILING_KINDS``). A split, a dilution fact, a catalyst and a ratified or
   stored fact are rows the system holds, not filings, and are never picked. Ties by the reader's kind order
   (``filings.KIND_ORDER``: 8-K, 13D/G, Form 4, 4/A, revenue, other forms), then accession / form / headline.
-- **Next dated catalyst.** The nearest card-level catalyst with ``when_date >= asof`` across the row's cards (the
-  as-of day counts); ties by card name then label. A dated catalyst in the past and an undated one are ignored.
+- **Next dated catalyst.** The nearest card-level catalyst with ``when_date >= origin`` across the row's cards (the
+  origin day counts); ties by card name then label. A dated catalyst in the past and an undated one are ignored. The
+  origin is a COUNTDOWN origin (F2, ``domain.market_time.countdown_origin``): the action day (the session after the
+  night) on a live view, the as-of on a past one. ``last_filing``'s ``days_ago`` is an AGE and stays on the as-of.
   Catalysts load live with the card (they are not snapshotted), so a past as-of shows them as entered today.
 - **Tape against SPY.** The company's trailing return over the last 7 and the last 30 TRADING days (the
   ``trailing_returns`` display member's own ``ret_7d`` / ``ret_30d``) minus SPY's over the same windows (the
@@ -215,7 +217,8 @@ def last_filing(rows: Iterable[FilingRow], asof: date) -> LastFiling | None:
 
 @dataclass(frozen=True)
 class NextCatalyst:
-    """The nearest dated catalyst on or after the as-of. ``days`` = its date minus the as-of (0 = the as-of day)."""
+    """The nearest dated catalyst on or after the countdown origin. ``days`` = its date minus the origin (0 = the
+    origin day, which reads "today")."""
 
     thesis_id: UUID
     thesis_name: str
@@ -228,13 +231,13 @@ class NextCatalyst:
 
 
 def next_catalyst(
-    catalysts: Iterable[CatalystRef], card_ids: Iterable[UUID], asof: date
+    catalysts: Iterable[CatalystRef], card_ids: Iterable[UUID], origin: date
 ) -> NextCatalyst | None:
-    """The nearest catalyst with ``when_date >= asof`` among the cards ``card_ids``; ties by card name, label, id.
-    One dated in the past never counts."""
+    """The nearest catalyst with ``when_date >= origin`` among the cards ``card_ids``; ties by card name, label, id.
+    One dated before the origin never counts."""
     ids = set(card_ids)
     best = min(
-        (c for c in catalysts if c.thesis_id in ids and c.when_date >= asof),
+        (c for c in catalysts if c.thesis_id in ids and c.when_date >= origin),
         key=lambda c: (
             c.when_date,
             c.thesis_name.casefold(),
@@ -253,7 +256,7 @@ def next_catalyst(
         kind=best.kind,
         when_date=best.when_date,
         when_label=best.when_label,
-        days=(best.when_date - asof).days,
+        days=(best.when_date - origin).days,
     )
 
 
@@ -387,8 +390,9 @@ class ReadThrough:
     filing_days: int
 
 
-def read_through(inputs: ReadThroughInputs, asof: date) -> ReadThrough:
-    """The page: one row per (company, role) from the role-bearing roster rows of the counted cards."""
+def read_through(inputs: ReadThroughInputs, asof: date, origin: date | None = None) -> ReadThrough:
+    """The page: one row per (company, role) from the role-bearing roster rows of the counted cards. ``origin`` =
+    where the next catalyst's countdown counts from (F2); the as-of when none is given."""
     role_members = [m for m in inputs.memberships if m.context_role]
     resolved = [m for m in role_members if m.security_id is not None]
     unresolved = [m for m in role_members if m.security_id is None]
@@ -414,7 +418,9 @@ def read_through(inputs: ReadThroughInputs, asof: date) -> ReadThrough:
                 cards=cards,
                 business_type=ident.business_type if ident else None,
                 last_filing=last_filing(inputs.filings.get(sid, ()), asof),
-                next_catalyst=next_catalyst(inputs.catalysts, (c.thesis_id for c in cards), asof),
+                next_catalyst=next_catalyst(
+                    inputs.catalysts, (c.thesis_id for c in cards), origin or asof
+                ),
                 tape=tape_view(inputs.tapes.get(sid), inputs.spy, inputs.flagged.get(sid)),
             )
         )

@@ -1,7 +1,7 @@
 import { createContext, useContext } from "react";
 
 import type { ClockOut } from "./api/hooks";
-import { todayISO } from "./util/format";
+import { isPastAsof, todayISO } from "./util/format";
 
 // F1 (2026-10-30) — the app's "today" is the SERVER's, never the browser's.
 //
@@ -41,6 +41,25 @@ export const ClockProvider = ClockContext.Provider;
 /** The app's days: the server's when App.tsx provides them, else the browser's date (no provider). */
 export function useAppClock(): AppClock {
   return useContext(ClockContext) ?? browserClock(false);
+}
+
+/** F2 — the day a COUNTDOWN to a future date counts from: the ACTION day on a live view, else the as-of itself.
+ *  The as-of is the night, for the data; the action day (the session after it) is the day the operator acts, so it is
+ *  the day the words count from: a catalyst dated Tuesday reads "today" on Tuesday morning's view of Monday's night,
+ *  one dated Monday reads "passed", and a past view (an as-of before the current night) is unchanged. A date equal
+ *  to the origin reads "today", a date before it "passed". The mirror of the backend's `countdown_origin`
+ *  (domain/market_time.py): live = `!isPastAsof(asof, currentNight)`, the same test the server serves a live read by.
+ *
+ *  COUNTDOWNS only. The AGE of a past event (a filing's "Nd", "N days before the as-of", days in state, "filed N days
+ *  after the trade") describes the record and still counts from the as-of; `sessions_left` is the call's own count.
+ *  When the server's clock could not be read (`actionDay` null, the browser's fallback) the origin is the as-of. */
+export function countdownOrigin(asof: string, clock: AppClock): string {
+  return clock.actionDay !== null && !isPastAsof(asof, clock.currentNight) ? clock.actionDay : asof;
+}
+
+/** `countdownOrigin` for the app's clock (a component's one call; no provider = the as-of). */
+export function useCountdownOrigin(asof: string): string {
+  return countdownOrigin(asof, useAppClock());
 }
 
 export const CLOCK_FALLBACK_TITLE =

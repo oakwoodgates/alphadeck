@@ -1,10 +1,11 @@
 import type { CallCardResponse } from "../api/hooks";
-import { useAppClock } from "../clock";
+import { countdownOrigin, useAppClock } from "../clock";
 import {
   accentVar,
   byEventDateDesc,
   byWhenDateAsc,
   CALL_HEAD,
+  dayCount,
   daysFrom,
   fmtDate,
   gradeClass,
@@ -64,7 +65,8 @@ export function CallCard({
   const sc = STATE_CLASS[card.state] ?? "incub";
   const accent = accentVar(sc);
   // F1 — a recompute is a date before the server's current night (the default view is read live)
-  const { currentNight } = useAppClock();
+  const appClock = useAppClock();
+  const { currentNight } = appClock;
   const armed = card.state === "armed";
   // Setup strength (wire `confidence`) is an Armed-state metric (§7): the backend nulls it for a not-yet
   // card, so the bar only renders when armed — a Warming card never wears the Armed card's bar.
@@ -74,8 +76,11 @@ export function CallCard({
   const triggers = [...(card.triggers_fired ?? [])].sort(byEventDateDesc);
   const missing = card.missing ?? [];
   const risks = [...(card.risk_signals ?? [])].sort(byEventDateDesc);
-  const armDays = daysFrom(card.asof, card.arm_until);
-  const exitDays = daysFrom(card.asof, card.exit_by);
+  // F2 — the clocks below are COUNTDOWNS: they count from the action day on a live view (a catalyst dated the action
+  // day reads "today"), from the as-of on a past one
+  const origin = countdownOrigin(card.asof, appClock);
+  const armDays = daysFrom(origin, card.arm_until);
+  const exitDays = daysFrom(origin, card.exit_by);
   // The catalyst surface — the dated binary events the assembler put inside the exit-by window (it keeps
   // every dated entry on or before exit_by, so a date already past rides along). Soonest first, a display
   // sort only (the wire order is the operator's authoring order); `safe_sleeve` is deliberately not read —
@@ -188,7 +193,7 @@ export function CallCard({
         {catalysts.length > 0 && (
           <RailPanel label="Catalysts through exit-by" count={catalysts.length}>
             {catalysts.map((c) => {
-              const d = daysFrom(card.asof, c.when_date);
+              const d = daysFrom(origin, c.when_date);
               return (
                 <div className={`trg-item cal${d !== null && d < 0 ? " passed" : ""}`} key={c.id}>
                   <span className="ic">◷</span>
@@ -198,7 +203,7 @@ export function CallCard({
                   </span>
                   <span className="trg-date">
                     {c.when_date ? fmtDate(c.when_date) : (c.when_label ?? "—")}
-                    {d !== null && (d >= 0 ? ` · ${d}d` : " · passed")}
+                    {d !== null && (d >= 0 ? ` · ${dayCount(d)}` : " · passed")}
                   </span>
                 </div>
               );
@@ -221,8 +226,12 @@ export function CallCard({
                     (armDays < 0
                       ? " · lapsed"
                       : armed
-                        ? ` · act within ${armDays}d`
-                        : ` · decays in ${armDays}d`)}
+                        ? armDays === 0
+                          ? " · act today"
+                          : ` · act within ${armDays}d`
+                        : armDays === 0
+                          ? " · decays today"
+                          : ` · decays in ${armDays}d`)}
                   {entryClosing && " · entry window closing"}
                 </span>
               </div>
@@ -232,7 +241,7 @@ export function CallCard({
                 <span className="cd">{fmtDate(card.exit_by)}</span>
                 <span className="x">
                   Hold exit-by · conviction clock
-                  {exitDays !== null && exitDays >= 0 && ` · ${exitDays}d`}
+                  {exitDays !== null && exitDays >= 0 && ` · ${dayCount(exitDays)}`}
                 </span>
               </div>
             )}

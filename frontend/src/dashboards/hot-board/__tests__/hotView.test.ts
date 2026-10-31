@@ -190,6 +190,16 @@ describe("cells", () => {
     expect(exitCell(s.ccc).text).toBe("—");
   });
 
+  it("reads a horizon on the origin day as 'today', and carries the date on a past view (F2)", () => {
+    const ends = (days: number) => row({ clocks: clocks({ exit_by: "2026-12-01", days_to_exit: days }) });
+    expect(exitCell(ends(0)).text).toBe("today"); // the server counts from the action day on a live view
+    expect(exitCell(ends(-1)).text).toBe("passed 1d");
+    expect(exitCell(ends(0), true).text).toBe("today · Dec 1");
+    expect(exitCell(ends(34), true).text).toBe("34d · Dec 1");
+    expect(exitCell(ends(-8), true).text).toBe("passed 8d · Dec 1");
+    expect(exitCell(s.ccc, true).text).toBe("—"); // no hold clock: nothing to date
+  });
+
   it("shows the return since the arm night with its sign, IWM's beside it, and why one is blank", () => {
     expect(sinceArmCells(s.aaa).ret).toMatchObject({ text: "0.0%", tone: "" });
     expect(sinceArmCells(s.bbb).ret).toMatchObject({ text: "-4.5%", tone: "neg" });

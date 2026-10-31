@@ -49,7 +49,10 @@ does, one row per Armed card. Display only: it never feeds a call, never writes,
   at or past the end the cell reads "entry window closed N sessions ago". The row's `entry_window_closing` flag (any
   armed member's) is the one accent on the page (below); a name whose own window is the one closing, and differs from
   the card's, is named under the figure ("BBB · 1 session left · to Oct 28").
-- **Days to `exit_by`:** calendar days from the as-of; past it, "hold horizon passed"; the card's own `lapsing` flag
+- **Days to `exit_by`:** a countdown, so calendar days from the **countdown origin** (F2, `DASHBOARDS.md` rule 2: the
+  action day, the session after the night, on a live view; the as-of on a past one); on the origin day it reads
+  "today", before it "hold horizon passed". A catalyst dot is hollow when dated before that same origin. The session
+  counts above stay on the as-of. The card's own `lapsing` flag
   (the headline name's) as a quiet tag, and under it a line for each other name whose hold clock is closing.
 - **Since the arm night:** per armed name, the as-traded return from the **first close on or after the arm night**
   (the Scoreboard's entry rule, `scoreboard/`) to the last close on or before the as-of (`pit.price_history`); the

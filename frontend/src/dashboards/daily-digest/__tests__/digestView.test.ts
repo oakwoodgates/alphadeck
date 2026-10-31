@@ -135,7 +135,7 @@ describe("last night's words", () => {
     expect(w({ change: "risk_new", label: "note", signal_kind: "dilution_risk", on: null })).toBe("new risk signal · note · dilution risk");
     expect(w({ change: "trigger_redated", label: "breakout", signal_kind: "technical_breakout", previous_on: "2026-09-10", on: "2026-09-14" })).toBe("re-dated · breakout · technical breakout · Sep 10 → Sep 14");
     expect(w({ change: "entry_window", on: "2026-09-19", days: 2 })).toBe("entry window closes in 2 days · Sep 19");
-    expect(w({ change: "entry_window", on: "2026-09-17", days: 0 })).toBe("entry window closes on the night · Sep 17");
+    expect(w({ change: "entry_window", on: "2026-09-17", days: 0 })).toBe("entry window closes today · Sep 17");
     expect(w({ change: "exit_by", on: "2026-09-17" })).toBe("exit-by reached · Sep 17");
   });
 
@@ -315,6 +315,9 @@ describe("positions' words", () => {
 describe("due this week's words", () => {
   it("marks today and counts days otherwise; words a deadline by what it is", () => {
     expect(dueWhen(due())).toBe("today");
+    // a past view carries the date: "today" would be the as-of, a day nobody sees (F2)
+    expect(dueWhen(due(), true)).toBe("Thu, Sep 17 · on the as-of date");
+    expect(dueWhen(due({ today: false, on: "2026-09-19", days: 2 }), true)).toBe("Sat, Sep 19 · in 2 days");
     expect(dueWhen(due({ today: false, on: "2026-09-19", days: 2 }))).toBe("Sat, Sep 19 · in 2 days");
     expect(dueWhat(due())).toBe("Readout · regulatory");
     expect(dueWhat(due({ kind: null }))).toBe("Readout");

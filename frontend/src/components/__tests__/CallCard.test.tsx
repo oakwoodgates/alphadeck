@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { CallCardResponse } from "../../api/hooks";
@@ -209,6 +209,76 @@ describe("CallCard — the catalyst surface", () => {
       byWhenDateAsc,
     );
     expect(sorted.map((c) => c.id)).toEqual(["z", "b", "a", "u"]);
+  });
+});
+
+// --- F2: the countdowns count from the action day on a live view ----------------------------------
+// The card's as-of is the night; the operator acts on the session after it. So on the default view (the current
+// night, read live) a catalyst dated the action day reads "today", one dated the night "passed", and a window or an
+// exit-by counts its days from the action day. A past view keeps counting from its own as-of. Ages are untouched.
+describe("CallCard — F2 countdowns count from the action day", () => {
+  // Monday 2026-10-26 is the night; Tuesday 10-27 is the action day (Tuesday 09:00 morning view)
+  const MON_NIGHT = { currentNight: "2026-10-26", marketToday: "2026-10-27", actionDay: "2026-10-27", failed: false };
+  const live = (over: Record<string, unknown>) => ({ ...card, asof: "2026-10-26", ...over }) as unknown as CallCardResponse;
+  const surface = [
+    { id: "a", label: "Monday event", kind: null, when_date: "2026-10-26", when_label: null },
+    { id: "b", label: "Tuesday event", kind: null, when_date: "2026-10-27", when_label: null },
+    { id: "c", label: "Wednesday event", kind: null, when_date: "2026-10-28", when_label: null },
+  ];
+  const dates = (container: HTMLElement) =>
+    [...container.querySelectorAll(".trg-item.cal .trg-date")].map((e) => e.textContent);
+
+  it("reads Tuesday's catalyst 'today' and Monday's 'passed' on the live view of Monday's night", () => {
+    const { container } = render(
+      <ClockProvider value={MON_NIGHT}>
+        <CallCard card={live({ catalyst_surface: surface })} />
+      </ClockProvider>,
+    );
+    expect(dates(container)).toEqual(["Oct 26 · passed", "Oct 27 · today", "Oct 28 · 1d"]);
+  });
+
+  it("counts a PAST view from its own as-of, unchanged", () => {
+    // the current night has moved on to Tuesday: the Monday card is history
+    const tuesdayNight = { currentNight: "2026-10-27", marketToday: "2026-10-27", actionDay: "2026-10-28", failed: false };
+    const { container } = render(
+      <ClockProvider value={tuesdayNight}>
+        <CallCard card={live({ catalyst_surface: surface })} />
+      </ClockProvider>,
+    );
+    expect(dates(container)).toEqual(["Oct 26 · today", "Oct 27 · 1d", "Oct 28 · 2d"]);
+  });
+
+  it("counts the entry window and the exit-by from the action day; the window of the night itself has lapsed", () => {
+    const render1 = (over: Record<string, unknown>) =>
+      render(
+        <ClockProvider value={MON_NIGHT}>
+          <CallCard card={live(over)} />
+        </ClockProvider>,
+      ).container;
+    const rows = (c: HTMLElement) => [...c.querySelectorAll(".clock-row .x")].map((e) => e.textContent);
+    expect(rows(render1({ arm_until: "2026-10-30", exit_by: "2026-12-01" }))).toEqual([
+      "Entry window · confirmation clock · act within 3d",
+      "Hold exit-by · conviction clock · 35d",
+    ]);
+    cleanup();
+    expect(rows(render1({ arm_until: "2026-10-27", exit_by: "2026-10-27" }))).toEqual([
+      "Entry window · confirmation clock · act today",
+      "Hold exit-by · conviction clock · today",
+    ]);
+    cleanup();
+    expect(rows(render1({ arm_until: "2026-10-26" }))).toEqual([
+      "Entry window · confirmation clock · lapsed",
+    ]);
+  });
+
+  it("falls back to the as-of when the server's clock could not be read (no action day known)", () => {
+    const failed = { currentNight: "2026-10-26", marketToday: "2026-10-26", actionDay: null, failed: true };
+    const { container } = render(
+      <ClockProvider value={failed}>
+        <CallCard card={live({ catalyst_surface: surface })} />
+      </ClockProvider>,
+    );
+    expect(dates(container)).toEqual(["Oct 26 · today", "Oct 27 · 1d", "Oct 28 · 2d"]);
   });
 });
 

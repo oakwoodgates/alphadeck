@@ -35,7 +35,7 @@ from dashboards.entry_windows import (
 from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard
 from domain.enums import Grade, Kind
-from domain.market_time import serve_view
+from domain.market_time import countdown_origin, market_clock, serve_view
 from securities import master
 from signals.base import PointInTimeData
 from signals.horizons import MARGIN_DAYS
@@ -157,7 +157,8 @@ class EntryWindowsRowOut(_Wire):
     entry window and the hold horizon (``null`` = no clock). ``sessions_into`` = the IWM sessions after the arm
     night through the as-of; ``sessions_left`` = the Mon-Fri days after the as-of through ``arm_until`` (while the
     window is open); ``closed_ago`` = the IWM sessions since it closed (``0`` on its last day); ``hold_days`` =
-    calendar days from the as-of to ``exit_by`` (negative = passed). Each flag is true when ANY armed member's own
+    calendar days from the countdown origin to ``exit_by`` (negative = passed; the origin is the action day, the
+    session after the night, on a live view and the as-of on a past one). Each flag is true when ANY armed member's own
     flag is true; ``member_clocks`` lists those members with their own entry clock, since the figures above count to
     the card's (the headline name's) clocks.
     """
@@ -336,9 +337,11 @@ def read_page(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    origin: date | None = None,
 ) -> EntryWindows:
     """The heavy read the cache holds: the counted cards, their runs, the armed names' tape and the page built
-    from them. ``known_at`` + ``clock`` are the request's one ``serve_view(asof)`` pair."""
+    from them. ``known_at`` + ``clock`` are the request's one ``serve_view(asof)`` pair; ``origin`` is where the
+    countdowns count from (F2)."""
     counted = cards_as_of(conn, asof, known_at)
     ids = [t.id for t in counted.cards]
     nights = _nights(conn, ids, asof)
@@ -375,6 +378,7 @@ def read_page(
         asof=asof,
         live_cards=counted.live_count,
         not_yet_created=counted.not_yet_created,
+        origin=origin,
     )
 
 
@@ -390,9 +394,19 @@ def entry_windows_page(
     it, and the armed names' as-traded return since the arm night against IWM and SPY. Managing cards are rows too
     (the page hides them behind a toggle). Display only; a past as-of reads the recorded call in effect then and
     what was public by the end of that date."""
-    known_at, clock = serve_view(asof)
-    # the clock is part of the key: the same date read live today and on the public clock tomorrow are two reads
-    got = cached(conn, SLUG, (clock,), asof, lambda: read_page(conn, asof, known_at, clock))
+    mclock = market_clock()
+    known_at, clock = serve_view(asof, night=mclock.night)
+    # F2: the hold days and the catalysts' passed flag count from the countdown origin (the action day when live)
+    origin = countdown_origin(asof, mclock)
+    # the clock and the origin are the key: the same date read live today and on the public clock tomorrow are two
+    # reads, and the origin moves when the night does
+    got = cached(
+        conn,
+        SLUG,
+        (clock, origin),
+        asof,
+        lambda: read_page(conn, asof, known_at, clock, origin),
+    )
     return EntryWindowsOut.model_validate(
         {**asdict(got.value), "clock": clock, "cache": got.status, "compute_ms": got.compute_ms}
     )

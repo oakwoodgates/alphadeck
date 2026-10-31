@@ -716,3 +716,74 @@ def test_the_decisions_horizon_is_the_action_day_only_on_a_live_view_before_toda
         market_time.serve_decisions_asof(_TUE, tue_night) == _TUE
     )  # after the pass: nothing moves
     assert market_time.serve_decisions_asof(_MON, tue_night) == _MON
+
+
+# --- F2 (2026-10-30): the countdown origin — the day the WORDS count from ---------------------------------------
+#
+# The as-of is the night, for the data; the action day (the first scheduled day after it) is the day the operator
+# acts, so a COUNTDOWN to a future date counts from it on a live view. The default view at 09:00 Tuesday is Monday's
+# night: a catalyst dated Tuesday reads "today", one dated Monday reads "passed". A past view is unchanged.
+
+
+def test_a_live_view_counts_down_from_the_action_day_and_a_past_view_from_its_asof(
+    monkeypatch, _default_schedule
+):
+    """Tuesday 09:00, the night is Monday. The default view (Monday's night) and every later as-of count from
+    Tuesday, the action day; a day before the night is a past view and counts from itself."""
+    _pin_now(monkeypatch, _et(_TUE, 9))
+    clock = market_time.market_clock()
+    assert (clock.night, clock.action_day) == (_MON, _TUE)
+    assert market_time.countdown_origin(_MON, clock) == _TUE  # the default view
+    assert market_time.countdown_origin(_TUE, clock) == _TUE  # today: already the action day
+    assert market_time.countdown_origin(_WED, clock) == _TUE  # a future as-of is live too
+    assert market_time.countdown_origin(date(2026, 10, 23), clock) == date(2026, 10, 23)  # past
+    # one clock read when none is passed (the module's own clock, pinned above)
+    assert market_time.countdown_origin(_MON) == _TUE
+    assert market_time.countdown_origin(date(2026, 10, 23)) == date(2026, 10, 23)
+
+
+def test_the_words_a_catalyst_reads_by_the_origin_on_tuesday_morning(
+    monkeypatch, _default_schedule
+):
+    """The pinned rule: from Monday's night on Tuesday 09:00, a Tuesday catalyst is 'today' (0 days from the origin)
+    and a Monday one 'passed' (negative); a past view keeps counting from its own as-of."""
+    _pin_now(monkeypatch, _et(_TUE, 9))
+    live = market_time.countdown_origin(_MON)
+    assert (_TUE - live).days == 0  # "today"
+    assert (_MON - live).days == -1  # "passed"
+    assert (_WED - live).days == 1  # "in 1 day" (counted from the night it would read "in 2 days")
+    past_asof = date(2026, 10, 23)
+    past = market_time.countdown_origin(past_asof)
+    assert past == past_asof and (date(2026, 10, 24) - past).days == 1  # unchanged
+
+
+def test_the_origin_follows_the_clock_not_the_weekday(monkeypatch, _default_schedule):
+    """After the pass the night is tonight and the action day tomorrow; on a weekend the night is Friday and the
+    action day Monday; a view of an earlier night is a past view once the next pass has run."""
+    _pin_now(monkeypatch, _et(_TUE, 22, 45))
+    assert market_time.countdown_origin(_TUE) == _WED
+    assert (
+        market_time.countdown_origin(_MON) == _MON
+    )  # Monday is history once Tuesday's pass has run
+    _pin_now(monkeypatch, _et(_SAT, 12))
+    assert market_time.countdown_origin(_FRI) == _NEXT_MON
+    assert market_time.countdown_origin(_SAT) == _NEXT_MON
+    assert market_time.countdown_origin(date(2026, 10, 29)) == date(2026, 10, 29)
+    _pin_now(monkeypatch, _et(_FRI, 22, 31))
+    assert market_time.countdown_origin(_FRI) == _NEXT_MON
+
+
+def test_the_origin_is_the_asof_for_history_and_the_action_day_for_every_live_view(
+    _default_schedule,
+):
+    """For every third hour of a week and every as-of near it: a past view (before the current night) counts from its
+    own as-of; every other as-of counts from the action day. The live test is the one ``serve_view`` applies.
+    """
+    for day in range(7):
+        for hour in range(0, 24, 3):
+            c = market_time.market_clock(_et(_MON + timedelta(days=day), hour, 40))
+            for k in range(-6, 4):
+                asof = c.today + timedelta(days=k)
+                origin = market_time.countdown_origin(asof, c)
+                assert origin == (asof if asof < c.night else c.action_day), (c, asof)
+                assert (serve_view(asof, night=c.night)[1] == "record") == (asof >= c.night)

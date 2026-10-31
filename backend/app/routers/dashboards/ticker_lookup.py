@@ -49,7 +49,7 @@ from dashboards.ticker_lookup import (
 )
 from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard
-from domain.market_time import market_tz, serve_view
+from domain.market_time import countdown_origin, market_clock, market_tz, serve_view
 from domain.splits import ListedSplit, listed_from_row
 from domain.thesis import Thesis
 from pipeline.backfill import thesis_existed_on
@@ -262,10 +262,12 @@ def read_lookup(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    origin: date | None = None,
 ) -> Lookup:
     """The heavy read the cache holds. ``known_at`` + ``clock`` are the request's ``serve_view(asof)`` pair,
     threaded into the counted cards' rosters, the price flags, the point-in-time view, the filings and the
-    decision log alike."""
+    decision log alike. ``origin`` is where the card catalysts' "passed" counts from (F2); the as-of when none.
+    """
     me = read_identity(conn, security_id)
     if me is None:
         raise HTTPException(status_code=404, detail="no company with this id")
@@ -333,7 +335,7 @@ def read_lookup(
         triggers,
         tape,
         filing_rows,
-        card_catalysts(counted.cards, security_id, asof),
+        card_catalysts(counted.cards, security_id, origin or asof),
         decisions,
     )
 
@@ -609,7 +611,9 @@ class TickerLookupFilingsOut(_Wire):
 
 
 class TickerLookupCardCatalystOut(_Wire):
-    """A thesis-level catalyst of a card the company counts on (``null`` ``when_date`` = undated)."""
+    """A thesis-level catalyst of a card the company counts on (``null`` ``when_date`` = undated). ``passed`` = dated
+    before the countdown origin: the action day (the session after the night) on a live view, the as-of on a past
+    one."""
 
     thesis_id: UUID
     thesis_name: str
@@ -704,16 +708,20 @@ def ticker_lookup(
     the catalysts of its cards and the operator's logged decisions on it. A past as-of reads what was public by the
     end of that date (a roster row added or a filing filed after it never appears). Display only; 404 for an
     unknown id."""
-    known_at, clock = serve_view(asof)
+    mclock = market_clock()
+    known_at, clock = serve_view(asof, night=mclock.night)
     if master.get(conn, security_id) is None:
         raise HTTPException(status_code=404, detail="no company with this id")
-    # the clock is part of the key: the same date read live today and on the public clock tomorrow are two reads
+    # F2: a card catalyst is "passed" when it is dated before the countdown origin (the action day when live)
+    origin = countdown_origin(asof, mclock)
+    # the clock and the origin are the key: the same date read live today and on the public clock tomorrow are two
+    # reads, and the origin moves when the night does
     got = cached(
         conn,
         SLUG,
-        (str(security_id), clock),
+        (str(security_id), clock, origin),
         asof,
-        lambda: read_lookup(conn, security_id, asof, known_at, clock),
+        lambda: read_lookup(conn, security_id, asof, known_at, clock, origin),
     )
     return TickerLookupOut.model_validate(
         {

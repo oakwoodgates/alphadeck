@@ -29,7 +29,8 @@ not ``market_today()`` but the night the nightly pass most recently recorded or 
 passed on a scheduled day, else the prior scheduled day (Tuesday 09:00 -> Monday; Tuesday 22:30 -> Tuesday;
 Saturday -> Friday). It is the app's default as-of (served by ``GET /clock``), and the serve path's live test
 (``serve_view``) is "on or after the current night". The **action day** is the first scheduled day after it
-(``action_day``): the day the operator acts on that night's call. ``market_today()`` itself is unchanged.
+(``action_day``): the day the operator acts on that night's call; a COUNTDOWN to a future date counts from it on a
+live view (``countdown_origin``, F2). ``market_today()`` itself is unchanged.
 
 **What it is NOT, part two:** transaction time. ``datetime.now(timezone.utc)`` pins ``recorded_at`` (when
 we learned a fact) and is correctly UTC — bitemporal record-keeping, not a trading day. Do not route those
@@ -241,6 +242,29 @@ def serve_view(
     """
     known_at = serve_known_at(asof, today, night=night)
     return known_at, ("record" if known_at is None else "public")
+
+
+def countdown_origin(asof: date, clock: MarketClock | None = None) -> date:
+    """The day a COUNTDOWN to a future date counts from (F2, 2026-10-30): the action day on a live view, else the
+    as-of itself.
+
+    The as-of is the night, for the data; the action day (the first scheduled day after it) is the day the operator
+    acts on that night's call, so it is the day the WORDS count from. A catalyst dated Tuesday reads "today" on
+    Tuesday morning (the view of Monday's night), and one dated Monday reads "passed". Without this, F1 alone would
+    shift every countdown by one: Tuesday's catalyst would read "in 1 day" on the Tuesday morning it happens.
+
+    **Live = on or after the current night** (the same test as ``serve_view``): the origin is ``clock.action_day``.
+    A past view (before the current night) keeps its as-of, unchanged. A date equal to the origin reads "today"; a
+    date before it reads "passed" (the caller's words: "lapsed" for an entry window).
+
+    **Countdowns only.** The AGE of a past event (a filing's "Nd", "N days before the as-of", the days a card has
+    sat in a state, ``days_after_night``, "filed N days after the trade") describes the record and still counts from
+    the night. ``sessions_left`` is the call path's own count (sessions after the night) and is not re-based.
+
+    ``clock`` is the request's one ``market_clock()`` read (the same one ``serve_view`` got its night from, so the
+    two cannot straddle ``RUN_AT``); ``None`` reads the clock here."""
+    c = clock or market_clock()
+    return c.action_day if asof >= c.night else asof
 
 
 def serve_decisions_asof(asof: date, clock: MarketClock | None = None) -> date:

@@ -90,7 +90,7 @@ describe("the clock cells", () => {
   it("words the hold horizon: days while running, passed after, no clock without one", () => {
     expect(holdWords(row({ hold_days: 18 }))).toBe("18 days");
     expect(holdWords(row({ hold_days: 1 }))).toBe("1 day");
-    expect(holdWords(row({ hold_days: 0 }))).toBe("0 days");
+    expect(holdWords(row({ hold_days: 0 }))).toBe("today"); // the horizon ends on the origin day (F2)
     expect(holdWords(CLOSED)).toBe("hold horizon passed");
     expect(holdWords(NO_CLOCKS)).toBe("no hold clock");
   });

@@ -107,6 +107,12 @@ export function daysFrom(asof: string, target: string | null | undefined): numbe
   return Math.round((t - a) / 86_400_000);
 }
 
+/** F2 — a countdown's days as the short cell word: "today" at 0 (the date IS the countdown origin), else "Nd". The
+ *  caller words a negative count itself ("passed", "lapsed", "Nd ago"): the words differ by what is counting. */
+export function dayCount(d: number): string {
+  return d === 0 ? "today" : `${d}d`;
+}
+
 export function fmtDate(d: string | null | undefined): string {
   if (!d) return "—";
   const t = Date.parse(`${d}T00:00:00Z`);

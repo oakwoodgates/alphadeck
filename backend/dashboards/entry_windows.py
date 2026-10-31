@@ -39,6 +39,9 @@ The rules, in one place:
   ``lapsing``) are true when ANY armed member's own flag is true (operator decision 2026-10-30), so the page's one
   accent marks a card whose second name's window is closing, not only the headline name's; a card with no armed
   member records neither.
+- **Countdowns count from the origin (F2).** ``hold_days`` (days to ``exit_by``) and a catalyst's ``passed`` flag are
+  COUNTDOWNS, so they count from ``origin`` (``domain.market_time.countdown_origin``: the action day on a live view,
+  the as-of on a past one; the as-of when none is given). The session counts above stay on the as-of.
 - **The member clocks.** The row's own figures count to the CARD's ``arm_until`` / ``exit_by`` (the headline
   member's, ``armed_members[0]``), so a row marked by another name carries that name's own clock: one ``MemberClock``
   per armed member (each once) whose own ``entry_window_closing`` or ``lapsing`` is true, with the sessions left
@@ -384,10 +387,10 @@ def window_end(arm_until: date | None, exit_by: date | None) -> date | None:
 
 
 def catalysts_in_window(
-    catalysts: Iterable[Catalyst], start: date, end: date | None, asof: date
+    catalysts: Iterable[Catalyst], start: date, end: date | None, origin: date
 ) -> tuple[CatalystTick, ...]:
     """The dated catalysts with ``start <= date <= end`` (a card with no clock to bound them places none), each
-    once by id, by date then label."""
+    once by id, by date then label. ``passed`` = dated before the countdown ``origin`` (F2)."""
     if end is None:
         return ()
     seen: set[UUID] = set()
@@ -396,7 +399,7 @@ def catalysts_in_window(
         if c.when_date is None or not (start <= c.when_date <= end) or c.id in seen:
             continue
         seen.add(c.id)
-        out.append(CatalystTick(c.label, c.kind, c.when_date, c.when_date < asof))
+        out.append(CatalystTick(c.label, c.kind, c.when_date, c.when_date < origin))
     out.sort(key=lambda t: (t.when_date, t.label))
     return tuple(out)
 
@@ -561,14 +564,17 @@ def entry_windows(
     asof: date,
     live_cards: int,
     not_yet_created: int = 0,
+    origin: date | None = None,
 ) -> EntryWindows:
-    """The whole page for ``asof``.
+    """The whole page for ``asof``. ``origin`` = where the countdowns (``hold_days``, a catalyst's ``passed``) count
+    from (F2); the as-of when none is given.
 
     ``cards`` = the counted cards ``(id, name)``; ``nights`` = each card's ``calls`` rows at or before the as-of;
     ``recorded`` = the winning card of every night of every run, keyed ``(thesis id, night)``; ``closes`` = the
     armed names' closes (a flagged name need not be there: it is never read); ``flagged`` = ``security_id ->
     reason`` from ``price_flags``; ``bench`` = ``{"IWM": {day: close}, "SPY": ...}``.
     """
+    origin = origin or asof
     ordered = sorted(cards, key=lambda c: (c[1].casefold(), str(c[0])))
     runs: dict[UUID, Run] = {}
     states = {"warming": 0, "incubating": 0, "managing_no_run": 0, "no_call": 0}
@@ -654,13 +660,13 @@ def entry_windows(
                 sessions_into=sessions_between(calendar, arm_night, asof) if calendar else None,
                 sessions_left=left,
                 closed_ago=closed,
-                hold_days=(card.exit_by - asof).days if card.exit_by is not None else None,
+                hold_days=(card.exit_by - origin).days if card.exit_by is not None else None,
                 member_clocks=member_clocks(card.armed_members, tickers, calendar, asof),
                 catalysts=catalysts_in_window(
                     card.catalyst_surface,
                     arm_night,
                     window_end(card.arm_until, card.exit_by),
-                    asof,
+                    origin,
                 ),
                 members=tuple(members),
                 since=row_since(sids, closes, flagged, bench, arm_night, asof),

@@ -330,7 +330,7 @@ function Due({ data, asof, onSelect }: { data: DailyDigestOut; asof: string; onS
                 title={`Open ${i.thesis_name}`}
                 onClick={() => onSelect(i.thesis_id)}
               >
-                <span className="dd-when">{dueWhen(i)}</span>
+                <span className="dd-when">{dueWhen(i, data.clock === "public")}</span>
                 <span className="dd-cardcol">{i.thesis_name}</span>
                 <span className="dd-what">{dueWhat(i)}</span>
               </button>

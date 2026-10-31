@@ -5,7 +5,7 @@ rows through the shared reader (``dashboards/filings.py``), their trailing retur
 point-in-time view (the ``trailing_returns`` display member, run once per company on the request's one
 ``serve_view(asof)`` pair), their identity and which of them have a data flag that reaches their price readings
 (``dashboards.baskets.price_flags``), and hands everything to the pure compute in ``dashboards/read_through.py``.
-The whole table is computed once per (clock, as-of) in the shared dashboard cache (``dashboards/cache.py``,
+The whole table is computed once per (clock, origin, as-of) in the shared dashboard cache (``dashboards/cache.py``,
 ``docs/DASHBOARDS.md`` rule 7); tabs, sort and filters are the page's. Its wire models live here, not in
 ``app/schemas_api.py`` (rule 8).
 """
@@ -46,7 +46,7 @@ from dashboards.read_through import (
 from dashboards.read_through import read_through as compute_read_through
 from db.session import DEFAULT_TENANT_ID
 from domain.enums import ContextRole
-from domain.market_time import serve_view
+from domain.market_time import countdown_origin, market_clock, serve_view
 from securities import master
 from signals.base import PointInTimeData
 from signals.display import trailing_returns
@@ -92,8 +92,9 @@ class ReadThroughFilingOut(_Wire):
 
 
 class ReadThroughCatalystOut(_Wire):
-    """The nearest dated card-level catalyst on or after the as-of among the row's cards; ``days`` = its date
-    minus the as-of (0 = the as-of day)."""
+    """The nearest dated card-level catalyst on or after the countdown origin among the row's cards; ``days`` = its
+    date minus the origin (0 = the origin day). The origin is the action day (the session after the night) on a
+    live view and the as-of on a past one."""
 
     thesis_id: UUID
     thesis_name: str
@@ -284,15 +285,18 @@ def read_through(
     30 trading-day return minus SPY's. A company whose data flags reach its price readings shows no tape and is
     named. Sorted by newest last filing. Display only; a past as-of reads what was public by the end of that
     date."""
-    known_at, clock = serve_view(asof)
-    # the clock is part of the key: the same date read live today and on the public clock tomorrow are two
+    mclock = market_clock()
+    known_at, clock = serve_view(asof, night=mclock.night)
+    # F2: the next catalyst counts down from the origin (the action day on a live view)
+    origin = countdown_origin(asof, mclock)
+    # the clock and the origin are the key: the same date read live today and on the public clock tomorrow are two
     # reads (a new run clears the cache anyway; this holds even on a night with no run)
     got = cached(
         conn,
         SLUG,
-        (clock,),
+        (clock, origin),
         asof,
-        lambda: compute_read_through(read_inputs(conn, asof, known_at, clock), asof),
+        lambda: compute_read_through(read_inputs(conn, asof, known_at, clock), asof, origin),
     )
     page = got.value
     return ReadThroughOut.model_validate(

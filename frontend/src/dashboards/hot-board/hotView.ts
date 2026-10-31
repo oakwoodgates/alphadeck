@@ -1,4 +1,4 @@
-import { verdictLabel } from "../../util/format";
+import { fmtDate, verdictLabel } from "../../util/format";
 import type { Heat } from "./heat";
 import type { CapTier, HotBoardOut, HotCandidateCountsOut, HotRowOut, HotTriggerOut, RowKind } from "./useHotBoard";
 
@@ -214,12 +214,19 @@ export function leftCell(r: HotRowOut): Cell {
   return { text: ago > 0 ? `closed ${ago} ago` : "closed", title: `The entry window ended ${c.arm_until}`, gray: true };
 }
 
-export function exitCell(r: HotRowOut): Cell {
+/** The days to the hold horizon: a COUNTDOWN, so the server counts it from the action day on a live view (a horizon that
+ *  ends that day reads "today") and from the as-of on a past one (F2). On a PAST view (`past`: the payload's clock is
+ *  "public") the cell carries the horizon's date too: a bare count would be relative to a day nobody sees. */
+export function exitCell(r: HotRowOut, past = false): Cell {
   const c = r.clocks;
   if (c.exit_by === null || c.days_to_exit === null) return { text: BLANK, title: "No hold clock on this call", gray: true };
-  if (c.days_to_exit < 0) return { text: `passed ${-c.days_to_exit}d`, title: `The hold horizon ended ${c.exit_by}`, gray: true };
+  const on = past ? ` · ${fmtDate(c.exit_by)}` : "";
+  if (c.days_to_exit < 0) return { text: `passed ${-c.days_to_exit}d${on}`, title: `The hold horizon ended ${c.exit_by}`, gray: true };
+  if (c.days_to_exit === 0) {
+    return { text: `today${on}`, title: `The hold horizon ends today, ${c.exit_by}${r.lapsing ? ". Hold clock closing." : ""}` };
+  }
   return {
-    text: `${c.days_to_exit}d`,
+    text: `${c.days_to_exit}d${on}`,
     title: `${plural(c.days_to_exit, "day", "days")} to the hold horizon ${c.exit_by}${r.lapsing ? ". Hold clock closing." : ""}`,
   };
 }

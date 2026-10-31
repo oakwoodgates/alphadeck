@@ -29,6 +29,7 @@ from dashboards.what_changed import (
 from dashboards.what_changed import what_changed as compute_what_changed
 from domain.call import CallCard
 from domain.enums import Kind, State
+from domain.market_time import countdown_origin, market_clock
 from repositories import thesis_repo
 from securities import master
 
@@ -88,7 +89,8 @@ class WhatChangedItemOut(_Wire):
     set for a name or a trigger line (``null`` = a card-level line; ``ticker`` is ``null`` when the master has
     none). ``label`` = the key's own label, or the trigger's. ``on`` = the trigger's event date, or the clock's
     date (``arm_until`` / ``exit_by``); ``previous_on`` = a re-dated trigger's event date on the baseline night
-    (``null`` on every other line); ``days`` = calendar days from the newest night to ``arm_until``.
+    (``null`` on every other line); ``days`` = calendar days from the countdown origin (the action day, the session
+    after the newest night) to ``arm_until``.
     ``reconstructed`` = the card's newest row was written by ``pipeline.backfill``."""
 
     section: Section
@@ -160,6 +162,10 @@ def what_changed(
 
     now = _in_effect(conn, ids, latest) if latest is not None else {}
     baseline = _in_effect(conn, ids, baseline_on) if baseline_on is not None else {}
+    # F2: a "now" view is always live, so the entry-window countdown counts from the action day (the session after
+    # the current night). `latest` can trail the night when a night recorded no change: the page is live all the same.
+    mclock = market_clock()
+    origin = countdown_origin(mclock.night, mclock)
     result = compute_what_changed(
         {t.id: t.name for t in theses},
         now,
@@ -167,6 +173,7 @@ def what_changed(
         master.tickers_for(conn, security_ids([*now.values(), *baseline.values()])),
         latest=latest,
         baseline_on=baseline_on,
+        origin=origin,
     )
     return WhatChangedOut(
         since=choice.mode, since_date=choice.on, first_recorded=first, **asdict(result)

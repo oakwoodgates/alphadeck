@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 
 import type { CallCardResponse, ThesisSummary } from "../api/hooks";
 import { useCalls, useDataFlags, useSetArchived, useTheses } from "../api/hooks";
-import { useAppClock } from "../clock";
+import { countdownOrigin, useAppClock } from "../clock";
 import { DataFlagMark } from "../cockpit/DataFlagMark";
 import { flagsBySid } from "../cockpit/dataFlags";
 import {
@@ -59,7 +59,8 @@ export function Board({ header, asof, onSelect }: Props) {
   // shorten the total (see useCalls)
   const callResults = useCalls(theses, asof);
   // F1 — "past" is before the server's current night (the default view, read live), never before the browser's date
-  const { currentNight } = useAppClock();
+  const appClock = useAppClock();
+  const { currentNight } = appClock;
   // S3 — the data flags across the active baskets (compute-on-read, display-only): a ticker the Board shows
   // (the Decision Queue's headline name, a single-name card) carries the same quiet mark as its Cockpit row
   // when a flag reaches a number on it. A separate read: the cards never wait on it.
@@ -145,7 +146,10 @@ export function Board({ header, asof, onSelect }: Props) {
               // `entry_window_closing` is the assembler's own flag for it (Q14) — read, never re-derived
               // here, and loud (warm) only when set. The queue ORDER is unchanged: this states the clock,
               // it does not rank the theses by it.
-              const armDays = daysFrom(call.asof, call.arm_until);
+              // F2 — a COUNTDOWN: from the action day on a live view (a window ending that day reads "act
+              // today"), from the as-of on a past one, where the date rides with the count
+              const armDays = daysFrom(countdownOrigin(call.asof, appClock), call.arm_until);
+              const pastView = isPastAsof(call.asof, currentNight);
               const closing = Boolean(headline?.entry_window_closing);
               return (
                 <button
@@ -180,7 +184,12 @@ export function Board({ header, asof, onSelect }: Props) {
                           : `the entry window — this entry signal is valid through ${fmtDate(call.arm_until)}`
                       }
                     >
-                      {armDays < 0 ? "entry window lapsed" : `act within ${armDays}d`}
+                      {armDays < 0
+                        ? "entry window lapsed"
+                        : armDays === 0
+                          ? "act today"
+                          : `act within ${armDays}d`}
+                      {pastView && call.arm_until && ` · ${fmtDate(call.arm_until)}`}
                       {closing && " · entry window closing"}
                     </span>
                   )}

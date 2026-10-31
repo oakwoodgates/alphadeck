@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 // NamePanel reads the per-name decision log via useDecisions — the only hook in its render tree (Meter,
@@ -8,6 +8,7 @@ vi.mock("../../api/hooks", () => ({
 }));
 
 import type { ScoredMemberOut } from "../../api/hooks";
+import { ClockProvider } from "../../clock";
 import { bucketDef, type BucketRow } from "../buckets";
 import { NamePanel } from "../NamePanel";
 
@@ -142,5 +143,58 @@ describe("NamePanel — the known feed-limitation note (0056, honest loudness)",
   it("renders nothing for an unmarked feed (the common case)", () => {
     renderPanel(scored({ price_feed_limitation: null } as Partial<ScoredMemberOut>));
     expect(screen.queryByText(/price history limited/)).toBeNull();
+  });
+});
+
+// F2 — the two clocks are COUNTDOWNS: from the action day on a live view, from the as-of on a past one.
+describe("NamePanel — F2 the clocks count from the action day on a live view", () => {
+  const withCall = (call: Record<string, unknown>) => ({
+    ...rowFor(scored({})),
+    call: { verdict: "starter_entry", triggers: [], ...call } as never,
+  });
+  const clocks = () => [...document.querySelectorAll(".np-clocks .clock-row .x")].map((e) => e.textContent);
+  // asof 2026-07-30 (a Thursday) is the night; Friday 07-31 is the action day
+  const live = { currentNight: "2026-07-30", marketToday: "2026-07-31", actionDay: "2026-07-31", failed: false };
+  const show = (call: Record<string, unknown>, server?: typeof live) => {
+    const panel = (
+      <NamePanel
+        row={withCall(call)}
+        def={bucketDef("quiet")}
+        card={undefined}
+        thesisId="t1"
+        position={null}
+        display={null}
+        asof="2026-07-30"
+        onClose={vi.fn()}
+      />
+    );
+    render(server ? <ClockProvider value={server}>{panel}</ClockProvider> : panel);
+  };
+
+  it("counts the entry window and the exit-by from the action day", () => {
+    show({ arm_until: "2026-08-03", exit_by: "2026-09-01" }, live);
+    expect(clocks()).toEqual([
+      "Entry window · confirmation clock · act within 3d",
+      "Hold exit-by · conviction clock · 32d",
+    ]);
+  });
+
+  it("reads a window ending on the action day 'act today', and one that ended on the night 'lapsed'", () => {
+    show({ arm_until: "2026-07-31", exit_by: "2026-07-31" }, live);
+    expect(clocks()).toEqual([
+      "Entry window · confirmation clock · act today",
+      "Hold exit-by · conviction clock · today",
+    ]);
+    cleanup();
+    show({ arm_until: "2026-07-30" }, live);
+    expect(clocks()).toEqual(["Entry window · confirmation clock · lapsed"]);
+  });
+
+  it("counts a past view from its own as-of: the same dates read a day longer", () => {
+    show({ arm_until: "2026-08-03", exit_by: "2026-09-01" }); // no server clock: the browser's date is later
+    expect(clocks()).toEqual([
+      "Entry window · confirmation clock · act within 4d",
+      "Hold exit-by · conviction clock · 33d",
+    ]);
   });
 });

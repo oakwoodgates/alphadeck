@@ -379,6 +379,36 @@ def test_an_entry_window_closing_on_T_is_in_and_one_already_closed_is_out():
     assert diff(cc(arm_until=PREV), base).items == ()
 
 
+def test_the_entry_window_counts_down_from_the_origin_and_the_exit_by_span_stays_on_T():
+    """F2: T is Wednesday 10-28 and a live view counts from Thursday 10-29, the action day. A window ending on T has
+    closed by then (out); one ending on the action day is in, 0 days away ('today'); three days past it is in and
+    four is out. The exit-by 'reached' check is a span of the record and stays on T."""
+    action = date(2026, 10, 29)
+
+    def run(card: CallCard, origin: date | None) -> WhatChanged:
+        return what_changed(
+            {TID: "Grid"},
+            {TID: rec(card)},
+            {TID: rec(cc(asof=PREV))},
+            TICKERS,
+            latest=T,
+            baseline_on=PREV,
+            origin=origin,
+        )
+
+    assert run(cc(arm_until=T), action).items == ()  # the night itself: passed
+    assert lines(run(cc(arm_until=action), action)) == [("entry_window", None, (action, 0))]
+    assert lines(run(cc(arm_until=date(2026, 11, 1)), action)) == [
+        ("entry_window", None, (date(2026, 11, 1), 3))
+    ]
+    assert run(cc(arm_until=date(2026, 11, 2)), action).items == ()
+    # a past view (the origin is T) is the old reading, and so is no origin at all
+    assert lines(run(cc(arm_until=T), T)) == [("entry_window", None, (T, 0))]
+    assert lines(run(cc(arm_until=T), None)) == [("entry_window", None, (T, 0))]
+    # the exit-by reached on T still reads, whatever the origin
+    assert lines(run(cc(exit_by=T), action)) == [("exit_by", None, T)]
+
+
 def test_the_clock_counts_from_T_not_from_the_cards_own_asof():
     # an unchanged card whose newest row is days old: its clock still counts from T
     old = cc(asof=date(2026, 10, 20), arm_until=date(2026, 10, 30))

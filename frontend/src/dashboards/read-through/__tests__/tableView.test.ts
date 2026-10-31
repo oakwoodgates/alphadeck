@@ -240,8 +240,16 @@ describe("the cell words", () => {
     expect(catalystWords(XXX.next_catalyst!).full).toBe(
       "Nov 12, 2026 (Nov 12) · in 15 days · Q3 earnings (earnings) · on Grid",
     );
-    expect(daysWords(0)).toBe("on the as-of date");
+    // F2: a live view counts from the action day, so a catalyst dated it reads "today"; a past view counts from its
+    // as-of and says so (the date is in the cell beside it)
+    expect(daysWords(0)).toBe("today");
+    expect(daysWords(0, true)).toBe("on the as-of date");
     expect(daysWords(1)).toBe("in 1 day");
+    expect(daysWords(1, true)).toBe("in 1 day");
+    expect(catalystWords({ ...XXX.next_catalyst!, days: 0 }).short).toBe("Nov 12 · today · Q3 earnings · Grid");
+    expect(catalystWords({ ...XXX.next_catalyst!, days: 0 }, true).short).toBe(
+      "Nov 12 · on the as-of date · Q3 earnings · Grid",
+    );
     expect(fmtShortDay(null)).toBe("—");
   });
 

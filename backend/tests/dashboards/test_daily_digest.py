@@ -683,6 +683,33 @@ def test_due_this_week_is_the_calendars_bucket_with_the_today_mark_and_the_deadl
     # the exit-by (Sep 30) is later than the week, monday's vote is next week: neither is here
 
 
+def test_due_this_week_counts_from_the_origin_on_a_live_view_and_the_asof_on_a_past_one():
+    """F2: the as-of is the night (Thursday 9-17) and a live view acts the next day, Friday 9-18. From that origin
+    Friday's catalyst is 'today', Thursday's has passed, and the entry window that ended on the night is gone
+    (a passed deadline is never listed); counted from the as-of, as a past view is, Thursday's reads 'today'.
+    """
+    fri, sat = d(18), d(19)
+    t = thesis(
+        T1,
+        "Card A",
+        catalysts=[cat("thursday readout", NIGHT), cat("friday readout", fri), cat("sat", sat)],
+    )
+    now = {T1: eff(cc(State.ARMED, tid=T1, arm_until=NIGHT, exit_by=d(30)))}
+    live = run(theses=[t], now=now, origin=fri).due
+    assert live.start == fri
+    assert [(i.label, i.days, i.today) for i in live.items] == [
+        ("friday readout", 0, True),
+        ("sat", 1, False),
+    ]
+    assert live.passed_total == 1  # Thursday's, to prune
+    past = run(theses=[t], now=now).due  # no origin: counted from the as-of
+    assert past.start == NIGHT
+    assert [(i.label, i.days, i.today) for i in past.items][:2] == [
+        ("thursday readout", 0, True),
+        ("entry window ends", 0, True),
+    ]
+
+
 def test_due_this_week_counts_the_catalysts_that_passed_since_p_and_are_not_yet_pruned():
     monday, friday, thursday = d(21), d(18), d(17)
     t = thesis(
@@ -1058,9 +1085,11 @@ def test_a_page_with_a_night_pair_but_no_change_has_every_section_empty_and_pres
 def client(monkeypatch):
     calls: list[tuple] = []
 
-    def fake_read(conn, asof, known_at, clock):
+    def fake_read(conn, asof, known_at, clock, origin=None):
         calls.append((asof, clock))
-        return daily_digest(inputs(asof=asof, clock=clock, theses=[thesis(T1, "Card A")]))
+        return daily_digest(
+            inputs(asof=asof, clock=clock, theses=[thesis(T1, "Card A")], origin=origin)
+        )
 
     monkeypatch.setattr(router_mod, "read_digest", fake_read)
     monkeypatch.setattr(CACHE, "_token_fn", lambda conn: "gen-1")
@@ -1098,6 +1127,26 @@ def test_the_router_serves_every_section_from_one_cached_read(client):
     assert again["cache"] == "hit" and len(calls) == 1  # one read for both requests
     http.get("/dashboards/daily-digest", params={"asof": "2026-09-18"})
     assert len(calls) == 2  # another as-of is another key
+
+
+def test_the_router_counts_a_live_view_from_the_action_day_and_a_past_one_from_its_asof(
+    client, pin_market_clock
+):
+    """F2: Tuesday 09:00 is Monday's night. The default view of that night is live, so what is due this week counts
+    from Tuesday, the action day (an item dated Tuesday is 'today'); a past view counts from itself.
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    pin_market_clock(datetime(2026, 10, 27, 9, 0, tzinfo=ZoneInfo("America/New_York")))
+    http, _ = client
+    live = http.get("/dashboards/daily-digest", params={"asof": "2026-10-26"}).json()
+    assert (live["clock"], live["due"]["start"]) == ("record", "2026-10-27")
+    past = http.get("/dashboards/daily-digest", params={"asof": "2026-10-23"}).json()
+    assert (past["clock"], past["due"]["start"]) == ("public", "2026-10-23")
+    keys = {k for k in CACHE._entries}
+    assert ("daily-digest", ("record", date(2026, 10, 27)), date(2026, 10, 26)) in keys
+    assert ("daily-digest", ("public", date(2026, 10, 23)), date(2026, 10, 23)) in keys
 
 
 def test_the_router_requires_an_asof_and_takes_no_other_parameter(client):

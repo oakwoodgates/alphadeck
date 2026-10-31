@@ -16488,7 +16488,7 @@
           "state"
         ],
         "title": "DigestDueItemOut",
-        "description": "One dated line of this week: a catalyst, or a card's entry window or exit-by (the Catalyst Calendar's items).\n``today`` = dated the as-of; ``days`` = calendar days from the as-of; ``state`` = the card's state in effect."
+        "description": "One dated line of this week: a catalyst, or a card's entry window or exit-by (the Catalyst Calendar's items).\n``today`` = dated the countdown origin; ``days`` = calendar days from the origin (the action day, the session\nafter the night, on a live view; the as-of on a past one); ``state`` = the card's state in effect."
       },
       "DigestDueOut": {
         "properties": {
@@ -17016,7 +17016,7 @@
           "source"
         ],
         "title": "DigestLineOut",
-        "description": "One line of a card: What Changed's own item. ``ticker`` / ``security_id`` are set for a name or a trigger line;\n``label`` = the key's own label, or the trigger's; ``on`` = the trigger's event date or the clock's date;\n``previous_on`` = a re-dated trigger's earlier date; ``days`` = calendar days from the newest night to the entry\nwindow's end. ``tone``: ``accent`` (a card that entered Armed, a name newly armed, an entry window closing within\n3 days) or ``warm`` (a card that left Armed, an exit-by reached); ``null`` on every other line. ``source`` = a\ntrigger or risk line's first source (``null`` = it states none)."
+        "description": "One line of a card: What Changed's own item. ``ticker`` / ``security_id`` are set for a name or a trigger line;\n``label`` = the key's own label, or the trigger's; ``on`` = the trigger's event date or the clock's date;\n``previous_on`` = a re-dated trigger's earlier date; ``days`` = calendar days from the countdown origin (the action\nday, the session after the newest night, on a live view) to the entry window's end. ``tone``: ``accent`` (a card\nthat entered Armed, a name newly armed, an entry window closing within 3 days) or ``warm`` (a card that left\nArmed, an exit-by reached); ``null`` on every other line. ``source`` = a trigger or risk line's first source\n(``null`` = it states none)."
       },
       "DigestNightsOut": {
         "properties": {
@@ -19695,7 +19695,7 @@
           "spark"
         ],
         "title": "EntryWindowsRowOut",
-        "description": "One Armed (``state`` ``armed``) or Managing card. ``arm_night`` = the first night of the card's current\nrecorded Armed run; ``in_effect`` = the recorded night whose card the row shows; ``reconstructed`` = the arm\nnight's row was written by ``pipeline.backfill`` (reported, never scored). ``arm_until`` / ``exit_by`` = the\nentry window and the hold horizon (``null`` = no clock). ``sessions_into`` = the IWM sessions after the arm\nnight through the as-of; ``sessions_left`` = the Mon-Fri days after the as-of through ``arm_until`` (while the\nwindow is open); ``closed_ago`` = the IWM sessions since it closed (``0`` on its last day); ``hold_days`` =\ncalendar days from the as-of to ``exit_by`` (negative = passed). Each flag is true when ANY armed member's own\nflag is true; ``member_clocks`` lists those members with their own entry clock, since the figures above count to\nthe card's (the headline name's) clocks."
+        "description": "One Armed (``state`` ``armed``) or Managing card. ``arm_night`` = the first night of the card's current\nrecorded Armed run; ``in_effect`` = the recorded night whose card the row shows; ``reconstructed`` = the arm\nnight's row was written by ``pipeline.backfill`` (reported, never scored). ``arm_until`` / ``exit_by`` = the\nentry window and the hold horizon (``null`` = no clock). ``sessions_into`` = the IWM sessions after the arm\nnight through the as-of; ``sessions_left`` = the Mon-Fri days after the as-of through ``arm_until`` (while the\nwindow is open); ``closed_ago`` = the IWM sessions since it closed (``0`` on its last day); ``hold_days`` =\ncalendar days from the countdown origin to ``exit_by`` (negative = passed; the origin is the action day, the\nsession after the night, on a live view and the as-of on a past one). Each flag is true when ANY armed member's own\nflag is true; ``member_clocks`` lists those members with their own entry clock, since the figures above count to\nthe card's (the headline name's) clocks."
       },
       "EntryWindowsSinceOut": {
         "properties": {
@@ -23173,7 +23173,7 @@
           "days_to_exit"
         ],
         "title": "HotClocksOut",
-        "description": "A row's clocks at the as-of. ``arm_night`` = the first night of the member's current recorded run\n(``arm_reconstructed`` = that night was rebuilt by ``pipeline.backfill``); ``sessions_since`` = sessions after it\nthrough the as-of on IWM's bar calendar; ``sessions_left`` = Mon-Fri sessions after the as-of through\n``arm_until`` (``null`` once it has passed, when ``closed_ago`` = the sessions since it ended); ``days_to_exit`` =\ncalendar days from the as-of to ``exit_by`` (negative = passed)."
+        "description": "A row's clocks at the as-of. ``arm_night`` = the first night of the member's current recorded run\n(``arm_reconstructed`` = that night was rebuilt by ``pipeline.backfill``); ``sessions_since`` = sessions after it\nthrough the as-of on IWM's bar calendar; ``sessions_left`` = Mon-Fri sessions after the as-of through\n``arm_until`` (``null`` once it has passed, when ``closed_ago`` = the sessions since it ended); ``days_to_exit`` =\ncalendar days from the countdown origin to ``exit_by`` (negative = passed). The origin is the action day (the\nsession after the night) on a live view and the as-of on a past one."
       },
       "HotFlaggedOut": {
         "properties": {
@@ -32557,7 +32557,7 @@
           "days"
         ],
         "title": "ReadThroughCatalystOut",
-        "description": "The nearest dated card-level catalyst on or after the as-of among the row's cards; ``days`` = its date\nminus the as-of (0 = the as-of day)."
+        "description": "The nearest dated card-level catalyst on or after the countdown origin among the row's cards; ``days`` = its\ndate minus the origin (0 = the origin day). The origin is the action day (the session after the night) on a\nlive view and the as-of on a past one."
       },
       "ReadThroughFilingOut": {
         "properties": {
@@ -36802,7 +36802,7 @@
           "passed"
         ],
         "title": "TickerLookupCardCatalystOut",
-        "description": "A thesis-level catalyst of a card the company counts on (``null`` ``when_date`` = undated)."
+        "description": "A thesis-level catalyst of a card the company counts on (``null`` ``when_date`` = undated). ``passed`` = dated\nbefore the countdown origin: the action day (the session after the night) on a live view, the as-of on a past\none."
       },
       "TickerLookupCardNameOut": {
         "properties": {
@@ -40273,7 +40273,7 @@
           "days"
         ],
         "title": "WhatChangedItemOut",
-        "description": "One line. ``section`` = its group on the page; ``change`` = what moved. ``security_id`` / ``ticker`` are\nset for a name or a trigger line (``null`` = a card-level line; ``ticker`` is ``null`` when the master has\nnone). ``label`` = the key's own label, or the trigger's. ``on`` = the trigger's event date, or the clock's\ndate (``arm_until`` / ``exit_by``); ``previous_on`` = a re-dated trigger's event date on the baseline night\n(``null`` on every other line); ``days`` = calendar days from the newest night to ``arm_until``.\n``reconstructed`` = the card's newest row was written by ``pipeline.backfill``."
+        "description": "One line. ``section`` = its group on the page; ``change`` = what moved. ``security_id`` / ``ticker`` are\nset for a name or a trigger line (``null`` = a card-level line; ``ticker`` is ``null`` when the master has\nnone). ``label`` = the key's own label, or the trigger's. ``on`` = the trigger's event date, or the clock's\ndate (``arm_until`` / ``exit_by``); ``previous_on`` = a re-dated trigger's event date on the baseline night\n(``null`` on every other line); ``days`` = calendar days from the countdown origin (the action day, the session\nafter the newest night) to ``arm_until``.\n``reconstructed`` = the card's newest row was written by ``pipeline.backfill``."
       },
       "WhatChangedOut": {
         "properties": {

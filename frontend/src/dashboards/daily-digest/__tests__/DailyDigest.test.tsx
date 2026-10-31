@@ -381,7 +381,8 @@ describe("DailyDigest — positions", () => {
 
 describe("DailyDigest — due this week", () => {
   it("lists the bucket's lines with the 'today' mark and the quiet passed count", () => {
-    setup();
+    // a LIVE view (clock "record"): the server counts the lines from the action day, so the origin day reads "today"
+    setup(payload({ clock: "record" }));
     const rows = screen.getAllByTestId("dd-due-row");
     expect(rows.map((r) => r.textContent)).toEqual([
       "todayCard CReadout · regulatory",
@@ -391,6 +392,13 @@ describe("DailyDigest — due this week", () => {
     expect(rows[0]).toHaveClass("dd-today");
     expect(rows[1]).not.toHaveClass("dd-today");
     expect(screen.getByTestId("dd-passed")).toHaveTextContent("1 catalyst passed since Wed, Sep 16 and is not yet pruned (3 passed in all).");
+  });
+
+  it("carries the date on the 'today' line of a PAST view, where 'today' would name a day nobody sees (F2)", () => {
+    setup(); // the fixture is a past view (clock "public")
+    const rows = screen.getAllByTestId("dd-due-row");
+    expect(rows[0].textContent).toBe("Thu, Sep 17 · on the as-of dateCard CReadout · regulatory");
+    expect(rows[1].textContent).toBe("Fri, Sep 18 · in 1 dayCard Dentry window ends"); // already dated
   });
 
   it("opens the card from a line", async () => {

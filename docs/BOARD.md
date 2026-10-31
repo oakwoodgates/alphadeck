@@ -58,7 +58,10 @@ persisted for display. Change the as-of, and the whole board re-derives — it i
   reaches a number on it. Each item also states its **act-by clock** — "act within 3d", the card's
   `arm_until` (the headline name's entry window) — muted, and warm with "· entry window closing" only when the
   call's own `entry_window_closing` flag on the headline name is set (Q14; read, never re-derived). It states
-  the clock; it never reorders the queue by it (columns and queue do not rank theses, #4).
+  the clock; it never reorders the queue by it (columns and queue do not rank theses, #4). The clock is a
+  **countdown**, so on a live view it counts from the **action day** (F2): "act today" when the window ends on
+  that day, "entry window lapsed" when it ended on the night; on a past view it counts from the call's as-of and
+  carries the date ("act within 5d · Oct 18").
   **No armed item is ever clipped away.** The strip wraps; past **two rows** it folds the rest behind a quiet
   **"+N more"** at its right edge (N = the items held back, always on screen), and one click opens every item
   (**"show fewer"** folds it back — reversible, WB#1). The fold is by position in the existing order, never by
@@ -392,11 +395,13 @@ State-classed (its accent follows the lifecycle), recomputed at `card.asof`. Top
   triggers.
 - **Catalysts through exit-by** — the card's `catalyst_surface`: the dated binary events the assembler keeps
   inside the `exit_by` window (it keeps every dated entry on or before it, so a date already past rides along),
-  listed soonest-first with a day count, a past one grayed and marked "passed". Ambient context beside the clocks
+  listed soonest-first with a day count from the action day on a live view (a date equal to it reads "today"; one
+  before it is "passed"; a past view counts from its as-of), a past one grayed and marked "passed". Ambient context beside the clocks
   it sits between; an empty surface draws no panel. (`safe_sleeve` is not rendered — the assembler never fills it.)
 - **The two clocks** (sticky-on-confirmation, §6): `arm_until` — the **entry window** (confirmation's
   clock; on an Armed card it's an act-by deadline, "act within Nd", plus "· entry window closing" when the
-  headline member's `entry_window_closing` is set; informational decay otherwise) — and
+  headline member's `entry_window_closing` is set; informational decay otherwise; counted from the action day on
+  a live view, F2) — and
   `exit_by` — the **signal-validity horizon** (conviction's clock and post-fill monitoring/scoring yardstick,
   not a mandatory exit or sell-by date).
 - **Decision capture — the action row** (`DecisionActions`): every button **logs**, nothing routes (#5).

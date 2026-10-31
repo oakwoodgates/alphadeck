@@ -79,11 +79,14 @@ export function memberHoldLines(row: EntryWindowsRowOut): string[] {
   return row.member_clocks.filter((c) => c.lapsing).map((c) => `${tickerOf(c)} · ${HOLD_TAG}`);
 }
 
-/** Days to the hold horizon, or why there is none. */
+/** Days to the hold horizon, or why there is none. A COUNTDOWN: the server counts it from the action day on a live view
+ *  and from the as-of on a past one (F2), so a horizon that ends on the origin day reads "today". The horizon's date
+ *  rides under the figure on every view (`to Dec 3`), so a past view needs no date added. */
 export function holdWords(row: EntryWindowsRowOut): string {
   if (row.exit_by == null) return "no hold clock";
   if (row.hold_days == null) return "—";
   if (row.hold_days < 0) return "hold horizon passed";
+  if (row.hold_days === 0) return "today";
   return plural(row.hold_days, "day", "days");
 }
 

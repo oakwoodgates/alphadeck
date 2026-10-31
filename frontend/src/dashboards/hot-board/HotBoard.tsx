@@ -185,10 +185,12 @@ function KeysCell({ r }: { r: HotRowOut }) {
 type RowProps = {
   r: HotRowOut;
   heat: Heat | undefined;
+  /** a past view (the payload's clock is "public"): the countdown cells carry their dates too */
+  past: boolean;
   onSelectThesis: DashboardProps["onSelectThesis"];
 };
 
-const Row = memo(function Row({ r, heat, onSelectThesis }: RowProps) {
+const Row = memo(function Row({ r, heat, past, onSelectThesis }: RowProps) {
   const tape = tapeCells(r);
   const since = sinceArmCells(r);
   const mark = leadingMark(r);
@@ -242,7 +244,7 @@ const Row = memo(function Row({ r, heat, onSelectThesis }: RowProps) {
       <CellTd cell={armNightCell(r)} />
       <CellTd cell={sinceCell(r)} />
       <CellTd cell={leftCell(r)} />
-      <CellTd cell={exitCell(r)} />
+      <CellTd cell={exitCell(r, past)} />
       <CellTd cell={since.ret} />
       <CellTd cell={since.iwm} />
       <CellTd cell={tape.rvol} />
@@ -449,7 +451,13 @@ export default function HotBoard({ asof, onSelectThesis }: DashboardProps) {
             </thead>
             <tbody>
               {sorted.map((r) => (
-                <Row key={r.key} r={r} heat={heats.get(r.key)} onSelectThesis={onSelectThesis} />
+                <Row
+                  key={r.key}
+                  r={r}
+                  heat={heats.get(r.key)}
+                  past={data.clock === "public"}
+                  onSelectThesis={onSelectThesis}
+                />
               ))}
             </tbody>
           </table>

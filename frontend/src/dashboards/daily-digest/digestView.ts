@@ -162,7 +162,7 @@ export function lineWords(l: DigestLineOut): string {
     case "entry_window": {
       const days = l.days ?? 0;
       return days === 0
-        ? `entry window closes on the night · ${fmtDate(l.on)}`
+        ? `entry window closes today · ${fmtDate(l.on)}`
         : `entry window closes in ${plural(days, "day", "days")} · ${fmtDate(l.on)}`;
     }
     case "exit_by":
@@ -318,8 +318,10 @@ export const killTitle = (p: DigestPositionOut): string | undefined =>
 // 3. due this week
 // ---------------------------------------------------------------------------------------------------------
 
-export const dueWhen = (i: DigestDueItemOut): string =>
-  i.today ? "today" : `${dayWord(i.on)} · in ${plural(i.days, "day", "days")}`;
+/** A due line's "when": a COUNTDOWN the server counts from the action day on a live view (F2), so an item dated that day
+ *  reads "today". On a PAST view (`past`) "today" would name a day nobody sees, so the line carries its date. */
+export const dueWhen = (i: DigestDueItemOut, past = false): string =>
+  i.today ? (past ? `${dayWord(i.on)} · on the as-of date` : "today") : `${dayWord(i.on)} · in ${plural(i.days, "day", "days")}`;
 
 export function dueWhat(i: DigestDueItemOut): string {
   if (i.item === "entry_window") return "entry window ends";

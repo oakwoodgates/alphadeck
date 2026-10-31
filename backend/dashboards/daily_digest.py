@@ -30,8 +30,10 @@ The rules, in one place:
   from the first close on or after the fill date; the end is the last close on or before the as-of. IWM is read over
   the same two dates. Shares times price shows only when both were logged.
 - **Due this week** is the Catalyst Calendar's ``this_week`` bucket (``catalyst_calendar.catalyst_calendar`` with
-  ``today = `` the as-of and each card's latest call = the card in effect at the as-of), an item dated the as-of
-  marked ``today``, plus how many catalysts PASSED after P and are not yet pruned.
+  ``today = `` the countdown origin and each card's latest call = the card in effect at the as-of), an item dated the
+  origin marked ``today``, plus how many catalysts PASSED after P and are not yet pruned. The origin is the ACTION
+  day on a live view (F2: Monday night's page reads a Tuesday catalyst as "today"), the as-of on a past one.
+  ``days_after_night`` is an age of the record and stays on the as-of.
 - **Insider buys** are Insider Buying's rows (``insider_tracker.purchase_of`` on the shared reader's Form 4 rows),
   cut to the FILING dates in (P, N]: the cluster rule (``insider_tracker.clusters``) sees the filings from P less
   ``CLUSTER_WINDOW_DAYS`` through N (the lead-in; nothing filed after N, so the page reads as of the night), and "became
@@ -163,7 +165,10 @@ class DigestInputs:
     = the held position per Managing card (absent = none logged by the as-of); ``filings`` = each voting name's reader
     rows dated from ``P - CLUSTER_WINDOW_DAYS`` through the as-of; ``nights`` = each counted card's recorded nights in
     (P, N]; ``runs`` = the log rows the arm-night walk reads; ``tapes`` = the closes of the names on a row;
-    ``iwm_bars`` = IWM's closes; ``flagged`` = ``security -> reason`` for the names on a row."""
+    ``iwm_bars`` = IWM's closes; ``flagged`` = ``security -> reason`` for the names on a row. ``origin`` = the day the
+    COUNTDOWNS (an entry window closing, a catalyst coming due) count from: the action day on a live view, the as-of
+    on a past one (``domain.market_time.countdown_origin``). The AGES (``days_after_night``) stay on the as-of.
+    """
 
     asof: date
     clock: Literal["record", "public"]
@@ -189,6 +194,7 @@ class DigestInputs:
     ciks: Mapping[UUID, str | None] = field(
         default_factory=dict
     )  # the issuer CIKs a source link is built from
+    origin: date | None = None  # where the countdowns count from (F2); the as-of when None
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -357,6 +363,7 @@ def last_night(
     latest: date | None,
     previous: date | None,
     ciks: Mapping[UUID, str | None] | None = None,
+    origin: date | None = None,
 ) -> LastNight:
     """Section 1: What Changed's diff over the two in-effect reads, grouped by card, Armed-touching cards first. With
     no P (the record's first night, or no recorded night at all) there is nothing to compare: no card, no line.
@@ -370,6 +377,7 @@ def last_night(
         tickers,
         latest=latest,
         baseline_on=previous,
+        origin=origin,
     )
     by_card: dict[UUID, list[ChangeItem]] = {}
     for item in result.items:
@@ -680,7 +688,8 @@ def position_rows(
 @dataclass(frozen=True)
 class DueItem:
     """One dated line of this week (a catalyst, or a card's entry window or exit-by). ``today`` = it is dated the
-    as-of. ``days`` = calendar days from the as-of."""
+    countdown origin. ``days`` = calendar days from the origin (the action day on a live view, the as-of on a past
+    one)."""
 
     item: Literal["catalyst", "entry_window", "exit_by"]
     on: date
@@ -731,7 +740,7 @@ def due_this_week(inp: DigestInputs) -> DueThisWeek:
         tid: LatestCall(r.card.state.value, r.card.arm_until, r.card.exit_by)
         for tid, r in inp.now.items()
     }
-    cal = catalyst_calendar(inp.theses, latest, today=inp.asof)
+    cal = catalyst_calendar(inp.theses, latest, today=inp.origin or inp.asof)
     bucket = cal.buckets[0]  # "this_week": today through the coming Sunday
     items = tuple(_due(i) for i in bucket.items)
     assert bucket.end is not None
@@ -1183,6 +1192,7 @@ def daily_digest(inp: DigestInputs) -> DailyDigest:
         latest=inp.latest,
         previous=inp.previous,
         ciks=inp.ciks,
+        origin=inp.origin,
     )
     positions = position_rows(inp, last, bench, calendar)
     tp = build_tape(inp, bench, calendar, source)
