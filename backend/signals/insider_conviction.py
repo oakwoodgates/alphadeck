@@ -187,36 +187,40 @@ class _Candidate(NamedTuple):
     public: date
 
 
-def _public_instant(txn: dict[str, Any]) -> datetime | None:
-    """When the market could first read this buy (F8): its SEC acceptance (``accepted``), else the row's
-    ``recorded_at`` — on a public-clock read (every history view, the editions mirror) that IS the version's
-    public instant, which for a fact with no acceptance on any version is the FIRST instant we held it
-    (``db.public_clock``, never early); on the live read it is the instant the picked version was stored (never
-    earlier than that). The pair is the existing "disclosed" convention (``COALESCE(accepted, recorded_at)``,
-    the joint-report first-reporter order). ``None`` only for a hand-built row carrying neither — every stored
-    row has a ``recorded_at``. A naive value (no engine returns one) is read as UTC."""
-    for col in ("accepted", "recorded_at"):
-        v = txn.get(col)
-        if isinstance(v, datetime):
-            return v if v.tzinfo is not None else v.replace(tzinfo=timezone.utc)
+# what a buy's provenance says when its row carries no SEC acceptance (its clock is then its trade date)
+NO_ACCEPTANCE = "no acceptance stored"
+
+
+def _acceptance(txn: dict[str, Any]) -> datetime | None:
+    """The buy's SEC acceptance (``accepted``) as an aware instant, or ``None`` when the row carries none. NEVER
+    ``recorded_at``: when we stored a row is bookkeeping, and a clock reading it made the card depend on the
+    ingest — two ingests of one filing wrote different cards, every re-version (a repair, a re-parse)
+    re-recorded it, and the live read moved a stale buy's clock to a repair's night (fresh again, able to
+    re-arm). A naive value (no engine returns one) is read as UTC."""
+    v = txn.get("accepted")
+    if isinstance(v, datetime):
+        return v if v.tzinfo is not None else v.replace(tzinfo=timezone.utc)
     return None
 
 
-def _public_night(buys: Sequence[dict[str, Any]], anchor: date, asof: date) -> date:
-    """THE INSIDER CLOCK (F8, operator decision 2026-10-31, rule log ``2026-11-insider-clock-from-filing``): the
-    night the cluster's LATEST filing became public — ``domain.market_time.edgar_night`` of the latest
-    ``_public_instant`` among its kept buys (a time inside EDGAR's hours is its own market date; a stored time
-    past midnight or on a weekend belongs to the night whose read first holds it, F6).
+def _buy_night(txn: dict[str, Any]) -> date:
+    """One buy's clock day: the night its Form 4 was public (``edgar_night`` of its acceptance — a time inside
+    EDGAR's hours is its own market date, one past midnight belongs to the night whose read first holds it,
+    F6), never before its own trade (an acceptance stored before the trade is bad data); a buy with no
+    acceptance keeps its TRADE date, the rule before F8 (the read still decides whether the row is visible at
+    all, so this is never a lookahead — it only keeps that buy's window where it was)."""
+    at = _acceptance(txn)
+    trade = txn["valid_from"]
+    return trade if at is None else max(trade, edgar_night(at))
 
-    Two bounds, both so the clock is never early and never past the night being read:
-    - never before ``anchor`` (the cluster's latest trade): a filing cannot precede its trade, so a stored time
-      that does is bad data, and the clock falls back to the trade date — the rule before F8 — rather than
-      counting earlier;
-    - never after ``asof``: only the live read of a past night (F1's morning view, which reads everything held
-      by now) can hold a filing public after that night; it counts from the night read.
-    A row with no instant at all (a hand-built row) leaves the trade date as the clock."""
-    nights = [edgar_night(at) for t in buys if (at := _public_instant(t)) is not None]
-    return min(max([anchor, *nights]), asof)
+
+def _public_night(buys: Sequence[dict[str, Any]], asof: date) -> date:
+    """THE INSIDER CLOCK (F8, operator decision 2026-10-31, rule log ``2026-11-insider-clock-from-filing``): the
+    latest ``_buy_night`` among the cluster's KEPT buys — the night its latest filing became public (a buy with
+    no acceptance stored counts from its trade date) — never after ``asof``: only the live read of a past night
+    (F1's morning view, which reads everything held by now) can hold a filing public after that night; it
+    counts from the night read. Deterministic in the filings alone: no stored time reaches it."""
+    return min(max(_buy_night(t) for t in buys), asof)
 
 
 def _cluster_at(
@@ -257,7 +261,7 @@ def _cluster_at(
     # F8: the window counts from the night the cluster's latest filing was public, not its trade date — a
     # Form 4 is public a median 2 days after the trade, and a late one could otherwise expire before anyone
     # could read it.
-    public = _public_night(buys, anchor, asof)
+    public = _public_night(buys, asof)
     if not entry_signal_is_live(public, liveness, asof):
         return None
     return _Candidate(is_core, anchor, buys, total_usd, len(distinct), senior, liveness, public)
@@ -267,11 +271,12 @@ def _accession_detail(
     buys: Sequence[dict[str, Any]], accessions: set[str]
 ) -> dict[str, dict[str, Any]]:
     """Each cited filing's work (#6, F8): ``traded`` = the trade dates of the cluster's buys it reports (a joint
-    report's co-reporter filings list the trade they share), ``public`` = the instant the clock read for the
-    buys under its OWN accession (``_public_instant``; absent for a co-reporter's filing, which the read
-    holds no row of)."""
+    report's co-reporter filings list the trade they share); ``accepted`` = the SEC acceptance the clock read
+    for the buys under its OWN accession, or ``NO_ACCEPTANCE`` when none is stored (that buy's clock is its
+    trade date) — absent for a co-reporter's filing, which the read holds no row of. Only filing facts, never
+    a stored time, so the card is the same on every ingest of the same filings."""
     traded: dict[str, set[date]] = {acc: set() for acc in accessions}
-    public: dict[str, datetime] = {}
+    accepted: dict[str, datetime | None] = {}
     for t in buys:
         own = str(t["accession"]) if t.get("accession") else None
         cited = {str(a) for a in t.get(JOINT_ACCESSIONS) or ()}
@@ -279,17 +284,18 @@ def _accession_detail(
             cited.add(own)
         for acc in cited:
             traded.setdefault(acc, set()).add(t["valid_from"])
-        at = _public_instant(t)
-        if own is not None and at is not None and (own not in public or at > public[own]):
-            public[own] = at
-    # keys in jsonb's own order (shorter first, then bytewise: "public" < "traded"), so a card stored in a jsonb
-    # column (calls, edition pages) reads back byte-identical to the engine's
+        if own is not None:
+            at = _acceptance(t)
+            prev = accepted.get(own)
+            accepted[own] = at if prev is None or (at is not None and at > prev) else prev
+    # keys in jsonb's own order (shorter first, then bytewise: "traded" before "accepted"), so a card stored in a
+    # jsonb column (calls, edition pages) reads back byte-identical to the engine's
     out: dict[str, dict[str, Any]] = {}
     for acc in accessions:
-        d: dict[str, Any] = {}
-        if acc in public:
-            d["public"] = public[acc].astimezone(timezone.utc).isoformat()
-        d["traded"] = [x.isoformat() for x in sorted(traded.get(acc, ()))]
+        d: dict[str, Any] = {"traded": [x.isoformat() for x in sorted(traded.get(acc, ()))]}
+        if acc in accepted:
+            at = accepted[acc]
+            d["accepted"] = NO_ACCEPTANCE if at is None else at.astimezone(timezone.utc).isoformat()
         out[acc] = d
     return out
 
@@ -344,13 +350,14 @@ def score(
     **The clock starts at the filing (F8, operator decision 2026-10-31, rule log
     ``2026-11-insider-clock-from-filing``).** The cluster's COMPOSITION is on trade dates (the walk, the
     window, the grade and the selection above are unchanged); its CLOCK is the night its LATEST filing became
-    public (``_public_night``: the latest SEC acceptance among the CHOSEN cluster's kept buys, else the first
-    instant we held it, never early). The event's ``asof`` — its fire date, so ``event_date``, the liveness
+    public (``_public_night``: the latest night among the CHOSEN cluster's kept buys, each buy's being the night
+    of its SEC acceptance, or its trade date when no acceptance is stored — never a stored time). The event's
+    ``asof`` — its fire date, so ``event_date``, the liveness
     test, ``exit_by`` and the arm date — is that night: a cluster traded Jan 30 → Feb 25 whose last Form 4 was
     accepted Feb 27 fires Feb 27. Before F8 it fired on the latest trade (Feb 25), so a normal filing spent 2-4
     days of an 18-day flip window before anyone could read it, and a late one could expire unseen. The trade
     dates stay in the label ("traded 2026-01-30 to 2026-02-25") and on every accession's provenance
-    (``detail["traded"]``, beside its ``detail["public"]`` instant). **What the walk still bounds:** a
+    (``detail["traded"]``, beside its ``detail["accepted"]`` instant or "no acceptance stored"). **What the walk still bounds:** a
     candidate anchor (trade date) older than the longest graded liveness before ``asof`` is never asked, so a
     trade more than ``max(core, flip liveness)`` days old cannot fire however late its filing (named: it keeps
     ``horizons()`` — the read window — exact). The provenance is the chosen cluster's accessions.
