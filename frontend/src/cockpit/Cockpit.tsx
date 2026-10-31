@@ -9,6 +9,7 @@ import {
   useThesisDataFlags,
   useWorkbenchScored,
 } from "../api/hooks";
+import { useCountdownOrigin } from "../clock";
 import { CallCard } from "../components/CallCard";
 import { DataFlagMark, FlagWrap } from "./DataFlagMark";
 import { cellFlag, derivedCellFlag, factorWords, flagsBySid, stoppedFeedReason } from "./dataFlags";
@@ -48,6 +49,7 @@ import {
   accentVar,
   businessTypeLabel,
   byWhenDateAsc,
+  dayCount,
   daysFrom,
   fmtDate,
   STATE_CLASS,
@@ -92,7 +94,8 @@ function EntryWindow({
   armUntil: string;
   closing: boolean;
 }) {
-  const armDays = daysFrom(asof, armUntil);
+  // F2 — the entry window is a COUNTDOWN: it counts from the action day on a live view, the as-of on a past one
+  const armDays = daysFrom(useCountdownOrigin(asof), armUntil);
   return (
     <span
       className={`entry-window${closing ? " closing" : ""}`}
@@ -103,7 +106,7 @@ function EntryWindow({
       }
     >
       {fmtDate(armUntil)}
-      {armDays !== null && (armDays < 0 ? " · lapsed" : ` · ${armDays}d`)}
+      {armDays !== null && (armDays < 0 ? " · lapsed" : ` · ${dayCount(armDays)}`)}
       {closing && " · entry window closing"}
     </span>
   );
@@ -165,6 +168,8 @@ export function Cockpit({
   onRailChange,
 }: Props) {
   const thesisQ = useThesis(thesisId);
+  // F2 — the catalyst calendar below counts down from the action day on a live view (the as-of on a past one)
+  const countdownFrom = useCountdownOrigin(asof);
   const callQ = useCall(thesisId, asof);
   const scoredQ = useWorkbenchScored(thesisId, asof);
   // read-only per-name indicators, fetched ONCE at page level — the panel's top strip and the
@@ -1056,11 +1061,11 @@ export function Cockpit({
                     copy; the editor below still gets the authoring order, which is what a save stores. A
                     date already past reads "Nd ago" and grays: it stays on the calendar (keep it visible). */}
                 {[...catalysts].sort(byWhenDateAsc).map((c) => {
-                  const d = daysFrom(asof, c.when_date);
+                  const d = daysFrom(countdownFrom, c.when_date);
                   const soon = d !== null && d >= 0 && d <= 21;
                   const passed = d !== null && d < 0;
                   const when = c.when_date
-                    ? `${fmtDate(c.when_date)}${d === null ? "" : d >= 0 ? ` · ${d}d` : ` · ${-d}d ago`}`
+                    ? `${fmtDate(c.when_date)}${d === null ? "" : d >= 0 ? ` · ${dayCount(d)}` : ` · ${-d}d ago`}`
                     : (c.when_label ?? "—");
                   return (
                     <div className={`cat${soon ? " soon" : ""}${passed ? " passed" : ""}`} key={c.id}>

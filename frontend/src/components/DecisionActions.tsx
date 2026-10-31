@@ -6,8 +6,9 @@ import {
   type CallCardResponse,
   type DecisionOut,
 } from "../api/hooks";
+import { useAppClock } from "../clock";
 import { errText } from "../workbench/format";
-import { fmtDate, todayISO } from "../util/format";
+import { fmtDate } from "../util/format";
 
 /** Decision capture — the CallCard's action row, wired to the operator-decisions log.
  *
@@ -28,11 +29,12 @@ export function DecisionActions({
   const decisions = useDecisions(thesisId);
   const post = usePostDecision(thesisId);
   const [form, setForm] = useState<"take" | "close" | "pass" | null>(null);
-  // LOCAL today (todayISO), never toISOString(): UTC-today is TOMORROW after ~8pm ET, and a fill
-  // default-dated one day ahead of the Board's (local) as-of is invisible to it — no-lookahead
-  // correctly hides a future-dated fill, so the operator watched a logged take not flip the card
-  // (the gate-2 catch on 5b draft check: form said Jul 11, the board's as-of said Jul 10).
-  const today = todayISO();
+  // The SERVER's today in market time (F1, clock.ts `marketToday` — the date the route validates against),
+  // never toISOString(): UTC-today is TOMORROW after ~8pm ET, and a fill dated one day ahead is refused as
+  // future-dated (the gate-2 catch on 5b draft check: form said Jul 11, the board's as-of said Jul 10). The
+  // default view is the current night, and the call reads decisions up to the action day on it, so a fill
+  // dated today shows on the card at once. Falls back to the browser's date only without the server's clock.
+  const today = useAppClock().marketToday;
   const [date, setDate] = useState(today);
   const [shares, setShares] = useState("");
   const [price, setPrice] = useState("");

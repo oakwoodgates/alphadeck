@@ -11,6 +11,7 @@ vi.mock("../../api/hooks", () => ({
   useRatifyFact: () => ({ mutate: h.mutate, ...h.ratify }),
 }));
 
+import { ClockProvider } from "../../clock";
 import { CatalystFactForm } from "../CatalystFactForm";
 
 beforeEach(() => {
@@ -64,5 +65,19 @@ describe("CatalystFactForm — the hand-authored conviction fact (Key-1)", () =>
     h.ratify = { ...h.ratify, isSuccess: true, data: { fact_id: "f1", fact_type: "catalyst" } };
     rerender(<CatalystFactForm securityId="s-1" />);
     expect(screen.getByText(/catalyst logged — a Key-1 conviction fact/)).toBeInTheDocument();
+  });
+
+  it("F1: 'known since' defaults to, and is capped at, the server's today, not the browser's date", async () => {
+    const user = userEvent.setup();
+    const server = { currentNight: "2026-10-26", marketToday: "2026-10-27", actionDay: "2026-10-27", failed: false };
+    render(
+      <ClockProvider value={server}>
+        <CatalystFactForm securityId="s-1" />
+      </ClockProvider>,
+    );
+    await user.click(screen.getByRole("button", { name: /log a catalyst/ }));
+    const known = screen.getByLabelText("catalyst event date");
+    expect(known).toHaveValue("2026-10-27");
+    expect(known).toHaveAttribute("max", "2026-10-27");
   });
 });

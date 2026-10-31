@@ -7,9 +7,9 @@ is threaded into every read, the data-flag read and the benchmark's bars), and h
 ``dashboards/hot_board.py``, where every rule lives. It never calls ``call_for_thesis``: the rows are the RECORD.
 Two reads of one candidate set: ``rows=armed`` (the default) runs the tape for the armed rows alone and carries the
 other kinds as counts off the recorded cards; ``rows=all`` runs it for every row (the page asks for it the first time
-a toggle is used). Each read is cached per (rows, clock, as-of) in the shared dashboard cache (``dashboards/cache.py``,
-``docs/DASHBOARDS.md`` rule 7); the toggles, filters, sorts and heat are the page's. Its wire models live here, not in
-``app/schemas_api.py`` (rule 8)."""
+a toggle is used). Each read is cached per (rows, clock, origin, as-of) in the shared dashboard cache
+(``dashboards/cache.py``, ``docs/DASHBOARDS.md`` rule 7); the toggles, filters, sorts and heat are the page's. Its
+wire models live here, not in ``app/schemas_api.py`` (rule 8)."""
 
 from __future__ import annotations
 
@@ -63,7 +63,7 @@ from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard
 from domain.enums import Grade, Kind, State, Verdict
 from domain.market_cap import CapTier
-from domain.market_time import serve_view
+from domain.market_time import countdown_origin, market_clock, serve_view
 from domain.splits import listed_from_row
 from securities import master
 from signals.base import PointInTimeData
@@ -174,8 +174,10 @@ class HotClocksOut(_Wire):
     """A row's clocks at the as-of. ``arm_night`` = the first night of the member's current recorded run
     (``arm_reconstructed`` = that night was rebuilt by ``pipeline.backfill``); ``sessions_since`` = sessions after it
     through the as-of on IWM's bar calendar; ``sessions_left`` = Mon-Fri sessions after the as-of through
-    ``arm_until`` (``null`` once it has passed, when ``closed_ago`` = the sessions since it ended); ``days_to_exit`` =
-    calendar days from the as-of to ``exit_by`` (negative = passed)."""
+    ``arm_until`` while the window is open (the first session after the as-of is on or before ``arm_until``, F3, so
+    at least 1; ``null`` once closed, when ``closed_ago`` = the sessions since it ended); ``days_to_exit`` =
+    calendar days from the countdown origin to ``exit_by`` (negative = passed). The origin is the action day (the
+    session after the night) on a live view and the as-of on a past one."""
 
     arm_night: date | None
     arm_reconstructed: bool
@@ -410,6 +412,7 @@ def read_board(
     known_at: datetime | None,
     clock: Literal["record", "public"],
     rows: RowsRead = "all",
+    origin: date | None = None,
 ) -> HotBoard:
     """The heavy read the cache holds: the candidate rows this read carries (``rows``: the armed ones alone, or every
     counted card's recorded call's), with their clocks, since-arm returns, tape readings and caps, plus every kind's
@@ -486,6 +489,7 @@ def read_board(
         cards_counted=len(counted.cards),
         rows_loaded=rows,
         candidate_counts=count_candidates(all_cands),
+        origin=origin,
     )
 
 
@@ -513,12 +517,19 @@ def hot_board(
     the page's toggles. Display only: it reads the calls log and never the live call; the heat ranking is computed
     on the page from the rows it shows. A past as-of reads what was public by the end of that date.
     """
-    known_at, clock = serve_view(asof)
-    # the rows read and the clock are the key: `armed` and `all` are two reads, and the same date read live today
-    # and on the public clock tomorrow are two reads (a new run clears the cache anyway; this holds even on a
-    # night with no run)
+    mclock = market_clock()
+    known_at, clock = serve_view(asof, night=mclock.night)
+    # F2: the days to the exit-by count from the countdown origin (the action day on a live view)
+    origin = countdown_origin(asof, mclock)
+    # the rows read, the clock and the origin are the key: `armed` and `all` are two reads, the same date read live
+    # today and on the public clock tomorrow are two reads, and the origin moves when the night does (a new run
+    # clears the cache anyway; this holds even on a night with no run)
     got = cached(
-        conn, SLUG, (rows, clock), asof, lambda: read_board(conn, asof, known_at, clock, rows)
+        conn,
+        SLUG,
+        (rows, clock, origin),
+        asof,
+        lambda: read_board(conn, asof, known_at, clock, rows, origin),
     )
     return HotBoardOut.model_validate(
         {**_payload(got.value), "cache": got.status, "compute_ms": got.compute_ms},

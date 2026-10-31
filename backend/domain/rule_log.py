@@ -71,6 +71,16 @@ RULE_LOG: tuple[RuleEntry, ...] = (
             "price bar dated a holiday is neither stored nor read."
         ),
     ),
+    RuleEntry(
+        id="2026-11-entry-window-next-session",
+        date=date(2026, 10, 31),
+        label="a trigger counts only while the next session is inside its window",
+        description=(
+            "A trigger is live on a night only while the first market session after that night falls on or "
+            "before its window's last day, so no card shows an arm, a warm-up or a risk on a night whose "
+            "next session is already outside the window."
+        ),
+    ),
 )
 
 

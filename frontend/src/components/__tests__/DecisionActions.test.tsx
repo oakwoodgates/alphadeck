@@ -17,10 +17,12 @@ vi.mock("../../api/hooks", () => ({
 }));
 
 import type { CallCardResponse } from "../../api/hooks";
+import { ClockProvider } from "../../clock";
 import { DecisionActions } from "../DecisionActions";
 
 // "Today" is PINNED for every test: the clock is frozen at LOCAL noon on a fixed day (beforeEach), so
-// TODAY and the component's todayISO() at render are the same read by construction. Never a
+// TODAY and the component's date at render are the same read by construction (rendered without the app's
+// ClockProvider, the component falls back to the browser's todayISO(); the last block gives it the server's). Never a
 // UTC-derived constant (it diverges from the form's local default near midnight in any non-UTC
 // environment), and never todayISO() at module load: that is read at IMPORT, before the tests run, so
 // a run crossing local midnight compares yesterday with today (the backend's 2026-10-16/17 shape).
@@ -167,5 +169,32 @@ describe("DecisionActions — decision capture on the CallCard", () => {
     render(<DecisionActions thesisId="t1" card={base} />);
     await user.click(screen.getByRole("button", { name: "void this take" }));
     expect(h.mutate.mock.calls[0][0]).toMatchObject({ action: "void", voids: "d1" });
+  });
+});
+
+// F1 — the decision is dated with the SERVER's today in market time (GET /clock via clock.ts), never the browser's:
+// here the browser says the 16th but the server's market day is already the 17th (an evening in a zone west of the
+// market), and the card is the current night's (the 16th, read live).
+describe("DecisionActions — the server's date", () => {
+  const server = {
+    currentNight: "2026-10-16",
+    marketToday: "2026-10-17",
+    actionDay: "2026-10-19",
+    failed: false,
+  };
+
+  it("defaults the decision date to the server's today and caps the picker there", async () => {
+    const user = userEvent.setup();
+    render(
+      <ClockProvider value={server}>
+        <DecisionActions thesisId="t1" card={base} />
+      </ClockProvider>,
+    );
+    await user.click(screen.getByRole("button", { name: /Override — log an early entry/ }));
+    const picker = screen.getByLabelText("decision date");
+    expect(picker).toHaveValue("2026-10-17");
+    expect(picker).toHaveAttribute("max", "2026-10-17");
+    await user.click(screen.getByRole("button", { name: "Log take" }));
+    expect(h.mutate.mock.calls[0][0]).toMatchObject({ action: "take", decision_date: "2026-10-17" });
   });
 });

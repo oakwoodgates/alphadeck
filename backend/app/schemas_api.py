@@ -1305,11 +1305,12 @@ class ScoreboardMetricOut(BaseModel):
 
 
 class AnnotatedNightOut(BaseModel):
-    """One phantom-arm night (D3b): a (thesis, as-of) whose recorded row carries an ACTIVE ``exclude``
-    annotation — under the default reading it is set aside like a reconstructed night; under the
-    ``include_annotated`` reading it is scored. ``reasons`` are the annotation tokens (e.g.
-    ``stale_comparative_revenue``), ``rules`` the code identities that judged it
-    (``d3a-first-knowability@<sha>``), ``n_rows`` the annotated rows on the night."""
+    """One annotated night (D3b, F10): a (thesis, as-of) whose recorded row carries an ACTIVE ``exclude``
+    annotation — a phantom arm, or a row dated a day with no market session — under the default reading it
+    is set aside like a reconstructed night; under the ``include_annotated`` reading it is scored.
+    ``reasons`` are the annotation tokens (e.g. ``stale_comparative_revenue``, ``no_session_day``), ``rules``
+    the code identities that judged it (``d3a-first-knowability@<sha>``, ``no-session-night@<sha>``),
+    ``n_rows`` the annotated rows on the night."""
 
     thesis_id: UUID
     thesis_name: str
@@ -1369,8 +1370,8 @@ class ScoreboardSummaryOut(BaseModel):
     # night that also carries an honest row is scored from it and is NOT listed; the ones here are
     # named once and quietly, never as a per-row chip. Empty = every night has an honest row.
     reconstructed_nights: list[date] = []
-    # D3b — the annotated-night READ POLICY this response was computed under: "excluded" = phantom-arm rows
-    # (an active `exclude` annotation, migration 0045) were dropped before the per-as-of dedup, exactly like
+    # D3b — the annotated-night READ POLICY this response was computed under: "excluded" = annotated rows (phantom
+    # arms, no-session nights; an active `exclude` annotation, migration 0045) were dropped before the per-as-of dedup, exactly like
     # reconstructed rows; "included" = they were scored, as before D3b. Default = the server setting
     # (ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED); `?include_annotated=` overrides per request. A number quoted
     # from this response should name this reading. `annotated_nights` lists the nights either way. "n/a" on an

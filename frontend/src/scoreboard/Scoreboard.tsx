@@ -7,8 +7,9 @@ import type {
   ScoreboardThesisOut,
 } from "../api/hooks";
 import { useScoreboard, useScoreboardEditions } from "../api/hooks";
+import { useAppClock } from "../clock";
 import { Drawer } from "../components/Drawer";
-import { fmtDate } from "../util/format";
+import { fmtDate, isPastAsof } from "../util/format";
 import { annotatedNightsLine, annotatedNightsTitle, nextAnnotatedOverride } from "./annotated";
 import { editionLabel, editionNote, editionTitle, isRerun } from "./editions";
 import { lateNightsLine, lateNightsTitle, nextLateOverride } from "./late";
@@ -244,6 +245,8 @@ export function Scoreboard({ header, asof, onSelect, edition = null, onEditionCh
   // L1 — the late-night READING, the same tri-state (`late.ts`): rows recorded after their night's next
   // EDGAR open are set aside by default; one click scores them again for this view.
   const [lateOverride, setLateOverride] = useState<boolean | null>(null);
+  // F1 — the server's current night: the app's default as-of, read live (clock.ts)
+  const { currentNight } = useAppClock();
   const { data, isLoading, error } = useScoreboard(
     asof,
     true,
@@ -366,10 +369,11 @@ export function Scoreboard({ header, asof, onSelect, edition = null, onEditionCh
           )}
           <div className="sb-banner">{summary.banner}</div>
           {/* the record-freshness marker (2a) — is the call-of-record current NOW? Shown ONLY on the
-              live view (asof >= today): staleness answers "current now", not "as of a past date", so a
-              scrubbed-back view suppresses it (decision #2). Loud only when stale; quiet when current
-              or never-begun (honest loudness). Mirrors the Admin page's freshness copy. */}
-          {asof >= summary.today &&
+              live view: staleness answers "current now", not "as of a past date", so a scrubbed-back view
+              suppresses it (decision #2). Live = on or after the server's current night (F1: the app's
+              default as-of, which is before today every morning) or today. Loud only when stale; quiet
+              when current or never-begun (honest loudness). Mirrors the Admin page's freshness copy. */}
+          {(asof >= summary.today || !isPastAsof(asof, currentNight)) &&
             (summary.record_edge == null ? (
               <div className="sb-freshline sb-fresh">record hasn&apos;t begun yet</div>
             ) : summary.stale ? (
@@ -397,8 +401,9 @@ export function Scoreboard({ header, asof, onSelect, edition = null, onEditionCh
               backfill · not scored
             </div>
           )}
-          {/* the phantom-arm (annotated) nights line — D3b: rows annotated `exclude` (an arm that rested
-              only on a stale-dated comparative revenue quarter) are set aside by the server's READ policy,
+          {/* the annotated nights line — D3b + F10: rows annotated `exclude` (a phantom arm that rested
+              only on a stale-dated comparative revenue quarter, or a row dated a day with no market
+              session; the line names which kind) are set aside by the server's ONE READ policy,
               exactly like reconstructed rows, and named once here. Rendered only when some night is
               annotated (a control that does not discriminate does not render), with the reading toggle:
               one click scores them again for this view, the next click returns to the default. Nothing is

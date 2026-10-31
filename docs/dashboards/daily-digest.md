@@ -73,10 +73,13 @@ price history (`baskets.price_flags`) reads the flag's reason in its price cells
 ### 3. Due this week: the Catalyst Calendar's bucket
 
 The Catalyst Calendar's items by its own pure function (`dashboards/catalyst_calendar.py::catalyst_calendar`, with
-`today = D` and each card's `LatestCall` built from the card in effect at D, not the newest row of the log), cut to the
-**`this_week` bucket** (through the coming Sunday; D alone on a Sunday): every dated catalyst on a counted card, and
-each card's two deadlines ("entry window ends" = `arm_until`, "exit-by" = `exit_by`) when they fall in it. An item dated
-D is marked **today**. The Calendar's limit stands and is stated: catalysts are edited in place with no history, so a
+`today = O`, the **countdown origin** (F2, `DASHBOARDS.md` rule 2: the action day, the session after the night, on a
+live view; the as-of D on a past one), and each card's `LatestCall` built from the card in effect at D, not the newest
+row of the log), cut to the **`this_week` bucket** (through the coming Sunday; O alone on a Sunday): every dated
+catalyst on a counted card, and each card's two deadlines ("entry window ends" = `arm_until`, "exit-by" = `exit_by`)
+when they fall in it. An item dated O is marked **today** (on a past view the line carries its date instead). The
+"Last night" clocks (an entry window closing within 3 days) count from O too; `days_after_night` is an age and stays
+on the as-of. The Calendar's limit stands and is stated: catalysts are edited in place with no history, so a
 past as-of reads today's catalysts against that day's cards. Below the bucket, one quiet count: the catalysts that
 PASSED since P and are not yet pruned (the Calendar's "passed" list is the place to prune them). Each line opens the
 Cockpit; the header opens the Calendar.
@@ -254,8 +257,10 @@ for the orchestrator to measure on dev with a prod copy.
    it): a name needs a close on BOTH, and one missing either reads "unpriced" with the date it lacks, never a longer span
    under the "last session" label. The same return is used for the held names in section 2 and the armed names in section 5.
 8. **The hold clock** counts sessions left by the Hot Board's `sessions_left` (Mon-Fri minus the NYSE's market holidays, since F5) and, once passed, the
-   calendar's sessions after the exit-by through the as-of (the Hot Board's `closed_ago`). The exit-by date itself reads "its
-   last day" with 0 left.
+   calendar's sessions after the exit-by through the as-of (the Hot Board's `closed_ago`). It is open only while the first
+   session after the as-of is on or before the exit-by (F3, the Hot Board's `window_open`), so an open clock has at least 1
+   left; a horizon with no session left reads "passed" (before F3 the exit-by night read "its last day" with 0 left). The
+   entry clocks in section 5 follow the same rule (they are the Hot Board's).
 9. **Risk signals** on a position are the card's distinct (kind, security, event date) signals, not its labels; "new last
    night" is how many of them section 1 lists as new risk signals on that card (0 with no P). Kill criteria and catalysts are
    read as they stand today (they are edited in place, no history), and the page says so.

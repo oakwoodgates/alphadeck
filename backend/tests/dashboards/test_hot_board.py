@@ -56,6 +56,7 @@ from dashboards.hot_board import (
     since_arm,
     trigger_key,
     vs_iwm_cell,
+    window_open,
     winning_nights,
 )
 from dashboards.peer_table import CapCell
@@ -483,9 +484,37 @@ def test_the_clocks_of_a_row():
     closed = clocks(arm, d(26), d(20), CAL, ASOF)
     assert (closed.sessions_left, closed.closed_ago) == (None, 2)
     assert closed.days_to_exit == -8  # the hold horizon passed eight days ago
-    # a window ending on the as-of is open with none left, not closed
+    # F3: a window is open only while the session after the as-of is inside it. One ending ON the as-of has no
+    # session left, so it is closed (0 sessions since: none has printed after it yet), not "open, 0 left"
     last = clocks(arm, ASOF, None, CAL, ASOF)
-    assert (last.sessions_left, last.closed_ago, last.days_to_exit) == (0, None, None)
+    assert (last.sessions_left, last.closed_ago, last.days_to_exit) == (None, 0, None)
+    # the night before, its one session left is the window's last day
+    eve = clocks(arm, ASOF, None, CAL, d(27))
+    assert (eve.sessions_left, eve.closed_ago) == (1, None)
+    # a window ending on a Saturday is closed on the Friday night: Monday, the next session, is past it
+    fri = clocks(arm, d(31), None, CAL, d(30))
+    assert (fri.sessions_left, fri.closed_ago) == (None, 0)
+    assert (
+        window_open(d(29), d(31)) and not window_open(d(30), d(31)) and not window_open(ASOF, None)
+    )
+
+
+def test_the_days_to_exit_count_from_the_origin_and_the_session_counts_stay_on_the_asof():
+    """F2: the exit-by is a COUNTDOWN, so it counts from the origin (the action day on a live view): a horizon that
+    ends on the origin day is 0 ('today'), one before it is negative ('passed'). The session counts are the call
+    path's own and do not move; with no origin the countdown counts from the as-of, as before."""
+    arm = ArmNight(d(19), True)
+    origin = ASOF + timedelta(days=1)  # the action day of a night on ASOF
+    base = clocks(arm, d(30), date(2026, 12, 1), CAL, ASOF)
+    live = clocks(arm, d(30), date(2026, 12, 1), CAL, ASOF, origin=origin)
+    assert (base.days_to_exit, live.days_to_exit) == (34, 33)
+    assert (live.sessions_since, live.sessions_left, live.closed_ago) == (6, 2, None)
+    assert (live.sessions_since, live.sessions_left) == (base.sessions_since, base.sessions_left)
+    assert clocks(arm, d(30), origin, CAL, ASOF, origin=origin).days_to_exit == 0  # today
+    assert clocks(arm, d(30), ASOF, CAL, ASOF, origin=origin).days_to_exit == -1  # passed
+    assert (
+        clocks(arm, d(30), ASOF, CAL, ASOF).days_to_exit == 0
+    )  # counted from the as-of: unchanged
 
 
 def test_a_card_with_no_entry_clock_has_no_session_counts_and_a_name_with_no_arm_night_no_age():
@@ -1128,9 +1157,10 @@ def _hand_board(rows="armed"):
 def stub_client(monkeypatch):
     seen: dict = {"reads": 0, "rows": []}
 
-    def fake_read(conn, asof, known_at, clock, rows="all"):
+    def fake_read(conn, asof, known_at, clock, rows="all", origin=None):
         seen["reads"] += 1
         seen["view"] = (asof, known_at, clock)
+        seen["origin"] = origin
         seen["rows"].append(rows)
         return _hand_board(rows)
 
@@ -1160,6 +1190,26 @@ def test_the_router_threads_the_serve_view_pair_and_serves_a_second_request_from
     # a different as-of is its own read
     client.get("/dashboards/hot-board", params={"asof": "2026-06-02"})
     assert seen["reads"] == 3
+
+
+def test_the_router_counts_a_live_view_from_the_action_day_and_a_past_one_from_its_asof(
+    stub_client, pin_market_clock
+):
+    """F2: Tuesday 09:00 is Monday's night. The default view of that night is live, so its countdown (the days to the
+    exit-by) counts from Tuesday, the action day; a past view counts from itself. The origin is part of the key.
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    pin_market_clock(datetime(2026, 10, 27, 9, 0, tzinfo=ZoneInfo("America/New_York")))
+    client, seen = stub_client
+    client.get("/dashboards/hot-board", params={"asof": "2026-10-26"})
+    assert seen["view"][1:] == (None, "record") and seen["origin"] == date(2026, 10, 27)
+    client.get("/dashboards/hot-board", params={"asof": "2026-10-23"})
+    assert seen["view"][2] == "public" and seen["origin"] == date(2026, 10, 23)
+    keys = {k for k in CACHE._entries}
+    assert ("hot-board", ("armed", "record", date(2026, 10, 27)), date(2026, 10, 26)) in keys
+    assert ("hot-board", ("armed", "public", date(2026, 10, 23)), date(2026, 10, 23)) in keys
 
 
 def test_the_router_wire_shape(stub_client):
@@ -1225,10 +1275,10 @@ def test_the_two_reads_are_cached_apart_by_rows_and_by_clock(stub_client):
     client.get("/dashboards/hot-board", params=asof)
     client.get("/dashboards/hot-board", params={**asof, "rows": "all"})
     assert seen["reads"] == 2  # each now answers from its own entry
-    # the keys: (rows, clock), per as-of
+    # the keys: (rows, clock, countdown origin), per as-of; a past view counts down from its own as-of (F2)
     keys = {k for k in CACHE._entries}
-    assert ("hot-board", ("armed", "public"), date(2026, 6, 1)) in keys
-    assert ("hot-board", ("all", "public"), date(2026, 6, 1)) in keys
+    assert ("hot-board", ("armed", "public", date(2026, 6, 1)), date(2026, 6, 1)) in keys
+    assert ("hot-board", ("all", "public", date(2026, 6, 1)), date(2026, 6, 1)) in keys
     assert len(keys) == 2
 
 

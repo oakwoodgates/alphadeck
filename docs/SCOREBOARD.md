@@ -232,15 +232,28 @@ replay's job (`docs/REPLAY.md` — the historical twin); attribution's source is
     (exactly as before D3b), `=false` sets them aside, omitted = the setting; the summary says which reading
     it is (`annotated_policy: "excluded" | "included"`) and lists the nights either way (`annotated_nights`:
     thesis, as-of, reason, rule). The ledger renders one quiet line — "N phantom-arm nights set aside · not
-    scored" (or "… included in this reading · scored") with the nights on hover — and an **include annotated
-    nights** toggle that flips the reading for that view; the next click returns to the default. Rendered
-    only when some night is annotated. `python -m scoreboard.run --include-annotated` is the CLI twin.
+    scored" (or "… included in this reading · scored") with the nights on hover; since F10 it names the KIND
+    by each night's rule family ("N no-session nights …", or "N annotated nights (A phantom-arm, B no-session)
+    …" when both are present) — and an **include annotated nights** toggle that flips the reading for that
+    view; the next click returns to the default. Rendered only when some night is annotated. `python -m scoreboard.run --include-annotated` is the CLI twin.
   - **Reversing it.** Globally: flip the setting (`ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED=false`) and the
     record scores every annotated row again — byte-identical to the pre-annotation reading
     (`tests/pipeline/test_annotate_phantom_arms.py` pins it). Per row: `python -m
     pipeline.annotate_phantom_arms --revoke <annotation-id> --reason "…" --apply` (or `--revoke-all`)
     appends a revoke; a revoke sticks across re-runs of the annotator (a (call, action) its rule family
     already judged is never judged again). Nothing is deleted either way.
+  - **No-session nights ride the SAME exclusion (F10).** A row dated a day with no market session — the daytime
+    hand runs before the September fix, recorded under the date they ran (MEASURED on dev: 49 rows dated a
+    Saturday or Sunday, 2026-08-16 .. 09-05, and 11 dated Labor Day 2026-09-07) — has no bar and no next
+    session to score against, yet the Scoreboard has no weekday filter. `pipeline.annotate_no_session_rows`
+    appends an `exclude` (reason `no_session_day`, rule `no-session-night@<sha>`) to each honest row for which
+    `not domain.trading_days.is_scheduled_day(asof)`; it keeps no calendar of its own, so the holiday rows join
+    when that predicate becomes holiday-aware. **There is ONE `include_annotated` toggle, and it covers EVERY
+    active `exclude`, whatever its rule** — phantom arms and no-session nights flip together (no second toggle);
+    `annotated_nights` lists both kinds (the `rules` field says which), and the episode drawer's caption names
+    the kind by the annotation's rule family: "phantom-arm night(s) …", "no-session night(s) …", or the generic
+    "set-aside night(s) …" for any other rule. Reversal is the same: the setting off, `include_annotated=true`,
+    or `--revoke` / `--revoke-all` on that CLI (it revokes only its own family).
   - **Named limitation — the exclusion is ROW-level (the thesis-night), never member-level.** A night where
     D3a removes SOME armed members but the thesis stays armed is a `note`: the row stays scored, so those
     members' arm episodes stay on the ledger and in the metrics, marked only by the drawer caption. MEASURED
@@ -567,7 +580,8 @@ asks (`ADMIN.md`), surfaced here because the Board-vs-Scoreboard confusion happe
 as-of, so it reads the same whether the view is scrubbed to the past or to today; it counts reconstructed rows
 too — freshness asks whether the log advanced, not whether a row is scoreable) measured against the last
 **expected** session + `RUN_AT` run (Mon-Fri minus NYSE closures since F5; `pipeline/schedule.py` — ONE contract shared with the Admin surface,
-never raw `today − edge`). The FE shows it **only on the live view** (`asof >= today`): staleness answers
+never raw `today − edge`). The FE shows it **only on the live view** (`asof >= today`, or on or after the server's
+current night — F1: the app's default as-of, which is before today every morning): staleness answers
 "current now", not "as of a past date", so a scrubbed-back view suppresses it. It goes **loud only when
 stale** ("record last advanced ‹edge› · N expected run(s) behind"); **quiet** when current or never-begun
 (honest loudness, mirroring the Admin copy). Compute-on-read — the freshness read still writes nothing.

@@ -49,8 +49,10 @@ trigger's `label`, `kind`, `grade`, fire date and source link by the Evidence Le
 **The clocks:** the member's **arm night** (the first night of the card's current recorded Armed run on which it
 appears in `armed_members`; the walk is the Entry Windows plan's, §Who is a row, same rule, same test); **sessions
 since** the arm night on IWM's bar calendar (`dashboards/series.py::session_calendar`); **sessions left** to
-`arm_until` ("closed N ago" past it); **days to `exit_by`**; the card's `entry_window_closing` and `lapsing` flags
-as quiet tags.
+`arm_until` ("closed N ago" past it); **days to `exit_by`**, a countdown that counts from the **countdown origin**
+(F2, `DASHBOARDS.md` rule 2: the action day, the session after the night, on a live view; the as-of on a past one),
+reading "today" on the origin day and, on a past view, carrying the horizon's date; the card's `entry_window_closing`
+and `lapsing` flags as quiet tags.
 
 **Since the arm night:** the name's as-traded return from the first close on or after the arm night (the
 Scoreboard's entry rule) to the last close on or before the as-of (`pit.price_history`), and IWM over the same span
@@ -111,7 +113,7 @@ the session calendar; the entry rule; the heat formula in force; the cache state
 
 ## Cache
 
-`dashboards.cache.cached(conn, "hot-board", (rows, clock), asof, ...)` holds, per read, the rows that read carries
+`dashboards.cache.cached(conn, "hot-board", (rows, clock, origin), asof, ...)` holds, per read, the rows that read carries
 with their call fields, clocks, since-arm returns, tape readings and cap, plus the counts of every kind. Two entries
 per as-of: `rows=armed` (the armed rows; the page's default read) and `rows=all` (every candidate row: Armed,
 Warming, watch, Managing; read only after the first toggle). The toggles, filters, sorts and heat derive on the client
@@ -236,7 +238,9 @@ written. Each is the operator's to confirm or change.
 
 16. **Controls render only when they discriminate** (Workbench principle 3): a toggle appears only when it adds at least
     one row (with its count), a filter chip group only when the rows on offer differ on it, and "Entry window open only"
-    only when some rows are open and some are not. "Open" = `arm_until` on or after the as-of.
+    only when some rows are open and some are not. "Open" = the first session after the as-of is on or before
+    `arm_until` (F3, the call path's own lapse test), so an open row always has at least one session left; a window
+    with none (`arm_until` on the as-of, or a weekend end after a Friday as-of) reads "closed".
 17. **Sorts:** a text column starts A to Z, a figure biggest first, a blank last in either direction, ties by ticker; a
     closed entry window sorts below every open one (more sessions since it ended = lower). The sparkline column is a
     picture and does not sort.

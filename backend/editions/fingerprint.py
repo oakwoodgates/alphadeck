@@ -25,7 +25,10 @@ nothing. Version 2 hashes a NORMALIZED form of each file instead:
   every hashed module, 2026-10-23): the engine's output reads exactly two ``Settings`` fields —
   ``market_tz`` (``domain/market_time.market_tz``, the market calendar every night's cap is read in) and
   ``price_settle_time`` (``db/public_clock``, when a bar becomes public). Their VALUES are hashed instead
-  (``ENGINE_SETTINGS``), which also catches an environment override that a source hash never could. The rule
+  (``ENGINE_SETTINGS``), which also catches an environment override that a source hash never could. (Since F1,
+  2026-10-30, a hashed module reads a third field, ``cron_run_at``, in ``domain/market_time.current_night``; only
+  the serve path's live test and ``GET /clock`` call it, never the engine — ``replay/`` and ``editions/`` cap each
+  night with ``known_at_for_asof`` directly — so it is not an engine setting.) The rule
   log is the record of declared changes, not logic — appending an entry must not start a trial by itself.
 
 A fingerprint made by an earlier version means something else: ``fingerprint_version`` is stored beside it

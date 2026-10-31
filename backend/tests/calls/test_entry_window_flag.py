@@ -130,14 +130,16 @@ def test_flag_off_three_trading_days_before():
     assert m.entry_window_closing is False
 
 
-def test_flag_stays_on_through_the_last_live_day():
-    """Thu 10-15 = arm_until itself (liveness is inclusive): still armed, 0 sessions after it → ON."""
-    m = _member(assemble_call(_thesis("MTUS"), _MTUS, date(2026, 10, 15), _CFG), "MTUS")
-    assert m.arm_until == date(2026, 10, 15) and sessions_left(date(2026, 10, 15), m.arm_until) == 0
+def test_flag_stays_on_through_the_last_live_night():
+    """F3: Wed 10-14 is the last armed night — its next session, Thu 10-15, is ``arm_until`` — with 1 session
+    left → ON. On Thu 10-15 itself no session of the window is left (the call is recorded after the close), so
+    the confirmation is no longer live: not armed at all, no flag to carry. (The record, written before F3,
+    shows MTUS Armed on 10-15 with 0 sessions left: the arm nobody could act on that F3 removes.)"""
+    m = _member(assemble_call(_thesis("MTUS"), _MTUS, date(2026, 10, 14), _CFG), "MTUS")
+    assert m.arm_until == date(2026, 10, 15) and sessions_left(date(2026, 10, 14), m.arm_until) == 1
     assert m.entry_window_closing is True
-    # one day later the confirmation is no longer live: not armed at all, so no flag to carry
-    later = assemble_call(_thesis("MTUS"), _MTUS, date(2026, 10, 16), _CFG)
-    assert later.armed_members == [] and later.state is State.WARMING
+    last_day = assemble_call(_thesis("MTUS"), _MTUS, date(2026, 10, 15), _CFG)
+    assert last_day.armed_members == [] and last_day.state is State.WARMING
 
 
 # --- The Everything Exchange · YYAI (recorded 10-07/10-08: arm_until MONDAY 10-12) ---------------------
@@ -167,17 +169,25 @@ _TPCS = [_revenue_accel("TPCS", date(2026, 8, 13)), _breakout("TPCS", date(2026,
     [
         (date(2026, 10, 13), 3, False),  # Tue: Wed, Thu, Fri
         (date(2026, 10, 14), 2, True),  # Wed: Thu, Fri
-        (date(2026, 10, 16), 0, True),  # Fri: the window's last SESSION is today (the 10-16 record)
+        (date(2026, 10, 15), 1, True),  # Thu: Fri, the window's last SESSION, is the next one (F3)
     ],
 )
 def test_a_weekend_close_counts_only_the_sessions_before_it(asof, left, flag):
     """arm_until can land on a weekend (a calendar-day liveness window). The weekend adds no session,
-    so Friday is the last one. TPCS on Fri 10-16 is the ONE armed member flagged in the measured
-    first-pass churn (asof 2026-10-16)."""
+    so Friday is the last one, and under F3 Thursday is the last armed night."""
     m = _member(assemble_call(_thesis("TPCS"), _TPCS, asof, _CFG), "TPCS")
     assert m.arm_until == date(2026, 10, 18) and m.exit_by == date(2027, 2, 9)  # as recorded
     assert sessions_left(asof, m.arm_until) == left
     assert m.entry_window_closing is flag
+
+
+def test_a_weekend_close_is_over_on_the_friday_night():
+    """TPCS on Fri 10-16 was the ONE armed member flagged in the measured first-pass churn (the 10-16
+    record, 0 sessions left). Under F3 the Friday night's next session is Monday 10-19, past ``arm_until``
+    (Sun 10-18), so the breakout is no longer live that night: TPCS is not armed, and no flag shows.
+    """
+    card = assemble_call(_thesis("TPCS"), _TPCS, date(2026, 10, 16), _CFG)
+    assert card.armed_members == [] and card.state is State.WARMING
 
 
 # --- Rainbow Rush · TSNDF (recorded 09-02/09-03: arm_until = LABOR DAY Mon 2026-09-07) -----------------
@@ -266,8 +276,9 @@ def test_the_flag_is_display_only_never_a_call_input():
 
 def test_a_watch_member_never_carries_the_flag():
     """Confirmation without conviction is a DECAY, not an entry the system endorses — no flag, even on
-    its last session (inverse loudness, #7)."""
-    card = assemble_call(_thesis("MTUS"), [_MTUS[1]], date(2026, 10, 15), _CFG)
+    its last live night (inverse loudness, #7). Under F3 that is Wed 10-14, the night whose next session
+    is its ``arm_until``."""
+    card = assemble_call(_thesis("MTUS"), [_MTUS[1]], date(2026, 10, 14), _CFG)
     (w,) = card.watch_members
     assert w.arm_until == date(2026, 10, 15)
     assert w.entry_window_closing is False and w.lapsing is False
@@ -287,6 +298,32 @@ def test_a_managing_held_member_never_carries_the_flag():
     assert card.state is State.MANAGING
     held = card.armed_members[0]
     assert held.verdict is Verdict.MANAGING and held.entry_window_closing is False
+
+
+# --- F3: an armed name always has a session left to act in ------------------------------------------------
+
+
+def test_an_armed_member_always_has_a_session_left_in_its_window():
+    """F3 (rule log ``2026-11-entry-window-next-session``): on every night, every armed member's ``arm_until``
+    is on or after the first session after the night, so ``sessions_left`` is at least 1 — the "entry window
+    lapsed" next to Armed (``arm_until`` == the night, surfaced by F2) cannot be produced. Swept across the
+    four recorded shapes above, a weekend end (TPCS), a Monday end (YYAI) and Labor Day (TSNDF) included.
+    """
+    from domain.trading_days import next_scheduled_day
+
+    thesis = _thesis("MTUS", "TPCS", "YYAI", "TSNDF")
+    events = _MTUS + _TPCS + _YYAI + _TSNDF
+    armed_nights = 0
+    for i in range(80):
+        asof = date(2026, 8, 25) + timedelta(days=i)
+        card = assemble_call(thesis, events, asof, _CFG)
+        for m in card.armed_members + card.watch_members:
+            assert m.arm_until is not None and m.arm_until >= next_scheduled_day(asof), (asof, m)
+            assert sessions_left(asof, m.arm_until) >= 1, (asof, m)
+        if card.state is State.ARMED:
+            assert card.arm_until is not None and card.arm_until >= next_scheduled_day(asof)
+            armed_nights += 1
+    assert armed_nights > 0  # the sweep reached Armed nights
 
 
 # --- no lookahead: a pure function of the card's own fields ----------------------------------------------

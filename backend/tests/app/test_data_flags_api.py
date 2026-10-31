@@ -12,6 +12,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from db.session import DEFAULT_TENANT_ID
+from domain import market_time
 from domain.trading_days import is_scheduled_day
 from pipeline import fundamentals_lag
 from repositories import split_repo
@@ -177,10 +178,10 @@ def test_todays_view_says_secs_data_is_behind_and_marks_a_short_history_quietly(
     union = client.get("/data-flags", params={"asof": str(pinned_today)}).json()
     assert [u["ticker"] for u in union["members"]] == ["PYPL"] and not union["members"][0]["marked"]
 
-    # a history view never borrows today's cached copy: the flag is today's only (the marker is not)
-    past = client.get(
-        f"/theses/{tid}/data-flags", params={"asof": str(pinned_today - timedelta(days=1))}
-    ).json()
+    # a history view never borrows today's cached copy: the flag is today's only (the marker is not). A history
+    # view is an as-of BEFORE the current night (F1: the current night itself is read live, like today)
+    before_the_night = market_time.current_night() - timedelta(days=1)
+    past = client.get(f"/theses/{tid}/data-flags", params={"asof": str(before_the_night)}).json()
     (pm,) = past["members"]
     assert pm["flags"] == [] and [n["kind"] for n in pm["notes"]] == ["short_price_history"]
 

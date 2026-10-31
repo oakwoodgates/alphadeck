@@ -2211,8 +2211,8 @@ The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
   (`pipeline/schedule.py`), the entry-window count
   (`sessions_left`), the split session distance (`domain.splits.session_distance`, which the split-night hold
   reads), the editions' and the backtest's pages (`replay/harness.trading_sessions`, now bar dates
-  intersected with the calendar — Edition 1 holds 4 pages dated Labor Day from the OTC carries), the
-  dashboard warm-up's next-visit date, and the shell sweep's weekly re-enrich (the week's FIRST session, so a
+  intersected with the calendar — Edition 1 holds 4 pages dated Labor Day from the OTC carries), and the
+  shell sweep's weekly re-enrich (the week's FIRST session, so a
   Monday holiday moves it to Tuesday). One reader deliberately does NOT: the on-time window's end
   (`night_coverage.next_edgar_open`) stays the next WEEKDAY, holidays included — it is EDGAR's open, and
   EDGAR keeps SEC business days (it accepts filings on Good Friday), so the weekday rule can only over-flag
@@ -2519,10 +2519,13 @@ measured yet, and a visit after a later run or a basket edit still computes cold
 (dry-run with `--dry-run`: the plan, no request) issues ONE GET per heavy page's default view to the running API
 (`ALPHADECK_WARM_BASE_URL`, default `http://backend:8000`), one at a time, and logs one line per page (status, `cache`,
 `compute_ms`, wall ms) plus `data/warm_dashboards/<started>.json`. It is read-only (GETs only: no database
-connection, no write). **The as-of is the next visit's date, not the pass's own:** the as-of dial opens on the browser's
-local calendar date and the cache keys on `(slug, params, asof)`, so a pass at 22:30 warms the day after it (plus the
-Monday after a weekend), a live read on the record clock exactly as that visit's read will be; `--night` names the pass's
-night, `--asof` overrides. `PAGES` is a hand-maintained mirror of each hook's default query (the Hot Board's is
+connection, no write). **The as-of is the night itself (F1, 2026-10-30):** the as-of dial opens on the server's current
+night (`GET /clock`, `domain/market_time.current_night` — the night the pass last recorded, until the next pass time) and
+the cache keys on `(slug, params, asof)`, so a pass warms its own night, ONE key that every visit until the next pass asks
+for (the next morning, the whole weekend after a Friday), a live read on the record clock exactly as that visit's read
+will be (`serve_view` reads the current night live); `--night` names the pass's night (default: the current night),
+`--asof` overrides. (Before F1 the dial read the browser's date and the job warmed the day after the night, plus the
+Monday after a weekend.) `PAGES` is a hand-maintained mirror of each hook's default query (the Hot Board's is
 `rows=armed`; its `rows=all` read for the toggles is not warmed), a card-picker page warms its picker read only, and the
 Peer Table also reads its default scope and `all` (named by the scopes reply); `tests/pipeline/test_warm_dashboards.py`
 proves the warmed read is the next default read's cache hit against the real cache. Bounded by `--timeout-s` per request
@@ -2779,6 +2782,30 @@ quarter at its later filing, so some nightly arms rested only on a year-old reve
   agent.
 - **Runtime (MEASURED, prod dry-run, 2026-10-16):** 630 rows in ~9–10 minutes (580 s and 554 s on two runs;
   ~1 s per row on a 79-name basket, ~3 s on the 196-name one).
+
+### Annotating no-session rows — `pipeline.annotate_no_session_rows`  `[BUILT — F10]`
+
+The phantom-arm annotator's sibling, on the same `call_annotation` table and the same Scoreboard READ policy.
+Before the September fix a daytime hand run recorded the card under the date it ran, so honest `calls` rows are
+dated a day with no market session (MEASURED on dev: 49 on a Saturday or Sunday, 11 on Labor Day). They stay in
+the immutable log — they are what the system said — and are set aside from scoring, reversibly.
+
+- **The rule is the shared calendar, nothing else.** A row is a no-session night when `not
+  domain.trading_days.is_scheduled_day(row.asof)`; only honest (`NOT reconstructed`) rows are looked at. The CLI
+  keeps no holiday list: today the predicate is Mon–Fri (the weekend rows); when it becomes holiday-aware the
+  holiday rows are found with no change here.
+- **The annotation.** `exclude`, `reason = no_session_day`, `rule = no-session-night@<image sha>`, `detail`
+  = weekday, call seq, recorded_at, run_kind, code sha, the recorded state/verdict (no `affected_security_ids`:
+  the whole night is the judgment, so every member's drawer caption shows it). No migration.
+- **Safety — the phantom annotator's shape.** Dry-run is the DEFAULT on a READ-ONLY connection and prints every
+  row; `--report-json PATH` writes the evidence. `--apply` appends in ONE counted transaction, writes
+  `data/annotations/no-session-<utc-ts>.json`, and holds the call-of-record lock (exit 75 while a pass holds
+  it). Idempotent: a (call, exclude) its rule family already judged — active or revoked — is never judged again
+  (count the table: a second `--apply` appends zero; a revoke sticks). `--revoke <id>` / `--revoke-all` +
+  `--reason` append revokes (dry-run unless `--apply`; `--revoke-all` touches only this family). Not journaled
+  in `data_repair` (it touches `calls` annotations only, like the phantom annotator). The operator runs
+  `--apply` on prod after a backup, from the deployed image — never an agent. The Scoreboard side
+  (`docs/SCOREBOARD.md`): the one `include_annotated` reading covers these `exclude` rows too.
 
 ## Backups & restore (Slice 4)  `[BUILT]`
 

@@ -147,9 +147,8 @@
 #   cron run, so the operator's first visit paid each heavy page's cold compute (MEASURED on a prod copy: 7 to 96
 #   s a page). Last in the nightly wake, `warm_dashboards` fires `python -m pipeline.warm_dashboards --night
 #   <the last expected night>`: ONE GET per heavy page's default view against the running API (GETs only, no DB,
-#   no write), for the as-of the NEXT visit sends (the day after the pass, plus the next session after a weekend
-#   or a market holiday), so
-#   the morning visit is a cache hit. Bounded by WARM_DASHBOARDS_TIMEOUT_S, fail-open (one log line, never the
+#   no write), for the as-of the next visit sends: the night itself (F1 — the app's dial opens on the server's
+#   current night, which stays this night until the next pass), so the morning visit is a cache hit. Bounded by WARM_DASHBOARDS_TIMEOUT_S, fail-open (one log line, never the
 #   loop, never the pass's status or exit code), off with ALPHADECK_WARM_DASHBOARDS=0 (an env-only cron deploy).
 #   docs/FEED_LOOP.md §the dashboard cache warm-up.
 # - RUNS A THIRD SCHEDULE: THE WEEKLY COMPANY-LIST REFRESH (2026-10-24). `master_refresh_loop` fires
@@ -522,8 +521,8 @@ editions_nightly() {
 # cache hit (the cache is in the API process and is emptied by every cron run; see the header). It sits LAST in the
 # nightly wake, after the backup and the editions page, in this SCHEDULING layer: never inside run_daily_pass, so
 # the Admin "Run daily now" never fires it, and it runs after the heartbeat has already closed the night. NIGHT is
-# the last expected night; the job warms the as-of the NEXT visit sends (the day after it, plus the Monday after a
-# weekend), not NIGHT itself. It reads over HTTP only (base URL: ALPHADECK_WARM_BASE_URL, default the compose
+# the last expected night; the job warms NIGHT itself, the as-of the next visit sends (F1: the app's dial opens on
+# the server's current night, which is NIGHT until the next pass). It reads over HTTP only (base URL: ALPHADECK_WARM_BASE_URL, default the compose
 # service `backend`), so it needs no DB and writes nothing but its own run artifact (`data/warm_dashboards`).
 # Bounded by `timeout` (WARM_DASHBOARDS_TIMEOUT_S), FAIL-OPEN and ALWAYS returns 0: a failure, a timeout or a page
 # that errored is one log line (the CLI logs one line per page), never the end of the loop and never a change to

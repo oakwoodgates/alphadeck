@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router";
 
+import { useAppClock } from "../../clock";
 import { fmtDate } from "../../util/format";
 import { FlaggedNote } from "../FlaggedNote";
 import type { DashboardProps } from "../registry";
@@ -75,10 +76,12 @@ const SLOW =
 function Head({ section, asof, extra }: { section: SectionKey; asof: string; extra?: ReactNode }) {
   const def = SECTIONS.find((s) => s.key === section)!;
   const [first, ...rest] = def.links;
+  // the app's default as-of (F1: the server's current night) is what an absent ?asof= reads, so it is left off
+  const { currentNight } = useAppClock();
   return (
     <h2 className="dd-h">
       {first ? (
-        <Link className="dd-title" to={sectionHref(first.slug, asof)} title={`Open ${first.label}`}>
+        <Link className="dd-title" to={sectionHref(first.slug, asof, currentNight)} title={`Open ${first.label}`}>
           {def.title}
         </Link>
       ) : (
@@ -86,7 +89,7 @@ function Head({ section, asof, extra }: { section: SectionKey; asof: string; ext
       )}
       {extra && <span className="dd-ct">{extra}</span>}
       {rest.map((l) => (
-        <Link key={l.slug} className="dd-side" to={sectionHref(l.slug, asof)} title={`Open ${l.label}`}>
+        <Link key={l.slug} className="dd-side" to={sectionHref(l.slug, asof, currentNight)} title={`Open ${l.label}`}>
           {l.label}
         </Link>
       ))}
@@ -327,7 +330,7 @@ function Due({ data, asof, onSelect }: { data: DailyDigestOut; asof: string; onS
                 title={`Open ${i.thesis_name}`}
                 onClick={() => onSelect(i.thesis_id)}
               >
-                <span className="dd-when">{dueWhen(i)}</span>
+                <span className="dd-when">{dueWhen(i, data.clock === "public")}</span>
                 <span className="dd-cardcol">{i.thesis_name}</span>
                 <span className="dd-what">{dueWhat(i)}</span>
               </button>

@@ -10,8 +10,9 @@ import {
 
 import { Admin } from "./admin/Admin";
 import { AppHeader } from "./AppHeader";
-import { useTheses } from "./api/hooks";
+import { useClock, useTheses } from "./api/hooks";
 import { Backtest } from "./backtest/Backtest";
+import { browserClock, clockFromServer, ClockProvider, useAppClock } from "./clock";
 import { Cockpit } from "./cockpit/Cockpit";
 import { DashboardShell } from "./dashboards/DashboardShell";
 import { DashboardsIndex } from "./dashboards/DashboardsIndex";
@@ -31,20 +32,22 @@ import {
 } from "./nav";
 import { Radar } from "./radar/Radar";
 import { Scoreboard } from "./scoreboard/Scoreboard";
-import { todayISO } from "./util/format";
 import { Workbench } from "./workbench/Workbench";
 
 // App is the routing shell: each route wrapper below translates the URL (path + params) into the
 // pages' existing callback-prop contracts, so the pages themselves stay router-free. The history
 // model: PAGE moves push (Back walks views), view dials like the as-of scrub REPLACE (no spam).
 
-/** The shared as-of dial, URL-backed (?asof=YYYY-MM-DD). Absent or malformed = TODAY (real
- *  operation) — the seeded HIMS demo armed on 2026-06-01; scrub back to see the canonical loop
- *  checkpoint. `asofParam` is the raw nullable value so navigations don't pin today into URLs. */
+/** The shared as-of dial, URL-backed (?asof=YYYY-MM-DD). Absent or malformed = the CURRENT NIGHT (F1): the
+ *  night the nightly pass last recorded, from the server's clock (GET /clock) — never the browser's date, so the
+ *  morning view is the call that night recorded and alerted on. The seeded HIMS demo armed on 2026-06-01; scrub
+ *  back to see the canonical loop checkpoint. `asofParam` is the raw nullable value so navigations don't pin the
+ *  default into URLs. */
 function useAsof() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const { currentNight } = useAppClock();
   const asofParam = validAsof(searchParams.get(ASOF));
-  const asof = asofParam ?? todayISO();
+  const asof = asofParam ?? currentNight;
   const setAsof = (v: string) =>
     setSearchParams(
       (prev) => {
@@ -234,9 +237,13 @@ function CockpitRoute() {
 
 export function App() {
   const { isLoading, error, data: theses } = useTheses();
+  // F1 — the server's clock decides the default as-of. Held until it settles (a reply or a failure), so no page
+  // renders, and fires its reads, on a wrong date first; a failure falls back to the browser's date and the header
+  // says so quietly.
+  const clock = useClock();
 
   // The guards use no router hooks, so loading/error render identically on every URL.
-  if (isLoading) return <div className="center-note">Loading…</div>;
+  if (isLoading || clock.isPending) return <div className="center-note">Loading…</div>;
   if (error || !theses?.length) {
     return (
       <div className="center-note err">
@@ -246,6 +253,14 @@ export function App() {
     );
   }
 
+  return (
+    <ClockProvider value={clock.data ? clockFromServer(clock.data) : browserClock(true)}>
+      <AppRoutes />
+    </ClockProvider>
+  );
+}
+
+function AppRoutes() {
   return (
     <Routes>
       <Route path="/" element={<DashboardRoute home />} />

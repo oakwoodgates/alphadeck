@@ -1,5 +1,5 @@
 import { dashboardPath } from "../../nav";
-import { STATE_LABEL, fmtDate, todayISO } from "../../util/format";
+import { STATE_LABEL, fmtDate } from "../../util/format";
 import { leftOutWords } from "../FlaggedNote";
 import type {
   DailyDigestOut,
@@ -77,12 +77,15 @@ export function dayWord(iso: string | null | undefined): string {
   return new Date(t).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
 }
 
-/** The ?asof= a link carries: a day other than today. Today is what an absent param already reads, so a live visit
+/** The ?asof= a link carries: a day other than the app's default as-of (F1: the server's current night,
+ *  `useAppClock().currentNight`). The default is what an absent param already reads, so a visit on the default view
  *  keeps clean URLs (the app's own rule: `asofParam` is null when the URL names none). */
-export const asofParam = (asof: string): string | null => (asof === todayISO() ? null : asof);
+export const asofParam = (asof: string, defaultAsof: string): string | null =>
+  asof === defaultAsof ? null : asof;
 
 /** A section header's link to a full page (a "now" page ignores the param). */
-export const sectionHref = (slug: string, asof: string): string => dashboardPath(slug, asofParam(asof));
+export const sectionHref = (slug: string, asof: string, defaultAsof: string): string =>
+  dashboardPath(slug, asofParam(asof, defaultAsof));
 
 /** "+1.23%", "-0.50%", "0.00%"; "—" when there is none. */
 export function signed(pct: number | null | undefined): string {
@@ -159,7 +162,7 @@ export function lineWords(l: DigestLineOut): string {
     case "entry_window": {
       const days = l.days ?? 0;
       return days === 0
-        ? `entry window closes on the night · ${fmtDate(l.on)}`
+        ? `entry window closes today · ${fmtDate(l.on)}`
         : `entry window closes in ${plural(days, "day", "days")} · ${fmtDate(l.on)}`;
     }
     case "exit_by":
@@ -287,11 +290,9 @@ export function lastSessionFig(l: DigestLastSessionOut): Fig {
 
 export function holdWords(h: DigestHoldOut): string {
   if (!h.exit_by) return "no exit-by";
-  if (h.sessions_left !== null) {
-    return h.sessions_left === 0
-      ? `exit-by ${fmtDate(h.exit_by)} · its last day`
-      : `exit-by ${fmtDate(h.exit_by)} · ${plural(h.sessions_left, "session", "sessions")} left`;
-  }
+  // F3: an open hold clock always has at least one session left (the server counts it open only while the session after
+  // the as-of is on or before the exit-by); one with none reads "passed"
+  if (h.sessions_left !== null) return `exit-by ${fmtDate(h.exit_by)} · ${plural(h.sessions_left, "session", "sessions")} left`;
   const ago = h.passed_sessions ?? 0;
   return ago === 0
     ? `exit-by ${fmtDate(h.exit_by)} · passed`
@@ -315,8 +316,10 @@ export const killTitle = (p: DigestPositionOut): string | undefined =>
 // 3. due this week
 // ---------------------------------------------------------------------------------------------------------
 
-export const dueWhen = (i: DigestDueItemOut): string =>
-  i.today ? "today" : `${dayWord(i.on)} · in ${plural(i.days, "day", "days")}`;
+/** A due line's "when": a COUNTDOWN the server counts from the action day on a live view (F2), so an item dated that day
+ *  reads "today". On a PAST view (`past`) "today" would name a day nobody sees, so the line carries its date. */
+export const dueWhen = (i: DigestDueItemOut, past = false): string =>
+  i.today ? (past ? `${dayWord(i.on)} · on the as-of date` : "today") : `${dayWord(i.on)} · in ${plural(i.days, "day", "days")}`;
 
 export function dueWhat(i: DigestDueItemOut): string {
   if (i.item === "entry_window") return "entry window ends";
@@ -395,6 +398,7 @@ export function tapeNote(tape: DigestTapeOut): string {
 export function clockWords(r: DigestTapeRowOut): string {
   const since = r.sessions_since === null ? "—" : `${r.sessions_since} in`;
   if (r.sessions_left !== null) return `${since} · ${r.sessions_left} left`;
+  if (r.closed_ago === 0) return `${since} · window closed`; // F3: no session left, none printed after it yet
   if (r.closed_ago !== null) return `${since} · window closed ${plural(r.closed_ago, "session", "sessions")} ago`;
   return since;
 }

@@ -573,6 +573,28 @@
         }
       }
     },
+    "/clock": {
+      "get": {
+        "tags": [
+          "meta"
+        ],
+        "summary": "Get Clock",
+        "description": "The server's current night, action day and today in the market's zone. The app's default as-of is the\ncurrent night, never the browser's date. Reads no data.",
+        "operationId": "get_clock_clock_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClockOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/workbench/theses/{thesis_id}/scored": {
       "get": {
         "tags": [
@@ -1779,7 +1801,7 @@
           "scoreboard"
         ],
         "summary": "Get Scoreboard",
-        "description": "The Scoreboard (SCORE): one EDITION scored as-of ``asof`` \u2014 a READ-ONLY pass over the\nimmutable calls log (or a stored edition's frozen pages), the operator-decision log, and realized\nasof-capped prices. Edition 0 is the call-of-record: the RECORD is the scoring source, never a\nrecompute (this holds the platform to what it actually said). Edition N >= 1 is a stored re-run of\ntoday's rules from each company's join date on the public clock, scored on read the same way. A\nrequest that names no edition reads the NEWEST published one (Edition 0 when nothing is published).\nAggregate metrics judge only matured, non-censored episodes and gate below ``min_n`` \u2014 an\ninstrument, not a claim, until n accrues.\n\nOn Edition 0 three kinds of recorded row are set aside before scoring: reconstructed rows\n(always), rows annotated as phantom arms (by the annotated-night policy, which\n``include_annotated`` overrides per request), and rows recorded after their night's next EDGAR\nopen (by the late-night policy, which ``include_late`` overrides per request). Every reading is\navailable; nothing is deleted. An edition has none of those rows: its lists come back empty and\nboth policies read ``n/a``.",
+        "description": "The Scoreboard (SCORE): one EDITION scored as-of ``asof`` \u2014 a READ-ONLY pass over the\nimmutable calls log (or a stored edition's frozen pages), the operator-decision log, and realized\nasof-capped prices. Edition 0 is the call-of-record: the RECORD is the scoring source, never a\nrecompute (this holds the platform to what it actually said). Edition N >= 1 is a stored re-run of\ntoday's rules from each company's join date on the public clock, scored on read the same way. A\nrequest that names no edition reads the NEWEST published one (Edition 0 when nothing is published).\nAggregate metrics judge only matured, non-censored episodes and gate below ``min_n`` \u2014 an\ninstrument, not a claim, until n accrues.\n\nOn Edition 0 three kinds of recorded row are set aside before scoring: reconstructed rows\n(always), rows annotated ``exclude`` (phantom arms, and rows dated a day with no market session;\nby the annotated-night policy, which ``include_annotated`` overrides per request), and rows\nrecorded after their night's next EDGAR\nopen (by the late-night policy, which ``include_late`` overrides per request). Every reading is\navailable; nothing is deleted. An edition has none of those rows: its lists come back empty and\nboth policies read ``n/a``.",
         "operationId": "get_scoreboard_scoreboard_get",
         "parameters": [
           {
@@ -1819,10 +1841,10 @@
                   "type": "null"
                 }
               ],
-              "description": "the annotated-night reading: true = score rows annotated `exclude` (phantom arms) as before; false = set them aside like reconstructed rows; omitted = the server setting (ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED, default: set aside). The response's summary.annotated_policy names the reading used",
+              "description": "the annotated-night reading: true = score rows annotated `exclude` (phantom arms, and rows dated a day with no market session) as before; false = set them aside like reconstructed rows; omitted = the server setting (ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED, default: set aside). One reading covers every `exclude` whatever its rule. The response's summary.annotated_policy names the reading used",
               "title": "Include Annotated"
             },
-            "description": "the annotated-night reading: true = score rows annotated `exclude` (phantom arms) as before; false = set them aside like reconstructed rows; omitted = the server setting (ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED, default: set aside). The response's summary.annotated_policy names the reading used"
+            "description": "the annotated-night reading: true = score rows annotated `exclude` (phantom arms, and rows dated a day with no market session) as before; false = set them aside like reconstructed rows; omitted = the server setting (ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED, default: set aside). One reading covers every `exclude` whatever its rule. The response's summary.annotated_policy names the reading used"
           },
           {
             "name": "include_late",
@@ -5846,10 +5868,10 @@
                   "type": "null"
                 }
               ],
-              "description": "the Scoreboard's annotated-night reading: true = keep rows annotated `exclude` (phantom arms); false = set them aside; omitted = the server setting. The response names the reading used",
+              "description": "the Scoreboard's annotated-night reading: true = keep rows annotated `exclude` (phantom arms, and rows dated a day with no market session); false = set them aside; omitted = the server setting. The response names the reading used",
               "title": "Include Annotated"
             },
-            "description": "the Scoreboard's annotated-night reading: true = keep rows annotated `exclude` (phantom arms); false = set them aside; omitted = the server setting. The response names the reading used"
+            "description": "the Scoreboard's annotated-night reading: true = keep rows annotated `exclude` (phantom arms, and rows dated a day with no market session); false = set them aside; omitted = the server setting. The response names the reading used"
           },
           {
             "name": "include_late",
@@ -11391,7 +11413,7 @@
           "asof"
         ],
         "title": "AnnotatedNightOut",
-        "description": "One phantom-arm night (D3b): a (thesis, as-of) whose recorded row carries an ACTIVE ``exclude``\nannotation \u2014 under the default reading it is set aside like a reconstructed night; under the\n``include_annotated`` reading it is scored. ``reasons`` are the annotation tokens (e.g.\n``stale_comparative_revenue``), ``rules`` the code identities that judged it\n(``d3a-first-knowability@<sha>``), ``n_rows`` the annotated rows on the night."
+        "description": "One annotated night (D3b, F10): a (thesis, as-of) whose recorded row carries an ACTIVE ``exclude``\nannotation \u2014 a phantom arm, or a row dated a day with no market session \u2014 under the default reading it\nis set aside like a reconstructed night; under the ``include_annotated`` reading it is scored.\n``reasons`` are the annotation tokens (e.g. ``stale_comparative_revenue``, ``no_session_day``), ``rules``\nthe code identities that judged it (``d3a-first-knowability@<sha>``, ``no-session-night@<sha>``),\n``n_rows`` the annotated rows on the night."
       },
       "Authorship": {
         "type": "string",
@@ -14310,6 +14332,42 @@
         "title": "ChainWaveWeeks",
         "description": "The window: the last 13, 26 or 52 week columns."
       },
+      "ClockOut": {
+        "properties": {
+          "current_night": {
+            "type": "string",
+            "format": "date",
+            "title": "Current Night",
+            "description": "the night the nightly pass last recorded or is recording: today once the pass time has passed on a weekday, else the weekday before; the app's default as-of"
+          },
+          "action_day": {
+            "type": "string",
+            "format": "date",
+            "title": "Action Day",
+            "description": "the first weekday after the current night: the day the operator acts on its call"
+          },
+          "market_today": {
+            "type": "string",
+            "format": "date",
+            "title": "Market Today",
+            "description": "today's calendar date in the market's zone"
+          },
+          "market_tz": {
+            "type": "string",
+            "title": "Market Tz",
+            "description": "the market's zone, e.g. America/New_York"
+          }
+        },
+        "type": "object",
+        "required": [
+          "current_night",
+          "action_day",
+          "market_today",
+          "market_tz"
+        ],
+        "title": "ClockOut",
+        "description": "The server's days, from one clock read in the market's zone."
+      },
       "ContextRole": {
         "type": "string",
         "enum": [
@@ -16430,7 +16488,7 @@
           "state"
         ],
         "title": "DigestDueItemOut",
-        "description": "One dated line of this week: a catalyst, or a card's entry window or exit-by (the Catalyst Calendar's items).\n``today`` = dated the as-of; ``days`` = calendar days from the as-of; ``state`` = the card's state in effect."
+        "description": "One dated line of this week: a catalyst, or a card's entry window or exit-by (the Catalyst Calendar's items).\n``today`` = dated the countdown origin; ``days`` = calendar days from the origin (the action day, the session\nafter the night, on a live view; the as-of on a past one); ``state`` = the card's state in effect."
       },
       "DigestDueOut": {
         "properties": {
@@ -16589,7 +16647,7 @@
           "passed_sessions"
         ],
         "title": "DigestHoldOut",
-        "description": "The card's exit-by as sessions: ``sessions_left`` = the Mon-Fri sessions after the as-of through it (0 on its\nlast day), or ``passed_sessions`` = the calendar's sessions after it through the as-of."
+        "description": "The card's exit-by as sessions: ``sessions_left`` = the Mon-Fri sessions after the as-of through it while the\nhorizon is open (the first session after the as-of is on or before it, F3, so at least 1), or ``passed_sessions``\n= the calendar's sessions after it through the as-of (``0`` when no session is left but none has printed yet)."
       },
       "DigestInsiderOut": {
         "properties": {
@@ -16958,7 +17016,7 @@
           "source"
         ],
         "title": "DigestLineOut",
-        "description": "One line of a card: What Changed's own item. ``ticker`` / ``security_id`` are set for a name or a trigger line;\n``label`` = the key's own label, or the trigger's; ``on`` = the trigger's event date or the clock's date;\n``previous_on`` = a re-dated trigger's earlier date; ``days`` = calendar days from the newest night to the entry\nwindow's end. ``tone``: ``accent`` (a card that entered Armed, a name newly armed, an entry window closing within\n3 days) or ``warm`` (a card that left Armed, an exit-by reached); ``null`` on every other line. ``source`` = a\ntrigger or risk line's first source (``null`` = it states none)."
+        "description": "One line of a card: What Changed's own item. ``ticker`` / ``security_id`` are set for a name or a trigger line;\n``label`` = the key's own label, or the trigger's; ``on`` = the trigger's event date or the clock's date;\n``previous_on`` = a re-dated trigger's earlier date; ``days`` = calendar days from the countdown origin (the action\nday, the session after the newest night, on a live view) to the entry window's end. ``tone``: ``accent`` (a card\nthat entered Armed, a name newly armed, an entry window closing within 3 days) or ``warm`` (a card that left\nArmed, an exit-by reached); ``null`` on every other line. ``source`` = a trigger or risk line's first source\n(``null`` = it states none)."
       },
       "DigestNightsOut": {
         "properties": {
@@ -19230,6 +19288,18 @@
               }
             ],
             "title": "Closed Ago"
+          },
+          "last_session": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Session"
           }
         },
         "type": "object",
@@ -19241,10 +19311,11 @@
           "lapsing",
           "arm_until",
           "sessions_left",
-          "closed_ago"
+          "closed_ago",
+          "last_session"
         ],
         "title": "EntryWindowsMemberClockOut",
-        "description": "An armed name whose own flag is true, with its own entry clock. ``headline`` = the name whose clocks the card\ncarries (``armed_members[0]``). ``sessions_left`` = the Mon-Fri days after the as-of through the NAME's own\n``arm_until`` (while that window is open), ``closed_ago`` = the IWM sessions since it closed (``0`` on its last\nday); both ``null`` unless ``entry_window_closing``."
+        "description": "An armed name whose own flag is true, with its own entry clock. ``headline`` = the name whose clocks the card\ncarries (``armed_members[0]``). ``sessions_left`` = the Mon-Fri days after the as-of through the NAME's own\n``arm_until`` (while that window is open: the first session after the as-of is on or before it, so at least 1),\n``closed_ago`` = the IWM sessions since it closed (``0`` when no session is left but none has printed after\n``arm_until`` yet); ``last_session`` = the window's last session while it is open (with one left, the first\nsession after the as-of); all three ``null`` unless ``entry_window_closing``."
       },
       "EntryWindowsMemberOut": {
         "properties": {
@@ -19565,6 +19636,18 @@
             ],
             "title": "Closed Ago"
           },
+          "last_session": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Session"
+          },
           "hold_days": {
             "anyOf": [
               {
@@ -19629,6 +19712,7 @@
           "sessions_into",
           "sessions_left",
           "closed_ago",
+          "last_session",
           "hold_days",
           "member_clocks",
           "catalysts",
@@ -19637,7 +19721,7 @@
           "spark"
         ],
         "title": "EntryWindowsRowOut",
-        "description": "One Armed (``state`` ``armed``) or Managing card. ``arm_night`` = the first night of the card's current\nrecorded Armed run; ``in_effect`` = the recorded night whose card the row shows; ``reconstructed`` = the arm\nnight's row was written by ``pipeline.backfill`` (reported, never scored). ``arm_until`` / ``exit_by`` = the\nentry window and the hold horizon (``null`` = no clock). ``sessions_into`` = the IWM sessions after the arm\nnight through the as-of; ``sessions_left`` = the Mon-Fri days after the as-of through ``arm_until`` (while the\nwindow is open); ``closed_ago`` = the IWM sessions since it closed (``0`` on its last day); ``hold_days`` =\ncalendar days from the as-of to ``exit_by`` (negative = passed). Each flag is true when ANY armed member's own\nflag is true; ``member_clocks`` lists those members with their own entry clock, since the figures above count to\nthe card's (the headline name's) clocks."
+        "description": "One Armed (``state`` ``armed``) or Managing card. ``arm_night`` = the first night of the card's current\nrecorded Armed run; ``in_effect`` = the recorded night whose card the row shows; ``reconstructed`` = the arm\nnight's row was written by ``pipeline.backfill`` (reported, never scored). ``arm_until`` / ``exit_by`` = the\nentry window and the hold horizon (``null`` = no clock). ``sessions_into`` = the IWM sessions after the arm\nnight through the as-of; ``sessions_left`` = the Mon-Fri days after the as-of through ``arm_until`` (while the\nwindow is open: the first session after the as-of is on or before it, F3, so at least 1); ``closed_ago`` = the\nIWM sessions since it closed (``0`` when no session is left but none has printed after it yet); ``last_session``\n= the window's last session (the latest session on or before ``arm_until``) while it is open, ``null`` once\nclosed: with one session left it is the first session after the as-of, the day the operator acts; ``hold_days`` =\ncalendar days from the countdown origin to ``exit_by`` (negative = passed; the origin is the action day, the\nsession after the night, on a live view and the as-of on a past one). Each flag is true when ANY armed member's own\nflag is true; ``member_clocks`` lists those members with their own entry clock, since the figures above count to\nthe card's (the headline name's) clocks."
       },
       "EntryWindowsSinceOut": {
         "properties": {
@@ -23115,7 +23199,7 @@
           "days_to_exit"
         ],
         "title": "HotClocksOut",
-        "description": "A row's clocks at the as-of. ``arm_night`` = the first night of the member's current recorded run\n(``arm_reconstructed`` = that night was rebuilt by ``pipeline.backfill``); ``sessions_since`` = sessions after it\nthrough the as-of on IWM's bar calendar; ``sessions_left`` = Mon-Fri sessions after the as-of through\n``arm_until`` (``null`` once it has passed, when ``closed_ago`` = the sessions since it ended); ``days_to_exit`` =\ncalendar days from the as-of to ``exit_by`` (negative = passed)."
+        "description": "A row's clocks at the as-of. ``arm_night`` = the first night of the member's current recorded run\n(``arm_reconstructed`` = that night was rebuilt by ``pipeline.backfill``); ``sessions_since`` = sessions after it\nthrough the as-of on IWM's bar calendar; ``sessions_left`` = Mon-Fri sessions after the as-of through\n``arm_until`` while the window is open (the first session after the as-of is on or before ``arm_until``, F3, so\nat least 1; ``null`` once closed, when ``closed_ago`` = the sessions since it ended); ``days_to_exit`` =\ncalendar days from the countdown origin to ``exit_by`` (negative = passed). The origin is the action day (the\nsession after the night) on a live view and the as-of on a past one."
       },
       "HotFlaggedOut": {
         "properties": {
@@ -32499,7 +32583,7 @@
           "days"
         ],
         "title": "ReadThroughCatalystOut",
-        "description": "The nearest dated card-level catalyst on or after the as-of among the row's cards; ``days`` = its date\nminus the as-of (0 = the as-of day)."
+        "description": "The nearest dated card-level catalyst on or after the countdown origin among the row's cards; ``days`` = its\ndate minus the origin (0 = the origin day). The origin is the action day (the session after the night) on a\nlive view and the as-of on a past one."
       },
       "ReadThroughFilingOut": {
         "properties": {
@@ -36744,7 +36828,7 @@
           "passed"
         ],
         "title": "TickerLookupCardCatalystOut",
-        "description": "A thesis-level catalyst of a card the company counts on (``null`` ``when_date`` = undated)."
+        "description": "A thesis-level catalyst of a card the company counts on (``null`` ``when_date`` = undated). ``passed`` = dated\nbefore the countdown origin: the action day (the session after the night) on a live view, the as-of on a past\none."
       },
       "TickerLookupCardNameOut": {
         "properties": {
@@ -40215,7 +40299,7 @@
           "days"
         ],
         "title": "WhatChangedItemOut",
-        "description": "One line. ``section`` = its group on the page; ``change`` = what moved. ``security_id`` / ``ticker`` are\nset for a name or a trigger line (``null`` = a card-level line; ``ticker`` is ``null`` when the master has\nnone). ``label`` = the key's own label, or the trigger's. ``on`` = the trigger's event date, or the clock's\ndate (``arm_until`` / ``exit_by``); ``previous_on`` = a re-dated trigger's event date on the baseline night\n(``null`` on every other line); ``days`` = calendar days from the newest night to ``arm_until``.\n``reconstructed`` = the card's newest row was written by ``pipeline.backfill``."
+        "description": "One line. ``section`` = its group on the page; ``change`` = what moved. ``security_id`` / ``ticker`` are\nset for a name or a trigger line (``null`` = a card-level line; ``ticker`` is ``null`` when the master has\nnone). ``label`` = the key's own label, or the trigger's. ``on`` = the trigger's event date, or the clock's\ndate (``arm_until`` / ``exit_by``); ``previous_on`` = a re-dated trigger's event date on the baseline night\n(``null`` on every other line); ``days`` = calendar days from the countdown origin (the action day, the session\nafter the newest night) to ``arm_until``.\n``reconstructed`` = the card's newest row was written by ``pipeline.backfill``."
       },
       "WhatChangedOut": {
         "properties": {

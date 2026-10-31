@@ -526,13 +526,14 @@ class CardCatalyst:
     kind: str | None
     when_date: date | None  # None = undated (a fuzzy "~Q3")
     when_label: str | None
-    passed: bool  # a dated catalyst before the as-of
+    passed: bool  # a dated catalyst before the countdown origin (F2: the action day on a live view)
 
 
-def card_catalysts(counted: Sequence[Thesis], sid: UUID, asof: date) -> tuple[CardCatalyst, ...]:
+def card_catalysts(counted: Sequence[Thesis], sid: UUID, origin: date) -> tuple[CardCatalyst, ...]:
     """The thesis-level catalysts of the cards the company COUNTS on (a non-silent row there), dated ones by date
     then the undated, each with its card. A card that holds the company only in Context or Bench is left out: its
-    name never counts toward that card's call."""
+    name never counts toward that card's call. ``passed`` counts from ``origin`` (F2, ``countdown_origin``: the
+    action day on a live view, the as-of on a past one)."""
     out = [
         CardCatalyst(
             t.id,
@@ -541,7 +542,7 @@ def card_catalysts(counted: Sequence[Thesis], sid: UUID, asof: date) -> tuple[Ca
             c.kind,
             c.when_date,
             c.when_label,
-            c.when_date is not None and c.when_date < asof,
+            c.when_date is not None and c.when_date < origin,
         )
         for t in counted
         if any(m.security_id == sid and not is_silent(m) for m in t.basket)

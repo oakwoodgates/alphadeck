@@ -438,6 +438,24 @@ def test_a_catalyst_dated_in_the_past_is_ignored_and_the_asof_day_counts():
     assert next_catalyst(cs[:1], [T1], ASOF) is None  # only a past one: none, not the past one
 
 
+def test_the_next_catalyst_counts_from_the_origin_so_the_action_day_reads_today():
+    """F2: from Wednesday's night 10-28 a live view acts on Thursday 10-29. A catalyst dated the night has passed by
+    then (not picked); one dated Thursday is 0 days away ('today'); a past view, counted from its as-of, is unchanged.
+    """
+    cs = [
+        cat(T1, "Grid", "The night", date(2026, 10, 28)),
+        cat(T1, "Grid", "Action day", date(2026, 10, 29)),
+        cat(T1, "Grid", "Later", date(2026, 11, 2)),
+    ]
+    origin = date(2026, 10, 29)
+    got = next_catalyst(cs, [T1], origin)
+    assert got is not None and (got.label, got.days) == ("Action day", 0)
+    again = next_catalyst(cs[:1], [T1], origin)
+    assert again is None  # only the night's own: it has passed
+    from_asof = next_catalyst(cs, [T1], ASOF)
+    assert from_asof is not None and (from_asof.label, from_asof.days) == ("The night", 0)
+
+
 def test_a_tie_on_the_date_goes_by_card_name_then_label():
     d = date(2026, 11, 3)
     cs = [

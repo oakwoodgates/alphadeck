@@ -99,12 +99,18 @@ describe("HotBoard — the rows", () => {
     expect(r[8]).toBe("Oct 28");
     expect(r[9]).toBe("0");
     expect(r[10]).toBe("2");
-    expect(r[11]).toBe("34d");
+    expect(r[11]).toBe("34d · Dec 1"); // the fixture is a PAST view (clock "public"): the date rides with the count
     expect(r[12]).toBe("0.0%");
     expect(r[14]).toBe("3.1×");
     expect(r[17]).toContain("+8.0 pp");
     expect(r[20]).toBe("2/2");
     expect(r[22]).toBe("$500.0M small");
+  });
+
+  it("shows the days to the exit-by bare on a live view, where the server counts them from the action day (F2)", () => {
+    setup(payload(undefined, { clock: "record" }));
+    const r = cells(rowOf("AAA")).map((c) => c.textContent);
+    expect(r[11]).toBe("34d");
   });
 
   it("shows heat as a number with a gray bar and its four parts on hover", () => {

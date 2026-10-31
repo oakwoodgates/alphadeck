@@ -101,7 +101,7 @@ describe("EntryWindows — a second name's own clock", () => {
     expect(left).toHaveTextContent("3 sessions left");
     expect(left).toHaveClass("closing");
     expect(left.getAttribute("title")).toContain("any armed name's entry window");
-    expect(within(p).getByTestId("ew-member-entry")).toHaveTextContent("BBB · 1 session left · to Oct 28");
+    expect(within(p).getByTestId("ew-member-entry")).toHaveTextContent("BBB · 1 session left: Oct 28");
     // the card's own hold clock is not closing, so the card says nothing; the second name's is named
     expect(within(p).getByTestId("ew-hold-days")).toHaveTextContent("18 days");
     expect(within(p).getByTestId("ew-member-hold")).toHaveTextContent("BBB · hold clock closing");
@@ -127,7 +127,7 @@ describe("EntryWindows — the picture", () => {
     setup();
     const closing = screen.getAllByTestId("ew-left").filter((el) => el.classList.contains("closing"));
     expect(closing).toHaveLength(1);
-    expect(closing[0]).toHaveTextContent("1 session left");
+    expect(closing[0]).toHaveTextContent("1 session left: Oct 28");
   });
 
   it("draws the as-of line through every row and a bar only for a clock the card has", () => {

@@ -28,9 +28,10 @@ The rules, in one place:
   security on a card; a breakout re-dates to the newest bar on every new 8-day high) is ONE "re-dated" line
   with both dates and the now card's label, never a "no longer firing" + "fired" pair; any other count stays
   separate lines, and risk signals are never re-dated.
-- Clocks, on the now card only, counted from T in calendar days (the Decision Queue's "act within Nd"):
-  the entry window (``arm_until``) closing within ``ENTRY_WINDOW_DAYS``, and ``exit_by`` reached inside the
-  window (after the baseline night, on or before T).
+- Clocks, on the now card only (the Decision Queue's "act within Nd"): the entry window (``arm_until``) closing
+  within ``ENTRY_WINDOW_DAYS`` calendar days of the COUNTDOWN origin (F2: the action day, the session after T, on a
+  live view; T itself on a past one; ``domain.market_time.countdown_origin``), and ``exit_by`` reached inside the
+  window (after the baseline night, on or before T: a span of the record, so it stays on T).
 - Order is neutral and computed: sections in a fixed order, cards by name inside a section, and inside a
   card the change kinds in a fixed order, names and triggers by ticker.
 """
@@ -47,7 +48,7 @@ from uuid import UUID
 from domain.call import CallCard, MemberCall, TriggerRef
 from domain.enums import Kind, State
 
-# the entry window "closes in N days" while arm_until is within this many calendar days of T (0..3)
+# the entry window "closes in N days" while arm_until is within this many calendar days of the countdown origin (0..3)
 ENTRY_WINDOW_DAYS = 3
 LAST_WEEK_DAYS = 7
 
@@ -161,7 +162,8 @@ class ChangeItem:
     ``ticker`` is ``None`` when the master has no ticker for it. ``label`` = the key's own label, or the
     trigger's. ``on`` = the trigger's event date, or the clock's date (``arm_until`` / ``exit_by``);
     ``previous_on`` = a re-dated trigger's event date on the baseline card (``None`` on every other line);
-    ``days`` = calendar days from T to ``arm_until``. ``reconstructed`` = the card's NOW row was written by
+    ``days`` = calendar days from the countdown origin to ``arm_until`` (0 = it closes on the origin day).
+    ``reconstructed`` = the card's NOW row was written by
     ``pipeline.backfill``."""
 
     section: Section
@@ -243,8 +245,9 @@ def _card_changes(
     *,
     latest: date,
     baseline_on: date | None,
+    origin: date,
 ) -> list[ChangeItem]:
-    """One card's lines, in the fixed in-card order."""
+    """One card's lines, in the fixed in-card order. ``origin`` = where the entry-window countdown counts from."""
     items: list[ChangeItem] = []
 
     def add(section: Section, change: Change, **kw) -> None:
@@ -328,8 +331,8 @@ def _card_changes(
             previous_on=was.event_date,
         )
 
-    # 5. clocks, on the now card as of T (calendar days)
-    if n.arm_until is not None and 0 <= (days := (n.arm_until - latest).days) <= ENTRY_WINDOW_DAYS:
+    # 5. clocks, on the now card as of T: the entry window counts down from the origin (F2), the exit-by is a span
+    if n.arm_until is not None and 0 <= (days := (n.arm_until - origin).days) <= ENTRY_WINDOW_DAYS:
         add("clocks", "entry_window", on=n.arm_until, days=days)
     if n.exit_by is not None and baseline_on < n.exit_by <= latest:
         add("clocks", "exit_by", on=n.exit_by)
@@ -361,11 +364,13 @@ def what_changed(
     *,
     latest: date | None,
     baseline_on: date | None,
+    origin: date | None = None,
 ) -> WhatChanged:
     """The What Changed payload over the live cards ``names`` (``thesis_id -> name``; the caller excludes
     archived ones). ``now`` / ``baseline`` = each card's recorded call in effect at ``latest`` (T) and at
     ``baseline_on``; a card absent from ``now`` has no recorded call yet, one absent from ``baseline`` is new
-    since the baseline night. A row for a card outside ``names`` is ignored."""
+    since the baseline night. A row for a card outside ``names`` is ignored. ``origin`` = where the entry-window
+    countdown counts from (F2; ``latest`` when none is given)."""
     refs = sorted((CardRef(tid, nm) for tid, nm in names.items()), key=_name_key)
     items: list[ChangeItem] = []
     unrecorded: list[CardRef] = []
@@ -381,6 +386,7 @@ def what_changed(
             tickers,
             latest=latest,
             baseline_on=baseline_on,
+            origin=origin or latest,
         )
     # cards are already in name order and each card's lines in its fixed order: a stable sort by section
     items.sort(key=lambda i: SECTIONS.index(i.section))

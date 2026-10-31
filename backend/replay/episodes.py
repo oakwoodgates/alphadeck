@@ -4,6 +4,7 @@ from datetime import date
 from uuid import UUID
 
 from domain.enums import State
+from domain.trading_days import next_scheduled_day
 from replay.key1 import co_arm_bucket, key1_source, key1_sources
 from replay.schema import CallSnapshot, Episode, MemberRow
 
@@ -29,14 +30,20 @@ def _warm_date(snaps: list[CallSnapshot], arm_idx: int) -> date | None:
 
 def _close_reason(dearm: CallSnapshot | None, exit_by: date | None, arm_until: date | None) -> str:
     """Classify why the arm ended (member-centric, from the de-arm snapshot + the clocks set at arm).
-    ``managing`` is expected-zero in pure replay (no operator fills in historical facts)."""
+    ``managing`` is expected-zero in pure replay (no operator fills in historical facts).
+
+    A clock has run out on the de-arm night when that night's NEXT session is past it — the call path's own
+    lapse test (F3, ``signals.common.entry_signal_is_live``). Before F3 the de-arm night came after the clock
+    (``dearm.asof > clock``); since F3 it is the clock's own night, or the Friday before a weekend end.
+    """
     if dearm is None:
         return "window_end"
     if dearm.state is State.MANAGING:
         return "managing"
-    if exit_by is not None and dearm.asof > exit_by:
+    after = next_scheduled_day(dearm.asof)
+    if exit_by is not None and after > exit_by:
         return "conviction_aged_out"
-    if arm_until is not None and dearm.asof > arm_until:
+    if arm_until is not None and after > arm_until:
         return "arm_until_lapsed"
     return "dearmed_other"
 

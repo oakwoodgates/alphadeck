@@ -49,7 +49,10 @@ does, one row per Armed card. Display only: it never feeds a call, never writes,
   at or past the end the cell reads "entry window closed N sessions ago". The row's `entry_window_closing` flag (any
   armed member's) is the one accent on the page (below); a name whose own window is the one closing, and differs from
   the card's, is named under the figure ("BBB · 1 session left · to Oct 28").
-- **Days to `exit_by`:** calendar days from the as-of; past it, "hold horizon passed"; the card's own `lapsing` flag
+- **Days to `exit_by`:** a countdown, so calendar days from the **countdown origin** (F2, `DASHBOARDS.md` rule 2: the
+  action day, the session after the night, on a live view; the as-of on a past one); on the origin day it reads
+  "today", before it "hold horizon passed". A catalyst dot is hollow when dated before that same origin. The session
+  counts above stay on the as-of. The card's own `lapsing` flag
   (the headline name's) as a quiet tag, and under it a line for each other name whose hold clock is closing.
 - **Since the arm night:** per armed name, the as-traded return from the **first close on or after the arm night**
   (the Scoreboard's entry rule, `scoreboard/`) to the last close on or before the as-of (`pit.price_history`); the
@@ -173,8 +176,14 @@ lives in `backend/dashboards/entry_windows.py` (the rules are written at the top
 5. **"Sessions left" after the as-of** cannot come from IWM's bars (none exist after the as-of). Built: the Mon-Fri
    days after the as-of through `arm_until` without the NYSE's market holidays (F5), the call path's own
    `sessions_left` count (stated on the page). Everything up to the as-of is the IWM calendar.
-6. **The window's last day.** When `arm_until` equals the as-of the cell reads "last day of the entry window", not
-   "entry window closed 0 sessions ago". A later date reads "entry window closed N sessions ago", N on IWM's bars.
+6. **The window's last session (F3, 2026-10-31).** A window is open only while the first session after the as-of is
+   on or before `arm_until` (the call path's own lapse test, CALL_LOGIC §6 "the next-session rule"), so an open window
+   always has at least one session left, and its last Armed night reads "1 session left: <that session's date>" (the
+   payload's `next_session`, on the session calendar). A window with no session left is closed: "entry window closed"
+   while no session after `arm_until` has printed yet (a recorded card from before F3 could be Armed on `arm_until`'s
+   own night, and a window ending on a weekend closes on the Friday night), then "entry window closed N sessions ago",
+   N on IWM's bars. Before F3 the `arm_until` night read "last day of the entry window": the session it named was
+   already over.
 7. **IWM's calendar** is extended by any priced armed name's bar dated after IWM's last bar (the shared
    `session_calendar` rule, so a late benchmark never cuts a line short). With no IWM bars at all the calendar is the
    armed names' bars, and the quiet line says so.

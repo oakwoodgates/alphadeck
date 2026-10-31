@@ -87,8 +87,9 @@ def get_scoreboard(
     include_annotated: bool | None = Query(
         None,
         description="the annotated-night reading: true = score rows annotated `exclude` (phantom "
-        "arms) as before; false = set them aside like reconstructed rows; omitted = the server "
-        "setting (ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED, default: set aside). The response's "
+        "arms, and rows dated a day with no market session) as before; false = set them aside like "
+        "reconstructed rows; omitted = the server setting (ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED, "
+        "default: set aside). One reading covers every `exclude` whatever its rule. The response's "
         "summary.annotated_policy names the reading used",
     ),
     include_late: bool | None = Query(
@@ -121,8 +122,9 @@ def get_scoreboard(
     instrument, not a claim, until n accrues.
 
     On Edition 0 three kinds of recorded row are set aside before scoring: reconstructed rows
-    (always), rows annotated as phantom arms (by the annotated-night policy, which
-    ``include_annotated`` overrides per request), and rows recorded after their night's next EDGAR
+    (always), rows annotated ``exclude`` (phantom arms, and rows dated a day with no market session;
+    by the annotated-night policy, which ``include_annotated`` overrides per request), and rows
+    recorded after their night's next EDGAR
     open (by the late-night policy, which ``include_late`` overrides per request). Every reading is
     available; nothing is deleted. An edition has none of those rows: its lists come back empty and
     both policies read ``n/a``.

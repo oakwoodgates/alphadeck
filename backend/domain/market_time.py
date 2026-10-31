@@ -4,9 +4,9 @@
 environment fact* (``INVARIANTS.md`` §6). ``date.today()`` reads the process's ambient timezone, so the
 same code answered a different question depending on where it ran — and in production it did: a manual
 ``pipeline.daily`` in a UTC container after ~20:00 ET derived **tomorrow's** trading day and recorded a
-materially different call (``asof`` is a LIVENESS PARAMETER, not a label — ``calls/assembler.py``'s
-``entry_signal_is_live`` is inclusive, so a signal whose window closed that day drops out and the derived
-countdowns shift). That is a domain answer changing with the deployment, which is what makes this a
+materially different call (``asof`` is a LIVENESS PARAMETER, not a label — ``signals/common.py``'s
+``entry_signal_is_live`` keeps a trigger only while the first session after the as-of is inside its window, F3,
+so a signal whose window has no session left drops out and the derived countdowns shift). That is a domain answer changing with the deployment, which is what makes this a
 ``domain/`` concern rather than an ops one — it sits beside the other small shared helper, ``coerce.py``,
 for the same reason: one home, so a new module has something to reach for instead of a fresh
 ``date.today()``. (The count was 9 sites when the gap was written up and 18 by the time it was fixed —
@@ -16,12 +16,21 @@ precisely because there was nothing to reach for.)
 calendar date in the configured exchange timezone, nothing more. It does **NO trading-calendar logic** —
 **no weekend skip, no holiday calendar, no half-day handling**. It is **not** "the last trading day", and
 on a Saturday it returns Saturday. The Mon-Fri + ``RUN_AT`` schedule math lives in ``pipeline/schedule.py``
-and **stays there** (the shell's sleep-loop in ``scripts/daily_cron.sh`` is its other half); its bare
-weekday predicate, ``is_scheduled_day``, is the sibling ``domain/trading_days.py`` — built ON TOP, as this
-paragraph asks, so the call path can share it — and this helper is untouched by it. Teaching this
-helper to skip weekends/holidays would silently change every ``asof``, every bitemporal ``valid_from``, and
-every staleness read that calls it — a behavior change, deliberately out of scope. If you need "the last
-*trading* day", build that on top; do not reach in here.
+(the shell's sleep-loop in ``scripts/daily_cron.sh`` is its other half); its pure core —
+``is_scheduled_day``, ``parse_run_at``, ``last_expected_asof`` — is the sibling ``domain/trading_days.py``,
+built ON TOP, as this paragraph asks, so the call path can share it — and this helper is untouched by it.
+Teaching this helper to skip weekends/holidays would silently change every ``asof``, every bitemporal
+``valid_from``, and every staleness read that calls it — a behavior change, deliberately out of scope. If you
+need "the last *trading* day", build that on top; do not reach in here.
+
+**The current night is built on top (F1, 2026-10-30): ``current_night()``.** The app's "today" for a VIEW is
+not ``market_today()`` but the night the nightly pass most recently recorded or is recording:
+``last_expected_asof(market_now(), RUN_AT)`` — today once ``RUN_AT`` (``Settings.cron_run_at``, 22:30) has
+passed on a scheduled day, else the prior scheduled day (Tuesday 09:00 -> Monday; Tuesday 22:30 -> Tuesday;
+Saturday -> Friday). It is the app's default as-of (served by ``GET /clock``), and the serve path's live test
+(``serve_view``) is "on or after the current night". The **action day** is the first scheduled day after it
+(``action_day``): the day the operator acts on that night's call; a COUNTDOWN to a future date counts from it on a
+live view (``countdown_origin``, F2). ``market_today()`` itself is unchanged.
 
 **What it is NOT, part two:** transaction time. ``datetime.now(timezone.utc)`` pins ``recorded_at`` (when
 we learned a fact) and is correctly UTC — bitemporal record-keeping, not a trading day. Do not route those
@@ -46,10 +55,11 @@ it is no longer the mechanism.
 from __future__ import annotations
 
 from datetime import date, datetime, time, timezone
-from typing import Literal
+from typing import Literal, NamedTuple
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from domain.settings import get_settings
+from domain.trading_days import last_expected_asof, next_scheduled_day, parse_run_at
 
 
 def market_tz() -> ZoneInfo:
@@ -93,6 +103,51 @@ def market_today(tz: ZoneInfo | None = None) -> date:
     return market_now(tz).date()
 
 
+def cron_run_at() -> time:
+    """The nightly pass's wall time in market time (``Settings.cron_run_at``, env ``ALPHADECK_CRON_AT`` — the
+    one host var the cron sidecar and the backend both read). A malformed value raises ``ValueError``: a
+    deploy error, loud, never a silently wrong night (``parse_run_at``'s discipline)."""
+    return parse_run_at(get_settings().cron_run_at)
+
+
+class MarketClock(NamedTuple):
+    """One clock read's three days (``market_clock``): ``today`` = ``market_today()``; ``night`` = the current
+    night; ``action_day`` = the first scheduled day after it. Always ``night <= today <= action_day``.
+    """
+
+    today: date
+    night: date
+    action_day: date
+
+
+def action_day(night: date) -> date:
+    """The day the operator acts on ``night``'s call: the first scheduled day after it (Monday for a Friday
+    night; a market holiday is not a session, ``domain/trading_days``, F5). The same step the call path's liveness
+    test takes (F3): a trigger is live on ``night`` only while this day is inside its window."""
+    return next_scheduled_day(night)
+
+
+def market_clock(now: datetime | None = None) -> MarketClock:
+    """Today, the current night and the action day from ONE clock read, so the three can never straddle
+    ``RUN_AT`` or midnight and disagree. The current night is ``last_expected_asof(now, RUN_AT)``: today once
+    ``RUN_AT`` has passed on a scheduled day, else the prior scheduled day (module docstring). ``now`` is
+    injectable for tests: an aware instant is read in market time, a naive one as a market wall time (never
+    ``astimezone`` on a naive value — that reads the AMBIENT zone); the default is ``market_now()``.
+    """
+    if now is None:
+        now = market_now()
+    elif now.tzinfo is not None:
+        now = now.astimezone(market_tz())
+    night = last_expected_asof(now, cron_run_at())
+    return MarketClock(today=now.date(), night=night, action_day=action_day(night))
+
+
+def current_night(now: datetime | None = None) -> date:
+    """The current night (``market_clock(now).night``): the app's default as-of and the serve path's live
+    boundary. Tuesday 17:00 -> Monday; Tuesday 22:30 -> Tuesday; Saturday -> Friday."""
+    return market_clock(now).night
+
+
 def known_at_for_asof(asof: date, now: datetime | None = None) -> datetime:
     """The transaction-axis cap for a scrubbed-back read: ``min(now, end of asof's MARKET day)``, as UTC.
 
@@ -126,42 +181,109 @@ def known_at_for_asof(asof: date, now: datetime | None = None) -> datetime:
     return min(now, asof_eod)
 
 
-def serve_known_at(asof: date, today: date | None = None) -> datetime | None:
+def _live_boundary(today: date | None, night: date | None) -> date:
+    """The first as-of a serve read treats as LIVE: the injected ``night``, else an injected ``today`` (a test
+    that pins only the day pins the boundary to it — the pre-F1 rule, ``asof >= market_today()``), else the
+    current night from one clock read. Since ``current_night() <= market_today()`` always, every as-of the old
+    rule called live is still live."""
+    if night is not None:
+        return night
+    if today is not None:
+        return today
+    return current_night()
+
+
+def serve_known_at(
+    asof: date, today: date | None = None, *, night: date | None = None
+) -> datetime | None:
     """The ``known_at`` a SERVE-path recompute (``/call``, ``/display-signals``, ``/scored``) threads into
     its ``PointInTimeData`` for ``asof``: ``None`` for a live view, the market-day cap for a scrubbed-back one.
 
-    ``None`` — not ``now`` — for ``asof >= market_today()``, on purpose: the live path stays the exact code
-    it was. ``None`` lets the PIT default to the host's UTC instant for the fact reads (unchanged) and lets
-    ``decisions_repo`` bound the operator log with the DATABASE clock (``clock_timestamp()``) — the
-    one-clock rule that closed the two-clock flake (a take appended a millisecond ago reading as
-    not-yet-recorded when the DB clock ran fractionally ahead of the host). Passing a host-clock ``now``
-    here would reopen it. A future ``asof`` is a live read too (nothing recorded after now exists to hide).
+    **Live = on or after the current night (F1, 2026-10-30).** The app's default as-of is the current night
+    (``current_night``: the night the nightly pass last recorded, or is recording), so at 09:00 Tuesday the
+    default view is Monday's night, read LIVE — the call the night's record and its alert showed — not a
+    public-clock recompute of a day that has not finished its pass. Before F1 the test was
+    ``asof >= market_today()``; every as-of that rule called live is still live (``current_night() <=
+    market_today()``), so the read for ``asof >= market_today()`` is byte-identical. Only an as-of in
+    ``[current night, today)`` moves: from a history view to the live read.
 
-    A past ``asof`` gets ``known_at_for_asof(asof)`` — the cap that makes the scrub-back honest to the
-    as-of. ``today`` is injectable for tests; the default is ``market_today()``.
+    ``None`` — not ``now`` — for a live view, on purpose: the live path stays the exact code it was. ``None``
+    lets the PIT default to the host's UTC instant for the fact reads (unchanged) and lets ``decisions_repo``
+    bound the operator log with the DATABASE clock (``clock_timestamp()``) — the one-clock rule that closed
+    the two-clock flake (a take appended a millisecond ago reading as not-yet-recorded when the DB clock ran
+    fractionally ahead of the host). Passing a host-clock ``now`` here would reopen it. A future ``asof`` is a
+    live read too (nothing recorded after now exists to hide).
+
+    A past ``asof`` (before the current night) gets ``known_at_for_asof(asof)`` — the cap that makes the
+    scrub-back honest to the as-of. ``night`` (the live boundary) and ``today`` (the pre-F1 boundary, kept as
+    an injection seam) are for tests; the default is one ``current_night()`` read (``_live_boundary``).
 
     **Which axis that cap bounds is ``serve_view``'s half** (operator decision 2026-10-21): a past view reads
     on the PUBLIC clock — a fact counts from when it became public, not from when our database ingested it.
     """
-    today = today or market_today()
-    if asof >= today:
+    if asof >= _live_boundary(today, night):
         return None
     return known_at_for_asof(asof)
 
 
 def serve_view(
-    asof: date, today: date | None = None
+    asof: date, today: date | None = None, *, night: date | None = None
 ) -> tuple[datetime | None, Literal["record", "public"]]:
     """``(known_at, clock)`` for a HISTORY-capable read at ``asof`` — the ONE place a serve path (and the
     other history views: ``pipeline.run`` for a past asof) decides both halves together, so they can never
-    disagree (one ``market_today()`` read, never two straddling midnight).
+    disagree (one clock read, never two straddling ``RUN_AT`` or midnight).
 
-    - live (``asof >= market_today()``): ``(None, "record")`` — the unchanged live read (``serve_known_at``).
-    - past: ``(known_at_for_asof(asof), "public")`` — a HISTORY view, judged on the PUBLIC clock (operator
-      decision 2026-10-21, ``docs/INVARIANTS.md`` §4): each fact version counts from when it became public
-      (``db.public_clock``) up to the end of that market day — so a scrub-back shows how today's rules judge
-      what was public then, not which rows our database happened to hold (our outages, our onboarding order).
-      The roster and the position (operator decisions) stay as of that same instant.
+    - live (``asof >=`` the current night, F1): ``(None, "record")`` — the unchanged live read
+      (``serve_known_at``). The current night itself is live, so the app's default view is never a recompute.
+    - past (before the current night): ``(known_at_for_asof(asof), "public")`` — a HISTORY view, judged on the
+      PUBLIC clock (operator decision 2026-10-21, ``docs/INVARIANTS.md`` §4): each fact version counts from
+      when it became public (``db.public_clock``) up to the end of that market day — so a scrub-back shows how
+      today's rules judge what was public then, not which rows our database happened to hold (our outages,
+      our onboarding order). The roster and the position (operator decisions) stay as of that same instant.
     """
-    known_at = serve_known_at(asof, today)
+    known_at = serve_known_at(asof, today, night=night)
     return known_at, ("record" if known_at is None else "public")
+
+
+def countdown_origin(asof: date, clock: MarketClock | None = None) -> date:
+    """The day a COUNTDOWN to a future date counts from (F2, 2026-10-30): the action day on a live view, else the
+    as-of itself.
+
+    The as-of is the night, for the data; the action day (the first scheduled day after it) is the day the operator
+    acts on that night's call, so it is the day the WORDS count from. A catalyst dated Tuesday reads "today" on
+    Tuesday morning (the view of Monday's night), and one dated Monday reads "passed". Without this, F1 alone would
+    shift every countdown by one: Tuesday's catalyst would read "in 1 day" on the Tuesday morning it happens.
+
+    **Live = on or after the current night** (the same test as ``serve_view``): the origin is ``clock.action_day``.
+    A past view (before the current night) keeps its as-of, unchanged. A date equal to the origin reads "today"; a
+    date before it reads "passed" (the caller's words: "lapsed" for an entry window).
+
+    **Countdowns only.** The AGE of a past event (a filing's "Nd", "N days before the as-of", the days a card has
+    sat in a state, ``days_after_night``, "filed N days after the trade") describes the record and still counts from
+    the night. ``sessions_left`` is the call path's own count (sessions after the night) and is not re-based.
+
+    ``clock`` is the request's one ``market_clock()`` read (the same one ``serve_view`` got its night from, so the
+    two cannot straddle ``RUN_AT``); ``None`` reads the clock here."""
+    c = clock or market_clock()
+    return c.action_day if asof >= c.night else asof
+
+
+def serve_decisions_asof(asof: date, clock: MarketClock | None = None) -> date:
+    """The valid-time bound a SERVE-path CALL reads the operator's decisions log at (``decision_date <=`` it):
+    the action day for a live view of a night before today, else ``asof`` itself.
+
+    Why (F1): the default view is the current night, but the operator acts on the ACTION day — a fill logged
+    this morning is dated today. Read at the night, it would stay invisible to the Board until the 22:30 pass
+    (the card reading Armed all day after the entry) while the thesis-detail route, which reads the position
+    at ``market_today()``, already shows it. So a live view of a night before today reads decisions up to the
+    action day. DECISIONS ONLY: the market facts (and an operator-ratified fact, which is a market fact) still
+    follow the night. Unchanged everywhere else: a past view (before the current night) reads at its as-of,
+    and so does an as-of on or after today — byte-identical to before (the action day is never before today,
+    and no decision can be dated after today). The nightly record path never calls this.
+
+    ``clock`` is the request's one ``market_clock()`` read (pass the same one ``serve_view`` got its night
+    from, so the two halves cannot straddle ``RUN_AT``); ``None`` reads the clock here."""
+    c = clock or market_clock()
+    if c.night <= asof < c.today:
+        return c.action_day
+    return asof

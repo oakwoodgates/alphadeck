@@ -7,6 +7,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ClockProvider } from "../../../clock";
 import { todayISO } from "../../../util/format";
 import DailyDigest from "../DailyDigest";
 import { FRAMING, LIMITS } from "../digestView";
@@ -131,6 +132,19 @@ describe("DailyDigest — the headers open the full pages, carrying ?asof=", () 
   it("keeps the URL clean on a live visit, where an absent ?asof= already reads today", () => {
     const today = todayISO();
     setup(payload({ asof: today }), {}, today);
+    expect(screen.getByRole("link", { name: "Last night" }).getAttribute("href")).toBe("/dashboards/what-changed");
+  });
+
+  it("F1: the default as-of is the server's current night, so a link from it carries no ?asof=", () => {
+    h.hook.mockReturnValue(ok(payload()));
+    const server = { currentNight: ASOF, marketToday: "2026-09-18", actionDay: "2026-09-18", failed: false };
+    render(
+      <ClockProvider value={server}>
+        <MemoryRouter>
+          <DailyDigest asof={ASOF} onSelectThesis={vi.fn()} />
+        </MemoryRouter>
+      </ClockProvider>,
+    );
     expect(screen.getByRole("link", { name: "Last night" }).getAttribute("href")).toBe("/dashboards/what-changed");
   });
 });
@@ -367,7 +381,8 @@ describe("DailyDigest — positions", () => {
 
 describe("DailyDigest — due this week", () => {
   it("lists the bucket's lines with the 'today' mark and the quiet passed count", () => {
-    setup();
+    // a LIVE view (clock "record"): the server counts the lines from the action day, so the origin day reads "today"
+    setup(payload({ clock: "record" }));
     const rows = screen.getAllByTestId("dd-due-row");
     expect(rows.map((r) => r.textContent)).toEqual([
       "todayCard CReadout · regulatory",
@@ -377,6 +392,13 @@ describe("DailyDigest — due this week", () => {
     expect(rows[0]).toHaveClass("dd-today");
     expect(rows[1]).not.toHaveClass("dd-today");
     expect(screen.getByTestId("dd-passed")).toHaveTextContent("1 catalyst passed since Wed, Sep 16 and is not yet pruned (3 passed in all).");
+  });
+
+  it("carries the date on the 'today' line of a PAST view, where 'today' would name a day nobody sees (F2)", () => {
+    setup(); // the fixture is a past view (clock "public")
+    const rows = screen.getAllByTestId("dd-due-row");
+    expect(rows[0].textContent).toBe("Thu, Sep 17 · on the as-of dateCard CReadout · regulatory");
+    expect(rows[1].textContent).toBe("Fri, Sep 18 · in 1 dayCard Dentry window ends"); // already dated
   });
 
   it("opens the card from a line", async () => {

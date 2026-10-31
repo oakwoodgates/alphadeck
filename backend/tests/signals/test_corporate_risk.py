@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from calls.assembler import assemble_call
 from domain.config import DEFAULT_CONFIG
 from domain.enums import Kind, Role, State
+from domain.trading_days import next_scheduled_day
 from signals import corporate_risk
 from tests.calls.factories import ASOF, SID, breakout_event, insider_event, make_thesis
 
@@ -99,11 +100,12 @@ def test_amendment_does_not_double_count_severity():
 
 def test_freshness_is_detector_enforced_and_expires_per_item():
     """The assembler never ages risk signals, so the detector must: a 3.01 outside its 180d window
-    drops out of the re-derived stream entirely (inclusive at the horizon, gone one day past)."""
+    drops out of the re-derived stream entirely (live while the session after the as-of is inside the
+    window, gone once a window ends on the as-of itself — F3)."""
     days = DEFAULT_CONFIG.corporate_event_items["3.01"].liveness_days
-    live = _fact(filed=ASOF - timedelta(days=days), items=("3.01",))
+    live = _fact(filed=next_scheduled_day(ASOF) - timedelta(days=days), items=("3.01",))
     assert corporate_risk.score([live], SID, ASOF) is not None
-    stale = _fact(filed=ASOF - timedelta(days=days + 1), items=("3.01",))
+    stale = _fact(filed=ASOF - timedelta(days=days), items=("3.01",))
     assert corporate_risk.score([stale], SID, ASOF) is None
 
 
