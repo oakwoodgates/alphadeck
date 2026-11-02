@@ -13,6 +13,11 @@ The operator approved this scope in the planning chat on 2026-11-01. Authenticat
 mutation tools, an autonomous agent runtime, and sharing an existing browser tab remain later work.
 All rules in `CLAUDE.md`, `DASHBOARDS.md`, and `INVARIANTS.md` continue to apply.
 
+After the Board client pilot, the operator approved Cockpit and evidence drill-downs: follow a Board
+item into the actual Cockpit, inspect its call/member/source details, and obtain images from captured
+application responses. Cockpit is a detail surface, not another tile in the dashboard menu. The
+existing tool names remain compatible; the capability catalog also describes detail surfaces.
+
 Privacy requirement reaffirmed by the operator during the build: thesis names and private platform data
 must stay out of commits and PR content. Tests use synthetic data. Live validation captures remain in
 ignored local storage; reports contain counts and outcomes, not private payloads. Review tracked changes
@@ -45,6 +50,13 @@ and proposed PR text for accidental disclosure before publication.
 8. Initial access is trusted local deployment visibility, not authenticated tenant authorization. Existing
    Board metadata and default-tenant aggregate limitations are reported. Remote access requires its own
    authoritative authentication and scoping work before enablement.
+9. Following an advertised navigation link starts a new read-only capture at the parent's selected date.
+   It is explicitly a fresh database transaction, with parent linkage in the result. A temporal-context
+   guard rejects changes to market-night, clock, or countdown semantics; it does not freeze the database
+   between captures. Existing snapshots remain frozen and are never silently refreshed.
+10. Backend adapters own navigation destinations and captured-JSON reference pointers. The frontend
+    associates their opaque IDs with actual rendered targets. MCP follows only IDs advertised by both
+    the stored target and its capture envelope. Evidence inspection never fetches an external source URL.
 
 ## Contracts
 
@@ -55,6 +67,9 @@ and proposed PR text for accidental disclosure before publication.
 - Frozen response: `method`, `path`, canonical query values, HTTP status, and JSON body.
 - Observation: snapshot ID, requested settings, source context/consistency, visible text, structured
   tables/notes, identifiable targets, and explicit completeness/visibility information.
+- Navigation: an opaque link ID on a target and its backend-owned capture destination; a follow result
+  identifies its parent and its independent capture. Captured source references identify bounded JSON
+  within an existing snapshot and distinguish call provenance from display basis and authored metadata.
 - Errors: stable machine-readable category, actionable explanation, and retryability. No successful
   response conceals an unsupported operation, missing snapshot, or partial render failure.
 
@@ -64,8 +79,8 @@ and proposed PR text for accidental disclosure before publication.
 |---|---|
 | `list_dashboards` | Discover dashboards and their implemented capabilities. |
 | `describe_dashboard` | Learn controls, definitions, defaults, date behavior, and limitations. |
-| `read_dashboard` | Capture a requested view and obtain its structured observation. |
-| `inspect_dashboard_item` | Inspect a stable target within a captured view. |
+| `read_dashboard` | Capture a requested view, or follow an advertised link into a fresh related capture. |
+| `inspect_dashboard_item` | Inspect a stable target or its captured evidence within a frozen view. |
 | `render_dashboard` | Obtain an overview or target image from the same captured output. |
 
 Tools are read-only. Transport annotations are descriptive; HTTP allowlists, a read-only database
@@ -82,6 +97,10 @@ transaction, and browser request restrictions enforce the boundary.
    ordering, SPY comparison, and expanded content agree; failures and clipped content are explicit.
 5. Narrative Index and release: chart-heavy integration proves extensibility; current-only semantics
    are tested; generated contracts and repository checks pass; real client/browser workflows are verified.
+6. Cockpit and evidence: Board navigation reaches the actual Cockpit; the call, member details, all
+   source references, and computation detail are inspectable. Fresh navigation and frozen evidence
+   have explicit boundaries. Temporal drift, invalid links/references, capture-safe controls, and
+   historical metadata caveats are verified through synthetic and live development workflows.
 
 ## Growth path
 
@@ -152,10 +171,41 @@ available in bounded text chunks; concatenate them before parsing a large respon
 cover a 1440 by 1080 viewport, and target images report visible intersections with scrolling/clipping
 ancestors. A screenshot does not imply the whole dashboard fits in that image.
 
+The Cockpit hides the call rail when the member panel fully covers it, keeping observation visibility
+consistent with the painted UI. Target rendering rejects hidden targets and detected overlay coverage
+after scrolling. The additional occlusion check is bounded sampling, explicitly reported in image
+metadata; it cannot certify every pixel. `cropped` describes geometric clipping, not an exhaustive
+occlusion guarantee. Choose an exposed target or another captured view when rendering is rejected.
+
 Current support: Board, Rotation Map, and Narrative Index implement observation, drill-down, and
-images. The other registered dashboards are discoverable with explicit unsupported capabilities.
+images. Cockpit adds a detail surface with the same capabilities. The other registered dashboards are
+discoverable with explicit unsupported capabilities.
 Current-only views reject historical date selection when enabled. Invalid selected groups, cards, and
 chart sessions fail rather than silently displaying a different requested view.
+
+## Follow a card and inspect its evidence
+
+1. Read Board and inspect a target's advertised `links`. Follow one by calling `read_dashboard` with
+   `from_snapshot_id`, `target_id`, `link_id`, and `freshness: "fresh"`. This form is exclusive with a
+   direct `dashboard`/`settings`/`asof` request; the destination and selected date come from the capture.
+2. Keep the new Cockpit `snapshot_id`. Its origin identifies the parent capture; the two captures do
+   not share a database snapshot. If the temporal context changed, read the parent again before following.
+3. Inspect the Cockpit's call, member, trigger, and source targets. For exact evidence, pass an advertised
+   `source_ref_id` with its `target_id` to `inspect_dashboard_item`. Source JSON uses the existing bounded
+   `data_offset`/`data_limit` paging; concatenate chunks before parsing a large value.
+4. Render the Cockpit overview or an advertised target using that same child snapshot. The actual UI
+   discloses source references and their stored computation detail. External URLs are reference links,
+   and their documents have not been retrieved or independently verified by this operation.
+
+Cockpit preserves the application's current semantics. Authored narrative/evidence/catalysts/kill
+criteria, roster/identity, feed metadata, position, and decision history are current metadata. Dated
+call/scoring/display facts follow their canonical as-of readers; a historical call's roster can differ
+from the displayed current roster. Capture reports this limitation visibly and in its context. A
+display indicator or authored evidence reference is not automatically an input to the call.
+
+Capture mode preserves decision history while disabling decision writes, undo, spine editors, and
+exports. Normal interactive application controls retain their existing behavior. This increment adds
+no signal rules, agent-authored conclusions, authentication, remote transport, or action tools.
 
 ## Add a dashboard
 
@@ -173,10 +223,18 @@ chart sessions fail rather than silently displaying a different requested view.
 5. Add synthetic tests for API parity/read-only behavior, date rules, missing data, view settings, and
    actual browser rendering. Verify adding/removing the adapter never changes MCP transport code.
 
+For a detail surface, keep its capability beside the owning UI rather than adding a dashboard menu
+entry; Cockpit is the first example. A thesis-scoped adapter declares `THESIS_SCOPED` and accepts the
+explicit `thesis_id` query field. An optional `relationships(responses, request)` hook receives the
+final frozen response array, including clock at index zero, and returns navigation recipes and exact
+JSON references. Associate those IDs with rendered targets through the capture binding helpers.
+Validate every pointer, reject duplicate IDs or excessive relationships, and keep new domain joins
+inside the application adapter. Remote URLs never become capture destinations.
+
 ## Verification commands
 
 From `frontend/`: `npm test`, `npm run build`, and `npm run check:mcp`. From `backend/`, use the checkout's
-Python to run `-m pytest tests/agent_access tests/dashboards/test_capture.py`, `-m ruff check .`, and
+Python to run `-m pytest tests/agent_access tests/dashboards/test_capture.py tests/dashboards/test_capture_cockpit.py`, `-m ruff check .`, and
 `-m black --check .`. Existing pytest configuration guards and selects a dedicated test database.
 
 Real Chromium tests are opt-in after building `frontend/dist` and installing Chromium:

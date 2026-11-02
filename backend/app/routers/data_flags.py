@@ -219,11 +219,22 @@ def get_thesis_data_flags(
     platform knows is wrong or cannot vouch for, why, and what clears it — plus each name's quiet markers
     (information, not a defect) and split rows. Only names with a flag, a marker or a split row are listed.
     Computed on read, never stored; display-only."""
+    return read_thesis_data_flags(conn, thesis, asof, view=serve_view(asof))
+
+
+def read_thesis_data_flags(
+    conn: psycopg.Connection,
+    thesis: Thesis,
+    asof: date,
+    *,
+    view: tuple[datetime | None, Literal["record", "public"]],
+) -> DataFlagsResponse:
+    """Canonical per-thesis flags, with the capture's pinned view supplied explicitly."""
     ids: list[UUID] = []
     for m in thesis.basket:
         if m.security_id is not None and m.security_id not in ids:
             ids.append(m.security_id)
-    out = _read(conn, tenant_id=thesis.tenant_id, ids=ids, asof=asof)
+    out = _read(conn, tenant_id=thesis.tenant_id, ids=ids, asof=asof, view=view)
     return DataFlagsResponse(
         thesis_id=thesis.id,
         asof=asof,

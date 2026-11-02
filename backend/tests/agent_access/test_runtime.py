@@ -42,6 +42,8 @@ def envelope():
             "scope": "deployment_visibility_not_authorization",
             "clock": "public",
             "known_at": "2026-10-31T00:00:00Z",
+            "decisions_asof": "2026-10-30",
+            "countdown_origin": "2026-10-30",
             "clock_response": dict(CLOCK),
         },
         "consistency": {
@@ -83,7 +85,12 @@ def test_fail_closed_origins(value):
 def test_catalog_strict_capabilities_settings_and_dates():
     catalog = Catalog()
     assert len(catalog.dashboards) >= 29
-    assert sum(item["capabilities"]["observe"] for item in catalog.dashboards) == 3
+    expected = {"board", "rotation-map", "narrative-index"}
+    if any(item["slug"] == "cockpit" for item in catalog.dashboards):
+        expected.add("cockpit")
+    assert {
+        item["slug"] for item in catalog.dashboards if item["capabilities"]["observe"]
+    } == expected
     _, settings = catalog.prepare("rotation-map", {"group_by": "sector"}, "2026-10-30")
     assert settings["group_by"] == "sector"
     for slug, values in [("board", {"mutation": True}), ("rotation-map", {"group_by": "anything"})]:

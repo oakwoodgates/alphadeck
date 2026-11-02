@@ -6,6 +6,7 @@ import time
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Literal
+from uuid import UUID
 
 from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
@@ -46,6 +47,26 @@ class CapturedResponse(BaseModel):
     body: Any
 
 
+class CaptureDestination(BaseModel):
+    dashboard: str
+    settings: dict[str, Any] = Field(default_factory=dict)
+
+
+class CaptureNavigation(BaseModel):
+    id: str
+    kind: Literal["fresh_capture"] = "fresh_capture"
+    destination: CaptureDestination
+
+
+class CaptureReference(BaseModel):
+    id: str
+    kind: Literal["captured_json"] = "captured_json"
+    response_index: int = Field(ge=0)
+    pointer: str
+    label: str | None = None
+    category: str
+
+
 class DashboardCapture(BaseModel):
     schema_version: Literal["1"] = "1"
     dashboard: str
@@ -54,6 +75,8 @@ class DashboardCapture(BaseModel):
     context: CaptureContext
     consistency: CaptureConsistency
     responses: list[CapturedResponse]
+    navigation: list[CaptureNavigation] = Field(default_factory=list)
+    references: list[CaptureReference] = Field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -65,6 +88,7 @@ class CaptureRequest:
     include_silent: bool
     window: Literal["1y", "90d", "30d"]
     deadline: float
+    thesis_id: UUID | None = None
 
     def check_budget(self) -> None:
         """Cooperative total bound between reads; SQL also has its own timeout."""

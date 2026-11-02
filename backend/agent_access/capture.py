@@ -9,6 +9,7 @@ from urllib.parse import parse_qsl, urlsplit
 import httpx
 
 from .errors import AccessError
+from .references import context_hash, validate_references
 
 MAX_CAPTURE_BYTES = 8 * 1024 * 1024
 UUID_PATH = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
@@ -95,6 +96,9 @@ def validate_capture(envelope: dict, dashboard: str, descriptor: dict | None = N
             raise ValueError
         for key in ("current_night", "action_day", "market_today"):
             date.fromisoformat(context["clock_response"][key])
+        for key in ("decisions_asof", "countdown_origin"):
+            date.fromisoformat(context[key])
+        context_hash(envelope)
         if not isinstance(context["clock_response"]["market_tz"], str) or (
             context["clock"] == "public" and not context["known_at"]
         ):
@@ -130,6 +134,7 @@ def validate_capture(envelope: dict, dashboard: str, descriptor: dict | None = N
         raise AccessError(
             "invalid_capture", "Backend returned an incomplete or inconsistent capture envelope."
         ) from None
+    validate_references(envelope)
     return envelope
 
 
@@ -139,7 +144,14 @@ class CaptureClient:
         self.timeout = timeout
         self.transport = transport
 
-    async def capture(self, descriptor: dict, settings: dict, asof: str | None) -> dict:
+    async def capture(
+        self,
+        descriptor: dict,
+        settings: dict,
+        asof: str | None,
+        *,
+        expected_context_hash: str | None = None,
+    ) -> dict:
         slug = descriptor["slug"]
         if not descriptor["capabilities"]["data"] or not descriptor.get("response_paths"):
             raise AccessError(
@@ -149,6 +161,10 @@ class CaptureClient:
         query = {"dashboard": slug}
         if asof is not None:
             query["asof"] = asof
+        if expected_context_hash is not None:
+            if not re.fullmatch(r"[0-9a-f]{64}", expected_context_hash):
+                raise AccessError("invalid_configuration", "Expected context hash is invalid.")
+            query["expected_context_hash"] = expected_context_hash
         for field in descriptor["backend_query_fields"]:
             if field not in descriptor["settings_schema"]["properties"] or not isinstance(
                 settings[field], (str, bool, int, float)
@@ -169,6 +185,20 @@ class CaptureClient:
                     "GET", self.base + "/dashboards/capture", params=query
                 ) as response:
                     if response.status_code != 200:
+                        if response.status_code == 409:
+                            error_content = bytearray()
+                            async for chunk in response.aiter_bytes():
+                                if len(error_content) + len(chunk) > 4096:
+                                    break
+                                error_content.extend(chunk)
+                            try:
+                                if json.loads(error_content).get("detail") == "context_changed":
+                                    raise AccessError(
+                                        "context_changed",
+                                        "Temporal context changed; read a new parent snapshot before following its link.",
+                                    )
+                            except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
+                                pass
                         known_errors = {
                             409: (
                                 "capture_changed",

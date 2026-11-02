@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect } from "react";
+import { Fragment, type ReactNode, useEffect } from "react";
 
 import type {
   CallCardResponse,
@@ -27,6 +27,9 @@ import {
   verdictLabel,
 } from "../util/format";
 import type { BucketDef, BucketKey, BucketRow } from "./buckets";
+import { useCaptureBindings } from "../mcp/bindings";
+import { targetId } from "../mcp/targetId";
+import { ProvenanceSources } from "../components/ProvenanceSources";
 
 interface Props {
   row: BucketRow;
@@ -46,6 +49,7 @@ interface Props {
   dataFlags?: MemberDataFlagsOut | null;
   asof: string;
   onClose: () => void;
+  capture?: { displayPointer: string; scoredPointer: string; flagsPointer: string };
 }
 
 /** The verdict-less buckets tell their state in words instead (the honest degrade — a Warming name
@@ -83,7 +87,9 @@ export function NamePanel({
   dataFlags = null,
   asof,
   onClose,
+  capture,
 }: Props) {
+  const { sourceRefs } = useCaptureBindings();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -99,19 +105,21 @@ export function NamePanel({
   // This name's own triggers: the member call carries them (armed/watch tiers); a Warming name has
   // no member call, so its live firing comes from the thesis list filtered by ticker. The ticker
   // chip is stripped off each row — in a single-name panel it would be true of every line (noise).
-  const own: TriggerRefOut[] =
-    call && call.triggers.length > 0
-      ? call.triggers
-      : (card?.triggers_fired ?? []).filter((t) => t.ticker != null && t.ticker === member.ticker);
-  const risks = (card?.risk_signals ?? []).filter(
-    (t) => t.ticker != null && t.ticker === member.ticker,
-  );
+  const callGroup = call && card?.armed_members.includes(call) ? "armed_members" : "watch_members";
+  const memberIndex = call ? (card?.[callGroup] ?? []).indexOf(call) : -1;
+  const own: { trigger: TriggerRefOut; pointer: string }[] = call && call.triggers.length > 0
+    ? call.triggers.map((trigger, index) => ({ trigger, pointer: `/${callGroup}/${memberIndex}/triggers/${index}` }))
+    : (card?.triggers_fired ?? []).map((trigger, index) => ({ trigger, pointer: `/triggers_fired/${index}` }))
+      .filter(({ trigger }) => trigger.ticker != null && trigger.ticker === member.ticker);
+  const risks = (card?.risk_signals ?? []).map((trigger, index) => ({ trigger, pointer: `/risk_signals/${index}` }))
+    .filter(({ trigger }) => trigger.ticker != null && trigger.ticker === member.ticker);
 
   // The operator record, per-name: the open position when it's attributed to THIS name, and the
   // decision rows logged ON this name (by security_id). Thesis-level rows (no name on the row —
   // passes, seed-era takes) stay on the rail's full log, which is also where acting and undo live:
   // the panel READS the record, it never writes it (one write surface, no divergence).
-  const decisions = useDecisions(thesisId).data ?? [];
+  const decisionsQ = useDecisions(thesisId);
+  const decisions = decisionsQ.data ?? [];
   const myDecisions = member.security_id
     ? decisions.filter((d) => d.security_id === member.security_id)
     : [];
@@ -175,7 +183,10 @@ export function NamePanel({
   if (scored?.price_symbol) cells.push(["Priced under", scored.price_symbol]);
 
   return (
-    <aside className={`npanel ${def.cls}`} aria-label={`${member.ticker} — per-name panel`}>
+    <aside className={`npanel ${def.cls}`} aria-label={`${member.ticker} — per-name panel`}
+      data-mcp-id={targetId("member-panel", thesisId, member.security_id ?? String(row.ordinal))}
+      data-mcp-detail-ready={!decisionsQ.isPending && !decisionsQ.isFetching} data-mcp-error={Boolean(decisionsQ.error)}
+      {...(capture ? sourceRefs(`/workbench/theses/${thesisId}/scored`, capture.scoredPointer) : {})}>
       <div className="np-head">
         <span className="np-tk">{member.ticker}</span>
         <span className="np-bucket">
@@ -296,9 +307,10 @@ export function NamePanel({
       <div className="np-h">Triggers · this name&apos;s own</div>
       {own.length > 0 ? (
         // newest-first, same idiom as the rail (frontend-only display sort)
-        [...own].sort(byEventDateDesc).map((t, i) => (
+        [...own].sort((a, b) => byEventDateDesc(a.trigger, b.trigger)).map(({ trigger: t, pointer }, i) => (
           // provenance rides every row (#6); the redundant same-ticker chip is stripped
-          <TriggerRow key={i} item={{ ...t, ticker: null }} icon="◉" variant="hit" showGrade />
+          <TriggerRow key={i} item={{ ...t, ticker: null }} icon="◉" variant="hit" showGrade
+            capture={{ path: `/theses/${thesisId}/call`, pointer, scope: "member-trigger" }} />
         ))
       ) : (
         <div className="np-stateline">None live.</div>
@@ -306,8 +318,9 @@ export function NamePanel({
 
       <div className="np-h">Risk signals · this name</div>
       {risks.length > 0 ? (
-        [...risks].sort(byEventDateDesc).map((t, i) => (
-          <TriggerRow key={i} item={{ ...t, ticker: null }} icon="▲" variant="warn" showGrade={false} />
+        [...risks].sort((a, b) => byEventDateDesc(a.trigger, b.trigger)).map(({ trigger: t, pointer }, i) => (
+          <TriggerRow key={i} item={{ ...t, ticker: null }} icon="▲" variant="warn" showGrade={false}
+            capture={{ path: `/theses/${thesisId}/call`, pointer, scope: "member-risk" }} />
         ))
       ) : (
         <div className="np-stateline">None active.</div>
@@ -328,6 +341,8 @@ export function NamePanel({
           </div>
         )}
       </div>
+      {scored && <ProvenanceSources sources={scored.market_cap.provenance ?? []} path={`/workbench/theses/${thesisId}/scored`}
+        pointer={`${capture?.scoredPointer ?? ""}/market_cap`} scope="member-score-market-cap" sourceKey="provenance" label="Market cap provenance" />}
       {/* #1 thin-history DATA-HEALTH flag — only when starved (honest loudness). A bar count, never a call
           input; it says the history-window reads may be unreliable, not that the call is wrong. */}
       {scored?.thin_price_history && (
@@ -347,7 +362,7 @@ export function NamePanel({
       {/* S3 — the full data-flag reasons (with evidence, since when, what clears them) and the company's
           split rows (announced · confirmed · took effect · history corrected). Nothing renders for a name
           with neither — the common case. */}
-      <DataFlagsSection member={dataFlags} />
+      <DataFlagsSection member={dataFlags} capture={capture ? { path: `/theses/${thesisId}/data-flags`, pointer: capture.flagsPointer, scope: "member-flags" } : undefined} />
 
       {member.thesis_fit && (
         <>
@@ -371,10 +386,13 @@ export function NamePanel({
                 ["Dilution", "dilution", true],
               ] as const
             ).map(([label, key, risk]) => (
-              <div className="np-meter-row" key={key}>
+              <Fragment key={key}><div className="np-meter-row">
                 <Meter label={label} figure={scored[key]} risk={risk} />
                 <span className="val">{meterValueLabel(key, scored[key])}</span>
               </div>
+                <ProvenanceSources sources={scored[key].provenance ?? []} path={`/workbench/theses/${thesisId}/scored`}
+                  pointer={`${capture?.scoredPointer ?? ""}/${key}`} scope={`member-score-${key}`} sourceKey="provenance" label={`${label} provenance`} />
+              </Fragment>
             ))}
             {scored.unconfirmed_estimates > 0 && (
               <div className="np-unconf">{scored.unconfirmed_estimates} unconfirmed estimate(s)</div>
@@ -383,7 +401,8 @@ export function NamePanel({
         </>
       )}
 
-      <DisplaySignalsSection display={display} foreignFilerForm={scored?.foreign_filer_form} />
+      <DisplaySignalsSection display={display} foreignFilerForm={scored?.foreign_filer_form}
+        capture={capture ? { path: `/theses/${thesisId}/display-signals`, pointer: capture.displayPointer, scope: "member-display" } : undefined} />
 
       {myDecisions.length > 0 && (
         <>

@@ -3960,6 +3960,40 @@
               "default": "1y",
               "title": "Window"
             }
+          },
+          {
+            "name": "thesis_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Thesis Id"
+            }
+          },
+          {
+            "name": "expected_context_hash",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[0-9a-fA-F]{64}$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Expected Context Hash"
+            }
           }
         ],
         "responses": {
@@ -12846,6 +12880,93 @@
         ],
         "title": "CaptureContext"
       },
+      "CaptureDestination": {
+        "properties": {
+          "dashboard": {
+            "type": "string",
+            "title": "Dashboard"
+          },
+          "settings": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Settings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "dashboard"
+        ],
+        "title": "CaptureDestination"
+      },
+      "CaptureNavigation": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "const": "fresh_capture",
+            "title": "Kind",
+            "default": "fresh_capture"
+          },
+          "destination": {
+            "$ref": "#/components/schemas/CaptureDestination"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "destination"
+        ],
+        "title": "CaptureNavigation"
+      },
+      "CaptureReference": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "const": "captured_json",
+            "title": "Kind",
+            "default": "captured_json"
+          },
+          "response_index": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Response Index"
+          },
+          "pointer": {
+            "type": "string",
+            "title": "Pointer"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "response_index",
+          "pointer",
+          "category"
+        ],
+        "title": "CaptureReference"
+      },
       "CapturedResponse": {
         "properties": {
           "method": {
@@ -15610,6 +15731,20 @@
             },
             "type": "array",
             "title": "Responses"
+          },
+          "navigation": {
+            "items": {
+              "$ref": "#/components/schemas/CaptureNavigation"
+            },
+            "type": "array",
+            "title": "Navigation"
+          },
+          "references": {
+            "items": {
+              "$ref": "#/components/schemas/CaptureReference"
+            },
+            "type": "array",
+            "title": "References"
           }
         },
         "type": "object",

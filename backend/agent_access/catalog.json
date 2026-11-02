@@ -38,7 +38,8 @@
         "/theses",
         "/theses/{uuid}/call",
         "/data-flags"
-      ]
+      ],
+      "surface_kind": "dashboard"
     },
     {
       "slug": "shared-names",
@@ -61,7 +62,8 @@
       "defaults": {},
       "backend_query_fields": [],
       "capability_version": "1",
-      "response_paths": []
+      "response_paths": [],
+      "surface_kind": "dashboard"
     },
     {
       "slug": "idea-timeline",
@@ -84,7 +86,8 @@
       "defaults": {},
       "backend_query_fields": [],
       "capability_version": "1",
-      "response_paths": []
+      "response_paths": [],
+      "surface_kind": "dashboard"
     },
     {
       "slug": "rotation-map",
@@ -172,7 +175,8 @@
       "response_paths": [
         "/clock",
         "/dashboards/rotation-map"
-      ]
+      ],
+      "surface_kind": "dashboard"
     },
     {
       "slug": "what-changed",
@@ -195,7 +199,8 @@
       "defaults": {},
       "backend_query_fields": [],
       "capability_version": "1",
-      "response_paths": []
+      "response_paths": [],
+      "surface_kind": "dashboard"
     },
     {
       "slug": "cross-radar",
@@ -218,7 +223,8 @@
       "defaults": {},
       "backend_query_fields": [],
       "capability_version": "1",
-      "response_paths": []
+      "response_paths": [],
+      "surface_kind": "dashboard"
     },
     {
       "slug": "catalyst-calendar",
@@ -241,7 +247,8 @@
       "defaults": {},
       "backend_query_fields": [],
       "capability_version": "1",
-      "response_paths": []
+      "response_paths": [],
+      "surface_kind": "dashboard"
     },
     {
       "slug": "leaders",
@@ -264,7 +271,8 @@
       "defaults": {},
       "backend_query_fields": [],
       "capability_version": "1",
-      "response_paths": []
+      "response_paths": [],
+      "surface_kind": "dashboard"
     },
     {
       "slug": "landing",
@@ -287,7 +295,8 @@
       "defaults": {},
       "backend_query_fields": [],
       "capability_version": "1",
-      "response_paths": []
+      "response_paths": [],
+      "surface_kind": "dashboard"
     },
     {
       "slug": "narrative-index",
@@ -390,7 +399,8 @@
         "/clock",
         "/dashboards/narrative-index",
         "/dashboards/narrative-index/{uuid}"
-      ]
+      ],
+      "surface_kind": "dashboard"
     },
     {
       "slug": "rotation-quadrant",
@@ -413,7 +423,8 @@
       "defaults": {},
       "backend_query_fields": [],
       "capability_version": "1",
-      "response_paths": []
+      "response_paths": [],
+      "surface_kind": "dashboard"
     },
     {
       "slug": "chain-wave",
@@ -436,7 +447,8 @@
       "defaults": {},
       "backend_query_fields": [],
       "capability_version": "1",
-      "response_paths": []
+      "response_paths": [],
+      "surface_kind": "dashboard"
     },
     {
       "slug": "filing-stream",
@@ -459,7 +471,8 @@
       "defaults": {},
       "backend_query_fields": [],
       "capability_version": "1",
-      "response_paths": []
+      "response_paths": [],
+      "surface_kind": "dashboard"
     },
     {
       "slug": "read-through",
@@ -482,7 +495,8 @@
       "defaults": {},
       "backend_query_fields": [],
       "capability_version": "1",
-      "response_paths": []
+      "response_paths": [],
+      "surface_kind": "dashboard"
     },
     {
       "slug": "chain-map",
@@ -505,7 +519,8 @@
       "defaults": {},
       "backend_query_fields": [],
       "capability_version": "1",
-      "response_paths": []
+      "response_paths": [],
+      "surface_kind": "dashboard"
     },
     {
       "slug": "peer-table",
@@ -528,7 +543,8 @@
       "defaults": {},
       "backend_query_fields": [],
       "capability_version": "1",
-      "response_paths": []
+      "response_paths": [],
+      "surface_kind": "dashboard"
     },
     {
       "slug": "fundamentals-multiples",
@@ -551,7 +567,8 @@
       "defaults": {},
       "backend_query_fields": [],
       "capability_version": "1",
-      "response_paths": []
+      "response_paths": [],
+      "surface_kind": "dashboard"
     },
     {
       "slug": "narrative-adoption",
@@ -574,7 +591,8 @@
       "defaults": {},
       "backend_query_fields": [],
       "capability_version": "1",
-      "response_paths": []
+      "response_paths": [],
+      "surface_kind": "dashboard"
     },
     {
       "slug": "evidence-ledger",
@@ -597,7 +615,8 @@
       "defaults": {},
       "backend_query_fields": [],
       "capability_version": "1",
-      "response_paths": []
+      "response_paths": [],
+      "surface_kind": "dashboard"
     },
     {
       "slug": "hot-board",
@@ -620,7 +639,8 @@
       "defaults": {},
       "backend_query_fields": [],
       "capability_version": "1",
-      "response_paths": []
+      "response_paths": [],
+      "surface_kind": "dashboard"
     },
     {
       "slug": "entry-windows",
@@ -643,7 +663,8 @@
       "defaults": {},
       "backend_query_fields": [],
       "capability_version": "1",
-      "response_paths": []
+      "response_paths": [],
+      "surface_kind": "dashboard"
     },
     {
       "slug": "trigger-log",
@@ -666,7 +687,8 @@
       "defaults": {},
       "backend_query_fields": [],
       "capability_version": "1",
-      "response_paths": []
+      "response_paths": [],
+      "surface_kind": "dashboard"
     },
     {
       "slug": "ticker-lookup",
@@ -689,7 +711,8 @@
       "defaults": {},
       "backend_query_fields": [],
       "capability_version": "1",
-      "response_paths": []
+      "response_paths": [],
+      "surface_kind": "dashboard"
     },
     {
       "slug": "track-record",
@@ -712,7 +735,8 @@
       "defaults": {},
       "backend_query_fields": [],
       "capability_version": "1",
-      "response_paths": []
+      "response_paths": [],
+      "surface_kind": "dashboard"
     },
     {
       "slug": "forming-quietly",
@@ -735,7 +759,8 @@
       "defaults": {},
       "backend_query_fields": [],
       "capability_version": "1",
-      "response_paths": []
+      "response_paths": [],
+      "surface_kind": "dashboard"
     },
     {
       "slug": "theme-leaderboard",
@@ -758,7 +783,8 @@
       "defaults": {},
       "backend_query_fields": [],
       "capability_version": "1",
-      "response_paths": []
+      "response_paths": [],
+      "surface_kind": "dashboard"
     },
     {
       "slug": "insider-tracker",
@@ -781,7 +807,8 @@
       "defaults": {},
       "backend_query_fields": [],
       "capability_version": "1",
-      "response_paths": []
+      "response_paths": [],
+      "surface_kind": "dashboard"
     },
     {
       "slug": "market-map",
@@ -805,7 +832,8 @@
       "defaults": {},
       "backend_query_fields": [],
       "capability_version": "1",
-      "response_paths": []
+      "response_paths": [],
+      "surface_kind": "dashboard"
     },
     {
       "slug": "daily-digest",
@@ -828,7 +856,114 @@
       "defaults": {},
       "backend_query_fields": [],
       "capability_version": "1",
-      "response_paths": []
+      "response_paths": [],
+      "surface_kind": "dashboard"
+    },
+    {
+      "slug": "cockpit",
+      "surface_kind": "detail",
+      "order": 1000,
+      "label": "Cockpit",
+      "description": "One thesis, its basket, call and captured evidence.",
+      "status": "core",
+      "asofAware": true,
+      "capability_version": "1",
+      "capabilities": {
+        "data": true,
+        "observe": true,
+        "screenshot": true,
+        "drilldown": true
+      },
+      "settings_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "thesis_id"
+        ],
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "selected_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "rail_open": {
+            "type": "boolean"
+          },
+          "group_mode": {
+            "type": "string",
+            "enum": [
+              "state",
+              "type",
+              "segment"
+            ]
+          },
+          "sort_col": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              null,
+              "ticker",
+              "name",
+              "type",
+              "last",
+              "sma",
+              "ret_1d",
+              "ret_7d",
+              "ret_30d",
+              "ret_90d",
+              "ret_1y",
+              "off52w",
+              "rvol8",
+              "rvol20",
+              "ins_30d",
+              "ins_90d",
+              "mktcap",
+              "adv",
+              "entry_by",
+              "exit_by"
+            ]
+          },
+          "sort_dir": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ]
+          },
+          "evidence_open": {
+            "type": "boolean"
+          }
+        }
+      },
+      "defaults": {
+        "selected_name": null,
+        "rail_open": true,
+        "group_mode": "state",
+        "sort_col": null,
+        "sort_dir": "desc",
+        "evidence_open": true
+      },
+      "backend_query_fields": [
+        "thesis_id"
+      ],
+      "response_paths": [
+        "/clock",
+        "/theses/{uuid}",
+        "/theses/{uuid}/call",
+        "/theses/{uuid}/display-signals",
+        "/theses/{uuid}/data-flags",
+        "/workbench/theses/{uuid}/scored",
+        "/theses/{uuid}/decisions"
+      ]
     }
   ]
 }

@@ -19,6 +19,7 @@ import { ThesisCard } from "./ThesisCard";
 import { useRowCap } from "./useRowCap";
 import { useCaptureView } from "../mcp/viewContext";
 import { targetId } from "../mcp/targetId";
+import { useCaptureBindings } from "../mcp/bindings";
 
 /** The Decision Queue wraps; collapsed it holds to this many rows and says how many it is holding back. */
 const DQ_ROWS = 2;
@@ -50,6 +51,7 @@ interface Row {
 
 export function Board({ header, asof, onSelect }: Props) {
   const { settings, readOnly } = useCaptureView();
+  const { cockpitLinks } = useCaptureBindings();
   // the Board is the ONE consumer that asks for archived theses — they render in the collapsed
   // section below (visible + restorable, never vanished); their calls are NOT computed (no cost)
   const thesesQ = useTheses(true);
@@ -160,6 +162,7 @@ export function Board({ header, asof, onSelect }: Props) {
                   className={`dq-item${dqFolded && i >= dqCap.firstClipped ? " held" : ""}`}
                   key={thesis.id}
                   data-mcp-id={targetId("queue", thesis.id)}
+                  {...cockpitLinks(thesis.id, headline?.security_id ?? headline?.ticker ?? null)}
                   onClick={() => onSelect(thesis.id, nameKey)}
                 >
                   {/* a theme shows its single TOP-RANKED actionable name (anti-flooding), with a quiet
@@ -237,7 +240,7 @@ export function Board({ header, asof, onSelect }: Props) {
                 {colRows.map(({ thesis, call, stale }) => (
                   // the archive control is a SIBLING of the card (the card is itself a <button> —
                   // nesting one inside would be the nested-button trap), hover-quiet
-                  <div className={`card-wrap${stale ? " recomputing" : ""}`} key={thesis.id} data-mcp-id={targetId("card", thesis.id)}>
+                  <div className={`card-wrap${stale ? " recomputing" : ""}`} key={thesis.id} data-mcp-id={targetId("card", thesis.id)} {...cockpitLinks(thesis.id)}>
                     <ThesisCard
                       thesis={thesis}
                       call={call}

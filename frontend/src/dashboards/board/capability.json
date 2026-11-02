@@ -35,5 +35,6 @@
     "/theses",
     "/theses/{uuid}/call",
     "/data-flags"
-  ]
+  ],
+  "surface_kind": "dashboard"
 }

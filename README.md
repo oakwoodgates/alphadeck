@@ -73,9 +73,10 @@ Four decision surfaces (plus an operator ops page); clickable mockups live in `d
 
 ## Architecture & stack
 
-Local agents can inspect the Board, Rotation Map, and Narrative Index through a read-only MCP server:
-structured observations and images share one captured view. Setup, capability coverage, and extension
-contracts are in [`docs/MCP.md`](docs/MCP.md).
+Local agents can inspect the Board, Rotation Map, and Narrative Index, then follow Board items into
+Cockpit and its captured evidence through a read-only MCP server. Structured observations and images
+share one captured view; navigation explicitly starts a fresh capture. Setup, capability coverage, and
+extension contracts are in [`docs/MCP.md`](docs/MCP.md).
 
 Three load-bearing decisions drive the shape:
 

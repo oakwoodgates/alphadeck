@@ -1,5 +1,6 @@
 /* An isolated browser viewport, using the same shell and dashboard CSS as the app. */
 [data-mcp-root] { min-height: 100vh; }
+.capture-caveat { flex: 0 0 auto; color: var(--txt-3); font-size: 11px; padding: 6px 14px; border-bottom: 1px solid var(--line); }
 [data-mcp-root] *, [data-mcp-root] *::before, [data-mcp-root] *::after {
   animation: none !important;
   transition: none !important;

@@ -9,6 +9,7 @@ import {
 import { useAppClock } from "../clock";
 import { errText } from "../workbench/format";
 import { fmtDate } from "../util/format";
+import { useCaptureView } from "../mcp/viewContext";
 
 /** Decision capture — the CallCard's action row, wired to the operator-decisions log.
  *
@@ -26,6 +27,7 @@ export function DecisionActions({
   thesisId: string;
   card: CallCardResponse;
 }) {
+  const { readOnly } = useCaptureView();
   const decisions = useDecisions(thesisId);
   const post = usePostDecision(thesisId);
   const [form, setForm] = useState<"take" | "close" | "pass" | null>(null);
@@ -82,20 +84,20 @@ export function DecisionActions({
       {/* the state-appropriate primary + the always-quiet pass */}
       {armed && (
         <div className="actions">
-          <button className="btn primary" type="button" onClick={() => open("take")}>
+          <button className="btn primary" type="button" disabled={readOnly} onClick={() => open("take")}>
             Act — log the fill
           </button>
-          <button className="btn" type="button" onClick={() => open("pass")}>
+          <button className="btn" type="button" disabled={readOnly} onClick={() => open("pass")}>
             Pass (logged)
           </button>
         </div>
       )}
       {managing && (
         <div className="actions two">
-          <button className="btn" type="button" onClick={() => open("close")}>
+          <button className="btn" type="button" disabled={readOnly} onClick={() => open("close")}>
             Log exit
           </button>
-          <button className="btn" type="button" onClick={() => open("pass")}>
+          <button className="btn" type="button" disabled={readOnly} onClick={() => open("pass")}>
             Note a pass
           </button>
         </div>
@@ -107,10 +109,10 @@ export function DecisionActions({
             disagree; the override is logged with the platform's stance.
           </div>
           <div className="actions two">
-            <button className="btn wide" type="button" onClick={() => open("take")}>
+            <button className="btn wide" type="button" disabled={readOnly} onClick={() => open("take")}>
               Override — log an early entry
             </button>
-            <button className="btn" type="button" onClick={() => open("pass")}>
+            <button className="btn" type="button" disabled={readOnly} onClick={() => open("pass")}>
               Pass (logged)
             </button>
           </div>
@@ -189,7 +191,7 @@ export function DecisionActions({
           <button
             type="button"
             className="wb-mini"
-            disabled={post.isPending}
+            disabled={readOnly || post.isPending}
             onClick={() => submit(form)}
           >
             {post.isPending ? "Logging…" : `Log ${form}`}
@@ -202,7 +204,7 @@ export function DecisionActions({
         <div className="dc-log">
           <div className="dc-log-h">Decision log</div>
           {(decisions.data ?? []).slice(0, 6).map((d) => (
-            <DecisionRow key={d.id} d={d} onVoid={voidRow} busy={post.isPending} />
+            <DecisionRow key={d.id} d={d} onVoid={voidRow} busy={readOnly || post.isPending} />
           ))}
         </div>
       )}

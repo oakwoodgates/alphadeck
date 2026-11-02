@@ -10,6 +10,59 @@ from .errors import AccessError
 
 VIEWPORT = {"width": 1440, "height": 1080}
 MAX_PNG_BYTES = 8 * 1024 * 1024
+OCCLUSION_CHECK = """(el, clip) => {
+    // Inert and pointer-events affect hit testing, not pixels. Lift them only during
+    // this synchronous measurement; no interactions run and every change is restored.
+    const inertNodes=document.querySelectorAll('[inert]');
+    const nodes=document.querySelectorAll('*');
+    if(inertNodes.length>64||nodes.length>50000) return {strategy:'clipped_grid_hit_test',checked:false};
+    const inert=[...inertNodes].map(node=>[node,node.getAttribute('inert')]);
+    const sheet=document.createElement('style');
+    sheet.textContent='* { pointer-events: auto !important; }';
+    let samples=0,covered=0,background=0,budget=10000,checked=true; const owners=new Set(),overrides=[];
+    try {
+        for(const [node] of inert) node.removeAttribute('inert');
+        document.head.appendChild(sheet);
+        for(const node of nodes) {
+            if(getComputedStyle(node).pointerEvents==='none') {
+                if(overrides.length>=2048||!node.style) return {strategy:'clipped_grid_hit_test',checked:false};
+                overrides.push([node,node.getAttribute('style')]);
+                node.style.setProperty('pointer-events','auto','important');
+            }
+        }
+        samplesLoop: for(let row=0;row<5;row++) for(let col=0;col<5;col++) {
+            const positions=size=>[Math.min(.5,size/2),size*.25,size*.5,size*.75,Math.max(size/2,size-.5)];
+            const x=clip.x+positions(clip.width)[col],y=clip.y+positions(clip.height)[row];
+            let top=null;
+            const stack=document.elementsFromPoint(x,y);
+            if(stack.length>64){checked=false;break samplesLoop;}
+            for(const node of stack) {
+                let eligible=true,depth=0;
+                for(let parent=node;parent;parent=parent.parentElement) {
+                    if(--budget<0||++depth>64){checked=false;break samplesLoop;}
+                    const style=getComputedStyle(parent);
+                    if(style.visibility==='hidden'||style.visibility==='collapse'||Number(style.opacity)===0){eligible=false;break;}
+                }
+                if(eligible){top=node;break;}
+            }
+            samples++;
+            if(top && (top===el || el.contains(top))) {
+                const owner=top.closest('[data-mcp-id]')?.getAttribute('data-mcp-id'); if(owner) owners.add(owner);
+            } else if(!top || top.contains(el)) background++;
+            else covered++;
+        }
+    } finally {
+        sheet.remove();
+        for(const [node,value] of overrides) { if(value===null) node.removeAttribute('style'); else node.setAttribute('style',value); }
+        for(const [node,value] of inert) node.setAttribute('inert',value??'');
+    }
+    return {strategy:'clipped_grid_and_perimeter_hit_test',assurance:'sampled_best_effort',checked,
+        limitation:'Unsampled thin interior coverage may not be detected; this does not prove every pixel is unobscured.',
+        sample_count:samples,covered_points:covered,target_owned_points:samples-covered-background,
+        background_points:background,
+        sampled_fully_covered:covered===samples,sampled_partially_covered:covered>0&&covered<samples,
+        hit_target_ids:[...owners]};
+}"""
 
 
 class FrozenRenderer:
@@ -187,6 +240,24 @@ class FrozenRenderer:
                         raise AccessError(
                             "target_not_visible", "Requested capture is outside the viewport."
                         )
+                    occlusion = None
+                    if target_id is not None:
+                        occlusion = await locator.evaluate(OCCLUSION_CHECK, visible_clip)
+                        if not occlusion["checked"]:
+                            raise AccessError(
+                                "occlusion_check_failed",
+                                "Requested target exceeded the bounded screenshot visibility check.",
+                            )
+                        if occlusion["covered_points"]:
+                            raise AccessError(
+                                "target_occluded",
+                                "Requested target is covered by another element; choose an exposed target or a captured view that reveals it.",
+                            )
+                        if not occlusion["target_owned_points"]:
+                            raise AccessError(
+                                "target_not_visible",
+                                "No exposed target content was found within the sampled screenshot region.",
+                            )
                     document_clip = {
                         "x": visible_clip["x"] + scroll["x"],
                         "y": visible_clip["y"] + scroll["y"],
@@ -211,8 +282,10 @@ class FrozenRenderer:
                         "cropped": any(
                             abs(visible_clip[key] - box[key]) > 0.5 for key in visible_clip
                         ),
+                        "cropping_basis": "viewport_and_overflow_geometry",
                         "full_page": False,
                         "target_id": target_id,
+                        "occlusion": occlusion,
                         "format": "png",
                         "asset_digest": hashlib.sha256(
                             json.dumps(asset_hashes, sort_keys=True).encode()

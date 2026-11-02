@@ -77,14 +77,18 @@ INPUT_SCHEMAS = {
             "settings": {"type": "object", "maxProperties": 32},
             "target_offset": OFFSET,
             "target_limit": LIMIT,
+            "from_snapshot_id": STRING,
+            "target_id": STRING,
+            "link_id": STRING,
+            "freshness": {"const": "fresh"},
         },
-        ["dashboard"],
     ),
     "inspect_dashboard_item": schema(
         {
             "snapshot_id": STRING,
             "target_id": STRING,
             "source_response_index": OFFSET,
+            "source_ref_id": STRING,
             "offset": OFFSET,
             "limit": LIMIT,
             "data_offset": OFFSET,
@@ -96,12 +100,33 @@ INPUT_SCHEMAS = {
     ),
     "render_dashboard": schema({"snapshot_id": STRING, "target_id": STRING}, ["snapshot_id"]),
 }
+INPUT_SCHEMAS["read_dashboard"]["oneOf"] = [
+    {
+        "required": ["dashboard"],
+        "not": {
+            "anyOf": [
+                {"required": [field]}
+                for field in ("from_snapshot_id", "target_id", "link_id", "freshness")
+            ]
+        },
+    },
+    {
+        "required": ["from_snapshot_id", "target_id", "link_id", "freshness"],
+        "not": {"anyOf": [{"required": [field]} for field in ("dashboard", "asof", "settings")]},
+    },
+]
+INPUT_SCHEMAS["inspect_dashboard_item"]["allOf"] = [
+    {
+        "if": {"required": ["source_ref_id"]},
+        "then": {"required": ["target_id"], "not": {"required": ["source_response_index"]}},
+    }
+]
 DESCRIPTIONS = {
-    "list_dashboards": "List dashboard descriptors and explicit data/observe/screenshot/drilldown support. Unsupported dashboards remain discoverable.",
-    "describe_dashboard": "Describe exact settings schema, defaults, as-of support and capability limits for one dashboard.",
-    "read_dashboard": "Capture one read-only backend transaction and the real rendered DOM state. Returns an expiring snapshot ID, exact visible labels/tables, target IDs, context, and explicit truncation. Does not return an image; call render_dashboard with the same snapshot ID.",
-    "inspect_dashboard_item": "Inspect an existing frozen snapshot's advertised target ID or paginate targets. Optionally inspect exact raw captured source JSON by response index and character offsets; text chunks may need concatenation to form complete JSON. Never fetches live data.",
-    "render_dashboard": "Return the stored overview PNG, or re-render an advertised visible target from the identical captured payload/settings. No live data. Inspect image cropping and expiry metadata.",
+    "list_dashboards": "Discover dashboard and detail surfaces, identified by surface_kind, with explicit data/observe/screenshot/drilldown support. Detail surfaces such as Cockpit are discoverable here even when absent from dashboard tiles. Unsupported surfaces remain discoverable.",
+    "describe_dashboard": "Describe one dashboard or detail surface: surface_kind, exact settings schema, defaults, as-of support and capability limits. Detail surfaces may require following an advertised link or supplying required settings.",
+    "read_dashboard": "Capture one read-only backend transaction and real rendered DOM. Either supply dashboard/settings/asof for an initial capture, or follow an advertised link with from_snapshot_id,target_id,link_id,freshness='fresh'. Following performs an independent fresh capture preserving the parent date/temporal context; expired parents and changed clocks reject. Returns expiring snapshot ID, observation and origin metadata. Use render_dashboard for its image.",
+    "inspect_dashboard_item": "Inspect frozen targets or paginate. Resolve an advertised source_ref_id together with target_id to read precisely its captured evidence JSON. Alternatively supply raw source_response_index; these modes are exclusive. data_offset/data_limit paginate JSON text, which may need concatenation. Never fetches live data or external source URLs.",
+    "render_dashboard": "Return the stored overview PNG, or re-render an advertised visible target from the identical captured payload/settings. No live data. Target images reject detected coverage using bounded sampled hit-testing; unsampled thin interior coverage can remain undetected. Cropping metadata describes viewport/overflow geometry, not a proof against occlusion. Inspect image visibility, cropping and expiry metadata.",
 }
 
 RESULT_FIELDS = {
@@ -147,10 +172,44 @@ RESULT_FIELDS = {
 
 def output_schema(name):
     output = copy.deepcopy(OUTPUT_SCHEMA)
+    fields = copy.deepcopy(RESULT_FIELDS[name])
+    if name in {"read_dashboard", "inspect_dashboard_item", "render_dashboard"}:
+        fields["origin"] = {
+            "type": "object",
+            "required": [
+                "kind",
+                "freshness",
+                "consistency",
+                "parent_snapshot_id",
+                "parent_dashboard",
+                "parent_asof",
+                "parent_captured_at",
+                "parent_context_hash",
+                "source_target_id",
+                "link_id",
+            ],
+            "properties": {
+                "kind": {"const": "fresh_navigation"},
+                "freshness": {"const": "fresh"},
+                "consistency": {"const": "independent_capture"},
+                **{
+                    key: {"type": "string"}
+                    for key in (
+                        "parent_snapshot_id",
+                        "parent_dashboard",
+                        "parent_asof",
+                        "parent_captured_at",
+                        "parent_context_hash",
+                        "source_target_id",
+                        "link_id",
+                    )
+                },
+            },
+        }
     output["properties"]["result"] = {
         "type": "object",
         "required": list(RESULT_FIELDS[name]),
-        "properties": RESULT_FIELDS[name],
+        "properties": fields,
     }
     return output
 
