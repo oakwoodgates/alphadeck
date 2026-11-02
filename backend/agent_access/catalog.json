@@ -1,0 +1,834 @@
+{
+  "schema_version": "1",
+  "dashboards": [
+    {
+      "slug": "board",
+      "order": 0,
+      "label": "Board",
+      "description": "Every card in its lifecycle column, with the Decision Queue.",
+      "status": "core",
+      "asofAware": true,
+      "layout": "fill",
+      "capabilities": {
+        "data": true,
+        "observe": true,
+        "screenshot": true,
+        "drilldown": true
+      },
+      "settings_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "dq_open": {
+            "type": "boolean"
+          },
+          "archived_open": {
+            "type": "boolean"
+          }
+        }
+      },
+      "defaults": {
+        "dq_open": false,
+        "archived_open": false
+      },
+      "backend_query_fields": [],
+      "capability_version": "1",
+      "response_paths": [
+        "/clock",
+        "/theses",
+        "/theses/{uuid}/call",
+        "/data-flags"
+      ]
+    },
+    {
+      "slug": "shared-names",
+      "order": 10,
+      "label": "Shared Names",
+      "description": "Companies that sit on more than one card, and which cards share them.",
+      "status": "experimental",
+      "asofAware": false,
+      "capabilities": {
+        "data": false,
+        "observe": false,
+        "screenshot": false,
+        "drilldown": false
+      },
+      "settings_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "defaults": {},
+      "backend_query_fields": [],
+      "capability_version": "1",
+      "response_paths": []
+    },
+    {
+      "slug": "idea-timeline",
+      "order": 20,
+      "label": "Idea Timeline",
+      "description": "Each card's recorded state over time, with its catalysts and your logged decisions.",
+      "status": "experimental",
+      "asofAware": false,
+      "capabilities": {
+        "data": false,
+        "observe": false,
+        "screenshot": false,
+        "drilldown": false
+      },
+      "settings_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "defaults": {},
+      "backend_query_fields": [],
+      "capability_version": "1",
+      "response_paths": []
+    },
+    {
+      "slug": "rotation-map",
+      "order": 30,
+      "label": "Rotation Map",
+      "description": "Which links, business types and sectors are moving: returns, breadth, volume and crosses by group.",
+      "status": "experimental",
+      "asofAware": true,
+      "capabilities": {
+        "data": true,
+        "observe": true,
+        "screenshot": true,
+        "drilldown": true
+      },
+      "settings_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "group_by": {
+            "type": "string",
+            "enum": [
+              "link",
+              "business_type",
+              "sector",
+              "card"
+            ]
+          },
+          "include_silent": {
+            "type": "boolean"
+          },
+          "vs_spy": {
+            "type": "boolean"
+          },
+          "sort_col": {
+            "type": "string",
+            "enum": [
+              "label",
+              "names",
+              "ret_1d",
+              "ret_7d",
+              "ret_30d",
+              "ret_90d",
+              "ret_1y",
+              "above_50d",
+              "rvol20",
+              "golden",
+              "death",
+              "rs_leaders"
+            ]
+          },
+          "sort_dir": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ]
+          },
+          "open_groups": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "uniqueItems": true,
+            "maxItems": 200
+          },
+          "flagged_open": {
+            "type": "boolean"
+          }
+        }
+      },
+      "defaults": {
+        "group_by": "link",
+        "include_silent": false,
+        "vs_spy": false,
+        "sort_col": "ret_7d",
+        "sort_dir": "desc",
+        "open_groups": [],
+        "flagged_open": false
+      },
+      "backend_query_fields": [
+        "group_by",
+        "include_silent"
+      ],
+      "capability_version": "1",
+      "response_paths": [
+        "/clock",
+        "/dashboards/rotation-map"
+      ]
+    },
+    {
+      "slug": "what-changed",
+      "order": 40,
+      "label": "What Changed",
+      "description": "What moved on your cards since last night: states, keys, names, triggers and clocks.",
+      "status": "experimental",
+      "asofAware": false,
+      "capabilities": {
+        "data": false,
+        "observe": false,
+        "screenshot": false,
+        "drilldown": false
+      },
+      "settings_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "defaults": {},
+      "backend_query_fields": [],
+      "capability_version": "1",
+      "response_paths": []
+    },
+    {
+      "slug": "cross-radar",
+      "order": 50,
+      "label": "Cross Radar",
+      "description": "Golden and death crosses by group: clusters, first movers, names closing in, and the last 90 sessions.",
+      "status": "experimental",
+      "asofAware": true,
+      "capabilities": {
+        "data": false,
+        "observe": false,
+        "screenshot": false,
+        "drilldown": false
+      },
+      "settings_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "defaults": {},
+      "backend_query_fields": [],
+      "capability_version": "1",
+      "response_paths": []
+    },
+    {
+      "slug": "catalyst-calendar",
+      "order": 60,
+      "label": "Catalyst Calendar",
+      "description": "Every dated catalyst and card deadline across your cards, with passed ones to prune and undated ones to date.",
+      "status": "experimental",
+      "asofAware": false,
+      "capabilities": {
+        "data": false,
+        "observe": false,
+        "screenshot": false,
+        "drilldown": false
+      },
+      "settings_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "defaults": {},
+      "backend_query_fields": [],
+      "capability_version": "1",
+      "response_paths": []
+    },
+    {
+      "slug": "leaders",
+      "order": 70,
+      "label": "Leaders",
+      "description": "Names across every card at new highs, leading the market, coiling, or with insider buying, and the groups where insiders cluster.",
+      "status": "experimental",
+      "asofAware": true,
+      "capabilities": {
+        "data": false,
+        "observe": false,
+        "screenshot": false,
+        "drilldown": false
+      },
+      "settings_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "defaults": {},
+      "backend_query_fields": [],
+      "capability_version": "1",
+      "response_paths": []
+    },
+    {
+      "slug": "landing",
+      "order": 80,
+      "label": "Price & Volume Landing",
+      "description": "Where price closed in each window's range, and whether volume backed the move, by group.",
+      "status": "experimental",
+      "asofAware": true,
+      "capabilities": {
+        "data": false,
+        "observe": false,
+        "screenshot": false,
+        "drilldown": false
+      },
+      "settings_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "defaults": {},
+      "backend_query_fields": [],
+      "capability_version": "1",
+      "response_paths": []
+    },
+    {
+      "slug": "narrative-index",
+      "order": 90,
+      "label": "Narrative Index",
+      "description": "Each card's basket as one equal-weighted line against SPY and IWM, with the day the card was created marked.",
+      "status": "experimental",
+      "asofAware": true,
+      "capabilities": {
+        "data": true,
+        "observe": true,
+        "screenshot": true,
+        "drilldown": true
+      },
+      "settings_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "window": {
+            "type": "string",
+            "enum": [
+              "1y",
+              "90d",
+              "30d"
+            ]
+          },
+          "include_silent": {
+            "type": "boolean"
+          },
+          "sort_key": {
+            "type": "string",
+            "enum": [
+              "name",
+              "ret",
+              "vs_spy",
+              "since_created"
+            ]
+          },
+          "sort_dir": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ]
+          },
+          "open_thesis": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "chart_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "required": [
+                "chart_date"
+              ],
+              "properties": {
+                "chart_date": {
+                  "type": "string"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "open_thesis"
+              ],
+              "properties": {
+                "open_thesis": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        ]
+      },
+      "defaults": {
+        "window": "1y",
+        "include_silent": false,
+        "sort_key": "name",
+        "sort_dir": "asc",
+        "open_thesis": null,
+        "chart_date": null
+      },
+      "backend_query_fields": [
+        "window",
+        "include_silent"
+      ],
+      "capability_version": "1",
+      "response_paths": [
+        "/clock",
+        "/dashboards/narrative-index",
+        "/dashboards/narrative-index/{uuid}"
+      ]
+    },
+    {
+      "slug": "rotation-quadrant",
+      "order": 100,
+      "label": "Rotation Quadrant",
+      "description": "Each group's strength vs SPY and its momentum, with an 8-week tail: leading, weakening, lagging, improving.",
+      "status": "experimental",
+      "asofAware": true,
+      "capabilities": {
+        "data": false,
+        "observe": false,
+        "screenshot": false,
+        "drilldown": false
+      },
+      "settings_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "defaults": {},
+      "backend_query_fields": [],
+      "capability_version": "1",
+      "response_paths": []
+    },
+    {
+      "slug": "chain-wave",
+      "order": 110,
+      "label": "Chain Wave",
+      "description": "One card's links in chain order, week by week against SPY, so a move traveling along the chain shows as a diagonal; its payers beside its counting names.",
+      "status": "experimental",
+      "asofAware": true,
+      "capabilities": {
+        "data": false,
+        "observe": false,
+        "screenshot": false,
+        "drilldown": false
+      },
+      "settings_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "defaults": {},
+      "backend_query_fields": [],
+      "capability_version": "1",
+      "response_paths": []
+    },
+    {
+      "slug": "filing-stream",
+      "order": 120,
+      "label": "Filing Stream",
+      "description": "Every filing-derived fact the system holds for one card's names, newest first, as it was readable that night: 8-Ks with their items, Form 4s with the filer's words, 13D/G stakes, revenue prints, every other form in the EDGAR index, splits, dilution, catalysts, ratified and stored facts.",
+      "status": "experimental",
+      "asofAware": true,
+      "capabilities": {
+        "data": false,
+        "observe": false,
+        "screenshot": false,
+        "drilldown": false
+      },
+      "settings_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "defaults": {},
+      "backend_query_fields": [],
+      "capability_version": "1",
+      "response_paths": []
+    },
+    {
+      "slug": "read-through",
+      "order": 130,
+      "label": "Read-Throughs",
+      "description": "Every role-tagged company across your cards (payers, counter-cases, direct reads, participants, financiers, benchmarks) with what it last filed, its next dated catalyst, and its tape against SPY.",
+      "status": "experimental",
+      "asofAware": true,
+      "capabilities": {
+        "data": false,
+        "observe": false,
+        "screenshot": false,
+        "drilldown": false
+      },
+      "settings_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "defaults": {},
+      "backend_query_fields": [],
+      "capability_version": "1",
+      "response_paths": []
+    },
+    {
+      "slug": "chain-map",
+      "order": 140,
+      "label": "Chain Map",
+      "description": "One card as a picture: its links in chain order, the names inside each, and the payers, counter-cases and direct reads drawn beside the chain by role.",
+      "status": "experimental",
+      "asofAware": true,
+      "capabilities": {
+        "data": false,
+        "observe": false,
+        "screenshot": false,
+        "drilldown": false
+      },
+      "settings_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "defaults": {},
+      "backend_query_fields": [],
+      "capability_version": "1",
+      "response_paths": []
+    },
+    {
+      "slug": "peer-table",
+      "order": 150,
+      "label": "Peer Table",
+      "description": "The names across your cards side by side: size, revenue, runway, dilution, purity, tape and insider buying, grouped by business type, link or card, with every blank counted.",
+      "status": "experimental",
+      "asofAware": true,
+      "capabilities": {
+        "data": false,
+        "observe": false,
+        "screenshot": false,
+        "drilldown": false
+      },
+      "settings_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "defaults": {},
+      "backend_query_fields": [],
+      "capability_version": "1",
+      "response_paths": []
+    },
+    {
+      "slug": "fundamentals-multiples",
+      "order": 160,
+      "label": "Fundamentals Multiples",
+      "description": "One card's revenue series, name by name and link by link: the last twelve quarters as small bars, each dated by its filing, with the link's median growth above the row.",
+      "status": "experimental",
+      "asofAware": true,
+      "capabilities": {
+        "data": false,
+        "observe": false,
+        "screenshot": false,
+        "drilldown": false
+      },
+      "settings_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "defaults": {},
+      "backend_query_fields": [],
+      "capability_version": "1",
+      "response_paths": []
+    },
+    {
+      "slug": "narrative-adoption",
+      "order": 170,
+      "label": "Narrative Adoption",
+      "description": "How many filings mention a card's terms each month, over three years, split by who files them: annual and quarterly reports, 8-Ks, or new-issuance paper, and new filers against repeat filers.",
+      "status": "experimental",
+      "asofAware": true,
+      "capabilities": {
+        "data": false,
+        "observe": false,
+        "screenshot": false,
+        "drilldown": false
+      },
+      "settings_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "defaults": {},
+      "backend_query_fields": [],
+      "capability_version": "1",
+      "response_paths": []
+    },
+    {
+      "slug": "evidence-ledger",
+      "order": 180,
+      "label": "Evidence Ledger",
+      "description": "Everything one card's call and facts rest on, in one list: each trigger with its source, each ratified and stored fact, each catalyst and kill criterion, marked by who put it there.",
+      "status": "experimental",
+      "asofAware": true,
+      "capabilities": {
+        "data": false,
+        "observe": false,
+        "screenshot": false,
+        "drilldown": false
+      },
+      "settings_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "defaults": {},
+      "backend_query_fields": [],
+      "capability_version": "1",
+      "response_paths": []
+    },
+    {
+      "slug": "hot-board",
+      "order": 190,
+      "label": "Hot Board",
+      "description": "Every name the record shows Armed, one row each, ranked by a stated heat formula: how recently it armed, how loud its tape is, how it leads the market, how far it has already moved.",
+      "status": "experimental",
+      "asofAware": true,
+      "capabilities": {
+        "data": false,
+        "observe": false,
+        "screenshot": false,
+        "drilldown": false
+      },
+      "settings_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "defaults": {},
+      "backend_query_fields": [],
+      "capability_version": "1",
+      "response_paths": []
+    },
+    {
+      "slug": "entry-windows",
+      "order": 200,
+      "label": "Entry Windows",
+      "description": "Each Armed card's entry window and hold horizon on one date axis, where the as-of sits in them, and what the armed names have done since the arm night.",
+      "status": "experimental",
+      "asofAware": true,
+      "capabilities": {
+        "data": false,
+        "observe": false,
+        "screenshot": false,
+        "drilldown": false
+      },
+      "settings_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "defaults": {},
+      "backend_query_fields": [],
+      "capability_version": "1",
+      "response_paths": []
+    },
+    {
+      "slug": "trigger-log",
+      "order": 210,
+      "label": "Trigger Log",
+      "description": "Every entry trigger and risk signal the record shows firing across the cards in the last 90 days, newest first, with its source, the state it moved, and what the name's tape did after.",
+      "status": "experimental",
+      "asofAware": true,
+      "capabilities": {
+        "data": false,
+        "observe": false,
+        "screenshot": false,
+        "drilldown": false
+      },
+      "settings_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "defaults": {},
+      "backend_query_fields": [],
+      "capability_version": "1",
+      "response_paths": []
+    },
+    {
+      "slug": "ticker-lookup",
+      "order": 220,
+      "label": "Ticker Lookup",
+      "description": "Type a ticker: every card the company sits on and its part in each, the record's triggers on it, its tape, its filings and your decisions on it, at the as-of.",
+      "status": "experimental",
+      "asofAware": true,
+      "capabilities": {
+        "data": false,
+        "observe": false,
+        "screenshot": false,
+        "drilldown": false
+      },
+      "settings_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "defaults": {},
+      "backend_query_fields": [],
+      "capability_version": "1",
+      "response_paths": []
+    },
+    {
+      "slug": "track-record",
+      "order": 230,
+      "label": "Track Record",
+      "description": "What happened after each Armed call, by market-cap tier at the event: fixed horizons, against SPY and IWM, with n and the hit rate in every cell.",
+      "status": "experimental",
+      "asofAware": true,
+      "capabilities": {
+        "data": false,
+        "observe": false,
+        "screenshot": false,
+        "drilldown": false
+      },
+      "settings_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "defaults": {},
+      "backend_query_fields": [],
+      "capability_version": "1",
+      "response_paths": []
+    },
+    {
+      "slug": "forming-quietly",
+      "order": 240,
+      "label": "Forming Quietly",
+      "description": "The cards where a key has turned or signals are gathering but nothing is Armed yet, at low energy, with what is still missing.",
+      "status": "experimental",
+      "asofAware": true,
+      "capabilities": {
+        "data": false,
+        "observe": false,
+        "screenshot": false,
+        "drilldown": false
+      },
+      "settings_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "defaults": {},
+      "backend_query_fields": [],
+      "capability_version": "1",
+      "response_paths": []
+    },
+    {
+      "slug": "theme-leaderboard",
+      "order": 250,
+      "label": "Theme Leaderboard",
+      "description": "Every counted card ranked by a stated composite of its tape, its breadth, its keys, its adoption curve and its insiders, with the parts beside the score.",
+      "status": "experimental",
+      "asofAware": true,
+      "capabilities": {
+        "data": false,
+        "observe": false,
+        "screenshot": false,
+        "drilldown": false
+      },
+      "settings_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "defaults": {},
+      "backend_query_fields": [],
+      "capability_version": "1",
+      "response_paths": []
+    },
+    {
+      "slug": "insider-tracker",
+      "order": 260,
+      "label": "Insider Buying",
+      "description": "Every open-market insider purchase across the counted cards' names in the window, newest first: who bought, how much, whether others bought too, whether it became a trigger, and what the tape did since.",
+      "status": "experimental",
+      "asofAware": true,
+      "capabilities": {
+        "data": false,
+        "observe": false,
+        "screenshot": false,
+        "drilldown": false
+      },
+      "settings_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "defaults": {},
+      "backend_query_fields": [],
+      "capability_version": "1",
+      "response_paths": []
+    },
+    {
+      "slug": "market-map",
+      "order": 270,
+      "label": "Market Map",
+      "description": "A heat map of every company on the cards: tiles sized by market cap, colored by the return over a chosen window.",
+      "status": "experimental",
+      "asofAware": true,
+      "layout": "page",
+      "capabilities": {
+        "data": false,
+        "observe": false,
+        "screenshot": false,
+        "drilldown": false
+      },
+      "settings_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "defaults": {},
+      "backend_query_fields": [],
+      "capability_version": "1",
+      "response_paths": []
+    },
+    {
+      "slug": "daily-digest",
+      "order": 280,
+      "label": "Daily Digest",
+      "description": "The morning page: what last night's pass changed, the positions, what is due this week, the insider buys just filed, the tape on the armed names and what is forming, each line opening its full page.",
+      "status": "experimental",
+      "asofAware": true,
+      "capabilities": {
+        "data": false,
+        "observe": false,
+        "screenshot": false,
+        "drilldown": false
+      },
+      "settings_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "defaults": {},
+      "backend_query_fields": [],
+      "capability_version": "1",
+      "response_paths": []
+    }
+  ]
+}

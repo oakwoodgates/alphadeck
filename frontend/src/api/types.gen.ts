@@ -2020,6 +2020,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboards/capture": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Capture Dashboard
+         * @description Capture a registered dashboard through explicit read-only adapters; no authentication supplied.
+         *
+         *     Database reads share one snapshot. External artifacts are best-effort guarded: 409 on an
+         *     observed change. 413 rejects excess cards/bytes, 504 rejects an exceeded cooperative total work
+         *     budget (checked between reads, with a per-statement SQL timeout). Never returns a partial capture.
+         */
+        get: operations["capture_dashboard_dashboards_capture_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dashboards/catalyst-calendar": {
         parameters: {
             query?: never;
@@ -6229,6 +6253,83 @@ export interface components {
          * @enum {string}
          */
         CapTier: "nano" | "micro" | "small" | "mid" | "large";
+        /** CaptureConsistency */
+        CaptureConsistency: {
+            /**
+             * Database
+             * @default repeatable_read_read_only
+             * @constant
+             */
+            database: "repeatable_read_read_only";
+            /**
+             * External Artifacts
+             * @default best_effort_generation_guarded
+             * @constant
+             */
+            external_artifacts: "best_effort_generation_guarded";
+            /** Generation Before */
+            generation_before: string;
+            /** Generation After */
+            generation_after: string;
+            /**
+             * Generation Stable
+             * @default true
+             * @constant
+             */
+            generation_stable: true;
+        };
+        /** CaptureContext */
+        CaptureContext: {
+            clock_response: components["schemas"]["ClockOut"];
+            /**
+             * Clock
+             * @enum {string}
+             */
+            clock: "record" | "public";
+            /** Known At */
+            known_at: string | null;
+            /**
+             * Decisions Asof
+             * Format: date
+             */
+            decisions_asof: string;
+            /**
+             * Countdown Origin
+             * Format: date
+             */
+            countdown_origin: string;
+            /**
+             * Scope
+             * @default deployment_visibility_not_authorization
+             * @constant
+             */
+            scope: "deployment_visibility_not_authorization";
+            /** Limitations */
+            limitations: string[];
+        };
+        /** CapturedResponse */
+        CapturedResponse: {
+            /**
+             * Method
+             * @default GET
+             * @constant
+             */
+            method: "GET";
+            /** Path */
+            path: string;
+            /** Query */
+            query?: {
+                [key: string]: string;
+            };
+            /**
+             * Status
+             * @default 200
+             * @constant
+             */
+            status: 200;
+            /** Body */
+            body: unknown;
+        };
         /** Catalyst */
         Catalyst: {
             /**
@@ -7397,6 +7498,31 @@ export interface components {
             cache: "hit" | "computed";
             /** Compute Ms */
             compute_ms: number;
+        };
+        /** DashboardCapture */
+        DashboardCapture: {
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: "1";
+            /** Dashboard */
+            dashboard: string;
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Captured At
+             * Format: date-time
+             */
+            captured_at: string;
+            context: components["schemas"]["CaptureContext"];
+            consistency: components["schemas"]["CaptureConsistency"];
+            /** Responses */
+            responses: components["schemas"]["CapturedResponse"][];
         };
         /**
          * DataFlagEvidenceOut
@@ -19881,6 +20007,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SpacAttachOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    capture_dashboard_dashboards_capture_get: {
+        parameters: {
+            query: {
+                dashboard: string;
+                asof?: string | null;
+                group_by?: "link" | "card" | "business_type" | "sector";
+                include_silent?: boolean;
+                window?: "1y" | "90d" | "30d";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DashboardCapture"];
                 };
             };
             /** @description Validation Error */

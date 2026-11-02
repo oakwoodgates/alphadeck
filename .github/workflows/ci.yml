@@ -41,8 +41,8 @@ jobs:
           python-version: "3.11"  # the declared floor (requires-python >=3.11); catches 3.11-only breaks
       # Deps come from pyproject (single source); the dev extra pins the linters so CI matches local. The
       # replay extra (duckdb + pyarrow) so the backtest-harness tests run here against the Postgres service.
-      - name: Install (editable + dev + replay)
-        run: pip install -e ".[dev,replay]"
+      - name: Install (editable + dev + replay + MCP)
+        run: pip install -e ".[dev,replay,mcp]"
       - name: OpenAPI contract is up to date
         # regenerate from the live app; fails if the committed openapi.json drifted from the code
         run: |
@@ -74,5 +74,35 @@ jobs:
         run: |
           npm run gen:api
           git diff --exit-code src/api/types.gen.ts
+      - name: Dashboard capability catalog is up to date
+        run: |
+          npm run gen:mcp
+          git diff --exit-code ../backend/agent_access/catalog.json
       - run: npm run build  # tsc -b (strict typecheck) + vite build
       - run: npm test  # vitest: the Workbench authoring components + the grouped-render coverage
+
+  mcp-browser:
+    name: MCP (synthetic Chromium integration)
+    runs-on: ubuntu-latest
+    env:
+      ALPHADECK_MCP_BROWSER_TESTS: "1"
+      ALPHADECK_TEST_DB: alphadeck_test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+      - run: pip install -e ".[dev,mcp]"
+        working-directory: backend
+      - run: python -m playwright install --with-deps chromium
+      - run: python -m pytest tests/agent_access/test_browser.py -q
+        working-directory: backend

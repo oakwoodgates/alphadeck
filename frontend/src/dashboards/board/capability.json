@@ -1,0 +1,39 @@
+{
+  "slug": "board",
+  "order": 0,
+  "label": "Board",
+  "description": "Every card in its lifecycle column, with the Decision Queue.",
+  "status": "core",
+  "asofAware": true,
+  "layout": "fill",
+  "capabilities": {
+    "data": true,
+    "observe": true,
+    "screenshot": true,
+    "drilldown": true
+  },
+  "settings_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "dq_open": {
+        "type": "boolean"
+      },
+      "archived_open": {
+        "type": "boolean"
+      }
+    }
+  },
+  "defaults": {
+    "dq_open": false,
+    "archived_open": false
+  },
+  "backend_query_fields": [],
+  "capability_version": "1",
+  "response_paths": [
+    "/clock",
+    "/theses",
+    "/theses/{uuid}/call",
+    "/data-flags"
+  ]
+}

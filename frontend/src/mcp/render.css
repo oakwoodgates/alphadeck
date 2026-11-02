@@ -1,0 +1,7 @@
+/* An isolated browser viewport, using the same shell and dashboard CSS as the app. */
+[data-mcp-root] { min-height: 100vh; }
+[data-mcp-root] *, [data-mcp-root] *::before, [data-mcp-root] *::after {
+  animation: none !important;
+  transition: none !important;
+  caret-color: transparent !important;
+}

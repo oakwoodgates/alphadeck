@@ -17,6 +17,8 @@ import {
 } from "../util/format";
 import { ThesisCard } from "./ThesisCard";
 import { useRowCap } from "./useRowCap";
+import { useCaptureView } from "../mcp/viewContext";
+import { targetId } from "../mcp/targetId";
 
 /** The Decision Queue wraps; collapsed it holds to this many rows and says how many it is holding back. */
 const DQ_ROWS = 2;
@@ -47,6 +49,7 @@ interface Row {
 }
 
 export function Board({ header, asof, onSelect }: Props) {
+  const { settings, readOnly } = useCaptureView();
   // the Board is the ONE consumer that asks for archived theses — they render in the collapsed
   // section below (visible + restorable, never vanished); their calls are NOT computed (no cost)
   const thesesQ = useTheses(true);
@@ -88,7 +91,7 @@ export function Board({ header, asof, onSelect }: Props) {
   // keep-it-visible (#2 + the #9 instinct): the strip wraps, and past DQ_ROWS rows it folds the rest behind a
   // "+N more" that is always on screen and one click from showing every item. The queue ORDER is never touched —
   // the fold is by position in the existing order, not by any ranking of the theses (#4).
-  const [dqOpen, setDqOpen] = useState(false);
+  const [dqOpen, setDqOpen] = useState(settings.dq_open === true);
   const { ref: dqRef, cap: dqCap } = useRowCap<HTMLDivElement>(DQ_ROWS);
   const dqFolded = dqCap.height !== null && !dqOpen;
   const dqHeld = Math.max(0, armedRows.length - dqCap.firstClipped);
@@ -110,7 +113,7 @@ export function Board({ header, asof, onSelect }: Props) {
         : "Nothing armed. Nothing to do. ✓";
 
   return (
-    <div className="board-shell">
+    <div className="board-shell" data-mcp-ready={!computing && !thesesQ.isPending} data-mcp-error={Boolean(thesesQ.error || erroredRows.length)}>
       {header}
 
       {/* F11 — honest loudness (#7 / WB#3): every column shares the ONE as-of dial, so a past scrub
@@ -156,6 +159,7 @@ export function Board({ header, asof, onSelect }: Props) {
                   type="button"
                   className={`dq-item${dqFolded && i >= dqCap.firstClipped ? " held" : ""}`}
                   key={thesis.id}
+                  data-mcp-id={targetId("queue", thesis.id)}
                   onClick={() => onSelect(thesis.id, nameKey)}
                 >
                   {/* a theme shows its single TOP-RANKED actionable name (anti-flooding), with a quiet
@@ -233,7 +237,7 @@ export function Board({ header, asof, onSelect }: Props) {
                 {colRows.map(({ thesis, call, stale }) => (
                   // the archive control is a SIBLING of the card (the card is itself a <button> —
                   // nesting one inside would be the nested-button trap), hover-quiet
-                  <div className={`card-wrap${stale ? " recomputing" : ""}`} key={thesis.id}>
+                  <div className={`card-wrap${stale ? " recomputing" : ""}`} key={thesis.id} data-mcp-id={targetId("card", thesis.id)}>
                     <ThesisCard
                       thesis={thesis}
                       call={call}
@@ -257,7 +261,7 @@ export function Board({ header, asof, onSelect }: Props) {
                       className="card-x"
                       title="archive — off the board and out of the nightly cron; restorable below, nothing deleted"
                       aria-label={`archive ${thesis.name}`}
-                      disabled={setArchived.isPending}
+                      disabled={readOnly || setArchived.isPending}
                       onClick={() => setArchived.mutate({ thesisId: thesis.id, archived: true })}
                     >
                       ✕
@@ -298,7 +302,7 @@ export function Board({ header, asof, onSelect }: Props) {
       {/* archived — visible + restorable, never vanished (an explicit, reversible filter; their
           calls are not computed). Quiet by design: collapsed, gray, out of the columns. */}
       {archived.length > 0 && (
-        <details className="arch-sect">
+        <details className="arch-sect" open={readOnly ? settings.archived_open === true : undefined}>
           <summary>Archived ({archived.length})</summary>
           {archived.map((t) => (
             <div className="arch-row" key={t.id}>
@@ -307,7 +311,7 @@ export function Board({ header, asof, onSelect }: Props) {
               <button
                 type="button"
                 className="wb-mini ghost"
-                disabled={setArchived.isPending}
+                disabled={readOnly || setArchived.isPending}
                 aria-label={`restore ${t.name}`}
                 onClick={() => setArchived.mutate({ thesisId: t.id, archived: false })}
               >

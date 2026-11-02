@@ -73,6 +73,10 @@ Four decision surfaces (plus an operator ops page); clickable mockups live in `d
 
 ## Architecture & stack
 
+Local agents can inspect the Board, Rotation Map, and Narrative Index through a read-only MCP server:
+structured observations and images share one captured view. Setup, capability coverage, and extension
+contracts are in [`docs/MCP.md`](docs/MCP.md).
+
 Three load-bearing decisions drive the shape:
 
 1. **EOD cadence → no streaming infra.** Scheduled batch + on-demand pulls. No Kafka, no event bus. A nightly pipeline and a job queue is the runtime.
