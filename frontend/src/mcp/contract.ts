@@ -19,6 +19,23 @@ export type CapturedSnapshot = {
   context?: unknown;
   consistency?: unknown;
   captured_at?: string;
+  navigation?: CaptureNavigation[];
+  references?: CaptureReference[];
+};
+
+export type CaptureNavigation = {
+  id: string;
+  kind: "fresh_capture";
+  destination: { dashboard: string; settings: CaptureSettings };
+};
+
+export type CaptureReference = {
+  id: string;
+  kind: "captured_json";
+  response_index: number;
+  pointer: string;
+  label?: string | null;
+  category?: string;
 };
 
 export type ViewBridge = {

@@ -99,5 +99,6 @@
     "/clock",
     "/dashboards/narrative-index",
     "/dashboards/narrative-index/{uuid}"
-  ]
+  ],
+  "surface_kind": "dashboard"
 }

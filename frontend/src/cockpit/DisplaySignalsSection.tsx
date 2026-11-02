@@ -10,6 +10,8 @@ import { FlagWrap } from "./DataFlagMark";
 import type { CellFlag, DerivedCell } from "./dataFlags";
 import type { TapeMark } from "./tapeMarks";
 import { AGG_MIN_PRICED, AGG_RETURN_KEY, type GroupMoving } from "./groupAggregate";
+import { useCaptureBindings } from "../mcp/bindings";
+import { targetId } from "../mcp/targetId";
 
 /** One metric chip's value, by wire unit. Handles every unit the payload can carry so a new
  *  backend member renders with ZERO frontend change (the framework's whole point). */
@@ -509,10 +511,13 @@ function basisLine(sig: DisplaySignal): string {
 export function DisplaySignalsSection({
   display,
   foreignFilerForm,
+  capture,
 }: {
   display: MemberDisplaySignalsOut | null;
   foreignFilerForm?: string | null;
+  capture?: { path: string; pointer: string; scope: string };
 }) {
+  const { sourceRefs } = useCaptureBindings();
   const signals = display?.signals ?? [];
   const showInsiderNa =
     !!foreignFilerForm && !signals.some((s) => s.kind === "insider_flow_90d");
@@ -522,8 +527,9 @@ export function DisplaySignalsSection({
       {signals.length === 0 && !showInsiderNa ? (
         <div className="np-stateline">No indicator data at this as-of.</div>
       ) : (
-        signals.map((sig) => (
-          <div className="np-ind" key={sig.kind}>
+        signals.map((sig, index) => (
+          <div className="np-ind" key={sig.kind} data-mcp-id={capture ? targetId("display-evidence", capture.scope, capture.pointer, String(index)) : undefined}
+            {...(capture ? sourceRefs(capture.path, `${capture.pointer}/signals/${index}`) : {})}>
             {/* the headline renders in the panel's TOP strip, not here — this section keeps the
                 full detail: the chips, the dated flips, and the basis */}
             <div className="np-ind-label">{sig.label}</div>

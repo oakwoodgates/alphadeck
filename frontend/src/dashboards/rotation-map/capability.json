@@ -84,5 +84,6 @@
   "response_paths": [
     "/clock",
     "/dashboards/rotation-map"
-  ]
+  ],
+  "surface_kind": "dashboard"
 }

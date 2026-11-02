@@ -6307,6 +6307,46 @@ export interface components {
             /** Limitations */
             limitations: string[];
         };
+        /** CaptureDestination */
+        CaptureDestination: {
+            /** Dashboard */
+            dashboard: string;
+            /** Settings */
+            settings?: {
+                [key: string]: unknown;
+            };
+        };
+        /** CaptureNavigation */
+        CaptureNavigation: {
+            /** Id */
+            id: string;
+            /**
+             * Kind
+             * @default fresh_capture
+             * @constant
+             */
+            kind: "fresh_capture";
+            destination: components["schemas"]["CaptureDestination"];
+        };
+        /** CaptureReference */
+        CaptureReference: {
+            /** Id */
+            id: string;
+            /**
+             * Kind
+             * @default captured_json
+             * @constant
+             */
+            kind: "captured_json";
+            /** Response Index */
+            response_index: number;
+            /** Pointer */
+            pointer: string;
+            /** Label */
+            label?: string | null;
+            /** Category */
+            category: string;
+        };
         /** CapturedResponse */
         CapturedResponse: {
             /**
@@ -7523,6 +7563,10 @@ export interface components {
             consistency: components["schemas"]["CaptureConsistency"];
             /** Responses */
             responses: components["schemas"]["CapturedResponse"][];
+            /** Navigation */
+            navigation?: components["schemas"]["CaptureNavigation"][];
+            /** References */
+            references?: components["schemas"]["CaptureReference"][];
         };
         /**
          * DataFlagEvidenceOut
@@ -20028,6 +20072,8 @@ export interface operations {
                 group_by?: "link" | "card" | "business_type" | "sector";
                 include_silent?: boolean;
                 window?: "1y" | "90d" | "30d";
+                thesis_id?: string | null;
+                expected_context_hash?: string | null;
             };
             header?: never;
             path?: never;

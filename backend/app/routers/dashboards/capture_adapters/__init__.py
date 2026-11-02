@@ -24,5 +24,12 @@ def adapters() -> dict[str, ModuleType]:
             raise RuntimeError(f"duplicate or invalid capture adapter: {slug}")
         if not isinstance(getattr(module, "INCLUDE_ARCHIVED", None), bool):
             raise RuntimeError(f"capture adapter must declare archive scope: {slug}")
+        if not isinstance(getattr(module, "THESIS_SCOPED", False), bool):
+            raise RuntimeError(f"invalid thesis scope on capture adapter: {slug}")
+        relationships = getattr(module, "relationships", None)
+        if relationships is not None and not callable(relationships):
+            raise RuntimeError(f"invalid relationships hook on capture adapter: {slug}")
+        if not all(isinstance(value, str) for value in getattr(module, "LIMITATIONS", ())):
+            raise RuntimeError(f"invalid limitations on capture adapter: {slug}")
         found[slug] = module
     return found

@@ -7,6 +7,7 @@ import {
   type KillCriterionOut,
 } from "../api/hooks";
 import { errText } from "../workbench/format";
+import { useCaptureView } from "../mcp/viewContext";
 
 /** Spine-list authoring (slice A2) — the Cockpit's catalyst calendar + kill criteria become editable.
  *
@@ -28,6 +29,7 @@ export function CatalystEditor({
   thesisId: string;
   catalysts: CatalystOut[];
 }) {
+  const { readOnly } = useCaptureView();
   const put = usePutCatalysts(thesisId);
   const [editing, setEditing] = useState(false);
   const [rows, setRows] = useState<CatDraft[]>([]);
@@ -61,7 +63,7 @@ export function CatalystEditor({
 
   if (!editing) {
     return (
-      <button type="button" className="wb-mini ghost" onClick={open}>
+      <button type="button" className="wb-mini ghost" disabled={readOnly} onClick={open}>
         {catalysts.length ? "✎ edit the calendar" : "+ add catalysts (the events you're watching)"}
       </button>
     );
@@ -133,6 +135,7 @@ export function KillCriteriaEditor({
   thesisId: string;
   kills: KillCriterionOut[];
 }) {
+  const { readOnly } = useCaptureView();
   const put = usePutKillCriteria(thesisId);
   const [editing, setEditing] = useState(false);
   const [rows, setRows] = useState<string[]>([]);
@@ -149,7 +152,7 @@ export function KillCriteriaEditor({
 
   if (!editing) {
     return (
-      <button type="button" className="wb-mini ghost" onClick={open}>
+      <button type="button" className="wb-mini ghost" disabled={readOnly} onClick={open}>
         {kills.length ? "✎ edit" : "+ add kill criteria (what would kill this thesis)"}
       </button>
     );

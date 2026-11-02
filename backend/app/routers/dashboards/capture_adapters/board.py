@@ -8,6 +8,7 @@ from app.routers.dashboards.capture_contract import (
     limit_cards,
     response,
 )
+from app.routers.dashboards.capture_links import navigation
 from app.routers.data_flags import read_data_flags
 from app.routers.theses import read_call
 from app.schemas_api import ThesisSummary
@@ -34,3 +35,28 @@ def read(conn: psycopg.Connection, request: CaptureRequest) -> list[CapturedResp
     flags = read_data_flags(conn, asof=request.asof, tenant_id=current_tenant_id(), view=view)
     responses.append(response("/data-flags", flags, asof=request.asof))
     return responses
+
+
+def relationships(responses: list[CapturedResponse], request: CaptureRequest):
+    """Explicit fresh Cockpit reads; no parent database-snapshot continuity is implied."""
+    links = {}
+    for source in responses:
+        if source.path == "/theses":
+            for thesis in source.body:
+                if not thesis["archived"]:
+                    link = navigation("cockpit", thesis_id=thesis["id"], rail_open=True)
+                    links[link.id] = link
+        elif source.path.endswith("/call"):
+            members = source.body.get("armed_members", [])
+            if members:
+                member = members[0]
+                key = member.get("security_id") or member.get("ticker")
+                if key:
+                    link = navigation(
+                        "cockpit",
+                        thesis_id=source.body["thesis_id"],
+                        selected_name=key,
+                        rail_open=True,
+                    )
+                    links[link.id] = link
+    return list(links.values()), []

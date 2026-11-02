@@ -19,12 +19,12 @@ function geometry(el: Element) {
   for (const node of [el, ...el.querySelectorAll("*")]) {
     if (!(node instanceof HTMLElement)) continue;
     const style = getComputedStyle(node);
-    if (/hidden|clip/.test(`${style.overflow} ${style.overflowX} ${style.overflowY}`) &&
+    if (/hidden|clip|auto|scroll/.test(`${style.overflow} ${style.overflowX} ${style.overflowY}`) &&
       (node.scrollHeight > node.clientHeight + 1 || node.scrollWidth > node.clientWidth + 1)) clipped = true;
   }
   for (let node: Element | null = el; node; node = node.parentElement) {
     const style = getComputedStyle(node);
-    if (style.display === "none" || style.visibility === "hidden") visible = false;
+    if (style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse") visible = false;
     if (node instanceof HTMLDetailsElement && !node.open && !node.querySelector("summary")?.contains(el) && node !== el) visible = false;
     if (node !== el && /hidden|auto|scroll|clip/.test(`${style.overflow} ${style.overflowX} ${style.overflowY}`)) {
       const box = node.getBoundingClientRect();
@@ -57,13 +57,21 @@ export function observe(root: HTMLElement, title: string) {
   const elements = [...root.querySelectorAll<HTMLElement>("[data-mcp-id]")];
   const ids = elements.map((el) => el.dataset.mcpId);
   if (new Set(ids).size !== ids.length) throw new DuplicateTargetError();
-  const targets = elements.slice(0, TARGET_LIMIT).map((el) => ({
+  const targets = elements.slice(0, TARGET_LIMIT).map((el) => {
+    const presentation = geometry(el);
+    return {
     id: el.dataset.mcpId!, label: el.getAttribute("aria-label") ?? text(el.querySelector(".nm,.rm-label,.ni-name") ?? el).slice(0, 200),
-    ...bound(el.innerText ?? text(el)), ...geometry(el), tables: tables(el),
-  }));
+    ...bound(presentation.visible ? (el.innerText ?? text(el)) : text(el)), ...presentation, tables: tables(el),
+    links: JSON.parse(el.dataset.mcpLinks ?? "[]"), source_refs: JSON.parse(el.dataset.mcpSourceRefs ?? "[]"),
+    reference_links: [...el.querySelectorAll<HTMLAnchorElement>("a[href]")].slice(0, 100).map((link) => ({ label: text(link), url: link.getAttribute("href") })),
+    reference_link_count: el.querySelectorAll("a[href]").length,
+    reference_links_truncated: el.querySelectorAll("a[href]").length > 100,
+    };
+  });
   const notes = [...root.querySelectorAll(".dash-note,.ni-note,.board-recompute,.dq-empty,[role=alert]")];
   const annotations = [...root.querySelectorAll("[title],[aria-label]")];
   const charts = [...root.querySelectorAll("svg[role=img]")];
+  const referenceLinks = [...root.querySelectorAll<HTMLAnchorElement>("a[href]")];
   return {
     observation: {
       title, ...bounded, tables: tables(root),
@@ -80,6 +88,8 @@ export function observe(root: HTMLElement, title: string) {
         ...geometry(el),
       })),
       chart_count: charts.length, charts_truncated: charts.length > CHART_LIMIT,
+      reference_links: referenceLinks.slice(0, ANNOTATION_LIMIT).map((link) => ({ label: text(link), url: link.getAttribute("href"), ...geometry(link) })),
+      reference_link_count: referenceLinks.length, reference_links_truncated: referenceLinks.length > ANNOTATION_LIMIT,
       controls: [...root.querySelectorAll("input,select,button[aria-pressed],details")].map((el) => ({
         label: el.getAttribute("aria-label") ?? text(el.closest("label") ?? el).slice(0, 200),
         value: el instanceof HTMLInputElement || el instanceof HTMLSelectElement ? el.value : null,

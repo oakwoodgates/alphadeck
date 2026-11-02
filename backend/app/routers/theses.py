@@ -83,8 +83,11 @@ def get_thesis(
     conn: psycopg.Connection = Depends(get_conn),
     thesis: Thesis = Depends(get_thesis_or_404),
 ) -> ThesisDetail:
-    # NB: intentionally NO docstring — it would become the operation `description` and drift the
-    # OpenAPI contract; this fix only POPULATES an existing wire field (zero-diff by design).
+    return read_thesis_detail(conn, thesis, today=market_today())
+
+
+def read_thesis_detail(conn: psycopg.Connection, thesis: Thesis, *, today: date) -> ThesisDetail:
+    """Canonical CURRENT thesis metadata and position; capture injects its pinned market day."""
     # Thread the decisions-log-derived position onto the thesis — the SAME source of truth the call
     # path uses (``call_for_thesis``) — so ``position.security_id`` is populated for an attributed
     # take. Without it the read path built the position from only the seed columns (which carry no
@@ -92,10 +95,8 @@ def get_thesis(
     # ``effective_position`` falls back to the stored seed position when there are no decision rows,
     # so nothing regresses; ``known_at=None`` reads decisions as of current knowledge (no-lookahead
     # #1 holds — a fill can't be dated in the future).
-    thesis.position = decisions_repo.effective_position(
-        conn, thesis, asof=market_today(), known_at=None
-    )
-    return ThesisDetail.from_thesis(thesis)
+    position = decisions_repo.effective_position(conn, thesis, asof=today, known_at=None)
+    return ThesisDetail.from_thesis(thesis.model_copy(update={"position": position}))
 
 
 @router.get("/{thesis_id}/call", response_model=CallCardResponse)
@@ -171,6 +172,17 @@ def get_display_signals(
     untouched. Covers every resolved basket member; a member with no computable indicator (e.g. no
     ingested bars yet) shows with ``signals: []`` — an honest empty, never a dropped row.
     """
+    return read_display_signals(conn, thesis, asof, view=serve_view(asof))
+
+
+def read_display_signals(
+    conn: psycopg.Connection,
+    thesis: Thesis,
+    asof: date,
+    *,
+    view: tuple[datetime | None, Literal["record", "public"]],
+) -> DisplaySignalsResponse:
+    """Canonical display computation on the supplied clock and current displayed roster."""
     sids: list[UUID] = []
     for m in thesis.basket:
         if m.security_id is not None and m.security_id not in sids:
@@ -180,7 +192,7 @@ def get_display_signals(
     # ``known_at`` + ``clock`` (#1, the PUBLIC clock): a scrubbed-back ``asof`` reads each fact as it was
     # public by that market day's end, exactly like the call above — the tape context beside a past card is
     # the tape as it was public then; a live ``asof`` threads ``(None, "record")`` (the unchanged live read).
-    known_at, clock = serve_view(asof)
+    known_at, clock = view
     pit = PointInTimeData(
         conn,
         asof=asof,
@@ -375,6 +387,11 @@ def list_decisions(
 ) -> list[DecisionOut]:
     """The thesis's decision log, newest first. Voided rows ride along FLAGGED (``voided: true``) —
     the strip grays them, never hides them (pruning hides, it never vanishes)."""
+    return read_decisions(conn, thesis)
+
+
+def read_decisions(conn: psycopg.Connection, thesis: Thesis) -> list[DecisionOut]:
+    """Canonical current operator log; intentionally not a historical fact read."""
     rows = decisions_repo.list_for_thesis(conn, thesis.id, tenant_id=thesis.tenant_id)
     voided = {r["voids"] for r in rows if r["action"] == "void" and r["voids"] is not None}
     return [_decision_out(r, voided=r["id"] in voided) for r in rows]

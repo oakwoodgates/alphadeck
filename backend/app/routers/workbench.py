@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import math
-from datetime import date
+from datetime import date, datetime
 from typing import Literal
 from uuid import UUID, uuid4
 
@@ -136,6 +136,17 @@ def get_scored(
     """Re-derive the per-name Workbench scores live at ``asof`` — a READ-ONLY path (Option B; nothing
     persists). Mirrors the call endpoint: load the thesis (404 + its tenant), thread ``thesis.tenant_id``
     into every scoring fact read so a production thesis scores off production's facts."""
+    return read_scored(conn, thesis, asof, view=serve_view(asof))
+
+
+def read_scored(
+    conn: psycopg.Connection,
+    thesis: Thesis,
+    asof: date,
+    *,
+    view: tuple[datetime | None, Literal["record", "public"]],
+) -> WorkbenchScored:
+    """Canonical scored facts on one supplied clock; identity/feed metadata remains current."""
     # the resolved basket = the PIT's prefetch scope (one query per fact table); ``scored_bounds()`` is
     # the scorer's own declaration — every table unbounded (signals/horizons.py).
     # ``known_at`` + ``clock`` (#1, the PUBLIC clock): a scrubbed-back ``asof`` reads each fact as it was
@@ -144,7 +155,7 @@ def get_scored(
     # ``db.public_clock``), so one ratified after the as-of never scores a past view; a live ``asof``
     # threads ``(None, "record")`` (the unchanged live read).
     basket = {m.security_id for m in thesis.basket if m.security_id is not None}
-    known_at, clock = serve_view(asof)
+    known_at, clock = view
     pit = PointInTimeData(
         conn,
         asof=asof,

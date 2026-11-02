@@ -3,6 +3,7 @@
 import json
 from datetime import date
 from importlib.resources import files
+from uuid import UUID
 
 from jsonschema import Draft202012Validator
 
@@ -51,4 +52,7 @@ class Catalog:
                 "invalid_settings",
                 "Settings do not match this dashboard's settings_schema; call describe_dashboard for valid fields and values.",
             )
+        for field, specification in descriptor["settings_schema"].get("properties", {}).items():
+            if specification.get("format") == "uuid" and merged.get(field) is not None:
+                merged[field] = str(UUID(merged[field]))
         return descriptor, merged

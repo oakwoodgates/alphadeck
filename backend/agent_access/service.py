@@ -10,6 +10,7 @@ import time
 from .capture import CaptureClient
 from .catalog import Catalog
 from .errors import AccessError
+from .references import advertised_entry, context_hash, pointer_value
 from .renderer import FrozenRenderer
 from .snapshots import SnapshotStore
 
@@ -67,6 +68,35 @@ def preview(value, *, budget: int = 56000) -> tuple[object, dict]:
 
     result = visit(value, "")
     return result, {"truncated": bool(omitted), "paths": omitted[:100], "path_count": len(omitted)}
+
+
+def target_preview(targets: list, *, budget: int = 56000):
+    # Identifiers and binding descriptors are indivisible; only DOM details may truncate.
+    page, paths, remaining = [], [], budget - 2
+    for index, target in enumerate(targets):
+        bindings = copy.deepcopy(
+            {key: target[key] for key in ("id", "links", "source_refs") if key in target}
+        )
+        binding_bytes = len(json.dumps(bindings, ensure_ascii=True).encode()) + 1
+        if binding_bytes > remaining:
+            if not page:
+                raise AccessError(
+                    "output_too_large",
+                    "One target's complete navigation/reference descriptors exceed the page budget.",
+                )
+            paths.append("/" + str(index) + ":")
+            break
+        details = {key: value for key, value in target.items() if key not in bindings}
+        shown, truncation = preview(details, budget=min(12000, remaining - binding_bytes))
+        candidate = {**bindings, **(shown if isinstance(shown, dict) else {})}
+        size = len(json.dumps(candidate, ensure_ascii=True).encode()) + 1
+        if size > remaining:
+            candidate, size = bindings, binding_bytes
+            paths.append("/" + str(index) + "/details")
+        paths.extend("/" + str(index) + path for path in truncation["paths"])
+        page.append(candidate)
+        remaining -= size
+    return page, {"truncated": bool(paths), "paths": paths[:100], "path_count": len(paths)}
 
 
 class DashboardService:
@@ -172,16 +202,88 @@ class DashboardService:
             "settings": copy.deepcopy(snapshot.settings),
             "context": copy.deepcopy(snapshot.envelope["context"]),
             "consistency": copy.deepcopy(snapshot.envelope["consistency"]),
+            **({"origin": copy.deepcopy(snapshot.origin)} if snapshot.origin is not None else {}),
         }
 
     async def read_dashboard(
-        self, dashboard, settings=None, asof=None, target_offset=0, target_limit=20
+        self,
+        dashboard=None,
+        settings=None,
+        asof=None,
+        target_offset=0,
+        target_limit=20,
+        from_snapshot_id=None,
+        target_id=None,
+        link_id=None,
+        freshness=None,
     ):
+        parent, origin, expected_context = None, None, None
+        if from_snapshot_id is not None:
+            if (
+                dashboard is not None
+                or settings is not None
+                or asof is not None
+                or not target_id
+                or not link_id
+                or freshness != "fresh"
+            ):
+                raise AccessError(
+                    "invalid_arguments",
+                    "Fresh navigation requires only from_snapshot_id, target_id, link_id and freshness='fresh'.",
+                )
+            parent = self.store.get(from_snapshot_id)
+            if not self.catalog.describe(parent.envelope["dashboard"])["capabilities"]["drilldown"]:
+                raise AccessError(
+                    "unsupported_capability", "This dashboard does not advertise drilldown support."
+                )
+            navigation = advertised_entry(
+                parent, target_id, link_id, field="navigation", kind="fresh_capture"
+            )
+            destination = navigation["destination"]
+            dashboard, settings, asof = (
+                destination["dashboard"],
+                copy.deepcopy(destination["settings"]),
+                parent.envelope["asof"],
+            )
+            expected_context = context_hash(parent.envelope)
+            origin = {
+                "kind": "fresh_navigation",
+                "freshness": "fresh",
+                "consistency": "independent_capture",
+                "parent_snapshot_id": parent.id,
+                "parent_dashboard": parent.envelope["dashboard"],
+                "parent_asof": parent.envelope["asof"],
+                "parent_captured_at": parent.envelope["captured_at"],
+                "parent_context_hash": expected_context,
+                "source_target_id": target_id,
+                "link_id": link_id,
+            }
+        elif dashboard is None or any(
+            value is not None for value in (target_id, link_id, freshness)
+        ):
+            raise AccessError(
+                "invalid_arguments",
+                "Initial reads require a dashboard; navigation fields require a parent snapshot.",
+            )
         descriptor, settings = self.catalog.prepare(dashboard, settings, asof)
         async with self._slots:
-            envelope = await self.capture.capture(descriptor, settings, asof)
+            if parent is not None:
+                self.store.get(parent.id)
+                envelope = await self.capture.capture(
+                    descriptor, settings, asof, expected_context_hash=expected_context
+                )
+                self.store.get(parent.id)
+                if context_hash(envelope) != expected_context:
+                    raise AccessError(
+                        "context_changed",
+                        "Fresh capture did not preserve the parent date and temporal context; read a new parent snapshot.",
+                    )
+            else:
+                envelope = await self.capture.capture(descriptor, settings, asof)
             snapshot_id = self.store.new_id()
             view, png, image_metadata = await self.renderer.render(envelope, snapshot_id, settings)
+            if parent is not None:
+                self.store.get(parent.id)
             snapshot = self.store.add(
                 snapshot_id,
                 copy.deepcopy(envelope),
@@ -189,10 +291,11 @@ class DashboardService:
                 copy.deepcopy(view),
                 png,
                 image_metadata,
+                copy.deepcopy(origin),
             )
         targets = view.get("targets", [])
         observation, truncation = preview(view.get("observation", {}))
-        target_page, target_truncation = preview(
+        target_page, target_truncation = target_preview(
             targets[target_offset : target_offset + target_limit], budget=16000
         )
         sources = [
@@ -209,13 +312,13 @@ class DashboardService:
             "target_offset": target_offset,
             "target_total": len(targets),
             "next_target_offset": (
-                target_offset + target_limit
-                if target_offset + target_limit < len(targets)
+                target_offset + len(target_page)
+                if target_offset + len(target_page) < len(targets)
                 else None
             ),
             "source_responses": source_page,
             "source_total": len(sources),
-            "next_source_offset": 50 if len(sources) > 50 else None,
+            "next_source_offset": len(source_page) if len(sources) > len(source_page) else None,
             "sources_truncation": source_truncation,
             "image": image_metadata,
             "policy": POLICY,
@@ -226,6 +329,7 @@ class DashboardService:
         snapshot_id,
         target_id=None,
         source_response_index=None,
+        source_ref_id=None,
         offset=0,
         limit=20,
         data_offset=0,
@@ -233,6 +337,11 @@ class DashboardService:
         source_offset=0,
         source_limit=20,
     ):
+        if source_ref_id is not None and (target_id is None or source_response_index is not None):
+            raise AccessError(
+                "invalid_arguments",
+                "source_ref_id requires target_id and cannot be combined with source_response_index.",
+            )
         snapshot = self.store.get(snapshot_id)
         if not self.catalog.describe(snapshot.envelope["dashboard"])["capabilities"]["drilldown"]:
             raise AccessError(
@@ -246,14 +355,14 @@ class DashboardService:
                     "unknown_target",
                     "Target ID is absent from this snapshot; use its advertised target IDs.",
                 )
-        page, truncation = preview(targets[offset : offset + limit])
+        page, truncation = target_preview(targets[offset : offset + limit])
         result = {
             **self._metadata(snapshot),
             "targets": page,
             "truncation": truncation,
             "total": len(targets),
             "offset": offset,
-            "next_offset": offset + limit if offset + limit < len(targets) else None,
+            "next_offset": offset + len(page) if offset + len(page) < len(targets) else None,
         }
         sources = snapshot.envelope["responses"]
         source_page, source_truncation = preview(
@@ -270,11 +379,17 @@ class DashboardService:
             source_offset=source_offset,
             source_total=len(sources),
             next_source_offset=(
-                source_offset + source_limit
-                if source_offset + source_limit < len(sources)
+                source_offset + len(source_page)
+                if source_offset + len(source_page) < len(sources)
                 else None
             ),
         )
+        reference = None
+        if source_ref_id is not None:
+            reference = advertised_entry(
+                snapshot, target_id, source_ref_id, field="references", kind="captured_json"
+            )
+            source_response_index = reference["response_index"]
         if source_response_index is not None:
             responses = snapshot.envelope["responses"]
             if source_response_index >= len(responses):
@@ -282,7 +397,12 @@ class DashboardService:
                     "unknown_source", "Captured source response index is out of range."
                 )
             source = responses[source_response_index]
-            text = json.dumps(source["body"], ensure_ascii=True, separators=(",", ":"))
+            selected = (
+                source["body"]
+                if reference is None
+                else pointer_value(source["body"], reference["pointer"])
+            )
+            text = json.dumps(selected, ensure_ascii=True, separators=(",", ":"))
             end = min(len(text), data_offset + data_limit)
             result["source_data"] = {
                 "response_index": source_response_index,
@@ -294,6 +414,18 @@ class DashboardService:
                 "total_characters": len(text),
                 "truncated": data_offset > 0 or end < len(text),
                 "next_offset": end if end < len(text) else None,
+                **(
+                    {
+                        "reference_id": reference["id"],
+                        "category": reference.get("category"),
+                        "label": reference.get("label"),
+                        "pointer": reference["pointer"],
+                        "kind": "captured_json",
+                        "freshness": "frozen",
+                    }
+                    if reference is not None
+                    else {}
+                ),
             }
         return result, None
 

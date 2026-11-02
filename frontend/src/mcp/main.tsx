@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Component, type ErrorInfo, type ReactNode } from "react";
+import { Component, Suspense, type ErrorInfo, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 
@@ -10,6 +10,7 @@ import type { ViewBridge } from "./contract";
 import { frozenFetch } from "./frozenFetch";
 import { DuplicateTargetError, observe } from "./observe";
 import { CaptureViewContext } from "./viewContext";
+import { DETAIL_CAPTURES } from "./detailRegistry";
 import "../index.css";
 import "./render.css";
 
@@ -25,7 +26,10 @@ class CaptureBoundary extends Component<{ children: ReactNode }, { failed: boole
   render() { return this.state.failed ? <div data-mcp-ready="true" data-mcp-error="true">Could not render this dashboard.</div> : this.props.children; }
 }
 
-const entry = DASHBOARDS.find((d) => d.slug === snapshot?.dashboard);
+const dashboardEntry = DASHBOARDS.find((d) => d.slug === snapshot?.dashboard);
+const detailEntry = DETAIL_CAPTURES.find((detail) => detail.capability.slug === snapshot?.dashboard);
+const DetailBody = detailEntry?.component;
+const entry = dashboardEntry ?? detailEntry?.capability;
 if (!snapshot || !entry || !entry.capabilities?.observe) {
   bridge.status = "error";
   bridge.error = "A supported frozen dashboard snapshot is required.";
@@ -42,9 +46,10 @@ if (!snapshot || !entry || !entry.capabilities?.observe) {
     <CaptureBoundary>
       <QueryClientProvider client={queryClient}>
         <ClockProvider value={clockFromServer(snapshot.clock)}>
-          <CaptureViewContext.Provider value={{ settings: snapshot.settings, readOnly: true }}>
-            <MemoryRouter initialEntries={[`/dashboards/${entry.slug}?asof=${snapshot.asof}`]}>
-              <DashboardShell entry={entry} asof={snapshot.asof} onAsofChange={() => undefined} onSelectThesis={() => undefined} />
+          <CaptureViewContext.Provider value={{ settings: snapshot.settings, readOnly: true, responses: snapshot.responses, navigation: snapshot.navigation, references: snapshot.references }}>
+            <MemoryRouter initialEntries={[`/captures/${entry.slug}?asof=${snapshot.asof}`]}>
+              {dashboardEntry ? <DashboardShell entry={dashboardEntry} asof={snapshot.asof} onAsofChange={() => undefined} onSelectThesis={() => undefined} /> :
+                DetailBody && <Suspense fallback={<div className="dash-note">Loading…</div>}><DetailBody asof={snapshot.asof} /></Suspense>}
             </MemoryRouter>
           </CaptureViewContext.Provider>
         </ClockProvider>

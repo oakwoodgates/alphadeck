@@ -21,6 +21,7 @@ class Snapshot:
     expires_at: str
     deadline: float
     size: int
+    origin: dict | None = None
 
 
 class SnapshotStore:
@@ -53,10 +54,13 @@ class SnapshotStore:
         view: dict,
         png: bytes,
         image_metadata: dict,
+        origin: dict | None = None,
     ) -> Snapshot:
         self._purge()
         size = len(
-            json.dumps([envelope, settings, view, image_metadata], ensure_ascii=False).encode()
+            json.dumps(
+                [envelope, settings, view, image_metadata, origin], ensure_ascii=False
+            ).encode()
         ) + len(png)
         if size > self.max_bytes:
             raise AccessError(
@@ -77,6 +81,7 @@ class SnapshotStore:
             (datetime.now(timezone.utc) + timedelta(seconds=self.ttl)).isoformat(),
             self.clock() + self.ttl,
             size,
+            origin,
         )
         self._items[snapshot_id] = item
         return item
