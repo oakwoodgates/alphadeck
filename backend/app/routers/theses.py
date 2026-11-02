@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from datetime import date
-from typing import Any
+from datetime import date, datetime
+from typing import Any, Literal
 from uuid import UUID, uuid4
 
 import psycopg
@@ -20,7 +20,13 @@ from app.schemas_api import (
     ThesisDetail,
     ThesisSummary,
 )
-from domain.market_time import market_clock, market_today, serve_decisions_asof, serve_view
+from domain.market_time import (
+    MarketClock,
+    market_clock,
+    market_today,
+    serve_decisions_asof,
+    serve_view,
+)
 from domain.thesis import Catalyst, ExcludedName, KillCriterion, Thesis
 from pipeline.call_for_thesis import call_for_thesis
 from repositories import calls_repo, decisions_repo, thesis_repo
@@ -115,8 +121,19 @@ def get_call(
     # night (F1): the default view is the night the pass last recorded, read live — and on that view the
     # operator's decisions read up to the ACTION day, so a fill logged this morning shows before tonight's pass
     # (``serve_decisions_asof``; decisions only, the facts follow the night). One clock read for both halves.
-    mclock = market_clock()
-    known_at, clock = serve_view(asof, night=mclock.night)
+    return read_call(conn, thesis, asof, mclock=market_clock())
+
+
+def read_call(
+    conn: psycopg.Connection,
+    thesis: Thesis,
+    asof: date,
+    *,
+    mclock: MarketClock,
+    view: tuple[datetime | None, Literal["record", "public"]] | None = None,
+) -> CallCardResponse:
+    """Canonical read-only call and wire shaping, also used by a pinned dashboard capture."""
+    known_at, clock = view if view is not None else serve_view(asof, night=mclock.night)
     card = call_for_thesis(
         conn,
         thesis.id,

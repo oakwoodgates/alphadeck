@@ -1,0 +1,23 @@
+{
+  "slug": "catalyst-calendar",
+  "order": 60,
+  "label": "Catalyst Calendar",
+  "description": "Every dated catalyst and card deadline across your cards, with passed ones to prune and undated ones to date.",
+  "status": "experimental",
+  "asofAware": false,
+  "capabilities": {
+    "data": false,
+    "observe": false,
+    "screenshot": false,
+    "drilldown": false
+  },
+  "settings_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "defaults": {},
+  "backend_query_fields": [],
+  "capability_version": "1",
+  "response_paths": []
+}

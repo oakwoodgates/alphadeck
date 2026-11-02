@@ -1,0 +1,103 @@
+{
+  "slug": "narrative-index",
+  "order": 90,
+  "label": "Narrative Index",
+  "description": "Each card's basket as one equal-weighted line against SPY and IWM, with the day the card was created marked.",
+  "status": "experimental",
+  "asofAware": true,
+  "capabilities": {
+    "data": true,
+    "observe": true,
+    "screenshot": true,
+    "drilldown": true
+  },
+  "settings_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "window": {
+        "type": "string",
+        "enum": [
+          "1y",
+          "90d",
+          "30d"
+        ]
+      },
+      "include_silent": {
+        "type": "boolean"
+      },
+      "sort_key": {
+        "type": "string",
+        "enum": [
+          "name",
+          "ret",
+          "vs_spy",
+          "since_created"
+        ]
+      },
+      "sort_dir": {
+        "type": "string",
+        "enum": [
+          "asc",
+          "desc"
+        ]
+      },
+      "open_thesis": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "chart_date": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "format": "date"
+      }
+    },
+    "allOf": [
+      {
+        "if": {
+          "required": [
+            "chart_date"
+          ],
+          "properties": {
+            "chart_date": {
+              "type": "string"
+            }
+          }
+        },
+        "then": {
+          "required": [
+            "open_thesis"
+          ],
+          "properties": {
+            "open_thesis": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    ]
+  },
+  "defaults": {
+    "window": "1y",
+    "include_silent": false,
+    "sort_key": "name",
+    "sort_dir": "asc",
+    "open_thesis": null,
+    "chart_date": null
+  },
+  "backend_query_fields": [
+    "window",
+    "include_silent"
+  ],
+  "capability_version": "1",
+  "response_paths": [
+    "/clock",
+    "/dashboards/narrative-index",
+    "/dashboards/narrative-index/{uuid}"
+  ]
+}

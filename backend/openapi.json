@@ -3884,6 +3884,108 @@
         }
       }
     },
+    "/dashboards/capture": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Capture Dashboard",
+        "description": "Capture a registered dashboard through explicit read-only adapters; no authentication supplied.\n\nDatabase reads share one snapshot. External artifacts are best-effort guarded: 409 on an\nobserved change. 413 rejects excess cards/bytes, 504 rejects an exceeded cooperative total work\nbudget (checked between reads, with a per-statement SQL timeout). Never returns a partial capture.",
+        "operationId": "capture_dashboard_dashboards_capture_get",
+        "parameters": [
+          {
+            "name": "dashboard",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "title": "Dashboard"
+            }
+          },
+          {
+            "name": "asof",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Asof"
+            }
+          },
+          {
+            "name": "group_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "link",
+                "card",
+                "business_type",
+                "sector"
+              ],
+              "type": "string",
+              "default": "link",
+              "title": "Group By"
+            }
+          },
+          {
+            "name": "include_silent",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Include Silent"
+            }
+          },
+          {
+            "name": "window",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "1y",
+                "90d",
+                "30d"
+              ],
+              "type": "string",
+              "default": "1y",
+              "title": "Window"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardCapture"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/dashboards/catalyst-calendar": {
       "get": {
         "tags": [
@@ -12648,6 +12750,138 @@
         "title": "CapTier",
         "description": "The five fixed market-cap bands, smallest first (the enum's order is the band order)."
       },
+      "CaptureConsistency": {
+        "properties": {
+          "database": {
+            "type": "string",
+            "const": "repeatable_read_read_only",
+            "title": "Database",
+            "default": "repeatable_read_read_only"
+          },
+          "external_artifacts": {
+            "type": "string",
+            "const": "best_effort_generation_guarded",
+            "title": "External Artifacts",
+            "default": "best_effort_generation_guarded"
+          },
+          "generation_before": {
+            "type": "string",
+            "title": "Generation Before"
+          },
+          "generation_after": {
+            "type": "string",
+            "title": "Generation After"
+          },
+          "generation_stable": {
+            "type": "boolean",
+            "const": true,
+            "title": "Generation Stable",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "generation_before",
+          "generation_after"
+        ],
+        "title": "CaptureConsistency"
+      },
+      "CaptureContext": {
+        "properties": {
+          "clock_response": {
+            "$ref": "#/components/schemas/ClockOut"
+          },
+          "clock": {
+            "type": "string",
+            "enum": [
+              "record",
+              "public"
+            ],
+            "title": "Clock"
+          },
+          "known_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Known At"
+          },
+          "decisions_asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Decisions Asof"
+          },
+          "countdown_origin": {
+            "type": "string",
+            "format": "date",
+            "title": "Countdown Origin"
+          },
+          "scope": {
+            "type": "string",
+            "const": "deployment_visibility_not_authorization",
+            "title": "Scope",
+            "default": "deployment_visibility_not_authorization"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Limitations"
+          }
+        },
+        "type": "object",
+        "required": [
+          "clock_response",
+          "clock",
+          "known_at",
+          "decisions_asof",
+          "countdown_origin",
+          "limitations"
+        ],
+        "title": "CaptureContext"
+      },
+      "CapturedResponse": {
+        "properties": {
+          "method": {
+            "type": "string",
+            "const": "GET",
+            "title": "Method",
+            "default": "GET"
+          },
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "query": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Query"
+          },
+          "status": {
+            "type": "integer",
+            "const": 200,
+            "title": "Status",
+            "default": 200
+          },
+          "body": {
+            "title": "Body"
+          }
+        },
+        "type": "object",
+        "required": [
+          "path",
+          "body"
+        ],
+        "title": "CapturedResponse"
+      },
       "Catalyst": {
         "properties": {
           "id": {
@@ -15341,6 +15575,53 @@
         ],
         "title": "DailyDigestOut",
         "description": "The whole page at the as-of. ``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was public\nby the end of that date). There is no aggregate over any row's return. ``cache`` / ``compute_ms`` = whether the read\ncame from the shared dashboard cache and how long it took when computed."
+      },
+      "DashboardCapture": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "1",
+            "title": "Schema Version",
+            "default": "1"
+          },
+          "dashboard": {
+            "type": "string",
+            "title": "Dashboard"
+          },
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "captured_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Captured At"
+          },
+          "context": {
+            "$ref": "#/components/schemas/CaptureContext"
+          },
+          "consistency": {
+            "$ref": "#/components/schemas/CaptureConsistency"
+          },
+          "responses": {
+            "items": {
+              "$ref": "#/components/schemas/CapturedResponse"
+            },
+            "type": "array",
+            "title": "Responses"
+          }
+        },
+        "type": "object",
+        "required": [
+          "dashboard",
+          "asof",
+          "captured_at",
+          "context",
+          "consistency",
+          "responses"
+        ],
+        "title": "DashboardCapture"
       },
       "DataFlagEvidenceOut": {
         "properties": {

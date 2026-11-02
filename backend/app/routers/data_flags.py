@@ -16,7 +16,7 @@ push alert (#7). The rules are ``pipeline/data_flags.py``.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
 
@@ -191,8 +191,9 @@ def _read(
     tenant_id: UUID,
     ids: list[UUID],
     asof: date,
+    view: tuple[datetime | None, Literal["record", "public"]] | None = None,
 ) -> dict[UUID, MemberFlags]:
-    known_at, clock = serve_view(asof)
+    known_at, clock = view if view is not None else serve_view(asof)
     readings, corrections = flags_reader.run_reads()
     return flags_reader.read_flags(
         conn,
@@ -240,6 +241,17 @@ def get_data_flags(
     """Every flagged or marked name across the active basket union at ``asof``, each with the theses holding
     it — the Admin list and the Board's marks (a marker never marks a ticker). Computed on read, never stored;
     display-only."""
+    return read_data_flags(conn, asof=asof, tenant_id=tenant_id)
+
+
+def read_data_flags(
+    conn: psycopg.Connection,
+    *,
+    asof: date,
+    tenant_id: UUID,
+    view: tuple[datetime | None, Literal["record", "public"]] | None = None,
+) -> DataFlagsResponse:
+    """Canonical union flags and wire shaping; capture supplies its one pinned public-clock view."""
     with conn.cursor() as cur:
         cur.execute(
             "SELECT bm.security_id, t.id, t.name FROM basket_member bm JOIN thesis t ON t.id = bm.thesis_id "
@@ -254,7 +266,7 @@ def get_data_flags(
         if all(x.id != r["id"] for x in refs):
             refs.append(DataFlagThesisRefOut(id=r["id"], name=r["name"]))
     ids = list(held)
-    out = _read(conn, tenant_id=tenant_id, ids=ids, asof=asof)
+    out = _read(conn, tenant_id=tenant_id, ids=ids, asof=asof, view=view)
     members = [_member_out(out[s], held[s]) for s in ids if out[s].flags or out[s].notes]
     members.sort(key=lambda m: (not m.marked, m.ticker or str(m.security_id)))
     return DataFlagsResponse(asof=asof, names=len(ids), members=members)

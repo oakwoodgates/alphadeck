@@ -33,6 +33,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Local agent access: optional, so the production API image stays lean.
+mcp = [
+    "mcp==2.3.0",
+    "playwright==1.64.1",
+    "jsonschema==4.26.0",
+]
 dev = [
     "pytest>=8.0",
     "pytest-xdist>=3.5",    # `pytest -n 6`: per-worker DBs via the testdb hook (PYTEST_XDIST_WORKER suffix); measured 305 -> 94 s
@@ -50,14 +56,21 @@ replay = [
     "pytz",  # DuckDB's Python client needs it to return TIMESTAMP WITH TIME ZONE values
 ]
 
+[project.scripts]
+alphadeck-mcp = "agent_access.server:main"
+
 # Flat layout: list the packages explicitly (no auto-discovery, so the venv/data dirs are never scanned).
 [tool.setuptools]
 packages = [
-    "app", "app.routers",
+    "agent_access",
+    "app", "app.routers", "app.routers.dashboards", "app.routers.dashboards.capture_adapters",
     "calls", "db", "domain", "llm",
     "ingest", "ingest.edgar", "ingest.funds", "ingest.prices",
     "pipeline", "repositories", "securities", "signals", "signals.display", "replay", "scoreboard", "editions",
 ]
+
+[tool.setuptools.package-data]
+agent_access = ["catalog.json"]
 
 [tool.ruff]
 line-length = 100
