@@ -104,5 +104,5 @@ jobs:
       - run: pip install -e ".[dev,mcp]"
         working-directory: backend
       - run: python -m playwright install --with-deps chromium
-      - run: python -m pytest tests/agent_access/test_browser.py -q
+      - run: python -m pytest tests/agent_access/test_browser.py tests/agent_access/test_workflow_scenarios.py -q
         working-directory: backend

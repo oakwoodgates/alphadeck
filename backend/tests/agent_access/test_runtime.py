@@ -310,7 +310,7 @@ def test_real_official_sdk_stdio_discovery_and_structured_errors():
                 initialized = await client.initialize()
                 assert initialized.server_info.name == "alphadeck-dashboards"
                 tools = await client.list_tools()
-                assert len(tools.tools) == 5
+                assert len(tools.tools) == 7
                 assert all(
                     tool.annotations.read_only_hint and tool.output_schema for tool in tools.tools
                 )

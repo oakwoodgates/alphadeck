@@ -70,7 +70,7 @@ packages = [
 ]
 
 [tool.setuptools.package-data]
-agent_access = ["catalog.json"]
+agent_access = ["catalog.json", "recipes/*.json", "recipes/*.md"]
 
 [tool.ruff]
 line-length = 100
