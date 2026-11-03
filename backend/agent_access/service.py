@@ -13,6 +13,7 @@ from .errors import AccessError
 from .references import advertised_entry, context_hash, pointer_value
 from .renderer import FrozenRenderer
 from .snapshots import SnapshotStore
+from .workflows import UNSPECIFIED, WorkflowRegistry
 
 POLICY = {
     "scope": "deployment_visibility_not_authorization",
@@ -112,6 +113,7 @@ class DashboardService:
         store=None,
     ):
         self.catalog = catalog or Catalog()
+        self.workflows = WorkflowRegistry(self.catalog)
         self.capture = capture or CaptureClient(backend_base)
         self.renderer = renderer or FrozenRenderer(ui_base)
         self.store = store or SnapshotStore()
@@ -175,6 +177,12 @@ class DashboardService:
             logger.info(
                 "request_id=%s duration_ms=%d", request_id, (time.monotonic() - started) * 1000
             )
+
+    async def list_workflows(self, offset=0, limit=20):
+        return {**self.workflows.list(offset, limit), "policy": POLICY}, None
+
+    async def get_workflow(self, name, arguments=UNSPECIFIED):
+        return {**self.workflows.get(name, arguments), "policy": POLICY}, None
 
     async def list_dashboards(self, offset=0, limit=30):
         descriptors = self.catalog.dashboards
@@ -470,6 +478,8 @@ class DashboardService:
 
 
 TOOL_NAMES = {
+    "list_workflows",
+    "get_workflow",
     "list_dashboards",
     "describe_dashboard",
     "read_dashboard",

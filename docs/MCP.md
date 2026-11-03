@@ -1,6 +1,6 @@
 # Agent access and MCP
 
-Status: implemented and locally validated, 2026-11-01. Stage: MONITOR, with extension points for SCORE and the research stages.
+Status: dashboard access and portable workflow recipes implemented, 2026-11-02. Stage: MONITOR, with extension points for SCORE and the research stages.
 
 ## Approved scope
 
@@ -17,6 +17,11 @@ After the Board client pilot, the operator approved Cockpit and evidence drill-d
 item into the actual Cockpit, inspect its call/member/source details, and obtain images from captured
 application responses. Cockpit is a detail surface, not another tile in the dashboard menu. The
 existing tool names remain compatible; the capability catalog also describes detail surfaces.
+
+The operator subsequently approved three portable read-only workflows: Board review, call explanation,
+and a two-date Rotation Map comparison. The local server supplies versioned instructions through MCP
+prompts and workflow discovery/lookup tools. The connected client's agent executes them. This adds no
+model invocation, background runner, scheduled job, or workflow launcher to the alphadeck UI.
 
 Privacy requirement reaffirmed by the operator during the build: thesis names and private platform data
 must stay out of commits and PR content. Tests use synthetic data. Live validation captures remain in
@@ -57,6 +62,10 @@ and proposed PR text for accidental disclosure before publication.
 10. Backend adapters own navigation destinations and captured-JSON reference pointers. The frontend
     associates their opaque IDs with actual rendered targets. MCP follows only IDs advertised by both
     the stored target and its capture envelope. Evidence inspection never fetches an external source URL.
+11. Workflow recipes have one packaged source: Markdown instructions and JSON metadata under
+    `backend/agent_access/recipes/`. MCP prompts and tool lookup use the same registry and rendered
+    instructions. Retrieving a recipe performs no capture, browser work, database read, or model call.
+    The client owns execution and interpretation; a recipe is not an executable workflow guarantee.
 
 ## Contracts
 
@@ -82,6 +91,8 @@ and proposed PR text for accidental disclosure before publication.
 | `read_dashboard` | Capture a requested view, or follow an advertised link into a fresh related capture. |
 | `inspect_dashboard_item` | Inspect a stable target or its captured evidence within a frozen view. |
 | `render_dashboard` | Obtain an overview or target image from the same captured output. |
+| `list_workflows` | Discover versioned recipes and their inputs, defaults, and required surfaces. |
+| `get_workflow` | Read a recipe template, or validate its inputs and obtain instructions for client execution. |
 
 Tools are read-only. Transport annotations are descriptive; HTTP allowlists, a read-only database
 transaction, and browser request restrictions enforce the boundary.
@@ -101,6 +112,10 @@ transaction, and browser request restrictions enforce the boundary.
    source references, and computation detail are inspectable. Fresh navigation and frozen evidence
    have explicit boundaries. Temporal drift, invalid links/references, capture-safe controls, and
    historical metadata caveats are verified through synthetic and live development workflows.
+7. Portable workflows: the three recipes are discoverable through both prompts and tools; supplied
+   arguments are validated; prompt and tool retrieval agree. Synthetic scripted clients exercise their
+   data/evidence paths and recovery boundaries. These tests establish protocol and data availability,
+   not model reasoning quality or completion in every third-party client.
 
 ## Growth path
 
@@ -153,6 +168,77 @@ The default complete request deadline is 180 seconds (configurable from 1 to 300
 out after 130 seconds and browser readiness has its own bound. The API checks a cooperative 120-second
 work budget between expensive reads and enforces a 120-second per-SQL-statement timeout. Disconnecting
 the client is not a promise to interrupt a synchronous database calculation immediately.
+
+## Start a workflow from your agent client
+
+After connecting the local MCP process, use ordinary chat. For example:
+
+> Run alphadeck's Board review workflow for the current market night. Show the first five Decision Queue items.
+
+> Run alphadeck's call-explanation workflow for the card I select.
+
+> Run alphadeck's Rotation Map comparison between 2026-10-23 and 2026-10-30, grouped by card.
+
+The agent discovers the available recipes with `list_workflows`, retrieves one with `get_workflow`,
+and follows its instructions using the dashboard tools. The report appears in that client's chat.
+The client needs tool execution enabled and a running API/renderer for the actual dashboard reads.
+Recipe discovery and retrieval themselves work while those two services are stopped.
+
+| Workflow ID | Inputs | Report |
+|---|---|---|
+| `board-review` | Optional `asof`; `max_items` defaults to 5 (1–20). | Board/queue coverage and a shortlist in displayed Decision Queue order, with reasons and data caveats. |
+| `explain-call` | Required `thesis` (name or UUID); optional `asof`. | Platform call and conditions, exact captured evidence, unresolved gaps, and separately labeled agent interpretation. |
+| `compare-rotation` | Required `start_date` and `end_date`, earlier first; `group_by` defaults to `card`. | Two dated readings with percentage-point differences, breadth/coverage, membership and flag changes. |
+
+Omitting `asof` uses the API's current market night when the agent captures the dashboard, not the
+operator's wall-clock date. The call workflow resolves the thesis from the captured Board and asks
+for clarification on ambiguous names. Runtime selections remain request data, never recipe content
+committed to the repository.
+
+The lookup distinction is intentional:
+
+```json
+{"name":"explain-call"}
+```
+
+This returns a template with `ready: false`, its input schema, and instructions. It lets an agent
+discover the required inputs without guessing a selection. To instantiate a recipe, supply an
+`arguments` object, including an empty object when defaults suffice:
+
+```json
+{"name":"board-review","arguments":{"max_items":5}}
+```
+
+`ready: true` means that the inputs passed validation and the recipe is ready for the client to
+execute. It does not mean a dashboard was read, a report was produced, or the running services passed
+a health check. Invalid dates, unknown fields, missing required inputs, and reversed comparison dates
+fail explicitly. Results include the recipe version, normalized arguments, and the common evidence
+and recovery instructions.
+
+Clients that support MCP prompts can instead discover the same three IDs with `prompts/list` and
+request instructions with `prompts/get`. Prompt arguments are strings on the wire (for example,
+`max_items: "5"`); the registry validates and normalizes them to the same values used by tool lookup.
+The client may expose a prompt picker, an argument form, or a slash command. There is no universal
+slash-command syntax, and alphadeck does not install a client-specific command or `SKILL.md`.
+
+The instructions require evidence references, capture context, pagination/coverage disclosure,
+explicit recovery from expired snapshots, and separation of platform calculations from agent
+interpretation. Current historical-metadata and roster-fallback limitations still apply. No recipe
+records an operator decision, edits a thesis, fetches external source documents, or runs unattended.
+
+## Maintain a workflow recipe
+
+Each recipe has matching `<id>.json` metadata and `<id>.md` instructions in the packaged recipes
+directory. Its instructions include evidence and recovery rules. Metadata declares the ID, version, title,
+description, stage, input schema, defaults, and required dashboard surfaces. Review and version
+changes to the instructions alongside their synthetic scenarios. Keep names, examples, and fixtures
+synthetic; private reports and captures belong only in ignored local storage.
+
+The registry validates the bundled assets and arguments before exposing instructions. Markdown is
+read as text; runtime arguments are supplied as a separate JSON data block, never evaluated as a
+template or used to select a file. Prompt and tool adapters must continue using this single source.
+Hard access/consistency controls remain in the tools and capture service. A later runtime can consume
+these recipes, but scheduling, persisted runs, retries, and report validation need explicit code.
 
 ## Using a captured view
 
