@@ -16,7 +16,7 @@ from ingest.revenue_mix import ingest_revenue_mix
 from repositories import thesis_repo
 from signals.base import PointInTimeData
 
-# The measured serve-path leak's shape (docs/temp/serve-path-lookahead-audit-2026-09-09.md): facts dated
+# The measured serve-path leak's shape (the 2026-09-09 audit, fixed by #336): facts dated
 # in the past, INGESTED long after (the 2026-09-01 thaw). Any instant after the June as-of's day-end works.
 _THAW = datetime(2026, 9, 1, 18, 13, 31, tzinfo=timezone.utc)
 
