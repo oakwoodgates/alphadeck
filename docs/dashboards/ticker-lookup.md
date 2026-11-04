@@ -135,9 +135,7 @@ Table); news; options or intraday data; any write.
 ## Choices to confirm
 
 **Confirmed by the operator, 2026-11-04:** every choice in this section, as built, including the changes marked
-"(operator decision 2026-11-04)". Still open: at a past as-of the card catalysts and exclusions are today's, and a
-trigger's key is read with today's `DEFAULT_CONFIG`; each needs a history of that card setting (a backend change), so
-it stays open.
+"(operator decision 2026-11-04)". Accepted as stated limits (operator decision 2026-11-04): at a past as-of the card catalysts and exclusions are today's (a fix needs a history of each card list, a backend change), and a trigger's key is read with today's `DEFAULT_CONFIG` (no effect on the record so far; the rule for a future change is in CALL_LOGIC §1).
 
 The build lists here every choice it made that this plan does not spell out, each the operator's to confirm or
 change. Pre-decided here for the operator's review: the Workbench search as the suggestion source; exact ticker on
