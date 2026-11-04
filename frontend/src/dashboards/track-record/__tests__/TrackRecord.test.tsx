@@ -275,6 +275,45 @@ describe("TrackRecord — what is left out is counted and kept visible", () => {
     expect(screen.getByText("1 name left out for a flagged price history")).toBeInTheDocument();
   });
 
+  it("tags a counted episode whose feed stopped and says the rule once, listing the ended names", () => {
+    const ended = row({ ticker: "GONE", feed_stopped: true });
+    setup(
+      payload({
+        rows: [ended, row({ ticker: "FINE" })],
+        counts: { ...SERVER.counts, counted_feed_stopped: 1 },
+        flagged: [{ security_id: ended.security_id, ticker: "GONE", reason: "price feed stopped", feed_ended: true }],
+      }),
+    );
+    const tagged = screen.getAllByTestId("tr-row").find((r) => r.textContent?.includes("GONE"))!;
+    expect(tagged.querySelector(".tr-ended")?.getAttribute("title")).toContain("price feed stopped");
+    const fine = screen.getAllByTestId("tr-row").find((r) => r.textContent?.includes("FINE"))!;
+    expect(fine.querySelector(".tr-ended")).toBeNull();
+    expect(screen.getByTestId("tr-ended-note").textContent).toContain("1 episode counted although the price feed stopped");
+    expect(screen.getByTestId("tr-ended-note").textContent).toContain("GONE");
+    expect(screen.queryByText(/left out for a flagged price history/)).toBeNull(); // counted names are not "left out"
+  });
+
+  it("folds a stopped feed on a live card and one off every live card into their own sections", () => {
+    const none = { cap: null, arm_night: null, next_session: null };
+    setup(
+      payload({
+        rows: [
+          row({ ticker: "ONCARD", left_out: "feed_stopped", left_out_note: "price feed stopped", ...none }),
+          row({
+            ticker: "OFFCARD",
+            left_out: "no_longer_priced",
+            left_out_note: "no longer priced: off every live card since 2026-06-12",
+            ...none,
+          }),
+        ],
+      }),
+    );
+    expect(screen.getByTestId("tr-out-feed_stopped").textContent).toContain("1 episode left out: price feed stopped");
+    const off = screen.getByTestId("tr-out-no_longer_priced");
+    expect(off.textContent).toContain("1 episode left out: no longer priced");
+    expect(off.textContent).toContain("off every live card since 2026-06-12");
+  });
+
   it("draws a section only when something is in it", () => {
     setup(payload({ rows: [row()], flagged: [] }));
     expect(screen.queryByTestId("tr-out-flagged")).toBeNull();

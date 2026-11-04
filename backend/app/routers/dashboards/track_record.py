@@ -16,6 +16,7 @@ Scoreboard route already imports, so it loads in the lean prod image (no ``duckd
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
@@ -26,7 +27,7 @@ from pydantic import BaseModel, ConfigDict
 
 from app.deps import get_conn, get_current_tenant
 from app.routers.scoreboard import _resolve_edition
-from dashboards.baskets import FlaggedCompany, price_flags
+from dashboards.baskets import CHUNK, price_reason, reaches_price
 from dashboards.cache import cached
 from dashboards.peer_table import Gap
 from dashboards.track_record import (
@@ -37,6 +38,7 @@ from dashboards.track_record import (
     Benchmarks,
     CompanyData,
     EpisodeIn,
+    FlaggedName,
     Market,
     TrackRecord,
     assemble,
@@ -46,11 +48,13 @@ from dashboards.track_record import (
     market_of,
 )
 from db.session import DEFAULT_TENANT_ID
+from domain.data_flags import FEED_STOPPED
 from domain.market_cap import CapTier
 from domain.market_time import serve_view, view_day
 from domain.settings import get_settings
 from domain.splits import listed_from_row
-from repositories import editions_repo
+from pipeline import data_flags as flags_reader
+from repositories import editions_repo, thesis_repo
 from repositories.editions_repo import Edition
 from scoreboard.late import resolve_exclude_late
 from scoreboard.record import resolve_exclude_annotated, scoreboard_records
@@ -132,7 +136,12 @@ class TrackRowOut(_Wire):
     event and both entry rules' reads. ``left_out`` (``flagged`` | ``censored_start`` | ``ingest_flagged``) = the
     episode is in no cell (its reason in ``left_out_note``) and carries identity only. ``liquidity`` is the 20-day
     average dollar volume band at the event (``under_1m`` | ``1m_10m`` | ``10m_plus``; ``null`` when fewer than 20
-    volume-bearing sessions precede it)."""
+    volume-bearing sessions precede it). ``feed_stopped`` = the episode is COUNTED although its price feed
+    stopped: that is its only price flag and the company itself ended (the master's status is not active, or the
+    nightly's closed classifier carries a delisting for it), so its bars are read up to where they stop and a
+    horizon past the stop reads ``path_ended``. ``left_out`` ``feed_stopped`` = a stopped feed on a company still
+    on a live card; ``no_longer_priced`` = a stopped feed on a company that sits on no live card (the nightly
+    stopped fetching its prices; the company still trades)."""
 
     thesis_id: UUID
     thesis_name: str
@@ -147,8 +156,12 @@ class TrackRowOut(_Wire):
     entry_grade: str | None
     confirmation_grade: str | None
     co_arm_bucket: str
-    left_out: Literal["flagged", "censored_start", "ingest_flagged"] | None
+    left_out: (
+        Literal["flagged", "feed_stopped", "no_longer_priced", "censored_start", "ingest_flagged"]
+        | None
+    )
     left_out_note: str | None
+    feed_stopped: bool
     cap: TrackCapOut | None
     adv_usd: float | None
     liquidity: str | None
@@ -169,16 +182,22 @@ class TrackCountsOut(_Wire):
     """What the page rests on. ``episodes`` = every Scoreboard episode in the record at the as-of; ``counted`` = those
     in the cells; ``left_out_*`` = those set aside, each episode once (flagged price history first, then censored
     start, then ingest flag); ``unpinned_cap`` / ``unpinned_liquidity`` = counted episodes with no cap tier / no
-    liquidity band; ``arm_night`` / ``next_session`` = per horizon, how the counted episodes read.
+    liquidity band; ``counted_feed_stopped`` = counted episodes whose price feed stopped because the company
+    ended (a subset of ``counted``); ``left_out_feed_stopped`` / ``left_out_no_longer_priced`` = the other
+    stopped feeds, left out (on a live card / off every live card); ``arm_night`` / ``next_session`` = per horizon,
+    how the counted episodes read.
     """
 
     episodes: int
     counted: int
     left_out_flagged: int
+    left_out_feed_stopped: int
+    left_out_no_longer_priced: int
     left_out_censored: int
     left_out_ingest: int
     unpinned_cap: int
     unpinned_liquidity: int
+    counted_feed_stopped: int
     arm_night: dict[str, TrackHorizonCountOut]
     next_session: dict[str, TrackHorizonCountOut]
 
@@ -212,11 +231,14 @@ class TrackTableRowOut(_Wire):
 
 class TrackFlaggedOut(_Wire):
     """A company on a Scoreboard episode whose data flags reach its price readings at the as-of (``reason`` = the
-    flags' labels): its episodes are left out of every cell."""
+    flags' labels). ``feed_ended`` = a stopped feed is its only such flag and the company itself ended, so its
+    episodes are COUNTED (a horizon past the stop reads path ended); otherwise they are left out of every cell.
+    """
 
     security_id: UUID
     ticker: str
     reason: str
+    feed_ended: bool
 
 
 class TrackEditionOut(_Wire):
@@ -227,8 +249,8 @@ class TrackEditionOut(_Wire):
 
 
 class TrackRecordOut(_Wire):
-    """The Track Record at the as-of: every episode's row (newest arm first), the counts, the companies left out for a
-    flagged price history and the opening table (IWM, the next-session entry, by cap tier, every armed member; the page
+    """The Track Record at the as-of: every episode's row (newest arm first), the counts, the companies with a price-reaching
+    flag and the opening table (IWM, the next-session entry, by cap tier, every armed member; the page
     recomputes any other reading from ``rows`` with the same arithmetic). ``edition`` and the two policies are the
     Scoreboard's own (``annotated_policy`` / ``late_policy``: ``included`` | ``excluded`` | ``n/a`` for a stored
     edition, which has no such rows). ``edition`` is the one READ (the record when the request named none);
@@ -321,6 +343,94 @@ def read_benchmarks(
     return benchmarks_of(spy, iwm), market_of(spy, iwm, stale_days=stale_days)
 
 
+@dataclass(frozen=True)
+class PriceFlagRead:
+    """One company's price-reaching data flags: their labels, their kinds, and the stopped feed's last bar date."""
+
+    reason: str
+    kinds: tuple[str, ...]
+    since: date | None
+
+
+def read_price_flags(
+    conn: psycopg.Connection,
+    sids: list[UUID],
+    asof: date,
+    known_at: datetime | None,
+    clock: Literal["record", "public"],
+) -> dict[UUID, PriceFlagRead]:
+    """``dashboards.baskets.price_flags`` with the flags' KINDS (this page treats a stopped feed apart): the SAME
+    read (``read_flags`` with the nightly's readings, the master's tickers, ``tape_stale_days``, the request's
+    view), keeping the kind of each flag that reaches a price reading and the stopped feed's last bar date.
+    """
+    ids = list(dict.fromkeys(sids))
+    if not ids:
+        return {}
+    readings, corrections = flags_reader.run_reads()
+    tickers = master.tickers_for(conn, ids, tenant_id=DEFAULT_TENANT_ID)
+    stale_days = get_settings().tape_stale_days
+    out: dict[UUID, PriceFlagRead] = {}
+    for i in range(0, len(ids), CHUNK):
+        got = flags_reader.read_flags(
+            conn,
+            tenant_id=DEFAULT_TENANT_ID,
+            security_ids=ids[i : i + CHUNK],
+            tickers=tickers,
+            asof=asof,
+            known_at=known_at,
+            clock=clock,
+            stale_days=stale_days,
+            readings=readings,
+            corrections=corrections,
+        )
+        for sid, member in got.items():
+            reason = price_reason(member.flags)
+            if reason is None:
+                continue
+            reaching = [f for f in member.flags if reaches_price(f)]
+            since = next((f.since for f in reaching if f.kind == FEED_STOPPED), None)
+            out[sid] = PriceFlagRead(reason, tuple(dict.fromkeys(f.kind for f in reaching)), since)
+    return out
+
+
+def live_card_ids(conn: psycopg.Connection) -> set[UUID]:
+    """Every company on the basket of a live (unarchived) card, silent rows included: a company on no live card is
+    one the nightly stopped fetching prices for."""
+    return {m.security_id for t in thesis_repo.list_all(conn) for m in t.basket if m.security_id}
+
+
+def ended_companies(
+    conn: psycopg.Connection,
+    stopped: list[UUID],
+    reads: dict[UUID, PriceFlagRead],
+    asof: date,
+    clock: Literal["record", "public"],
+) -> set[UUID]:
+    """Which stopped-feed-only companies really ENDED, by the platform's existing readings (never re-derived):
+    the nightly's closed classifier (``tape_health.classify_stop``, carried on the run artifact as the data flags
+    read it): a ``closed_at`` on or before the as-of for THIS stop; or the security master's ``status`` not
+    ``active`` (a listing-presence heuristic with no date, so it is read on the live view only: a past view never
+    borrows today's identity, invariant #1)."""
+    if not stopped:
+        return set()
+    readings, _ = flags_reader.run_reads()
+    ended: set[UUID] = set()
+    for sid in stopped:
+        r = readings.get(sid)
+        if (
+            r is not None
+            and r.closed_at is not None
+            and r.closed_at <= asof
+            and r.edge == reads[sid].since
+        ):
+            ended.add(sid)
+    if clock == "record":
+        for sid, sec in master.get_many(conn, stopped, tenant_id=DEFAULT_TENANT_ID).items():
+            if sec.status != "active":
+                ended.add(sid)
+    return ended
+
+
 def read_record(
     conn: psycopg.Connection,
     asof: date,
@@ -354,15 +464,26 @@ def read_record(
     ]
     sids = sorted({se.episode.security_id for _, se in scored}, key=str)
     tickers = master.tickers_for(conn, sids, tenant_id=DEFAULT_TENANT_ID)
-    flags = price_flags(
-        conn, sids, asof, known_at=known_at, clock=clock, tenant_id=DEFAULT_TENANT_ID
+    flag_reads = read_price_flags(conn, sids, asof, known_at, clock)
+    flags = {sid: f.reason for sid, f in flag_reads.items()}
+    on_cards = live_card_ids(conn)
+    ended = ended_companies(
+        conn,
+        [sid for sid, f in flag_reads.items() if f.kinds == (FEED_STOPPED,)],
+        flag_reads,
+        asof,
+        clock,
     )
     # only a company with an episode that will be COUNTED is read: a left-out episode carries identity only
     needed = sorted(
         {
             se.episode.security_id
             for _, se in scored
-            if not (se.censored_start or se.ingest_flagged or se.episode.security_id in flags)
+            if not (
+                se.censored_start
+                or se.ingest_flagged
+                or (se.episode.security_id in flags and se.episode.security_id not in ended)
+            )
         },
         key=str,
     )
@@ -394,6 +515,14 @@ def read_record(
                     ingest_flagged=se.ingest_flagged,
                     ingest_note=se.ingest_note,
                     price_flag=flags.get(ep.security_id),
+                    price_flag_kinds=(
+                        flag_reads[ep.security_id].kinds if ep.security_id in flag_reads else ()
+                    ),
+                    company_ended=ep.security_id in ended,
+                    on_live_card=ep.security_id in on_cards,
+                    last_bar=(
+                        flag_reads[ep.security_id].since if ep.security_id in flag_reads else None
+                    ),
                 ),
                 companies.get(ep.security_id),
                 bench,
@@ -404,7 +533,8 @@ def read_record(
     return assemble(
         rows,
         flagged=[
-            FlaggedCompany(sid, tickers.get(sid) or "?", reason) for sid, reason in flags.items()
+            FlaggedName(sid, tickers.get(sid) or "?", f.reason, feed_ended=sid in ended)
+            for sid, f in flag_reads.items()
         ],
         market=market,
         bench=bench,
@@ -452,7 +582,9 @@ def track_record(
     episode with its cap tier and liquidity band, and, for the next session's entry and the arm night's, the return at
     5, 10, 20 and 60 sessions of the name's own bars and to the episode's own exit_by, with IWM's and SPY's returns
     over the same dates. The Scoreboard's own episodes and honesty filters: a censored start, an ingest-flagged
-    episode and a company with a flagged price history are left out of every cell and counted. Reads the record
+    episode and a company whose price history carries a data flag are left out of every cell and counted, apart
+    from one whose only flag is a stopped feed and whose company ended: that is counted until its bars stop (a
+    later horizon reads path ended). Reads the record
     (Edition 0) unless an edition is named. Display only; a past as-of reads what was public by the end of that
     date, and a horizon that has not arrived by then is not counted.
     """

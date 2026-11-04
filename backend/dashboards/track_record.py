@@ -17,7 +17,14 @@ The rules, in one place. This is our own simple table, stated here and on the pa
   timeline): keyed (card, name, arm date), a re-arm is a new episode. An episode the Scoreboard leaves out of its
   metrics is left out of every cell here and COUNTED, never dropped: a ``censored_start`` one (armed on the card's
   first recorded night), an ``ingest_flagged`` one, and one whose company is on the flagged-price list
-  (``baskets.price_flags``).
+  (``baskets.price_flags``) (and so are all the ``price_feed_stopped`` ones but one). **The one exception**
+  (operator decision 2026-11-04, revised the same day): a name whose ONLY price flag is ``price_feed_stopped``
+  AND whose company really ENDED (the security master's status is not ``active``, or the nightly's closed
+  classifier, ``tape_health.classify_stop``, carries a ``closed_at`` for it) is counted: its bars are read up to
+  where they stop and a horizon past the stop reads path ended. Every other stopped feed stays left out, for its
+  honest reason: ``no_longer_priced`` (the company sits on no live card, so the nightly stopped fetching its
+  prices; the company still trades) or ``feed_stopped`` (still on a card: a data fault). Any other flag, alone
+  or beside a stopped feed, leaves the episode out as ever (``flagged``).
 - **Horizons count SESSIONS of the name's own bars**, never calendar days: the Nth bar after the entry bar (5, 10,
   20 and 60) plus "to exit_by" (the last bar on or before the episode's own ``exit_by``, the Scoreboard's
   ``forward_return`` window). A horizon whose bar is not there is not counted. It reads **maturing** when the market
@@ -66,6 +73,7 @@ from uuid import UUID
 
 from dashboards.baskets import FlaggedCompany
 from dashboards.peer_table import CapCell, CompanyReads, cap_cell
+from domain.data_flags import FEED_STOPPED
 from domain.market_cap import CapTier
 from domain.market_time import edgar_night
 from domain.splits import ListedSplit, scale_after
@@ -105,7 +113,7 @@ LIQUIDITY_KEYS: tuple[str, ...] = tuple(k for k, _ in LIQUIDITY_BANDS)
 SLICES: tuple[str, ...] = ("tier", "liquidity")
 
 SpanStatus = Literal["counted", "maturing", "path_ended", "none"]
-LeftOut = Literal["flagged", "censored_start", "ingest_flagged"]
+LeftOut = Literal["flagged", "feed_stopped", "no_longer_priced", "censored_start", "ingest_flagged"]
 
 
 class Bar(NamedTuple):
@@ -407,7 +415,8 @@ def liquidity_band(adv: float | None) -> str | None:
 @dataclass(frozen=True)
 class EpisodeIn:
     """One Scoreboard arm episode as the page reads it: who, when, the entry attributes the filter chips use and
-    the honesty flags. ``price_flag`` = the flags' labels when the company's data flags reach its price readings.
+    the honesty flags. ``price_flag`` = the flags' labels when the company's data flags reach its price readings;
+    ``price_flag_kinds`` = the kinds of those flags (empty = unknown, which leaves the episode out as ever).
     """
 
     thesis_id: UUID
@@ -427,6 +436,13 @@ class EpisodeIn:
     ingest_flagged: bool = False
     ingest_note: str | None = None
     price_flag: str | None = None
+    price_flag_kinds: tuple[str, ...] = ()
+    # a stopped feed's story (read by the router; only used when the stopped feed is the ONLY price flag):
+    # the company itself ended (master status / closed classifier), whether it sits on a live card, and the
+    # tape's last bar date
+    company_ended: bool = False
+    on_live_card: bool = True
+    last_bar: date | None = None
 
 
 @dataclass(frozen=True)
@@ -461,6 +477,7 @@ class RecordRow:
     co_arm_bucket: str
     left_out: LeftOut | None = None
     left_out_note: str | None = None
+    feed_stopped: bool = False
     cap: CapCell | None = None
     adv_usd: float | None = None
     liquidity: str | None = None
@@ -475,12 +492,33 @@ class RecordRow:
         return self.arm_night if rule == "arm_night" else self.next_session
 
 
+def feed_stopped_only(ep: EpisodeIn) -> bool:
+    """Is the stopped feed the company's ONLY price flag? Any other kind alongside it (a scale break, a split-scale
+    problem) makes the bars untrustworthy: left out as ever."""
+    return ep.price_flag is not None and ep.price_flag_kinds == (FEED_STOPPED,)
+
+
+def feed_ended(ep: EpisodeIn) -> bool:
+    """Is the episode COUNTED although its price feed stopped (operator decision 2026-11-04)? Only when the stopped
+    feed is the sole price flag and the COMPANY ended: its bars are true up to the stop, and a horizon past it
+    reads path ended. A company that still trades (we simply stopped fetching) is not an ended path.
+    """
+    return feed_stopped_only(ep) and ep.company_ended
+
+
 def left_out_of(ep: EpisodeIn) -> tuple[LeftOut | None, str | None]:
     """Why an episode is left out of every cell, if it is, with the reader's own words: a flagged price history
     first (the price data itself is wrong), then a censored start (the arm date is unknowable), then an ingest
-    flag."""
+    flag. A stopped feed alone is left out unless the company ended (``feed_ended``), and says which kind it is.
+    """
     if ep.price_flag is not None:
-        return "flagged", ep.price_flag
+        if not feed_stopped_only(ep):
+            return "flagged", ep.price_flag
+        if not ep.company_ended:
+            if not ep.on_live_card:
+                since = f" since {ep.last_bar.isoformat()}" if ep.last_bar else ""
+                return "no_longer_priced", f"no longer priced: off every live card{since}"
+            return "feed_stopped", "price feed stopped"
     if ep.censored_start:
         return (
             "censored_start",
@@ -523,6 +561,7 @@ def build_row(
     adv = event_adv(bars, ep.arm_date)
     return RecordRow(
         **identity,
+        feed_stopped=feed_ended(ep),
         cap=event_cap(
             bars,
             company.shares if company else (),
@@ -697,18 +736,22 @@ class Counts:
     """What the page rests on, for the quiet work line. ``episodes`` = every Scoreboard episode in the record at the
     as-of; ``counted`` = those in the cells; the three ``left_out_*`` = those set aside (each episode once, in the
     order flagged price history, censored start, ingest flag); ``unpinned_cap`` / ``unpinned_liquidity`` = counted
-    episodes with no cap tier / no liquidity band; ``arm_night`` / ``next_session`` = per horizon, how the counted
-    episodes read."""
+    episodes with no cap tier / no liquidity band; ``counted_feed_stopped`` = counted episodes whose company's price
+    feed has stopped (a subset of ``counted``: their later horizons read path ended); ``arm_night`` /
+    ``next_session`` = per horizon, how the counted episodes read."""
 
     episodes: int
     counted: int
     left_out_flagged: int
+    left_out_feed_stopped: int
+    left_out_no_longer_priced: int
     left_out_censored: int
     left_out_ingest: int
     unpinned_cap: int
     unpinned_liquidity: int
     arm_night: Mapping[str, HorizonCount]
     next_session: Mapping[str, HorizonCount]
+    counted_feed_stopped: int = 0
 
 
 def horizon_counts(rows: Iterable[RecordRow], entry: str) -> dict[str, HorizonCount]:
@@ -734,16 +777,29 @@ def count_rows(rows: Sequence[RecordRow]) -> Counts:
         episodes=len(rows),
         counted=len(counted),
         left_out_flagged=left["flagged"],
+        left_out_feed_stopped=left["feed_stopped"],
+        left_out_no_longer_priced=left["no_longer_priced"],
         left_out_censored=left["censored_start"],
         left_out_ingest=left["ingest_flagged"],
         unpinned_cap=sum(1 for r in counted if slice_key(r, "tier") == UNPINNED),
         unpinned_liquidity=sum(1 for r in counted if slice_key(r, "liquidity") == UNPINNED),
         arm_night=horizon_counts(counted, "arm_night"),
         next_session=horizon_counts(counted, "next_session"),
+        counted_feed_stopped=sum(1 for r in counted if r.feed_stopped),
     )
 
 
 # --- the page ------------------------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class FlaggedName(FlaggedCompany):
+    """A company with a price-reaching flag on this page. ``feed_ended`` = a stopped feed is its only such flag
+    and the company itself ended, so its episodes are COUNTED (a horizon past the stop reads path ended);
+    otherwise they are left out.
+    """
+
+    feed_ended: bool = False
 
 
 @dataclass(frozen=True)

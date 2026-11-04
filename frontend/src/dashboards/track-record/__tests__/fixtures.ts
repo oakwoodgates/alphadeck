@@ -73,6 +73,7 @@ export const row = (over: Partial<TrackRowOut> = {}): TrackRowOut => {
     co_arm_bucket: "alone",
     left_out: null,
     left_out_note: null,
+    feed_stopped: false,
     cap: cap(),
     adv_usd: 2_500_000,
     liquidity: "1m_10m",

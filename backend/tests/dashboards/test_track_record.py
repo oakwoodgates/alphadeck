@@ -22,7 +22,6 @@ from psycopg.rows import dict_row
 from app.deps import get_conn
 from app.main import app
 from app.routers.dashboards import track_record as router_mod
-from dashboards.baskets import FlaggedCompany
 from dashboards.cache import CACHE
 from dashboards.peer_table import CapCell
 from dashboards.track_record import (
@@ -37,6 +36,7 @@ from dashboards.track_record import (
     CompanyData,
     EntryRead,
     EpisodeIn,
+    FlaggedName,
     Market,
     Obs,
     RecordRow,
@@ -625,6 +625,80 @@ def test_a_left_out_episode_keeps_identity_only_and_nothing_is_read_for_it():
     assert (ingest.left_out, ingest.left_out_note) == ("ingest_flagged", "armed in the freeze")
 
 
+def test_a_stopped_feed_of_a_company_that_ended_is_counted_its_later_horizons_read_path_ended():
+    """Operator decision 2026-11-04: a name whose ONLY price flag is ``price_feed_stopped`` AND whose company ended
+    (delisted) stays in every denominator. Its bars stop 16 sessions after the first, the market runs on: h5 and
+    h10 are measured, h20 / h60 read path ended (the market has had the sessions, the tape is more than stale_days
+    behind)."""
+    days = weekdays(date(2026, 6, 1), 80)
+    bars = tape(days[:20], 10.0)  # the feed stops after days[19]
+    ep = episode(
+        arm_date=days[3],
+        exit_by=None,
+        price_flag="price feed stopped",
+        price_flag_kinds=("price_feed_stopped",),
+        company_ended=True,
+        on_live_card=False,  # a delisted company is off the cards too: it still counts
+        last_bar=days[19],
+    )
+    row = build_row(
+        ep, company(bars, [shares_fact(4_000_000, days[0])]), NO_BENCH, mkt(days), days[-1]
+    )
+    assert row.counted and row.left_out is None and row.feed_stopped is True
+    spans = row.next_session.spans  # the entry bar is days[4]
+    assert [spans[h].status for h in HORIZONS] == [
+        "counted",
+        "counted",
+        "path_ended",
+        "path_ended",
+        "none",
+    ]
+    assert spans["h10"].end_date == days[14]
+
+
+def test_a_stopped_feed_of_a_company_that_still_trades_is_left_out_with_an_honest_reason():
+    """We stopped looking, the path did not end: off every live card = "no longer priced", on a card = a data fault.
+    Both are counted apart, neither is read as path ended."""
+    days = weekdays(date(2026, 6, 1), 40)
+    kinds = ("price_feed_stopped",)
+    off = episode(
+        price_flag="price feed stopped",
+        price_flag_kinds=kinds,
+        on_live_card=False,
+        last_bar=date(2026, 6, 12),
+    )
+    row = build_row(off, company(tape(days[:20], 10.0)), NO_BENCH, mkt(days), days[-1])
+    assert row.left_out == "no_longer_priced" and not row.counted and row.feed_stopped is False
+    assert row.left_out_note == "no longer priced: off every live card since 2026-06-12"
+    assert row.cap is None and row.next_session is None
+    on = episode(price_flag="price feed stopped", price_flag_kinds=kinds, on_live_card=True)
+    row = build_row(on, company(tape(days[:20], 10.0)), NO_BENCH, mkt(days), days[-1])
+    assert (row.left_out, row.left_out_note) == ("feed_stopped", "price feed stopped")
+    assert row.feed_stopped is False
+
+
+@pytest.mark.parametrize(
+    "kinds",
+    [
+        ("price_feed_stopped", "mixed_scale_history"),
+        ("mixed_scale_history",),
+        ("possible_unconfirmed_split", "price_feed_stopped"),
+        (),  # kinds unknown: left out as ever
+    ],
+)
+def test_any_other_price_flag_leaves_the_episode_out_even_for_an_ended_company(kinds):
+    days = weekdays(date(2026, 6, 1), 40)
+    ep = episode(
+        price_flag="price feed stopped; other",
+        price_flag_kinds=kinds,
+        company_ended=True,
+        on_live_card=False,
+    )
+    row = build_row(ep, company(tape(days[:20], 10.0)), NO_BENCH, mkt(days), days[-1])
+    assert row.left_out == "flagged" and not row.counted and row.feed_stopped is False
+    assert row.cap is None and row.next_session is None
+
+
 def test_a_counted_company_with_no_read_is_a_row_with_no_cap_never_dropped():
     row = build_row(episode(), None, NO_BENCH, mkt(weekdays(date(2026, 6, 1), 40)), ASOF)
     assert row.counted and row.cap.gap == "no_price" and slice_key(row, "tier") == UNPINNED
@@ -745,8 +819,28 @@ def test_the_counts_say_what_every_cell_rests_on():
         row_of(CapTier.SMALL, left_out="ingest_flagged"),
         row_of(CapTier.SMALL, left_out="flagged"),
     ]
+    stopped = row_of(CapTier.MICRO, h20=("path_ended", None, None))
+    stopped = RecordRow(**{**stopped.__dict__, "feed_stopped": True})
+    both = count_rows([*rows, stopped])
+    assert both.counted_feed_stopped == 1  # counted although the feed stopped, a subset of counted
+    assert (both.episodes, both.counted) == (8, 4)
+    assert both.arm_night["h20"].path_ended == 2  # the stopped feed stays in the denominator
     counts = count_rows(rows)
+    assert counts.counted_feed_stopped == 0
     assert (counts.episodes, counts.counted) == (7, 3)
+    reasons = count_rows(
+        [
+            row_of(CapTier.SMALL, left_out="feed_stopped"),
+            row_of(CapTier.SMALL, left_out="no_longer_priced"),
+            row_of(CapTier.SMALL, left_out="no_longer_priced"),
+            row_of(CapTier.SMALL, left_out="flagged"),
+        ]
+    )
+    assert (
+        reasons.left_out_flagged,
+        reasons.left_out_feed_stopped,
+        reasons.left_out_no_longer_priced,
+    ) == (1, 1, 2)
     assert (counts.left_out_flagged, counts.left_out_censored, counts.left_out_ingest) == (2, 1, 1)
     assert (counts.unpinned_cap, counts.unpinned_liquidity) == (1, 1)
     h20 = counts.arm_night["h20"]
@@ -758,8 +852,8 @@ def test_assemble_sorts_newest_arm_first_and_names_the_market_clock_and_a_missin
     early, late = row_of(CapTier.MICRO, ticker="ZZZ"), row_of(CapTier.MICRO, ticker="AAA")
     late = RecordRow(**{**late.__dict__, "arm_date": date(2026, 6, 9)})
     flagged = [
-        FlaggedCompany(UUID(int=2), "ZED", "price feed stopped"),
-        FlaggedCompany(UUID(int=1), "ABC", "mixed-scale price history"),
+        FlaggedName(UUID(int=2), "ZED", "price feed stopped", feed_ended=True),
+        FlaggedName(UUID(int=1), "ABC", "mixed-scale price history"),
     ]
     spy = tape(weekdays(date(2026, 6, 1), 3), 400.0)
     page = assemble(
@@ -822,7 +916,7 @@ def stub_client(monkeypatch):
         )
         return assemble(
             [row, left],
-            flagged=[FlaggedCompany(UUID(int=7), "FFF", "price feed stopped")],
+            flagged=[FlaggedName(UUID(int=7), "FFF", "price feed stopped", feed_ended=True)],
             market=market,
             bench=benchmarks_of(bars, bars),
             cards=1,
@@ -884,7 +978,12 @@ def test_the_router_wire_shape(stub_client):
     )
     assert body["cards"] == 1 and body["cards_unreadable"] == 0
     assert body["flagged"] == [
-        {"security_id": str(UUID(int=7)), "ticker": "FFF", "reason": "price feed stopped"}
+        {
+            "security_id": str(UUID(int=7)),
+            "ticker": "FFF",
+            "reason": "price feed stopped",
+            "feed_ended": True,
+        }
     ]
     counts = body["counts"]
     assert (counts["episodes"], counts["counted"], counts["left_out_censored"]) == (2, 1, 1)
@@ -1179,12 +1278,9 @@ def test_no_share_fact_dated_before_the_arm_is_an_unpinned_cap_counted_in_the_po
     assert body["counts"]["unpinned_cap"] == 1
 
 
-def test_a_flagged_price_history_and_a_censored_start_are_left_out_of_every_cell_and_counted(
-    db, pinned_today, world
-):
-    """STOPD's tape ends 12 days before the as-of (the feed stopped: a flag that reaches its prices), so its episode
-    is left out and the company is named. CENS armed on the card's very first recorded night: a censored start.
-    """
+def _stopped_world(db):
+    """STOPD's tape ends 12 days before the as-of (the feed stopped: its only flag); CENS armed on the card's very
+    first recorded night: a censored start."""
     stopd = _security(db, "STOPD", cik="0007000001")
     closes = {d: 8.0 + 0.05 * i for i, d in enumerate(TAPE_DAYS)}
     _bars(db, stopd, closes, volume=80_000.0, until=date(2026, 6, 12))
@@ -1192,26 +1288,142 @@ def test_a_flagged_price_history_and_a_censored_start_are_left_out_of_every_cell
     cens = _security(db, "CENS", cik="0007000002")
     _bars(db, cens, closes, volume=80_000.0)
     _arm(db, _card(db, "Card D", cens, "CENS"), cens, date(2026, 6, 3), warm=None)
+    return stopd
 
+
+def _closed_reading(stopd, closed_at=date(2026, 6, 13)):
+    from pipeline.data_flags import StopReading
+
+    return {stopd: StopReading(edge=date(2026, 6, 12), closed_at=closed_at)}
+
+
+def test_a_stopped_feed_still_on_a_card_is_left_out_as_a_feed_fault(db, pinned_today, world):
+    stopd = _stopped_world(db)
     body = _get(db, asof="2026-06-24").json()
     by = {r["ticker"]: r for r in body["rows"]}
-    assert (
-        by["STOPD"]["left_out"] == "flagged" and "stopped" in by["STOPD"]["left_out_note"].lower()
-    )
-    assert by["CENS"]["left_out"] == "censored_start"
-    for t in ("STOPD", "CENS"):
-        assert by[t]["cap"] is None and by[t]["arm_night"] is None and by[t]["next_session"] is None
-    assert by["DEVCO"]["left_out"] is None
+    assert by["STOPD"]["left_out"] == "feed_stopped" and by["STOPD"]["feed_stopped"] is False
+    assert by["STOPD"]["left_out_note"] == "price feed stopped"
+    assert by["CENS"]["left_out"] == "censored_start" and by["DEVCO"]["left_out"] is None
     counts = body["counts"]
-    assert (counts["episodes"], counts["counted"]) == (3, 1)
-    assert (counts["left_out_flagged"], counts["left_out_censored"], counts["left_out_ingest"]) == (
+    assert (counts["episodes"], counts["counted"], counts["counted_feed_stopped"]) == (3, 1, 0)
+    assert (
+        counts["left_out_flagged"],
+        counts["left_out_feed_stopped"],
+        counts["left_out_no_longer_priced"],
+        counts["left_out_censored"],
+    ) == (0, 1, 0, 1)
+    assert [(f["ticker"], f["feed_ended"]) for f in body["flagged"]] == [("STOPD", False)]
+    assert stopd
+
+
+def test_a_stopped_feed_off_every_live_card_is_left_out_as_no_longer_priced(
+    db, pinned_today, world, monkeypatch
+):
+    _stopped_world(db)
+    monkeypatch.setattr(router_mod, "live_card_ids", lambda conn: set())
+    body = _get(db, asof="2026-06-24").json()
+    by = {r["ticker"]: r for r in body["rows"]}
+    assert by["STOPD"]["left_out"] == "no_longer_priced"
+    assert by["STOPD"]["left_out_note"] == "no longer priced: off every live card since 2026-06-12"
+    counts = body["counts"]
+    assert (counts["left_out_no_longer_priced"], counts["left_out_feed_stopped"]) == (1, 0)
+    assert counts["counted_feed_stopped"] == 0
+
+
+def test_a_delisted_company_is_counted_and_its_later_horizons_read_path_ended(
+    db, pinned_today, world, monkeypatch
+):
+    """The nightly's closed classifier carries a ``closed_at`` for STOPD's stop: the company ended, so its episode
+    is COUNTED and the horizons past the last bar read path ended (still in the denominators)."""
+    stopd = _stopped_world(db)
+    monkeypatch.setattr(router_mod.flags_reader, "run_reads", lambda: (_closed_reading(stopd), {}))
+    monkeypatch.setattr(router_mod, "live_card_ids", lambda conn: set())  # it left the cards too
+    body = _get(db, asof="2026-06-24").json()
+    by = {r["ticker"]: r for r in body["rows"]}
+    assert by["STOPD"]["left_out"] is None and by["STOPD"]["feed_stopped"] is True
+    assert by["DEVCO"]["feed_stopped"] is False
+    spans = by["STOPD"]["next_session"]["spans"]
+    assert spans["h5"]["status"] == "counted"  # the bars reach it
+    assert (
+        spans["h10"]["status"] == "path_ended"
+    )  # the market has had the sessions, the tape stops short
+    counts = body["counts"]
+    assert (counts["episodes"], counts["counted"]) == (3, 2)
+    assert counts["counted_feed_stopped"] == 1
+    assert (counts["left_out_flagged"], counts["left_out_feed_stopped"]) == (0, 0)
+    assert counts["left_out_no_longer_priced"] == 0 and counts["left_out_censored"] == 1
+    assert counts["next_session"]["h10"]["path_ended"] >= 1
+    assert [(f["ticker"], f["feed_ended"]) for f in body["flagged"]] == [("STOPD", True)]
+    pooled = {t["key"]: t for t in body["opening"]}[POOLED]
+    assert pooled["episodes"] == 2  # the ended path stays in the pooled denominator
+
+
+def test_a_delisted_company_with_another_price_flag_is_still_left_out(
+    db, pinned_today, world, monkeypatch
+):
+    """Closed, but the company also carries a mixed-scale flag (injected at the flag read): its bars cannot be
+    trusted, so the episode is left out as before."""
+    stopd = _stopped_world(db)
+    monkeypatch.setattr(router_mod.flags_reader, "run_reads", lambda: (_closed_reading(stopd), {}))
+    real = router_mod.read_price_flags
+
+    def both(*a, **kw):
+        return {
+            sid: router_mod.PriceFlagRead(
+                f"{f.reason}; mixed-scale price history",
+                (*f.kinds, "mixed_scale_history"),
+                f.since,
+            )
+            for sid, f in real(*a, **kw).items()
+        }
+
+    monkeypatch.setattr(router_mod, "read_price_flags", both)
+    body = _get(db, asof="2026-06-24").json()
+    by = {r["ticker"]: r for r in body["rows"]}
+    assert by["STOPD"]["left_out"] == "flagged" and by["STOPD"]["feed_stopped"] is False
+    assert "stopped" in by["STOPD"]["left_out_note"].lower()
+    counts = body["counts"]
+    assert (counts["counted"], counts["left_out_flagged"], counts["counted_feed_stopped"]) == (
         1,
         1,
         0,
     )
-    assert [f["ticker"] for f in body["flagged"]] == ["STOPD"]
-    pooled = {t["key"]: t for t in body["opening"]}[POOLED]
-    assert pooled["episodes"] == 1  # the left-out episodes are in no row, pooled included
+
+
+def test_the_master_status_ends_a_company_on_the_live_view_only(monkeypatch):
+    """``ended_companies``: a status that is not ``active`` ends the company on the live (record) view; a past view
+    never borrows today's identity. A closed_at after the as-of, or for another stop, ends nothing.
+    """
+    from types import SimpleNamespace
+
+    a, b, c = UUID(int=1), UUID(int=2), UUID(int=3)
+    reads = {
+        s: router_mod.PriceFlagRead("x", ("price_feed_stopped",), date(2026, 6, 12))
+        for s in (a, b, c)
+    }
+    from pipeline.data_flags import StopReading
+
+    readings = {
+        a: StopReading(
+            edge=date(2026, 6, 12), closed_at=date(2026, 6, 20)
+        ),  # filed after the as-of
+        c: StopReading(edge=date(2026, 5, 1), closed_at=date(2026, 5, 2)),  # another stop
+    }
+    monkeypatch.setattr(router_mod.flags_reader, "run_reads", lambda: (readings, {}))
+    monkeypatch.setattr(
+        router_mod.master,
+        "get_many",
+        lambda conn, ids, tenant_id: {
+            a: SimpleNamespace(status="active"),
+            b: SimpleNamespace(status="inactive"),
+            c: SimpleNamespace(status="active"),
+        },
+    )
+    asof = date(2026, 6, 15)
+    assert router_mod.ended_companies(None, [a, b, c], reads, asof, "record") == {b}
+    assert router_mod.ended_companies(None, [a, b, c], reads, asof, "public") == set()
+    later = date(2026, 6, 25)
+    assert router_mod.ended_companies(None, [a, b, c], reads, later, "public") == {a}
 
 
 def test_the_exit_by_column_reconciles_with_the_scoreboards_forward_return_to_the_cent(

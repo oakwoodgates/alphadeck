@@ -5963,7 +5963,7 @@
           "dashboards"
         ],
         "summary": "Track Record",
-        "description": "What the tape did after each arm episode the Scoreboard records, by market-cap tier at the event: one row per\nepisode with its cap tier and liquidity band, and, for the next session's entry and the arm night's, the return at\n5, 10, 20 and 60 sessions of the name's own bars and to the episode's own exit_by, with IWM's and SPY's returns\nover the same dates. The Scoreboard's own episodes and honesty filters: a censored start, an ingest-flagged\nepisode and a company with a flagged price history are left out of every cell and counted. Reads the record\n(Edition 0) unless an edition is named. Display only; a past as-of reads what was public by the end of that\ndate, and a horizon that has not arrived by then is not counted.",
+        "description": "What the tape did after each arm episode the Scoreboard records, by market-cap tier at the event: one row per\nepisode with its cap tier and liquidity band, and, for the next session's entry and the arm night's, the return at\n5, 10, 20 and 60 sessions of the name's own bars and to the episode's own exit_by, with IWM's and SPY's returns\nover the same dates. The Scoreboard's own episodes and honesty filters: a censored start, an ingest-flagged\nepisode and a company whose price history carries a data flag are left out of every cell and counted, apart\nfrom one whose only flag is a stopped feed and whose company ended: that is counted until its bars stop (a\nlater horizon reads path ended). Reads the record\n(Edition 0) unless an edition is named. Display only; a past as-of reads what was public by the end of that\ndate, and a horizon that has not arrived by then is not counted.",
         "operationId": "track_record_dashboards_track_record_get",
         "parameters": [
           {
@@ -39082,6 +39082,14 @@
             "type": "integer",
             "title": "Left Out Flagged"
           },
+          "left_out_feed_stopped": {
+            "type": "integer",
+            "title": "Left Out Feed Stopped"
+          },
+          "left_out_no_longer_priced": {
+            "type": "integer",
+            "title": "Left Out No Longer Priced"
+          },
           "left_out_censored": {
             "type": "integer",
             "title": "Left Out Censored"
@@ -39097,6 +39105,10 @@
           "unpinned_liquidity": {
             "type": "integer",
             "title": "Unpinned Liquidity"
+          },
+          "counted_feed_stopped": {
+            "type": "integer",
+            "title": "Counted Feed Stopped"
           },
           "arm_night": {
             "additionalProperties": {
@@ -39118,15 +39130,18 @@
           "episodes",
           "counted",
           "left_out_flagged",
+          "left_out_feed_stopped",
+          "left_out_no_longer_priced",
           "left_out_censored",
           "left_out_ingest",
           "unpinned_cap",
           "unpinned_liquidity",
+          "counted_feed_stopped",
           "arm_night",
           "next_session"
         ],
         "title": "TrackCountsOut",
-        "description": "What the page rests on. ``episodes`` = every Scoreboard episode in the record at the as-of; ``counted`` = those\nin the cells; ``left_out_*`` = those set aside, each episode once (flagged price history first, then censored\nstart, then ingest flag); ``unpinned_cap`` / ``unpinned_liquidity`` = counted episodes with no cap tier / no\nliquidity band; ``arm_night`` / ``next_session`` = per horizon, how the counted episodes read."
+        "description": "What the page rests on. ``episodes`` = every Scoreboard episode in the record at the as-of; ``counted`` = those\nin the cells; ``left_out_*`` = those set aside, each episode once (flagged price history first, then censored\nstart, then ingest flag); ``unpinned_cap`` / ``unpinned_liquidity`` = counted episodes with no cap tier / no\nliquidity band; ``counted_feed_stopped`` = counted episodes whose price feed stopped because the company\nended (a subset of ``counted``); ``left_out_feed_stopped`` / ``left_out_no_longer_priced`` = the other\nstopped feeds, left out (on a live card / off every live card); ``arm_night`` / ``next_session`` = per horizon,\nhow the counted episodes read."
       },
       "TrackEditionOut": {
         "properties": {
@@ -39203,16 +39218,21 @@
           "reason": {
             "type": "string",
             "title": "Reason"
+          },
+          "feed_ended": {
+            "type": "boolean",
+            "title": "Feed Ended"
           }
         },
         "type": "object",
         "required": [
           "security_id",
           "ticker",
-          "reason"
+          "reason",
+          "feed_ended"
         ],
         "title": "TrackFlaggedOut",
-        "description": "A company on a Scoreboard episode whose data flags reach its price readings at the as-of (``reason`` = the\nflags' labels): its episodes are left out of every cell."
+        "description": "A company on a Scoreboard episode whose data flags reach its price readings at the as-of (``reason`` = the\nflags' labels). ``feed_ended`` = a stopped feed is its only such flag and the company itself ended, so its\nepisodes are COUNTED (a horizon past the stop reads path ended); otherwise they are left out of every cell."
       },
       "TrackHorizonCountOut": {
         "properties": {
@@ -39394,7 +39414,7 @@
           "compute_ms"
         ],
         "title": "TrackRecordOut",
-        "description": "The Track Record at the as-of: every episode's row (newest arm first), the counts, the companies left out for a\nflagged price history and the opening table (IWM, the next-session entry, by cap tier, every armed member; the page\nrecomputes any other reading from ``rows`` with the same arithmetic). ``edition`` and the two policies are the\nScoreboard's own (``annotated_policy`` / ``late_policy``: ``included`` | ``excluded`` | ``n/a`` for a stored\nedition, which has no such rows). ``edition`` is the one READ (the record when the request named none);\n``newest_edition`` is the newest PUBLISHED edition (``null`` when none is), which the page offers beside the\nrecord. ``market_source`` = whose bar dates are the market's session clock;\n``benchmarks_missing`` = a benchmark with no bar at the as-of; ``stale_days`` = how far a name's tape may sit\nbehind the market before an unreached horizon reads path ended; ``min_n`` = the smallest n a cell may be read\nat. ``cards`` = cards with a recorded call, ``cards_unreadable`` = cards whose record could not be read.\n``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was public by the end of that date).\n``cache`` / ``compute_ms`` = whether the read came from the shared dashboard cache and how long it took."
+        "description": "The Track Record at the as-of: every episode's row (newest arm first), the counts, the companies with a price-reaching\nflag and the opening table (IWM, the next-session entry, by cap tier, every armed member; the page\nrecomputes any other reading from ``rows`` with the same arithmetic). ``edition`` and the two policies are the\nScoreboard's own (``annotated_policy`` / ``late_policy``: ``included`` | ``excluded`` | ``n/a`` for a stored\nedition, which has no such rows). ``edition`` is the one READ (the record when the request named none);\n``newest_edition`` is the newest PUBLISHED edition (``null`` when none is), which the page offers beside the\nrecord. ``market_source`` = whose bar dates are the market's session clock;\n``benchmarks_missing`` = a benchmark with no bar at the as-of; ``stale_days`` = how far a name's tape may sit\nbehind the market before an unreached horizon reads path ended; ``min_n`` = the smallest n a cell may be read\nat. ``cards`` = cards with a recorded call, ``cards_unreadable`` = cards whose record could not be read.\n``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was public by the end of that date).\n``cache`` / ``compute_ms`` = whether the read came from the shared dashboard cache and how long it took."
       },
       "TrackRowOut": {
         "properties": {
@@ -39496,6 +39516,8 @@
                 "type": "string",
                 "enum": [
                   "flagged",
+                  "feed_stopped",
+                  "no_longer_priced",
                   "censored_start",
                   "ingest_flagged"
                 ]
@@ -39516,6 +39538,10 @@
               }
             ],
             "title": "Left Out Note"
+          },
+          "feed_stopped": {
+            "type": "boolean",
+            "title": "Feed Stopped"
           },
           "cap": {
             "anyOf": [
@@ -39587,6 +39613,7 @@
           "co_arm_bucket",
           "left_out",
           "left_out_note",
+          "feed_stopped",
           "cap",
           "adv_usd",
           "liquidity",
@@ -39594,7 +39621,7 @@
           "next_session"
         ],
         "title": "TrackRowOut",
-        "description": "One Scoreboard arm episode: identity, the entry attributes the filter chips use, the cap and liquidity at the\nevent and both entry rules' reads. ``left_out`` (``flagged`` | ``censored_start`` | ``ingest_flagged``) = the\nepisode is in no cell (its reason in ``left_out_note``) and carries identity only. ``liquidity`` is the 20-day\naverage dollar volume band at the event (``under_1m`` | ``1m_10m`` | ``10m_plus``; ``null`` when fewer than 20\nvolume-bearing sessions precede it)."
+        "description": "One Scoreboard arm episode: identity, the entry attributes the filter chips use, the cap and liquidity at the\nevent and both entry rules' reads. ``left_out`` (``flagged`` | ``censored_start`` | ``ingest_flagged``) = the\nepisode is in no cell (its reason in ``left_out_note``) and carries identity only. ``liquidity`` is the 20-day\naverage dollar volume band at the event (``under_1m`` | ``1m_10m`` | ``10m_plus``; ``null`` when fewer than 20\nvolume-bearing sessions precede it). ``feed_stopped`` = the episode is COUNTED although its price feed\nstopped: that is its only price flag and the company itself ended (the master's status is not active, or the\nnightly's closed classifier carries a delisting for it), so its bars are read up to where they stop and a\nhorizon past the stop reads ``path_ended``. ``left_out`` ``feed_stopped`` = a stopped feed on a company still\non a live card; ``no_longer_priced`` = a stopped feed on a company that sits on no live card (the nightly\nstopped fetching its prices; the company still trades)."
       },
       "TrackSpanOut": {
         "properties": {
