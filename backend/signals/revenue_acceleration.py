@@ -198,7 +198,7 @@ def _fresh_at_knowability(q: _Q, cfg: CallConfig) -> bool:
     """RULE (c) (operator sign-off 2026-10-22): may ``q`` be the CITED quarter? Only when its period ended at
     most ``revenue_accel_max_quarter_age_days`` before its number first became knowable (``q.filed`` = the
     read's ``knowable_from``, D3a). A restated year-old comparative is new knowledge at the later filing (exact
-    equality, rule (a)) but not a fresh quarter — RKT's Q2-2025, restated 2026-08-07 (403 d), fired as if it
+    equality, rule (a)) but not a fresh quarter — one restated a year later (403 d) fired as if it
     were. The quarter stays in ``quarters`` (a YoY base and a prior quarter for the others); this gates only
     which quarter may fire. Both engines run this one function (the detector is shared). ``None`` = no cap.
     """

@@ -580,19 +580,18 @@ only *coincide* for insider buys, which is exactly why the two conviction source
   first became knowable (`knowable_from`; dial `revenue_accel_max_quarter_age_days` = 135 — `> 135` disqualifies,
   exactly 135 fires; `None` lifts the cap for a backtest overlay). Why: under rule (a) a RESTATED year-old
   comparative is new knowledge at the later filing (a changed number), and it fired as if it were a fresh quarter —
-  MEASURED in the editions preview (2026-10-22), 10 Edition-1 triggers on 9 companies cited such a quarter: RKT
-  Q2-2025 restated 2026-08-07 (403 d), Freedom Holding Q1-2024 knowable 2026-06-01 (792 d), SEGG Q1-2026 filed
-  2026-10-08 (191 d — a late filer: the rule also holds a late filing's own quarter), LRHC's 2026-06-04 10-K (its
-  restated 2024-Q2 / 2025-Q1 and its late 2025-Q4, 155 d). The old quarter stays STORED and SHOWN and remains a
+  MEASURED in the editions preview (2026-10-22), 10 Edition-1 triggers on 9 companies cited such a quarter: a
+  comparative restated a year later (403 d), a quarter first knowable 792 d after its period ended, a late filer's
+  own quarter filed 191 d after it ended (the rule also holds a late filing's own quarter), and a 10-K that
+  restated two comparatives and added a late quarter (155 d). The old quarter stays STORED and SHOWN and remains a
   comparison base (another quarter's year-prior / prior); it just cannot be the quarter the trigger fires on. One
   pure check inside the shared detector (`signals/revenue_acceleration._fresh_at_knowability`), so the live call and
   the replay apply it identically. It also closes the D3 phantom independently of D3a: a comparative re-dated to
   its year-later filing is always past 135 days (`pipeline.annotate_phantom_arms` therefore reads such a recorded
   night as drift on today's code — never annotated; the annotations already applied stand). MEASURED live effect
   (dev copy of prod, 2026-10-22, all 12 theses at asof 10-21 and 10-22): 7 revenue triggers per night cited such a
-  quarter and are gone — ASST (Digital Asset Treasury; its card's `exit_by` 2027-02-06 → 2026-11-07), DOMH and VREOD
-  (Rainbow Rush), FRHC, LRHC, RKT and SEGG (The Everything Exchange); DOMH and RKT re-cite their genuine Q1-2026
-  inflection instead. No state, verdict or armed name changes.
+  quarter and are gone, on three of the 12 theses (one card's `exit_by` moved about three months earlier); two of
+  those companies re-cite their genuine Q1-2026 inflection instead. No state, verdict or armed name changes.
 - **`activist_stake` `[built — S5]` — grade-FIXED core, structural (Key 1).** A 13D-family **original** filed
   about a basket member (the outside party crossed 5% with intent to influence) fires a `core` conviction live
   for `activist_13d_liveness_days` (180) from its public date (`valid_from`: since F7 the market-time date of

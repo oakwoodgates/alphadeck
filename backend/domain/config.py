@@ -250,8 +250,8 @@ class CallConfig(DomainModel):
     # date its number first became knowable (``knowable_from``, D3a). A 10-Q/10-K that RESTATES a year-old
     # comparative makes that old quarter's number new knowledge at the later filing (D3a rule (a): exact
     # equality), and it fired as if it were fresh — MEASURED in the editions preview (2026-10-22): 10 Edition-1
-    # triggers on 9 companies cited such a quarter (RKT Q2-2025 restated 2026-08-07, 403 d; Freedom Holding
-    # Q1-2024 knowable 2026-06-01, 792 d; SEGG Q1-2026 filed 2026-10-08, 191 d — a late filer). The old quarter
+    # triggers on 9 companies cited such a quarter (a comparative restated a year later, 403 d; a quarter first
+    # knowable 792 d after its period ended; a late filer's own quarter, 191 d). The old quarter
     # stays STORED, SHOWN and a comparison base (its YoY / prior quarter); it just cannot be the quarter the
     # trigger fires on. 135 d is the operator's number (for scale: the slowest standard SEC deadline is a
     # non-accelerated filer's 10-K, 90 days after its fiscal year-end; a 10-Q is due within 40-45 days).

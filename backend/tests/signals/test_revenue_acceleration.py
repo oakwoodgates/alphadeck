@@ -293,9 +293,9 @@ def test_rule_c_boundary_at_135_days():
 
 
 def test_rule_c_a_restated_year_old_quarter_never_fires_but_stays_a_comparison_base():
-    """Contract (direct inputs), the RKT shape: a filing restating last year's quarter makes its number new
-    knowledge at the later filing (D3a rule (a)), but a quarter that ended a year before cannot be the one the
-    trigger fires on. Stale quarters still serve as a fresh quarter's year-prior and prior bases."""
+    """Contract (direct inputs), the restated-comparative shape: a filing restating last year's quarter makes
+    its number new knowledge at the later filing (D3a rule (a)), but a quarter that ended a year before cannot
+    be the one the trigger fires on. Stale quarters still serve as a fresh quarter's year-prior and prior bases."""
     # every quarter but the fire quarter re-dated to the fire quarter's 10-K (restated in it): all stale
     rows = _series()
     for pe in _REV:
@@ -307,7 +307,7 @@ def test_rule_c_a_restated_year_old_quarter_never_fires_but_stays_a_comparison_b
     )  # the fresh quarter (46 d) fires on those bases
     assert ev.provenance[0].detail["period_end"] == "2023-12-31"
 
-    # the fire quarter itself restated a year later (403 days — RKT's Q2-2025 -> 2026-08-07 shape): never cited
+    # the fire quarter itself restated a year later (403 days, a year-old comparative): never cited
     stale = _restated(_series(), date(2023, 12, 31), date(2025, 2, 6), "acc-comparative-restated")
     assert ra.score(stale, _SID, date(2025, 3, 1), DEFAULT_CONFIG) is None
     no_cap = DEFAULT_CONFIG.model_copy(update={"revenue_accel_max_quarter_age_days": None})
