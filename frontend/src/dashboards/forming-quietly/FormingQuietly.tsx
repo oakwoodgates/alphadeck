@@ -11,6 +11,7 @@ import {
   RECONSTRUCTED_TITLE,
   adoptionCell,
   breadthCell,
+  breadth200Cell,
   coilingCell,
   coilingNameTitle,
   daysWords,
@@ -160,6 +161,7 @@ const Row = memo(function Row({ r, onSelectThesis }: RowProps) {
   const coilingFig = coilingCell(r);
   const leadingFig = leadingCell(r);
   const breadthFig = breadthCell(r);
+  const breadth200Fig = breadth200Cell(r);
   const insider = q.insider.slice(0, MAX_NAMES);
   const coiling = q.coiling.slice(0, MAX_NAMES);
   const leading = q.leading.slice(0, MAX_NAMES);
@@ -266,6 +268,7 @@ const Row = memo(function Row({ r, onSelectThesis }: RowProps) {
       </td>
       <td data-label="Breadth" className={blankCls(breadthFig)}>
         <Fig cell={breadthFig} />
+        <Fig cell={breadth200Fig} />
       </td>
       <td data-label="Adoption" className="fq-num">
         <Fig cell={adoptionCell(r.adoption)} />

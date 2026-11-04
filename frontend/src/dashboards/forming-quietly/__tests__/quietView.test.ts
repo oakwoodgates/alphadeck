@@ -7,6 +7,7 @@ import {
   LIMITS,
   adoptionCell,
   breadthCell,
+  breadth200Cell,
   coilingCell,
   daysWords,
   filterControls,
@@ -175,6 +176,16 @@ describe("the cells", () => {
     expect(
       breadthCell(row({ quiet: quiet({ breadth: { above: null, counted: 0, thin: 4, pct: null, delta_pts: null, thrust: false } }) })).title,
     ).toContain("4 names");
+  });
+
+  it("shows the 200-day breadth beside the 50-day, counting a name with no reading apart", () => {
+    const got = breadth200Cell(row());
+    expect(got).toMatchObject({ text: "6 of 9", sub: "above the 200-day" });
+    expect(got.title).toContain("2 names have no 200-day reading and are not counted");
+    expect(got.title).toContain("never lights a card");
+    const none = breadth200Cell(row({ quiet: quiet({ above_200: 0, n_200: 0, no_200: 3 }) }));
+    expect(none).toMatchObject({ text: "—", gray: true });
+    expect(none.title).toContain("3 names without one");
   });
 
   it("shows the adoption slope as a signed whole percent with both counts, and the sign tone is the only tone", () => {

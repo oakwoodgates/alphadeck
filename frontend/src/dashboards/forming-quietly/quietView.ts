@@ -186,6 +186,25 @@ export function breadthCell(r: FormingRowOut): Cell {
   };
 }
 
+/** The 200-day breadth beside the 50-day cell (operator decision 2026-11-04): how many names with a 200-day reading
+ *  close above it. A name with no 200-day reading is counted apart, never as below the line. Display only. */
+export function breadth200Cell(r: FormingRowOut): Cell {
+  const q = r.quiet;
+  if (q.n_200 === 0) {
+    return {
+      text: BLANK,
+      title: `No name has a 200-day reading yet${q.no_200 > 0 ? ` (${plural(q.no_200, "name", "names")} without one)` : ""}.`,
+      gray: true,
+    };
+  }
+  const apart = q.no_200 > 0 ? ` ${plural(q.no_200, "name has", "names have")} no 200-day reading and ${q.no_200 === 1 ? "is" : "are"} not counted.` : "";
+  return {
+    text: `${q.above_200} of ${q.n_200}`,
+    sub: "above the 200-day",
+    title: `${q.above_200} of ${plural(q.n_200, "name", "names")} read close above their 200-day average.${apart} A display reading: it never lights a card.`,
+  };
+}
+
 /** The adoption slope as a signed whole percent with the two document counts under it; "not counted yet" when the
  *  six closed months are not stored. */
 export function adoptionCell(a: FormingAdoptionOut): Cell {

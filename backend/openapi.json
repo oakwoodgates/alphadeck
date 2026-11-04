@@ -22665,6 +22665,18 @@
               }
             ]
           },
+          "above_200": {
+            "type": "integer",
+            "title": "Above 200"
+          },
+          "n_200": {
+            "type": "integer",
+            "title": "N 200"
+          },
+          "no_200": {
+            "type": "integer",
+            "title": "No 200"
+          },
           "lit": {
             "type": "boolean",
             "title": "Lit"
@@ -22683,10 +22695,13 @@
           "leading",
           "leading_no_reading",
           "breadth",
+          "above_200",
+          "n_200",
+          "no_200",
           "lit"
         ],
         "title": "FormingQuietOut",
-        "description": "One card's quiet signals over its counting roster (Context and Bench never count). ``names`` = the counting\ncompanies, ``read`` = those read (a flagged price history is counted in ``flagged``, never read),\n``unresolved`` = roster rows with no resolved security. ``no_form4`` / ``coiling_no_reading`` /\n``leading_no_reading`` = read names a member gave no reading for. ``lit`` = insider buying, coiling, leading or\na breadth thrust is on."
+        "description": "One card's quiet signals over its counting roster (Context and Bench never count). ``names`` = the counting\ncompanies, ``read`` = those read (a flagged price history is counted in ``flagged``, never read),\n``unresolved`` = roster rows with no resolved security. ``no_form4`` / ``coiling_no_reading`` /\n``leading_no_reading`` = read names a member gave no reading for. ``lit`` = insider buying, coiling, leading or\na breadth thrust is on. ``above_200`` of ``n_200`` read names close above their 200-day average\n(``sma_position``'s ``pct_vs_slow``, the Theme Leaderboard's rule); ``no_200`` read names have no 200-day reading\nand are counted apart, never as below the line. A display reading: it never lights a card."
       },
       "FormingQuietlyOut": {
         "properties": {

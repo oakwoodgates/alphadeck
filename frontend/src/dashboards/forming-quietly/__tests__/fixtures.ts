@@ -30,6 +30,9 @@ export const quiet = (over: Partial<FormingQuietOut> = {}): FormingQuietOut => (
   leading: [],
   leading_no_reading: 0,
   breadth: { above: 5, counted: 10, thin: 1, pct: 50, delta_pts: 10, thrust: false } as FormingBreadthOut,
+  above_200: 6,
+  n_200: 9,
+  no_200: 2,
   lit: false,
   ...over,
 });

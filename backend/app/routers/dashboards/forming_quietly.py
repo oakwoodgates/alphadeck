@@ -194,7 +194,9 @@ class FormingQuietOut(_Wire):
     companies, ``read`` = those read (a flagged price history is counted in ``flagged``, never read),
     ``unresolved`` = roster rows with no resolved security. ``no_form4`` / ``coiling_no_reading`` /
     ``leading_no_reading`` = read names a member gave no reading for. ``lit`` = insider buying, coiling, leading or
-    a breadth thrust is on."""
+    a breadth thrust is on. ``above_200`` of ``n_200`` read names close above their 200-day average
+    (``sma_position``'s ``pct_vs_slow``, the Theme Leaderboard's rule); ``no_200`` read names have no 200-day reading
+    and are counted apart, never as below the line. A display reading: it never lights a card."""
 
     names: int
     read: int
@@ -207,6 +209,9 @@ class FormingQuietOut(_Wire):
     leading: list[FormingLeadingOut]
     leading_no_reading: int
     breadth: FormingBreadthOut | None
+    above_200: int
+    n_200: int
+    no_200: int
     lit: bool
 
 
