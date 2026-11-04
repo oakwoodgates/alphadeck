@@ -166,32 +166,37 @@ replay stays honest.
   night over the table (2026-10-21): the self-audit's `no_unsettled_bars` check fails — and pages — on any
   `fact_price_eod` row recorded before its bar's settle instant, written since the last judging pass by any
   writer (`tests/pipeline/test_settle_audit.py`). See `FEED_LOOP.md` §Settled closes.
-- *Also honored by (the HISTORY views — judged on the PUBLIC clock since 2026-10-21):* every past-asof read
+- *Also honored by (the HISTORY views — judged on the PUBLIC clock since 2026-10-21):* every read of an as-of BEFORE THE CURRENT NIGHT (`domain.market_time.current_night`, the night
+  the 22:30 pass last recorded — F1)
   — `GET /theses/{id}/call`, `/display-signals`, `/workbench/…/scored`, the Scoreboard drawer's dated overlays,
   `pipeline.backfill`'s missed-night reconstruction, `pipeline.run` for a past asof, and D3b's re-assembly —
   threads `domain.market_time.serve_view(asof)` = `(known_at_for_asof(asof), "public")`: each fact VERSION
   counts from its PUBLIC instant (`db/public_clock.py`, the ONE definition, shared with the backtest's
-  `clock=public` mirror) up to the end of that **market** day. Per table: a Form 4 from its SEC acceptance
+  `clock=public` mirror) up to EDGAR's next open after it (06:00 ET on the next weekday, holidays included — the same
+  line that makes a row on time for that night; F6). A date-only public instant sits at 06:00 ET of its own
+  date, so a fact known only by its date never counts a night early. Per table: a Form 4 from its SEC acceptance
   (the FACT's, on every version: its newest stored statement — a re-parse shares it, and a re-dated
   mis-captured time moves the older versions with it, 2026-10-24; none on any version → from the first time
   we held it, an upper bound — never early, never dropped, #9). The stored acceptance is SEC's listed time only
   when it agrees with the filing date and EDGAR's hours, else the filing's own header, else the end of the
   filing date (`ingest/edgar/acceptance.py`); a bar's FIRST version from its session settle (`d` at
   `Settings.price_settle_time`), a vendor RE-version from its own `recorded_at` (it carries no publication time
-  of its own — we cannot know it earlier); an 8-K / 13D from its `filed` date; fundamentals from `valid_from`
-  (= `filed`; a restatement from its own filing); catalyst / dilution / theme conviction from `valid_from` (the
-  backtest's operator decision); the operator-RATIFIED Workbench facts (revenue mix, shares, cash burn) and the
-  fund-shares samples from `recorded_at` (their `valid_from` is a period / as-of date, not a publication date).
+  of its own — we cannot know it earlier); an 8-K / 13D / revenue print from its trusted SEC acceptance (`valid_from` = that acceptance's
+  night, so one submitted after 17:30 ET counts from that evening — F7), else its `filed` date; a restatement from its own filing; catalyst / dilution / theme conviction from `valid_from` (the
+  backtest's operator decision); a share count from its filing's acceptance (the earliest filing whose cover row states it —
+  F9), else `recorded_at`; revenue mix, cash burn and the fund-shares samples from `recorded_at` (their `valid_from` is a period / as-of date, not a publication date).
   The 4/A tables: the amendment and the system's link from the 4/A's acceptance, a SYSTEM decision from that
   same publication, an OPERATOR decision from when the operator made it. The version a past view reads is the
   NEWEST public by then (`public DESC, recorded_at DESC, id DESC` — a re-parse resolves to our best parse); a
   public-read row carries `recorded_at` = its public instant and our honest ingest instant as `ingested_at`
   (the drawer's "ingested" line). The roster and the position stay as of the same instant on the record axis
-  — they ARE operator decisions. A live `asof` threads `(None, "record")`: the unchanged live read (the PIT's
+  — they ARE operator decisions. A live `asof` (on or after the current night — F1) threads `(None, "record")`: the unchanged live
+  read (the PIT's
   own `now` for facts, the DATABASE clock for the decisions log — `decisions_repo`'s one-clock rule), where
   the two clocks coincide (a version's public instant never decreases as its `recorded_at` increases, so with
   every version visible the public pick IS the record pick — MEASURED 2026-10-21 on prod: 12/12 live cards
-  identical on both clocks). What this does NOT make identical to the record: the recompute runs TODAY's
+  identical on both clocks); on `/call` only, the operator's decisions read up to the action day
+  (`serve_decisions_asof`), so a fill logged the morning after a night shows on that night's view. What this does NOT make identical to the record: the recompute runs TODAY's
   code and rules over what was public then — never a replay of the row; the immutable calls log is the
   record. *Superseded (record-clock history):* from 2026-09-09 (#336) to 2026-10-21 these routes capped
   `recorded_at` at the end of the as-of day — honest about what our database held (MEASURED 2026-09-09: one
@@ -483,14 +488,15 @@ stamped a fresh "policy" on every cron night.
   prior-row report, the freshness reads, the decision log's stance — keeps the default and sees every row.
   (`tests/scoreboard/test_record.py`, `tests/repositories/test_calls_repo.py`,
   `tests/db/test_migration_0042_reconstructed.py`.) See `SCOREBOARD.md`, `FEED_LOOP.md`.
-- *Also honored by (the annotated row — D3b, migration 0045):* a JUDGMENT about an honest row (a phantom arm
-  under D3a's dating fix) lives in the append-only `call_annotation` side table, never on the row — `calls`
+- *Also honored by (the annotated row — D3b, migration 0045):* a JUDGMENT about an honest row (a phantom arm under D3a's dating fix, or — F10 — a row dated a day
+  with no market session) lives in the append-only `call_annotation` side table, never on the row — `calls`
   is not touched, not even under a trigger disable. The Scoreboard drops rows with an ACTIVE `exclude` by
   READ POLICY (`Settings.scoreboard_exclude_annotated`, overridable per request with `include_annotated`),
   BEFORE the per-as-of dedup exactly like the reconstructed filter; flipping the policy or appending a revoke
   restores the pre-annotation reading byte-for-byte. Every other reader keeps the default and sees every row.
   The annotator's D3a-off re-assembly is a diagnostic view that lives only in the CLI — no live-path switch.
-  (`tests/pipeline/test_annotate_phantom_arms.py`, `tests/repositories/test_call_annotations_repo.py`,
+  (`tests/pipeline/test_annotate_phantom_arms.py`, `tests/pipeline/test_annotate_no_session_rows.py`,
+  `tests/repositories/test_call_annotations_repo.py`,
   `tests/db/test_migration_0045_call_annotation.py`.) See `SCOREBOARD.md`, `FEED_LOOP.md`.
 - *Also honored by (the on-time row — M2 + C3, 2026-10-16):* nothing recorded LATER may supersede a night's
   honest on-time call-of-record, and nothing typed by hand may write a scored row for a past night with
@@ -520,15 +526,17 @@ stamped a fresh "policy" on every cron night.
   parameter (above). But at the **edges** that choose the `asof` for a run, "today" was derived from
   `date.today()`, which reads the process's **ambient timezone**. **This bit in production:** a manual
   `pipeline.daily` in a UTC container after ~20:00 ET recorded **tomorrow's** `asof` — a materially different
-  call (a signal whose liveness window closed that day drops out of the inclusive `entry_signal_is_live`;
-  the derived countdowns shift), not a mislabel. The `TZ` pin (#202) fixed the two containers but **not** a
+  call (a signal with no session of its window left after that day drops out of `entry_signal_is_live`,
+  which since F3 keeps a trigger only while the next session is inside its window; the derived countdowns
+  shift), not a mislabel. The `TZ` pin (#202) fixed the two containers but **not** a
   CLI run elsewhere. The trading day is a domain fact, not an environment fact — which is why the fix lives
   in `domain/`, not in ops.
   **The rule now:** no backend module reads the ambient clock; every trading-day answer comes from
   `domain/market_time.market_today()` / `market_now()`, on an explicit `ZoneInfo` from `Settings.market_tz`
   (env `ALPHADECK_MARKET_TZ`, default `America/New_York`; a bad zone fails loud, never a silent UTC
-  fallback). `market_today()` is *today in market time* and does **no trading-calendar logic** — no weekend
-  skip, no holidays; the Mon-Fri + `RUN_AT` math stays in `pipeline/schedule.py`. `datetime.now(timezone.utc)`
+  fallback). `market_today()` is *today in market time* and does **no trading-calendar logic** — no weekend skip, no holidays; the session calendar (Mon–Fri minus the NYSE's full-day closures —
+  F5) and the `RUN_AT` math live in `domain/trading_days.py` (re-exported by `pipeline/schedule.py`), and
+  `domain/market_time.current_night()` — the app's default as-of (F1) — is built on them. `datetime.now(timezone.utc)`
   is untouched and still correct: that is transaction time (`recorded_at`, #4), a different axis.
   *The growth is the argument for the guard:* the gap was written up at **9** call sites and was **18** by
   the time it was fixed — new modules kept reaching for `date.today()` because there was nothing else to
@@ -808,7 +816,7 @@ promote — and `thesis_repo.get_asof(known_at)` reads the latest snapshot with 
 lookahead, #1). **All four recompute surfaces are now wired to it**: the single assembly funnel
 `pipeline.call_for_thesis` (serve / `pipeline.run` / the nightly record / `pipeline.backfill`) via F12, and
 the replay harness via F4 — which resolves the roster PER SESSION at
-`min(pin, known_at_for_asof(T))`, the same market-day cap #4 uses, because the harness pins one `known_at`
+`min(pin, known_at_for_asof(T))`, the same night cap #4 uses (EDGAR's next open — F6), because the harness pins one `known_at`
 for the whole sweep and resolving once at that pin would hand the `now`-pinned Scoreboard panel today's
 basket.
 
