@@ -1112,7 +1112,26 @@ def rows_from_catalysts(facts: Iterable[Mapping[str, Any]], who: Who) -> list[Fi
     return out
 
 
-def _ratified_row(f: Mapping[str, Any], who: Who, headline: str) -> FilingRow | None:
+def _share_count_public(f: Mapping[str, Any]) -> datetime | None:
+    """The instant the public clock counts a stored share count from, when a filing publication is stored for it
+    (F9, ``db.public_clock``; operator decision 2026-11-04), else ``None``. Nothing is restated here: a public-clock
+    read already hands the row its public instant as ``recorded_at`` (``to_public_row``), with our honest ingest
+    instant beside it as ``ingested_at``, and that public instant is the filing acceptance exactly when ANY version
+    of the same count and date stores one. So a row whose ``ingested_at`` differs from its ``recorded_at``, or that
+    carries ``filing_accepted`` itself, has a publication. A read with no ``ingested_at`` (the record clock) has no
+    rewritten instant, so only the row's own ``filing_accepted`` counts."""
+    accepted, stamped = f.get("filing_accepted"), f.get("recorded_at")
+    ingested = f.get("ingested_at")
+    if isinstance(ingested, datetime) and isinstance(stamped, datetime):
+        if isinstance(accepted, datetime) or ingested != stamped:
+            return stamped
+        return None
+    return accepted if isinstance(accepted, datetime) else None
+
+
+def _ratified_row(
+    f: Mapping[str, Any], who: Who, headline: str, *, published: bool = False
+) -> FilingRow | None:
     """One Workbench fact (cash and burn, shares outstanding, revenue mix), in one of two kinds of row:
 
     - **ratified fact** (``ratified_by`` names someone but the machine): its public date is the instant the
@@ -1123,6 +1142,10 @@ def _ratified_row(f: Mapping[str, Any], who: Who, headline: str) -> FilingRow | 
       ``valid_from``, the cover or filing date, and the headline is led by its source as stored ("10-q-cover:
       shares outstanding 540.6M"); the day we stored it rides in the detail. A row that states no ``valid_from``
       falls back to the day it was stored, and says so.
+    - **stored share count** (``published``; operator decision 2026-11-04): dated by the market-time day of the
+      instant the public clock counts it from, the SEC acceptance of the filing whose cover states the count
+      (``_share_count_public``), and the detail says so; a count with no publication stored keeps its cover date and
+      says that instead.
 
     Both kinds keep the wire kind ``ratified`` (the row's ``form`` tells them apart).
     """
@@ -1151,11 +1174,25 @@ def _ratified_row(f: Mapping[str, Any], who: Who, headline: str) -> FilingRow | 
             ratified_on=stored,
         )
     cover = _day(f.get("valid_from"))
+    if isinstance(
+        f.get("ingested_at"), datetime
+    ):  # a public-clock read: recorded_at is the public instant
+        stored = et_date(f["ingested_at"])
     day = cover or stored
+    note, by_store = None, cover is None
+    if published:
+        public = _share_count_public(f)
+        if public is not None:
+            day, by_store = et_date(public), False
+            note = f"Dated by its filing's SEC acceptance ({day}), when the count became public"
+        elif cover is not None:
+            note = "Dated by its cover date: no filing publication stored"
     if day is None:
         return None
     detail = [f"Stored on {stored}"] if stored else []
-    if cover is None:
+    if note:
+        detail.append(note)
+    if by_store:
         detail.append("No cover or filing date stated, so it is dated by the day it was stored")
     detail.append(_source_line(f))
     detail.append(_not_ratified_line(f))
@@ -1192,7 +1229,11 @@ def rows_from_ratified(
     for f in shares:
         n = _f(f.get("shares"))
         if n is not None:
-            out.append(_ratified_row(f, who, f"shares outstanding {fmt_compact(n, dollars=False)}"))
+            out.append(
+                _ratified_row(
+                    f, who, f"shares outstanding {fmt_compact(n, dollars=False)}", published=True
+                )
+            )
     for f in mix:
         pct = _f(f.get("mix_pct"))
         if pct is not None:
