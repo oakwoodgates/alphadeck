@@ -191,3 +191,9 @@ The page was built against fixtures and a two-company DB test; the measurements 
     pill's hover title carries the whole "Open <card> · <links>" line. The pills wrap as pills inside the cell, the column
     has a minimum width (240 px; 200 px on a phone), and the table scrolls sideways with the Company column pinned, as
     before. The pill's text content is unchanged ("Grid · Turbines, Cables"), so a screen reader hears the same line.
+20. **The catalyst column is read live (operator decision 2026-11-04).** A card's catalysts are written without a
+    roster snapshot, so the cache's generation does not move on an edit. The cache now holds the heavy read
+    (`read_inputs`, keyed by the clock alone: the origin left the key) with an empty catalyst list; every request reads
+    the counted cards' dated catalysts (`read_live_catalysts`, `thesis_repo.entries_for`) and builds the table from
+    that, so a catalyst edited at noon is in the "next catalyst" column at once. The origin, the sort and the wire
+    are unchanged.
