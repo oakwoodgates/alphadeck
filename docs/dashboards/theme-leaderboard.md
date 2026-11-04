@@ -107,6 +107,12 @@ Any wording that judges a thesis; any write of the score; sizing or instrument c
 
 ## Choices to confirm
 
+**Confirmed by the operator, 2026-11-04:** every choice in this section, as built, including the changes marked
+"(operator decision 2026-11-04)". Still open: the five parts at equal weights stay PROPOSED, unmeasured. The keys part
+counts a key turned by ANY name while Armed needs both keys on one name, so most cards tie on it (MEASURED on dev,
+2026-10-29: 56 of 62 cards read 2 keys, 13 of them Warming). A past as-of counts today's SIGNAL terms (choice 4),
+which needs a history of that card setting (a backend change), so it stays open.
+
 The build lists here every choice it made that this plan does not spell out, each the operator's to confirm or
 change. Pre-decided here for the operator's review: the five parts with equal weights; keys as the record part (Managing
 = 2); the three-against-three closed-month slope; percentiles among the cards shown; no accent.
@@ -169,3 +175,5 @@ The build made these choices that the plan above does not spell out. Each is the
   cache clears on every new run, so the first visit after a nightly waits for it. A post-nightly cache warm-up (the
   cron hitting each heavy dashboard once after the pass) is the follow-up that fixes this for every such page at once;
   a lighter read (fewer members, or the Rotation Map's readings shared) is the per-page option.
+
+**Flagged-name note wording (operator decision 2026-11-04).** The shared `FlaggedNote` hover used to say a flagged name is "left out of every number on this page", which overstates on a page that keeps the row. This page now passes its own rule (`flaggedRule(...)`): left out of every tape reading (tape, 7D, breadth, relative strength, cap); their Form 4 count stays. Pages whose rule really is "left out of every number" (Cross Radar, Landing, Leaders, Market Map, Rotation Map) keep the default text.

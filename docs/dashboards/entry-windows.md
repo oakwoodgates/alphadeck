@@ -132,6 +132,9 @@ Hot Board has the tape columns); risk signals; any write.
 
 ## Choices to confirm
 
+**Confirmed by the operator, 2026-11-04:** every choice in this section, as built, including the changes marked
+"(operator decision 2026-11-04)". Nothing in it stays open.
+
 The build lists here every choice it made that this plan does not spell out, each the operator's to confirm or
 change. Pre-decided here for the operator's review: Armed rows by default with Managing behind a toggle; the
 recorded run's first night as the arm night; IWM's bars as the session calendar; the Scoreboard's entry rule; IWM
@@ -160,7 +163,7 @@ lives in `backend/dashboards/entry_windows.py` (the rules are written at the top
    Built to close that gap (2026-10-30): the row carries `member_clocks`, one entry per armed name (each once, in the
    recorded order) whose own flag is true: `headline` (it is `armed_members[0]`), both flags, and, when its entry
    window is closing, its own `arm_until` with `sessions_left` / `closed_ago` counted to it by the same rule as the
-   card's figure (`entry_clock`: the Mon-Fri days after the as-of while open, the IWM sessions since it closed).
+   card's figure (`entry_clock`: the Mon-Fri days after the as-of, market holidays skipped, while open, the IWM sessions since it closed).
    The page keeps the card's figure and adds one quiet line per such name under it, "BBB · 1 session left · to Oct
    28", **unless the name's `arm_until` is the card's own** (then the figure above already is its clock). Likewise
    "BBB · hold clock closing" under the days to `exit_by` for each name whose own `lapsing` is true, **unless the
@@ -242,3 +245,5 @@ lives in `backend/dashboards/entry_windows.py` (the rules are written at the top
   row. The cold read validates one full card blob per night of every Armed run (the arm-night walk); 6.7 s is
   acceptable for a cached page, so the narrower read (armed ids per night, the full card only for the night in
   effect) stays a noted option, not a change.
+
+**Flagged-name note wording (operator decision 2026-11-04).** The shared `FlaggedNote` hover used to say a flagged name is "left out of every number on this page", which overstates on a page that keeps the row. This page now passes its own rule (`flaggedRule(...)`): their bars are never read: unpriced, counted in each row's denominator note, left out of the median, line and calendar; they keep their place. Pages whose rule really is "left out of every number" (Cross Radar, Landing, Leaders, Market Map, Rotation Map) keep the default text.

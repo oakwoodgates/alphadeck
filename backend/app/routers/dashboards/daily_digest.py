@@ -5,14 +5,17 @@ position as of the view's instant (``decisions_repo.effective_position``, a read
 shared reader (``dashboards/filings.py``, narrowed to the Form 4 kinds), the closes of the names on a row and IWM's
 through the point-in-time view (``baskets.per_company``) and the data flags that reach a price reading, all on the
 request's one ``serve_view(asof)`` pair, and hands them to the pure compute in ``dashboards/daily_digest.py``, where
-every rule lives (each section is a source page's own pure function). The whole payload is computed once per (clock,
-as-of) in the shared dashboard cache (``dashboards/cache.py``, ``docs/DASHBOARDS.md`` rule 7); the tape's "show every
+every rule lives (each section is a source page's own pure function). The heavy read is cached once per (clock,
+origin, as-of) in the shared dashboard cache (``dashboards/cache.py``, ``docs/DASHBOARDS.md`` rule 7); the cards'
+entries (catalysts, kill criteria) and the held positions come from decisions and edits that move none of the
+cache's generation, so ``live_digest_inputs`` reads them on every request and the page is built from that
+(operator decision 2026-11-04); the tape's "show every
 armed name" toggle is the page's own. Its wire models live here, not in ``app/schemas_api.py`` (rule 8).
 """
 
 from __future__ import annotations
 
-from dataclasses import fields
+from dataclasses import fields, replace
 from datetime import date, datetime, timedelta
 from typing import Literal
 from uuid import UUID
@@ -31,6 +34,7 @@ from dashboards.baskets import (
     per_company,
     price_flags,
     resolved_ids,
+    with_live_entries,
 )
 from dashboards.cache import cached
 from dashboards.daily_digest import (
@@ -50,7 +54,7 @@ from dashboards.daily_digest import (
 from dashboards.filings import FORM4_KINDS, read_filing_rows
 from dashboards.hot_board import LogRow, SinceGap, candidates
 from dashboards.insider_tracker import RoleClass
-from dashboards.trigger_log import CardNights, Night, Scope
+from dashboards.nights import CardNights, Night, Scope
 from dashboards.what_changed import Change, Section, security_ids
 from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard
@@ -630,11 +634,13 @@ def read_digest(
     known_at: datetime | None,
     clock: Literal["record", "public"],
     origin: date | None = None,
-) -> DailyDigest:
+) -> DigestInputs:
     """The cached read: the counted cards and their rosters at the as-of, the night pair and the cards in effect on
     each, the Managing cards' positions, the Form 4 filings filed since P, the armed names' and the held names'
-    closes, IWM's, and the data flags of the names on a row; then the pure compute. Reads only; the request's
-    ``known_at`` + ``clock`` ride into every one of them."""
+    closes, IWM's, and the data flags of the names on a row. Reads only; the request's ``known_at`` + ``clock`` ride
+    into every one of them. The page is NOT built here: the cards' entries and the positions are read live on every
+    request (``live_digest_inputs``) and the pure compute runs after, so what this holds is the heavy part only.
+    """
     got = cards_as_of(conn, asof, known_at)
     theses = got.cards
     names = {t.id: t.name for t in theses}
@@ -714,32 +720,73 @@ def read_digest(
     ciks = master.ciks_for(
         conn, section_sids
     )  # the issuer CIK a trigger's source link is built from
-    return daily_digest(
-        DigestInputs(
-            asof=asof,
-            clock=clock,
-            scope=Scope(got.live_count, got.not_yet_created, got.roster_fallback),
-            theses=theses,
-            latest=latest,
-            previous=previous,
-            now=now,
-            baseline=baseline,
-            tickers=tickers,
-            positions=positions,
-            roster_tickers=roster_tickers,
-            memberships=voting.rows,
-            silent_rows_left_out=voting.silent_rows_left_out,
-            unresolved_rows=voting.unresolved_rows,
-            filings=filings,
-            nights=nights,
-            runs=runs,
-            tapes=tapes,
-            iwm_bars=iwm_bars,
-            flagged=flagged,
-            window_start=window_start,
-            ciks=ciks,
-            origin=origin,
+    return DigestInputs(
+        asof=asof,
+        clock=clock,
+        scope=Scope(got.live_count, got.not_yet_created, got.roster_fallback),
+        theses=theses,
+        latest=latest,
+        previous=previous,
+        now=now,
+        baseline=baseline,
+        tickers=tickers,
+        positions=positions,
+        roster_tickers=roster_tickers,
+        memberships=voting.rows,
+        silent_rows_left_out=voting.silent_rows_left_out,
+        unresolved_rows=voting.unresolved_rows,
+        filings=filings,
+        nights=nights,
+        runs=runs,
+        tapes=tapes,
+        iwm_bars=iwm_bars,
+        flagged=flagged,
+        window_start=window_start,
+        ciks=ciks,
+        origin=origin,
+    )
+
+
+def live_digest_inputs(
+    conn: psycopg.Connection,
+    inp: DigestInputs,
+    known_at: datetime | None,
+    clock: Literal["record", "public"],
+) -> DigestInputs:
+    """The cached inputs with what a decision or a card edit moves laid in NOW (operator decision 2026-11-04): the
+    counted cards' catalysts and kill criteria, and the Managing cards' positions (the decision log read at the
+    view's instant ``known_at``, so a fill logged after a past view is no position then). A name newly held that
+    the cached read did not hold gets its flags, closes and splits read here (a few companies); everything else
+    is the cached read's. Reads only."""
+    theses = with_live_entries(conn, inp.theses)
+    positions: dict[UUID, HeldPosition] = {}
+    for t in theses:
+        rec = inp.now.get(t.id)
+        if rec is not None and rec.card.state == State.MANAGING:
+            held = read_held(conn, t, inp.asof, known_at)
+            if held is not None:
+                positions[t.id] = held
+    held_sids = {p.security_id for p in positions.values() if p.security_id is not None}
+    cached_held = {p.security_id for p in inp.positions.values() if p.security_id is not None}
+    new = sorted(held_sids - cached_held, key=str)
+    flagged, tapes, tickers = dict(inp.flagged), dict(inp.tapes), dict(inp.tickers)
+    if new:
+        for sid in new:
+            flagged.pop(sid, None)
+        flagged.update(price_flags(conn, new, inp.asof, known_at=known_at, clock=clock))
+        tapes.update(
+            per_company(
+                conn,
+                new,
+                inp.asof,
+                known_at,
+                clock,
+                lambda p, sid: read_name_tape(p, sid, True, flagged.get(sid)),
+            )
         )
+        tickers.update(master.tickers_for(conn, [sid for sid in new if sid not in tickers]))
+    return replace(
+        inp, theses=theses, positions=positions, flagged=flagged, tapes=tapes, tickers=tickers
     )
 
 
@@ -772,8 +819,10 @@ def daily_digest_page(
         asof,
         lambda: read_digest(conn, asof, known_at, clock, origin),
     )
+    # the cards' entries and the positions are not snapshotted: read them now, not from the cache
+    page = daily_digest(live_digest_inputs(conn, got.value, known_at, clock))
     return DailyDigestOut.model_validate(
-        {**_payload(got.value), "cache": got.status, "compute_ms": got.compute_ms}
+        {**_payload(page), "cache": got.status, "compute_ms": got.compute_ms}
     )
 
 

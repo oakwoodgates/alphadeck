@@ -47,13 +47,13 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from typing import Any, Literal
 from uuid import UUID
 
 from dashboards.filings import KIND_ORDER, FilingKind, FilingRow, FoldGroup, source_url
-from dashboards.peer_table import CapCell, CompanyReads, cap_cell
+from dashboards.market_cap import CapCell, CompanyReads, cap_cell
 from dashboards.series import aligned
 from domain.call import CallCard, TriggerRef
 from domain.config import DEFAULT_CONFIG
@@ -476,6 +476,16 @@ def card_row(card: Thesis, sid: UUID, night: RecordedNight | None) -> CardRow:
     )
 
 
+def excluded_of(counted: Sequence[Thesis], sid: UUID) -> list[Excluded]:
+    """The counted cards that exclude the company, A→Z, each with the operator's reason."""
+    return [
+        Excluded(t.id, t.name, x.reason)
+        for t in sorted(counted, key=lambda t: (t.name.casefold(), str(t.id)))
+        for x in t.exclusions
+        if x.security_id == sid
+    ]
+
+
 def cards_section(
     sid: UUID,
     counted: Sequence[Thesis],
@@ -491,12 +501,7 @@ def cards_section(
     """
     rows = [card_row(t, sid, effect.get(t.id)) for t in counted if sits_on(t, sid)]
     rows.sort(key=lambda r: (r.thesis_name.casefold(), str(r.thesis_id)))
-    excluded = [
-        Excluded(t.id, t.name, x.reason)
-        for t in sorted(counted, key=lambda t: (t.name.casefold(), str(t.id)))
-        for x in t.exclusions
-        if x.security_id == sid
-    ]
+    excluded = excluded_of(counted, sid)
     archived_on = [
         CardName(t.id, t.name)
         for t in sorted(archived, key=lambda t: (t.name.casefold(), str(t.id)))
@@ -1039,7 +1044,7 @@ def cap_of(
     shares: Mapping[str, Any] | None,
     splits: Sequence[ListedSplit],
 ) -> Cap:
-    """The approximate cap by the Peer Table's rule (``peer_table.cap_cell``: the latest close times the latest
+    """The approximate cap by the Peer Table's rule (``market_cap.cap_cell``: the latest close times the latest
     shares fact, the ADS ratio and any split in force between the two applied; a flagged price history withholds
     it). Labeled approximate everywhere."""
     c: CapCell = cap_cell(CompanyReads(flag=flag, close=close, shares=shares, splits=tuple(splits)))
@@ -1166,6 +1171,24 @@ def lookup(
         tape=tape,
         filings=section,
         catalyst_facts=facts,
+        card_catalysts=tuple(catalysts),
+        decisions=tuple(decisions),
+        decisions_voided=sum(1 for d in decisions if d.voided),
+    )
+
+
+def with_live_entries(
+    base: Lookup,
+    excluded: Sequence[Excluded],
+    catalysts: Sequence[CardCatalyst],
+    decisions: Sequence[DecisionRow],
+) -> Lookup:
+    """The cached page with the three things that are read live on every request laid in (operator decision
+    2026-11-04): the cards that exclude the company, the catalysts of the cards it counts on and the operator's
+    decisions on it. The cached ``base`` carries them empty; nothing else changes."""
+    return replace(
+        base,
+        cards=replace(base.cards, excluded=tuple(excluded)),
         card_catalysts=tuple(catalysts),
         decisions=tuple(decisions),
         decisions_voided=sum(1 for d in decisions if d.voided),

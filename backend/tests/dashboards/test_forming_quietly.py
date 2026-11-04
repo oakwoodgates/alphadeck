@@ -739,7 +739,9 @@ def test_the_payload_counts_what_it_lists_and_what_it_does_not():
     assert (page.cards_warming, page.cards_incubating, page.cards_incubating_lit) == (1, 2, 1)
     assert (page.cards_with_term_months, page.cards_without_term_months) == (1, 2)
     assert (page.names_read, page.names_flagged) == (7, 1)
-    assert page.members == MEMBERS == ("insider_flow_90d", "vcp", "relative_strength")
+    assert (
+        page.members == MEMBERS == ("insider_flow_90d", "vcp", "relative_strength", "sma_position")
+    )
     assert [r.thesis_name for r in page.rows][0] == "Card A"
 
 
@@ -1334,3 +1336,37 @@ def test_db_an_archived_card_and_an_empty_log_give_an_honest_empty_page(db):
     body = _get(db, date(2026, 9, 16))
     assert body["rows"] == [] and body["cards_counted"] == 1 and body["cards_no_call"] == 1
     assert body["names_read"] == 0 and body["flagged"] == []
+
+
+# ---------------------------------------------------------------------------------------------------------
+# the 200-day breadth (operator decision 2026-11-04)
+# ---------------------------------------------------------------------------------------------------------
+
+
+def test_the_200_day_breadth_counts_a_name_with_no_reading_apart_and_never_lights_a_card():
+    """Off the real sma_position compute: a rising tape is above its 200-day, a falling one below, a short one has
+    no reading (counted apart, never as below the line); a flagged name stays out; nothing lights a card.
+    """
+    from signals.display import sma
+
+    rising = bars(260)
+    falling = bars(260, close=lambda i: 60.0 - i * 0.1)
+    short = bars(30)
+    names = [(A, "AAA"), (B, "BBB"), (C, "CCC"), (D, "DDD")]
+    readings = {
+        A: reading_of({sma.MEMBER_NAME: sma.compute(rising, ASOF)}),
+        B: reading_of({sma.MEMBER_NAME: sma.compute(falling, ASOF)}),
+        C: reading_of({sma.MEMBER_NAME: sma.compute(short, ASOF)}),
+        D: reading_of({}, "mixed-scale price history"),
+    }
+    assert (readings[A].above_200d, readings[B].above_200d, readings[C].above_200d) == (
+        True,
+        False,
+        None,
+    )
+    q = quiet_of(names, readings, None)
+    assert (q.above_200, q.n_200, q.no_200) == (1, 2, 1)
+    assert q.read == 3 and len(q.flagged) == 1
+    assert q.lit is False  # display only: a 200-day majority lights nothing
+    all_above = quiet_of([(A, "AAA")], {A: readings[A]}, None)
+    assert (all_above.above_200, all_above.n_200, all_above.lit) == (1, 1, False)

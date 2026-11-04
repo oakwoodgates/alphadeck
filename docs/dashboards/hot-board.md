@@ -163,6 +163,10 @@ Leaders lists (near-high, coiling) as columns; options or intraday data; any wri
 
 ## Choices to confirm
 
+**Confirmed by the operator, 2026-11-04:** every choice in this section, as built, including the changes marked
+"(operator decision 2026-11-04)". Still open: the heat formula's weights (the four parts at equal weights) stay
+PROPOSED. They set the default sort and have not been measured against what followed.
+
 The build lists here every choice it made that this plan does not spell out, each the operator's to confirm or
 change. Pre-decided here for the operator's review: Armed members as the default rows with Warming, watch and
 Managing behind toggles; the four heat parts with equal weights; percentiles among the rows shown; IWM as the
@@ -309,3 +313,5 @@ These are the numbers for the one-read version (every candidate row in one reque
 
 Not yet measured: the orchestrator records the default read's payload and cold compute, and the `rows=all` read's,
 from dev with a prod data copy, on the same live and past as-ofs as above.
+
+**Flagged-name note wording (operator decision 2026-11-04).** The shared `FlaggedNote` hover used to say a flagged name is "left out of every number on this page", which overstates on a page that keeps the row. This page now passes its own rule (`flaggedRule(...)`): their price cells read "flagged" and they have no heat; they keep their row and their insider counts. Pages whose rule really is "left out of every number" (Cross Radar, Landing, Leaders, Market Map, Rotation Map) keep the default text.

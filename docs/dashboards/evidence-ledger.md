@@ -108,6 +108,10 @@ Any judgment of the evidence; editing anything (the Workbench is the editor); th
 
 ## Choices to confirm
 
+**Confirmed by the operator, 2026-11-04:** every choice in this section, as built, including the changes marked
+"(operator decision 2026-11-04)". Still open: the card entries at a past as-of are today's (choice 12), which needs a
+history of that card setting (a backend change), so it stays open.
+
 The build lists here every choice it made that this plan does not spell out, each the operator's to confirm or change.
 Pre-decided here for the operator's review: the four authority classes; roles as ledger rows; card entries live; the
 What Changed "in effect at D" rule for the recorded card.

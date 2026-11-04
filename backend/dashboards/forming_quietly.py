@@ -46,17 +46,19 @@ from dashboards.baskets import FlaggedCompany
 from domain.call import CallCard, TriggerRef
 from domain.enums import Grade, Kind, State
 from domain.market_time import market_tz
-from signals.display import insider_flow, relative_strength, vcp
+from signals.display import insider_flow, relative_strength, sma, vcp
 from signals.display.base import DisplaySignal
 
 SLUG = "forming-quietly"
 
-# the three display members run once per name (by registered name; a renamed member fails loud in
-# ``baskets.display_members``); ``theme_breadth`` is a thesis-level reader, read once per card
+# the display members run once per name (by registered name; a renamed member fails loud in
+# ``baskets.display_members``); ``theme_breadth`` is a thesis-level reader, read once per card. ``sma_position``
+# is the 200-day breadth's source (operator decision 2026-11-04: lifts the plan's "three members only")
 MEMBERS: tuple[str, ...] = (
     insider_flow.MEMBER_NAME,
     vcp.MEMBER_NAME,
     relative_strength.MEMBER_NAME,
+    sma.MEMBER_NAME,
 )
 
 # insider buying is lit by at least this many open-market buys in the last 30 days (the Leaders rule)
@@ -277,6 +279,9 @@ class Reading:
     contraction: float | None = None  # the newest segment's depth over the oldest's
     rs_leading: bool | None = None  # None = no 13-week verdict
     rs_vs: tuple[str, ...] = ()  # the benchmarks the relative strength is at a 13-week high against
+    above_200d: bool | None = (
+        None  # close against the 200-day average (sma_position's pct_vs_slow); None = no reading
+    )
 
 
 def _metric(sig: DisplaySignal | None, key: str) -> float | None:
@@ -306,7 +311,11 @@ def reading_of(signals: Mapping[str, DisplaySignal | None], flag: str | None = N
         events = {e.key for e in rs.events}
         rs_vs = tuple(s for s in relative_strength.BENCHMARKS if f"rs_high_{s.lower()}" in events)
         rs_leading = rs.headline is not None and rs.headline.key == "leading"
+    slow = _metric(
+        signals.get(sma.MEMBER_NAME), "pct_vs_slow"
+    )  # the Theme Leaderboard's rule, copied
     return Reading(
+        above_200d=None if slow is None else slow > 0,
         buys_30d=buys if ins is not None else None,
         buyers_30d=buyers,
         coiling=(
@@ -392,6 +401,11 @@ class Quiet:
     leading_no_reading: int
     breadth: Breadth | None
     lit: bool
+    above_200: int = (
+        0  # read names above their 200-day average (operator decision 2026-11-04; display only)
+    )
+    n_200: int = 0  # read names with a 200-day reading
+    no_200: int = 0  # read names with none: counted apart, never as below the line
 
 
 def quiet_of(
@@ -408,13 +422,18 @@ def quiet_of(
     insider: list[InsiderName] = []
     coiling: list[CoilingName] = []
     leading: list[LeadingName] = []
-    read = no_form4 = coil_none = lead_none = 0
+    read = no_form4 = coil_none = lead_none = above_200 = n_200 = no_200 = 0
     for sid, ticker in names:
         r = readings.get(sid, Reading())
         if r.flag is not None:
             flagged.append(FlaggedCompany(sid, ticker, r.flag))
             continue
         read += 1
+        if r.above_200d is None:  # no 200-day reading: counted apart, never as below the line
+            no_200 += 1
+        else:
+            n_200 += 1
+            above_200 += r.above_200d
         if r.buys_30d is None:
             no_form4 += 1
         elif r.buys_30d >= INSIDER_MIN_BUYS:
@@ -449,6 +468,9 @@ def quiet_of(
         leading=tuple(leading),
         leading_no_reading=lead_none,
         breadth=b,
+        above_200=above_200,
+        n_200=n_200,
+        no_200=no_200,
         lit=bool(insider or coiling or leading or (b is not None and b.thrust)),
     )
 

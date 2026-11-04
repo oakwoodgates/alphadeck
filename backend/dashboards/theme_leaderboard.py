@@ -46,7 +46,7 @@ from typing import Any, Literal
 from uuid import UUID
 
 from dashboards.baskets import FlaggedCompany, Membership
-from dashboards.peer_table import CapCell, metric_of
+from dashboards.market_cap import CapCell, metric_of
 from domain.call import CallCard
 from domain.enums import State
 from signals.display import insider_flow, relative_strength, sma, trailing_returns

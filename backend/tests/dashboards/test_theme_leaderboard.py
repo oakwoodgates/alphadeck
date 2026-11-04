@@ -28,7 +28,7 @@ from app.main import app
 from app.routers.dashboards import theme_leaderboard as router_mod
 from dashboards.baskets import CardsAsOf, FlaggedCompany, Membership, counted_rows
 from dashboards.cache import CACHE
-from dashboards.peer_table import CapCell
+from dashboards.market_cap import CapCell
 from dashboards.theme_leaderboard import (
     MIN_PRICED,
     NO_TAPE,

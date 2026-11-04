@@ -113,6 +113,9 @@ any score or ranking beyond sorting by what the data shows; any write.
 
 ## Choices to confirm
 
+**Confirmed by the operator, 2026-11-04:** every choice in this section, as built, including the changes marked
+"(operator decision 2026-11-04)". Nothing in it stays open.
+
 The build lists here every choice it made that this plan does not spell out, each the operator's to confirm or change.
 The first three are plan details that turned out different against the code; the build fixed them sensibly and says how.
 The page was built against fixtures and a two-company DB test; the measurements on real data are choice 18.
@@ -191,3 +194,11 @@ The page was built against fixtures and a two-company DB test; the measurements 
     pill's hover title carries the whole "Open <card> · <links>" line. The pills wrap as pills inside the cell, the column
     has a minimum width (240 px; 200 px on a phone), and the table scrolls sideways with the Company column pinned, as
     before. The pill's text content is unchanged ("Grid · Turbines, Cables"), so a screen reader hears the same line.
+20. **The catalyst column is read live (operator decision 2026-11-04).** A card's catalysts are written without a
+    roster snapshot, so the cache's generation does not move on an edit. The cache now holds the heavy read
+    (`read_inputs`, keyed by the clock alone: the origin left the key) with an empty catalyst list; every request reads
+    the counted cards' dated catalysts (`read_live_catalysts`, `thesis_repo.entries_for`) and builds the table from
+    that, so a catalyst edited at noon is in the "next catalyst" column at once. The origin, the sort and the wire
+    are unchanged.
+
+**Flagged-name note wording (operator decision 2026-11-04).** The shared `FlaggedNote` hover used to say a flagged name is "left out of every number on this page", which overstates on a page that keeps the row. This page now passes its own rule (`flaggedRule(...)`): both tape cells read "flagged" with no number; the row stays. Pages whose rule really is "left out of every number" (Cross Radar, Landing, Leaders, Market Map, Rotation Map) keep the default text.

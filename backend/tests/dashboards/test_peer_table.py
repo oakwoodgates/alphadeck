@@ -19,14 +19,13 @@ from app.main import app
 from app.routers.dashboards import peer_table as router_mod
 from dashboards.baskets import Membership
 from dashboards.cache import CACHE
+from dashboards.market_cap import CompanyReads, cap_cell
 from dashboards.peer_table import (
     COLUMNS,
     CardRef,
-    CompanyReads,
     Identity,
     PeerInputs,
     ScopeBase,
-    cap_cell,
     company_row,
     coverage,
     group_stats,

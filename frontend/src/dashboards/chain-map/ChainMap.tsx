@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 
 import { contextRoleTag } from "../../workbench/format";
-import { FlaggedNote } from "../FlaggedNote";
+import { FlaggedNote, flaggedRule } from "../FlaggedNote";
 import type { DashboardProps } from "../registry";
 import "./chain-map.css";
 import {
@@ -429,7 +429,7 @@ export default function ChainMap({ asof, onSelectThesis }: DashboardProps) {
               Today's roster stands in for this card: rosters are point-in-time only from {fmtDay(ROSTER_PIT_FROM)}.
             </div>
           )}
-          <FlaggedNote flagged={data.flagged} />
+          <FlaggedNote flagged={data.flagged} title={flaggedRule("their 50-day side is not read. They stay on the map, grayed; their business type and filing age still show.")} />
           <div className="dash-note cm-legend">
             On each name: its business type, a mark for the 50-day average (▲ above, ▼ below, – at it) and the days
             since its newest filing (— = none stored in the last year). A name drawn gray has a

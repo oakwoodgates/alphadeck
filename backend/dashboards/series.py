@@ -23,9 +23,10 @@ PURE: no reads, no clock; the callers hand in the point-in-time bars (``PointInT
 
 from __future__ import annotations
 
+from bisect import bisect_left, bisect_right
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from typing import Literal
 
 # a year of trading sessions (daily returns): the Cockpit's own 1Y window
@@ -110,3 +111,86 @@ def line_start(ch: Chain | None) -> int | None:
         return None
     first = next((t for t, k in enumerate(ch.contributors) if k > 0), None)
     return None if first is None else first - 1
+
+
+# --- the since-return of a name against the benchmark (built with the Trigger Log, shared since the Daily Digest
+# and the Insider Tracker) -----------------------------------------------------------------------------------
+
+BENCHMARK = "IWM"  # the comparison and the session calendar
+SinceStatus = Literal["priced", "unpriced", "flagged"]
+
+
+@dataclass(frozen=True)
+class Series:
+    """A company's positive closes, by date ascending, with the two lookups the entry rule needs."""
+
+    dates: tuple[date, ...]
+    closes: tuple[float, ...]
+
+    @classmethod
+    def of(cls, closes: Mapping[date, float]) -> Series:
+        """A non-positive close is not a bar (the shared line math's rule, ``series.aligned``)."""
+        pairs = sorted((d, c) for d, c in closes.items() if c is not None and c > 0)
+        return cls(tuple(d for d, _ in pairs), tuple(c for _, c in pairs))
+
+    def on_or_after(self, d: date) -> tuple[date, float] | None:
+        i = bisect_left(self.dates, d)
+        return (self.dates[i], self.closes[i]) if i < len(self.dates) else None
+
+    def on_or_before(self, d: date) -> tuple[date, float] | None:
+        i = bisect_right(self.dates, d) - 1
+        return (self.dates[i], self.closes[i]) if i >= 0 else None
+
+    def on(self, d: date) -> float | None:
+        """The close dated exactly ``d`` (``None`` = no bar that day)."""
+        i = bisect_left(self.dates, d)
+        return self.closes[i] if i < len(self.dates) and self.dates[i] == d else None
+
+
+@dataclass(frozen=True)
+class SinceMove:
+    """The name's as-traded return from the entry bar to the end bar, with IWM on the same two dates. ``status``
+    ``priced`` = both bars exist; ``unpriced`` = no bar from the recorded night to the as-of; ``flagged`` = the
+    name's price history is on the flagged-price list (``reason``), never priced. ``bench_ret`` is ``None``
+    when IWM has no bar on one of those two dates."""
+
+    status: SinceStatus
+    reason: str | None = None
+    entry_date: date | None = None
+    end_date: date | None = None
+    ret: float | None = None
+    bench_ret: float | None = None
+
+
+def sessions_since(sessions: Sequence[date], night: date, asof: date) -> int | None:
+    """The sessions between the first one on or after ``night`` (the entry bar's) and the last one on or
+    before ``asof``, on the shared session calendar: the number of daily steps the since-return spans. ``None``
+    = no session in ``[night, asof]``."""
+    first = bisect_left(sessions, night)
+    last = bisect_right(sessions, asof) - 1
+    if first >= len(sessions) or last < first:
+        return None
+    return last - first
+
+
+def since_move(own: Series | None, bench: Series, night: date, asof: date) -> SinceMove:
+    """The since-return of one name over the span from its first close on or after ``night`` to its last close
+    on or before ``asof``; IWM's closes on those same two dates (``None`` when IWM has no bar on either, never
+    a different span)."""
+    start = own.on_or_after(night) if own is not None else None
+    end = own.on_or_before(asof) if own is not None else None
+    if start is None or end is None or start[0] > end[0]:
+        return SinceMove("unpriced")
+    b0, b1 = bench.on(start[0]), bench.on(end[0])
+    return SinceMove(
+        "priced",
+        entry_date=start[0],
+        end_date=end[0],
+        ret=end[1] / start[1] - 1.0,
+        bench_ret=b1 / b0 - 1.0 if b0 is not None and b1 is not None else None,
+    )
+
+
+def week_start(d: date) -> date:
+    """The Monday of ``d``'s week: the page's default grouping key."""
+    return d - timedelta(days=d.weekday())

@@ -28,8 +28,8 @@ The rules, in one place:
   night; one that dropped out and came back starts again. The night is the RECORDED night (the public clock: when the
   operator could first have seen the name), never a trigger's fire date; a reconstructed night counts and is marked.
 - **Sessions.** ``sessions_since`` = the sessions strictly after the arm night through the as-of, on the benchmark's
-  bar calendar (``series.session_calendar``). ``sessions_left`` = the Mon-Fri sessions strictly after the as-of through
-  ``arm_until`` (the call path's own count: ``entry_window_closing`` is computed the same way, and a future session
+  bar calendar (``series.session_calendar``). ``sessions_left`` = the sessions (Mon-Fri minus the NYSE's market holidays) strictly after the as-of
+  through ``arm_until`` (the call path's own count: ``entry_window_closing`` is computed the same way, and a future session
   has no bar yet); ``closed_ago`` = the calendar sessions strictly after ``arm_until`` through the as-of.
 - **Days to the exit-by** (``days_to_exit``) is a COUNTDOWN, so it counts calendar days from the countdown origin (F2,
   ``domain.market_time.countdown_origin``): the action day on a live view, the as-of on a past one. ``assemble`` takes
@@ -55,7 +55,7 @@ from typing import Literal
 from uuid import UUID
 
 from dashboards.baskets import FlaggedCompany
-from dashboards.peer_table import CapCell, metric_of
+from dashboards.market_cap import CapCell, metric_of
 from domain.call import CallCard, MemberCall, TriggerRef
 from domain.config import DEFAULT_CONFIG
 from domain.enums import Grade, Kind, State, Verdict

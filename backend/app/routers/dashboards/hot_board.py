@@ -57,7 +57,7 @@ from dashboards.hot_board import (
     earliest_arm_night,
     read_candidates,
 )
-from dashboards.peer_table import CompanyReads, Gap, cap_cell
+from dashboards.market_cap import CompanyReads, Gap, cap_cell
 from dashboards.series import session_calendar
 from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard

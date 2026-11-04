@@ -47,7 +47,7 @@ tier. Display only: it never feeds a call, never writes, never calls the LLM, an
   bar, plus **"to exit_by"** (the Scoreboard's horizon: the last bar on or before `exit_by`). A horizon's close is
   the as-traded close of the Nth bar after the entry bar; if the security's bars end before the Nth bar (a
   delisting, a halt, a stale tape), that horizon reads "path ended" and is not counted (listed on the work line).
-  A name on the flagged-price list (`baskets.price_flags`, rule 5) is left out of every cell and counted.
+  A name on the flagged-price list (`baskets.price_flags`, rule 5) is left out of every cell and counted, except a company that ended with a stopped feed as its only flag (see "Which episodes").
 - **Return** = horizon close / entry close − 1, as traded (no dividends).
 - **Comparison** = the same span on **IWM** (the default: most armed names are small) and on **SPY**, each
   benchmark's close on the entry bar's date and the horizon bar's date (`securities/benchmarks.py`, the Relative
@@ -101,7 +101,7 @@ on the page judges a result: the wording is "median excess vs IWM over 20 sessio
 ## The quiet "show the work" line
 
 The as-of; the clock; the edition and the honesty policies in force; episodes total / matured per horizon /
-maturing; unpinned caps; names left out for a flagged price history (opens to the tickers), censored starts, ingest
+maturing; unpinned caps; names left out for a flagged price history, a stopped feed on a live card, or no longer priced (each counted apart, opens to the tickers), episodes counted although the company ended, censored starts, ingest
 flagged, paths ended; the entry rule in force; the comparison in force; the cache state and `compute_ms`. Below it,
 fixed: "the entry is a close, not a fill" (the default is the next session's close); "cap is approximate and measured
 the session before the arm date"; "horizons are sessions of the name's own bars"; "as-traded closes, no dividends";
@@ -145,7 +145,7 @@ a new run or a basket edit (rule 7).
   arm night's close), which no one could have taken but which reconciles with its `forward_return`. Stated on the
   page as a fixed note and in the "Entry:" work line.
 - **Cap and liquidity are approximate** and measured the session before the arm date.
-- **As-traded closes, no dividends; no survivorship fix:** a delisted name's path ends and is counted as such.
+- **As-traded closes, no dividends.** A delisted name's path ends and is counted as such (a stopped feed of a company that ended counts until it stops, then reads path ended); a stopped feed on a company that still trades is left out and named, never read as ended.
 - **No null comparison here.** The timing null and the name null live in the backtest's pooled report
   (`backtest/nulls.py`), vs the thesis basket; this page compares to IWM and SPY only.
 
@@ -155,6 +155,9 @@ Any "works" verdict or score; any cross-tabulation of two slice dimensions; posi
 (#4, #5); nulls; options or intraday data; any change to the Scoreboard or the editions; any write.
 
 ## Choices to confirm
+
+**Confirmed by the operator, 2026-11-04:** every choice in this section, as built, including the changes marked
+"(operator decision 2026-11-04)". Nothing in it stays open.
 
 The build lists here every choice it made that this plan does not spell out, each the operator's to confirm or
 change. Pre-decided here for the operator's review: the Scoreboard's episodes and honesty filters as the events;
@@ -212,13 +215,26 @@ dollars is "under $1M" (a real measurement); under 20 volume-bearing bars is unp
 - Archived cards are included (the Scoreboard's default). The route takes the Scoreboard's `edition`,
   `include_annotated` and `include_late` and resolves the edition with the Scoreboard's own function (404 on an
   unknown one). The page has a selector for the edition only (below); its first work line states the reading in force.
-- An episode left out is counted once, in this order: flagged price history, censored start, ingest flag. A left-out
+- An episode left out is counted once, in this order: flagged price history (or a stopped feed, below), censored
+  start, ingest flag. A left-out
   row carries identity only (nothing is read for it).
-- **A stopped price feed is a flagged price history** by the shared rule (`baskets.price_flags` includes
-  `price_feed_stopped`, which reaches every price cell). So at the live as-of a delisted name, or one whose vendor
-  symbol went quiet, is "left out: flagged" with its reason named, not "path ended". Either way no cell counts it,
-  which is the plan's "no survivorship fix" limit; if the operator wants stopped-feed names to read path ended
-  instead (and stay visible in the denominators), it is one decision in `read_record`.
+- **A stopped price feed (operator decision 2026-11-04, revised the same day).** A `price_feed_stopped` flag
+  (`baskets.price_flags` reaches every price cell with it) used to leave the episode out, which is a survivorship
+  fix not made. MEASURED on prod the same night: 152 names carried it; 150 were on no live card any more (the roster
+  cleanup stopped the nightly fetching their prices; the companies still trade) and 2 were still on a card with a
+  feed that really stopped. So "stopped" alone does not mean "ended", and the rule is:
+  1. A name whose ONLY price flag is `price_feed_stopped` AND whose company really ENDED is COUNTED: its bars are read
+     up to where they stop, a horizon whose bar exists is measured as usual, a horizon past the stop reads "path
+     ended" (the page's existing rule: the market has had the sessions and the tape is more than `stale_days` behind),
+     and the episode stays in every denominator. "Ended" = the nightly's closed classifier
+     (`tape_health.classify_stop`, carried on the run artifact as the data flags read it) holds a `closed_at` on or
+     before the as-of for THIS stop (an SEC delisting form). Nothing else ends a company: the security master's `status` is a
+     listing-presence heuristic, never a delisting verdict (and NULL on many rows); a company with no nightly reading (off every live card) cannot be told, so it stays "no longer priced".
+     The row is tagged "feed ended" (hover names the flag) and the work line counts it.
+  2. Every other stopped feed stays LEFT OUT, with an honest reason, counted apart: `no longer priced: off every live
+     card since <last bar>` (the company is on no live card; we stopped looking, the path did not end) and
+     `price feed stopped` (still on a card: a data fault).
+  3. Any other price flag, alone or beside a stopped feed, leaves the episode out as ever (`flagged`).
 - Reads use the default tenant, like every dashboard (auth is deferred).
 
 **The table and the page.**

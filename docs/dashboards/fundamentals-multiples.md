@@ -109,6 +109,9 @@ Other metrics (EPS, margins, cash flow); any ranking; estimates or consensus; an
 
 ## Choices to confirm
 
+**Confirmed by the operator, 2026-11-04:** every choice in this section, as built, including the changes marked
+"(operator decision 2026-11-04)". Nothing in it stays open.
+
 The build lists here every choice it made that this plan does not spell out, each the operator's to confirm or change.
 Pre-decided here for the operator's review: twelve period ends; the calendar-quarter axis; the link median drawn only
 with two or more contributors; Context and Bench never in a median.

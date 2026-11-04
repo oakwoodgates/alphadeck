@@ -13,7 +13,7 @@ no LLM, no ``call_for_thesis``.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import date, datetime, timedelta
 from typing import Any, Literal
 from uuid import UUID
@@ -25,14 +25,18 @@ from pydantic import BaseModel, ConfigDict
 
 from app.deps import get_conn
 from dashboards.baskets import cards_as_of, per_company, price_flags
+from dashboards.baskets import with_live_entries as cards_with_live_entries
 from dashboards.cache import cached
 from dashboards.filings import FilingKind, FoldGroup, read_filing_rows
 from dashboards.ticker_lookup import (
     READ_DAYS,
     SLUG,
     TRIGGER_DAYS,
+    CardCatalyst,
     CardMeta,
     DecisionRaw,
+    DecisionRow,
+    Excluded,
     IdentityInputs,
     Lookup,
     RecordedNight,
@@ -40,12 +44,14 @@ from dashboards.ticker_lookup import (
     card_catalysts,
     cards_section,
     decision_rows,
+    excluded_of,
     identity_of,
     in_effect,
     lookup,
     sits_on,
     tape_of,
     trigger_log,
+    with_live_entries,
 )
 from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard
@@ -262,11 +268,12 @@ def read_lookup(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
-    origin: date | None = None,
 ) -> Lookup:
     """The heavy read the cache holds. ``known_at`` + ``clock`` are the request's ``serve_view(asof)`` pair,
-    threaded into the counted cards' rosters, the price flags, the point-in-time view, the filings and the
-    decision log alike. ``origin`` is where the card catalysts' "passed" counts from (F2); the as-of when none.
+    threaded into the counted cards' rosters, the price flags, the point-in-time view and the filings alike.
+    The cards that exclude the company, the cards' catalysts and the decision log are NOT in it: they are
+    written without moving the cache's generation (no roster snapshot), so ``read_live_entries`` reads them on
+    every request and ``with_live_entries`` lays them in (operator decision 2026-11-04). They ride empty here.
     """
     me = read_identity(conn, security_id)
     if me is None:
@@ -284,14 +291,17 @@ def read_lookup(
     window_start = asof - timedelta(days=TRIGGER_DAYS)
     nights, prior = read_nights(conn, ids, window_start, asof)
     effect = {tid: in_effect(nights.get(tid, ()), prior.get(tid)) for tid in ids}
-    cards = cards_section(
-        security_id,
-        counted.cards,
-        effect,
-        read_archived(conn, security_id, asof, known_at),
-        live_cards=counted.live_count,
-        not_yet_created=counted.not_yet_created,
-        roster_fallback=counted.roster_fallback,
+    cards = replace(
+        cards_section(
+            security_id,
+            counted.cards,
+            effect,
+            read_archived(conn, security_id, asof, known_at),
+            live_cards=counted.live_count,
+            not_yet_created=counted.not_yet_created,
+            roster_fallback=counted.roster_fallback,
+        ),
+        excluded=(),  # read live (see the docstring)
     )
     metas = [
         CardMeta(
@@ -323,19 +333,43 @@ def read_lookup(
         days=READ_DAYS,
         tickers={security_id: me.ticker} if me.ticker else None,
     ).get(security_id, ())
-    decisions = decision_rows(
-        read_decisions(conn, [t.id for t in counted.cards], security_id, asof, known_at),
-        security_id,
-        asof,
-        {t.id: t.name for t in counted.cards},
-    )
     return lookup(
         identity_of(me, cap, tape, flag),
         cards,
         triggers,
         tape,
         filing_rows,
-        card_catalysts(counted.cards, security_id, origin or asof),
+        (),
+        (),
+    )
+
+
+def read_live_entries(
+    conn: psycopg.Connection,
+    security_id: UUID,
+    asof: date,
+    known_at: datetime | None,
+    clock: Literal["record", "public"],
+    origin: date | None,
+) -> tuple[list[Excluded], tuple[CardCatalyst, ...], list[DecisionRow]]:
+    """What is read live on every request: the counted cards that exclude the company, the catalysts of the cards
+    it counts on and the operator's decisions on it. The counted cards (names, rosters) come from the shared
+    cached read (a roster edit moves its generation); their entries and the decision log are read now.
+    ``known_at`` gates the decisions exactly as before (a fill logged after a past view's instant is not there),
+    and ``origin`` is where the catalysts' "passed" counts from (F2); the as-of when none."""
+    counted = cached(
+        conn, SLUG, ("cards", clock), asof, lambda: cards_as_of(conn, asof, known_at)
+    ).value
+    cards = cards_with_live_entries(conn, counted.cards)
+    decisions = decision_rows(
+        read_decisions(conn, [t.id for t in cards], security_id, asof, known_at),
+        security_id,
+        asof,
+        {t.id: t.name for t in cards},
+    )
+    return (
+        excluded_of(cards, security_id),
+        card_catalysts(cards, security_id, origin or asof),
         decisions,
     )
 
@@ -714,18 +748,23 @@ def ticker_lookup(
         raise HTTPException(status_code=404, detail="no company with this id")
     # F2: a card catalyst is "passed" when it is dated before the countdown origin (the action day when live)
     origin = countdown_origin(asof, mclock)
-    # the clock and the origin are the key: the same date read live today and on the public clock tomorrow are two
-    # reads, and the origin moves when the night does
+    # the clock is part of the key: the same date read live today and on the public clock tomorrow are two reads.
+    # The origin is not (it only moves the catalysts' passed flag, which is read live below)
     got = cached(
         conn,
         SLUG,
-        (str(security_id), clock, origin),
+        (str(security_id), clock),
         asof,
-        lambda: read_lookup(conn, security_id, asof, known_at, clock, origin),
+        lambda: read_lookup(conn, security_id, asof, known_at, clock),
     )
+    # the exclusions, card catalysts and decisions are not snapshotted: read them now, not from the cache
+    excluded, catalysts, decisions = read_live_entries(
+        conn, security_id, asof, known_at, clock, origin
+    )
+    page = with_live_entries(got.value, excluded, catalysts, decisions)
     return TickerLookupOut.model_validate(
         {
-            **asdict(got.value),
+            **asdict(page),
             "asof": asof,
             "clock": clock,
             "cache": got.status,

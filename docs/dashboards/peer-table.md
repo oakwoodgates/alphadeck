@@ -129,6 +129,9 @@ is the drill-in); any write.
 
 ## Choices to confirm
 
+**Confirmed by the operator, 2026-11-04:** every choice in this section, as built, including the changes marked
+"(operator decision 2026-11-04)". Nothing in it stays open.
+
 The build lists here every choice it made that this plan does not spell out, each the operator's to confirm or change.
 Pre-decided here for the operator's review: business type is the default scope; "All live cards" is offered with a
 cold-load note rather than withheld; medians only in group rows; the band module lives in `domain/market_cap.py`.
@@ -203,3 +206,5 @@ cold-load note rather than withheld; medians only in group rows; the band module
     off-52w-high 1,459, 50d 1,449, 200d 1,378, RVOL 1,450, ADV 1,454, vs SPY 1,420: the Workbench facts are the to-do
     list the plan expected. The cold cost is the per-company point-in-time view (ten fact lists plus six display
     members, read once each); it runs once per scope per as-of per run.
+
+**Flagged-name note wording (operator decision 2026-11-04).** The shared `FlaggedNote` hover used to say a flagged name is "left out of every number on this page", which overstates on a page that keeps the row. This page now passes its own rule (`flaggedRule(...)`): their price-derived cells (cap, 52-week high, 50d, 200d, RVOL, dollar volume, vs SPY) are blank; they stay in the table with every cell that reads no price. Pages whose rule really is "left out of every number" (Cross Radar, Landing, Leaders, Market Map, Rotation Map) keep the default text.

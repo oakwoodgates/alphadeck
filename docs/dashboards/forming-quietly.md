@@ -117,6 +117,10 @@ kind (#7); the LLM; any write.
 
 ## Choices to confirm
 
+**Confirmed by the operator, 2026-11-04:** every choice in this section, as built, including the changes marked
+"(operator decision 2026-11-04)". Still open: a past as-of sums today's SIGNAL terms (choice 5), which needs a history
+of that card setting (a backend change), so it stays open.
+
 The build lists here every choice it made that this plan does not spell out, each the operator's to confirm or
 change. Pre-decided here for the operator's review: Warming rows plus Incubating rows with a quiet signal; three
 display members only; the three-against-three closed-month slope; the cluster word at two buyers; no accent on the page.
@@ -137,6 +141,12 @@ orchestrator to measure on dev with a prod copy.
    50-day line (and its 250-calendar-day pull holds about 170 bars, fewer than a 200-day line needs); a 200-day reading
    would need a fourth display member, which the plan rules out ("three members only"). The cell reads "x of n above the
    50-day" with the thin-history names counted apart (a name with too little history is never counted as below the line).
+   **(operator decision 2026-11-04) The 200-day breadth IS built, beside the 50-day cell.** The operator lifted "three
+   members only": `sma_position` is a fourth member (`MEMBERS`), and each read name's `pct_vs_slow > 0` (the Theme
+   Leaderboard's rule, choice 3 of its plan, copied here rather than imported across dashboards) makes "x of n above the
+   200-day" (`quiet.above_200` of `quiet.n_200`). A name with no 200-day reading is counted apart (`quiet.no_200`), never
+   as below the line; a flagged name stays out, as for every reading. A display reading only: it never lights a card
+   (`lit` is unchanged). The wire gained those three counts on `FormingQuietOut`.
 3. **A flagged price history is left out of every reading, the insider one included** (the Leaders rule: the insider
    screen reads the price tape, and a scale break there changes which buys pass). The plan says "tape readings". The name is
    counted in the card's `names`, listed under the card's quiet signals and on the page's flagged note, never read.
@@ -189,3 +199,5 @@ the page's own work line on dev with a prod copy here.
 - Live as-of: 19 rows (the Warming cards and the Incubating cards lit by a quiet signal), 157 KB, cold compute
   11,997 ms (three display members over the rows' rosters plus one breadth read per row card), cache hit under 10 ms.
   Past as-of 2026-09-15 on the public clock: 4 rows, 17 KB, 1,314 ms.
+
+**Flagged-name note wording (operator decision 2026-11-04).** The shared `FlaggedNote` hover used to say a flagged name is "left out of every number on this page", which overstates on a page that keeps the row. This page now passes its own rule (`flaggedRule(...)`): left out of every tape and insider reading; still counted in their card's names and listed. Pages whose rule really is "left out of every number" (Cross Radar, Landing, Leaders, Market Map, Rotation Map) keep the default text.

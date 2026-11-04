@@ -122,6 +122,10 @@ has months); any change to discovery; any write from the page.
 
 ## Choices to confirm
 
+**Confirmed by the operator, 2026-11-04:** every choice in this section, as built, including the changes marked
+"(operator decision 2026-11-04)". Still open: a past as-of counts today's SIGNAL terms (page choice 9), which needs a
+history of that card setting (a backend change), so it stays open.
+
 The build lists here every choice it made that this plan does not spell out, each the operator's to confirm or change.
 Pre-decided here for the operator's review: SIGNAL terms only; one request per term-month; the four form groups;
 filers exact only under 100 documents; the weekly refresh of two months; the 36-month window.
@@ -231,3 +235,5 @@ each. The first two are the places the plan's wording could not be followed as w
 - The picker: 62 cards, 161 ms. One card with 12 SIGNAL terms (7 BROAD terms left out): 42 KB, cold compute 358 ms,
   cache hit under 10 ms; 35 of 36 months counted (the as-of's own month not closed), none sampled, none read early,
   last counted month 2026-09. Past as-of 2026-09-15 on the public clock: 34 months counted, last 2026-08, 1,686 ms.
+
+**Flagged-name note wording (operator decision 2026-11-04).** The shared `FlaggedNote` hover used to say a flagged name is "left out of every number on this page", which overstates on a page that keeps the row. This page now passes its own rule (`flaggedRule(...)`): left out of the price line; the term-mention counts are not price readings and do not change. Pages whose rule really is "left out of every number" (Cross Radar, Landing, Leaders, Market Map, Rotation Map) keep the default text.

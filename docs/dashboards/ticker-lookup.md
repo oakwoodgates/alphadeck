@@ -86,9 +86,17 @@ reading; filings in the window; data flags; the cache state and `compute_ms`.
 
 ## Cache
 
-`dashboards.cache.cached(conn, "ticker-lookup", (str(security_id), clock), asof, ...)` holds the whole payload for
+`dashboards.cache.cached(conn, "ticker-lookup", (str(security_id), clock), asof, ...)` holds the heavy part of the page for
 one company; the filings window toggle is client side (the read carries 365 days). The search suggestions are not
 cached (small, already served). The cache clears on a new run or a basket edit (rule 7).
+
+**Decisions and card entries are read live (operator decision 2026-11-04).** The cache holds only the heavy
+read, now keyed `(str(security_id), clock)` (the countdown origin left the key). The operator's decisions on the
+company, the cards' catalysts and the cards that exclude it are written without moving the cache's generation (no
+run, no roster snapshot), so `read_live_entries` reads them on every request (`entries_for`: three SELECTs for the
+counted cards, plus the decision SELECT) and `with_live_entries` lays them into the cached page before it is
+served. The past view's decision gate (`recorded_at <= known_at`), the `passed` flag's origin (F2), the sort orders
+and the wire are unchanged.
 
 ## Backend and frontend
 
@@ -125,6 +133,11 @@ Any score or ranking of the company; a company-only Cockpit route (the Cockpit s
 Table); news; options or intraday data; any write.
 
 ## Choices to confirm
+
+**Confirmed by the operator, 2026-11-04:** every choice in this section, as built, including the changes marked
+"(operator decision 2026-11-04)". Still open: at a past as-of the card catalysts and exclusions are today's, and a
+trigger's key is read with today's `DEFAULT_CONFIG`; each needs a history of that card setting (a backend change), so
+it stays open.
 
 The build lists here every choice it made that this plan does not spell out, each the operator's to confirm or
 change. Pre-decided here for the operator's review: the Workbench search as the suggestion source; exact ticker on

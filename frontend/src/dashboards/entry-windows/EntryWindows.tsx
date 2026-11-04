@@ -1,7 +1,7 @@
 import { Fragment, useMemo, useState, type KeyboardEvent, type MouseEvent } from "react";
 
 import { STATE_LABEL } from "../../util/format";
-import { FlaggedNote } from "../FlaggedNote";
+import { FlaggedNote, flaggedRule } from "../FlaggedNote";
 import type { DashboardProps } from "../registry";
 import "./entry-windows.css";
 import type {
@@ -497,7 +497,7 @@ function Page({
                 <th className="ew-th-fig" title="IWM sessions after the arm night through the as-of">
                   Sessions in
                 </th>
-                <th className="ew-th-fig" title="The sessions after the as-of through arm_until (Mon-Fri days)">
+                <th className="ew-th-fig" title="The sessions after the as-of through arm_until (Mon-Fri days; a market holiday is not a session)">
                   Entry window
                 </th>
                 <th className="ew-th-fig" title="Calendar days from the as-of to exit_by">
@@ -540,7 +540,7 @@ function Page({
       <div className="dash-note ew-work" data-testid="ew-work">
         {workLine(data, showManaging)}
       </div>
-      <FlaggedNote flagged={data.flagged} />
+      <FlaggedNote flagged={data.flagged} title={flaggedRule("their bars are never read: they are unpriced, counted in each row's denominator note, and left out of the median, the line and the calendar. They keep their place.")} />
       <div className="dash-note ew-legend">
         Both bars start at the arm night: the upper is the entry window (to arm_until), the lower the hold horizon (to
         exit_by). The blue line is the as-of. A dot is a dated catalyst of the card inside the window, hollow once its

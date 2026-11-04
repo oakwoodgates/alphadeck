@@ -281,7 +281,7 @@ for the orchestrator to measure on dev with a prod copy.
     of n, the cut and the figures, and is listed once under the page's flagged note.
 15. **Marks.** A card whose row in effect carries `ingest_fresh = false` reads "ingest not fresh" and a reconstructed row "R",
     on its section-1 card header and its position line (not on every line, a gray tag by the name).
-16. **Cache and warm-up.** The whole payload is one cache entry per (clock, as-of); `("daily-digest", {})` sits after Insider
+16. **Cache and warm-up.** The heavy inputs are one cache entry per (clock, origin, as-of) (see 18); `("daily-digest", {})` sits after Insider
     Buying in the warm-up's `PAGES` (its cold read is mostly the same Form 4 read).
 17. **The fold (added after the dev measurement, client side only).** Per card in section 1, the lines whose change is a
     trigger re-dated, a trigger new, a trigger gone, a new risk signal or a name new on watch fold into ONE gray count line
@@ -295,6 +295,13 @@ for the orchestrator to measure on dev with a prod copy.
     section header counts what is folded: "58 cards · 405 lines · 368 folded into counts" (the figure is a count of the
     folded kinds above; the MEASURED section's 249 is the re-dates and new risk signals alone). The payload, the router, the
     cache and the backend tests are unchanged.
+18. **Positions, kill criteria and the week's catalysts are read live (operator decision 2026-11-04).** A logged
+    decision, a kill-criteria edit or a catalyst edit moves none of the cache's generation (no run, no roster
+    snapshot). The cache now holds the heavy INPUTS (`read_digest`, key `(clock, origin)`), not the built page;
+    every request runs `live_digest_inputs` (the counted cards' catalysts and kill criteria from `entries_for`, the
+    Managing cards' positions from the decision log at the view's instant) and then the pure compute. A name newly
+    held that the cached read held nobody on gets its flags, closes and splits read then (a few companies); a past
+    view still counts a fill only once logged by its instant.
 
 ### Cost (PROPOSED, not measured)
 
@@ -329,3 +336,5 @@ build ran on neutral fixtures only and has measured nothing.
   the clocks stay lines. The server payload is unchanged (nothing is dropped), so the cache and the numbers above hold. MEASURED after the
   fold on the same copy: 58 fold lines, 45 lines shown of 405, the 28 accent lines unchanged, the page 5,858 px tall
   at 1,280 px wide (33,750 px before).
+
+**Flagged-name note wording (operator decision 2026-11-04).** The shared `FlaggedNote` hover used to say a flagged name is "left out of every number on this page", which overstates on a page that keeps the row. This page now passes its own rule (`flaggedRule(...)`): their price cells read the flag's reason; they keep their lines. Pages whose rule really is "left out of every number" (Cross Radar, Landing, Leaders, Market Map, Rotation Map) keep the default text.

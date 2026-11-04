@@ -1,6 +1,6 @@
 import { memo, useCallback, useMemo, useState } from "react";
 
-import { FlaggedNote } from "../FlaggedNote";
+import { FlaggedNote, flaggedRule } from "../FlaggedNote";
 import type { DashboardProps } from "../registry";
 import "./theme-leaderboard.css";
 import {
@@ -282,7 +282,7 @@ export default function ThemeLeaderboard({ asof, onSelectThesis }: DashboardProp
           {line}
         </div>
       ))}
-      <FlaggedNote flagged={data.flagged} />
+      <FlaggedNote flagged={data.flagged} title={flaggedRule("they are left out of every tape reading on this page (tape, 7D, breadth, relative strength, cap). Their Form 4 count stays.")} />
       <ul className="dash-note tl-limits">
         {LIMITS.map((l) => (
           <li key={l}>{l}</li>

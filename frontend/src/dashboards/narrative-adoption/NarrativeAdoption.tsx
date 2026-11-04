@@ -1,6 +1,6 @@
 import { useMemo, useState, type KeyboardEvent } from "react";
 
-import { FlaggedNote } from "../FlaggedNote";
+import { FlaggedNote, flaggedRule } from "../FlaggedNote";
 import type { DashboardProps } from "../registry";
 import "./narrative-adoption.css";
 import {
@@ -348,7 +348,7 @@ function Curve({ data }: { data: AdoptionOut }) {
             {data.overlay.card_reason && ` No card line: ${data.overlay.card_reason}.`}
             {data.overlay.spy_reason && ` No SPY line: ${data.overlay.spy_reason}.`}
           </p>
-          <FlaggedNote flagged={data.overlay.flagged} />
+          <FlaggedNote flagged={data.overlay.flagged} title={flaggedRule("they are left out of the price line. The term-mention counts are not price readings and do not change.")} />
         </section>
       </div>
     </>

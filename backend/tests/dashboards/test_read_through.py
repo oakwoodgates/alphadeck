@@ -644,14 +644,13 @@ def test_the_default_order_is_newest_last_filing_first_then_no_filing_a_to_z_the
 
 @pytest.fixture
 def stub_client(monkeypatch):
-    seen: dict = {"reads": 0}
+    seen: dict = {"reads": 0, "live_reads": 0}
 
     def fake_read(conn, asof, known_at, clock):
         seen["reads"] += 1
         seen["view"] = (asof, known_at, clock)
         return inputs(
             ROSTER,
-            catalysts=(cat(T1, "Grid", "Q3 earnings", date(2026, 11, 12), "earnings"),),
             identity={SX: Identity("Xylo Corp", "biotech_pharma")},
             filings={
                 SX: [
@@ -670,8 +669,13 @@ def stub_client(monkeypatch):
             flagged={SY: MIXED},
         )
 
+    def fake_live(conn, cards):
+        seen["live_reads"] += 1
+        return (cat(T1, "Grid", "Q3 earnings", date(2026, 11, 12), "earnings"),)
+
     CACHE.clear()
     monkeypatch.setattr(router_mod, "read_inputs", fake_read)
+    monkeypatch.setattr(router_mod, "read_live_catalysts", fake_live)
     monkeypatch.setattr(CACHE, "_token_fn", lambda conn: "gen-1")
     app.dependency_overrides[get_conn] = lambda: object()
     yield TestClient(app), seen
@@ -687,6 +691,7 @@ def test_the_router_serves_the_whole_table_off_one_cached_read_on_the_requests_v
     assert asof == ASOF and clock == "public" and known_at is not None
     again = client.get("/dashboards/read-through", params={"asof": "2026-10-28"}).json()
     assert again["cache"] == "hit" and seen["reads"] == 1
+    assert seen["live_reads"] == 2  # the catalysts are read on EVERY request, cache hit or not
     # a live as-of is the unchanged live read, and its own cached read
     client.get("/dashboards/read-through", params={"asof": market_today().isoformat()})
     assert seen["view"][1:] == (None, "record") and seen["reads"] == 2
@@ -979,3 +984,47 @@ def test_a_role_set_after_the_asof_does_not_show_and_a_filing_after_it_never_rea
     assert live_a["tape"]["gap"] == "flagged" and live_a["tape"]["reason"] == "price feed stopped"
     assert live_a["tape"]["vs_spy_7d"] is None and live_a["tape"]["ret_7d"] is None
     assert sorted(f["ticker"] for f in live["flagged"]) == ["RTA", "RTB"]
+
+
+def test_db_a_catalyst_edit_shows_at_once_while_the_heavy_read_stays_cached(db):
+    """Operator decision 2026-11-04: replacing a card's catalysts writes no roster snapshot and moves none of the
+    cache's generation, so the nearest-catalyst column is built from a live read on every request and only the
+    heavy read is a cache hit."""
+    rta = _security(db, "RTA", CIK_A, name="Acme Therapeutics")
+    card = _card(
+        db,
+        "Read-Through A",
+        [
+            BasketMember(
+                ticker="RTA",
+                role="the name",
+                security_id=rta,
+                segment="Core",
+                context_role=ContextRole.PAYER,
+            )
+        ],
+        backdate_snapshot=True,
+    )
+    url = "/dashboards/read-through"
+    CACHE.clear()
+    app.dependency_overrides[get_conn] = lambda: db
+    try:
+        client = TestClient(app)
+        first = client.get(url, params={"asof": PAST.isoformat()}).json()
+        assert first["cache"] == "computed"
+        assert first["rows"][0]["next_catalyst"]["label"] == "Readout"
+
+        thesis_repo.set_catalysts(
+            db,
+            card.id,
+            [Catalyst(id=uuid.uuid4(), label="Sooner", when_date=date(2026, 6, 8))],
+            tenant_id=DEFAULT_TENANT_ID,
+        )
+        db.commit()
+        again = client.get(url, params={"asof": PAST.isoformat()}).json()
+    finally:
+        app.dependency_overrides.clear()
+        CACHE.clear()
+    assert again["cache"] == "hit"  # the heavy read was not redone
+    nxt = again["rows"][0]["next_catalyst"]
+    assert (nxt["label"], nxt["days"]) == ("Sooner", 3)

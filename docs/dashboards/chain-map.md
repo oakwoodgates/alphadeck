@@ -117,6 +117,9 @@ card lineage; any Cockpit change; any write.
 
 ## Choices to confirm
 
+**Confirmed by the operator, 2026-11-04:** every choice in this section, as built, including the changes marked
+"(operator decision 2026-11-04)". Nothing in it stays open.
+
 The build lists here every choice it made that this plan does not spell out, each the operator's to confirm or change.
 Pre-decided here for the operator's review: the two-rail split (payer and financier left; direct read, counter-case,
 participant and benchmark right), the dashed counter-case edge, equal node sizes, and the untagged Context and Bench
@@ -198,3 +201,5 @@ rest are choices the plan left open.
 24. **Not verified in the live app:** the picture was checked by rendering the component's markup (from the test
     renderer) with the real stylesheet in the Browser pane at a desktop and a phone width, on hand-built payloads. It has
     not been seen on a live card in the running app.
+
+**Flagged-name note wording (operator decision 2026-11-04).** The shared `FlaggedNote` hover used to say a flagged name is "left out of every number on this page", which overstates on a page that keeps the row. This page now passes its own rule (`flaggedRule(...)`): their 50-day side is not read; they stay on the map, grayed, with business type and filing age. Pages whose rule really is "left out of every number" (Cross Radar, Landing, Leaders, Market Map, Rotation Map) keep the default text.

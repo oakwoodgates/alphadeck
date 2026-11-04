@@ -9,7 +9,13 @@ import psycopg
 from psycopg.types.json import Json
 
 from domain.thesis import BasketMember, Catalyst, ExcludedName, KillCriterion, TermSetEntry, Thesis
-from repositories.mappers import _row_to_basket_member, row_to_thesis, thesis_to_row
+from repositories.mappers import (
+    _row_to_basket_member,
+    _row_to_catalyst,
+    _row_to_kill,
+    row_to_thesis,
+    thesis_to_row,
+)
 
 
 def get(conn: psycopg.Connection, thesis_id: UUID) -> Thesis | None:
@@ -283,6 +289,49 @@ def set_exclusions(
                    ON CONFLICT (thesis_id, security_id) DO NOTHING""",
                 (tenant_id, thesis_id, e.security_id, e.ticker, e.reason),
             )
+
+
+def entries_for(
+    conn: psycopg.Connection, thesis_ids: Iterable[UUID]
+) -> dict[UUID, tuple[list[Catalyst], list[KillCriterion], list[ExcludedName]]]:
+    """``thesis_id -> (catalysts, kill criteria, exclusions)`` as they stand NOW, in the order ``get`` loads them
+    (three SELECTs for any number of cards; a card with none is present with empty lists, an unknown id is
+    absent). Read-only. These lists are written by ``set_catalysts`` / ``set_kill_criteria`` /
+    ``set_exclusions``, none of which writes a ``basket_snapshot``, so a reader that caches a roster by the
+    snapshot generation reads them here, live, instead of from the cached ``Thesis``."""
+    ids = list(thesis_ids)
+    if not ids:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute("SELECT id FROM thesis WHERE id = ANY(%s)", (ids,))
+        known = [r["id"] for r in cur.fetchall()]
+        cur.execute(
+            "SELECT * FROM catalyst WHERE thesis_id = ANY(%s) ORDER BY thesis_id, ordinal", (ids,)
+        )
+        cats = cur.fetchall()
+        cur.execute(
+            "SELECT * FROM kill_criterion WHERE thesis_id = ANY(%s) ORDER BY thesis_id, ordinal",
+            (ids,),
+        )
+        kills = cur.fetchall()
+        cur.execute(
+            "SELECT * FROM thesis_exclusion WHERE thesis_id = ANY(%s) "
+            "ORDER BY thesis_id, recorded_at, id",
+            (ids,),
+        )
+        excl = cur.fetchall()
+    out: dict[UUID, tuple[list[Catalyst], list[KillCriterion], list[ExcludedName]]] = {
+        i: ([], [], []) for i in known
+    }
+    for c in cats:
+        out[c["thesis_id"]][0].append(_row_to_catalyst(c))
+    for k in kills:
+        out[k["thesis_id"]][1].append(_row_to_kill(k))
+    for e in excl:
+        out[e["thesis_id"]][2].append(
+            ExcludedName(security_id=e["security_id"], ticker=e["ticker"], reason=e["reason"])
+        )
+    return out
 
 
 def list_all(conn: psycopg.Connection, *, include_archived: bool = False) -> list[Thesis]:
