@@ -1,0 +1,9 @@
+[
+  {"breakout_alpha_liveness_unit": "calendar"},
+  {"breakout_alpha_liveness_unit": "sessions", "breakout_alpha_liveness_sessions": 5},
+  {"breakout_alpha_liveness_unit": "sessions", "breakout_alpha_liveness_sessions": 6},
+  {"breakout_alpha_liveness_unit": "sessions", "breakout_alpha_liveness_sessions": 7},
+  {"breakout_alpha_liveness_unit": "sessions", "breakout_alpha_liveness_sessions": 8},
+  {"breakout_alpha_liveness_unit": "sessions", "breakout_alpha_liveness_sessions": 9},
+  {"breakout_alpha_liveness_unit": "sessions", "breakout_alpha_liveness_sessions": 10}
+]

@@ -48,6 +48,13 @@ class CorporateEventItemPolicy(DomainModel):
         return self
 
 
+#: F4 — the BAR-DRIVEN families whose entry window may count in market sessions instead of calendar days
+#: (operator decision 2026-10-30). Each carries ``<family>_alpha_liveness_unit`` + ``_sessions`` beside its
+#: ``<family>_alpha_liveness_days``. Disclosure-driven windows (insider, 13D, 8-K, catalyst) are deliberately
+#: absent: they stay calendar days.
+BAR_WINDOW_FAMILIES: tuple[str, ...] = ("breakout", "breakout_52w", "laggard")
+
+
 class CallConfig(DomainModel):
     """Every ``TODO(operator)`` threshold lives here — never hardcoded in the assembler.
 
@@ -55,7 +62,7 @@ class CallConfig(DomainModel):
     (CALL_LOGIC §2/§3/§7), not claims of precision. The block-vs-penalize behavior of the
     risk-veto is fixed; only its severity threshold is calibrated.
 
-    **DORMANT backtest hypothesis dials.** Four fields here exist so the backtest can ASK a question that
+    **DORMANT backtest hypothesis dials.** The fields below exist so the backtest can ASK a question that
     would otherwise need a code edit, and every one of them DEFAULTS TO TODAY'S BEHAVIOR — byte-identical
     goldens, no live change whatsoever until an overlay moves one:
 
@@ -63,6 +70,8 @@ class CallConfig(DomainModel):
     - ``revenue_accel_key``                                (H1 leg 2) — Key 1 or Key 2
     - ``computed_conviction_requires_core_confirmation``   (H1 leg 3) — a screen needs volume backing
     - ``breakdown_dearm_scope``                            (H3)       — both de-arms, or core only
+    - ``<family>_alpha_liveness_unit`` / ``_sessions``     (F4)       — a bar-driven window in sessions
+      (three pairs, ``BAR_WINDOW_FAMILIES``; ``"calendar"`` + unset = today)
 
     They follow the ``insider_10b5_1_buy_weight`` precedent: land the dial with today's value, measure on
     the lab, and flip only on a pre-registered pass plus operator sign-off. Promotion is never part of the
@@ -344,6 +353,30 @@ class CallConfig(DomainModel):
     breakout_min_return: float = 0.08  # close-to-close return over breakout_return_days
     breakout_volume_mult: float = 1.5  # vol >= mult x base avg => volume-backed (CORE) confirmation
     breakout_alpha_liveness_days: int = 10
+    # **DORMANT — F4 (operator decision 2026-10-30), the H1/H3 precedent; the defaults ARE today.** The UNIT
+    # this family's window counts in. ``"calendar"`` (today): the window ends ``breakout_alpha_liveness_days``
+    # calendar days after the fire date, so the sessions it gives depend on the fire WEEKDAY (MEASURED over
+    # 2025-09-01..2026-09-14: 10 days gives 6-8 sessions, mostly 8 from a Monday fire and 6 from a Friday
+    # one). ``"sessions"``: it ends on the ``breakout_alpha_liveness_sessions``-th session after the fire date
+    # on the ONE session calendar (``domain.trading_days``), so every fire gives that many sessions to act in.
+    # Only BAR-DRIVEN families carry the pair (this one, ``breakout_52w_*``, ``laggard_*``); insider, 13D, 8-K
+    # and catalyst windows stay calendar days (operator decision 2026-10-30; the plan's reason: a disclosure's
+    # edge may decay in calendar time whether or not the market is open). The window end is
+    # computed in ONE place (``signals.common.window_end``) and every reader of the event's
+    # ``alpha_liveness_days`` gets it as that calendar span, so F3's next-session test, ``_clock``'s
+    # ``arm_until`` and "sessions left" agree by construction. The FLIP BREAKDOWN reads this family's window
+    # too (it searches the SAME breakouts the arm cleared — ``signals/breakdown._recent_flip_base``), so it is
+    # not given a pair of its own: a breakdown counted on another clock than its breakout would watch a
+    # different set of arms. The numbers come from the pre-registered sweep (``docs/RECALIBRATION.md``), never
+    # from an average; flip only on a pass that meets its decision rule plus the operator's sign-off.
+    # DETECTOR dials (read in ``signals/common.breakout_window``).
+    breakout_alpha_liveness_unit: Literal["calendar", "sessions"] = "calendar"
+    # Set exactly when the unit is ``"sessions"`` (``_bar_window_units`` refuses either half alone). Bounds:
+    # >= 1 mirrors ``SignalEvent.alpha_liveness_days >= 1`` (a window gives at least one session); <= 60 keeps
+    # the whole window inside the detector's own 120-day pull with its 10 base bars to spare on the
+    # worst-case night of the covered calendar (``tests/domain/test_bar_window_dials.py`` checks it) — a
+    # window longer than the pull would be silently truncated, the failure a sweep must never measure.
+    breakout_alpha_liveness_sessions: int | None = Field(default=None, ge=1, le=60)
     # --- §3.1 follow-through / hold quality (R13) — SHARPENS the volume_breakout SCORE (grade unchanged) ---
     # The breakout is real (it still FIRES) and its GRADE stays volume-based; the follow-through is a SCORE
     # input only (R13's rail). A weak close or a failed next-day hold is the false-breakout tell: it scores
@@ -400,6 +433,12 @@ class CallConfig(DomainModel):
     breakout_52w_alpha_liveness_days: int = (
         45  # the CORE structural-breakout entry window (R9; vs the 8-day tool's 10d)
     )
+    # **DORMANT — F4**, the same pair as ``breakout_alpha_liveness_unit`` / ``_sessions`` (read that comment):
+    # ``"calendar"`` = today. 45 calendar days gives 28-33 sessions by fire weekday (MEASURED over
+    # 2025-09-01..2026-09-14). <= 45 sessions keeps the window plus the 245 prior bars the 52-week check needs
+    # inside the 430-day pull on the worst-case night of the covered calendar (the same test checks it).
+    breakout_52w_alpha_liveness_unit: Literal["calendar", "sessions"] = "calendar"
+    breakout_52w_alpha_liveness_sessions: int | None = Field(default=None, ge=1, le=45)
 
     # --- laggard / §1.2 ROTATION (Key-2 sympathy confirmation) — STARTING calibration ---
     # A basket LEADER's live volume_breakout is the cue; a co-basket name LAGGING the basket's move but
@@ -416,6 +455,12 @@ class CallConfig(DomainModel):
     laggard_alpha_liveness_days: int = (
         15  # the flip sympathy arm window, anchored to the leader breakout
     )
+    # **DORMANT — F4**, the same pair as ``breakout_alpha_liveness_unit`` / ``_sessions`` (read that comment):
+    # ``"calendar"`` = today. 15 calendar days gives 8-11 sessions by fire weekday (MEASURED as above). The
+    # laggard scans no window of its own (it is anchored on the leader's breakout date and emitted only while
+    # a leader breakout is live), so <= 60 is a sanity bound, not a fit: a longer value is a typo.
+    laggard_alpha_liveness_unit: Literal["calendar", "sessions"] = "calendar"
+    laggard_alpha_liveness_sessions: int | None = Field(default=None, ge=1, le=60)
     laggard_lookback_days: int = (
         420  # calendar-day price pull: >= 200 trading bars for the SMA + return
     )
@@ -821,6 +866,28 @@ class CallConfig(DomainModel):
     # moved to `domain/settings.py` (the env-overridable Settings), with their rationale comments verbatim:
     # they are OPERATIONAL knobs an operator should change with an env edit, not trust-validated call-engine
     # tuning. Everything above stays here, deliberately NOT env-overridable — the file boundary is the line.
+
+    @model_validator(mode="after")
+    def _bar_window_units(self) -> "CallConfig":
+        """F4's unit / session-count pairs move TOGETHER, checked at config time (the policy-bounds pattern:
+        a bad edit or overlay fails here, at import or at ``apply_overlay``, never inside a detector on a cron
+        night). ``"sessions"`` without a count has no window end; a count under ``"calendar"`` would change
+        nothing, and a dial that silently changes nothing reads as "inert on this tape" in a sweep.
+        """
+        for family in BAR_WINDOW_FAMILIES:
+            unit = getattr(self, f"{family}_alpha_liveness_unit")
+            sessions = getattr(self, f"{family}_alpha_liveness_sessions")
+            if unit == "sessions" and sessions is None:
+                raise ValueError(
+                    f"{family}_alpha_liveness_unit='sessions' needs {family}_alpha_liveness_sessions "
+                    "(the number of sessions the window gives)"
+                )
+            if unit == "calendar" and sessions is not None:
+                raise ValueError(
+                    f"{family}_alpha_liveness_sessions={sessions} is read only when "
+                    f"{family}_alpha_liveness_unit='sessions'; under 'calendar' it would change nothing"
+                )
+        return self
 
     @property
     def own_conviction_kinds(self) -> frozenset[Kind]:

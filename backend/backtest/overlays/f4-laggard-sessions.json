@@ -1,0 +1,9 @@
+[
+  {"laggard_alpha_liveness_unit": "calendar"},
+  {"laggard_alpha_liveness_unit": "sessions", "laggard_alpha_liveness_sessions": 8},
+  {"laggard_alpha_liveness_unit": "sessions", "laggard_alpha_liveness_sessions": 9},
+  {"laggard_alpha_liveness_unit": "sessions", "laggard_alpha_liveness_sessions": 10},
+  {"laggard_alpha_liveness_unit": "sessions", "laggard_alpha_liveness_sessions": 11},
+  {"laggard_alpha_liveness_unit": "sessions", "laggard_alpha_liveness_sessions": 12},
+  {"laggard_alpha_liveness_unit": "sessions", "laggard_alpha_liveness_sessions": 13}
+]

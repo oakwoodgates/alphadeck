@@ -2,7 +2,8 @@
 
 **Why this lives in ``domain/``.** Every layer that asks "is this a market session?" reads it:
 ``calls/assembler.py`` counts the trading sessions left in an armed member's entry window
-(``entry_window_closing``, Q14), ``pipeline/schedule.py`` gates the cron (and through its
+(``entry_window_closing``, Q14), ``signals/common.window_end`` ends a bar-driven window counted in sessions
+(F4's dormant dials, ``nth_scheduled_day_after``), ``pipeline/schedule.py`` gates the cron (and through its
 ``is-session`` CLI the shell sidecar that actually fires the pass), ``domain/splits.py`` measures a
 split's session distance, ``replay/harness.trading_sessions`` pages the editions and the backtest, the
 price leg withholds a fresh bar dated a closed day and ``signals/base.window_prices`` and the scoring reads
@@ -194,6 +195,22 @@ def next_scheduled_day(d: date) -> date:
     while not is_scheduled_day(n):
         n += timedelta(days=1)
     return n
+
+
+def nth_scheduled_day_after(d: date, n: int) -> date:
+    """The ``n``-th session strictly AFTER ``d`` (``n >= 1``; ``n == 1`` is ``next_scheduled_day(d)``).
+
+    The end of a window counted in SESSIONS (F4, ``signals.common.window_end``): a bar-driven trigger that
+    fired on ``d`` with an ``n``-session window gives the operator exactly ``n`` sessions to act in, whatever
+    weekday it fired on and whatever holiday falls inside, because a weekend or a closure is simply not
+    counted. ``d`` need not be a session itself. Raises ``ValueError`` for ``n < 1`` — a window must give at
+    least one session (``SignalEvent.alpha_liveness_days >= 1``'s rule, in sessions)."""
+    if n < 1:
+        raise ValueError(f"a session count must be at least 1 (got {n})")
+    s = d
+    for _ in range(n):
+        s = next_scheduled_day(s)
+    return s
 
 
 def parse_run_at(raw: str) -> time:
