@@ -18,6 +18,7 @@ from app.main import app
 from app.routers.dashboards import market_map as router_mod
 from dashboards.baskets import CardsAsOf, Membership
 from dashboards.cache import CACHE
+from dashboards.market_cap import CapCell
 from dashboards.market_map import (
     COVER_MAX_AGE_DAYS,
     COVER_MIN_SHARES,
@@ -39,7 +40,6 @@ from dashboards.market_map import (
     window_returns,
     ytd_return,
 )
-from dashboards.peer_table import CapCell
 from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
 from domain.market_time import market_today

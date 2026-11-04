@@ -84,8 +84,8 @@ from dashboards.insider_tracker import (
     row_key,
     trigger_hits,
 )
-from dashboards.series import SessionSource, session_calendar
-from dashboards.trigger_log import CardNights, Scope, Series, copies, since_move
+from dashboards.nights import CardNights, Scope, copies
+from dashboards.series import Series, SessionSource, session_calendar, since_move
 from dashboards.what_changed import (
     Change,
     ChangeItem,

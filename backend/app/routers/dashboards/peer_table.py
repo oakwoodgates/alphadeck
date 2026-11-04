@@ -31,13 +31,12 @@ from dashboards.baskets import (
     resolved_ids,
 )
 from dashboards.cache import Cached, cached
+from dashboards.market_cap import CompanyReads, Gap
 from dashboards.peer_table import (
     BENCHMARK,
     COLUMNS,
     CardRef,
     Column,
-    CompanyReads,
-    Gap,
     GroupKind,
     PeerInputs,
     PeerTable,

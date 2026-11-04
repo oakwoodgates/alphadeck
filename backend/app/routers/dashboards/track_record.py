@@ -28,7 +28,7 @@ from app.deps import get_conn, get_current_tenant
 from app.routers.scoreboard import _resolve_edition
 from dashboards.baskets import PriceFlagRead, live_card_ids, read_price_flags
 from dashboards.cache import cached
-from dashboards.peer_table import Gap
+from dashboards.market_cap import Gap
 from dashboards.track_record import (
     HORIZONS,
     MIN_N,

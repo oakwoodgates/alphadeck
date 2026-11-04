@@ -317,7 +317,9 @@ def test_price_flags_maps_only_the_flags_that_reach_a_price_cell(monkeypatch):
         }
 
     monkeypatch.setattr(baskets, "CHUNK", 4)
-    monkeypatch.setattr(baskets, "live_card_ids", lambda conn: set(sids))  # every company is on a card
+    monkeypatch.setattr(
+        baskets, "live_card_ids", lambda conn: set(sids)
+    )  # every company is on a card
     monkeypatch.setattr(baskets.flags_reader, "read_flags", read_flags)
     monkeypatch.setattr(baskets.flags_reader, "run_reads", lambda: ("READINGS", "CORRECTIONS"))
     monkeypatch.setattr(

@@ -181,6 +181,9 @@ TAG_FILER_UNRESOLVED = "filer identity unresolved"
 # how far (days) from "one year earlier" a prior-year period end may sit and still be the same fiscal period
 # (a 52/53-week filer's period end drifts a few days from year to year)
 YOY_TOLERANCE_DAYS = 10
+# a name's insider CLUSTER accent: at least this many distinct buyers in the last 30 days (the Cockpit's Ins 30d);
+# the Leaders and the Insider Tracker read it
+CLUSTER_MIN_BUYERS = 2
 
 
 @dataclass(frozen=True)

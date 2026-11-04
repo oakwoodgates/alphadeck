@@ -53,7 +53,7 @@ from typing import Any, Literal
 from uuid import UUID
 
 from dashboards.filings import KIND_ORDER, FilingKind, FilingRow, FoldGroup, source_url
-from dashboards.peer_table import CapCell, CompanyReads, cap_cell
+from dashboards.market_cap import CapCell, CompanyReads, cap_cell
 from dashboards.series import aligned
 from domain.call import CallCard, TriggerRef
 from domain.config import DEFAULT_CONFIG
@@ -1044,7 +1044,7 @@ def cap_of(
     shares: Mapping[str, Any] | None,
     splits: Sequence[ListedSplit],
 ) -> Cap:
-    """The approximate cap by the Peer Table's rule (``peer_table.cap_cell``: the latest close times the latest
+    """The approximate cap by the Peer Table's rule (``market_cap.cap_cell``: the latest close times the latest
     shares fact, the ADS ratio and any split in force between the two applied; a flagged price history withholds
     it). Labeled approximate everywhere."""
     c: CapCell = cap_cell(CompanyReads(flag=flag, close=close, shares=shares, splits=tuple(splits)))

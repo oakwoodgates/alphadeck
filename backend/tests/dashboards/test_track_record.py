@@ -23,7 +23,7 @@ from app.deps import get_conn
 from app.main import app
 from app.routers.dashboards import track_record as router_mod
 from dashboards.cache import CACHE
-from dashboards.peer_table import CapCell
+from dashboards.market_cap import CapCell
 from dashboards.track_record import (
     HORIZONS,
     LIQUIDITY_KEYS,

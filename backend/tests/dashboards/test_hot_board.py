@@ -59,7 +59,7 @@ from dashboards.hot_board import (
     window_open,
     winning_nights,
 )
-from dashboards.peer_table import CapCell
+from dashboards.market_cap import CapCell
 from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard, KeyState, MemberCall, TriggerRef

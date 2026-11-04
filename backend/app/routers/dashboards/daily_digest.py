@@ -54,7 +54,7 @@ from dashboards.daily_digest import (
 from dashboards.filings import FORM4_KINDS, read_filing_rows
 from dashboards.hot_board import LogRow, SinceGap, candidates
 from dashboards.insider_tracker import RoleClass
-from dashboards.trigger_log import CardNights, Night, Scope
+from dashboards.nights import CardNights, Night, Scope
 from dashboards.what_changed import Change, Section, security_ids
 from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard

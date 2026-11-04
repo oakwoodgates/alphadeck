@@ -52,6 +52,7 @@ from dashboards.baskets import (
     display_ticker,
     flagged_in_view,
 )
+from dashboards.filings import CLUSTER_MIN_BUYERS
 from signals.display import range52w, relative_strength, rvol
 from signals.display.base import DisplaySignal
 
@@ -76,8 +77,6 @@ NEAR_HIGH_PCT = -2.0
 RVOL_LOUD = rvol.LOUD_MULT_20
 # insider buying: at least this many open-market buys in the last 30 days
 INSIDER_MIN_BUYS = 1
-# a name's insider CLUSTER accent: at least this many distinct buyers in the last 30 days (the Cockpit's Ins 30d)
-CLUSTER_MIN_BUYERS = 2
 # an insider-cluster group: at least this many of its names with open-market buys in the last 30 days
 GROUP_MIN_NAMES = 2
 # the top section: names on at least this many lists

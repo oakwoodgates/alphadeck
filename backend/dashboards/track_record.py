@@ -72,7 +72,7 @@ from typing import Any, Literal, NamedTuple
 from uuid import UUID
 
 from dashboards.baskets import FlaggedCompany
-from dashboards.peer_table import CapCell, CompanyReads, cap_cell
+from dashboards.market_cap import CapCell, CompanyReads, cap_cell
 from domain.data_flags import FEED_STOPPED
 from domain.market_cap import CapTier
 from domain.market_time import edgar_night

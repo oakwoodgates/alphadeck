@@ -55,7 +55,7 @@ from typing import Literal
 from uuid import UUID
 
 from dashboards.baskets import FlaggedCompany
-from dashboards.peer_table import CapCell, metric_of
+from dashboards.market_cap import CapCell, metric_of
 from domain.call import CallCard, MemberCall, TriggerRef
 from domain.config import DEFAULT_CONFIG
 from domain.enums import Grade, Kind, State, Verdict

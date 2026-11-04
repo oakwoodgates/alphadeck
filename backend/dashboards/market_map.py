@@ -17,7 +17,7 @@ The rules, in one place:
   gap with its reason, never a zero.
 - **Dollar volume 20D.** The mean of close x volume over the last 20 sessions. Fewer than 20 sessions, or a volume
   missing on any of them, is a stated gap.
-- **Approximate market cap.** The Peer Table's rule (``dashboards.peer_table.cap_cell``): the latest close times the
+- **Approximate market cap.** The Peer Table's rule (``dashboards.market_cap.cap_cell``): the latest close times the
   latest Workbench share count (ADS ratio and split list applied). A company with NO Workbench count stands in with
   the latest share count the nightly stored from its filings' cover pages (``fact_fundamentals``, ``metric_key =
   'shares_out_cover_xbrl'``), only when the company has at least one QUARTERLY cover count (a 10-Q filer, so no
@@ -40,7 +40,7 @@ from typing import Any, Literal, NamedTuple
 from uuid import UUID
 
 from dashboards.baskets import Membership, companies_in, display_ticker
-from dashboards.peer_table import CapCell, CompanyReads, cap_cell
+from dashboards.market_cap import CapCell, CompanyReads, cap_cell
 from domain.splits import ListedSplit
 from signals.display import trailing_returns
 from signals.display.base import DisplaySignal

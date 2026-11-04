@@ -32,7 +32,7 @@ from dashboards.baskets import (
     price_flags,
 )
 from dashboards.cache import cached
-from dashboards.peer_table import CompanyReads, cap_cell, metric_of
+from dashboards.market_cap import CompanyReads, cap_cell, metric_of
 from dashboards.theme_leaderboard import (
     BENCHMARK,
     MEMBERS,

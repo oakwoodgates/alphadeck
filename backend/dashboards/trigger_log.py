@@ -52,23 +52,30 @@ The rules, in one place:
 from __future__ import annotations
 
 import hashlib
-from bisect import bisect_left, bisect_right
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any, Literal
 from uuid import UUID
 
 from dashboards.filings import source_url
-from dashboards.series import SessionSource, session_calendar
-from domain.call import CallCard, TriggerRef
+from dashboards.nights import CardNights, Identity, Night, Role, Scope, copies
+from dashboards.series import (
+    Series,
+    SessionSource,
+    SinceMove,
+    session_calendar,
+    sessions_since,
+    since_move,
+    week_start,
+)
+from domain.call import TriggerRef
 from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.enums import Grade, Kind, State
 from domain.signal import Provenance
 
 WINDOWS: tuple[int, ...] = (30, 90, 180)  # the window choices, in days
 DEFAULT_WINDOW = 90
-BENCHMARK = "IWM"  # the comparison and the session calendar
 
 # The metric the revenue-acceleration screen stamps on its provenance (``signals.revenue_acceleration``). The
 # assembler keys its one key exception on the DETECTOR, which never reaches the wire (``TriggerRef`` has no
@@ -77,9 +84,7 @@ BENCHMARK = "IWM"  # the comparison and the session calendar
 REVENUE_METRIC = "revenue"
 REVENUE_SOURCE = "xbrl"
 
-Role = Literal["entry_trigger", "risk_signal"]
 KeyName = Literal["conviction", "confirmation"]
-SinceStatus = Literal["priced", "unpriced", "flagged"]
 
 # Which role(s) one read loads. Risk signals are the bulk of the record (the dev walk on a prod copy, 2026-10-29,
 # 90 days, recorded in the plan: 18,588 of 23,526 rows before the label left the identity), so the entry
@@ -94,45 +99,10 @@ _LOADED: dict[RoleChoice, frozenset[Role]] = {
 }
 _OTHER: dict[RoleChoice, RoleChoice | None] = {"entry": "risk", "risk": "entry", "both": None}
 
-# the identity of one trigger on a card (the role is part of it, so an entry trigger and a risk signal that
-# somehow shared the other fields would never merge and hide one). The label is not: see the module docstring.
-Identity = tuple[Role, UUID, Kind, date | None]
-
 
 # ---------------------------------------------------------------------------------------------------------
 # the rows as read (the router builds these from its SELECTs)
 # ---------------------------------------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class Night:
-    """One recorded night of one card: its winning row (the highest ``seq``). ``card`` is ``None`` when the
-    stored card no longer validates against the call model (counted, never read)."""
-
-    asof: date
-    seq: int
-    reconstructed: bool
-    card: CallCard | None
-
-
-@dataclass(frozen=True)
-class CardNights:
-    """One counted card's recorded nights: ``before`` = the row in effect before the window opens (``None`` =
-    the card has no earlier row), ``nights`` = the window's nights, oldest first."""
-
-    thesis_id: UUID
-    thesis_name: str
-    before: Night | None
-    nights: tuple[Night, ...]
-
-
-@dataclass(frozen=True)
-class Scope:
-    """How many cards the as-of's counted set left out, for the quiet line (``baskets.CardsAsOf``)."""
-
-    live_cards: int  # unarchived cards today
-    not_yet_created: int  # created after the as-of: left out
-    roster_fallback: int  # counted cards with no roster snapshot by then: today's roster stands in
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -205,32 +175,6 @@ def key_of(ref: TriggerRef, role: Role, cfg: CallConfig = DEFAULT_CONFIG) -> Key
     if ref.kind in cfg.confirmation_kinds:
         return "confirmation"
     return None
-
-
-def identity_of(role: Role, ref: TriggerRef) -> Identity:
-    return (role, ref.security_id, ref.kind, ref.event_date)
-
-
-def _refs(card: CallCard) -> Iterable[tuple[Role, TriggerRef]]:
-    """Every trigger a card shows, in the order the first copy of an identity is taken: the card's fired
-    triggers, then each armed member's and each watch member's own, then the risk signals."""
-    for t in card.triggers_fired:
-        yield "entry_trigger", t
-    for m in (*card.armed_members, *card.watch_members):
-        for t in m.triggers:
-            yield "entry_trigger", t
-    for t in card.risk_signals:
-        yield "risk_signal", t
-
-
-def copies(card: CallCard) -> dict[Identity, list[TriggerRef]]:
-    """The card's triggers by identity, every copy of one (a member-level copy of a card-level trigger, or the
-    same fire date under another label) in the order ``_refs`` lists them: the first stands for the identity.
-    """
-    out: dict[Identity, list[TriggerRef]] = {}
-    for role, ref in _refs(card):
-        out.setdefault(identity_of(role, ref), []).append(ref)
-    return out
 
 
 @dataclass(frozen=True)
@@ -349,82 +293,6 @@ def collect(
 # ---------------------------------------------------------------------------------------------------------
 # the tape: sessions since and the since-return
 # ---------------------------------------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class Series:
-    """A company's positive closes, by date ascending, with the two lookups the entry rule needs."""
-
-    dates: tuple[date, ...]
-    closes: tuple[float, ...]
-
-    @classmethod
-    def of(cls, closes: Mapping[date, float]) -> Series:
-        """A non-positive close is not a bar (the shared line math's rule, ``series.aligned``)."""
-        pairs = sorted((d, c) for d, c in closes.items() if c is not None and c > 0)
-        return cls(tuple(d for d, _ in pairs), tuple(c for _, c in pairs))
-
-    def on_or_after(self, d: date) -> tuple[date, float] | None:
-        i = bisect_left(self.dates, d)
-        return (self.dates[i], self.closes[i]) if i < len(self.dates) else None
-
-    def on_or_before(self, d: date) -> tuple[date, float] | None:
-        i = bisect_right(self.dates, d) - 1
-        return (self.dates[i], self.closes[i]) if i >= 0 else None
-
-    def on(self, d: date) -> float | None:
-        """The close dated exactly ``d`` (``None`` = no bar that day)."""
-        i = bisect_left(self.dates, d)
-        return self.closes[i] if i < len(self.dates) and self.dates[i] == d else None
-
-
-@dataclass(frozen=True)
-class SinceMove:
-    """The name's as-traded return from the entry bar to the end bar, with IWM on the same two dates. ``status``
-    ``priced`` = both bars exist; ``unpriced`` = no bar from the recorded night to the as-of; ``flagged`` = the
-    name's price history is on the flagged-price list (``reason``), never priced. ``bench_ret`` is ``None``
-    when IWM has no bar on one of those two dates."""
-
-    status: SinceStatus
-    reason: str | None = None
-    entry_date: date | None = None
-    end_date: date | None = None
-    ret: float | None = None
-    bench_ret: float | None = None
-
-
-def sessions_since(sessions: Sequence[date], night: date, asof: date) -> int | None:
-    """The sessions between the first one on or after ``night`` (the entry bar's) and the last one on or
-    before ``asof``, on the shared session calendar: the number of daily steps the since-return spans. ``None``
-    = no session in ``[night, asof]``."""
-    first = bisect_left(sessions, night)
-    last = bisect_right(sessions, asof) - 1
-    if first >= len(sessions) or last < first:
-        return None
-    return last - first
-
-
-def since_move(own: Series | None, bench: Series, night: date, asof: date) -> SinceMove:
-    """The since-return of one name over the span from its first close on or after ``night`` to its last close
-    on or before ``asof``; IWM's closes on those same two dates (``None`` when IWM has no bar on either, never
-    a different span)."""
-    start = own.on_or_after(night) if own is not None else None
-    end = own.on_or_before(asof) if own is not None else None
-    if start is None or end is None or start[0] > end[0]:
-        return SinceMove("unpriced")
-    b0, b1 = bench.on(start[0]), bench.on(end[0])
-    return SinceMove(
-        "priced",
-        entry_date=start[0],
-        end_date=end[0],
-        ret=end[1] / start[1] - 1.0,
-        bench_ret=b1 / b0 - 1.0 if b0 is not None and b1 is not None else None,
-    )
-
-
-def week_start(d: date) -> date:
-    """The Monday of ``d``'s week: the page's default grouping key."""
-    return d - timedelta(days=d.weekday())
 
 
 # ---------------------------------------------------------------------------------------------------------

@@ -44,7 +44,8 @@ from dashboards.daily_digest import (
 )
 from dashboards.filings import Who, rows_from_insider_txns, source_url
 from dashboards.hot_board import LogRow
-from dashboards.trigger_log import CardNights, Night, Scope, Series
+from dashboards.nights import CardNights, Night, Scope
+from dashboards.series import Series
 from dashboards.what_changed import ChangeItem
 from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID

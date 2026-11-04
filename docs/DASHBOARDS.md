@@ -153,6 +153,16 @@ the data flags). Its plan is `docs/BOARD.md`.
    The equal-weighted line math lives in `backend/dashboards/series.py` (the session calendar, the alignment
    and the chain; built with the Narrative Index, shared since the Rotation Quadrant): a dashboard that draws
    a basket as one line reuses it.
+   The approximate market-cap cell lives in `backend/dashboards/market_cap.py` (built with the Peer Table, shared by
+   the Hot Board, Ticker Lookup, Market Map, Theme Leaderboard, Track Record and Insider Tracker): `cap_cell` /
+   `CapCell` (the Workbench's cap rule, copied there), `CompanyReads` (one company's raw readings), `Gap` (why a cell
+   is blank) and `metric_of`. The cap BANDS stay in `domain/market_cap.py`. A page needing the cap cell imports it
+   from there, never from another dashboard (a dashboard can be removed with its folder; rule 8).
+   The recorded-night shapes live in `backend/dashboards/nights.py` (built with the Trigger Log, shared by the Daily
+   Digest and the Insider Tracker): `Night`, `CardNights`, `Scope` and `copies` (a card's triggers by identity). The
+   since-return of a name against IWM lives with the line math in `series.py` (`Series`, `since_move`,
+   `sessions_since`, `week_start`, `BENCHMARK`). `CLUSTER_MIN_BUYERS` (the Cockpit's Ins 30d accent, read by Leaders
+   and the Insider Tracker) lives in `filings.py`.
    What each company filed lives in `backend/dashboards/filings.py` (built with the Filing Stream, shared with
    the Read-Throughs table): every filing-derived fact the system stores, plus every other form in the company's
    EDGAR index (`fact_filing_index`, migration 0070: display only, each filing shown once as its richest row),

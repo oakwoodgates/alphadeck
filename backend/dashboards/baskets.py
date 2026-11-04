@@ -342,7 +342,9 @@ def off_card_reason(read: PriceFlagRead) -> str:
         return read.reason
     since = f" since {read.since.isoformat()}" if read.since else ""
     wording = f"no longer priced: off every live card{since}"
-    return "; ".join(wording if p == KIND_LABEL[FEED_STOPPED] else p for p in read.reason.split("; "))
+    return "; ".join(
+        wording if p == KIND_LABEL[FEED_STOPPED] else p for p in read.reason.split("; ")
+    )
 
 
 def price_flags(
@@ -359,13 +361,13 @@ def price_flags(
     on an unarchived card) reads "no longer priced: off every live card since <its last bar date>" (operator
     decision 2026-11-04: the nightly stopped fetching a company that left every card, and "price feed stopped"
     misdescribes it); on a company still on a card it keeps "price feed stopped"."""
-    reads = read_price_flags(conn, security_ids, asof, known_at=known_at, clock=clock, tenant_id=tenant_id)
+    reads = read_price_flags(
+        conn, security_ids, asof, known_at=known_at, clock=clock, tenant_id=tenant_id
+    )
     if not any(FEED_STOPPED in r.kinds for r in reads.values()):
         return {sid: r.reason for sid, r in reads.items()}
     on_cards = live_card_ids(conn)
-    return {
-        sid: r.reason if sid in on_cards else off_card_reason(r) for sid, r in reads.items()
-    }
+    return {sid: r.reason if sid in on_cards else off_card_reason(r) for sid, r in reads.items()}
 
 
 # --- who counts, and the groups ------------------------------------------------------------------------------

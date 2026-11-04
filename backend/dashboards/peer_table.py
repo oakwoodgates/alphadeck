@@ -23,7 +23,7 @@ The rules, in one place. This is our own simple table, stated here and on the pa
   blank (a ``Gap`` code, plus the member's own note where it gave one). Nothing is filled with a made-up number, and
   the coverage of every column (stated, total, blanks by reason) is part of the table.
 - **Approximate market cap** = the latest close times the latest shares fact, with the Workbench's rules
-  (``workbench/scoring._market_cap``, copied here, not imported: that module pulls the call config): an ``ads_ratio_status``
+  (``workbench/scoring._market_cap``, copied into ``dashboards/market_cap.py``, not imported: that module pulls the call config): an ``ads_ratio_status``
   of ``known`` divides the ordinary count by the ratio, ``unread`` WITHHOLDS the cap, NULL means 1:1 (a domestic
   name); a split in force between the count's date and the close's puts the count on the close's scale
   (``domain.splits.scale_after``, "never mix a split-adjusted price with a pre-split count"). The tier is
@@ -65,12 +65,19 @@ from dashboards.baskets import (
     link_count,
 )
 from dashboards.filings import prior_year_row
+from dashboards.market_cap import (
+    CapCell,
+    CompanyReads,
+    Gap,
+    cap_cell,
+    day_of,
+    float_of,
+    metric_of,
+)
 from domain.enums import ContextRole
-from domain.market_cap import CapTier, cap_tier
-from domain.splits import ListedSplit, scale_after
 from domain.thesis import SILENT_LABELS
 from signals.dilution_clock import overhang_pct
-from signals.display.base import DisplayMetric, DisplaySignal
+from signals.display.base import DisplaySignal
 
 ScopeKind = Literal["business_type", "supersector", "card", "all"]
 SCOPE_KINDS: tuple[ScopeKind, ...] = ("business_type", "supersector", "card", "all")
@@ -97,24 +104,6 @@ Column = Literal[
     "insider",
 ]
 COLUMNS: tuple[Column, ...] = get_args(Column)
-
-# Why a cell is blank. A stated cell has no gap.
-Gap = Literal[
-    "flagged",  # data flags reach the price readings: withheld, the reason in ``note``
-    "no_price",  # no price bars at the as-of
-    "no_reading",  # the display member gave no value (too few bars, no volume); ``note`` says why
-    "no_shares",  # a price but no shares fact
-    "ads_unread",  # an ADR whose ordinary-shares-per-ADS ratio could not be read: the cap is withheld
-    "no_cap",  # a share count or close that is not positive
-    "no_revenue",  # no revenue facts
-    "no_prior_year",  # a revenue print but no row for the same period a year earlier in the read
-    "no_burn",  # no cash/burn fact
-    "no_convert",  # no live convertible-note overhang on file
-    "no_mix",  # no revenue-mix fact
-    "no_form4",  # no Form 4 ingested for the name
-    "no_spy",  # SPY has no bars at the as-of
-    "ends_differ",  # the company's last close is not SPY's last close
-]
 
 GroupKind = Literal["supersector", "business_type", "link", "old_link", "no_link", "silent"]
 
@@ -173,32 +162,6 @@ class ScopeBase:
 
 
 @dataclass(frozen=True)
-class CompanyReads:
-    """One company's raw readings, as the router's heavy read produced them. ``flag`` = why its price readings are
-    withheld (``baskets.price_flags``); when set the price-derived fields are left ``None`` (never read).
-    """
-
-    flag: str | None = None
-    close: tuple[date, float] | None = None  # the latest bar: (date, close)
-    shares: Mapping[str, Any] | None = (
-        None  # the latest shares fact: shares, valid_from, ads_ratio(_status)
-    )
-    splits: tuple[ListedSplit, ...] = ()
-    revenue: tuple[
-        Mapping[str, Any], ...
-    ] = ()  # metric_key == "revenue" rows: period_end, value, valid_from
-    cash_burn: Mapping[str, Any] | None = None  # the latest cash/burn fact
-    dilution: tuple[Mapping[str, Any], ...] = ()  # fact_dilution rows (the clock's own input)
-    mix: tuple[Mapping[str, Any], ...] = ()  # revenue-mix facts
-    range_52w: DisplaySignal | None = None
-    sma: DisplaySignal | None = None
-    rvol: DisplaySignal | None = None
-    volume: DisplaySignal | None = None
-    returns: DisplaySignal | None = None
-    insider: DisplaySignal | None = None
-
-
-@dataclass(frozen=True)
 class PeerInputs:
     """Everything the heavy read produces for ONE scope: the base, the readings of the companies in scope, and
     SPY's trailing returns (``None`` = SPY has no bars at the as-of)."""
@@ -218,24 +181,6 @@ class Cell:
     value: float | None = None
     gap: Gap | None = None
     note: str | None = None
-
-
-@dataclass(frozen=True)
-class CapCell:
-    """The approximate market cap and its tier, with the inputs that made it (the hover shows the product)."""
-
-    value: float | None = None
-    tier: CapTier | None = None
-    gap: Gap | None = None
-    note: str | None = None
-    close: float | None = None
-    close_date: date | None = None
-    shares: float | None = (
-        None  # the ordinary count on file (before the ADS ratio and any split scaling)
-    )
-    shares_date: date | None = None
-    ads_ratio: int | None = None  # applied when the status is "known"
-    split_factor: float | None = None  # the multiplier put on the count to match the close's scale
 
 
 @dataclass(frozen=True)
@@ -305,26 +250,6 @@ class InsiderCell:
 # --- the rules ------------------------------------------------------------------------------------------------
 
 
-def _day(v: Any) -> date | None:
-    return v if isinstance(v, date) else None
-
-
-def _f(v: Any) -> float | None:
-    if v is None:
-        return None
-    try:
-        return float(v)
-    except (TypeError, ValueError):
-        return None
-
-
-def metric_of(sig: DisplaySignal | None, key: str) -> DisplayMetric | None:
-    """The named metric of a display member's output, or ``None``."""
-    if sig is None:
-        return None
-    return next((m for m in sig.metrics if m.key == key), None)
-
-
 def metric_cell(sig: DisplaySignal | None, key: str, flag: str | None) -> Cell:
     """A display member's metric as a cell: withheld for a flagged price history, ``no_price`` without bars,
     ``no_reading`` (with the member's own note: "n/a: 120/200 bars") when the member stated no value.
@@ -339,54 +264,18 @@ def metric_cell(sig: DisplaySignal | None, key: str, flag: str | None) -> Cell:
     return Cell(value=m.value)
 
 
-def cap_cell(reads: CompanyReads) -> CapCell:
-    """The approximate market cap, by ``workbench/scoring._market_cap``'s rule (copied; see the module note).
-
-    A flagged price history withholds it. No price bars: ``no_price`` ("awaiting price"). A price but no shares
-    fact: ``no_shares`` ("awaiting shares"). ``ads_ratio_status`` ``unread``, or ``known`` with a missing or
-    absurd ratio (a corrupt pairing is treated as unread: fail closed), withholds the cap; ``known`` divides the
-    ordinary count by the ratio; NULL is not applicable and counts 1:1. A split in force with a first session
-    after the count's date and on or before the close's puts the count on the close's scale.
-    """
-    if reads.flag is not None:
-        return CapCell(gap="flagged", note=reads.flag)
-    sh, px = reads.shares, reads.close
-    if px is None:
-        return CapCell(gap="no_price", shares=_f(sh["shares"]) if sh else None)
-    close_date, close = px
-    if sh is None:
-        return CapCell(gap="no_shares", close=close, close_date=close_date)
-    count, shares_date = float(sh["shares"]), _day(sh.get("valid_from"))
-    status, ratio = sh.get("ads_ratio_status"), sh.get("ads_ratio")
-    base = dict(close=close, close_date=close_date, shares=count, shares_date=shares_date)
-    if status == "unread" or (status == "known" and not (ratio and float(ratio) >= 1)):
-        return CapCell(gap="ads_unread", **base)
-    divisor = float(ratio) if status == "known" else 1.0
-    k = scale_after(list(reads.splits), shares_date, through=close_date) if shares_date else 1
-    cap = count / divisor / float(k) * close
-    if cap <= 0:
-        return CapCell(gap="no_cap", note="the share count or the close is not positive", **base)
-    return CapCell(
-        value=float(round(cap)),
-        tier=cap_tier(cap),
-        ads_ratio=int(ratio) if status == "known" and ratio else None,
-        split_factor=float(1 / k) if k != 1 else None,
-        **base,
-    )
-
-
 def revenue_cells(rows: Sequence[Mapping[str, Any]]) -> tuple[RevenueCell, YoyCell]:
     """The latest period's revenue and its year-over-year change. Latest = the newest period end (ties by filing
     date); YoY = against ``filings.prior_year_row`` (the row for the same period end one year earlier within 10
     days, from the SAME read), blank when there is none or it is not positive."""
-    rev = [r for r in rows if _f(r.get("value")) is not None and _day(r.get("period_end"))]
+    rev = [r for r in rows if float_of(r.get("value")) is not None and day_of(r.get("period_end"))]
     if not rev:
         return RevenueCell(gap="no_revenue"), YoyCell(gap="no_revenue")
-    latest = max(rev, key=lambda r: (r["period_end"], _day(r.get("valid_from")) or date.min))
+    latest = max(rev, key=lambda r: (r["period_end"], day_of(r.get("valid_from")) or date.min))
     value = float(latest["value"])
     cell = RevenueCell(value=value, period_end=latest["period_end"])
     prior = prior_year_row(latest, rev)
-    then = _f(prior.get("value")) if prior else None
+    then = float_of(prior.get("value")) if prior else None
     if prior is None or then is None or then <= 0:
         return cell, YoyCell(gap="no_prior_year")
     return cell, YoyCell(
@@ -402,7 +291,7 @@ def runway_cell(fact: Mapping[str, Any] | None) -> RunwayCell:
     if fact is None:
         return RunwayCell(gap="no_burn")
     cash, burn = float(fact["cash_usd"]), float(fact["quarterly_burn_usd"])
-    base = dict(cash_usd=cash, burn_usd=burn, as_of=_day(fact.get("valid_from")))
+    base = dict(cash_usd=cash, burn_usd=burn, as_of=day_of(fact.get("valid_from")))
     if burn <= 0:
         return RunwayCell(cash_positive=True, **base)
     return RunwayCell(months=round(cash / (burn / 3.0), 1), **base)
