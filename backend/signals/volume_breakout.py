@@ -9,7 +9,7 @@ from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.enums import Grade, Kind, Role
 from domain.signal import SignalEvent
 from signals.base import Detector, SignalPointInTimeData
-from signals.common import entry_signal_is_live, fired_signal, source_provenance
+from signals.common import breakout_window, fired_signal, source_provenance
 from signals.registry import register_detector
 
 DETECTOR_NAME = "volume_breakout"
@@ -102,10 +102,11 @@ def score(
         return None
     closes = [float(b["close"]) for b in bars]
     earliest = max(cfg.breakout_base_window, cfg.breakout_return_days)
+    window = breakout_window(cfg)  # calendar days today; sessions under F4's dormant dial
 
     idx = None
     for i in range(len(bars) - 1, earliest - 1, -1):
-        if not entry_signal_is_live(bars[i]["d"], cfg.breakout_alpha_liveness_days, asof):
+        if not window.is_live(bars[i]["d"], asof):
             break  # bars are ascending; everything earlier is past the freshness window too
         base_high = max(closes[i - cfg.breakout_base_window : i])
         ret = closes[i] / closes[i - cfg.breakout_return_days] - 1.0
@@ -152,7 +153,7 @@ def score(
             f"high {base_high:.2f}, +{ret * 100:.0f}% over {cfg.breakout_return_days}d on "
             f"{vol_ratio:.1f}x avg volume"
         ),
-        alpha_liveness_days=cfg.breakout_alpha_liveness_days,
+        alpha_liveness_days=window.span_days(event_date),
         provenance=[
             source_provenance(
                 "price",

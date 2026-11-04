@@ -61,7 +61,7 @@ minus the NYSE's full-day closures, `domain.trading_days`, F5)
 run that fires on the **wrong day** (the laptop's sleep drift: a 00:24 or 09:09 wake recorded the *next*
 day's as-of) advances the edge right over the night it skipped. MEASURED on prod, 6 of 13 weekdays had no
 `calls` row while the page read "current". So `/admin/status` also scans the last
-**`ALPHADECK_ADMIN_MISSED_WINDOW`** (default **10**; `0` disables) scheduled weekdays ending at the last
+**`ALPHADECK_ADMIN_MISSED_WINDOW`** (default **10**; `0` disables) scheduled sessions (Mon-Fri minus NYSE closures, F5) ending at the last
 expected run (`schedule.py::scheduled_window` / `missed_asofs`; `calls_repo.recorded_asof_stamps` +
 `record_first`) for nights with **no covering call-of-record**, bounded to the record's own span (a night
 before the record began is pre-history, never a "miss"; a fresh install has no holes). `record.missed` counts
@@ -71,7 +71,7 @@ The page lists the missed dates **only when there are any** (a control that does
 render). The cause — the sidecar firing for the day it *woke* rather than the night it was scheduled for — is
 fixed in `FEED_LOOP.md` §the scheduling sidecar (the target as-of is now fixed at schedule time).
 
-**What "covered" means — a POST-`RUN_AT` row (G2c).** A weekday counts as recorded only if some
+**What "covered" means — a POST-`RUN_AT` row (G2c).** A session counts as recorded only if some
 call-of-record for that as-of was **`recorded_at` at or after that night's `RUN_AT` in market time**
 (`datetime.combine(asof, RUN_AT, market_tz())`). Mere existence of a row was too weak a test: a pre-open
 **"Run daily now"** writes a row for *today's* as-of off the **prior** session's bars, so a night whose 22:30
@@ -123,8 +123,8 @@ no price-based de-arm either) while the CIK-keyed filing feeds keep flowing, so 
 and never confirm on price.
 
 - **What counts as stale:** the latest stored EOD bar is `ALPHADECK_TAPE_STALE_DAYS` (default **5**) or more
-  **calendar** days before the run's as-of, or the name has no bars at all. Calendar days because the trading
-  clock deliberately has no holiday calendar. A live tape gets that session's bar appended nightly, so its
+  **calendar** days before the run's as-of, or the name has no bars at all. Calendar days, deliberately, even though the session calendar
+  has been holiday-aware since F5: the staleness dial is a plain age, not a session count. A live tape gets that session's bar appended nightly, so its
   edge sits at 0–1 days and the threshold never comes near it — the number only matters once bars **stop**
   arriving: 5 means a tape may lag up to **four** calendar days before it reads stale, and a dead tape
   surfaces within a week. Counted out: a Friday close is fresh through Tuesday's pass (4 days) and reads

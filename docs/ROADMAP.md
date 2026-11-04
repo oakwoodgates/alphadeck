@@ -214,7 +214,7 @@ insider `Ins 30d`/`Ins 90d`, three lenses (call-state · business-type · value-
    FE async-boundary tests, off-universe label copy, dilution polarity styling.
 6. **Cron ops hardening** (distinct from #3 scaling — this is freshness/observability, not load). The
    ambient-`date.today()` item is **DONE** — `domain/market_time.market_today()` + the repo-scan guard
-   (`INVARIANTS.md` §6). It did **not** unify the Mon-Fri + `RUN_AT` schedule contract, which still has two
+   (`INVARIANTS.md` §6). It did **not** unify the Mon-Fri-minus-NYSE-closures (F5) + `RUN_AT` schedule contract, which still has two
    homes (`scripts/daily_cron.sh` and `pipeline/schedule.py`, kept in step by hand) — `market_today()`
    deliberately does no trading-calendar logic, so shrinking the shell to a dumb trigger remains open.
    The **wrong-day fire is CLOSED** (#330–#332: target-at-schedule-time, the sliced wall-clock wait, boot

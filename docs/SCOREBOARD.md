@@ -789,7 +789,7 @@ events** as **colored numbered chips**:
   (`recorded_at ≤ now`, where the two coincide). So a scrubbed-back Scoreboard hides later bars AND
   later-*disclosed* buys — the honesty a filing's days-to-months lag demands — but no longer hides a buy that was
   public and merely ingested late; each chip's "ingested" line stays our honest ingest date (`ingested_at`).
-  8-Ks and 13D/Gs are gated by their filing date the same way (the price bar's `valid_from == d` needs only
+  8-Ks and 13D/Gs are gated by their public date (SEC acceptance when trusted, else the filing date; F7) the same way (the price bar's `valid_from == d` needs only
   the valid-axis cap). SMA is a warm-up read with an honest `None` gap where
   history is short (`scoreboard/overlays.py`).
 - **Explainability (#6)** — hover any chip for the buyer/$/date, the **disclosure lag**, the buy's

@@ -53,15 +53,24 @@ def test_overlay_coerces_a_json_value_to_its_declared_type():
     assert all(isinstance(k, Kind) for k in cfg.confirmation_kinds)
 
 
-def test_only_two_dials_declare_a_bound():
+def test_only_these_dials_declare_a_bound():
     """A deliberately uncomfortable test. Re-validation sounds like a strong guard; on this model it is
-    mostly type coercion, because only TWO dials declare a value constraint. Pinned so the limitation is
-    visible in the suite rather than assumed away — and so that ADDING a bound to a dial (which is the
-    right place for one, since the live path benefits too) is a review-visible change here. The second is
-    rule (c)'s ``revenue_accel_max_quarter_age_days`` (2026-10-22): ``ge=0`` (a negative age cap would make
-    every quarter stale and silence the detector), ``None`` = no cap."""
+    mostly type coercion, because only a handful of dials declare a value constraint. Pinned so the
+    limitation is visible in the suite rather than assumed away — and so that ADDING a bound to a dial
+    (which is the right place for one, since the live path benefits too) is a review-visible change here.
+    The second is rule (c)'s ``revenue_accel_max_quarter_age_days`` (2026-10-22): ``ge=0`` (a negative age
+    cap would make every quarter stale and silence the detector), ``None`` = no cap. The last three are F4's
+    dormant session counts (2026-10-31): ``ge=1`` (a window gives at least one session) and a per-family cap
+    that keeps the window inside its detector's own pull (``tests/domain/test_bar_window_dials.py``).
+    """
     bounded = {n for n, f in CallConfig.model_fields.items() if f.metadata}
-    assert bounded == {"insider_10b5_1_buy_weight", "revenue_accel_max_quarter_age_days"}
+    assert bounded == {
+        "insider_10b5_1_buy_weight",
+        "revenue_accel_max_quarter_age_days",
+        "breakout_alpha_liveness_sessions",
+        "breakout_52w_alpha_liveness_sessions",
+        "laggard_alpha_liveness_sessions",
+    }
     with pytest.raises(OverlayError):
         apply_overlay({"revenue_accel_max_quarter_age_days": -1})
     assert (

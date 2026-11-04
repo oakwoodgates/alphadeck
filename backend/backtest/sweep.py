@@ -44,7 +44,7 @@ from pydantic import BaseModel, Field
 
 from backtest import manifest as mf
 from backtest import store
-from backtest.config_overlay import OverlayError, apply_overlay
+from backtest.config_overlay import OverlayError, apply_overlay, load_overlay_ladder
 from backtest.manifest import mirror_hash
 from backtest.nulls import DEFAULT_DRAWS
 from backtest.pair import Key as PairKey
@@ -1142,6 +1142,20 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     p.add_argument(
+        "--overlay-ladder",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help=(
+            "a JSON array of flat overlays (the --config format), one per point -- repeatable, ONE CURVE "
+            "PER FILE, in the same pass as any --ladder (one mirror, one pass id, one shared baseline). "
+            "For a family whose dials move TOGETHER, which dial=v1,v2 cannot express: F4's unit and "
+            "session count are refused one without the other, so every point sets both and the baseline "
+            "is the point that sets the unit back to calendar. The curve's dials are the union of the "
+            "points' keys; --ladder-hypothesis / -decision-rule / -metric-slice key on the first of them."
+        ),
+    )
+    p.add_argument(
         "--ladder-hypothesis",
         action="append",
         default=[],
@@ -1286,14 +1300,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    if args.ladder and (args.dial or args.grid):
+    curves = args.ladder or args.overlay_ladder
+    if curves and (args.dial or args.grid):
         print(
-            "ERROR: --ladder is a set of CURVES (one per dial) and --dial/--grid is ONE curve; "
-            "pass one or the other, not both",
+            "ERROR: --ladder / --overlay-ladder is a set of CURVES (one per dial or file) and "
+            "--dial/--grid is ONE curve; pass one or the other, not both",
             file=sys.stderr,
         )
         return 2
-    if args.ladder and args.metric_slice:
+    if curves and args.metric_slice:
         # Refused rather than applied pass-wide: the family a dial can touch is the dial's own, so one
         # slice over six curves would measure five of them on episodes they cannot reach and report the
         # resulting flat line as a finding.
@@ -1310,7 +1325,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if not ladders:
         print(
-            "ERROR: nothing to sweep -- pass --ladder, or --dial/--values, or --grid",
+            "ERROR: nothing to sweep -- pass --ladder / --overlay-ladder, or --dial/--values, or --grid",
             file=sys.stderr,
         )
         return 2
@@ -1417,9 +1432,11 @@ def write_curve(report: SweepReport, root: Path) -> Path:
 def _ladders_from_args(args: argparse.Namespace) -> list[Ladder]:
     """The pass's curves, from either front door.
 
-    ``--ladder`` is N curves, one per dial. ``--dial``/``--grid`` is ONE curve over a cartesian variant
-    set, which is what H3 needs (its three arms live on two dials). Unknown dials fail HERE, before the
-    mirror export, because a typo should not cost a minute of Parquet."""
+    ``--ladder`` is N curves, one per dial; ``--overlay-ladder`` is one more curve per FILE, for dials that
+    move together (F4's unit + session count), and both may share one pass. ``--dial``/``--grid`` is ONE
+    curve over a cartesian variant set, which is what H3 needs (its three arms live on two dials). Unknown
+    dials fail HERE, before the mirror export, because a typo should not cost a minute of Parquet.
+    """
     overrides = {
         "hypothesis": dict(
             split_spec(spec, "--ladder-hypothesis") for spec in args.ladder_hypothesis
@@ -1435,7 +1452,9 @@ def _ladders_from_args(args: argparse.Namespace) -> list[Ladder]:
         )
     }
     ladders: list[Ladder] = []
-    if args.ladder:
+    # `getattr`: a library caller may hand in a Namespace built before the flag existed
+    overlay_ladders: list[str] = getattr(args, "overlay_ladder", None) or []
+    if args.ladder or overlay_ladders:
         for spec in args.ladder:
             name, raw = split_spec(spec, "--ladder")
             values = parse_values(raw)
@@ -1447,6 +1466,20 @@ def _ladders_from_args(args: argparse.Namespace) -> list[Ladder]:
                     hypothesis=overrides["hypothesis"].get(name, args.hypothesis),
                     decision_rule=overrides["decision_rule"].get(name, args.decision_rule),
                     metric_slice=slices.get(name),
+                )
+            )
+        for path in overlay_ladders:
+            # every point validated -> OverlayError, before any work
+            points = load_overlay_ladder(path)
+            names = sorted({dial for point in points for dial in point})
+            key = names[0]
+            ladders.append(
+                Ladder(
+                    dial_names=names,
+                    variants=points,
+                    hypothesis=overrides["hypothesis"].get(key, args.hypothesis),
+                    decision_rule=overrides["decision_rule"].get(key, args.decision_rule),
+                    metric_slice=slices.get(key),
                 )
             )
         unknown = set(overrides["hypothesis"]) | set(overrides["decision_rule"]) | set(slices)

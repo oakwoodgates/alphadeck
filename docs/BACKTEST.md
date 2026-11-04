@@ -555,6 +555,16 @@ carry `runs_shared`, because one measurement cited six times is not six.
 `--ladder` is distinct from `--grid`, which stays a **cartesian** variant set producing ONE curve — H3's
 three arms live on two dials and need exactly that. Passing both is refused rather than resolved.
 
+**`--overlay-ladder PATH` (F4, 2026-10-31)** is one more curve per file, in the same pass as any `--ladder`:
+the file is a JSON array of flat overlays (the `--config` format), one per point, for dials that move
+TOGETHER. F4's unit and session count are refused one without the other, so `dial=v1,v2` cannot express a
+point and a cartesian grid would include the refused halves. Every point is validated before the export
+(`backtest.config_overlay.load_overlay_ladder`: an unknown dial, a refused value, or two points resolving to
+the same config fail naming the point). The curve's dials are the union of the points' keys, and the
+per-ladder `--ladder-*` overrides key on the first of them. The baseline is the point equal to the
+production config, deduplicated across curves as above. The F4 pass is registered in
+`docs/RECALIBRATION.md` §A.
+
 **Pre-registration.** The RUNS carry the pass's `--hypothesis` / `--decision-rule`, and they have to: the
 baseline run belongs to every curve at once and cannot carry six different texts. Each CURVE carries its
 own on its report, overridable per ladder with `--ladder-hypothesis dial=…` / `--ladder-decision-rule

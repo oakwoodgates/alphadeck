@@ -13,7 +13,7 @@ from domain.enums import Grade, Kind, Role, State, Verdict
 from domain.signal import SignalEvent
 from domain.thesis import Catalyst, Thesis
 from domain.trading_days import is_scheduled_day, next_scheduled_day
-from signals.common import entry_signal_is_live
+from signals.common import entry_signal_is_live, window_end
 from signals.conviction_source import is_computed_conviction
 from signals.revenue_acceleration import DETECTOR_NAME as REVENUE_ACCEL_DETECTOR
 
@@ -625,9 +625,12 @@ def _entry_window_closing(asof: date, arm_until: date | None, cfg: CallConfig) -
 
 
 def _clock(events: list[SignalEvent]) -> date | None:
-    """The latest (fire_date + alpha-liveness window) over a set of triggers — None if none carry one."""
+    """The latest window end over a set of triggers — None if none carry one. The end is
+    ``signals.common.window_end``, the one place it is computed (F4): a bar-driven window counted in
+    sessions arrives here as its calendar span (``signals.common.BarWindow``), so this needs no unit.
+    """
     ends = [
-        e.asof + timedelta(days=e.alpha_liveness_days)
+        window_end(e.asof, e.alpha_liveness_days)
         for e in events
         if e.alpha_liveness_days is not None
     ]

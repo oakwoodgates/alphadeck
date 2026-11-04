@@ -32,7 +32,7 @@ from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.enums import Grade, Kind, Role
 from domain.signal import SignalEvent
 from signals.base import Detector, SignalPointInTimeData
-from signals.common import entry_signal_is_live, fired_signal, source_provenance
+from signals.common import breakout_52w_window, fired_signal, source_provenance
 from signals.registry import register_detector
 
 DETECTOR_NAME = "breakout_52w"
@@ -85,11 +85,12 @@ def score(
     if len(bars) <= earliest:  # not enough prior bars to honestly claim a 52-week high anywhere
         return None
     closes = [float(b["close"]) for b in bars]
+    window = breakout_52w_window(cfg)  # calendar days today; sessions under F4's dormant dial
 
     idx: int | None = None
     hit_rvol = 0.0
     for i in range(len(bars) - 1, earliest - 1, -1):
-        if not entry_signal_is_live(bars[i]["d"], cfg.breakout_52w_alpha_liveness_days, asof):
+        if not window.is_live(bars[i]["d"], asof):
             break  # bars are ascending; everything earlier is past the freshness window too
         base_high = max(closes[max(0, i - cfg.breakout_52w_base_bars) : i])
         if closes[i] <= base_high:
@@ -118,7 +119,7 @@ def score(
             f"52-week breakout: close {last_close:.2f} cleared the 52-week high "
             f"{base_high:.2f} on {hit_rvol:.1f}x avg volume"
         ),
-        alpha_liveness_days=cfg.breakout_52w_alpha_liveness_days,
+        alpha_liveness_days=window.span_days(event_date),
         provenance=[
             source_provenance(
                 "price",
