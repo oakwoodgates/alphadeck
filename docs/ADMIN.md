@@ -175,8 +175,10 @@ and never confirm on price.
   delisting, then set the vendor symbol override on the security master (`security_master.price_symbol`, the
   OTC fix's seam). The next nightly pass re-pulls the two-year window under the new symbol, appends the
   missing tail and hole-fills the overlap. Teaching the symbol resolver to follow renames **automatically** is
-  deliberately not built: a wrong auto-resolve would file another company's tape under your member, which is
-  worse than a visible gap (`INVARIANTS.md` #4/#6). See `DATA_SOURCES.md` §free EOD prices. **Since T2/Q8
+  deliberately not built beyond one narrow, undoable path (the weekly company-list refresh, 2026-10-24: a
+  renamed name with stored bars is pinned to its old ticker, then adopted onto the new one only when the nightly
+  probe's splice shares at least 20 bars at x1.000 — "The company list", below): a wrong auto-resolve would
+  file another company's tape under your member, which is worse than a visible gap (`INVARIANTS.md` #4/#6). See `DATA_SOURCES.md` §free EOD prices. **Since T2/Q8
   the renamed, never-priced and closed names move to the "Price feed repairs" panel below**, where the
   repair is one click with its Undo; this block keeps only the stopped tapes that panel does not hold (a
   plain feed gap — or every row, against an older backend that has no panel).
@@ -408,7 +410,8 @@ reads — artifact-sourced like the stopped-feed panel, so the surface still own
   history).
 - **It never changes the verdict.** A defect is a vendor tape problem, flag only: nothing it finds reaches a
   detector, a call or a stored bar. What to do with a flagged name (treat its price triggers with suspicion;
-  whether detectors should abstain on it is an open decision, plan Q10) is yours. The Admin page renders the
+  detectors do not abstain on it: the split list repairs the stored bars, and the split-night hold covers a
+  split's first nights before it is listed) is yours. The Admin page renders the
   rows under "Record freshness", loud, only when there is at least one, with a "NEW — paged on this pass"
   marker on the rows that paged.
 

@@ -848,7 +848,7 @@ the read; D's figures survive only in the operator's write-up.
 - **A pass keeps moving until its horizons mature.** On C, 524 of 2,227 episodes (23.5%) still have `exit_by` beyond the tape's edge, mostly in the last three windows, so a later re-run will differ for that reason alone. C is a current reading, not a final one.
 - **Read a slice's caveat by the 2×2, too.** On the fresh tape the `co_arm_bucket=8+` slice also beats both nulls. It does so under both codes, and never with D3a alone, so that is drift. That slice was never part of the claim; reading it as a new pocket would be a new hypothesis.
 - **The record is not the backtest.** The live record's phantom nights were handled separately by D3b (`call_annotation`: 9 exclude + 107 note). This section re-reads only the backtest.
-- **D3a is rule (a) only.** Rule (c), firing only on a filing's newest quarter, is a separate, deferred policy call and would remove more.
+- **D3a is rule (a) only.** Rule (c), a freshness cap on the cited quarter (a quarter whose period ended more than 135 days before its number became knowable cannot fire), was a separate policy call; it shipped on 2026-10-22 (#442, `CALL_LOGIC.md` §3), after this re-read, so none of the figures above include it.
 
 ## Known gaps
 

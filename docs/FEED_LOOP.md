@@ -9,7 +9,7 @@
 > Engines: `backend/pipeline/ingest_thesis.py` · `backend/pipeline/daily.py` · `backend/ingest/prices/source.py`
 > · `backend/repositories/calls_repo.py` (`record_if_changed` / `_canonical`) · the `cron` sidecar in
 > `docker-compose.yml` + `backend/scripts/daily_cron.sh` · `backend/pipeline/backfill.py` (a missed night,
-> reconstructed with a PINNED `known_at`) · `backend/pipeline/tape_health.py` (the price-tape recency
+> reconstructed on the public clock) · `backend/pipeline/tape_health.py` (the price-tape recency
 > monitor — a monitor, never a signal) · `backend/pipeline/split_basis.py` (the split-basis defect monitor,
 > T4 — likewise flag only).
 >
@@ -18,7 +18,7 @@
 > remediation** (#196–#200): the key-classed EDGAR cache TTL, a recording gate, a run-of-record log, a health
 > pager, and catch-up-on-boot; and the **missed-nights arc** (#330–#332, #337–#338): the sidecar fires for
 > the INTENDED night and waits in wall-clock slices, the freshness read is hole-aware (`gappy`), and a missed
-> night is reconstructed with a PINNED clock and marked `calls.reconstructed` (reported on the Scoreboard,
+> night is reconstructed on the public clock and marked `calls.reconstructed` (reported on the Scoreboard,
 > never scored). With it, **M2 — "the functional platform feeds itself" — is complete**, and the
 > North Star is reachable end to end: create a thesis (M1) → `ingest_thesis` pulls real insider + price → it
 > WARMS/ARMS on real data → the daily cron logs the call-of-record.
@@ -293,8 +293,8 @@ the 16:00 close that still sits 4.5 h before RUN_AT.
 `no_unsettled_bars` check (`pipeline/self_audit.py`) reads `fact_price_eod` — every version, every tenant,
 SPY/IWM included — and FAILS (pages) when any row was **recorded** before its bar date's settle instant
 (`d` at `price_settle_time` in market time, built with the market zone so a DST change moves it in UTC
-exactly as the guard does). It is the one hard guard for the coming open / provisional-close runs
-(`docs/temp/note-for-cron-server-agent-2026-10-19.md` §4): a writer in another process that bypassed
+exactly as the guard does). It is the one hard guard for the coming open / provisional-close runs:
+a writer in another process that bypassed
 `withhold_unsettled` is caught the same night. A backdated knowability stamp before the settle instant
 fails too — it claims what an in-progress store would. **Its window:** the rows recorded since the newest
 finished pass that JUDGED the check (its `finished_at`, less one minute for the process-vs-DB clock;
@@ -456,7 +456,7 @@ post-settle noise.
 
 ## Honest stamps — the fundamentals write path (migration 0057, 2026-10-21)  `[BUILT]`
 
-The acceptance bar (cron-correctness plan §2.4): facts dated by when they were first knowable, and no
+The acceptance bar: facts dated by when they were first knowable, and no
 backdated `recorded_at` on the live path. Under the operator's public-clock rule (`INVARIANTS.md` §4,
 2026-10-21) `recorded_at` is honest BOOKKEEPING — when this system stored a row, stamped now, never backdated —
 and history is judged on the PUBLIC clock. `fact_fundamentals` was the last writer that backdated it:
@@ -897,7 +897,7 @@ recorded at/after `RUN_AT`, counted in the `calls` table), `code_sha_known`, `ev
 `fact_price_eod` row recorded before its bar's settle instant, judged over the rows written since the last
 judging pass; "Settled closes" above). Every
 connection the pass opens sets a session **`statement_timeout`** (`ALPHADECK_CRON_STATEMENT_TIMEOUT_S`,
-default 300 s — sized ~2,000x the slowest measured single read, 151 ms; 0 disables), so a lock wait or a
+default 300 s — sized ~2,000x the slowest single read in the 2026-09-02 profile, 151 ms, taken before the read-path fixes so the margin only grew; 0 disables), so a lock wait or a
 stuck read raises inside the per-thesis isolation instead of hanging the loop. And an **unhandled exception**
 in the pass sends ONE health page (`PASS CRASHED — <type>: <message>`) before it re-raises — fail-open, it
 can never mask the original. (A process that is KILLED runs no Python at all; the sidecar's own page and the
@@ -2732,8 +2732,8 @@ first.
   `basket_snapshot` since 2026-09-15; before that `basket_member` is full-replace with no timestamps, so a
   reconstruction runs on TODAY's roster. A reconstructed row therefore can never be shown to be the record, and the Scoreboard scores none of them
   (`docs/SCOREBOARD.md` §"The one rule" — a reconstructed row never defines an episode boundary; the
-  ledger names, once, the nights it has nothing honest for). Until baskets are point-in-time, that holds for every row this
-  tool writes.
+  ledger names, once, the nights it has nothing honest for). The exclusion is by the `reconstructed` marker, so it holds for
+  every row this tool writes, snapshot or not.
 - **The markers.** Every row the backfill writes carries `calls.reconstructed = true` (migration 0042; the
   cron never sets it) — the explicit provenance the Scoreboard's record path filters on, threaded to
   `record_if_changed` OFF the card (so it never fakes a change in the idempotency compare). `ingest_fresh`
@@ -2813,8 +2813,8 @@ the immutable log — they are what the system said — and are set aside from s
 
 - **The rule is the shared calendar, nothing else.** A row is a no-session night when `not
   domain.trading_days.is_scheduled_day(row.asof)`; only honest (`NOT reconstructed`) rows are looked at. The CLI
-  keeps no holiday list: today the predicate is Mon–Fri (the weekend rows); when it becomes holiday-aware the
-  holiday rows are found with no change here.
+  keeps no holiday list: the predicate is Mon–Fri minus the NYSE's full-day closures (F5), so the weekend rows
+  and the holiday rows (the 11 Labor Day rows) are both found with no change here.
 - **The annotation.** `exclude`, `reason = no_session_day`, `rule = no-session-night@<image sha>`, `detail`
   = weekday, call seq, recorded_at, run_kind, code sha, the recorded state/verdict (no `affected_security_ids`:
   the whole night is the judgment, so every member's drawer caption shows it). No migration.
@@ -2884,7 +2884,7 @@ happened to exist. So a snapshot is now a one-click safety net — and a nightly
   `docker exec -i alphadeck-postgres-1 psql -U alphadeck -d alphadeck < ./data/backups/<file>`. *(The
   replay-snapshot regenerate button stays out of scope — deferred to the replay-panel work.)*
 
-## Known gaps (as of 2026-09-10)
+## Known gaps (opened 2026-09-10; closures recorded in place through 2026-10-21)
 
 Recorded here where a builder of the pager/scheduler will hit them; the full account of the first three is in
 `POSTMORTEM_CRON_FREEZE_2026-07.md`.
@@ -2906,7 +2906,7 @@ Recorded here where a builder of the pager/scheduler will hit them; the full acc
   (`schedule.missed_asofs`, bounded to the record's own span) and reports `gappy` + the dates. The existing
   prod holes are **not** backfilled by either (deliberate — the operator's call, and the boot catch-up is
   bounded to the *last expected* night, never older); the operator's tool for a hole is `pipeline.backfill`
-  with a PINNED `known_at` ("Backfilling a missed night", above) — never `pipeline.daily --asof <past>`,
+  (on the public clock — "Backfilling a missed night", above) — never `pipeline.daily --asof <past>`,
   which records today's knowledge.
 - **The R4 freeze page's false-positive path is NARROWED again by G1 — closed for the scheduled pass and
   the Admin "Run daily now", NOT for a second pass five minutes behind another.** It fires on
@@ -3021,8 +3021,8 @@ Recorded here where a builder of the pager/scheduler will hit them; the full acc
   is now covered only by a row recorded at/after that night's `RUN_AT` in market time, and a daytime-only
   night is listed with a distinct mark (`ADMIN.md` §what "covered" means). **Still open, by design:** the
   retry is ONE attempt, and a multi-night host-off outage still reruns only the last expected night on boot
-  (never older holes — a deploy must not silently backfill history); `pipeline.backfill` with a pinned
-  `known_at` remains the operator's tool for an older hole.
+  (never older holes — a deploy must not silently backfill history); `pipeline.backfill` (on the public
+  clock) remains the operator's tool for an older hole.
 - **A boot catch-up lost to the cold-start DB race — CLOSED (2026-10-01).** R6 fired exactly once, at
   boot, and restart policies ignore `depends_on`, so after a daemon restart the sidecar booted in the same
   second as Postgres, its catch-up hit `Connection refused`, and nothing tried that night again (MEASURED on
@@ -3042,7 +3042,8 @@ Recorded here where a builder of the pager/scheduler will hit them; the full acc
   10-12 shape, a box that dies whole, takes the shell with it, so no in-band page can fire; that is the
   external heartbeat's (above), active on prod since 2026-10-16. The page also needs the
   `notify` package importable. The in-process half, a wrapper so an unhandled exception inside
-  `run_daily_pass` pages before it re-raises, is a separate change.
+  `run_daily_pass` pages before it re-raises, is built (an escaping exception sends one crash page, `_page_crash` in
+  `pipeline/daily.py`, then re-raises unchanged).
 - **A killed or partial pass read "healthy" — CLOSED (M1, 2026-10-16).** MEASURED 2026-10-12: the 22:30
   pass died at ~22:42 (the host VM went down) with 4 of 12 theses recorded; it left no artifact, and
   `/admin/status` read healthy for ~18 h — the hole check credited the night because ONE row (any thesis)
@@ -3124,7 +3125,9 @@ Recorded here where a builder of the pager/scheduler will hit them; the full acc
   **Still open by design:** the repair is the
   operator's (set the vendor symbol override for a tape; check fund/ticker/source for a sleeve), because an
   automatic rename-follower could file another company's tape under a member — worse than a visible gap
-  (#4/#6). **Ratifiable since T2/Q8/T3 (2026-10-17):** a renamed name carries a nightly splice-verified
+  (#4/#6) — with one narrow, undoable exception since the weekly company-list refresh (2026-10-24): a renamed
+  name with stored bars is pinned to its old ticker, and the nightly adopts SEC's new ticker only when the
+  probe's splice shares at least 20 bars at exactly x1.000 ("The company list", above). **Ratifiable since T2/Q8/T3 (2026-10-17):** a renamed name carries a nightly splice-verified
   successor to Adopt, an unpriceable one can be Set / Acknowledged / removed, and a closed or acknowledged
   name's vendor 404 is expected — see "The tape monitor, part 3" above. Still unbuilt: the existing
   `--adopt` CLI and the finalize self-heal still write `price_symbol` without a `price_symbol_change` row (an

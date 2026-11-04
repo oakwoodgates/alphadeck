@@ -19,6 +19,7 @@
 | `risk_block_severity` | 0.70 | severe risk blocks the arm (timing veto) | block-vs-penalize is fixed; only the threshold tunes |
 | `risk_penalty_per_signal` | 0.10 | setup-strength cut per active risk signal (`confidence` in code) | scaled by the signal's score |
 | `dilution_overhang_severe_pct` | 25.0 | gross overhang that scales to a block | HIMS ~6% lands well below |
+| `dilution_severe_score` | 0.80 | the severity a severe (>= `dilution_overhang_severe_pct`) overhang scores to | DECOUPLED from `risk_block_severity`, so retuning the veto never rescales dilution; set above 0.70 so a severe overhang clears the gate with margin; `[PROPOSED]` in code (the detector also caps the emitted score at 0.95) |
 | **Insider conviction (grade-coupled liveness):** | | | |
 | `insider_cluster_window_days` | 30 | buys within N days = one cluster | ~7–30d is the literature window |
 | `insider_min_usd` | 10,000 | below this, no signal | |
@@ -61,7 +62,8 @@
 | `activist_stake_enabled` | **True** | the master switch — LIVE by default | **flipped ON 2026-08-20** (off-vs-on re-measure, prod: 29 clean warm fires / 10 arms / ≤4 per thesis — NO flood; every survivor a real 13D, filer ≠ subject & pct ≥ 5; the `_is_misattributed` screen removed the 5 self-filed/sub-5% mis-attributed fires — UEC, ISOU, CBRS, GME/EBAY — while keeping the valid cross-subject JAGU); a Key-1 CONVICTION that only WARMS (arming still needs a co-located confirmation), so it cannot arm a name alone; the replay lab INHERITS this default (option A, 2026-08-20) — `--no-activist-stake` forces it OFF for an off-leg measure |
 | `activist_13d_score` | 0.9 | a 13D original's Key-1 CORE conviction score | = `catalyst_conviction._CORE_SCORE` parity: a filed >5%-with-intent stake is a binding, verifiable commitment. Grade itself is CORE **fixed in the detector** (structural — the R6/R9 precedent), not a dial |
 | `activist_13d_liveness_days` | 180 | the edge window, anchored on the ORIGINAL 13D's filed date | the Brav/Jiang literature measures months post-filing; = insider-CORE parity, ≥ the 90d hold threshold (hold-and-build). 13G never fires (fork 3) and amendments never re-anchor (fork 4) — policy, not dials |
-| `activist_affiliate_screen` | **True** | the HOLDER SCREEN — a control holder's or an insider's 13D does not fire | **operator-approved 2026-10-28 (option A)** on the orchestrator's read-only prod measure (all 54 cards at asof 2026-10-28): of 68 live 13D triggers, 20 came from filers who are not outside parties (5 control, 14 officer/director, 1 joint) — SAIQ armed two cards on its own parent's 88.5% 13D; 4 armed members de-arm, 1 card leaves Armed, none leaves Warming. `False` = byte-identical to before. Full rule: `docs/ACTIVIST_STAKE.md` §The holder screen |
+| `activist_exit_terminates` | **True** | a fired 13D ends when the SAME filer's later /A reports a PRESENT percent of class under 5 | **flipped ON 2026-08-21** (read-only prod off-vs-on: 2 genuine same-filer sub-5% exits on 1 thesis terminated, 0 verdict changes; 98.1% parse reliability on structured-era /A covers); NULL-safe — an unparsed percent, another filer's /A or an increase never terminates; `False` = byte-identical to before |
+| `activist_affiliate_screen` | **True** | the HOLDER SCREEN — a control holder's or an insider's 13D does not fire | **operator-approved 2026-10-28 (option A)** on the orchestrator's read-only prod measure (all 54 cards at asof 2026-10-28): of 68 live 13D triggers, 18 came from filers who are not outside parties (5 control, 13 officer/director), leaving 50 (the pre-build estimate was 20) — a newly listed company armed two cards on its own parent's 88.5% 13D; 4 armed members de-arm, 1 card leaves Armed, none leaves Warming. `False` = byte-identical to before. Full rule: `docs/ACTIVIST_STAKE.md` §The holder screen |
 | `activist_control_pct` | 50.0 | a filer row of the filing at or above this percent of class is a control holder | operator-approved (a majority owner — a parent, a sponsor that kept control) |
 | `activist_insider_role_keywords` | director, officer, chief, ceo, cfo, coo, president, chair, vp, secretary, treasurer, general counsel, controller | the words that make a Form 4 role an officer/director role (case-insensitive substring) | wider than `insider_senior_role_keywords` on purpose — it asks "officer or director?", not "how senior?"; "10% owner" names none of them, so a 10%-owner-only filer keeps firing (the operator's choice); a missed title keeps firing (the safe side) |
 | `activist_insider_lookback_days` | 30 | how far before a 13D a Form 4 may be dated and still make its filer an insider (a later Form 4 always counts once public) | **[PROPOSED]** — covers the measured pattern (the 13D accompanies the award / conversion its filer reports on Form 4) and keeps the call view's Form 4 floor at today's 210 + 30 days; widening it widens that read |
@@ -246,7 +248,7 @@ windows was NOT run, because the projection is over the 45-minute ceiling the ta
    meters *discriminating*. Add a varied name (a lower-purity *adjacent*, a tight-runway one, or a
    convert-heavy one) so the demo actually demonstrates the scoring's value. Demo data, not a code change.
 8. **The computed revenue re-acceleration detector is the single largest source of arms `[FILED 2026-09-16;
-   the backtest's H1 is the instrument]`.** `signals/revenue_acceleration.py` (computed from XBRL, graded
+   measured by the backtest's H1 pass, 2026-09-19: no lever cleared the rule]`.** `signals/revenue_acceleration.py` (computed from XBRL, graded
    CORE by rule R6) carries **465** of 969 armed member-nights, against **403** carrying an insider buy —
    overlapping counts, with 70 carrying both. Of the arms carrying revenue re-acceleration **and no insider
    buy (395)**, **213 (54%) were momentum-only flip entries**. The ratified `fact_catalyst` it is often
@@ -265,7 +267,7 @@ windows was NOT run, because the projection is over the 45-minute ceiling the ta
    large basket on the earlier pass), and breadth is what turns "conviction + confirmation" into a
    basket-wide arm. The candidate changes — demote it to `flip`; reclassify it as a confirmation kind rather
    than a Key-1 conviction; require a volume-backed core confirmation when Key 1 is *computed* rather than
-   *ratified* — are the backtest's H1. **Nothing changes live.** The record cannot
+   *ratified* — were the backtest's H1 (its verdict is under Post-D3a below). **Nothing changes live.** The record cannot
    evaluate a dial change (it carries no policy fingerprint — that is exactly what the `calls.config_hash` /
    `run_kind` columns exist to fix), and retuning first would be the assume-don't-test move this agenda
    exists to avoid. *(`backend/signals/revenue_acceleration.py`; rules R6/R7 in `docs/CALL_LOGIC.md`.)*
@@ -280,8 +282,13 @@ windows was NOT run, because the projection is over the 45-minute ceiling the ta
 
    The record-side counts above (465 of 969 armed member-nights) predate D3a and were **not** re-measured.
    The live record's phantom nights carry D3b annotations instead (`call_annotation`: 9 exclude + 107 note,
-   `docs/SCOREBOARD.md`). H1 remains the instrument for the candidate changes; D3a removed phantoms, not the
-   breadth question.
+   `docs/SCOREBOARD.md`). D3a removed phantoms, not the breadth question.
+
+   **The H1 pass has run, and no lever cleared the rule (MEASURED, 2026-09-19).** Pass
+   `20260919T015210Z-public-h1-h3-co-first-measureme` (nine 42-day windows, 2025-09-01 to 2026-09-14, public
+   clock, K=20; the baseline of the D3a re-read, `docs/BACKTEST.md`) swept the three H1 legs and the two H3
+   de-arm dials. None of the five curves showed `strict_measurable_agreement` and every plateau band is empty, so
+   nothing was promoted: the dial defaults above stay at today's value.
 9. **The recorded `TriggerRef` carries no `type`, so a computed catalyst and a ratified one are
    distinguishable only by a label prefix `[FILED 2026-09-16; behind the re-record churn gate]`.**
    `TriggerRef` (`domain/call.py`) is `{label, kind, grade, event_date, security_id, sources}`. The computed

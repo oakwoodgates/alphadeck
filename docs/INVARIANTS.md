@@ -228,7 +228,8 @@ replay stays honest.
   ONLY that max-horizon window per `(table, security_id)` (the prefetch floors it in SQL, the per-security
   fallback trims to the same floor in Python) and every caller trims its OWN window from it. Version-safe:
   `valid_from` is (or equals) a natural-key column on both bounded tables, so a floor drops whole facts and can
-  never change which version wins. The replay mirror (`replay/pit.py`) is untouched and stays parity-gated.
+  never change which version wins. The replay mirror (`replay/pit.py`) carries the same memo, basket prefetch and
+  caller-supplied bounds (backtest B5a) and stays parity-gated.
   *Enforced by:* `tests/signals/test_horizons.py` (every reader declared; a RECORDING PIT proves each reader's
   touched tables ⊆ its declaration and its requested window ≤ its declared horizon; the derived numbers pinned;
   a reader without a declaration cannot be constructed), `tests/db/test_as_of_many.py` (accessor-level equality
@@ -588,7 +589,7 @@ overhang % — with **no `if kind ==` branch anywhere in the engine**. The 0-4 p
 `dilution_clock.overhang_pct(facts, asof)` is the **single source** of the raw convert-overhang % —
 read by **both** the back-half risk-veto (`dilution_clock.score`) and the Workbench dilution meter. The meter
 buckets on this raw %; it **must NEVER recover the overhang from the risk `severity`**, because severity
-*saturates*: `severity = min(overhang / dilution_overhang_severe_pct, 1) × risk_block_severity`, so above the
+*saturates*: `severity = min(overhang / dilution_overhang_severe_pct, 1) × dilution_severe_score`, so above the
 severe bar the overhang is unrecoverable from it. A future reader will be tempted to derive the meter from
 the already-computed severity — that is the trap. One raw computation, shared; "—" when there are no live
 converts (no fake zero). *(The same one-source discipline as the back half re-deriving firings on read — #4.)*
@@ -817,20 +818,23 @@ lookahead, #1). **All four recompute surfaces are now wired to it**: the single 
 `pipeline.call_for_thesis` (serve / `pipeline.run` / the nightly record / `pipeline.backfill`) via F12, and
 the replay harness via F4 — which resolves the roster PER SESSION at
 `min(pin, known_at_for_asof(T))`, the same night cap #4 uses (EDGAR's next open — F6), because the harness pins one `known_at`
-for the whole sweep and resolving once at that pin would hand the `now`-pinned Scoreboard panel today's
-basket.
+for the whole sweep and resolving once at that pin would hand any caller that pins `now` (the retired Scoreboard replay-snapshot
+CLI did) today's basket.
 
 **What remains a counterfactual, and is LABELED rather than assumed away:** snapshot history begins
 2026-09-15, so any recompute reaching further back still runs TODAY's roster. That fallback is correct (#9 —
 never replay a thesis with an empty basket for want of its history) and is now said out loud:
 `replay_all` returns a `ReplayResult` carrying a per-thesis `RosterSource(source, fallback_days,
-total_days)`, `replay.run` prints it, and the Scoreboard's replay banner names it per run instead of
+total_days)`, `replay.run` prints it, and the `/backtest` manifest card names it per run (the Scoreboard's replay panel, banner included,
+was retired by editions S8) instead of
 asserting the old blanket "baskets are not versioned" (which is no longer true). The Board/Cockpit/Workbench
 scrub-back and `pipeline.backfill` keep their own labels (#4 above; `FEED_LOOP.md` — which is why a
-reconstructed row is reported, never scored). The ONE surface immune throughout is the Scoreboard's record
-path: it scores recorded cards, never a recompute, and excludes reconstructed rows.
+reconstructed row is reported, never scored). The ONE surface immune throughout is the Scoreboard's Edition 0 record
+path: it scores recorded cards, never a recompute, and excludes reconstructed rows (an edition >= 1 is a
+stored re-run on the public clock, `SCOREBOARD.md` §Editions).
 
 **Still true, and unchanged by F4:** the rest of the thesis definition (narrative, catalysts, kill criteria)
 and `security_master` are read from the CURRENT SoR on every recompute — only the roster is versioned. And a
-reconstructed row still never counts: a pre-2026-09-15 night has no roster to reconstruct against. No surface
+reconstructed row still never counts, on any night: every Scoreboard record read drops it, and a
+pre-2026-09-15 night has no roster to reconstruct against. No surface
 may present a past-asof recompute as "what the platform said"; that is the Scoreboard's record.

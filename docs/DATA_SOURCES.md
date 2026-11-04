@@ -429,8 +429,11 @@ the ingest cannot tell that from "this name had a quiet year". Two classes, one 
 - **The repair stays the operator's, and it is data.** Set `price_symbol` to the vendor's current symbol and
   the next nightly pass re-pulls the full two-year window, appends the missing tail and hole-fills the
   overlap (splices measured clean). Teaching the resolver to follow renames **automatically** is deliberately
-  **not built**: a wrong auto-resolve files ANOTHER company's tape under the member, which is far worse than a
-  visible gap (`INVARIANTS.md` #4/#6) — it needs the operator's explicit call.
+  **not built** beyond the company-list refresh's one narrow, undoable path (a renamed name with stored bars is
+  pinned to its old ticker, then adopted only on a splice of at least 20 shared bars at exactly x1.000 — see
+  the company-list refresh in §SEC company_tickers + filing extraction, above): a wrong auto-resolve files
+  ANOTHER company's tape under the member, which is far worse than a visible gap (`INVARIANTS.md` #4/#6) —
+  anything weaker needs the operator's explicit call.
 - **Not every stopped tape is a rename.** A genuine **delisting** (EDGAR Form 25 / 25-NSE / 15-12B /
   15-12G) also ends the series, and correctly: there is nothing to repair, the name is simply no longer
   priced. The monitor tells the two apart from EDGAR alone (G5b/T1, `pipeline/tape_health.classify_stop`):

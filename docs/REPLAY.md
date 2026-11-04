@@ -129,7 +129,7 @@ roster once at that pin would return **today's** basket for any caller that pins
    snapshot, so the **live roster stands in** — the right call (#9: never replay a thesis with an empty
    basket for want of its history) and never a silent one. `replay_all` returns a `ReplayResult` carrying a
    per-thesis `RosterSource(source, fallback_days, total_days)`; `replay.run` prints the fallback line and the
-   Scoreboard panel's banner names it. That is the backtest's "counterfactual universe" label, not a bug.
+   `/backtest` run's manifest card names it. That is the backtest's "counterfactual universe" label, not a bug.
 2. **The rest of the thesis definition and `security_master` are still read from the CURRENT SoR** —
    narrative, catalysts, kill criteria, and every identity mapping. Only the roster is versioned.
 
