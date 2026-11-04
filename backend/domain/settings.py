@@ -374,9 +374,10 @@ class Settings(BaseSettings):
     # as its session `statement_timeout`, so such a statement raises instead — inside the per-thesis /
     # per-leg isolation that already turns an exception into a captured, paged error. MEASURED headroom:
     # no per-statement timing exists in the cron logs or artifacts, so the ceiling is sized off the measured
-    # board/cockpit profile (docs/temp/board-cockpit-perf-2026-09-02: the slowest single read 151 ms, a
-    # whole call assembly 0.55–8.3 s) — 300 s is ~2,000x the slowest measured statement and ~36x the
-    # slowest whole call, yet well under the sidecar's whole-pass ceiling, so a stuck statement fails
+    # board/cockpit profile (2026-09-02, before the read-path fixes: the slowest single read 151 ms, a
+    # whole call assembly 0.55–8.3 s; both are lower now, so the margin only grew) — 300 s is ~2,000x
+    # the slowest measured statement and ~36x the slowest whole call, yet well under the sidecar's
+    # whole-pass ceiling, so a stuck statement fails
     # VISIBLY inside the pass before the pass itself is killed. 0 disables. ALPHADECK_CRON_STATEMENT_TIMEOUT_S.
     cron_statement_timeout_s: float = 300.0
     # M1 — the sidecar's whole-pass ceiling (C2: `timeout ${RUN_TIMEOUT_S}` around every `pipeline.daily`),
