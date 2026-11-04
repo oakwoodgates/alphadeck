@@ -19,7 +19,7 @@ The rules, in one place. This is our own simple table, stated here and on the pa
   first recorded night), an ``ingest_flagged`` one, and one whose company is on the flagged-price list
   (``baskets.price_flags``) (and so are all the ``price_feed_stopped`` ones but one). **The one exception**
   (operator decision 2026-11-04, revised the same day): a name whose ONLY price flag is ``price_feed_stopped``
-  AND whose company really ENDED (the security master's status is not ``active``, or the nightly's closed
+  AND whose company really ENDED (the nightly's closed
   classifier, ``tape_health.classify_stop``, carries a ``closed_at`` for it) is counted: its bars are read up to
   where they stop and a horizon past the stop reads path ended. Every other stopped feed stays left out, for its
   honest reason: ``no_longer_priced`` (the company sits on no live card, so the nightly stopped fetching its
@@ -438,7 +438,7 @@ class EpisodeIn:
     price_flag: str | None = None
     price_flag_kinds: tuple[str, ...] = ()
     # a stopped feed's story (read by the router; only used when the stopped feed is the ONLY price flag):
-    # the company itself ended (master status / closed classifier), whether it sits on a live card, and the
+    # the company itself ended (the closed classifier's delisting), whether it sits on a live card, and the
     # tape's last bar date
     company_ended: bool = False
     on_live_card: bool = True

@@ -17087,8 +17087,8 @@ export interface components {
          *     episode is in no cell (its reason in ``left_out_note``) and carries identity only. ``liquidity`` is the 20-day
          *     average dollar volume band at the event (``under_1m`` | ``1m_10m`` | ``10m_plus``; ``null`` when fewer than 20
          *     volume-bearing sessions precede it). ``feed_stopped`` = the episode is COUNTED although its price feed
-         *     stopped: that is its only price flag and the company itself ended (the master's status is not active, or the
-         *     nightly's closed classifier carries a delisting for it), so its bars are read up to where they stop and a
+         *     stopped: that is its only price flag and the company itself ended (the nightly's closed classifier carries an SEC
+         *     delisting for it), so its bars are read up to where they stop and a
          *     horizon past the stop reads ``path_ended``. ``left_out`` ``feed_stopped`` = a stopped feed on a company still
          *     on a live card; ``no_longer_priced`` = a stopped feed on a company that sits on no live card (the nightly
          *     stopped fetching its prices; the company still trades).

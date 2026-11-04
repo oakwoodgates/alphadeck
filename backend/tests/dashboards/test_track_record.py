@@ -1390,40 +1390,31 @@ def test_a_delisted_company_with_another_price_flag_is_still_left_out(
     )
 
 
-def test_the_master_status_ends_a_company_on_the_live_view_only(monkeypatch):
-    """``ended_companies``: a status that is not ``active`` ends the company on the live (record) view; a past view
-    never borrows today's identity. A closed_at after the as-of, or for another stop, ends nothing.
-    """
+def test_only_a_dated_closed_reading_ends_a_company_never_the_master_status(monkeypatch):
+    """``ended_companies``: a ``closed_at`` on or before the as-of for THIS stop ends it. A closed_at after the as-of,
+    for another stop, no reading at all (an off-card company), or a non-active / NULL master status alone ends
+    nothing (the status is a listing-presence heuristic, NULL on many rows)."""
     from types import SimpleNamespace
 
-    a, b, c = UUID(int=1), UUID(int=2), UUID(int=3)
-    reads = {
-        s: router_mod.PriceFlagRead("x", ("price_feed_stopped",), date(2026, 6, 12))
-        for s in (a, b, c)
-    }
     from pipeline.data_flags import StopReading
 
+    a, b, c, d = UUID(int=1), UUID(int=2), UUID(int=3), UUID(int=4)
+    stop = date(2026, 6, 12)
+    reads = {s: router_mod.PriceFlagRead("x", ("price_feed_stopped",), stop) for s in (a, b, c, d)}
     readings = {
-        a: StopReading(
-            edge=date(2026, 6, 12), closed_at=date(2026, 6, 20)
-        ),  # filed after the as-of
+        a: StopReading(edge=stop, closed_at=date(2026, 6, 20)),  # filed after the as-of
+        b: StopReading(edge=stop, closed_at=date(2026, 6, 13)),  # closed for this stop
         c: StopReading(edge=date(2026, 5, 1), closed_at=date(2026, 5, 2)),  # another stop
-    }
+    }  # d: no reading at all
     monkeypatch.setattr(router_mod.flags_reader, "run_reads", lambda: (readings, {}))
-    monkeypatch.setattr(
+    monkeypatch.setattr(  # a non-active and a NULL status must not matter: the master is not even read
         router_mod.master,
         "get_many",
-        lambda conn, ids, tenant_id: {
-            a: SimpleNamespace(status="active"),
-            b: SimpleNamespace(status="inactive"),
-            c: SimpleNamespace(status="active"),
-        },
+        lambda *a, **k: {s: SimpleNamespace(status=None) for s in (a_ for a_ in (a, b, c, d))},
     )
-    asof = date(2026, 6, 15)
-    assert router_mod.ended_companies(None, [a, b, c], reads, asof, "record") == {b}
-    assert router_mod.ended_companies(None, [a, b, c], reads, asof, "public") == set()
-    later = date(2026, 6, 25)
-    assert router_mod.ended_companies(None, [a, b, c], reads, later, "public") == {a}
+    assert router_mod.ended_companies([a, b, c, d], reads, date(2026, 6, 15)) == {b}
+    assert router_mod.ended_companies([a, b, c, d], reads, date(2026, 6, 25)) == {a, b}
+    assert router_mod.ended_companies([], reads, date(2026, 6, 25)) == set()
 
 
 def test_the_exit_by_column_reconciles_with_the_scoreboards_forward_return_to_the_cent(

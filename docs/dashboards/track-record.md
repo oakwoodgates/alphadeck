@@ -225,8 +225,8 @@ dollars is "under $1M" (a real measurement); under 20 volume-bearing bars is unp
      ended" (the page's existing rule: the market has had the sessions and the tape is more than `stale_days` behind),
      and the episode stays in every denominator. "Ended" = the nightly's closed classifier
      (`tape_health.classify_stop`, carried on the run artifact as the data flags read it) holds a `closed_at` on or
-     before the as-of for THIS stop, or the security master's `status` is not `active` (a listing-presence heuristic
-     with no date, so it is read on the live view only: a past view never borrows today's identity, invariant #1).
+     before the as-of for THIS stop (an SEC delisting form). Nothing else ends a company: the security master's `status` is a
+     listing-presence heuristic, never a delisting verdict (and NULL on many rows); a company with no nightly reading (off every live card) cannot be told, so it stays "no longer priced".
      The row is tagged "feed ended" (hover names the flag) and the work line counts it.
   2. Every other stopped feed stays LEFT OUT, with an honest reason, counted apart: `no longer priced: off every live
      card since <last bar>` (the company is on no live card; we stopped looking, the path did not end) and

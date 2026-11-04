@@ -137,8 +137,8 @@ class TrackRowOut(_Wire):
     episode is in no cell (its reason in ``left_out_note``) and carries identity only. ``liquidity`` is the 20-day
     average dollar volume band at the event (``under_1m`` | ``1m_10m`` | ``10m_plus``; ``null`` when fewer than 20
     volume-bearing sessions precede it). ``feed_stopped`` = the episode is COUNTED although its price feed
-    stopped: that is its only price flag and the company itself ended (the master's status is not active, or the
-    nightly's closed classifier carries a delisting for it), so its bars are read up to where they stop and a
+    stopped: that is its only price flag and the company itself ended (the nightly's closed classifier carries an SEC
+    delisting for it), so its bars are read up to where they stop and a
     horizon past the stop reads ``path_ended``. ``left_out`` ``feed_stopped`` = a stopped feed on a company still
     on a live card; ``no_longer_priced`` = a stopped feed on a company that sits on no live card (the nightly
     stopped fetching its prices; the company still trades)."""
@@ -399,18 +399,13 @@ def live_card_ids(conn: psycopg.Connection) -> set[UUID]:
     return {m.security_id for t in thesis_repo.list_all(conn) for m in t.basket if m.security_id}
 
 
-def ended_companies(
-    conn: psycopg.Connection,
-    stopped: list[UUID],
-    reads: dict[UUID, PriceFlagRead],
-    asof: date,
-    clock: Literal["record", "public"],
-) -> set[UUID]:
-    """Which stopped-feed-only companies really ENDED, by the platform's existing readings (never re-derived):
-    the nightly's closed classifier (``tape_health.classify_stop``, carried on the run artifact as the data flags
-    read it): a ``closed_at`` on or before the as-of for THIS stop; or the security master's ``status`` not
-    ``active`` (a listing-presence heuristic with no date, so it is read on the live view only: a past view never
-    borrows today's identity, invariant #1)."""
+def ended_companies(stopped: list[UUID], reads: dict[UUID, PriceFlagRead], asof: date) -> set[UUID]:
+    """Which stopped-feed-only companies really ENDED, by the platform's existing reading (never re-derived): the
+    nightly's closed classifier (``tape_health.classify_stop``, carried on the run artifact as the data flags read
+    it) holds a ``closed_at`` (an SEC delisting form) on or before the as-of for THIS stop. Nothing else ends a
+    company: the security master's ``status`` is a listing-presence heuristic, never a delisting verdict (and is
+    NULL on many rows), and a company with no nightly reading (one off every live card) cannot be told, so it is
+    not claimed to have ended."""
     if not stopped:
         return set()
     readings, _ = flags_reader.run_reads()
@@ -424,10 +419,6 @@ def ended_companies(
             and r.edge == reads[sid].since
         ):
             ended.add(sid)
-    if clock == "record":
-        for sid, sec in master.get_many(conn, stopped, tenant_id=DEFAULT_TENANT_ID).items():
-            if sec.status != "active":
-                ended.add(sid)
     return ended
 
 
@@ -468,11 +459,7 @@ def read_record(
     flags = {sid: f.reason for sid, f in flag_reads.items()}
     on_cards = live_card_ids(conn)
     ended = ended_companies(
-        conn,
-        [sid for sid, f in flag_reads.items() if f.kinds == (FEED_STOPPED,)],
-        flag_reads,
-        asof,
-        clock,
+        [sid for sid, f in flag_reads.items() if f.kinds == (FEED_STOPPED,)], flag_reads, asof
     )
     # only a company with an episode that will be COUNTED is read: a left-out episode carries identity only
     needed = sorted(
