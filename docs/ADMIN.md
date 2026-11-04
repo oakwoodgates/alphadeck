@@ -774,9 +774,11 @@ runner, retention, the host bind, the client version) — this section is the su
   manual "Run daily now" does not also dump. Since M3 (2026-10-16) the sidecar's boot also runs an
   age-gated `pipeline.backup --if-older-than-h 20`, so a night caught up at boot gets a snapshot too, and
   a failed backup pages from the shell (`FEED_LOOP.md` §Backups & restore).
-- **RESTORE is CLI-only — never a button.** A restore is destructive (drop-schema + reload) and belongs in
-  human hands. The documented sequence (the one actually used on 2026-07-21):
-  `docker exec -i alphadeck-postgres-1 psql -U alphadeck -d alphadeck < ./data/backups/<file>`.
+- **RESTORE is CLI-only — never a button.** A restore is destructive (it replaces the whole database) and
+  belongs in human hands. The snapshot is a plain-SQL dump with no DROP statements, so it replays only into an
+  EMPTY database: stop the `backend` and `cron` services, drop and recreate the database, replay the file with
+  `psql -v ON_ERROR_STOP=1 -f -`, then start the services again. The exact commands are in `FEED_LOOP.md`
+  §Backups & restore; a plain `psql < <file>` into a database that already has the tables restores nothing.
 
 **Why the net exists (the honest note).** On **2026-07-21** a shared-Postgres pytest hazard **truncated the
 whole demo DB**. Recovery worked **only** because an ad-hoc `pg_dump` happened to exist — it was a **real

@@ -2879,10 +2879,21 @@ happened to exist. So a snapshot is now a one-click safety net — and a nightly
   share ONE host directory — host-accessible so a dump is copyable off-box. `pg_dump` comes from
   `postgresql-client-16` (PGDG apt repo, matching server 16 — Debian's default client lags and refuses a newer
   server).
-- **RESTORE is CLI-only — never a button.** A restore is destructive (drop-schema + reload) and belongs in
-  human hands. The documented sequence (the one used on 2026-07-21):
-  `docker exec -i alphadeck-postgres-1 psql -U alphadeck -d alphadeck < ./data/backups/<file>`. *(The
-  replay-snapshot regenerate button stays out of scope — deferred to the replay-panel work.)*
+- **RESTORE is CLI-only — never a button.** A restore is destructive (it replaces the whole database) and
+  belongs in human hands, and never while a nightly pass is running. The snapshot is a plain-SQL
+  `pg_dump --no-owner` with NO DROP statements, so it replays only into an EMPTY database: a plain
+  `psql < <file>` into a database that already has the tables prints `already exists` and duplicate-key
+  errors and restores nothing (MEASURED 2026-11-04 on scratch databases). The sequence, the same steps
+  `scripts/refresh-dev.sh` runs for dev:
+  ```
+  docker compose -f docker-compose.yml -f docker-compose.prod.yml stop backend cron
+  docker exec alphadeck-postgres-1 psql -U alphadeck -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS alphadeck WITH (FORCE)" -c "CREATE DATABASE alphadeck"
+  docker exec -i alphadeck-postgres-1 psql -U alphadeck -d alphadeck -v ON_ERROR_STOP=1 -f - < ./data/backups/<file>
+  docker compose -f docker-compose.yml -f docker-compose.prod.yml start backend cron
+  ```
+  (bash redirection; in PowerShell pipe the file in with `Get-Content`.) The backend applies any migration
+  newer than the snapshot when it starts. Then check `GET /admin/status` (the record edge matches the
+  snapshot's date) and a spot-checked thesis.
 
 ## Known gaps (opened 2026-09-10; closures recorded in place through 2026-10-21)
 
