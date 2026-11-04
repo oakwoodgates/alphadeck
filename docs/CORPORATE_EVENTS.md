@@ -141,7 +141,7 @@ it through the **existing role+score path with zero kind branches**: a SEVERE it
 One event per name per read (the detector contract): the max-severity live item headlines; every
 other live risk item is enumerated in the label and carried in provenance. Accepted consequence:
 co-live moderates cost ONE confidence haircut, not one each. **Freshness is detector-enforced**
-(the assembler never ages risks): each item lives `liveness_days` from its filing date, then drops
+(the assembler never ages risks): each item lives `liveness_days` from its public date (the SEC acceptance when trusted, else the filing date; F7), then drops
 out of the re-derived stream.
 
 **8-K/A:** an amendment is its own tape row; these existence/latest-shaped reads can't double-count

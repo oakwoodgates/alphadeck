@@ -355,8 +355,10 @@ class Settings(BaseSettings):
     # `python -m pipeline.backup --prune-dry-run` lists what a prune would remove and removes nothing.
     backup_labeled_keep: int = 20
     backup_labeled_max_age_days: float = 90.0
-    # pg_dump wall ceiling — a hang becomes a LOUD failed job rather than a held slot.
-    backup_timeout_s: float = 300.0
+    # pg_dump wall ceiling — a hang becomes a LOUD failed job rather than a held slot. MEASURED:
+    # unloaded prod dumps take ~240-270 s (about 1.37 GB, 2026-10-30/31), and a 300 s ceiling failed a
+    # pre-deploy backup under load on 2026-10-31, so the ceiling is 900 s.
+    backup_timeout_s: float = 900.0
     # B4 — the BACKUP-AGE alarm (/admin/status): the newest UNLABELED dump may be at most this many hours
     # old, measured SCHEDULE-AWARE like the record edge — the nightly dump rides the weekday pass, so the
     # clock that matters is "since the last scheduled night's RUN_AT", never raw wall time (a Friday dump

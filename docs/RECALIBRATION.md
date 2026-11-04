@@ -94,7 +94,7 @@
 | `dilution_pip_pct` (+ `dilution_overhang_severe_pct` as the 4-pip bar) | (2, 8, 15) + 25 | raw convert-overhang % → 1/2/3/4 pips | PRESSURE polarity; "—" when no convert fact (no fake zeros); the shared `dilution_clock.overhang_pct`, never backed out of severity |
 | `cash_runway_basis` | "cash + equivalents + all marketable securities (current and noncurrent)" | the runway numerator rule | a RATIFY-TIME convention (documented), NOT scorer-enforced — the scorer trusts `cash_usd` as ratified |
 
-### F4 — the pre-registered pass for the session-window dials (REGISTERED 2026-10-31, NOT RUN)
+### F4 — the pre-registered pass for the session-window dials (REGISTERED 2026-10-31; breakout ladder RUN 2026-10-31, RESULT: no plateau, dials stay dormant)
 
 The operator ruled (2026-10-30) that the numbers come from re-running the pre-registered backtest, not from
 averaging the sessions a calendar window gives today. One curve per family, each point a house-format
@@ -174,6 +174,23 @@ export ALPHADECK_IMAGE_SHA="$(git rev-parse HEAD)" PYTHONPATH="$(pwd)"
 - **Rosters.** On dev's 2026-10-31 copy the probe below replayed 62 theses, all on TODAY's basket (no roster
   snapshot reaches back that far — the run labels it a counterfactual). This pass is therefore not comparable
   run for run with the 12-thesis passes of September.
+
+**Result (MEASURED, dev, 2026-10-31; pass id `20261031T163001Z-public-counting-bar-driven-wind`).** The breakout ladder only (the operator's choice); the 52-week and laggard ladders were NOT run. Metric: pooled median arm-timing forward return (public clock, 2025-09-01 to 2026-09-14, nine disjoint windows, plateau rule `strict_sign_agreement`). Delta = point minus the calendar baseline (-0.066308, n=5958). The nine window deltas are in window order; `+` / `-` / `0` mark moved up / moved down / unchanged.
+
+| setting | n | pooled metric | delta vs calendar | window deltas (1..9) | signs |
+|---|---|---|---|---|---|
+| calendar (baseline) | 5958 | -0.066308 | 0.0 | all 0.0 | 0 0 0 0 0 0 0 0 0 |
+| 5 sessions | 5872 | -0.066744 | -0.000436 | -0.003681, -0.016485, 0.002976, 0.002732, -0.000793, 0.001906, -0.001393, -0.001492, 0.0 | - - + + - + - - 0 |
+| 6 sessions | 5935 | -0.066744 | -0.000436 | -0.00298, -0.009136, 0.001967, -2.6e-05, 3.3e-05, 0.002443, -0.000823, -0.000216, -0.002456 | - - + - + + - - - |
+| 7 sessions | 5997 | -0.066744 | -0.000436 | 0.008144, -0.002758, 0.000682, -0.001111, 3.3e-05, 0.001607, 0.0, -0.004404, 0.0 | + - + - + + 0 - 0 |
+| 8 sessions | 6046 | -0.066372 | -6.4e-05 | 0.010842, -0.003705, 0.001996, -1.3e-05, 3.3e-05, 0.001384, -0.000823, 0.000111, 0.0 | + - + - + + - + 0 |
+| 9 sessions | 6095 | -0.065341 | 0.000967 | 0.00801, -0.002327, 0.001666, -0.000837, 0.008667, 0.004855, -0.001393, -0.000854, 0.006679 | + - + - + + - - + |
+| 10 sessions | 6190 | -0.064312 | 0.001996 | 0.00956, -0.001745, 0.0, 0.00289, 0.008924, 0.007859, -0.001245, 0.000221, 0.007825 | + - 0 + + + - + + |
+
+- **No point has strict sign agreement** (`strict_sign_agreement` is false at every point), and the pass's `plateau` is EMPTY.
+- **Decision (by the pre-registered rule):** no plateau, so the breakout window stays in calendar days and the F4 dials stay DORMANT at their defaults. Nothing in `domain/config.py` or `domain/rule_log.py` changes.
+- The paired diagnostic (same episodes re-timed) shows a 0.0 paired delta and `n_changed` 0 at every point; the differences above come from episodes that enter or leave the set (for example, 5 sessions: 263 only in the point, 349 only in the baseline). It is reported, not part of the rule.
+- The 10-session point has the largest pooled delta (+0.001996) but disagrees in sign across windows; one regime with non-independent episodes cannot pick a best point, so it is not a finding.
 
 **Cost (2026-10-31, dev, this box: 6 cores / 12 threads).** MEASURED, one point (breakout 7 sessions) over ONE
 window (2026-08-03 → 2026-09-14), `--workers 3`, K=20, into a scratch store (not a registered trial; its

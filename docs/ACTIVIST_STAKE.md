@@ -155,7 +155,7 @@ ON). A 13D-family ORIGINAL does not anchor a fire when either is true:
 - **Point in time (#1, the public clock).** The Form 4 rows come through the same point-in-time view as every
   other fact, so on a history view a Form 4 counts only from its SEC acceptance. A CEO whose first Form 4 is
   public after his 13D fires until that Form 4 is public, then stops. The insider window is anchored on the
-  13D's filing date (never on asof), so a screened filing can never come back to life late in its window.
+  13D's public date (its SEC acceptance when trusted, else the filing date; F7 — never on asof), so a screened filing can never come back to life late in its window.
 - **NULL-safe (#9)**, as `_is_misattributed` is: a missing percent or an unresolved CIK never screens.
 - **Joint filings.** The screen groups by accession and reads ANY filer row of the filing, not only the lead
   the label names. **Known bound:** the ingest stores ONE row per (subject, accession) — the lead reporting
