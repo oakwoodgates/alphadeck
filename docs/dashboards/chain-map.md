@@ -117,6 +117,9 @@ card lineage; any Cockpit change; any write.
 
 ## Choices to confirm
 
+**Confirmed by the operator, 2026-11-04:** every choice in this section, as built, including the changes marked
+"(operator decision 2026-11-04)". Nothing in it stays open.
+
 The build lists here every choice it made that this plan does not spell out, each the operator's to confirm or change.
 Pre-decided here for the operator's review: the two-rail split (payer and financier left; direct read, counter-case,
 participant and benchmark right), the dashed counter-case edge, equal node sizes, and the untagged Context and Bench

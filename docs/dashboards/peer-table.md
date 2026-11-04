@@ -129,6 +129,9 @@ is the drill-in); any write.
 
 ## Choices to confirm
 
+**Confirmed by the operator, 2026-11-04:** every choice in this section, as built, including the changes marked
+"(operator decision 2026-11-04)". Nothing in it stays open.
+
 The build lists here every choice it made that this plan does not spell out, each the operator's to confirm or change.
 Pre-decided here for the operator's review: business type is the default scope; "All live cards" is offered with a
 cold-load note rather than withheld; medians only in group rows; the band module lives in `domain/market_cap.py`.

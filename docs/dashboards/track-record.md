@@ -156,6 +156,9 @@ Any "works" verdict or score; any cross-tabulation of two slice dimensions; posi
 
 ## Choices to confirm
 
+**Confirmed by the operator, 2026-11-04:** every choice in this section, as built, including the changes marked
+"(operator decision 2026-11-04)". Nothing in it stays open.
+
 The build lists here every choice it made that this plan does not spell out, each the operator's to confirm or
 change. Pre-decided here for the operator's review: the Scoreboard's episodes and honesty filters as the events;
 the record (edition 0) as the default view while the editions nightly is paused, with a selector to the newest

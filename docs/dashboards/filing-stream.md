@@ -257,6 +257,9 @@ is the cross-card lens); resolving amendments; any write.
 
 ## Choices to confirm
 
+**Confirmed by the operator, 2026-11-04:** every choice in this section, as built, including the changes marked
+"(operator decision 2026-11-04)". Nothing in it stays open.
+
 The build lists here every choice it made that this plan does not spell out (the Chain Wave's plan shows the form),
 each the operator's to confirm or change. The first four are plan details that turned out different against the code;
 the build fixed them sensibly and says how.

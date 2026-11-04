@@ -133,6 +133,10 @@ data; any write.
 
 ## Choices to confirm
 
+**Confirmed by the operator, 2026-11-04:** every choice in this section, as built, including the changes marked
+"(operator decision 2026-11-04)". Still open: a past row's key is read with today's `DEFAULT_CONFIG` (choice 8), which
+needs a history of that card setting (a backend change), so it stays open.
+
 The build lists here every choice it made that this plan does not spell out, each the operator's to confirm or
 change. Pre-decided here for the operator's review: the 90-day default window; the identity (security, kind, fire
 date; the label left out on 2026-10-29, see "MEASURED" below); the entry triggers as the default role; the first

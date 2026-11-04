@@ -163,6 +163,10 @@ Leaders lists (near-high, coiling) as columns; options or intraday data; any wri
 
 ## Choices to confirm
 
+**Confirmed by the operator, 2026-11-04:** every choice in this section, as built, including the changes marked
+"(operator decision 2026-11-04)". Still open: the heat formula's weights (the four parts at equal weights) stay
+PROPOSED. They set the default sort and have not been measured against what followed.
+
 The build lists here every choice it made that this plan does not spell out, each the operator's to confirm or
 change. Pre-decided here for the operator's review: Armed members as the default rows with Warming, watch and
 Managing behind toggles; the four heat parts with equal weights; percentiles among the rows shown; IWM as the

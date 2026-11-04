@@ -134,6 +134,11 @@ Table); news; options or intraday data; any write.
 
 ## Choices to confirm
 
+**Confirmed by the operator, 2026-11-04:** every choice in this section, as built, including the changes marked
+"(operator decision 2026-11-04)". Still open: at a past as-of the card catalysts and exclusions are today's, and a
+trigger's key is read with today's `DEFAULT_CONFIG`; each needs a history of that card setting (a backend change), so
+it stays open.
+
 The build lists here every choice it made that this plan does not spell out, each the operator's to confirm or
 change. Pre-decided here for the operator's review: the Workbench search as the suggestion source; exact ticker on
 Enter; `?t=` in the URL; the 365-day trigger window and the 90-day filings default; conviction shown as "weight";

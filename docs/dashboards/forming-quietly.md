@@ -117,6 +117,10 @@ kind (#7); the LLM; any write.
 
 ## Choices to confirm
 
+**Confirmed by the operator, 2026-11-04:** every choice in this section, as built, including the changes marked
+"(operator decision 2026-11-04)". Still open: a past as-of sums today's SIGNAL terms (choice 5), which needs a history
+of that card setting (a backend change), so it stays open.
+
 The build lists here every choice it made that this plan does not spell out, each the operator's to confirm or
 change. Pre-decided here for the operator's review: Warming rows plus Incubating rows with a quiet signal; three
 display members only; the three-against-three closed-month slope; the cluster word at two buyers; no accent on the page.

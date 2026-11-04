@@ -132,6 +132,9 @@ Hot Board has the tape columns); risk signals; any write.
 
 ## Choices to confirm
 
+**Confirmed by the operator, 2026-11-04:** every choice in this section, as built, including the changes marked
+"(operator decision 2026-11-04)". Nothing in it stays open.
+
 The build lists here every choice it made that this plan does not spell out, each the operator's to confirm or
 change. Pre-decided here for the operator's review: Armed rows by default with Managing behind a toggle; the
 recorded run's first night as the arm night; IWM's bars as the session calendar; the Scoreboard's entry rule; IWM
