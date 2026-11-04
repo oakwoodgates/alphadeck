@@ -182,6 +182,12 @@ a near-empty forward window, and `vs_timing` comes back on top of the actual —
 algorithm ties with chance" and MEANS "there was no chance to compare against". Under 30 sessions the surface
 says so in words.
 
+**K=20 changes what `vs_timing` means on these windows.** The timing draws are taken WITHOUT replacement, so 20
+draws from the roughly 29 candidate sessions of a six-week window cover about two thirds of every available
+alternative entry date. `vs_timing` is then close to the median return of entering on ANY other day in the
+window, not of a small random handful: a tighter comparison, not a looser one. The caveat above still holds
+for a window under 30 sessions.
+
 ### Two excess figures, and why the median is the headline (B)
 
 A thematic basket is right-skewed BY CONSTRUCTION: the operator assembles names around a narrative and a
