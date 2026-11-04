@@ -1,6 +1,6 @@
 import { memo, useCallback, useMemo, useState } from "react";
 
-import { FlaggedNote } from "../FlaggedNote";
+import { FlaggedNote, flaggedRule } from "../FlaggedNote";
 import type { DashboardProps } from "../registry";
 import "./hot-board.css";
 import { heatByKey, type Heat } from "./heat";
@@ -472,7 +472,7 @@ export default function HotBoard({ asof, onSelectThesis }: DashboardProps) {
           {line}
         </div>
       ))}
-      <FlaggedNote flagged={data.flagged} />
+      <FlaggedNote flagged={data.flagged} title={flaggedRule("their price cells read \"flagged\" and they have no heat. They keep their row and their insider counts.")} />
       <ul className="dash-note hb-limits">
         {LIMITS.map((l) => (
           <li key={l}>{l}</li>

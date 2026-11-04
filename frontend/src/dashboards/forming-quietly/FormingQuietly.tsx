@@ -1,6 +1,6 @@
 import { memo, useCallback, useMemo, useState } from "react";
 
-import { FlaggedNote } from "../FlaggedNote";
+import { FlaggedNote, flaggedRule } from "../FlaggedNote";
 import type { DashboardProps } from "../registry";
 import "./forming-quietly.css";
 import {
@@ -11,6 +11,7 @@ import {
   RECONSTRUCTED_TITLE,
   adoptionCell,
   breadthCell,
+  breadth200Cell,
   coilingCell,
   coilingNameTitle,
   daysWords,
@@ -160,6 +161,7 @@ const Row = memo(function Row({ r, onSelectThesis }: RowProps) {
   const coilingFig = coilingCell(r);
   const leadingFig = leadingCell(r);
   const breadthFig = breadthCell(r);
+  const breadth200Fig = breadth200Cell(r);
   const insider = q.insider.slice(0, MAX_NAMES);
   const coiling = q.coiling.slice(0, MAX_NAMES);
   const leading = q.leading.slice(0, MAX_NAMES);
@@ -266,6 +268,7 @@ const Row = memo(function Row({ r, onSelectThesis }: RowProps) {
       </td>
       <td data-label="Breadth" className={blankCls(breadthFig)}>
         <Fig cell={breadthFig} />
+        <Fig cell={breadth200Fig} />
       </td>
       <td data-label="Adoption" className="fq-num">
         <Fig cell={adoptionCell(r.adoption)} />
@@ -412,7 +415,7 @@ export default function FormingQuietly({ asof, onSelectThesis }: DashboardProps)
           {line}
         </div>
       ))}
-      <FlaggedNote flagged={data.flagged} />
+      <FlaggedNote flagged={data.flagged} title={flaggedRule("they are left out of every tape and insider reading on this page. They still count in their card's names and are listed here.")} />
       <ul className="dash-note fq-limits">
         {LIMITS.map((l) => (
           <li key={l}>{l}</li>

@@ -184,3 +184,5 @@ These were decided in the build because the brief did not specify them; each is 
     least 9px wide; the grid scrolls inside the page, never the page itself.
 26. **Keyboard:** the grid is one tab stop (the newest SPY week first), the arrow keys move the focus, and focus drives
     the same readout as hover.
+
+**Flagged-name note wording (operator decision 2026-11-04).** The shared `FlaggedNote` hover used to say a flagged name is "left out of every number on this page", which overstates on a page that keeps the row. This page now passes its own rule (`flaggedRule(...)`): they never contribute a return and never shape the calendar; they still count in their rows' names, never as priced. Pages whose rule really is "left out of every number" (Cross Radar, Landing, Leaders, Market Map, Rotation Map) keep the default text.

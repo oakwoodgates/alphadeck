@@ -2,7 +2,7 @@ import { memo, useCallback, useMemo, useState } from "react";
 
 import { businessTypeLabel } from "../../util/format";
 import { contextRoleTag } from "../../workbench/format";
-import { FlaggedNote } from "../FlaggedNote";
+import { FlaggedNote, flaggedRule } from "../FlaggedNote";
 import type { DashboardProps } from "../registry";
 import "./peer-table.css";
 import {
@@ -499,7 +499,7 @@ export default function PeerTable({ asof, onSelectThesis }: DashboardProps) {
             </ul>
           </details>
         )}
-        <FlaggedNote flagged={data.flagged} />
+        <FlaggedNote flagged={data.flagged} title={flaggedRule("their price-derived cells (cap, 52-week high, 50d, 200d, RVOL, dollar volume, vs SPY) are blank. They stay in the table with every cell that reads no price.")} />
         {unresolved && (
           <details className="dash-note pt-work pt-unresolved">
             <summary>{unresolved}</summary>

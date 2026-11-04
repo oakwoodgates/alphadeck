@@ -10418,7 +10418,9 @@ export interface components {
          *     companies, ``read`` = those read (a flagged price history is counted in ``flagged``, never read),
          *     ``unresolved`` = roster rows with no resolved security. ``no_form4`` / ``coiling_no_reading`` /
          *     ``leading_no_reading`` = read names a member gave no reading for. ``lit`` = insider buying, coiling, leading or
-         *     a breadth thrust is on.
+         *     a breadth thrust is on. ``above_200`` of ``n_200`` read names close above their 200-day average
+         *     (``sma_position``'s ``pct_vs_slow``, the Theme Leaderboard's rule); ``no_200`` read names have no 200-day reading
+         *     and are counted apart, never as below the line. A display reading: it never lights a card.
          */
         FormingQuietOut: {
             /** Names */
@@ -10442,6 +10444,12 @@ export interface components {
             /** Leading No Reading */
             leading_no_reading: number;
             breadth: components["schemas"]["FormingBreadthOut"] | null;
+            /** Above 200 */
+            above_200: number;
+            /** N 200 */
+            n_200: number;
+            /** No 200 */
+            no_200: number;
             /** Lit */
             lit: boolean;
         };

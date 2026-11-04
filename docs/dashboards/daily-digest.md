@@ -336,3 +336,5 @@ build ran on neutral fixtures only and has measured nothing.
   the clocks stay lines. The server payload is unchanged (nothing is dropped), so the cache and the numbers above hold. MEASURED after the
   fold on the same copy: 58 fold lines, 45 lines shown of 405, the 28 accent lines unchanged, the page 5,858 px tall
   at 1,280 px wide (33,750 px before).
+
+**Flagged-name note wording (operator decision 2026-11-04).** The shared `FlaggedNote` hover used to say a flagged name is "left out of every number on this page", which overstates on a page that keeps the row. This page now passes its own rule (`flaggedRule(...)`): their price cells read the flag's reason; they keep their lines. Pages whose rule really is "left out of every number" (Cross Radar, Landing, Leaders, Market Map, Rotation Map) keep the default text.

@@ -343,6 +343,15 @@ the build fixed them sensibly and says how.
       guessed day). The cover date can precede the 10-Q's acceptance by days, so the row can read a few days older
       than the filing itself; the reading is still gated by the point-in-time view (a past as-of never reads a fact
       we had not stored by then).
+      **A stored SHARE COUNT is dated by when it became public (operator decision 2026-11-04, F9).** Its date is the
+      market-time (ET) date of the instant the public clock counts it from: the SEC acceptance of the filing whose
+      cover states the count (`filing_accepted`, migration 0072; stored on any version of the same count and date).
+      The row reads that instant from the public-clock read's own `recorded_at` (the rewrite, `to_public_row`),
+      never restating the rule, and "Stored on" then uses the honest `ingested_at`. The detail says "Dated by its
+      filing's SEC acceptance (<day>), when the count became public". A count with no publication stored (most old
+      prod rows until the pending repair runs) keeps its cover date and says "Dated by its cover date: no filing
+      publication stored". Cash and revenue-mix stored facts are unchanged. The Evidence Ledger reads these rows
+      through the same reader, so it follows.
     - **The wire kind stays `ratified` for both** (no contract change, no new enum value): the row's `form` tells them
       apart, and the page's kind chip reads "Ratified and stored facts" (work line: "ratified or stored facts").
     - **A catalyst** keeps `kind` = `catalyst`, `form` = "catalyst" and its event date whoever stored it; only its

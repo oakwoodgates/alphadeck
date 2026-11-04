@@ -784,12 +784,15 @@ def test_a_fact_nobody_ratified_is_a_stored_fact_dated_by_its_cover_date_not_its
         assert r.date == date(2026, 8, 1)  # the cover date, not the Oct 27 batch
         assert r.headline == "10-q-cover: shares outstanding 540.6M"  # led by the source as stored
         assert r.detail[0] == "Stored on 2026-10-27"
-        assert r.detail[1] == "Source: 10-q-cover"  # no "ratified by" for a row nobody ratified
+        assert r.detail[1] == "Dated by its cover date: no filing publication stored"
+        assert r.detail[2] == "Source: 10-q-cover"  # no "ratified by" for a row nobody ratified
         assert r.accession == "0000876543-26-000044"
         assert r.url == filing_index_url("0000876543", "0000876543-26-000044")
     assert auto.detail[-1] == "Applied automatically, not operator-ratified"
     assert feed.detail[-1] == "No operator ratification stored"
-    assert len(auto.detail) == 3  # store day, source, ratification: nothing else claimed
+    assert (
+        len(auto.detail) == 4
+    )  # store day, dating note, source, ratification: nothing else claimed
     (upper,) = rows_from_ratified([], [stored_shares(ratified_by=" AUTO ")], [], W)
     assert upper.form == "stored fact"  # the machine marker, however it is cased
 
@@ -825,7 +828,7 @@ def test_a_stored_fact_with_gaps_is_still_a_row_and_says_what_it_does_not_know()
     # no source stated: no lead on the headline
     (bare,) = rows_from_ratified([], [stored_shares(source=None)], [], W)
     assert bare.headline == "shares outstanding 540.6M"
-    assert bare.detail[1] == "Source: not stated"
+    assert bare.detail[2] == "Source: not stated"
     # no cover date: it falls back to the day it was stored, and says so
     (no_cover,) = rows_from_ratified([], [stored_shares(valid_from=None)], [], W)
     assert no_cover.date == date(2026, 10, 27)
@@ -2306,3 +2309,80 @@ def test_a_zero_share_form4_row_reaches_the_stream_instead_of_a_500(db):
     row = next(x for g in r.json()["groups"] for x in g["rows"] if x["accession"] == zero_acc)
     assert row["headline"] == "Zed Zero (Director): P purchase 0 sh"
     assert row["kind"] == "form4" and row["routine"] is False
+
+
+# --- a stored share count is dated by when it became public (F9; operator decision 2026-11-04) ----------------
+
+
+def test_a_stored_share_count_with_a_publication_is_dated_by_the_filing_acceptance_in_market_time():
+    accepted = utc(2026, 8, 7, 1, 30)  # 21:30 ET on Aug 6
+    held = utc(2026, 10, 27, 14, 0)
+    (row,) = rows_from_ratified(
+        [],
+        [stored_shares(filing_accepted=accepted, recorded_at=accepted, ingested_at=held)],
+        [],
+        W,
+    )
+    assert (row.form, row.date) == ("stored fact", date(2026, 8, 6))
+    assert row.detail[0] == "Stored on 2026-10-27"
+    assert "SEC acceptance (2026-08-06)" in row.detail[1]
+    # the publication sits on an EARLIER version of the same count: the row's public instant still carries it
+    (older,) = rows_from_ratified(
+        [], [stored_shares(recorded_at=accepted, ingested_at=held)], [], W
+    )
+    assert older.date == date(2026, 8, 6)
+    # the record clock has no rewritten instant: the row's own acceptance dates it
+    (rec,) = rows_from_ratified([], [stored_shares(filing_accepted=accepted)], [], W)
+    assert rec.date == date(2026, 8, 6)
+
+
+def test_a_stored_share_count_with_no_publication_keeps_its_cover_date_and_says_so():
+    held = utc(2026, 10, 27, 14, 0)
+    for over in ({}, {"ingested_at": held, "filing_accepted": None}):
+        (row,) = rows_from_ratified([], [stored_shares(**over)], [], W)
+        assert row.date == date(2026, 8, 1)
+        assert "Dated by its cover date: no filing publication stored" in row.detail
+    # cash stored facts have no publication concept: no such line
+    auto = {
+        "cash_usd": 5,
+        "quarterly_burn_usd": 1,
+        "ratified_by": "auto",
+        "valid_from": date(2026, 6, 30),
+    }
+    (cash,) = rows_from_ratified([auto], [], [], W)
+    assert not any("publication" in line for line in cash.detail)
+
+
+def test_a_past_asof_never_shows_a_share_count_that_was_not_public_by_then(db):
+    from domain.market_time import serve_view
+    from signals.base import PointInTimeData
+
+    sid = _security(db, "FSH", CIK)
+    append_fact(
+        db,
+        "fact_shares_outstanding",
+        {
+            "tenant_id": DEFAULT_TENANT_ID,
+            "security_id": sid,
+            "shares": 540_600_000,
+            "source": "10-q-cover",
+            "source_ref": "0000876543-26-000044",
+            "ratified_by": "auto",
+            "valid_from": date(2026, 8, 1),
+            "filing_accession": "0000876543-26-000044",
+            "filing_accepted": utc(2026, 8, 7, 1, 30),
+            "recorded_at": utc(2026, 10, 27, 14, 0),
+        },
+    )
+    db.commit()
+
+    def rows(asof):
+        known_at, clock = serve_view(asof)
+        pit = PointInTimeData(
+            db, asof=asof, known_at=known_at, tenant_id=DEFAULT_TENANT_ID, basket=[sid], clock=clock
+        )
+        return rows_from_ratified([], pit.shares_outstanding_facts(sid), [], W)
+
+    assert rows(date(2026, 8, 5)) == []  # the cover date has passed, the filing was not yet public
+    (after,) = rows(date(2026, 8, 20))
+    assert (after.date, after.form) == (date(2026, 8, 6), "stored fact")
