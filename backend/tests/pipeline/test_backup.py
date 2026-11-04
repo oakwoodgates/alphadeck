@@ -118,6 +118,52 @@ def test_run_backup_dump_failure_publishes_nothing_and_never_prunes(tmp_path):
     }
 
 
+def test_a_failed_dump_deletes_its_own_half_written_tmp_and_raises_the_same_error(tmp_path):
+    """The runner writes part of the ``.tmp`` and then raises (a timeout, a pg_dump failure): that file is removed
+    and the original error propagates unchanged."""
+    seen: list[Path] = []
+
+    def _half_then_boom(url: str, dest: Path, *, timeout_s: float) -> None:
+        dest.write_text("-- half a dump", encoding="utf-8")
+        seen.append(dest)
+        raise RuntimeError("pg_dump timed out after 900 s")
+
+    now = datetime(2026, 7, 21, 14, 30, tzinfo=timezone.utc)
+    with pytest.raises(RuntimeError) as err:
+        backup.run_backup(
+            base_dir=tmp_path, database_url="postgresql://t", now=now, dump_runner=_half_then_boom
+        )
+    assert str(err.value) == "pg_dump timed out after 900 s"
+    assert len(seen) == 1 and not seen[0].exists()
+    assert list(tmp_path.glob("*.tmp")) == [] and list(tmp_path.glob("*.sql")) == []
+
+
+def test_a_failed_dump_never_touches_another_tmp_in_the_folder(tmp_path):
+    """Another ``.tmp`` (a concurrent backup's, or the operator's leftover) is left exactly as it was."""
+    other = tmp_path / "alphadeck-20260101T000000.sql.tmp"
+    other.write_text("someone else's dump", encoding="utf-8")
+
+    def _boom(url: str, dest: Path, *, timeout_s: float) -> None:
+        dest.write_text("half", encoding="utf-8")
+        raise RuntimeError("boom")
+
+    now = datetime(2026, 7, 21, 14, 30, tzinfo=timezone.utc)
+    with pytest.raises(RuntimeError, match="boom"):
+        backup.run_backup(
+            base_dir=tmp_path, database_url="postgresql://t", now=now, dump_runner=_boom
+        )
+    assert other.read_text(encoding="utf-8") == "someone else's dump"
+    assert [p.name for p in tmp_path.glob("*.tmp")] == [other.name]
+
+
+def test_a_successful_dump_still_publishes_and_leaves_no_tmp(tmp_path):
+    now = datetime(2026, 7, 21, 14, 30, tzinfo=timezone.utc)
+    r = backup.run_backup(
+        base_dir=tmp_path, database_url="postgresql://t", now=now, dump_runner=_fake_dump
+    )
+    assert (tmp_path / r.name).exists() and list(tmp_path.glob("*.tmp")) == []
+
+
 # --- _prune: keep-last-N, labeled EXEMPT ----------------------------------------------------------
 
 

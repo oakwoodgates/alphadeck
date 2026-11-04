@@ -222,7 +222,8 @@ def run_backup(
     testability hinge (the ``daily_job._DEFAULT_EXECUTOR`` / ``PriceSource`` seam); when ``None`` it falls
     back to the module-level ``_pg_dump`` resolved AT CALL TIME (so a test that monkeypatches
     ``pipeline.backup._pg_dump`` takes effect, and no unit test needs the real binary). A raising runner
-    propagates BEFORE the replace + prune — no ``.sql`` is published and the keep-window is untouched.
+    propagates BEFORE the replace + prune — no ``.sql`` is published, the keep-window is untouched and this run's
+    half-written ``.tmp`` is deleted (no other ``.tmp`` is ever touched).
     """
     now = now or datetime.now(timezone.utc)  # ONE timestamp: names the file AND is created_at
     settings = get_settings()
@@ -234,7 +235,14 @@ def run_backup(
     dest = d / name
     tmp = d / f"{name}.tmp"
 
-    runner(database_url or _database_url(), tmp, timeout_s=settings.backup_timeout_s)
+    try:
+        runner(database_url or _database_url(), tmp, timeout_s=settings.backup_timeout_s)
+    except BaseException:
+        # a failed dump (timeout, pg_dump error) leaves a half-written file that prune never touches (it lists
+        # only finished ``*.sql``): remove THIS run's ``.tmp`` and nothing else (a concurrent backup may be
+        # writing its own), then re-raise the original error unchanged
+        tmp.unlink(missing_ok=True)
+        raise
     os.replace(tmp, dest)  # atomic publish — the *.sql glob only ever sees a COMPLETE dump
     size = dest.stat().st_size
 
