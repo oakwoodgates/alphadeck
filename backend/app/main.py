@@ -63,10 +63,10 @@ app.include_router(radar.router)
 # The Dashboards (docs/DASHBOARDS.md) — experimental, display-only cross-card views. ONE include: each
 # dashboard mounts its own router inside app/routers/dashboards/, never here.
 app.include_router(dashboards.router)
-# /backtest is ARTIFACT-served and dev/sig-only BY DATA AVAILABILITY -- it is registered
-# unconditionally and reports `available: false` where no store exists (prod), so there is no
-# build flag or env var anyone can get wrong. It never writes and is never linked from
-# Board/Cockpit/Scoreboard.
+# /backtest is ARTIFACT-served and available BY DATA AVAILABILITY -- it is registered
+# unconditionally and reports `available: false` where no store is mounted, so there is no build
+# flag or env var anyone can get wrong. Dev/sig mount the live store; prod mounts a frozen archive.
+# It never writes and is never linked from Board/Cockpit/Scoreboard.
 app.include_router(backtest.router)
 
 

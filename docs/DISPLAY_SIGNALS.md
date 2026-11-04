@@ -87,8 +87,10 @@ ingested late is not hidden for it (`INVARIANTS.md` #4, `db/public_clock.py`; th
 | `range_52w` | `fact_price_eod` | pct_off_52w_high, pct_above_52w_low, high_52w, low_52w (print dates ride the notes) | — | lookback_days=380 |
 | `volume_regime` | `fact_price_eod` | vol_ratio (20d ÷ prior 60d), adv_usd_20d | — | recent_bars=20, base_bars=60, lookback_days=150 |
 | `rvol` | `fact_price_eod` | rvol (as-of vol ÷ mean of the prior **8** bars — call-matched), rvol20 (÷ the prior **20** bars — trader convention, call-decoupled) | — | baseline_bars=8, loud_mult=1.5, baseline_bars_20=20, loud_mult_20=1.5, lookback_days=55 |
+| `relative_strength` | `fact_price_eod` (+ the SPY / IWM benchmark tapes) | rs_spy, rs_iwm (the name's close ÷ the benchmark's close, dates aligned) | rs_high_spy, rs_high_iwm (the ratio at a fresh 13-week high) | benchmarks=[SPY, IWM], rs_high_weeks=13, min_bars=60, lookback_days=95 |
 | `insider_flow_90d` | `fact_insider_txn` (+ `fact_price_eod` day-lows) | buy/sell counts, distinct_buyers, **buy_count_30d / distinct_buyers_30d** (a 30d sub-window off the SAME screened buys), buy/sell/net USD (open-market code-P buys, code-S sells) | last_buy, last_sell | window_days=90, window_days_short=30, offmarket_below_low_frac=0.10, max_plausible_txn_usd=2e9 |
 | `etf_flow` | `fact_fund_shares` (+ `fact_price_eod` closes) | flow_1w_usd, flow_1w_pct_of_shares, flow_1m_usd, flow_1m_pct_of_shares | — | window_1w_days=7, window_1m_days=30 |
+| `vcp` | `fact_price_eod` | contraction (newest ÷ oldest segment depth), base_depth, vs_sma | — (the loud `coiling` headline only when every condition holds) | window=60, segments=3, max_last_ratio=0.65, sma_window=50, slope_bars=5, lookback_days=120 |
 | `price_path` | `fact_price_eod` | — (a **series** instead: `close` — the last 90 closes, one slot per trading BAR, newest last, LEFT-padded with `null` to exactly 90 slots; the shape behind the `90d` return cell) | — | bars=90, lookback_days=150 |
 
 **Member epistemics worth naming.** `insider_flow_90d` returns `None` for a name with **nothing

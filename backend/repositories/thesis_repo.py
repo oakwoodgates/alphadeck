@@ -56,7 +56,8 @@ def get_asof(conn: psycopg.Connection, thesis_id: UUID, known_at: datetime | Non
 
     PRE-SNAPSHOT FALLBACK: a thesis with NO qualifying snapshot (promoted before this table existed, or
     entirely before ``known_at``) keeps the live ``basket_member`` roster from ``get`` — the honest best
-    available (a separate F11 label change carries the "recompute ran on the live roster" note).
+    available (F11 labels a past as-of view a recompute, and that label never claims the roster is
+    period-accurate).
 
     BYTE-IDENTICAL LIVE PATH: ``get_asof(now)`` reproduces ``get`` exactly for any thesis with a current
     snapshot — the deploy seed writes one per existing thesis, and ``upsert`` writes one on every roster

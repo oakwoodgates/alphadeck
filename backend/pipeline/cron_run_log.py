@@ -485,7 +485,7 @@ def build_run_payload(
     fresh_anywhere = pass_fresh(results)
     return {
         "status": RUN_STATUS_FINISHED,
-        # X1 — WHAT this run does (the server-move note's `pass_kind`), beside `run_kind` (how it was
+        # X1 — WHAT this run does (the `pass_kind` field: nightly or onboard), beside `run_kind` (how it was
         # triggered). Every artifact in this directory is the nightly's; the staged onboarding job writes its
         # own (`pass_kind: "onboard"`) under `data/onboard_runs/`, so no reader here ever sees one.
         "pass_kind": PASS_KIND_NIGHTLY,

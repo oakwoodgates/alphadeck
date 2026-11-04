@@ -175,8 +175,10 @@ and never confirm on price.
   delisting, then set the vendor symbol override on the security master (`security_master.price_symbol`, the
   OTC fix's seam). The next nightly pass re-pulls the two-year window under the new symbol, appends the
   missing tail and hole-fills the overlap. Teaching the symbol resolver to follow renames **automatically** is
-  deliberately not built: a wrong auto-resolve would file another company's tape under your member, which is
-  worse than a visible gap (`INVARIANTS.md` #4/#6). See `DATA_SOURCES.md` §free EOD prices. **Since T2/Q8
+  deliberately not built beyond one narrow, undoable path (the weekly company-list refresh, 2026-10-24: a
+  renamed name with stored bars is pinned to its old ticker, then adopted onto the new one only when the nightly
+  probe's splice shares at least 20 bars at x1.000 — "The company list", below): a wrong auto-resolve would
+  file another company's tape under your member, which is worse than a visible gap (`INVARIANTS.md` #4/#6). See `DATA_SOURCES.md` §free EOD prices. **Since T2/Q8
   the renamed, never-priced and closed names move to the "Price feed repairs" panel below**, where the
   repair is one click with its Undo; this block keeps only the stopped tapes that panel does not hold (a
   plain feed gap — or every row, against an older backend that has no panel).
@@ -408,7 +410,8 @@ reads — artifact-sourced like the stopped-feed panel, so the surface still own
   history).
 - **It never changes the verdict.** A defect is a vendor tape problem, flag only: nothing it finds reaches a
   detector, a call or a stored bar. What to do with a flagged name (treat its price triggers with suspicion;
-  whether detectors should abstain on it is an open decision, plan Q10) is yours. The Admin page renders the
+  detectors do not abstain on it: the split list repairs the stored bars, and the split-night hold covers a
+  split's first nights before it is listed) is yours. The Admin page renders the
   rows under "Record freshness", loud, only when there is at least one, with a "NEW — paged on this pass"
   marker on the rows that paged.
 
@@ -771,9 +774,11 @@ runner, retention, the host bind, the client version) — this section is the su
   manual "Run daily now" does not also dump. Since M3 (2026-10-16) the sidecar's boot also runs an
   age-gated `pipeline.backup --if-older-than-h 20`, so a night caught up at boot gets a snapshot too, and
   a failed backup pages from the shell (`FEED_LOOP.md` §Backups & restore).
-- **RESTORE is CLI-only — never a button.** A restore is destructive (drop-schema + reload) and belongs in
-  human hands. The documented sequence (the one actually used on 2026-07-21):
-  `docker exec -i alphadeck-postgres-1 psql -U alphadeck -d alphadeck < ./data/backups/<file>`.
+- **RESTORE is CLI-only — never a button.** A restore is destructive (it replaces the whole database) and
+  belongs in human hands. The snapshot is a plain-SQL dump with no DROP statements, so it replays only into an
+  EMPTY database: stop the `backend` and `cron` services, drop and recreate the database, replay the file with
+  `psql -v ON_ERROR_STOP=1 -f -`, then start the services again. The exact commands are in `FEED_LOOP.md`
+  §Backups & restore; a plain `psql < <file>` into a database that already has the tables restores nothing.
 
 **Why the net exists (the honest note).** On **2026-07-21** a shared-Postgres pytest hazard **truncated the
 whole demo DB**. Recovery worked **only** because an ad-hoc `pg_dump` happened to exist — it was a **real
@@ -818,8 +823,10 @@ the freeze it is adjacent to: `POSTMORTEM_CRON_FREEZE_2026-07.md`.
 - **Not the scheduler.** The `cron` sidecar fires the nightly run (`FEED_LOOP.md`); this surface only
   **triggers on demand** and **observes**. It does not change the schedule.
 - **Not a restore surface.** Restore stays a documented CLI act (above) — destructive, human-only.
-- **Not the dead-man's switch.** A run that never happens produces no artifact → no page (a known gap:
-  `restart: unless-stopped` covers crash/reboot, not a deliberate `stop`). A *persistent* absence needs an
-  **external** heartbeat — the sidecar can't page about its own absence. See `FEED_LOOP.md` "Known gaps".
+- **Not the dead-man's switch.** A run that never happens produces no artifact → no page from inside the box
+  (`restart: unless-stopped` covers crash/reboot, not a deliberate `stop`, and the sidecar can't page about
+  its own absence). That is the **external heartbeat's** job (H2, active since 2026-10-16): the shell pings
+  `HEARTBEAT_URL` once the last expected night is recorded, and an outside service alerts when the ping does
+  not come. See `FEED_LOOP.md` (the sidecar section and "Known gaps").
 - **Not the replay-regenerate button.** Regenerating the Scoreboard's replay artifact stays out of scope,
   deferred to the replay-panel work (`ROADMAP.md`).

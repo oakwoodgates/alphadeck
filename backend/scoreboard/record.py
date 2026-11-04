@@ -45,9 +45,9 @@ from scoreboard.schema import (
 # boundaries stay exact because a membership change always recorded a row that day.
 #
 # HONEST ROWS ONLY. That assumption holds for the NIGHTLY record; it is exactly what a reconstructed
-# row (``pipeline.backfill``, ``calls.reconstructed``, migration 0042) breaks: a reconstruction ran on
-# TODAY's basket (``basket_member`` is full-replace — the roster on a past night is unknowable) for a
-# thesis that may not have existed yet, so it can never be shown honest. THE RULE: a reconstructed row
+# row (``pipeline.backfill``, ``calls.reconstructed``, migration 0042) breaks: a reconstruction's roster
+# is the night's ``basket_snapshot`` where one exists (since 2026-09-15), else TODAY's basket
+# (``basket_member`` is full-replace), so it can never be shown honest. THE RULE: a reconstructed row
 # never defines an episode boundary. ``thesis_timeline`` reads with ``include_reconstructed=False`` —
 # the filter runs BEFORE the per-as-of dedup, so every downstream consumer (``derive_episodes``,
 # ``score_episode``, the metrics, the arm-day trigger enrichment, ``_dearm_detail``, the provenance

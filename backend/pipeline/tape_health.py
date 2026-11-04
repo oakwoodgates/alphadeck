@@ -55,10 +55,11 @@ The REPAIRS are the operator's and are not code, and they DIFFER per feed (which
 its own advice in ``domain/feed_kinds``): for a price tape, ``security_master.price_symbol`` (the OTC symbol
 override, #252) points the price leg at the vendor's current symbol and the next nightly pass re-pulls the
 full year, appends the missing tail and hole-fills the overlap; for a fund-shares tape it is a fund/ticker/
-source question (does it still trade under that ticker, did a source page change, is the key set). Extending
-the symbol resolver to renames automatically is a separate, unbuilt decision: a wrong auto-resolve would
-file ANOTHER company's tape under this member, which is worse than a visible gap (#4/#6). See
-``docs/ADMIN.md`` + ``docs/DATA_SOURCES.md``.
+source question (does it still trade under that ticker, did a source page change, is the key set). A rename
+is adopted only on a SPLICE-VERIFIED match (``pipeline/rename_probe.py``): by the operator's Adopt on Admin,
+or automatically (``run_auto_adopt``) for a name the company-list refresh pinned, on a stricter rule — never
+on a guess: a wrong auto-resolve would file ANOTHER company's tape under this member, which is worse than a
+visible gap (#4/#6). See ``docs/ADMIN.md`` + ``docs/DATA_SOURCES.md``.
 
 DELISTED vs FEED-GAP (G5b, tightened by T1 — the "closed" classification, ``classify_stop``). Not every
 stopped price tape is a feed gap to repair: a name that DELISTED / was acquired / deregistered

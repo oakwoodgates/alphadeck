@@ -17,7 +17,7 @@
 | **USASpending.gov** — federal award API (`spending_by_award` + `awards/{id}`) | DOE contracts, grants, OTAs, loan guarantees + structured terms (obligation, period of performance) | **catalyst-conviction** (the automated DOE feed, §below) — the first automated Key-1 source |
 | **Public ETF holdings** (issuer/fund daily holdings files) | constituents, weights, expense ratio, AUM | **ETF radar** (universe seed + holdings/flows); pure-play scoring |
 | **Massive.com reference API** (formerly Polygon.io — the `polygon_*` code names, `api.polygon.io` host and `'polygon'` stored values keep the old name; free tier, keyed — `MASSIVE_API_KEY`) | ETF shares outstanding **by date** (exact counts + real history; 5 req/min) | **ETF net flow** — the primary `fact_fund_shares` source when keyed (`ingest/funds/polygon.py`; the issuer/aggregator scrapers are the keyless fallback) + the historical backfill (`pipeline.backfill_fund_shares`); and the **split reference** (`/v3/reference/splits`, whole market by date — no ticker sent) — the second source the split list confirms against (`ingest/polygon_splits.py`, `pipeline.backfill_splits`; it shares the fund leg's 5/min pacer) |
-| **FINRA short interest** (bi-monthly) | SI %, days-to-cover | squeeze radar (context tier) |
+| **FINRA short interest** (bi-monthly; PLANNED, not built) | SI %, days-to-cover | squeeze radar (context tier) |
 | **OpenFIGI** (free API) | CIK ↔ ticker ↔ CUSIP ↔ FIGI mapping | security master / entity resolution |
 | **Free EOD price/fundamentals** (e.g. Stooq/Tiingo-free tier/equivalent) | daily OHLCV, splits/dividends, market cap | momentum-health, laggard scanner, liquidity/float, corporate actions |
 | **On-chain / crypto data** (free, rich) | TVL, holders, flows for crypto-adjacent themes | emergence detector *for crypto-adjacent themes only* |
@@ -429,8 +429,11 @@ the ingest cannot tell that from "this name had a quiet year". Two classes, one 
 - **The repair stays the operator's, and it is data.** Set `price_symbol` to the vendor's current symbol and
   the next nightly pass re-pulls the full two-year window, appends the missing tail and hole-fills the
   overlap (splices measured clean). Teaching the resolver to follow renames **automatically** is deliberately
-  **not built**: a wrong auto-resolve files ANOTHER company's tape under the member, which is far worse than a
-  visible gap (`INVARIANTS.md` #4/#6) — it needs the operator's explicit call.
+  **not built** beyond the company-list refresh's one narrow, undoable path (a renamed name with stored bars is
+  pinned to its old ticker, then adopted only on a splice of at least 20 shared bars at exactly x1.000 — see
+  the company-list refresh in §SEC company_tickers + filing extraction, above): a wrong auto-resolve files
+  ANOTHER company's tape under the member, which is far worse than a visible gap (`INVARIANTS.md` #4/#6) —
+  anything weaker needs the operator's explicit call.
 - **Not every stopped tape is a rename.** A genuine **delisting** (EDGAR Form 25 / 25-NSE / 15-12B /
   15-12G) also ends the series, and correctly: there is nothing to repair, the name is simply no longer
   priced. The monitor tells the two apart from EDGAR alone (G5b/T1, `pipeline/tape_health.classify_stop`):

@@ -33,10 +33,10 @@ persisted for display. Change the as-of, and the whole board re-derives — it i
   other (#4: the platform is deferential on thesis — it times, it doesn't judge ideas).
 - **The as-of scrub** (top right) defaults to **the current night** (F1, 2026-10-30): the night the nightly
   pass last recorded, served by `GET /clock` (`domain/market_time.current_night` — today once the 22:30 pass
-  time has passed on a weekday, else the weekday before), never the browser's date. At 09:00 Tuesday the board
+  time has passed on a session day, else the session day before), never the browser's date. At 09:00 Tuesday the board
   opens on Monday's night, read LIVE — the call that night recorded and alerted on, not a "Tuesday" recompute
-  from Monday's facts. On that live view the operator's decisions read up to the action day (the first weekday
-  after the night), so a fill logged this morning shows at once (decisions only; the facts follow the night).
+  from Monday's facts. On that live view the operator's decisions read up to the action day (the first session
+  day after the night), so a fill logged this morning shows at once (decisions only; the facts follow the night).
   If the clock read fails the dial falls back to the browser's date with a quiet "browser date" note.
   Scrubbing back (before the current night) recomputes the board with TODAY's rules on
   what was PUBLIC by the end of that date — the no-lookahead rule applies to the UI too, judged on the public

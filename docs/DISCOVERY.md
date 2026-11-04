@@ -119,8 +119,8 @@ structural, not log-only):
   status but an error body instead of results — MEASURED on prod: `{"errorType": "ConnectionError",
   "errorMessage": "getaddrinfo EBUSY ...", ...}`, no `hits`. It used to read as a real zero-hit page: a seed
   whose page 0 got one landed in `empty_terms` ("no EDGAR filer mentions it") with its deep pages never
-  fetched, a deep page that got one silently dropped its companies (#9), and coverage still read 100% (the
-  Peptide Compounding draft reported `81/81` with three live seeds "empty"; the same seeds had 7–9 hits
+  fetched, a deep page that got one silently dropped its companies (#9), and coverage still read 100% (a
+  real draft reported `81/81` with three live seeds "empty"; the same seeds had 7–9 hits
   minutes earlier). Now `_fetch_page` validates every page (a JSON object with a `hits` object whose `hits`
   is a list and whose `total` is an object with an int `value` — pagination reads `total`, so a page with
   hits but no total used to stop the term's walk at page 0 without a word; MEASURED 2026-10-23, all 1,691

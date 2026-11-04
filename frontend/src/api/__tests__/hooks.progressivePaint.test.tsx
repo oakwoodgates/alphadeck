@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // C3 — the Board's calls fire smallest-basket-first, at most CALL_CONCURRENCY in flight. This
-// orders the PAINT; under one backend worker it cannot shorten the cold total (§8.4). The
+// orders the PAINT; under one backend worker it cannot shorten the cold total (measured 2026-09-03). The
 // contract that matters most here is ALIGNMENT: the Board pairs callResults[i] with theses[i], so
 // the gate must never reorder the returned array.
 const h = vi.hoisted(() => ({ get: vi.fn() }));

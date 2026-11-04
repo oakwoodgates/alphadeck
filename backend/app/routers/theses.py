@@ -114,8 +114,9 @@ def get_call(
     # threads that tenant into every fact read; we reuse thesis.tenant_id for the ticker/CIK resolution below.
     # ``known_at`` + ``clock`` (invariant #1, judged on the PUBLIC clock — operator decision 2026-10-21): a
     # scrubbed-back ``asof`` is a HISTORY view — each fact counts from when it became PUBLIC (its filing /
-    # acceptance, its settled session; a correction from its own publication) up to the end of that market
-    # day, so the recompute shows how today's rules judge what was public then — a filing published after the
+    # acceptance, its settled session; a correction from its own publication) up to the end of that night
+    # (EDGAR's next open, 06:00 ET on the next weekday), so the recompute shows how today's rules judge what
+    # was public then — a filing published after the
     # as-of is as invisible as a fact DATED after it, and a fact we happened to ingest late (an outage, a
     # name onboarded later) is not hidden for it. A live ``asof`` threads ``(None, "record")`` (the unchanged
     # live read). See ``domain.market_time.serve_view`` / ``db.public_clock``. LIVE = on or after the current

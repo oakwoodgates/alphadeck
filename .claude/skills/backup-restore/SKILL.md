@@ -16,7 +16,7 @@ in `docs/ADMIN.md`). The runner is `pipeline/backup.py` — a read-only `pg_dump
 subprocess, no app connection.
 
 ## Guardrails (never violate)
-- **Restore is destructive (drop-schema + reload) and HUMAN-GATED.** Never run it
+- **Restore is destructive (it replaces the whole database) and HUMAN-GATED.** Never run it
   without the operator's explicit go in this conversation; never automate it or
   build a button for it.
 - **The bitemporal trap:** to recover lost history, RESTORE a snapshot. Never
@@ -44,10 +44,18 @@ subprocess, no app connection.
 1. **Confirm with the operator:** which snapshot, into which stack (restoring into
    DEV or a fork is the low-risk default; prod only on explicit instruction).
 2. State what will be lost: everything recorded after the snapshot's timestamp.
-3. Run the exact documented sequence (this is the 2026-07-21 recovery form):
+3. Run the sequence below, never while a nightly pass is running. The snapshot is a plain-SQL
+   `pg_dump --no-owner` with NO DROP statements, so it replays only into an EMPTY database: a plain
+   `psql < <file>` into a database that already has the tables prints `already exists` and
+   duplicate-key errors and restores nothing (measured 2026-11-04). These are the steps
+   `scripts/refresh-dev.sh` runs:
    ```
-   docker exec -i alphadeck-postgres-1 psql -U alphadeck -d alphadeck < ./data/backups/<file>
+   docker compose -f docker-compose.yml -f docker-compose.prod.yml stop backend cron
+   docker exec alphadeck-postgres-1 psql -U alphadeck -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS alphadeck WITH (FORCE)" -c "CREATE DATABASE alphadeck"
+   docker exec -i alphadeck-postgres-1 psql -U alphadeck -d alphadeck -v ON_ERROR_STOP=1 -f - < ./data/backups/<file>
+   docker compose -f docker-compose.yml -f docker-compose.prod.yml start backend cron
    ```
-   (For dev/fork, substitute that stack's postgres container + DB name.)
-4. Verify: `/health` ok, the record edge (`GET /admin/status`) matches the
-   snapshot's date, and a spot-checked thesis renders.
+   (For dev/fork, substitute that stack's compose project, postgres container and DB name; in
+   PowerShell pipe the file in with `Get-Content` instead of `<`.)
+4. Verify: `/health` ok (the backend applies any migration newer than the snapshot on start), the
+   record edge (`GET /admin/status`) matches the snapshot's date, and a spot-checked thesis renders.

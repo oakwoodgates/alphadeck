@@ -348,8 +348,9 @@ function LinkLabelInput({
  *  it never sets authorship and never gates Save. HONEST AUTHORSHIP: a description reads "model draft"
  *  until the operator EDITS it → "your words" (`operator_edited`); nothing else flips it. The draft's
  *  recommended link(s) render as READ-ONLY chips — a name recommended into N links holds N real
- *  membership rows (segment sorting + conviction live on the triage screen, not here). A name the
- *  drafter couldn't resolve uniquely (AMBIGUOUS) enters the basket ONLY by an explicit operator pick
+ *  membership rows (per-name link placement lives on the triage screen, not here; conviction has no
+ *  control and rides Save untouched). A name the drafter couldn't resolve uniquely (AMBIGUOUS) enters
+ *  the basket ONLY by an explicit operator pick
  *  (ticker + CIK disambiguate); one with no master row (ABSENT) is shown, never placed. A drafted name
  *  is UNSCORED until the operator extract→ratifies it. Nothing persists until SAVE (the full-replace
  *  promote, which honors authorship and persists every membership row). */
@@ -1803,8 +1804,9 @@ export function ChainEditor({
               )}
               {/* R1: the recommended-links chips sit on their own line; the row actions (sign-off +
                   send-back) right-align at the END of this row. No seg/conviction controls here (S1):
-                  segment sorting + weighting move to the triage screen — this surface shows the DRAFT'S
-                  recommendation, read-only. No type control either: the business type derives from the
+                  segment sorting is on the triage screen; conviction has no control (the field rides Save
+                  untouched) — this surface shows the DRAFT'S recommendation, read-only. No type control
+                  either: the business type derives from the
                   master identity (re-taggable on the scored view's rail). */}
               <span className="ctls">
                 {/* the LLM's recommended value-chain link(s) — READ-ONLY chips, one per membership row

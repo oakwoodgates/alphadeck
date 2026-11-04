@@ -2923,8 +2923,8 @@ class SpacAttachOut(BaseModel):
 # ARTIFACT-SERVED, like the Scoreboard's replay panel: a run is written by a CLI and the API only reads
 # the JSON it left behind. `available` is the ONLY required field on the two envelopes, so
 # `BacktestRunsResponse(available=False)` is a complete, valid 200 — which is what makes the route
-# dev/sig-only BY DATA AVAILABILITY, with no build flag anywhere. On prod the store does not exist and
-# the page renders one quiet line.
+# available BY DATA AVAILABILITY, with no build flag anywhere. Where no store is mounted the page
+# renders one quiet line (dev/sig mount the live store, prod a frozen archive).
 
 
 class BacktestRunSummaryOut(BaseModel):

@@ -222,7 +222,8 @@ class ReplaySnapshot(BaseModel):
     # the code that produced it: the panel could not say what it was showing. `config_hash` is the same
     # fingerprint the `calls` rows carry (`domain.config.config_hash`), so a replayed episode and a
     # recorded night are comparable on policy for the first time. Defaulted, so an artifact written before
-    # this change still validates — `available:false` must mean "no artifact", never "a schema moved".
+    # this change still validates — a stored ledger that fails to validate is served as "no ledger"
+    # (``backtest.artifact.read_ledger``), and that must mean "no artifact", never "a schema moved".
     config_hash: str | None = None
     code_sha: str | None = None
     # ...and the display form, composed HERE so the hash is shortened in exactly one place in the codebase

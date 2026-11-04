@@ -47,8 +47,9 @@ PRICE = FeedKind(
     edge_noun="bar",
     # The G5a repair, unchanged: the SEC ticker stays canonical while the vendor prices the name under a
     # new symbol after a rename (or it delisted), so the fix is to point the price leg at the vendor's
-    # current symbol on the master. Teaching the resolver to follow renames automatically is deliberately
-    # NOT built — a wrong auto-resolve files another company's tape under the member (#4/#6).
+    # current symbol on the master. A rename is adopted only on a splice-verified match
+    # (``pipeline/rename_probe``: the operator's Adopt, or its strict auto-adopt for a pinned name) — a wrong
+    # auto-resolve files another company's tape under the member (#4/#6).
     advice="no new bars; check for a ticker rename or a delisting and set the vendor price symbol",
 )
 

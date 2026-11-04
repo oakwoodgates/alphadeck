@@ -449,10 +449,10 @@ def test_the_inverted_episode_is_never_a_clean_realized_row(db, security_id):
 
 
 def test_truncated_gates_no_metric(db, security_id):
-    """``truncated`` is not a metric input and must not become one by accident (Option F by refactor
-    rather than by decision). Asserted in both directions on one tape: the corrected weekend episode
-    counts, and so does a genuinely dead-tape one — the flag changes what the row SAYS, never whether
-    it is measured.
+    """``truncated`` is not a metric input and must not become one by accident (dropping truncated
+    episodes from the metrics, by refactor rather than by decision). Asserted in both directions on one
+    tape: the corrected weekend episode counts, and so does a genuinely dead-tape one — the flag changes
+    what the row SAYS, never whether it is measured.
 
     Measured "before" state, split honestly because the two halves differ. The METRIC claim (both
     n == 2) PASSES BEFORE THE FIX — it is a behavioral pin against a future refactor wiring the flag

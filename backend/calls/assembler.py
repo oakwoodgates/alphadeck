@@ -707,7 +707,7 @@ def _expression(
         if dearmed:
             # a breakdown de-armed the arm. ADVISORY, a signal-validity event — NEVER a sell instruction
             # (#4/#5): the platform withdraws its go-signal; the trade decision stays the operator's.
-            # Does not deepen the size/instrument prose above. Which copy = which breakdown (Q12).
+            # Which copy = which breakdown (Q12).
             return _dearm_expression(dearm_grades)
         # both keys are in and the grade qualifies, but a severe risk withholds the entry on TIMING
         return (

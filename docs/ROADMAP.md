@@ -46,7 +46,8 @@ one adapter away).
 
 **Post-MVP — SCORE, then honesty + ops hardening (through #217).** The sixth stage shipped: the
 **Scoreboard v1** (SCORE) — the episode ledger over the call-of-record + the operator track + gated
-aggregate metrics, with **replay-history-alongside** now built beside it (#158–#164; `SCOREBOARD.md`).
+aggregate metrics, with **replay-history-alongside** built beside it (#158–#164; retired later by editions S8,
+`SCOREBOARD.md`).
 Then, now that the platform is live, a run of **honesty + ops** work: the read-only **display-signal
 framework** (SMA / 52-week / volume-regime / insider-flow tape context beside the call, never an input;
 #192–#194, #204–#206, `DISPLAY_SIGNALS.md`); the **cron-freeze remediation** (R1–R8 — the ~11-day insider
@@ -161,7 +162,7 @@ insider `Ins 30d`/`Ins 90d`, three lenses (call-state · business-type · value-
 | **Business-type M1**: the two-level SIC → **leaf** → **super-sector** characterization (+ the royalty/streaming overlay) that **retired the size-tier archetype** — operator-editable maps in `backend/securities/business_type/` + the master re-tag · the cockpit **Type** column + the super-sector lens | #255 | `WORKBENCH_ENRICHMENT.md`, `BOARD.md` |
 | **Cockpit-refinement arc**: trailing-return columns (1d/7d/30d/90d + 1Y) · RVOL\|8 (call-matched) + RVOL\|20 (call-decoupled) · insider **Ins 30d/90d** buys/buyers · the **value-chain lens** (a third basket grouping) · the business-type chip on discovery rows · within-group **sortable columns** — the cockpit as a scannable display-signal instrument, all off the call path | #256–#262 | `BOARD.md`, `DISPLAY_SIGNALS.md`, `DISCOVERY.md` |
 | *(#263–#329 are not yet logged here — the canon docs carry them: `BOARD.md`, `DISPLAY_SIGNALS.md`, `SCOREBOARD.md`, `DEPLOY.md`, `ACTIVIST_STAKE.md`, `CORPORATE_EVENTS.md`)* | #263–#329 | — |
-| **Cron missed-nights arc**: the sidecar fires for the INTENDED night (target as-of fixed at schedule time) + forward-only late-wake catch-up · the hole-aware freshness read + `gappy` · `pipeline.backfill` with a PINNED `known_at` (`--known-at next-run`) · boot catch-up to the LAST EXPECTED night + a post-`RUN_AT`-only `already_ran_live` + the sliced wall-clock wait (the monotonic-sleep overshoot under host suspend, MEASURED) | #330–#332 | `FEED_LOOP.md`, `ADMIN.md` |
+| **Cron missed-nights arc**: the sidecar fires for the INTENDED night (target as-of fixed at schedule time) + forward-only late-wake catch-up · the hole-aware freshness read + `gappy` · `pipeline.backfill` (first shipped with a pinned `known_at`; it now judges each night on the public clock and refuses `--known-at`) · boot catch-up to the LAST EXPECTED night + a post-`RUN_AT`-only `already_ran_live` + the sliced wall-clock wait (the monotonic-sleep overshoot under host suspend, MEASURED) | #330–#332 | `FEED_LOOP.md`, `ADMIN.md` |
 | **Scoreboard Timing view + record bugs**: MAE/MFE excursions (close + wick, all four columns) · the episode path sparkline with the de-arm tick · split Armed/De-armed columns + close-reason chips · sortable columns + sticky headers · `truncated` redefined against the tape edge (+ `tape_behind_market`, the TAPE ENDS badge) · the exit = the last bar IN the window (the backwards-return fix) | #333, #334 | `SCOREBOARD.md` |
 | **Serve-path `known_at` cap + reconstructed rows**: `serve_known_at(asof)` on `/call`, `/display-signals`, `/scored` (a scrub-back reads what was knowable by the end of that MARKET day) · `calls.reconstructed` (migration 0042) + the backfill's thesis-existence gate + `repair_reconstructed_precreation` · the Scoreboard scores honest rows only, `reconstructed_nights` named once | #336–#338 | `INVARIANTS.md` #4, `FEED_LOOP.md`, `SCOREBOARD.md` |
 
@@ -190,16 +191,15 @@ insider `Ins 30d`/`Ins 90d`, three lenses (call-state · business-type · value-
    aggregate metrics below `n=5` and metrics include only matured, non-censored episodes. That gate prevents
    premature display; it is not an evidence threshold, and passing it does not establish calibration. The
    growing record still unlocks the **second, out-of-sample
-   recalibration** — that arrives as the record accrues. **Replay-history-alongside is now built** beside
-   the record (#163/#164, a collapsed historical panel served from an operator-kicked snapshot artifact).
+   recalibration** — that arrives as the record accrues. **Replay-history-alongside** was built beside
+   the record (#163/#164, a collapsed historical panel served from an operator-kicked snapshot artifact) and
+   **retired by editions S8 (2026-10-23)**: a stored edition, a frozen re-run of today's rules on the public
+   clock, replaced it (`SCOREBOARD.md`).
    Next here: the v2 follow-blindly track + deltas (+ a metrics-led second view behind a toggle once n
-   accrues); **2f "the real WHY"** — a deeper per-episode Scoreboard explanation (never specced, an open
-   design question, not a committed feature); and the **replay-regenerate button** — regenerating the
-   historical snapshot from the app is **deferred to the replay-panel work** (it needs DuckDB in the lean
-   image + a replay-perf fix; today the snapshot is a dev-venv CLI artifact the app only reads); and the
-   **point-in-time basket** (`basket_member` is full-replace, no timestamps — `INVARIANTS.md` §Known gaps): the
-   precondition for a reconstructed night ever being scoreable and for a past-asof recompute (the Board/Cockpit
-   scrub-back, replay) to stop being a labeled counterfactual.
+   accrues); and **2f "the real WHY"** — a deeper per-episode Scoreboard explanation (never specced, an open
+   design question, not a committed feature). The **point-in-time basket** is BUILT (`basket_snapshot`,
+   migration 0043 — `INVARIANTS.md` §Known gaps): the roster is point-in-time from 2026-09-15 forward, and a
+   recompute reaching further back (the Board/Cockpit scrub-back, replay) stays a labeled counterfactual.
 2. **Notify DELIVERY** — BUILT: the Slack adapter (#165–#175) behind `get_notifier()`, under the Q13 push
    policy (loud = a real arm; quiet = a weaker / mixed move while armed + the nightly newly-armed digest; one
    SPAC push per announcement — `FEED_LOOP.md` §"The push policy"). Another channel (email / Telegram) is one
@@ -210,8 +210,9 @@ insider `Ins 30d`/`Ins 90d`, three lenses (call-state · business-type · value-
    ("re-confirm?"). Shares the MONITOR/Board drift machinery — **build it with the Board**, not in the
    Workbench.
 5. **Workbench backlog, as-encountered** (never a batch): ambiguous send-back symmetry, tier-rec badge noise,
-   send-back discoverability, accept-color decoupling, pre-revenue purity chip, explain transport-error,
-   FE async-boundary tests, off-universe label copy, dilution polarity styling.
+   send-back discoverability, accept-color decoupling, pre-revenue purity chip,
+   FE async-boundary tests, off-universe label copy, dilution polarity styling. (The explain transport-error
+   item shipped: #414.)
 6. **Cron ops hardening** (distinct from #3 scaling — this is freshness/observability, not load). The
    ambient-`date.today()` item is **DONE** — `domain/market_time.market_today()` + the repo-scan guard
    (`INVARIANTS.md` §6). It did **not** unify the Mon-Fri-minus-NYSE-closures (F5) + `RUN_AT` schedule contract, which still has two
@@ -219,7 +220,7 @@ insider `Ins 30d`/`Ins 90d`, three lenses (call-state · business-type · value-
    deliberately does no trading-calendar logic, so shrinking the shell to a dumb trigger remains open.
    The **wrong-day fire is CLOSED** (#330–#332: target-at-schedule-time, the sliced wall-clock wait, boot
    catch-up to the last expected night, the hole-aware `gappy` read; a missed night is reconstructed with
-   `pipeline.backfill`'s pinned clock — reported, never scored). The **fetch counter counts ATTEMPTS, not
+   `pipeline.backfill` on the public clock — reported, never scored). The **fetch counter counts ATTEMPTS, not
    successes** gap is **CLOSED (O5, 2026-10-21)**: the freeze verdict reads COMPLETED fetches
    (`edgar_fetches_completed`; observed 2026-07-22, an empty `ALPHADECK_USER_AGENT` failed all 255 pulls and
    the run logged `255 EDGAR fetches`), and the `--catch-up` exemption is narrowed to the theses a catch-up
@@ -228,11 +229,12 @@ insider `Ins 30d`/`Ins 90d`, three lenses (call-state · business-type · value-
    EDGAR-eligible companies got fresh SEC data (`Settings.freeze_completed_floor`; `FEED_LOOP.md` "Known
    gaps" — measured: it flags twelve stored passes, all pre-G1, none since). Still open: the **R4 0-fetch
    false-positive** for a second pass within five minutes of another (page on 0 only when the cache was
-   outside its TTL). And an
-   **external dead-man's-switch** heartbeat (a run that never happens produces no page — the
-   sidecar can't alert about its own absence; the only thing that catches a host that is OFF at `RUN_AT` and
-   stays off past the next boot's last-expected window); and the **`RUN_AT` choice** (an earlier fire while
-   the host is usually awake, at the cost of same-evening filings landing a night later — an ops decision).
+   outside its TTL). The **external dead-man's-switch heartbeat is CLOSED (H2, 2026-10-16)**: a run that
+   never happens produces no page from inside the box (the sidecar can't alert about its own absence, which
+   is how a host that is OFF at `RUN_AT` and stays off past the next boot's last-expected window goes
+   unseen), so the shell pings an outside service once the last expected night is recorded and that service
+   alerts when the ping does not come; active on prod since 2026-10-16. The **`RUN_AT` choice is DECIDED
+   (Q19, 2026-10-17)**: it stays 22:30 ET and the ~3% late-bar residual is accepted (`FEED_LOOP.md`).
    Full account: `POSTMORTEM_CRON_FREEZE_2026-07.md`,
    `FEED_LOOP.md` "Known gaps".
 7. **Insider honesty backlog** (extending the #210–#213 screens): insider **Class B** — 10%-owner
@@ -294,7 +296,9 @@ insider `Ins 30d`/`Ins 90d`, three lenses (call-state · business-type · value-
 ## Phase 3 — Breadth + depth (by appetite, not a strict order)
 
 **Breadth:**
-- **Laggard scanner** — a second confirmation path; `LAGGARD` is a wired confirmation kind, the detector unbuilt.
+- **Laggard scanner** — BUILT: a second confirmation path. `signals/laggard.py` emits a flip-grade `LAGGARD`
+  confirmation on a lagging-but-uptrend co-member while a basket leader's breakout is live (run after the
+  per-member loop in `pipeline/core.py`).
 - **ETF radar** — universe seed; the N-1A/485 launch detector (emergence signal); holdings-derived flows; the
   `safe_sleeve` card field exists but is unpopulated.
 - **More catalyst sources** (`CATALYST_CONVICTION.md` §3): the automated 8-K material-agreement detector; the

@@ -582,19 +582,18 @@ only *coincide* for insider buys, which is exactly why the two conviction source
   first became knowable (`knowable_from`; dial `revenue_accel_max_quarter_age_days` = 135 — `> 135` disqualifies,
   exactly 135 fires; `None` lifts the cap for a backtest overlay). Why: under rule (a) a RESTATED year-old
   comparative is new knowledge at the later filing (a changed number), and it fired as if it were a fresh quarter —
-  MEASURED in the editions preview (2026-10-22), 10 Edition-1 triggers on 9 companies cited such a quarter: RKT
-  Q2-2025 restated 2026-08-07 (403 d), Freedom Holding Q1-2024 knowable 2026-06-01 (792 d), SEGG Q1-2026 filed
-  2026-10-08 (191 d — a late filer: the rule also holds a late filing's own quarter), LRHC's 2026-06-04 10-K (its
-  restated 2024-Q2 / 2025-Q1 and its late 2025-Q4, 155 d). The old quarter stays STORED and SHOWN and remains a
+  MEASURED in the editions preview (2026-10-22), 10 Edition-1 triggers on 9 companies cited such a quarter: a
+  comparative restated a year later (403 d), a quarter first knowable 792 d after its period ended, a late filer's
+  own quarter filed 191 d after it ended (the rule also holds a late filing's own quarter), and a 10-K that
+  restated two comparatives and added a late quarter (155 d). The old quarter stays STORED and SHOWN and remains a
   comparison base (another quarter's year-prior / prior); it just cannot be the quarter the trigger fires on. One
   pure check inside the shared detector (`signals/revenue_acceleration._fresh_at_knowability`), so the live call and
   the replay apply it identically. It also closes the D3 phantom independently of D3a: a comparative re-dated to
   its year-later filing is always past 135 days (`pipeline.annotate_phantom_arms` therefore reads such a recorded
   night as drift on today's code — never annotated; the annotations already applied stand). MEASURED live effect
   (dev copy of prod, 2026-10-22, all 12 theses at asof 10-21 and 10-22): 7 revenue triggers per night cited such a
-  quarter and are gone — ASST (Digital Asset Treasury; its card's `exit_by` 2027-02-06 → 2026-11-07), DOMH and VREOD
-  (Rainbow Rush), FRHC, LRHC, RKT and SEGG (The Everything Exchange); DOMH and RKT re-cite their genuine Q1-2026
-  inflection instead. No state, verdict or armed name changes.
+  quarter and are gone, on three of the 12 theses (one card's `exit_by` moved about three months earlier); two of
+  those companies re-cite their genuine Q1-2026 inflection instead. No state, verdict or armed name changes.
 - **`activist_stake` `[built — S5]` — grade-FIXED core, structural (Key 1).** A 13D-family **original** filed
   about a basket member (the outside party crossed 5% with intent to influence) fires a `core` conviction live
   for `activist_13d_liveness_days` (180) from its public date (`valid_from`: since F7 the market-time date of
@@ -631,15 +630,17 @@ only *coincide* for insider buys, which is exactly why the two conviction source
   the call view's Form 4 floor is unchanged. Replay applies the same rule (one pure function over the same
   accessors, parity-gated). Off (`activist_affiliate_screen = False`) is byte-identical to before.
   **Expected effect, MEASURED on prod by the orchestrator (read-only, 2026-10-28, all 54 cards):** of 68
-  live 13D triggers on 34 cards (53 company-and-filer pairs), the screens remove 20 — 5 control, 14 officer
-  or director, 1 more through a joint filing; 4 armed members de-arm (SAIQ on "Satellite Connectivity &
-  Spectrum" and "The Quantum Buildout", TLS on "Cyber Arms Race" and "Defense Software, C4ISR & Services");
-  only "Satellite Connectivity & Spectrum" leaves Armed; no card leaves Warming. Insider 13Ds rarely follow
+  live 13D triggers on 34 cards (53 company-and-filer pairs), the screens were expected to remove 20 (5
+  control, 14 officer or director, 1 through a joint filing); the recompute at the deploy (all 54 calls, before
+  vs after) removed **18 — 5 control, 13 officer or director — leaving 50**: one company keeps its trigger
+  because two outside holders filed their own 13Ds, and the joint-filing case was never a joint filing (its
+  majority holder filed its own 13D/A). 4 armed members de-arm, on 4 cards; one card leaves Armed; no card
+  leaves Warming. Insider 13Ds rarely follow
   a purchase: 9 of the 11 insider filers came with only awards or conversions (codes `A` / `C`); the other 2
-  (HELP, VIP) followed open-market buys the insider-buy trigger already counts. **Known bound:** the 13D
+  followed open-market buys the insider-buy trigger already counts. **Known bound:** the 13D
   ingest stores the LEAD reporting person of a filing only (one row per subject and accession), so a joint
-  filing whose majority member is not the lead (the Symbotic shape, a 7.9% lead beside a 58.2% member) is
-  not on the tape for the screen to read until group capture lands (`docs/ACTIVIST_STAKE.md` §Deferred).
+  filing whose majority member is not the lead is not on the tape for the screen to read until
+  group capture lands (`docs/ACTIVIST_STAKE.md` §Deferred); no live case of it is known.
 - **`volume_breakout` `[built]` — the CONFIRMATION grade (Key 2).** VOLUME grades it: volume-backed
   (vol ≥ `breakout_volume_mult` × base avg) = `core`; a momentum thrust on weak volume arms but `flip`.
   **Grade-down** (ratified 2026-08-15, `breakout_weak_close_grade_down`): a volume-backed breakout that
@@ -870,8 +871,9 @@ early summaries, not an evidence threshold; crossing it does not make this value
 `confidence` name remains on the wire/config for compatibility in this docs-only terminology pass.
 
 **Built function** (the *structure* is fixed; the values are experimental dials, see RECALIBRATION.md): a
-saturating (noisy-OR) combine of `(fired entry-trigger scores → more agreeing detectors saturates higher)`
-minus a penalty per active risk signal, with two ceilings **composed `min-of`** (a call tripping both takes
+saturating (noisy-OR) combine of the fired entry triggers' scores — ONE score per `kind` (its strongest, so
+correlated reads of one move count once; more agreeing detector families saturates higher) — minus a penalty
+per active risk **kind** (its strongest score; correlated risk lenses cost one haircut), with two ceilings **composed `min-of`** (a call tripping both takes
 the lower, never double-capped):
 - **single-detector cap** — a one-detector call never reads "high."
 - **starter cap** (`starter_confidence_cap`, ≈0.55) — **any** `starter` (entry grade = `flip`, i.e.

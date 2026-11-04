@@ -22,7 +22,8 @@ Status: **v1 built** — SB1 (the scoring engine + CLI) + SB2 (`GET /scoreboard`
 (the operator track) + SB4 (the FE view: the ledger behind the Scoreboard nav, `frontend/src/scoreboard/`).
 **RH (replay-alongside): built, then RETIRED by editions S8 (2026-10-23)** — the snapshot CLI, `GET
 /scoreboard/replay`, its artifact reader and the collapsed panel are gone; a stored edition replaced them
-(§"The historical panel" says what stayed). **Editions: S1–S4 + S6 built** (S6 = "what changed").
+(§"The historical panel" says what stayed). **Editions: S1–S8 built** (S5 = the nightly page + inked scores, S6 = "what changed", S7 = the automatic cut,
+S8 = the retired replay panel).
 **The episode drill-down: built** — the row-opened drawer + four timing lenses + Summary|Timing toggle
 (#227–228), the row/icon split (row → drawer, ↗ → Cockpit; #230), the episode price chart with a numbered
 event overlay (SMA context + insider/trigger/lifecycle chips, relevance-floored + as-of-correct on both axes;
@@ -183,8 +184,9 @@ replay's job (`docs/REPLAY.md` — the historical twin); attribution's source is
   membership change always recorded a row that day. `derive_episodes` consumes the gapped timeline
   as-is.
 - **Reconstructed nights are reported, not scored.** `pipeline.backfill` reconstructs a missed night
-  with `known_at` pinned — faithful on the clock, but every reconstruction runs on TODAY's basket
-  (`basket_member` is full-replace, no timestamps: the roster on a past night is unknowable), and until
+  on the public clock — faithful on the facts, but a night before 2026-09-15 runs on TODAY's basket
+  (`basket_member` is full-replace, no timestamps: before `basket_snapshot` began, the roster on a past night
+  is unknowable), and until
   the existence gate landed it also ran theses that did not exist yet. So a reconstructed row can never
   be shown honest, and **a reconstructed row never defines an episode boundary**: the record read
   (`thesis_timeline` → `calls_repo.latest_for_thesis(include_reconstructed=False)`, paired with
@@ -436,9 +438,9 @@ threaded into the per-thesis readers. A reader resolving its own would put that 
 
 The field states the fact; the badge decides it is worth saying. **`TAPE ENDS`** gates on
 `matured && tape_behind_market && !insufficient_prices` and reads *"the horizon elapsed, but this
-name's price tape stops at ‹exit_date›"*. On the current record it fires **zero** times, which is
-the honest count — 99 securities in the master have tapes that stop before 2026-08-01, none of them
-carrying an episode yet.
+name's price tape stops at ‹exit_date›"*. When it shipped (2026-09-11) it fired **zero** times on the record, which was
+the honest count — 99 securities in the master had tapes that stopped before 2026-08-01, none of them
+carrying an episode.
 
 **One deliberate conservatism.** The market leg is strict (`exit_by < market_edge`), so an episode
 whose `exit_by` lands exactly on the market's latest bar date is suppressed for that day even if the
@@ -743,7 +745,7 @@ that is the open-but-matured shape `test_maturity_judged_only_at_exit_by` alread
 the excursion and path fields are descriptive. `Outcome` is computed on read and never persisted, so this is
 nowhere near `record_if_changed`.
 
-**The reader asymmetry is preserved, not harmonised.** `PgRealizedPrices.bars_between` keeps its double cap
+**The reader asymmetry is preserved, not harmonized.** `PgRealizedPrices.bars_between` keeps its double cap
 (`d <= cap` on the valid axis, `recorded_at <= known_at` on the transaction axis); the DuckDB
 `RealizedPrices.bars_between` stays deliberately **forward-unbounded**, as the scoring pass requires and as
 `_closes` already is on that side. No as-of read is widened — the new read sees exactly the universe

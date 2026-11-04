@@ -1,7 +1,7 @@
 """V1 — the nightly SELF-AUDIT: the pass checks the record it just left, and pages when it is not right.
 
 "100% correct" is a claim the cron must re-earn every night, not a one-time verdict
-(``docs/temp/cron-correctness-plan-2026-10-16.md`` §2 / V1). At the end of each pass, after the per-thesis
+(the acceptance bar, checked rather than assumed). At the end of each pass, after the per-thesis
 loop has committed, ``run_audit`` runs a list of independent CHECKS; their results ride the run-of-record
 artifact as ``audit: [{check, ok, detail}]`` and any failure pages through the R4 health seam
 (``HealthEvent.audit_failed``). The Admin page re-reads the same list from the artifact.
@@ -41,7 +41,7 @@ PHASE-7 CHECK (the settle guard, audited — 2026-10-21):
 - ``no_unsettled_bars`` — no ``fact_price_eod`` row (benchmarks included) for a bar dated ``d`` was RECORDED
   before ``d``'s settle instant (``d`` at ``Settings.price_settle_time`` in market time). The rule has been
   enforced at INGEST since D2 (#393, ``ingest/prices/settle.py``); this checks the TABLE every night, because
-  the coming open / provisional-close runs make it the one hard guard (the server note's §4). It judges the
+  the coming open / provisional-close runs make it the one hard guard. It judges the
   rows recorded since the previous pass that judged them (``bars_since`` — see ``settle_window_since`` for
   the window and why it never reaches before the guard shipped), so each stored bar is judged by one pass
   and a historical, pre-guard violation never pages.
@@ -273,7 +273,7 @@ def check_every_thesis_finished(ctx: AuditContext) -> AuditResult:
 
 
 def check_split_defects_flagged(ctx: AuditContext) -> AuditResult:
-    """(d) T4 — "every split-basis defect flagged" (plan §2 criterion 6): the split-basis monitor RAN over
+    """(d) T4 — "every split-basis defect flagged" (acceptance criterion 6): the split-basis monitor RAN over
     tonight's tapes, so every defect it can see is on the artifact and every NEW one is in tonight's page.
 
     It passes WITH defects present, on purpose, and reports their count. A check that failed whenever a

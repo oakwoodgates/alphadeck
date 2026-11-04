@@ -13,8 +13,9 @@ backtest can run.
 
 **Absence is never an error.** A missing store, a missing run, a half-written directory and an unreadable
 file all collapse to "not available", and the route turns that into `available: false` rather than a 500.
-On prod the store does not exist at all, and that is the intended state: the route is dev/sig-only BY DATA
-AVAILABILITY, with no build flag anywhere.
+Where no store is mounted (a base stack without an overlay) that is the intended state: the route is
+available BY DATA AVAILABILITY, with no build flag anywhere. Dev and sig mount the live store; prod
+mounts a frozen archive.
 """
 
 from __future__ import annotations
@@ -53,7 +54,7 @@ def _read_json(path: Path) -> Any | None:
 
 
 def store_exists(root: str | Path | None = None) -> bool:
-    """Is there a backtest store on this stack at all? Prod has none, and that is the whole gate."""
+    """Is there a backtest store on this stack at all? Whether one is mounted is the whole gate."""
     return store.index_path(root).is_file() or store.runs_root(root).is_dir()
 
 

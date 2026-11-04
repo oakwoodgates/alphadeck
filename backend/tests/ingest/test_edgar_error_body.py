@@ -1,6 +1,6 @@
 """SEC's 2xx-wrapped ERROR REPLIES never reach the cache, never count as data, and are never served.
 
-MEASURED 2026-10-23 (prod, a Peptide Compounding draft): EFTS answered several pages with a success status
+MEASURED 2026-10-23 (prod, a thesis draft): EFTS answered several pages with a success status
 and the body ``{"errorType":"ConnectionError","errorMessage":"getaddrinfo EBUSY ...","trace":[...]}``.
 ``EdgarClient.get_text`` wrote it to the disk cache and counted it as a completed fetch, so the error was
 re-served for the 12h TTL and read downstream as an empty page. These tests pin the client half of the fix

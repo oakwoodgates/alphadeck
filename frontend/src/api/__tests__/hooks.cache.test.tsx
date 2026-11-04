@@ -3,7 +3,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// The PR-1a cache policy (docs/temp/board-cockpit-perf-2026-09-02.md §4.C), asserted through
+// The PR-1a cache policy (see queryClient.ts), asserted through
 // BEHAVIOR (does a request fire?) — never by reading options back out of the query, which would
 // only prove the object we just built.
 const h = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));

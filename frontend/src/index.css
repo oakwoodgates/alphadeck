@@ -1542,7 +1542,7 @@ tr.sb-row .tk { font-family: var(--mono); font-weight: 700; letter-spacing: 0.04
    what it was — a table in a flowing document with no vertical scroll of its own.
 
    The trade, stated plainly, because it is a real one: a height cap puts a NESTED vertical scroll
-   inside a page that also scrolls, with the metrics strip above it and the replay panel below. On
+   inside a page that also scrolls, with the metrics strip above it and the rest of the page below. On
    a ~10,000px record that is the price of a column header that stays put, and there is no third
    option — per spec, `overflow-x: auto` computes the other axis from `visible` to `auto`, so
    `.sb-scroll` was ALREADY a scroll container on both axes and the page was never the header's

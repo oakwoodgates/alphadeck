@@ -75,8 +75,9 @@ docker exec $(docker compose @sig ps -q backend) python -m db.migrate
 
 ### Backtest (the primary use — in-container, on the branch code)
 ```
-# 1. refresh sig from prod   2. (the branch's migrations apply on `up`/refresh)   3. backfill new historical
-#    facts with correct knowability   4. replay over the target window on the branch code:
+# 1. refresh sig from prod   2. (the branch's migrations apply on `up`/refresh)   3. add any older facts the new
+#    detectors need (history is judged on the public clock, so a fact stored late still reads from when it became
+#    public)   4. replay over the target window on the branch code:
 docker exec $(docker compose -f docker-compose.yml -f docker-compose.sig.yml -p alphadeck_sig ps -q backend) \
   python -m replay.run --start 2025-04-01 --end 2026-06-30 --pin 2027-01-01 --out /data/replay-out
 ```
@@ -84,10 +85,12 @@ Writes `episodes.parquet` / `outcomes.parquet` / `metrics.json` showing what the
 fired*. For the baseline, run the same window/PIN on prod code and diff. Full harness + the metric set:
 `docs/REPLAY.md`; for a run WITH identity — a manifest, the two null models, the pooled report and the
 `/backtest` surface (this stack mounts `./data/backtest` read-only, so the lab serves runs it cannot
-overwrite) — use `python -m backtest.run` instead and see `docs/BACKTEST.md`. **Known limitation:** thesis
-definitions / `security_master` are read from the *current*
-SoR (only the facts are as-of), so backtest over windows in which the basket was stable and treat
-evolving-basket results as indicative only (`docs/REPLAY.md` §KNOWN LIMITATION).
+overwrite) — use `python -m backtest.run` instead and see `docs/BACKTEST.md`. **Known limitation:** the roster
+is point-in-time only from 2026-09-15 (an earlier window replays on today's basket, labeled per thesis); the
+rest of the thesis definition (narrative, catalysts, kill criteria) and `security_master` are read from the
+*current* SoR (only the facts and, from then, the roster are as-of), so for a window before then backtest
+over a stretch in which the basket was stable and treat evolving-basket results as indicative only
+(`docs/REPLAY.md` §KNOWN LIMITATION).
 
 ### Teardown (throwaway — nothing to preserve)
 ```

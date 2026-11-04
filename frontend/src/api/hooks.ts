@@ -191,7 +191,7 @@ type CallSubject = { id: string; basket_size?: number | null };
 // PROGRESSIVE PAINT (C3), and ONLY that: the queries fire smallest-basket-first, at most
 // CALL_CONCURRENCY at a time (now 1, tuned down from 3 on 2026-09-03). Under one uvicorn worker
 // and one GIL, concurrent calls don't run in parallel — they land together at roughly the same
-// time: MEASURED on prod (§8.4) with a cap of 3, the four armed theses' cards landed at
+// time: MEASURED on prod (2026-09-03) with a cap of 3, the four armed theses' cards landed at
 // 4.5 / 5.0 / 8.6 / 10.3 s, while the ungated storm landed them all together at ~7–8 s. A cap of 1
 // turns the cold Board into a staircase — the small baskets paint in the first second, then each
 // big thesis lands ~2 s apart — at a cost of at most ~10% on the total (concurrency was only ever

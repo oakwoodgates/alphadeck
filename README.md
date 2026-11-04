@@ -91,7 +91,7 @@ Three load-bearing decisions drive the shape:
 | Operational DB | PostgreSQL — bitemporal system of record + relationship graph (adjacency tables + recursive CTEs; no Neo4j yet) |
 | Research / replay | DuckDB + Parquet (point-in-time snapshots, embedded, file-based) |
 | Backend | Python · FastAPI · Pydantic (core schemas) · Polars (+ Arrow) |
-| Ingestion | Thin custom EDGAR client over SEC JSON APIs · OpenFIGI for CIK↔ticker↔FIGI · FINRA short interest |
+| Ingestion | Thin custom EDGAR client over SEC JSON APIs · OpenFIGI for CIK↔ticker↔FIGI · FINRA short interest (planned, not built) |
 | Orchestration | Scheduled scripts → Dagster when the DAG earns it |
 | LLM | Anthropic API behind a model-agnostic interface; structured/tool-use outputs with source citations |
 | Frontend | TypeScript · React (Vite SPA) · Tailwind · TanStack Query |
@@ -109,7 +109,7 @@ alpha-deck/
 │   ├── app/          # FastAPI app + routes
 │   ├── domain/       # thesis / signal / call schemas (Pydantic) — the spine
 │   ├── securities/   # security master, entity resolution, corporate actions
-│   ├── ingest/       # EDGAR, price/fundamentals, FINRA SI, FIGI
+│   ├── ingest/       # EDGAR, price/fundamentals, FIGI (FINRA SI is planned)
 │   ├── signals/      # composable detectors (insider, laggard, squeeze, momentum-health…)
 │   ├── llm/          # model-agnostic interface, DD drafting, call explanation
 │   ├── pipeline/     # scheduled jobs / orchestration

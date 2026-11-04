@@ -62,7 +62,8 @@ _ISO_DATE_PREFIX = re.compile(r"\d{4}-\d{2}-\d{2}")
 # only the enumeration knows ``filed``), and the year anchor needs nothing threaded. Its residual is
 # MEASURED and stated rather than guessed: 38 further rows are dated after their own ``accepted`` datetime
 # within the SAME year and are NOT rejected — tightening to that clock would make the bound depend on a
-# column that is NULL for ~47% of rows, so the same filing would be judged differently run to run.
+# column that is NULL for ~47% of raw rows (0.67% of facts on the latest-version grain, ``docs/BACKTEST.md``),
+# so the same filing would be judged differently run to run.
 _EDGAR_ACCESSION = re.compile(r"^\d{10}-(\d{2})-\d{6}$")
 _SECTION_16_EPOCH_YEAR = 1934  # the Securities Exchange Act of 1934 created Section 16 reporting
 

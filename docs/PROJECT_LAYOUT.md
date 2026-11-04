@@ -92,6 +92,7 @@ alphadeck/
     │   ├── config.py               #   CallConfig (the trust-validated call-engine dials) · ExtractorConfig
     │   ├── settings.py             #   typed Settings: env-overridable LLM dials + base URLs + throttle + market_tz (ALPHADECK_*; config refactor)
     │   ├── market_time.py          #   market_today()/market_now() — "today" on an EXPLICIT ZoneInfo: the ONE home for the trading day (INVARIANTS #6; NO calendar logic)
+    │   ├── rule_log.py             #   the declared call-logic changes, in order (editions S7): a PR that changes call logic appends here, so the automatic cut labels the new edition "rule change", not "unexplained"
     │   └── coerce.py               #   to_float — the shared scalar coercer (Tier-1 dedup)
     ├── llm/                        # THE LLM SEAMS (model-agnostic; fail-open; SDK lazy-imported)
     │   ├── client.py               #   LLMClient.draft_structured (forced tool-use) + research (web_search) + the allow_live gate
@@ -124,6 +125,8 @@ alphadeck/
     │   ├── dilution_clock.py · base.py (PointInTimeData) · common.py (fired_signal / provenance / entry-liveness) · registry.py (the #176 detector registry)
     │   └── display/                # READ-ONLY display signals — off the call path (own registry + protocol); DISPLAY_SIGNALS.md
     │       └── base.py · registry.py · sma.py · range52w.py · volume_regime.py · insider_flow.py · etf_flow.py
+    ├── radar/                      # the SPAC RADAR — a tape + recommendations, structurally OFF the call path (blank-check deal transitions matched against every thesis's term set)
+    │   └── spac.py · matcher.py · state.py · repo.py · shell_sweep.py   #   the daily-index scan + lazy shell accretion · the word-boundary term matcher · the pure read-time deal-state derive · the two fact tables (migration 0030) · the SIC enrichment sweep of un-enriched shell names
     ├── ingest/                     # data-ingestion bricks (cache-first; live behind allow_live; CacheMiss canonical in __init__.py)
     │   ├── http.py                                               # polite_get (429/5xx retry + Retry-After) + RateLimiter (the shared token-bucket; Tier-1)
     │   ├── skips.py                                              # Q18: a per-FILING skip record (form4_unparseable / schedule13_outbound / schedule13_identity)
@@ -145,7 +148,7 @@ alphadeck/
     │   ├── testdb.py · drop_test_dbs.py   #   the per-worktree test-DB derivation (fail-closed alphadeck_test* guard) + the stale-DB cleanup CLI (#217)
     │   └── migrations/0001…0028    #   …0012 thesis_term_set · 0019 operator_decision · 0021 thesis_exclusion · 0024 insider_issuer_identity · 0025 shares_ads_ratio · 0026 master_instrument_kind · 0027 fact_fund_shares · 0028 master_origin
     ├── repositories/               # the row↔domain seam (raw rows never escape)
-    │   └── mappers.py · thesis_repo.py (get/list_all/upsert + the sole writers: set_term_set/set_catalysts/set_kill_criteria/set_exclusions/set_archived — the structural wipe-guards) · calls_repo.py (append · latest_for_thesis · record_if_changed/_canonical) · call_annotations_repo.py (D3b: the append-only judgments beside `calls` — exclude/note/revoke — and the Scoreboard's annotated-row filter) · decisions_repo.py (the operator-decisions log + the derived position)
+    │   └── mappers.py · thesis_repo.py (get/list_all/upsert + the sole writers: set_term_set/set_catalysts/set_kill_criteria/set_exclusions/set_archived — the structural wipe-guards) · calls_repo.py (append · latest_for_thesis · record_if_changed/_canonical) · call_annotations_repo.py (D3b: the append-only judgments beside `calls` — exclude/note/revoke — and the Scoreboard's annotated-row filter) · decisions_repo.py (the operator-decisions log + the derived position) · editions_repo.py (the append-only Scoreboard editions store, edition 1+, migration 0063)
     ├── pipeline/                   # thin orchestration / CLIs
     │   ├── call_for_thesis.py · run.py · seed.py · core.py
     │   ├── ingest_thesis.py        #   M2: per-thesis back-half ingest (Form 4 + EOD; incremental, fail-visible)
@@ -170,7 +173,7 @@ alphadeck/
     │   ├── routers/scoreboard.py    #   GET /scoreboard?asof= (the forward record + the staleness line) · /scoreboard/editions (+ /editions/diff, "what changed") · /scoreboard/price-window (the drill-down chart's on-demand OHLCV + SMA + insider-buy overlay)
     │   ├── routers/admin.py         #   the ops surface (ADMIN.md): /admin/status · /runs · /run-daily(+jobs) · /backup(+jobs) · /backups — reads own no tables
     │   └── schemas_api.py           #   the WIRE contracts (ThesisDetail · WorkbenchScored · ChainDraftOut · ScoreboardResponse · EtfHoldingsOut · …)
-    ├── scoreboard/                 # THE SCORE STAGE (SCOREBOARD.md) — record-not-recompute, censoring/maturity-gated
+    ├── scoreboard/                 # THE SCORE STAGE (SCOREBOARD.md) — Edition 0 is record-not-recompute (an edition >= 1 is a stored re-run, `editions/`), censoring/maturity-gated
     │   ├── record.py · schema.py   #   derive each thesis's scored record (episodes + outcomes) from the calls-of-record · the analytical models
     │   ├── assemble.py · run.py    #   assemble the full Scoreboard (record walk + n-gated aggregate metrics) · the SB1 terminal-render CLI
     │   ├── decisions.py            #   join the operator decision log → priced take/pass spans (the operator track)
@@ -181,6 +184,8 @@ alphadeck/
     │   └── replay_snapshot.py      #   the pure replay-snapshot builder the /backtest ledger borrows (the replay panel + its CLI were retired, S8)
     ├── replay/                     # the backtest harness — DuckDB + Parquet, point-in-time (REPLAY.md)
     │   └── harness.py · episodes.py · pit.py · export.py · compare.py · metrics.py · scoring.py · schema.py · run.py
+    ├── editions/                   # Scoreboard EDITIONS (SCOREBOARD.md §Editions): today's rules re-run over history on the public clock, published as frozen editions (never writes `calls`)
+    │   └── engine.py · entry.py · fingerprint.py · run.py · cut.py · nightly.py · preview.py · selfcheck.py   #   the re-run engine · join dates · the rules fingerprint · the `python -m editions.run` CLI · the automatic new-edition cut · the nightly page · the preview vs Edition 0 · the live-edge self-check
     ├── seed_data/                  # committed REAL inputs (HIMS demo, DOE fixtures) — read by seed + tests
     └── tests/                      # 1,100+ tests; DB-backed ones skip if Postgres is unreachable
         ├── conftest.py             #   db / security_id fixtures (db TRUNCATEs the spine + facts + master)
@@ -247,10 +252,10 @@ alphadeck/
   #214) → the second, out-of-sample recalibration; the **restatement re-version** + the **source-strategy A/B
   decision** (keep Yahoo + re-version vs raw+splits + own-the-adjustment — `DATA_SOURCES.md` / `FEED_LOOP.md`);
   **cron-scaling** (active theses daily, dormant less) + the REMAINING **cron-ops hardening** (the R4 0-fetch
-  false-positive, the attempts-vs-successes fetch counter, a dead-man's-switch — the durable `market_today()`
-  is DONE, `INVARIANTS.md` §6); **2f "the real WHY"** + the deferred
-  **replay-regenerate button**; **insider Class B** + the `insider_flow` sell-side ceiling; Phase-3 breadth
-  (laggard scanner, ETF radar *coming-launches* N-1A/485, more catalyst sources, umbrella hierarchy, live LLM
+  false-positive — the attempts-vs-successes fetch counter (O5), the dead-man's-switch heartbeat (H2) and the
+  durable `market_today()` are DONE, `INVARIANTS.md` §6); **2f "the real WHY"**;
+  **insider Class B** + the `insider_flow` sell-side ceiling; Phase-3 breadth
+  (ETF radar *coming-launches* N-1A/485, more catalyst sources, umbrella hierarchy, live LLM
   counter-case) — by appetite. See `ROADMAP.md`.
 
 ## Flags for the reviewer (current)

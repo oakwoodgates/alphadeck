@@ -184,9 +184,9 @@ a name the organizer recommends into N links is **N `basket_member` rows** (same
 `segment`) that `loadDraft` preserves and the promote persists — the display groups them into one row
 per NAME, and every per-name action (include / sign-off / description-edit) co-mutates all of a name's
 rows via the `memberKey` keying. **The seg dropdown and the per-name re-segmenting are GONE from this
-surface** — segment sorting moves to the triage screen (a later slice); this surface shows the draft's
-placement, it doesn't edit it. (A per-membership add/remove — the `(security_id, segment)` re-key — is
-likewise the triage slice, not this one.)
+surface** — segment sorting lives on the triage screen (the value-chain editor below, shipped in #266); this surface shows
+the draft's placement, it doesn't edit it. (A per-membership add/remove — the `(security_id, segment)` re-key —
+is likewise the triage screen's: the DD-rail link multi-select, below.)
 
 **The "Discovered" holding pen.** Names discovered-but-not-organized land in a catch-all segment labeled
 "Discovered". It is an **unsorted holding pen, not a value-chain link** — de-linked visually (muted,
@@ -336,7 +336,10 @@ not `BasketMember.role` (the free-text prose field) and not `SignalEvent.role` (
   content hash is unchanged and an unchanged re-promote still appends no snapshot row.
 - **Not built (the next phase):** reading signals from a role-tagged company's disclosures — the **read-through**
   (its 8-K / earnings-release numbers shown beside the names it forecasts). Phase 1 has no read-through display,
-  endpoint or fetch; the role is only the operator's label for it.
+  endpoint or fetch of a company's own filings; the role is only the operator's label for it. (The cross-card
+  **Read-Throughs** dashboard, `docs/dashboards/read-through.md`, is a different thing: it lists each role-tagged
+  company with its newest filing's date and form, its next dated catalyst and its tape against SPY, and
+  interprets no filing.)
 
 ## Mark for data — gate 2's per-name opt-in + the per-SECTION run (the scored view)
 

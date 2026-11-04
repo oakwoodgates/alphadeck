@@ -55,7 +55,7 @@ def market_tape_edge(
     return row["edge"] if row else None
 
 
-# The Postgres twin of ``replay.scoring.RealizedPrices`` — the same three-method surface
+# The Postgres twin of ``replay.scoring.RealizedPrices`` — the same six-read surface
 # ``score_episode`` duck-types against, but over the live SoR and CAPPED at the request asof
 # (``d <= cap``): the Scoreboard reads realized closes only up to the day it is asked about, so a
 # scrubbed-back asof can never see a later bar (no-lookahead, applied to a forward reader) and an

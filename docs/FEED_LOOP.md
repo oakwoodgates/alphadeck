@@ -9,7 +9,7 @@
 > Engines: `backend/pipeline/ingest_thesis.py` · `backend/pipeline/daily.py` · `backend/ingest/prices/source.py`
 > · `backend/repositories/calls_repo.py` (`record_if_changed` / `_canonical`) · the `cron` sidecar in
 > `docker-compose.yml` + `backend/scripts/daily_cron.sh` · `backend/pipeline/backfill.py` (a missed night,
-> reconstructed with a PINNED `known_at`) · `backend/pipeline/tape_health.py` (the price-tape recency
+> reconstructed on the public clock) · `backend/pipeline/tape_health.py` (the price-tape recency
 > monitor — a monitor, never a signal) · `backend/pipeline/split_basis.py` (the split-basis defect monitor,
 > T4 — likewise flag only).
 >
@@ -18,7 +18,7 @@
 > remediation** (#196–#200): the key-classed EDGAR cache TTL, a recording gate, a run-of-record log, a health
 > pager, and catch-up-on-boot; and the **missed-nights arc** (#330–#332, #337–#338): the sidecar fires for
 > the INTENDED night and waits in wall-clock slices, the freshness read is hole-aware (`gappy`), and a missed
-> night is reconstructed with a PINNED clock and marked `calls.reconstructed` (reported on the Scoreboard,
+> night is reconstructed on the public clock and marked `calls.reconstructed` (reported on the Scoreboard,
 > never scored). With it, **M2 — "the functional platform feeds itself" — is complete**, and the
 > North Star is reachable end to end: create a thesis (M1) → `ingest_thesis` pulls real insider + price → it
 > WARMS/ARMS on real data → the daily cron logs the call-of-record.
@@ -293,8 +293,8 @@ the 16:00 close that still sits 4.5 h before RUN_AT.
 `no_unsettled_bars` check (`pipeline/self_audit.py`) reads `fact_price_eod` — every version, every tenant,
 SPY/IWM included — and FAILS (pages) when any row was **recorded** before its bar date's settle instant
 (`d` at `price_settle_time` in market time, built with the market zone so a DST change moves it in UTC
-exactly as the guard does). It is the one hard guard for the coming open / provisional-close runs
-(`docs/temp/note-for-cron-server-agent-2026-10-19.md` §4): a writer in another process that bypassed
+exactly as the guard does). It is the one hard guard for the coming open / provisional-close runs:
+a writer in another process that bypassed
 `withhold_unsettled` is caught the same night. A backdated knowability stamp before the settle instant
 fails too — it claims what an in-progress store would. **Its window:** the rows recorded since the newest
 finished pass that JUDGED the check (its `finished_at`, less one minute for the process-vs-DB clock;
@@ -456,7 +456,7 @@ post-settle noise.
 
 ## Honest stamps — the fundamentals write path (migration 0057, 2026-10-21)  `[BUILT]`
 
-The acceptance bar (cron-correctness plan §2.4): facts dated by when they were first knowable, and no
+The acceptance bar: facts dated by when they were first knowable, and no
 backdated `recorded_at` on the live path. Under the operator's public-clock rule (`INVARIANTS.md` §4,
 2026-10-21) `recorded_at` is honest BOOKKEEPING — when this system stored a row, stamped now, never backdated —
 and history is judged on the PUBLIC clock. `fact_fundamentals` was the last writer that backdated it:
@@ -897,7 +897,7 @@ recorded at/after `RUN_AT`, counted in the `calls` table), `code_sha_known`, `ev
 `fact_price_eod` row recorded before its bar's settle instant, judged over the rows written since the last
 judging pass; "Settled closes" above). Every
 connection the pass opens sets a session **`statement_timeout`** (`ALPHADECK_CRON_STATEMENT_TIMEOUT_S`,
-default 300 s — sized ~2,000x the slowest measured single read, 151 ms; 0 disables), so a lock wait or a
+default 300 s — sized ~2,000x the slowest single read in the 2026-09-02 profile, 151 ms, taken before the read-path fixes so the margin only grew; 0 disables), so a lock wait or a
 stuck read raises inside the per-thesis isolation instead of hanging the loop. And an **unhandled exception**
 in the pass sends ONE health page (`PASS CRASHED — <type>: <message>`) before it re-raises — fail-open, it
 can never mask the original. (A process that is KILLED runs no Python at all; the sidecar's own page and the
@@ -2433,7 +2433,7 @@ The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
   covers every failure the **shell outlives**: a crashed or OOM-killed pass, a DB gone mid-run, a hang the
   C2 timeout stops, a boot that cannot reach the DB (10-01). A box that dies whole, as on 10-12 (the VM
   itself was killed), takes the shell with it; only the external heartbeat (next bullet) reports that.
-- **An external heartbeat, pushed by the shell (H2, 2026-10-16)** `[BUILT — inert until configured]`.
+- **An external heartbeat, pushed by the shell (H2, 2026-10-16)** `[BUILT — ACTIVE on prod since 2026-10-16]`.
   Nothing inside the box can report the box's own absence (MEASURED: no heartbeat code existed, and every
   outage so far lasted until a human launched Docker). Two optional env vars, both empty by default, where
   empty means a silent no-op:
@@ -2732,8 +2732,8 @@ first.
   `basket_snapshot` since 2026-09-15; before that `basket_member` is full-replace with no timestamps, so a
   reconstruction runs on TODAY's roster. A reconstructed row therefore can never be shown to be the record, and the Scoreboard scores none of them
   (`docs/SCOREBOARD.md` §"The one rule" — a reconstructed row never defines an episode boundary; the
-  ledger names, once, the nights it has nothing honest for). Until baskets are point-in-time, that holds for every row this
-  tool writes.
+  ledger names, once, the nights it has nothing honest for). The exclusion is by the `reconstructed` marker, so it holds for
+  every row this tool writes, snapshot or not.
 - **The markers.** Every row the backfill writes carries `calls.reconstructed = true` (migration 0042; the
   cron never sets it) — the explicit provenance the Scoreboard's record path filters on, threaded to
   `record_if_changed` OFF the card (so it never fakes a change in the idempotency compare). `ingest_fresh`
@@ -2813,8 +2813,8 @@ the immutable log — they are what the system said — and are set aside from s
 
 - **The rule is the shared calendar, nothing else.** A row is a no-session night when `not
   domain.trading_days.is_scheduled_day(row.asof)`; only honest (`NOT reconstructed`) rows are looked at. The CLI
-  keeps no holiday list: today the predicate is Mon–Fri (the weekend rows); when it becomes holiday-aware the
-  holiday rows are found with no change here.
+  keeps no holiday list: the predicate is Mon–Fri minus the NYSE's full-day closures (F5), so the weekend rows
+  and the holiday rows (the 11 Labor Day rows) are both found with no change here.
 - **The annotation.** `exclude`, `reason = no_session_day`, `rule = no-session-night@<image sha>`, `detail`
   = weekday, call seq, recorded_at, run_kind, code sha, the recorded state/verdict (no `affected_security_ids`:
   the whole night is the judgment, so every member's drawer caption shows it). No migration.
@@ -2879,12 +2879,23 @@ happened to exist. So a snapshot is now a one-click safety net — and a nightly
   share ONE host directory — host-accessible so a dump is copyable off-box. `pg_dump` comes from
   `postgresql-client-16` (PGDG apt repo, matching server 16 — Debian's default client lags and refuses a newer
   server).
-- **RESTORE is CLI-only — never a button.** A restore is destructive (drop-schema + reload) and belongs in
-  human hands. The documented sequence (the one used on 2026-07-21):
-  `docker exec -i alphadeck-postgres-1 psql -U alphadeck -d alphadeck < ./data/backups/<file>`. *(The
-  replay-snapshot regenerate button stays out of scope — deferred to the replay-panel work.)*
+- **RESTORE is CLI-only — never a button.** A restore is destructive (it replaces the whole database) and
+  belongs in human hands, and never while a nightly pass is running. The snapshot is a plain-SQL
+  `pg_dump --no-owner` with NO DROP statements, so it replays only into an EMPTY database: a plain
+  `psql < <file>` into a database that already has the tables prints `already exists` and duplicate-key
+  errors and restores nothing (MEASURED 2026-11-04 on scratch databases). The sequence, the same steps
+  `scripts/refresh-dev.sh` runs for dev:
+  ```
+  docker compose -f docker-compose.yml -f docker-compose.prod.yml stop backend cron
+  docker exec alphadeck-postgres-1 psql -U alphadeck -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS alphadeck WITH (FORCE)" -c "CREATE DATABASE alphadeck"
+  docker exec -i alphadeck-postgres-1 psql -U alphadeck -d alphadeck -v ON_ERROR_STOP=1 -f - < ./data/backups/<file>
+  docker compose -f docker-compose.yml -f docker-compose.prod.yml start backend cron
+  ```
+  (bash redirection; in PowerShell pipe the file in with `Get-Content`.) The backend applies any migration
+  newer than the snapshot when it starts. Then check `GET /admin/status` (the record edge matches the
+  snapshot's date) and a spot-checked thesis.
 
-## Known gaps (as of 2026-09-10)
+## Known gaps (opened 2026-09-10; closures recorded in place through 2026-10-21)
 
 Recorded here where a builder of the pager/scheduler will hit them; the full account of the first three is in
 `POSTMORTEM_CRON_FREEZE_2026-07.md`.
@@ -2906,7 +2917,7 @@ Recorded here where a builder of the pager/scheduler will hit them; the full acc
   (`schedule.missed_asofs`, bounded to the record's own span) and reports `gappy` + the dates. The existing
   prod holes are **not** backfilled by either (deliberate — the operator's call, and the boot catch-up is
   bounded to the *last expected* night, never older); the operator's tool for a hole is `pipeline.backfill`
-  with a PINNED `known_at` ("Backfilling a missed night", above) — never `pipeline.daily --asof <past>`,
+  (on the public clock — "Backfilling a missed night", above) — never `pipeline.daily --asof <past>`,
   which records today's knowledge.
 - **The R4 freeze page's false-positive path is NARROWED again by G1 — closed for the scheduled pass and
   the Admin "Run daily now", NOT for a second pass five minutes behind another.** It fires on
@@ -2990,11 +3001,11 @@ Recorded here where a builder of the pager/scheduler will hit them; the full acc
   Residual, loud by construction (as for the zero rule): a pass whose companies were mostly fetched in the
   five minutes before it (only a catch-up right behind a killed pass) reads them as cache hits and can page
   once — a repeat page, never a silenced freeze.
-- **A missing run doesn't page (dead-man's switch) — BUILT (H2, 2026-10-16), inert until the operator
-  creates the check.** The sidecar now pings `HEARTBEAT_URL` from the shell once the last expected night is
+- **A missing run doesn't page (dead-man's switch) — CLOSED (H2, 2026-10-16), active on prod since
+  2026-10-16.** The sidecar now pings `HEARTBEAT_URL` from the shell once the last expected night is
   recorded (the sidecar section), so an outside service alerts when the ping does not come: a host that
-  stays off, a sidecar that never boots, a `docker compose stop` nobody undid. Until `HEARTBEAT_URL` is set
-  it is a silent no-op and the history below still describes prod. The original account:
+  stays off, a sidecar that never boots, a `docker compose stop` nobody undid. Where `HEARTBEAT_URL` is
+  unset it is a silent no-op. The original account (the gap H2 closed):
   `restart: unless-stopped` restarts the
   sidecar on crash/daemon-restart but **NOT** after a deliberate `docker compose stop`. R4 fires from *inside*
   a run, so a run that never happens produces no results → no run log → no page — byte-identical to a healthy
@@ -3006,7 +3017,7 @@ Recorded here where a builder of the pager/scheduler will hit them; the full acc
   catches last night up even when a pre-open manual pass ran. A *persistent* absence — a host that stays off,
   a sidecar that never boots — still produces no boot and no run, and still needs an **external** heartbeat
   that alerts when the night's run log is missing past a deadline (the sidecar can't page about its own
-  absence). Unchanged, still open. **Narrowed again by G2:** a pass that FIRED and failed is now retried
+  absence). Open until H2 shipped the heartbeat above. **Narrowed again by G2:** a pass that FIRED and failed is now retried
   once, and a night whose only row is a pre-`RUN_AT` one is listed as a hole instead of reading covered — so
   the remaining uncovered case is precisely "nothing fired at all", which is the heartbeat's job.
 - **A failed scheduled run, and a daytime row hiding the failed night — CLOSED (G2).** Two halves of one
@@ -3021,8 +3032,8 @@ Recorded here where a builder of the pager/scheduler will hit them; the full acc
   is now covered only by a row recorded at/after that night's `RUN_AT` in market time, and a daytime-only
   night is listed with a distinct mark (`ADMIN.md` §what "covered" means). **Still open, by design:** the
   retry is ONE attempt, and a multi-night host-off outage still reruns only the last expected night on boot
-  (never older holes — a deploy must not silently backfill history); `pipeline.backfill` with a pinned
-  `known_at` remains the operator's tool for an older hole.
+  (never older holes — a deploy must not silently backfill history); `pipeline.backfill` (on the public
+  clock) remains the operator's tool for an older hole.
 - **A boot catch-up lost to the cold-start DB race — CLOSED (2026-10-01).** R6 fired exactly once, at
   boot, and restart policies ignore `depends_on`, so after a daemon restart the sidecar booted in the same
   second as Postgres, its catch-up hit `Connection refused`, and nothing tried that night again (MEASURED on
@@ -3038,11 +3049,12 @@ Recorded here where a builder of the pager/scheduler will hit them; the full acc
   22:42 (a WSL auto-update) and the 10-01 boot catch-up lost to the cold-start race both went unpaged
   (MEASURED), and a pass that hung would have held the loop with no exit code at all. Now every pass is
   bounded by `RUN_TIMEOUT_S`, and the shell pages through the DB-free `python -m notify.page` when a night
-  or a backup fails for good (the sidecar section), which covers the 10-01 shape. **Still open:** the
+  or a backup fails for good (the sidecar section), which covers the 10-01 shape. **Not coverable in-band:** the
   10-12 shape, a box that dies whole, takes the shell with it, so no in-band page can fire; that is the
-  external heartbeat's (above), which alerts only once the operator configures it. The page also needs the
+  external heartbeat's (above), active on prod since 2026-10-16. The page also needs the
   `notify` package importable. The in-process half, a wrapper so an unhandled exception inside
-  `run_daily_pass` pages before it re-raises, is a separate change.
+  `run_daily_pass` pages before it re-raises, is built (an escaping exception sends one crash page, `_page_crash` in
+  `pipeline/daily.py`, then re-raises unchanged).
 - **A killed or partial pass read "healthy" — CLOSED (M1, 2026-10-16).** MEASURED 2026-10-12: the 22:30
   pass died at ~22:42 (the host VM went down) with 4 of 12 theses recorded; it left no artifact, and
   `/admin/status` read healthy for ~18 h — the hole check credited the night because ONE row (any thesis)
@@ -3124,7 +3136,9 @@ Recorded here where a builder of the pager/scheduler will hit them; the full acc
   **Still open by design:** the repair is the
   operator's (set the vendor symbol override for a tape; check fund/ticker/source for a sleeve), because an
   automatic rename-follower could file another company's tape under a member — worse than a visible gap
-  (#4/#6). **Ratifiable since T2/Q8/T3 (2026-10-17):** a renamed name carries a nightly splice-verified
+  (#4/#6) — with one narrow, undoable exception since the weekly company-list refresh (2026-10-24): a renamed
+  name with stored bars is pinned to its old ticker, and the nightly adopts SEC's new ticker only when the
+  probe's splice shares at least 20 bars at exactly x1.000 ("The company list", above). **Ratifiable since T2/Q8/T3 (2026-10-17):** a renamed name carries a nightly splice-verified
   successor to Adopt, an unpriceable one can be Set / Acknowledged / removed, and a closed or acknowledged
   name's vendor 404 is expected — see "The tape monitor, part 3" above. Still unbuilt: the existing
   `--adopt` CLI and the finalize self-heal still write `price_symbol` without a `price_symbol_change` row (an

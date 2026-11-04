@@ -93,8 +93,8 @@ def score(
     fires and its grade stays volume-based, but a weak close (outside the top
     ``breakout_close_strength_min`` of the day range) and/or a failed next-day hold multiply the score
     DOWN — that lower score IS the rejected false breakout. A still-fresh breakout with no next bar yet is
-    never penalized (unknown, not failed). Grading a weak-CLOSE breakout DOWN to flip is a gated opt-in
-    (``breakout_weak_close_grade_down``, default OFF). A clearly-minimal placeholder for richer breakout logic.
+    never penalized (unknown, not failed). Grading a weak-CLOSE breakout DOWN to flip is a separate dial
+    (``breakout_weak_close_grade_down``, default ON). A clearly-minimal placeholder for richer breakout logic.
     """
     bars = [b for b in bars if b.get("close") is not None]
     need = max(cfg.breakout_base_window, cfg.breakout_return_days, cfg.breakout_min_base_bars) + 1
@@ -133,7 +133,7 @@ def score(
     # §3.1 follow-through / hold quality (R13): a weak close and/or a failed next-day hold multiply the SCORE
     # DOWN — the "rejected" false breakout; a clean or still-fresh breakout keeps its full score. GRADE:
     # volume-backed => CORE, momentum-only => FLIP. The GRADE-DOWN (a weak CLOSE also caps a volume-backed
-    # breakout at FLIP) is a GATED opt-in via cfg.breakout_weak_close_grade_down (default OFF => grade stays
+    # breakout at FLIP) is its own dial, cfg.breakout_weak_close_grade_down (default ON; False => grade stays
     # volume-only, byte-unchanged). ON: a weak-close breakout is a quick-trade, not a structural hold — it
     # re-verdicts the UNH flagship (CORE_ENTRY -> starter) + theme-arm eligibility + member ranking.
     strength = _close_strength(bar)
