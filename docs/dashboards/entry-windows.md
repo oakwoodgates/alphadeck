@@ -160,7 +160,7 @@ lives in `backend/dashboards/entry_windows.py` (the rules are written at the top
    Built to close that gap (2026-10-30): the row carries `member_clocks`, one entry per armed name (each once, in the
    recorded order) whose own flag is true: `headline` (it is `armed_members[0]`), both flags, and, when its entry
    window is closing, its own `arm_until` with `sessions_left` / `closed_ago` counted to it by the same rule as the
-   card's figure (`entry_clock`: the Mon-Fri days after the as-of while open, the IWM sessions since it closed).
+   card's figure (`entry_clock`: the Mon-Fri days after the as-of, market holidays skipped, while open, the IWM sessions since it closed).
    The page keeps the card's figure and adds one quiet line per such name under it, "BBB · 1 session left · to Oct
    28", **unless the name's `arm_until` is the card's own** (then the figure above already is its clock). Likewise
    "BBB · hold clock closing" under the days to `exit_by` for each name whose own `lapsing` is true, **unless the

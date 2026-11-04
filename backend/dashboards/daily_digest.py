@@ -206,7 +206,7 @@ class DigestInputs:
 @dataclass(frozen=True)
 class Nights:
     """``latest`` = N and ``previous`` = P (``None`` = no recorded night / no earlier one). ``sessions_between`` =
-    the Mon-Fri sessions strictly after P through N (the call path's count). ``days_after_night`` = the calendar days
+    the sessions strictly after P through N (Mon-Fri minus the NYSE's market holidays: the call path's count). ``days_after_night`` = the calendar days
     from N to the as-of (0 = the as-of IS the night; more = a weekend, a holiday or the morning before the pass).
     """
 
@@ -570,8 +570,8 @@ def since_fill(
 
 @dataclass(frozen=True)
 class HoldClock:
-    """The card's exit-by (the signal-validity horizon, not an order) as sessions: ``sessions_left`` = the Mon-Fri
-    sessions strictly after the as-of through ``exit_by`` while the horizon is open (the Hot Board's rule,
+    """The card's exit-by (the signal-validity horizon, not an order) as sessions: ``sessions_left`` = the sessions (Mon-Fri
+    minus the NYSE's market holidays) strictly after the as-of through ``exit_by`` while the horizon is open (the Hot Board's rule,
     ``window_open``: the first session after the as-of is on or before it, F3 — at least 1), or
     ``passed_sessions`` = the calendar's sessions strictly after ``exit_by`` through the as-of (``0`` until a
     session after it has printed)."""
