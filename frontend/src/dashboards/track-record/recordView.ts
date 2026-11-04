@@ -452,11 +452,20 @@ export function workLines(data: TrackRecordOut, entry: EntryRule, comparison: Co
 
   const out = [
     c.left_out_flagged > 0 ? `${c.left_out_flagged.toLocaleString("en-US")} flagged price history` : "",
+    c.left_out_feed_stopped > 0
+      ? `${c.left_out_feed_stopped.toLocaleString("en-US")} price feed stopped (still on a live card)`
+      : "",
+    c.left_out_no_longer_priced > 0
+      ? `${c.left_out_no_longer_priced.toLocaleString("en-US")} no longer priced (off every live card)`
+      : "",
     c.left_out_censored > 0 ? `${c.left_out_censored.toLocaleString("en-US")} censored start` : "",
     c.left_out_ingest > 0 ? `${c.left_out_ingest.toLocaleString("en-US")} ingest flagged` : "",
   ].filter(Boolean);
   lines.push(
     `${plural(c.episodes, "arm episode")} on ${plural(data.cards, "card")} · ${c.counted.toLocaleString("en-US")} in the cells` +
+      (c.counted_feed_stopped > 0
+        ? ` · ${c.counted_feed_stopped.toLocaleString("en-US")} counted although the company ended and its price feed stopped (later horizons read path ended)`
+        : "") +
       (out.length > 0 ? ` · left out: ${out.join(", ")}` : "") +
       (data.cards_unreadable > 0 ? ` · ${plural(data.cards_unreadable, "card")} unreadable` : ""),
   );
@@ -508,7 +517,7 @@ export function workLines(data: TrackRecordOut, entry: EntryRule, comparison: Co
 export const LIMITS: readonly string[] = [
   "The entry is a close, not a fill. The default is the next session's close, the first one after the arm night: a call recorded at 22:30 ET could be acted on then. The arm night's close, the Scoreboard's own entry, is one toggle away; no one could have taken it, but it reconciles with the Scoreboard's forward return.",
   "Market cap is approximate and measured the session before the arm date: that session's as-traded close times the last share count dated before it. Liquidity is the 20-day average dollar volume before it.",
-  "Horizons are sessions of the name's own bars, never calendar days. Returns are as-traded closes: no dividends and no survivorship fix, so a name whose bars end before a horizon is counted as path ended and is in no cell there.",
+  "Horizons are sessions of the name's own bars, never calendar days. Returns are as-traded closes: no dividends. A name whose bars end before a horizon reads path ended there, and is in no cell. A stopped price feed counts until it stops and then reads path ended only when the company itself ended (delisted); a stopped feed on a company that still trades (we stopped fetching its prices) is left out and named as such, and any other price flag leaves the episode out.",
   "A cell under 10 episodes is too small to read: it prints its n only. The pooled row is every counted episode and is listed last.",
   "The record is young: most cards are weeks old, so the 60-session and exit_by columns are mostly maturing. That shows as n and as maturing, never as a result.",
   "No null comparison here: the timing null and the name null live in the backtest's pooled report. This page compares to IWM and SPY only.",

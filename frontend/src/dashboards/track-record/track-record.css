@@ -108,3 +108,4 @@ tr.tr-pooled .tr-key-label { color: var(--txt-3); }
   .tr-list.out .tr-li { display: flex; }
   table.tr-table tbody th { min-width: 96px; }
 }
+.tr-ended { font-size: 0.9em; color: var(--txt-3); }

@@ -2854,7 +2854,9 @@ export interface paths {
          *     episode with its cap tier and liquidity band, and, for the next session's entry and the arm night's, the return at
          *     5, 10, 20 and 60 sessions of the name's own bars and to the episode's own exit_by, with IWM's and SPY's returns
          *     over the same dates. The Scoreboard's own episodes and honesty filters: a censored start, an ingest-flagged
-         *     episode and a company with a flagged price history are left out of every cell and counted. Reads the record
+         *     episode and a company whose price history carries a data flag are left out of every cell and counted, apart
+         *     from one whose only flag is a stopped feed and whose company ended: that is counted until its bars stop (a
+         *     later horizon reads path ended). Reads the record
          *     (Edition 0) unless an edition is named. Display only; a past as-of reads what was public by the end of that
          *     date, and a horizon that has not arrived by then is not counted.
          */
@@ -16925,7 +16927,10 @@ export interface components {
          * @description What the page rests on. ``episodes`` = every Scoreboard episode in the record at the as-of; ``counted`` = those
          *     in the cells; ``left_out_*`` = those set aside, each episode once (flagged price history first, then censored
          *     start, then ingest flag); ``unpinned_cap`` / ``unpinned_liquidity`` = counted episodes with no cap tier / no
-         *     liquidity band; ``arm_night`` / ``next_session`` = per horizon, how the counted episodes read.
+         *     liquidity band; ``counted_feed_stopped`` = counted episodes whose price feed stopped because the company
+         *     ended (a subset of ``counted``); ``left_out_feed_stopped`` / ``left_out_no_longer_priced`` = the other
+         *     stopped feeds, left out (on a live card / off every live card); ``arm_night`` / ``next_session`` = per horizon,
+         *     how the counted episodes read.
          */
         TrackCountsOut: {
             /** Episodes */
@@ -16934,6 +16939,10 @@ export interface components {
             counted: number;
             /** Left Out Flagged */
             left_out_flagged: number;
+            /** Left Out Feed Stopped */
+            left_out_feed_stopped: number;
+            /** Left Out No Longer Priced */
+            left_out_no_longer_priced: number;
             /** Left Out Censored */
             left_out_censored: number;
             /** Left Out Ingest */
@@ -16942,6 +16951,8 @@ export interface components {
             unpinned_cap: number;
             /** Unpinned Liquidity */
             unpinned_liquidity: number;
+            /** Counted Feed Stopped */
+            counted_feed_stopped: number;
             /** Arm Night */
             arm_night: {
                 [key: string]: components["schemas"]["TrackHorizonCountOut"];
@@ -16980,7 +16991,8 @@ export interface components {
         /**
          * TrackFlaggedOut
          * @description A company on a Scoreboard episode whose data flags reach its price readings at the as-of (``reason`` = the
-         *     flags' labels): its episodes are left out of every cell.
+         *     flags' labels). ``feed_ended`` = a stopped feed is its only such flag and the company itself ended, so its
+         *     episodes are COUNTED (a horizon past the stop reads path ended); otherwise they are left out of every cell.
          */
         TrackFlaggedOut: {
             /**
@@ -16992,6 +17004,8 @@ export interface components {
             ticker: string;
             /** Reason */
             reason: string;
+            /** Feed Ended */
+            feed_ended: boolean;
         };
         /**
          * TrackHorizonCountOut
@@ -17009,8 +17023,8 @@ export interface components {
         };
         /**
          * TrackRecordOut
-         * @description The Track Record at the as-of: every episode's row (newest arm first), the counts, the companies left out for a
-         *     flagged price history and the opening table (IWM, the next-session entry, by cap tier, every armed member; the page
+         * @description The Track Record at the as-of: every episode's row (newest arm first), the counts, the companies with a price-reaching
+         *     flag and the opening table (IWM, the next-session entry, by cap tier, every armed member; the page
          *     recomputes any other reading from ``rows`` with the same arithmetic). ``edition`` and the two policies are the
          *     Scoreboard's own (``annotated_policy`` / ``late_policy``: ``included`` | ``excluded`` | ``n/a`` for a stored
          *     edition, which has no such rows). ``edition`` is the one READ (the record when the request named none);
@@ -17080,7 +17094,12 @@ export interface components {
          *     event and both entry rules' reads. ``left_out`` (``flagged`` | ``censored_start`` | ``ingest_flagged``) = the
          *     episode is in no cell (its reason in ``left_out_note``) and carries identity only. ``liquidity`` is the 20-day
          *     average dollar volume band at the event (``under_1m`` | ``1m_10m`` | ``10m_plus``; ``null`` when fewer than 20
-         *     volume-bearing sessions precede it).
+         *     volume-bearing sessions precede it). ``feed_stopped`` = the episode is COUNTED although its price feed
+         *     stopped: that is its only price flag and the company itself ended (the nightly's closed classifier carries an SEC
+         *     delisting for it), so its bars are read up to where they stop and a
+         *     horizon past the stop reads ``path_ended``. ``left_out`` ``feed_stopped`` = a stopped feed on a company still
+         *     on a live card; ``no_longer_priced`` = a stopped feed on a company that sits on no live card (the nightly
+         *     stopped fetching its prices; the company still trades).
          */
         TrackRowOut: {
             /**
@@ -17119,9 +17138,11 @@ export interface components {
             /** Co Arm Bucket */
             co_arm_bucket: string;
             /** Left Out */
-            left_out: ("flagged" | "censored_start" | "ingest_flagged") | null;
+            left_out: ("flagged" | "feed_stopped" | "no_longer_priced" | "censored_start" | "ingest_flagged") | null;
             /** Left Out Note */
             left_out_note: string | null;
+            /** Feed Stopped */
+            feed_stopped: boolean;
             cap: components["schemas"]["TrackCapOut"] | null;
             /** Adv Usd */
             adv_usd: number | null;

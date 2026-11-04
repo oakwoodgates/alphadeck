@@ -149,7 +149,15 @@ const EpisodeRow = memo(function EpisodeRow({
       <button type="button" className="tr-card" title="Open the card" onClick={() => onSelectThesis(r.thesis_id)}>
         {r.thesis_name}
       </button>
-      <span className="tr-date">{r.arm_date}</span>
+      <span className="tr-date">
+        {r.arm_date}
+        {r.feed_stopped && (
+          <span className="tr-ended" title={FEED_ENDED_HINT}>
+            {" "}
+            feed ended
+          </span>
+        )}
+      </span>
       <span className={`tr-cap${cap.text === UNPINNED ? " gray" : ""}`} title={cap.title}>
         {cap.text}
       </span>
@@ -213,8 +221,13 @@ function ListHead() {
   );
 }
 
+const FEED_ENDED_HINT =
+  "Flag: price feed stopped. The company itself ended (delisted), so this episode is counted up to its last bar and the horizons past it read path ended.";
+
 const LEFT_OUT: { reason: NonNullable<TrackRowOut["left_out"]>; words: string; hint: string }[] = [
   { reason: "flagged", words: "flagged price history", hint: "Their data flags reach their price readings, so they are in no cell." },
+  { reason: "feed_stopped", words: "price feed stopped", hint: "Their price feed stopped while they are still on a live card: a data fault, so they are in no cell." },
+  { reason: "no_longer_priced", words: "no longer priced", hint: "Off every live card, so the nightly stopped fetching their prices. The company may still trade; the path did not end, so they are in no cell." },
   { reason: "censored_start", words: "censored start", hint: "Armed on the card's first recorded night: the true arm date is unknown." },
   { reason: "ingest_flagged", words: "ingest flagged", hint: "The arm rested on a flagged ingest run; the Scoreboard leaves it out of its metrics too." },
 ];
@@ -505,7 +518,17 @@ export default function TrackRecord({ asof, onSelectThesis }: DashboardProps) {
         );
       })}
 
-      <FlaggedNote flagged={data.flagged} />
+      <FlaggedNote flagged={data.flagged.filter((f) => !f.feed_ended)} />
+      {data.counts.counted_feed_stopped > 0 && (
+        <p className="dash-note" data-testid="tr-ended-note" title={FEED_ENDED_HINT}>
+          {plural(data.counts.counted_feed_stopped, "episode")} counted although the price feed stopped (the company ended:{" "}
+          {data.flagged
+            .filter((f) => f.feed_ended)
+            .map((f) => f.ticker)
+            .join(", ")}
+          ). A stopped feed counts until it stops, then reads path ended; any other flag leaves the episode out.
+        </p>
+      )}
       <ul className="dash-note tr-limits">
         {LIMITS.map((l) => (
           <li key={l}>{l}</li>

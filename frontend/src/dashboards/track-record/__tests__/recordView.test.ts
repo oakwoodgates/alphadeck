@@ -441,3 +441,43 @@ describe("the words", () => {
     expect(text).not.toMatch(/\bworks?\b|\bworked\b|outperform|underperform|\bbeat\b|\bwinn|\bgood\b|\bbad\b|\bbuy\b|\bsell\b|must/i);
   });
 });
+
+describe("a stopped feed of an ended company — the same vectors, the stopped-feed case", () => {
+  // Mirrors backend test_a_stopped_feed_of_a_company_that_ended_is_counted_its_later_horizons_read_path_ended and
+  // the counts test: the episode stays in the denominator (episodes, the pooled row) while its path-ended horizon
+  // adds no observation to a cell.
+  const ended = () =>
+    row({
+      feed_stopped: true,
+      arm_night: entry({
+        h5: span({ ret: 0.1, iwm: 0.04 }),
+        h20: { status: "path_ended", end_date: null, ret: null, iwm: null, spy: null },
+      }),
+    });
+
+  it("is counted: in the row's episodes and the pooled row, a measured horizon read, a path-ended one not", () => {
+    const rows = [...EXCESS_12.map((v) => row({ arm_night: entry({ h20: span({ ret: v + 0.25, iwm: 0.25 }) }) })), ended()];
+    const table = tableRows(rows, "tier", "arm_night", "iwm");
+    const small = table.find((r) => r.key === "small")!;
+    expect(small.episodes).toBe(13); // the ended name stays in the denominator
+    expect(small.cells.h5.n).toBe(1); // its measured horizon is read
+    expect(small.cells.h20.n).toBe(12); // its path-ended one adds nothing, so the twelve-value vector is unchanged
+    near(small.cells.h20.median, 0.025);
+    expect(table.at(-1)!.episodes).toBe(13);
+  });
+
+  it("states how many are counted although the feed stopped, and each left-out reason apart", () => {
+    const c = {
+      ...SERVER.counts,
+      counted_feed_stopped: 2,
+      left_out_flagged: 1,
+      left_out_feed_stopped: 3,
+      left_out_no_longer_priced: 150,
+    };
+    const lines = workLines(payload({ counts: c }), "arm_night", "iwm");
+    expect(lines[1]).toContain("2 counted although the company ended and its price feed stopped (later horizons read path ended)");
+    expect(lines[1]).toContain(
+      "left out: 1 flagged price history, 3 price feed stopped (still on a live card), 150 no longer priced (off every live card), 1 censored start, 1 ingest flagged",
+    );
+  });
+});
