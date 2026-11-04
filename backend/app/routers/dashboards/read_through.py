@@ -5,14 +5,15 @@ rows through the shared reader (``dashboards/filings.py``), their trailing retur
 point-in-time view (the ``trailing_returns`` display member, run once per company on the request's one
 ``serve_view(asof)`` pair), their identity and which of them have a data flag that reaches their price readings
 (``dashboards.baskets.price_flags``), and hands everything to the pure compute in ``dashboards/read_through.py``.
-The whole table is computed once per (clock, origin, as-of) in the shared dashboard cache (``dashboards/cache.py``,
-``docs/DASHBOARDS.md`` rule 7); tabs, sort and filters are the page's. Its wire models live here, not in
+The heavy read is cached once per (clock, as-of) in the shared dashboard cache (``dashboards/cache.py``,
+``docs/DASHBOARDS.md`` rule 7); the cards' catalysts are written without a roster snapshot, so they are read live on
+every request and laid in before the table is built (operator decision 2026-11-04); tabs, sort and filters are the page's. Its wire models live here, not in
 ``app/schemas_api.py`` (rule 8).
 """
 
 from __future__ import annotations
 
-from dataclasses import fields
+from dataclasses import fields, replace
 from datetime import date, datetime
 from typing import Any, Literal
 from uuid import UUID
@@ -37,9 +38,9 @@ from dashboards.read_through import (
     FILING_DAYS,
     TAPE_WINDOWS,
     CardRef,
+    CatalystRef,
     ReadThroughInputs,
     Tape,
-    catalyst_refs,
     identities,
     tape_of,
 )
@@ -47,6 +48,7 @@ from dashboards.read_through import read_through as compute_read_through
 from db.session import DEFAULT_TENANT_ID
 from domain.enums import ContextRole
 from domain.market_time import countdown_origin, market_clock, serve_view
+from repositories import thesis_repo
 from securities import master
 from signals.base import PointInTimeData
 from signals.display import trailing_returns
@@ -261,12 +263,27 @@ def read_inputs(
         roster_fallback_cards=counted.roster_fallback,
         cards=tuple(CardRef(t.id, t.name) for t in counted.cards),
         memberships=memberships,
-        catalysts=catalyst_refs(counted.cards),
+        catalysts=(),  # read live on every request (``read_live_catalysts``)
         identity=identities(master.identity_for(conn, set(sids))) if sids else {},
         filings=read_filing_rows(conn, sids, asof, known_at, clock, days=FILING_DAYS),
         tapes=_tapes(conn, sids, asof, known_at, clock),
         spy=_spy(conn, asof, known_at, clock),
         flagged=price_flags(conn, sids, asof, known_at=known_at, clock=clock),
+    )
+
+
+def read_live_catalysts(
+    conn: psycopg.Connection, cards: tuple[CardRef, ...]
+) -> tuple[CatalystRef, ...]:
+    """The dated card-level catalysts of the counted cards, as the cards hold them NOW (an undated one never
+    matters here). Card catalysts are written without a roster snapshot, so the cache's generation does not move
+    on an edit: this is read on every request, not held in the cache."""
+    entries = thesis_repo.entries_for(conn, [c.thesis_id for c in cards])
+    return tuple(
+        CatalystRef(c.thesis_id, c.thesis_name, k.id, k.label, k.kind, k.when_date, k.when_label)
+        for c in cards
+        for k in entries.get(c.thesis_id, ([], [], []))[0]
+        if k.when_date is not None
     )
 
 
@@ -289,16 +306,12 @@ def read_through(
     known_at, clock = serve_view(asof, night=mclock.night)
     # F2: the next catalyst counts down from the origin (the action day on a live view)
     origin = countdown_origin(asof, mclock)
-    # the clock and the origin are the key: the same date read live today and on the public clock tomorrow are two
-    # reads (a new run clears the cache anyway; this holds even on a night with no run)
-    got = cached(
-        conn,
-        SLUG,
-        (clock, origin),
-        asof,
-        lambda: compute_read_through(read_inputs(conn, asof, known_at, clock), asof, origin),
-    )
-    page = got.value
+    # the clock is the key: the same date read live today and on the public clock tomorrow are two reads (a new
+    # run clears the cache anyway; this holds even on a night with no run). The origin is not (it only moves the
+    # catalyst countdown, which is built per request from the live catalysts)
+    got = cached(conn, SLUG, (clock,), asof, lambda: read_inputs(conn, asof, known_at, clock))
+    live = replace(got.value, catalysts=read_live_catalysts(conn, got.value.cards))
+    page = compute_read_through(live, asof, origin)
     return ReadThroughOut.model_validate(
         {
             **_payload(page),

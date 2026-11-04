@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import math
 import uuid
+from dataclasses import replace
 from datetime import date, datetime, time, timedelta, timezone
 from uuid import UUID
 
@@ -1215,17 +1216,31 @@ def sample_lookup():
 
 @pytest.fixture
 def stub_client(monkeypatch):
-    seen: dict = {"reads": 0}
+    seen: dict = {"reads": 0, "live_reads": 0}
 
-    def fake_read(conn, security_id, asof, known_at, clock, origin=None):
+    base = sample_lookup()
+
+    def fake_read(conn, security_id, asof, known_at, clock):
         seen["reads"] += 1
         seen["view"] = (security_id, asof, known_at, clock)
+        # the heavy read carries no exclusions, card catalysts or decisions: they are read live
+        return replace(
+            base,
+            cards=replace(base.cards, excluded=()),
+            card_catalysts=(),
+            decisions=(),
+            decisions_voided=0,
+        )
+
+    def fake_live(conn, security_id, asof, known_at, clock, origin):
+        seen["live_reads"] += 1
         seen["origin"] = origin
-        return sample_lookup()
+        return list(base.cards.excluded), base.card_catalysts, list(base.decisions)
 
     known = {SID}
     CACHE.clear()
     monkeypatch.setattr(router_mod, "read_lookup", fake_read)
+    monkeypatch.setattr(router_mod, "read_live_entries", fake_live)
     monkeypatch.setattr(
         router_mod.master, "get", lambda conn, sid, **kw: object() if sid in known else None
     )
@@ -1245,6 +1260,7 @@ def test_the_router_serves_one_company_off_one_cached_read_on_the_requests_view(
     assert (security_id, asof, clock) == (SID, ASOF, "public") and known_at is not None
     again = client.get(url, params={"asof": "2026-10-28"}).json()
     assert again["cache"] == "hit" and seen["reads"] == 1
+    assert seen["live_reads"] == 2  # the entries are read on EVERY request, cache hit or not
     # another as-of is another read; the live as-of reads on the record clock with no cutoff
     client.get(url, params={"asof": market_today().isoformat()})
     assert seen["reads"] == 2 and seen["view"][2:] == (None, "record")
@@ -1267,16 +1283,9 @@ def test_the_router_counts_a_live_view_from_the_action_day_and_a_past_one_from_i
     client.get(url, params={"asof": "2026-10-23"})
     assert seen["view"][3] == "public" and seen["origin"] == date(2026, 10, 23)
     keys = {k for k in CACHE._entries}
-    assert (
-        "ticker-lookup",
-        (str(SID), "record", date(2026, 10, 27)),
-        date(2026, 10, 26),
-    ) in keys
-    assert (
-        "ticker-lookup",
-        (str(SID), "public", date(2026, 10, 23)),
-        date(2026, 10, 23),
-    ) in keys
+    # the origin only moves the catalysts' passed flag, read live: it is not part of the key
+    assert ("ticker-lookup", (str(SID), "record"), date(2026, 10, 26)) in keys
+    assert ("ticker-lookup", (str(SID), "public"), date(2026, 10, 23)) in keys
 
 
 def test_the_router_wire_shape(stub_client):
@@ -1756,3 +1765,73 @@ def test_db_every_page_read_is_on_the_requests_view_and_cached_once_per_company_
     assert (first["cache"], again["cache"], other["cache"]) == ("computed", "hit", "computed")
     assert missing.status_code == 404
     assert BENCH_LABEL == "Bench"  # the silent labels are the domain's own
+
+
+def test_db_a_decision_or_a_card_edit_shows_at_once_while_the_heavy_page_stays_cached(
+    db, pinned_today
+):
+    """Operator decision 2026-11-04: a logged decision, a replaced catalyst list and a new exclusion move none of
+    the cache's generation (no run, no roster snapshot, no card rename), so the page reads them live on every
+    request and only the heavy part is a cache hit."""
+    ids = _seed_page(db)
+    url = str(ids["tla"])
+    CACHE.clear()
+    try:
+        first = _get(db, url, asof=LATER.isoformat()).json()
+        assert first["cache"] == "computed"
+        assert [c["label"] for c in first["card_catalysts"]] == ["Trial readout"]
+        assert first["cards"]["excluded"] == []
+        before = len(first["decisions"])
+
+        # a fill logged now, a catalyst list replaced, a card excluding the company: none of it touches the token
+        _decide(
+            db,
+            ids["first"],
+            ids["tla"],
+            "take",
+            date(2026, 6, 11),
+            datetime(2026, 6, 11, 21, tzinfo=UTC),
+            shares=50,
+            price=12.0,
+        )
+        thesis_repo.set_catalysts(
+            db,
+            ids["first"],
+            [Catalyst(id=uuid.uuid4(), label="New readout", when_date=date(2026, 8, 1))],
+            tenant_id=DEFAULT_TENANT_ID,
+        )
+        thesis_repo.set_exclusions(
+            db,
+            ids["second"],
+            [ExcludedName(security_id=ids["tla"], ticker="TLA", reason="not a fit")],
+            tenant_id=DEFAULT_TENANT_ID,
+        )
+        db.commit()
+
+        again = _get(db, url, asof=LATER.isoformat()).json()
+    finally:
+        CACHE.clear()
+    assert again["cache"] == "hit"  # the heavy read was not redone
+    assert len(again["decisions"]) == before + 1
+    assert [c["label"] for c in again["card_catalysts"]] == ["New readout"]
+    assert [(x["thesis_name"], x["reason"]) for x in again["cards"]["excluded"]] == [
+        ("Lookup card two", "not a fit")
+    ]
+
+    # the past view's gate still holds: a fill logged after the view's instant is not on a PAST page
+    _decide(
+        db,
+        ids["first"],
+        ids["tla"],
+        "take",
+        date(2026, 6, 4),
+        datetime(2026, 9, 1, tzinfo=UTC),
+        shares=1,
+        price=1.0,
+    )
+    db.commit()
+    try:
+        past = _get(db, url, asof=PAST.isoformat()).json()
+    finally:
+        CACHE.clear()
+    assert all(d["decision_date"] != "2026-06-04" for d in past["decisions"])

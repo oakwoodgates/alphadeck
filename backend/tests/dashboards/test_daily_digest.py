@@ -1090,14 +1090,18 @@ def test_a_page_with_a_night_pair_but_no_change_has_every_section_empty_and_pres
 @pytest.fixture
 def client(monkeypatch):
     calls: list[tuple] = []
+    live_calls: list[date] = []
 
     def fake_read(conn, asof, known_at, clock, origin=None):
         calls.append((asof, clock))
-        return daily_digest(
-            inputs(asof=asof, clock=clock, theses=[thesis(T1, "Card A")], origin=origin)
-        )
+        return inputs(asof=asof, clock=clock, theses=[thesis(T1, "Card A")], origin=origin)
+
+    def fake_live(conn, inp, known_at, clock):
+        live_calls.append(inp.asof)
+        return inp
 
     monkeypatch.setattr(router_mod, "read_digest", fake_read)
+    monkeypatch.setattr(router_mod, "live_digest_inputs", fake_live)
     monkeypatch.setattr(CACHE, "_token_fn", lambda conn: "gen-1")
     app.dependency_overrides[get_conn] = lambda: object()
     CACHE.clear()
@@ -1442,6 +1446,80 @@ def test_db_a_fill_logged_after_the_asof_is_not_a_position_then(db):
     assert monday["Card M2"]["has_position"] is True
     assert (monday["Card M2"]["opened_on"], monday["Card M2"]["shares"]) == ("2026-09-15", 50.0)
     assert w["hhh"]
+
+
+def _get_keep(db, asof: date) -> dict:
+    """Like ``_get`` but the cache is left alone, so a second call can be a hit."""
+    app.dependency_overrides[get_conn] = lambda: db
+    try:
+        r = TestClient(app).get("/dashboards/daily-digest", params={"asof": asof.isoformat()})
+    finally:
+        app.dependency_overrides.clear()
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_db_a_fill_or_a_card_edit_shows_at_once_while_the_heavy_read_stays_cached(db):
+    """Operator decision 2026-11-04: a fill logged, a kill criterion or a catalyst replaced move none of the cache's
+    generation (no run, no roster snapshot), so the page reads them live on every request and only the heavy
+    part is a cache hit. M3 holds a name (NEW) the first read held nobody on: its closes are read live.
+    """
+    w = _managing_world(db)
+    new = _security(db, "NEW")
+    _tape(db, new, 30.0)
+    m3 = _card(db, "Card M3", [("NEW", new)])
+    for night, state in ((d(16), State.ARMED), (d(17), State.MANAGING)):
+        _record(
+            db, m3, night, state, [new], **({"exit_by": d(24)} if state == State.MANAGING else {})
+        )
+    db.commit()
+    CACHE.clear()
+    try:
+        first = _get_keep(db, THU)
+        assert first["cache"] == "computed"
+        rows = {p["thesis_name"]: p for p in first["positions"]}
+        assert rows["Card M3"]["has_position"] is False and rows["Card M3"]["kill_criteria"] == []
+        assert rows["Card M1"]["kill_criteria"] == ["the license is lost"]
+        due_before = first["due"]["catalysts"]
+
+        # a fill logged on the 17th for M3 (dated the 16th), M1's kill criteria replaced, a catalyst added: the
+        # token (cron runs, basket snapshots, card names) is untouched by all three
+        _decide(
+            db,
+            m3,
+            new,
+            "take",
+            d(16),
+            datetime(2026, 9, 17, 12, 0, tzinfo=UTC),
+            shares=10,
+            price=31,
+        )
+        thesis_repo.set_kill_criteria(
+            db,
+            w["m1"],
+            [KillCriterion(id=uuid.uuid4(), text="the contract is cancelled")],
+            tenant_id=DEFAULT_TENANT_ID,
+        )
+        thesis_repo.set_catalysts(
+            db,
+            w["m1"],
+            [cat("Vote", d(18))],
+            tenant_id=DEFAULT_TENANT_ID,
+        )
+        db.commit()
+
+        again = _get_keep(db, THU)
+    finally:
+        CACHE.clear()
+    assert again["cache"] == "hit"  # the heavy read was not redone
+    rows = {p["thesis_name"]: p for p in again["positions"]}
+    assert rows["Card M3"]["has_position"] is True
+    assert (rows["Card M3"]["opened_on"], rows["Card M3"]["shares"]) == ("2026-09-16", 10.0)
+    assert rows["Card M3"]["since_fill"]["last_close"] is not None  # its closes were read live
+    assert rows["Card M1"]["kill_criteria"] == ["the contract is cancelled"]
+    assert again["due"]["catalysts"] == due_before + 1
+    # a fill logged after the view's instant is still no position then (the past view's gate)
+    assert rows["Card M2"]["has_position"] is False
 
 
 def test_db_a_void_logged_after_the_asof_does_not_yet_close_the_position(db):

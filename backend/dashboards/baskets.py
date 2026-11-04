@@ -182,6 +182,28 @@ def cards_as_of(conn: psycopg.Connection, asof: date, known_at: datetime | None)
     return CardsAsOf(len(live), cards, later, fallback)
 
 
+def with_live_entries(conn: psycopg.Connection, cards: Sequence[Thesis]) -> list[Thesis]:
+    """The same cards with their catalysts, kill criteria and exclusions read NOW (operator decision 2026-11-04).
+    Those lists are written without a roster snapshot, so a cards read held in the shared cache (its generation
+    moves on a run, a snapshot or a card rename, never on an entry edit) must not supply them: a page overlays
+    these on every request, as the Evidence Ledger does. The roster, segments and everything else stay the cached
+    card's (a roster edit writes a snapshot). A card the store no longer has keeps the cached entries.
+    """
+    live = thesis_repo.entries_for(conn, [t.id for t in cards])
+    out: list[Thesis] = []
+    for t in cards:
+        got = live.get(t.id)
+        if got is None:
+            out.append(t)
+        else:
+            out.append(
+                t.model_copy(
+                    update={"catalysts": got[0], "kill_criteria": got[1], "exclusions": got[2]}
+                )
+            )
+    return out
+
+
 def resolved_ids(memberships: Iterable[Membership]) -> list[UUID]:
     """Every resolved company on the rows, once, in a stable order (silent ones included)."""
     return sorted({m.security_id for m in memberships if m.security_id is not None}, key=str)
