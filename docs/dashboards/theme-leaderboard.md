@@ -169,3 +169,5 @@ The build made these choices that the plan above does not spell out. Each is the
   cache clears on every new run, so the first visit after a nightly waits for it. A post-nightly cache warm-up (the
   cron hitting each heavy dashboard once after the pass) is the follow-up that fixes this for every such page at once;
   a lighter read (fewer members, or the Rotation Map's readings shared) is the per-page option.
+
+**Flagged-name note wording (operator decision 2026-11-04).** The shared `FlaggedNote` hover used to say a flagged name is "left out of every number on this page", which overstates on a page that keeps the row. This page now passes its own rule (`flaggedRule(...)`): left out of every tape reading (tape, 7D, breadth, relative strength, cap); their Form 4 count stays. Pages whose rule really is "left out of every number" (Cross Radar, Landing, Leaders, Market Map, Rotation Map) keep the default text.

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent } from "react";
 
 import { CONTEXT_ROLE_DESCRIPTION } from "../../workbench/format";
-import { FlaggedNote, leftOutWords } from "../FlaggedNote";
+import { FlaggedNote, flaggedRule, leftOutWords } from "../FlaggedNote";
 import type { DashboardProps } from "../registry";
 import "./chain-wave.css";
 import {
@@ -494,7 +494,7 @@ export default function ChainWave({ asof, onSelectThesis }: DashboardProps) {
               Today's roster stands in for this card: rosters are point-in-time only from {fmtDay(ROSTER_PIT_FROM)}.
             </div>
           )}
-          <FlaggedNote flagged={data.flagged} />
+          <FlaggedNote flagged={data.flagged} title={flaggedRule("they never contribute a return and their bars never shape the calendar. They still count in their rows' names, never as priced.")} />
           <div className="dash-note cw-legend">
             Known limits: a look back on the card's roster as of {fmtDay(data.asof)}, not the roster each past week
             (hindsight selection). Chain order is today's: links load live, only the roster is snapshotted. Equal

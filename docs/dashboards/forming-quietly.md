@@ -195,3 +195,5 @@ the page's own work line on dev with a prod copy here.
 - Live as-of: 19 rows (the Warming cards and the Incubating cards lit by a quiet signal), 157 KB, cold compute
   11,997 ms (three display members over the rows' rosters plus one breadth read per row card), cache hit under 10 ms.
   Past as-of 2026-09-15 on the public clock: 4 rows, 17 KB, 1,314 ms.
+
+**Flagged-name note wording (operator decision 2026-11-04).** The shared `FlaggedNote` hover used to say a flagged name is "left out of every number on this page", which overstates on a page that keeps the row. This page now passes its own rule (`flaggedRule(...)`): left out of every tape and insider reading; still counted in their card's names and listed. Pages whose rule really is "left out of every number" (Cross Radar, Landing, Leaders, Market Map, Rotation Map) keep the default text.

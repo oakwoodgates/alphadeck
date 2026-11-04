@@ -242,3 +242,5 @@ lives in `backend/dashboards/entry_windows.py` (the rules are written at the top
   row. The cold read validates one full card blob per night of every Armed run (the arm-night walk); 6.7 s is
   acceptable for a cached page, so the narrower read (armed ids per night, the full card only for the night in
   effect) stays a noted option, not a change.
+
+**Flagged-name note wording (operator decision 2026-11-04).** The shared `FlaggedNote` hover used to say a flagged name is "left out of every number on this page", which overstates on a page that keeps the row. This page now passes its own rule (`flaggedRule(...)`): their bars are never read: unpriced, counted in each row's denominator note, left out of the median, line and calendar; they keep their place. Pages whose rule really is "left out of every number" (Cross Radar, Landing, Leaders, Market Map, Rotation Map) keep the default text.

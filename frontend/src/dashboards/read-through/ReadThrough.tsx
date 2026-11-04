@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 
 import { CONTEXT_ROLE_DESCRIPTION, contextRoleTag } from "../../workbench/format";
 import { businessTypeLabel } from "../../util/format";
-import { FlaggedNote } from "../FlaggedNote";
+import { FlaggedNote, flaggedRule } from "../FlaggedNote";
 import type { DashboardProps } from "../registry";
 import "./read-through.css";
 import {
@@ -353,7 +353,7 @@ export default function ReadThrough({ asof, onSelectThesis }: DashboardProps) {
           </ul>
         </details>
       )}
-      <FlaggedNote flagged={data.flagged} />
+      <FlaggedNote flagged={data.flagged} title={flaggedRule("both tape cells read \"flagged\" with no number. The row stays.")} />
       {unresolved && <div className="dash-note rt-work">{unresolved}</div>}
       {roster && <div className="dash-note rt-work">{roster}</div>}
       <ul className="dash-note rt-limits">

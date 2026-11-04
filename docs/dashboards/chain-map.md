@@ -198,3 +198,5 @@ rest are choices the plan left open.
 24. **Not verified in the live app:** the picture was checked by rendering the component's markup (from the test
     renderer) with the real stylesheet in the Browser pane at a desktop and a phone width, on hand-built payloads. It has
     not been seen on a live card in the running app.
+
+**Flagged-name note wording (operator decision 2026-11-04).** The shared `FlaggedNote` hover used to say a flagged name is "left out of every number on this page", which overstates on a page that keeps the row. This page now passes its own rule (`flaggedRule(...)`): their 50-day side is not read; they stay on the map, grayed, with business type and filing age. Pages whose rule really is "left out of every number" (Cross Radar, Landing, Leaders, Market Map, Rotation Map) keep the default text.

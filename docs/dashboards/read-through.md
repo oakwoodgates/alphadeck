@@ -191,3 +191,5 @@ The page was built against fixtures and a two-company DB test; the measurements 
     pill's hover title carries the whole "Open <card> · <links>" line. The pills wrap as pills inside the cell, the column
     has a minimum width (240 px; 200 px on a phone), and the table scrolls sideways with the Company column pinned, as
     before. The pill's text content is unchanged ("Grid · Turbines, Cables"), so a screen reader hears the same line.
+
+**Flagged-name note wording (operator decision 2026-11-04).** The shared `FlaggedNote` hover used to say a flagged name is "left out of every number on this page", which overstates on a page that keeps the row. This page now passes its own rule (`flaggedRule(...)`): both tape cells read "flagged" with no number; the row stays. Pages whose rule really is "left out of every number" (Cross Radar, Landing, Leaders, Market Map, Rotation Map) keep the default text.

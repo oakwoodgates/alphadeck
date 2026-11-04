@@ -3,7 +3,7 @@ import { Link } from "react-router";
 
 import { useAppClock } from "../../clock";
 import { fmtDate } from "../../util/format";
-import { FlaggedNote } from "../FlaggedNote";
+import { FlaggedNote, flaggedRule } from "../FlaggedNote";
 import type { DashboardProps } from "../registry";
 import "./daily-digest.css";
 import {
@@ -574,7 +574,7 @@ export default function DailyDigest({ asof, onSelectThesis }: DashboardProps) {
             {line}
           </div>
         ))}
-        <FlaggedNote flagged={data.flagged} />
+        <FlaggedNote flagged={data.flagged} title={flaggedRule("their price cells read the flag's reason. They keep their lines.")} />
         <ul className="dash-note dd-limits">
           {LIMITS.map((l) => (
             <li key={l}>{l}</li>

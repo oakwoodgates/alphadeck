@@ -1,6 +1,6 @@
 import { memo, useCallback, useMemo, useState } from "react";
 
-import { FlaggedNote } from "../FlaggedNote";
+import { FlaggedNote, flaggedRule } from "../FlaggedNote";
 import type { DashboardProps } from "../registry";
 import "./forming-quietly.css";
 import {
@@ -415,7 +415,7 @@ export default function FormingQuietly({ asof, onSelectThesis }: DashboardProps)
           {line}
         </div>
       ))}
-      <FlaggedNote flagged={data.flagged} />
+      <FlaggedNote flagged={data.flagged} title={flaggedRule("they are left out of every tape and insider reading on this page. They still count in their card's names and are listed here.")} />
       <ul className="dash-note fq-limits">
         {LIMITS.map((l) => (
           <li key={l}>{l}</li>

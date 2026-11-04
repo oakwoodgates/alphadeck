@@ -309,3 +309,5 @@ These are the numbers for the one-read version (every candidate row in one reque
 
 Not yet measured: the orchestrator records the default read's payload and cold compute, and the `rows=all` read's,
 from dev with a prod data copy, on the same live and past as-ofs as above.
+
+**Flagged-name note wording (operator decision 2026-11-04).** The shared `FlaggedNote` hover used to say a flagged name is "left out of every number on this page", which overstates on a page that keeps the row. This page now passes its own rule (`flaggedRule(...)`): their price cells read "flagged" and they have no heat; they keep their row and their insider counts. Pages whose rule really is "left out of every number" (Cross Radar, Landing, Leaders, Market Map, Rotation Map) keep the default text.
