@@ -295,7 +295,8 @@ def test_rule_c_boundary_at_135_days():
 def test_rule_c_a_restated_year_old_quarter_never_fires_but_stays_a_comparison_base():
     """Contract (direct inputs), the restated-comparative shape: a filing restating last year's quarter makes
     its number new knowledge at the later filing (D3a rule (a)), but a quarter that ended a year before cannot
-    be the one the trigger fires on. Stale quarters still serve as a fresh quarter's year-prior and prior bases."""
+    be the one the trigger fires on. Stale quarters still serve as a fresh quarter's year-prior and prior bases.
+    """
     # every quarter but the fire quarter re-dated to the fire quarter's 10-K (restated in it): all stale
     rows = _series()
     for pe in _REV:
