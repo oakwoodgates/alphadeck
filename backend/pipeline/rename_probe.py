@@ -25,11 +25,13 @@ one restated bar irrelevant; the overlap floor stops a three-bar coincidence fro
 
 WHAT THIS IS, AND IS NOT:
 
-- **A pending RECOMMENDATION, never applied (#3).** It writes no row anywhere: its result rides the run
+- **A pending RECOMMENDATION (#3).** The probe itself writes no row anywhere: its result rides the run
   artifact, the cron's printed report and the Admin "Price feed repairs" panel, where the operator clicks
   **Adopt** (``app/routers/admin_price_feed.py`` -> ``price_feed_repo.apply_change`` ->
   ``master.set_price_symbol(basis="operator:adopt")``, with an exact Undo). Nothing reaches a detector or a
-  CallCard.
+  CallCard. The one automatic step is separate (``run_auto_adopt``, below): a name the company-list refresh
+  PINNED to its old ticker adopts SEC's new one only on the strict splice rule (``AUTO_ADOPT_MIN_OVERLAP``);
+  every other rename stays the operator's Adopt.
 - **Evidence beside the numbers (#6).** Each row carries EDGAR's current entity name, its ``formerNames``
   and its item-5.03 8-Ks (where a name change is filed) — read by the ingest from the SAME cached
   submissions as the stop classification (``NameResult.edgar_name`` / ``former_names`` /

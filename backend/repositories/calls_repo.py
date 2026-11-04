@@ -333,8 +333,9 @@ def latest_for_thesis(
     ``include_reconstructed`` (default ``True``: every row, the behavior every existing caller relies
     on — the cron's transition compare, the backfill's prior-row report, ``record_if_changed``'s
     idempotency compare, the decision log's stance-at-logging). The Scoreboard's record path passes
-    ``False``: a reconstructed row (``pipeline.backfill``, 0042) ran on today's basket for a thesis
-    that may not have existed, so it never defines an episode boundary — it is reported, not scored.
+    ``False``: a reconstructed row (``pipeline.backfill``, 0042) can never be shown to be the night's
+    record (its roster is the night's ``basket_snapshot`` since 2026-09-15, today's basket before that), so
+    it never defines an episode boundary — it is reported, not scored.
     The filter runs BEFORE the dedup (see ``_reconstructed_clause``).
 
     ``exclude_annotated`` (default ``False``: every row, so every existing caller is unchanged) is the D3b

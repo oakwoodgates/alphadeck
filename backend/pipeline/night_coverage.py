@@ -1,7 +1,7 @@
 """Per-(thesis, night) COVERAGE and the ON-TIME window — one home for "does that night have its record?"
 (M1 · M2 · V1).
 
-``docs/temp/cron-correctness-plan-2026-10-16.md`` §2 criterion 1: every scheduled weekday has an on-time
+The acceptance bar this module implements: every scheduled weekday has an on-time
 call-of-record **per active thesis** (recorded after ``RUN_AT`` and before the next EDGAR open, 06:00 ET),
 judged per (thesis, night), never per night. The per-night read this replaces asked "did ANY row for the
 as-of land after the cutoff" (``calls_repo.recorded_asof_stamps``, one ``MAX(recorded_at)`` across every

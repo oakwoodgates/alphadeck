@@ -1530,8 +1530,10 @@ def _run_daily_pass_locked(
     # basket union's stored tapes for a mixed split basis (an island, a lone cliff, a flapping bar). AFTER
     # `run_daily`, so it reads the bars tonight's price legs just re-versioned; BEFORE this run's artifact
     # is written, for the same reason as the two diffs above (once the artifact exists it would be its own
-    # baseline). Flag only: nothing it finds reaches a detector or the card (Q10 is open). Fail-open for
-    # the pass — a scan fault comes back as `split.error`, which the self-audit fails on (and so pages).
+    # baseline). Flag only: nothing it finds reaches a detector or the card (abstaining on a flag was closed
+    # as superseded: the split list repairs the bars, the split-night hold covers a split's first nights).
+    # Fail-open for the pass — a scan fault comes back as `split.error`, which the self-audit fails on (and
+    # so pages).
     split = timed("split_scan")(run_split_scan)(
         asof=asof,
         allow_live=allow_live,

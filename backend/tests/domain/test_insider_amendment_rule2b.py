@@ -5,9 +5,8 @@ Provenance of the rows below:
 - CVNA, HROW, SKYT, FIS: the committed real filings (``tests/form4a_fixtures.py`` names each one's provenance).
 - SEI, AAOI, ZS, BCYC, CODI: the stored rows of prod's ``insider_amendment`` (the 4/A as filed: its Table I rows
   and its footnotes) and ``fact_insider_txn`` (its candidate / original Form 4's rows), copied verbatim — the
-  fields these rules read — from the read-only pull the 2026-10-24 measurement made (``docs/temp/data-hygiene-
-  measurements-2026-10-24.md`` §6 in the main checkout). Nothing here is fitted: each test reproduces a MEASURED
-  outcome from those rows through the production functions.
+  fields these rules read — from the 2026-10-24 read-only measurement of prod. Nothing here is fitted: each
+  test reproduces a MEASURED outcome from those rows through the production functions.
 """
 
 from __future__ import annotations

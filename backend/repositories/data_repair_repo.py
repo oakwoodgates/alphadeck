@@ -10,8 +10,10 @@ Hooked (each tool's ``main`` journals its ``--apply`` / ``--revoke``; ``--execut
 ``repair_benchmark_bars``, ``dedup_identical_versions`` (deletes), ``repair_insider_ownership``,
 ``repair_insider_filer_text``, ``relink_amendments``, ``rederive_amendment_matches``, ``set_aside_fundamentals``
 (apply + revoke), ``repair_split_basis`` (apply + revoke), ``reingest_fundamentals``, ``backfill_splits``,
-``repair_activist_misattribution`` (deletes), ``repair_adr_insider_misattribution``,
-``repair_impossible_txn_dates`` (deletes), ``backfill_accepted``, ``backfill_aff10b5_1``. Not hooked: what only
+``split_history`` (its run journals as ``backfill_splits``), ``repair_filing_dates``,
+``repair_shares_cover_dates``, ``repair_activist_misattribution`` (deletes),
+``repair_adr_insider_misattribution``, ``repair_impossible_txn_dates`` (deletes), ``backfill_accepted``,
+``backfill_aff10b5_1``. Not hooked: what only
 touches ``calls`` (``annotate_phantom_arms``, ``annotate_no_session_rows``,
 ``repair_reconstructed_precreation``, ``pipeline.backfill``),
 ordinary nightly data flow (``detect_splits``), and ``split_repair`` (a pure module, no CLI — its writer is

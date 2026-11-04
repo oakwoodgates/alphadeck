@@ -153,8 +153,8 @@ class CallConfig(DomainModel):
     # transact on the open market → it does NOT feed conviction (it STAYS in fact_insider_txn + the display
     # tape; only the CALL skips it). Recall-safe by construction (#9): no price bar for the day → KEEP
     # (never silently drop); a genuine open-market print is within the day's [low, high], so this cannot
-    # exclude one — EXCEPT a name that did a REVERSE split between the buy and asof (the bar is restated UP;
-    # a documented limitation tied to the deferred price-restatement slice). Directional on purpose: the
+    # exclude one: a split since the buy restates the bar (a reverse split UP), and ``price_scale`` puts the
+    # as-traded price on the tape's scale first (``domain.splits.tape_scale``). Directional on purpose: the
     # ABOVE-high side is NOT guarded here because a FORWARD split (common) restates the bar DOWN and would
     # false-reject a real pre-split buy — physically-impossible HIGH prices are caught by the ceiling below.
     insider_offmarket_below_low_frac: float = 0.10
@@ -261,9 +261,10 @@ class CallConfig(DomainModel):
     # **DORMANT — backtest hypothesis dial (H1 leg 1); the default IS today.** The call-strength class the
     # revenue re-acceleration detector emits. R6 fixed it at CORE inline; this lifts that choice onto the
     # config so H1 can ask whether a COMPUTED fundamentals screen should supply a CORE Key 1 at all.
-    # Motivating measurement (backtest doc §4.2, dev copy at the 2026-09-14 record edge): revenue
-    # re-acceleration is the single largest source of arms — 465 of 969 armed member-nights, ahead of the
-    # insider buy's 403 — because a fundamentals screen is broad by nature (13-27% of each big basket).
+    # Motivating measurement (``docs/RECALIBRATION.md`` item 8, dev copy at the 2026-09-14 record edge, before
+    # D3a): revenue re-acceleration was the single largest source of arms — 465 of 969 armed member-nights,
+    # ahead of the insider buy's 403 — because a fundamentals screen is broad by nature (13-27% of each big
+    # basket).
     # The score follows the grade through the SAME pair `catalyst_conviction` uses (0.9 / 0.5), which is
     # the calibration this detector's own comment already says it mirrors — not a new number.
     # NOT a horizon change: demoting to flip leaves `revenue_accel_alpha_liveness_days` alone (R8 decouples
@@ -383,8 +384,8 @@ class CallConfig(DomainModel):
     # LOWER (lower confidence — the rejected false breakout). A FRESH breakout with no next bar yet is NOT a
     # failed hold (unknown, not failed) so it isn't penalized; ABSENT high/low data never penalizes (#9 — a
     # missing field is not a weak close). The two penalties are score MULTIPLIER cuts (stack
-    # multiplicatively). GRADING a weak-CLOSE breakout DOWN to flip is a GATED opt-in — see
-    # breakout_weak_close_grade_down below (default OFF). STARTING calibration, not precision.
+    # multiplicatively). GRADING a weak-CLOSE breakout DOWN to flip is a separate dial — see
+    # breakout_weak_close_grade_down below (default ON). STARTING calibration, not precision.
     breakout_close_strength_min: float = (
         0.70  # (close-low)/(high-low) >= this = a strong (top-of-range) close
     )
@@ -511,9 +512,9 @@ class CallConfig(DomainModel):
     # flip breakdown never ENTERS the event stream, so it also leaves no counter-case and no confidence
     # haircut. Gating it in the assembler instead would de-arm nothing while still darkening the card, which
     # is a third behavior nobody asked to measure.
-    # Motivating measurement (backtest doc §4.4): on 2026-08-18 breakdown risk fired on 58 of AI Memory's 90
-    # names in one night, the day after the de-arm defaulted ON, leaving 9 names armed with both keys live.
-    # H3 asks whether that pruning helps or harms.
+    # Motivating measurement: on 2026-08-18 breakdown risk fired on 58 of one thesis's 90 names in one night,
+    # after the de-arm defaulted ON, leaving 9 names armed with both keys live. H3 asks whether that pruning
+    # helps or harms.
     # DETECTOR dial (read in signals/breakdown.py).
     breakdown_dearm_scope: Literal["all", "core_only"] = "all"
 
