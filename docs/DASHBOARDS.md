@@ -116,6 +116,15 @@ the data flags). Its plan is `docs/BOARD.md`.
    an expanded group lists the name grayed as "left out: <reason>". Measured on dev with a prod data copy
    before the change: 6 of the 31 flagged names showed on the Leaders lists.
 
+   **A stopped tape reads by whether the company is still on a card (operator decision 2026-11-04).** The nightly
+   stops fetching a company that left every live card (a roster cleanup); it still trades, so "price feed
+   stopped" misdescribes it (on prod, 150 of the 152 names with that flag). `price_flags` (via
+   `read_price_flags`, which also returns each flag's kind and the stopped feed's last bar date) reads a stopped
+   tape on a company with NO basket row on any unarchived card (silent rows count as on a card) as "no longer
+   priced: off every live card since <its last bar date>"; a stopped tape on a company still on a card keeps
+   "price feed stopped" (a data fault). Every page's reason follows the one rule; the Track Record's
+   `no_longer_priced` / `feed_stopped` left-out reasons read the same two functions.
+
 6. **Event-outcome views** ("what happened after X") slice by the fixed market-cap bands in
    `CLAUDE.md` (nano < $50M · micro $50M–$300M · small $300M–$2B · mid $2B–$10B · large ≥ $10B),
    measured at the event, with the horizon, the comparison, n and the hit rate stated per tier. See

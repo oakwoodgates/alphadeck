@@ -1330,6 +1330,25 @@ def test_a_stopped_feed_off_every_live_card_is_left_out_as_no_longer_priced(
     assert counts["counted_feed_stopped"] == 0
 
 
+def test_the_shared_price_flag_reason_follows_whether_the_company_sits_on_a_live_card(
+    db, pinned_today, world
+):
+    """``baskets.price_flags`` on real rows (operator decision 2026-11-04): STOPD's tape stopped and it sits on
+    "Card C" (keeps "price feed stopped"); OFFC's tape stopped the same day and it sits on no card (reads "no
+    longer priced: off every live card since <last bar>")."""
+    from dashboards import baskets
+
+    stopd = _stopped_world(db)
+    offc = _security(db, "OFFC", cik="0007000003")
+    closes = {d: 8.0 + 0.05 * i for i, d in enumerate(TAPE_DAYS)}
+    _bars(db, offc, closes, volume=80_000.0, until=date(2026, 6, 12))
+    asof = date(2026, 6, 24)
+    got = baskets.price_flags(db, [stopd, offc], asof, known_at=None, clock="public")
+    assert got[stopd] == "price feed stopped"
+    assert got[offc] == "no longer priced: off every live card since 2026-06-12"
+    assert offc not in baskets.live_card_ids(db) and stopd in baskets.live_card_ids(db)
+
+
 def test_a_delisted_company_is_counted_and_its_later_horizons_read_path_ended(
     db, pinned_today, world, monkeypatch
 ):

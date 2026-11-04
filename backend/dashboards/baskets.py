@@ -37,7 +37,7 @@ from uuid import UUID
 import psycopg
 
 from db.session import DEFAULT_TENANT_ID
-from domain.data_flags import PRICE_CELLS, DataFlag
+from domain.data_flags import FEED_STOPPED, KIND_LABEL, PRICE_CELLS, DataFlag
 from domain.market_time import market_tz
 from domain.settings import get_settings
 from domain.thesis import SILENT_LABELS, Thesis, is_silent
@@ -269,7 +269,17 @@ def price_reason(flags: Iterable[DataFlag]) -> str | None:
     return "; ".join(labels) if labels else None
 
 
-def price_flags(
+@dataclass(frozen=True)
+class PriceFlagRead:
+    """One company's price-reaching data flags: their labels (``reason``, the reader's own words), their kinds,
+    and the stopped feed's last bar date (``since``; ``None`` when the feed is not stopped)."""
+
+    reason: str
+    kinds: tuple[str, ...]
+    since: date | None
+
+
+def read_price_flags(
     conn: psycopg.Connection,
     security_ids: Sequence[UUID],
     asof: date,
@@ -277,9 +287,10 @@ def price_flags(
     known_at: datetime | None,
     clock: Literal["record", "public"],
     tenant_id: UUID = DEFAULT_TENANT_ID,
-) -> dict[UUID, str]:
-    """``security_id -> reason`` for each company whose data flags reach its price readings at ``asof``
-    (``reaches_price``; the reason is the flags' labels, e.g. "mixed-scale price history").
+) -> dict[UUID, PriceFlagRead]:
+    """``security_id -> PriceFlagRead`` for each company whose data flags reach its price readings at ``asof``
+    (``reaches_price``; the reason is the flags' labels, e.g. "mixed-scale price history", UNCHANGED: the
+    off-every-card wording is ``price_flags``'s).
 
     The SAME read the ``/data-flags`` routes serve (``app/routers/data_flags._read``): ``read_flags`` with the
     nightly's readings and corrections (``run_reads``), the master's tickers and ``tape_stale_days``, on the
@@ -293,7 +304,7 @@ def price_flags(
     readings, corrections = flags_reader.run_reads()
     tickers = master.tickers_for(conn, ids, tenant_id=tenant_id)
     stale_days = get_settings().tape_stale_days
-    out: dict[UUID, str] = {}
+    out: dict[UUID, PriceFlagRead] = {}
     for i in range(0, len(ids), CHUNK):
         got = flags_reader.read_flags(
             conn,
@@ -309,9 +320,52 @@ def price_flags(
         )
         for sid, member in got.items():
             reason = price_reason(member.flags)
-            if reason is not None:
-                out[sid] = reason
+            if reason is None:
+                continue
+            reaching = [f for f in member.flags if reaches_price(f)]
+            since = next((f.since for f in reaching if f.kind == FEED_STOPPED), None)
+            out[sid] = PriceFlagRead(reason, tuple(dict.fromkeys(f.kind for f in reaching)), since)
     return out
+
+
+def live_card_ids(conn: psycopg.Connection) -> set[UUID]:
+    """Every company on the basket of a live (unarchived) card, silent rows included: a company on no live card is
+    one the nightly stopped fetching prices for."""
+    return {m.security_id for t in thesis_repo.list_all(conn) for m in t.basket if m.security_id}
+
+
+def off_card_reason(read: PriceFlagRead) -> str:
+    """The reason of a company on NO live card (operator decision 2026-11-04): its stopped-feed label reads "no
+    longer priced: off every live card since <last bar date>" (the nightly stopped fetching a company that left
+    every card; it still trades), any other flag's label unchanged and in the reader's order."""
+    if FEED_STOPPED not in read.kinds:
+        return read.reason
+    since = f" since {read.since.isoformat()}" if read.since else ""
+    wording = f"no longer priced: off every live card{since}"
+    return "; ".join(wording if p == KIND_LABEL[FEED_STOPPED] else p for p in read.reason.split("; "))
+
+
+def price_flags(
+    conn: psycopg.Connection,
+    security_ids: Sequence[UUID],
+    asof: date,
+    *,
+    known_at: datetime | None,
+    clock: Literal["record", "public"],
+    tenant_id: UUID = DEFAULT_TENANT_ID,
+) -> dict[UUID, str]:
+    """``security_id -> reason`` for each company whose data flags reach its price readings at ``asof``
+    (``read_price_flags``). A stopped feed on a company on NO live card (any basket row, silent ones included,
+    on an unarchived card) reads "no longer priced: off every live card since <its last bar date>" (operator
+    decision 2026-11-04: the nightly stopped fetching a company that left every card, and "price feed stopped"
+    misdescribes it); on a company still on a card it keeps "price feed stopped"."""
+    reads = read_price_flags(conn, security_ids, asof, known_at=known_at, clock=clock, tenant_id=tenant_id)
+    if not any(FEED_STOPPED in r.kinds for r in reads.values()):
+        return {sid: r.reason for sid, r in reads.items()}
+    on_cards = live_card_ids(conn)
+    return {
+        sid: r.reason if sid in on_cards else off_card_reason(r) for sid, r in reads.items()
+    }
 
 
 # --- who counts, and the groups ------------------------------------------------------------------------------

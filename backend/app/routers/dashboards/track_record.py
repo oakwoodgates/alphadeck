@@ -16,7 +16,6 @@ Scoreboard route already imports, so it loads in the lean prod image (no ``duckd
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
@@ -27,7 +26,7 @@ from pydantic import BaseModel, ConfigDict
 
 from app.deps import get_conn, get_current_tenant
 from app.routers.scoreboard import _resolve_edition
-from dashboards.baskets import CHUNK, price_reason, reaches_price
+from dashboards.baskets import PriceFlagRead, live_card_ids, read_price_flags
 from dashboards.cache import cached
 from dashboards.peer_table import Gap
 from dashboards.track_record import (
@@ -54,7 +53,7 @@ from domain.market_time import serve_view, view_day
 from domain.settings import get_settings
 from domain.splits import listed_from_row
 from pipeline import data_flags as flags_reader
-from repositories import editions_repo, thesis_repo
+from repositories import editions_repo
 from repositories.editions_repo import Edition
 from scoreboard.late import resolve_exclude_late
 from scoreboard.record import resolve_exclude_annotated, scoreboard_records
@@ -343,62 +342,6 @@ def read_benchmarks(
     return benchmarks_of(spy, iwm), market_of(spy, iwm, stale_days=stale_days)
 
 
-@dataclass(frozen=True)
-class PriceFlagRead:
-    """One company's price-reaching data flags: their labels, their kinds, and the stopped feed's last bar date."""
-
-    reason: str
-    kinds: tuple[str, ...]
-    since: date | None
-
-
-def read_price_flags(
-    conn: psycopg.Connection,
-    sids: list[UUID],
-    asof: date,
-    known_at: datetime | None,
-    clock: Literal["record", "public"],
-) -> dict[UUID, PriceFlagRead]:
-    """``dashboards.baskets.price_flags`` with the flags' KINDS (this page treats a stopped feed apart): the SAME
-    read (``read_flags`` with the nightly's readings, the master's tickers, ``tape_stale_days``, the request's
-    view), keeping the kind of each flag that reaches a price reading and the stopped feed's last bar date.
-    """
-    ids = list(dict.fromkeys(sids))
-    if not ids:
-        return {}
-    readings, corrections = flags_reader.run_reads()
-    tickers = master.tickers_for(conn, ids, tenant_id=DEFAULT_TENANT_ID)
-    stale_days = get_settings().tape_stale_days
-    out: dict[UUID, PriceFlagRead] = {}
-    for i in range(0, len(ids), CHUNK):
-        got = flags_reader.read_flags(
-            conn,
-            tenant_id=DEFAULT_TENANT_ID,
-            security_ids=ids[i : i + CHUNK],
-            tickers=tickers,
-            asof=asof,
-            known_at=known_at,
-            clock=clock,
-            stale_days=stale_days,
-            readings=readings,
-            corrections=corrections,
-        )
-        for sid, member in got.items():
-            reason = price_reason(member.flags)
-            if reason is None:
-                continue
-            reaching = [f for f in member.flags if reaches_price(f)]
-            since = next((f.since for f in reaching if f.kind == FEED_STOPPED), None)
-            out[sid] = PriceFlagRead(reason, tuple(dict.fromkeys(f.kind for f in reaching)), since)
-    return out
-
-
-def live_card_ids(conn: psycopg.Connection) -> set[UUID]:
-    """Every company on the basket of a live (unarchived) card, silent rows included: a company on no live card is
-    one the nightly stopped fetching prices for."""
-    return {m.security_id for t in thesis_repo.list_all(conn) for m in t.basket if m.security_id}
-
-
 def ended_companies(stopped: list[UUID], reads: dict[UUID, PriceFlagRead], asof: date) -> set[UUID]:
     """Which stopped-feed-only companies really ENDED, by the platform's existing reading (never re-derived): the
     nightly's closed classifier (``tape_health.classify_stop``, carried on the run artifact as the data flags read
@@ -455,7 +398,7 @@ def read_record(
     ]
     sids = sorted({se.episode.security_id for _, se in scored}, key=str)
     tickers = master.tickers_for(conn, sids, tenant_id=DEFAULT_TENANT_ID)
-    flag_reads = read_price_flags(conn, sids, asof, known_at, clock)
+    flag_reads = read_price_flags(conn, sids, asof, known_at=known_at, clock=clock)
     flags = {sid: f.reason for sid, f in flag_reads.items()}
     on_cards = live_card_ids(conn)
     ended = ended_companies(
