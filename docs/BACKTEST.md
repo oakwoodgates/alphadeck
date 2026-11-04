@@ -19,6 +19,10 @@ It is **not** a P&L simulator, not a strategy, not a promotion mechanism, and no
 this surface ranks a thesis, and no dial moves in `domain/config.py` because of a run. Promotion is a
 separate operator call made against run ids (the evidence/policy seam).
 
+**The forward record is never tuned against.** No dial is fitted to the calls log the platform is writing
+from here on; a sweep reads sub-period sign agreement as its stand-in for a hold-out at this n
+(`backend/backtest/sweep.py`).
+
 **No simulated row ever reaches `calls`.** A backtest writes only into its own run directory. The container's
 mount of that directory is read-only; the route is structurally read-only (a test reads its import graph).
 
@@ -355,8 +359,9 @@ pre-registration text, which is a DISPLAY heuristic and is allowed to be one pre
 renders the pass in the main list rather than hiding it. Nothing is ever dropped: the registry's job is
 counting trials, and an experiment you cannot see is one you cannot count against yourself.
 
-**Dev/sig-only BY DATA AVAILABILITY, with no build flag.** On prod the store directory does not exist, so the
-page renders one quiet line. There is no environment variable anyone can get wrong. The nav tab always
+**Available BY DATA AVAILABILITY, with no build flag.** Where no store directory is mounted (a base stack
+without an overlay), the page renders one quiet line. Dev and sig mount the live store; prod mounts a FROZEN
+archive read-only (below). There is no environment variable anyone can get wrong. The nav tab always
 renders — the `available:false` idiom hides SECTIONS, not tabs, and gating the tab would cost a request on
 every page load to answer a question the page answers itself.
 
@@ -757,10 +762,10 @@ a mirror hash that no longer described the tape they swept. The run id carries t
 reason: on a short window a point finishes inside the timestamp's one-second resolution, so without it the
 second pass collides with the first.
 
-**Known asymmetry (follow-up).** Runs are immutable and addressable; **sweeps are not**. `backtest.sweep`
-writes ONE `sweep.json` at the store root, so a second sweep overwrites the first. Each point cites its own
-`run_id`, so the underlying evidence survives — it is the curve that does not. Making sweeps addressable
-(`sweeps/<id>.json`, with a registry of their own) is the obvious fix and is not done.
+**Known asymmetry — CLOSED (D, "The latest-only gap is closed" above).** Runs were immutable and
+addressable but sweeps were not: `backtest.sweep` wrote ONE `sweep.json` at the store root, so a second
+sweep overwrote the first. Each point cites its own `run_id`, so the underlying evidence survived — it was
+the curve that did not. Every curve is now kept at `sweeps/<pass_id>-<dial>[-<slice>].json`.
 
 ## H5 — the `exit_by` dial set, and the second family the spec omitted
 
@@ -853,7 +858,6 @@ the read; D's figures survive only in the operator's write-up.
   same exclusion list under `mirror`), so `connect_mirror` on a FINISHED public-clock run still knows what
   was left out instead of silently seeing nothing excluded and then failing on a missing file. Accepted as
   handled rather than renamed: the two names are load-bearing in B2's tests and in the store's own layout.
-- **Sweeps are latest-only** (above).
 - **The event-layer cache is unbuilt** (above) — deliberately, and the measurement order is recorded so the
   decision can be revisited with numbers rather than re-argued. The nulls pool is likewise unbuilt, and
   deliberately second: see the note under the cost follow-ups.
@@ -866,13 +870,10 @@ the read; D's figures survive only in the operator's write-up.
   example: a count of impossible-date insider facts taken from dev returned 14, but one of them (GS-PA
   `0001900188-25-000010`) had no `accepted` date on any of its 16 source rows, so the export dropped it as
   one of the 2,162 null-clock drops and it never reached the mirror. The pass's caveat is 13.
-- **The run picker lists every run.** A phase-1 pass writes ~270 rows into a registry that used to hold a
-  handful of standalone experiments. The `pass_id` on every row is what makes them separable; grouping the
-  picker by pass is deferred until the operator has seen the need for it.
-- **`K` is pinned at 5 across the first pass for comparability**, which was the right call when the nulls
-  cost an hour a run. At 7 s they cost nothing, and K=20 would make the timing null far less coarse over a
-  window of ~30 sessions. Raising it is a pre-registration change and breaks comparability with runs
-  already made, so it is an operator decision, not a build one.
+- **`K` was 5 for the first pass and is 20 for later passes (an operator decision made after it).** K=5 was
+  the right call for comparability while the nulls cost an hour a run; at 7 s they cost nothing, and K=20
+  makes the timing null far less coarse over a window of ~30 sessions. K is part of the pre-registration,
+  so changing it again breaks comparability with runs already made: an operator decision, not a build one.
 - **Baskets are only partially point-in-time.** `basket_snapshot` history begins 2026-09-15; earlier windows
   replay on today's basket. The manifest reports this per thesis and QUANTITATIVELY (fallback days out of
   total days), because a thesis that fell back for 2 sessions of 300 is a different artifact from one that
