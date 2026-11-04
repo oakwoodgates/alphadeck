@@ -818,8 +818,10 @@ the freeze it is adjacent to: `POSTMORTEM_CRON_FREEZE_2026-07.md`.
 - **Not the scheduler.** The `cron` sidecar fires the nightly run (`FEED_LOOP.md`); this surface only
   **triggers on demand** and **observes**. It does not change the schedule.
 - **Not a restore surface.** Restore stays a documented CLI act (above) — destructive, human-only.
-- **Not the dead-man's switch.** A run that never happens produces no artifact → no page (a known gap:
-  `restart: unless-stopped` covers crash/reboot, not a deliberate `stop`). A *persistent* absence needs an
-  **external** heartbeat — the sidecar can't page about its own absence. See `FEED_LOOP.md` "Known gaps".
+- **Not the dead-man's switch.** A run that never happens produces no artifact → no page from inside the box
+  (`restart: unless-stopped` covers crash/reboot, not a deliberate `stop`, and the sidecar can't page about
+  its own absence). That is the **external heartbeat's** job (H2, active since 2026-10-16): the shell pings
+  `HEARTBEAT_URL` once the last expected night is recorded, and an outside service alerts when the ping does
+  not come. See `FEED_LOOP.md` (the sidecar section and "Known gaps").
 - **Not the replay-regenerate button.** Regenerating the Scoreboard's replay artifact stays out of scope,
   deferred to the replay-panel work (`ROADMAP.md`).

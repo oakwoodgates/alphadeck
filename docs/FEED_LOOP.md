@@ -2433,7 +2433,7 @@ The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
   covers every failure the **shell outlives**: a crashed or OOM-killed pass, a DB gone mid-run, a hang the
   C2 timeout stops, a boot that cannot reach the DB (10-01). A box that dies whole, as on 10-12 (the VM
   itself was killed), takes the shell with it; only the external heartbeat (next bullet) reports that.
-- **An external heartbeat, pushed by the shell (H2, 2026-10-16)** `[BUILT — inert until configured]`.
+- **An external heartbeat, pushed by the shell (H2, 2026-10-16)** `[BUILT — ACTIVE on prod since 2026-10-16]`.
   Nothing inside the box can report the box's own absence (MEASURED: no heartbeat code existed, and every
   outage so far lasted until a human launched Docker). Two optional env vars, both empty by default, where
   empty means a silent no-op:
@@ -2990,11 +2990,11 @@ Recorded here where a builder of the pager/scheduler will hit them; the full acc
   Residual, loud by construction (as for the zero rule): a pass whose companies were mostly fetched in the
   five minutes before it (only a catch-up right behind a killed pass) reads them as cache hits and can page
   once — a repeat page, never a silenced freeze.
-- **A missing run doesn't page (dead-man's switch) — BUILT (H2, 2026-10-16), inert until the operator
-  creates the check.** The sidecar now pings `HEARTBEAT_URL` from the shell once the last expected night is
+- **A missing run doesn't page (dead-man's switch) — CLOSED (H2, 2026-10-16), active on prod since
+  2026-10-16.** The sidecar now pings `HEARTBEAT_URL` from the shell once the last expected night is
   recorded (the sidecar section), so an outside service alerts when the ping does not come: a host that
-  stays off, a sidecar that never boots, a `docker compose stop` nobody undid. Until `HEARTBEAT_URL` is set
-  it is a silent no-op and the history below still describes prod. The original account:
+  stays off, a sidecar that never boots, a `docker compose stop` nobody undid. Where `HEARTBEAT_URL` is
+  unset it is a silent no-op. The original account (the gap H2 closed):
   `restart: unless-stopped` restarts the
   sidecar on crash/daemon-restart but **NOT** after a deliberate `docker compose stop`. R4 fires from *inside*
   a run, so a run that never happens produces no results → no run log → no page — byte-identical to a healthy
@@ -3006,7 +3006,7 @@ Recorded here where a builder of the pager/scheduler will hit them; the full acc
   catches last night up even when a pre-open manual pass ran. A *persistent* absence — a host that stays off,
   a sidecar that never boots — still produces no boot and no run, and still needs an **external** heartbeat
   that alerts when the night's run log is missing past a deadline (the sidecar can't page about its own
-  absence). Unchanged, still open. **Narrowed again by G2:** a pass that FIRED and failed is now retried
+  absence). Open until H2 shipped the heartbeat above. **Narrowed again by G2:** a pass that FIRED and failed is now retried
   once, and a night whose only row is a pre-`RUN_AT` one is listed as a hole instead of reading covered — so
   the remaining uncovered case is precisely "nothing fired at all", which is the heartbeat's job.
 - **A failed scheduled run, and a daytime row hiding the failed night — CLOSED (G2).** Two halves of one
@@ -3038,9 +3038,9 @@ Recorded here where a builder of the pager/scheduler will hit them; the full acc
   22:42 (a WSL auto-update) and the 10-01 boot catch-up lost to the cold-start race both went unpaged
   (MEASURED), and a pass that hung would have held the loop with no exit code at all. Now every pass is
   bounded by `RUN_TIMEOUT_S`, and the shell pages through the DB-free `python -m notify.page` when a night
-  or a backup fails for good (the sidecar section), which covers the 10-01 shape. **Still open:** the
+  or a backup fails for good (the sidecar section), which covers the 10-01 shape. **Not coverable in-band:** the
   10-12 shape, a box that dies whole, takes the shell with it, so no in-band page can fire; that is the
-  external heartbeat's (above), which alerts only once the operator configures it. The page also needs the
+  external heartbeat's (above), active on prod since 2026-10-16. The page also needs the
   `notify` package importable. The in-process half, a wrapper so an unhandled exception inside
   `run_daily_pass` pages before it re-raises, is a separate change.
 - **A killed or partial pass read "healthy" — CLOSED (M1, 2026-10-16).** MEASURED 2026-10-12: the 22:30

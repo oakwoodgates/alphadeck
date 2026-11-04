@@ -247,8 +247,8 @@ alphadeck/
   #214) → the second, out-of-sample recalibration; the **restatement re-version** + the **source-strategy A/B
   decision** (keep Yahoo + re-version vs raw+splits + own-the-adjustment — `DATA_SOURCES.md` / `FEED_LOOP.md`);
   **cron-scaling** (active theses daily, dormant less) + the REMAINING **cron-ops hardening** (the R4 0-fetch
-  false-positive, the attempts-vs-successes fetch counter, a dead-man's-switch — the durable `market_today()`
-  is DONE, `INVARIANTS.md` §6); **2f "the real WHY"** + the deferred
+  false-positive — the attempts-vs-successes fetch counter (O5), the dead-man's-switch heartbeat (H2) and the
+  durable `market_today()` are DONE, `INVARIANTS.md` §6); **2f "the real WHY"** + the deferred
   **replay-regenerate button**; **insider Class B** + the `insider_flow` sell-side ceiling; Phase-3 breadth
   (laggard scanner, ETF radar *coming-launches* N-1A/485, more catalyst sources, umbrella hierarchy, live LLM
   counter-case) — by appetite. See `ROADMAP.md`.

@@ -228,11 +228,12 @@ insider `Ins 30d`/`Ins 90d`, three lenses (call-state · business-type · value-
    EDGAR-eligible companies got fresh SEC data (`Settings.freeze_completed_floor`; `FEED_LOOP.md` "Known
    gaps" — measured: it flags twelve stored passes, all pre-G1, none since). Still open: the **R4 0-fetch
    false-positive** for a second pass within five minutes of another (page on 0 only when the cache was
-   outside its TTL). And an
-   **external dead-man's-switch** heartbeat (a run that never happens produces no page — the
-   sidecar can't alert about its own absence; the only thing that catches a host that is OFF at `RUN_AT` and
-   stays off past the next boot's last-expected window); and the **`RUN_AT` choice** (an earlier fire while
-   the host is usually awake, at the cost of same-evening filings landing a night later — an ops decision).
+   outside its TTL). The **external dead-man's-switch heartbeat is CLOSED (H2, 2026-10-16)**: a run that
+   never happens produces no page from inside the box (the sidecar can't alert about its own absence, which
+   is how a host that is OFF at `RUN_AT` and stays off past the next boot's last-expected window goes
+   unseen), so the shell pings an outside service once the last expected night is recorded and that service
+   alerts when the ping does not come; active on prod since 2026-10-16. The **`RUN_AT` choice is DECIDED
+   (Q19, 2026-10-17)**: it stays 22:30 ET and the ~3% late-bar residual is accepted (`FEED_LOOP.md`).
    Full account: `POSTMORTEM_CRON_FREEZE_2026-07.md`,
    `FEED_LOOP.md` "Known gaps".
 7. **Insider honesty backlog** (extending the #210–#213 screens): insider **Class B** — 10%-owner
