@@ -12,10 +12,11 @@ import { type CurveSelection, SweepPicker } from "./SweepPicker";
 
 // THE BACKTEST — a research surface, and nothing on it is ever the record.
 //
-// It is dev/sig-only BY DATA AVAILABILITY, with no build flag anywhere: a run is written by a CLI that
-// needs the `.[replay]` extra, the store directory does not exist on prod, and this page then says one
-// quiet line. The nav tab always renders — the `available:false` idiom hides SECTIONS, not tabs, and
-// gating the tab would cost a request on every page load to answer a question this page answers itself.
+// It is available BY DATA AVAILABILITY, with no build flag anywhere: a run is written by a CLI that
+// needs the `.[replay]` extra, a stack with no store mounted (dev and sig mount the live one, prod a
+// frozen archive) has no run directory, and this page then says one quiet line. The nav tab always
+// renders — the `available:false` idiom hides SECTIONS, not tabs, and gating the tab would cost a
+// request on every page load to answer a question this page answers itself.
 //
 // READING ORDER IS THE DESIGN. The five permanent labels first (what this surface is and is not), then
 // the run and what produced it, then the POOLED view — the algorithm as the unit — and only then, folded
@@ -72,7 +73,7 @@ export function Backtest({ header, runId, onSelectRun, onSelect }: Props) {
           <div className="note err">backtest unreachable: {errText(runsQ.error)}</div>
         )}
 
-        {/* The normal state on prod — one quiet line, not an empty shell and not an error. */}
+        {/* The normal state on a stack with no store — one quiet line, not an empty shell and not an error. */}
         {storeMissing && (
           <p className="bt-quiet">
             No backtest runs on this stack. Runs are written by the CLI (
