@@ -333,7 +333,7 @@ describe("TrackRecord — what is left out is counted and kept visible", () => {
   });
 
   it("names each cap's share-count source on hover, says why a refused cover count left a cap unpinned, and counts the cover caps", () => {
-    const fromCover = row({ ticker: "CVR", cap: cap({ source: "cover" }) });
+    const fromCover = row({ ticker: "CVRCO", cap: cap({ source: "cover" }) });
     const refused = row({
       ticker: "FYO",
       cap: cap({ value: null, tier: null, gap: "no_shares", source: null, note: "the filing cover's count is not used: not a 10-Q filer" }),
@@ -347,7 +347,7 @@ describe("TrackRecord — what is left out is counted and kept visible", () => {
         ?.querySelector(".tr-cap")
         ?.getAttribute("title");
     expect(capTitle("WBK")).toContain("(share count ratified in the Workbench)");
-    expect(capTitle("CVR")).toContain("(share count from the filing cover (not ratified))");
+    expect(capTitle("CVRCO")).toContain("(share count from the filing cover (not ratified))");
     expect(capTitle("FYO")).toBe(
       "Cap unpinned: no share count public before the arm date. The filing cover's count is not used: not a 10-Q filer.",
     );
