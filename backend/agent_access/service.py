@@ -71,13 +71,47 @@ def preview(value, *, budget: int = 56000) -> tuple[object, dict]:
     return result, {"truncated": bool(omitted), "paths": omitted[:100], "path_count": len(omitted)}
 
 
-def target_preview(targets: list, *, budget: int = 56000):
+BINDING_KEYS = ("id", "links", "source_refs")
+# Every advertised source reference is captured JSON; a listing omits that constant `kind`. The STORED
+# target keeps it, and resolving a reference (advertised_entry) reads the stored target, not a listing.
+LISTED_REFERENCE_KIND = "captured_json"
+# A read reply's target page gets what the rest of the reply leaves under this total, between the
+# floor and the cap; the structured result itself is capped at 128 KiB (DashboardService.call).
+READ_REPLY_BUDGET = 100_000
+READ_TARGET_BUDGET = (16_000, 48_000)
+INSPECT_TARGET_BUDGET = 56_000
+# A batch read: at most 32 references, each item's text cut at 4000 characters, and all items
+# together within what the rest of the reply leaves under the batch reply budget.
+BATCH_MAX_REFERENCES = 32
+BATCH_ITEM_CHARACTERS = 4000
+BATCH_REPLY_BUDGET = 112_000
+
+
+def listed_bindings(target: dict) -> dict:
+    """A target's identifiers and binding descriptors as a listing shows them."""
+    bindings = copy.deepcopy({key: target[key] for key in BINDING_KEYS if key in target})
+    refs = bindings.get("source_refs")
+    if isinstance(refs, list):
+        bindings["source_refs"] = [
+            (
+                {
+                    key: value
+                    for key, value in ref.items()
+                    if not (key == "kind" and value == LISTED_REFERENCE_KIND)
+                }
+                if isinstance(ref, dict)
+                else ref
+            )
+            for ref in refs
+        ]
+    return bindings
+
+
+def target_preview(targets: list, *, budget: int = INSPECT_TARGET_BUDGET):
     # Identifiers and binding descriptors are indivisible; only DOM details may truncate.
     page, paths, remaining = [], [], budget - 2
     for index, target in enumerate(targets):
-        bindings = copy.deepcopy(
-            {key: target[key] for key in ("id", "links", "source_refs") if key in target}
-        )
+        bindings = listed_bindings(target)
         binding_bytes = len(json.dumps(bindings, ensure_ascii=True).encode()) + 1
         if binding_bytes > remaining:
             if not page:
@@ -87,7 +121,7 @@ def target_preview(targets: list, *, budget: int = 56000):
                 )
             paths.append("/" + str(index) + ":")
             break
-        details = {key: value for key, value in target.items() if key not in bindings}
+        details = {key: value for key, value in target.items() if key not in BINDING_KEYS}
         shown, truncation = preview(details, budget=min(12000, remaining - binding_bytes))
         candidate = {**bindings, **(shown if isinstance(shown, dict) else {})}
         size = len(json.dumps(candidate, ensure_ascii=True).encode()) + 1
@@ -319,34 +353,41 @@ class DashboardService:
             )
         targets = view.get("targets", [])
         observation, truncation = preview(view.get("observation", {}))
-        target_page, target_truncation = target_preview(
-            targets[target_offset : target_offset + target_limit], budget=16000
-        )
         sources = [
             {"index": index, "path": item["path"], "query": item["query"]}
             for index, item in enumerate(envelope["responses"])
         ]
         source_page, source_truncation = preview(sources, budget=8000)
-        return {
+        result = {
             **self._metadata(snapshot),
             "observation": observation,
             "observation_truncation": truncation,
-            "targets": target_page,
-            "targets_truncation": target_truncation,
             "target_offset": target_offset,
             "target_total": len(targets),
-            "next_target_offset": (
-                target_offset + len(target_page)
-                if target_offset + len(target_page) < len(targets)
-                else None
-            ),
             "source_responses": source_page,
             "source_total": len(sources),
             "next_source_offset": len(source_page) if len(sources) > len(source_page) else None,
             "sources_truncation": source_truncation,
             "image": image_metadata,
             "policy": POLICY,
-        }, None
+        }
+        # The target page takes the room the rest of the reply leaves, within the floor and cap.
+        low, high = READ_TARGET_BUDGET
+        room = READ_REPLY_BUDGET - len(json.dumps(result, ensure_ascii=True).encode())
+        target_page, target_truncation = target_preview(
+            targets[target_offset : target_offset + target_limit],
+            budget=max(low, min(high, room)),
+        )
+        result.update(
+            targets=target_page,
+            targets_truncation=target_truncation,
+            next_target_offset=(
+                target_offset + len(target_page)
+                if target_offset + len(target_page) < len(targets)
+                else None
+            ),
+        )
+        return result, None
 
     async def inspect_dashboard_item(
         self,
@@ -356,14 +397,45 @@ class DashboardService:
         source_ref_id=None,
         offset=0,
         limit=None,
-        data_offset=0,
-        data_limit=12000,
+        data_offset=None,
+        data_limit=None,
         source_offset=0,
         source_limit=None,
         pointer=None,
-        outline=False,
-        outline_offset=0,
+        outline=None,
+        outline_offset=None,
+        source_ref_ids=None,
     ):
+        if source_ref_ids is not None and (
+            target_id is None
+            or not isinstance(source_ref_ids, list)
+            or not 1 <= len(source_ref_ids) <= BATCH_MAX_REFERENCES
+            or not all(isinstance(value, str) for value in source_ref_ids)
+            or len(set(source_ref_ids)) != len(source_ref_ids)
+            or any(
+                value is not None
+                for value in (
+                    source_ref_id,
+                    source_response_index,
+                    pointer,
+                    outline,
+                    outline_offset,
+                    data_offset,
+                    data_limit,
+                )
+            )
+        ):
+            raise AccessError(
+                "invalid_arguments",
+                "source_ref_ids takes 1-32 unique reference IDs advertised by target_id; it cannot "
+                "be combined with source_ref_id, source_response_index, pointer, outline, "
+                "outline_offset, data_offset or data_limit. Continue a cut item with source_ref_id "
+                "and data_offset.",
+            )
+        data_offset = 0 if data_offset is None else data_offset
+        data_limit = 12000 if data_limit is None else data_limit
+        outline_offset = 0 if outline_offset is None else outline_offset
+        outline = bool(outline)
         if source_ref_id is not None and (target_id is None or source_response_index is not None):
             raise AccessError(
                 "invalid_arguments",
@@ -375,7 +447,11 @@ class DashboardService:
                 "pointer requires source_response_index and cannot be combined with source_ref_id: "
                 "an advertised reference already carries its pointer.",
             )
-        reads_data = source_response_index is not None or source_ref_id is not None
+        reads_data = (
+            source_response_index is not None
+            or source_ref_id is not None
+            or source_ref_ids is not None
+        )
         if outline and not reads_data:
             raise AccessError(
                 "invalid_arguments",
@@ -400,7 +476,9 @@ class DashboardService:
                     "Target ID is absent from this snapshot; use its advertised target IDs.",
                 )
         if limit > 0:
-            page, truncation = target_preview(targets[offset : offset + limit])
+            page, truncation = target_preview(
+                targets[offset : offset + limit], budget=INSPECT_TARGET_BUDGET
+            )
         else:
             page, truncation = [], {"truncated": False, "paths": [], "path_count": 0}
         result = {
@@ -434,6 +512,17 @@ class DashboardService:
                 else None
             ),
         )
+        if source_ref_ids is not None:
+            # Resolve every ID before reading any: one unadvertised ID fails the whole call.
+            entries = [
+                advertised_entry(
+                    snapshot, target_id, ref_id, field="references", kind="captured_json"
+                )
+                for ref_id in source_ref_ids
+            ]
+            room = BATCH_REPLY_BUDGET - len(json.dumps(result, ensure_ascii=True).encode())
+            result["source_data_items"] = _batch_items(sources, entries, room)
+            return result, None
         reference = None
         if source_ref_id is not None:
             reference = advertised_entry(
@@ -544,6 +633,60 @@ OUTLINE_PAGE = 200
 
 def _serialize(value) -> str:
     return json.dumps(value, ensure_ascii=True, separators=(",", ":"))
+
+
+def _encoded(value) -> int:
+    """Bytes `value` takes in the structured result (the same encoding the 128 KiB cap measures)."""
+    return len(json.dumps(value, ensure_ascii=True).encode())
+
+
+def _fit(text: str, room: int) -> int:
+    """The longest prefix of ``text`` whose JSON string encoding fits in ``room`` bytes."""
+    if _encoded(text) - 2 <= room:
+        return len(text)
+    used = 0
+    for index, char in enumerate(text):
+        used += _encoded(char) - 2
+        if used > room:
+            return index
+    return len(text)
+
+
+def _batch_items(responses: list, entries: list, budget: int) -> list:
+    """Each advertised reference's value as JSON text, in request order: at most
+    BATCH_ITEM_CHARACTERS per item, and every item's encoding within ``budget`` bytes together.
+
+    An item's frame (everything but its text) is reserved first, so later items are never dropped;
+    a cut item states it (`truncated`, `next_offset`) and continues with a single
+    ``source_ref_id`` + ``data_offset`` read, which serializes the value identically.
+    """
+    texts, items = [], []
+    for entry in entries:
+        source = responses[entry["response_index"]]
+        text = _serialize(pointer_value(source["body"], entry["pointer"]))
+        texts.append(text)
+        items.append(
+            {
+                "reference_id": entry["id"],
+                "category": entry.get("category"),
+                "label": entry.get("label"),
+                "pointer": entry["pointer"],
+                "response_index": entry["response_index"],
+                "path": source["path"],
+                "text": "",
+                "total_characters": len(text),
+                "truncated": False,
+                "next_offset": None,
+            }
+        )
+    # Reserve each item's widest frame ("false", a ten-digit offset) plus its ", " separator.
+    remaining = budget - sum(_encoded({**item, "next_offset": 10**9}) + 2 for item in items)
+    for item, text in zip(items, texts, strict=True):
+        end = _fit(text[:BATCH_ITEM_CHARACTERS], max(0, remaining))
+        remaining -= _encoded(text[:end]) - 2
+        cut = end < len(text)
+        item.update(text=text[:end], truncated=cut, next_offset=end if cut else None)
+    return items
 
 
 def _type_name(value) -> str:

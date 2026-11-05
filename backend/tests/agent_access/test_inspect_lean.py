@@ -331,7 +331,11 @@ def test_outline_on_source_ref_id_and_outline_without_a_source():
         (httpx.ReadTimeout("slow"), "capture_timeout", "within 130 seconds"),
         (httpx.WriteTimeout("slow"), "capture_timeout", "120 seconds"),
         (httpx.PoolTimeout("slow"), "capture_timeout", "Retry later"),
-        (httpx.RemoteProtocolError("odd"), "backend_unavailable", "failed or timed out"),
+        (
+            httpx.RemoteProtocolError("odd"),
+            "backend_unavailable",
+            "http://127.0.0.1:8001 dropped the capture connection",
+        ),
     ],
 )
 def test_capture_transport_errors_are_split(error, code, message):

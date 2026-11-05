@@ -258,8 +258,14 @@ class CaptureClient:
                 retryable=True,
             ) from None
         except httpx.HTTPError:
+            # A timeout is capture_timeout above; this is a connection that broke mid-capture.
             raise AccessError(
-                "backend_unavailable", "Local backend capture failed or timed out.", retryable=True
+                "backend_unavailable",
+                "The Alpha Deck API at "
+                + self.base
+                + " dropped the capture connection before answering; retry, and check the API"
+                " if it repeats.",
+                retryable=True,
             ) from None
         except (json.JSONDecodeError, UnicodeDecodeError):
             raise AccessError("invalid_capture", "Backend capture is not valid JSON.") from None

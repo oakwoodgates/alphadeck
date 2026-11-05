@@ -417,9 +417,13 @@ def test_all_verbose_targets_paginate_without_skipping_or_truncating_bindings():
             result = response["result"]
             assert result["targets"]
             visited.extend(target["id"] for target in result["targets"])
+            # Listings leave out each reference's constant kind; every other field is whole.
+            listed_refs = [
+                {key: value for key, value in ref.items() if key != "kind"}
+                for ref in targets[0]["source_refs"]
+            ]
             assert all(
-                target["links"] == targets[0]["links"]
-                and target["source_refs"] == targets[0]["source_refs"]
+                target["links"] == targets[0]["links"] and target["source_refs"] == listed_refs
                 for target in result["targets"]
             )
             offset = result["next_offset"]

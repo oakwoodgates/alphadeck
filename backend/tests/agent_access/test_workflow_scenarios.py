@@ -7,6 +7,7 @@ evidence, without testing model interpretation, autonomous reasoning, or live da
 import asyncio
 import json
 import os
+import re
 import sys
 from contextlib import asynccontextmanager
 from decimal import Decimal
@@ -27,6 +28,20 @@ from agent_access.references import context_hash  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 DIST = HERE.parents[2] / "frontend/dist"
+# board-review 1.1.0, step 4: the call fields one batch read takes per shortlisted item.
+CALL_FIELDS = (
+    "state",
+    "verdict",
+    "conviction_grade",
+    "confirmation_grade",
+    "entry_grade",
+    "armed_members",
+    "missing",
+    "counter_case",
+    "risk_signals",
+    "arm_until",
+    "exit_by",
+)
 
 
 @asynccontextmanager
@@ -208,32 +223,73 @@ def test_board_review_and_explain_call_use_rendered_queue_and_frozen_evidence(br
                 dashboard="board",
                 settings=board_settings,
                 asof=review["asof"],
-                target_limit=1,
+                target_limit=50,
             )
             assert board["settings"] == board_settings and board["asof"] == review["asof"]
-            board_targets = await targets(client, board)
-            summaries, _ = await response_body(client, board, "/theses")
-            queue_names = []
-            for thesis in summaries:
-                if not thesis["archived"]:
-                    card_call, source = await response_body(
-                        client, board, f"/theses/{thesis['id']}/call"
-                    )
-                    assert source["query"]["asof"] == board["asof"]
-                    if card_call["state"] == "armed":
-                        queue_names.append(thesis["name"])
-            assert queue_names == ["Synthetic Zebra", "Example thesis", "Synthetic Alpha"]
-            queue = board_targets[: len(queue_names)]
+            # board-review 1.1.0, step 2: the queue's length is the rendered Armed column count.
+            armed = int(re.search(r"(?i)armed\s+act now\s+(\d+)", board["observation"]["text"])[1])
+            listed, offset = list(board["targets"]), board["next_target_offset"]
+            while len(listed) < armed and offset is not None:
+                page = await call(
+                    client,
+                    "inspect_dashboard_item",
+                    snapshot_id=board["snapshot_id"],
+                    offset=offset,
+                    limit=min(50, armed - len(listed)),
+                )
+                listed.extend(page["targets"])
+                offset = page["next_offset"]
+            queue = listed[:armed]
+            # Step 3: order from the thesis_summary labels; the expected queue keeps /theses order.
+            order = [
+                int(re.fullmatch(r"theses\[(\d+)\]", ref["label"])[1])
+                for target in queue
+                for ref in target["source_refs"]
+                if ref["category"] == "thesis_summary"
+            ]
+            assert order == [0, 2, 3]  # Zebra, Example thesis, Alpha; warming 1 and archived 4 out
+            queue_names = ["Synthetic Zebra", "Example thesis", "Synthetic Alpha"]
             assert all(
                 name in target["text"] and "STARTER entry" in target["text"]
                 for name, target in zip(queue_names, queue, strict=True)
             )
+            # Step 4: one batch read per shortlisted item.
             selected = queue[: review["max_items"]]
             assert len(selected) == 2
             assert all(target["visible"] and "CORE" in target["text"] for target in selected)
-            flags, _ = await response_body(client, board, "/data-flags")
-            (flag,) = flags["members"][0]["flags"]
-            assert flags["names"] == 1
+            fixture_call = populated_cockpit()["responses"][2]["body"]
+            flags = []
+            for target in selected:
+                wanted = [
+                    ref["id"]
+                    for ref in target["source_refs"]
+                    if (ref["category"] == "call_result" and ref["label"] in CALL_FIELDS)
+                    or ref["category"] == "data_flag"
+                ]
+                batch = await call(
+                    client,
+                    "inspect_dashboard_item",
+                    snapshot_id=board["snapshot_id"],
+                    target_id=target["id"],
+                    source_ref_ids=wanted,
+                )
+                items = batch["source_data_items"]
+                assert [item["reference_id"] for item in items] == wanted
+                fields = {
+                    item["label"]: json.loads(item["text"])
+                    for item in items
+                    if item["category"] == "call_result"
+                }
+                assert fields.keys() == {field for field in CALL_FIELDS if field in fixture_call}
+                assert fields["state"] == "armed"  # queue membership
+                assert fields["verdict"] == fixture_call["verdict"]
+                assert fields["missing"] == fixture_call["missing"]
+                flags += [
+                    json.loads(item["text"]) for item in items if item["category"] == "data_flag"
+                ]
+            # The flag entry is held by Example thesis (the second queue item) and read through it.
+            (member,) = flags
+            (flag,) = member["flags"]
             assert flag["columns"] == ["ret_7d"] and flag["reason"] == "Synthetic price-series gap"
             assert flag["call_affected"] is False
             assert any(
@@ -249,9 +305,22 @@ def test_board_review_and_explain_call_use_rendered_queue_and_frozen_evidence(br
                 {"thesis": "Example thesis", "asof": board["asof"]},
                 {"board", "cockpit"},
             )
+            board_targets = await targets(client, board)
             card = next(
                 t for t in board_targets if t["label"] == explanation["thesis"] and t["links"]
             )
+            # explain-call 1.1.0, step 2: confirm the identity from the card's /theses row.
+            summary = next(r for r in card["source_refs"] if r["category"] == "thesis_summary")
+            confirmed = await call(
+                client,
+                "inspect_dashboard_item",
+                snapshot_id=board["snapshot_id"],
+                target_id=card["id"],
+                source_ref_ids=[summary["id"]],
+            )
+            (row_item,) = confirmed["source_data_items"]
+            row = json.loads(row_item["text"])
+            assert (row["name"], row["archived"]) == ("Example thesis", False)
             child = await call(client, "read_dashboard", **follow(board, card))
             assert child["origin"]["parent_snapshot_id"] == board["snapshot_id"]
             assert child["origin"]["consistency"] == "independent_capture"
@@ -271,11 +340,29 @@ def test_board_review_and_explain_call_use_rendered_queue_and_frozen_evidence(br
                 for reference in target["source_refs"]
                 if reference["category"] == "call_result"
             )
-            stored_call, _ = await read_source(
-                client, child, target_id=call_target["id"], source_ref_id=call_ref["id"]
+            # Step 4: outline the whole-call reference, then read single fields by pointer.
+            outline = await call(
+                client,
+                "inspect_dashboard_item",
+                snapshot_id=child["snapshot_id"],
+                target_id=call_target["id"],
+                source_ref_id=call_ref["id"],
+                outline=True,
             )
-            assert stored_call["verdict"] == "starter_entry"
-            assert stored_call["missing"] == ["Synthetic supporting filing unavailable"]
+            shape = outline["source_data"]
+            assert {"verdict", "missing"} <= {entry["key"] for entry in shape["entries"]}
+            stored = {}
+            for field in ("verdict", "missing"):
+                value = await call(
+                    client,
+                    "inspect_dashboard_item",
+                    snapshot_id=child["snapshot_id"],
+                    source_response_index=shape["response_index"],
+                    pointer="/" + field,
+                )
+                stored[field] = json.loads(value["source_data"]["text"])
+            assert stored["verdict"] == "starter_entry"
+            assert stored["missing"] == ["Synthetic supporting filing unavailable"]
             evidence_target, reference = next(
                 (target, reference)
                 for target in cockpit_targets
@@ -284,11 +371,20 @@ def test_board_review_and_explain_call_use_rendered_queue_and_frozen_evidence(br
                 and reference["category"] == "call_input"
                 and expected["ref"] in target["text"]
             )
-            evidence_args = {
-                "snapshot_id": child["snapshot_id"],
-                "target_id": evidence_target["id"],
-                "source_ref_id": reference["id"],
-            }
+            batch = await call(
+                client,
+                "inspect_dashboard_item",
+                snapshot_id=child["snapshot_id"],
+                target_id=evidence_target["id"],
+                source_ref_ids=[ref["id"] for ref in evidence_target["source_refs"]],
+            )
+            item = next(
+                item
+                for item in batch["source_data_items"]
+                if item["reference_id"] == reference["id"]
+            )
+            assert item["category"] == "call_input" and json.loads(item["text"]) == expected
+            # A cut value continues through a single reference read with data_offset.
             data, source = await read_source(
                 client,
                 child,
@@ -298,11 +394,21 @@ def test_board_review_and_explain_call_use_rendered_queue_and_frozen_evidence(br
             )
             assert source["category"] == "call_input" and source["freshness"] == "frozen"
             assert source["offset"] > 0 and data == expected
+            evidence_args = {
+                "snapshot_id": child["snapshot_id"],
+                "target_id": evidence_target["id"],
+            }
             await error(
                 client,
                 "unknown_reference",
                 "inspect_dashboard_item",
                 **{**evidence_args, "source_ref_id": "absent-synthetic-evidence"},
+            )
+            await error(
+                client,
+                "unknown_reference",
+                "inspect_dashboard_item",
+                **{**evidence_args, "source_ref_ids": [reference["id"], "absent-synthetic"]},
             )
 
     asyncio.run(run())
