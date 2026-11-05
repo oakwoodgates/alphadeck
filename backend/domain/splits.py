@@ -507,6 +507,11 @@ def decide(
 VIA_SEC_TAPE = "auto:sec+tape"
 VIA_POLYGON_TAPE = "auto:polygon+tape"
 AUTO_VIAS = (VIA_AUTO, VIA_SEC_TAPE, VIA_POLYGON_TAPE)
+AUTO_VIA_LABELS = {
+    VIA_AUTO: "auto: SEC + Massive.com",
+    VIA_SEC_TAPE: "auto: SEC + tape",
+    VIA_POLYGON_TAPE: "auto: Massive.com + tape",
+}
 
 # THE TAPE TOLERANCE — MEASURED 2026-10-22 on a read-only copy of prod (``security_split`` + ``fact_price_eod``),
 # the step read on each bar's FIRST-SERVED version (what the vendor served the night it was stored):

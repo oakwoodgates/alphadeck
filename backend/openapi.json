@@ -4449,6 +4449,69 @@
         }
       }
     },
+    "/dashboards/etfs": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Etfs",
+        "description": "The funds on every live card from five angles: each fund against its card's companies over the window\n(equal weight, rebalanced daily, from 100), net money in and out, approximate size and trading, price\ntrend, and which cards have a fund. A fund is a roster row whose security is an ETF, in any link; a card's\ncompanies are its voting rows with every fund left out. A name whose data flags reach its price readings is\nleft out of the numbers that use its price and is listed. Display only; a past as-of reads what was public\nby the end of that date.",
+        "operationId": "etfs_dashboards_etfs_get",
+        "parameters": [
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; nothing published after it is read",
+              "title": "Asof"
+            },
+            "description": "as-of date; nothing published after it is read"
+          },
+          {
+            "name": "window",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "1w",
+                "1m",
+                "3m"
+              ],
+              "type": "string",
+              "description": "panel 1's look back in trading sessions: 1w | 1m | 3m",
+              "default": "1m",
+              "title": "Window"
+            },
+            "description": "panel 1's look back in trading sessions: 1w | 1m | 3m"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EtfsOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/dashboards/evidence-ledger/cards": {
       "get": {
         "tags": [
@@ -8989,7 +9052,7 @@
                 "type": "null"
               }
             ],
-            "title": "Polygon Api Key Set"
+            "title": "Massive.com API Key Set"
           },
           "heartbeat_url_set": {
             "anyOf": [
@@ -16022,7 +16085,7 @@
           },
           "polygon": {
             "type": "boolean",
-            "title": "Polygon",
+            "title": "Massive.com",
             "default": false
           },
           "note": {
@@ -20495,6 +20558,375 @@
         "title": "EpisodeOperatorOut",
         "description": "The operator's answer to an arm episode: took (with the operator's own prices/return \u2014\n``inferred`` marks a close used where no fill price was logged) or passed (no prices; the\nepisode's own outcome sits beside it). No delta fields \u2014 v2."
       },
+      "EtfCardNoFundOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "thesis_name"
+        ],
+        "title": "EtfCardNoFundOut"
+      },
+      "EtfCardRefOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "thesis_name",
+          "ticker"
+        ],
+        "title": "EtfCardRefOut",
+        "description": "A card a fund sits on, with the fund's ticker there (the Cockpit's ``?name=`` key)."
+      },
+      "EtfCompareRowOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "fund_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fund Name"
+          },
+          "ret": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ret"
+          },
+          "companies_ret": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Companies Ret"
+          },
+          "diff": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diff"
+          },
+          "companies": {
+            "type": "integer",
+            "title": "Companies"
+          },
+          "priced": {
+            "type": "integer",
+            "title": "Priced"
+          },
+          "unresolved": {
+            "type": "integer",
+            "title": "Unresolved"
+          },
+          "sessions_flat": {
+            "type": "integer",
+            "title": "Sessions Flat"
+          },
+          "bars": {
+            "type": "integer",
+            "title": "Bars"
+          },
+          "bars_needed": {
+            "type": "integer",
+            "title": "Bars Needed"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "fund_points": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fund Points"
+          },
+          "company_points": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Company Points"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "thesis_name",
+          "security_id",
+          "ticker",
+          "fund_name",
+          "ret",
+          "companies_ret",
+          "diff",
+          "companies",
+          "priced",
+          "unresolved",
+          "sessions_flat",
+          "bars",
+          "bars_needed",
+          "note",
+          "fund_points",
+          "company_points"
+        ],
+        "title": "EtfCompareRowOut",
+        "description": "Panel 1, one (card, fund) pair. ``ret`` / ``companies_ret`` = the fund's and the card's companies'\nwindow returns (%), ``diff`` = fund minus companies in points (each ``null`` when it has none).\n``companies`` = the card's companies (unresolved rows included), ``priced`` = those with at least one daily\nreturn in the window. ``bars`` / ``bars_needed`` explain a fund with no line (``note``). The two ``*_points``\nare the lines from 100, one per window session, ``null`` when absent."
+      },
+      "EtfCoverageOut": {
+        "properties": {
+          "cards_counted": {
+            "type": "integer",
+            "title": "Cards Counted"
+          },
+          "cards_with_fund": {
+            "type": "integer",
+            "title": "Cards With Fund"
+          },
+          "funds": {
+            "type": "integer",
+            "title": "Funds"
+          },
+          "without": {
+            "items": {
+              "$ref": "#/components/schemas/EtfCardNoFundOut"
+            },
+            "type": "array",
+            "title": "Without"
+          },
+          "multi": {
+            "items": {
+              "$ref": "#/components/schemas/EtfMultiCardFundOut"
+            },
+            "type": "array",
+            "title": "Multi"
+          }
+        },
+        "type": "object",
+        "required": [
+          "cards_counted",
+          "cards_with_fund",
+          "funds",
+          "without",
+          "multi"
+        ],
+        "title": "EtfCoverageOut",
+        "description": "Panel 5, card grain: ``cards_with_fund`` of ``cards_counted`` (``funds`` found), the cards with none\n(A to Z) and the funds on more than one card."
+      },
+      "EtfFlaggedOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "reason"
+        ],
+        "title": "EtfFlaggedOut",
+        "description": "A fund or company left out of every number that uses its price: its data flags reach its price readings\nat the as-of. ``reason`` = the flags' labels."
+      },
+      "EtfFlowRowOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/EtfCardRefOut"
+            },
+            "type": "array",
+            "title": "Cards"
+          },
+          "flow_1w_usd": {
+            "$ref": "#/components/schemas/EtfReadingOut"
+          },
+          "flow_1w_pct": {
+            "$ref": "#/components/schemas/EtfReadingOut"
+          },
+          "flow_1m_usd": {
+            "$ref": "#/components/schemas/EtfReadingOut"
+          },
+          "flow_1m_pct": {
+            "$ref": "#/components/schemas/EtfReadingOut"
+          },
+          "filling_1w": {
+            "type": "boolean",
+            "title": "Filling 1W"
+          },
+          "filling_1m": {
+            "type": "boolean",
+            "title": "Filling 1M"
+          },
+          "samples": {
+            "type": "integer",
+            "title": "Samples"
+          },
+          "first_sample": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Sample"
+          },
+          "latest_sample": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Sample"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "name",
+          "cards",
+          "flow_1w_usd",
+          "flow_1w_pct",
+          "flow_1m_usd",
+          "flow_1m_pct",
+          "filling_1w",
+          "filling_1m",
+          "samples",
+          "first_sample",
+          "latest_sample",
+          "source"
+        ],
+        "title": "EtfFlowRowOut",
+        "description": "Panel 2, one fund: net creations minus redemptions over the trailing 7 and 30 days, in dollars and as a\npercent of shares (the ``etf_flow`` display member's own readings). ``filling_*`` = the sample series is\nyounger than that window (history starts ``first_sample``)."
+      },
       "EtfHoldingOut": {
         "properties": {
           "name": {
@@ -20667,6 +21099,426 @@
         ],
         "title": "EtfHoldingsOut",
         "description": "A ``fund`` sleeve's N-PORT holdings + basket overlap (ETF Sleeve, Slice 2a) \u2014 RESPONSE-ONLY\ndiscovery context, recomputed per click, never persisted (the operator's promote stays the only\nspine writer, #2).\n\n``report_date`` is the holdings VINTAGE (N-PORT is quarter-end, ~60 days lagged \u2014 fine for a\ndiscovery seed); ``source_ref`` the EDGAR filing index URL the whole answer traces to (#6). The\nthree buckets partition ALL ``holdings_count`` positions \u2014 ``held`` (in this thesis's basket) \u00b7\n``available`` (in the master, not the basket) \u00b7 ``unresolved`` (no master match \u2014 SHOWN, never\ndropped, #9). Weight-sorted, heaviest first.\n\nThe fund INTERNALS ride the SAME N-PORT (no extra fetch): ``net_assets`` = AUM (the fund's size),\nwith the ``total_assets``/``total_liabs`` composition it nets down from (net = gross \u2212 liabilities).\nDisplay-only context on the sleeve dossier \u2014 never a signal (#4/#6); ``None`` if a filer omits them."
+      },
+      "EtfIwmOut": {
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "title": "Available"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "ret": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ret"
+          }
+        },
+        "type": "object",
+        "required": [
+          "available",
+          "reason",
+          "ret"
+        ],
+        "title": "EtfIwmOut",
+        "description": "IWM over the window's sessions: ``available`` false = no return, and ``reason`` says why."
+      },
+      "EtfMultiCardFundOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/EtfCardRefOut"
+            },
+            "type": "array",
+            "title": "Cards"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "name",
+          "cards"
+        ],
+        "title": "EtfMultiCardFundOut"
+      },
+      "EtfReadingOut": {
+        "properties": {
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "note"
+        ],
+        "title": "EtfReadingOut",
+        "description": "One number and the reason it is missing: ``value`` null carries the display member's own note\n(\"n/a: 140/200 bars\")."
+      },
+      "EtfSizeRowOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/EtfCardRefOut"
+            },
+            "type": "array",
+            "title": "Cards"
+          },
+          "shares": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shares"
+          },
+          "sample_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sample Date"
+          },
+          "size_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Usd"
+          },
+          "size_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Note"
+          },
+          "adv_usd_20d": {
+            "$ref": "#/components/schemas/EtfReadingOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "name",
+          "cards",
+          "shares",
+          "sample_date",
+          "size_usd",
+          "size_note",
+          "adv_usd_20d"
+        ],
+        "title": "EtfSizeRowOut",
+        "description": "Panel 3, one fund: approximate size (the latest shares sample times the close on or before its date; not\nthe filed net assets) and the 20-day average dollar volume."
+      },
+      "EtfTrendRowOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/EtfCardRefOut"
+            },
+            "type": "array",
+            "title": "Cards"
+          },
+          "ret_30d": {
+            "$ref": "#/components/schemas/EtfReadingOut"
+          },
+          "vs_50d": {
+            "$ref": "#/components/schemas/EtfReadingOut"
+          },
+          "vs_200d": {
+            "$ref": "#/components/schemas/EtfReadingOut"
+          },
+          "rvol20": {
+            "$ref": "#/components/schemas/EtfReadingOut"
+          },
+          "range_pos": {
+            "$ref": "#/components/schemas/EtfReadingOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "name",
+          "cards",
+          "ret_30d",
+          "vs_50d",
+          "vs_200d",
+          "rvol20",
+          "range_pos"
+        ],
+        "title": "EtfTrendRowOut",
+        "description": "Panel 4, one fund: the Cockpit's price readings (30-day return, distance from the 50- and 200-day\naverages, 20-day relative volume, position in the 52-week range, 0 low to 100 high)."
+      },
+      "EtfsOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "window": {
+            "type": "string",
+            "enum": [
+              "1w",
+              "1m",
+              "3m"
+            ],
+            "title": "Window"
+          },
+          "sessions": {
+            "type": "integer",
+            "title": "Sessions"
+          },
+          "dates": {
+            "items": {
+              "type": "string",
+              "format": "date"
+            },
+            "type": "array",
+            "title": "Dates"
+          },
+          "session_source": {
+            "type": "string",
+            "enum": [
+              "benchmarks",
+              "companies",
+              "none"
+            ],
+            "title": "Session Source"
+          },
+          "live_cards": {
+            "type": "integer",
+            "title": "Live Cards"
+          },
+          "cards_counted": {
+            "type": "integer",
+            "title": "Cards Counted"
+          },
+          "cards_not_yet_created": {
+            "type": "integer",
+            "title": "Cards Not Yet Created"
+          },
+          "roster_fallback_cards": {
+            "type": "integer",
+            "title": "Roster Fallback Cards"
+          },
+          "funds": {
+            "type": "integer",
+            "title": "Funds"
+          },
+          "companies": {
+            "type": "integer",
+            "title": "Companies"
+          },
+          "iwm": {
+            "$ref": "#/components/schemas/EtfIwmOut"
+          },
+          "compare": {
+            "items": {
+              "$ref": "#/components/schemas/EtfCompareRowOut"
+            },
+            "type": "array",
+            "title": "Compare"
+          },
+          "flows": {
+            "items": {
+              "$ref": "#/components/schemas/EtfFlowRowOut"
+            },
+            "type": "array",
+            "title": "Flows"
+          },
+          "sizes": {
+            "items": {
+              "$ref": "#/components/schemas/EtfSizeRowOut"
+            },
+            "type": "array",
+            "title": "Sizes"
+          },
+          "trends": {
+            "items": {
+              "$ref": "#/components/schemas/EtfTrendRowOut"
+            },
+            "type": "array",
+            "title": "Trends"
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/EtfCoverageOut"
+          },
+          "flagged_funds": {
+            "items": {
+              "$ref": "#/components/schemas/EtfFlaggedOut"
+            },
+            "type": "array",
+            "title": "Flagged Funds"
+          },
+          "flagged_companies": {
+            "items": {
+              "$ref": "#/components/schemas/EtfFlaggedOut"
+            },
+            "type": "array",
+            "title": "Flagged Companies"
+          },
+          "window_sessions": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Window Sessions"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "window",
+          "sessions",
+          "dates",
+          "session_source",
+          "live_cards",
+          "cards_counted",
+          "cards_not_yet_created",
+          "roster_fallback_cards",
+          "funds",
+          "companies",
+          "iwm",
+          "compare",
+          "flows",
+          "sizes",
+          "trends",
+          "coverage",
+          "flagged_funds",
+          "flagged_companies",
+          "window_sessions",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "EtfsOut",
+        "description": "The whole page for one window (only panel 1 depends on it). ``sessions`` = daily returns in the window\n(fewer than nominal when the tape is short), ``dates`` = its sessions. ``funds`` / ``companies`` = what was\nfound (companies = the voting names of the cards that have a fund). ``flagged_funds`` / ``flagged_companies``\nare left out of the numbers that use their price. ``cache`` / ``compute_ms`` = whether the read came from the\nshared dashboard cache and how long it took when it ran."
       },
       "Evidence": {
         "properties": {

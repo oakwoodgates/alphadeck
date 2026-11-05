@@ -11,7 +11,7 @@
 -- reverse split, 1 -> 2 for a 2-for-1); ``price_factor`` = old / new is DERIVED (prices before the split are
 -- multiplied by it, volumes divided). ``effective_date`` = the first session at the new price.
 --
--- THE IDENTITY. ``key_date`` is the date the split was first listed under (the backfill keys on Polygon's
+-- THE IDENTITY. ``key_date`` is the date the split was first listed under (the backfill keys on Massive.com's
 -- execution date) and never changes across its versions; ``effective_date`` is the version's VALUE and equals
 -- it except after an operator confirms the other source's date (a re-dated split stays ONE logical split —
 -- its confirm and its undo are each one version). The natural-key constraint carries security_id FROM BIRTH
@@ -26,10 +26,10 @@
 --
 -- EVIDENCE rides on every version, both sources side by side: the SEC filing (accession, form, filed date,
 -- URL, the LOCATED passage verbatim, the document it is in, the extracted date and its kind, the extracted
--- ratio or the extractor's abstain reason) and Polygon's row (id, ticker, execution date, split_from/to).
+-- ratio or the extractor's abstain reason) and Massive.com's row (id, ticker, execution date, split_from/to).
 --
 -- BOTH CLOCKS. ``valid_from`` = when the split became public: the earliest confirming SEC filing's filed date,
--- or Polygon's execution date when no SEC filing states it. ``recorded_at`` = the DB's now(), NEVER backdated
+-- or Massive.com's execution date when no SEC filing states it. ``recorded_at`` = the DB's now(), NEVER backdated
 -- (invariant #1): a replay as of night X sees only the versions recorded by night X.
 --
 -- NOT in db/bitemporal.py's _FACT_IDENTITY (yet): that registry also defines the replay mirror's table set
@@ -66,7 +66,7 @@ CREATE TABLE IF NOT EXISTS security_split (
     sec_ratio_from         numeric     NULL,
     sec_ratio_to           numeric     NULL,
     sec_abstain_reason     text        NULL,
-    -- the Polygon side
+    -- the Massive.com side
     polygon_id             text        NULL,
     polygon_ticker         text        NULL,
     polygon_execution_date date        NULL,

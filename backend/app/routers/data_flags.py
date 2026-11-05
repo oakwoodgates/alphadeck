@@ -81,7 +81,7 @@ class DataFlagSplitOut(BaseModel):
     sec_form: str | None = None
     sec_filed: date | None = None
     sec_url: str | None = None
-    polygon: bool = False
+    polygon: bool = Field(default=False, title="Massive.com")
     note: str | None = None
     took_effect: bool = False
     corrected_on: date | None = None

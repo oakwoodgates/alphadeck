@@ -148,9 +148,9 @@ class IssuerFirstFundSource:
     def get_snapshot(
         self, ticker: str, *, allow_live: bool = False, force_refresh: bool = False
     ) -> dict | None:
-        # the warn/story label: the adapter's own name when it has one (polygon/globalx/…), so a
-        # a Massive.com failure never masquerades as "issuer" trouble; a nested composite stays generic
         primary = getattr(self._issuer, "name", "issuer")
+        if primary == PolygonFundSource.name:
+            primary = "Massive.com"
         stories: list[str] = []
         try:
             snap = self._issuer.get_snapshot(

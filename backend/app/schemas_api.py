@@ -2008,7 +2008,7 @@ class AdminRunEnvOut(BaseModel):
     cron_at: str | None = None
     user_agent_set: bool | None = None
     slack_webhook_set: bool | None = None
-    polygon_api_key_set: bool | None = None
+    polygon_api_key_set: bool | None = Field(default=None, title="Massive.com API Key Set")
     heartbeat_url_set: bool | None = None
     notifier: str | None = None
 

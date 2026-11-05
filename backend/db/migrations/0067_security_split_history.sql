@@ -1,9 +1,9 @@
 -- Alpha Deck — security_split_history: which companies have had their SPLIT HISTORY filled (2026-10-24).
 --
 -- WHY. The split list (`security_split`, 0052) was filled ONCE, by the S1 backfill of 2026-10-20 over the basket
--- union of that day (Polygon's split reference since 2024-10-01, each split checked against the company's own SEC
--- filing). The nightly only looks back 30 days (Polygon) / 60 days (SEC filings), and nothing filled the history of
--- a company that JOINED a basket afterwards. MEASURED on prod 2026-10-24 (read-only): 32 splits Polygon lists since
+-- union of that day (Massive.com's split reference since 2024-10-01, each split checked against the company's own SEC
+-- filing). The nightly only looks back 30 days (Massive.com) / 60 days (SEC filings), and nothing filled the history of
+-- a company that JOINED a basket afterwards. MEASURED on prod 2026-10-24 (read-only): 32 splits Massive.com lists since
 -- 2025-03 on 29 companies were missing from the list — every one on a company that joined a basket after the
 -- backfill (CRWD 4-for-1, POWL 3-for-1, LHSW 1-for-16, ABTS 1-for-15 …); companies in a basket at the backfill:
 -- 0 missing. `pipeline/split_history.py` now runs the S1 backfill, scoped to each live basket member with NO row
@@ -18,7 +18,7 @@
 --   complete        — false when the fill could not read everything (the company's SEC filing index, or a filing
 --                     in a split's window): the job retries it, at most `pipeline/split_history.MAX_ATTEMPTS` runs.
 --   attempts        — the runs that filled it (1 for a complete first fill).
---   polygon_splits  — the Polygon split dates the fill decided for this company; appended — the list versions it
+--   polygon_splits  — the Massive.com split dates the fill decided for this company; appended — the list versions it
 --                     appended (0 when the list already held them, or there were none).
 --   note            — what was incomplete, operator-facing.
 --

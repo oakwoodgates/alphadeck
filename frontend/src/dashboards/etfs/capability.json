@@ -1,0 +1,24 @@
+{
+  "slug": "etfs",
+  "order": 290,
+  "label": "ETFs",
+  "description": "The funds on the cards from five angles: each fund against its card's companies, money in and out, size and trading, price trend, and which cards have a fund.",
+  "status": "experimental",
+  "asofAware": true,
+  "capabilities": {
+    "data": false,
+    "observe": false,
+    "screenshot": false,
+    "drilldown": false
+  },
+  "settings_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "defaults": {},
+  "backend_query_fields": [],
+  "capability_version": "1",
+  "response_paths": [],
+  "surface_kind": "dashboard"
+}

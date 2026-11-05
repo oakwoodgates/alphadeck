@@ -72,6 +72,7 @@ import psycopg
 from domain.market_time import market_today
 from domain.settings import get_settings
 from domain.splits import (
+    AUTO_VIA_LABELS,
     SOURCE_POLYGON,
     STATUS_NEEDS_REVIEW,
     STATUSES,
@@ -1016,7 +1017,8 @@ def report(result: BackfillResult, *, out: Any = None) -> None:
         ),
     ):
         d = p.decision
-        via = f" ({d.confirmed_via})" if d.confirmed_via else ""
+        confirmation = AUTO_VIA_LABELS.get(d.confirmed_via or "", d.confirmed_via)
+        via = f" ({confirmation})" if confirmation else ""
         verb = {
             APPEND: "APPEND" + (f" (changed: {', '.join(p.changed)})" if p.changed else " (new)"),
             UNCHANGED: "unchanged — nothing to append",

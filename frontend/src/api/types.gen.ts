@@ -2237,6 +2237,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboards/etfs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Etfs
+         * @description The funds on every live card from five angles: each fund against its card's companies over the window
+         *     (equal weight, rebalanced daily, from 100), net money in and out, approximate size and trading, price
+         *     trend, and which cards have a fund. A fund is a roster row whose security is an ETF, in any link; a card's
+         *     companies are its voting rows with every fund left out. A name whose data flags reach its price readings is
+         *     left out of the numbers that use its price and is listed. Display only; a past as-of reads what was public
+         *     by the end of that date.
+         */
+        get: operations["etfs_dashboards_etfs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dashboards/evidence-ledger/cards": {
         parameters: {
             query?: never;
@@ -4417,7 +4442,7 @@ export interface components {
             user_agent_set?: boolean | null;
             /** Slack Webhook Set */
             slack_webhook_set?: boolean | null;
-            /** Polygon Api Key Set */
+            /** Massive.com API Key Set */
             polygon_api_key_set?: boolean | null;
             /** Heartbeat Url Set */
             heartbeat_url_set?: boolean | null;
@@ -7688,7 +7713,7 @@ export interface components {
             /** Sec Url */
             sec_url?: string | null;
             /**
-             * Polygon
+             * Massive.com
              * @default false
              */
             polygon: boolean;
@@ -9502,6 +9527,149 @@ export interface components {
             /** Operator Return */
             operator_return?: number | null;
         };
+        /** EtfCardNoFundOut */
+        EtfCardNoFundOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+        };
+        /**
+         * EtfCardRefOut
+         * @description A card a fund sits on, with the fund's ticker there (the Cockpit's ``?name=`` key).
+         */
+        EtfCardRefOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /** Ticker */
+            ticker: string;
+        };
+        /**
+         * EtfCompareRowOut
+         * @description Panel 1, one (card, fund) pair. ``ret`` / ``companies_ret`` = the fund's and the card's companies'
+         *     window returns (%), ``diff`` = fund minus companies in points (each ``null`` when it has none).
+         *     ``companies`` = the card's companies (unresolved rows included), ``priced`` = those with at least one daily
+         *     return in the window. ``bars`` / ``bars_needed`` explain a fund with no line (``note``). The two ``*_points``
+         *     are the lines from 100, one per window session, ``null`` when absent.
+         */
+        EtfCompareRowOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Fund Name */
+            fund_name: string | null;
+            /** Ret */
+            ret: number | null;
+            /** Companies Ret */
+            companies_ret: number | null;
+            /** Diff */
+            diff: number | null;
+            /** Companies */
+            companies: number;
+            /** Priced */
+            priced: number;
+            /** Unresolved */
+            unresolved: number;
+            /** Sessions Flat */
+            sessions_flat: number;
+            /** Bars */
+            bars: number;
+            /** Bars Needed */
+            bars_needed: number;
+            /** Note */
+            note: string | null;
+            /** Fund Points */
+            fund_points: number[] | null;
+            /** Company Points */
+            company_points: number[] | null;
+        };
+        /**
+         * EtfCoverageOut
+         * @description Panel 5, card grain: ``cards_with_fund`` of ``cards_counted`` (``funds`` found), the cards with none
+         *     (A to Z) and the funds on more than one card.
+         */
+        EtfCoverageOut: {
+            /** Cards Counted */
+            cards_counted: number;
+            /** Cards With Fund */
+            cards_with_fund: number;
+            /** Funds */
+            funds: number;
+            /** Without */
+            without: components["schemas"]["EtfCardNoFundOut"][];
+            /** Multi */
+            multi: components["schemas"]["EtfMultiCardFundOut"][];
+        };
+        /**
+         * EtfFlaggedOut
+         * @description A fund or company left out of every number that uses its price: its data flags reach its price readings
+         *     at the as-of. ``reason`` = the flags' labels.
+         */
+        EtfFlaggedOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * EtfFlowRowOut
+         * @description Panel 2, one fund: net creations minus redemptions over the trailing 7 and 30 days, in dollars and as a
+         *     percent of shares (the ``etf_flow`` display member's own readings). ``filling_*`` = the sample series is
+         *     younger than that window (history starts ``first_sample``).
+         */
+        EtfFlowRowOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Name */
+            name: string | null;
+            /** Cards */
+            cards: components["schemas"]["EtfCardRefOut"][];
+            flow_1w_usd: components["schemas"]["EtfReadingOut"];
+            flow_1w_pct: components["schemas"]["EtfReadingOut"];
+            flow_1m_usd: components["schemas"]["EtfReadingOut"];
+            flow_1m_pct: components["schemas"]["EtfReadingOut"];
+            /** Filling 1W */
+            filling_1w: boolean;
+            /** Filling 1M */
+            filling_1m: boolean;
+            /** Samples */
+            samples: number;
+            /** First Sample */
+            first_sample: string | null;
+            /** Latest Sample */
+            latest_sample: string | null;
+            /** Source */
+            source: string | null;
+        };
         /**
          * EtfHoldingOut
          * @description One holding on the wire (ETF Sleeve, Slice 2a). ``ticker`` is the holding's best-known ticker —
@@ -9571,6 +9739,159 @@ export interface components {
              * @default []
              */
             unresolved: components["schemas"]["EtfHoldingOut"][];
+        };
+        /**
+         * EtfIwmOut
+         * @description IWM over the window's sessions: ``available`` false = no return, and ``reason`` says why.
+         */
+        EtfIwmOut: {
+            /** Available */
+            available: boolean;
+            /** Reason */
+            reason: string | null;
+            /** Ret */
+            ret: number | null;
+        };
+        /** EtfMultiCardFundOut */
+        EtfMultiCardFundOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Name */
+            name: string | null;
+            /** Cards */
+            cards: components["schemas"]["EtfCardRefOut"][];
+        };
+        /**
+         * EtfReadingOut
+         * @description One number and the reason it is missing: ``value`` null carries the display member's own note
+         *     ("n/a: 140/200 bars").
+         */
+        EtfReadingOut: {
+            /** Value */
+            value: number | null;
+            /** Note */
+            note: string | null;
+        };
+        /**
+         * EtfSizeRowOut
+         * @description Panel 3, one fund: approximate size (the latest shares sample times the close on or before its date; not
+         *     the filed net assets) and the 20-day average dollar volume.
+         */
+        EtfSizeRowOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Name */
+            name: string | null;
+            /** Cards */
+            cards: components["schemas"]["EtfCardRefOut"][];
+            /** Shares */
+            shares: number | null;
+            /** Sample Date */
+            sample_date: string | null;
+            /** Size Usd */
+            size_usd: number | null;
+            /** Size Note */
+            size_note: string | null;
+            adv_usd_20d: components["schemas"]["EtfReadingOut"];
+        };
+        /**
+         * EtfTrendRowOut
+         * @description Panel 4, one fund: the Cockpit's price readings (30-day return, distance from the 50- and 200-day
+         *     averages, 20-day relative volume, position in the 52-week range, 0 low to 100 high).
+         */
+        EtfTrendRowOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Name */
+            name: string | null;
+            /** Cards */
+            cards: components["schemas"]["EtfCardRefOut"][];
+            ret_30d: components["schemas"]["EtfReadingOut"];
+            vs_50d: components["schemas"]["EtfReadingOut"];
+            vs_200d: components["schemas"]["EtfReadingOut"];
+            rvol20: components["schemas"]["EtfReadingOut"];
+            range_pos: components["schemas"]["EtfReadingOut"];
+        };
+        /**
+         * EtfsOut
+         * @description The whole page for one window (only panel 1 depends on it). ``sessions`` = daily returns in the window
+         *     (fewer than nominal when the tape is short), ``dates`` = its sessions. ``funds`` / ``companies`` = what was
+         *     found (companies = the voting names of the cards that have a fund). ``flagged_funds`` / ``flagged_companies``
+         *     are left out of the numbers that use their price. ``cache`` / ``compute_ms`` = whether the read came from the
+         *     shared dashboard cache and how long it took when it ran.
+         */
+        EtfsOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /**
+             * Window
+             * @enum {string}
+             */
+            window: "1w" | "1m" | "3m";
+            /** Sessions */
+            sessions: number;
+            /** Dates */
+            dates: string[];
+            /**
+             * Session Source
+             * @enum {string}
+             */
+            session_source: "benchmarks" | "companies" | "none";
+            /** Live Cards */
+            live_cards: number;
+            /** Cards Counted */
+            cards_counted: number;
+            /** Cards Not Yet Created */
+            cards_not_yet_created: number;
+            /** Roster Fallback Cards */
+            roster_fallback_cards: number;
+            /** Funds */
+            funds: number;
+            /** Companies */
+            companies: number;
+            iwm: components["schemas"]["EtfIwmOut"];
+            /** Compare */
+            compare: components["schemas"]["EtfCompareRowOut"][];
+            /** Flows */
+            flows: components["schemas"]["EtfFlowRowOut"][];
+            /** Sizes */
+            sizes: components["schemas"]["EtfSizeRowOut"][];
+            /** Trends */
+            trends: components["schemas"]["EtfTrendRowOut"][];
+            coverage: components["schemas"]["EtfCoverageOut"];
+            /** Flagged Funds */
+            flagged_funds: components["schemas"]["EtfFlaggedOut"][];
+            /** Flagged Companies */
+            flagged_companies: components["schemas"]["EtfFlaggedOut"][];
+            /** Window Sessions */
+            window_sessions: {
+                [key: string]: number;
+            };
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
         };
         /**
          * Evidence
@@ -20564,6 +20885,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EntryWindowsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    etfs_dashboards_etfs_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; nothing published after it is read */
+                asof: string;
+                /** @description panel 1's look back in trading sessions: 1w | 1m | 3m */
+                window?: "1w" | "1m" | "3m";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EtfsOut"];
                 };
             };
             /** @description Validation Error */

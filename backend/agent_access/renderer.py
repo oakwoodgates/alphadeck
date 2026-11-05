@@ -5,11 +5,22 @@ import json
 import logging
 from urllib.parse import urlsplit
 
+import httpx
+
 from .capture import loopback_base, request_key, response_key
 from .errors import AccessError
 
 VIEWPORT = {"width": 1440, "height": 1080}
 MAX_PNG_BYTES = 8 * 1024 * 1024
+# The renderer entry's own title (frontend/mcp-render.html), identical in Vite dev and the build.
+# A UI answering 200 without it serves some other page: an older build or a different app.
+RENDERER_MARKER = "<title>Alpha Deck captured dashboard</title>"
+PREFLIGHT_TIMEOUT_S = 5.0
+MAX_PREFLIGHT_BYTES = 1024 * 1024
+BROWSER_NOT_INSTALLED = (
+    "Chromium for Playwright is not installed on this machine. Using the MCP server's Python, "
+    "run: python -m playwright install --only-shell chromium"
+)
 OCCLUSION_CHECK = """(el, clip) => {
     // Inert and pointer-events affect hit testing, not pixels. Lift them only during
     // this synchronous measurement; no interactions run and every change is restored.
@@ -65,15 +76,126 @@ OCCLUSION_CHECK = """(el, clip) => {
 }"""
 
 
+def launch_failure(error: Exception) -> AccessError:
+    """Map a Chromium launch failure to a stable error; preflight and render share this one rule.
+
+    A launch message names a local executable path, never captured content, so its first line
+    is safe to log. Errors raised later, while a page renders captured data, are not routed here.
+    """
+    message = str(error)
+    first_line = (message.strip().splitlines() or [""])[0][:200]
+    logging.getLogger(__name__).warning(
+        "browser_launch_error exception_class=%s message=%s", type(error).__name__, first_line
+    )
+    if "Executable doesn't exist" in message:
+        return AccessError("browser_not_installed", BROWSER_NOT_INSTALLED, retryable=False)
+    return AccessError(
+        "browser_unavailable",
+        "Local Chromium could not start; check the Playwright browser installation.",
+        retryable=True,
+    )
+
+
 class FrozenRenderer:
-    def __init__(self, ui_base: str, *, timeout_ms: int = 40000):
+    def __init__(
+        self,
+        ui_base: str,
+        *,
+        timeout_ms: int = 40000,
+        preflight_timeout: float = PREFLIGHT_TIMEOUT_S,
+        transport: httpx.AsyncBaseTransport | None = None,
+        playwright_factory=None,
+    ):
         self.ui_base = loopback_base(ui_base)
         self.timeout_ms = timeout_ms
+        self.preflight_timeout = preflight_timeout
+        self.transport = transport
+        # Injectable for synthetic tests; the default is Playwright's async_playwright.
+        self.playwright_factory = playwright_factory
+        self._browser_ready = False
+
+    def _playwright(self):
+        if self.playwright_factory is not None:
+            return self.playwright_factory()
+        from playwright.async_api import async_playwright
+
+        return async_playwright()
+
+    async def _launch(self, playwright):
+        from playwright.async_api import Error
+
+        try:
+            return await playwright.chromium.launch(headless=True)
+        except Error as error:
+            self._browser_ready = False  # A browser that stopped launching is re-checked next read.
+            raise launch_failure(error) from None
+
+    async def preflight(self) -> None:
+        """Fail fast before a capture: the UI must serve the renderer and Chromium must launch.
+
+        The UI is checked on every call. A successful browser launch is remembered for this
+        renderer's lifetime; a failure never is, so installing Chromium needs no restart.
+        """
+        await self._check_ui()
+        if not self._browser_ready:
+            await self._check_browser()
+            self._browser_ready = True
+
+    async def _check_ui(self) -> None:
+        def unavailable(detail: str = "") -> AccessError:
+            # Down or failing: a retry can succeed once the frontend recovers.
+            return AccessError(
+                "ui_unavailable",
+                f"The Alpha Deck frontend at {self.ui_base} is not answering{detail}; start it,"
+                " or point --ui-base at a running frontend.",
+                retryable=True,
+            )
+
+        def not_served(detail: str = "") -> AccessError:
+            # It answered, but not with the renderer: a retry gets the same answer.
+            return AccessError(
+                "renderer_not_served",
+                f"The frontend at {self.ui_base} serves a page that is not the Alpha Deck"
+                f" renderer{detail}: its frontend build predates the MCP renderer, or it is a"
+                " different app. Rebuild that frontend, or point --ui-base at one that serves it.",
+            )
+
+        content = bytearray()
+        try:
+            async with httpx.AsyncClient(
+                timeout=self.preflight_timeout,
+                trust_env=False,
+                follow_redirects=False,
+                transport=self.transport,
+            ) as client:
+                async with client.stream("GET", self.ui_base + "/mcp-render.html") as response:
+                    status = response.status_code
+                    if status != 200:
+                        detail = f" (HTTP {status} for /mcp-render.html)"
+                        raise unavailable(detail) if status >= 500 else not_served(detail)
+                    async for chunk in response.aiter_bytes():
+                        content.extend(chunk)
+                        if len(content) > MAX_PREFLIGHT_BYTES:
+                            break
+        except httpx.HTTPError:
+            raise unavailable() from None
+        if RENDERER_MARKER.encode("utf-8") not in content:
+            raise not_served()
+
+    async def _check_browser(self) -> None:
+        from playwright.async_api import Error
+
+        try:
+            async with self._playwright() as playwright:
+                browser = await self._launch(playwright)
+                await browser.close()
+        except Error as error:
+            raise launch_failure(error) from None
 
     async def render(
         self, envelope: dict, snapshot_id: str, settings: dict, target_id: str | None = None
     ) -> tuple[dict, bytes, dict]:
-        from playwright.async_api import Error, TimeoutError, async_playwright
+        from playwright.async_api import Error, TimeoutError
 
         frozen = {
             response_key(item["method"], item["path"], item["query"]): item
@@ -141,8 +263,8 @@ class FrozenRenderer:
                 await route.abort("failed")
 
         try:
-            async with async_playwright() as playwright:
-                browser = await playwright.chromium.launch(headless=True)
+            async with self._playwright() as playwright:
+                browser = await self._launch(playwright)
                 try:
                     context = await browser.new_context(
                         viewport=VIEWPORT,
