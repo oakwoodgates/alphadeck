@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200">
+<g fill="#101318" stroke="#1e232c">
+<rect x="16" y="14" width="138" height="82" rx="5"/>
+<rect x="166" y="14" width="138" height="82" rx="5"/>
+<rect x="16" y="104" width="138" height="82" rx="5"/>
+<rect x="166" y="104" width="138" height="82" rx="5"/>
+</g>
+<path fill="none" stroke="#2a313c" d="M26 74H144M176 55H294"/>
+<g fill="none" stroke-linecap="round" stroke-linejoin="round">
+<path stroke="#5a6470" stroke-width="1.5" d="M26 74L47 70L68 72L89 66L110 62L131 58L144 55"/>
+<path stroke="#e7eaef" stroke-width="2" d="M26 74L47 68L68 66L89 56L110 44L131 34L144 28"/>
+</g>
+<g fill="none" stroke-linecap="round" stroke-width="7">
+<path stroke="#46d07f" d="M182 55v-22M214 55v-30M246 55v-12M278 55v-26"/>
+<path stroke="#ff5a6a" d="M198 55v16M230 55v26M262 55v14"/>
+</g>
+<path fill="none" stroke="#586374" stroke-linecap="round" stroke-width="7" d="M28 117h100M28 131h76M28 145h56M28 159h38M28 173h22"/>
+<path fill="none" stroke="#9aa3b0" stroke-linecap="round" stroke-width="7" d="M182 160h.01M200 150h.01M218 154h.01M236 138h.01M254 130h.01M272 124h.01M290 118h.01"/>
+<path fill="none" stroke="#2a313c" d="M176 172H294"/>
+</svg>

@@ -1,0 +1,88 @@
+/* ETFs (docs/dashboards/etfs.md) — its own sheet, imported by the component, never index.css
+   (docs/DASHBOARDS.md rule 8). Five blocks: panel 1 spans the page, panels 2 to 5 sit in a two-column grid (one
+   column on a phone). Quiet by construction (invariant #7 / WB#3): every number and word is in the neutral tokens,
+   a sign is shown as + or −, and ONLY panel 2's flow bars carry the sign colors (--pos / --neg), matching the
+   Cockpit's fund-flow chip. The fund's mini line is --txt, the companies' --txt-3. No state colors, no badge. */
+
+.et { display: flex; flex-direction: column; gap: 8px; max-width: 1280px; }
+.et-work { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
+
+.et-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; }
+.et-panel { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.et-panel.wide { margin-top: 4px; }
+.et-h { margin: 0; font-size: 10px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--txt-3); display: flex; align-items: baseline; gap: 10px; }
+.et-ct { font-weight: 400; letter-spacing: 0.04em; text-transform: none; color: var(--txt-4); font-family: var(--mono); font-size: 10.5px; }
+.et-how { margin: 2px 0 0; font-size: 10.5px; line-height: 1.5; color: var(--txt-4); max-width: 760px; }
+.et-empty { margin: 0; font-size: 11.5px; color: var(--txt-4); }
+.et-line { margin: 0; font-size: 12px; color: var(--txt-2); }
+.et-sub { margin: 6px 0 0; font-size: 9.5px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); }
+.et-plain { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; font-size: 11.5px; color: var(--txt-3); }
+
+/* controls */
+.et-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; }
+.et-seg { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.et-seg-label { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-4); margin-right: 4px; }
+.et-seg-btn { font: inherit; font-size: 11px; color: var(--txt-3); background: transparent; border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 9px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+.et-seg-btn:hover { color: var(--txt-2); }
+.et-seg-btn.on { color: var(--txt); background: var(--panel-2); }
+.et-arrow { font-size: 8px; line-height: 1; }
+.et-iwm { font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
+
+/* shared bits */
+.et-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.et-list > li { border-bottom: 1px solid var(--line); padding: 6px 0; }
+.et-list > li:last-child { border-bottom: 0; }
+.et-tk { font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--txt-2); }
+.et-name { font-size: 10.5px; color: var(--txt-4); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.et-link, .et-card, .et-th { font: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: left; color: var(--txt-3); }
+.et-link { font-size: 10.5px; }
+.et-link:hover, .et-card:hover { text-decoration: underline; text-underline-offset: 2px; color: var(--txt-2); }
+.et-link:focus-visible, .et-card:focus-visible, .et-th:focus-visible { outline: 1px solid var(--line-2); outline-offset: 2px; border-radius: 2px; }
+.et-fund { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.et-cards { display: flex; flex-wrap: wrap; gap: 0 10px; }
+
+/* panel 1 */
+.et-crow { display: grid; grid-template-columns: minmax(150px, 220px) 1fr 140px; gap: 4px 14px; align-items: center; }
+.et-who { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.et-card { font-size: 12px; font-weight: 600; color: var(--txt); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.et-ftk { font-family: var(--mono); font-weight: 700; font-size: 11px; color: var(--txt-2); }
+.et-nums { display: flex; flex-wrap: wrap; gap: 2px 14px; font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
+.et-nums span { white-space: nowrap; cursor: help; }
+.et-mini { display: block; width: 100%; height: 30px; overflow: visible; }
+.et-fline, .et-comp { fill: none; vector-effect: non-scaling-stroke; }
+path.et-fline { stroke: var(--txt); stroke-width: 1.4; }
+path.et-comp { stroke: var(--txt-3); stroke-width: 1; }
+.et-base { stroke: var(--line-2); stroke-width: 1; stroke-dasharray: 2 2; vector-effect: non-scaling-stroke; }
+
+/* panel 2: the flow bar grows from a center axis; only these two fills carry the sign colors */
+.et-frow { display: grid; grid-template-columns: minmax(110px, 170px) 1fr; gap: 2px 12px; align-items: center; }
+.et-flow-bar { position: relative; height: 8px; background: var(--bg-2); border-radius: 2px; }
+.et-flow-bar::after { content: ""; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--line-2); }
+.et-bar { position: absolute; top: 0; bottom: 0; border-radius: 2px; }
+.et-bar.pos { background: var(--pos); }
+.et-bar.neg { background: var(--neg); }
+.et-flow-text { grid-column: 2; display: flex; flex-wrap: wrap; gap: 0 14px; font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); }
+.et-flow-n { white-space: nowrap; }
+
+/* panel 3: two log bars per fund, neutral */
+.et-srow { display: grid; grid-template-columns: minmax(110px, 170px) 1fr; gap: 4px 12px; align-items: center; }
+.et-bars { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.et-track { position: relative; height: 15px; background: var(--bg-2); border-radius: 2px; overflow: hidden; }
+.et-track .et-bar.size { background: var(--line-2); }
+.et-track .et-bar.adv { background: var(--line); }
+.et-bar-t { position: relative; padding-left: 6px; font-family: var(--mono); font-size: 10px; line-height: 15px; color: var(--txt-3); white-space: nowrap; }
+
+/* panel 4 */
+table.et-trend { border-collapse: collapse; width: 100%; font-size: 11px; }
+table.et-trend th { text-align: left; font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--txt-4); font-weight: 600; padding: 0 8px 4px 0; border-bottom: 1px solid var(--line); }
+table.et-trend th .et-th { font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--txt-4); font-weight: 600; }
+table.et-trend th .et-th[aria-pressed="true"] { color: var(--txt-2); }
+table.et-trend td { padding: 4px 8px 4px 0; border-bottom: 1px solid var(--line); font-family: var(--mono); font-size: 10.5px; color: var(--txt-3); white-space: nowrap; vertical-align: top; }
+table.et-trend .et-num { text-align: right; }
+
+@media (max-width: 900px) {
+  .et-grid { grid-template-columns: minmax(0, 1fr); }
+  .et-crow { grid-template-columns: 1fr; }
+  .et-frow, .et-srow { grid-template-columns: 1fr; }
+  .et-flow-text { grid-column: 1; }
+}

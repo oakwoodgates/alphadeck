@@ -263,6 +263,19 @@ What follows for the page:
    no-browser-storage rule rule out. A `?hide=` link parameter can come later if wanted.
 7. **Approximate size** is shares × close, not the filed net assets.
 8. **Naming:** slug `etfs`, label "ETFs", menu order 290.
+9. **A fund with a missing bar has no line.** Panel 1 draws the fund only when it has a bar on every session of the
+   window ("n/a: 12/22 bars" otherwise). A single gap would drop two daily steps and misstate the return.
+10. **Panel 4's return column** is the Cockpit's 30-trading-day return, labeled "30d". Panel 1's "1M" is 21
+    sessions, so the two names stay apart.
+11. **Panel 4's range column** is the position in the 52-week range, 0 at the low to 100 at the high, worked out
+    from the range member's two percentages. The hover carries the member's note when it is missing.
+12. **A fund is identified by its master row today.** Whether a security is an ETF is identity, not a dated fact,
+    so a past view reads the kind as it stands now; only the rosters, bars and shares samples are judged as of the
+    as-of.
+13. **Where the flagged note sits.** Panel 1 lists the flagged funds and the flagged companies; panels 2 to 4 list
+    the flagged funds. Panel 5 lists none, because it uses no price.
+14. **Panels 2 to 4 list the cards beside each fund,** each opening the card's Cockpit at the fund. Panel 1's two
+    names open the card, and the fund.
 
 ## Later (not in this plan)
 
