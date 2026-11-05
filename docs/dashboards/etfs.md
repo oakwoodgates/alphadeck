@@ -1,8 +1,9 @@
 # ETFs
 
-> Slug `etfs` · status `experimental` · follows the **as-of dial** (`asofAware: true`). **PROPOSED, for the
-> operator's sign-off (2026-11-05). Nothing is built.** "Open questions" and "Choices to confirm" at the end are
-> the operator's to answer or change. The rules every dashboard follows: `docs/DASHBOARDS.md`.
+> Slug `etfs` · status `experimental` · follows the **as-of dial** (`asofAware: true`). **Signed off by the
+> operator as written, 2026-11-05.** That covers the eight "Choices to confirm" as proposed, and open question 1
+> as proposed: ship without holdings. Open question 2 (a flow backfill) stays the operator's spend to run or
+> not; the page ships either way. The rules every dashboard follows: `docs/DASHBOARDS.md`.
 
 **Label:** ETFs. **Description:** "The funds on the cards from five angles: each fund against its card's
 companies, money in and out, size and trading, price trend, and which cards have a fund."
