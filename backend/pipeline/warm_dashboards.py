@@ -110,6 +110,7 @@ PAGES: tuple[tuple[str, Params], ...] = (
     ("narrative-index", {"window": "1y", "include_silent": False}),
     ("read-through", {}),
     ("rotation-quadrant", {"group_by": "link", "include_silent": False}),
+    ("etfs", {"window": "1m"}),
     # the card pickers (the picker read only, never a card)
     ("filing-stream/cards", {}),
     ("chain-map/cards", {}),
