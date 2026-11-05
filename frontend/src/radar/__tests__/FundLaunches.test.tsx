@@ -136,6 +136,57 @@ describe("FundLaunches", () => {
     expect(screen.getByRole("button", { name: /2 funds/ })).toHaveAttribute("aria-expanded", "true");
   });
 
+  it("a collapsed batch lists at most 5 cards (theme tier first, then by fund hits) and counts the rest", async () => {
+    const user = userEvent.setup();
+    const mk = (i: number, tier: string | null, hits: number) =>
+      Array.from({ length: hits }, (_, k) => ({
+        key: `C${i}-${k}`,
+        series_id: `C${i}-${k}`,
+        name: `Test Wrapper ${i}-${k} ETF`,
+        stage: STAGE_FILED,
+        symbols: [],
+        in_etfs: false,
+        matches: [
+          {
+            thesis_id: `t-${i}`,
+            thesis_name: `Card ${i}`,
+            tier,
+            signal_terms: tier === "signal" ? ["x"] : [],
+            broad_terms: tier === "broad" ? ["y"] : [],
+            name_hits: tier ? [] : [{ ticker: "ZZ", link: null, token: "ZZ", via: "ticker" }],
+          },
+        ],
+      }));
+    h.data = {
+      filings: [
+        {
+          ...BATCH,
+          // name-only cards 1 (1 fund) and 2 (3 funds); broad cards 3 and 4; signal card 5; two more name-only
+          funds: [
+            ...mk(1, null, 1),
+            ...mk(2, null, 3),
+            ...mk(3, "broad", 1),
+            ...mk(4, "broad", 2),
+            ...mk(5, "signal", 1),
+            ...mk(6, null, 1),
+            ...mk(7, null, 1),
+          ],
+        },
+      ],
+      counts: COUNTS,
+      window_days: 90,
+      include_private: false,
+      matched_only: true,
+    };
+    render(<FundLaunches />);
+    const fits = screen.getByText(/^fits /);
+    // signal (5), then broad by hits (4, 3), then name-only by hits (2, then 1 by name); 6 and 7 are the rest
+    expect(fits).toHaveTextContent("fits Card 5 · Card 4 · Card 3 · Card 2 · Card 1");
+    expect(fits).toHaveTextContent("+2 more cards");
+    await user.click(screen.getByRole("button", { name: /funds/ }));
+    expect(screen.getByText("Test Wrapper 7-0 ETF")).toBeInTheDocument(); // opening shows every fund's own lines
+  });
+
   it("defaults to matched only; the show-all toggle (with its unmatched count) flips the query", async () => {
     const user = userEvent.setup();
     render(<FundLaunches />);

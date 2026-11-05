@@ -65,11 +65,28 @@ export function FundLaunches() {
   );
 }
 
+/** The cards a filing's funds fit, best first, for the collapsed batch row: cards with a theme read first (signal
+ *  tier, then broad), then by how many of the filing's funds hit them, then by name. */
+export function rankCards(f: FundFilingOut): string[] {
+  const stat = new Map<string, { tier: number; funds: number }>();
+  for (const fund of f.funds) {
+    for (const m of fund.matches ?? []) {
+      const tier = m.tier === "signal" ? 0 : m.tier === "broad" ? 1 : 2;
+      const s = stat.get(m.thesis_name) ?? { tier: 2, funds: 0 };
+      stat.set(m.thesis_name, { tier: Math.min(s.tier, tier), funds: s.funds + 1 });
+    }
+  }
+  return [...stat.entries()]
+    .sort((a, b) => a[1].tier - b[1].tier || b[1].funds - a[1].funds || a[0].localeCompare(b[0]))
+    .map(([name]) => name);
+}
+
 function FilingRow({ f }: { f: FundFilingOut }) {
   const [open, setOpen] = useState(false);
   const batch = f.funds.length > 1;
   const single = f.funds[0];
-  const cardNames = [...new Set(f.funds.flatMap((fund) => (fund.matches ?? []).map((m) => m.thesis_name)))];
+  const cardNames = rankCards(f);
+  const SHOWN = 5;
   return (
     <div className="radar-row fl-row">
       <div className="radar-top">
@@ -109,7 +126,12 @@ function FilingRow({ f }: { f: FundFilingOut }) {
         </div>
       )}
       {batch && !open && cardNames.length > 0 && (
-        <div className="fl-fits">fits {cardNames.join(" · ")}</div>
+        <div className="fl-fits">
+          fits {cardNames.slice(0, SHOWN).join(" · ")}
+          {cardNames.length > SHOWN && (
+            <span className="fl-more"> · +{cardNames.length - SHOWN} more cards</span>
+          )}
+        </div>
       )}
       {batch && open && (
         <div className="fl-funds">

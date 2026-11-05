@@ -278,6 +278,38 @@ def test_the_shipped_stoplist_loads_and_holds_sponsor_brands():
     assert {"ishares", "vanguard", "growth"} <= shipped
 
 
+def test_shipped_two_word_entries_match_a_whole_cleaned_company_name():
+    shipped = fund_match.load_stopwords()
+    for name, entry in (
+        ("Federated Hermes, Inc.", "federated hermes"),
+        ("Franklin Templeton Holdings Ltd", "franklin templeton"),
+        ("Quantum Computing Inc", "quantum computing"),
+    ):
+        assert fund_match.clean_company_name(name).lower() == entry
+        assert entry in shipped
+        co = _co("QQQQQ", name)
+        assert fund_match.match_names(f"Test {entry.title()} Fund", [co], wrapper_words=WRAP) == []
+
+
+def test_a_short_ticker_never_matches_beside_punctuation():
+    q = _co("Q")
+    for name in (
+        "Q&R 500 Daily Target ETF",
+        "Test U.Q. Treasury 2X Long Fund",
+        "Q/z Long Fund",
+        "Q's 2X Long Fund",
+        "Test Q-ZEN 2X Long Fund",
+    ):
+        assert fund_match.match_names(name, [q], wrapper_words=WRAP, stopwords=STOP) == [], name
+    # the positive: a 1-letter ticker as its own word beside a wrapper word still matches
+    assert fund_match.match_names(
+        "Acme 2X Long Q Daily ETF", [q], wrapper_words=WRAP, stopwords=STOP
+    )
+    # a 3+ character ticker keeps today's rule (hyphen only): punctuation beside it is fine
+    abc = _co("QRX")
+    assert fund_match.match_names("Test QRX&Co Fund", [abc], wrapper_words=WRAP, stopwords=STOP)
+
+
 def test_legal_forms_are_stripped_before_the_length_rule():
     assert fund_match.clean_company_name("Zorbex Group N.V.") == "Zorbex"
     assert fund_match.clean_company_name("Example S.A.") == "Example"

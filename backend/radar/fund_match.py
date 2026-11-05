@@ -80,11 +80,17 @@ def strip_marks(fund_name: str) -> str:
 
 
 @lru_cache(maxsize=16384)
-def _phrase(words: str, *, ignore_case: bool = True, hyphen_joins: bool = False) -> re.Pattern[str]:
+def _phrase(
+    words: str, *, ignore_case: bool = True, hyphen_joins: bool = False, short: bool = False
+) -> re.Pattern[str]:
     """A whole-word phrase. ``hyphen_joins`` (the name read) treats ``-`` as part of the word, so a ticker or a
-    company name never matches beside a hyphen ("Q" in "Q-ZEN", "Acme" in "Acme-500")."""
+    company name never matches beside a hyphen ("Q" in "Q-ZEN", "Acme" in "Acme-500"). ``short`` (a 1-2
+    character ticker only) also refuses a neighbor of ``.``, ``&``, ``/`` or ``'`` ("Q" in "Q&R 500", "U.Q.",
+    "Q/z"): a letter or two beside punctuation is an abbreviation, not a ticker."""
     body = r"\s+".join(re.escape(w) for w in words.split())
     edge = "A-Za-z0-9-" if hyphen_joins else "A-Za-z0-9"
+    if short:
+        edge += ".&/'"
     return re.compile(rf"(?<![{edge}]){body}(?![{edge}])", re.IGNORECASE if ignore_case else 0)
 
 
@@ -252,7 +258,9 @@ def _names(
     for pc in prepared:
         c = pc.ref
         if pc.tick is not None and pc.tick in clean:  # the substring is necessary for a word match
-            m = _phrase(pc.tick, ignore_case=False, hyphen_joins=True).search(clean)
+            m = _phrase(
+                pc.tick, ignore_case=False, hyphen_joins=True, short=len(pc.tick) <= 2
+            ).search(clean)
             if m and (len(pc.tick) >= 3 or wrapped):
                 hits.append(NameHit(c.ticker, c.link, m.group(0), "ticker"))
                 continue
