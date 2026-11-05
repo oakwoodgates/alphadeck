@@ -95,7 +95,8 @@
     },
     "left_out_feed_stopped": 0,
     "left_out_no_longer_priced": 0,
-    "counted_feed_stopped": 0
+    "counted_feed_stopped": 0,
+    "cap_from_cover": 0
   },
   "rows": [
     {
@@ -193,7 +194,8 @@
         "shares": 81000000.0,
         "shares_date": "2026-05-12",
         "ads_ratio": null,
-        "split_factor": null
+        "split_factor": null,
+        "source": "workbench"
       },
       "adv_usd": 2500000.0,
       "liquidity": "1m_10m",
@@ -307,7 +309,8 @@
         "shares": null,
         "shares_date": null,
         "ads_ratio": null,
-        "split_factor": null
+        "split_factor": null,
+        "source": null
       },
       "adv_usd": 2500000.0,
       "liquidity": null,
@@ -421,7 +424,8 @@
         "shares": 81000000.0,
         "shares_date": "2026-05-12",
         "ads_ratio": null,
-        "split_factor": null
+        "split_factor": null,
+        "source": "workbench"
       },
       "adv_usd": 2500000.0,
       "liquidity": "under_1m",
@@ -535,7 +539,8 @@
         "shares": 81000000.0,
         "shares_date": "2026-05-12",
         "ads_ratio": null,
-        "split_factor": null
+        "split_factor": null,
+        "source": "workbench"
       },
       "adv_usd": 2500000.0,
       "liquidity": "under_1m",
@@ -649,7 +654,8 @@
         "shares": 81000000.0,
         "shares_date": "2026-05-12",
         "ads_ratio": null,
-        "split_factor": null
+        "split_factor": null,
+        "source": "workbench"
       },
       "adv_usd": 2500000.0,
       "liquidity": "under_1m",
@@ -763,7 +769,8 @@
         "shares": 81000000.0,
         "shares_date": "2026-05-12",
         "ads_ratio": null,
-        "split_factor": null
+        "split_factor": null,
+        "source": "workbench"
       },
       "adv_usd": 2500000.0,
       "liquidity": "1m_10m",
@@ -877,7 +884,8 @@
         "shares": 81000000.0,
         "shares_date": "2026-05-12",
         "ads_ratio": null,
-        "split_factor": null
+        "split_factor": null,
+        "source": "workbench"
       },
       "adv_usd": 2500000.0,
       "liquidity": "1m_10m",
@@ -991,7 +999,8 @@
         "shares": 81000000.0,
         "shares_date": "2026-05-12",
         "ads_ratio": null,
-        "split_factor": null
+        "split_factor": null,
+        "source": "workbench"
       },
       "adv_usd": 2500000.0,
       "liquidity": "1m_10m",
@@ -1105,7 +1114,8 @@
         "shares": 81000000.0,
         "shares_date": "2026-05-12",
         "ads_ratio": null,
-        "split_factor": null
+        "split_factor": null,
+        "source": "workbench"
       },
       "adv_usd": 2500000.0,
       "liquidity": "1m_10m",
@@ -1219,7 +1229,8 @@
         "shares": 81000000.0,
         "shares_date": "2026-05-12",
         "ads_ratio": null,
-        "split_factor": null
+        "split_factor": null,
+        "source": "workbench"
       },
       "adv_usd": 2500000.0,
       "liquidity": "1m_10m",
@@ -1333,7 +1344,8 @@
         "shares": 81000000.0,
         "shares_date": "2026-05-12",
         "ads_ratio": null,
-        "split_factor": null
+        "split_factor": null,
+        "source": "workbench"
       },
       "adv_usd": 2500000.0,
       "liquidity": "1m_10m",
@@ -1447,7 +1459,8 @@
         "shares": 81000000.0,
         "shares_date": "2026-05-12",
         "ads_ratio": null,
-        "split_factor": null
+        "split_factor": null,
+        "source": "workbench"
       },
       "adv_usd": 2500000.0,
       "liquidity": "1m_10m",
@@ -1561,7 +1574,8 @@
         "shares": 81000000.0,
         "shares_date": "2026-05-12",
         "ads_ratio": null,
-        "split_factor": null
+        "split_factor": null,
+        "source": "workbench"
       },
       "adv_usd": 2500000.0,
       "liquidity": "1m_10m",
@@ -1675,7 +1689,8 @@
         "shares": 81000000.0,
         "shares_date": "2026-05-12",
         "ads_ratio": null,
-        "split_factor": null
+        "split_factor": null,
+        "source": "workbench"
       },
       "adv_usd": 2500000.0,
       "liquidity": "1m_10m",
@@ -1789,7 +1804,8 @@
         "shares": 81000000.0,
         "shares_date": "2026-05-12",
         "ads_ratio": null,
-        "split_factor": null
+        "split_factor": null,
+        "source": "workbench"
       },
       "adv_usd": 2500000.0,
       "liquidity": "1m_10m",
@@ -1903,7 +1919,8 @@
         "shares": 81000000.0,
         "shares_date": "2026-05-12",
         "ads_ratio": null,
-        "split_factor": null
+        "split_factor": null,
+        "source": "workbench"
       },
       "adv_usd": 2500000.0,
       "liquidity": "1m_10m",
@@ -2017,7 +2034,8 @@
         "shares": 81000000.0,
         "shares_date": "2026-05-12",
         "ads_ratio": null,
-        "split_factor": null
+        "split_factor": null,
+        "source": "workbench"
       },
       "adv_usd": 2500000.0,
       "liquidity": "1m_10m",

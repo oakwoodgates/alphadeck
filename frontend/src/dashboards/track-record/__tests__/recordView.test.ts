@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
+import { capSourceWords } from "../../market-map/mapView";
 import {
+  CAP_SOURCE_WORDS,
   DEFAULT_FILTERS,
   HORIZONS,
   LIMITS,
@@ -376,10 +378,47 @@ describe("the words", () => {
     const adr = capWords(row({ cap: cap({ ads_ratio: 5, split_factor: 2 }) }));
     expect(adr.title).toContain("divided by the ADS ratio 5");
     expect(adr.title).toContain("×2");
-    const un = capWords(row({ cap: cap({ value: null, tier: null, gap: "ads_unread" }) }));
+    const un = capWords(row({ cap: cap({ value: null, tier: null, gap: "ads_unread", source: null }) }));
     expect(un.text).toBe(UNPINNED);
     expect(un.title).toContain("ordinary-shares-per-ADS ratio is unread");
     expect(capWords(row({ cap: null }))).toEqual({ text: "", title: "" });
+  });
+
+  it("names the share count's source in the Market Map's exact words", () => {
+    expect(CAP_SOURCE_WORDS.workbench).toBe(capSourceWords({ cap_source: "workbench" }));
+    expect(CAP_SOURCE_WORDS.cover).toBe(capSourceWords({ cap_source: "cover" }));
+    expect(capWords(row()).title).toBe(
+      "Approximate: the as-traded close of 2026-06-02 ($14.40) times the 40,000,000 shares dated 2026-05-12 (share count ratified in the Workbench).",
+    );
+    const cover = capWords(row({ cap: cap({ source: "cover", shares_date: "2026-04-30", split_factor: 2 }) }));
+    expect(cover.title).toBe(
+      "Approximate: the as-traded close of 2026-06-02 ($14.40) times the 40,000,000 shares dated 2026-04-30 (share count from the filing cover (not ratified)), the count put on the close's scale by a split (×2).",
+    );
+  });
+
+  it("an unpinned cap's hover says why, with the refused filing-cover count's reason when there is one", () => {
+    const bare = cap({ value: null, tier: null, gap: "no_shares", source: null });
+    expect(capWords(row({ cap: bare })).title).toBe("Cap unpinned: no share count public before the arm date.");
+    const refused = (note: string) => capWords(row({ cap: { ...bare, note } })).title;
+    expect(refused("the filing cover's count is not used: not a 10-Q filer")).toBe(
+      "Cap unpinned: no share count public before the arm date. The filing cover's count is not used: not a 10-Q filer.",
+    );
+    expect(refused("the filing cover's count is from 2025-12-03, too old to stand in")).toBe(
+      "Cap unpinned: no share count public before the arm date. The filing cover's count is from 2025-12-03, too old to stand in.",
+    );
+    // a note of the cell's own (a non-positive count) is not a refusal: the gap's words already say it
+    const noCap = cap({ value: null, tier: null, gap: "no_cap", note: "the share count or the close is not positive", source: null });
+    expect(capWords(row({ cap: noCap })).title).toBe("Cap unpinned: a share count or close that is not positive.");
+  });
+
+  it("the counts line says how many caps rest on a filing cover's count, only once any does", () => {
+    expect(workLines(SERVER, "arm_night", "iwm").some((l) => l.startsWith("caps at the event"))).toBe(false);
+    const c = { ...SERVER.counts, counted: 240, unpinned_cap: 35, cap_from_cover: 37 };
+    const lines = workLines(payload({ counts: c }), "arm_night", "iwm");
+    expect(lines[2]).toBe(
+      "caps at the event: 168 on a share count ratified in the Workbench · 37 on a share count from the filing cover (not ratified)",
+    );
+    expect(lines[3]).toBe("35 with an unpinned cap · 1 with unpinned liquidity (counted, never dropped)");
   });
 
   it("words the liquidity band and its figure", () => {

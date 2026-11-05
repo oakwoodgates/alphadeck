@@ -331,6 +331,32 @@ describe("TrackRecord — what is left out is counted and kept visible", () => {
     expect(counts).toMatchObject({ small: "1", unpinned: "1", pooled: "2" });
     expect(listTickers()).toEqual(["PIN", "UNP"]);
   });
+
+  it("names each cap's share-count source on hover, says why a refused cover count left a cap unpinned, and counts the cover caps", () => {
+    const fromCover = row({ ticker: "CVR", cap: cap({ source: "cover" }) });
+    const refused = row({
+      ticker: "FYO",
+      cap: cap({ value: null, tier: null, gap: "no_shares", source: null, note: "the filing cover's count is not used: not a 10-Q filer" }),
+    });
+    const counts = { ...SERVER.counts, counted: 3, unpinned_cap: 1, cap_from_cover: 1 };
+    setup(payload({ rows: [row({ ticker: "WBK" }), fromCover, refused], counts }));
+    const capTitle = (ticker: string) =>
+      screen
+        .getAllByTestId("tr-row")
+        .find((r) => r.querySelector(".tr-tk")?.textContent === ticker)
+        ?.querySelector(".tr-cap")
+        ?.getAttribute("title");
+    expect(capTitle("WBK")).toContain("(share count ratified in the Workbench)");
+    expect(capTitle("CVR")).toContain("(share count from the filing cover (not ratified))");
+    expect(capTitle("FYO")).toBe(
+      "Cap unpinned: no share count public before the arm date. The filing cover's count is not used: not a 10-Q filer.",
+    );
+    expect(
+      screen.getByText(
+        "caps at the event: 1 on a share count ratified in the Workbench · 1 on a share count from the filing cover (not ratified)",
+      ),
+    ).toBeInTheDocument();
+  });
 });
 
 describe("TrackRecord — the edition", () => {

@@ -49,6 +49,7 @@ export const cap = (over: Partial<TrackCapOut> = {}): TrackCapOut => ({
   shares_date: "2026-05-12",
   ads_ratio: null,
   split_factor: null,
+  source: "workbench",
   ...over,
 });
 
