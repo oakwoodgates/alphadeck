@@ -878,6 +878,7 @@ is moot under the public clock (each sits on its public date already).
 
 1. **Availability** — map theme → expressing ETFs (curation + holdings-overlap against the theme universe).
 2. **Coming** — watch EDGAR N-1A/485 for new thematic registrations; a fresh launch is an emergence-kind
-   signal (early tell, occasionally a top).
+   signal (early tell, occasionally a top). **Built as a display-only tape: [`FUND_RADAR.md`](FUND_RADAR.md)**
+   (no `etf_launch` signal is emitted).
 3. **Holdings & flows** — holdings seed the decomposition for free; holdings changes + derived flows are a
    positioning signal. Always expose fund internals so a mislabeled/thin/expensive fund is visible.

@@ -1,0 +1,23 @@
+# Wrapper words for the fund launch radar's NAME read (radar/fund_match.py).
+#
+# A basket ticker of 1-2 characters ("AI", "ON") is also an ordinary word, so it matches a fund name ONLY when
+# the name also holds one of these words (a single-stock wrapper reads "2X Long <TICKER>", "<TICKER> PowerMaxx").
+# A ticker of 3+ characters needs no wrapper. One entry per line, case-insensitive, matched as a whole word or
+# phrase; blank lines and lines starting with # are ignored. Edit this file to retune the read.
+2X
+3X
+Long
+Short
+Inverse
+Bull
+Bear
+Daily
+Leveraged
+Leverage
+Target
+Income
+Option
+Options
+Covered Call
+PowerMaxx
+YieldMax

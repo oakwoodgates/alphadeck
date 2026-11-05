@@ -776,6 +776,9 @@ def _prime_pass(monkeypatch, *, bench_raises=False, sweep_raises=False):
 
     # the SPAC-radar leg is also allow_live-gated — stub it so a live pass doesn't run real radar code
     monkeypatch.setattr("radar.spac.run_spac_radar", _radar)
+    monkeypatch.setattr(
+        "radar.funds.run_fund_radar", lambda conn, **k: SimpleNamespace(summary="stub", errors=[])
+    )
 
     def _sweep(conn, **k):
         order.append("shell_sweep")
@@ -2560,8 +2563,8 @@ def test_EVERY_connection_the_pass_opens_gets_the_ceiling(monkeypatch):
     monkeypatch.setattr(daily, "set_statement_timeout", lambda conn, s: bound.append((conn, s)))
     daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
     # benchmarks, the per-thesis loop (which now also carries the fundamentals refresh), shell sweep,
-    # SPAC radar
-    assert len(opened) == 4
+    # SPAC radar, fund launch radar
+    assert len(opened) == 5
     assert [c for c, _ in bound] == opened
     assert {s for _, s in bound} == {get_settings().cron_statement_timeout_s}
 

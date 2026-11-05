@@ -88,6 +88,9 @@ def prime_pass(monkeypatch) -> Pager:
         "radar.spac.run_spac_radar", lambda conn, **k: SimpleNamespace(summary="stub", errors=[])
     )
     monkeypatch.setattr(
+        "radar.funds.run_fund_radar", lambda conn, **k: SimpleNamespace(summary="stub", errors=[])
+    )
+    monkeypatch.setattr(
         "radar.shell_sweep.run_shell_sweep",
         lambda conn, **k: SimpleNamespace(summary="stub", errors=[]),
     )

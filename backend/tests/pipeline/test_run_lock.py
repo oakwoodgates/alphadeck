@@ -87,6 +87,9 @@ def _offline_pass(monkeypatch, tmp_path, *, ingest=None):
     monkeypatch.setattr(
         "radar.spac.run_spac_radar", lambda conn, **k: SimpleNamespace(summary="stub", errors=[])
     )
+    monkeypatch.setattr(
+        "radar.funds.run_fund_radar", lambda conn, **k: SimpleNamespace(summary="stub", errors=[])
+    )
     monkeypatch.setattr(cron_run_log, "_DEFAULT_CRON_RUNS", tmp_path)
     # the CLI resolves its own notifier — never a real Slack push from a test
     monkeypatch.setattr(daily, "get_notifier", lambda: _Recorder())

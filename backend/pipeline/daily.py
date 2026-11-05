@@ -1778,6 +1778,26 @@ def _run_daily_pass_locked(
                 print(f"  SPAC radar ERROR: {err}")
         except Exception as e:  # noqa: BLE001 — the radar is a passenger, never the driver
             print(f"WARNING: SPAC radar leg failed: {e}")
+    # The fund launch radar (docs/FUND_RADAR.md) — one more passenger leg, the SPAC radar's shape: own connection
+    # + own recurring-TTL EdgarClient, lazy import, `allow_live` only (a cache-only run cannot scan new
+    # indexes; `python -m pipeline.fund_radar` is the manual path), fail-open (printed loud, never raised).
+    # Display only: it never imports `calls/`, so it cannot fire, arm or grade anything.
+    if allow_live:
+        try:
+            from radar.funds import run_fund_radar
+
+            fund_conn = _pass_connect()
+            try:
+                fr = timed("fund_radar")(run_fund_radar)(
+                    fund_conn, until=asof, days=3, allow_live=True
+                )
+            finally:
+                fund_conn.close()
+            print(f"fund radar: {fr.summary}")
+            for err in fr.errors:
+                print(f"  fund radar ERROR: {err}")
+        except Exception as e:  # noqa: BLE001 — the radar is a passenger, never the driver
+            print(f"WARNING: fund radar leg failed: {e}")
     return outcome
 
 
