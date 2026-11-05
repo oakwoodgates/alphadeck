@@ -154,6 +154,8 @@ flagged names; the window's color scale; the benchmark; "business type and secto
 
 - Compute (pure): `backend/dashboards/market_map.py` (YTD, dollar volume, the cap with its fallback and source, the
   company reading).
+- The share-count rule (`cover_shares`, `pick_shares` and their constants) lives in `backend/dashboards/market_cap.py`
+  beside `cap_cell` since 2026-11-04, unchanged, shared with Track Record (which judges it at each event's date).
 - Router: `backend/app/routers/dashboards/market_map.py`, its wire models in the same module.
 - Tests: `backend/tests/dashboards/test_market_map.py`; `frontend/src/dashboards/market-map/__tests__/`.
 - Frontend: `frontend/src/dashboards/market-map/` (`entry.ts`, `MarketMap.tsx`, `useMarketMap.ts`, `squarify.ts`,
