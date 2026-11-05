@@ -275,6 +275,9 @@ class DashboardService:
             )
         descriptor, settings = self.catalog.prepare(dashboard, settings, asof)
         async with self._slots:
+            # Check the UI and browser BEFORE capturing: a capture can take a minute on a
+            # large deployment, and an unrenderable result would only fail after it.
+            await self.renderer.preflight()
             if parent is not None:
                 self.store.get(parent.id)
                 envelope = await self.capture.capture(

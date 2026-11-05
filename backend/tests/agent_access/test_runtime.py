@@ -111,6 +111,7 @@ def test_capture_strict_methods_paths_duplicates_and_generation():
         lambda e: e["consistency"].update(generation_stable=False),
         lambda e: e["consistency"].update(generation_after="changed"),
         lambda e: e["context"].update(known_at=None),
+        lambda e: (e["context"].update(clock="record"), e["context"].pop("known_at")),
         lambda e: e["responses"][0].update(body={}),
         lambda e: e.update(asof="not-a-date"),
     ]:
@@ -189,6 +190,9 @@ class FakeRenderer:
     def __init__(self):
         self.calls = []
 
+    async def preflight(self):
+        """No UI or browser behind this double; nothing to check."""
+
     async def render(self, capture, snapshot_id, settings, target_id=None):
         self.calls.append(copy.deepcopy((capture, snapshot_id, settings, target_id)))
         return (
@@ -247,6 +251,9 @@ def test_service_same_capture_drilldown_png_error_and_settings_isolation():
 
 def test_total_deadline_and_cancellation():
     class SlowRenderer:
+        async def preflight(self):
+            pass
+
         async def render(self, *args):
             await asyncio.sleep(100)
 

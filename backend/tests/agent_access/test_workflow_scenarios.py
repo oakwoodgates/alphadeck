@@ -23,6 +23,8 @@ from mcp import ClientSession, StdioServerParameters  # noqa: E402
 from mcp.client.stdio import stdio_client  # noqa: E402
 from test_browser import populated_cockpit, serve  # noqa: E402
 
+from agent_access.references import context_hash  # noqa: E402
+
 HERE = Path(__file__).resolve().parent
 DIST = HERE.parents[2] / "frontend/dist"
 
@@ -187,6 +189,8 @@ def browser_base():
 
 
 def test_board_review_and_explain_call_use_rendered_queue_and_frozen_evidence(browser_base):
+    from app.routers.dashboards.capture_adapters.cockpit import LIMITATIONS as COCKPIT_LIMITATIONS
+
     async def run():
         async with session("browser_service", browser_base) as client:
             review = await recipe(
@@ -251,7 +255,13 @@ def test_board_review_and_explain_call_use_rendered_queue_and_frozen_evidence(br
             child = await call(client, "read_dashboard", **follow(board, card))
             assert child["origin"]["parent_snapshot_id"] == board["snapshot_id"]
             assert child["origin"]["consistency"] == "independent_capture"
-            assert child["asof"] == board["asof"] and child["context"] == board["context"]
+            # The temporal context matches; only the per-surface limitations differ, as on a
+            # real deployment: the Cockpit adds its adapter's notes to the Board's.
+            assert child["asof"] == board["asof"]
+            assert context_hash(child) == context_hash(board)
+            assert child["context"]["limitations"] == board["context"]["limitations"] + list(
+                COCKPIT_LIMITATIONS
+            )
             fixture = populated_cockpit()["responses"][2]["body"]
             expected = fixture["triggers_fired"][0]["sources"][0]
             cockpit_targets = await targets(client, child)

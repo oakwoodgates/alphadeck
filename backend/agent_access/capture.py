@@ -99,8 +99,9 @@ def validate_capture(envelope: dict, dashboard: str, descriptor: dict | None = N
         for key in ("decisions_asof", "countdown_origin"):
             date.fromisoformat(context[key])
         context_hash(envelope)
+        known_at = context["known_at"]  # Present on both clocks (null on the record clock).
         if not isinstance(context["clock_response"]["market_tz"], str) or (
-            context["clock"] == "public" and not context["known_at"]
+            context["clock"] == "public" and not known_at
         ):
             raise ValueError
         if (

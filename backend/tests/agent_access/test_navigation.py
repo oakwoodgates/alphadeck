@@ -133,6 +133,9 @@ class SyntheticCapture:
 
 
 class SyntheticRenderer:
+    async def preflight(self):
+        """No UI or browser behind this double; nothing to check."""
+
     async def render(self, envelope, snapshot_id, settings, target_id=None):
         return (
             {
@@ -486,6 +489,22 @@ def test_http_context_hash_and409_context_changed_are_bounded():
         assert error.value.code == "context_changed" and not error.value.retryable
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("field", list(captured()["context"]))
+def test_context_hash_guards_every_context_field_except_limitations(field):
+    base = captured()
+    changed = copy.deepcopy(base)
+    changed["context"][field] = {"synthetic_change": changed["context"][field]}
+    unchanged = context_hash(changed) == context_hash(base)
+    assert unchanged is (field == "limitations")
+
+
+def test_context_hash_guards_an_unknown_context_field():
+    base = captured()
+    extended = copy.deepcopy(base)
+    extended["context"]["synthetic_future_time_field"] = "2026-10-30"
+    assert context_hash(extended) != context_hash(base)
 
 
 def test_official_sdk_follows_only_advertised_link_and_reads_exact_frozen_source():

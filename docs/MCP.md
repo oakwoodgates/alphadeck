@@ -72,7 +72,9 @@ and proposed PR text for accidental disclosure before publication.
 - Capability: stable slug and version, metadata, availability flags, defaults, settings schema, and the
   explicit subset of settings forwarded as backend query parameters.
 - Capture context: effective as-of, market clock, public/record clock, public cutoff, decision day,
-  countdown origin, effective scope, and limitations.
+  countdown origin, effective scope, and limitations. The temporal guard hashes every context field
+  except the per-surface `limitations`, so a followed capture's limitations can differ (the Cockpit
+  adds its own).
 - Frozen response: `method`, `path`, canonical query values, HTTP status, and JSON body.
 - Observation: snapshot ID, requested settings, source context/consistency, visible text, structured
   tables/notes, identifiable targets, and explicit completeness/visibility information.
@@ -134,30 +136,72 @@ Local build checkpoints stay under ignored `docs/temp/`; this document retains t
 
 ## Install and run
 
-The API, frontend, and local MCP process are three separate processes. The API must include this change;
-an older server answers 404 for `/dashboards/capture`. No database URL or vendor/model API key is needed
-in the MCP process. The API uses its existing configuration. Do not point experimental server processes
-at a writable production database.
+The API, the frontend, and the local MCP process are separate processes. The MCP process reads the API's
+read-only capture endpoint and renders the frontend's `mcp-render.html` in a local headless Chromium. It
+needs no database URL and no vendor or model API key; the API uses its existing configuration. The API
+must include the capture endpoint: an older server answers 404 for `/dashboards/capture`. Do not point
+experimental server processes at a writable production database.
 
-From `backend/`, install the optional local dependencies and browser:
+### Install
+
+From `backend/` of the checkout that runs the server (normally the main checkout), install the optional
+dependencies, then the browser, with that checkout's Python:
 
 ```powershell
 .venv\Scripts\python.exe -m pip install -e ".[dev,mcp]"
-.venv\Scripts\python.exe -m playwright install chromium
+.venv\Scripts\python.exe -m playwright install --only-shell chromium
 ```
 
-From `frontend/`, run `npm ci`, then either `npm run dev -- --host 127.0.0.1` (port 5173), or
-`npm run build` followed by `npm run preview -- --host 127.0.0.1 --port 5173` for the built renderer.
-`mcp-render.html` is a separate build entry; it shows no dashboard without an injected capture.
+The browser is about 120 MB, installed once per machine per Playwright version (the `mcp` extra pins
+it). The server only renders headless, so the headless shell is all it needs. Without it, a read fails
+at once with `browser_not_installed`; installing it fixes the next read without restarting the server.
 
-Configure a compatible MCP client to launch the following command with its working directory set to
-`backend/` (use absolute executable/working-directory paths in the client's configuration):
+### Choose the stack it reads
+
+| Target | `--backend-base` | `--ui-base` | Who serves the renderer |
+|---|---|---|---|
+| Built-in defaults (dev loop) | `http://127.0.0.1:8001` | `http://127.0.0.1:5173` | A Vite server you run from `frontend/` (below). |
+| Prod stack | `http://127.0.0.1:8000` | `http://127.0.0.1:8080` | Prod's frontend image already serves it; no frontend process is needed. |
+| Dev stack | `http://127.0.0.1:8001` | `http://127.0.0.1:8081` | The dev frontend image, only once it is rebuilt from a commit that includes the renderer. |
+
+The defaults target DEV: the dev stack's API on 8001 and a Vite server on 5173. For that Vite server, run
+`npm ci` from `frontend/`, then either `npm run dev -- --host 127.0.0.1` (port 5173), or `npm run build`
+followed by `npm run preview -- --host 127.0.0.1 --port 5173` for the built renderer. `mcp-render.html`
+is a separate build entry; it shows no dashboard without an injected capture. A dev frontend image built
+before the renderer answers `/mcp-render.html` with the ordinary app page, so reads through 8081 fail
+with `renderer_not_served` until that image is rebuilt.
+
+### Register with Claude Code
+
+The repository's `.mcp.json` declares two project servers with the arguments above: `alphadeck-prod`
+and `alphadeck-dev`. Both launch `${ALPHADECK_MCP_COMMAND}`. Set that variable once, as a user
+environment variable, to the absolute path of the MAIN checkout's console script:
+
+- Windows: `<main checkout>\backend\.venv\Scripts\alphadeck-mcp.exe`, for example
+  `[Environment]::SetEnvironmentVariable('ALPHADECK_MCP_COMMAND', '<path>', 'User')` in PowerShell,
+  then restart Claude Code so it sees the variable.
+- Linux: `<main checkout>/backend/.venv/bin/alphadeck-mcp`, exported from your shell profile.
+
+The registration uses the console script, not `python -m agent_access`, so a session's working directory
+can never shadow the installed package (Claude Code does not document a stdio server's working
+directory). Approve the two servers when Claude Code first asks, then check them with `claude mcp list`.
+If the variable is unset, `claude mcp list` shows the literal `${ALPHADECK_MCP_COMMAND}` and
+`✗ Failed to connect` for both servers.
+
+Builder agents cannot use `alphadeck-prod`: `.claude/agents/builder.md` denies `mcp__alphadeck-prod__*`.
+Builds have no reason to read prod; `alphadeck-dev` stays available to them.
+
+### Other MCP clients
+
+Configure the client to launch the console script with absolute paths. The generic form, with the
+built-in defaults spelled out:
 
 ```powershell
-.venv\Scripts\python.exe -m agent_access --backend-base http://127.0.0.1:8001 --ui-base http://127.0.0.1:5173
+alphadeck-mcp --backend-base http://127.0.0.1:8001 --ui-base http://127.0.0.1:5173
 ```
 
-The equivalent installed executable is `alphadeck-mcp`. Base origins can also be configured through
+`.venv\Scripts\python.exe -m agent_access` with the same arguments is equivalent when the client's
+working directory is `backend/`. Base origins can also be configured through
 `ALPHADECK_MCP_BACKEND_BASE` and `ALPHADECK_MCP_UI_BASE`. Only explicit loopback origins are accepted;
 credentials, URL paths, redirects, and remote hosts are rejected. The local process speaks stdio, so
 start it through the client rather than expecting an HTTP MCP endpoint. `--trace` emits request IDs,
@@ -168,6 +212,22 @@ The default complete request deadline is 180 seconds (configurable from 1 to 300
 out after 130 seconds and browser readiness has its own bound. The API checks a cooperative 120-second
 work budget between expensive reads and enforces a 120-second per-SQL-statement timeout. Disconnecting
 the client is not a promise to interrupt a synchronous database calculation immediately.
+
+### Errors that mean the setup, not the data
+
+Before each `read_dashboard` capture, the server checks the UI and the browser, so a broken setup fails
+in seconds instead of after a full capture. The UI check (a GET of `/mcp-render.html`, 5-second
+timeout) runs on every read. The browser check launches and closes headless Chromium; a success is
+remembered for the server's lifetime, and a failure is checked again on the next read. A target
+`render_dashboard` reports the same launch codes.
+
+| Code | When it happens | Retryable | Fix |
+|---|---|---|---|
+| `browser_not_installed` | Chromium for Playwright is not installed on this machine. | No | Run `python -m playwright install --only-shell chromium` with the MCP server's Python. No restart. |
+| `ui_unavailable` | The `--ui-base` origin refuses the connection, times out, or answers `/mcp-render.html` with a 5xx. | Yes | Start that frontend, or point `--ui-base` at a running one. |
+| `renderer_not_served` | The `--ui-base` origin answers `/mcp-render.html` with a redirect, a 4xx, or a 200 page that isn't the renderer: a frontend built before it, or a different app. | No | Rebuild that frontend from a commit that includes the renderer, or point `--ui-base` at one that serves it. |
+| `browser_unavailable` | Chromium is installed but failed to start, or failed while rendering a page. | Yes | Retry. If it repeats, read stderr: a launch failure logs the first line of Playwright's message. |
+| `render_timeout` | The dashboard did not become ready within the rendering bound (40 seconds per step). | Yes | Retry. If it repeats, check that the frontend answers quickly and serves current assets. |
 
 ## Start a workflow from your agent client
 

@@ -247,9 +247,14 @@ class BrowserCapture:
         elif slug == "rotation-map":
             rotation_fixture(data, settings, asof)
         else:
+            from app.routers.dashboards.capture_adapters.cockpit import LIMITATIONS
+
             assert slug == "cockpit" and asof == data["asof"]
             assert settings["thesis_id"] == data["responses"][1]["body"]["id"]
             data["responses"][2]["body"]["missing"] = ["Synthetic supporting filing unavailable"]
+            # As the real capture does: the Cockpit adds its adapter's notes to the shared ones,
+            # so a followed capture's limitations differ from its Board parent's.
+            data["context"]["limitations"].extend(LIMITATIONS)
         return validate_capture(data, slug, descriptor)
 
 
