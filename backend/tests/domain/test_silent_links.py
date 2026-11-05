@@ -90,7 +90,7 @@ def test_reserved_label_returns_the_canonical_spelling_in_any_case(label, canoni
         "Contexts",
         "Bench press",
         "Con text",
-        "Reactor developers",
+        "Link A",
         "ETF",
         "ETFs and funds",
     ],

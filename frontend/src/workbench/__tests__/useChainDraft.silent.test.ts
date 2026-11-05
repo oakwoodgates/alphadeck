@@ -449,7 +449,7 @@ describe("useChainDraft.addFund — a fund lands in ETFs", () => {
   it("a session blob saved BEFORE the ETFs link is filed back: a fund the spine holds in ETFs restores there", () => {
     const t = thesis(
       [
-        member({ ticker: "OKLO", segment: "reactors" }),
+        member({ ticker: "ZZZA", segment: "reactors" }),
         member({ ticker: "FNDA", segment: ETFS, context_role: "benchmark" }), // the spine's role wins on restore
       ],
       [seg("reactors")],
@@ -458,7 +458,7 @@ describe("useChainDraft.addFund — a fund lands in ETFs", () => {
       draft: {
         segments: [seg("reactors"), seg(DISCOVERED)],
         basket: [
-          member({ ticker: "OKLO", segment: "reactors" }),
+          member({ ticker: "ZZZA", segment: "reactors" }),
           member({ ticker: "FNDA", segment: null, context_role: "benchmark" }), // the old no-link sleeve
           member({ ticker: "FNDA", segment: DISCOVERED, context_role: "benchmark" }), // a stray second row
           member({ ticker: "NEWCO", segment: null }), // not in the spine: never guessed at
@@ -471,13 +471,13 @@ describe("useChainDraft.addFund — a fund lands in ETFs", () => {
     const { result } = renderHook(() => useChainDraft(t, restored));
     const { basket } = result.current.draft;
     expect(rowsOf(basket, "sid-fnda").map((m) => [m.segment, m.context_role])).toEqual([[ETFS, "benchmark"]]);
-    expect(rowsOf(basket, "sid-oklo").map((m) => m.segment)).toEqual(["reactors"]);
+    expect(rowsOf(basket, "sid-zzza").map((m) => m.segment)).toEqual(["reactors"]);
     expect(rowsOf(basket, "sid-newco").map((m) => m.segment)).toEqual([null]);
   });
 
   it("a re-draft never re-rolls a fund out of ETFs and never adopts a drafter 'ETFs' segment", () => {
     const t = thesis(
-      [member({ ticker: "OKLO", segment: "reactors" }), member({ ticker: "FNDA", segment: ETFS })],
+      [member({ ticker: "ZZZA", segment: "reactors" }), member({ ticker: "FNDA", segment: ETFS })],
       [seg("reactors"), ...PAIR],
     );
     const { result } = renderHook(() => useChainDraft(t));

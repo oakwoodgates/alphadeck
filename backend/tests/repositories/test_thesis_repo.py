@@ -255,7 +255,12 @@ def test_upsert_updates_mutable_fields_and_is_idempotent(db, security_id):
     assert got.position is not None and got.position.opened_on == date(2026, 6, 2)
     assert got.position.entry_price == 24.0
     # the edited chain round-trips: re-labeled segment, re-placed name, edited authorship
-    assert [s.label for s in got.segments] == ["Reactor developers", "Context", "ETFs", "Bench"]
+    assert [s.label for s in got.segments] == [
+        *(s.label for s in t2.segments),
+        "Context",
+        "ETFs",
+        "Bench",
+    ]
     assert got.basket[0].segment == "Reactor developers"
     assert got.basket[0].authored_by is Authorship.OPERATOR_EDITED
     # idempotent: children edited in place by the DELETE-reinsert, never duplicated
