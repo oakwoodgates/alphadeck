@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
+from domain.enums import TermTier
 from domain.thesis import TermSetEntry
 from radar import matcher
 from radar.fund_stage import FundLaunch
@@ -78,6 +79,7 @@ def strip_marks(fund_name: str) -> str:
     return _MARKS.sub("", fund_name)
 
 
+@lru_cache(maxsize=16384)
 def _phrase(words: str, *, ignore_case: bool = True, hyphen_joins: bool = False) -> re.Pattern[str]:
     """A whole-word phrase. ``hyphen_joins`` (the name read) treats ``-`` as part of the word, so a ticker or a
     company name never matches beside a hyphen ("Q" in "Q-ZEN", "Acme" in "Acme-500")."""
@@ -167,11 +169,106 @@ class NameHit:
     via: str  # 'ticker' | 'company_name'
 
 
-def match_theme(fund_name: str, term_set: list[TermSetEntry]) -> ThemeMatch | None:
-    signal, broad = matcher.match_term_set(strip_marks(fund_name), term_set)
+@lru_cache(maxsize=65536)
+def _fund_facts(fund_name: str) -> tuple[str, str]:
+    """The fund name as both reads see it: marks stripped, whitespace collapsed, plus its lowercase twin (the
+    cheap substring prefilters read it). Cached: one fund is read against every card."""
+    clean = " ".join(strip_marks(fund_name).split())
+    return clean, clean.lower()
+
+
+@lru_cache(maxsize=65536)
+def _wrapped(clean: str, words: tuple[str, ...]) -> bool:
+    return has_wrapper_word(clean, words)
+
+
+@lru_cache(maxsize=4096)
+def _term_pattern(term: str) -> re.Pattern[str]:
+    return matcher.compile_term(term)
+
+
+_PreparedTerm = tuple[str, bool, str, bool, "re.Pattern[str]"]
+
+
+def _prepare_terms(term_set: list[TermSetEntry]) -> list[_PreparedTerm]:
+    """(term, is_signal, needle, acronym, pattern) per entry; ``needle`` is the necessary substring (the acronym
+    as written, else the lowercase phrase) checked before the regex runs."""
+    out: list[_PreparedTerm] = []
+    for e in term_set:
+        t = e.term.strip()
+        acronym = matcher._ACRONYM.fullmatch(t) is not None
+        needle = t if acronym else " ".join(t.split()).lower()
+        out.append((e.term, e.tier is TermTier.SIGNAL, needle, acronym, _term_pattern(e.term)))
+    return out
+
+
+def _theme(clean: str, lower: str, terms: list[_PreparedTerm]) -> ThemeMatch | None:
+    signal: set[str] = set()
+    broad: set[str] = set()
+    for term, is_signal, needle, acronym, pat in terms:
+        if (needle not in clean) if acronym else (needle not in lower):
+            continue
+        if pat.search(clean):
+            (signal if is_signal else broad).add(term)
     if not signal and not broad:
         return None
-    return ThemeMatch(tuple(signal), tuple(broad))
+    return ThemeMatch(tuple(sorted(signal)), tuple(sorted(broad)))
+
+
+def match_theme(fund_name: str, term_set: list[TermSetEntry]) -> ThemeMatch | None:
+    clean, lower = _fund_facts(fund_name)
+    return _theme(clean, lower, _prepare_terms(term_set))
+
+
+@dataclass(frozen=True)
+class _PreparedCompany:
+    ref: CompanyRef
+    tick: str | None  # None = never matches by ticker (empty, or on the stoplist)
+    name: str | None  # the cleaned company name; None = never matches by name
+    name_lower: str = ""
+
+
+def _prepare_companies(
+    companies: list[CompanyRef], stop: frozenset[str], wrapper_set: frozenset[str]
+) -> list[_PreparedCompany]:
+    out: list[_PreparedCompany] = []
+    for c in companies:
+        tick = c.ticker.strip()
+        tick_ok = tick if tick and tick.lower() not in stop else None
+        name_ok = None
+        if c.name:
+            cleaned = clean_company_name(c.name)
+            lowered = cleaned.lower()
+            if name_is_distinctive(cleaned) and lowered not in wrapper_set and lowered not in stop:
+                name_ok = cleaned
+        out.append(_PreparedCompany(c, tick_ok, name_ok, (name_ok or "").lower()))
+    return out
+
+
+def _names(
+    clean: str, lower: str, wrapped: bool, prepared: list[_PreparedCompany]
+) -> list[NameHit]:
+    hits: list[NameHit] = []
+    for pc in prepared:
+        c = pc.ref
+        if pc.tick is not None and pc.tick in clean:  # the substring is necessary for a word match
+            m = _phrase(pc.tick, ignore_case=False, hyphen_joins=True).search(clean)
+            if m and (len(pc.tick) >= 3 or wrapped):
+                hits.append(NameHit(c.ticker, c.link, m.group(0), "ticker"))
+                continue
+        if pc.name is not None and pc.name_lower in lower:
+            m = _phrase(pc.name, hyphen_joins=True).search(clean)
+            if m:
+                hits.append(NameHit(c.ticker, c.link, m.group(0), "company_name"))
+    return hits
+
+
+def _resolve_lists(
+    wrapper_words: tuple[str, ...] | None, stopwords: frozenset[str] | None
+) -> tuple[tuple[str, ...], frozenset[str], frozenset[str]]:
+    words = load_wrapper_words() if wrapper_words is None else wrapper_words
+    stop = load_stopwords() if stopwords is None else frozenset(w.lower() for w in stopwords)
+    return words, stop, frozenset(w.lower() for w in words)
 
 
 def match_names(
@@ -181,28 +278,14 @@ def match_names(
     wrapper_words: tuple[str, ...] | None = None,
     stopwords: frozenset[str] | None = None,
 ) -> list[NameHit]:
-    words = load_wrapper_words() if wrapper_words is None else wrapper_words
-    fund_name = strip_marks(fund_name)
-    wrapped = has_wrapper_word(fund_name, words)
-    stop = load_stopwords() if stopwords is None else frozenset(w.lower() for w in stopwords)
-    wrapper_set = {w.lower() for w in words}
-    hits: list[NameHit] = []
-    for c in companies:
-        tick = c.ticker.strip()
-        # a matched token (ticker or cleaned name, any word count) on the stoplist never counts
-        if tick and tick.lower() not in stop:
-            m = _phrase(tick, ignore_case=False, hyphen_joins=True).search(fund_name)
-            if m and (len(tick) >= 3 or wrapped):
-                hits.append(NameHit(c.ticker, c.link, m.group(0), "ticker"))
-                continue
-        if c.name:
-            cleaned = clean_company_name(c.name)
-            lowered = cleaned.lower()
-            if name_is_distinctive(cleaned) and lowered not in wrapper_set and lowered not in stop:
-                m = _phrase(cleaned, hyphen_joins=True).search(fund_name)
-                if m:
-                    hits.append(NameHit(c.ticker, c.link, m.group(0), "company_name"))
-    return hits
+    words, stop, wrapper_set = _resolve_lists(wrapper_words, stopwords)
+    clean, lower = _fund_facts(fund_name)
+    return _names(
+        clean,
+        lower,
+        _wrapped(clean, words),
+        _prepare_companies(companies, stop, wrapper_set),
+    )
 
 
 @dataclass(frozen=True)
@@ -226,14 +309,16 @@ def match_launches(
 ) -> list[CardMatch]:
     """The launches that fit one card (at least one read hit), in the launches' order. Private-to-public
     filings are skipped unless ``include_private``."""
+    words, stop, wrapper_set = _resolve_lists(wrapper_words, stopwords)
+    terms = _prepare_terms(card.term_set)
+    prepared = _prepare_companies(card.companies, stop, wrapper_set)
     out: list[CardMatch] = []
     for lc in launches:
         if lc.private_to_public and not include_private:
             continue
-        theme = match_theme(lc.name, card.term_set)
-        names = tuple(
-            match_names(lc.name, card.companies, wrapper_words=wrapper_words, stopwords=stopwords)
-        )
+        clean, lower = _fund_facts(lc.name)
+        theme = _theme(clean, lower, terms)
+        names = tuple(_names(clean, lower, _wrapped(clean, words), prepared))
         if theme is not None or names:
             out.append(CardMatch(lc, theme, names))
     return out

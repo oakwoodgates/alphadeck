@@ -23,40 +23,13 @@ from datetime import date, timedelta
 
 import psycopg
 
-from db.session import DEFAULT_TENANT_ID, connect
+from db.session import connect
 from domain.market_time import market_today
-from domain.thesis import ETFS_LABEL
 from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
 from radar import fund_match, fund_repo, fund_stage
-from radar.fund_match import CardInput, CompanyRef
+from radar.fund_cards import load_cards
+from radar.fund_match import CardInput
 from radar.funds import FundRadarResult, run_fund_radar, run_symbol_legs
-from repositories import thesis_repo
-from securities import master
-
-
-def load_cards(conn: psycopg.Connection) -> list[CardInput]:
-    """Every live card as the matcher wants it: its term set, and its COMPANY members (basket rows whose master
-    row is not a fund), each labeled with its link. A row with no master row counts as a company."""
-    theses = thesis_repo.list_all(conn)
-    sids = [m.security_id for t in theses for m in t.basket if m.security_id]
-    secs = master.get_many(conn, sids, tenant_id=DEFAULT_TENANT_ID)
-    cards: list[CardInput] = []
-    for t in theses:
-        companies: list[CompanyRef] = []
-        seen: set[tuple[str, str | None]] = set()
-        for m in t.basket:
-            sec = secs.get(m.security_id) if m.security_id else None
-            if sec is not None and sec.instrument_kind == "etf":
-                continue
-            if sec is None and m.segment == ETFS_LABEL:
-                continue
-            key = (m.ticker, m.segment)
-            if key in seen:
-                continue
-            seen.add(key)
-            companies.append(CompanyRef(m.ticker, sec.name if sec else None, m.segment))
-        cards.append(CardInput(str(t.id), t.name, list(t.term_set), companies))
-    return cards
 
 
 def build_report(

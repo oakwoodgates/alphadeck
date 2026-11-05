@@ -16,6 +16,7 @@ from app.routers import (
     clock,
     dashboards,
     data_flags,
+    fund_radar,
     radar,
     scoreboard,
     theses,
@@ -60,6 +61,7 @@ app.include_router(admin_onboarding.router)  # X1 — the staged cold-ingest que
 # split plan S3 — the shared "is this real?" data flags (compute-on-read, display-only)
 app.include_router(data_flags.router)
 app.include_router(radar.router)
+app.include_router(fund_radar.router)  # the fund launch radar display (docs/FUND_RADAR.md)
 # The Dashboards (docs/DASHBOARDS.md) — experimental, display-only cross-card views. ONE include: each
 # dashboard mounts its own router inside app/routers/dashboards/, never here.
 app.include_router(dashboards.router)

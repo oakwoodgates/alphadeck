@@ -3884,6 +3884,237 @@
         }
       }
     },
+    "/radar/funds": {
+      "get": {
+        "tags": [
+          "radar"
+        ],
+        "summary": "Fund Tape",
+        "description": "The fund launch tape: one row per FILING, newest first by public date, each with its funds (stage dates,\nsymbols) and every live card each fund fits (theme read with its tier, name read with its token). The counts\nalways cover the WHOLE window, so the UI can say \"N more\" (keep-it-visible); ``matched_only`` only trims the\nrows. Old confidential filings SEC released are held back (counted) unless ``include_private``. Display\nonly: reads stored facts, derives on read, makes no request.",
+        "operationId": "fund_tape_radar_funds_get",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 730,
+              "minimum": 1,
+              "description": "window: public within the last N days",
+              "default": 90,
+              "title": "Days"
+            },
+            "description": "window: public within the last N days"
+          },
+          {
+            "name": "include_private",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "also show old confidential filings SEC released (held back by default)",
+              "default": false,
+              "title": "Include Private"
+            },
+            "description": "also show old confidential filings SEC released (held back by default)"
+          },
+          {
+            "name": "matched_only",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "keep only filings with a fund that fits a live card (counts stay whole)",
+              "default": true,
+              "title": "Matched Only"
+            },
+            "description": "keep only filings with a fund that fits a live card (counts stay whole)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RadarFundsOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/theses/{thesis_id}/fund-launches": {
+      "get": {
+        "tags": [
+          "radar"
+        ],
+        "summary": "Fund Launches",
+        "description": "This card's matching fund launches as of a night (invariant #1, the public clock): only filings public by\n``asof`` and inside ``asof - days``..``asof``, with each fund's stage derived ONLY from facts public by\n``asof`` (a later 485BPOS, or a symbol first seen after ``asof``, never shows). Counted by FILING and by\nSPONSOR (not by fund), split by tier, plus name hits. ``in_etfs`` reads the card's basket as it stands now.\nOld confidential filings SEC released are left out. Display only: it never feeds the call.",
+        "operationId": "fund_launches_theses__thesis_id__fund_launches_get",
+        "parameters": [
+          {
+            "name": "thesis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thesis Id"
+            }
+          },
+          {
+            "name": "asof",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "the night to read as of (default: today)",
+              "title": "Asof"
+            },
+            "description": "the night to read as of (default: today)"
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 730,
+              "minimum": 1,
+              "default": 90,
+              "title": "Days"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FundLaunchesOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/radar/funds/attach": {
+      "post": {
+        "tags": [
+          "radar"
+        ],
+        "summary": "Fund Attach",
+        "description": "Add a fund to a card's ETFs link \u2014 the operator's click (#10). The symbol resolves through the SAME\nfunction as ``POST /workbench/securities/resolve-etf`` (lookup-or-create, ``instrument_kind='etf'``); the\nmember is built like the Workbench's \"Surface an ETF\" does (role \"ETF sleeve\", segment ETFs, a model draft,\nsigned off, no conviction) and the card is re-written whole from the stored copy, so nothing it carries\n(context roles, catalysts, kill criteria...) is wiped. The write goes through the promote's own rules\n(``silent_conflicts`` / ``fund_conflicts``), so a fund can never land outside ETFs. Idempotent: already in\nETFs returns ``already`` and writes nothing. Prices are NOT pulled here (the screen does, as Surface an ETF\ndoes). Reversible via detach (#1).",
+        "operationId": "fund_attach_radar_funds_attach_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FundAttachRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FundAttachOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/radar/funds/detach": {
+      "post": {
+        "tags": [
+          "radar"
+        ],
+        "summary": "Fund Detach",
+        "description": "The attach inverse (#1): remove ONLY that fund's row from the card's ETFs link, returning to the prior\nstate (prices and facts stay; a re-attach re-binds the same id). Not there is the idempotent no-op\n(``removed=False``).",
+        "operationId": "fund_detach_radar_funds_detach_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FundAttachRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FundAttachOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/dashboards/capture": {
       "get": {
         "tags": [
@@ -23998,6 +24229,459 @@
         "title": "FormingWatchOut",
         "description": "A confirmation-only member of the recorded call (moving, no conviction yet)."
       },
+      "FundAttachOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "security_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "added": {
+            "type": "boolean",
+            "title": "Added",
+            "default": false
+          },
+          "already": {
+            "type": "boolean",
+            "title": "Already",
+            "default": false
+          },
+          "removed": {
+            "type": "boolean",
+            "title": "Removed",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id"
+        ],
+        "title": "FundAttachOut",
+        "description": "The attach/detach receipt (reversible, workbench principle #1). ``already`` marks the idempotent attach\nno-op; ``removed`` is false when the fund was not in the card's ETFs link."
+      },
+      "FundAttachRequest": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "symbol"
+        ],
+        "title": "FundAttachRequest",
+        "description": "Body for ``POST /radar/funds/attach`` / ``.../detach``: one fund symbol, one card."
+      },
+      "FundFilingOut": {
+        "properties": {
+          "accession": {
+            "type": "string",
+            "title": "Accession"
+          },
+          "form": {
+            "type": "string",
+            "title": "Form"
+          },
+          "trust": {
+            "type": "string",
+            "title": "Trust"
+          },
+          "public_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Public Date"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url"
+          },
+          "private_to_public": {
+            "type": "boolean",
+            "title": "Private To Public",
+            "default": false
+          },
+          "funds": {
+            "items": {
+              "$ref": "#/components/schemas/FundOut"
+            },
+            "type": "array",
+            "title": "Funds"
+          }
+        },
+        "type": "object",
+        "required": [
+          "accession",
+          "form",
+          "trust",
+          "public_date",
+          "url",
+          "funds"
+        ],
+        "title": "FundFilingOut",
+        "description": "One filing on the fund tape (the filing that FIRST announced its funds as new), with those funds. The\nbatch filing (dozens of single-stock wrappers) is ONE row."
+      },
+      "FundLaunchCountsOut": {
+        "properties": {
+          "filings": {
+            "type": "integer",
+            "title": "Filings"
+          },
+          "sponsors": {
+            "type": "integer",
+            "title": "Sponsors"
+          },
+          "funds": {
+            "type": "integer",
+            "title": "Funds"
+          },
+          "signal_filings": {
+            "type": "integer",
+            "title": "Signal Filings"
+          },
+          "broad_filings": {
+            "type": "integer",
+            "title": "Broad Filings"
+          },
+          "name_filings": {
+            "type": "integer",
+            "title": "Name Filings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "filings",
+          "sponsors",
+          "funds",
+          "signal_filings",
+          "broad_filings",
+          "name_filings"
+        ],
+        "title": "FundLaunchCountsOut",
+        "description": "One card's fund-launch counts, by FILING and by SPONSOR (never by fund, so one batch cannot look like a\nwave), split by tier. ``signal_filings`` / ``broad_filings`` count filings whose best theme tier is that\none; ``name_filings`` counts filings with a name hit."
+      },
+      "FundLaunchesOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "window_days": {
+            "type": "integer",
+            "title": "Window Days"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/FundLaunchCountsOut"
+          },
+          "filings": {
+            "items": {
+              "$ref": "#/components/schemas/FundFilingOut"
+            },
+            "type": "array",
+            "title": "Filings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "asof",
+          "window_days",
+          "counts",
+          "filings"
+        ],
+        "title": "FundLaunchesOut",
+        "description": "``GET /theses/{id}/fund-launches``: this card's matching fund launches as of a night. Only filings public by\n``asof``, inside ``asof - days``..``asof``; stages derived only from facts public by ``asof`` (invariant #1).\nEach filing holds only the funds that match this card."
+      },
+      "FundMatchOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "thesis_name": {
+            "type": "string",
+            "title": "Thesis Name"
+          },
+          "tier": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "signal",
+                  "broad"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tier"
+          },
+          "signal_terms": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Signal Terms"
+          },
+          "broad_terms": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Broad Terms"
+          },
+          "name_hits": {
+            "items": {
+              "$ref": "#/components/schemas/FundNameHitOut"
+            },
+            "type": "array",
+            "title": "Name Hits"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "thesis_name"
+        ],
+        "title": "FundMatchOut",
+        "description": "One card's reads of one fund (a RECOMMENDATION, #10: it changes nothing until the operator acts).\n``tier`` is the theme read's tier (\"signal\" when any SIGNAL term hit, else \"broad\") or null when only the\nname read hit."
+      },
+      "FundNameHitOut": {
+        "properties": {
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "link": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link"
+          },
+          "token": {
+            "type": "string",
+            "title": "Token"
+          },
+          "via": {
+            "type": "string",
+            "enum": [
+              "ticker",
+              "company_name"
+            ],
+            "title": "Via"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ticker",
+          "token",
+          "via"
+        ],
+        "title": "FundNameHitOut",
+        "description": "One name-read hit: a card company's ticker or cleaned name found in a fund's name. ``token`` is what\nmatched (provenance); ``link`` is the value-chain link the company sits in on that card."
+      },
+      "FundOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "series_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Series Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "stage": {
+            "$ref": "#/components/schemas/FundStageOut"
+          },
+          "symbols": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Symbols"
+          },
+          "matches": {
+            "items": {
+              "$ref": "#/components/schemas/FundMatchOut"
+            },
+            "type": "array",
+            "title": "Matches"
+          },
+          "in_etfs": {
+            "type": "boolean",
+            "title": "In Etfs",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "name",
+          "stage"
+        ],
+        "title": "FundOut",
+        "description": "One fund (a series some filing announced as new). ``in_etfs`` is set only on the per-card route: a basket\nrow in that card's ETFs link already holds one of the fund's symbols."
+      },
+      "FundStageOut": {
+        "properties": {
+          "filed": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filed"
+          },
+          "effective": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "listed": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Listed"
+          },
+          "current": {
+            "type": "string",
+            "enum": [
+              "filed",
+              "effective",
+              "ticker",
+              "listed"
+            ],
+            "title": "Current"
+          }
+        },
+        "type": "object",
+        "required": [
+          "current"
+        ],
+        "title": "FundStageOut",
+        "description": "A fund's launch stage as dates (null = not reached by the as-of): derived on read from stored facts, never\nstored. ``ticker`` and ``listed`` are the nights WE first saw a symbol in SEC's fund ticker file and the\nNasdaq directory (neither file carries a date)."
+      },
+      "FundTapeCountsOut": {
+        "properties": {
+          "filings": {
+            "type": "integer",
+            "title": "Filings"
+          },
+          "funds": {
+            "type": "integer",
+            "title": "Funds"
+          },
+          "matched_funds": {
+            "type": "integer",
+            "title": "Matched Funds"
+          },
+          "unmatched_funds": {
+            "type": "integer",
+            "title": "Unmatched Funds"
+          },
+          "private_held_back_funds": {
+            "type": "integer",
+            "title": "Private Held Back Funds",
+            "default": 0
+          },
+          "private_held_back_filings": {
+            "type": "integer",
+            "title": "Private Held Back Filings",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "filings",
+          "funds",
+          "matched_funds",
+          "unmatched_funds"
+        ],
+        "title": "FundTapeCountsOut",
+        "description": "The whole window's counts (always the full window, whatever ``matched_only`` hides): the UI's \"N more\"."
+      },
       "Grade": {
         "type": "string",
         "enum": [
@@ -33795,6 +34479,42 @@
         ],
         "title": "QuadrantTailPointOut",
         "description": "One tail point: x / y on ``session`` (``null`` = not measurable there; ``session`` null = before the\nfirst session read) and its quadrant."
+      },
+      "RadarFundsOut": {
+        "properties": {
+          "filings": {
+            "items": {
+              "$ref": "#/components/schemas/FundFilingOut"
+            },
+            "type": "array",
+            "title": "Filings"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/FundTapeCountsOut"
+          },
+          "window_days": {
+            "type": "integer",
+            "title": "Window Days"
+          },
+          "include_private": {
+            "type": "boolean",
+            "title": "Include Private"
+          },
+          "matched_only": {
+            "type": "boolean",
+            "title": "Matched Only"
+          }
+        },
+        "type": "object",
+        "required": [
+          "filings",
+          "counts",
+          "window_days",
+          "include_private",
+          "matched_only"
+        ],
+        "title": "RadarFundsOut",
+        "description": "``GET /radar/funds``: one row per FILING, newest first by public date, each with its funds and every card\neach fund fits. Pull-only and quiet; every row links its filing (#6)."
       },
       "RadarSpacOut": {
         "properties": {

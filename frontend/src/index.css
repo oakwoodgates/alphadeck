@@ -1261,6 +1261,26 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .radar-match { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .radar-match .rm-th { font-size: 11px; font-weight: 600; color: var(--txt-2); }
 .radar-match .rm-terms { font-family: var(--mono); font-size: 10px; color: var(--txt-4); flex: 1; min-width: 120px; }
+/* the fund launch radar (docs/FUND_RADAR.md) — quiet by design: no red, no badge on every row */
+.radar-tabs { display: flex; gap: 4px; margin-bottom: 10px; border-bottom: 1px solid var(--line); }
+.radar-tab { background: none; border: 0; border-bottom: 2px solid transparent; padding: 6px 12px; font-size: 12px; color: var(--txt-3); cursor: pointer; }
+.radar-tab.on { color: var(--txt); border-bottom-color: var(--txt-3); }
+.fl-toggles { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 8px; font-size: 11px; color: var(--txt-3); }
+.fl-batch { background: none; border: 0; padding: 0; font-size: 12px; color: var(--txt-2); cursor: pointer; flex: 1; text-align: left; min-width: 160px; }
+.fl-trust { font-size: 11px; color: var(--txt-3); }
+.fl-old { font-family: var(--mono); font-size: 9px; color: var(--txt-4); border: 1px dashed var(--line-2); border-radius: 5px; padding: 1px 6px; }
+.fl-stages { display: inline-flex; gap: 4px; }
+.fl-stage { font-family: var(--mono); font-size: 9px; color: var(--txt-4); border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; }
+.fl-stage.cur { color: var(--txt-2); border-color: var(--line-2); }
+.fl-tier { font-family: var(--mono); font-size: 9px; color: var(--txt-4); border: 1px solid var(--line); border-radius: 5px; padding: 0 5px; }
+.fl-namehit { font-family: var(--mono); font-size: 10px; color: var(--txt-3); }
+.fl-fits { margin-top: 5px; font-size: 11px; color: var(--txt-4); }
+.fl-funds, .fl-line-list { margin-top: 7px; padding-top: 7px; border-top: 1px dashed var(--line); display: flex; flex-direction: column; gap: 6px; }
+.fl-fund-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.fl-line { margin: 8px 0 14px; font-size: 11px; color: var(--txt-3); }
+.fl-line-h { background: none; border: 0; padding: 0; font-size: 11px; color: var(--txt-3); cursor: pointer; text-align: left; }
+.fl-line-h:hover { color: var(--txt-2); }
+.fl-line-filing-h { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 3px; }
 /* To-Review "add" reuses the Placed include checkbox (.wb-inc), sitting LEFT of the name — check to promote
    (the row moves up to Placed). Disabled (grayed) for un-addable names (no filer id / no listed ticker). */
 .wb-results .wb-inc:disabled { opacity: 0.4; cursor: default; }

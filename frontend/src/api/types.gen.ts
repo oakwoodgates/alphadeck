@@ -2027,6 +2027,103 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/radar/funds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fund Tape
+         * @description The fund launch tape: one row per FILING, newest first by public date, each with its funds (stage dates,
+         *     symbols) and every live card each fund fits (theme read with its tier, name read with its token). The counts
+         *     always cover the WHOLE window, so the UI can say "N more" (keep-it-visible); ``matched_only`` only trims the
+         *     rows. Old confidential filings SEC released are held back (counted) unless ``include_private``. Display
+         *     only: reads stored facts, derives on read, makes no request.
+         */
+        get: operations["fund_tape_radar_funds_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/theses/{thesis_id}/fund-launches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fund Launches
+         * @description This card's matching fund launches as of a night (invariant #1, the public clock): only filings public by
+         *     ``asof`` and inside ``asof - days``..``asof``, with each fund's stage derived ONLY from facts public by
+         *     ``asof`` (a later 485BPOS, or a symbol first seen after ``asof``, never shows). Counted by FILING and by
+         *     SPONSOR (not by fund), split by tier, plus name hits. ``in_etfs`` reads the card's basket as it stands now.
+         *     Old confidential filings SEC released are left out. Display only: it never feeds the call.
+         */
+        get: operations["fund_launches_theses__thesis_id__fund_launches_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/radar/funds/attach": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Fund Attach
+         * @description Add a fund to a card's ETFs link — the operator's click (#10). The symbol resolves through the SAME
+         *     function as ``POST /workbench/securities/resolve-etf`` (lookup-or-create, ``instrument_kind='etf'``); the
+         *     member is built like the Workbench's "Surface an ETF" does (role "ETF sleeve", segment ETFs, a model draft,
+         *     signed off, no conviction) and the card is re-written whole from the stored copy, so nothing it carries
+         *     (context roles, catalysts, kill criteria...) is wiped. The write goes through the promote's own rules
+         *     (``silent_conflicts`` / ``fund_conflicts``), so a fund can never land outside ETFs. Idempotent: already in
+         *     ETFs returns ``already`` and writes nothing. Prices are NOT pulled here (the screen does, as Surface an ETF
+         *     does). Reversible via detach (#1).
+         */
+        post: operations["fund_attach_radar_funds_attach_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/radar/funds/detach": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Fund Detach
+         * @description The attach inverse (#1): remove ONLY that fund's row from the card's ETFs link, returning to the prior
+         *     state (prices and facts stay; a re-attach re-binds the same id). Not there is the idempotent no-op
+         *     (``removed=False``).
+         */
+        post: operations["fund_detach_radar_funds_detach_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dashboards/capture": {
         parameters: {
             query?: never;
@@ -10980,6 +11077,229 @@ export interface components {
             ticker: string;
         };
         /**
+         * FundAttachOut
+         * @description The attach/detach receipt (reversible, workbench principle #1). ``already`` marks the idempotent attach
+         *     no-op; ``removed`` is false when the fund was not in the card's ETFs link.
+         */
+        FundAttachOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Security Id */
+            security_id?: string | null;
+            /** Ticker */
+            ticker?: string | null;
+            /**
+             * Added
+             * @default false
+             */
+            added: boolean;
+            /**
+             * Already
+             * @default false
+             */
+            already: boolean;
+            /**
+             * Removed
+             * @default false
+             */
+            removed: boolean;
+        };
+        /**
+         * FundAttachRequest
+         * @description Body for ``POST /radar/funds/attach`` / ``.../detach``: one fund symbol, one card.
+         */
+        FundAttachRequest: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Symbol */
+            symbol: string;
+        };
+        /**
+         * FundFilingOut
+         * @description One filing on the fund tape (the filing that FIRST announced its funds as new), with those funds. The
+         *     batch filing (dozens of single-stock wrappers) is ONE row.
+         */
+        FundFilingOut: {
+            /** Accession */
+            accession: string;
+            /** Form */
+            form: string;
+            /** Trust */
+            trust: string;
+            /**
+             * Public Date
+             * Format: date
+             */
+            public_date: string;
+            /** Url */
+            url: string;
+            /**
+             * Private To Public
+             * @default false
+             */
+            private_to_public: boolean;
+            /** Funds */
+            funds: components["schemas"]["FundOut"][];
+        };
+        /**
+         * FundLaunchCountsOut
+         * @description One card's fund-launch counts, by FILING and by SPONSOR (never by fund, so one batch cannot look like a
+         *     wave), split by tier. ``signal_filings`` / ``broad_filings`` count filings whose best theme tier is that
+         *     one; ``name_filings`` counts filings with a name hit.
+         */
+        FundLaunchCountsOut: {
+            /** Filings */
+            filings: number;
+            /** Sponsors */
+            sponsors: number;
+            /** Funds */
+            funds: number;
+            /** Signal Filings */
+            signal_filings: number;
+            /** Broad Filings */
+            broad_filings: number;
+            /** Name Filings */
+            name_filings: number;
+        };
+        /**
+         * FundLaunchesOut
+         * @description ``GET /theses/{id}/fund-launches``: this card's matching fund launches as of a night. Only filings public by
+         *     ``asof``, inside ``asof - days``..``asof``; stages derived only from facts public by ``asof`` (invariant #1).
+         *     Each filing holds only the funds that match this card.
+         */
+        FundLaunchesOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /** Window Days */
+            window_days: number;
+            counts: components["schemas"]["FundLaunchCountsOut"];
+            /** Filings */
+            filings: components["schemas"]["FundFilingOut"][];
+        };
+        /**
+         * FundMatchOut
+         * @description One card's reads of one fund (a RECOMMENDATION, #10: it changes nothing until the operator acts).
+         *     ``tier`` is the theme read's tier ("signal" when any SIGNAL term hit, else "broad") or null when only the
+         *     name read hit.
+         */
+        FundMatchOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Thesis Name */
+            thesis_name: string;
+            /** Tier */
+            tier?: ("signal" | "broad") | null;
+            /** Signal Terms */
+            signal_terms?: string[];
+            /** Broad Terms */
+            broad_terms?: string[];
+            /** Name Hits */
+            name_hits?: components["schemas"]["FundNameHitOut"][];
+        };
+        /**
+         * FundNameHitOut
+         * @description One name-read hit: a card company's ticker or cleaned name found in a fund's name. ``token`` is what
+         *     matched (provenance); ``link`` is the value-chain link the company sits in on that card.
+         */
+        FundNameHitOut: {
+            /** Ticker */
+            ticker: string;
+            /** Link */
+            link?: string | null;
+            /** Token */
+            token: string;
+            /**
+             * Via
+             * @enum {string}
+             */
+            via: "ticker" | "company_name";
+        };
+        /**
+         * FundOut
+         * @description One fund (a series some filing announced as new). ``in_etfs`` is set only on the per-card route: a basket
+         *     row in that card's ETFs link already holds one of the fund's symbols.
+         */
+        FundOut: {
+            /** Key */
+            key: string;
+            /** Series Id */
+            series_id?: string | null;
+            /** Name */
+            name: string;
+            stage: components["schemas"]["FundStageOut"];
+            /** Symbols */
+            symbols?: string[];
+            /** Matches */
+            matches?: components["schemas"]["FundMatchOut"][];
+            /**
+             * In Etfs
+             * @default false
+             */
+            in_etfs: boolean;
+        };
+        /**
+         * FundStageOut
+         * @description A fund's launch stage as dates (null = not reached by the as-of): derived on read from stored facts, never
+         *     stored. ``ticker`` and ``listed`` are the nights WE first saw a symbol in SEC's fund ticker file and the
+         *     Nasdaq directory (neither file carries a date).
+         */
+        FundStageOut: {
+            /** Filed */
+            filed?: string | null;
+            /** Effective */
+            effective?: string | null;
+            /** Ticker */
+            ticker?: string | null;
+            /** Listed */
+            listed?: string | null;
+            /**
+             * Current
+             * @enum {string}
+             */
+            current: "filed" | "effective" | "ticker" | "listed";
+        };
+        /**
+         * FundTapeCountsOut
+         * @description The whole window's counts (always the full window, whatever ``matched_only`` hides): the UI's "N more".
+         */
+        FundTapeCountsOut: {
+            /** Filings */
+            filings: number;
+            /** Funds */
+            funds: number;
+            /** Matched Funds */
+            matched_funds: number;
+            /** Unmatched Funds */
+            unmatched_funds: number;
+            /**
+             * Private Held Back Funds
+             * @default 0
+             */
+            private_held_back_funds: number;
+            /**
+             * Private Held Back Filings
+             * @default 0
+             */
+            private_held_back_filings: number;
+        };
+        /**
          * Grade
          * @enum {string}
          */
@@ -14802,6 +15122,22 @@ export interface components {
             y: number | null;
             /** Quadrant */
             quadrant: ("leading" | "weakening" | "lagging" | "improving") | null;
+        };
+        /**
+         * RadarFundsOut
+         * @description ``GET /radar/funds``: one row per FILING, newest first by public date, each with its funds and every card
+         *     each fund fits. Pull-only and quiet; every row links its filing (#6).
+         */
+        RadarFundsOut: {
+            /** Filings */
+            filings: components["schemas"]["FundFilingOut"][];
+            counts: components["schemas"]["FundTapeCountsOut"];
+            /** Window Days */
+            window_days: number;
+            /** Include Private */
+            include_private: boolean;
+            /** Matched Only */
+            matched_only: boolean;
         };
         /**
          * RadarSpacOut
@@ -20590,6 +20926,143 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SpacAttachOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    fund_tape_radar_funds_get: {
+        parameters: {
+            query?: {
+                /** @description window: public within the last N days */
+                days?: number;
+                /** @description also show old confidential filings SEC released (held back by default) */
+                include_private?: boolean;
+                /** @description keep only filings with a fund that fits a live card (counts stay whole) */
+                matched_only?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RadarFundsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    fund_launches_theses__thesis_id__fund_launches_get: {
+        parameters: {
+            query?: {
+                /** @description the night to read as of (default: today) */
+                asof?: string | null;
+                days?: number;
+            };
+            header?: never;
+            path: {
+                thesis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FundLaunchesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    fund_attach_radar_funds_attach_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FundAttachRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FundAttachOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    fund_detach_radar_funds_detach_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FundAttachRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FundAttachOut"];
                 };
             };
             /** @description Validation Error */

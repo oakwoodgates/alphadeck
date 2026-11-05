@@ -111,6 +111,11 @@ author one" invisible):
 - **Kill criteria** — the documented "what would kill this thesis." Consumed by the deterministic
   counter-case on the CallCard — an authored thesis stops reading "no documented counter-case."
 
+Between the basket table and the evidence sits one quiet **fund launches line** (`cockpit/FundLaunchesLine.tsx`,
+`GET /theses/{id}/fund-launches?asof=`; `FUND_RADAR.md`): "N filings from M sponsors in 90 days (signal a · broad b
+· name c)", collapsed, its own query, and **nothing at all when there are none**. Display only — never a call input;
+its "+ add to ETFs" files a fund that has reached a ticker into the card's silent ETFs link.
+
 The Cockpit shares the Board's as-of; the call rail beside it recomputes live at that date — under the same
 `known_at` cap for a past as-of, and so do the display signals (`/display-signals?asof=` threads it too).
 

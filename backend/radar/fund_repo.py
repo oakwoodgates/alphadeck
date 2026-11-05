@@ -189,11 +189,13 @@ def record_symbol_if_new(
 
 
 def series_views(
-    conn: psycopg.Connection, *, tenant_id: UUID = DEFAULT_TENANT_ID
+    conn: psycopg.Connection, *, tenant_id: UUID = DEFAULT_TENANT_ID, launches_only: bool = False
 ) -> list[SeriesView]:
     """Every stored fund-in-a-filing (latest version of each series row, joined to the latest version of its
     filing), newest public date first. The stage derive needs the FULL history of a series (a fund filed in
-    March goes effective in June), so this takes no window; the tables are small (tens of funds a week).
+    March goes effective in June), so this takes no window. ``launches_only`` keeps just the series some filing
+    announced as NEW (every row of them, so the effective stage still sees its 485BPOS): the display routes use
+    it, because a 485BPOS lists hundreds of long-standing mutual-fund classes that never become a launch row.
     """
     with conn.cursor() as cur:
         cur.execute(
@@ -202,12 +204,14 @@ def series_views(
                       s.series_key, s.series_id, s.series_name, s.kind, s.classes
                FROM (SELECT DISTINCT ON (accession, series_key) *
                      FROM fact_fund_series WHERE tenant_id = %s
+                       AND (NOT %s OR series_key IN (SELECT series_key FROM fact_fund_series
+                                                     WHERE tenant_id = %s AND kind = 'new'))
                      ORDER BY accession, series_key, recorded_at DESC) s
                JOIN (SELECT DISTINCT ON (accession) *
                      FROM fact_fund_filing WHERE tenant_id = %s
                      ORDER BY accession, recorded_at DESC) f USING (accession)
                ORDER BY f.public_date DESC, s.accession, s.series_key""",
-            (tenant_id, tenant_id),
+            (tenant_id, launches_only, tenant_id, tenant_id),
         )
         return [
             SeriesView(

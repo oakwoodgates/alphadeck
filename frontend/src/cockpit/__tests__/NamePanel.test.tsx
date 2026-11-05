@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 // NamePanel reads the per-name decision log via useDecisions — the only hook in its render tree (Meter,
 // TriggerRow, DisplaySignalsSection use none). Mock it to an empty log so the panel renders standalone.
 vi.mock("../../api/hooks", () => ({
+  useFundLaunches: () => ({ data: undefined, isLoading: false, error: null }),
   useDecisions: () => ({ data: [] }),
 }));
 

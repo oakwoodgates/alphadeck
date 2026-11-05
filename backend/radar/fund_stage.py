@@ -57,6 +57,18 @@ class FundLaunch:
     source_ref: str = ""
 
 
+def visible_as_of(
+    views: Iterable[SeriesView], symbols: Iterable[SymbolRow], asof: date
+) -> tuple[list[SeriesView], list[SymbolRow]]:
+    """The facts public by ``asof`` and nothing later (#1, the public clock): a filing counts from its public
+    date, a symbol from the night we first saw it. Derive stages from THIS, so a 485BPOS or a ticker that came
+    after ``asof`` can never show on a history view."""
+    return (
+        [v for v in views if v.public_date <= asof],
+        [s for s in symbols if s.night <= asof],
+    )
+
+
 def derive_launches(
     views: Iterable[SeriesView], symbols: Iterable[SymbolRow] = ()
 ) -> list[FundLaunch]:

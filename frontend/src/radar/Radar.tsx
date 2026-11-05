@@ -1,7 +1,9 @@
 import type { ReactNode } from "react";
+import { useSearchParams } from "react-router";
 
 import { useRadarSpac, useSpacAttach, useSpacCatalyst, type SpacEventOut } from "../api/hooks";
 import { errText } from "../workbench/format";
+import { FundLaunches } from "./FundLaunches";
 
 interface Props {
   header?: ReactNode;
@@ -20,16 +22,60 @@ const STATE_LABEL: Record<SpacEventOut["deal_state"], string> = {
  *  quiet, pull-only (#7), every row linked to its filing (#6). Matches are recommendations (#10):
  *  nothing changes until the operator clicks; add ⇄ remove is a reversible pair (#1). */
 export function Radar({ header }: Props) {
-  const q = useRadarSpac(90);
-  const attach = useSpacAttach();
-  const catalyst = useSpacCatalyst();
-  const events = q.data?.events ?? [];
+  // The tab rides the URL (?tab=funds) so it links and survives a reload; absent = the SPAC tape, unchanged.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab = searchParams.get("tab") === "funds" ? "funds" : "spac";
+  const setTab = (t: "spac" | "funds") =>
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (t === "funds") next.set("tab", "funds");
+        else next.delete("tab");
+        return next;
+      },
+      { replace: true },
+    );
 
   return (
     <div className="board-shell adm-shell">
       {header}
 
       <main className="radar-main">
+        <div className="radar-tabs" role="tablist" aria-label="radar tapes">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "spac"}
+            className={`radar-tab${tab === "spac" ? " on" : ""}`}
+            onClick={() => setTab("spac")}
+          >
+            SPAC
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "funds"}
+            className={`radar-tab${tab === "funds" ? " on" : ""}`}
+            onClick={() => setTab("funds")}
+          >
+            Fund launches
+          </button>
+        </div>
+        {tab === "funds" ? <FundLaunches /> : <SpacTape />}
+      </main>
+    </div>
+  );
+}
+
+function SpacTape() {
+  const q = useRadarSpac(90);
+  const attach = useSpacAttach();
+  const catalyst = useSpacCatalyst();
+  const events = q.data?.events ?? [];
+
+  return (
+    <>
+      <div>
         <div className="sect">
           <div className="sect-h">
             SPAC Radar{" "}
@@ -64,8 +110,8 @@ export function Radar({ header }: Props) {
             ))}
           </div>
         </div>
-      </main>
-    </div>
+      </div>
+    </>
   );
 }
 

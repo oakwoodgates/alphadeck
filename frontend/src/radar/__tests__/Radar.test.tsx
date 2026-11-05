@@ -2,6 +2,8 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { MemoryRouter, useLocation } from "react-router";
+
 import { Radar } from "../Radar";
 
 // The page under test with the API layer stubbed — the tape render, the honest states, and the
@@ -18,6 +20,24 @@ vi.mock("../../api/hooks", () => ({
   useRadarSpac: () => h.q,
   useSpacAttach: () => h.attach,
   useSpacCatalyst: () => h.catalyst,
+  useRadarFunds: () => ({
+    isLoading: false,
+    error: null,
+    data: {
+      filings: [],
+      counts: {
+        filings: 0,
+        funds: 0,
+        matched_funds: 0,
+        unmatched_funds: 0,
+        private_held_back_funds: 0,
+        private_held_back_filings: 0,
+      },
+      window_days: 90,
+      include_private: false,
+      matched_only: true,
+    },
+  }),
 }));
 
 const EVENT = {
@@ -57,10 +77,18 @@ const NOMATCH_EVENT = {
 };
 
 const noop = () => {};
-const renderPage = () =>
+const renderPage = (url = "/radar") =>
   render(
-    <Radar onBack={noop} onOpenWorkbench={noop} onOpenScoreboard={noop} onOpenAdmin={noop} />,
+    <MemoryRouter initialEntries={[url]}>
+      <Radar onBack={noop} onOpenWorkbench={noop} onOpenScoreboard={noop} onOpenAdmin={noop} />
+      <LocationProbe />
+    </MemoryRouter>,
   );
+
+// shows the router's current search string, so the tab test can assert the URL param
+function LocationProbe() {
+  return <div data-testid="search">{useLocation().search}</div>;
+}
 
 beforeEach(() => {
   h.q = {
@@ -123,5 +151,33 @@ describe("Radar — the tape", () => {
     h.q.data = { events: [], window_days: 90, shells_known: 0 };
     renderPage();
     expect(screen.getByText(/No transition filings in the window/)).toBeInTheDocument();
+  });
+});
+
+describe("Radar — the tabs", () => {
+  it("opens on the SPAC tape, and the Fund launches tab rides the URL (?tab=funds)", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    expect(screen.getByText("LIVE")).toBeInTheDocument(); // the SPAC tape, unchanged
+    expect(screen.getByRole("tab", { name: "SPAC" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("search")).toHaveTextContent("");
+
+    await user.click(screen.getByRole("tab", { name: "Fund launches" }));
+    expect(screen.getByTestId("search")).toHaveTextContent("?tab=funds");
+    expect(screen.queryByText("LIVE")).not.toBeInTheDocument();
+    expect(screen.getByText(/No filing in the window has a fund that fits/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "SPAC" }));
+    expect(screen.getByTestId("search")).toHaveTextContent("");
+    expect(screen.getByText("LIVE")).toBeInTheDocument();
+  });
+
+  it("a reload on ?tab=funds lands on the fund tape", () => {
+    renderPage("/radar?tab=funds");
+    expect(screen.getByRole("tab", { name: "Fund launches" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.queryByText("LIVE")).not.toBeInTheDocument();
   });
 });

@@ -39,6 +39,7 @@ const fx = vi.hoisted(() => {
 });
 
 vi.mock("../../api/hooks", () => ({
+  useFundLaunches: () => ({ data: undefined, isLoading: false, error: null }),
   useThesis: () => ({ data: fx.thesis, isLoading: false, error: null }),
   useCall: () => ({ data: undefined, isLoading: false, error: null }),
   useWorkbenchScored: () => ({ data: fx.scored, isLoading: false, error: null }),

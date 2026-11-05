@@ -8,6 +8,7 @@ import { SETUP_STRENGTH_TOOLTIP } from "../../util/format";
 // never a probability — and the per-name panel says so, with the same hover the rail and the scorecard carry.
 
 vi.mock("../../api/hooks", () => ({
+  useFundLaunches: () => ({ data: undefined, isLoading: false, error: null }),
   useDecisions: () => ({ data: [], isLoading: false, error: null }),
 }));
 

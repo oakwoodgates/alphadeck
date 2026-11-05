@@ -43,6 +43,7 @@ import {
 } from "./buckets";
 import { nextSort, sortRenderRows, type SortColId, type SortState } from "./sortBasket";
 import { NamePanel } from "./NamePanel";
+import { FundLaunchesLine } from "./FundLaunchesLine";
 import { RotationStrip } from "./RotationStrip";
 import { exportKeptNames, exportWatchlist, toExportedName } from "../util/exportNames";
 import {
@@ -1053,6 +1054,10 @@ export function Cockpit({
                   </table>
                 </div>
               </section>
+
+              {/* the fund launch line (docs/FUND_RADAR.md): quiet, collapsed, its own query, nothing when
+                  there are none — display only, it never feeds the call */}
+              <FundLaunchesLine thesisId={thesisId} asof={asof} readOnly={readOnly} />
 
               {evidence.length > 0 && (
                 <section className="sect vt-evidence">
