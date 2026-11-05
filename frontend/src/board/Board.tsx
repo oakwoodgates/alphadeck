@@ -140,6 +140,19 @@ export function Board({ header, asof, onSelect }: Props) {
     <div className="board-shell" data-mcp-ready={!computing && !thesesQ.isPending} data-mcp-error={Boolean(thesesQ.error || erroredRows.length)}>
       {header}
 
+      {/* Capture mode only: the section counts the page already shows, as notes, so a reader gets them
+          even when the observation text is cut before the column heads. Hidden, never visible chrome. */}
+      {readOnly && !thesesQ.isPending && (
+        <>
+          <div className="dash-note" hidden>{`Decision Queue: ${armedRows.length} items`}</div>
+          {COLUMNS.map((col) => (
+            <div className="dash-note" hidden key={col.state}>
+              {`${col.label}: ${rows.filter((r) => r.call.state === col.state).length}`}
+            </div>
+          ))}
+        </>
+      )}
+
       {/* F11 — honest loudness (#7 / WB#3): every column shares the ONE as-of dial, so a past scrub
           makes EVERY card on screen a recompute, not the recorded call-of-record — a per-card badge
           would be true of every row and so be noise (WB#3); one quiet line for the whole board says

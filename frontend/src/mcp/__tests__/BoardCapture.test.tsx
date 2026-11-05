@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, waitFor } from "@testing-library/react";
+import { cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Board } from "../../board/Board";
 import { ClockProvider, clockFromServer } from "../../clock";
@@ -123,6 +123,13 @@ describe("the Board's captured evidence references", () => {
     expect(queue.links.map((l: { id: string }) => l.id)).toEqual(["nav_a_name"]);
     expect(cardA.links.map((l: { id: string }) => l.id)).toEqual(["nav_a"]);
     expect(cardC.links.map((l: { id: string }) => l.id)).toEqual(["nav_c"]);
+  });
+
+  it("emits the five section counts as notes in capture mode, and none on the interactive Board", async () => {
+    const captured = observe(await mount(true), "Board").observation.notes;
+    expect(captured).toEqual(["Decision Queue: 1 items", "Incubating: 0", "Warming: 1", "Armed: 1", "Managing: 0"]);
+    cleanup();
+    expect(observe(await mount(false), "Board").observation.notes).toEqual([]);
   });
 
   it("advertises nothing on the interactive Board", async () => {

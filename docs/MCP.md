@@ -256,7 +256,7 @@ Recipe discovery and retrieval themselves work while those two services are stop
 
 | Workflow ID | Version | Inputs | Report |
 |---|---|---|---|
-| `board-review` | 1.1.0 | Optional `asof`; `max_items` defaults to 5 (1–20). | Board/queue coverage and a shortlist in displayed Decision Queue order, with reasons and data caveats. |
+| `board-review` | 1.1.1 | Optional `asof`; `max_items` defaults to 5 (1–20). | Board/queue coverage and a shortlist in displayed Decision Queue order, with reasons and data caveats. |
 | `explain-call` | 1.1.0 | Required `thesis` (name or UUID); optional `asof`. | Platform call and conditions, exact captured evidence, unresolved gaps, and separately labeled agent interpretation. |
 | `compare-rotation` | 1.1.0 | Required `start_date` and `end_date`, earlier first; `group_by` defaults to `card`. | Two dated readings with percentage-point differences, breadth/coverage, membership and flag changes. |
 
@@ -433,6 +433,13 @@ references to its Decision Queue target and its lifecycle-card target; both list
 categories keep call output, card metadata and data quality distinct; nothing is recomputed and no call
 logic is touched.
 
+In capture mode only, the Board also emits its section counts as observation `notes` (hidden
+`.dash-note` elements, so the visible text is unchanged and the interactive Board emits none), because
+a real Board's observation text is cut by long card narratives before the column heads. One note per
+section, using the counts the UI already displays: `Decision Queue: <n> items`, `Incubating: <n>`,
+`Warming: <n>`, `Armed: <n>`, `Managing: <n>`. `board-review` 1.1.1 reads the queue length from the
+first; only if the note is absent is the length reported as unverified.
+
 ## Add a dashboard
 
 1. Keep metadata/defaults/settings schema/response-path templates in its `capability.json` and reuse that
@@ -468,14 +475,24 @@ Measured on synthetic captures at real scale (`tests/agent_access/board_scale.py
 armed, calls of about 49K characters, `/theses` about 90K, `/data-flags` about 163K with each flag entry
 held by about 1.3 cards). Numbers are MEASURED with the tools' own reply encoding unless marked.
 
-- **A 5-item `board-review` costs about 215K characters in 9 calls**, over the operator's 120K budget
-  (target: under 100K in about 15 calls). `tests/agent_access/test_board_review_scale.py` runs it
-  through the real server: get_workflow 6.7K, describe_dashboard 1.1K, `read_dashboard` 79K (an
-  observation preview of about 28K, calibrated to prod, and 23 targets), one inspect page of the rest of
-  the queue 39K, and five batch reads 15–20K each (88K). Listing the 42 queue targets with their 13–21
-  references each costs about 119K; a batch is dominated by `armed_members` and `risk_signals` (both cut
-  at 4,000), about 4.6 flag entries, and the per-item frame. The budget assertion is kept at 120K and
-  marked as an expected failure until a design meets it; it is never loosened.
+- **A 5-item `board-review` costs about 215K characters in 9 calls** on the synthetic capture, and the
+  original target (under 100K in about 15 calls) is NOT met. `tests/agent_access/test_board_review_scale.py`
+  runs it through the real server: get_workflow 6.8K, describe_dashboard 1.1K, `read_dashboard` 79.5K
+  (an observation preview of about 28K, calibrated to prod, and 23 targets), one inspect page of the rest
+  of the queue 39K, and five batch reads 15-20K each. Listing the 42 queue targets with their 13-21
+  references each costs about 119K. The test asserts a regression guard of 248,000 characters (the
+  measured total plus about 15%) and at most 20 calls; it is a guard against growth, not a claim that
+  the target is met.
+- **Real-data sizes (MEASURED on the dev stack, 2026-11-05; 65 active cards, 39-item queue; the order-label run alone over-counted it by one, which is why the recipe reads the count from the note):**
+
+  | Reply | Size |
+  |---|---|
+  | `read_dashboard` | 74,577 characters, 48 s |
+  | One listing page (20 targets with references) | about 55K characters |
+  | Each batch read | 12-28K characters |
+  | A minimal 5-item `board-review` | about 237K characters in about 8 calls, about 50 s, in one snapshot |
+  | Before this change | about 1.05M characters in 30+ calls, unable to finish in one snapshot |
+
 - **Board references and the relationship cap.** A capture holds at most 2,048 references. At 100 cards
   (the capture's card limit), 12 per card leaves room for about 848 distinct flag entries; beyond that
   the Board capture returns 413, and nothing is truncated.

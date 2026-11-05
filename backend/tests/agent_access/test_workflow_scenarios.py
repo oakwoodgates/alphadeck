@@ -226,8 +226,14 @@ def test_board_review_and_explain_call_use_rendered_queue_and_frozen_evidence(br
                 target_limit=50,
             )
             assert board["settings"] == board_settings and board["asof"] == review["asof"]
-            # board-review 1.1.0, step 2: the queue's length is the rendered Armed column count.
-            armed = int(re.search(r"(?i)armed\s+act now\s+(\d+)", board["observation"]["text"])[1])
+            # board-review 1.1.1, step 2: the queue's length is the "Decision Queue: <n> items" note.
+            armed = int(
+                next(
+                    re.fullmatch(r"Decision Queue: (\d+) items", note)[1]
+                    for note in board["observation"]["notes"]
+                    if note.startswith("Decision Queue:")
+                )
+            )
             listed, offset = list(board["targets"]), board["next_target_offset"]
             while len(listed) < armed and offset is not None:
                 page = await call(

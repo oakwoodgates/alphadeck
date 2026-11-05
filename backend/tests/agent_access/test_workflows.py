@@ -39,7 +39,7 @@ def test_registry_descriptors_templates_and_defaults_are_isolated():
     assert template["ready"] is False and template["arguments"] is None
     assert template["workflow"]["defaults"] == {"max_items": 5}
     assert template["workflow"]["required_dashboards"]
-    assert "`board-review` (version `1.1.0`)" in template["instructions"]
+    assert "`board-review` (version `1.1.1`)" in template["instructions"]
     ready = registry.get("board-review", {})
     assert ready["ready"] is True and ready["arguments"] == {"max_items": 5}
     assert ready["instructions"].startswith(template["instructions"] + "\n\n")

@@ -11,6 +11,7 @@ import secrets
 import sys
 
 from jsonschema import Draft202012Validator
+from jsonschema.exceptions import best_match
 from mcp import types
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
@@ -394,17 +395,24 @@ def make_server(service: DashboardService | None = None) -> Server:
 
     async def call_tool(context, params):
         name, arguments = params.name, params.arguments or {}
-        if name not in INPUT_SCHEMAS or not Draft202012Validator(
-            INPUT_SCHEMAS.get(name, {}), format_checker=Draft202012Validator.FORMAT_CHECKER
-        ).is_valid(arguments):
+        message = None
+        if name not in INPUT_SCHEMAS:
+            message = "Unknown tool or arguments do not match the advertised input schema."
+        else:
+            validator = Draft202012Validator(
+                INPUT_SCHEMAS[name], format_checker=Draft202012Validator.FORMAT_CHECKER
+            )
+            best = best_match(validator.iter_errors(arguments))
+            if best is not None:
+                where = "/".join(str(part) for part in best.absolute_path)
+                message = f"{where}: {best.message}" if where else best.message
+                message = message[:200]
+        if message is not None:
             payload = {
                 "request_id": secrets.token_hex(8),
                 "schema_version": "2",
                 "ok": False,
-                "error": AccessError(
-                    "invalid_arguments",
-                    "Unknown tool or arguments do not match the advertised input schema.",
-                ).payload(),
+                "error": AccessError("invalid_arguments", message).payload(),
             }
             png = None
         else:

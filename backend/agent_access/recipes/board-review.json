@@ -1,7 +1,7 @@
 {
   "schema_version": "1",
   "id": "board-review",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "title": "Review the Board",
   "description": "Summarize the Board and take a bounded shortlist from its existing Decision Queue order, with timing and data-quality evidence.",
   "stage": "MONITOR",
