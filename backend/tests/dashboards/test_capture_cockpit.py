@@ -413,7 +413,12 @@ def test_board_links_are_explicit_fresh_captures_and_archive_rows_have_no_link()
         ),
     ]
     links, refs = board.relationships(responses, request(tid))
-    assert len(links) == 2 and refs == []
+    assert len(links) == 2
+    # the evidence references are the active card's alone (tests/dashboards/test_capture.py)
+    assert [(r.category, r.label) for r in refs] == [
+        ("thesis_summary", "theses[0]"),
+        ("call_result", "armed_members"),
+    ]
     assert all(
         link.kind == "fresh_capture" and link.destination.settings["thesis_id"] == str(tid)
         for link in links
