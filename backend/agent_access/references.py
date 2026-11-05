@@ -6,21 +6,21 @@ import re
 
 from .errors import AccessError
 
-CONTEXT_FIELDS = (
-    "clock_response",
-    "clock",
-    "known_at",
-    "decisions_asof",
-    "countdown_origin",
-    "scope",
-)
+# The temporal guard hashes EVERY context field except these, so a new field is guarded by
+# default. Limitations are per-surface notes (a Cockpit adds its own to the Board's), not time.
+# Mirrors app/routers/dashboards/capture_links.CONTEXT_HASH_EXCLUDED; a parity test pins both.
+CONTEXT_HASH_EXCLUDED = ("limitations",)
 MAX_REFERENCES = 2048
 
 
 def context_hash(envelope: dict) -> str:
     payload = {
-        "asof": envelope["asof"],
-        **{field: envelope["context"][field] for field in CONTEXT_FIELDS},
+        **{
+            field: value
+            for field, value in envelope["context"].items()
+            if field not in CONTEXT_HASH_EXCLUDED
+        },
+        "asof": envelope["asof"],  # Last, so a context field can never stand in for it.
     }
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode(

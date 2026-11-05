@@ -22,14 +22,10 @@ from app.routers.dashboards.capture_contract import (
 )
 
 MAX_RELATIONSHIPS = 2048
-CONTEXT_FIELDS = (
-    "clock_response",
-    "clock",
-    "known_at",
-    "decisions_asof",
-    "countdown_origin",
-    "scope",
-)
+# The temporal guard hashes EVERY CaptureContext field except these, so a new field is guarded
+# by default. Limitations are per-surface notes (a Cockpit adds its own to the Board's), not time.
+# Mirrored in agent_access/references.CONTEXT_HASH_EXCLUDED; a parity test pins both.
+CONTEXT_HASH_EXCLUDED = ("limitations",)
 
 
 def canonical_hash(value: Any) -> str:
@@ -40,8 +36,8 @@ def canonical_hash(value: Any) -> str:
 
 def context_hash(asof: str, context: CaptureContext) -> str:
     """Hash exact serialized wire values, including Pydantic's UTC-Z datetime spelling."""
-    wire = context.model_dump(mode="json")
-    return canonical_hash({"asof": asof, **{key: wire[key] for key in CONTEXT_FIELDS}})
+    wire = context.model_dump(mode="json", exclude=set(CONTEXT_HASH_EXCLUDED))
+    return canonical_hash({**wire, "asof": asof})  # asof last: no field can stand in for it
 
 
 def navigation(dashboard: str, **settings: Any) -> CaptureNavigation:

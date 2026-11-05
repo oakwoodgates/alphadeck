@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "alphadeck-prod": {
+      "type": "stdio",
+      "command": "${ALPHADECK_MCP_COMMAND}",
+      "args": ["--backend-base", "http://127.0.0.1:8000", "--ui-base", "http://127.0.0.1:8080"]
+    },
+    "alphadeck-dev": {
+      "type": "stdio",
+      "command": "${ALPHADECK_MCP_COMMAND}",
+      "args": ["--backend-base", "http://127.0.0.1:8001", "--ui-base", "http://127.0.0.1:8081"]
+    }
+  }
+}

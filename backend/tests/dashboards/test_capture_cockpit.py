@@ -2,13 +2,14 @@
 
 import hashlib
 import json
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
+from agent_access import references as mcp_references
 from app.deps import get_conn
 from app.main import app
 from app.routers import theses
@@ -16,6 +17,7 @@ from app.routers.dashboards import capture
 from app.routers.dashboards.capture_adapters import board, cockpit
 from app.routers.dashboards.capture_contract import CaptureContext, CaptureRequest, response
 from app.routers.dashboards.capture_links import (
+    CONTEXT_HASH_EXCLUDED,
     context_hash,
     navigation,
     reference,
@@ -133,6 +135,48 @@ def test_expected_context_matches_wire_canonicalization_and_rejects_before_work(
     assert not seen and not conn.sql
     params["expected_context_hash"] = "not-a-hash"
     assert client.get("/dashboards/capture", params=params).status_code == 422
+
+
+# One valid change per CaptureContext field. A new field fails the test below until it has an
+# entry here, and then it is guarded by the hash with no edit to the hash itself.
+CONTEXT_CHANGES = {
+    "clock_response": lambda c: c.clock_response.model_copy(
+        update={"market_today": c.clock_response.market_today + timedelta(days=1)}
+    ),
+    "clock": lambda c: "record" if c.clock == "public" else "public",
+    "known_at": lambda c: (c.known_at or datetime(2026, 5, 30, tzinfo=timezone.utc))
+    + timedelta(microseconds=1),
+    "decisions_asof": lambda c: c.decisions_asof - timedelta(days=1),
+    "countdown_origin": lambda c: c.countdown_origin + timedelta(days=1),
+    "scope": lambda c: "synthetic_other_scope",
+    "limitations": lambda c: [*c.limitations, "Synthetic per-surface note."],
+}
+
+
+def mcp_hash(asof: str, context: CaptureContext) -> str:
+    """The MCP's hash over the context exactly as it crosses the wire."""
+    wire = json.loads(context.model_dump_json())
+    return mcp_references.context_hash({"asof": asof, "context": wire})
+
+
+@pytest.mark.parametrize("field", list(CaptureContext.model_fields))
+def test_context_hash_guards_every_field_except_limitations(field):
+    assert field in CONTEXT_CHANGES, f"add a synthetic change for the new context field {field!r}"
+    base = context()
+    changed = base.model_copy(update={field: CONTEXT_CHANGES[field](base)})
+    assert changed.model_dump()[field] != base.model_dump()[field]
+    asof = ASOF.isoformat()
+    unchanged = context_hash(asof, changed) == context_hash(asof, base)
+    assert unchanged is (field == "limitations")
+    assert mcp_hash(asof, changed) == context_hash(asof, changed)
+
+
+@pytest.mark.parametrize("asof", [ASOF, PIN.night])  # public clock, then record clock
+def test_backend_and_mcp_context_hashes_agree_on_the_serialized_context(asof):
+    ctx = context(asof).model_copy(update={"limitations": ["Synthetic per-surface note."]})
+    assert ctx.clock == ("public" if asof < PIN.night else "record")
+    assert mcp_hash(asof.isoformat(), ctx) == context_hash(asof.isoformat(), ctx)
+    assert mcp_references.CONTEXT_HASH_EXCLUDED == CONTEXT_HASH_EXCLUDED == ("limitations",)
 
 
 @pytest.fixture

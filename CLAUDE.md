@@ -273,6 +273,7 @@ curl "http://127.0.0.1:8000/theses/<id>/call?asof=2026-06-01"
 curl -X POST "http://127.0.0.1:8000/workbench/theses/<id>/draft-chain"
 
 # frontend dev (from frontend\): npm install · npm run dev   # Vite on :5173, proxies /api -> :8000
+# the read-only dashboard MCP server (alphadeck-prod / alphadeck-dev in .mcp.json; set ALPHADECK_MCP_COMMAND once): install, Chromium and registration in docs/MCP.md "Install and run"
 ```
 
 Keep this section current as the source of truth for build/run/test.
