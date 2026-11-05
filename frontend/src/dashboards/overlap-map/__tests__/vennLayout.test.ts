@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   MAX_RADIUS,
+  MIN_LABEL_AREA,
   distanceForOverlap,
   lensArea,
   overlapsOf,
@@ -89,6 +90,18 @@ describe("the exact two-set geometry", () => {
     const lay = vennLayout(overlapsOf([set("a", ids("a", 0, 5)), set("b", [])]));
     expect(lay.circles[1].r).toBeGreaterThan(0);
     expect(lay.minRadiusApplied).toBe(false);
+  });
+});
+
+describe("region areas", () => {
+  it("measures each region so a count too big for a small one can be listed instead", () => {
+    const A = ids("a", 0, 100);
+    const lay = vennLayout(overlapsOf([set("a", A), set("b", A.slice(0, 1).concat(ids("b", 0, 99)))]));
+    expect(lay.areas[3]).toBeLessThan(MIN_LABEL_AREA); // a lens of one name in a hundred
+    expect(lay.areas[1]).toBeGreaterThan(MIN_LABEL_AREA);
+    expect(lay.areas[2]).toBeGreaterThan(MIN_LABEL_AREA);
+    const apart = vennLayout(overlapsOf([set("a", ids("a", 0, 20)), set("b", ids("b", 0, 20))]));
+    expect(apart.areas[3]).toBe(0);
   });
 });
 

@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 
 import type { DashboardProps } from "../registry";
 import { SET_KINDS, SET_KIND_LABEL, setDefs, validPicks, type SetDef } from "./mapView";
-import { maskAt, overlapsOf, vennLayout, vennRegions } from "./vennLayout";
+import { MIN_LABEL_AREA, maskAt, overlapsOf, vennLayout, vennRegions } from "./vennLayout";
 import type { OverlapMapOut } from "./useOverlapMap";
 
 // The Venn tab (docs/dashboards/overlap-map.md): any two or three sets from one searchable picker (a card, a link on
@@ -113,6 +113,8 @@ export default function VennTab({
   const [mask, setMask] = useState<number | null>(null);
   const region = regions.find((r) => r.mask === mask) ?? null;
 
+  const fits = (mask: number) => (layout?.areas[mask] ?? 0) >= MIN_LABEL_AREA;
+
   if (!layout || chosen.length < 2) {
     return <div className="dash-note">A Venn needs at least two cards in view.</div>;
   }
@@ -151,6 +153,7 @@ export default function VennTab({
           " One set is more than 50 times another: the small circle is drawn at a minimum size, so its area is not to scale."}
       </div>
       <div className="om-body">
+        <div className="om-venn-wrap">
         <svg
           className="om-venn-svg"
           viewBox={`0 0 ${layout.width} ${layout.height}`}
@@ -169,6 +172,7 @@ export default function VennTab({
             <circle key={chosen[i].key} className="om-venn-circle" cx={c.cx} cy={c.cy} r={c.r} fill={TINTS[i]} />
           ))}
           {regions.map((r) => {
+            if (!fits(r.mask)) return null;
             const a = layout.anchors[r.mask];
             return (
               <text
@@ -198,6 +202,26 @@ export default function VennTab({
             );
           })}
         </svg>
+        {regions.some((r) => !fits(r.mask)) && (
+          <div className="om-quiet om-small-regions" data-testid="om-small-regions">
+            {regions
+              .filter((r) => !fits(r.mask))
+              .map((r, i) => (
+                <span key={r.mask}>
+                  {i > 0 && " · "}
+                  <button
+                    type="button"
+                    className={`om-link om-small-region${mask === r.mask ? " on" : ""}`}
+                    data-testid={`om-region-${r.mask}`}
+                    onClick={() => setMask(r.mask)}
+                  >
+                    {r.words}: {r.count}
+                  </button>
+                </span>
+              ))}
+          </div>
+        )}
+        </div>
         <aside className="om-panel" data-testid="om-region-list" aria-live="polite">
           {region ? (
             <>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildSectorGrid, cellRadius } from "../sectorGrid";
+import { CELL_MIN_R, buildSectorGrid, cellRadius } from "../sectorGrid";
 import { COMPANIES, overlapFixture } from "./fixture";
 
 // The Sectors grid (docs/dashboards/overlap-map.md): columns ordered by the cards each appears on with Other and
@@ -65,5 +65,12 @@ describe("cell size", () => {
     expect(cellRadius(4, 4, 12)).toBe(12);
     expect(cellRadius(1, 4, 12)).toBeCloseTo(6, 6);
     expect(cellRadius(0, 4, 12)).toBe(0);
+  });
+
+  it("keeps a one-company cell visible: a floor of 3 px, area proportional above it", () => {
+    expect(CELL_MIN_R).toBe(3);
+    expect(cellRadius(1, 64, 16)).toBe(3); // 16 * sqrt(1/64) = 2 px, raised to the floor
+    expect(cellRadius(16, 64, 16)).toBeCloseTo(8, 6);
+    expect(cellRadius(64, 64, 16)).toBe(16);
   });
 });

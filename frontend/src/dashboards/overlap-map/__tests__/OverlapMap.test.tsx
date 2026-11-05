@@ -200,6 +200,23 @@ describe("the Venn tab", () => {
   });
 });
 
+describe("small Venn regions", () => {
+  it("lists a region too small for its count under the diagram, still clickable", async () => {
+    const { user } = setup();
+    await user.click(screen.getByRole("tab", { name: "Venn" })); // Alpha and Beta: every region is big
+    expect(screen.queryByTestId("om-small-regions")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Add a set" }));
+    await user.type(screen.getByRole("searchbox"), "Solo");
+    await user.click(within(screen.getByTestId("om-picker-list")).getByRole("button", { name: /^Solo/ }));
+    await user.click(screen.getByRole("button", { name: "Remove Beta" })); // Alpha and Solo share nothing
+    const line = screen.getByTestId("om-small-regions");
+    expect(line.textContent).toContain("In Alpha and Solo: 0");
+    expect(screen.queryByText("In Alpha and Solo", { selector: "text" })).toBeNull();
+    await user.click(within(line).getByRole("button", { name: /In Alpha and Solo/ }));
+    expect(screen.getByTestId("om-region-list").textContent).toContain("No company is only here.");
+  });
+});
+
 describe("the Sectors tab", () => {
   it("shows a column header with cards and companies, rows in the stated order, and a cell's companies", async () => {
     const { user, onSelect } = setup();

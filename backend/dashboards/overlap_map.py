@@ -19,9 +19,10 @@ The rules, in one place:
   of 2+ cards, and a card in no group has "no line".
 - **The layout** is a deterministic force layout (``layout_bubbles``): each card starts from a hash of its id
   (``hashlib``, never Python's per-process ``hash()``), a fixed number of iterations, a pull toward every card it
-  shares companies with proportional to the shared count (over ALL pairs), a push between every pair of bubbles,
-  a weak pull to the middle, and a final pass that leaves no two bubbles touching. Positions are then scaled
-  uniformly (positions and radii together, so nothing overlaps) into a fixed box. A card sharing no company
+  shares companies with (over ALL pairs; stiffness 1 + ln of the shared count), a SHORT-range push between
+  bubbles that are close, a pull to the middle, and a final pass that leaves no two bubbles touching. The cloud
+  is stretched along its short axis to the box's shape, then scaled uniformly (positions and radii together, so
+  nothing overlaps) into a fixed box. A card sharing no company
   with any other has no position: it sits in the page's "Shares no names" strip, never dropped.
 - **Sector and business type** are today's master (``identity_for``'s ``business_supersector`` and
   ``business_type``, the read ``baskets.group_of`` uses); a company with neither carries ``None`` (the page's
@@ -52,10 +53,12 @@ R_SCALE = (
 R_MIN = 7.0  # a 1-name card stays visible
 GAP = 3.0  # clear space left between two bubbles
 ITERATIONS = 240  # fixed
-START_RADIUS = 260.0  # the start disc a card's hash places it in
-PULL = 1.0  # spring stiffness per shared company
-REPEL = 900.0  # the push between every pair of bubbles (over distance)
-CENTER_PULL = 0.012  # weak pull to the middle so groups sharing nothing stay in view
+PULL = 1.0  # spring stiffness at one shared company; a link of w shared names pulls with PULL * (1 + ln w)
+REPEL_K = (
+    2.0  # the short-range push: a spring that only pushes, inside the two radii plus REPEL_MARGIN
+)
+REPEL_MARGIN = 14.0
+GRAVITY = 0.06  # pull to the middle (along y; x is weaker by the box's aspect, so the cloud fills a wide box)
 MAX_STEP_START = 28.0
 MAX_STEP_END = 0.6
 RELAX_PASSES = 4000  # the no-overlap pass stops at the first clean sweep
@@ -181,25 +184,30 @@ def layout_bubbles(
     radii = [radius(s) for s in sizes]
     xs = [0.0] * n
     ys = [0.0] * n
+    start = math.sqrt(
+        sum(r * r for r in radii)
+    )  # a disc as big as the bubbles' total area: no long arms
     for i in range(n):
         u1, u2 = _unit_pair(keys[i])
         angle = 2 * math.pi * u1
-        dist = START_RADIUS * math.sqrt(u2)
-        xs[i], ys[i] = dist * math.cos(angle), dist * math.sin(angle)
+        dist = start * math.sqrt(u2)
+        xs[i], ys[i] = dist * math.cos(angle) * box_w / box_h, dist * math.sin(angle)
 
     springs: list[tuple[int, int, float, float]] = []  # (i, j, stiffness, rest length)
     stiff = [0.0] * n
     for (i, j), w in sorted(weights.items()):
-        k = PULL * w
+        k = PULL * (1.0 + math.log(w))
         springs.append((i, j, k, radii[i] + radii[j] + GAP))
         stiff[i] += k
         stiff[j] += k
-    damp = [1.0 / (1.0 + stiff[i] + CENTER_PULL * 100) for i in range(n)]
+    gy = GRAVITY
+    gx = GRAVITY * (box_h / box_w) ** 2
+    damp = [1.0 / (1.0 + stiff[i] + 3 * REPEL_K + gy) for i in range(n)]
 
     for step in range(ITERATIONS):
         cool = MAX_STEP_END + (MAX_STEP_START - MAX_STEP_END) * (1.0 - step / ITERATIONS)
-        fx = [-CENTER_PULL * xs[i] for i in range(n)]
-        fy = [-CENTER_PULL * ys[i] for i in range(n)]
+        fx = [-gx * xs[i] for i in range(n)]
+        fy = [-gy * ys[i] for i in range(n)]
         for p in range(n):
             i = order[p]
             xi, yi = xs[i], ys[i]
@@ -208,11 +216,14 @@ def layout_bubbles(
                 dx = xi - xs[j]
                 dy = yi - ys[j]
                 d2 = dx * dx + dy * dy
+                reach = radii[i] + radii[j] + REPEL_MARGIN
+                if d2 >= reach * reach:
+                    continue
                 if d2 < 1e-9:  # coincident: a stable direction from the pair's keys
                     u1, _ = _unit_pair(keys[i] + keys[j])
                     dx, dy, d2 = math.cos(2 * math.pi * u1), math.sin(2 * math.pi * u1), 1.0
                 d = math.sqrt(d2)
-                push = REPEL / (d * d)  # force REPEL / d, split into its x / y parts over d
+                push = REPEL_K * (reach - d) / d
                 fx[i] += dx * push
                 fy[i] += dy * push
                 fx[j] -= dx * push
@@ -237,6 +248,17 @@ def layout_bubbles(
             ys[i] += my
 
     _separate(keys, order, radii, xs, ys)
+
+    # fill the box: stretch the centers along the short axis until the cloud has the box's shape. Distances only
+    # grow (a stretch of 1 or more), so a clean layout stays clean; the radii are untouched.
+    cw = max(xs) - min(xs)
+    ch = max(ys) - min(ys)
+    if cw > 1e-9 and ch > 1e-9:
+        want = box_w / box_h
+        if cw / ch < want:
+            xs = [x * (want * ch / cw) for x in xs]
+        else:
+            ys = [y * (cw / (want * ch)) for y in ys]
 
     # normalize: one uniform scale (positions and radii together, so a clean layout stays clean) into the box
     left = min(xs[i] - radii[i] for i in range(n))

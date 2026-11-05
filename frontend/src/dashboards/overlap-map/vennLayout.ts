@@ -32,7 +32,12 @@ export type VennLayout = {
   minRadiusApplied: boolean;
   /** Where each region's count sits, by mask (the mean of the region's sampled area). */
   anchors: Record<number, { x: number; y: number }>;
+  /** Each region's area, in the drawing's own units (sampled): a count only fits inside a region this big. */
+  areas: Record<number, number>;
 };
+
+/** A region at least this big (drawing units squared) holds its count; a smaller one is listed under the diagram. */
+export const MIN_LABEL_AREA = 650;
 
 /** The largest circle's radius, in the drawing's own units. */
 export const MAX_RADIUS = 100;
@@ -149,7 +154,8 @@ export function vennLayout(o: Overlaps): VennLayout {
   const circles = raw.map((c) => ({ cx: c.cx - left + PAD, cy: c.cy - top + PAD, r: c.r }));
   const width = right - left + 2 * PAD;
   const height = bottom - top + 2 * PAD;
-  return { circles, width, height, minRadiusApplied, anchors: regionAnchors(circles, width, height) };
+  const { anchors, areas } = regionAnchors(circles, width, height);
+  return { circles, width, height, minRadiusApplied, anchors, areas };
 }
 
 /** The mask of the circles a point lies inside (bit i = circle i). */
@@ -167,7 +173,7 @@ export function regionAnchors(
   circles: readonly Circle[],
   width: number,
   height: number,
-): Record<number, { x: number; y: number }> {
+): { anchors: Record<number, { x: number; y: number }>; areas: Record<number, number> } {
   const steps = 60;
   const acc = new Map<number, { x: number; y: number; n: number }>();
   for (let i = 0; i < steps; i++) {
@@ -184,8 +190,10 @@ export function regionAnchors(
     }
   }
   const out: Record<number, { x: number; y: number }> = {};
+  const areas: Record<number, number> = {};
   for (let m = 1; m < 1 << circles.length; m++) {
     const a = acc.get(m);
+    areas[m] = a ? (a.n / (steps * steps)) * width * height : 0;
     if (a && a.n > 0) {
       out[m] = { x: a.x / a.n, y: a.y / a.n };
       continue;
@@ -196,7 +204,7 @@ export function regionAnchors(
       y: inside.reduce((s, c) => s + c.cy, 0) / inside.length,
     };
   }
-  return out;
+  return { anchors: out, areas };
 }
 
 const joinWords = (xs: readonly string[]): string =>

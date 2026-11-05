@@ -132,8 +132,12 @@ export function buildSectorGrid(
   };
 }
 
-/** A cell bubble's radius: area proportional to the companies, scaled so the grid's biggest cell is `max`. */
+/** A cell bubble's smallest radius, so a one-company cell stays visible. */
+export const CELL_MIN_R = 3;
+
+/** A cell bubble's radius: area proportional to the companies, scaled so the grid's biggest cell is `max`, with a
+ *  floor of `CELL_MIN_R`. */
 export function cellRadius(count: number, biggest: number, max: number): number {
   if (count <= 0 || biggest <= 0) return 0;
-  return Math.max(2, max * Math.sqrt(count / biggest));
+  return Math.max(CELL_MIN_R, max * Math.sqrt(count / biggest));
 }

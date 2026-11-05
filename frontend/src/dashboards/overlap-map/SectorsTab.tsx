@@ -8,7 +8,7 @@ import type { OverlapMapOut } from "./useOverlapMap";
 // a gray bubble per cell sized by the card's companies there. Rows sit by the stated rule in sectorGrid.ts.
 
 const plural = (n: number, one: string, many: string) => `${n.toLocaleString("en-US")} ${n === 1 ? one : many}`;
-const MAX_R = 13;
+const MAX_R = 16;
 
 export default function SectorsTab({
   d,

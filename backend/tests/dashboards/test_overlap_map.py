@@ -289,6 +289,31 @@ def test_no_two_bubbles_overlap_and_all_sit_in_the_box():
             assert math.hypot(p.x - q.x, p.y - q.y) >= p.r + q.r, (p.name, q.name)
 
 
+def test_the_cloud_fills_the_box_with_bubbles_big_enough_to_read():
+    """The map is the page's picture: its bubbles span most of the box in both directions (no thin band of tiny
+    bubbles) and the biggest card reads at a size a person can see. Checked on two shapes of input.
+    """
+    for include_silent in (False, True):
+        r = overlap_map(synthetic(), {}, include_silent=include_silent)
+        placed = [c for c in r.cards if c.x is not None and c.y is not None]
+        width = max(c.x + c.r for c in placed) - min(c.x - c.r for c in placed)
+        height = max(c.y + c.r for c in placed) - min(c.y - c.r for c in placed)
+        assert width >= 0.75 * BOX_W and height >= 0.75 * BOX_H, (include_silent, width, height)
+        assert max(c.r for c in placed) >= 35
+
+
+def test_the_cloud_fills_the_box_when_a_few_cards_hang_by_one_shared_name():
+    """Cards linked to the main group by a single shared name (the long-arm case) do not stretch the extent."""
+    keys = [f"card-{i:02d}" for i in range(40)]
+    sizes = [10 + (i * 7) % 50 for i in range(40)]
+    weights = {(i, i + 1): 3 + (i % 5) for i in range(0, 30)}  # a chain of strong links
+    weights.update({(i, 30 + (i % 10)): 1 for i in range(0, 10)})  # ten cards hanging by one name
+    pos = layout_bubbles(keys, sizes, weights)
+    width = max(x + r for x, _, r in pos) - min(x - r for x, _, r in pos)
+    height = max(y + r for _, y, r in pos) - min(y - r for _, y, r in pos)
+    assert width >= 0.75 * BOX_W and height >= 0.75 * BOX_H
+
+
 def test_area_is_proportional_to_the_companies_above_the_floor():
     r = overlap_map(synthetic(), {}, include_silent=False)
     big = [c for c in r.cards if c.x is not None and c.companies >= 9]
