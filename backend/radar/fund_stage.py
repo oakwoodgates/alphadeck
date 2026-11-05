@@ -114,3 +114,25 @@ def derive_launches(
         )
     out.sort(key=lambda lc: (lc.public_date, lc.accession, lc.key), reverse=True)
     return out
+
+
+def symbol_starts(symbols: Iterable[SymbolRow]) -> dict[str, date]:
+    """The first night each source shows ANY symbol (over the rows given). A ticker or listing dated that night
+    was already there when the radar began reading the file, so it is not an event."""
+    out: dict[str, date] = {}
+    for s in symbols:
+        if s.source not in out or s.night < out[s.source]:
+            out[s.source] = s.night
+    return out
+
+
+def activity_dates(stage: FundStage, starts: dict[str, date]) -> list[date]:
+    """The dates a fund DID something: filed, effective, and a ticker / listing that is not the start night of
+    its source. Used to window the per-card view (a fund gets its ticker months after its filing).
+    """
+    out = [d for d in (stage.filed, stage.effective) if d is not None]
+    if stage.ticker is not None and stage.ticker != starts.get(SOURCE_SEC):
+        out.append(stage.ticker)
+    if stage.listed is not None and stage.listed != starts.get(SOURCE_NASDAQ):
+        out.append(stage.listed)
+    return out

@@ -343,6 +343,105 @@ def test_fund_launches_in_etfs_flag_and_404(client, db):
     assert client.get(f"/theses/{uuid.uuid4()}/fund-launches").status_code == 404
 
 
+# --- the per-card window: ANY stage date inside it, and the start-night rule --------------------------
+
+ASOF = date(2026, 11, 4)
+
+
+def _old_fund(db, *, symbols=()):
+    """A fund filed 200 days before ASOF, plus an unrelated series whose symbol sets the start night."""
+    _filing(
+        db,
+        "W-1",
+        "485APOS",
+        ASOF - timedelta(days=200),
+        funds=[("S1", "Test Uranium ETF", "new"), ("S9", "Unrelated Bond ETF", "new")],
+    )
+    for sid, sym, source, ago in symbols:
+        _symbol(db, sid, sym, source, ASOF - timedelta(days=ago))
+
+
+def _launches(client, t, asof=ASOF):
+    return client.get(f"/theses/{t.id}/fund-launches", params={"asof": str(asof)}).json()
+
+
+def test_a_fund_filed_long_ago_shows_when_its_listing_is_first_seen_in_the_window(client, db):
+    t = _card(db)
+    _old_fund(
+        db,
+        symbols=[
+            ("S9", "TSTZ", "sec_ticker_file", 30),  # the start night: the radar began reading here
+            ("S9", "TSTZ", "nasdaq_directory", 30),
+            ("S1", "TSTX", "sec_ticker_file", 12),
+            ("S1", "TSTX", "nasdaq_directory", 10),  # first seen 10 days ago, not the start night
+        ],
+    )
+    body = _launches(client, t)
+    (filing,) = body["filings"]
+    (fund,) = filing["funds"]
+    assert fund["name"] == "Test Uranium ETF" and fund["symbols"] == ["TSTX"]
+    assert fund["stage"]["current"] == "listed" and fund["stage"]["filed"] == "2026-04-18"
+    assert fund["in_etfs"] is False  # so the screen offers "+ add to ETFs"
+    assert body["symbol_history_since"] == str(ASOF - timedelta(days=30))
+    assert body["counts"]["filings"] == 1
+
+
+def test_a_listing_on_the_start_night_is_not_window_activity(client, db):
+    t = _card(db)
+    _old_fund(
+        db,
+        symbols=[
+            ("S1", "TSTX", "sec_ticker_file", 20),  # the only symbol nights ARE the start nights
+            ("S1", "TSTX", "nasdaq_directory", 20),
+        ],
+    )
+    body = _launches(client, t)
+    assert body["filings"] == [] and body["counts"]["filings"] == 0
+    assert body["symbol_history_since"] == str(ASOF - timedelta(days=20))
+
+
+def test_a_listing_first_seen_after_asof_stays_invisible(client, db):
+    t = _card(db)
+    _old_fund(
+        db,
+        symbols=[
+            ("S9", "TSTZ", "sec_ticker_file", 30),
+            ("S9", "TSTZ", "nasdaq_directory", 30),
+            ("S1", "TSTX", "sec_ticker_file", -3),  # seen 3 nights AFTER asof
+        ],
+    )
+    body = _launches(client, t)
+    assert body["filings"] == []  # nothing else of this fund falls in the window
+    assert _launches(client, t, ASOF + timedelta(days=5))["filings"][0]["funds"][0]["symbols"] == [
+        "TSTX"
+    ]
+
+
+def test_going_effective_inside_the_window_counts_and_filings_order_by_newest_activity(client, db):
+    t = _card(db)
+    _old_fund(db)
+    _filing(
+        db,
+        "W-2",
+        "485BPOS",
+        ASOF - timedelta(days=5),
+        funds=[("S1", "Test Uranium ETF", "existing")],
+    )
+    _filing(
+        db,
+        "W-3",
+        "485APOS",
+        ASOF - timedelta(days=20),
+        funds=[("S2", "Test Nuclear Power ETF", "new")],
+    )
+    body = _launches(client, t)
+    # the old fund went effective 5 days ago: newest activity, so it leads the newer-FILED one
+    assert [f["accession"] for f in body["filings"]] == ["W-1", "W-3"]
+    old = body["filings"][0]["funds"][0]
+    assert old["stage"]["current"] == "effective" and old["stage"]["effective"] == "2026-10-30"
+    assert body["symbol_history_since"] is None
+
+
 # --- POST /radar/funds/attach | detach ----------------------------------------------------------------
 
 

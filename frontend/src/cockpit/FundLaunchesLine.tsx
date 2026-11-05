@@ -56,7 +56,12 @@ function FundLaunchesBody({
         className="fl-line-h"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
-        title="fund filings whose name fits this card — a recommendation to look, never a signal"
+        title={
+          "fund filings whose name fits this card — a recommendation to look, never a signal" +
+          (d.symbol_history_since
+            ? ` · tickers and listings tracked since ${d.symbol_history_since}`
+            : "")
+        }
       >
         {open ? "▾" : "▸"} fund launches · {c.filings} filings from {c.sponsors} sponsors in{" "}
         {d.window_days} days (signal {c.signal_filings} · broad {c.broad_filings} · name{" "}

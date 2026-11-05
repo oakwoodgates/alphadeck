@@ -3962,7 +3962,7 @@
           "radar"
         ],
         "summary": "Fund Launches",
-        "description": "This card's matching fund launches as of a night (invariant #1, the public clock): only filings public by\n``asof`` and inside ``asof - days``..``asof``, with each fund's stage derived ONLY from facts public by\n``asof`` (a later 485BPOS, or a symbol first seen after ``asof``, never shows). Counted by FILING and by\nSPONSOR (not by fund), split by tier, plus name hits. ``in_etfs`` reads the card's basket as it stands now.\nOld confidential filings SEC released are left out. Display only: it never feeds the call.",
+        "description": "This card's matching fund launches as of a night (invariant #1, the public clock). A fund is in the window\n``asof - days``..``asof`` when ANY of its stage dates (filed, effective, ticker, listed) falls inside it, each\nderived ONLY from facts public by ``asof`` (a later 485BPOS, or a symbol first seen after ``asof``, never\nshows). A ticker or listing dated the first night its source shows any symbol is not activity (those funds\nwere already trading when the radar began). Filings are ordered by their newest in-window activity. Counted\nby FILING and by SPONSOR (not by fund), split by tier, plus name hits. ``in_etfs`` reads the card's basket as\nit stands now.\nOld confidential filings SEC released are left out. Display only: it never feeds the call.",
         "operationId": "fund_launches_theses__thesis_id__fund_launches_get",
         "parameters": [
           {
@@ -24414,6 +24414,18 @@
             },
             "type": "array",
             "title": "Filings"
+          },
+          "symbol_history_since": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Symbol History Since"
           }
         },
         "type": "object",

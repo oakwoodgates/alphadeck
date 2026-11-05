@@ -91,6 +91,15 @@ describe("FundLaunchesLine", () => {
     expect(screen.queryByText("Test Uranium ETF")).not.toBeInTheDocument();
   });
 
+  it("says quietly, in its title, since when tickers and listings are tracked", () => {
+    h.q = { data: { ...data([fund()]), symbol_history_since: "2026-11-05" } };
+    render(<FundLaunchesLine thesisId="t-1" asof="2026-11-04" />);
+    expect(screen.getByRole("button", { name: /fund launches/ })).toHaveAttribute(
+      "title",
+      expect.stringContaining("tickers and listings tracked since 2026-11-05"),
+    );
+  });
+
   it("expands to the list with stage chips, the card's terms and the filing link", async () => {
     const user = userEvent.setup();
     render(<FundLaunchesLine thesisId="t-1" asof="2026-11-04" />);

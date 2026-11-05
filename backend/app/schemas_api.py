@@ -3028,6 +3028,9 @@ class FundLaunchesOut(BaseModel):
     window_days: int
     counts: FundLaunchCountsOut
     filings: list[FundFilingOut]
+    # the earliest night a symbol file's rows are visible by ``asof`` (ticker and listing dates mean "first seen
+    # by us", so none is earlier than this); null when no symbol has been seen yet
+    symbol_history_since: date | None = None
 
 
 class FundAttachRequest(BaseModel):

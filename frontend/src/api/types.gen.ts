@@ -2060,10 +2060,13 @@ export interface paths {
         };
         /**
          * Fund Launches
-         * @description This card's matching fund launches as of a night (invariant #1, the public clock): only filings public by
-         *     ``asof`` and inside ``asof - days``..``asof``, with each fund's stage derived ONLY from facts public by
-         *     ``asof`` (a later 485BPOS, or a symbol first seen after ``asof``, never shows). Counted by FILING and by
-         *     SPONSOR (not by fund), split by tier, plus name hits. ``in_etfs`` reads the card's basket as it stands now.
+         * @description This card's matching fund launches as of a night (invariant #1, the public clock). A fund is in the window
+         *     ``asof - days``..``asof`` when ANY of its stage dates (filed, effective, ticker, listed) falls inside it, each
+         *     derived ONLY from facts public by ``asof`` (a later 485BPOS, or a symbol first seen after ``asof``, never
+         *     shows). A ticker or listing dated the first night its source shows any symbol is not activity (those funds
+         *     were already trading when the radar began). Filings are ordered by their newest in-window activity. Counted
+         *     by FILING and by SPONSOR (not by fund), split by tier, plus name hits. ``in_etfs`` reads the card's basket as
+         *     it stands now.
          *     Old confidential filings SEC released are left out. Display only: it never feeds the call.
          */
         get: operations["fund_launches_theses__thesis_id__fund_launches_get"];
@@ -11189,6 +11192,8 @@ export interface components {
             counts: components["schemas"]["FundLaunchCountsOut"];
             /** Filings */
             filings: components["schemas"]["FundFilingOut"][];
+            /** Symbol History Since */
+            symbol_history_since?: string | null;
         };
         /**
          * FundMatchOut

@@ -87,9 +87,11 @@ def _filings(
     *,
     in_etfs: set[str] | None = None,
     only_matched_funds: bool = False,
+    activity: dict[str, date] | None = None,
 ) -> list[FundFilingOut]:
     """Group launches by the filing that first announced them (newest first). ``only_matched_funds`` keeps just
-    the funds with a match (the per-card route)."""
+    the funds with a match (the per-card route). ``activity`` (fund key -> its newest in-window stage date) orders
+    the filings by their newest activity instead of their filing date (the per-card route)."""
     by_acc: dict[str, list[fund_stage.FundLaunch]] = {}
     for lc in launches:
         by_acc.setdefault(lc.accession, []).append(lc)
@@ -122,7 +124,11 @@ def _filings(
                 funds=funds,
             )
         )
-    out.sort(key=lambda f: (f.public_date, f.accession), reverse=True)
+    if activity is None:
+        out.sort(key=lambda f: (f.public_date, f.accession), reverse=True)
+        return out
+    newest = {f.accession: max(activity.get(x.key, f.public_date) for x in f.funds) for f in out}
+    out.sort(key=lambda f: (newest[f.accession], f.accession), reverse=True)
     return out
 
 
@@ -265,26 +271,47 @@ def fund_launches(
     thesis: Thesis = Depends(get_thesis_or_404),
     conn: psycopg.Connection = Depends(get_conn),
 ) -> FundLaunchesOut:
-    """This card's matching fund launches as of a night (invariant #1, the public clock): only filings public by
-    ``asof`` and inside ``asof - days``..``asof``, with each fund's stage derived ONLY from facts public by
-    ``asof`` (a later 485BPOS, or a symbol first seen after ``asof``, never shows). Counted by FILING and by
-    SPONSOR (not by fund), split by tier, plus name hits. ``in_etfs`` reads the card's basket as it stands now.
+    """This card's matching fund launches as of a night (invariant #1, the public clock). A fund is in the window
+    ``asof - days``..``asof`` when ANY of its stage dates (filed, effective, ticker, listed) falls inside it, each
+    derived ONLY from facts public by ``asof`` (a later 485BPOS, or a symbol first seen after ``asof``, never
+    shows). A ticker or listing dated the first night its source shows any symbol is not activity (those funds
+    were already trading when the radar began). Filings are ordered by their newest in-window activity. Counted
+    by FILING and by SPONSOR (not by fund), split by tier, plus name hits. ``in_etfs`` reads the card's basket as
+    it stands now.
     Old confidential filings SEC released are left out. Display only: it never feeds the call."""
-    asof = asof or market_today()
+    return read_fund_launches(conn, thesis, asof or market_today(), days)
+
+
+def read_fund_launches(
+    conn: psycopg.Connection, thesis: Thesis, asof: date, days: int = 90
+) -> FundLaunchesOut:
+    """The pure reader behind ``GET /theses/{id}/fund-launches`` (one implementation: the route and the Cockpit's
+    frozen capture both call it). See the route for the rules."""
     views, symbols = fund_stage.visible_as_of(*_facts(conn), asof)
     cutoff = asof - timedelta(days=days)
-    window = [
-        lc
-        for lc in fund_stage.derive_launches(views, symbols)
-        if lc.public_date >= cutoff and not lc.private_to_public
-    ]
+    starts = fund_stage.symbol_starts(symbols)
+    # a fund is in the window when ANY of its stage dates falls inside it (it gets its ticker months after its
+    # filing); a ticker or listing dated a source's start night is not activity (already trading at the start)
+    activity: dict[str, date] = {}
+    window: list[fund_stage.FundLaunch] = []
+    for lc in fund_stage.derive_launches(views, symbols):
+        if lc.private_to_public:
+            continue
+        inside = [d for d in fund_stage.activity_dates(lc.stage, starts) if cutoff <= d <= asof]
+        if inside:
+            activity[lc.key] = max(inside)
+            window.append(lc)
     card = card_inputs(conn, [thesis])[0]
     matches: dict[str, list[FundMatchOut]] = {}
     for cm in fund_match.match_launches(window, card):
         matches.setdefault(cm.launch.key, []).append(_match_out(card, cm))
 
     filings = _filings(
-        window, matches, in_etfs=_etfs_symbols(conn, thesis), only_matched_funds=True
+        window,
+        matches,
+        in_etfs=_etfs_symbols(conn, thesis),
+        only_matched_funds=True,
+        activity=activity,
     )
 
     def best_tier(f: FundFilingOut) -> str | None:
@@ -302,7 +329,12 @@ def fund_launches(
         ),
     )
     return FundLaunchesOut(
-        thesis_id=thesis.id, asof=asof, window_days=days, counts=counts, filings=filings
+        thesis_id=thesis.id,
+        asof=asof,
+        window_days=days,
+        counts=counts,
+        filings=filings,
+        symbol_history_since=min(starts.values()) if starts else None,
     )
 
 

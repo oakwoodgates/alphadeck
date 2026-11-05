@@ -138,9 +138,16 @@ request, and never feed a call. Code: `backend/app/routers/fund_radar.py`, `fron
   The counts (filings, funds, matched, unmatched, old filings held back) **always cover the whole window**, so the UI
   can say "N more"; `matched_only` only trims the rows.
 - `GET /theses/{id}/fund-launches?asof=YYYY-MM-DD&days=90`: this card's matches **as of a night** (invariant #1).
-  Only filings public by `asof` and inside `asof - days .. asof`; each fund's stage is derived **only from facts public
-  by `asof`**, so a 485BPOS, or a symbol first seen after `asof`, never shows on a history view. Counts by filing and by
-  sponsor (never by fund), split by tier, plus name hits. Old confidential filings SEC released are left out. Honest
+  **The window rule:** a fund is in the window `asof - days .. asof` when **any** of its stage dates (filed, effective,
+  ticker, listed) falls inside it, because a fund gets its ticker months after its filing and would otherwise leave the
+  window before "+ add to ETFs" could appear. **The start-night rule:** a ticker or listing dated the first night its
+  source shows any symbol does not count as activity (those funds were already trading when the radar began reading
+  the files); the fund still shows its stage chips and still counts if it was filed or went effective in the window.
+  Every stage is derived **only from facts public by `asof`**, so a 485BPOS, or a symbol first seen after `asof`,
+  never shows on a history view. Filings are ordered by their newest in-window activity, and the response says
+  `symbol_history_since` (the earliest symbol night visible by `asof`), shown quietly in the Cockpit line's hover.
+  Counts by filing and by sponsor (never by fund), split by tier, plus name hits. Old confidential filings SEC
+  released are left out. The Cockpit's frozen MCP capture reads the same function (`read_fund_launches`). Honest
   limit: `in_etfs` reads the card's basket as it stands **now** (a roster as of a night is not reconstructed for this
   flag), and the ticker / listed dates are the nights we first saw the symbol (neither file carries a date), so a fund
   already trading when the radar started reads that start night.
