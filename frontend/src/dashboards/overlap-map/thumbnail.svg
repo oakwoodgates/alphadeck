@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200">
+<path fill="none" stroke="#3c4450" stroke-width="2" d="M58 52L112 96M112 96L170 54M112 96L142 154M170 54L226 62M142 154L196 120"/>
+<path fill="none" stroke="#5a6470" stroke-width="3.5" d="M58 52L112 96M112 96L142 154"/>
+<g fill="#141821" stroke="#9aa3b0">
+<circle cx="58" cy="52" r="20"/>
+<circle cx="112" cy="96" r="26"/>
+<circle cx="170" cy="54" r="14"/>
+<circle cx="142" cy="154" r="22"/>
+<circle cx="226" cy="62" r="9"/>
+<circle cx="196" cy="120" r="12"/>
+</g>
+<g fill="none" stroke="#5a6470">
+<circle cx="248" cy="148" r="26"/>
+<circle cx="276" cy="148" r="26"/>
+</g>
+<path fill="none" stroke="#9aa3b0" stroke-width="2" d="M262 130a26 26 0 0 1 0 36a26 26 0 0 1 0-36"/>
+</svg>

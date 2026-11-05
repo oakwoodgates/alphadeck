@@ -2659,6 +2659,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dashboards/overlap-map": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Overlap Map
+         * @description Where the cards overlap: each counted card as a bubble, the companies every pair shares (matched by
+         *     security; a company on several links of one card counts once), the groups at each threshold of 1 to 5 shared
+         *     companies, and every company with its place on each card and today's sector and business type. Structure only:
+         *     no prices, no calls. Display only; a past as-of reads each card's roster then.
+         */
+        get: operations["overlap_map_dashboards_overlap_map_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dashboards/peer-table/scopes": {
         parameters: {
             query?: never;
@@ -13748,6 +13771,155 @@ export interface components {
             /** Reason */
             reason?: string | null;
         };
+        /**
+         * OverlapCardOut
+         * @description A counted card. ``companies`` = its companies in view (each once). ``x`` / ``y`` / ``r`` = its bubble in the
+         *     box (``box_w`` x ``box_h``); ``x`` and ``y`` are ``null`` for a card sharing no company with any other
+         *     (``shares_nothing``), which the page lists in its own strip; ``r`` is its size either way.
+         */
+        OverlapCardOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Name */
+            name: string;
+            /** Companies */
+            companies: number;
+            /** X */
+            x: number | null;
+            /** Y */
+            y: number | null;
+            /** R */
+            r: number;
+            /** Shares Nothing */
+            shares_nothing: boolean;
+        };
+        /**
+         * OverlapCompanyCardOut
+         * @description One company's place on one card. ``card`` = an index into ``cards``; ``ticker`` = its ticker there (the
+         *     Cockpit's ``?name=`` key); ``links`` = its links there (basket order; ``null`` = no link); ``silent`` = every
+         *     row of it there is Context, ETFs or Bench; ``context_role`` = the operator's role tag there, if set.
+         */
+        OverlapCompanyCardOut: {
+            /** Card */
+            card: number;
+            /** Ticker */
+            ticker: string;
+            /** Links */
+            links: (string | null)[];
+            /** Silent */
+            silent: boolean;
+            /** Context Role */
+            context_role: string | null;
+        };
+        /**
+         * OverlapCompanyOut
+         * @description A company in view, once. ``supersector`` / ``business_type`` = today's master (``null`` = unclassified).
+         */
+        OverlapCompanyOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string;
+            /** Name */
+            name: string | null;
+            /** Supersector */
+            supersector: string | null;
+            /** Business Type */
+            business_type: string | null;
+            /** Rows */
+            rows: components["schemas"]["OverlapCompanyCardOut"][];
+        };
+        /**
+         * OverlapGroupsOut
+         * @description The groups when cards are joined at ``threshold`` or more shared companies: the size of each group of 2+
+         *     cards (largest first) and how many cards have no line.
+         */
+        OverlapGroupsOut: {
+            /** Threshold */
+            threshold: number;
+            /** Sizes */
+            sizes: number[];
+            /** No Line */
+            no_line: number;
+        };
+        /**
+         * OverlapMapOut
+         * @description The whole page. The counts are the work shown on its quiet line: the live cards, the cards counted at the
+         *     as-of (``cards_not_yet_created`` were created after it; ``roster_fallback_cards`` have no roster snapshot by
+         *     then, so today's roster stands in), every basket row on those cards, the Context / ETFs / Bench rows left out,
+         *     the rows in view with no resolved security (counted, never matched), the companies in view and those on 2+
+         *     cards. ``cache`` / ``compute_ms`` = whether the payload came from the shared dashboard cache and how long it
+         *     took when computed.
+         */
+        OverlapMapOut: {
+            /**
+             * Asof
+             * Format: date
+             */
+            asof: string;
+            /** Include Silent */
+            include_silent: boolean;
+            /**
+             * Clock
+             * @enum {string}
+             */
+            clock: "record" | "public";
+            /** Box W */
+            box_w: number;
+            /** Box H */
+            box_h: number;
+            /** Live Cards */
+            live_cards: number;
+            /** Cards Counted */
+            cards_counted: number;
+            /** Cards Not Yet Created */
+            cards_not_yet_created: number;
+            /** Roster Fallback Cards */
+            roster_fallback_cards: number;
+            /** Basket Rows */
+            basket_rows: number;
+            /** Silent Rows Left Out */
+            silent_rows_left_out: number;
+            /** Unresolved Rows */
+            unresolved_rows: number;
+            /** Companies In View */
+            companies_in_view: number;
+            /** Companies Shared */
+            companies_shared: number;
+            /** Cards */
+            cards: components["schemas"]["OverlapCardOut"][];
+            /** Pairs */
+            pairs: components["schemas"]["OverlapPairOut"][];
+            /** Groups */
+            groups: components["schemas"]["OverlapGroupsOut"][];
+            /** Companies */
+            companies: components["schemas"]["OverlapCompanyOut"][];
+            /**
+             * Cache
+             * @enum {string}
+             */
+            cache: "hit" | "computed";
+            /** Compute Ms */
+            compute_ms: number;
+        };
+        /**
+         * OverlapPairOut
+         * @description Two cards (indexes into ``cards``, ``a`` < ``b``) sharing ``shared`` companies in view.
+         */
+        OverlapPairOut: {
+            /** A */
+            a: number;
+            /** B */
+            b: number;
+            /** Shared */
+            shared: number;
+        };
         /** PeerBlankOut */
         PeerBlankOut: {
             /**
@@ -21313,6 +21485,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NarrativeCardDetailOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    overlap_map_dashboards_overlap_map_get: {
+        parameters: {
+            query: {
+                /** @description as-of date; only the cards that existed by then, with their rosters then */
+                asof: string;
+                /** @description add Context, ETFs and Bench memberships (left out by default) */
+                include_silent?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OverlapMapOut"];
                 };
             };
             /** @description Validation Error */
