@@ -296,7 +296,11 @@ def test_the_PASS_writes_the_audit_into_the_artifact_and_PAGES_a_failure(db, mon
         "pipeline.ingest_fundamentals.ingest_fundamentals",
     ):
         monkeypatch.setattr(target, lambda conn, **k: [])
-    for target in ("radar.shell_sweep.run_shell_sweep", "radar.spac.run_spac_radar"):
+    for target in (
+        "radar.shell_sweep.run_shell_sweep",
+        "radar.spac.run_spac_radar",
+        "radar.funds.run_fund_radar",
+    ):
         monkeypatch.setattr(target, lambda conn, **k: SimpleNamespace(summary="s", errors=[]))
     monkeypatch.setattr(cron_run_log, "_DEFAULT_CRON_RUNS", tmp_path)
     pages = []

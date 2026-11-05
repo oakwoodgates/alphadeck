@@ -146,6 +146,9 @@ def _offline(monkeypatch, *, ingested: list | None = None):
     monkeypatch.setattr(
         "radar.spac.run_spac_radar", lambda conn, **k: SimpleNamespace(summary="stub", errors=[])
     )
+    monkeypatch.setattr(
+        "radar.funds.run_fund_radar", lambda conn, **k: SimpleNamespace(summary="stub", errors=[])
+    )
     rec = _Recorder()
     monkeypatch.setattr(daily, "get_notifier", lambda: rec)
     return rec

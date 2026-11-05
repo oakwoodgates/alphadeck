@@ -489,6 +489,9 @@ def test_the_artifact_carries_the_FINAL_timings_block_and_the_running_file_its_C
         "radar.shell_sweep.run_shell_sweep",
         lambda conn, **k: (clock.tick(2), SimpleNamespace(summary="stub", errors=[]))[1],
     )
+    monkeypatch.setattr(
+        "radar.funds.run_fund_radar", lambda conn, **k: SimpleNamespace(summary="stub", errors=[])
+    )
     outcome = daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=pager)
 
     (mid,) = checkpoints

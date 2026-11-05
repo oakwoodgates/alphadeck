@@ -1,0 +1,134 @@
+# Single-word stoplist for the fund launch radar's company-NAME read (radar/fund_match.py).
+#
+# A company whose cleaned name (legal suffixes stripped) is ONE word from this list never matches a fund name by
+# that name: "Strategy Inc" would otherwise hit every "... Strategy ETF" and "Target Corp" every "... Target ETF".
+# (A cleaned name that is itself a wrapper word never matches either, from fund_wrapper_words.txt.) A ticker still
+# matches by its own rules. One entry per line, case-insensitive; blank lines and # comments are ignored.
+Strategy
+Target
+Global
+Income
+Growth
+Value
+Core
+Select
+Equity
+Dividend
+Quality
+Innovation
+Technology
+Technologies
+Energy
+Capital
+Financial
+International
+America
+American
+National
+United
+First
+Premier
+Advanced
+Digital
+Future
+Next
+Alpha
+Momentum
+Opportunities
+Sustainable
+Infrastructure
+Defense
+Health
+Bitcoin
+Crypto
+Gold
+Silver
+Uranium
+Lithium
+Solar
+Nuclear
+Water
+Semiconductor
+Software
+Data
+Cloud
+Robotics
+Space
+Quantum
+Media
+Network
+Systems
+Resources
+Partners
+Industries
+Trust
+Fund
+Index
+Market
+Markets
+Large
+Small
+Mid
+Cap
+Bond
+Treasury
+Municipal
+Dynamic
+Active
+Enhanced
+Premium
+Buffer
+Buffered
+Yield
+Bull
+Bear
+Leaders
+World
+Emerging
+Sector
+Thematic
+# Fund sponsors and index brands: they appear in fund names as the sponsor or the benchmark, never as a wrapper
+# on a company. Any matched token (a ticker or a cleaned company name of any word count) on this list is dropped.
+Nasdaq
+Eaton
+SEI
+RBC
+State Street
+WisdomTree
+BlackRock
+iShares
+Vanguard
+Schwab
+Fidelity
+Franklin
+Invesco
+Janus
+Goldman Sachs
+JPMorgan
+Morgan Stanley
+Amplify
+VanEck
+Direxion
+ProShares
+Global X
+ARK
+Roundhill
+Defiance
+Tuttle
+Tradr
+GraniteShares
+REX
+Tidal
+First Trust
+Pacer
+Xtrackers
+KraneShares
+Sprott
+S&P
+MSCI
+Russell
+Dow Jones
+NYSE
+Cboe
+Bloomberg
+Solactive

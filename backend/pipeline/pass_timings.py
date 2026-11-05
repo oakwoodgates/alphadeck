@@ -21,7 +21,7 @@ THE MODEL. One ``PassTimer`` per pass, made ACTIVE for the pass (``activate`` â€
   re-arm history read + the push, only on a pass with newly armed names), ``split_scan``, ``rename_probe``,
   ``successor_scan``, ``amendment_sweep`` (R8-B, before the loop), ``amendment_scan`` (R8-A), ``self_audit``,
   ``artifact_write``, ``health_page``,
-  ``shell_sweep``, ``spac_radar``.
+  ``shell_sweep``, ``spac_radar``, ``fund_radar``.
 - ``note(kind, n)`` counts on the innermost open leg: ``sec_live`` / ``sec_cached`` / ``sec_cached_404``
   (the EDGAR client's network decisions â€” the cron's freeze detector ``edgar_fetches`` counts the same
   ``sec_live`` decisions), ``http:<host>`` / ``http_retry:<host>`` (every attempt of the polite GET: the

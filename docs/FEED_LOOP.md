@@ -1086,6 +1086,16 @@ true for every name the nightly has walked, and a name another basket's promote 
 counts as cold) — the narrow exception is a name that entered that other basket by a non-promote path moments
 before, which `--enqueue-thesis` covers.
 
+### The fund launch radar — a passenger leg after the SPAC radar (2026-11)  `[BUILT]`
+
+One more universe-level leg at the end of `run_daily_pass`, run exactly like the SPAC radar's: **its own connection
+and its own `EdgarClient` built with `RECURRING_CACHE_TTL_S`**, lazy import, `allow_live` only (a cache-only pass
+cannot scan new indexes), `timed("fund_radar")`, and **fail-open** (a fault is printed loud and never raised, so it
+cannot fail the pass or touch the per-thesis freeze counters). It scans the last three daily indexes for fund
+filings, reads each header, and records the fund series and symbols; **it feeds no call** (display only; it never
+imports `calls/`). Cost: about 20-45 SEC requests a night, all through `EdgarClient` and the global budget. The
+full description (dates, stages, the two reads, the CLI) is `docs/FUND_RADAR.md`.
+
 ### Where a pass spends its time — the `timings` block (X5, 2026-10-17)  `[BUILT]`
 
 **Measurement only.** Before the cron grows (more names, more theses) and moves off the laptop, two questions
@@ -1111,7 +1121,7 @@ suite): `per_thesis(...)` wraps the loop's iterable (each thesis is a scope), `t
   newly-armed digest after the loop: its re-arm history read + the push; absent on a pass with no newly
   armed name), `split_scan`,
   `rename_probe`, `successor_scan`, `self_audit`, `artifact_write`, `health_page`, `shell_sweep`,
-  `spac_radar`; the gaps between them are the pass's `other`. **Not in the process:** the nightly backup is a
+  `spac_radar`, `fund_radar`; the gaps between them are the pass's `other`. **Not in the process:** the nightly backup is a
   separate `python -m pipeline.backup` the sidecar runs after the pass, so it is not measured here. The
   printed report runs in `main` after the artifact is final; it is stdout formatting only and is not timed.
 - **Counts:** `sec_live` / `sec_cached` / `sec_cached_404` (the EDGAR client's network decision for each
@@ -1182,7 +1192,7 @@ block in place with the final one (`cron_run_log.amend_run_timings`: only a file
 carries this pass's `started_at`). During the loop the meter also writes its snapshot onto the START artifact
 after every thesis (only while it reads `running`), so a pass KILLED mid-loop (the C2 timeout, the OOM
 killer, the VM) still leaves where it spent its time, and `mark_run_crashed` carries the snapshot at a
-Python-visible crash. `timings.total_s` runs from the lock to the end of the SPAC radar; `duration_s` keeps
+Python-visible crash. `timings.total_s` runs from the lock to the end of the SPAC radar (the fund radar leg, which runs after it, is timed as its own leg); `duration_s` keeps
 its meaning (`started_at` to the end of the per-thesis loop).
 
 **The printed report** ends with one line: `timings: 912.4 s total · top legs submissions 301.2 s, form4
