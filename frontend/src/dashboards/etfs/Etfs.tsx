@@ -10,7 +10,9 @@ import {
   WINDOW_OPTIONS,
   DEFAULT_WINDOW,
   flowShare,
+  addDays,
   fmtDay,
+  fmtShortDay,
   fmtPct,
   fmtPts,
   fmtRange,
@@ -229,18 +231,16 @@ function flowTitle(r: EtfFlowRowOut): string {
   return parts.filter(Boolean).join(" · ");
 }
 
-function FlowNumbers({ label, usd, pct, filling, first }: {
+function FlowNumbers({ label, usd, pct, filling }: {
   label: string;
   usd: EtfReadingOut;
   pct: EtfReadingOut;
   filling: boolean;
-  first: string | null;
 }) {
   if (usd.value == null) {
     return (
       <span className="et-flow-n" title={readingTitle(usd)}>
-        {label} {usd.note ?? "—"}
-        {filling && first ? ` · history starts ${fmtDay(first)}` : ""}
+        {filling ? `${label} filling` : `${label} ${usd.note ?? "—"}`}
       </span>
     );
   }
@@ -271,12 +271,52 @@ function FlowRow({ r, max, onSelect }: { r: EtfFlowRowOut; max: readonly (number
           <span className="et-flow-n">no shares sample yet</span>
         ) : (
           <>
-            <FlowNumbers label="1W" usd={r.flow_1w_usd} pct={r.flow_1w_pct} filling={r.filling_1w} first={r.first_sample} />
-            <FlowNumbers label="1M" usd={r.flow_1m_usd} pct={r.flow_1m_pct} filling={r.filling_1m} first={r.first_sample} />
+            <FlowNumbers label="1W" usd={r.flow_1w_usd} pct={r.flow_1w_pct} filling={r.filling_1w} />
+            <FlowNumbers label="1M" usd={r.flow_1m_usd} pct={r.flow_1m_pct} filling={r.filling_1m} />
           </>
         )}
       </div>
     </li>
+  );
+}
+
+/** A fund with no flow number yet: samples exist, but both windows are still filling. */
+const stillFilling = (r: EtfFlowRowOut): boolean =>
+  r.samples > 0 && r.filling_1w && r.filling_1m && r.flow_1w_usd.value == null && r.flow_1m_usd.value == null;
+
+/** The funds with no flow number yet, grouped into one quiet line per first-sample date; each ticker opens its
+ *  card at the fund (listed, never dropped). */
+function FillingLines({ rows, onSelect }: { rows: readonly EtfFlowRowOut[]; onSelect: Select }) {
+  const groups = new Map<string, EtfFlowRowOut[]>();
+  for (const r of rows) {
+    const k = r.first_sample ?? "";
+    groups.set(k, [...(groups.get(k) ?? []), r]);
+  }
+  return (
+    <>
+      {[...groups.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([first, rs]) => (
+          <p key={first} className="et-filling" data-testid="et-filling">
+            Still filling, sampled since {fmtDay(first)}: 1W reads from about {fmtShortDay(addDays(first, 7))}, 1M from
+            about {fmtShortDay(addDays(first, 30))} · {plural(rs.length, "fund", "funds")}:{" "}
+            {rs.map((r, i) => (
+              <span key={r.security_id}>
+                {i > 0 && ", "}
+                <button
+                  type="button"
+                  className="et-link"
+                  title={`Open ${r.cards[0]?.thesis_name ?? "the card"} on ${r.ticker}`}
+                  disabled={r.cards.length === 0}
+                  onClick={() => r.cards[0] && onSelect(r.cards[0].thesis_id, r.cards[0].ticker)}
+                >
+                  {r.ticker}
+                </button>
+              </span>
+            ))}
+          </p>
+        ))}
+    </>
   );
 }
 
@@ -336,6 +376,7 @@ function TrendTable({ rows, sort, onSort, onSelect }: {
 }) {
   const arrow = (k: TrendSortKey) => (sort.key === k ? (sort.dir === "asc" ? " ▲" : " ▼") : "");
   return (
+    <div className="et-trend-wrap">
     <table className="et-trend">
       <thead>
         <tr>
@@ -372,6 +413,7 @@ function TrendTable({ rows, sort, onSort, onSelect }: {
         ))}
       </tbody>
     </table>
+    </div>
   );
 }
 
@@ -400,6 +442,8 @@ export default function Etfs({ asof, onSelectThesis }: DashboardProps) {
   const flowMax = data.flows.map((r) => r.flow_1m_usd.value);
   const sizes = data.sizes.map((r) => r.size_usd);
   const advs = data.sizes.map((r) => r.adv_usd_20d.value);
+  const flowRows = data.flows.filter((r) => !stillFilling(r));
+  const fillingRows = data.flows.filter(stillFilling);
   const anySample = data.flows.some((r) => r.samples > 0);
   const flaggedAll = [...data.flagged_funds, ...data.flagged_companies];
   const cov = data.coverage;
@@ -491,11 +535,14 @@ export default function Etfs({ asof, onSelectThesis }: DashboardProps) {
           ) : (
             <>
               {!anySample && <Empty>No fund has a shares sample yet.</Empty>}
-              <ul className="et-list">
-                {data.flows.map((r) => (
-                  <FlowRow key={r.security_id} r={r} max={flowMax} onSelect={onSelectThesis} />
-                ))}
-              </ul>
+              {flowRows.length > 0 && (
+                <ul className="et-list">
+                  {flowRows.map((r) => (
+                    <FlowRow key={r.security_id} r={r} max={flowMax} onSelect={onSelectThesis} />
+                  ))}
+                </ul>
+              )}
+              <FillingLines rows={fillingRows} onSelect={onSelectThesis} />
             </>
           )}
           <FlaggedNote flagged={data.flagged_funds} />

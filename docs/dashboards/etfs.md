@@ -276,6 +276,7 @@ What follows for the page:
     the flagged funds. Panel 5 lists none, because it uses no price.
 14. **Panels 2 to 4 list the cards beside each fund,** each opening the card's Cockpit at the fund. Panel 1's two
     names open the card, and the fund.
+15. **Funds with no flow number yet** are grouped into one line by first-sample date instead of a row each.
 
 ## Later (not in this plan)
 

@@ -86,3 +86,8 @@ table.et-trend .et-num { text-align: right; }
   .et-frow, .et-srow { grid-template-columns: 1fr; }
   .et-flow-text { grid-column: 1; }
 }
+
+/* panel 2: the funds with no flow number yet, one quiet line per first-sample date */
+.et-filling { margin: 4px 0 0; font-size: 10.5px; line-height: 1.6; color: var(--txt-4); }
+/* panel 4: only the table scrolls sideways on a phone, never the page */
+.et-trend-wrap { overflow-x: auto; max-width: 100%; }

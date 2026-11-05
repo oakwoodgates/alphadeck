@@ -210,3 +210,16 @@ export function flowShare(v: number | null | undefined, all: readonly (number | 
   const max = Math.max(0, ...all.map((x) => Math.abs(x ?? 0)));
   return max === 0 ? 0 : Math.abs(v) / max;
 }
+
+/** An ISO date plus calendar days (UTC), as an ISO date. */
+export function addDays(iso: string, days: number): string {
+  const t = Date.parse(`${iso}T00:00:00Z`);
+  return Number.isNaN(t) ? iso : new Date(t + days * 86_400_000).toISOString().slice(0, 10);
+}
+
+/** A date without its year ("Nov 11"). */
+export function fmtShortDay(d: string): string {
+  const t = Date.parse(`${d}T00:00:00Z`);
+  if (Number.isNaN(t)) return d;
+  return new Date(t).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+}

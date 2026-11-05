@@ -198,22 +198,40 @@ describe("Etfs", () => {
     expect(within(rows[1]).getByText(/1M −\$8\.0M/)).toBeInTheDocument();
   });
 
-  it("says a window is still filling, with the note and when the history starts", () => {
+  it("keeps a row with one flow number and says only '1M filling' for the window still filling", () => {
     setup(
       payload({
-        flows: [
-          flow("fnda", {
-            flow_1m_usd: NONE,
-            flow_1m_pct: NONE,
-            filling_1m: true,
-            first_sample: "2026-10-20",
-          }),
-        ],
+        flows: [flow("fnda", { flow_1m_usd: NONE, flow_1m_pct: NONE, filling_1m: true })],
       }),
     );
     const row = within(panel("flow")).getByTestId("et-flow-row");
-    expect(within(row).getByText(/n\/a: 9\/30 sampled days · history starts Oct 20, 2026/)).toBeInTheDocument();
+    expect(within(row).getByText("1M filling")).toBeInTheDocument();
+    expect(within(row).getByText(/1W \+\$1\.0M/)).toBeInTheDocument();
     expect(within(row).queryByTestId("et-flow-bar")).toBeNull();
+    expect(screen.queryByText(/sampled days/)).toBeNull();
+    expect(screen.queryByTestId("et-filling")).toBeNull();
+  });
+
+  it("groups funds with no flow number yet into one quiet line per first-sample date, each ticker a button", async () => {
+    const user = userEvent.setup();
+    const none = (id: string, first: string) =>
+      flow(id, {
+        flow_1w_usd: NONE, flow_1w_pct: NONE, flow_1m_usd: NONE, flow_1m_pct: NONE,
+        filling_1w: true, filling_1m: true, first_sample: first, cards: refs("Alpha"),
+      });
+    const { onSelectThesis } = setup(
+      payload({ flows: [flow("fnda"), none("fndb", "2026-11-04"), none("fndc", "2026-11-04"), none("fndd", "2026-11-10")] }),
+    );
+    expect(within(panel("flow")).getByText("4 funds")).toBeInTheDocument(); // the count still counts every fund
+    expect(within(panel("flow")).getAllByTestId("et-flow-row")).toHaveLength(1);
+    const lines = within(panel("flow")).getAllByTestId("et-filling");
+    expect(lines).toHaveLength(2);
+    expect(lines[0].textContent).toContain(
+      "Still filling, sampled since Nov 4, 2026: 1W reads from about Nov 11, 1M from about Dec 4 · 2 funds: FNDB, FNDC",
+    );
+    expect(lines[1].textContent).toContain("sampled since Nov 10, 2026: 1W reads from about Nov 17, 1M from about Dec 10 · 1 fund: FNDD");
+    await user.click(within(lines[0]).getByRole("button", { name: "FNDC" }));
+    expect(onSelectThesis).toHaveBeenLastCalledWith("t-Alpha", "X");
   });
 
   it("keeps each empty panel on the page with a quiet sentence", () => {
