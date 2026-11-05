@@ -4,6 +4,10 @@ import {
   DEFAULT_THRESHOLD,
   defaultVenn,
   groupsWords,
+  LABEL_MAX_FONT,
+  LABEL_MAX_LINES,
+  LABEL_MIN_FONT,
+  labelFit,
   lineWidth,
   moveFocus,
   nameFits,
@@ -92,6 +96,45 @@ describe("the bubbles' labels and keyboard moves", () => {
   it("shows a name on its bubble only when it fits", () => {
     expect(nameFits("Alpha", 40)).toBe(true);
     expect(nameFits("A card with a very long name", 20)).toBe(false);
+  });
+
+  it("wraps a long name at word boundaries inside the bubble, at most three lines", () => {
+    const name = "Synthetic Widget Components And Assembly Supply Chain Study";
+    const fit = labelFit(name, 60)!;
+    expect(fit).not.toBeNull();
+    expect(fit.lines.length).toBeGreaterThan(1);
+    expect(fit.lines.length).toBeLessThanOrEqual(LABEL_MAX_LINES);
+    expect(fit.fontSize).toBeGreaterThanOrEqual(LABEL_MIN_FONT);
+    expect(fit.fontSize).toBeLessThanOrEqual(LABEL_MAX_FONT);
+    // broken only between words, and nothing lost when no ellipsis was needed
+    const words = new Set(name.split(" "));
+    for (const ln of fit.lines) for (const w of ln.replace("…", "").split(" ").filter(Boolean)) expect(words.has(w) || ln.endsWith("…")).toBe(true);
+    if (!fit.lines.at(-1)!.endsWith("…")) expect(fit.lines.join(" ")).toBe(name);
+  });
+
+  it("puts an ellipsis on the last line when the name overflows three lines at the floor", () => {
+    const name = "An Unusually Long Synthetic Card Name About Many Different Interlinked Supply Relationships And Their Follow On Effects";
+    const fit = labelFit(name, 40)!;
+    expect(fit).not.toBeNull();
+    expect(fit.fontSize).toBe(LABEL_MIN_FONT);
+    expect(fit.lines).toHaveLength(LABEL_MAX_LINES);
+    expect(fit.lines.at(-1)!.endsWith("…")).toBe(true);
+    expect(fit.lines.every((l) => l.length >= 1)).toBe(true);
+  });
+
+  it("uses a larger font and one line for a short name in a big bubble", () => {
+    const fit = labelFit("Alpha", 60)!;
+    expect(fit.lines).toEqual(["Alpha"]);
+    expect(fit.fontSize).toBe(LABEL_MAX_FONT);
+  });
+
+  it("never goes below the font floor, and a bubble too small for a line of 8 characters has no label", () => {
+    for (const r of [20, 30, 45, 70]) {
+      const fit = labelFit("A Synthetic Name That Goes On And On For A While", r);
+      if (fit) expect(fit.fontSize).toBeGreaterThanOrEqual(LABEL_MIN_FONT);
+    }
+    expect(labelFit("A Synthetic Name That Goes On And On For A While", 14)).toBeNull();
+    expect(labelFit("X", 3)).toBeNull();
   });
 
   it("moves to the nearest bubble in the arrow's direction, and stays when none lies that way", () => {

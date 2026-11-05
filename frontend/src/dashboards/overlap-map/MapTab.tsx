@@ -6,7 +6,8 @@ import {
   groupsWords,
   lineWidth,
   moveFocus,
-  nameFits,
+  LINE_HEIGHT,
+  labelFit,
   neighborsOf,
   pairWords,
   sharedDots,
@@ -280,11 +281,34 @@ export default function MapTab({
                       }}
                     >
                       <circle cx={c.x!} cy={c.y!} r={c.r} />
-                      {(nameFits(c.name, c.r) || lit) && (
-                        <text x={c.x!} y={c.y!} textAnchor="middle" dominantBaseline="central" className="om-bubble-label">
-                          {c.name}
-                        </text>
-                      )}
+                      {(() => {
+                        const fit = labelFit(c.name, c.r);
+                        if (fit) {
+                          const lh = fit.fontSize * LINE_HEIGHT;
+                          return (
+                            <text
+                              x={c.x!}
+                              y={c.y! - ((fit.lines.length - 1) * lh) / 2}
+                              textAnchor="middle"
+                              dominantBaseline="central"
+                              className="om-bubble-label"
+                              style={{ fontSize: fit.fontSize }}
+                              data-testid={`om-label-${i}`}
+                            >
+                              {fit.lines.map((ln, k) => (
+                                <tspan key={k} x={c.x!} dy={k === 0 ? 0 : lh}>
+                                  {ln}
+                                </tspan>
+                              ))}
+                            </text>
+                          );
+                        }
+                        return lit ? (
+                          <text x={c.x!} y={c.y!} textAnchor="middle" dominantBaseline="central" className="om-bubble-label">
+                            {c.name}
+                          </text>
+                        ) : null;
+                      })()}
                     </g>
                   );
                 })}

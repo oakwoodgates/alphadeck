@@ -138,6 +138,79 @@ export function nameFits(name: string, r: number): boolean {
   return name.length * 5.6 <= 2 * r * 0.88;
 }
 
+export const LINE_HEIGHT = 1.15;
+const CHAR_W = 0.56; // an average glyph's width, in font sizes
+export const LABEL_MAX_FONT = 13;
+export const LABEL_MIN_FONT = 9;
+export const LABEL_MAX_LINES = 3;
+/** A bubble shows its name only where a line holds at least this many characters at the smallest font. */
+export const LABEL_MIN_CHARS = 8;
+
+export type LabelFit = { lines: string[]; fontSize: number };
+
+/** Greedy word wrap into at most `maxLines` lines of `cpl` characters; the last line ends in an ellipsis when the
+ *  name does not fit (a word longer than a line is cut). Returns whether it all fit. */
+function wrap(name: string, cpl: number, maxLines: number): { lines: string[]; full: boolean } {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let cur = "";
+  let i = 0;
+  for (; i < words.length; i++) {
+    const w = words[i];
+    const next = cur ? `${cur} ${w}` : w;
+    if (next.length <= cpl) {
+      cur = next;
+      continue;
+    }
+    if (cur) {
+      if (lines.length + 1 >= maxLines) break;
+      lines.push(cur);
+      cur = "";
+      i--; // retry this word on a fresh line
+      continue;
+    }
+    break; // one word longer than a line
+  }
+  const rest = words.slice(i).join(" ");
+  if (i >= words.length) {
+    lines.push(cur);
+    return { lines, full: true };
+  }
+  const tail = cur ? `${cur} ${rest}` : rest;
+  lines.push(tail.length > cpl ? `${tail.slice(0, Math.max(1, cpl - 1)).trimEnd()}…` : tail);
+  return { lines, full: false };
+}
+
+/** Characters one line holds for `lines` lines of `font`: the block's corner must stay inside the circle. */
+function charsPerLine(r: number, font: number, lines: number): number {
+  const half = (lines * font * LINE_HEIGHT) / 2;
+  if (half >= r) return 0;
+  const width = 2 * Math.sqrt(r * r - half * half) * 0.92;
+  return Math.floor(width / (CHAR_W * font));
+}
+
+/**
+ * How a card's name sits inside its bubble (radius `r`, in the map's units: the box is 1,000 wide): wrapped at word
+ * boundaries to up to three lines, the font as large as fits (13 down to a floor of 9), an ellipsis on the last line
+ * when the name overflows. `null` when no line holds `LABEL_MIN_CHARS` characters at the floor: that bubble shows its
+ * name on hover or focus instead. Pure.
+ */
+export function labelFit(name: string, r: number): LabelFit | null {
+  for (let f = LABEL_MAX_FONT; f >= LABEL_MIN_FONT; f -= 0.5) {
+    for (let n = 1; n <= LABEL_MAX_LINES; n++) {
+      const cpl = charsPerLine(r, f, n);
+      if (cpl < 1) continue;
+      const got = wrap(name, cpl, n);
+      if (got.full) return { lines: got.lines, fontSize: f };
+    }
+  }
+  for (let n = LABEL_MAX_LINES; n >= 1; n--) {
+    const cpl = charsPerLine(r, LABEL_MIN_FONT, n);
+    if (cpl >= LABEL_MIN_CHARS) return { lines: wrap(name, cpl, n).lines, fontSize: LABEL_MIN_FONT };
+  }
+  return null;
+}
+
 export type ArrowKey = "ArrowUp" | "ArrowDown" | "ArrowLeft" | "ArrowRight";
 
 /** The bubble an arrow key moves to from `from`: the nearest placed bubble in that direction (the off-axis
