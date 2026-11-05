@@ -35,7 +35,7 @@ OUTPUT_SCHEMA = {
     "additionalProperties": False,
     "required": ["schema_version", "request_id", "ok"],
     "properties": {
-        "schema_version": {"const": "1"},
+        "schema_version": {"const": "2"},
         "request_id": {"type": "string"},
         "ok": {"type": "boolean"},
         "result": {"type": "object"},
@@ -57,6 +57,7 @@ OUTPUT_SCHEMA = {
 STRING = {"type": "string", "minLength": 1, "maxLength": 256}
 OFFSET = {"type": "integer", "minimum": 0, "maximum": 10000000}
 LIMIT = {"type": "integer", "minimum": 1, "maximum": 50}
+LIMIT_OR_NONE = {"type": "integer", "minimum": 0, "maximum": 50}
 
 
 def schema(properties, required=()):
@@ -95,11 +96,14 @@ INPUT_SCHEMAS = {
             "source_response_index": OFFSET,
             "source_ref_id": STRING,
             "offset": OFFSET,
-            "limit": LIMIT,
+            "limit": LIMIT_OR_NONE,
             "data_offset": OFFSET,
             "data_limit": {"type": "integer", "minimum": 1, "maximum": 24000},
             "source_offset": OFFSET,
-            "source_limit": LIMIT,
+            "source_limit": LIMIT_OR_NONE,
+            "pointer": {"type": "string", "maxLength": 4096},
+            "outline": {"type": "boolean"},
+            "outline_offset": OFFSET,
         },
         ["snapshot_id"],
     ),
@@ -124,7 +128,17 @@ INPUT_SCHEMAS["inspect_dashboard_item"]["allOf"] = [
     {
         "if": {"required": ["source_ref_id"]},
         "then": {"required": ["target_id"], "not": {"required": ["source_response_index"]}},
-    }
+    },
+    {
+        "if": {"required": ["pointer"]},
+        "then": {"required": ["source_response_index"], "not": {"required": ["source_ref_id"]}},
+    },
+    {
+        "if": {"required": ["outline"], "properties": {"outline": {"const": True}}},
+        "then": {
+            "anyOf": [{"required": ["source_response_index"]}, {"required": ["source_ref_id"]}]
+        },
+    },
 ]
 DESCRIPTIONS = {
     "list_workflows": "Discover reusable read-only MONITOR workflows for Board review, call explanation, and Rotation Map comparisons. Use get_workflow to retrieve a recipe and then execute its steps with the dashboard tools.",
@@ -132,7 +146,7 @@ DESCRIPTIONS = {
     "list_dashboards": "Discover dashboard and detail surfaces, identified by surface_kind, with explicit data/observe/screenshot/drilldown support. Detail surfaces such as Cockpit are discoverable here even when absent from dashboard tiles. Unsupported surfaces remain discoverable.",
     "describe_dashboard": "Describe one dashboard or detail surface: surface_kind, exact settings schema, defaults, as-of support and capability limits. Detail surfaces may require following an advertised link or supplying required settings.",
     "read_dashboard": "Capture one read-only backend transaction and real rendered DOM. Either supply dashboard/settings/asof for an initial capture, or follow an advertised link with from_snapshot_id,target_id,link_id,freshness='fresh'. Following performs an independent fresh capture preserving the parent date/temporal context; expired parents and changed clocks reject. Returns expiring snapshot ID, observation and origin metadata. Use render_dashboard for its image.",
-    "inspect_dashboard_item": "Inspect frozen targets or paginate. Resolve an advertised source_ref_id together with target_id to read precisely its captured evidence JSON. Alternatively supply raw source_response_index; these modes are exclusive. data_offset/data_limit paginate JSON text, which may need concatenation. Never fetches live data or external source URLs.",
+    "inspect_dashboard_item": "Inspect frozen targets or read captured JSON. Reads of source data (source_response_index or source_ref_id) return no target page and no response listing unless you pass limit/source_limit (0 is accepted everywhere). Resolve an advertised source_ref_id together with target_id to read precisely its captured evidence JSON, or supply raw source_response_index; these modes are exclusive. To read ONE field, pass pointer (an RFC 6901 JSON Pointer such as /verdict; empty string = the whole response) together with source_response_index: only the value at that pointer comes back. To see the shape first, pass outline=true (with source_response_index, optionally with pointer, or with source_ref_id): source_data then lists each child's key or index, type and serialized size in characters, with no values, 200 entries per page (outline_offset / next_outline_offset). Outline first, then read by pointer. data_offset/data_limit paginate JSON text, which may need concatenation. Never fetches live data or external source URLs.",
     "render_dashboard": "Return the stored overview PNG, or re-render an advertised visible target from the identical captured payload/settings. No live data. Target images reject detected coverage using bounded sampled hit-testing; unsampled thin interior coverage can remain undetected. Cropping metadata describes viewport/overflow geometry, not a proof against occlusion. Inspect image visibility, cropping and expiry metadata.",
 }
 
@@ -176,6 +190,12 @@ RESULT_FIELDS = {
     },
     "inspect_dashboard_item": {
         "snapshot_id": STRING,
+        "dashboard": STRING,
+        "asof": {"type": "string"},
+        "captured_at": {"type": "string"},
+        "expires_at": {"type": "string"},
+        "settings": {"type": "object"},
+        "context_hash": {"type": "string"},
         "targets": {"type": "array"},
         "truncation": {"type": "object"},
         "total": {"type": "integer"},
@@ -233,6 +253,16 @@ def output_schema(name):
         "properties": fields,
     }
     return output
+
+
+def log_reply(name: str, payload: dict) -> None:
+    """Trace a reply's serialized size in characters; never its content."""
+    logging.getLogger(__name__).info(
+        "tool=%s ok=%s chars=%d",
+        name,
+        payload["ok"],
+        len(json.dumps(payload, ensure_ascii=True, separators=(",", ":"))),
+    )
 
 
 def make_server(service: DashboardService | None = None) -> Server:
@@ -302,7 +332,7 @@ def make_server(service: DashboardService | None = None) -> Server:
         ).is_valid(arguments):
             payload = {
                 "request_id": secrets.token_hex(8),
-                "schema_version": "1",
+                "schema_version": "2",
                 "ok": False,
                 "error": AccessError(
                     "invalid_arguments",
@@ -313,7 +343,7 @@ def make_server(service: DashboardService | None = None) -> Server:
         else:
             logging.getLogger(__name__).info("tool=%s start", name)
             payload, png = await service.call(name, arguments)
-            logging.getLogger(__name__).info("tool=%s ok=%s", name, payload["ok"])
+            log_reply(name, payload)
         content = [
             types.TextContent(
                 type="text", text=json.dumps(payload, ensure_ascii=True, separators=(",", ":"))

@@ -241,6 +241,22 @@ class CaptureClient:
                     "Backend capture did not acknowledge the requested dashboard date.",
                 )
             return envelope
+        except (httpx.ConnectError, httpx.ConnectTimeout):
+            raise AccessError(
+                "backend_unavailable",
+                "The Alpha Deck API at "
+                + self.base
+                + " isn't answering; check that it is running.",
+                retryable=True,
+            ) from None
+        except httpx.TimeoutException:
+            raise AccessError(
+                "capture_timeout",
+                "The capture didn't finish within "
+                + f"{self.timeout:g}"
+                + " seconds; the API's own work budget is 120 seconds. Retry later.",
+                retryable=True,
+            ) from None
         except httpx.HTTPError:
             raise AccessError(
                 "backend_unavailable", "Local backend capture failed or timed out.", retryable=True

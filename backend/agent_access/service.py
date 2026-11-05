@@ -132,7 +132,7 @@ class DashboardService:
                     raise AccessError("unknown_tool", "Unknown dashboard tool.")
                 result, png = await handler(**arguments)
                 payload = {
-                    "schema_version": "1",
+                    "schema_version": "2",
                     "request_id": request_id,
                     "ok": True,
                     "result": result,
@@ -146,7 +146,7 @@ class DashboardService:
         except AccessError as error:
             logger.info("request_id=%s error_code=%s", request_id, error.code)
             return {
-                "schema_version": "1",
+                "schema_version": "2",
                 "request_id": request_id,
                 "ok": False,
                 "error": error.payload(),
@@ -156,7 +156,7 @@ class DashboardService:
                 "request_timeout", "Dashboard request exceeded its total deadline.", retryable=True
             )
             return {
-                "schema_version": "1",
+                "schema_version": "2",
                 "request_id": request_id,
                 "ok": False,
                 "error": error.payload(),
@@ -168,7 +168,7 @@ class DashboardService:
             )
             logger.error("request_id=%s exception_class=%s", request_id, type(exception).__name__)
             return {
-                "schema_version": "1",
+                "schema_version": "2",
                 "request_id": request_id,
                 "ok": False,
                 "error": error.payload(),
@@ -210,6 +210,19 @@ class DashboardService:
             "settings": copy.deepcopy(snapshot.settings),
             "context": copy.deepcopy(snapshot.envelope["context"]),
             "consistency": copy.deepcopy(snapshot.envelope["consistency"]),
+            **({"origin": copy.deepcopy(snapshot.origin)} if snapshot.origin is not None else {}),
+        }
+
+    def _compact_metadata(self, snapshot):
+        """Inspect replies: the snapshot header plus the context hash, not the full context."""
+        return {
+            "snapshot_id": snapshot.id,
+            "dashboard": snapshot.envelope["dashboard"],
+            "asof": snapshot.envelope["asof"],
+            "captured_at": snapshot.envelope["captured_at"],
+            "expires_at": snapshot.expires_at,
+            "settings": copy.deepcopy(snapshot.settings),
+            "context_hash": context_hash(snapshot.envelope),
             **({"origin": copy.deepcopy(snapshot.origin)} if snapshot.origin is not None else {}),
         }
 
@@ -342,17 +355,37 @@ class DashboardService:
         source_response_index=None,
         source_ref_id=None,
         offset=0,
-        limit=20,
+        limit=None,
         data_offset=0,
         data_limit=12000,
         source_offset=0,
-        source_limit=20,
+        source_limit=None,
+        pointer=None,
+        outline=False,
+        outline_offset=0,
     ):
         if source_ref_id is not None and (target_id is None or source_response_index is not None):
             raise AccessError(
                 "invalid_arguments",
                 "source_ref_id requires target_id and cannot be combined with source_response_index.",
             )
+        if pointer is not None and (source_response_index is None or source_ref_id is not None):
+            raise AccessError(
+                "invalid_arguments",
+                "pointer requires source_response_index and cannot be combined with source_ref_id: "
+                "an advertised reference already carries its pointer.",
+            )
+        reads_data = source_response_index is not None or source_ref_id is not None
+        if outline and not reads_data:
+            raise AccessError(
+                "invalid_arguments",
+                "outline requires source_response_index (optionally with pointer) or source_ref_id.",
+            )
+        # A data read defaults to no target page and no response listing; ask for them explicitly.
+        if limit is None:
+            limit = 0 if reads_data else 20
+        if source_limit is None:
+            source_limit = 0 if reads_data else 20
         snapshot = self.store.get(snapshot_id)
         if not self.catalog.describe(snapshot.envelope["dashboard"])["capabilities"]["drilldown"]:
             raise AccessError(
@@ -366,14 +399,20 @@ class DashboardService:
                     "unknown_target",
                     "Target ID is absent from this snapshot; use its advertised target IDs.",
                 )
-        page, truncation = target_preview(targets[offset : offset + limit])
+        if limit > 0:
+            page, truncation = target_preview(targets[offset : offset + limit])
+        else:
+            page, truncation = [], {"truncated": False, "paths": [], "path_count": 0}
         result = {
-            **self._metadata(snapshot),
+            **self._compact_metadata(snapshot),
             "targets": page,
             "truncation": truncation,
             "total": len(targets),
             "offset": offset,
-            "next_offset": offset + len(page) if offset + len(page) < len(targets) else None,
+            # With no page requested there is nothing to continue from; `total` still says how many.
+            "next_offset": (
+                offset + len(page) if limit > 0 and offset + len(page) < len(targets) else None
+            ),
         }
         sources = snapshot.envelope["responses"]
         source_page, source_truncation = preview(
@@ -391,7 +430,7 @@ class DashboardService:
             source_total=len(sources),
             next_source_offset=(
                 source_offset + len(source_page)
-                if source_offset + len(source_page) < len(sources)
+                if source_limit > 0 and source_offset + len(source_page) < len(sources)
                 else None
             ),
         )
@@ -408,35 +447,55 @@ class DashboardService:
                     "unknown_source", "Captured source response index is out of range."
                 )
             source = responses[source_response_index]
-            selected = (
-                source["body"]
-                if reference is None
-                else pointer_value(source["body"], reference["pointer"])
-            )
-            text = json.dumps(selected, ensure_ascii=True, separators=(",", ":"))
-            end = min(len(text), data_offset + data_limit)
-            result["source_data"] = {
+            if reference is not None:
+                selected = pointer_value(source["body"], reference["pointer"])
+            elif pointer is not None:
+                try:
+                    selected = pointer_value(source["body"], pointer)
+                except AccessError:
+                    raise AccessError(
+                        "unknown_pointer",
+                        "The pointer does not resolve in this captured response; outline the "
+                        "response (outline=true, optionally with a shorter pointer) to see its keys.",
+                    ) from None
+            else:
+                selected = source["body"]
+            identity = {
                 "response_index": source_response_index,
                 "path": source["path"],
                 "query": source["query"],
+            }
+            extra = (
+                {
+                    "reference_id": reference["id"],
+                    "category": reference.get("category"),
+                    "label": reference.get("label"),
+                    "pointer": reference["pointer"],
+                    "kind": "captured_json",
+                    "freshness": "frozen",
+                }
+                if reference is not None
+                else ({"pointer": pointer} if pointer is not None else {})
+            )
+            if outline:
+                result["source_data"] = {
+                    **identity,
+                    "encoding": "json_outline",
+                    **_outline(selected, outline_offset),
+                    **extra,
+                }
+                return result, None
+            text = _serialize(selected)
+            end = min(len(text), data_offset + data_limit)
+            result["source_data"] = {
+                **identity,
                 "encoding": "json_text",
                 "text": text[data_offset:end],
                 "offset": data_offset,
                 "total_characters": len(text),
                 "truncated": data_offset > 0 or end < len(text),
                 "next_offset": end if end < len(text) else None,
-                **(
-                    {
-                        "reference_id": reference["id"],
-                        "category": reference.get("category"),
-                        "label": reference.get("label"),
-                        "pointer": reference["pointer"],
-                        "kind": "captured_json",
-                        "freshness": "frozen",
-                    }
-                    if reference is not None
-                    else {}
-                ),
+                **extra,
             }
         return result, None
 
@@ -478,6 +537,44 @@ class DashboardService:
             "bytes": len(png),
             "policy": POLICY,
         }, png
+
+
+OUTLINE_PAGE = 200
+
+
+def _serialize(value) -> str:
+    return json.dumps(value, ensure_ascii=True, separators=(",", ":"))
+
+
+def _type_name(value) -> str:
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, (int, float)):
+        return "number"
+    if isinstance(value, str):
+        return "string"
+    return "array" if isinstance(value, list) else "object"
+
+
+def _outline(value, outline_offset: int) -> dict:
+    """The value's type and size, plus each child's key/index, type and serialized size."""
+    outline = {"type": _type_name(value), "total_characters": len(_serialize(value))}
+    if isinstance(value, (dict, list)):
+        children = list(value.items()) if isinstance(value, dict) else list(enumerate(value))
+        page = children[outline_offset : outline_offset + OUTLINE_PAGE]
+        end = outline_offset + len(page)
+        outline.update(
+            entries=[
+                {"key": key, "type": _type_name(child), "characters": len(_serialize(child))}
+                for key, child in page
+            ],
+            outline_offset=outline_offset,
+            outline_total=len(children),
+            next_outline_offset=end if end < len(children) else None,
+        )
+    return outline
 
 
 TOOL_NAMES = {
