@@ -82,6 +82,7 @@ def test_scored_endpoint_serves_meters_on_real_data(client, db, security_id):
     assert [s["label"] for s in body["segments"]] == [
         "reactors",
         "Context",
+        "ETFs",
         "Bench",
     ]  # fixed links last
     assert len(body["members"]) == 1
@@ -187,7 +188,7 @@ def test_promote_creates_incubating_thesis_on_the_board(client, security_id):
     r = client.post("/workbench/theses", json=payload)
     assert r.status_code == 200
     tid = r.json()["id"]
-    assert [s["label"] for s in r.json()["segments"]] == ["reactors", "Context", "Bench"]
+    assert [s["label"] for s in r.json()["segments"]] == ["reactors", "Context", "ETFs", "Bench"]
     # it now shows on the Board (GET /theses) and the chain persisted (GET /theses/{id})
     assert any(t["id"] == tid for t in client.get("/theses").json())
     detail = client.get(f"/theses/{tid}").json()
@@ -3477,7 +3478,12 @@ def test_promote_rename_link_cascades_onto_members(client, db, security_id):
         ],
     )
     detail = client.get(f"/theses/{tid}").json()
-    assert [s["label"] for s in detail["segments"]] == ["reactor builders", "Context", "Bench"]
+    assert [s["label"] for s in detail["segments"]] == [
+        "reactor builders",
+        "Context",
+        "ETFs",
+        "Bench",
+    ]
     assert {m["segment"] for m in detail["basket"]} == {
         "reactor builders"
     }  # both cascaded, no orphan
@@ -3528,6 +3534,7 @@ def test_promote_remove_link_routes_last_placement_to_discovered(client, db, sec
         "reactors",
         "Discovered",
         "Context",
+        "ETFs",
         "Bench",
     ]  # fuel gone; the fixed links ride last
     assert (
@@ -3543,11 +3550,14 @@ def test_promote_remove_link_routes_last_placement_to_discovered(client, db, sec
     assert _ce_member_count(db, tid) == 2
 
 
-# --- Context and Bench: the two fixed, silent links -------------------------------------------------------
+# --- Context, ETFs and Bench: the three fixed, silent links ------------------------------------------------
 
 _CONTEXT_DESC = (
     "Watched for context: buyers, counter-case names, giants where the theme is a slice. "
     "Never counts toward the call."
+)
+_ETFS_DESC = (
+    "Funds that track the theme: watched for price and fund flow. Never counts toward the call."
 )
 _BENCH_DESC = (
     "Speculative names: pivots, distressed or thinly traded. Never counts toward the call."
@@ -3578,7 +3588,7 @@ def _sl_links(segments) -> list[tuple[str, str | None]]:
     return [(s["label"], s["descriptor"]) for s in segments]
 
 
-_SL_FIXED = [("Context", _CONTEXT_DESC), ("Bench", _BENCH_DESC)]
+_SL_FIXED = [("Context", _CONTEXT_DESC), ("ETFs", _ETFS_DESC), ("Bench", _BENCH_DESC)]
 
 
 @pytest.mark.parametrize(
@@ -3594,12 +3604,14 @@ _SL_FIXED = [("Context", _CONTEXT_DESC), ("Bench", _BENCH_DESC)]
             id="mid-list-and-reversed-with-wrong-descriptors",
         ),
         pytest.param(
-            [{"label": "context"}, {"label": "reactors"}, {"label": "BENCH"}], id="wrong-case"
+            [{"label": "context"}, {"label": "reactors"}, {"label": "etfs"}, {"label": "BENCH"}],
+            id="wrong-case",
         ),
         pytest.param(
             [
                 {"label": "reactors"},
                 {"label": "Context", "descriptor": _CONTEXT_DESC},
+                {"label": "ETFs", "descriptor": _ETFS_DESC},
                 {"label": "Bench", "descriptor": _BENCH_DESC},
             ],
             id="already-right",
@@ -3629,6 +3641,7 @@ def test_promote_leaves_discovered_where_the_chain_put_it(client):
         "reactors",
         "fuel",
         "Context",
+        "ETFs",
         "Bench",
     ]
 
@@ -3682,7 +3695,7 @@ def test_promote_persists_one_silent_row_and_snapshots_its_segment_without_growi
     assert _sl_count(db, tid, "basket_snapshot") == 2
 
 
-@pytest.mark.parametrize("silent", ["Context", "Bench", "bench"])
+@pytest.mark.parametrize("silent", ["Context", "ETFs", "Bench", "bench"])
 @pytest.mark.parametrize("other", ["reactors", "Discovered", None])
 def test_promote_refuses_a_company_that_is_silent_and_in_another_link(
     client, db, security_id, silent, other
@@ -3708,7 +3721,7 @@ def test_promote_refuses_a_company_that_is_silent_and_in_another_link(
         ],
     )
     assert bad.status_code == 422
-    canonical = silent.capitalize()
+    canonical = {"bench": "Bench"}.get(silent, silent)
     assert bad.json()["detail"].startswith(f"DEVCO is in {canonical} and also in another link")
     assert "never both" in bad.json()["detail"]
     assert (_sl_count(db, tid), _sl_count(db, tid, "basket_snapshot")) == before  # nothing written

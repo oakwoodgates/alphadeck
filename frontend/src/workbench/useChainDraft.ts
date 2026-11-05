@@ -14,31 +14,36 @@ export const memberKey = (m: { security_id?: string | null; ticker: string }): s
 // leaving it in a stale segment. One home for the label (ChainEditor imports it).
 export const DISCOVERED = "Discovered";
 
-// THE TWO SILENT LINKS — Context and Bench (Silent links: Context and Bench). Every thesis carries both,
-// ALWAYS the LAST two links, fixed: they can't be renamed, deleted or reordered, and a company in either is
+// THE THREE SILENT LINKS — Context, ETFs and Bench. Every thesis carries all three, ALWAYS the LAST three
+// links in that order, fixed: they can't be renamed, deleted or reordered, and a company in any of them is
 // on the card and visible but NEVER counts toward the call (the backend removes those rows at the call seam —
 // nothing here computes anything about the call). `Discovered` is deliberately NOT pinned: it keeps its
 // position and behavior, and a new link can land after it. A company is silent XOR voting: moving it into a
 // silent link collapses ALL its rows to ONE row there, and moving it into a real link takes it out
 // (`toggleMemberLink` in chainOps). Only the operator puts a name in a silent link — the drafter never does.
+// ETFs is the FUNDS link: it holds funds (a member whose master row is instrument_kind 'etf') and only funds,
+// and every fund sits there — the promote refuses anything else. Adding a fund files it there (`addFund`);
+// the DD rail offers a fund only ETFs and a company never ETFs.
 // Defined ONCE here (the Cockpit imports them from this module); `withSilentLinks` MIRRORS the backend's
 // `domain.thesis.with_silent_links`. Naming: never "watch" — `CallCard.watch_members` already means the
 // confirmation-only members.
 export const CONTEXT = "Context";
+export const ETFS = "ETFs";
 export const BENCH = "Bench";
-export const SILENT_LINKS = [CONTEXT, BENCH] as const;
+export const SILENT_LINKS = [CONTEXT, ETFS, BENCH] as const;
 export type SilentLink = (typeof SILENT_LINKS)[number];
 /** The fixed descriptors, verbatim (operator-approved copy). */
 export const SILENT_DESCRIPTORS: Record<SilentLink, string> = {
   [CONTEXT]:
     "Watched for context: buyers, counter-case names, giants where the theme is a slice. Never counts toward the call.",
+  [ETFS]: "Funds that track the theme: watched for price and fund flow. Never counts toward the call.",
   [BENCH]: "Speculative names: pivots, distressed or thinly traded. Never counts toward the call.",
 };
 
-/** EXACT match — is this segment label one of the two silent links? (Accepts a member's nullable
+/** EXACT match — is this segment label one of the three silent links? (Accepts a member's nullable
  *  `segment` so call sites can pass it straight in.) */
 export const isSilentLink = (label: string | null | undefined): label is SilentLink =>
-  label === CONTEXT || label === BENCH;
+  label === CONTEXT || label === ETFS || label === BENCH;
 
 /** The RESERVED-name check — case-insensitive, trimmed: `" context "` is the silent link Context, so no
  *  operator-made link or rename may take it. Returns the canonical spelling, else null. */
@@ -47,8 +52,8 @@ export function reservedLinkName(label: string): SilentLink | null {
   return SILENT_LINKS.find((l) => l.toLowerCase() === t) ?? null;
 }
 
-/** Normalize a segment list so it ends with Context then Bench: drop any segment whose label matches a
- *  silent link in ANY case, keep the rest in their given order, append the two fixed links with their fixed
+/** Normalize a segment list so it ends with Context, ETFs then Bench: drop any segment whose label matches a
+ *  silent link in ANY case, keep the rest in their given order, append the three fixed links with their fixed
  *  descriptors. Idempotent (an already-normal list comes back as the SAME array). */
 export function withSilentLinks(segments: Segment[]): Segment[] {
   const real = segments.filter((s) => reservedLinkName(s.label) === null);
@@ -66,9 +71,9 @@ export function withSilentLinks(segments: Segment[]): Segment[] {
   return normal ? segments : [...real, ...tail];
 }
 
-/** Append `seg` as the last NON-silent link — i.e. just before Context/Bench when present (at the end when
- *  the list carries neither). The ONE helper every segment append goes through, so a new link (or the
- *  Discovered pen) can never land after the pinned pair. */
+/** Append `seg` as the last NON-silent link — i.e. just before the silent links when present (at the end when
+ *  the list carries none). The ONE helper every segment append goes through, so a new link (or the
+ *  Discovered pen) can never land after the pinned three. */
 export function insertBeforeSilent(segments: Segment[], seg: Segment): Segment[] {
   const i = segments.findIndex((s) => isSilentLink(s.label));
   return i < 0 ? [...segments, seg] : [...segments.slice(0, i), seg, ...segments.slice(i)];
@@ -121,6 +126,38 @@ function withSavedContextRoles(draft: ChainDraft, base: ChainDraft): ChainDraft 
         : m,
     ),
   };
+}
+
+// THE ETFs RESTORE GUARD. A fund sits in ETFs and nowhere else (the promote refuses a fund outside it), and
+// the saved spine is where that is already true. An autosaved triage-session blob written BEFORE the ETFs link
+// existed (or before migration 0073 moved the stored fund rows) still holds the fund with no link — and Save
+// full-replaces from the working draft, so the card could not be saved until the operator removed the fund.
+// So a restore files a restored company back into ETFs when the SAVED spine holds it ONLY in ETFs (every saved
+// row of it is there — that is a fund the server already accepted), as ONE row carrying its first restored
+// row's fields. A company the spine does not hold in ETFs is untouched (this never guesses what is a fund),
+// and a draft with nothing to file comes back as the SAME object. Placement only: never a call input.
+function withSavedFundsInEtfs(draft: ChainDraft, base: ChainDraft): ChainDraft {
+  const inEtfs = new Map<string, boolean>(); // security_id → every saved row is in ETFs
+  for (const m of base.basket) {
+    if (!m.security_id) continue;
+    inEtfs.set(m.security_id, (inEtfs.get(m.security_id) ?? true) && m.segment === ETFS);
+  }
+  const needs = (m: BasketMember) =>
+    !!m.security_id && inEtfs.get(m.security_id) === true && m.segment !== ETFS;
+  if (!draft.basket.some(needs)) return draft;
+  const filed = new Set<string>();
+  const basket: BasketMember[] = [];
+  for (const m of draft.basket) {
+    const sid = m.security_id;
+    if (!sid || inEtfs.get(sid) !== true) {
+      basket.push(m);
+      continue;
+    }
+    if (filed.has(sid)) continue; // one row in ETFs per fund — the other restored rows collapse into it
+    filed.add(sid);
+    basket.push(m.segment === ETFS ? m : { ...m, segment: ETFS });
+  }
+  return { ...draft, basket };
 }
 
 // THE PLACED MODE (Research ⇄ Pick) — HOW the operator decides the PLACED section: one of two gestures over
@@ -184,12 +221,15 @@ const withDeleted = (prev: Set<string>, key: string): Set<string> => {
  *  discipline, blob instead of thesis. */
 export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainState) {
   const [base] = useState<ChainDraft>(() => snapshot(thesis));
-  // A restored draft (an autosave from before the silent links, or a Clear's empty chain) lacks Context/Bench:
-  // normalize its segments so the editor and `dirty` see the same fixed pair a fresh snapshot carries.
+  // A restored draft (an autosave from before the silent links, or a Clear's empty chain) lacks the silent links:
+  // normalize its segments so the editor and `dirty` see the same fixed links a fresh snapshot carries.
   const [draft, setDraft] = useState<ChainDraft>(() =>
     restored
-      ? withSavedContextRoles(
-          { ...restored.draft, segments: withSilentLinks(restored.draft.segments) },
+      ? withSavedFundsInEtfs(
+          withSavedContextRoles(
+            { ...restored.draft, segments: withSilentLinks(restored.draft.segments) },
+            base,
+          ),
           base,
         )
       : base,
@@ -355,11 +395,11 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
   const addSegment = (label: string, descriptor?: string) =>
     setDraft((d) => {
       const l = label.trim();
-      // no blank, no duplicate, and never a RESERVED name (Context / Bench, any case — those two are fixed)
+      // no blank, no duplicate, and never a RESERVED name (Context / ETFs / Bench, any case — those three are fixed)
       if (!l || d.segments.some((s) => s.label === l) || reservedLinkName(l)) return d;
       return {
         ...d,
-        // lands BEFORE Context/Bench — the pinned pair stays last
+        // lands BEFORE the silent links — the pinned three stay last
         segments: insertBeforeSilent(d.segments, { label: l, descriptor: descriptor?.trim() || null }),
       };
     });
@@ -379,7 +419,7 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
 
   const moveSegment = (label: string, dir: -1 | 1) =>
     setDraft((d) => {
-      if (isSilentLink(label)) return d; // Context / Bench are pinned last — they never move
+      if (isSilentLink(label)) return d; // the silent links are pinned last — they never move
       const i = d.segments.findIndex((s) => s.label === label);
       const j = i + dir;
       if (i < 0 || j < 0 || j >= d.segments.length) return d;
@@ -391,7 +431,7 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
 
   const removeSegment = (label: string) =>
     setDraft((d) => {
-      if (isSilentLink(label)) return d; // Context / Bench are fixed — never removable
+      if (isSilentLink(label)) return d; // the silent links are fixed — never removable
       // MULTI-MEMBERSHIP-SAFE (S1): a name may hold N rows (one per recommended link). Removing a link
       // DROPS the name's row in it when the name keeps another placement (a now-redundant membership —
       // no duplicate unplaced row left behind) and NULLS the segment only on the name's LAST placement
@@ -415,11 +455,12 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
       };
     });
 
-  // RULE 3 (the draft never puts a name in a silent link) at the ONE seam every add path passes through:
+  // RULE 3 (the draft never puts a name in a silent link) at the ONE seam every draft add path passes through:
   // a row carrying a reserved segment label (any case — an old saved draft run, or a pre-deploy session blob
-  // holding a model-proposed "Context"/"bench") is filed to the Discovered pen instead, exactly as `loadDraft`
-  // reroutes a drafted one. Without this the name would display as Discovered but SAVE silent. No operator
-  // path adds INTO a silent link here — moves happen on the scored rail — so nothing legitimate is rerouted.
+  // holding a model-proposed "Context"/"bench"/"etfs") is filed to the Discovered pen instead, exactly as
+  // `loadDraft` reroutes a drafted one. Without this the name would display as Discovered but SAVE silent. The
+  // one operator path INTO a silent link is a fund's add (`addFund`, below — it never comes through here);
+  // every other move happens on the scored rail, so nothing legitimate is rerouted.
   // Returns the rows (pen-filed where needed) and ensures the pen segment exists so Save never orphans it.
   const fileOutOfSilent = (d: ChainDraft, rows: BasketMember[]): ChainDraft => {
     const filed = rows.map((r) =>
@@ -447,10 +488,25 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
     return { ...d, segments, basket: [...d.basket, ...unique] };
   };
 
-  // An EXPLICIT add (hand-add / ETF sleeve / To-Review add / ambiguous pick) is a DECISION: the name is
-  // always selected (checked ⇒ collapsed in pick; harmless in research, where the set is dormant).
+  // An EXPLICIT add (hand-add / To-Review add / ambiguous pick) is a DECISION: the name is always selected
+  // (checked ⇒ collapsed in pick; harmless in research, where the set is dormant).
   const addMember = (m: BasketMember) => {
     setDraft((d) => (d.basket.some((x) => memberKey(x) === memberKey(m)) ? d : fileOutOfSilent(d, [m])));
+    setSelected((prev) => withAdded(prev, [memberKey(m)]));
+  };
+
+  // Add a FUND (the "Surface an ETF" box, or a fund picked in "Add a name") — the ONE operator add that files
+  // INTO a silent link: a fund always sits in ETFs (the promote refuses it anywhere else) and only a fund
+  // does, so the caller vouches the row is a fund (the resolver/search said instrument_kind 'etf') and this
+  // pins its segment to ETFs, bypassing `fileOutOfSilent` (which exists to stop a MODEL-proposed silent label).
+  // One row per name, like every add (an already-present name is a no-op); selected like any explicit add.
+  // Reversible (WB#1): the row's own remove is the inverse.
+  const addFund = (m: BasketMember) => {
+    setDraft((d) => {
+      if (d.basket.some((x) => memberKey(x) === memberKey(m))) return d;
+      const segments = d.segments.some((s) => s.label === ETFS) ? d.segments : withSilentLinks(d.segments);
+      return { ...d, segments, basket: [...d.basket, { ...m, segment: ETFS }] };
+    });
     setSelected((prev) => withAdded(prev, [memberKey(m)]));
   };
 
@@ -505,10 +561,10 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
       // So: a FIRST draft (no chain yet) adopts the drafter's links; once you HAVE a chain, a re-draft keeps
       // it exactly and files new / re-rolled names into an EXISTING link (exact-label match) or the
       // "Discovered" unsorted pen — never a fabricated link. `fileSeg` routes any segment through that rule.
-      // The silent links (Context / Bench) are ALWAYS present now, so they must not count as "a chain" — a
-      // thesis of only Discovered + Context + Bench still gets the drafter's links on its FIRST draft — and
+      // The silent links (Context / ETFs / Bench) are ALWAYS present now, so they must not count as "a chain" — a
+      // thesis of only Discovered + the silent links still gets the drafter's links on its FIRST draft — and
       // the drafter can NEVER file a name into one (the operator alone puts names there; a model-proposed
-      // "Context"/"Bench", in any case, is rerouted to the Discovered pen exactly as the backend does).
+      // "Context"/"ETFs"/"Bench", in any case, is rerouted to the Discovered pen exactly as the backend does).
       const hasChain = d.segments.some((s) => s.label !== DISCOVERED && !isSilentLink(s.label));
       const haveSeg = new Set(d.segments.filter((s) => !isSilentLink(s.label)).map((s) => s.label));
       const fileSeg = (seg: string | null): string | null =>
@@ -600,7 +656,7 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
         );
       }
       // FIRST draft (no chain yet) adopts the drafter's links; an established chain keeps EXACTLY its links.
-      // A drafter segment named like a silent link (any case) is never adopted — those two are fixed.
+      // A drafter segment named like a silent link (any case) is never adopted — those three are fixed.
       const segments = hasChain
         ? [...d.segments]
         : [
@@ -611,8 +667,8 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
           ];
       const merged = [...basket, ...additions];
       // ensure the unsorted pen exists if any name landed there (else Save orphans it). Appended to the REAL
-      // links (so it keeps landing after the adopted ones, as before), then the pair is re-pinned last — the
-      // pen therefore always lands BEFORE Context/Bench, and so do any adopted links.
+      // links (so it keeps landing after the adopted ones, as before), then the silent links are re-pinned last — the
+      // pen therefore always lands BEFORE the silent links, and so do any adopted links.
       const real = segments.filter((s) => !isSilentLink(s.label));
       if (merged.some((m) => m.segment === DISCOVERED) && !real.some((s) => s.label === DISCOVERED)) {
         real.push({ label: DISCOVERED, descriptor: null });
@@ -682,6 +738,7 @@ export function useChainDraft(thesis: ThesisDetail, restored?: RestoredChainStat
     // conviction weight live on the TRIAGE screen now; this surface renders the draft's placement
     // read-only. The `conviction` FIELD stays on the model/DB and rides Save untouched.
     addMember,
+    addFund,
     addMemberRows,
     removeMember,
     loadDraft,

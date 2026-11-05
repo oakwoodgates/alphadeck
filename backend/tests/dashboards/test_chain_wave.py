@@ -35,7 +35,7 @@ from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
 from domain.enums import ContextRole
 from domain.market_time import market_today
-from domain.thesis import BENCH_LABEL, CONTEXT_LABEL, BasketMember, Segment, Thesis
+from domain.thesis import BENCH_LABEL, CONTEXT_LABEL, ETFS_LABEL, BasketMember, Segment, Thesis
 from repositories import thesis_repo
 
 ASOF = date(2026, 6, 5)  # a Friday
@@ -350,6 +350,7 @@ def test_chain_order_old_links_no_link_and_the_toggle():
         "old:Old wires",
         "no_link",
         f"silent:{CONTEXT_LABEL}",
+        f"silent:{ETFS_LABEL}",
         f"silent:{BENCH_LABEL}",
         "counting",
     ]
@@ -362,6 +363,7 @@ def test_no_link_row_only_when_a_row_has_no_link():
     assert "no_link" not in [r.key for r in page.rows]
     assert [r.key for r in page.rows if r.kind == "silent"] == [
         f"silent:{CONTEXT_LABEL}",
+        f"silent:{ETFS_LABEL}",
         f"silent:{BENCH_LABEL}",
     ]
 

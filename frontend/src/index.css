@@ -219,16 +219,17 @@ tr.grp td { padding: 15px 0 5px 9px; border-bottom: none; }
 .bkt-warming { --gc: var(--warm); }
 .bkt-watch { --gc: var(--incub); }
 .bkt-quiet { --gc: var(--txt-4); }
-/* the two silent links (Context / Bench) — the quiet bucket's muted accent: a name that never counts toward the
+/* the three silent links (Context / ETFs / Bench) — the quiet bucket's muted accent: a name that never counts toward the
    call is the quietest thing on the page (#7) */
-.bkt-context, .bkt-bench { --gc: var(--txt-4); }
+.bkt-context, .bkt-etfs, .bkt-bench { --gc: var(--txt-4); }
 /* the business-type lens's group header (Business-Type M1) — a neutral accent: the CALL keeps the
    color (each row's own state dot); the type grouping is organization, not urgency (inverse loudness) */
 .bkt-type { --gc: var(--txt-3); }
 /* the value-chain (segment) lens header — same neutral accent, same reasoning: it's structure, not
    urgency; each row still shows its own call-state dot */
 .bkt-segment { --gc: var(--txt-3); }
-tr.bkt-theme .rowdot, tr.bkt-warming .rowdot, tr.bkt-quiet .rowdot, tr.bkt-context .rowdot, tr.bkt-bench .rowdot {
+tr.bkt-theme .rowdot, tr.bkt-warming .rowdot, tr.bkt-quiet .rowdot, tr.bkt-context .rowdot, tr.bkt-etfs .rowdot,
+tr.bkt-bench .rowdot {
   background: transparent; border: 1.5px solid var(--gc);
 }
 
@@ -243,8 +244,8 @@ table.basket { view-transition-name: cp-basket; }
 @media (prefers-reduced-motion: reduce) {
   ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none; }
 }
-tr.bkt-quiet td, tr.bkt-context td, tr.bkt-bench td { color: var(--txt-3); }
-tr.bkt-quiet .tk, tr.bkt-context .tk, tr.bkt-bench .tk { color: var(--txt-2); }
+tr.bkt-quiet td, tr.bkt-context td, tr.bkt-etfs td, tr.bkt-bench td { color: var(--txt-3); }
+tr.bkt-quiet .tk, tr.bkt-context .tk, tr.bkt-etfs .tk, tr.bkt-bench .tk { color: var(--txt-2); }
 /* the business-type lens's "context" / "bench" tag beside a silent name's ticker — small, lowercase, muted */
 .silent-tag, .role-tag { color: var(--txt-4); font-size: 9.5px; margin-left: 6px; letter-spacing: 0.02em; cursor: help; }
 table.basket td.exitby.lapse { color: var(--warm); }

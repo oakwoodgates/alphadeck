@@ -145,7 +145,7 @@ const enterEditLinks = async (user: ReturnType<typeof userEvent.setup>) =>
 const lastPayload = () => h.promote.mock.calls.at(-1)![0];
 const labels = (segs: { label: string }[]) => segs.map((s) => s.label);
 // every promote now carries the two FIXED silent links, always last (sanitizeBasketForPromote → withSilentLinks)
-const SILENT = ["Context", "Bench"];
+const SILENT = ["Context", "ETFs", "Bench"];
 const DISCOVERED_LABEL = "Discovered";
 
 beforeEach(() => {
@@ -258,11 +258,12 @@ describe("Workbench — Context and Bench (the silent links)", () => {
   const rowsFor = (p: { basket: { security_id: string; segment: string | null }[] }, sid: string) =>
     p.basket.filter((b) => b.security_id === sid);
 
-  it("the rail lists the real links, then Context and Bench", () => {
+  it("the rail lists the real links, then Context and Bench — never ETFs for a company", () => {
     useFixture(mk.silent());
     renderWb(); // OKLO is the default selection (first name of the first tab)
     const order = screen.getAllByRole("checkbox").map((b) => b.closest("label")?.textContent);
     expect(order).toEqual(["reactors", "fuel", "Context", "Bench"]);
+    expect(screen.queryByRole("checkbox", { name: "ETFs" })).toBeNull(); // funds only
     expect(screen.getByRole("checkbox", { name: "reactors" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "fuel" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Context" })).not.toBeChecked();
@@ -281,7 +282,7 @@ describe("Workbench — Context and Bench (the silent links)", () => {
     expect(rowsFor(p, "s-leu").map((b) => b.segment)).toEqual(["fuel"]);
     expect(rowsFor(p, "s-ko").map((b) => b.segment)).toEqual(["Context"]);
     // the payload still ends with the fixed pair, in order
-    expect(labels(p.segments).slice(-2)).toEqual(["Context", "Bench"]);
+    expect(labels(p.segments).slice(-3)).toEqual(["Context", "ETFs", "Bench"]);
   });
 
   it("checking a real link on a Context name promotes ONE row in that link (it leaves Context)", async () => {
@@ -306,7 +307,7 @@ describe("Workbench — Context and Bench (the silent links)", () => {
 
     const p = lastPayload();
     expect(rowsFor(p, "s-ko").map((b) => b.segment)).toEqual(["Discovered"]); // never null, never gone
-    expect(labels(p.segments)).toEqual(["reactors", "fuel", "Discovered", "Context", "Bench"]);
+    expect(labels(p.segments)).toEqual(["reactors", "fuel", "Discovered", "Context", "ETFs", "Bench"]);
   });
 
   it("a silent tab renders only when it has names; both are hidden when empty", () => {
@@ -363,7 +364,7 @@ describe("Workbench — Context and Bench (the silent links)", () => {
     const p = lastPayload();
     expect(rowsFor(p, "s-oklo").map((b) => b.segment)).toEqual(["Context"]);
     expect(rowsFor(p, "s-leu").map((b) => b.segment)).toEqual([null]); // the flat name rides through
-    expect(labels(p.segments)).toEqual(["Context", "Bench"]);
+    expect(labels(p.segments)).toEqual(["Context", "ETFs", "Bench"]);
   });
 
   // B1 (WB#1) — after a rail move the VIEW follows the name: the tab switches to its new home and the rail
@@ -490,7 +491,7 @@ describe("Workbench — Context and Bench (the silent links)", () => {
 
       expect(screen.getByText(/^Context · 1/)).toBeInTheDocument(); // KO
       expect(screen.getByText(/^Bench · 0/)).toBeInTheDocument();
-      for (const l of ["Context", "Bench"]) {
+      for (const l of ["Context", "ETFs", "Bench"]) {
         expect(screen.queryByLabelText(`rename ${l}`)).toBeNull();
         expect(screen.queryByLabelText(`move ${l} left`)).toBeNull();
         expect(screen.queryByLabelText(`move ${l} right`)).toBeNull();
@@ -535,7 +536,7 @@ describe("Workbench — Context and Bench (the silent links)", () => {
       await user.clear(screen.getByLabelText("new link name"));
       await user.type(screen.getByLabelText("new link name"), "supply");
       await user.click(screen.getByRole("button", { name: "+ add link" }));
-      expect(labels(lastPayload().segments)).toEqual(["reactors", "fuel", "supply", "Context", "Bench"]);
+      expect(labels(lastPayload().segments)).toEqual(["reactors", "fuel", "supply", "Context", "ETFs", "Bench"]);
     });
 
     it("renaming a link INTO a reserved name is refused (the input reverts, nothing is promoted)", async () => {

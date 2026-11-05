@@ -181,10 +181,11 @@ describe("ChainEditor — authoring", () => {
       segments: unknown[];
       basket: Record<string, unknown>[];
     };
-    // the saved draft carries the two FIXED silent links, always last, with their fixed descriptors
+    // the saved draft carries the three FIXED silent links, always last, with their fixed descriptors
     expect(body.segments).toEqual([
       { label: "reactors", descriptor: null },
       { label: "Context", descriptor: SILENT_DESCRIPTORS.Context },
+      { label: "ETFs", descriptor: SILENT_DESCRIPTORS.ETFs },
       { label: "Bench", descriptor: SILENT_DESCRIPTORS.Bench },
     ]);
     expect(body.basket).toHaveLength(1);
@@ -2876,7 +2877,7 @@ describe("ChainEditor — Context and Bench (the silent links)", () => {
     );
     const g = fixedGroup();
     expect(g.querySelectorAll("input, textarea, select, button")).toHaveLength(0);
-    for (const l of ["Context", "Bench"]) {
+    for (const l of ["Context", "ETFs", "Bench"]) {
       expect(screen.queryByLabelText(`remove ${l}`)).toBeNull();
       expect(screen.queryByLabelText(`move ${l} earlier`)).toBeNull();
       expect(screen.queryByLabelText(`move ${l} later`)).toBeNull();
@@ -2939,7 +2940,7 @@ describe("ChainEditor — Context and Bench (the silent links)", () => {
     ]);
     await user.click(screen.getByRole("button", { name: "Save chain" }));
     const body = h.mutate.mock.calls[0][0] as { segments: { label: string }[] };
-    expect(body.segments.map((s) => s.label)).toEqual(["reactors", "supply", "Context", "Bench"]);
+    expect(body.segments.map((s) => s.label)).toEqual(["reactors", "supply", "Context", "ETFs", "Bench"]);
   });
 
   it("+ link refuses a reserved name in any case (the button disables, a hint says why)", async () => {
@@ -3019,7 +3020,7 @@ describe("ChainEditor — Context and Bench (the silent links)", () => {
       expect(chipsOf("OKLO")).toEqual([typed]); // the live rename cascaded onto the placed name
       await user.click(screen.getByRole("button", { name: "Save chain" }));
       const body = h.mutate.mock.calls[0][0] as { segments: { label: string }[] };
-      expect(body.segments.map((x) => x.label)).toEqual([typed, "Context", "Bench"]);
+      expect(body.segments.map((x) => x.label)).toEqual([typed, "Context", "ETFs", "Bench"]);
     },
   );
 
@@ -3059,7 +3060,7 @@ describe("ChainEditor — Context and Bench (the silent links)", () => {
     expect(chipsOf("OKLO")).toEqual(["reactors"]); // the cascade was undone with it
     await user.click(screen.getByRole("button", { name: "Save chain" }));
     const body = h.mutate.mock.calls[0][0] as { segments: { label: string }[] };
-    expect(body.segments.map((x) => x.label)).toEqual(["reactors", "Context", "Bench"]); // never saved as bench
+    expect(body.segments.map((x) => x.label)).toEqual(["reactors", "Context", "ETFs", "Bench"]); // never saved as bench
   });
 
   it("Enter commits the same way (a reserved name in any case reverts with the note)", async () => {
@@ -3130,6 +3131,6 @@ describe("ChainEditor — Context and Bench (the silent links)", () => {
       basket: { ticker: string; segment: string | null }[];
     };
     expect(body.basket.find((m) => m.ticker === "ALKS")?.segment).toBe("Discovered");
-    expect(body.segments.map((x) => x.label)).toEqual(["Discovered", "Context", "Bench"]); // pen BEFORE the pair
+    expect(body.segments.map((x) => x.label)).toEqual(["Discovered", "Context", "ETFs", "Bench"]); // pen BEFORE the pair
   });
 });

@@ -1,6 +1,9 @@
 import type { BasketMember, ContextRole, Segment } from "../api/hooks";
 import {
   DISCOVERED,
+  ETFS,
+  SILENT_LINKS,
+  type SilentLink,
   insertBeforeSilent,
   isSilentLink,
   memberKey,
@@ -13,7 +16,7 @@ import {
 // or edit it) so the SCORE view can rebuild a name's placements / edit the chain topology and hand the whole
 // intended `{ segments, basket }` to the full-replace promote. No React, no side effects:
 // `(basket, segments, …) → { basket, segments }`, fully unit-testable. For a REAL link `segment` is display /
-// structure only — never a call input (#4). The ONE exception is the silent pair: a name in Context / Bench is
+// structure only — never a call input (#4). The ONE exception is the silent links: a name in Context / ETFs / Bench is
 // taken out of the call's inputs (the backend removes those rows at the call seam), so moving a name into or
 // out of one is an operator placement that does change what the call is computed from — never a verdict.
 //
@@ -22,7 +25,7 @@ import {
 // - Phase 2: the #1–3 topology transforms — `addLink` / `renameLink` / `reorderLink` / `removeLink`,
 //   mirroring `useChainDraft.ts:151–205`, with the ONE intentional delta that a removed link's last
 //   placement routes to the `Discovered` FLOOR (not `null`).
-// - Silent links (Context / Bench): the two FIXED, always-last links (`useChainDraft.ts`). Every transform
+// - Silent links (Context / ETFs / Bench): the three FIXED, always-last links (`useChainDraft.ts`). Every transform
 //   here keeps them last and untouchable — a new link / the Discovered floor lands BEFORE them, a silent link
 //   is never renamed / reordered / removed, a reserved name is never taken — and `toggleMemberLink` is the
 //   rail's one-row rule: a company is silent XOR voting, never both.
@@ -77,7 +80,7 @@ export function reconcileMemberSegments(
   }
 
   // ensure the Discovered link exists if the floor was used (real links already come from the live chain) —
-  // BEFORE Context/Bench — and the silent pair when the name was moved into one.
+  // BEFORE the silent links — and the silent links when the name was moved into one.
   let nextSegments =
     segs.includes(discovered) && !segments.some((s) => s.label === discovered)
       ? insertBeforeSilent(segments, { label: discovered, descriptor: null })
@@ -139,7 +142,7 @@ export function sanitizeBasketForPromote(
 // `useChainDraft`'s LOCAL segment mutators (`useChainDraft.ts:151–205`), MIRRORED here (never edited).
 // Each returns the whole intended `{ basket, segments }` for the full-replace promote.
 
-/** Append a link — no blank, no duplicate, no reserved name; it lands before Context/Bench (mirrors
+/** Append a link — no blank, no duplicate, no reserved name; it lands before the silent links (mirrors
  *  `useChainDraft.ts:151–159`). Basket unchanged. */
 export function addLink(
   basket: BasketMember[],
@@ -148,11 +151,11 @@ export function addLink(
   descriptor?: string,
 ): { basket: BasketMember[]; segments: Segment[] } {
   const l = label.trim();
-  // no blank, no duplicate, and never a RESERVED name (Context / Bench, any case — those two are fixed)
+  // no blank, no duplicate, and never a RESERVED name (Context / ETFs / Bench, any case — those three are fixed)
   if (!l || segments.some((s) => s.label === l) || reservedLinkName(l)) return { basket, segments };
   return {
     basket,
-    // lands BEFORE Context/Bench — the pinned pair stays last
+    // lands BEFORE the silent links — the pinned three stay last
     segments: insertBeforeSilent(segments, { label: l, descriptor: descriptor?.trim() || null }),
   };
 }
@@ -184,7 +187,7 @@ export function reorderLink(
   label: string,
   dir: -1 | 1,
 ): { basket: BasketMember[]; segments: Segment[] } {
-  if (isSilentLink(label)) return { basket, segments }; // Context / Bench are pinned last — they never move
+  if (isSilentLink(label)) return { basket, segments }; // the silent links are pinned last — they never move
   const i = segments.findIndex((s) => s.label === label);
   const j = i + dir;
   if (i < 0 || j < 0 || j >= segments.length) return { basket, segments };
@@ -205,7 +208,7 @@ export function removeLink(
   label: string,
   discovered: string = DISCOVERED,
 ): { basket: BasketMember[]; segments: Segment[] } {
-  if (isSilentLink(label)) return { basket, segments }; // Context / Bench are fixed — never removable
+  if (isSilentLink(label)) return { basket, segments }; // the silent links are fixed — never removable
   const keptElsewhere = new Map<string, number>(); // rows of each name OUTSIDE the removed link
   for (const m of basket) {
     if (m.segment !== label) {
@@ -222,7 +225,7 @@ export function removeLink(
   });
   let nextSegments = segments.filter((s) => s.label !== label);
   if (flooredOnce.size > 0 && !nextSegments.some((s) => s.label === discovered)) {
-    // the floor lands BEFORE Context/Bench — never after them, and a name never floors INTO one
+    // the floor lands BEFORE the silent links — never after them, and a name never floors INTO one
     nextSegments = insertBeforeSilent(nextSegments, { label: discovered, descriptor: null });
   }
   return { basket: nextBasket, segments: nextSegments };
@@ -231,7 +234,7 @@ export function removeLink(
 /** The rail's one-row rule (silent links) — the next checked-label set after the operator toggles `label`
  *  on a name currently in `current`. A company is silent XOR voting, so:
  *   - checking a SILENT link → `[label]` (all the name's other rows collapse to that one);
- *   - checking a REAL link while the name is silent → `[label]` (it leaves Context/Bench for that link);
+ *   - checking a REAL link while the name is silent → `[label]` (it leaves its silent link for that link);
  *   - checking a real link otherwise → `current + label` (multi-membership as before);
  *   - UNCHECKING → `current − label` (the empty set floors to Discovered via `reconcileMemberSegments`).
  *  Nothing is ever deleted (WB#2 / #9), and every click has a visible way back — but the way back is NOT
@@ -243,4 +246,13 @@ export function toggleMemberLink(current: string[], label: string): string[] {
   if (isSilentLink(label)) return [label];
   if (current.some((l) => isSilentLink(l))) return [label];
   return [...current, label];
+}
+
+/** The silent links the DD rail offers a name — the funds-only rule of ETFs, on the offering side (the
+ *  promote enforces it on the write side). A FUND is offered only ETFs (a fund sits there and nowhere else); a
+ *  company is offered Context and Bench, never ETFs — unless it already sits in ETFs (a state the promote
+ *  refuses), when ETFs stays listed, checked, so the operator can move it out (WB#1: never stranded). Pure. */
+export function silentLinkOptions(isFund: boolean, current: string[]): SilentLink[] {
+  if (isFund) return [ETFS];
+  return SILENT_LINKS.filter((l) => l !== ETFS || current.includes(ETFS));
 }

@@ -113,6 +113,16 @@ RULE_LOG: tuple[RuleEntry, ...] = (
             "could not act on a buy before the filing; the trade dates stay in the label and provenance."
         ),
     ),
+    RuleEntry(
+        id="2026-11-funds-in-etfs-link",
+        date=date(2026, 11, 4),
+        label="funds sit in the ETFs link and never count toward the call",
+        description=(
+            "Every fund on a card now sits in the fixed, silent ETFs link (migration 0073 moved the stored "
+            "ones there), so a fund's own price breakout no longer warms or arms the card, leads the laggard "
+            "read or takes the theme broadcast; it stays on the card, watched for price and fund flow."
+        ),
+    ),
 )
 
 

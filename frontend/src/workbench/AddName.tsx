@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import type { BasketMember, SecurityMatchOut } from "../api/hooks";
 import { useResolveSecurities } from "../api/hooks";
+import { ETFS } from "./useChainDraft";
 
 interface Props {
   existingKeys: Set<string>; // security_ids already in the basket (disable re-adding)
@@ -13,7 +14,9 @@ interface Props {
  *  deliberately — the confidence ladder's top rung) but `system_drafted`: its description is honestly
  *  "model draft" until the operator TYPES one (never a false "your words"). No match → the honest
  *  "ingest first" note; never a guess. Placement never characterizes (item F): what the name IS (its
- *  business type) derives from the master's identity — it needs nothing stamped here. */
+ *  business type) derives from the master's identity — it needs nothing stamped here. The ONE exception is
+ *  a FUND (the match's instrument_kind is 'etf'): it lands in the fixed ETFs link, where every fund sits and
+ *  never counts toward the call — the promote refuses a fund anywhere else. */
 export function AddName({ existingKeys, onAdd }: Props) {
   const [q, setQ] = useState("");
   const [picked, setPicked] = useState<SecurityMatchOut | null>(null);
@@ -34,7 +37,8 @@ export function AddName({ existingKeys, onAdd }: Props) {
         ticker: picked.ticker,
         role: role.trim() || "—",
         security_id: picked.security_id,
-        segment: null, // starts unplaced (segment sorting lives on the triage screen now)
+        // a company starts unplaced (segment sorting lives on the triage screen now); a fund goes in ETFs
+        segment: picked.instrument_kind === "etf" ? ETFS : null,
         conviction: null, // stored metadata; no control on this surface
         authored_by: "system_drafted", // no description typed yet — honestly a model draft (S1)
         signed_off: true, // a hand-add IS the endorsement (the ladder's top rung, auto)
