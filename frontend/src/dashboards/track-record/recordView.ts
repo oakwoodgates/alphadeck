@@ -1,4 +1,4 @@
-import type { TrackRecordOut, TrackRowOut, TrackSpanOut } from "./useTrackRecord";
+import type { TrackCapOut, TrackRecordOut, TrackRowOut, TrackSpanOut } from "./useTrackRecord";
 
 // Pure helpers for the Track Record page (docs/dashboards/track-record.md). The server sends every arm episode's row
 // with both entry rules' reads and all five horizons; the cap tier, the liquidity band, the filters, the entry
@@ -394,21 +394,36 @@ export function spanView(s: TrackSpanOut | undefined, comparison: Comparison): {
   }
 }
 
-/** The cap tier and approximate cap of a row, for the list ("small ~$576M"), or the reason it is unpinned. */
+/** Which share count a cap rests on, in the Market Map's EXACT words (market-map/mapView.ts `capSourceWords`; a test
+ *  pins the two equal), so both pages name an unratified filing-cover count the same way. */
+export const CAP_SOURCE_WORDS: Record<NonNullable<TrackCapOut["source"]>, string> = {
+  workbench: "share count ratified in the Workbench",
+  cover: "share count from the filing cover (not ratified)",
+};
+
+const sentence = (s: string) => `${s.charAt(0).toUpperCase()}${s.slice(1)}${s.endsWith(".") ? "" : "."}`;
+
+/** The cap tier and approximate cap of a row, for the list ("small ~$576M"), with the share count's source in the
+ *  hover, or the reason it is unpinned (and, when the filing cover's count was refused, why). */
 export function capWords(r: TrackRowOut): { text: string; title: string } {
   const cap = r.cap;
   if (!cap) return { text: "", title: "" };
   if (cap.value == null || cap.tier == null) {
     const why: Record<string, string> = {
       no_price: "no close before the arm date",
-      no_shares: "no share count dated before the arm date",
+      no_shares: "no share count public before the arm date",
       ads_unread: "an ADR whose ordinary-shares-per-ADS ratio is unread",
       no_cap: "a share count or close that is not positive",
     };
-    return { text: UNPINNED, title: `Cap unpinned: ${(cap.gap && why[cap.gap]) || "it could not be measured"}.` };
+    const refused = cap.gap === "no_shares" && cap.note ? ` ${sentence(cap.note)}` : "";
+    return {
+      text: UNPINNED,
+      title: `Cap unpinned: ${(cap.gap && why[cap.gap]) || "it could not be measured"}.${refused}`,
+    };
   }
+  const source = cap.source ? ` (${CAP_SOURCE_WORDS[cap.source]})` : "";
   const parts = [
-    `Approximate: the as-traded close of ${cap.close_date} ($${cap.close?.toFixed(2)}) times the ${cap.shares?.toLocaleString("en-US")} shares dated ${cap.shares_date}`,
+    `Approximate: the as-traded close of ${cap.close_date} ($${cap.close?.toFixed(2)}) times the ${cap.shares?.toLocaleString("en-US")} shares dated ${cap.shares_date}${source}`,
   ];
   if (cap.ads_ratio) parts.push(`divided by the ADS ratio ${cap.ads_ratio}`);
   if (cap.split_factor) parts.push(`the count put on the close's scale by a split (×${cap.split_factor})`);
@@ -470,6 +485,15 @@ export function workLines(data: TrackRecordOut, entry: EntryRule, comparison: Co
       (data.cards_unreadable > 0 ? ` · ${plural(data.cards_unreadable, "card")} unreadable` : ""),
   );
 
+  // Which share count the caps rest on, shown once any rests on a filing cover's (every pinned cap has a source).
+  if (c.cap_from_cover > 0) {
+    const workbench = c.counted - c.unpinned_cap - c.cap_from_cover;
+    lines.push(
+      `caps at the event: ${workbench.toLocaleString("en-US")} on a ${CAP_SOURCE_WORDS.workbench} · ` +
+        `${c.cap_from_cover.toLocaleString("en-US")} on a ${CAP_SOURCE_WORDS.cover}`,
+    );
+  }
+
   const unpinned = [
     c.unpinned_cap > 0 ? `${c.unpinned_cap.toLocaleString("en-US")} with an unpinned cap` : "",
     c.unpinned_liquidity > 0 ? `${c.unpinned_liquidity.toLocaleString("en-US")} with unpinned liquidity` : "",
@@ -516,7 +540,7 @@ export function workLines(data: TrackRecordOut, entry: EntryRule, comparison: Co
 /** The fixed notes under the work lines (the plan's known limits): stated on the page, not buried. */
 export const LIMITS: readonly string[] = [
   "The entry is a close, not a fill. The default is the next session's close, the first one after the arm night: a call recorded at 22:30 ET could be acted on then. The arm night's close, the Scoreboard's own entry, is one toggle away; no one could have taken it, but it reconciles with the Scoreboard's forward return.",
-  "Market cap is approximate and measured the session before the arm date: that session's as-traded close times the last share count dated before it. Liquidity is the 20-day average dollar volume before it.",
+  "Market cap is approximate and measured the session before the arm date: that session's as-traded close times the last share count public before it, the one ratified in the Workbench, else the filing cover's (not ratified; a 10-Q filer's, filed within 200 days of the event). Liquidity is the 20-day average dollar volume before it.",
   "Horizons are sessions of the name's own bars, never calendar days. Returns are as-traded closes: no dividends. A name whose bars end before a horizon reads path ended there, and is in no cell. A stopped price feed counts until it stops and then reads path ended only when the company itself ended (delisted); a stopped feed on a company that still trades (we stopped fetching its prices) is left out and named as such, and any other price flag leaves the episode out.",
   "A cell under 10 episodes is too small to read: it prints its n only. The pooled row is every counted episode and is listed last.",
   "The record is young: most cards are weeks old, so the 60-session and exit_by columns are mostly maturing. That shows as n and as maturing, never as a result.",

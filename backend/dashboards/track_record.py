@@ -3,8 +3,9 @@ name's market-cap tier AT THE EVENT, at fixed horizons, against IWM and SPY, wit
 cell. Follows the as-of dial.
 
 PURE: the router reads the Scoreboard's own arm episodes (``scoreboard.record.scoreboard_records``, the honesty
-filters unchanged) and, per company, the point-in-time bars, share facts and split list through the request's one
-``serve_view(asof)`` pair; it hands them in as ``EpisodeIn`` / ``CompanyData`` / ``Benchmarks`` / ``Market`` and
+filters unchanged) and, per company, the point-in-time bars, share facts (the Workbench's and the filing covers')
+and split list through the request's one ``serve_view(asof)`` pair; it hands them in as ``EpisodeIn`` /
+``CompanyData`` / ``Benchmarks`` / ``Market`` and
 ``assemble(...)`` builds the page's whole read ONCE per (edition, honesty policies, clock, as-of) in the shared
 dashboard cache (``dashboards/cache.py``). Tiering, slicing, filtering and the entry toggle are the page's, from
 that one read. Display only: nothing here feeds a call, scores an idea or writes anything (rule 1). A cap tier is a
@@ -43,13 +44,18 @@ The rules, in one place. This is our own simple table, stated here and on the pa
   stand-in; a missing benchmark bar leaves that comparison blank, counted). **Excess** = the name's return minus the
   benchmark's.
 - **Market cap AT THE EVENT** (``CLAUDE.md``, ``docs/BACKTEST.md`` "Sliced by market cap"): the close of the last
-  session BEFORE the arm date, put back to the price as traded that day, times the last share count (by cover date)
-  that was PUBLIC before the arm date (F9: its filing's acceptance, else its ratification), divided by the ADS
-  ratio when known, with a split between the count and the close
-  putting the count on the close's scale (``domain.splits.scale_after``): the Peer Table's own pure ``cap_cell``
-  with the inputs chosen at the event, so the two pages cannot disagree on the arithmetic. A cap that cannot be pinned
-  (no close before the event, no share count before it, an unread ADS ratio) is **unpinned**: counted, never
-  dropped, never guessed. Every cap is approximate.
+  session BEFORE the arm date, put back to the price as traded that day, times the share count PUBLIC before the
+  arm date, picked by ``dashboards.market_cap.shares_at_event`` (operator sign-off 2026-11-04): the newest
+  Workbench count (by cover date) public before it (F9: its filing's acceptance, else its ratification), else the
+  filing cover's count the nightly stores (``fact_fundamentals``, ``shares_out_cover_xbrl``) by the Market Map's
+  own rule judged at the event's date (only cover rows public before it, by their acceptance, else 06:00 market
+  time on their filing date; a 10-Q filer; the newest filed within 200 days of the event; at least 10,000 shares).
+  ``source`` names which (``workbench`` / ``cover``). Divided by the ADS ratio when known, with a split between the
+  count's own date and the close putting the count on the close's scale (``domain.splits.scale_after``): the Peer
+  Table's own pure ``cap_cell`` with the inputs chosen at the event, so the pages cannot disagree on the
+  arithmetic. A cap that cannot be pinned (no close before the event, no share count public before it, an unread
+  ADS ratio) is **unpinned**: counted, never dropped, never guessed; when the filing cover's count was refused,
+  ``note`` says why (too old, not a share count, not a 10-Q filer). Every cap is approximate.
 - **Liquidity at the event** = the mean close times volume over the last 20 volume-bearing sessions before the arm
   date (``signals.display.volume_regime`` run at the event date): under $1M, $1M to $10M, $10M and over (PROPOSED
   bands); unpinned when fewer than 20 volume-bearing bars precede the event.
@@ -67,15 +73,14 @@ from bisect import bisect_left, bisect_right
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date
 from typing import Any, Literal, NamedTuple
 from uuid import UUID
 
 from dashboards.baskets import FlaggedCompany
-from dashboards.market_cap import CapCell, CompanyReads, cap_cell
+from dashboards.market_cap import CapCell, CapSource, CompanyReads, cap_cell, shares_at_event
 from domain.data_flags import FEED_STOPPED
 from domain.market_cap import CapTier
-from domain.market_time import edgar_night
 from domain.splits import ListedSplit, scale_after
 from signals.display import volume_regime
 
@@ -323,16 +328,14 @@ def entry_read(
 # --- the cap and the liquidity at the event ------------------------------------------------------------------
 
 
-def share_public_at(fact: Mapping[str, Any]) -> datetime | None:
-    """When a share fact became PUBLIC (F9): the acceptance of the filing whose cover carries its count
-    (``filing_accepted``), else its ``recorded_at`` — the ratification instant on a live read, the public instant
-    itself on a history read (``db.public_clock``). ``None`` when neither is on the row (never guessed).
+@dataclass(frozen=True)
+class EventCap(CapCell):
+    """The cap at the event (``cap_cell``'s cell) and which share count made it: ``source`` = ``workbench`` (ratified
+    in the Workbench) or ``cover`` (the filing cover's count, not ratified) when there is a cap, ``None`` when it is
+    unpinned. An unpinned cap whose filing-cover count was refused carries the reason in ``note``.
     """
-    for key in ("filing_accepted", "recorded_at"):
-        v = fact.get(key)
-        if isinstance(v, datetime):
-            return v
-    return None
+
+    source: CapSource | None = None
 
 
 def event_cap(
@@ -341,44 +344,35 @@ def event_cap(
     splits: Sequence[ListedSplit],
     arm_date: date,
     view_day: date,
-) -> CapCell:
+    cover_rows: Sequence[Mapping[str, Any]] = (),
+) -> EventCap:
     """The approximate market cap AT THE EVENT, by the Peer Table's rule (``cap_cell``) with the inputs chosen at
-    the arm date: the close of the last session BEFORE it, and the newest share fact (by cover date, ``valid_from``)
-    that was PUBLIC before it (F9, ``share_public_at``: its filing's acceptance, else the instant it was ratified,
-    before the start of the arm date in market time) — a count filed on or after the arm date is never used, even
-    when its cover date is earlier (the lookahead the cover date alone allowed).
+    the arm date: the close of the last session BEFORE it, and the share count PUBLIC before it
+    (``dashboards.market_cap.shares_at_event``): the newest Workbench fact (by cover date) public before it (F9:
+    its filing's acceptance, else the instant it was ratified), else the filing cover's count (``cover_rows``) by
+    the Market Map's rule judged at the arm date. A count filed on or after the arm date is never used, even when
+    its cover date is earlier (the lookahead the cover date alone allowed).
 
     The bars are on the VIEW's price scale (``view_day``: the splits in force by the view's day applied), so the close
     is put back to the price AS TRADED that session (divided by ``scale_after`` from that session through the view's
-    day) before ``cap_cell`` puts the share count on the same footing with the splits between the count's date and the
-    close's: both sides on one basis, never an adjusted price times a pre-split count. ``gap`` names why a cap cannot
-    be pinned (``no_price`` | ``no_shares`` | ``ads_unread`` | ``no_cap``)."""
+    day) before ``cap_cell`` puts the share count on the same footing with the splits between the count's own date
+    and the close's: both sides on one basis, never an adjusted price times a pre-split count. ``gap`` names why a
+    cap cannot be pinned (``no_price`` | ``no_shares`` | ``ads_unread`` | ``no_cap``); ``source`` is kept only when a
+    cap came out, and a refused filing-cover count's reason only when none did."""
     i = (
         bisect_left(bars, arm_date, key=lambda b: b.d) - 1
     )  # the last bar strictly before the arm date
     if i < 0:
-        return CapCell(gap="no_price")
+        return EventCap(gap="no_price")
     prior = bars[i]
     traded = prior.close / float(scale_after(splits, prior.d, through=view_day))
-    # public BEFORE the arm date: on a night before it (``edgar_night``, F6 — an instant between midnight and
-    # EDGAR's 06:00 open on the arm date belongs to the night before; a weekend one to Friday's)
-    known = [
-        f
-        for f in shares_facts
-        if isinstance(f.get("valid_from"), date)
-        and f["valid_from"] < arm_date
-        and (public := share_public_at(f)) is not None
-        and edgar_night(public) < arm_date
-    ]
-    newest = max(known, key=lambda f: f["valid_from"]) if known else None
-    shares = (
-        {k: newest.get(k) for k in ("shares", "valid_from", "ads_ratio", "ads_ratio_status")}
-        if newest
-        else None
+    pick = shares_at_event(shares_facts, cover_rows, arm_date)
+    cell = cap_cell(
+        CompanyReads(close=(prior.d, traded), shares=pick.shares, splits=tuple(splits)),
     )
-    return cap_cell(
-        CompanyReads(close=(prior.d, traded), shares=shares, splits=tuple(splits)),
-    )
+    if cell.value is not None:
+        return EventCap(**vars(cell), source=pick.source)
+    return EventCap(**{**vars(cell), "note": cell.note or pick.refused})
 
 
 def event_adv(bars: Sequence[Bar], arm_date: date) -> float | None:
@@ -447,13 +441,16 @@ class EpisodeIn:
 
 @dataclass(frozen=True)
 class CompanyData:
-    """One company's point-in-time reads: its bars, its share facts, its split list (as the view knows it) and the
-    view's market day (the scale the bars are on)."""
+    """One company's point-in-time reads: its bars, its Workbench share facts, its split list (as the view knows it),
+    the view's market day (the scale the bars are on) and its filing-cover share counts (the ``fact_fundamentals``
+    rows of ``COVER_METRIC``, the cap's fallback when no Workbench count was public before an event).
+    """
 
     bars: tuple[Bar, ...]
     shares: tuple[Mapping[str, Any], ...]
     splits: tuple[ListedSplit, ...]
     view_day: date
+    cover: tuple[Mapping[str, Any], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -478,7 +475,7 @@ class RecordRow:
     left_out: LeftOut | None = None
     left_out_note: str | None = None
     feed_stopped: bool = False
-    cap: CapCell | None = None
+    cap: EventCap | None = None
     adv_usd: float | None = None
     liquidity: str | None = None
     arm_night: EntryRead | None = None
@@ -568,6 +565,7 @@ def build_row(
             company.splits if company else (),
             ep.arm_date,
             company.view_day if company else ep.arm_date,
+            company.cover if company else (),
         ),
         adv_usd=adv,
         liquidity=liquidity_band(adv),
@@ -737,8 +735,10 @@ class Counts:
     as-of; ``counted`` = those in the cells; the three ``left_out_*`` = those set aside (each episode once, in the
     order flagged price history, censored start, ingest flag); ``unpinned_cap`` / ``unpinned_liquidity`` = counted
     episodes with no cap tier / no liquidity band; ``counted_feed_stopped`` = counted episodes whose company's price
-    feed has stopped (a subset of ``counted``: their later horizons read path ended); ``arm_night`` /
-    ``next_session`` = per horizon, how the counted episodes read."""
+    feed has stopped (a subset of ``counted``: their later horizons read path ended); ``cap_from_cover`` = counted
+    episodes whose cap rests on the filing cover's share count (not ratified; the rest of the pinned caps rest on a
+    Workbench count); ``arm_night`` / ``next_session`` = per horizon, how the counted episodes read.
+    """
 
     episodes: int
     counted: int
@@ -752,6 +752,7 @@ class Counts:
     arm_night: Mapping[str, HorizonCount]
     next_session: Mapping[str, HorizonCount]
     counted_feed_stopped: int = 0
+    cap_from_cover: int = 0
 
 
 def horizon_counts(rows: Iterable[RecordRow], entry: str) -> dict[str, HorizonCount]:
@@ -786,6 +787,7 @@ def count_rows(rows: Sequence[RecordRow]) -> Counts:
         arm_night=horizon_counts(counted, "arm_night"),
         next_session=horizon_counts(counted, "next_session"),
         counted_feed_stopped=sum(1 for r in counted if r.feed_stopped),
+        cap_from_cover=sum(1 for r in counted if r.cap is not None and r.cap.source == "cover"),
     )
 
 

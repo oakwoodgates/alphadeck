@@ -2,12 +2,14 @@
 weekend and a holiday gap shift nothing); a path that ends before the Nth bar reads "path ended" and a horizon that
 has not arrived reads "maturing", neither counted; the excess against IWM and SPY on hand-built bars; the median, the
 quartiles, the hit rate and the n < 10 rule on hand-computed numbers; the cap AT THE EVENT (the close BEFORE the arm
-date, the share count dated BEFORE it, the price put back to as traded across a later split, an unread ADS ratio
-unpinned); the liquidity bands; the entry toggle (both entry closes on one row); the table's order with the pooled row
-LAST; the router off one cached read on the request's view; and, DB-backed, an episode armed after the as-of is not an
-event, a horizon not matured by the as-of is not counted (the same episode at two as-ofs), a fact published after the
-as-of never reaches the cap, a flagged price history and a censored start are left out and counted, and the
-"to exit_by" column reconciles with the Scoreboard's own ``forward_return``."""
+date, the share count public BEFORE it: the Workbench's, else the filing cover's by the Market Map's rule judged at the
+event, with its source and a refused cover count's reason; the price put back to as traded across a later split, an
+unread ADS ratio unpinned); the liquidity bands; the entry toggle (both entry closes on one row); the table's order
+with the pooled row LAST; the router off one cached read on the request's view; and, DB-backed, an episode armed after
+the as-of is not an event, a horizon not matured by the as-of is not counted (the same episode at two as-ofs), a fact
+published after the as-of never reaches the cap, real filing-cover counts read through the router, a flagged price
+history and a censored start are left out and counted, and the "to exit_by" column reconciles with the Scoreboard's
+own ``forward_return``."""
 
 from __future__ import annotations
 
@@ -23,7 +25,13 @@ from app.deps import get_conn
 from app.main import app
 from app.routers.dashboards import track_record as router_mod
 from dashboards.cache import CACHE
-from dashboards.market_cap import CapCell
+from dashboards.market_cap import (
+    COVER_MAX_AGE_DAYS,
+    COVER_METRIC,
+    NOT_A_10Q_FILER,
+    cover_public_at,
+    shares_at_event,
+)
 from dashboards.track_record import (
     HORIZONS,
     LIQUIDITY_KEYS,
@@ -36,6 +44,7 @@ from dashboards.track_record import (
     CompanyData,
     EntryRead,
     EpisodeIn,
+    EventCap,
     FlaggedName,
     Market,
     Obs,
@@ -60,10 +69,11 @@ from dashboards.track_record import (
     table_rows,
 )
 from db.bitemporal import append_fact
+from db.public_clock import PUBLIC_TIME, PublicTime
 from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard
 from domain.market_cap import CapTier
-from domain.market_time import market_today
+from domain.market_time import market_today, market_tz
 from domain.splits import ListedSplit, listed_from_row
 from domain.thesis import BasketMember, Thesis
 from domain.trading_days import NYSE_CLOSURES
@@ -495,6 +505,177 @@ def test_every_cap_tier_boundary_belongs_to_the_higher_band():
 
 
 # ---------------------------------------------------------------------------------------------------------
+# the share count at the event: the Workbench's, else the filing cover's (``market_cap.shares_at_event``)
+# ---------------------------------------------------------------------------------------------------------
+
+
+def et(d: date, hour: int, minute: int = 0) -> datetime:
+    """An aware instant in market time."""
+    return datetime.combine(d, time(hour, minute), tzinfo=market_tz())
+
+
+def cover_row(value, period_end, filed, fp="Q1", accepted=None) -> dict:
+    """A filing-cover row as the router hands it in (``COVER_COLUMNS``): its count, its cover date, its fiscal
+    period, its filing date and its SEC acceptance (``None`` = none stored)."""
+    return {
+        "metric_key": COVER_METRIC,
+        "value": value,
+        "period_end": period_end,
+        "fiscal_period": fp,
+        "valid_from": filed,
+        "accepted": accepted,
+    }
+
+
+OLD_Q = cover_row(
+    4_000_000, date(2026, 4, 30), date(2026, 5, 7)
+)  # a 10-Q public weeks before the event
+
+
+def test_the_cover_rows_public_clock_mirrors_the_public_clocks_fundamentals_rule():
+    """``cover_public_at`` is the Python twin of ``db.public_clock``'s SQL for ``fact_fundamentals``: the row's own
+    acceptance, else 06:00 market time on its filing date. If the registry entry changes, so must the twin.
+    """
+    assert PUBLIC_TIME["fact_fundamentals"] == PublicTime("dated", "accepted", "valid_from")
+    assert cover_public_at(cover_row(1, ARM, ARM)) == et(ARM, 6)
+    accepted = datetime(2026, 6, 9, 21, 15, tzinfo=UTC)
+    assert cover_public_at(cover_row(1, ARM, ARM, accepted=accepted)) == accepted
+    assert cover_public_at({"metric_key": COVER_METRIC, "value": 1}) is None  # never guessed
+
+
+def test_a_cover_count_accepted_on_the_event_date_was_not_public_before_it():
+    on_the_day = cover_row(5_000_000, date(2026, 5, 29), ARM, accepted=et(ARM, 10))
+    pick = shares_at_event([], [OLD_Q, on_the_day], ARM)
+    assert (pick.source, pick.shares["shares"]) == ("cover", 4_000_000.0)  # the older one
+    # accepted the evening before the arm date: public on the night before it, so it is the count
+    evening = cover_row(5_000_000, date(2026, 5, 29), ARM, accepted=et(date(2026, 6, 9), 21))
+    assert shares_at_event([], [OLD_Q, evening], ARM).shares["shares"] == 5_000_000.0
+
+
+def test_a_cover_count_accepted_before_six_belongs_to_the_previous_weekdays_night():
+    """An instant before EDGAR's 06:00 open belongs to the night before (``edgar_night``): accepted at 05:59 ET on
+    the arm date it was public on the night before the event; at 06:00 it is the event's own night.
+    """
+    early = cover_row(5_000_000, date(2026, 5, 29), ARM, accepted=et(ARM, 5, 59))
+    assert shares_at_event([], [OLD_Q, early], ARM).shares["shares"] == 5_000_000.0
+    at_open = cover_row(5_000_000, date(2026, 5, 29), ARM, accepted=et(ARM, 6))
+    assert shares_at_event([], [OLD_Q, at_open], ARM).shares["shares"] == 4_000_000.0
+    # a Monday event: a Sunday acceptance belongs to Friday's night, so it was public before Monday
+    monday = date(2026, 6, 15)
+    sunday = cover_row(
+        5_000_000, date(2026, 5, 29), date(2026, 6, 15), accepted=et(date(2026, 6, 14), 12)
+    )
+    assert shares_at_event([], [OLD_Q, sunday], monday).shares["shares"] == 5_000_000.0
+
+
+def test_a_cover_count_with_no_acceptance_counts_from_six_on_its_filing_date():
+    filed_before = cover_row(5_000_000, date(2026, 5, 29), date(2026, 6, 9))
+    assert shares_at_event([], [OLD_Q, filed_before], ARM).shares["shares"] == 5_000_000.0
+    filed_on = cover_row(5_000_000, date(2026, 5, 29), ARM)
+    assert shares_at_event([], [OLD_Q, filed_on], ARM).shares["shares"] == 4_000_000.0
+    # nothing public before the event: no count and no reason (there was nothing to refuse)
+    assert shares_at_event([], [filed_on], ARM) == (None, None, None)
+
+
+def test_the_200_day_limit_counts_back_from_the_event_never_from_today():
+    event = date(2026, 6, 22)  # a Monday: 200 days back is Thu 2025-12-04, 201 days Wed 2025-12-03
+    at_limit = event - timedelta(days=COVER_MAX_AGE_DAYS)
+    assert at_limit == date(2025, 12, 4)
+    ok = shares_at_event([], [cover_row(4_000_000, at_limit - timedelta(days=7), at_limit)], event)
+    assert ok.source == "cover" and ok.shares["valid_from"] == at_limit - timedelta(days=7)
+    past = event - timedelta(days=COVER_MAX_AGE_DAYS + 1)
+    old = shares_at_event([], [cover_row(4_000_000, past - timedelta(days=7), past)], event)
+    assert (old.shares, old.source) == (None, None)
+    assert old.refused == "the filing cover's count is from 2025-12-03, too old to stand in"
+
+
+def test_a_company_whose_covers_public_before_the_event_are_all_10k_covers_is_not_a_10q_filer():
+    fy = cover_row(4_000_000, date(2026, 2, 27), date(2026, 3, 5), fp="FY")
+    pick = shares_at_event([], [fy], ARM)
+    assert (pick.shares, pick.source, pick.refused) == (None, None, NOT_A_10Q_FILER)
+    # a 10-Q filed after the event does not make the company a 10-Q filer AT the event
+    later_q = cover_row(4_100_000, date(2026, 6, 30), date(2026, 7, 9))
+    assert shares_at_event([], [fy, later_q], ARM).refused == NOT_A_10Q_FILER
+    # with a 10-Q public before the event, the newest cover row stands in, even a 10-K's (the Market Map's rule)
+    q = cover_row(3_900_000, date(2025, 10, 31), date(2025, 11, 7))
+    assert shares_at_event([], [q, fy], ARM).shares["shares"] == 4_000_000.0
+
+
+def test_a_placeholder_cover_count_is_refused_with_its_reason():
+    pick = shares_at_event([], [cover_row(1, date(2026, 4, 30), date(2026, 5, 7))], ARM)
+    assert (pick.shares, pick.refused) == (
+        None,
+        "the filing cover's count (1) is not a share count",
+    )
+
+
+def test_a_workbench_count_public_before_the_event_wins_over_the_cover():
+    wb = shares_fact(1_000_000, date(2026, 5, 1))  # its filing accepted 05-05
+    newer_cover = cover_row(5_000_000, date(2026, 5, 29), date(2026, 6, 1))
+    pick = shares_at_event([wb], [newer_cover], ARM)
+    assert (pick.source, pick.shares["shares"], pick.shares["valid_from"]) == (
+        "workbench",
+        1_000_000,
+        date(2026, 5, 1),
+    )
+
+
+def test_a_workbench_count_public_only_after_the_event_falls_through_to_the_cover():
+    """The common case on a past event: the Workbench count was ratified (or its filing accepted) after the arm
+    date, so the filing cover's count, public before it, carries the cap."""
+    wb_late = shares_fact(
+        9_000_000, date(2026, 5, 28), public=datetime(2026, 6, 12, 20, tzinfo=UTC)
+    )
+    pick = shares_at_event([wb_late], [OLD_Q], ARM)
+    assert (pick.source, pick.shares["shares"]) == ("cover", 4_000_000.0)
+    # the cover count's date is its cover's own (never later than its filing), so the split list scales from it
+    assert pick.shares["valid_from"] == date(2026, 4, 30)
+    assert (pick.shares["ads_ratio"], pick.shares["ads_ratio_status"]) == (None, None)
+
+
+def test_the_cap_at_the_event_from_a_cover_count_names_its_source():
+    cap = event_cap(EVENT_BARS, [], [], ARM, VIEW_DAY, [OLD_Q])
+    assert (cap.source, cap.gap, cap.note) == ("cover", None, None)
+    assert (cap.shares, cap.shares_date, cap.close) == (4_000_000.0, date(2026, 4, 30), 10.0)
+    assert cap.value == 40_000_000.0 and cap.tier is CapTier.NANO
+    # a Workbench count public before the event: source workbench
+    wb = event_cap(
+        EVENT_BARS, [shares_fact(1_000_000, date(2026, 5, 1))], [], ARM, VIEW_DAY, [OLD_Q]
+    )
+    assert (wb.source, wb.shares) == ("workbench", 1_000_000.0)
+
+
+def test_a_split_between_the_cover_counts_date_and_the_close_puts_the_count_on_the_closes_scale():
+    """The cover count is dated 04-30 (its cover), a 2-for-1 split is effective 06-05, the close before the 06-10
+    arm is 06-09's post-split $20: the count doubles to the close's scale (``cap_cell``'s rule, from the count's own
+    date), never a pre-split count times a post-split price."""
+    forward = split(1, 2, date(2026, 6, 5))
+    bars = [Bar(date(2026, 6, 9), 20.0), Bar(ARM, 21.0)]
+    cap = event_cap(bars, [], [forward], ARM, date(2026, 6, 12), [OLD_Q])
+    assert cap.source == "cover" and cap.shares_date == date(2026, 4, 30)
+    assert cap.split_factor == pytest.approx(2.0)
+    assert cap.value == 160_000_000.0 and cap.tier is CapTier.MICRO  # 8M post-split shares x $20
+    # the same count with the split BEFORE its cover date: already on the post-split scale, nothing applied
+    early = split(1, 2, date(2026, 4, 1))
+    same = event_cap(bars, [], [early], ARM, date(2026, 6, 12), [OLD_Q])
+    assert same.split_factor is None and same.value == 80_000_000.0
+
+
+def test_an_unpinned_cap_carries_the_refused_cover_counts_reason_and_no_source():
+    fy = cover_row(4_000_000, date(2026, 2, 27), date(2026, 3, 5), fp="FY")
+    cap = event_cap(EVENT_BARS, [], [], ARM, VIEW_DAY, [fy])
+    assert (cap.gap, cap.source, cap.note, cap.value) == ("no_shares", None, NOT_A_10Q_FILER, None)
+    # no cover row at all: unpinned with no reason beyond the gap
+    bare = event_cap(EVENT_BARS, [], [], ARM, VIEW_DAY)
+    assert (bare.gap, bare.source, bare.note) == ("no_shares", None, None)
+    # an unread ADS ratio on a Workbench count: unpinned, no source, the cover never replaces it
+    adr = event_cap(
+        EVENT_BARS, [shares_fact(1_000_000, date(2026, 5, 1), "unread")], [], ARM, VIEW_DAY, [OLD_Q]
+    )
+    assert (adr.gap, adr.source, adr.note) == ("ads_unread", None, None)
+
+
+# ---------------------------------------------------------------------------------------------------------
 # the liquidity at the event
 # ---------------------------------------------------------------------------------------------------------
 
@@ -740,7 +921,11 @@ def row_of(
         confirmation_grade=None,
         co_arm_bucket="alone",
         left_out=left_out,
-        cap=CapCell(value=1.0, tier=tier) if tier else CapCell(gap="no_shares"),
+        cap=(
+            EventCap(value=1.0, tier=tier, source="workbench")
+            if tier
+            else EventCap(gap="no_shares")
+        ),
         liquidity=liquidity,
         arm_night=read,
         next_session=read,
@@ -992,6 +1177,7 @@ def test_the_router_wire_shape(stub_client):
     assert counted["left_out"] is None and left["left_out"] == "censored_start"
     assert left["cap"] is None and left["arm_night"] is None and left["next_session"] is None
     assert counted["cap"]["tier"] == "micro"  # 4M shares x the $29 close before the arm date: $116M
+    assert counted["cap"]["source"] == "workbench" and counts["cap_from_cover"] == 0
     assert set(counted["arm_night"]["spans"]) == set(HORIZONS)
     span = counted["arm_night"]["spans"]["h5"]
     assert span["status"] == "counted" and set(span) == {"status", "end_date", "ret", "iwm", "spy"}
@@ -1276,6 +1462,91 @@ def test_no_share_fact_dated_before_the_arm_is_an_unpinned_cap_counted_in_the_po
     opening = {t["key"]: t for t in body["opening"]}
     assert opening[UNPINNED]["episodes"] == 1 and opening[POOLED]["episodes"] == 2
     assert body["counts"]["unpinned_cap"] == 1
+
+
+# One company's real share counts, read from the dev database (a prod copy) on 2026-11-04: its 10-K and two 10-Q
+# filing-cover counts and one balance-sheet count, as the nightly stores them (no dev cover row carries an
+# acceptance, so each is public from 06:00 ET on its filing date). The company sits on no live card; only its values
+# are used, on a test security.
+REAL_COVERS = (
+    # (shares, cover date, fiscal period, filed)
+    (47_767_980, date(2026, 2, 27), "FY", date(2026, 3, 5)),
+    (57_260_523, date(2026, 4, 30), "Q1", date(2026, 5, 7)),
+    (57_436_255, date(2026, 7, 31), "Q2", date(2026, 8, 6)),
+)
+REAL_BALANCE_SHEET = (47_768_543, date(2026, 3, 31), "Q1", date(2026, 5, 7))
+# Another company's (also on no live card): it files no 10-Q, so every cover count it has is a 10-K's.
+REAL_10K_ONLY = (
+    (239_421_312, date(2024, 12, 31), "FY", date(2025, 4, 30)),
+    (241_684_038, date(2025, 12, 31), "FY", date(2026, 4, 29)),
+)
+
+
+def _fundamental(db, sid, metric, shares, period_end, fp, filed) -> None:
+    append_fact(
+        db,
+        "fact_fundamentals",
+        {
+            "tenant_id": DEFAULT_TENANT_ID,
+            "security_id": sid,
+            "metric_key": metric,
+            "period_end": period_end,
+            "fiscal_period": fp,
+            "value": shares,
+            "unit": "shares",
+            "basis": "native",
+            "accession": f"cover-{metric}-{period_end.isoformat()}",
+            "valid_from": filed,
+            "recorded_at": INGESTED,
+        },
+    )
+    db.commit()
+
+
+def test_the_router_reads_the_filing_cover_count_when_no_workbench_count_was_public_at_the_event(
+    db, pinned_today, world
+):
+    """A company whose only Workbench count was ratified after the 06-03 arm (the common case on a past event) gets its
+    cap from the filing cover's count public before the arm: the 10-Q filed 05-07 (cover dated 04-30), never the
+    10-Q filed 08-06 (public after the event, even on a view that holds it) and never the balance-sheet count.
+    """
+    cov = _security(db, "CVRCO", cik="0007000003")
+    closes = {d: 2.0 + 0.01 * i for i, d in enumerate(TAPE_DAYS)}
+    _bars(db, cov, closes, volume=500_000.0)
+    for shares, cover_date, fp, filed in REAL_COVERS:
+        _fundamental(db, cov, COVER_METRIC, shares, cover_date, fp, filed)
+    _fundamental(db, cov, "shares_out_xbrl", *REAL_BALANCE_SHEET)
+    _shares(db, cov, 57_300_000, date(2026, 5, 28), datetime(2026, 6, 20, 12, tzinfo=UTC), "cov-wb")
+    _arm(db, _card(db, "Card E", cov, "CVRCO"), cov, date(2026, 6, 3), warm=date(2026, 6, 1))
+    for asof in ("2026-06-24", "2026-08-20"):
+        body = _get(db, asof=asof).json()
+        by = {r["ticker"]: r for r in body["rows"]}
+        cap = by["CVRCO"]["cap"]
+        assert (cap["source"], cap["gap"], cap["note"]) == ("cover", None, None)
+        assert (cap["shares"], cap["shares_date"]) == (57_260_523.0, "2026-04-30")
+        assert cap["close_date"] == "2026-06-02"
+        assert cap["value"] == pytest.approx(round(57_260_523 * closes[date(2026, 6, 2)]))
+        assert by["DEVCO"]["cap"]["source"] == "workbench"  # its count was public before the arm
+        assert body["counts"]["cap_from_cover"] == 1 and body["counts"]["unpinned_cap"] == 0
+
+
+def test_a_refused_cover_count_rides_the_unpinned_caps_note(db, pinned_today, world):
+    """A company that files no 10-Q (every cover count a 10-K's): its cover count is never used, so the cap is
+    unpinned and says why."""
+    fy = _security(db, "FYCO", cik="0007000004")
+    _bars(db, fy, {d: 3.0 + 0.01 * i for i, d in enumerate(TAPE_DAYS)}, volume=500_000.0)
+    for shares, cover_date, fp, filed in REAL_10K_ONLY:
+        _fundamental(db, fy, COVER_METRIC, shares, cover_date, fp, filed)
+    _arm(db, _card(db, "Card F", fy, "FYCO"), fy, date(2026, 6, 3), warm=date(2026, 6, 1))
+    body = _get(db, asof="2026-06-24").json()
+    cap = {r["ticker"]: r for r in body["rows"]}["FYCO"]["cap"]
+    assert (cap["gap"], cap["source"], cap["note"], cap["tier"]) == (
+        "no_shares",
+        None,
+        NOT_A_10Q_FILER,
+        None,
+    )
+    assert body["counts"]["unpinned_cap"] == 1 and body["counts"]["cap_from_cover"] == 0
 
 
 def _stopped_world(db):

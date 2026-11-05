@@ -5963,7 +5963,7 @@
           "dashboards"
         ],
         "summary": "Track Record",
-        "description": "What the tape did after each arm episode the Scoreboard records, by market-cap tier at the event: one row per\nepisode with its cap tier and liquidity band, and, for the next session's entry and the arm night's, the return at\n5, 10, 20 and 60 sessions of the name's own bars and to the episode's own exit_by, with IWM's and SPY's returns\nover the same dates. The Scoreboard's own episodes and honesty filters: a censored start, an ingest-flagged\nepisode and a company whose price history carries a data flag are left out of every cell and counted, apart\nfrom one whose only flag is a stopped feed and whose company ended: that is counted until its bars stop (a\nlater horizon reads path ended). Reads the record\n(Edition 0) unless an edition is named. Display only; a past as-of reads what was public by the end of that\ndate, and a horizon that has not arrived by then is not counted.",
+        "description": "What the tape did after each arm episode the Scoreboard records, by market-cap tier at the event: one row per\nepisode with its cap tier and liquidity band, and, for the next session's entry and the arm night's, the return at\n5, 10, 20 and 60 sessions of the name's own bars and to the episode's own exit_by, with IWM's and SPY's returns\nover the same dates. The cap rests on the share count public before the arm date: the Workbench's, else the\nfiling cover's (``cap.source``). The Scoreboard's own episodes and honesty filters: a censored start, an\ningest-flagged episode and a company whose price history carries a data flag are left out of every cell and counted, apart\nfrom one whose only flag is a stopped feed and whose company ended: that is counted until its bars stop (a\nlater horizon reads path ended). Reads the record\n(Edition 0) unless an edition is named. Display only; a past as-of reads what was public by the end of that\ndate, and a horizon that has not arrived by then is not counted.",
         "operationId": "track_record_dashboards_track_record_get",
         "parameters": [
           {
@@ -38964,6 +38964,21 @@
               }
             ],
             "title": "Split Factor"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "workbench",
+                  "cover"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
           }
         },
         "type": "object",
@@ -38977,10 +38992,11 @@
           "shares",
           "shares_date",
           "ads_ratio",
-          "split_factor"
+          "split_factor",
+          "source"
         ],
         "title": "TrackCapOut",
-        "description": "The approximate market cap (USD) AT THE EVENT and its tier: the as-traded close of the last session before the\narm date times the newest share count whose cover date is before it (``close_date`` / ``shares_date`` are those\ntwo dates), ``ads_ratio`` applied when known, ``split_factor`` = the multiplier put on the count when a split in\nforce sits between the count's date and the close's. ``gap`` says why a cap could not be pinned (``null`` when it\nis); ``tier`` is ``null`` then."
+        "description": "The approximate market cap (USD) AT THE EVENT and its tier: the as-traded close of the last session before the\narm date times the share count PUBLIC before it (``close_date`` / ``shares_date`` are the close's date and the\ncount's own date), ``ads_ratio`` applied when known, ``split_factor`` = the multiplier put on the count when a\nsplit in force sits between the count's date and the close's. ``source`` = which count made the cap:\n``workbench`` (the newest count ratified in the Workbench that was public before the arm date) or ``cover`` (none\nwas, so the filing cover's count the nightly stores, not ratified: a 10-Q filer's, filed within 200 days before\nthe arm date, at least 10,000 shares); ``null`` when there is no cap. ``gap`` says why a cap could not be pinned\n(``null`` when it is); ``tier`` is ``null`` then, and ``note`` says why a filing-cover count was refused when\none was."
       },
       "TrackCellOut": {
         "properties": {
@@ -39125,6 +39141,10 @@
             "type": "integer",
             "title": "Counted Feed Stopped"
           },
+          "cap_from_cover": {
+            "type": "integer",
+            "title": "Cap From Cover"
+          },
           "arm_night": {
             "additionalProperties": {
               "$ref": "#/components/schemas/TrackHorizonCountOut"
@@ -39152,11 +39172,12 @@
           "unpinned_cap",
           "unpinned_liquidity",
           "counted_feed_stopped",
+          "cap_from_cover",
           "arm_night",
           "next_session"
         ],
         "title": "TrackCountsOut",
-        "description": "What the page rests on. ``episodes`` = every Scoreboard episode in the record at the as-of; ``counted`` = those\nin the cells; ``left_out_*`` = those set aside, each episode once (flagged price history first, then censored\nstart, then ingest flag); ``unpinned_cap`` / ``unpinned_liquidity`` = counted episodes with no cap tier / no\nliquidity band; ``counted_feed_stopped`` = counted episodes whose price feed stopped because the company\nended (a subset of ``counted``); ``left_out_feed_stopped`` / ``left_out_no_longer_priced`` = the other\nstopped feeds, left out (on a live card / off every live card); ``arm_night`` / ``next_session`` = per horizon,\nhow the counted episodes read."
+        "description": "What the page rests on. ``episodes`` = every Scoreboard episode in the record at the as-of; ``counted`` = those\nin the cells; ``left_out_*`` = those set aside, each episode once (flagged price history first, then censored\nstart, then ingest flag); ``unpinned_cap`` / ``unpinned_liquidity`` = counted episodes with no cap tier / no\nliquidity band; ``counted_feed_stopped`` = counted episodes whose price feed stopped because the company\nended (a subset of ``counted``); ``left_out_feed_stopped`` / ``left_out_no_longer_priced`` = the other\nstopped feeds, left out (on a live card / off every live card); ``cap_from_cover`` = counted episodes whose cap\nrests on the filing cover's share count (not ratified); ``arm_night`` / ``next_session`` = per horizon, how the\ncounted episodes read."
       },
       "TrackEditionOut": {
         "properties": {

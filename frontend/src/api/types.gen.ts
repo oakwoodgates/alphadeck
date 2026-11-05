@@ -2853,8 +2853,9 @@ export interface paths {
          * @description What the tape did after each arm episode the Scoreboard records, by market-cap tier at the event: one row per
          *     episode with its cap tier and liquidity band, and, for the next session's entry and the arm night's, the return at
          *     5, 10, 20 and 60 sessions of the name's own bars and to the episode's own exit_by, with IWM's and SPY's returns
-         *     over the same dates. The Scoreboard's own episodes and honesty filters: a censored start, an ingest-flagged
-         *     episode and a company whose price history carries a data flag are left out of every cell and counted, apart
+         *     over the same dates. The cap rests on the share count public before the arm date: the Workbench's, else the
+         *     filing cover's (``cap.source``). The Scoreboard's own episodes and honesty filters: a censored start, an
+         *     ingest-flagged episode and a company whose price history carries a data flag are left out of every cell and counted, apart
          *     from one whose only flag is a stopped feed and whose company ended: that is counted until its bars stop (a
          *     later horizon reads path ended). Reads the record
          *     (Edition 0) unless an edition is named. Display only; a past as-of reads what was public by the end of that
@@ -16867,10 +16868,14 @@ export interface components {
         /**
          * TrackCapOut
          * @description The approximate market cap (USD) AT THE EVENT and its tier: the as-traded close of the last session before the
-         *     arm date times the newest share count whose cover date is before it (``close_date`` / ``shares_date`` are those
-         *     two dates), ``ads_ratio`` applied when known, ``split_factor`` = the multiplier put on the count when a split in
-         *     force sits between the count's date and the close's. ``gap`` says why a cap could not be pinned (``null`` when it
-         *     is); ``tier`` is ``null`` then.
+         *     arm date times the share count PUBLIC before it (``close_date`` / ``shares_date`` are the close's date and the
+         *     count's own date), ``ads_ratio`` applied when known, ``split_factor`` = the multiplier put on the count when a
+         *     split in force sits between the count's date and the close's. ``source`` = which count made the cap:
+         *     ``workbench`` (the newest count ratified in the Workbench that was public before the arm date) or ``cover`` (none
+         *     was, so the filing cover's count the nightly stores, not ratified: a 10-Q filer's, filed within 200 days before
+         *     the arm date, at least 10,000 shares); ``null`` when there is no cap. ``gap`` says why a cap could not be pinned
+         *     (``null`` when it is); ``tier`` is ``null`` then, and ``note`` says why a filing-cover count was refused when
+         *     one was.
          */
         TrackCapOut: {
             /** Value */
@@ -16892,6 +16897,8 @@ export interface components {
             ads_ratio: number | null;
             /** Split Factor */
             split_factor: number | null;
+            /** Source */
+            source: ("workbench" | "cover") | null;
         };
         /**
          * TrackCellOut
@@ -16929,8 +16936,9 @@ export interface components {
          *     start, then ingest flag); ``unpinned_cap`` / ``unpinned_liquidity`` = counted episodes with no cap tier / no
          *     liquidity band; ``counted_feed_stopped`` = counted episodes whose price feed stopped because the company
          *     ended (a subset of ``counted``); ``left_out_feed_stopped`` / ``left_out_no_longer_priced`` = the other
-         *     stopped feeds, left out (on a live card / off every live card); ``arm_night`` / ``next_session`` = per horizon,
-         *     how the counted episodes read.
+         *     stopped feeds, left out (on a live card / off every live card); ``cap_from_cover`` = counted episodes whose cap
+         *     rests on the filing cover's share count (not ratified); ``arm_night`` / ``next_session`` = per horizon, how the
+         *     counted episodes read.
          */
         TrackCountsOut: {
             /** Episodes */
@@ -16953,6 +16961,8 @@ export interface components {
             unpinned_liquidity: number;
             /** Counted Feed Stopped */
             counted_feed_stopped: number;
+            /** Cap From Cover */
+            cap_from_cover: number;
             /** Arm Night */
             arm_night: {
                 [key: string]: components["schemas"]["TrackHorizonCountOut"];

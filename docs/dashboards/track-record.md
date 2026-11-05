@@ -54,14 +54,31 @@ tier. Display only: it never feeds a call, never writes, never calls the LLM, an
   Strength member's reference rows). **Excess** = the name's return minus the benchmark's. A selector switches the
   table between IWM, SPY and "raw" (no comparison; the column header says so).
 - **Market cap AT THE EVENT** (`CLAUDE.md`'s formula; `docs/BACKTEST.md` §"Sliced by market cap"): the as-traded
-  close of the session BEFORE `arm_date` × the last share count reported BEFORE `arm_date`
-  (`pit.shares_outstanding_facts(sid)`, the newest `valid_from < arm_date`), both on the same split basis
-  (`domain/splits.py::scale_after` from the share fact's date through the close's date), divided by the ADS ratio
-  when known. It reuses the Peer Table's pure `cap_cell(CompanyReads(...))` (`dashboards/peer_table.py`) with the
-  inputs chosen at the event instead of at the as-of, so the two pages cannot disagree on the arithmetic. The tier
-  is `domain/market_cap.py::cap_tier`; a cap that cannot be pinned (no close before the event, no share count before
-  it, an unread ADS ratio) puts the episode in an **"unpinned"** row, counted, never dropped. Every cap is labeled
-  approximate.
+  close of the session BEFORE `arm_date` × the share count PUBLIC before `arm_date`, both on the same split basis
+  (`domain/splits.py::scale_after` from the count's own date through the close's date), divided by the ADS ratio
+  when known. It reuses the shared pure `cap_cell(CompanyReads(...))` (`dashboards/market_cap.py`, the Peer Table's
+  rule) with the inputs chosen at the event instead of at the as-of, so the pages cannot disagree on the arithmetic.
+  The tier is `domain/market_cap.py::cap_tier`. Every cap is labeled approximate.
+- **Which share count** (`dashboards/market_cap.py::shares_at_event`; operator sign-off 2026-11-04, "build as
+  planned"):
+  1. **The Workbench count** (`pit.shares_outstanding_facts(sid)`): the newest by cover date (`valid_from`) dated
+     before `arm_date` AND public before it (F9: its filing's acceptance, else its ratification, on a night before
+     the arm date). Source `workbench`.
+  2. **Else the filing cover's count** the nightly already stores (`pit.fundamentals_facts(sid)`, `metric_key =
+     'shares_out_cover_xbrl'`), by the Market Map's rule (`cover_shares`, moved beside `cap_cell` unchanged, so the
+     two pages cannot drift apart) judged AT THE EVENT: only the cover rows public before `arm_date` (a row's
+     acceptance, else 06:00 ET on its filing date: `db/public_clock.py`'s rule for `fact_fundamentals`, on a night
+     before the arm date); the company must be a 10-Q filer among those rows; the newest row must be filed within
+     200 days of the event (never of today) and hold at least 10,000 shares. Its date is the cover's own, so the split
+     list scales it from the day it was true. Source `cover` (not ratified).
+  3. **Else none:** the cap is **unpinned**. No balance-sheet count is read (the operator kept the rule unchanged).
+- **Unpinned** (counted in the "unpinned" row, never dropped, never guessed): `no_price` (no close before the event),
+  `no_shares` (no share count public before it), `ads_unread` (an unread ADS ratio on a Workbench count; the cover
+  never replaces it), `no_cap` (a count or close that is not positive). A `no_shares` cap whose filing-cover count
+  was refused carries the reason in `note`, in the Market Map's own words: "the filing cover's count is from
+  YYYY-MM-DD, too old to stand in", "the filing cover's count (N) is not a share count", or, when every cover row
+  public before the event is a 10-K's, "the filing cover's count is not used: not a 10-Q filer" (the Market Map is
+  silent there).
 - **Liquidity at the event:** the mean close × volume over the 20 sessions before `arm_date` (the Volume Regime
   member's arithmetic, `signals/display/volume_regime.py`, applied at the event date), in three bands (PROPOSED):
   under $1M · $1M to $10M · $10M and over; "unpinned" when fewer than 20 volume-bearing bars precede the event.
@@ -86,7 +103,9 @@ readable.
 ## The episode list (below the table)
 
 One row per counted episode: ticker (opens the Cockpit on the name, `onSelectThesis(thesisId, ticker)`), card
-chip, `arm_date`, tier and approximate cap (hover: close date, share count date, ADS ratio, split factor), the
+chip, `arm_date`, tier and approximate cap (hover: close date, share count date and its source in the Market Map's
+words, "share count ratified in the Workbench" or "share count from the filing cover (not ratified)", ADS ratio,
+split factor; an unpinned cap's hover says why, with the refused cover count's reason when there is one), the
 liquidity band, `key1_source`, grade, then the five horizons' excess (or "maturing" / "path ended"), sorted by
 `arm_date` newest first. Clicking a table cell filters the list to that cell's episodes. The unpinned episodes
 and the left-out ones (flagged, censored start, ingest flagged) have their own folded sections, each counted.
@@ -101,10 +120,13 @@ on the page judges a result: the wording is "median excess vs IWM over 20 sessio
 ## The quiet "show the work" line
 
 The as-of; the clock; the edition and the honesty policies in force; episodes total / matured per horizon /
-maturing; unpinned caps; names left out for a flagged price history, a stopped feed on a live card, or no longer priced (each counted apart, opens to the tickers), episodes counted although the company ended, censored starts, ingest
+maturing; which share count the caps rest on, once any rests on a filing cover's ("caps at the event: N on a share
+count ratified in the Workbench · N on a share count from the filing cover (not ratified)", from
+`counts.cap_from_cover`); unpinned caps; names left out for a flagged price history, a stopped feed on a live card, or no longer priced (each counted apart, opens to the tickers), episodes counted although the company ended, censored starts, ingest
 flagged, paths ended; the entry rule in force; the comparison in force; the cache state and `compute_ms`. Below it,
 fixed: "the entry is a close, not a fill" (the default is the next session's close); "cap is approximate and measured
-the session before the arm date"; "horizons are sessions of the name's own bars"; "as-traded closes, no dividends";
+the session before the arm date" (with the share count public before it: the Workbench's, else the filing cover's);
+"horizons are sessions of the name's own bars"; "as-traded closes, no dividends";
 "a cell under 10 episodes is too small to read".
 
 ## Cache
@@ -118,16 +140,22 @@ a new run or a basket edit (rule 7).
 ## Backend and frontend
 
 - `backend/dashboards/track_record.py`, pure: `horizon_closes(bars, entry_index, sessions)`, the excess and hit
-  arithmetic, `event_cap(...)` (chooses the inputs at the event and calls `cap_cell`), `event_adv(...)`, the tier
-  and liquidity bucketing, the cell statistics with the n < 10 rule, the counts.
+  arithmetic, `event_cap(...)` (chooses the inputs at the event through `market_cap.shares_at_event` and calls
+  `cap_cell`; returns an `EventCap`, the cell plus its `source`), `event_adv(...)`, the tier and liquidity bucketing,
+  the cell statistics with the n < 10 rule, the counts.
+- `backend/dashboards/market_cap.py`, pure and shared: `cap_cell`, the share-count rule (`cover_shares`,
+  `pick_shares`, the Market Map's) and `shares_at_event` (the same rule judged at an event's date, Track Record's).
 - `backend/app/routers/dashboards/track_record.py`: `GET /dashboards/track-record?asof=&edition=&include_annotated=
   &include_late=` (every episode row + the counts; the client builds the table). `known_at, clock = serve_view(asof)`
   threads into the Scoreboard read, every `PointInTimeData` and the benchmark read. Wire models in the module (rule 8).
 - `backend/tests/dashboards/test_track_record.py`: horizons count SESSIONS (a weekend and a holiday gap do not shift
   the Nth bar); a path that ends before the Nth bar reads "path ended" and is not counted; excess against a benchmark
   on hand-built bars; median, hit rate and the n < 10 rule; the cap at the event uses the close BEFORE the arm date
-  and the share count filed BEFORE it (a share fact filed after the arm date is never used); an unread ADS ratio
-  lands in "unpinned"; the liquidity bands; the entry toggle (the two entry closes on one row); and, DB-backed, **an
+  and the share count public BEFORE it (a share fact filed after the arm date is never used); the filing cover's
+  count by the Market Map's rule at the event (an acceptance on the arm date, one before 06:00 ET, none at all; 200
+  and 201 days; a 10-K-only filer; a placeholder; a Workbench count public before the event wins, one public only
+  after it falls through; a split between the cover count's date and the close); an unread ADS ratio lands in
+  "unpinned"; real filing-cover counts read through the router (DB); the liquidity bands; the entry toggle (the two entry closes on one row); and, DB-backed, **an
   episode armed after the as-of is not an event** and **a horizon not matured by the as-of is not counted** (the same
   episode at two as-ofs), plus a flagged price history left out and counted; the router off one cached read.
 - `frontend/src/dashboards/track-record/`: `entry.ts` (slug `track-record`, order 230, `asofAware: true`),
@@ -144,7 +172,9 @@ a new run or a basket edit (rule 7).
   which a call recorded at 22:30 ET could be acted on at; the "arm night" toggle shows the Scoreboard's own entry (the
   arm night's close), which no one could have taken but which reconciles with its `forward_return`. Stated on the
   page as a fixed note and in the "Entry:" work line.
-- **Cap and liquidity are approximate** and measured the session before the arm date.
+- **Cap and liquidity are approximate** and measured the session before the arm date. A cap from the filing cover's
+  count is not ratified (the hover says so), and a restated cover count is seen only from its restatement: never
+  early, occasionally missing.
 - **As-traded closes, no dividends.** A delisted name's path ends and is counted as such (a stopped feed of a company that ended counts until it stops, then reads path ended); a stopped feed on a company that still trades is left out and named, never read as ended.
 - **No null comparison here.** The timing null and the name null live in the backtest's pooled report
   (`backtest/nulls.py`), vs the thesis basket; this page compares to IWM and SPY only.
@@ -197,11 +227,11 @@ pinned by tests on hand-built numbers, and the first real read is the orchestrat
   interpolation between order statistics (the median of an even n is the mean of the two middle values).
 
 **The cap at the event.**
-- The share count is the newest fact whose `valid_from` is before the arm date, as the plan says. That date is the
-  cover date, which precedes the filing by weeks, so a count could in principle have been filed after the arm date.
-  The fact's public instant is the operator's ratification (later for every old fact), so requiring it before the arm
-  date would leave nearly every past event unpinned. At a past as-of the point-in-time view still hides a fact
-  ratified after the as-of.
+- The share count is the one PUBLIC before the arm date (F9 replaced the first build's "newest `valid_from` before
+  it", which let a count filed after the event in by its earlier cover date). Workbench counts date from mid-2026, so
+  after F9 many past events had none public before them (72 of 240 counted episodes on dev, 2026-10-29); the cap
+  now falls back to the filing cover's count by the Market Map's rule (2026-11-04, "Which share count" above;
+  MEASURED below).
 - The close is the last session before the arm date, put back to the price as traded that day (the bars are on the
   view's split scale) before the Peer Table's `cap_cell` puts the count on the close's scale. A reverse split after the
   event does not inflate the cap, and a test pins it.
@@ -309,4 +339,30 @@ build re-measured nothing.
 - no `edition` (now the record): cards 46 · episodes 469 · counted 240 · h20 counted 148 · `newest_edition` {number 1, "first re-run"}
 - `edition=1`: cards 11 · episodes 501 · counted 439
 - cold compute 16,909 to 17,069 ms · cache hit 50 to 100 ms · payload 574 KB
+
+### The cap from the filing cover's count (2026-11-04), MEASURED
+
+The build's own read on the DEV database (a prod copy, newest night 2026-10-29), read-only: the router's
+`read_record` at as-of 2026-10-29 through `serve_view(asof)` (the public clock), Edition 0, the default honesty
+policies (annotated and late nights set aside), with the dev backend's own run artifacts for the price flags. Once on
+the base commit's code (BEFORE), once on this change's (AFTER). 469 episodes, 240 counted, both times.
+
+| | BEFORE | AFTER |
+|---|---|---|
+| Counted episodes with an unpinned cap (`counts.unpinned_cap`) | 72 | 35 |
+| Caps from a Workbench count (unchanged, value for value) | 168 | 168 |
+| Caps from the filing cover's count (`counts.cap_from_cover`) | 0 | 37 (23 companies) |
+| `read_record` wall time, two runs each | 17.0 s, 15.3 s | 16.1 s, 16.1 s |
+
+- **The 37 new caps by tier:** nano 5 · micro 18 · small 9 · mid 2 · large 3. None crosses a split between the
+  cover count's date and the close.
+- **Why the 35 stay unpinned:** 19 have no cover row public before the event (`no_shares`, no note); 14 are not
+  10-Q filers ("the filing cover's count is not used: not a 10-Q filer"); 2 have a newest cover count too old to
+  stand in (filed 2010 and 2023). This is the plan's own breakdown (37 / 19 / 14 / 2).
+- **No dev cover row carries an acceptance** (0 of 52,148), so every cover count here counts from 06:00 ET on its
+  filing date.
+- **Three caps checked by hand** against the stored rows (cover count × the stored close before the arm date, no
+  split on the list for any of the three): a small cap from a 10-Q cover filed 71 days before the arm (the company's
+  Workbench count, accepted after the arm, fell through); a small cap from a 10-K cover filed 154 days before it (a
+  10-Q filer); a nano cap from a 10-Q cover filed a week before it. Each matched the page to the dollar.
 

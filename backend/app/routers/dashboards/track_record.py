@@ -3,8 +3,9 @@ Armed call, by market-cap tier at the event, at fixed horizons, against IWM and 
 cell. It READS the Scoreboard's own arm episodes (``scoreboard.record.scoreboard_records``, the same editions and the
 same honesty policies the Scoreboard route takes; unlike the Scoreboard, a request that names no edition reads the
 RECORD, Edition 0, while the editions nightly is paused) and, for the companies on those episodes, each one's bars, share
-facts and split list through the point-in-time view the Cockpit builds, the benchmarks' bars and which companies have
-a data flag that reaches their price readings (``dashboards.baskets.price_flags``). The request's one
+facts (the Workbench's and the filing covers': ``pit.fundamentals_facts`` rows of ``COVER_METRIC``) and split list
+through the point-in-time view the Cockpit builds, the benchmarks' bars and which companies have a data flag that
+reaches their price readings (``dashboards.baskets.price_flags``). The request's one
 ``serve_view(asof)`` pair (``known_at`` + ``clock``) is threaded into every one of those reads. The pure compute is
 ``dashboards/track_record.py``; the page's whole read is computed once per (edition, honesty policies, clock, as-of) in
 the shared dashboard cache (``dashboards/cache.py``, ``docs/DASHBOARDS.md`` rule 7), and tiering, slicing, filtering
@@ -28,7 +29,7 @@ from app.deps import get_conn, get_current_tenant
 from app.routers.scoreboard import _resolve_edition
 from dashboards.baskets import PriceFlagRead, live_card_ids, read_price_flags
 from dashboards.cache import cached
-from dashboards.market_cap import Gap
+from dashboards.market_cap import COVER_METRIC, Gap
 from dashboards.track_record import (
     HORIZONS,
     MIN_N,
@@ -67,7 +68,7 @@ router = APIRouter(prefix="/track-record")
 READ_CHUNK = 40
 
 # The share-fact columns the cap reads; the rest of the row is dropped as the view is read.
-# F9: ``filing_accepted`` / ``recorded_at`` say when a count was PUBLIC (``dashboards.track_record.share_public_at``)
+# F9: ``filing_accepted`` / ``recorded_at`` say when a count was PUBLIC (``dashboards.market_cap.share_public_at``)
 SHARE_COLUMNS = (
     "shares",
     "valid_from",
@@ -75,6 +76,16 @@ SHARE_COLUMNS = (
     "ads_ratio_status",
     "filing_accepted",
     "recorded_at",
+)
+# The filing-cover columns the cap's fallback reads (``dashboards.market_cap.shares_at_event``): ``accepted`` /
+# ``valid_from`` say when a cover row was PUBLIC (``cover_public_at``); the rest is ``cover_shares``' input.
+COVER_COLUMNS = (
+    "metric_key",
+    "value",
+    "period_end",
+    "fiscal_period",
+    "valid_from",
+    "accepted",
 )
 
 
@@ -113,10 +124,14 @@ class TrackEntryOut(_Wire):
 
 class TrackCapOut(_Wire):
     """The approximate market cap (USD) AT THE EVENT and its tier: the as-traded close of the last session before the
-    arm date times the newest share count whose cover date is before it (``close_date`` / ``shares_date`` are those
-    two dates), ``ads_ratio`` applied when known, ``split_factor`` = the multiplier put on the count when a split in
-    force sits between the count's date and the close's. ``gap`` says why a cap could not be pinned (``null`` when it
-    is); ``tier`` is ``null`` then."""
+    arm date times the share count PUBLIC before it (``close_date`` / ``shares_date`` are the close's date and the
+    count's own date), ``ads_ratio`` applied when known, ``split_factor`` = the multiplier put on the count when a
+    split in force sits between the count's date and the close's. ``source`` = which count made the cap:
+    ``workbench`` (the newest count ratified in the Workbench that was public before the arm date) or ``cover`` (none
+    was, so the filing cover's count the nightly stores, not ratified: a 10-Q filer's, filed within 200 days before
+    the arm date, at least 10,000 shares); ``null`` when there is no cap. ``gap`` says why a cap could not be pinned
+    (``null`` when it is); ``tier`` is ``null`` then, and ``note`` says why a filing-cover count was refused when
+    one was."""
 
     value: float | None
     tier: CapTier | None
@@ -128,6 +143,7 @@ class TrackCapOut(_Wire):
     shares_date: date | None
     ads_ratio: int | None
     split_factor: float | None
+    source: Literal["workbench", "cover"] | None
 
 
 class TrackRowOut(_Wire):
@@ -183,8 +199,9 @@ class TrackCountsOut(_Wire):
     start, then ingest flag); ``unpinned_cap`` / ``unpinned_liquidity`` = counted episodes with no cap tier / no
     liquidity band; ``counted_feed_stopped`` = counted episodes whose price feed stopped because the company
     ended (a subset of ``counted``); ``left_out_feed_stopped`` / ``left_out_no_longer_priced`` = the other
-    stopped feeds, left out (on a live card / off every live card); ``arm_night`` / ``next_session`` = per horizon,
-    how the counted episodes read.
+    stopped feeds, left out (on a live card / off every live card); ``cap_from_cover`` = counted episodes whose cap
+    rests on the filing cover's share count (not ratified); ``arm_night`` / ``next_session`` = per horizon, how the
+    counted episodes read.
     """
 
     episodes: int
@@ -197,6 +214,7 @@ class TrackCountsOut(_Wire):
     unpinned_cap: int
     unpinned_liquidity: int
     counted_feed_stopped: int
+    cap_from_cover: int
     arm_night: dict[str, TrackHorizonCountOut]
     next_session: dict[str, TrackHorizonCountOut]
 
@@ -293,9 +311,11 @@ def read_companies(
     known_at: datetime | None,
     clock: Literal["record", "public"],
 ) -> dict[UUID, CompanyData]:
-    """Each company's bars, share facts and split list through the request's point-in-time view (``known_at`` +
-    ``clock`` from ``serve_view``), ``READ_CHUNK`` companies per view and UNBOUNDED in time: an episode can sit
-    anywhere in a name's history. ``view_day`` is the view's market day, the scale a history view's bars are on.
+    """Each company's bars, share facts (the Workbench's, and the filing covers' ``COVER_METRIC`` rows of
+    ``fundamentals_facts``, the cap's fallback) and split list through the request's point-in-time view
+    (``known_at`` + ``clock`` from ``serve_view``), ``READ_CHUNK`` companies per view and UNBOUNDED in time: an
+    episode can sit anywhere in a name's history. ``view_day`` is the view's market day, the scale a history view's
+    bars are on.
     """
     out: dict[UUID, CompanyData] = {}
     for i in range(0, len(sids), READ_CHUNK):
@@ -318,6 +338,11 @@ def read_companies(
                 ),
                 splits=tuple(listed_from_row(r) for r in pit.split_events(sid)),
                 view_day=day,
+                cover=tuple(
+                    {k: r.get(k) for k in COVER_COLUMNS}
+                    for r in pit.fundamentals_facts(sid)
+                    if r.get("metric_key") == COVER_METRIC
+                ),
             )
     return out
 
@@ -511,8 +536,9 @@ def track_record(
     """What the tape did after each arm episode the Scoreboard records, by market-cap tier at the event: one row per
     episode with its cap tier and liquidity band, and, for the next session's entry and the arm night's, the return at
     5, 10, 20 and 60 sessions of the name's own bars and to the episode's own exit_by, with IWM's and SPY's returns
-    over the same dates. The Scoreboard's own episodes and honesty filters: a censored start, an ingest-flagged
-    episode and a company whose price history carries a data flag are left out of every cell and counted, apart
+    over the same dates. The cap rests on the share count public before the arm date: the Workbench's, else the
+    filing cover's (``cap.source``). The Scoreboard's own episodes and honesty filters: a censored start, an
+    ingest-flagged episode and a company whose price history carries a data flag are left out of every cell and counted, apart
     from one whose only flag is a stopped feed and whose company ended: that is counted until its bars stop (a
     later horizon reads path ended). Reads the record
     (Edition 0) unless an edition is named. Display only; a past as-of reads what was public by the end of that

@@ -28,6 +28,7 @@ from dashboards.baskets import (
     resolved_ids,
 )
 from dashboards.cache import cached
+from dashboards.market_cap import pick_shares
 from dashboards.market_map import (
     DOLLAR_VOLUME_BARS,
     WINDOWS,
@@ -36,7 +37,6 @@ from dashboards.market_map import (
     benchmark_returns,
     company_cap,
     company_reading,
-    pick_shares,
 )
 from dashboards.market_map import market_map as compute_market_map
 from db.session import DEFAULT_TENANT_ID
