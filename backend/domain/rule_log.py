@@ -123,6 +123,12 @@ RULE_LOG: tuple[RuleEntry, ...] = (
             "read or takes the theme broadcast; it stays on the card, watched for price and fund flow."
         ),
     ),
+    RuleEntry(
+        id="2026-11-massive-split-hold-label",
+        date=date(2026, 11, 5),
+        label="split holds name Massive.com",
+        description="Recorded split-hold messages use the market-data vendor's current name, Massive.com.",
+    ),
 )
 
 

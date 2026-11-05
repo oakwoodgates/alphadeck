@@ -8931,7 +8931,7 @@
                 "type": "null"
               }
             ],
-            "title": "Polygon Api Key Set"
+            "title": "Massive.com API Key Set"
           },
           "heartbeat_url_set": {
             "anyOf": [
@@ -15964,7 +15964,7 @@
           },
           "polygon": {
             "type": "boolean",
-            "title": "Polygon",
+            "title": "Massive.com",
             "default": false
           },
           "note": {

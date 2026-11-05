@@ -154,7 +154,7 @@ def test_a_real_forward_split_is_held_and_names_polygons_row_once_it_is_public(d
             "split filing found yet)"
         ),
         date(2026, 9, 30): (
-            "possible unconfirmed 3-for-1 forward split (listed by Polygon; waiting for a second source)"
+            "possible unconfirmed 3-for-1 forward split (listed by Massive.com; waiting for a second source)"
         ),
     }
 

@@ -1,6 +1,6 @@
 {
  "_provenance": {
-  "what": "Independent RAW (as-traded, unadjusted) daily closes from Polygon, for the split-basis repair tool's raw-print checks (python -m pipeline.repair_split_basis --spot-file ...). Each value is the 'c' (close) and 'v' (volume) of the named ticker's row in Polygon's v2 grouped-daily aggregates with adjusted=false, copied verbatim (no rounding, no rescaling).",
+  "what": "Independent RAW (as-traded, unadjusted) daily closes from Massive.com, for the split-basis repair tool's raw-print checks (python -m pipeline.repair_split_basis --spot-file ...). Each value is the 'c' (close) and 'v' (volume) of the named ticker's row in Massive.com's v2 grouped-daily aggregates with adjusted=false, copied verbatim (no rounding, no rescaling).",
   "pulled": "2026-10-20 by the split-tape diagnosis and the data audit (read-only research; see docs/temp/split-tape-diagnosis-2026-10-20.md section 9 and docs/temp/data-audit-2026-10-20.md section 4 in the main checkout)",
   "files": [
    "data-audit/grouped_2025-04-08.json",
@@ -53,7 +53,7 @@
    "split-diagnosis/grouped_2026-10-13.json",
    "split-diagnosis/grouped_2026-10-14.json"
   ],
-  "note": "GGRP prices as BTLN on Yahoo; its Polygon rows were filed under BTLN and are keyed GGRP here."
+  "note": "GGRP prices as BTLN on Yahoo; its Massive.com rows were filed under BTLN and are keyed GGRP here."
  },
  "prints": {
   "ARTL": {

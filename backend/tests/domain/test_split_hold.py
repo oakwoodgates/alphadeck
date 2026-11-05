@@ -151,7 +151,7 @@ def test_an_announced_split_covers_only_once_in_force():
             {"sec_accession": "0001", "sec_form": "8-K", "sec_filed": date(2026, 10, 9)},
             "SEC 8-K filed 10-09; waiting for a second source",
         ),
-        ({"polygon_id": "Eabc"}, "listed by Polygon; waiting for a second source"),
+        ({"polygon_id": "Eabc"}, "listed by Massive.com; waiting for a second source"),
         (
             {
                 "sec_accession": "0001",
@@ -159,7 +159,7 @@ def test_an_announced_split_covers_only_once_in_force():
                 "sec_filed": date(2026, 10, 9),
                 "polygon_id": "E",
             },
-            "SEC 6-K filed 10-09 and Polygon disagree; waiting for your review",
+            "SEC 6-K filed 10-09 and Massive.com disagree; waiting for your review",
         ),
     ],
 )

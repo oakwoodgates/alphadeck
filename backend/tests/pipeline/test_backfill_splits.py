@@ -171,7 +171,7 @@ def test_the_report_names_both_sources_and_the_verdict(db, tmp_path):
     bf.report(result, out=buf)
     text = buf.getvalue()
     assert (
-        "BTOC  1-for-16 reverse split  first session 2026-10-15  CONFIRMED (auto:sec+polygon)"
+        "BTOC  1-for-16 reverse split  first session 2026-10-15  CONFIRMED (auto: SEC + Massive.com)"
         in text
     )
     assert "SEC 8-K 0001213900-26-108468 filed 2026-10-09: 16 -> 1, trading 2026-10-15" in text
