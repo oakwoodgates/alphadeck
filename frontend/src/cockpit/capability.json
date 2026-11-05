@@ -24,5 +24,5 @@
   },
   "defaults": { "selected_name": null, "rail_open": true, "group_mode": "state", "sort_col": null, "sort_dir": "desc", "evidence_open": true },
   "backend_query_fields": ["thesis_id"],
-  "response_paths": ["/clock", "/theses/{uuid}", "/theses/{uuid}/call", "/theses/{uuid}/display-signals", "/theses/{uuid}/data-flags", "/workbench/theses/{uuid}/scored", "/theses/{uuid}/decisions"]
+  "response_paths": ["/clock", "/theses/{uuid}", "/theses/{uuid}/call", "/theses/{uuid}/display-signals", "/theses/{uuid}/data-flags", "/workbench/theses/{uuid}/scored", "/theses/{uuid}/decisions", "/theses/{uuid}/fund-launches"]
 }
