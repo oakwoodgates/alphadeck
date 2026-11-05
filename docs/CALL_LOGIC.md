@@ -235,14 +235,14 @@ field), after its own entries — so the counter-case lists it too — every nig
 
 | Case | Line (verbatim shape) |
 |---|---|
-| a list row one source stands on | "Breakout on BTOC held: possible unconfirmed 1-for-16 reverse split (SEC 8-K filed 10-09; waiting for a second source)" — or "(listed by Polygon; …)", or "(SEC 8-K filed 10-09 and Polygon disagree; waiting for your review)" |
+| a list row one source stands on | "Breakout on BTOC held: possible unconfirmed 1-for-16 reverse split (SEC 8-K filed 10-09; waiting for a second source)" — or "(listed by Massive.com; …)", or "(SEC 8-K filed 10-09 and Massive.com disagree; waiting for your review)" |
 | an announced split, the price early | "… held: the 1-for-30 reverse split is announced for 08-31, but the price stepped x29 on 08-28, before its first session" |
 | nothing listed | "Breakout on GAME held: possible unconfirmed split (the price stepped x7.5 on 08-24 against the volume; no split filing found yet)" |
 | a listed split set aside | "… (the price stepped …; the 1-for-10 reverse split listed for 07-30 was rejected)" |
 | no trigger withheld | "Price triggers on AXG held: …" |
 | co-members cued by a held price | "Laggard confirmation on ARM held: it reads the price of SMTK, held for a possible unconfirmed split" |
 
-**Vendor name in the first row.** The two phrases that name the market-data vendor still read "Polygon" (`domain/split_hold._sources`). The vendor is now Massive.com, but this line is written onto the recorded CallCard's `missing[]` and `domain/` is inside the editions engine fingerprint, so rewording it changes the fingerprint AND makes tonight's call differ from the stored one wherever a Massive.com-backed hold is open. It is left as is until the operator decides to take that (a deliberate, declared change).
+The vendor wording in `domain/split_hold._sources` appears in the recorded CallCard's `missing[]`. Updating it to Massive.com changes the editions engine fingerprint and can produce a new CallCard for an open hold that cites the vendor. The rule log records this as `2026-11-massive-split-hold-label`.
 
 The line names a trigger only when one was WITHHELD (its identity — role, kind, grade, de-arm grade, fire
 date — is not what the held view reads); a trigger re-read on the bars before the step (another close in its

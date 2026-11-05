@@ -549,10 +549,8 @@ class Settings(BaseSettings):
     # Massive.com reference API — the PRIMARY fund shares-outstanding source when MASSIVE_API_KEY is set
     # (exact daily counts + real history for `pipeline.backfill_fund_shares`); the scraper pair above is
     # then the keyless fallback chain. Base only — the builder appends /v3/reference/tickers/{T}.
-    # The vendor was Polygon.io (now Massive.com), so the code names (``polygon_*`` fields, the ``ingest/*polygon*``
-    # modules, the ``'polygon'`` values stored in the split list and fund-shares rows, the ``ALPHADECK_POLYGON_BASE``
-    # env name) and this host keep the old name: they cross the DB / wire / env boundary. api.polygon.io is the
-    # host the adapters were MEASURED against; repoint it here (or via ALPHADECK_POLYGON_BASE) only after a live check.
+    # The adapters were measured against this legacy host. Verify live requests before repointing it here
+    # or via ALPHADECK_POLYGON_BASE.
     polygon_base: str = "https://api.polygon.io"
     openfigi_url: str = "https://api.openfigi.com/v3/mapping"  # the fixed POST endpoint
     usaspending_api_base: str = "https://api.usaspending.gov/api/v2"

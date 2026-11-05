@@ -150,7 +150,7 @@ def test_default_fund_source_goes_polygon_primary_when_the_key_is_present(monkey
 
 
 def test_polygon_gap_falls_through_the_whole_scraper_chain():
-    """The nested composition end-to-end: polygon None (a null-count gap date) → globalx None (not a
+    """The nested composition end-to-end: Massive.com None (a null-count gap date) → globalx None (not a
     Global X fund) → the aggregator lands the sample."""
     poly, gx = _Stub(result=None), _Stub(result=None)
     sa = _Stub(result={**_SNAP, "source": "stockanalysis"})
@@ -159,9 +159,7 @@ def test_polygon_gap_falls_through_the_whole_scraper_chain():
     assert (poly.calls, gx.calls, sa.calls) == (1, 1, 1)
 
 
-def test_composite_labels_the_primary_leg_by_its_adapter_name(capsys):
-    """A polygon failure warns AS polygon (never masquerading as 'issuer' trouble) and its story carries
-    the name — the operator debugging a bad key sees which leg broke."""
+def test_composite_labels_a_massive_failure_with_the_vendor_name(capsys):
 
     class _NamedStub(_Stub):
         name = "polygon"
@@ -169,6 +167,6 @@ def test_composite_labels_the_primary_leg_by_its_adapter_name(capsys):
     composite = IssuerFirstFundSource(
         _NamedStub(error=RuntimeError("HTTP 401")), _Stub(result=None)
     )
-    with pytest.raises(FundSharesUnavailable, match="polygon: HTTP 401"):
+    with pytest.raises(FundSharesUnavailable, match=r"Massive\.com: HTTP 401"):
         composite.get_snapshot("URA")
-    assert "fund-shares polygon leg failed" in capsys.readouterr().out
+    assert "fund-shares Massive.com leg failed" in capsys.readouterr().out

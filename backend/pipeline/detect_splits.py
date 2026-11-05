@@ -73,6 +73,7 @@ import psycopg
 
 from domain.market_time import market_today, market_tz
 from domain.splits import (
+    AUTO_VIA_LABELS,
     PAST_RATIO_ONLY,
     STATUS_ANNOUNCED,
     STATUS_NEEDS_REVIEW,
@@ -782,7 +783,8 @@ def print_plan(detector: SplitDetector, *, out: Any = None) -> None:
         if p.action == UNCHANGED:
             continue
         d = p.decision
-        via = f" via {d.confirmed_via}" if d.confirmed_via else ""
+        confirmation = AUTO_VIA_LABELS.get(d.confirmed_via or "", d.confirmed_via)
+        via = f" via {confirmation}" if confirmation else ""
         w(
             f"  {p.member.ticker or p.member.security_id}  {ratio_label(d.ratio_from, d.ratio_to)}  first session "
             f"{d.effective_date.isoformat()}  {d.status.upper()}{via}  -> {p.action.upper()}"

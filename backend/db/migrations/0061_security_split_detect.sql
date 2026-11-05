@@ -2,7 +2,7 @@
 -- ``security_split`` (0052) widened for the versions the nightly writes. No column is added and no row changes.
 --
 -- 1. ``action`` gains ``detect``: a version the nightly detector (``pipeline/detect_splits.py``, author
---    ``system:detect_splits``) appended — a new split found in a fresh SEC filing / Polygon row, or an open one
+--    ``system:detect_splits``) appended — a new split found in a fresh SEC filing / Massive.com row, or an open one
 --    (needs review / announced) whose evidence changed. ``backfill`` stays the S1 backfill's verb.
 -- 2. ``confirmed_via`` gains the two TAPE pairings: ``auto:sec+tape`` and ``auto:polygon+tape`` — a split ONE
 --    documentary source states (ratio + first session) whose first session the stored price tape confirms: the

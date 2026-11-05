@@ -4394,7 +4394,7 @@ export interface components {
             user_agent_set?: boolean | null;
             /** Slack Webhook Set */
             slack_webhook_set?: boolean | null;
-            /** Polygon Api Key Set */
+            /** Massive.com API Key Set */
             polygon_api_key_set?: boolean | null;
             /** Heartbeat Url Set */
             heartbeat_url_set?: boolean | null;
@@ -7665,7 +7665,7 @@ export interface components {
             /** Sec Url */
             sec_url?: string | null;
             /**
-             * Polygon
+             * Massive.com
              * @default false
              */
             polygon: boolean;
