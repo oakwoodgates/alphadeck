@@ -283,3 +283,34 @@ Gray circles of different sizes joined by thin lines, with two overlapping circl
 - Any suggestion to merge, split or rank cards.
 - Saved Venn picks or a saved layout (that needs storage).
 - A per-company bubble view (the shared-companies dots cover it).
+
+## Choices to confirm (made by the build; the plan did not spell them out)
+
+**Payload**
+1. **Wire names.** The counts are `companies_in_view` and `companies_shared`; `companies` is the list of company objects (the plan used the one word for both). `pairs` holds only `a`, `b`, `shared`; the page derives the percent of combined names from the cards' counts.
+2. **A company's place on a card** (`rows[]`): `card` index, its ticker there, its links there (basket order, deduped; `null` = no link), `silent` (every row of it there is Context, ETFs or Bench), and `context_role`. Links are carried so the Venn can offer "a link on a card" and the region lists can print them.
+3. **A card in the strip** has `x` and `y` as `null` but a real `r`, drawn at the same scale as the map. A card with 0 companies in view (for example, all its rows are silent and the toggle is off) is also in the strip.
+4. **Groups** are computed for thresholds 1–5. A group is a connected set of 2+ cards; a card in no group "has no line". Sizes are listed largest first.
+5. **Sector and business type** ride per company as the master's strings (`business_supersector`, `business_type`); `null` is "Unclassified". The Sectors tab puts "Other" then "Unclassified" last, in that order.
+
+**Layout**
+6. **Constants** (in `backend/dashboards/overlap_map.py`): bubble radius `6 × sqrt(companies)` with a floor of 7; spring stiffness `1 × shared count` with a rest length of the two radii plus 3; a push of `900 / distance` between every pair; a weak pull to the middle; 240 iterations with a cooling step cap (28 down to 0.6); a final pass that separates any touching bubbles; one uniform scale (positions and radii together, at most 2×) into a 1000 × 640 box with a 24 margin. Starting points come from a SHA-256 of the card id. None of these were tuned against real data; the operator's first look on dev decides.
+7. **No numpy.** The layout is plain Python (about 0.35 s for 65 cards).
+
+**Page**
+8. **A bubble's panel rows.** The row's card name opens that card's Cockpit; a ticker in the row opens the Cockpit on the ROW's card (the other card) on that company's ticker there. The plan says "that card" without saying which.
+9. **Dots.** A company with the same set of cards as others spreads on a golden-angle spiral (4 × sqrt(k) units) around the shared center, the first one exactly on it. Hover shows a readout line under the map (not a floating box); a click pins it and lists each card as a Cockpit link; a click on the empty map or Escape unpins.
+10. **Line hit area.** A line is clickable through an invisible 12-unit-wide stroke, since its drawn width is 1–7. Lines are not tab stops (the map is one stop, per the plan); the panel's "Open in Venn" is the keyboard route to a pair.
+11. **Keyboard.** Focus on the map lands on the card with the most companies; an arrow moves to the nearest placed bubble that way (off-axis distance counts double); Enter selects it; Escape clears the selection and the pinned dot.
+12. **Bubble names.** A name shows on its bubble when its estimated width (5.6 units a character) fits inside 88% of the diameter; otherwise it shows on hover or keyboard focus.
+13. **The Venn picker.** A "Add a set" button opens a search box and the sets grouped by kind (cards, links on a card, supersectors, business types); it lists at most 30 per kind until the search narrows it. The Add button is off at 3 sets and the remove "×" is off at 2. The picks survive a tab switch and an as-of change (a pick that no longer exists falls back to the default pair).
+14. **Venn sizes and colors.** The largest circle always has radius 100 in its own box; the minimum radius is that ÷ sqrt(50) (so area ratio 50). Disjoint sets draw with a 14-unit gap. Region counts sit at the mean of the region's sampled area (a 60 × 60 grid). Tints are `--txt-4`, `--txt-3`, `--txt-2` at 28% fill.
+15. **Region click.** Click the count (or the region itself) to list it. A region's list names its companies by ticker and name, with one chip per card (card name · links) that opens that card's Cockpit on the company's ticker there.
+16. **Sectors defaults.** Supersectors; the toggle to business types clears an open cell. A cell's bubble radius is area-proportional to its companies, with the grid's biggest cell at 13 px. A card with no companies in view shows an empty row, last. A cell click lists tickers (each opens the Cockpit on that card).
+17. **Selected card / cell** are page state that resets on a tab switch (the Venn picks and the threshold do not).
+18. **Two limits lines.** The quiet line holds the counts the plan lists; a second quiet line holds the known limits (matching by security, our own layout, approximate three-set areas, structure only).
+
+**Process**
+19. **The Index** in `docs/DASHBOARDS.md` is a paragraph pointing at the `/dashboards` page, with no list of rows, so the "row" is one bullet appended at its end.
+20. **Menu order 300** leaves 290 free for the ETFs page, which this branch does not contain. `registry.test.ts` pins `overlap-map` after `daily-digest` (280).
+21. **No capture adapter or markers**: the MCP catalog entry advertises every capability false (discoverable, not observable), like Shared Names, with `asofAware: true`.

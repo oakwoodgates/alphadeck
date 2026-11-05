@@ -5425,6 +5425,64 @@
         }
       }
     },
+    "/dashboards/overlap-map": {
+      "get": {
+        "tags": [
+          "dashboards"
+        ],
+        "summary": "Overlap Map",
+        "description": "Where the cards overlap: each counted card as a bubble, the companies every pair shares (matched by\nsecurity; a company on several links of one card counts once), the groups at each threshold of 1 to 5 shared\ncompanies, and every company with its place on each card and today's sector and business type. Structure only:\nno prices, no calls. Display only; a past as-of reads each card's roster then.",
+        "operationId": "overlap_map_dashboards_overlap_map_get",
+        "parameters": [
+          {
+            "name": "asof",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "description": "as-of date; only the cards that existed by then, with their rosters then",
+              "title": "Asof"
+            },
+            "description": "as-of date; only the cards that existed by then, with their rosters then"
+          },
+          {
+            "name": "include_silent",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "add Context, ETFs and Bench memberships (left out by default)",
+              "default": false,
+              "title": "Include Silent"
+            },
+            "description": "add Context, ETFs and Bench memberships (left out by default)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverlapMapOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/dashboards/peer-table/scopes": {
       "get": {
         "tags": [
@@ -30078,6 +30136,361 @@
         ],
         "title": "OperatorSpanOut",
         "description": "An off-record take\u2192close span (answering no armed episode), with the stance FROZEN on the\ntake row at logging time. ``override`` = entered while the platform said not-armed \u2014 the\ngate's logged override, now carrying its outcome."
+      },
+      "OverlapCardOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "companies": {
+            "type": "integer",
+            "title": "Companies"
+          },
+          "x": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "X"
+          },
+          "y": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Y"
+          },
+          "r": {
+            "type": "number",
+            "title": "R"
+          },
+          "shares_nothing": {
+            "type": "boolean",
+            "title": "Shares Nothing"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id",
+          "name",
+          "companies",
+          "x",
+          "y",
+          "r",
+          "shares_nothing"
+        ],
+        "title": "OverlapCardOut",
+        "description": "A counted card. ``companies`` = its companies in view (each once). ``x`` / ``y`` / ``r`` = its bubble in the\nbox (``box_w`` x ``box_h``); ``x`` and ``y`` are ``null`` for a card sharing no company with any other\n(``shares_nothing``), which the page lists in its own strip; ``r`` is its size either way."
+      },
+      "OverlapCompanyCardOut": {
+        "properties": {
+          "card": {
+            "type": "integer",
+            "title": "Card"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "links": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Links"
+          },
+          "silent": {
+            "type": "boolean",
+            "title": "Silent"
+          },
+          "context_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context Role"
+          }
+        },
+        "type": "object",
+        "required": [
+          "card",
+          "ticker",
+          "links",
+          "silent",
+          "context_role"
+        ],
+        "title": "OverlapCompanyCardOut",
+        "description": "One company's place on one card. ``card`` = an index into ``cards``; ``ticker`` = its ticker there (the\nCockpit's ``?name=`` key); ``links`` = its links there (basket order; ``null`` = no link); ``silent`` = every\nrow of it there is Context, ETFs or Bench; ``context_role`` = the operator's role tag there, if set."
+      },
+      "OverlapCompanyOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "type": "string",
+            "title": "Ticker"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "supersector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supersector"
+          },
+          "business_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Type"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/OverlapCompanyCardOut"
+            },
+            "type": "array",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "ticker",
+          "name",
+          "supersector",
+          "business_type",
+          "rows"
+        ],
+        "title": "OverlapCompanyOut",
+        "description": "A company in view, once. ``supersector`` / ``business_type`` = today's master (``null`` = unclassified)."
+      },
+      "OverlapGroupsOut": {
+        "properties": {
+          "threshold": {
+            "type": "integer",
+            "title": "Threshold"
+          },
+          "sizes": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Sizes"
+          },
+          "no_line": {
+            "type": "integer",
+            "title": "No Line"
+          }
+        },
+        "type": "object",
+        "required": [
+          "threshold",
+          "sizes",
+          "no_line"
+        ],
+        "title": "OverlapGroupsOut",
+        "description": "The groups when cards are joined at ``threshold`` or more shared companies: the size of each group of 2+\ncards (largest first) and how many cards have no line."
+      },
+      "OverlapMapOut": {
+        "properties": {
+          "asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Asof"
+          },
+          "include_silent": {
+            "type": "boolean",
+            "title": "Include Silent"
+          },
+          "clock": {
+            "type": "string",
+            "enum": [
+              "record",
+              "public"
+            ],
+            "title": "Clock"
+          },
+          "box_w": {
+            "type": "number",
+            "title": "Box W"
+          },
+          "box_h": {
+            "type": "number",
+            "title": "Box H"
+          },
+          "live_cards": {
+            "type": "integer",
+            "title": "Live Cards"
+          },
+          "cards_counted": {
+            "type": "integer",
+            "title": "Cards Counted"
+          },
+          "cards_not_yet_created": {
+            "type": "integer",
+            "title": "Cards Not Yet Created"
+          },
+          "roster_fallback_cards": {
+            "type": "integer",
+            "title": "Roster Fallback Cards"
+          },
+          "basket_rows": {
+            "type": "integer",
+            "title": "Basket Rows"
+          },
+          "silent_rows_left_out": {
+            "type": "integer",
+            "title": "Silent Rows Left Out"
+          },
+          "unresolved_rows": {
+            "type": "integer",
+            "title": "Unresolved Rows"
+          },
+          "companies_in_view": {
+            "type": "integer",
+            "title": "Companies In View"
+          },
+          "companies_shared": {
+            "type": "integer",
+            "title": "Companies Shared"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/OverlapCardOut"
+            },
+            "type": "array",
+            "title": "Cards"
+          },
+          "pairs": {
+            "items": {
+              "$ref": "#/components/schemas/OverlapPairOut"
+            },
+            "type": "array",
+            "title": "Pairs"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/OverlapGroupsOut"
+            },
+            "type": "array",
+            "title": "Groups"
+          },
+          "companies": {
+            "items": {
+              "$ref": "#/components/schemas/OverlapCompanyOut"
+            },
+            "type": "array",
+            "title": "Companies"
+          },
+          "cache": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "computed"
+            ],
+            "title": "Cache"
+          },
+          "compute_ms": {
+            "type": "integer",
+            "title": "Compute Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asof",
+          "include_silent",
+          "clock",
+          "box_w",
+          "box_h",
+          "live_cards",
+          "cards_counted",
+          "cards_not_yet_created",
+          "roster_fallback_cards",
+          "basket_rows",
+          "silent_rows_left_out",
+          "unresolved_rows",
+          "companies_in_view",
+          "companies_shared",
+          "cards",
+          "pairs",
+          "groups",
+          "companies",
+          "cache",
+          "compute_ms"
+        ],
+        "title": "OverlapMapOut",
+        "description": "The whole page. The counts are the work shown on its quiet line: the live cards, the cards counted at the\nas-of (``cards_not_yet_created`` were created after it; ``roster_fallback_cards`` have no roster snapshot by\nthen, so today's roster stands in), every basket row on those cards, the Context / ETFs / Bench rows left out,\nthe rows in view with no resolved security (counted, never matched), the companies in view and those on 2+\ncards. ``cache`` / ``compute_ms`` = whether the payload came from the shared dashboard cache and how long it\ntook when computed."
+      },
+      "OverlapPairOut": {
+        "properties": {
+          "a": {
+            "type": "integer",
+            "title": "A"
+          },
+          "b": {
+            "type": "integer",
+            "title": "B"
+          },
+          "shared": {
+            "type": "integer",
+            "title": "Shared"
+          }
+        },
+        "type": "object",
+        "required": [
+          "a",
+          "b",
+          "shared"
+        ],
+        "title": "OverlapPairOut",
+        "description": "Two cards (indexes into ``cards``, ``a`` < ``b``) sharing ``shared`` companies in view."
       },
       "PeerBlankOut": {
         "properties": {

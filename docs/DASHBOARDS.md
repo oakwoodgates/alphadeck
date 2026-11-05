@@ -297,3 +297,5 @@ grid, the as-of line through the windows.
 
 The `/dashboards` page is the index, one tile per dashboard under its thumbnail; each plan lives in
 `docs/dashboards/<slug>.md` (the Board's is `docs/BOARD.md`).
+
+- **Overlap Map** (`overlap-map`, menu order 300, follows the as-of dial): where the cards overlap, as bubbles joined by shared companies, a Venn of any two or three sets, and each card's sector mix. Plan: `docs/dashboards/overlap-map.md`.
