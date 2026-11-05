@@ -216,13 +216,20 @@ def test_cockpit_all_reads_equal_existing_api_and_no_persistence(db_client, asof
     )
     assert result.status_code == 200, result.text
     captured = result.json()
-    assert len(captured["responses"]) == 7
+    assert len(captured["responses"]) == 8
     for record in captured["responses"]:
         if record["path"] != "/clock":
             canonical = client.get(record["path"], params=record["query"])
             assert canonical.status_code == 200, canonical.text
             assert record["body"] == canonical.json()
     assert any("decision log are current" in text for text in captured["context"]["limitations"])
+    assert any(
+        "Fund launches are display-only" in text for text in captured["context"]["limitations"]
+    )
+    # the fund-launches read is captured under EXACTLY the query the Cockpit's useFundLaunches sends
+    (fund,) = [r for r in captured["responses"] if r["path"].endswith("/fund-launches")]
+    assert fund["query"] == {"asof": asof.isoformat(), "days": "90"}
+    assert fund["body"]["asof"] == asof.isoformat() and fund["body"]["window_days"] == 90
     records = {item["path"]: item["body"] for item in captured["responses"]}
     assert records[f"/theses/{thesis.id}/decisions"][0]["id"] == str(decision["id"])
     assert records[f"/theses/{thesis.id}"]["position"]["opened_on"] == PIN.today.isoformat()
@@ -351,6 +358,12 @@ def test_provenance_relationships_point_to_exact_sources_and_are_bounded_stable_
             {"members": [{"ticker": "SYN", "purity": {"provenance": [provenance]}}]},
             asof=ASOF,
         ),
+        response(
+            base + "/fund-launches",
+            {"filings": [{"funds": [{"name": "Synthetic Fund"}]}]},
+            asof=ASOF,
+            days=90,
+        ),
     ]
     links, refs = cockpit.relationships(responses, request(tid))
     validate_relationships(responses, links, refs)
@@ -361,6 +374,13 @@ def test_provenance_relationships_point_to_exact_sources_and_are_bounded_stable_
         r.id == again.id
         for r, again in zip(refs, cockpit.relationships(responses, request(tid))[1], strict=True)
     )
+    fund_refs = [r for r in refs if r.label == "Fund launch: Synthetic Fund"]
+    assert [r.category for r in fund_refs] == [
+        "display_basis"
+    ]  # display context, never a call input
+    assert resolve_pointer(responses[fund_refs[0].response_index].body, fund_refs[0].pointer) == {
+        "name": "Synthetic Fund"
+    }
     call_sources = [r for r in refs if r.category == "call_input"]
     assert len(call_sources) == 4
     assert all(

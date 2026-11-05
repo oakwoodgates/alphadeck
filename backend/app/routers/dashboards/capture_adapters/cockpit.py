@@ -12,6 +12,7 @@ from app.routers.dashboards.capture_contract import CapturedResponse, CaptureReq
 from app.routers.dashboards.capture_contract import response as frozen_response
 from app.routers.dashboards.capture_links import navigation, reference
 from app.routers.data_flags import read_thesis_data_flags
+from app.routers.fund_radar import read_fund_launches
 from app.routers.theses import read_call, read_decisions, read_display_signals, read_thesis_detail
 from app.routers.workbench import read_scored
 from repositories import thesis_repo
@@ -22,6 +23,7 @@ THESIS_SCOPED = True
 LIMITATIONS = (
     "Cockpit narrative, displayed roster/identity, authored evidence/catalysts/kill criteria, feed metadata, position and decision log are current snapshot metadata. Dated call, scored, display and flag facts follow the requested public-clock view. The call's historical roster can differ from the displayed current roster.",
     "Authored evidence references, scored provenance, display basis and data flags are distinguished from call-signal inputs. External provenance URLs are references only; their documents were not fetched or captured.",
+    "Fund launches are display-only context on the public clock (stages use only facts public by the as-of), never a call input; their in-ETFs flag reads the current basket.",
 )
 
 
@@ -59,6 +61,13 @@ def read(conn: psycopg.Connection, request: CaptureRequest) -> list[CapturedResp
         asof=request.asof,
     )
     collect(path + "/decisions", lambda: read_decisions(conn, thesis))
+    # last, so the earlier responses keep their positions; the query is exactly what useFundLaunches sends
+    collect(
+        path + "/fund-launches",
+        lambda: read_fund_launches(conn, thesis, request.asof, 90),
+        asof=request.asof,
+        days=90,
+    )
     return responses
 
 
@@ -113,6 +122,15 @@ def relationships(responses: list[CapturedResponse], request: CaptureRequest):
                     add(pointer, "data_flag", flag.get("label"))
                     for k, item in enumerate(flag.get("evidence", [])):
                         add(f"{pointer}/evidence/{k}", "data_flag", item.get("label"))
+        elif source.path == thesis_path + "/fund-launches":
+            # display-only context (never a call signal or input): one reference per fund the card fits
+            for i, filing in enumerate(body.get("filings", [])):
+                for j, fund in enumerate(filing.get("funds", [])):
+                    add(
+                        f"/filings/{i}/funds/{j}",
+                        "display_basis",
+                        f"Fund launch: {fund.get('name')}",
+                    )
         elif source.path == f"/workbench{thesis_path}/scored":
             for i, member in enumerate(body.get("members", [])):
                 add(f"/members/{i}", "scored_member", member.get("ticker"))

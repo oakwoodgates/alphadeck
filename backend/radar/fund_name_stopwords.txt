@@ -132,3 +132,26 @@ NYSE
 Cboe
 Bloomberg
 Solactive
+
+# Fund sponsors (more)
+ALPS
+BNY
+Strive
+Federated Hermes
+Franklin Templeton
+
+# Fund-name words (more)
+SMID
+Block
+Winners
+Frontier
+Comstock
+GENIUS
+Quantum Computing
+
+# Crypto tokens: a token's name or symbol appears in the names of funds that hold it
+Solana
+Cronos
+MOVE
+ATOM
+LINK

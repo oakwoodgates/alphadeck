@@ -1246,6 +1246,79 @@ export function useSpacAttach() {
   });
 }
 
+// --- the fund launch radar (docs/FUND_RADAR.md): display only, never a call input ---
+
+export type RadarFundsOut = components["schemas"]["RadarFundsOut"];
+export type FundLaunchesOut = components["schemas"]["FundLaunchesOut"];
+export type FundFilingOut = components["schemas"]["FundFilingOut"];
+export type FundOut = components["schemas"]["FundOut"];
+export type FundMatchOut = components["schemas"]["FundMatchOut"];
+export type FundAttachOut = components["schemas"]["FundAttachOut"];
+
+// The fund tape: one row per FILING, newest first. matchedOnly trims the rows only; the counts always
+// cover the whole window (the "show all (N unmatched)" toggle reads them).
+export function useRadarFunds(opts: { days?: number; includePrivate?: boolean; matchedOnly?: boolean }) {
+  const days = opts.days ?? 90;
+  const include_private = opts.includePrivate ?? false;
+  const matched_only = opts.matchedOnly ?? true;
+  return useQuery({
+    queryKey: ["radar-funds", days, include_private, matched_only] as const,
+    staleTime: MONITOR_STALE_MS,
+    placeholderData: keepPreviousData,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/radar/funds", {
+        params: { query: { days, include_private, matched_only } },
+      });
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+// One card's fund launches as of a night (the Cockpit's quiet line). Its own query so it never slows the
+// card; invalidated by attach/detach (in_etfs).
+export function useFundLaunches(thesisId: string, asof: string, days = 90) {
+  return useQuery({
+    queryKey: ["fund-launches", thesisId, asof, days] as const,
+    enabled: Boolean(thesisId) && Boolean(asof),
+    staleTime: MONITOR_STALE_MS,
+    retry: 1,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/theses/{thesis_id}/fund-launches", {
+        params: { path: { thesis_id: thesisId }, query: { asof, days } },
+      });
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+// add to ETFs ⇄ remove: the operator's click on the radar's recommendation (#10), reversible (#1).
+// The server files the fund in the card's ETFs link (a silent link: it never counts toward the call); the
+// caller pulls prices afterwards with useIngestPrices on the returned security_id, as Surface an ETF does.
+export function useFundAttach() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (v: { thesis_id: string; symbol: string; detach?: boolean }) => {
+      const path = v.detach ? "/radar/funds/detach" : "/radar/funds/attach";
+      const { data, error } = await api.POST(path, {
+        body: { thesis_id: v.thesis_id, symbol: v.symbol },
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (_d, v) => {
+      qc.invalidateQueries({ queryKey: ["radar-funds"] });
+      qc.invalidateQueries({ queryKey: ["fund-launches", v.thesis_id] });
+      qc.invalidateQueries({ queryKey: ["theses"] });
+      qc.invalidateQueries({ queryKey: ["thesis", v.thesis_id] });
+      qc.invalidateQueries({ queryKey: ["workbench-scored"] });
+      qc.invalidateQueries({ queryKey: ["call", v.thesis_id] });
+      qc.invalidateQueries({ queryKey: ["display-signals", v.thesis_id] });
+    },
+  });
+}
+
 // "+ vote catalyst" — prefill ONE display-calendar entry (read-modify-PUT through the sole writer;
 // NEVER an auto fact_catalyst: that arms Key-1 and stays the ratify path's). Idempotent by label.
 export function useSpacCatalyst() {

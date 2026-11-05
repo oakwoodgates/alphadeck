@@ -57,6 +57,18 @@ class FundLaunch:
     source_ref: str = ""
 
 
+def visible_as_of(
+    views: Iterable[SeriesView], symbols: Iterable[SymbolRow], asof: date
+) -> tuple[list[SeriesView], list[SymbolRow]]:
+    """The facts public by ``asof`` and nothing later (#1, the public clock): a filing counts from its public
+    date, a symbol from the night we first saw it. Derive stages from THIS, so a 485BPOS or a ticker that came
+    after ``asof`` can never show on a history view."""
+    return (
+        [v for v in views if v.public_date <= asof],
+        [s for s in symbols if s.night <= asof],
+    )
+
+
 def derive_launches(
     views: Iterable[SeriesView], symbols: Iterable[SymbolRow] = ()
 ) -> list[FundLaunch]:
@@ -101,4 +113,26 @@ def derive_launches(
             )
         )
     out.sort(key=lambda lc: (lc.public_date, lc.accession, lc.key), reverse=True)
+    return out
+
+
+def symbol_starts(symbols: Iterable[SymbolRow]) -> dict[str, date]:
+    """The first night each source shows ANY symbol (over the rows given). A ticker or listing dated that night
+    was already there when the radar began reading the file, so it is not an event."""
+    out: dict[str, date] = {}
+    for s in symbols:
+        if s.source not in out or s.night < out[s.source]:
+            out[s.source] = s.night
+    return out
+
+
+def activity_dates(stage: FundStage, starts: dict[str, date]) -> list[date]:
+    """The dates a fund DID something: filed, effective, and a ticker / listing that is not the start night of
+    its source. Used to window the per-card view (a fund gets its ticker months after its filing).
+    """
+    out = [d for d in (stage.filed, stage.effective) if d is not None]
+    if stage.ticker is not None and stage.ticker != starts.get(SOURCE_SEC):
+        out.append(stage.ticker)
+    if stage.listed is not None and stage.listed != starts.get(SOURCE_NASDAQ):
+        out.append(stage.listed)
     return out

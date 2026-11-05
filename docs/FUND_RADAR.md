@@ -4,7 +4,7 @@ The "Coming" face of the ETF radar (`DATA_SOURCES.md` §"Notes on the ETF radar'
 filings on EDGAR the night they go public, follow each fund from filing to listing, and show which cards each one
 fits. **Display only** (Kind B: context). It never feeds a call: `SignalKind.ETF_LAUNCH` stays reserved and
 nothing emits it (`CALL_LOGIC.md` §taxonomy), and the radar's modules never import `calls/` (a test proves it).
-This page describes PR 1 (the tape, the nightly leg, the CLI report). The API and the screens are PR 2.
+PR 1 built the tape, the nightly leg and the CLI report; PR 2 the API and the screens (§"What you see").
 
 ## What it reads
 
@@ -124,8 +124,62 @@ like a wave; then the totals: new funds in the window, matched, unmatched, and p
 The nightly runs it as a passenger leg right after the SPAC radar (`FEED_LOOP.md` §"The fund launch radar"):
 `allow_live` only, its own connection, `timed("fund_radar")`, fail-open.
 
-## Not built (PR 2 and later)
+## What you see (PR 2: the display)
 
-`GET /radar/funds`, `GET /theses/{id}/fund-launches`, the Radar "Fund launches" tab, the Cockpit line and its "add to
-ETFs" button, Slack pages (none at first: inverse loudness), the prospectus-text read for opaque fund names,
-exemptive applications (40-APP), and any `etf_launch` signal.
+All display only (Kind B): the routes read the stored facts, derive stages and card matches on read, make no SEC
+request, and never feed a call. Code: `backend/app/routers/fund_radar.py`, `frontend/src/radar/FundLaunches.tsx`,
+`frontend/src/cockpit/FundLaunchesLine.tsx`.
+
+**Routes**
+
+- `GET /radar/funds?days=90&include_private=false&matched_only=true`: one row per FILING (the filing that first
+  announced its funds), newest first by public date. Each filing carries its funds (stage dates, symbols) and, per
+  fund, every live card it fits (theme read with its tier and terms, name read with company ticker, link and token).
+  The counts (filings, funds, matched, unmatched, old filings held back) **always cover the whole window**, so the UI
+  can say "N more"; `matched_only` only trims the rows.
+- `GET /theses/{id}/fund-launches?asof=YYYY-MM-DD&days=90`: this card's matches **as of a night** (invariant #1).
+  **The window rule:** a fund is in the window `asof - days .. asof` when **any** of its stage dates (filed, effective,
+  ticker, listed) falls inside it, because a fund gets its ticker months after its filing and would otherwise leave the
+  window before "+ add to ETFs" could appear. **The start-night rule:** a ticker or listing dated the first night its
+  source shows any symbol does not count as activity (those funds were already trading when the radar began reading
+  the files); the fund still shows its stage chips and still counts if it was filed or went effective in the window.
+  Every stage is derived **only from facts public by `asof`**, so a 485BPOS, or a symbol first seen after `asof`,
+  never shows on a history view. Filings are ordered by their newest in-window activity, and the response says
+  `symbol_history_since` (the earliest symbol night visible by `asof`), shown quietly in the Cockpit line's hover.
+  Counts by filing and by sponsor (never by fund), split by tier, plus name hits. Old confidential filings SEC
+  released are left out. The Cockpit's frozen MCP capture reads the same function (`read_fund_launches`). Honest
+  limit: `in_etfs` reads the card's basket as it stands **now** (a roster as of a night is not reconstructed for this
+  flag), and the ticker / listed dates are the nights we first saw the symbol (neither file carries a date), so a fund
+  already trading when the radar started reads that start night.
+- `POST /radar/funds/attach` and `/detach` `{thesis_id, symbol}`: the operator's click (#10), reversible (#1). Attach
+  resolves the symbol through the **same function as `POST /workbench/securities/resolve-etf`** (lookup-or-create,
+  `instrument_kind='etf'`), builds the member as "Surface an ETF" does (role "ETF sleeve", segment ETFs, a model
+  draft, signed off, no conviction), and re-writes the card whole from its stored copy (nothing it carries is wiped).
+  It runs the promote's own rules (`silent_conflicts`, `fund_conflicts`, the silent links last), so a fund can never
+  land outside ETFs; a conflict is a 422 and nothing is written. Already in ETFs is `already`, with no write. Detach
+  removes only that fund's ETFs row; not there is a no-op. No prices are pulled by the endpoint: the screen calls the
+  existing price ingest on the returned security, as "Surface an ETF" does.
+
+**The Radar page** has two tabs, "SPAC" (the existing tape, unchanged) and "Fund launches", chosen by `?tab=funds` so
+it links and survives a reload. The fund tab shows one row per filing: date, fund name (a batch filing is one
+collapsed "N funds" row, opened on click), trust, form, stage chips for the stages reached, the matched cards with
+their terms and a small tier tag, name hits (company ticker and its link), and a filing link. By default it shows
+only filings with a fund that fits a live card; **"show all (N unmatched)"** and **"include old filings SEC released
+(N)"** bring the rest back, and the counts stay visible (keep-it-visible). Quiet styling: no red, no badge on every
+row.
+
+**The Cockpit line** sits between the basket table and the evidence: "fund launches · N filings from M sponsors in 90
+days (signal a · broad b · name c)". Collapsed by default, its own query (it never slows the card), at the Cockpit's
+as-of, and **rendered not at all when the count is 0**. Expanded, each matched fund shows its stage chips and card
+terms. For a fund at the ticker stage or later: **+ add to ETFs** (attach, then a price pull on the returned
+security) and, once in, **✓ in ETFs, remove** (detach).
+
+**Cost.** MEASURED against the dev DB (24-month backfill, 65 live cards): reading every card against about 1,000 funds
+took about 60 s before the matcher's substring prefilters, and the first (cold) tape read is now about 1.7 s; a cached
+read is about 0.03 s. Two small in-process caches (the loaded fund rows, and the computed tape) are cleared by "something
+new happened" (the fund tables' newest `recorded_at`, the cards' change marker, the market day), never by a clock.
+
+## Not built
+
+Slack pages (none at first: inverse loudness), the prospectus-text read for opaque fund names, exemptive applications
+(40-APP), the fund launches panel on the ETFs dashboard, and any `etf_launch` signal.

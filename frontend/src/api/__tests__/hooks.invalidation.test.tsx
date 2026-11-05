@@ -11,6 +11,7 @@ vi.mock("../client", () => ({ api: { GET: h.get, POST: h.post } }));
 
 import {
   useDailyRunJob,
+  useFundAttach,
   useIngestJobStatus,
   useIngestPrices,
   usePromoteThesis,
@@ -61,6 +62,23 @@ describe("a basket edit re-derives the call and the tape", () => {
     has(keys(), ["call", "t9"]);
     has(keys(), ["display-signals", "t9"]);
     has(keys(), ["radar-spac"]);
+  });
+
+  it("useFundAttach (add and remove) invalidates the call, display-signals and both fund reads", async () => {
+    const { wrapper, keys } = harness();
+    const { result } = renderHook(() => useFundAttach(), { wrapper });
+    await act(async () => {
+      await result.current.mutateAsync({ thesis_id: "t9", symbol: "TSTX" });
+      await result.current.mutateAsync({ thesis_id: "t9", symbol: "TSTX", detach: true });
+    });
+    expect(h.post.mock.calls.map((c) => c[0])).toEqual([
+      "/radar/funds/attach",
+      "/radar/funds/detach",
+    ]);
+    has(keys(), ["call", "t9"]);
+    has(keys(), ["display-signals", "t9"]);
+    has(keys(), ["radar-funds"]);
+    has(keys(), ["fund-launches", "t9"]);
   });
 });
 

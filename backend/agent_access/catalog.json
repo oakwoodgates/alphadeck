@@ -1010,7 +1010,8 @@
         "/theses/{uuid}/display-signals",
         "/theses/{uuid}/data-flags",
         "/workbench/theses/{uuid}/scored",
-        "/theses/{uuid}/decisions"
+        "/theses/{uuid}/decisions",
+        "/theses/{uuid}/fund-launches"
       ]
     }
   ]

@@ -9,6 +9,7 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock("../../api/hooks", () => ({
+  useFundLaunches: () => ({ data: undefined, isLoading: false, error: null }),
   usePutCatalysts: () => ({ mutate: h.putCats, ...h.state }),
   usePutKillCriteria: () => ({ mutate: h.putKills, ...h.state }),
 }));

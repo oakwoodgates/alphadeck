@@ -2919,6 +2919,139 @@ class SpacAttachOut(BaseModel):
     removed: bool = False
 
 
+# --- the fund launch radar (docs/FUND_RADAR.md) — display only, never a call input -------------------
+
+
+class FundNameHitOut(BaseModel):
+    """One name-read hit: a card company's ticker or cleaned name found in a fund's name. ``token`` is what
+    matched (provenance); ``link`` is the value-chain link the company sits in on that card."""
+
+    ticker: str
+    link: str | None = None
+    token: str
+    via: Literal["ticker", "company_name"]
+
+
+class FundMatchOut(BaseModel):
+    """One card's reads of one fund (a RECOMMENDATION, #10: it changes nothing until the operator acts).
+    ``tier`` is the theme read's tier ("signal" when any SIGNAL term hit, else "broad") or null when only the
+    name read hit."""
+
+    thesis_id: UUID
+    thesis_name: str
+    tier: Literal["signal", "broad"] | None = None
+    signal_terms: list[str] = Field(default_factory=list)
+    broad_terms: list[str] = Field(default_factory=list)
+    name_hits: list[FundNameHitOut] = Field(default_factory=list)
+
+
+class FundStageOut(BaseModel):
+    """A fund's launch stage as dates (null = not reached by the as-of): derived on read from stored facts, never
+    stored. ``ticker`` and ``listed`` are the nights WE first saw a symbol in SEC's fund ticker file and the
+    Nasdaq directory (neither file carries a date)."""
+
+    filed: date | None = None
+    effective: date | None = None
+    ticker: date | None = None
+    listed: date | None = None
+    current: Literal["filed", "effective", "ticker", "listed"]
+
+
+class FundOut(BaseModel):
+    """One fund (a series some filing announced as new). ``in_etfs`` is set only on the per-card route: a basket
+    row in that card's ETFs link already holds one of the fund's symbols."""
+
+    key: str
+    series_id: str | None = None
+    name: str
+    stage: FundStageOut
+    symbols: list[str] = Field(default_factory=list)
+    matches: list[FundMatchOut] = Field(default_factory=list)
+    in_etfs: bool = False
+
+
+class FundFilingOut(BaseModel):
+    """One filing on the fund tape (the filing that FIRST announced its funds as new), with those funds. The
+    batch filing (dozens of single-stock wrappers) is ONE row."""
+
+    accession: str
+    form: str
+    trust: str
+    public_date: date
+    url: str
+    private_to_public: bool = False
+    funds: list[FundOut]
+
+
+class FundTapeCountsOut(BaseModel):
+    """The whole window's counts (always the full window, whatever ``matched_only`` hides): the UI's "N more"."""
+
+    filings: int
+    funds: int
+    matched_funds: int
+    unmatched_funds: int
+    private_held_back_funds: int = 0
+    private_held_back_filings: int = 0
+
+
+class RadarFundsOut(BaseModel):
+    """``GET /radar/funds``: one row per FILING, newest first by public date, each with its funds and every card
+    each fund fits. Pull-only and quiet; every row links its filing (#6)."""
+
+    filings: list[FundFilingOut]
+    counts: FundTapeCountsOut
+    window_days: int
+    include_private: bool
+    matched_only: bool
+
+
+class FundLaunchCountsOut(BaseModel):
+    """One card's fund-launch counts, by FILING and by SPONSOR (never by fund, so one batch cannot look like a
+    wave), split by tier. ``signal_filings`` / ``broad_filings`` count filings whose best theme tier is that
+    one; ``name_filings`` counts filings with a name hit."""
+
+    filings: int
+    sponsors: int
+    funds: int
+    signal_filings: int
+    broad_filings: int
+    name_filings: int
+
+
+class FundLaunchesOut(BaseModel):
+    """``GET /theses/{id}/fund-launches``: this card's matching fund launches as of a night. Only filings public by
+    ``asof``, inside ``asof - days``..``asof``; stages derived only from facts public by ``asof`` (invariant #1).
+    Each filing holds only the funds that match this card."""
+
+    thesis_id: UUID
+    asof: date
+    window_days: int
+    counts: FundLaunchCountsOut
+    filings: list[FundFilingOut]
+    # the earliest night a symbol file's rows are visible by ``asof`` (ticker and listing dates mean "first seen
+    # by us", so none is earlier than this); null when no symbol has been seen yet
+    symbol_history_since: date | None = None
+
+
+class FundAttachRequest(BaseModel):
+    """Body for ``POST /radar/funds/attach`` / ``.../detach``: one fund symbol, one card."""
+
+    thesis_id: UUID
+    symbol: str
+
+
+class FundAttachOut(BaseModel):
+    """The attach/detach receipt (reversible, workbench principle #1). ``already`` marks the idempotent attach
+    no-op; ``removed`` is false when the fund was not in the card's ETFs link."""
+
+    thesis_id: UUID
+    security_id: UUID | None = None
+    ticker: str | None = None
+    added: bool = False
+    already: bool = False
+    removed: bool = False
+
+
 # --- /backtest (B6) — the research surface's wire shapes --------------------------------------------
 # ARTIFACT-SERVED, like the Scoreboard's replay panel: a run is written by a CLI and the API only reads
 # the JSON it left behind. `available` is the ONLY required field on the two envelopes, so
