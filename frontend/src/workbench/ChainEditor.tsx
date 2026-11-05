@@ -65,6 +65,7 @@ import {
 } from "./triageSession";
 import {
   DISCOVERED,
+  ETFS,
   SILENT_DESCRIPTORS,
   SILENT_LINKS,
   isSilentLink,
@@ -276,7 +277,7 @@ const NotListedFlag = () => (
 );
 
 /** One real link's label input. The rename is LIVE (every keystroke renames, cascading onto placed members, as
- *  before) EXCEPT that the text exactly equal to a RESERVED name (Context / Bench, any case) is never saved:
+ *  before) EXCEPT that the text exactly equal to a RESERVED name (Context / ETFs / Bench, any case) is never saved:
  *  typing passes THROUGH it — "Benchmark providers" and "Contextual AI" type out whole — and a link is never
  *  SAVED as exactly a reserved name. The check that matters runs on COMMIT (blur / Enter): a field left on a
  *  reserved name reverts to the label it had when editing began, with the same "is a fixed link" note the add
@@ -628,7 +629,7 @@ export function ChainEditor({
   // once ≥1 name in the basket has confirmed fundamentals. Before any surfacing it's true of every row (pure
   // noise), so we show a single quiet header hint instead of stamping "needs SURFACE" on all of them.
   const anyFundamentals = d.draft.basket.some((m) => hasFundamentals(m.security_id, scoredById));
-  // a REAL link: neither the Discovered pen nor one of the two fixed silent links (Context / Bench are always
+  // a REAL link: neither the Discovered pen nor one of the fixed silent links (Context / ETFs / Bench are always
   // present now, so counting them would make every thesis "have a chain")
   const hasRealLink = segLabels.some((l) => l !== DISCOVERED && !isSilentLink(l));
 
@@ -710,7 +711,7 @@ export function ChainEditor({
   const discoveredCount = nameGroups.filter((g) => g.segments.includes(DISCOVERED)).length;
   // The links editor separates the REAL value-chain links (reorderable) from the "Discovered" holding pen (not a
   // link — no reorder). Rendered as two distinct regions so the editor reads legibly (the arrows apply to links).
-  // The two silent links render in their own fixed, read-only rows below the pen — never in `realLinks`, so
+  // The silent links render in their own fixed, read-only rows below the pen — never in `realLinks`, so
   // the rename / ← → / × controls and the arrow bounds can't reach them.
   const realLinks = d.draft.segments.filter((s) => s.label !== DISCOVERED && !isSilentLink(s.label));
   const discoveredSeg = d.draft.segments.find((s) => s.label === DISCOVERED);
@@ -1824,7 +1825,7 @@ export function ChainEditor({
                     {g.segments.map((s) => (
                       <span
                         key={s}
-                        // the unsorted pen AND the two silent links read quietly (muted, dashed) — a name
+                        // the unsorted pen AND the silent links read quietly (muted, dashed) — a name
                         // that never counts toward the call is not a loud recommendation
                         className={`recchip${s === DISCOVERED || isSilentLink(s) ? " pen" : ""}`}
                         title={
@@ -2428,11 +2429,11 @@ export function ChainEditor({
           </div>
         )}
 
-        {/* the two FIXED silent links — Context and Bench, always last, read-only: no rename, no ← →, no ×
+        {/* the FIXED silent links — Context, ETFs and Bench, always last, read-only: no rename, no ← →, no ×
             (they can't be renamed, reordered or removed). A name in either is on the card and visible but
             NEVER counts toward the call; only the operator puts one there (the triage screen's rail — this
             surface, like the draft, never does). Always shown here: the editor is where the pair is explained. */}
-        <div className="wb-seg-silent" role="group" aria-label="fixed links: Context and Bench">
+        <div className="wb-seg-silent" role="group" aria-label="fixed links: Context, ETFs and Bench">
           <span className="wb-seg-pen-lab">Fixed</span>
           {SILENT_LINKS.map((label) => (
             <div className="wb-seg-silent-row" key={label}>
@@ -3142,19 +3143,22 @@ export function ChainEditor({
         )}
       </div>
 
+      {/* a FUND arrives already filed in ETFs (AddName on a fund match, SurfaceEtf always) and goes through
+          `addFund` — the one operator add into a silent link; everything else goes through `addMember`. */}
       <AddName
         existingKeys={keys}
         onAdd={(m, name) => {
-          d.addMember(m);
+          if (m.segment === ETFS) d.addFund(m);
+          else d.addMember(m);
           if (m.security_id && name) setNames((prev) => ({ ...prev, [m.security_id as string]: name }));
         }}
       />
-      {/* surface an ETF as a `fund` sleeve — directly below add-a-name (ETF Sleeve, Slice 1). Same onAdd
+      {/* surface an ETF as a `fund` sleeve — directly below add-a-name (ETF Sleeve, Slice 1). Same name
           bridge; unlike AddName it needs no prior master match (it resolves + marks the ticker itself). */}
       <SurfaceEtf
         existingKeys={keys}
         onAdd={(m, name) => {
-          d.addMember(m);
+          d.addFund(m);
           if (m.security_id && name) setNames((prev) => ({ ...prev, [m.security_id as string]: name }));
         }}
       />

@@ -7,8 +7,8 @@ import type {
 import { CatalystFactForm } from "./CatalystFactForm";
 import { FactsPanel } from "./FactsPanel";
 import { SleeveRail } from "./SleeveRail";
-import { toggleMemberLink } from "./chainOps";
-import { SILENT_DESCRIPTORS, SILENT_LINKS, isSilentLink } from "./useChainDraft";
+import { silentLinkOptions, toggleMemberLink } from "./chainOps";
+import { ETFS, SILENT_DESCRIPTORS, isSilentLink } from "./useChainDraft";
 import {
   BUSINESS_TYPES,
   CONTEXT_ROLES,
@@ -107,10 +107,11 @@ interface Props {
   // The #4 value-chain mover (chain-editing Phase 1) — a FLAT multi-select that REPLACES the read-only
   // segment cell: one checkbox per real link, `current` = the name's live memberships, toggling hands the
   // NEXT label set to `onChange` (the parent's immediate-promote). Discovered is excluded from `options`
-  // (it's the automatic floor, not a checkbox) and so are the two silent links (the rail lists Context /
-  // Bench itself, always, under the real links — `current` may carry one of them); an empty result floors to
-  // Discovered in the reconcile. Mirrors `sleeve`/`onRetag`: omitted (read-only) or on the ETF branch → no control renders. For a
-  // REAL link `segment` is display/structure, never a call input (#4); the exception is Context / Bench, which
+  // (it's the automatic floor, not a checkbox) and so are the silent links (the rail lists them itself, under
+  // the real links — `current` may carry one of them); an empty result floors to Discovered in the reconcile.
+  // A COMPANY is offered Context / Bench, never ETFs; a FUND (the ETF branch) is offered only ETFs, and only
+  // when it is not already there (`silentLinkOptions`). Omitted (read-only) → no control renders. For a
+  // REAL link `segment` is display/structure, never a call input (#4); the exception is the silent links, which
   // take a name OUT of the call's inputs (an operator placement — never a verdict/grade, which stay the call's).
   segmentControl?: {
     options: string[];
@@ -120,11 +121,12 @@ interface Props {
   };
 }
 
-/** The #4 value-chain mover: the REAL links, then a quiet divider, then the two FIXED silent links (Context /
- *  Bench). One checkbox each; a toggle hands the parent the next label set through `toggleMemberLink`, so the
- *  payload can never carry a silent row beside another row (a company is silent XOR voting). The checkboxes
- *  ARE the visible inverse (WB#1): unchecking Context floors the name to Discovered, checking a real link
- *  moves it out of Context — nothing is ever deleted (WB#2 / #9). Silent rows read muted (#7). */
+/** The #4 value-chain mover: the REAL links, then a quiet divider, then the FIXED silent links a company may
+ *  sit in (Context / Bench — ETFs is the funds link, see `silentLinkOptions`). One checkbox each; a toggle
+ *  hands the parent the next label set through `toggleMemberLink`, so the payload can never carry a silent row
+ *  beside another row (a company is silent XOR voting). The checkboxes ARE the visible inverse (WB#1):
+ *  unchecking Context floors the name to Discovered, checking a real link moves it out of Context — nothing is
+ *  ever deleted (WB#2 / #9). Silent rows read muted (#7). */
 function SegmentControl({ control }: { control: NonNullable<Props["segmentControl"]> }) {
   const { options, current, onChange, pending } = control;
   const toggle = (label: string) => {
@@ -132,6 +134,7 @@ function SegmentControl({ control }: { control: NonNullable<Props["segmentContro
     // a real-links-only result keeps the OPTION order (stable payload rows); a silent result is the one row
     onChange(next.some((l) => isSilentLink(l)) ? next : options.filter((o) => next.includes(o)));
   };
+  const silentOffered = silentLinkOptions(false, current);
   const placed = current.some((l) => options.includes(l) || isSilentLink(l));
   return (
     <div className="dd-segctl">
@@ -156,13 +159,13 @@ function SegmentControl({ control }: { control: NonNullable<Props["segmentContro
         </div>
       )}
       {/* Context / Bench — always listed (the rail is where a name is moved there), under a quiet divider.
-          Each carries its fixed descriptor as the hover. */}
+          Each carries its fixed descriptor as the hover. ETFs is not offered to a company (funds only). */}
       <div className="dd-seg-silent" role="group" aria-label="silent links">
         <div className="dd-seg-divider">
           Silent <em>— never counts toward the call</em>
         </div>
         <div className="dd-seg-opts">
-          {SILENT_LINKS.map((label) => (
+          {silentOffered.map((label) => (
             <label key={label} className="dd-seg-opt silent" title={SILENT_DESCRIPTORS[label]}>
               <input
                 type="checkbox"
@@ -176,6 +179,42 @@ function SegmentControl({ control }: { control: NonNullable<Props["segmentContro
         </div>
       </div>
       {options.length > 0 && !placed && <p className="muted dd-seg-unsorted">Unsorted (Discovered)</p>}
+    </div>
+  );
+}
+
+/** A FUND's link control — the funds-only rule of ETFs on the rail. A fund is offered ONE link, ETFs
+ *  (`silentLinkOptions(true, …)`), and it renders ONLY when the fund is not already there (WB#3: a box that
+ *  is always checked says nothing): a fund saved before the ETFs link existed, or a row a resolve marked a
+ *  fund after it was placed. One click moves it into ETFs (the server refuses a fund anywhere else, so this is
+ *  its one way back to a savable card); taking a fund OFF the card is the row's own remove (WB#1). */
+function FundLinkControl({ control }: { control: NonNullable<Props["segmentControl"]> }) {
+  const { current, onChange, pending } = control;
+  const offered = silentLinkOptions(true, current);
+  if (offered.every((l) => current.includes(l))) return null;
+  return (
+    <div className="dd-segctl">
+      <div className="dd-sub">
+        Value-chain link <em>— a fund sits in {ETFS}</em>
+      </div>
+      <div className="dd-seg-silent" role="group" aria-label="silent links">
+        <div className="dd-seg-opts">
+          {offered.map((label) => (
+            <label key={label} className="dd-seg-opt silent" title={SILENT_DESCRIPTORS[label]}>
+              <input
+                type="checkbox"
+                checked={current.includes(label)}
+                disabled={pending}
+                onChange={() => onChange([label])}
+              />
+              <span>{label}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+      <p className="muted dd-seg-unsorted">
+        This fund is outside {ETFS}, so the card can&apos;t be saved until it moves there.
+      </p>
     </div>
   );
 }
@@ -263,7 +302,8 @@ export function DDRail({
   // A `fund` sleeve is an EXPRESSION, not a scored equity (#4/#6): none of the meters / extract / ratify
   // machinery below applies. Its dossier is identity + price + N-PORT holdings — a wholly separate panel.
   // Keyed on the instrument (a fund has no SIC) — the master's instrument_kind is the sleeve's one marker.
-  // The context role rides the sleeve too: a spot or metal fund is the usual `benchmark`.
+  // The context role rides the sleeve too: a spot or metal fund is the usual `benchmark`. A fund's link is
+  // ETFs and only ETFs: the link control renders only for a fund that is not there yet (`FundLinkControl`).
   if (member.instrument_kind === "etf") {
     return (
       <SleeveRail
@@ -272,12 +312,15 @@ export function DDRail({
         asof={asof}
         {...sleeve}
         roleControl={
-          <ContextRoleControl
-            securityId={member.security_id}
-            role={contextRole ?? null}
-            onChange={onContextRole}
-            pending={contextRolePending}
-          />
+          <>
+            {segmentControl && <FundLinkControl control={segmentControl} />}
+            <ContextRoleControl
+              securityId={member.security_id}
+              role={contextRole ?? null}
+              onChange={onContextRole}
+              pending={contextRolePending}
+            />
+          </>
         }
       />
     );
@@ -346,9 +389,9 @@ export function DDRail({
         )}
       </div>
       {/* the #4 value-chain mover (chain-editing Phase 1) — under the business-type re-tag, in place of
-          the old read-only segment cell. One checkbox per real link, then the two silent links; toggling
+          the old read-only segment cell. One checkbox per real link, then the silent links (Context / Bench); toggling
           hands the next label set to the parent's immediate-promote. No real links yet → a quiet hint
-          (the silent pair still lists); in no link at all → the "Unsorted (Discovered)" floor line. */}
+          (the silent links still list); in no link at all → the "Unsorted (Discovered)" floor line. */}
       {segmentControl && <SegmentControl control={segmentControl} />}
       {/* the context role — what part this company plays on THIS card (operator-authored, display only);
           one select per company, under the value-chain links it sits beside */}

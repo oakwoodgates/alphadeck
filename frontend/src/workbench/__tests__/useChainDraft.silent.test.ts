@@ -1,4 +1,4 @@
-// Silent links (Context + Bench) — the hook half. Every thesis carries both, ALWAYS the last two links, fixed
+// Silent links (Context + ETFs + Bench) — the hook half. Every thesis carries all three, ALWAYS last, fixed
 // (no rename / reorder / remove / reserved name); a draft NEVER files a name into one (the operator alone
 // does); the `hasChain` trap is closed (the always-present pair must not read as "a chain already exists").
 // The pure helpers (`withSilentLinks` & co.) are pinned here too — chainOps.test.ts pins the transforms.
@@ -10,6 +10,7 @@ import {
   BENCH,
   CONTEXT,
   DISCOVERED,
+  ETFS,
   SILENT_DESCRIPTORS,
   SILENT_LINKS,
   insertBeforeSilent,
@@ -21,7 +22,12 @@ import {
 
 const seg = (label: string, descriptor: string | null = null): Segment => ({ label, descriptor });
 const labelsOf = (segs: Segment[]) => segs.map((s) => s.label);
-const PAIR = [seg(CONTEXT, SILENT_DESCRIPTORS[CONTEXT]), seg(BENCH, SILENT_DESCRIPTORS[BENCH])];
+// the three fixed silent links, in order (the name predates ETFs: it was the Context + Bench pair)
+const PAIR = [
+  seg(CONTEXT, SILENT_DESCRIPTORS[CONTEXT]),
+  seg(ETFS, SILENT_DESCRIPTORS[ETFS]),
+  seg(BENCH, SILENT_DESCRIPTORS[BENCH]),
+];
 
 const member = (over: Partial<BasketMember> & { ticker: string }): BasketMember => ({
   role: "r",
@@ -80,8 +86,10 @@ const rowsOf = (basket: BasketMember[], sid: string) => basket.filter((m) => m.s
 describe("the pure helpers", () => {
   it("isSilentLink is an EXACT match (and tolerates a member's nullable segment)", () => {
     expect(isSilentLink("Context")).toBe(true);
+    expect(isSilentLink("ETFs")).toBe(true);
     expect(isSilentLink("Bench")).toBe(true);
     expect(isSilentLink("context")).toBe(false);
+    expect(isSilentLink("etfs")).toBe(false);
     expect(isSilentLink(DISCOVERED)).toBe(false);
     expect(isSilentLink(null)).toBe(false);
     expect(isSilentLink(undefined)).toBe(false);
@@ -90,13 +98,19 @@ describe("the pure helpers", () => {
   it("reservedLinkName is case-insensitive and trimmed, returning the canonical spelling", () => {
     expect(reservedLinkName("context")).toBe("Context");
     expect(reservedLinkName("  BENCH ")).toBe("Bench");
+    expect(reservedLinkName(" etfs ")).toBe("ETFs");
+    expect(reservedLinkName("ETFS")).toBe("ETFs");
     expect(reservedLinkName("Contextual")).toBeNull();
+    expect(reservedLinkName("ETF")).toBeNull();
     expect(reservedLinkName("")).toBeNull();
     expect(reservedLinkName("Discovered")).toBeNull();
   });
 
-  it("SILENT_LINKS is Context then Bench (the pinned order)", () => {
-    expect([...SILENT_LINKS]).toEqual(["Context", "Bench"]);
+  it("SILENT_LINKS is Context, ETFs then Bench (the pinned order — Bench last)", () => {
+    expect([...SILENT_LINKS]).toEqual(["Context", "ETFs", "Bench"]);
+    expect(SILENT_DESCRIPTORS[ETFS]).toBe(
+      "Funds that track the theme: watched for price and fund flow. Never counts toward the call.",
+    );
   });
 
   describe("withSilentLinks", () => {
@@ -123,13 +137,13 @@ describe("the pure helpers", () => {
       expect(withSilentLinks(withSilentLinks(once))).toEqual(once);
     });
     it("leaves Discovered where it is (it is not pinned)", () => {
-      expect(labelsOf(withSilentLinks([seg(DISCOVERED), seg("a")]))).toEqual([DISCOVERED, "a", "Context", "Bench"]);
+      expect(labelsOf(withSilentLinks([seg(DISCOVERED), seg("a")]))).toEqual([DISCOVERED, "a", "Context", "ETFs", "Bench"]);
     });
   });
 
   describe("insertBeforeSilent", () => {
     it("lands just before Context", () => {
-      expect(labelsOf(insertBeforeSilent(withSilentLinks([seg("a")]), seg("z")))).toEqual(["a", "z", "Context", "Bench"]);
+      expect(labelsOf(insertBeforeSilent(withSilentLinks([seg("a")]), seg("z")))).toEqual(["a", "z", "Context", "ETFs", "Bench"]);
     });
     it("appends at the end when neither silent link is present", () => {
       expect(labelsOf(insertBeforeSilent([seg("a")], seg("z")))).toEqual(["a", "z"]);
@@ -154,7 +168,7 @@ describe("useChainDraft — the snapshot always carries both silent links, last"
     const { result } = renderHook(() =>
       useChainDraft(thesis([], [seg(BENCH), seg("reactors"), seg(CONTEXT), seg("fuel")])),
     );
-    expect(labelsOf(result.current.draft.segments)).toEqual(["reactors", "fuel", "Context", "Bench"]);
+    expect(labelsOf(result.current.draft.segments)).toEqual(["reactors", "fuel", "Context", "ETFs", "Bench"]);
   });
 
   it("a clean load is NOT dirty (the normalized snapshot is the baseline)", () => {
@@ -176,13 +190,13 @@ describe("useChainDraft — the segment mutators protect the pair", () => {
   it("addSegment lands BEFORE Context / Bench", () => {
     const { result } = mount();
     act(() => result.current.addSegment("supply"));
-    expect(labelsOf(result.current.draft.segments)).toEqual(["reactors", "fuel", "supply", "Context", "Bench"]);
+    expect(labelsOf(result.current.draft.segments)).toEqual(["reactors", "fuel", "supply", "Context", "ETFs", "Bench"]);
   });
 
   it("addSegment refuses a reserved name in any case (and padded)", () => {
     const { result } = mount();
     for (const name of ["Context", "context", "BENCH", "  bench "]) act(() => result.current.addSegment(name));
-    expect(labelsOf(result.current.draft.segments)).toEqual(["reactors", "fuel", "Context", "Bench"]);
+    expect(labelsOf(result.current.draft.segments)).toEqual(["reactors", "fuel", "Context", "ETFs", "Bench"]);
   });
 
   it("renameSegment refuses a silent source and a reserved target; a normal rename still cascades", () => {
@@ -190,9 +204,9 @@ describe("useChainDraft — the segment mutators protect the pair", () => {
     act(() => result.current.renameSegment(CONTEXT, "Giants"));
     act(() => result.current.renameSegment("fuel", "context"));
     act(() => result.current.renameSegment("fuel", " Bench "));
-    expect(labelsOf(result.current.draft.segments)).toEqual(["reactors", "fuel", "Context", "Bench"]);
+    expect(labelsOf(result.current.draft.segments)).toEqual(["reactors", "fuel", "Context", "ETFs", "Bench"]);
     act(() => result.current.renameSegment("reactors", "builders"));
-    expect(labelsOf(result.current.draft.segments)).toEqual(["builders", "fuel", "Context", "Bench"]);
+    expect(labelsOf(result.current.draft.segments)).toEqual(["builders", "fuel", "Context", "ETFs", "Bench"]);
     expect(result.current.draft.basket[0].segment).toBe("builders");
   });
 
@@ -205,7 +219,7 @@ describe("useChainDraft — the segment mutators protect the pair", () => {
     act(() => result.current.moveSegment("fuel", 1)); // the last real link can't go right
     expect(result.current.draft.segments).toBe(before);
     act(() => result.current.moveSegment("fuel", -1)); // real links still reorder among themselves
-    expect(labelsOf(result.current.draft.segments)).toEqual(["fuel", "reactors", "Context", "Bench"]);
+    expect(labelsOf(result.current.draft.segments)).toEqual(["fuel", "reactors", "Context", "ETFs", "Bench"]);
   });
 
   it("removeSegment is a no-op on a silent link — it and its names stay", () => {
@@ -222,7 +236,7 @@ describe("useChainDraft — the segment mutators protect the pair", () => {
     const { result } = mount();
     act(() => result.current.removeSegment("reactors"));
     expect(result.current.draft.basket[0].segment).toBeNull();
-    expect(labelsOf(result.current.draft.segments)).toEqual(["fuel", "Context", "Bench"]);
+    expect(labelsOf(result.current.draft.segments)).toEqual(["fuel", "Context", "ETFs", "Bench"]);
   });
 });
 
@@ -240,7 +254,7 @@ describe("useChainDraft.loadDraft — the drafter never touches the pair", () =>
       ),
     );
     // the drafter's links adopted (a first draft) and the pair re-pinned last; Discovered keeps its place
-    expect(labelsOf(result.current.draft.segments)).toEqual([DISCOVERED, "reactors", "fuel", "Context", "Bench"]);
+    expect(labelsOf(result.current.draft.segments)).toEqual([DISCOVERED, "reactors", "fuel", "Context", "ETFs", "Bench"]);
     expect(rowsOf(result.current.draft.basket, "sid-smr")[0].segment).toBe("reactors");
     expect(rowsOf(result.current.draft.basket, "sid-leu")[0].segment).toBe("fuel");
   });
@@ -248,7 +262,7 @@ describe("useChainDraft.loadDraft — the drafter never touches the pair", () =>
   it("a flat thesis (NO segments at all) also takes the first draft, pair last", () => {
     const { result } = renderHook(() => useChainDraft(thesis([])));
     act(() => result.current.loadDraft(chain([{ sid: "sid-smr", ticker: "SMR", segment: "reactors" }])));
-    expect(labelsOf(result.current.draft.segments)).toEqual(["reactors", "Context", "Bench"]);
+    expect(labelsOf(result.current.draft.segments)).toEqual(["reactors", "Context", "ETFs", "Bench"]);
   });
 
   it("a re-draft over an ESTABLISHED chain keeps a Context name in Context and adds no reserved segment", () => {
@@ -280,8 +294,8 @@ describe("useChainDraft.loadDraft — the drafter never touches the pair", () =>
     expect(rowsOf(basket, "sid-new").map((m) => m.segment)).toEqual([DISCOVERED]);
     expect(rowsOf(basket, "sid-nw2").map((m) => m.segment)).toEqual([DISCOVERED]);
     // no reserved-labeled segment was added; Discovered lands BEFORE the pair
-    expect(labelsOf(segments)).toEqual(["reactors", "fuel", DISCOVERED, "Context", "Bench"]);
-    expect(segments.filter((s) => reservedLinkName(s.label)).length).toBe(2);
+    expect(labelsOf(segments)).toEqual(["reactors", "fuel", DISCOVERED, "Context", "ETFs", "Bench"]);
+    expect(segments.filter((s) => reservedLinkName(s.label)).length).toBe(3);
   });
 
   it("a FIRST draft never adopts a reserved-labeled drafter segment (any case) and reroutes its names to Discovered", () => {
@@ -298,7 +312,7 @@ describe("useChainDraft.loadDraft — the drafter never touches the pair", () =>
       ),
     );
     const { segments, basket } = result.current.draft;
-    expect(labelsOf(segments)).toEqual(["reactors", DISCOVERED, "Context", "Bench"]);
+    expect(labelsOf(segments)).toEqual(["reactors", DISCOVERED, "Context", "ETFs", "Bench"]);
     expect(rowsOf(basket, "sid-ctx").map((m) => m.segment)).toEqual([DISCOVERED]);
     expect(segments.find((s) => s.label === CONTEXT)?.descriptor).toBe(SILENT_DESCRIPTORS[CONTEXT]);
   });
@@ -311,7 +325,7 @@ describe("useChainDraft.loadDraft — the drafter never touches the pair", () =>
     act(() => result.current.loadDraft(chain([{ sid: "sid-oklo", ticker: "OKLO", segment: "reactors" }])));
     const { segments, basket } = result.current.draft;
     expect(rowsOf(basket, "sid-old").map((m) => m.segment)).toEqual([DISCOVERED]);
-    expect(labelsOf(segments)).toEqual(["reactors", "fuel", DISCOVERED, "Context", "Bench"]);
+    expect(labelsOf(segments)).toEqual(["reactors", "fuel", DISCOVERED, "Context", "ETFs", "Bench"]);
   });
 
   it("an UNESTABLISHED name already in Context (a restored session) is never re-rolled or parked", () => {
@@ -345,7 +359,7 @@ describe("useChainDraft — the add paths never put a name in a silent link", ()
       const { result } = mount();
       act(() => result.current.addMember(member({ ticker: "NEW", segment: reserved })));
       expect(rowsOf(result.current.draft.basket, "sid-new").map((m) => m.segment)).toEqual([DISCOVERED]);
-      expect(labelsOf(result.current.draft.segments)).toEqual(["reactors", DISCOVERED, "Context", "Bench"]);
+      expect(labelsOf(result.current.draft.segments)).toEqual(["reactors", DISCOVERED, "Context", "ETFs", "Bench"]);
     }
   });
 
@@ -354,7 +368,7 @@ describe("useChainDraft — the add paths never put a name in a silent link", ()
     act(() => result.current.addMember(member({ ticker: "A", segment: "reactors" })));
     act(() => result.current.addMember(member({ ticker: "B", segment: null })));
     expect(result.current.draft.basket.map((m) => m.segment)).toEqual(["reactors", null]);
-    expect(labelsOf(result.current.draft.segments)).toEqual(["reactors", "Context", "Bench"]);
+    expect(labelsOf(result.current.draft.segments)).toEqual(["reactors", "Context", "ETFs", "Bench"]);
   });
 
   it("addMemberRows: a multi-link pick with a reserved label collapses the pen row to ONE, real links kept", () => {
@@ -367,12 +381,120 @@ describe("useChainDraft — the add paths never put a name in a silent link", ()
       ]),
     );
     expect(rowsOf(result.current.draft.basket, "sid-new").map((m) => m.segment)).toEqual(["reactors", DISCOVERED]);
-    expect(labelsOf(result.current.draft.segments)).toEqual(["reactors", DISCOVERED, "Context", "Bench"]);
+    expect(labelsOf(result.current.draft.segments)).toEqual(["reactors", DISCOVERED, "Context", "ETFs", "Bench"]);
   });
 
   it("does not duplicate an existing pen", () => {
     const { result } = renderHook(() => useChainDraft(thesis([], [seg("reactors"), seg(DISCOVERED)])));
     act(() => result.current.addMember(member({ ticker: "NEW", segment: "Bench" })));
-    expect(labelsOf(result.current.draft.segments)).toEqual(["reactors", DISCOVERED, "Context", "Bench"]);
+    expect(labelsOf(result.current.draft.segments)).toEqual(["reactors", DISCOVERED, "Context", "ETFs", "Bench"]);
+  });
+
+  it("a model-proposed 'etfs' through addMember is filed to the pen too — only addFund files into ETFs", () => {
+    const { result } = mount();
+    act(() => result.current.addMember(member({ ticker: "NEW", segment: "etfs" })));
+    act(() => result.current.addMember(member({ ticker: "NW2", segment: ETFS })));
+    expect(rowsOf(result.current.draft.basket, "sid-new").map((m) => m.segment)).toEqual([DISCOVERED]);
+    expect(rowsOf(result.current.draft.basket, "sid-nw2").map((m) => m.segment)).toEqual([DISCOVERED]);
+  });
+});
+
+// ETFs — the funds link. A fund's add (the "Surface an ETF" box, or a fund picked in "Add a name") is the one
+// operator add INTO a silent link: `addFund` files it in ETFs, one row per name, selected like any add, and
+// the row's own remove is its inverse (WB#1).
+describe("useChainDraft.addFund — a fund lands in ETFs", () => {
+  const mount = () => renderHook(() => useChainDraft(thesis([], [seg("reactors")])));
+
+  it("files the fund in ETFs whatever segment it arrived with, and adds no pen", () => {
+    const { result } = mount();
+    act(() => result.current.addFund(member({ ticker: "FNDA", segment: null })));
+    act(() => result.current.addFund(member({ ticker: "FNDB", segment: ETFS })));
+    expect(result.current.draft.basket.map((m) => [m.ticker, m.segment])).toEqual([
+      ["FNDA", ETFS],
+      ["FNDB", ETFS],
+    ]);
+    expect(labelsOf(result.current.draft.segments)).toEqual(["reactors", "Context", "ETFs", "Bench"]);
+    expect(result.current.isIncluded("sid-fnda")).toBe(true);
+  });
+
+  it("is one row per name — a fund already on the card is a no-op", () => {
+    const { result } = mount();
+    act(() => result.current.addFund(member({ ticker: "FNDA" })));
+    const before = result.current.draft;
+    act(() => result.current.addFund(member({ ticker: "FNDA" })));
+    expect(result.current.draft).toBe(before);
+  });
+
+  it("removing the fund is its inverse — the row goes, ETFs stays", () => {
+    const { result } = mount();
+    act(() => result.current.addFund(member({ ticker: "FNDA" })));
+    act(() => result.current.removeMember("sid-fnda"));
+    expect(result.current.draft.basket).toEqual([]);
+    expect(labelsOf(result.current.draft.segments)).toEqual(["reactors", "Context", "ETFs", "Bench"]);
+  });
+
+  it("ETFs is pinned like the other two: no rename, no move, no remove, no link may take its name", () => {
+    const { result } = renderHook(() =>
+      useChainDraft(thesis([member({ ticker: "FNDA", segment: ETFS })], [seg("reactors"), seg("fuel")])),
+    );
+    const before = result.current.draft;
+    act(() => result.current.renameSegment(ETFS, "Funds"));
+    act(() => result.current.moveSegment(ETFS, -1));
+    act(() => result.current.removeSegment(ETFS));
+    act(() => result.current.addSegment(" etfs "));
+    act(() => result.current.renameSegment("fuel", "ETFS"));
+    expect(result.current.draft).toBe(before);
+  });
+
+  it("a session blob saved BEFORE the ETFs link is filed back: a fund the spine holds in ETFs restores there", () => {
+    const t = thesis(
+      [
+        member({ ticker: "OKLO", segment: "reactors" }),
+        member({ ticker: "FNDA", segment: ETFS, context_role: "benchmark" }), // the spine's role wins on restore
+      ],
+      [seg("reactors")],
+    );
+    const restored = {
+      draft: {
+        segments: [seg("reactors"), seg(DISCOVERED)],
+        basket: [
+          member({ ticker: "OKLO", segment: "reactors" }),
+          member({ ticker: "FNDA", segment: null, context_role: "benchmark" }), // the old no-link sleeve
+          member({ ticker: "FNDA", segment: DISCOVERED, context_role: "benchmark" }), // a stray second row
+          member({ ticker: "NEWCO", segment: null }), // not in the spine: never guessed at
+        ],
+      },
+      excluded: new Set<string>(),
+      reasons: new Map<string, string>(),
+      reasonsDirty: false,
+    };
+    const { result } = renderHook(() => useChainDraft(t, restored));
+    const { basket } = result.current.draft;
+    expect(rowsOf(basket, "sid-fnda").map((m) => [m.segment, m.context_role])).toEqual([[ETFS, "benchmark"]]);
+    expect(rowsOf(basket, "sid-oklo").map((m) => m.segment)).toEqual(["reactors"]);
+    expect(rowsOf(basket, "sid-newco").map((m) => m.segment)).toEqual([null]);
+  });
+
+  it("a re-draft never re-rolls a fund out of ETFs and never adopts a drafter 'ETFs' segment", () => {
+    const t = thesis(
+      [member({ ticker: "OKLO", segment: "reactors" }), member({ ticker: "FNDA", segment: ETFS })],
+      [seg("reactors"), ...PAIR],
+    );
+    const { result } = renderHook(() => useChainDraft(t));
+    act(() =>
+      result.current.loadDraft(
+        chain(
+          [
+            { sid: "sid-fnda", ticker: "FNDA", segment: "reactors" },
+            { sid: "sid-new", ticker: "NEW", segment: "ETFs" },
+          ],
+          [seg("reactors"), seg("ETFs")],
+        ),
+      ),
+    );
+    const { segments, basket } = result.current.draft;
+    expect(rowsOf(basket, "sid-fnda").map((m) => m.segment)).toEqual([ETFS]);
+    expect(rowsOf(basket, "sid-new").map((m) => m.segment)).toEqual([DISCOVERED]);
+    expect(segments.filter((s) => reservedLinkName(s.label)).length).toBe(3);
   });
 });

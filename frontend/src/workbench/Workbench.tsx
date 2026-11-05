@@ -38,6 +38,7 @@ import { ScoredRow } from "./ScoredRow";
 import { ThesisFields } from "./ThesisFields";
 import {
   DISCOVERED,
+  ETFS,
   SILENT_DESCRIPTORS,
   SILENT_LINKS,
   isSilentLink,
@@ -78,7 +79,7 @@ export function Workbench({ header, asof }: Props) {
   // `newLink` is the add-a-link input. Both reset per thesis (switchThesis) and on entering the editor.
   const [editLinks, setEditLinks] = useState(false);
   const [newLink, setNewLink] = useState("");
-  // the reserved name a link-rename was just refused for (Context / Bench) — shown as a short note so the
+  // the reserved name a link-rename was just refused for (Context / ETFs / Bench) — shown as a short note so the
   // input's silent revert is explained; cleared on the next edit / commit
   const [refusedName, setRefusedName] = useState<string | null>(null);
   // D — Save-Chain re-entry legibility: set when the editor exits via a successful Save, so the scored view
@@ -151,22 +152,26 @@ export function Workbench({ header, asof }: Props) {
   // (a cheap read-time join, no fetch; reflects the last saved state).
   const scoredById = Object.fromEntries(members.map((m) => [m.security_id, m]));
 
-  // The `fund` sleeves (ETF Sleeve, Slice 1) are the theme's low-torque EXPRESSION — semantically NOT a
-  // value-chain link (they carry segment: null), so they never belong to a segment tab and would be dropped
-  // by the segment filter below. Split them out: the value-chain view scores the equity `chainMembers`, and
-  // the sleeves render in their OWN always-visible section (with price). Display-only; a sleeve never touches
-  // the call path (#4/#6).
+  // The `fund` sleeves (ETF Sleeve, Slice 1) are the theme's low-torque EXPRESSION — every one sits in the
+  // fixed, silent ETFs link (the promote refuses a fund anywhere else), never in a value-chain link. Split
+  // them out: the value-chain view scores the equity `chainMembers`, and the funds render in their OWN
+  // always-visible ETFs section (with price) instead of an ETFs tab. Display-only; a fund in ETFs never
+  // touches the call path (#4/#6). (So `countFor` below never sees a fund: the ETFs tab stays hidden, and the
+  // link editor's ETFs count reads `placedCount`, which counts the funds too.)
   const sleeveMembers = members.filter((m) => m.instrument_kind === "etf");
   const chainMembers = members.filter((m) => m.instrument_kind !== "etf");
   // The seeded basket is FLAT until authored — when it has segments, names group under the selected
   // link; until then they render as one flat scored list so the meters always show.
   //
-  // The two SILENT links (Context / Bench) ride every thesis, so they never make a flat basket "grouped" on
+  // The SILENT links (Context / ETFs / Bench) ride every thesis, so they never make a flat basket "grouped" on
   // their own: `realSegments` is the chain minus them. A basket is grouped once it has a real link (or a
   // Discovered pen) — or once a name has been moved INTO a silent link (that name needs a tab to be seen on).
   const realSegments = segments.filter((s) => !isSilentLink(s.label));
   const countFor = (label: string) =>
     chainMembers.filter((m) => effectiveSegment(m, segments) === label).length;
+  // every name in a link, funds included — the link editor's count on the fixed silent links (ETFs holds funds)
+  const placedCount = (label: string) =>
+    members.filter((m) => effectiveSegment(m, segments) === label).length;
   const grouped =
     realSegments.length > 0 || SILENT_LINKS.some((label) => countFor(label) > 0);
   // Group by the EFFECTIVE segment (chain-editing Phase 1): a NULL or ORPHAN (label not in the chain)
@@ -181,7 +186,7 @@ export function Workbench({ header, asof }: Props) {
       ? [...realSegments, { label: DISCOVERED, descriptor: null }]
       : realSegments;
   // …then the silent links, LAST — and a silent tab renders only when it has names (honest loudness: an
-  // empty Context / Bench is true of nearly every thesis, so it says nothing; the editors always show both).
+  // empty silent link is true of nearly every thesis, so it says nothing; the editors always show them).
   const silentTabs = SILENT_LINKS.filter((label) => countFor(label) > 0).map((label) => ({
     label,
     descriptor: SILENT_DESCRIPTORS[label] as string | null,
@@ -231,7 +236,7 @@ export function Workbench({ header, asof }: Props) {
     [...shownMembers, ...sleeveMembers].find((m) => m.security_id === pickedMemberId) ??
     shownMembers[0] ??
     null;
-  // "across M links" counts the REAL links a name sits in — Context / Bench are the fixed silent pair, not
+  // "across M links" counts the REAL links a name sits in — the silent links are fixed, not
   // chain links, so a name moved into one must not make a flat basket read "across 1 link".
   const linkCount = new Set(members.map((m) => m.segment).filter((s) => s && !isSilentLink(s))).size;
   // the authorship seam: who placed each name (operator now; S5's drafter will add "drafted")
@@ -243,7 +248,7 @@ export function Workbench({ header, asof }: Props) {
   // memberships read from the SPINE (`thesis.basket`) and normalized through effectiveSegment (a NULL /
   // orphan label → Discovered → dropped), so an unsorted name reads as no checked links → the rail's
   // "Unsorted (Discovered)" line. Deduped: a name never shows the same link twice.
-  // The two silent links are NOT in `options`: the rail lists Context / Bench itself, always, under the real
+  // The silent links are NOT in `options`: the rail lists the ones a name may take itself, always, under the real
   // links — and `current` may carry one of them (effectiveSegment treats them as always known).
   const segmentOptions = segments
     .map((s) => s.label)
@@ -433,7 +438,7 @@ export function Workbench({ header, asof }: Props) {
   // use. Every mover + topology handler routes through it. Read from the SPINE (`thesis.basket`/
   // `thesis.segments`) — it carries the full BasketMembers (authored_by / signed_off / conviction /
   // surfaced_terms) the scored read does NOT. For a real link `segment` is display/structure, never a call input
-  // (#4): these edits touch labels + rows only, never verdict/grade/exit-by. The exception is Context / Bench:
+  // (#4): these edits touch labels + rows only, never verdict/grade/exit-by. The exception is the silent links:
   // a name moved into one leaves the call's inputs (the backend removes those rows at the call seam) — still
   // an operator placement, never a verdict. Reversible (WB#1): each checkbox is the other's inverse.
   const promoteChain = (next: { basket: BasketMember[]; segments: Segment[] }) => {
@@ -492,7 +497,7 @@ export function Workbench({ header, asof }: Props) {
   // blank/dup, so a stray submit is a harmless no-op.
   const commitAddLink = () => {
     const l = newLink.trim();
-    if (!l || reservedLinkName(l)) return; // Context / Bench are the fixed pair — no link may take the name
+    if (!l || reservedLinkName(l)) return; // the silent links are fixed — no link may take their names
     addLinkOnScore(l);
     setNewLink("");
   };
@@ -914,16 +919,17 @@ export function Workbench({ header, asof }: Props) {
                         </div>
                       ),
                     )}
-                    {/* Context / Bench — the two FIXED silent links, always last and read-only here (no
-                        rename, no ← →, no ✕): a name in either is on the card but never counts toward the
-                        call. Names enter and leave through the name's own links (the rail's checkboxes). */}
+                    {/* Context / ETFs / Bench — the FIXED silent links, always last and read-only here (no
+                        rename, no ← →, no ✕): a name in any of them is on the card but never counts toward
+                        the call. Names enter and leave through the name's own links (the rail's checkboxes);
+                        a fund enters ETFs when it is added. */}
                     {SILENT_LINKS.map((label) => (
                       <span
                         key={label}
                         className="seg-floor seg-silent"
                         title={SILENT_DESCRIPTORS[label]}
                       >
-                        {label} · {countFor(label)}
+                        {label} · {placedCount(label)}
                         <span className="seg-fixed">fixed</span>
                       </span>
                     ))}
@@ -1139,15 +1145,18 @@ export function Workbench({ header, asof }: Props) {
                 </section>
               )}
 
-              {/* ETF sleeves (ETF Sleeve) — the theme's low-torque expression, in their OWN group (not a
-                  value-chain segment) so a surfaced `fund` sleeve always renders with its price, whatever
-                  segment tab is active. Display-only: price is context, never a signal (#4/#6). Selecting a
-                  sleeve drives the DD rail (SleeveRail) — its N-PORT holdings + basket overlap show there. */}
+              {/* ETF sleeves (ETF Sleeve) — the theme's low-torque expression: the funds in the fixed, silent
+                  ETFs link, in their OWN group (not a value-chain segment tab) so a surfaced `fund` sleeve
+                  always renders with its price, whatever segment tab is active. Display-only: price is
+                  context, never a signal (#4/#6). Selecting a sleeve drives the DD rail (SleeveRail) — its
+                  N-PORT holdings + basket overlap show there. */}
               {sleeveMembers.length > 0 && (
                 <section className="sect wb-sleeves">
-                  <div className="sect-h">
+                  <div className="sect-h" title={SILENT_DESCRIPTORS[ETFS]}>
                     <span>ETF sleeve{sleeveMembers.length === 1 ? "" : "s"}</span>{" "}
-                    <em>— a low-torque expression of the theme; price is context, not a signal</em>
+                    <em>
+                      — in {ETFS}, a low-torque expression of the theme; price is context, not a signal
+                    </em>
                   </div>
                   {sleeveMembers.map((m) => (
                     <ScoredRow

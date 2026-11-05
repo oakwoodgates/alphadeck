@@ -3,6 +3,7 @@ import { useState } from "react";
 import type { BasketMember } from "../api/hooks";
 import { useIngestPrices, useResolveEtf } from "../api/hooks";
 import { errText } from "./format";
+import { ETFS } from "./useChainDraft";
 
 interface Props {
   existingKeys: Set<string>; // security_ids already in the basket (block a double-add)
@@ -12,7 +13,8 @@ interface Props {
 /** Surface an ETF as a low-torque `fund` sleeve (ETF Sleeve, Slice 1) — sits directly below `AddName`. The
  *  operator types a ticker (e.g. LIT); the server resolves it (lookup-or-create) and marks it
  *  instrument_kind='etf' — the sleeve's ONE marker (every sleeve surface keys on it; a fund has no SIC) —
- *  and we add it to the basket as a plain member, then pull its EOD price so the sleeve shows its price.
+ *  and we add it to the basket in the fixed ETFs link (a silent link: a fund never counts toward the call,
+ *  and the promote refuses a fund anywhere else), then pull its EOD price so the sleeve shows its price.
  *  Unlike AddName this needs NO prior master match — surfacing an ETF absent from the master is the whole
  *  point (hold the theme, skip picking names). The member + price machinery is reused, not rebuilt.
  *  Reversible like any member (interaction #1): the row's own remove is the inverse. */
@@ -34,7 +36,7 @@ export function SurfaceEtf({ existingKeys, onAdd }: Props) {
             ticker: match.ticker,
             role: "ETF sleeve",
             security_id: match.security_id,
-            segment: null,
+            segment: ETFS, // a fund's one link — never counts toward the call
             conviction: null,
             authored_by: "system_drafted", // no description typed — honestly a model draft (S1)
             signed_off: true, // surfacing the sleeve IS the endorsement (a hand-add — auto sign-off)

@@ -331,16 +331,36 @@ describe("resolveNameKey — ?name= back to the display row", () => {
   });
 });
 
-// --- the two SILENT links (Context / Bench): never a call bucket ----------------------------------------
-describe("groupBasket — Context and Bench buckets", () => {
-  it("the buckets run … Quiet, Context, Bench — the silent pair after the quietest call bucket", () => {
+// --- the three SILENT links (Context / ETFs / Bench): never a call bucket ---------------------------------
+describe("groupBasket — Context, ETFs and Bench buckets", () => {
+  it("the buckets run … Quiet, Context, ETFs, Bench — the silent links after the quietest call bucket", () => {
     expect(BUCKETS.map((b) => b.key)).toEqual([
-      "managing", "armed", "lapsing", "theme_armed", "warming", "watch", "quiet", "context", "bench",
+      "managing", "armed", "lapsing", "theme_armed", "warming", "watch", "quiet", "context", "etfs", "bench",
     ]);
-    expect(BUCKETS.slice(-2).map((b) => [b.label, b.hint])).toEqual([
-      ["Context", "never counts toward the call"],
-      ["Bench", "never counts toward the call"],
+    expect(BUCKETS.slice(-3).map((b) => [b.label, b.hint, b.cls])).toEqual([
+      ["Context", "never counts toward the call", "bkt-context"],
+      ["ETFs", "never counts toward the call", "bkt-etfs"],
+      ["Bench", "never counts toward the call", "bkt-bench"],
     ]);
+  });
+
+  it("a fund in ETFs files under its OWN bucket — never Context's or Bench's (the silent links are not a binary)", () => {
+    const basket = [
+      member("F", "sf", { segment: "ETFs" }),
+      member("C", "sc", { segment: "Context" }),
+      member("B", "sb", { segment: "Bench" }),
+      member("A", "sa"),
+    ];
+    const groups = groupBasket(basket, card(), []);
+    expect(keysOf(groups)).toEqual(["quiet", "context", "etfs", "bench"]);
+    expect(tickersIn(groups, "etfs")).toEqual(["F"]);
+    expect(tickersIn(groups, "context")).toEqual(["C"]);
+    expect(tickersIn(groups, "bench")).toEqual(["B"]);
+    expect(groups.find((g) => g.def.key === "etfs")?.rows[0].call).toBeNull();
+  });
+
+  it("an 'etfs' look-alike is an ordinary (Quiet) name — the match is exact", () => {
+    expect(keysOf(groupBasket([member("X", "sx", { segment: "etfs" })], card(), []))).toEqual(["quiet"]);
   });
 
   it("files a silent-link name under its link's bucket, after Quiet, instead of a call-derived one", () => {
@@ -428,7 +448,7 @@ describe("groupBasket — Context and Bench buckets", () => {
   });
 });
 
-describe("groupBySegment — Context and Bench are the last two groups", () => {
+describe("groupBySegment — Context, ETFs and Bench are the last groups", () => {
   const seg = (label: string, descriptor: string | null = null): Segment => ({ label, descriptor });
   const keys = (out: SegmentGroup[]) => out.map((g) => g.key);
 
@@ -436,25 +456,27 @@ describe("groupBySegment — Context and Bench are the last two groups", () => {
     const basket = [
       member("B", "sb", { segment: "Bench" }),
       member("A", "sa", { segment: "Clinics" }),
+      member("E", "se", { segment: "ETFs" }),
       member("C", "sc", { segment: "Context" }),
     ];
     const groups = groupBasket(basket, undefined, []);
     expect(keys(groupBySegment(groups, [seg("Bench"), seg("Clinics"), seg("Context")]))).toEqual([
-      "Clinics", "Context", "Bench",
+      "Clinics", "Context", "ETFs", "Bench",
     ]);
-    expect(keys(groupBySegment(groups, [seg("Clinics")]))).toEqual(["Clinics", "Context", "Bench"]);
+    expect(keys(groupBySegment(groups, [seg("Clinics")]))).toEqual(["Clinics", "Context", "ETFs", "Bench"]);
   });
 
-  it("comes after the unknown labels AND the Unsegmented tail — literally the last two", () => {
+  it("comes after the unknown labels AND the Unsegmented tail — literally the last three", () => {
     const basket = [
       member("C", "sc", { segment: "Context" }),
       member("R", "sr", { segment: "Rogue" }),
       member("U", "su"),
       member("A", "sa", { segment: "Clinics" }),
       member("B", "sb", { segment: "Bench" }),
+      member("E", "se", { segment: "ETFs" }),
     ];
     const out = groupBySegment(groupBasket(basket, undefined, []), [seg("Clinics")]);
-    expect(keys(out)).toEqual(["Clinics", "Rogue", UNSEGMENTED_KEY, "Context", "Bench"]);
+    expect(keys(out)).toEqual(["Clinics", "Rogue", UNSEGMENTED_KEY, "Context", "ETFs", "Bench"]);
   });
 
   it("carries the FIXED descriptors as the header hint, whatever the payload said", () => {

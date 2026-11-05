@@ -770,7 +770,7 @@ export function Cockpit({
                               <td className="tk">
                                 {r.member.ticker}
                                 {/* the business-type lens regroups by what a company DOES, which hides the silent
-                                    link a name sits in — so a Context / Bench name carries a small lowercase tag
+                                    link a name sits in — so a Context / ETFs / Bench name carries a small lowercase tag
                                     there (the other lenses name the link in the group header). Muted, no badge. */}
                                 {lensMode === "type" && isSilentLink(r.member.segment) && (
                                   <span

@@ -5,7 +5,15 @@ import type {
   ScoredMemberOut,
   Segment,
 } from "../api/hooks";
-import { BENCH, CONTEXT, SILENT_LINKS, isSilentLink, withSilentLinks } from "../workbench/useChainDraft";
+import {
+  BENCH,
+  CONTEXT,
+  ETFS,
+  SILENT_LINKS,
+  type SilentLink,
+  isSilentLink,
+  withSilentLinks,
+} from "../workbench/useChainDraft";
 
 /** The per-name buckets (strongest → weakest) — the Board's column idiom applied INSIDE a basket.
  *  Five are the spec'd member states; WARMING and QUIET are the coverage groups the wire forces:
@@ -14,9 +22,10 @@ import { BENCH, CONTEXT, SILENT_LINKS, isSilentLink, withSilentLinks } from "../
  *  dishonest. And every basket row must land somewhere (pruning hides, it never vanishes), so the
  *  remainder is QUIET, not absent. Display-only: the buckets re-read the call, never re-derive it.
  *
- *  CONTEXT and BENCH are the two SILENT value-chain links (fixed, last): a name the operator placed in
- *  either is on the card and visible but NEVER counts toward the call, so it files under its link's own
- *  bucket — after Quiet, the quietest place on the page — instead of a call-derived one. */
+ *  CONTEXT, ETFS and BENCH are the three SILENT value-chain links (fixed, last): a name the operator placed
+ *  in any of them is on the card and visible but NEVER counts toward the call, so it files under its link's
+ *  own bucket — after Quiet, the quietest place on the page — instead of a call-derived one. ETFs holds the
+ *  card's funds. */
 export type BucketKey =
   | "managing"
   | "armed"
@@ -26,7 +35,15 @@ export type BucketKey =
   | "watch"
   | "quiet"
   | "context"
+  | "etfs"
   | "bench";
+
+/** Each silent link's own bucket (one per link — never a binary). */
+const SILENT_BUCKET: Record<SilentLink, BucketKey> = {
+  [CONTEXT]: "context",
+  [ETFS]: "etfs",
+  [BENCH]: "bench",
+};
 
 export interface BucketDef {
   key: BucketKey;
@@ -57,8 +74,10 @@ export const BUCKETS: BucketDef[] = [
   { key: "warming", label: "Warming", hint: "conviction in · awaiting confirmation", cls: "bkt-warming" },
   { key: "watch", label: "Watch", hint: "moving · no conviction yet", cls: "bkt-watch" },
   { key: "quiet", label: "Quiet", hint: "no live signals", cls: "bkt-quiet" },
-  // the two silent links — AFTER Quiet, the same muted accent. A held (`managing`) name never lands here.
+  // the three silent links — AFTER Quiet, the same muted accent, in link order (Bench last). A held
+  // (`managing`) name never lands here.
   { key: "context", label: CONTEXT, hint: "never counts toward the call", cls: "bkt-context" },
+  { key: "etfs", label: ETFS, hint: "never counts toward the call", cls: "bkt-etfs" },
   { key: "bench", label: BENCH, hint: "never counts toward the call", cls: "bkt-bench" },
 ];
 
@@ -100,7 +119,7 @@ export interface BucketGroup {
  *
  *  Bucket precedence (mutually exclusive, evaluated in this order):
  *    verdict === "managing"  →  managing        (render-if-present; a held position never leaves the
- *                               top, even for a name sitting in Context / Bench)
+ *                               top, even for a name sitting in a silent link)
  *    in armed_members        →  lapsing if `lapsing` (the hold clock closing — the clock is the
  *                               urgent fact, so it wins over the theme flag, which stays visible
  *                               as a chip), else theme_armed
@@ -108,7 +127,7 @@ export interface BucketGroup {
  *    in watch_members        →  watch           (checked BEFORE the trigger join — a watch member's
  *                               breakout is itself in triggers_fired)
  *    ticker in triggers_fired →  warming        (conviction-only: live trigger, no member call)
- *    segment is Context/Bench →  context / bench (the operator's silent links — never a call bucket; the
+ *    segment is a silent link → context / etfs / bench (the operator's silent links — never a call bucket; the
  *                               row carries no member call: it does not count toward the call)
  *    otherwise               →  quiet
  *
@@ -151,7 +170,7 @@ export function groupBasket(
     else if (watch) bucket = "watch";
     else if (member.ticker && firedTickers.has(member.ticker)) bucket = "warming";
     // only a name the card has NOTHING on files under its silent link (see the precedence note above)
-    else if (isSilentLink(member.segment)) bucket = member.segment === CONTEXT ? "context" : "bench";
+    else if (isSilentLink(member.segment)) bucket = SILENT_BUCKET[member.segment];
     else bucket = "quiet";
     return {
       member,
@@ -257,8 +276,8 @@ export function groupByBusinessType(groups: BucketGroup[]): TypeGroup[] {
  *  authored `segments` order; a label present on a row but not in that list still renders (after the
  *  knowns — over-include, never a silent drop); empty links are omitted (a header over nothing is
  *  noise); the keep-visible "Unsegmented" tail collects the null/empty-segment rows (the
- *  business-type "Unclassified" mirror — #9, a name is never dropped). The two SILENT links (Context,
- *  Bench) are always the LAST two groups — after the unknown labels and the Unsegmented tail — whatever
+ *  business-type "Unclassified" mirror — #9, a name is never dropped). The three SILENT links (Context,
+ *  ETFs, Bench) are always the LAST groups — after the unknown labels and the Unsegmented tail — whatever
  *  order a payload's segments came in; empty ones are omitted like any other link. */
 export const UNSEGMENTED_KEY = "__unsegmented__";
 
@@ -283,7 +302,7 @@ export function groupBySegment(groups: BucketGroup[], segments: Segment[]): Segm
       by.set(key, list);
     }
   }
-  // Context / Bench are pinned last with their fixed descriptors (`withSilentLinks`), so they are taken out
+  // the silent links are pinned last with their fixed descriptors (`withSilentLinks`), so they are taken out
   // of the authored order here and appended after everything else below.
   const chain = withSilentLinks(segments);
   const descriptorByLabel = new Map(chain.map((s) => [s.label, s.descriptor ?? null]));

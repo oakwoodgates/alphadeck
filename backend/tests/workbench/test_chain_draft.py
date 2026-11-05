@@ -10,6 +10,8 @@ from __future__ import annotations
 import uuid
 from datetime import date
 
+import pytest
+
 from db.session import DEFAULT_TENANT_ID
 from ingest.edgar.fulltext import Filer
 from workbench.chain_draft import (
@@ -531,7 +533,27 @@ def test_prose_less_placement_resolves_with_empty_prose(db):
 
 
 def _reserved_label_text(label: str) -> bool:
-    return label.strip().casefold() in {"context", "bench"}
+    return label.strip().casefold() in {"context", "etfs", "bench"}
+
+
+@pytest.mark.parametrize("proposed", ["ETFs", "etfs", " ETFS "])
+def test_a_model_proposed_etfs_segment_is_rerouted_to_discovered_like_context(db, caplog, proposed):
+    """ETFs is the operator's funds link (a silent link): the draft never writes it. A model-proposed "ETFs"
+    (any case) is not emitted and its names land in Discovered, none dropped, the reroute WARNed."""
+    u = _universe(placed=[("0000000091", "QZRA", "Qzra Holdings"), ("0000000092", "QZRB", "Qzrb")])
+    segs = [
+        _seg(ProposedPlacement(name="Qzra Holdings", ticker="QZRA"), label="Developers"),
+        _seg(ProposedPlacement(name="Qzrb", ticker="QZRB"), label=proposed),
+    ]
+    with caplog.at_level("WARNING", logger="alphadeck.workbench"):
+        chain = resolve_discovered_chain(db, segs, u, tenant_id=DEFAULT_TENANT_ID)
+    assert [s.label for s in chain.segments] == ["Developers", "Discovered"]
+    assert {p.ticker: p.segment for p in chain.placements} == {
+        "QZRA": "Developers",
+        "QZRB": "Discovered",
+    }
+    warned = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert any("1 name(s)" in w and "reserved" in w for w in warned)
 
 
 def test_reserved_segments_are_rerouted_to_discovered_and_no_name_is_dropped(db, caplog):

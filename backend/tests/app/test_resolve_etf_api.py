@@ -35,7 +35,8 @@ def _count(db, ticker):
         return cur.fetchone()["n"]
 
 
-def _promote_fund_sleeve(client, security_id, ticker):
+def _promote_fund_sleeve(client, security_id, ticker, segment="ETFs"):
+    """Promote the surfaced fund the way the FE's "Surface an ETF" adds it: into the fixed ETFs link."""
     return client.post(
         "/workbench/theses",
         json={
@@ -48,7 +49,7 @@ def _promote_fund_sleeve(client, security_id, ticker):
                     "ticker": ticker,
                     "role": "ETF sleeve",
                     "security_id": str(security_id),
-                    "segment": None,
+                    "segment": segment,
                     "authored_by": "operator_set",
                 }
             ],
@@ -89,6 +90,12 @@ def test_resolve_etf_present_row_promotes_as_fund_sleeve(client, db):
     assert (
         detail["basket"][0]["ticker"] == "GLD"
     )  # the sleeve member persisted under the thesis (its marker is the master's instrument_kind)
+    assert detail["basket"][0]["segment"] == "ETFs"  # in the fixed funds link: it never votes
+
+    # the marked row is a fund now, so the old "no link" placement is refused (funds go in ETFs)
+    unplaced = _promote_fund_sleeve(client, sid, "GLD", segment=None)
+    assert unplaced.status_code == 422
+    assert unplaced.json()["detail"].startswith("GLD is a fund but is in no link")
 
 
 def test_resolve_etf_creates_null_cik_row_and_promotes(client, db, monkeypatch):
@@ -121,6 +128,7 @@ def test_resolve_etf_creates_null_cik_row_and_promotes(client, db, monkeypatch):
     assert (
         detail["basket"][0]["ticker"] == "URA"
     )  # persisted; the etf marker lives on the master row
+    assert detail["basket"][0]["segment"] == "ETFs"
 
 
 def test_resolve_etf_blank_ticker_is_422(client):

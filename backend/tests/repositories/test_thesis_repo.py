@@ -13,6 +13,7 @@ from domain.enums import Authorship, ContextRole, TermTier
 from domain.thesis import (
     BENCH_DESCRIPTOR,
     CONTEXT_DESCRIPTOR,
+    ETFS_DESCRIPTOR,
     BasketMember,
     Catalyst,
     Evidence,
@@ -73,7 +74,7 @@ def _thesis(security_id) -> Thesis:
 
 
 def _hydrated(t: Thesis) -> Thesis:
-    """What a load returns for ``t``: the same thesis with the two fixed links (Context, Bench) appended last
+    """What a load returns for ``t``: the same thesis with the fixed links (Context, ETFs, Bench) appended last
     — they are added on every read, so a stored thesis never has to carry them."""
     return t.model_copy(update={"segments": with_silent_links(t.segments)})
 
@@ -117,7 +118,11 @@ def test_chain_structure_survives_reload(db, security_id):
         ("Telehealth platforms", "catalyst-rich"),
         ("Compounding / supply", None),
     ]
-    assert [s.label for s in got.segments[2:]] == ["Context", "Bench"]  # the fixed links, last
+    assert [s.label for s in got.segments[2:]] == [
+        "Context",
+        "ETFs",
+        "Bench",
+    ]  # the fixed links, last
     assert got.basket[0].segment == "Telehealth platforms"
     assert (
         got.basket[0].thesis_fit == "the leading US telehealth platform"
@@ -178,6 +183,7 @@ def test_set_term_set_touches_only_the_term_set(db, security_id):
         "Telehealth platforms",
         "Compounding / supply",
         "Context",
+        "ETFs",
         "Bench",
     ]
     assert len(got.basket) == 1 and got.basket[0].ticker == "HIMS"
@@ -249,7 +255,7 @@ def test_upsert_updates_mutable_fields_and_is_idempotent(db, security_id):
     assert got.position is not None and got.position.opened_on == date(2026, 6, 2)
     assert got.position.entry_price == 24.0
     # the edited chain round-trips: re-labeled segment, re-placed name, edited authorship
-    assert [s.label for s in got.segments] == ["Reactor developers", "Context", "Bench"]
+    assert [s.label for s in got.segments] == ["Reactor developers", "Context", "ETFs", "Bench"]
     assert got.basket[0].segment == "Reactor developers"
     assert got.basket[0].authored_by is Authorship.OPERATOR_EDITED
     # idempotent: children edited in place by the DELETE-reinsert, never duplicated
@@ -698,8 +704,8 @@ def test_deploy_seed_covers_a_snapshotless_thesis(db, security_id):
 def test_a_thesis_stored_without_the_fixed_links_reads_back_with_both_appended_last(
     db, security_id
 ):
-    """Context and Bench are added on EVERY load, so a thesis stored before they existed (its ``segments``
-    column holds neither) needs no data migration: ``get``, ``get_asof`` and ``list_all`` all return both,
+    """Context, ETFs and Bench are added on EVERY load, so a thesis stored before they existed (its ``segments``
+    column holds none) needs no data migration: ``get``, ``get_asof`` and ``list_all`` all return them,
     last, with the fixed descriptors — and the stored column is never rewritten by a read."""
     t = _thesis(security_id)
     thesis_repo.upsert(db, t)
@@ -713,6 +719,7 @@ def test_a_thesis_stored_without_the_fixed_links_reads_back_with_both_appended_l
         ("Telehealth platforms", "catalyst-rich"),
         ("Compounding / supply", None),
         ("Context", CONTEXT_DESCRIPTOR),
+        ("ETFs", ETFS_DESCRIPTOR),
         ("Bench", BENCH_DESCRIPTOR),
     ]
     got = thesis_repo.get(db, t.id)
@@ -736,6 +743,7 @@ def test_upserting_a_hydrated_thesis_stores_each_fixed_link_once(db, security_id
         "Telehealth platforms",
         "Compounding / supply",
         "Context",
+        "ETFs",
         "Bench",
     ]
 

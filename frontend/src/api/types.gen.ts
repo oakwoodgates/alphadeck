@@ -326,9 +326,11 @@ export interface paths {
          *     never ambient). WRITES the master row (an operational universe write — no thesis spine, no fact, no number,
          *     #3); the operator's promote stays the only spine writer.
          *
-         *     NO CALL-PATH TOUCH (#4/#6): the sleeve is an EXPRESSION. ``instrument_kind`` is identity — it never fires,
-         *     warms, arms, grades, or vetoes; the events-keyed assembler makes a ``fund`` (which fires nothing) a no-op
-         *     for free, so no gate is needed in ``calls/``. NO LLM (#3): a deterministic resolve on a declared ticker.
+         *     NO CALL-PATH TOUCH (#4/#6): the sleeve is an EXPRESSION. ``instrument_kind`` is identity, and the FE adds
+         *     the fund into the card's fixed ETFs link — a silent link, so the fund never fires, warms, arms, grades,
+         *     vetoes, leads a laggard or receives the theme broadcast (``domain.thesis.voting_thesis`` removes it at the
+         *     call seam; a fund's own price breakout WOULD vote from any other link, which is why the promote refuses a
+         *     fund anywhere but ETFs). NO LLM (#3): a deterministic resolve on a declared ticker.
          */
         post: operations["resolve_etf_workbench_securities_resolve_etf_post"];
         delete?: never;
@@ -544,15 +546,20 @@ export interface paths {
          *     the basket stores the instrument the operator actually trades; the response carries the canonical
          *     ticker.
          *
-         *     THE TWO FIXED LINKS (Context and Bench): every saved thesis carries both as its LAST two links, whatever
-         *     the payload sent. The write drops any segment named "Context" or "Bench" in any case (a missing,
-         *     mid-list, lowercased or wrongly described one is replaced, never a 422) and appends the two with their
-         *     fixed descriptors; a member placed in either one is canonicalized to the exact spelling. A company is
-         *     EITHER silent (Context or Bench) OR in the chain, never both: a company holding a Context / Bench row
-         *     and any other row (a real link, Discovered, none, or the other silent link) is refused with a 422 naming
+         *     THE THREE FIXED LINKS (Context, ETFs and Bench): every saved thesis carries all three as its LAST three
+         *     links, whatever the payload sent. The write drops any segment named "Context", "ETFs" or "Bench" in any
+         *     case (a missing, mid-list, lowercased or wrongly described one is replaced, never a 422) and appends the
+         *     three with their fixed descriptors; a member placed in one is canonicalized to the exact spelling. A
+         *     company is EITHER silent (Context, ETFs or Bench) OR in the chain, never both: a company holding a silent
+         *     row and any other row (a real link, Discovered, none, or another silent link) is refused with a 422 naming
          *     it, after the canonicalize and identity passes (sibling listings of one company merge there) and before
          *     anything is written — a row is never dropped silently. A silent name stays on the card but never counts
          *     toward the call (``domain.thesis.voting_thesis``).
+         *
+         *     FUNDS ONLY IN ETFs, AND EVERY FUND IN ETFs: a fund (a member whose master row is ``instrument_kind='etf'``)
+         *     in any other link or in none, a company that is not a fund in ETFs, and an ETFs row with no
+         *     ``security_id`` (nothing shows it is a fund) are each refused with a 422 naming them, after the same
+         *     passes and before anything is written — a row is never moved or dropped to make the rule hold.
          *
          *     THE CONTEXT ROLE (``context_role``, one of six, NULL = unset) is per company per card: it rides EVERY row
          *     of a company, identical. A company whose rows carry two DIFFERENT roles (sibling listings of one company

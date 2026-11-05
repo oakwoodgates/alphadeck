@@ -1,6 +1,6 @@
-"""Context and Bench through the REAL call seam (``pipeline.core.assemble_from_pit``) — no DB.
+"""Context, ETFs and Bench through the REAL call seam (``pipeline.core.assemble_from_pit``) — no DB.
 
-A company the operator puts in Context or Bench is on the card but never counts toward the call. These drive the
+A company the operator puts in Context, ETFs or Bench is on the card but never counts toward the call. These drive the
 real detectors, the theme broadcast, the rotation read, the split-night hold and ``assemble_call`` over an
 in-memory point-in-time view (the ``_FakePIT`` idiom of ``tests/replay/test_breakdown_dearm_replay.py``), and
 pin the contract the product rests on: a silent name's card is byte-identical to the card for the same thesis
@@ -164,7 +164,7 @@ def _sids_on(card: CallCard) -> set[UUID]:
     return out
 
 
-SILENT = pytest.mark.parametrize("silent", ["Context", "Bench"])
+SILENT = pytest.mark.parametrize("silent", ["Context", "ETFs", "Bench"])
 
 
 # --- non-vacuity: the fixtures DO move a card when the name votes ---------------------------------------
@@ -183,7 +183,7 @@ def test_non_vacuity_a_breakout_with_conviction_in_a_real_link_arms_the_card_on_
 
 @pytest.mark.parametrize("link", ["Discovered", None])
 def test_discovered_and_unplaced_names_still_count_toward_the_call(link):
-    """Only Context and Bench are silent. A name in Discovered (or in no link) votes exactly as it did."""
+    """Only Context, ETFs and Bench are silent. A name in Discovered (or in no link) votes exactly as it did."""
     card = _card((X, link), (Y, "Chain"))
     assert card.state is State.ARMED and card.armed_security_id == X
 
@@ -217,7 +217,7 @@ def test_a_silent_name_beside_a_voting_one_leaves_the_voting_names_call_untouche
 
 
 def test_a_thesis_of_only_silent_names_is_an_empty_call():
-    card = _card((X, "Context"), (L, "Bench"))
+    card = _card((X, "Context"), (L, "Bench"), (S, "ETFs"))
     empty = _card()
     assert card.model_dump() == empty.model_dump()
     assert card.state is State.INCUBATING and not _sids_on(card)
@@ -301,3 +301,86 @@ def test_the_seam_leaves_the_callers_thesis_untouched():
         "Context",
         "Chain",
     ]  # the silent row is still on the card
+
+
+# --- ETFs: a fund's own breakout never reaches the call ---------------------------------------------------
+#
+# A fund has no insider buys, no catalysts and no filings of its own, so its only way into the call is its
+# PRICE: a breakout that warms the card, leads the laggard read, or — on a card with a live theme conviction —
+# takes the broadcast and arms the card ON THE FUND. Each case below shows the fund DID reach the call from a
+# voting link (so the test proves the ETFs link matters) and that from ETFs the card is byte-identical to the
+# card for the same thesis without the fund.
+
+F = UUID(int=0xA6)  # a fund: a breakout tape, nothing else
+_TICKER[F] = "FNDX"
+_FUND_BARS = {**_BARS, F: _BREAKOUT}
+
+# A live, operator-ratified theme conviction on the thesis (the fact shape ``theme_conviction`` reads).
+_THEME_FACT = {
+    "valid_from": _d(255),
+    "label": "Theme conviction (test)",
+    "source": "ratified",
+    "source_ref": "https://example.test/theme-conviction",
+    "horizon_end": None,
+}
+
+
+class _ThemePit(_Pit):
+    """The same in-memory view with one live theme conviction ratified on the thesis."""
+
+    def theme_conviction_facts(self, thesis_id: UUID) -> list[dict]:
+        return [dict(_THEME_FACT)]
+
+
+def _fund_card(*members: tuple[UUID, str | None], theme: bool = False) -> CallCard:
+    pit = (_ThemePit if theme else _Pit)(_END, _FUND_BARS, _CATALYSTS)
+    return assemble_from_pit(pit, _thesis(*members), _END, DEFAULT_CONFIG)
+
+
+def test_non_vacuity_a_fund_in_a_voting_link_reaches_the_call_on_its_breakout():
+    voting = _fund_card((F, "Chain"), (Y, "Chain"))
+    without = _fund_card((Y, "Chain"))
+    assert F in _sids_on(voting)  # its breakout is on the card
+    assert any(t.security_id == F for t in voting.triggers_fired)
+    assert voting.model_dump() != without.model_dump()
+
+
+@pytest.mark.parametrize("link", ["Discovered", None])
+def test_non_vacuity_a_fund_with_no_link_or_in_discovered_votes_too(link):
+    """Where "Surface an ETF" used to put a fund (no link, the Discovered floor): it voted from there."""
+    assert F in _sids_on(_fund_card((F, link), (Y, "Chain")))
+
+
+def test_a_fund_in_etfs_leaves_the_card_byte_identical_to_the_card_without_it():
+    with_fund = _fund_card((F, "ETFs"), (Y, "Chain"))
+    without = _fund_card((Y, "Chain"))
+    assert with_fund.model_dump() == without.model_dump()
+    assert with_fund.model_dump_json() == without.model_dump_json()
+    assert F not in _sids_on(with_fund)
+    assert not any(_TICKER[F] in line for line in with_fund.missing)
+
+
+def test_non_vacuity_a_voting_fund_takes_the_theme_broadcast_and_arms_the_card_on_itself():
+    card = _fund_card((F, "Chain"), (Y, "Chain"), theme=True)
+    assert card.state is State.ARMED
+    assert card.armed_security_id == F
+    assert any(t.kind is Kind.THEME_CONVICTION and t.security_id == F for t in card.triggers_fired)
+
+
+def test_a_fund_in_etfs_never_takes_the_theme_broadcast():
+    with_fund = _fund_card((F, "ETFs"), (Y, "Chain"), theme=True)
+    without = _fund_card((Y, "Chain"), theme=True)
+    assert with_fund.model_dump() == without.model_dump()
+    assert with_fund.state is not State.ARMED and with_fund.armed_security_id is None
+    assert F not in _sids_on(with_fund)
+
+
+def test_non_vacuity_a_voting_fund_leads_the_laggard_read():
+    card = _fund_card((F, "Chain"), (V, "Chain"))
+    assert len(_laggard_labels(card)) == 1
+
+
+def test_a_fund_in_etfs_leads_nobody():
+    card = _fund_card((F, "ETFs"), (V, "Chain"))
+    assert _laggard_labels(card) == []
+    assert card.model_dump() == _fund_card((V, "Chain")).model_dump()

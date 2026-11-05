@@ -51,6 +51,8 @@ describe("SurfaceEtf — the surface-ETF flow", () => {
     const [member, name] = onAdd.mock.calls[0];
     expect(member.role).toBe("ETF sleeve"); // the sleeve marker is the master row's instrument_kind
     expect(member.security_id).toBe("s-lit");
+    // a fund lands in the fixed, silent ETFs link — never the Discovered floor, where it would vote
+    expect(member.segment).toBe("ETFs");
     // S1 honest authorship: a hand-add is auto-SIGNED-OFF (the surfacing IS the endorsement) but its
     // description honestly stays a model draft (nothing typed) — never the retired operator_set
     expect(member.authored_by).toBe("system_drafted");

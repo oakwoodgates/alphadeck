@@ -66,8 +66,10 @@ from domain.extraction import ExtractedFact, ExtractionResult, Tier
 from domain.market_time import serve_view
 from domain.settings import get_settings
 from domain.thesis import (
+    ETFS_LABEL,
     Thesis,
     context_role_conflicts,
+    fund_conflicts,
     reserved_label,
     silent_conflicts,
     with_inherited_context_roles,
@@ -211,7 +213,14 @@ def search_securities(
     # typing the ticker the operator remembers still finds the company
     matches = master.search(conn, q, tenant_id=tenant_id, limit=limit, include_former=True)
     return [
-        SecurityMatchOut(security_id=m.id, ticker=m.ticker, name=m.name, cik=m.cik) for m in matches
+        SecurityMatchOut(
+            security_id=m.id,
+            ticker=m.ticker,
+            name=m.name,
+            cik=m.cik,
+            instrument_kind=m.instrument_kind,  # what the row IS: the FE files a picked fund into ETFs
+        )
+        for m in matches
     ]
 
 
@@ -235,9 +244,11 @@ def resolve_etf(
     never ambient). WRITES the master row (an operational universe write — no thesis spine, no fact, no number,
     #3); the operator's promote stays the only spine writer.
 
-    NO CALL-PATH TOUCH (#4/#6): the sleeve is an EXPRESSION. ``instrument_kind`` is identity — it never fires,
-    warms, arms, grades, or vetoes; the events-keyed assembler makes a ``fund`` (which fires nothing) a no-op
-    for free, so no gate is needed in ``calls/``. NO LLM (#3): a deterministic resolve on a declared ticker.
+    NO CALL-PATH TOUCH (#4/#6): the sleeve is an EXPRESSION. ``instrument_kind`` is identity, and the FE adds
+    the fund into the card's fixed ETFs link — a silent link, so the fund never fires, warms, arms, grades,
+    vetoes, leads a laggard or receives the theme broadcast (``domain.thesis.voting_thesis`` removes it at the
+    call seam; a fund's own price breakout WOULD vote from any other link, which is why the promote refuses a
+    fund anywhere but ETFs). NO LLM (#3): a deterministic resolve on a declared ticker.
     """
     ticker = req.ticker.strip().upper()
     if not ticker:
@@ -740,6 +751,18 @@ def _kick_member_ingest(
         return None
 
 
+def _fund_ids(conn: psycopg.Connection, thesis: Thesis, tenant_id: UUID) -> set[UUID]:
+    """The basket's ``security_id``s whose master row is a fund (``instrument_kind='etf'``) — the lookup half
+    of the "funds only in ETFs" promote rule, one batch read (``master.get_many``, tenant-scoped).
+    """
+    ids = {m.security_id for m in thesis.basket if m.security_id is not None}
+    return {
+        sid
+        for sid, sec in master.get_many(conn, ids, tenant_id=tenant_id).items()
+        if sec.instrument_kind == InstrumentKind.ETF
+    }
+
+
 @router.post("/theses", response_model=PromoteOut)
 def promote(
     req: PromoteThesisRequest,
@@ -766,15 +789,20 @@ def promote(
     the basket stores the instrument the operator actually trades; the response carries the canonical
     ticker.
 
-    THE TWO FIXED LINKS (Context and Bench): every saved thesis carries both as its LAST two links, whatever
-    the payload sent. The write drops any segment named "Context" or "Bench" in any case (a missing,
-    mid-list, lowercased or wrongly described one is replaced, never a 422) and appends the two with their
-    fixed descriptors; a member placed in either one is canonicalized to the exact spelling. A company is
-    EITHER silent (Context or Bench) OR in the chain, never both: a company holding a Context / Bench row
-    and any other row (a real link, Discovered, none, or the other silent link) is refused with a 422 naming
+    THE THREE FIXED LINKS (Context, ETFs and Bench): every saved thesis carries all three as its LAST three
+    links, whatever the payload sent. The write drops any segment named "Context", "ETFs" or "Bench" in any
+    case (a missing, mid-list, lowercased or wrongly described one is replaced, never a 422) and appends the
+    three with their fixed descriptors; a member placed in one is canonicalized to the exact spelling. A
+    company is EITHER silent (Context, ETFs or Bench) OR in the chain, never both: a company holding a silent
+    row and any other row (a real link, Discovered, none, or another silent link) is refused with a 422 naming
     it, after the canonicalize and identity passes (sibling listings of one company merge there) and before
     anything is written — a row is never dropped silently. A silent name stays on the card but never counts
     toward the call (``domain.thesis.voting_thesis``).
+
+    FUNDS ONLY IN ETFs, AND EVERY FUND IN ETFs: a fund (a member whose master row is ``instrument_kind='etf'``)
+    in any other link or in none, a company that is not a fund in ETFs, and an ETFs row with no
+    ``security_id`` (nothing shows it is a fund) are each refused with a 422 naming them, after the same
+    passes and before anything is written — a row is never moved or dropped to make the rule hold.
 
     THE CONTEXT ROLE (``context_role``, one of six, NULL = unset) is per company per card: it rides EVERY row
     of a company, identical. A company whose rows carry two DIFFERENT roles (sibling listings of one company
@@ -791,9 +819,10 @@ def promote(
     cost); a brand-new thesis is all-new (the full starter-basket ingest); no new members → no job and
     ``ingest`` null. The job never blocks or fails the promote."""
     # THE FIXED LINKS, normalized BEFORE the Thesis is built (so the validator sees the final chain): the
-    # payload's own Context / Bench segments (any case, any position, any descriptor) are replaced by the two
-    # fixed ones appended last, and a member naming either in any case is respelled to the canonical label —
-    # a hand-typed "context" is the link, never a 422 for case. Discovered and the real links pass untouched.
+    # payload's own Context / ETFs / Bench segments (any case, any position, any descriptor) are replaced by
+    # the three fixed ones appended last, and a member naming one in any case is respelled to the canonical
+    # label — a hand-typed "context" is the link, never a 422 for case. Discovered and the real links pass
+    # untouched.
     segments = with_silent_links(req.segments)
     members = [
         (
@@ -926,8 +955,8 @@ def promote(
                 "security_id in identity_overrides to bind it deliberately (the override is logged)."
             ),
         )
-    # "SILENT OR VOTING, NEVER BOTH": a company in Context / Bench has exactly ONE row. Checked here — after
-    # canonicalize and the coherence pass, where sibling listings of one company have merged into one
+    # "SILENT OR VOTING, NEVER BOTH": a company in Context / ETFs / Bench has exactly ONE row. Checked here —
+    # after canonicalize and the coherence pass, where sibling listings of one company have merged into one
     # security_id — so the same company under two tickers cannot slip past as two. The operator's own
     # placement is never quietly rewritten (WB#1: no action strands or deletes); a conflict is refused whole
     # and NOTHING is written, naming each company so the fix is one move.
@@ -937,8 +966,22 @@ def promote(
             status_code=422,
             detail=(
                 "; ".join(conflicts)
-                + " — a company is either in Context or Bench, or in the chain, never both. "
+                + " — a company is either in Context, ETFs or Bench, or in the chain, never both. "
                 + ("Move it to one." if len(conflicts) == 1 else "Move each to one.")
+            ),
+        )
+    # FUNDS ONLY IN ETFs, AND EVERY FUND IN ETFs — keyed on the same final ids. A fund is a member whose
+    # master row is instrument_kind='etf' (the one marker every fund surface keys on); the master lookup
+    # happens HERE and the rule stays pure (``fund_conflicts``). Refused whole, NOTHING written, never a row
+    # moved for the operator (WB#1) — the fix is the operator's own move, named per company.
+    misplaced = fund_conflicts(thesis.basket, _fund_ids(conn, thesis, tenant_id))
+    if misplaced:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "; ".join(misplaced)
+                + f" — {ETFS_LABEL} holds funds only, and every fund goes in {ETFS_LABEL}. "
+                + ("Move it." if len(misplaced) == 1 else "Move each.")
             ),
         )
     # ONE CONTEXT ROLE PER COMPANY PER CARD: keyed on security_id like the check above, so it also runs

@@ -209,7 +209,7 @@ DIDN'T emit** to a synthetic "Discovered" segment, by its CIK. A name the organi
 to an eyeball among a plausible-looking many — is caught structurally. The organizer's mistakes cost segment
 arrangement, never a lost name. (#9 rule: a dropped name is a system failure.)
 
-**The draft never writes Context or Bench.** Those two fixed links are the operator's silent links — a name in
+**The draft never writes Context, ETFs or Bench.** Those three fixed links are the operator's silent links — a name in
 one never counts toward the call (`CALL_LOGIC.md` §1) — so only the operator may place one there. A segment the
 organizer proposes under a reserved label (any case) is **rerouted, not emitted**: its names, the CIK-matched
 and the off-universe ones alike, are filed under "Discovered" (where they still count and the operator can move
@@ -219,7 +219,7 @@ LLM prompt is unchanged; this is the deterministic layer holding the line.
 
 - *Enforced by:* `workbench/chain_draft.py` (`resolve_discovered_chain`; the dropped-CIK-surfaces test in
   `tests/app/test_workbench_api.py::test_draft_endpoint_dropped_discovered_name_surfaces`; the reroute tests in
-  `tests/workbench/test_chain_draft.py`, "Context / Bench").
+  `tests/workbench/test_chain_draft.py`, "Context / Bench" and the ETFs reroute).
 
 ### 5. Fail-open batched narration + matched-term provenance
 

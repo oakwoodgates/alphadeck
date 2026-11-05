@@ -397,8 +397,9 @@ def resolve_discovered_chain(
       recorded as EMITTED.
     - A placement that matches NO discovered CIK is a tail-sweep / off-universe name → the existing master
       resolver (``_resolve_one``: PLACED / AMBIGUOUS / ABSENT). The organizer never sources a number (#3).
-    - **The draft never writes Context or Bench.** Those two links are the OPERATOR's silent links (a name there
-      never counts toward the call, so only the operator may put one there). A segment the organizer proposes
+    - **The draft never writes Context, ETFs or Bench.** Those three links are the OPERATOR's silent links (a
+      name there never counts toward the call, so only the operator may put one there). A segment the organizer
+      proposes
       under a reserved label (any case) is not emitted; its names — the CIK-matched and the off-universe ones
       alike — are filed under 'Discovered' instead, where they still count and the operator can move them. No
       name is dropped (#9), the reroute is WARNed with its count (never silent), and the result carries at most
@@ -413,7 +414,9 @@ def resolve_discovered_chain(
     by_ticker, by_name = _discovered_lookup(universe)
     emitted: set[str] = set()
     placements: list[ResolvedPlacement] = []
-    rerouted = 0  # names the organizer filed under a reserved (Context / Bench) label -> Discovered
+    rerouted = (
+        0  # names the organizer filed under a reserved (Context / ETFs / Bench) label -> Discovered
+    )
     for s in segments:
         # The segment a name is FILED under: the organizer's own, except a reserved one (the operator's silent
         # links) which is never written by the draft — those names go to Discovered, none dropped (#9).
@@ -452,7 +455,7 @@ def resolve_discovered_chain(
             )
     if rerouted:
         _log.warning(
-            "decompose: the organizer proposed %d name(s) under a reserved Context/Bench segment — those "
+            "decompose: the organizer proposed %d name(s) under a reserved Context/ETFs/Bench segment — those "
             "links are the operator's alone, so the names were filed under %r instead (none dropped).",
             rerouted,
             _DISCOVERED_LABEL,
