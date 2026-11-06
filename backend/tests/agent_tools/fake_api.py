@@ -11,8 +11,10 @@ from urllib.parse import parse_qsl, urlsplit
 
 import httpx
 
+from tests.agent_tools import dashboard_fixtures as dfx
 from tests.agent_tools import fixtures as fx
 
+UNDATED = {"what-changed", "catalyst-calendar"}  # the two dashboards whose route takes no asof
 THESIS_ID = fx.uid("thesis", 0)
 SECURITY_ID = fx.uid("sec", "lookup")
 
@@ -44,6 +46,10 @@ class FakeApi:
         if path == f"/dashboards/ticker-lookup/{SECURITY_ID}":
             return 200, fx.ticker_lookup()
         parts = path.strip("/").split("/")
+        if parts[0] == "dashboards" and len(parts) == 2 and parts[1] in dfx.PAYLOADS:
+            if parts[1] not in UNDATED and "asof" not in query:
+                return 422, {"detail": "asof: Field required"}
+            return 200, dfx.PAYLOADS[parts[1]]()
         if parts[0] == "theses" and len(parts) >= 2:
             if parts[1] not in known:
                 return 404, {"detail": "thesis not found"}

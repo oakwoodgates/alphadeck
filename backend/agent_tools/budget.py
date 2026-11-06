@@ -44,9 +44,9 @@ class OutputTooLarge(Exception):
 
 
 def cut_text(text: str | None, limit: int) -> dict:
-    """A string cut by a view, with its full length beside it."""
+    """A string cut by a view, with its full length and whether it was cut beside it."""
     value = text or ""
-    return {"text": value[:limit], "total_chars": len(value)}
+    return {"text": value[:limit], "total_chars": len(value), "truncated": len(value) > limit}
 
 
 def _get_list(reply: dict, path: tuple[str, ...]) -> list:

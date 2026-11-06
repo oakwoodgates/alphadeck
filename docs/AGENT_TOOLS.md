@@ -1,6 +1,7 @@
 # Agent tools (the data-first MCP server)
 
-Status: Phase 1 built 2026-11-06 (the server and the MONITOR read tools). Stage: MONITOR.
+Status: Phase 1 built 2026-11-06 (the server and the MONITOR read tools); Phase 2 (dashboards as agent views)
+built 2026-11-06. Stage: MONITOR.
 Code: `backend/agent_tools/`. Legacy: the capture server in [`docs/MCP.md`](MCP.md) (`python -m agent_access`)
 stays beside it until Phase 4 retires it.
 
@@ -23,12 +24,12 @@ one size rule. The same views can later be mounted in the API (Phase 7) without 
 | Tool | Reads | Default reply | Budget |
 |---|---|---|---|
 | `get_clock()` | `/clock` | `current_night`, `action_day`, `market_today`, `market_tz` | 500 |
-| `list_theses(asof?, include_archived?, state?, detail?)` | `/theses?with_call=true&asof=` | `queue` = live armed cards whose record is dated `asof`, in `/theses` order (never sorted). `cards` is ordered QUEUE-FIRST: the queue cards in full, in queue order, each with the nightly RECORD in effect at `asof` (state, verdict, grades, setup strength, `exit_by`, `arm_until`, armed ticker, counts, `record_asof`) and `triggers` holding its record's first fired trigger (`ticker`, `kind`, `label`, `event_date`) plus `trigger_count`; then the other live cards briefly (`id`, `name`, `state`, `record_asof`) in `/theses` order; then the archived cards. Lean: `ticker` omitted when null, `archived` / `stale` / `reconstructed` when false, `basket_size` except with `detail=full` (every card in full; `state` filters) | 28,000, the one exception to the 8K rule: the page holds the whole queue in one read (`full`: 24,000) |
+| `list_theses(asof?, include_archived?, state?, detail?, limit?)` | `/theses?with_call=true&asof=` | `queue` = live armed cards whose record is dated `asof`, in `/theses` order (never sorted). `cards` is ordered QUEUE-FIRST: the queue cards in full, in queue order, each with the nightly RECORD in effect at `asof` (state, verdict, grades, setup strength, `exit_by`, `arm_until`, armed ticker, counts, `record_asof`) and `triggers` holding its record's first fired trigger (`ticker`, `kind`, `label`, `event_date`) plus `trigger_count`; then the other live cards briefly (`id`, `name`, `state`, `record_asof`) in `/theses` order; then the archived cards. Lean: `ticker` omitted when null, `archived` / `stale` / `reconstructed` when false, `basket_size` except with `detail=full` (every card in full; `state` filters). `limit` (1 to 100) caps how many queue cards come in full (queue order); the rest of the queue is listed briefly, `queue` and `counts` stay whole, and the reply is held to 8,000 (a 5-card review fits one page; the cards past it continue by `cursor`) | 28,000, the one exception to the 8K rule: the page holds the whole queue in one read (`full`: 24,000) |
 | `get_thesis(thesis, detail?)` | `/theses/{id}` | narrative (600 chars), links in link order (silent links last: they never count), each with its `member_count` and its members grouped under it (`cursor` counts members across the links in that order), catalysts, kill criteria, SIGNAL terms; `full` adds `thesis_fit`, `detail`, every term | 8,000 (`full`: 24,000) |
 | `get_call(thesis, asof?, section?)` | `/theses/{id}/call` | the call recomputed live: state, verdict, grades, keys, horizons, armed name, armed members (10), watch tickers, every fired trigger with its sources (no `detail`), missing, heads of `counter_case` and `expression`, risk signals counted by kind | 8,000 |
-| `get_call(..., detail="brief")` | same | the decision alone, for a pass over many cards: state, verdict, grades, setup strength, keys (turned only), horizons, armed name, each trigger as `{ticker, kind, label, grade, event_date, source_count}` (no sources), missing, risk signals by kind, `counter_case` length, catalyst count | 2,500 |
+| `get_call(..., detail="brief")` | same | the decision alone, for a pass over many cards: state, verdict, grades, setup strength, keys (turned only), horizons, armed name, each trigger as ONE line `TICKER kind grade event_date src=N label` (label cut at 40 characters, `...` marks a cut; no sources; a long list continues with `cursor`: a 42-trigger card shows 21), `missing` cut at 100 characters each (`{text, total_chars, truncated}`), risk signals by kind, `counter_case` length, catalyst count | 3,500 |
 | `get_call(..., section=...)` | same | `triggers` (with each source's computation), `risk_signals` (10 per page), `counter_case`, `members`, `expression` in full | 24,000 |
-| `get_data_flags(thesis?, asof?)` | `/theses/{id}/data-flags` or `/data-flags` | per flagged name: each flag's kind, label, level, reason, `clears` (what clears it), `since`, affects, `call_affected`; notes and splits counted; cross-card adds the cards holding it and `compute_s` (it is slow) | 8,000 |
+| `get_data_flags(thesis?, asof?)` | `/theses/{id}/data-flags` or `/data-flags` | per flagged name: each flag's kind, label, level, reason, `clears` (what clears it), `since`, affects, `call_affected`; notes and splits counted; cross-card adds the cards holding it and `compute_s` (it is slow). The API lists only names that carry a flag, a note or a split: `names_total` is its own count of the card's names, `listed` the rows it returned. Call it per card only when `get_call` reports missing conditions or `list_theses` shows `missing_count` above zero | 8,000 |
 | `get_display_signals(thesis, tickers?, asof?)` | `/theses/{id}/display-signals` | breadth and sector headlines; per member `{kind: {key, label}}`; with `tickers` (1 to 8) each signal's metrics | 8,000 |
 | `get_decisions(thesis)` | `/theses/{id}/decisions` | the operator's log, newest first, as the API gives it | 8,000 |
 | `lookup_ticker(t, asof?, section?)` | `/dashboards/ticker-lookup/resolve` then `/{security_id}` | identity, the cards it sits on (link, `context_role`, the record there), record triggers, tape figures, next 5 card catalysts, decisions, filings summary; `cache` / `compute_ms` pass through; `section=filings` = 25 rows a page | 8,000 |
@@ -39,8 +40,46 @@ derives a date). `thesis` takes a UUID or an exact name (case-insensitive). Ever
 `outputSchema`. Replies are compact JSON text plus `structuredContent`.
 
 Prompts: `board-review(asof?, max_items=5)` (list once, then `get_call detail=brief` for the first queue cards, flags only where due; the standard `get_call` is for depth on one card)
-and `explain-call(thesis, asof?)` (the call, its triggers and risk signals, the spine). Both keep the agent's
+`explain-call(thesis, asof?)` (the call, its triggers and risk signals, the spine) and `morning-brief(asof?)`
+(below). All keep the agent's
 own reading under a separate heading and say what was not read.
+
+## Dashboards (Phase 2)
+
+Two more tools make the eight MONITOR dashboards bounded, shaped reads over `GET /dashboards/<slug>` (a raw read is
+139K to 5.6 MB). They are display only, never a call input, and the API's row order is the UI's order: nothing here
+re-sorts, ranks or computes (views under `backend/agent_tools/views/dashboards/`, pure like the others).
+
+- `list_dashboards()`: the registry from code (no I/O, 2,894 characters MEASURED on the registry): per dashboard its
+  slug, purpose, whether it is dated, its settings with their allowed values and defaults, its sections and the
+  narrowing parameters it takes.
+- `read_dashboard(dashboard, asof?, section?, cursor?, thesis?, group?, since?, group_by?, include_silent?, rows?,
+  days?, role?)`: every reply is at most 8,000 characters and starts with the same header: `dashboard`, `asof` (null
+  for the two undated ones), `source: live`, the API's `clock`, `cache` and `compute_ms` where it gives them (a cold
+  read computes the dashboard in 5 to 45 s and says `cache: computed`), the effective `settings`, `coverage` (the
+  dashboard's own counts and caveats: flagged names, roster fallback, unrecorded cards, silent rows left out), the
+  `sections`, and `next_cursor` / `next_cursor_for` for the one list a reply pages.
+  A setting or narrowing the dashboard does not take, an `asof` on an undated dashboard, or an unknown section is
+  `invalid_arguments` naming what that dashboard takes (checked before any request).
+
+| Dashboard | Dated | Settings | Default reply (the paged list) | Sections | Narrows |
+|---|---|---|---|---|---|
+| `daily-digest` | yes | | counts, nights, forming, positions, then `last_night.cards` (paged) and the leading tape (3), insider (2) and due (4) rows with their totals | `last_night`, `tape`, `insider`, `due` | `thesis` (last night) |
+| `what-changed` | no | `since` (`last_night`, `7d`, `YYYY-MM-DD`) | `anchor` (latest, baseline), counts by section and change, `items` (paged) | `column_moves`, `keys`, `names`, `triggers`, `clocks`, `new_cards` | `thesis` |
+| `hot-board` | yes | `rows` (`armed`, `all`) | candidate counts, `rows` (paged; two triggers each, tape, cap) | `row` (a card's rows in full) | `thesis` |
+| `entry-windows` | yes | | `rows` (paged; clocks, member and catalyst counts) | `members`, `catalysts` (paged by card) | `thesis` |
+| `forming-quietly` | yes | | `rows` (paged; a digest of each card, not its 38K) | `names`, `risks`, `missing`, `watch`, `quiet`, `adoption` (each needs `thesis`) | `thesis` |
+| `catalyst-calendar` | no | | counts, a bucket index, `items` (one flat list, each with its `bucket`; the cursor crosses buckets) | `bucket` (with `group`), `passed`, `undated` | `thesis`, `group` (a bucket key) |
+| `rotation-map` | yes | `group_by` (`link`, `business_type`, `sector`, `card`), `include_silent` | SPY reference, `groups` (paged; window returns, SMA, RVOL, crosses, RS counts) | `members` (with `group`), `flagged` | `group` |
+| `trigger-log` | yes | `days` (30, 90, 180), `role` (`entry`, `risk`, `both`) | window, counts by kind and week, `rows` (paged) | `row` (a card's rows in full) | `thesis` |
+
+A row's strings are cut where a view says so; a cut string carries `<field>_total_chars` beside it. `thesis` takes
+an id or exact name; `group` a key from the default reply. The 5.6 MB trigger log is read whole and shaped without
+copying the row list.
+
+Prompt `morning-brief(asof?)`: `read_dashboard("what-changed")`, `read_dashboard("daily-digest", asof)`, the digest's
+`due` section only when the default cut the list, and at most one more call: at most 4 calls, and the test holds
+the plan to 32,000 characters (28,138 on the fixtures).
 
 ## The size rule
 

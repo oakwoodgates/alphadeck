@@ -35,6 +35,8 @@ TOOLS = {
     "get_display_signals",
     "get_decisions",
     "lookup_ticker",
+    "list_dashboards",
+    "read_dashboard",
 }
 BUDGETS = {
     "get_clock": 500,
@@ -45,6 +47,8 @@ BUDGETS = {
     "get_display_signals": 8_000,
     "get_decisions": 8_000,
     "lookup_ticker": 8_000,
+    "list_dashboards": 3_000,
+    "read_dashboard": 8_000,
 }
 DEFAULT_ARGS = {
     "get_clock": {},
@@ -55,6 +59,8 @@ DEFAULT_ARGS = {
     "get_display_signals": {"thesis": THESIS_ID},
     "get_decisions": {"thesis": THESIS_ID},
     "lookup_ticker": {"t": "tk01"},
+    "list_dashboards": {},
+    "read_dashboard": {"dashboard": "daily-digest"},
 }
 
 
@@ -80,7 +86,7 @@ def error_of(result) -> dict:
 # --- discovery ------------------------------------------------------------------------------------------------
 
 
-def test_tools_list_advertises_eight_read_only_tools_with_schemas_and_two_prompts():
+def test_tools_list_advertises_ten_read_only_tools_with_schemas_and_three_prompts():
     async def body(session):
         return await session.list_tools(), await session.list_prompts()
 
@@ -92,7 +98,7 @@ def test_tools_list_advertises_eight_read_only_tools_with_schemas_and_two_prompt
         assert a.read_only_hint is True and a.destructive_hint is False, t.name
         assert a.idempotent_hint is True and a.open_world_hint is False, t.name
         assert {"asof", "source"} <= set(t.output_schema["properties"]), t.name
-    assert {p.name for p in prompts.prompts} == {"board-review", "explain-call"}
+    assert {p.name for p in prompts.prompts} == {"board-review", "explain-call", "morning-brief"}
 
 
 # --- every tool's default reply ---------------------------------------------------------------------------------
@@ -163,7 +169,7 @@ def test_get_call_brief_through_the_server():
         return await session.call_tool("get_call", {"thesis": THESIS_ID, "detail": "brief"})
 
     result = run(None, body)
-    assert not result.is_error and len(result.content[0].text) <= 2_500
+    assert not result.is_error and len(result.content[0].text) <= 3_500
     assert result.structured_content["detail"] == "brief"
 
 
@@ -305,7 +311,7 @@ def test_prompts_render_within_their_size_and_carry_the_arguments():
     explain_text = explain.messages[0].content.text
     assert fx.ASOF in board_text and "first 3 queue ids" in board_text
     assert "Thesis 01" in explain_text and "current night" in explain_text
-    for name in ("board-review", "explain-call"):
+    for name in ("board-review", "explain-call", "morning-brief"):
         raw = (Path(server_mod.__file__).parent / "prompts" / f"{name}.md").read_text("utf-8")
         assert len(raw) <= 1_500, name
     assert len(board_text) <= 1_500 and len(explain_text) <= 1_500
@@ -344,9 +350,9 @@ def test_real_sdk_stdio_client_lists_tools_and_prompts_and_calls_over_loopback()
     with LoopbackServer(api) as fake:
         init, tools, prompts, clock, theses, bad = asyncio.run(go(fake.base))
     assert (init.server_info.name, init.server_info.version) == ("alphadeck", "2.0.0")
-    assert len(tools.tools) == 8
+    assert len(tools.tools) == 10
     assert all(t.annotations.read_only_hint and t.output_schema for t in tools.tools)
-    assert len(prompts.prompts) == 2
+    assert len(prompts.prompts) == 3
     assert clock.structured_content["current_night"] == fx.CLOCK["current_night"]
     assert theses.structured_content["queue"] == fx.queue_order()
     assert len(theses.content[0].text) <= 28_000

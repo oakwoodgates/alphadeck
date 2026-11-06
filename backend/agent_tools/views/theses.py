@@ -20,6 +20,7 @@ from ..budget import TrimRule, fit
 # the one exception to the 8K rule: the queue page must hold the whole Decision Queue in one read
 BUDGET_QUEUE = 28_000
 BUDGET_FULL = 24_000
+BUDGET_LIMITED = 8_000  # a short review (limit set): the rest of the cards continue by cursor
 NAME_LIMIT = 120
 QUEUE_TRIGGERS = 1
 STATES = ("armed", "warming", "incubating", "managing")
@@ -127,6 +128,7 @@ def view_list_theses(
     clock: dict[str, Any],
     detail: Detail = "queue",
     state: str | None = None,
+    limit: int | None = None,
     cursor: int = 0,
 ) -> dict[str, Any]:
     queue = queue_ids(theses, asof)
@@ -142,11 +144,17 @@ def view_list_theses(
         for t in queue_first(theses, queue)
         if state is None or (t.get("call") or {}).get("state") == state
     ]
+    # ``limit`` caps the cards shown in full (the first ones, in the order above); the rest are shown briefly.
+    # ``queue`` and ``counts`` stay whole either way.
+    full_ids: set[str] = set()
+    for t in listed:
+        if (detail == "full" or t["id"] in in_queue) and (limit is None or len(full_ids) < limit):
+            full_ids.add(t["id"])
     page = listed[cursor:]
     cards = [
         (
             _full(t, asof, detail=detail, queued=t["id"] in in_queue)
-            if detail == "full" or t["id"] in in_queue
+            if t["id"] in full_ids
             else _brief(t)
         )
         for t in page
@@ -160,10 +168,13 @@ def view_list_theses(
         },
         "detail": detail,
         "state_filter": state,
+        "limit": limit,
         "counts": counts,
         "queue": queue,
         "cards_listed": len(listed),
         "cards": cards,
     }
-    budget = BUDGET_FULL if detail == "full" else BUDGET_QUEUE
+    budget = (
+        BUDGET_LIMITED if limit is not None else BUDGET_FULL if detail == "full" else BUDGET_QUEUE
+    )
     return fit(reply, budget, [TrimRule(("cards",), min_keep=1, start=cursor)])

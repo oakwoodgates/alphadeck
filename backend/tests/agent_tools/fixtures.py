@@ -186,11 +186,13 @@ RISK_KINDS = (
 )
 
 
-def call_payload() -> dict[str, Any]:
-    """MEASURED: 58K total; risk_signals 45.7K for 25; counter_case 5.5K; triggers_fired 3.8K for 8."""
-    triggers = [
+def call_payload(*, triggers: int = 8, missing: tuple[int, ...] = (170, 180)) -> dict[str, Any]:
+    """MEASURED: 58K total; risk_signals 45.7K for 25; counter_case 5.5K; triggers_fired 3.8K for 8.
+    ``call_payload_many_triggers`` is the native retest's worst card (42 triggers, six long missing strings).
+    """
+    fired = [
         _trigger(i, "insider" if i % 2 else "technical_breakout", sources=1, detail_chars=95)
-        for i in range(8)
+        for i in range(triggers)
     ]
     risks = [
         _trigger(100 + i, kind, sources=3, detail_chars=365, label_chars=85)
@@ -242,15 +244,20 @@ def call_payload() -> dict[str, Any]:
         "confidence": 0.62,
         "key_conviction": {"turned": True, "label": "Conviction", "detail": text(64, 1)},
         "key_confirmation": {"turned": True, "label": "Confirmation", "detail": text(54, 2)},
-        "triggers_fired": triggers,
+        "triggers_fired": fired,
         "risk_signals": risks,
-        "missing": [text(170, 3), text(180, 4)],
+        "missing": [text(n, 3 + k) for k, n in enumerate(missing)],
         "counter_case": text(5_000, 5),
         "safe_sleeve": None,
         "armed_members": members,
         "watch_members": watch,
     }
     return _dump(CallCardResponse, payload)
+
+
+def call_payload_many_triggers() -> dict[str, Any]:
+    """The 2026-11-06 native retest's worst card: 42 triggers and six `missing` strings of about 160 chars."""
+    return call_payload(triggers=42, missing=(160, 158, 165, 162, 159, 161))
 
 
 # --- GET /theses/{id} -------------------------------------------------------------------------------------------
@@ -417,10 +424,11 @@ def data_flags_all() -> dict[str, Any]:
 
 def data_flags_one() -> dict[str, Any]:
     """MEASURED: 5.9K per thesis."""
-    members = [_flag_member(m, flagged=m in (3, 11, 19), cards=0) for m in range(28)]
+    # the API lists only the names that carry a flag (a note, a split): `names` counts all of the card's names
+    members = [_flag_member(m, flagged=True, cards=0) for m in (3, 11, 19)]
     return _dump(
         DataFlagsResponse,
-        {"thesis_id": uid("thesis", 0), "asof": ASOF, "names": 2, "members": members},
+        {"thesis_id": uid("thesis", 0), "asof": ASOF, "names": 28, "members": members},
     )
 
 

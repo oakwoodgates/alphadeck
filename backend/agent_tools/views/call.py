@@ -15,7 +15,9 @@ from typing import Any, Literal
 from ..budget import TrimRule, cut_text, fit
 
 BUDGET = 8_000
-BRIEF_BUDGET = 2_500
+BRIEF_BUDGET = 3_500
+BRIEF_MISSING_LIMIT = 100
+BRIEF_LABEL_LIMIT = 40
 SECTION_BUDGET = 24_000
 COUNTER_CASE_LIMIT = 600
 EXPRESSION_LIMIT = 300
@@ -51,6 +53,18 @@ def _trigger(t: dict[str, Any], *, with_detail: bool) -> dict[str, Any]:
         "event_date": t.get("event_date"),
         "sources": sources,
     }
+
+
+def _trigger_line(t: dict[str, Any]) -> str:
+    """One brief trigger as a line: ``TICKER kind grade event_date src=N label`` (label cut at 40 characters,
+    ``...`` marks a cut). A 42-trigger card must fit twenty of them in the brief; as objects only eight did.
+    """
+    label = t.get("label") or ""
+    cut = label[:BRIEF_LABEL_LIMIT] + ("..." if len(label) > BRIEF_LABEL_LIMIT else "")
+    return (
+        f"{t.get('ticker') or '-'} {t.get('kind')} {t.get('grade') or '-'} "
+        f"{t.get('event_date') or '-'} src={len(t.get('sources') or [])} {cut}"
+    )
 
 
 def _key(k: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -126,18 +140,8 @@ def _brief(call: dict[str, Any], reply: dict[str, Any], cursor: int) -> dict[str
             "arm_until": call.get("arm_until"),
             "armed": _armed(call),
             "triggers_fired_total": len(triggers),
-            "triggers_fired": [
-                {
-                    "ticker": t.get("ticker"),
-                    "kind": t.get("kind"),
-                    "label": t.get("label"),
-                    "grade": t.get("grade"),
-                    "event_date": t.get("event_date"),
-                    "source_count": len(t.get("sources") or []),
-                }
-                for t in triggers[cursor:]
-            ],
-            "missing": list(call.get("missing") or []),
+            "triggers_fired": [_trigger_line(t) for t in triggers[cursor:]],
+            "missing": [cut_text(m, BRIEF_MISSING_LIMIT) for m in call.get("missing") or []],
             "risk_signals": {"count": len(risks), "by_kind": _by_kind(risks)},
             "counter_case": {"total_chars": len(call.get("counter_case") or "")},
             "catalyst_surface_total": len(call.get("catalyst_surface") or []),
