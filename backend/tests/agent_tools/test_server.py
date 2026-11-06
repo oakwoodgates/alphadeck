@@ -86,7 +86,7 @@ def error_of(result) -> dict:
 # --- discovery ------------------------------------------------------------------------------------------------
 
 
-def test_tools_list_advertises_ten_read_only_tools_with_schemas_and_two_prompts():
+def test_tools_list_advertises_ten_read_only_tools_with_schemas_and_three_prompts():
     async def body(session):
         return await session.list_tools(), await session.list_prompts()
 
@@ -98,13 +98,13 @@ def test_tools_list_advertises_ten_read_only_tools_with_schemas_and_two_prompts(
         assert a.read_only_hint is True and a.destructive_hint is False, t.name
         assert a.idempotent_hint is True and a.open_world_hint is False, t.name
         assert {"asof", "source"} <= set(t.output_schema["properties"]), t.name
-    assert {p.name for p in prompts.prompts} == {"board-review", "explain-call"}
+    assert {p.name for p in prompts.prompts} == {"board-review", "explain-call", "morning-brief"}
 
 
 # --- every tool's default reply ---------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("tool", sorted(TOOLS - {"read_dashboard"}))
+@pytest.mark.parametrize("tool", sorted(TOOLS))
 def test_every_default_reply_is_compact_json_within_budget_with_asof_and_source(tool):
     api = FakeApi()
 
@@ -311,7 +311,7 @@ def test_prompts_render_within_their_size_and_carry_the_arguments():
     explain_text = explain.messages[0].content.text
     assert fx.ASOF in board_text and "first 3 queue ids" in board_text
     assert "Thesis 01" in explain_text and "current night" in explain_text
-    for name in ("board-review", "explain-call"):
+    for name in ("board-review", "explain-call", "morning-brief"):
         raw = (Path(server_mod.__file__).parent / "prompts" / f"{name}.md").read_text("utf-8")
         assert len(raw) <= 1_500, name
     assert len(board_text) <= 1_500 and len(explain_text) <= 1_500
@@ -352,7 +352,7 @@ def test_real_sdk_stdio_client_lists_tools_and_prompts_and_calls_over_loopback()
     assert (init.server_info.name, init.server_info.version) == ("alphadeck", "2.0.0")
     assert len(tools.tools) == 10
     assert all(t.annotations.read_only_hint and t.output_schema for t in tools.tools)
-    assert len(prompts.prompts) == 2
+    assert len(prompts.prompts) == 3
     assert clock.structured_content["current_night"] == fx.CLOCK["current_night"]
     assert theses.structured_content["queue"] == fx.queue_order()
     assert len(theses.content[0].text) <= 28_000

@@ -56,7 +56,7 @@ def check(
     since = given.get("since")
     if since is not None:
         ok = bool(_SINCE.match(since))
-        if ok and since[0].isdigit():
+        if ok and len(since) == 10:
             try:
                 date.fromisoformat(since)
             except ValueError:

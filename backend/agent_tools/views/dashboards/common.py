@@ -77,18 +77,20 @@ def _name_list(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "count": len(rows),
         "reasons": [
-            {"ticker": r.get("ticker"), "reason": cut_text(r.get("reason"), 160)["text"]}
+            {"ticker": r.get("ticker"), "reason": cut_text(r.get("reason"), 60)["text"]}
             for r in rows[:REASONS_SHOWN]
         ],
     }
 
 
-def coverage(payload: dict[str, Any], extra: dict[str, Any] | None = None) -> dict[str, Any]:
+def coverage(
+    payload: dict[str, Any], extra: dict[str, Any] | None = None, skip: tuple[str, ...] = ()
+) -> dict[str, Any]:
     """The dashboard's own counts and caveats: every count field it carries, ``flagged`` as a count with the first
     five reasons, and any list-valued caveat (``unpriced``) as a count. Small by construction."""
     out: dict[str, Any] = {}
     for key in COVERAGE_KEYS:
-        if key not in payload:
+        if key not in payload or key in skip:
             continue
         value = payload[key]
         out[key] = {"count": len(value)} if isinstance(value, list) else value

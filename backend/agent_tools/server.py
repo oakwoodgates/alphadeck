@@ -552,6 +552,14 @@ def build_server(client: ApiClient, *, trace: bool = False) -> AlphaDeckServer:
             "{{asof}}", asof or "the current night (omit asof)"
         )
 
+    @server.prompt(
+        name="morning-brief",
+        description="The morning read from the dashboards: what changed, what is due, what is hot or forming.",
+    )
+    def morning_brief(asof: str | None = None) -> str:
+        text = _prompt_text("morning-brief")
+        return text.replace("{{asof}}", asof or "the current night (omit asof)")
+
     return server
 
 
