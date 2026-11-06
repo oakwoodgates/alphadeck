@@ -94,7 +94,7 @@ def view_thesis(
         "ticker": detail.get("ticker"),
         "archived": archived,
         "narrative": (
-            {"text": narrative, "total_chars": len(narrative)}
+            {"text": narrative, "total_chars": len(narrative), "truncated": False}
             if full
             else cut_text(narrative, NARRATIVE_LIMIT)
         ),

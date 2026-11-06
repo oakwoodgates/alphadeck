@@ -172,6 +172,23 @@ def test_list_theses_queue_cards_carry_the_full_record_and_the_rest_are_brief():
     assert list(by_id)[-2:] == [fx.uid("thesis", 66), fx.uid("thesis", 67)]  # archived last
 
 
+def test_list_theses_limit_caps_the_queue_cards_in_full_and_keeps_queue_and_counts_whole():
+    theses = fx.theses_list()
+    whole = theses_view.view_list_theses(theses, asof=fx.ASOF, clock=fx.CLOCK)
+    reply = theses_view.view_list_theses(theses, asof=fx.ASOF, clock=fx.CLOCK, limit=5)
+    assert size(reply) <= theses_view.BUDGET_LIMITED == 8_000
+    assert reply["queue"] == whole["queue"] == fx.queue_order()
+    assert reply["counts"] == whole["counts"] and reply["limit"] == 5
+    queue = reply["queue"]
+    full = [c for c in reply["cards"] if "verdict" in c]
+    assert [c["id"] for c in full] == queue[:5]
+    shown = [c["id"] for c in reply["cards"]]
+    assert (
+        shown == fx.queue_first_order()[: len(shown)] and len(shown) > 5
+    )  # the queue, briefly after 5
+    assert reply["next_cursor_for"] == "cards"  # the cards past the 8K page continue by cursor
+
+
 def test_list_theses_names_are_cut_only_past_120_characters():
     theses = fx.theses_list()
     theses[0] = {**theses[0], "name": "N" * 119}
@@ -240,6 +257,7 @@ def test_get_thesis_summary_fits_and_groups_members_in_link_order_with_silent_li
     for m in detail["basket"]:
         assert m["ticker"] in by_link[m["segment"]]
     assert reply["narrative"]["total_chars"] == 1_200 and len(reply["narrative"]["text"]) == 600
+    assert reply["narrative"]["truncated"] is True
     assert reply["term_set"] == {
         "signal": [f"synthetic term {k:02d}" for k in range(6)],
         "broad_count": 4,
@@ -288,34 +306,51 @@ def test_get_call_default_fits_and_copies_the_decision_fields():
         "by_kind": {"breakdown": 12, "corporate_risk": 5, "dilution_risk": 5, "insider_sell": 3},
     }
     assert reply["counter_case"]["total_chars"] == 5_000
+    assert reply["counter_case"]["truncated"] is True and len(reply["counter_case"]["text"]) == 600
     assert reply["watch_members"] == ["TK27"]
     assert len(reply["triggers_fired"]) == 8 and reply["next_cursor"] is None
     for t in reply["triggers_fired"]:
         assert t["sources"] and all("detail" not in s for s in t["sources"])
 
 
+def test_get_call_brief_holds_twenty_triggers_of_a_42_trigger_card_and_continues_by_cursor():
+    call = fx.call_payload_many_triggers()
+    assert len(call["triggers_fired"]) == 42 and len(call["missing"]) == 6
+    reply = call_view.view_call(call, asof=fx.ASOF, thesis=THESIS, detail="brief")
+    assert size(reply) <= call_view.BRIEF_BUDGET
+    assert len(reply["triggers_fired"]) >= 20 and reply["triggers_fired_total"] == 42
+    assert all(m["total_chars"] > 100 and m["truncated"] for m in reply["missing"])
+    assert reply["next_cursor_for"] == "triggers_fired"
+    seen, cursor = 0, 0
+    while cursor is not None:
+        page = call_view.view_call(call, asof=fx.ASOF, thesis=THESIS, detail="brief", cursor=cursor)
+        assert size(page) <= call_view.BRIEF_BUDGET
+        seen += len(page["triggers_fired"])
+        cursor = page["next_cursor"]
+    assert seen == 42
+
+
 def test_get_call_brief_is_the_decision_alone_within_its_budget():
     call = fx.call_payload()
     reply = call_view.view_call(call, asof=fx.ASOF, thesis=THESIS, detail="brief")
-    assert size(reply) <= call_view.BRIEF_BUDGET == 2_500
+    assert size(reply) <= call_view.BRIEF_BUDGET == 3_500
     assert reply["detail"] == "brief" and reply["asof"] == fx.ASOF and reply["source"] == "live"
     assert (reply["state"], reply["verdict"]) == (call["state"], call["verdict"])
     assert reply["keys"] == {"conviction": {"turned": True}, "confirmation": {"turned": True}}
     assert reply["counter_case"] == {"total_chars": 5_000}
     assert reply["catalyst_surface_total"] == 14
     assert reply["risk_signals"]["count"] == 25
-    assert reply["missing"] == call["missing"]
+    assert reply["missing"] == [
+        {"text": m[:100], "total_chars": len(m), "truncated": len(m) > 100} for m in call["missing"]
+    ]
     shown = reply["triggers_fired"]
-    assert reply["triggers_fired_total"] == 8
+    assert reply["triggers_fired_total"] == 8 and len(shown) == 8  # all 8 fit on the standard card
     for got, want in zip(shown, call["triggers_fired"]):
-        assert got == {
-            "ticker": want["ticker"],
-            "kind": want["kind"],
-            "label": want["label"],
-            "grade": want["grade"],
-            "event_date": want["event_date"],
-            "source_count": len(want["sources"]),
-        }
+        cut = want["label"][:40] + ("..." if len(want["label"]) > 40 else "")
+        assert got == (
+            f"{want['ticker']} {want['kind']} {want['grade'] or '-'} {want['event_date']} "
+            f"src={len(want['sources'])} {cut}"
+        )
     if reply["next_cursor"] is not None:  # the cursor continues the brief trigger list
         rest = call_view.view_call(
             call, asof=fx.ASOF, thesis=THESIS, detail="brief", cursor=reply["next_cursor"]
@@ -368,10 +403,11 @@ def test_get_call_prose_sections_return_the_whole_string(section, key):
 # --- get_data_flags -------------------------------------------------------------------------------------------
 
 
-def test_get_data_flags_per_thesis_fits_and_counts_the_clean_members():
+def test_get_data_flags_per_thesis_reports_the_names_total_and_the_rows_listed():
     reply = flags_view.view_data_flags(fx.data_flags_one(), asof=fx.ASOF, thesis=THESIS)
     assert size(reply) <= flags_view.BUDGET
-    assert reply["members_total"] == 28 and reply["members_clean"] == 25
+    assert reply["names_total"] == 28 and reply["listed"] == 3
+    assert "members_clean" not in reply and "members_total" not in reply
     assert [m["ticker"] for m in reply["members"]] == ["TK03", "TK11", "TK19"]
     flag = reply["members"][0]["flags"][0]
     assert set(flag) == {

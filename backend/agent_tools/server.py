@@ -229,13 +229,23 @@ def build_server(client: ApiClient, *, trace: bool = False) -> AlphaDeckServer:
         "the nightly record; get_call recomputes live. cards are ordered queue-first: the queue cards in "
         "full (queue order, each with its record's first fired trigger and trigger_count), then the other live "
         "cards briefly (list order), then archived cards. detail=full gives every card in full (state "
-        "filters). Omitted keys: ticker when null; archived, stale, reconstructed when false.",
+        "filters). limit (1 to 100) caps how many queue cards come in full (queue order); the rest of the "
+        "queue is listed briefly and queue and counts stay whole: use it for a short review. Omitted keys: "
+        "ticker when null; archived, stale, reconstructed when false.",
     )
     async def list_theses(
         asof: AsofArg = None,
         include_archived: bool = False,
         state: Literal["armed", "warming", "incubating", "managing"] | None = None,
         detail: Literal["queue", "full"] = "queue",
+        limit: Annotated[
+            int | None,
+            Field(
+                description="At most this many cards in full (1 to 100); omitted = all.",
+                ge=1,
+                le=100,
+            ),
+        ] = None,
         cursor: CursorArg = 0,
     ) -> Annotated[types.CallToolResult, ThesesReply]:
         night, clock = await resolve_asof(client, asof)
@@ -246,7 +256,13 @@ def build_server(client: ApiClient, *, trace: bool = False) -> AlphaDeckServer:
         )
         return _result(
             view_list_theses(
-                theses, asof=night, clock=clock, detail=detail, state=state, cursor=cursor
+                theses,
+                asof=night,
+                clock=clock,
+                detail=detail,
+                state=state,
+                limit=limit,
+                cursor=cursor,
             )
         )
 
@@ -279,8 +295,9 @@ def build_server(client: ApiClient, *, trace: bool = False) -> AlphaDeckServer:
         "writes nothing). Triggers fire from deterministic code; every one carries its sources. Grade is "
         "call strength, never a size. The expression is advisory research context, never an order or an "
         "instrument instruction. exit_by is a signal-validity horizon, not a trade exit; setup_strength is "
-        "not a probability. detail=brief is the decision alone (about 2.5K: triggers without sources, prose "
-        "as lengths) for a pass over many cards; standard (default) adds sources, members and prose heads. "
+        "not a probability. detail=brief is the decision alone (about 3.5K: triggers as one line each without sources, "
+        "the missing conditions cut at 100 characters, prose as lengths; a long list continues with cursor) for a "
+        "pass over many cards; standard (default) adds sources, members and prose heads. "
         "section returns one part in full: triggers (with each source's computation), risk_signals (10 per "
         "page), counter_case, members, expression.",
     )
@@ -311,7 +328,9 @@ def build_server(client: ApiClient, *, trace: bool = False) -> AlphaDeckServer:
         "Data flags on a card's names (with thesis) or on every card's names (without; slow, the reply "
         "states compute_s). Per flagged name: each flag's kind, label, level, reason, what clears it, "
         "since when, the fields it affects and call_affected (whether it reaches the call), plus counts of "
-        "notes and splits.",
+        "notes and splits. The API lists only the names that carry a flag, a note or a split: names_total is "
+        "its own count of the card's names and listed the rows it returned. Call it per card only when "
+        "get_call reports missing conditions or list_theses shows missing_count above zero.",
     )
     async def get_data_flags(
         thesis: Annotated[

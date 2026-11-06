@@ -163,7 +163,7 @@ def test_get_call_brief_through_the_server():
         return await session.call_tool("get_call", {"thesis": THESIS_ID, "detail": "brief"})
 
     result = run(None, body)
-    assert not result.is_error and len(result.content[0].text) <= 2_500
+    assert not result.is_error and len(result.content[0].text) <= 3_500
     assert result.structured_content["detail"] == "brief"
 
 
