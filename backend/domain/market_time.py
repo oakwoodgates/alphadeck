@@ -120,6 +120,15 @@ def market_today(tz: ZoneInfo | None = None) -> date:
     return market_now(tz).date()
 
 
+def market_date_of(at: datetime, tz: ZoneInfo | None = None) -> date:
+    """The market-time calendar date of an aware instant: the SAME rule ``market_today`` applies to "now"
+    (``market_today() == market_date_of(now)``), for stored instants such as a ``recorded_at``. A naive instant
+    has no market date and is refused."""
+    if at.tzinfo is None:
+        raise ValueError("market_date_of needs an aware instant")
+    return at.astimezone(tz or market_tz()).date()
+
+
 def cron_run_at() -> time:
     """The nightly pass's wall time in market time (``Settings.cron_run_at``, env ``ALPHADECK_CRON_AT`` — the
     one host var the cron sidecar and the backend both read). A malformed value raises ``ValueError``: a

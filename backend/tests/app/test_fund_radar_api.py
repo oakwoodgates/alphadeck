@@ -5,7 +5,7 @@ resolve is the offline "already in the master" branch)."""
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
@@ -67,8 +67,9 @@ def _card(db, name="Test Card A", *, with_company=False, extra_basket=()) -> The
     return thesis_repo.get(db, t.id)
 
 
-def _filing(db, acc, form, day, *, trust="Test Trust", private=False, funds=()):
-    """Store one filing and its fund rows: ``funds`` = (series_id, name, kind) triples."""
+def _filing(db, acc, form, day, *, trust="Test Trust", private=False, funds=(), stored_at=None):
+    """Store one filing and its fund rows: ``funds`` = (series_id, name, kind) triples. ``stored_at`` stamps the
+    series rows' ``recorded_at`` (when we first learned of them); default is now."""
     fund_repo.record_filing_if_changed(
         db,
         fund_repo.FundFilingRow(
@@ -86,6 +87,16 @@ def _filing(db, acc, form, day, *, trust="Test Trust", private=False, funds=()):
         ),
     )
     for sid, name, kind in funds:
+        if stored_at is not None:
+            with db.cursor() as cur:
+                cur.execute(
+                    """INSERT INTO fact_fund_series
+                       (tenant_id, accession, series_key, series_id, series_name, kind, classes,
+                        valid_from, recorded_at)
+                       VALUES (%s, %s, %s, %s, %s, %s, '[]'::jsonb, %s, %s)""",
+                    (DEFAULT_TENANT_ID, acc, sid, sid, name, kind, day, stored_at),
+                )
+            continue
         fund_repo.record_series_if_changed(
             db,
             fund_repo.FundSeriesRow(
@@ -348,14 +359,20 @@ def test_fund_launches_in_etfs_flag_and_404(client, db):
 ASOF = date(2026, 11, 4)
 
 
-def _old_fund(db, *, symbols=()):
-    """A fund filed 200 days before ASOF, plus an unrelated series whose symbol sets the start night."""
+LONG_AGO = datetime(
+    2026, 9, 5, 16, 0, tzinfo=timezone.utc
+)  # 60 days before ASOF: stored long before any symbol
+
+
+def _old_fund(db, *, symbols=(), stored_at=LONG_AGO):
+    """A fund filed 200 days before ASOF (first stored at ``stored_at``), plus an unrelated series."""
     _filing(
         db,
         "W-1",
         "485APOS",
         ASOF - timedelta(days=200),
         funds=[("S1", "Test Uranium ETF", "new"), ("S9", "Unrelated Bond ETF", "new")],
+        stored_at=stored_at,
     )
     for sid, sym, source, ago in symbols:
         _symbol(db, sid, sym, source, ASOF - timedelta(days=ago))
@@ -386,18 +403,57 @@ def test_a_fund_filed_long_ago_shows_when_its_listing_is_first_seen_in_the_windo
     assert body["counts"]["filings"] == 1
 
 
-def test_a_listing_on_the_start_night_is_not_window_activity(client, db):
+def test_a_symbol_first_seen_the_night_the_series_was_stored_is_not_activity(client, db):
     t = _card(db)
+    night = ASOF - timedelta(days=20)  # 2026-10-15
     _old_fund(
         db,
-        symbols=[
-            ("S1", "TSTX", "sec_ticker_file", 20),  # the only symbol nights ARE the start nights
-            ("S1", "TSTX", "nasdaq_directory", 20),
-        ],
+        stored_at=datetime(2026, 10, 15, 15, 0, tzinfo=timezone.utc),  # 11:00 ET on the night
+        symbols=[("S1", "TSTX", "sec_ticker_file", 20), ("S1", "TSTX", "nasdaq_directory", 20)],
     )
     body = _launches(client, t)
     assert body["filings"] == [] and body["counts"]["filings"] == 0
-    assert body["symbol_history_since"] == str(ASOF - timedelta(days=20))
+    assert body["symbol_history_since"] == str(night)  # still reported as before
+
+
+def test_a_symbol_first_seen_30_nights_after_the_series_was_stored_is_activity(client, db):
+    t = _card(db)
+    _old_fund(
+        db,
+        stored_at=datetime(2026, 9, 25, 15, 0, tzinfo=timezone.utc),
+        symbols=[("S1", "TSTX", "sec_ticker_file", 5), ("S1", "TSTX", "nasdaq_directory", 5)],
+    )  # stored 2026-09-25, symbols first seen 2026-10-30: 35 nights later
+    (filing,) = _launches(client, t)["filings"]
+    (fund,) = filing["funds"]
+    assert fund["stage"]["current"] == "listed" and fund["symbols"] == ["TSTX"]
+    assert fund["in_etfs"] is False  # so the screen offers "+ add to ETFs"
+
+
+def test_a_backfilled_old_fund_whose_symbol_is_first_seen_the_backfill_night_is_not_activity(
+    client, db
+):
+    t = _card(db)
+    m = ASOF - timedelta(
+        days=3
+    )  # the backfill night M (2026-11-01); the fund was filed 200 days earlier
+    _old_fund(
+        db,
+        stored_at=datetime(2026, 11, 1, 22, 40, tzinfo=timezone.utc),  # 17:40 ET on M
+        symbols=[("S1", "TSTX", "sec_ticker_file", 3), ("S1", "TSTX", "nasdaq_directory", 3)],
+    )
+    assert _launches(client, t)["filings"] == []
+    assert m == date(2026, 11, 1)
+
+
+def test_a_pass_that_crosses_midnight_does_not_make_its_own_symbols_activity(client, db):
+    t = _card(db)
+    # symbols stamped with the pass's night N (2026-10-30); the rows were stored at 00:30 ET on N+1
+    _old_fund(
+        db,
+        stored_at=datetime(2026, 10, 31, 4, 30, tzinfo=timezone.utc),  # 00:30 EDT, 2026-10-31
+        symbols=[("S1", "TSTX", "sec_ticker_file", 5), ("S1", "TSTX", "nasdaq_directory", 5)],
+    )
+    assert _launches(client, t)["filings"] == []
 
 
 def test_a_listing_first_seen_after_asof_stays_invisible(client, db):

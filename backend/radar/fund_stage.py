@@ -17,6 +17,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import date
 
+from domain.market_time import market_date_of
 from radar.fund_header import KIND_NEW
 from radar.fund_repo import SOURCE_NASDAQ, SOURCE_SEC, SeriesView, SymbolRow
 
@@ -55,6 +56,8 @@ class FundLaunch:
     stage: FundStage
     symbols: tuple[str, ...] = field(default_factory=tuple)
     source_ref: str = ""
+    # the market date the fund's series was first stored (bookkeeping: see ``activity_dates``); None = unknown
+    first_stored: date | None = None
 
 
 def visible_as_of(
@@ -110,6 +113,11 @@ def derive_launches(
                 stage=FundStage(filed, effective, ticker, listed),
                 symbols=tuple(sorted({s.symbol for s in mine})),
                 source_ref=first.source_ref,
+                first_stored=(
+                    market_date_of(min(stored))
+                    if (stored := [r.first_stored for r in rows if r.first_stored])
+                    else None
+                ),
             )
         )
     out.sort(key=lambda lc: (lc.public_date, lc.accession, lc.key), reverse=True)
@@ -117,8 +125,7 @@ def derive_launches(
 
 
 def symbol_starts(symbols: Iterable[SymbolRow]) -> dict[str, date]:
-    """The first night each source shows ANY symbol (over the rows given). A ticker or listing dated that night
-    was already there when the radar began reading the file, so it is not an event."""
+    """The first night each source shows ANY symbol (over the rows given): "tickers and listings tracked since"."""
     out: dict[str, date] = {}
     for s in symbols:
         if s.source not in out or s.night < out[s.source]:
@@ -126,13 +133,18 @@ def symbol_starts(symbols: Iterable[SymbolRow]) -> dict[str, date]:
     return out
 
 
-def activity_dates(stage: FundStage, starts: dict[str, date]) -> list[date]:
-    """The dates a fund DID something: filed, effective, and a ticker / listing that is not the start night of
-    its source. Used to window the per-card view (a fund gets its ticker months after its filing).
+def activity_dates(stage: FundStage, first_stored: date | None) -> list[date]:
+    """The dates a fund DID something: filed, effective, and a ticker / listing that is an OBSERVED arrival.
+
+    A ticker or listing date is the night WE first saw the symbol. It counts as activity only when it is STRICTLY
+    LATER than the night the fund's series was first stored (``first_stored``, the market date of its earliest
+    ``recorded_at``): we never saw a symbol arrive for a fund we had only just learned about (a backfill stores
+    old funds that were already trading). ``recorded_at`` is used here ONLY to judge that; it is not a history
+    gate. History still filters by public date and by symbol night <= as-of (invariant #1). ``None`` (unknown)
+    leaves the date counted. Used to window the per-card view (a fund gets its ticker months after its filing).
     """
     out = [d for d in (stage.filed, stage.effective) if d is not None]
-    if stage.ticker is not None and stage.ticker != starts.get(SOURCE_SEC):
-        out.append(stage.ticker)
-    if stage.listed is not None and stage.listed != starts.get(SOURCE_NASDAQ):
-        out.append(stage.listed)
+    for d in (stage.ticker, stage.listed):
+        if d is not None and (first_stored is None or d > first_stored):
+            out.append(d)
     return out

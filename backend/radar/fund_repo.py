@@ -72,6 +72,9 @@ class SeriesView:
     series_name: str
     kind: str
     classes: list[dict[str, Any]] = field(default_factory=list)
+    # when this series was first stored (min recorded_at over every stored row of its series_key). Bookkeeping:
+    # used only to judge whether a first-seen symbol date is an OBSERVED arrival, never as a history gate
+    first_stored: datetime | None = None
 
     @property
     def source_ref(self) -> str:
@@ -201,11 +204,14 @@ def series_views(
         cur.execute(
             """SELECT s.accession, f.form, f.filer_name, f.filer_ciks, f.public_date,
                       f.private_to_public, f.effectiveness_date,
-                      s.series_key, s.series_id, s.series_name, s.kind, s.classes
+                      s.series_key, s.series_id, s.series_name, s.kind, s.classes, s.first_stored
                FROM (SELECT DISTINCT ON (accession, series_key) *
-                     FROM fact_fund_series WHERE tenant_id = %s
-                       AND (NOT %s OR series_key IN (SELECT series_key FROM fact_fund_series
-                                                     WHERE tenant_id = %s AND kind = 'new'))
+                     FROM (SELECT *, min(recorded_at) OVER (PARTITION BY tenant_id, series_key)
+                                      AS first_stored
+                           FROM fact_fund_series WHERE tenant_id = %s
+                             AND (NOT %s OR series_key IN (SELECT series_key FROM fact_fund_series
+                                                           WHERE tenant_id = %s AND kind = 'new'))
+                          ) w
                      ORDER BY accession, series_key, recorded_at DESC) s
                JOIN (SELECT DISTINCT ON (accession) *
                      FROM fact_fund_filing WHERE tenant_id = %s
@@ -227,6 +233,7 @@ def series_views(
                 series_name=r["series_name"],
                 kind=r["kind"],
                 classes=list(r["classes"] or []),
+                first_stored=r["first_stored"],
             )
             for r in cur.fetchall()
         ]
