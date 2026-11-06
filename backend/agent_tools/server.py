@@ -38,6 +38,8 @@ from .views.dashboards.listing import view_list_dashboards
 from .views.decisions import view_decisions
 from .views.flags import view_data_flags
 from .views.research import CONTRACTS as RESEARCH
+from .views.research import discovery as discovery_view
+from .views.research import extract as extract_view
 from .views.research import onboarding as onboarding_view
 from .views.research import triage as triage_view
 from .views.research.common import ResearchRequest
@@ -684,6 +686,143 @@ def build_server(client: ApiClient, *, trace: bool = False) -> AlphaDeckServer:
         )
         try:
             return _result(triage_view.view(payload, req))
+        except ViewError as error:
+            raise ToolFailure("invalid_arguments", str(error)) from None
+
+    @tool(
+        "get_discovery",
+        "A card's saved discovery draft (the newest run unless run names one): the report (coverage, the terms "
+        "whose hits were capped or came back empty, the tail sweep), the placements by status (placed = hit a "
+        "SIGNAL seed; verify = surfaced on BROAD terms, never dropped; ambiguous = needs the operator's explicit "
+        "pick; absent), by segment and by source, and the term set with its tiers. VERIFY and off-thesis are "
+        "recommendations, never deletions (recall is sacred). status and segment narrow the placements; "
+        "section=placement (needs t, a ticker or a name) reads one in full, ambiguous lists the names waiting for "
+        "a pick with their candidates, report adds the placements behind each capped, empty and failed term, "
+        "terms joins the term set with the run. A card with no saved run answers with a note.",
+    )
+    async def get_discovery(
+        thesis: ThesisArg,
+        run: Annotated[
+            str | None,
+            Field(
+                description="A run id from the default reply's runs; omitted = the newest.",
+                max_length=120,
+            ),
+        ] = None,
+        section: Annotated[
+            str | None,
+            Field(
+                description="placement (needs t), ambiguous, report or terms.",
+                max_length=40,
+            ),
+        ] = None,
+        cursor: CursorArg = 0,
+        status: Annotated[
+            str | None,
+            Field(
+                description="Narrow the placements: placed, verify, ambiguous or absent.",
+                max_length=20,
+            ),
+        ] = None,
+        segment: Annotated[
+            str | None,
+            Field(description="Narrow the placements to one segment label.", max_length=200),
+        ] = None,
+        t: Annotated[
+            str | None,
+            Field(description="A placement's ticker or name (section=placement).", max_length=200),
+        ] = None,
+    ) -> Annotated[types.CallToolResult, ResearchReply]:
+        tool_args.check(
+            RESEARCH["get_discovery"],
+            asof=None,
+            section=section,
+            narrows={"run": run, "segment": segment, "t": t},
+            given={"status": status},
+        )
+        ref = await resolve_thesis(client, thesis)
+        base = f"/workbench/theses/{path_seg(ref['id'])}"
+        # a 404 here is the run loader being off (or an unknown run id below): the API's detail, as api_rejected
+        runs, _ = await client.get(f"{base}/runs")
+        draft = None
+        if runs:
+            run_id = run or runs[0]["run_id"]
+            draft, _ = await client.get(f"{base}/runs/{path_seg(run_id)}")
+        detail = None
+        if draft is not None and section == "terms":
+            detail, _ = await client.get(
+                f"/theses/{path_seg(ref['id'])}",
+                not_found=ToolFailure("unknown_thesis", "No thesis has this id."),
+            )
+        req = ResearchRequest(
+            thesis=ref,
+            section=section,
+            cursor=cursor,
+            segment=segment,
+            t=t,
+            status=status,
+            run=run,
+        )
+        try:
+            return _result(discovery_view.view(runs, draft, detail, req))
+        except ViewError as error:
+            raise ToolFailure("invalid_arguments", str(error)) from None
+
+    @tool(
+        "get_extract",
+        "The extractor's three candidate scoring facts for one company from its latest SEC filings (revenue mix "
+        "= purity, shares outstanding = market cap, cash burn = runway), each AUTO (a clean value), FLAG (a raw "
+        "value, a detected risk and a located passage) or HUMAN (located only, never auto-valued), with the "
+        "passages that back them (each excerpt cut at 300 characters; section=passages with fact reads one "
+        "fact's passages in full). COST: up to 4 EDGAR requests when the filings are not cached; with thesis, "
+        "ONE LLM call (the grounded purity proposal) when a key is set. Pass thesis only when the operator asks "
+        "for the on-thesis purity proposal. The extract is DB-free: a candidate does not know whether its fact "
+        "is already on file (get_triage section=member does). Nothing here is stored; the operator ratifies in "
+        "the Workbench.",
+    )
+    async def get_extract(
+        t: Annotated[str, Field(description="The ticker (a former ticker also resolves).")],
+        thesis: Annotated[
+            str | None,
+            Field(
+                description="A thesis id or exact name: adds the on-thesis purity proposal (one LLM call).",
+                max_length=200,
+            ),
+        ] = None,
+        section: Annotated[
+            str | None, Field(description="passages (needs fact).", max_length=40)
+        ] = None,
+        cursor: CursorArg = 0,
+        fact: Annotated[
+            str | None,
+            Field(
+                description="revenue_mix, shares_outstanding or cash_burn (section=passages).",
+                max_length=40,
+            ),
+        ] = None,
+    ) -> Annotated[types.CallToolResult, ResearchReply]:
+        tool_args.check(
+            RESEARCH["get_extract"],
+            asof=None,
+            section=section,
+            narrows={"thesis": thesis, "fact": fact},
+            given={},
+        )
+        if fact is not None and fact not in extract_view.FACTS:
+            raise ToolFailure(
+                "invalid_arguments", f"fact must be one of: {', '.join(extract_view.FACTS)}."
+            )
+        ref = await resolve_thesis(client, thesis) if thesis is not None else None
+        resolved = await resolve_ticker(client, t)
+        params = {"thesis_id": ref["id"]} if ref is not None else None
+        payload, _ = await client.get(
+            f"/workbench/securities/{path_seg(resolved['security_id'])}/extract",
+            params,
+            not_found=ToolFailure("unknown_ticker", "No company has this ticker."),
+        )
+        req = ResearchRequest(thesis=ref, section=section, cursor=cursor, t=t, fact=fact)
+        try:
+            return _result(extract_view.view(payload, resolved, req))
         except ViewError as error:
             raise ToolFailure("invalid_arguments", str(error)) from None
 

@@ -40,6 +40,8 @@ TOOLS = {
     "list_dashboards",
     "read_dashboard",
     "get_triage",
+    "get_discovery",
+    "get_extract",
     "get_onboarding",
 }
 BUDGETS = {
@@ -54,6 +56,8 @@ BUDGETS = {
     "list_dashboards": 3_500,
     "read_dashboard": 8_000,
     "get_triage": 8_000,
+    "get_discovery": 8_000,
+    "get_extract": 8_000,
     "get_onboarding": 8_000,
 }
 DEFAULT_ARGS = {
@@ -68,6 +72,8 @@ DEFAULT_ARGS = {
     "list_dashboards": {},
     "read_dashboard": {"dashboard": "daily-digest"},
     "get_triage": {"thesis": THESIS_ID},
+    "get_discovery": {"thesis": THESIS_ID},
+    "get_extract": {"t": "tk01"},
     "get_onboarding": {"thesis": THESIS_ID},
 }
 
@@ -107,7 +113,7 @@ def test_tools_list_advertises_ten_read_only_tools_with_schemas_and_three_prompt
         assert a.idempotent_hint is True and a.open_world_hint is False, t.name
         assert {"asof", "source"} <= set(t.output_schema["properties"]), t.name
     assert {p.name for p in prompts.prompts} == set(PROMPT_NAMES)
-    assert len(prompts.prompts) == 5 and len(tools.tools) == 12
+    assert len(prompts.prompts) == 5 and len(tools.tools) == 14
 
 
 # --- every tool's default reply ---------------------------------------------------------------------------------
@@ -384,7 +390,7 @@ def test_real_sdk_stdio_client_lists_tools_and_prompts_and_calls_over_loopback()
     with LoopbackServer(api) as fake:
         init, tools, prompts, clock, theses, bad = asyncio.run(go(fake.base))
     assert (init.server_info.name, init.server_info.version) == ("alphadeck", "2.1.0")
-    assert len(tools.tools) == 12
+    assert len(tools.tools) == 14
     assert all(t.annotations.read_only_hint and t.output_schema for t in tools.tools)
     assert len(prompts.prompts) == 5
     assert clock.structured_content["current_night"] == fx.CLOCK["current_night"]

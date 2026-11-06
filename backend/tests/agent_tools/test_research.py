@@ -22,6 +22,8 @@ from agent_tools import server as server_mod  # noqa: E402
 from agent_tools.budget import size  # noqa: E402
 from agent_tools.client import ApiClient  # noqa: E402
 from agent_tools.views import research as research_pkg  # noqa: E402
+from agent_tools.views.research import discovery as discovery_view  # noqa: E402
+from agent_tools.views.research import extract as extract_view  # noqa: E402
 from agent_tools.views.research import onboarding as onboarding_view  # noqa: E402
 from agent_tools.views.research import triage as triage_view  # noqa: E402
 from agent_tools.views.research.common import ResearchRequest, ViewError  # noqa: E402
@@ -344,6 +346,367 @@ def test_onboarding_view_rejects_an_unknown_section_if_the_server_check_were_ski
         onboarding_view.view(ONBOARDING, ResearchRequest(thesis=THESIS, section="nope"))
 
 
+# --- get_discovery -----------------------------------------------------------------------------------------------------
+
+RUN = rfx.run_latest()
+PLACEMENTS = RUN["placements"]
+DISCOVERY = {"thesis": rfx.THESIS_ID}
+
+
+def by_status(rows):
+    return {s: sum(1 for p in rows if p["status"] == s) for s in discovery_view.STATUSES}
+
+
+def test_discovery_default_carries_the_report_the_counts_and_the_first_page_of_placements():
+    reply = call("get_discovery", **DISCOVERY)
+    assert reply["thesis"] == THESIS and reply["asof"] is None and reply["source"] == "live"
+    assert [r["run_id"] for r in reply["runs"]] == [rfx.RUN_LATEST_ID, rfx.RUN_SMALL_ID]
+    assert reply["run"]["run_id"] == rfx.RUN_LATEST_ID and reply["run"]["scope"] == "full"
+    report = reply["run"]["report"]
+    assert report["pages_ok"] == 1_296 and report["pages_attempted"] == 1_301
+    assert report["capped_terms"] == rfx.CAPPED_TERMS  # the lists whole: the visibility rule
+    assert report["empty_terms"] == rfx.EMPTY_TERMS and report["failed_terms"] == rfx.FAILED_TERMS
+    assert report["tail_sweep"] == "ran" and report["narration_needed"] == 1_706
+    counts = reply["counts"]
+    assert counts["placements_total"] == 1_735
+    assert counts["by_status"] == {"placed": 640, "verify": 1_066, "ambiguous": 27, "absent": 2}
+    assert counts["by_source"] == {"edgar": 1_732, "off_universe": 3}
+    assert counts["off_thesis"] == 1_145 and counts["with_candidates"] == 27
+    segments = reply["segments"]
+    assert [s["label"] for s in segments] == [s["label"] for s in RUN["segments"]]
+    assert sum(s["placements_total"] for s in segments) == 1_735
+    for s in segments:
+        rows = [p for p in PLACEMENTS if p["segment"] == s["label"]]
+        assert s["by_status"] == by_status(rows)
+        assert s["off_thesis"] == sum(1 for p in rows if p["off_thesis"])
+    first = reply["placements"][0]
+    assert (
+        first["name"] == PLACEMENTS[0]["name"][:30] and first["ticker"] == PLACEMENTS[0]["ticker"]
+    )
+    assert first["matched_terms"] == PLACEMENTS[0]["matched_terms"][:3]
+    assert first["matched_terms_total"] == len(PLACEMENTS[0]["matched_terms"])
+    assert reply["placements_total"] == 1_735 and reply["next_cursor_for"] == "placements"
+    assert reply["sections"]["placement"] == "t"
+
+
+def test_discovery_rows_flag_only_the_exceptions():
+    rows = {p["ticker"]: p for p in walk("get_discovery", "placements", **DISCOVERY)[0]}
+    source = {p["ticker"]: p for p in PLACEMENTS}
+    plain = next(t for t, p in source.items() if p["status"] == "verify" and not p["off_thesis"])
+    assert not {"off_thesis", "source", "candidates"} & set(rows[plain])
+    flagged = next(t for t, p in source.items() if p["off_thesis"] and t in rows)
+    assert rows[flagged]["off_thesis"] is True
+    universe = [r for r in rows.values() if r.get("source") == "off_universe"]
+    assert len(universe) == 3
+    ambiguous = [r for r in rows.values() if r["status"] == "ambiguous"]
+    assert ambiguous and all(r["candidates"] == 2 for r in ambiguous)
+
+
+def test_discovery_default_cursor_walks_all_1735_placements_in_the_runs_order():
+    rows, pages = walk("get_discovery", "placements", **DISCOVERY)
+    assert len(rows) == 1_735 and pages < 60
+    assert [r["name"] for r in rows] == [p["name"][:30] for p in PLACEMENTS]
+    later = call("get_discovery", **DISCOVERY, cursor=30)
+    assert "segments" not in later and "counts" not in later and "runs" not in later
+    assert later["run"] == {"run_id": rfx.RUN_LATEST_ID}  # a continuation names the run it walks
+
+
+@pytest.mark.parametrize(
+    ("args", "expected"),
+    [
+        ({"status": "placed"}, 640),
+        ({"status": "ambiguous"}, 27),
+        ({"segment": "Segment 03"}, None),
+        ({"status": "verify", "segment": "Segment 03"}, None),
+    ],
+)
+def test_discovery_status_and_segment_narrow_the_placements(args, expected):
+    rows, _ = walk("get_discovery", "placements", **DISCOVERY, **args)
+    want = [
+        p
+        for p in PLACEMENTS
+        if p["status"] == args.get("status", p["status"])
+        and p["segment"] == args.get("segment", p["segment"])
+    ]
+    assert [r["name"] for r in rows] == [p["name"][:30] for p in want]
+    if expected is not None:
+        assert len(rows) == expected
+    reply = call("get_discovery", **DISCOVERY, **args)
+    assert reply["narrowed"] == args and reply["placements_total"] == len(want)
+
+
+def test_discovery_the_ambiguous_status_fits_one_page_and_the_section_lists_all_27_with_candidates():
+    reply = call("get_discovery", **DISCOVERY, status="ambiguous")
+    assert len(reply["placements"]) == 27 and reply["next_cursor"] is None
+    rows, _ = walk("get_discovery", "placements", **DISCOVERY, section="ambiguous")
+    assert len(rows) == 27
+    source = [p for p in PLACEMENTS if p["candidates"]]
+    assert [r["name"] for r in rows] == [p["name"] for p in source]
+    for row, p in zip(rows, source, strict=True):
+        assert row["candidates"] == [
+            {k: c[k] for k in ("security_id", "ticker", "name", "cik")} for c in p["candidates"]
+        ]
+
+
+def test_discovery_placement_section_reads_one_in_full_by_ticker_or_name():
+    target = next(p for p in PLACEMENTS if p["status"] == "placed" and len(p["matched_terms"]) > 5)
+    by_ticker = call("get_discovery", **DISCOVERY, section="placement", t=target["ticker"].lower())
+    (got,) = by_ticker["placements"]
+    assert got["prose"] == target["prose"] and got["matched_terms"] == target["matched_terms"]
+    assert got["security_id"] == target["security_id"] and got["discovery_source"] == "edgar"
+    for key in ("sector", "exchange", "listing_status", "category", "origin", "business_type"):
+        assert got[key] == target[key], key
+    nameless = next(p for p in PLACEMENTS if p["ticker"] is None and p["candidates"])
+    by_name = call("get_discovery", **DISCOVERY, section="placement", t=nameless["name"].upper())
+    assert by_name["placements"][0]["name"] == nameless["name"]
+    assert by_name["placements"][0]["candidates"] == [
+        {k: c[k] for k in ("security_id", "ticker", "name", "cik")} for c in nameless["candidates"]
+    ]
+
+
+def test_discovery_report_section_counts_the_placements_behind_each_flagged_term():
+    reply = call("get_discovery", **DISCOVERY, section="report")
+    assert (
+        reply["report"]["capped_terms"] == rfx.CAPPED_TERMS and reply["report"]["scope"] == "full"
+    )
+    hits = reply["term_hits"]
+    for kind, terms in (
+        ("capped", rfx.CAPPED_TERMS),
+        ("empty", rfx.EMPTY_TERMS),
+        ("failed", rfx.FAILED_TERMS),
+    ):
+        assert [h["term"] for h in hits[kind]] == terms
+        for h in hits[kind]:
+            assert h["placements"] == sum(1 for p in PLACEMENTS if h["term"] in p["matched_terms"])
+    assert all(h["placements"] == 0 for h in hits["empty"] + hits["failed"])
+
+
+def test_discovery_terms_section_joins_the_term_set_with_the_run_and_keeps_zero_hit_terms():
+    api = FakeApi(details={rfx.THESIS_ID: rfx.thesis_with_terms()})
+
+    async def body(session):
+        return await session.call_tool("get_discovery", {**DISCOVERY, "section": "terms"})
+
+    result = run(api, body)
+    assert not result.is_error and len(result.content[0].text) <= BUDGET
+    reply = result.structured_content
+    terms = reply["terms"]
+    assert reply["terms_total"] == 31 and [t["term"] for t in terms] == [
+        f"term-{k:02d}" for k in range(1, 32)
+    ]
+    assert terms[0]["tier"] == "signal" and terms[20]["tier"] == "broad"
+    assert terms[0]["authored_by"] == "operator_set" and terms[20]["source"] == "keyword_gen"
+    for entry in terms:
+        assert entry["placements"] == sum(
+            1 for p in PLACEMENTS if entry["term"] in p["matched_terms"]
+        )
+    flags = {t["term"]: {k for k in ("capped", "empty", "failed") if t.get(k)} for t in terms}
+    assert flags["term-02"] == {"capped"} and flags["term-27"] == {"empty"}
+    assert flags["term-31"] == {"failed"} and flags["term-01"] == set()
+    zero = [t for t in terms if t["placements"] == 0]
+    assert {t["term"] for t in zero} == {"term-27", "term-28", "term-31"}  # listed, never dropped
+    reads = [r[1] for r in api.requests]
+    assert f"/theses/{rfx.THESIS_ID}" in reads  # the thesis is read only for this section
+    other = FakeApi()
+
+    async def plain(session):
+        return await session.call_tool("get_discovery", DISCOVERY)
+
+    run(other, plain)
+    assert f"/theses/{rfx.THESIS_ID}" not in [r[1] for r in other.requests]
+
+
+def test_discovery_a_card_with_no_saved_run_answers_with_a_note_not_an_error():
+    api = FakeApi()
+
+    async def body(session):
+        return await session.call_tool("get_discovery", {"thesis": rfx.SECOND_THESIS_ID})
+
+    result = run(api, body)
+    assert not result.is_error
+    reply = result.structured_content
+    assert reply["runs"] == [] and reply["note"] == "no saved draft run for this card"
+    assert "run" not in reply and "placements" not in reply and reply["next_cursor"] is None
+    assert not [r for r in api.requests if "/runs/" in r[1]]
+    again = call("get_discovery", thesis=rfx.SECOND_THESIS_ID, section="ambiguous")
+    assert again["note"] == "no saved draft run for this card" and again["runs"] == []
+
+
+def test_discovery_a_disabled_run_loader_and_an_unknown_run_pass_the_apis_detail_through():
+    err = failure("get_discovery", FakeApi(runs_disabled=True), **DISCOVERY)
+    assert err["code"] == "api_rejected" and err["message"] == "run loader is disabled"
+    err = failure("get_discovery", **DISCOVERY, run="2026-01-01T00-00-00_nope")
+    assert err["code"] == "api_rejected" and err["message"] == "saved run not found"
+    small = call("get_discovery", **DISCOVERY, run=rfx.RUN_SMALL_ID)
+    assert small["run"]["run_id"] == rfx.RUN_SMALL_ID
+    assert small["counts"]["placements_total"] == 203 and len(small["segments"]) == 4
+
+
+@pytest.mark.parametrize(
+    ("args", "expect"),
+    [
+        ({"status": "pending"}, "status must be one of: placed, verify, ambiguous, absent."),
+        (
+            {"section": "placement"},
+            "section=placement of `get_discovery` needs t (a ticker, or a name",
+        ),
+        (
+            {"section": "nope"},
+            "Unknown section 'nope'; `get_discovery` has: placement, ambiguous, report, terms.",
+        ),
+    ],
+)
+def test_discovery_rejections_name_the_rule_before_any_request(args, expect):
+    api = FakeApi()
+    err = failure("get_discovery", api, **{"thesis": rfx.THESIS_ID, **args})
+    assert err["code"] == "invalid_arguments", err
+    assert expect in err["message"], err["message"]
+    assert api.requests == [], api.requests
+
+
+def test_discovery_an_unknown_segment_or_placement_is_invalid_arguments_naming_the_labels():
+    err = failure("get_discovery", **DISCOVERY, segment="Segment 99")
+    assert err["code"] == "invalid_arguments" and "Segment 01" in err["message"]
+    err = failure("get_discovery", **DISCOVERY, section="placement", t="NOPE")
+    assert err["code"] == "invalid_arguments" and "NOPE" in err["message"]
+    assert failure("get_discovery", thesis="no such card")["code"] == "unknown_thesis"
+
+
+# --- get_extract -------------------------------------------------------------------------------------------------------
+
+EXTRACT = {"t": "TK01"}
+
+
+def extract_requests(api: FakeApi) -> list[tuple]:
+    return [r for r in api.requests if r[1].endswith("/extract")]
+
+
+def test_extract_default_has_no_thesis_so_no_llm_call_and_cuts_every_excerpt_at_300():
+    api = FakeApi()
+
+    async def body(session):
+        return await session.call_tool("get_extract", EXTRACT)
+
+    result = run(api, body)
+    assert not result.is_error and len(result.content[0].text) <= BUDGET
+    reply = result.structured_content
+    (read,) = extract_requests(api)
+    assert read[1] == f"/workbench/securities/{rfx.SECURITY_ID}/extract" and read[2] == {}
+    assert reply["thesis_scoped"] is False and "thesis" not in reply
+    assert reply["identity"] == {
+        "security_id": rfx.SECURITY_ID,
+        "ticker": "TK01",
+        "name": "Company 01",
+    }
+    facts = {f["fact_type"]: f for f in reply["facts"]}
+    assert list(facts) == ["revenue_mix", "shares_outstanding", "cash_burn"]
+    assert [f["tier"] for f in facts.values()] == ["human", "flag", "auto"]
+    assert "estimate_source" not in facts["revenue_mix"]
+    source = rfx.extract()["facts"]
+    revenue = facts["revenue_mix"]
+    assert revenue["passages_total"] == 3 and len(revenue["passages"]) == 2  # at most two a fact
+    first = revenue["passages"][0]
+    assert len(first["excerpt"]) == 300 and first["excerpt_total_chars"] == 3_004
+    assert first["excerpt"] == source[0]["located_passages"][0]["excerpt"][:300]
+    assert facts["cash_burn"]["passages"][1]["excerpt_total_chars"] == 700
+    assert len(revenue["note"]) == 200 and revenue["note_total_chars"] > 200
+    assert facts["shares_outstanding"]["value"] == 152_000_000.0
+    assert facts["shares_outstanding"]["flags"] == ["dual-class"]
+    assert facts["cash_burn"]["cash_usd"] == 410_000_000.0
+    assert facts["cash_burn"]["quarterly_burn_usd"] == 38_000_000.0
+    assert reply["empty_reason"] is None and reply["runway_empty_reason"] is None
+    for f in reply["facts"]:
+        for p in f["passages"]:
+            assert len(p["excerpt"]) <= 300
+
+
+def test_extract_with_a_thesis_passes_its_id_once_and_says_so():
+    api = FakeApi()
+
+    async def body(session):
+        return await session.call_tool("get_extract", {**EXTRACT, "thesis": rfx.THESIS_ID})
+
+    result = run(api, body)
+    assert not result.is_error
+    reply = result.structured_content
+    (read,) = extract_requests(api)
+    assert read[2] == {"thesis_id": rfx.THESIS_ID}
+    assert reply["thesis_scoped"] is True and reply["thesis"] == THESIS
+    revenue = next(f for f in reply["facts"] if f["fact_type"] == "revenue_mix")
+    assert revenue["estimate_source"] == "llm_proposed"
+
+
+def test_extract_description_states_the_edgar_and_llm_cost():
+    async def body(session):
+        return (await session.list_tools()).tools
+
+    tool = next(t for t in run(None, body) if t.name == "get_extract")
+    for needle in ("EDGAR", "LLM call", "up to 4", "Pass thesis only when the operator asks"):
+        assert needle in tool.description, needle
+
+
+def test_extract_passages_section_reads_one_facts_passages_in_full():
+    reply = call("get_extract", **EXTRACT, section="passages", fact="revenue_mix")
+    assert reply["fact"] == "revenue_mix" and reply["passages_total"] == 3
+    source = rfx.extract()["facts"][0]["located_passages"]
+    assert [p["excerpt"] for p in reply["passages"]] == [p["excerpt"] for p in source]
+    assert len(reply["passages"][0]["excerpt"]) == 3_004 and reply["next_cursor"] is None
+    assert reply["passages"][0]["anchor"] == source[0]["anchor"]
+
+
+def test_extract_passages_page_by_passage_when_they_do_not_fit():
+    payload = rfx.extract()
+    payload["facts"][0]["located_passages"] = payload["facts"][0]["located_passages"][:1] * 5
+    ident = {"security_id": rfx.SECURITY_ID, "ticker": "TK01", "name": "Company 01"}
+    cursor, seen, pages = 0, 0, 0
+    while cursor is not None:
+        req = ResearchRequest(section="passages", fact="revenue_mix", cursor=cursor)
+        reply = extract_view.view(payload, ident, req)
+        assert size(reply) <= BUDGET
+        seen += len(reply["passages"])
+        cursor, pages = reply["next_cursor"], pages + 1
+        assert reply["next_cursor_for"] in (None, "passages") and pages < 10
+    assert seen == 5 and pages == 3  # 3,004-character excerpts: two to a page
+
+
+@pytest.mark.parametrize(
+    ("args", "expect"),
+    [
+        ({"section": "passages"}, "section=passages of `get_extract` needs fact (revenue_mix"),
+        (
+            {"section": "passages", "fact": "purity"},
+            "fact must be one of: revenue_mix, shares_outstanding, cash_burn.",
+        ),
+        (
+            {"fact": "cash_burn", "section": "nope"},
+            "Unknown section 'nope'; `get_extract` has: passages.",
+        ),
+    ],
+)
+def test_extract_rejections_name_the_rule_before_any_request(args, expect):
+    api = FakeApi()
+    err = failure("get_extract", api, **{**EXTRACT, **args})
+    assert err["code"] == "invalid_arguments", err
+    assert expect in err["message"], err["message"]
+    assert api.requests == [], api.requests
+
+
+def test_extract_an_unknown_ticker_is_unknown_ticker_and_spends_nothing():
+    api = FakeApi()
+    err = failure("get_extract", api, t="NOPE")
+    assert err["code"] == "unknown_ticker" and not extract_requests(api)
+    assert failure("get_extract", t="TK01", thesis="no such card")["code"] == "unknown_thesis"
+
+
+def test_extract_a_fact_the_extract_does_not_hold_is_invalid_arguments():
+    ident = {"security_id": rfx.SECURITY_ID, "ticker": "TK01", "name": "Company 01"}
+    payload = {"facts": [], "empty_reason": "no-annual-filing", "runway_empty_reason": None}
+    reply = extract_view.view(payload, ident, ResearchRequest())
+    assert reply["facts"] == [] and reply["empty_reason"] == "no-annual-filing"
+    with pytest.raises(ViewError, match="holds no cash_burn fact"):
+        extract_view.view(payload, ident, ResearchRequest(section="passages", fact="cash_burn"))
+
+
 # --- the contracts -----------------------------------------------------------------------------------------------------
 
 
@@ -351,7 +714,7 @@ def test_the_research_contracts_are_declared_and_registered():
     from agent_tools.tool_args import CONTRACTS
 
     declared = research_pkg.CONTRACTS
-    assert {"get_triage", "get_onboarding"} <= set(declared)
+    assert set(declared) == {"get_triage", "get_discovery", "get_extract", "get_onboarding"}
     for contract in declared.values():
         assert contract in CONTRACTS
     assert declared["get_triage"].dated and not declared["get_onboarding"].dated
@@ -366,6 +729,8 @@ def _fields(module: str, model: str) -> set[str]:
 
 
 def _key_checks():
+    from agent_tools.views.research import discovery as ds
+    from agent_tools.views.research import extract as ex
     from agent_tools.views.research import onboarding as ob
     from agent_tools.views.research import triage as tr
 
@@ -378,6 +743,18 @@ def _key_checks():
         (tr.PROVENANCE_KEYS, schemas, "ProvenanceOut"),
         (tr.SEGMENT_KEYS, "domain.thesis", "Segment"),
         (tr.BODY_KEYS, schemas, "WorkbenchScored"),
+        (ds.RUN_KEYS, schemas, "SavedRunSummary"),
+        (ds.PLACEMENT_KEYS, "workbench.chain_draft", "ResolvedPlacement"),
+        (ds.CANDIDATE_KEYS, "workbench.chain_draft", "SecurityCandidate"),
+        (ds.SEGMENT_KEYS, "workbench.chain_draft", "ResolvedSegment"),
+        (ds.REPORT_KEYS, schemas, "DraftReportOut"),
+        (ds.COVERAGE_KEYS, schemas, "DraftCoverageOut"),
+        (ds.BODY_KEYS, schemas, "ChainDraftOut"),
+        (ds.TERM_KEYS, "domain.thesis", "TermSetEntry"),
+        (ds.THESIS_KEYS, schemas, "ThesisDetail"),
+        (ex.FACT_KEYS, "domain.extraction", "ExtractedFact"),
+        (ex.PASSAGE_KEYS, "domain.extraction", "LocatedPassage"),
+        (ex.BODY_KEYS, "domain.extraction", "ExtractionResult"),
         (ob.NAME_KEYS, schemas, "OnboardingNameOut"),
         (ob.BODY_KEYS, schemas, "OnboardingReadoutOut"),
         (ob.RUN_KEYS, schemas, "OnboardingRunOut"),

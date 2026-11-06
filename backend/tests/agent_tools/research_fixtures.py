@@ -8,9 +8,17 @@ contract) and dumped to JSON exactly as FastAPI serves it.
 
 from __future__ import annotations
 
+import random
 from typing import Any
 
-from app.schemas_api import OnboardingReadoutOut, WorkbenchScored
+from app.schemas_api import (
+    ChainDraftOut,
+    OnboardingReadoutOut,
+    SavedRunSummary,
+    ThesisDetail,
+    WorkbenchScored,
+)
+from domain.extraction import ExtractionResult
 from domain.thesis import BENCH_LABEL, CONTEXT_LABEL, ETFS_LABEL, Segment, with_silent_links
 from tests.agent_tools import fixtures as fx
 from tests.agent_tools.fixtures import text, uid
@@ -197,3 +205,213 @@ def onboarding() -> dict[str, Any]:
             "history_legs": ["form4", "filings", "price"],
         },
     )
+
+
+# --- GET /workbench/theses/{id}/runs and /runs/{run_id} -------------------------------------------------------------------
+
+RUN_LATEST_ID = "2026-11-04T20-00-00_job-01"
+RUN_SMALL_ID = "2026-10-28T19-00-00_job-02"
+TERM_COUNT = 31
+CAPPED_TERMS = ["term-02", "term-05", "term-09", "term-14"]
+EMPTY_TERMS = ["term-27", "term-28"]
+FAILED_TERMS = ["term-31"]
+# the terms a placement can carry: every term except the ones that returned nothing or whose pages failed
+HIT_POOL = [
+    f"term-{k:02d}"
+    for k in range(1, TERM_COUNT + 1)
+    if f"term-{k:02d}" not in EMPTY_TERMS + FAILED_TERMS
+]
+DRAFT_SEGMENTS = [f"Segment {k:02d}" for k in range(1, 7)] + ["Discovered"]
+
+
+def runs() -> list[dict[str, Any]]:
+    """MEASURED: 393 B; the newest first."""
+    return [
+        _dump(
+            SavedRunSummary,
+            {
+                "run_id": RUN_LATEST_ID,
+                "written_at": "2026-11-04T20:00:00+00:00",
+                "job_id": "job-01",
+                "placement_count": 1_735,
+                "segment_count": 7,
+            },
+        ),
+        _dump(
+            SavedRunSummary,
+            {
+                "run_id": RUN_SMALL_ID,
+                "written_at": "2026-10-28T19:00:00+00:00",
+                "job_id": "job-02",
+                "placement_count": 203,
+                "segment_count": 4,
+            },
+        ),
+    ]
+
+
+def _placements(
+    n: int, labels: list[str], counts: dict[str, int], off_thesis: int, off_universe: int
+) -> list[dict[str, Any]]:
+    """``n`` placements with exactly ``counts`` statuses, ``off_thesis`` flagged and ``off_universe`` sourced."""
+    assert sum(counts.values()) == n
+    rng = random.Random(n)  # a fixed seed: the same scramble on every run, with every count exact
+    statuses = [s for s, c in counts.items() for _ in range(c)]
+    rng.shuffle(statuses)
+    flagged = set(rng.sample(range(n), off_thesis))
+    out = []
+    placed_seen = 0
+    for j in range(n):
+        status = statuses[j]
+        k = j + 1
+        terms = [HIT_POOL[(j * 3 + m) % len(HIT_POOL)] for m in range(1 + (j % 10 == 0) * 2)]
+        if j % 97 == 0:
+            terms = [HIT_POOL[(j + m) % len(HIT_POOL)] for m in range(20)]
+        row: dict[str, Any] = {
+            "name": f"Company {k:04d} synthetic holdings",
+            "ticker": None if status in ("ambiguous", "absent") and j % 2 else f"TK{k:04d}",
+            "prose": text(140, j),
+            "segment": labels[j % len(labels)],
+            "status": status,
+            "security_id": uid("sec", "run", j) if status in ("placed", "verify") else None,
+            "candidates": [],
+            "matched_terms": terms if status != "absent" else [],
+            "discovery_source": "edgar",
+            "sector": "Services",
+            "exchange": "Nasdaq",
+            "listing_status": "active",
+            "category": "Large Filer",
+            "origin": None,
+            "business_type": "software_it",
+            "royalty": False,
+            "off_thesis": j in flagged,
+        }
+        if status == "ambiguous":
+            row["candidates"] = [
+                {
+                    "security_id": uid("sec", "cand", j, c),
+                    "ticker": f"CD{k:04d}{'AB'[c]}",
+                    "name": f"Candidate {k:04d}{'AB'[c]} synthetic",
+                    "cik": f"{1_000_000 + j * 2 + c:010d}",
+                }
+                for c in range(2)
+            ]
+        if status == "placed":
+            placed_seen += 1
+            if placed_seen in (50, 150, 250)[:off_universe]:
+                row["discovery_source"] = "off_universe"
+                row["matched_terms"] = []
+        out.append(row)
+    return out
+
+
+def _draft(labels: list[str], placements: list[dict[str, Any]], pages: int) -> dict[str, Any]:
+    narrated = sum(1 for p in placements if p["status"] in ("placed", "verify"))
+    return _dump(
+        ChainDraftOut,
+        {
+            "thesis_id": THESIS_ID,
+            "segments": [{"label": lbl, "descriptor": text(90, k)} for k, lbl in enumerate(labels)],
+            "placements": placements,
+            "report": {
+                "coverage": {
+                    "pages_ok": pages,
+                    "pages_attempted": pages + 5,
+                    "failed_terms": FAILED_TERMS,
+                },
+                "capped_terms": CAPPED_TERMS,
+                "empty_terms": EMPTY_TERMS,
+                "tail_sweep": "ran",
+                "narration_needed": narrated,
+                "narration_filled": narrated,
+                "scope": "full",
+            },
+        },
+    )
+
+
+def run_latest() -> dict[str, Any]:
+    """MEASURED: 1.18 MB; 7 segments, 1,735 placements (640 placed / 1,066 verify / 27 ambiguous / 2 absent), 1,145
+    off-thesis, 3 off-universe, 4 capped terms, 1,296 pages."""
+    counts = {"placed": 640, "verify": 1_066, "ambiguous": 27, "absent": 2}
+    return _draft(DRAFT_SEGMENTS, _placements(1_735, DRAFT_SEGMENTS, counts, 1_145, 3), 1_296)
+
+
+def run_small() -> dict[str, Any]:
+    counts = {"placed": 90, "verify": 100, "ambiguous": 10, "absent": 3}
+    return _draft(DRAFT_SEGMENTS[:4], _placements(203, DRAFT_SEGMENTS[:4], counts, 120, 0), 190)
+
+
+def thesis_with_terms() -> dict[str, Any]:
+    """``GET /theses/{id}`` with a 31-term term set (the first 8 SIGNAL): the rest of the card is the shared fixture."""
+    payload = fx.thesis_detail()
+    payload["term_set"] = [
+        {
+            "term": f"term-{k:02d}",
+            "tier": "signal" if k <= 8 else "broad",
+            "authored_by": "operator_set" if k <= 8 else "system_drafted",
+            "source": "operator" if k <= 8 else "keyword_gen",
+        }
+        for k in range(1, TERM_COUNT + 1)
+    ]
+    return _dump(ThesisDetail, payload)
+
+
+# --- GET /workbench/securities/{id}/extract[?thesis_id=] -------------------------------------------------------------------
+
+FILING = "https://www.sec.gov/Archives/edgar/data/1000001/000100000126000012/synthetic-10q.htm"
+
+
+def extract(thesis_scoped: bool = False) -> dict[str, Any]:
+    """MEASURED: 12.8 KB (12.9 KB thesis-scoped): revenue_mix HUMAN with 3 passages (3,004 / 800 / 400 characters),
+    shares_outstanding FLAG with 1 flag and 1 passage, cash_burn AUTO with 2 passages."""
+
+    def passage(kind: str, chars: int, seed: int) -> dict[str, Any]:
+        return {
+            "kind": kind,
+            "source_ref": FILING,
+            "anchor": f"synthetic anchor {seed} " + text(70, seed),
+            "excerpt": text(chars, seed),
+            "offset": 52_000 + seed,
+        }
+
+    revenue: dict[str, Any] = {
+        "fact_type": "revenue_mix",
+        "tier": "human",
+        "source": "10-k-segment",
+        "source_ref": FILING,
+        "event_date": "2026-09-30",
+        "note": "Located only: " + text(260, 3),
+        "flags": [],
+        "located_passages": [
+            passage("segment", 3_004, 1),
+            passage("business-description", 800, 2),
+            passage("segment", 400, 3),
+        ],
+    }
+    if thesis_scoped:
+        revenue["estimate_source"] = "llm_proposed"
+    shares = {
+        "fact_type": "shares_outstanding",
+        "tier": "flag",
+        "source": "10-q-cover",
+        "source_ref": FILING,
+        "event_date": "2026-10-28",
+        "note": "Cover count; two share classes: " + text(120, 4),
+        "value": 152_000_000.0,
+        "flags": ["dual-class"],
+        "located_passages": [passage("cover", 600, 4)],
+    }
+    burn = {
+        "fact_type": "cash_burn",
+        "tier": "auto",
+        "source": "10-q",
+        "source_ref": FILING,
+        "event_date": "2026-09-30",
+        "note": "Derived from the cash-flow statement: " + text(150, 5),
+        "cash_usd": 410_000_000.0,
+        "quarterly_burn_usd": 38_000_000.0,
+        "flags": [],
+        "located_passages": [passage("cash-flow", 900, 5), passage("balance-sheet", 700, 6)],
+    }
+    return _dump(ExtractionResult, {"facts": [revenue, shares, burn]})

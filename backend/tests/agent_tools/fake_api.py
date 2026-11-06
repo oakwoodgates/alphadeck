@@ -69,6 +69,8 @@ def _thesis(api: FakeApi, query: dict[str, str], thesis_id: str, tail: str):
     if thesis_id not in {t["id"] for t in fx.theses_list(with_call=False)}:
         return 404, {"detail": "thesis not found"}
     tail = tail.strip("/")
+    if tail == "" and thesis_id in api.details:
+        return 200, api.details[thesis_id]
     if tail == "call" and thesis_id in api.calls:
         return 200, api.calls[thesis_id]
     payload = {
@@ -93,6 +95,31 @@ def _scored(api: FakeApi, query: dict[str, str], thesis_id: str):
     return 200, rfx.scored()
 
 
+def _runs(api: FakeApi, query: dict[str, str], thesis_id: str):
+    if not _known(thesis_id):
+        return 404, {"detail": "thesis not found"}
+    if api.runs_disabled:
+        return 404, {"detail": "run loader is disabled"}
+    return 200, rfx.runs() if thesis_id == rfx.THESIS_ID else []
+
+
+def _run(api: FakeApi, query: dict[str, str], thesis_id: str, run_id: str):
+    if not _known(thesis_id):
+        return 404, {"detail": "thesis not found"}
+    if api.runs_disabled:
+        return 404, {"detail": "run loader is disabled"}
+    drafts = {rfx.RUN_LATEST_ID: rfx.run_latest, rfx.RUN_SMALL_ID: rfx.run_small}
+    if thesis_id != rfx.THESIS_ID or run_id not in drafts:
+        return 404, {"detail": "saved run not found"}
+    return 200, drafts[run_id]()
+
+
+def _extract(api: FakeApi, query: dict[str, str], security_id: str):
+    if security_id != SECURITY_ID:
+        return 404, {"detail": "security not found"}
+    return 200, rfx.extract(thesis_scoped="thesis_id" in query)
+
+
 def _onboarding(api: FakeApi, query: dict[str, str], thesis_id: str):
     if not _known(thesis_id):
         return 404, {"detail": "thesis not found"}
@@ -107,6 +134,13 @@ ROUTES: tuple[tuple[str, str | re.Pattern[str], Callable[..., tuple[int, object]
     ("GET", f"/dashboards/ticker-lookup/{SECURITY_ID}", _ticker_lookup),
     ("GET", re.compile(r"^/*workbench/theses/(?P<thesis_id>[^/]+)/scored$"), _scored),
     ("GET", re.compile(r"^/*workbench/theses/(?P<thesis_id>[^/]+)/onboarding$"), _onboarding),
+    ("GET", re.compile(r"^/*workbench/theses/(?P<thesis_id>[^/]+)/runs$"), _runs),
+    (
+        "GET",
+        re.compile(r"^/*workbench/theses/(?P<thesis_id>[^/]+)/runs/(?P<run_id>[^/]+)$"),
+        _run,
+    ),
+    ("GET", re.compile(r"^/*workbench/securities/(?P<security_id>[^/]+)/extract$"), _extract),
     ("GET", re.compile(r"^/*dashboards/(?P<slug>[^/]+)/*$"), _dashboard),
     ("GET", re.compile(r"^/*theses/(?P<thesis_id>[^/]+)(?:/(?P<tail>.*))?$"), _thesis),
 )
@@ -114,9 +148,17 @@ ROUTES: tuple[tuple[str, str | re.Pattern[str], Callable[..., tuple[int, object]
 
 class FakeApi:
     def __init__(
-        self, theses: list[dict] | None = None, calls: dict[str, dict] | None = None
+        self,
+        theses: list[dict] | None = None,
+        calls: dict[str, dict] | None = None,
+        details: dict[str, dict] | None = None,
+        runs_disabled: bool = False,
     ) -> None:
         self.theses = theses
+        self.details = (
+            details or {}
+        )  # thesis id -> its GET /theses/{id} payload (default: fx.thesis_detail)
+        self.runs_disabled = runs_disabled  # the run loader off: the two /runs reads answer 404
         self.calls = (
             calls or {}
         )  # thesis id -> its /call payload (default: fx.call_payload for every card)
