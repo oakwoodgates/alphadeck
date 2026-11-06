@@ -4,13 +4,22 @@ Each entry names the dashboard, what it answers, whether it is dated, the settin
 values mirror the route's own enums, read from the router), the sections its reply can be narrowed to and which
 narrowing parameters (``thesis``, ``group``) it takes. ``view_module`` is the module that shapes the API's JSON
 (``view(payload, req)``, pure). Nothing here does I/O; ``list_dashboards`` serves this table as it stands.
+
+A ``Dashboard`` is a ``tool_args.Contract`` (its ``name`` is the slug) with a purpose and a view on top; the
+``Setting`` type lives in ``tool_args`` and is re-exported here.
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
+from datetime import date
 from importlib import import_module
 from typing import Any
+
+from ...tool_args import Contract, Setting, register
+
+__all__ = ["Dashboard", "REGISTRY", "SLUGS", "Setting"]
 
 SLUGS = (
     "daily-digest",
@@ -25,37 +34,31 @@ SLUGS = (
 
 
 @dataclass(frozen=True)
-class Setting:
-    """A query parameter the dashboard's route takes: passed through to the API under the same name."""
-
-    name: str
-    type: str
-    allowed: tuple[Any, ...] | str  # the route's enum, or a pattern description
-    default: Any
-    applies: str
-
-
-@dataclass(frozen=True)
-class Dashboard:
-    slug: str
-    purpose: str
-    dated: bool
-    sections: tuple[str, ...]
-    narrows: tuple[str, ...] = ()
-    settings: tuple[Setting, ...] = ()
+class Dashboard(Contract):
+    purpose: str = ""
     view_module: str = ""
-    # a section that reads one card or one group says so: section -> "thesis" | "group" (the others need nothing)
-    needs: tuple[tuple[str, str], ...] = ()
 
-    def needs_of(self, section: str) -> str | None:
-        return dict(self.needs).get(section)
-
-    def setting_names(self) -> tuple[str, ...]:
-        return tuple(s.name for s in self.settings)
+    @property
+    def slug(self) -> str:
+        return self.name
 
     def view(self):
         """The dashboard's pure view function (imported on first use)."""
         return import_module(f"{__name__}.{self.view_module or self.slug.replace('-', '_')}").view
+
+
+_SINCE = re.compile(r"^(last_night|7d|\d{4}-\d{2}-\d{2})$")
+
+
+def _since_rule(value: Any) -> str | None:
+    """The rule text when ``since`` is not last_night, 7d or a real YYYY-MM-DD date."""
+    ok = bool(_SINCE.match(value))
+    if ok and len(value) == 10:
+        try:
+            date.fromisoformat(value)
+        except ValueError:
+            ok = False
+    return None if ok else "since takes last_night, 7d or a real date as YYYY-MM-DD."
 
 
 ROWS = Setting("rows", "string", ("armed", "all"), "armed", "default reply and the row section")
@@ -73,77 +76,78 @@ SINCE = Setting(
     "last_night | 7d | YYYY-MM-DD",
     "last_night",
     "the baseline night items are measured from",
+    _since_rule,
 )
 
 REGISTRY: dict[str, Dashboard] = {
-    d.slug: d
+    d.slug: register(d)
     for d in (
         Dashboard(
             "daily-digest",
-            "What the last pass changed, what is due, insider buys, the tape on armed names, what is forming.",
             True,
             ("last_night", "tape", "insider", "due"),
             ("thesis",),
+            purpose="What the last pass changed, what is due, insider buys, the tape on armed names, what is forming.",
         ),
         Dashboard(
             "what-changed",
-            "Every change between two recorded nights: states, keys, names, triggers, clocks, new cards.",
             False,
             ("column_moves", "keys", "names", "triggers", "clocks", "new_cards"),
             ("thesis", "change"),
             (SINCE,),
+            purpose="Every change between two recorded nights: states, keys, names, triggers, clocks, new cards.",
         ),
         Dashboard(
             "hot-board",
-            "The armed names (or all candidates) by heat: triggers, clocks, return since arm, tape, cap.",
             True,
             ("row",),
             ("thesis",),
             (ROWS,),
-            needs=(("row", "thesis"),),
+            (("row", "thesis"),),
+            purpose="The armed names (or all candidates) by heat: triggers, clocks, return since arm, tape, cap.",
         ),
         Dashboard(
             "entry-windows",
-            "Each armed card's entry window and hold clock, with its members and catalysts.",
             True,
             ("members", "catalysts"),
             ("thesis",),
+            purpose="Each armed card's entry window and hold clock, with its members and catalysts.",
         ),
         Dashboard(
             "forming-quietly",
-            "Warming and incubating cards: keys, names with triggers, missing conditions, risks, quiet tape.",
             True,
             ("names", "risks", "missing", "watch", "quiet", "adoption"),
             ("thesis",),
             needs=tuple(
                 (s, "thesis") for s in ("names", "risks", "missing", "watch", "quiet", "adoption")
             ),
+            purpose="Warming and incubating cards: keys, names with triggers, missing conditions, risks, quiet tape.",
         ),
         Dashboard(
             "catalyst-calendar",
-            "Catalysts, entry windows and exit-by dates by bucket across all cards, plus passed and undated.",
             False,
             ("bucket", "passed", "undated"),
             ("thesis", "group"),
             needs=(("bucket", "group"),),
+            purpose="Catalysts, entry windows and exit-by dates by bucket across all cards, plus passed and undated.",
         ),
         Dashboard(
             "rotation-map",
-            "Where price is moving by link, business type, sector or card: returns, SMA, RVOL, crosses.",
             True,
             ("members", "flagged"),
             ("group",),
             (GROUP_BY, INCLUDE_SILENT),
             needs=(("members", "group"),),
+            purpose="Where price is moving by link, business type, sector or card: returns, SMA, RVOL, crosses.",
         ),
         Dashboard(
             "trigger-log",
-            "Every trigger the recorded calls show in the window, newest night first.",
             True,
             ("row",),
             ("thesis",),
             (DAYS, ROLE),
-            needs=(("row", "thesis"),),
+            (("row", "thesis"),),
+            purpose="Every trigger the recorded calls show in the window, newest night first.",
         ),
     )
 }
