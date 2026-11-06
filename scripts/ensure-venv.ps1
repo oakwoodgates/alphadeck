@@ -5,7 +5,7 @@
 .DESCRIPTION
   The PowerShell twin of scripts/ensure-venv.sh (same contract, same stamp -- they interoperate on one venv).
 
-  Makes backend\.venv exist and carry `pip install -e ".[dev,replay]"` -- exactly what CI installs
+  Makes backend\.venv exist and carry `pip install -e ".[dev,replay,mcp]"` -- exactly what CI installs
   (.github/workflows/ci.yml): the runtime deps, pytest + pytest-xdist (`pytest -n 6`) + pytest-timeout (the
   hang guard), the pinned ruff/black, and duckdb + pyarrow so the replay tests EXECUTE instead of being
   collect-skipped in a lean venv (skipped != passed). Per-checkout BY CONSTRUCTION: the venv lives inside the
@@ -61,7 +61,7 @@ $Root      = (Resolve-Path (Join-Path $ScriptDir '..')).Path
 $Backend   = Join-Path $Root 'backend'
 $Venv      = Join-Path $Backend '.venv'
 $Probe     = Join-Path $ScriptDir 'ensure-venv-probe.py'
-$Extras    = 'dev,replay'
+$Extras    = 'dev,replay,mcp'
 $Stamp     = Join-Path $Venv '.alphadeck-venv-stamp'
 $PyProject = Join-Path $Backend 'pyproject.toml'
 

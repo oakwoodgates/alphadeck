@@ -60,11 +60,11 @@ from dashboards.hot_board import (
 from dashboards.market_cap import CompanyReads, Gap, cap_cell
 from dashboards.series import session_calendar
 from db.session import DEFAULT_TENANT_ID
-from domain.call import CallCard
 from domain.enums import Grade, Kind, State, Verdict
 from domain.market_cap import CapTier
 from domain.market_time import countdown_origin, market_clock, serve_view
 from domain.splits import listed_from_row
+from repositories import calls_repo
 from securities import master
 from signals.base import PointInTimeData
 from signals.display import insider_flow, trailing_returns
@@ -74,12 +74,8 @@ from signals.horizons import display_bounds
 router = APIRouter(prefix="/hot-board")
 
 # The calls-log reads: plain SELECTs, all scoped to the counted cards' ids. "In effect at D" = the greatest
-# (asof, seq) with asof <= D, one row per card (the What Changed read); the walk's rows are every row on or before
-# D, without the card blob but for the security ids of its armed members.
-_IN_EFFECT_SQL = (
-    "SELECT DISTINCT ON (thesis_id) thesis_id, asof, seq, reconstructed, card FROM calls "
-    "WHERE thesis_id = ANY(%s) AND asof <= %s ORDER BY thesis_id, asof DESC, seq DESC"
-)
+# (asof, seq) with asof <= D, one row per card (the What Changed read, ``calls_repo.in_effect_for``); the walk's
+# rows are every row on or before D, without the card blob but for the security ids of its armed members.
 _RUN_SQL = (
     "SELECT thesis_id, asof, seq, reconstructed, state, "
     "COALESCE(jsonb_path_query_array(card, '$.armed_members[*].security_id'), '[]'::jsonb) AS armed_ids "
@@ -300,20 +296,11 @@ class HotBoardOut(_Wire):
 
 def read_recorded(conn: psycopg.Connection, ids: list[UUID], asof: date) -> dict[UUID, Recorded]:
     """The recorded card in effect at ``asof`` per card (the greatest ``(asof, seq)`` with ``asof <=`` the as-of);
-    a card with no row by then is absent."""
-    if not ids:
-        return {}
-    with conn.cursor() as cur:
-        cur.execute(_IN_EFFECT_SQL, (ids, asof))
-        return {
-            r["thesis_id"]: Recorded(
-                asof=r["asof"],
-                seq=r["seq"],
-                reconstructed=r["reconstructed"],
-                card=CallCard.model_validate(r["card"]),
-            )
-            for r in cur.fetchall()
-        }
+    a card with no row by then is absent. One query, through ``calls_repo.in_effect_for``."""
+    return {
+        tid: Recorded(asof=r.asof, seq=r.seq, reconstructed=r.reconstructed, card=r.card)
+        for tid, r in calls_repo.in_effect_for(conn, ids, asof).items()
+    }
 
 
 def read_runs(conn: psycopg.Connection, ids: list[UUID], asof: date) -> dict[UUID, list[LogRow]]:

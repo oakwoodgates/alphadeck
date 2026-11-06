@@ -9,7 +9,8 @@ Exit 0 = ready (prints a one-line ``ready: ...``), exit 1 = not ready (prints WH
 * the interpreter is >= 3.11 (``requires-python``);
 * every import the suite needs is present -- the ``dev`` extra (pytest, pytest-xdist for ``pytest -n 6``,
   pytest-timeout the hang guard, the pinned ruff/black), the ``replay`` extra (duckdb + pyarrow, so the
-  replay tests EXECUTE instead of being collect-skipped -- skipped != passed) and the runtime deps;
+  replay tests EXECUTE instead of being collect-skipped -- skipped != passed), the ``mcp`` extra (the agent
+  tools server and its tests) and the runtime deps;
 * the editable ``app`` package resolves to THIS checkout's ``backend/app`` -- a venv copied or borrowed from
   another worktree (or the main checkout) fails here, because its editable install points at the OTHER tree.
 
@@ -33,6 +34,8 @@ REQUIRED: dict[str, str] = {
     "black": "dev",
     "duckdb": "replay",
     "pyarrow": "replay",
+    "mcp": "mcp (the agent tools server -- `python -m agent_tools`)",
+    "jsonschema": "mcp",
     "fastapi": "runtime",
     "psycopg": "runtime",
     "tzdata": "runtime",

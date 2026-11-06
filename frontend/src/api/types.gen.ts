@@ -16,6 +16,12 @@ export interface paths {
          * @description List theses. Archived ones are EXCLUDED by default — the workbench picker and every default
          *     consumer skip them without asking; the Board passes ``include_archived=true`` and renders them
          *     in a collapsed section (visible + restorable, never vanished).
+         *
+         *     ``with_call=true`` (with ``asof``) attaches ``call``: the nightly call of RECORD in effect at ``asof``
+         *     (the ``calls`` row with the greatest ``(asof, seq)`` on or before it; ``null`` = none), read in one
+         *     query and never recomputed. Its ``record_asof`` is earlier than ``asof`` when the pass wrote no row
+         *     for that night. The Board's live read is ``GET /theses/{id}/call``. Without ``with_call`` the
+         *     response carries no ``call`` key. A read: it writes nothing.
          */
         get: operations["list_theses_theses_get"];
         put?: never;
@@ -15549,6 +15555,51 @@ export interface components {
             reason: string | null;
         };
         /**
+         * RecordedCallSummary
+         * @description The nightly RECORD in effect for a thesis at the list's ``asof``: the ``calls`` row with the greatest
+         *     ``(asof, seq)`` on or before it, cut to its decision fields. ``record_asof`` is that row's own night (earlier
+         *     than the list's ``asof`` when the pass wrote no row for it); ``reconstructed`` = a ``pipeline.backfill`` row
+         *     (reported, never scored); ``recorded_at`` = when our store wrote it (bookkeeping, not the history clock).
+         *     Every value is copied from the recorded card; ``armed_ticker`` resolves ``armed_security_id`` through the
+         *     master, like the live call. ``confidence`` is setup strength: an experimental relative indicator, not a
+         *     probability.
+         */
+        RecordedCallSummary: {
+            /**
+             * Record Asof
+             * Format: date
+             */
+            record_asof: string;
+            /** Seq */
+            seq: number;
+            /** Reconstructed */
+            reconstructed: boolean;
+            /**
+             * Recorded At
+             * Format: date-time
+             */
+            recorded_at: string;
+            state: components["schemas"]["State"];
+            verdict: components["schemas"]["Verdict"];
+            conviction_grade?: components["schemas"]["Grade"] | null;
+            confirmation_grade?: components["schemas"]["Grade"] | null;
+            entry_grade?: components["schemas"]["Grade"] | null;
+            /** Confidence */
+            confidence?: number | null;
+            /** Exit By */
+            exit_by?: string | null;
+            /** Arm Until */
+            arm_until?: string | null;
+            /** Armed Security Id */
+            armed_security_id?: string | null;
+            /** Armed Ticker */
+            armed_ticker?: string | null;
+            /** Armed Count */
+            armed_count: number;
+            /** Missing Count */
+            missing_count: number;
+        };
+        /**
          * ResolveEtfRequest
          * @description Body for ``POST /workbench/securities/resolve-etf`` (ETF Sleeve, Slice 1) — the operator-supplied ETF
          *     ticker to surface as a ``fund`` sleeve. Just the ticker: the server resolves it (lookup-or-create) and
@@ -17124,6 +17175,7 @@ export interface components {
              * @default false
              */
             archived: boolean;
+            call?: components["schemas"]["RecordedCallSummary"] | null;
         };
         /**
          * TickerLookupCapOut
@@ -18518,6 +18570,10 @@ export interface operations {
             query?: {
                 /** @description include archived theses (the Board's explicit, reversible filter) */
                 include_archived?: boolean;
+                /** @description attach each thesis's nightly RECORD in effect at `asof` as `call` (requires `asof`) */
+                with_call?: boolean;
+                /** @description the night whose record `with_call` reads (required with `with_call=true`) */
+                asof?: string | null;
             };
             header?: never;
             path?: never;

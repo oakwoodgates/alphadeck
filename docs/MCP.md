@@ -1,5 +1,9 @@
 # Agent access and MCP
 
+> **LEGACY: the capture server; superseded by [`docs/AGENT_TOOLS.md`](AGENT_TOOLS.md); removed in Phase 4.**
+> The `alphadeck-mcp` console script (what `.mcp.json` launches) now serves the data-first `agent_tools`
+> server. This capture server stays runnable as `python -m agent_access` until it is retired.
+
 Status: dashboard access and portable workflow recipes implemented, 2026-11-02; agent ergonomics (lean
 inspect replies, pointer/outline/batch reads, Board evidence references, recipes 1.1.0) 2026-11-05.
 Stage: MONITOR, with extension points for SCORE and the research stages.
@@ -129,13 +133,6 @@ transport comes with authentication and scope enforcement. Proposed edits are di
 commands; later commands require actor provenance, version checks, idempotency, and an audit trail.
 Agent-authored proposals never become operator-ratified facts merely because an agent submitted them.
 An agent runtime is a consumer of these capabilities, responsible for reasoning and workflow checkpoints.
-
-## Coordination
-
-The primary chat owns scope, decisions, integration, and acceptance. Astra owns backend capture and
-correctness review. Sol assignments own the frontend/metadata and the MCP process/browser integration,
-with separate file ownership. Agents report changed files, validation evidence, and unresolved issues.
-Local build checkpoints stay under ignored `docs/temp/`; this document retains the architectural decisions.
 
 ## Install and run
 

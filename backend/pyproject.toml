@@ -57,12 +57,12 @@ replay = [
 ]
 
 [project.scripts]
-alphadeck-mcp = "agent_access.server:main"
+alphadeck-mcp = "agent_tools.server:main"
 
 # Flat layout: list the packages explicitly (no auto-discovery, so the venv/data dirs are never scanned).
 [tool.setuptools]
 packages = [
-    "agent_access",
+    "agent_access", "agent_tools", "agent_tools.views",
     "app", "app.routers", "app.routers.dashboards", "app.routers.dashboards.capture_adapters",
     "calls", "db", "domain", "llm",
     "ingest", "ingest.edgar", "ingest.funds", "ingest.prices",
@@ -71,6 +71,7 @@ packages = [
 
 [tool.setuptools.package-data]
 agent_access = ["catalog.json", "recipes/*.json", "recipes/*.md"]
+agent_tools = ["prompts/*.md"]
 
 [tool.ruff]
 line-length = 100

@@ -73,12 +73,11 @@ Four decision surfaces (plus an operator ops page); clickable mockups live in `d
 
 ## Architecture & stack
 
-Local agents can inspect the Board, Rotation Map, and Narrative Index, then follow Board items into
-Cockpit and its captured evidence through a read-only MCP server. Structured observations and images
-share one captured view; navigation explicitly starts a fresh capture. Three versioned workflow recipes
-support Board review, call explanation, and dated Rotation Map comparison through MCP prompts or plain-chat
-workflow lookup. The connected agent executes the recipe and returns the report in chat. Setup, examples,
-capability coverage, and extension contracts are in [`docs/MCP.md`](docs/MCP.md).
+Local agents read the platform through a read-only MCP server (`agent_tools`): typed, data-first tools over
+the API's own JSON (the nightly record and Decision Queue, a call with its evidence, the thesis spine, data
+flags, display signals, decisions, a ticker lookup), each reply bounded and stating its as-of and source,
+plus two prompts (Board review, call explanation). Setup, the tool table and the error codes are in
+[`docs/AGENT_TOOLS.md`](docs/AGENT_TOOLS.md); the legacy capture server is in [`docs/MCP.md`](docs/MCP.md).
 
 Three load-bearing decisions drive the shape:
 
