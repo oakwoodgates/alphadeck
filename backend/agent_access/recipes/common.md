@@ -1,6 +1,0 @@
-Rules for every workflow:
-
-- Every tool reply stays under the server's reply ceiling (40,000 characters unless the server sets another), so a page can hold fewer items than `limit` or `target_limit` asked for. Always continue from the returned `next_offset`, `next_target_offset`, `next_source_offset` or `next_outline_offset`; never compute an offset yourself.
-- `read_dashboard` returns an observation summary: title, every note, a text excerpt, each table's headers and row count, and counts of the rest. The full frozen observation stays in the snapshot: read any part with `inspect_dashboard_item` and `view_pointer` (for example `/tables/0/rows`), outlining a large value first (`outline: true`). With `target_id`, `view_pointer` reads that target's frozen record instead.
-- Target listings are lean: each target's `id`, `label`, a short `text` excerpt with `text_total_characters`, visibility flags, `links` and `source_refs`. `target_id` alone opens one target's full record; `match` keeps only targets whose ID or label contains the text; `index: true` lists every target as `id` and `label` only.
-- Retries: on `capture_timeout`, `backend_unavailable` or `ui_unavailable`, wait about a minute and retry that read once. Never run two captures at the same time. If it fails again, stop and report what you have, labeled partial.

@@ -286,8 +286,7 @@ def fund_launches(
 def read_fund_launches(
     conn: psycopg.Connection, thesis: Thesis, asof: date, days: int = 90
 ) -> FundLaunchesOut:
-    """The pure reader behind ``GET /theses/{id}/fund-launches`` (one implementation: the route and the Cockpit's
-    frozen capture both call it). See the route for the rules."""
+    """The pure reader behind ``GET /theses/{id}/fund-launches``. See the route for the rules."""
     views, symbols = fund_stage.visible_as_of(*_facts(conn), asof)
     cutoff = asof - timedelta(days=days)
     starts = fund_stage.symbol_starts(symbols)

@@ -651,11 +651,6 @@ def main() -> None:
         help="The API's loopback origin, e.g. http://127.0.0.1:8001",
     )
     parser.add_argument(
-        "--ui-base",
-        default=None,
-        help="Ignored. Kept so the existing .mcp.json registration still starts this server.",
-    )
-    parser.add_argument(
         "--timeout",
         type=float,
         default=DEFAULT_TIMEOUT_S,

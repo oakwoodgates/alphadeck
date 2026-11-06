@@ -142,7 +142,8 @@ def get_thesis(
 
 
 def read_thesis_detail(conn: psycopg.Connection, thesis: Thesis, *, today: date) -> ThesisDetail:
-    """Canonical CURRENT thesis metadata and position; capture injects its pinned market day."""
+    """The CURRENT thesis metadata and position behind ``GET /theses/{id}``; ``today`` is the market day the
+    position's decisions are read as of (the route passes ``market_today()``)."""
     # Thread the decisions-log-derived position onto the thesis — the SAME source of truth the call
     # path uses (``call_for_thesis``) — so ``position.security_id`` is populated for an attributed
     # take. Without it the read path built the position from only the seed columns (which carry no
@@ -189,7 +190,9 @@ def read_call(
     mclock: MarketClock,
     view: tuple[datetime | None, Literal["record", "public"]] | None = None,
 ) -> CallCardResponse:
-    """Canonical read-only call and wire shaping, also used by a pinned dashboard capture."""
+    """The read-only call and its wire shaping behind ``GET /theses/{id}/call``; ``view`` is the clock the facts
+    are read on (omitted: ``serve_view`` for the as-of and the clock's night, what the route uses).
+    """
     known_at, clock = view if view is not None else serve_view(asof, night=mclock.night)
     card = call_for_thesis(
         conn,
