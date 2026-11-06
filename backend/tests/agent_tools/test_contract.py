@@ -11,7 +11,10 @@ pytest.importorskip("mcp")
 from agent_tools import tool_args  # noqa: E402
 from agent_tools.errors import ToolFailure  # noqa: E402
 from agent_tools.tool_args import CONTRACTS, Contract, Setting  # noqa: E402
-from agent_tools.views import dashboards  # noqa: E402,F401  (importing registers the dashboards)
+from agent_tools.views import (  # noqa: E402,F401  (importing registers the contracts)
+    dashboards,
+    research,
+)
 
 
 def ids(contracts):
@@ -72,6 +75,9 @@ def test_a_section_whose_need_is_missing_is_rejected(c):
         what = {
             "thesis": "thesis (a card's id or name)",
             "group": "group (a key from the default reply)",
+            "t": "t (a ticker, or a name for a placement without one)",
+            "segment": "segment (a link label from the default reply)",
+            "fact": "fact (revenue_mix, shares_outstanding or cash_burn)",
         }[need]
         assert err.message == f"section={section} of `{c.name}` needs {what}."
         # given the need, the same call passes

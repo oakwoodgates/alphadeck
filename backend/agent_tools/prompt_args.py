@@ -100,5 +100,17 @@ PROMPTS: tuple[PromptSpec, ...] = (
         check=check_compare,
         derived={"group_clause": lambda v: f", group={v['group']}" if v["group"] else ""},
     ),
+    PromptSpec(
+        "ratify-queue",
+        "What is still the operator's to ratify on a card: the unconfirmed estimates, the names not signed off, "
+        "the model drafts and the ambiguous picks.",
+        (("thesis", True, None), ("asof", False, None)),
+    ),
+    PromptSpec(
+        "discovery-review",
+        "What a card's newest saved discovery run found: the report, the capped and empty terms, the counts by "
+        "status and the names waiting for a pick.",
+        (("thesis", True, None),),
+    ),
 )
 PROMPT_NAMES = tuple(p.name for p in PROMPTS)

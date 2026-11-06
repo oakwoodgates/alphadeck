@@ -59,6 +59,7 @@ alphadeck-mcp = "agent_tools.server:main"
 [tool.setuptools]
 packages = [
     "agent_tools", "agent_tools.views", "agent_tools.views.dashboards",
+    "agent_tools.views.research",
     "app", "app.routers", "app.routers.dashboards",
     "calls", "db", "domain", "llm",
     "ingest", "ingest.edgar", "ingest.funds", "ingest.prices",
