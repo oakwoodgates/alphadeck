@@ -3,8 +3,6 @@ import { useMemo, useState } from "react";
 import { fmtDate } from "../../util/format";
 import { FlaggedNote, leftOutWords } from "../FlaggedNote";
 import type { DashboardProps } from "../registry";
-import { useCaptureView } from "../../mcp/viewContext";
-import { targetId } from "../../mcp/targetId";
 import "./rotation-map.css";
 import {
   DEFAULT_SORT,
@@ -112,17 +110,15 @@ function NameRow({
   groupBy,
   vsSpy,
   onSelect,
-  groupKey,
 }: {
   name: RotationNameOut;
   data: RotationMapOut;
   groupBy: GroupBy;
   vsSpy: boolean;
   onSelect: DashboardProps["onSelectThesis"];
-  groupKey: string;
 }) {
   return (
-    <tr className={`rm-name${name.flag != null ? " flagged" : ""}`} data-mcp-id={targetId("group-member", groupKey, name.security_id)}>
+    <tr className={`rm-name${name.flag != null ? " flagged" : ""}`}>
       <td className="rm-name-id">
         <span className="rm-tk">{name.ticker}</span>
         <span className="rm-chips">
@@ -204,7 +200,6 @@ function GroupRow({
     <>
       <tr
         className={`rm-group${open ? " open" : ""}${silent ? " quiet" : ""}`}
-        data-mcp-id={targetId("group", g.key)}
         tabIndex={0}
         aria-expanded={open}
         onClick={onToggle}
@@ -265,7 +260,6 @@ function GroupRow({
             groupBy={groupBy}
             vsSpy={vsSpy}
             onSelect={onSelect}
-            groupKey={g.key}
           />
         ))}
     </>
@@ -273,12 +267,11 @@ function GroupRow({
 }
 
 export default function RotationMap({ asof, onSelectThesis }: DashboardProps) {
-  const { settings, readOnly } = useCaptureView();
-  const [groupBy, setGroupBy] = useState<GroupBy>((settings.group_by as GroupBy) ?? "link");
-  const [includeSilent, setIncludeSilent] = useState(settings.include_silent === true);
-  const [vsSpyPick, setVsSpy] = useState(settings.vs_spy === true);
-  const [sort, setSort] = useState<SortState>({ col: (settings.sort_col as SortCol) ?? DEFAULT_SORT.col, dir: (settings.sort_dir as SortState["dir"]) ?? DEFAULT_SORT.dir });
-  const [open, setOpen] = useState<ReadonlySet<string>>(new Set((settings.open_groups as string[]) ?? []));
+  const [groupBy, setGroupBy] = useState<GroupBy>("link");
+  const [includeSilent, setIncludeSilent] = useState(false);
+  const [vsSpyPick, setVsSpy] = useState(false);
+  const [sort, setSort] = useState<SortState>(DEFAULT_SORT);
+  const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const q = useRotationMap(asof, groupBy, includeSilent);
   const data = q.data;
 
@@ -294,10 +287,7 @@ export default function RotationMap({ asof, onSelectThesis }: DashboardProps) {
       </div>
     );
   }
-  if (q.error || !data) return <div className="dash-note" data-mcp-ready="true" data-mcp-error="true">Could not load the Rotation Map.</div>;
-  if (readOnly && ((vsSpyPick && data.spy == null) || [...open].some((key) => !data.groups.some((group) => group.key === key)))) {
-    return <div className="dash-note" data-mcp-ready="true" data-mcp-error="true" data-mcp-error-code="invalid_view_state">Requested groups or benchmark comparison are unavailable in this captured view. Use available group IDs and return modes from this view.</div>;
-  }
+  if (q.error || !data) return <div className="dash-note">Could not load the Rotation Map.</div>;
 
   const view = data.group_by;
   const vsSpy = vsSpyPick && data.spy != null;
@@ -311,7 +301,7 @@ export default function RotationMap({ asof, onSelectThesis }: DashboardProps) {
   const onSort = (col: SortCol) => setSort((s) => nextSort(s, col));
 
   return (
-    <div className="rm" data-mcp-ready={!q.isFetching}>
+    <div className="rm">
       <div className="rm-controls">
         <div className="rm-seg" role="group" aria-label="Group by">
           <span className="rm-seg-label">Group by</span>

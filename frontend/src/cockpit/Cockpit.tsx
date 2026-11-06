@@ -60,9 +60,6 @@ import {
 } from "../util/format";
 import { CONTEXT_ROLE_DESCRIPTION, contextRoleTag, formatMarketCap } from "../workbench/format";
 import { SILENT_DESCRIPTORS, isSilentLink } from "../workbench/useChainDraft";
-import { useCaptureView } from "../mcp/viewContext";
-import { useCaptureBindings } from "../mcp/bindings";
-import { targetId } from "../mcp/targetId";
 import { useCoveredRail } from "./useCoveredRail";
 
 interface Props {
@@ -172,8 +169,6 @@ export function Cockpit({
   railOpen,
   onRailChange,
 }: Props) {
-  const { settings, readOnly } = useCaptureView();
-  const { cockpitLinks, sourceRefs } = useCaptureBindings();
   const thesisQ = useThesis(thesisId);
   // F2 — the catalyst calendar below counts down from the action day on a live view (the as-of on a past one)
   const countdownFrom = useCountdownOrigin(asof);
@@ -334,12 +329,12 @@ export function Cockpit({
   // ("which part of the chain is moving?"). Local view state; every lens renders the SAME names — a
   // lens re-orders, never drops. Call-state + business-type dedupe to one row per name; the
   // value-chain lens shows every link-row (a multi-segment name appears under each of its links).
-  const [groupMode, setGroupMode] = useState<"state" | "type" | "segment">((settings.group_mode as "state" | "type" | "segment") ?? "state");
+  const [groupMode, setGroupMode] = useState<"state" | "type" | "segment">("state");
   // The active column SORT — a local, reversible view choice (the lens-toggle precedent); null = the
   // default order (call-rank within each group). It re-orders rows WITHIN each group only (the call
   // hierarchy stays put) and PERSISTS across a lens switch (re-ranks within the new lens's groups).
   // Click cycles desc → asc → off.
-  const [sort, setSort] = useState<SortState | null>(settings.sort_col ? { col: settings.sort_col as SortColId, dir: (settings.sort_dir as "asc" | "desc") ?? "desc" } : null);
+  const [sort, setSort] = useState<SortState | null>(null);
   const onSort = (col: SortColId) => setSort((cur) => nextSort(cur, col));
   const segments = thesis?.segments ?? [];
   // Gate the value-chain lens on the thesis actually having a decomposed chain (≥1 placed segment):
@@ -457,14 +452,9 @@ export function Cockpit({
   const evidence = thesis?.evidence ?? [];
   const catalysts = thesis?.catalysts ?? [];
   const killCriteria = thesis?.kill_criteria ?? [];
-  const reads = [thesisQ, callQ, scoredQ, displayQ, flagsQ];
-  const captureReady = reads.every((query) => !query.isPending && !query.isFetching && !query.isPlaceholderData);
-  if (readOnly && captureReady && ((selectedName !== null && !selected) || (groupMode === "segment" && !hasValueChain))) {
-    return <div className="dash-note" data-mcp-ready="true" data-mcp-error="true" data-mcp-error-code="invalid_view_state">The selected name or grouping is unavailable in this captured Cockpit. Choose a name and grouping advertised by this capture.</div>;
-  }
 
   return (
-    <div ref={shellRef} className="cp-shell" data-mcp-ready={captureReady} data-mcp-error={reads.some((query) => Boolean(query.error))}>
+    <div ref={shellRef} className="cp-shell">
       <header className="cp-top">
         {onBack && (
           <button type="button" className="back" onClick={onBack}>
@@ -524,10 +514,8 @@ export function Cockpit({
         </button>
       </header>
 
-      {readOnly && <div className="capture-caveat">Historical as-of applies to analytical reads. Thesis notes, roster metadata, position and decision history are current captured records.</div>}
-
       <div className={`cp-body${railOpen ? "" : " rail-closed"}`}>
-        <main className="cp-main" data-mcp-id={targetId("cockpit-thesis", thesisId)} {...sourceRefs(`/theses/${thesisId}`, "")}>
+        <main className="cp-main">
           {thesisQ.isLoading && <p className="muted">Loading thesis…</p>}
           {thesisQ.error && <p style={{ color: "var(--neg)" }}>Failed to load the thesis.</p>}
 
@@ -556,7 +544,7 @@ export function Cockpit({
                   <button
                     type="button"
                     className="wb-mini ghost"
-                    disabled={readOnly || exportRows.length === 0}
+                    disabled={exportRows.length === 0}
                     aria-label={`export ${exportRows.length} board names`}
                     title="Download the basket as JSON (ticker + name, sorted for a stable diff)"
                     onClick={() =>
@@ -573,7 +561,7 @@ export function Cockpit({
                   <button
                     type="button"
                     className="wb-mini ghost"
-                    disabled={readOnly || watchlistRows.length === 0}
+                    disabled={watchlistRows.length === 0}
                     aria-label={`export ${watchlistRows.length} names as a TradingView watchlist`}
                     title="Download a .txt that imports directly into a TradingView watchlist (EXCHANGE:TICKER)"
                     onClick={() =>
@@ -705,7 +693,7 @@ export function Cockpit({
                     <tbody>
                       {sortedGroups.map((g) => (
                         <Fragment key={g.key}>
-                          <tr className={`grp ${g.cls}`} data-mcp-id={targetId("cockpit-group", thesisId, g.key)}>
+                          <tr className={`grp ${g.cls}`}>
                             <td colSpan={22}>
                               {/* the To Review heading idiom (chev · label · hint · count · moving
                                   line · hairline), bucket-colored; click-to-collapse, open by default
@@ -751,8 +739,6 @@ export function Cockpit({
                               tabIndex={0}
                               aria-selected={r.ordinal === selOrdinal}
                               data-ordinal={r.ordinal}
-                              data-mcp-id={targetId("cockpit-member", thesisId, g.key, String(r.ordinal))}
-                              {...cockpitLinks(thesisId, r.member.security_id ?? r.member.ticker ?? null)}
                               onClick={() => toggleRow(r)}
                               onKeyDown={(e) => {
                                 if (e.key === "Enter" || e.key === " ") {
@@ -1057,14 +1043,13 @@ export function Cockpit({
 
               {/* the fund launch line (docs/FUND_RADAR.md): quiet, collapsed, its own query, nothing when
                   there are none — display only, it never feeds the call */}
-              <FundLaunchesLine thesisId={thesisId} asof={asof} readOnly={readOnly} />
+              <FundLaunchesLine thesisId={thesisId} asof={asof} />
 
               {evidence.length > 0 && (
                 <section className="sect vt-evidence">
                   <div className="sect-h">Evidence</div>
-                  {evidence.map((e, index) => (
-                    <div className="ev" key={e.id} data-mcp-id={targetId("thesis-evidence", thesisId, String(index))}
-                      {...sourceRefs(`/theses/${thesisId}`, `/evidence/${index}`)}>
+                  {evidence.map((e) => (
+                    <div className="ev" key={e.id}>
                       <span className="typ">{e.kind}</span>
                       <span className="lbl">{e.label}</span>
                       <span className="dt">{e.date_label ?? ""}</span>
@@ -1114,7 +1099,7 @@ export function Cockpit({
         </main>
 
         {/* The rail stays mounted with its layout preserved. When fully covered by the name panel,
-            it is unavailable to focus, accessibility and capture; closing the panel restores it. */}
+            it is unavailable to focus and accessibility; closing the panel restores it. */}
         {/* C2 honest rendering: on an as-of scrub the rail keeps the PREVIOUS date's card up
             (keepPreviousData) instead of blanking — so it is dimmed and says so, and the card's own
             "as-of" line stays the authority on which date it answers. */}
@@ -1148,11 +1133,6 @@ export function Cockpit({
             ) ?? null
           }
           dataFlags={flagsFor(selected.row.member.security_id)}
-          capture={{
-            displayPointer: `/members/${displayQ.data?.members.findIndex((member) => member.security_id === selected.row.member.security_id) ?? -1}`,
-            scoredPointer: `/members/${selected.row.scored ? scoredQ.data?.members.indexOf(selected.row.scored) ?? -1 : -1}`,
-            flagsPointer: `/members/${flagsFor(selected.row.member.security_id) ? flagsQ.data?.members?.indexOf(flagsFor(selected.row.member.security_id)!) ?? -1 : -1}`,
-          }}
           asof={asof}
           onClose={() => onSelectName(null)}
         />
