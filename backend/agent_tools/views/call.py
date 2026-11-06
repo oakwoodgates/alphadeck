@@ -2,7 +2,9 @@
 
 The default reply is the decision: state, verdict, grades, the two keys, the horizons, the armed name, every fired
 trigger with its sources (each source's ``detail``, the computation, is left to ``section="triggers"``), the
-missing conditions and short heads of the long prose. ``section`` returns the header plus ONE part in full.
+missing conditions and short heads of the long prose. ``detail="brief"`` is the decision alone (each trigger
+without its sources, only their count; the prose only as lengths) for a pass over many cards. ``section`` returns
+the header plus ONE part in full.
 Every value is copied from the API's JSON; ``risk_signals.by_kind`` and ``trigger_count`` only count entries.
 """
 
@@ -13,6 +15,7 @@ from typing import Any, Literal
 from ..budget import TrimRule, cut_text, fit
 
 BUDGET = 8_000
+BRIEF_BUDGET = 2_500
 SECTION_BUDGET = 24_000
 COUNTER_CASE_LIMIT = 600
 EXPRESSION_LIMIT = 300
@@ -22,6 +25,7 @@ RISK_PAGE = 10
 SECTIONS = ("triggers", "risk_signals", "counter_case", "members", "expression")
 
 Section = Literal["triggers", "risk_signals", "counter_case", "members", "expression"]
+Detail = Literal["brief", "standard"]
 
 
 def _grades(obj: dict[str, Any]) -> dict[str, Any]:
@@ -99,21 +103,66 @@ def _member_full(m: dict[str, Any], group: str) -> dict[str, Any]:
     return out
 
 
+def _by_kind(risks: list[dict[str, Any]]) -> dict[str, int]:
+    by_kind: dict[str, int] = {}
+    for r in risks:
+        by_kind[r.get("kind")] = by_kind.get(r.get("kind"), 0) + 1
+    return by_kind
+
+
+def _brief(call: dict[str, Any], reply: dict[str, Any], cursor: int) -> dict[str, Any]:
+    triggers = call.get("triggers_fired") or []
+    risks = call.get("risk_signals") or []
+    reply.update(
+        {
+            "detail": "brief",
+            "grades": _grades(call),
+            "setup_strength": call.get("confidence"),
+            "keys": {
+                "conviction": {"turned": (call.get("key_conviction") or {}).get("turned")},
+                "confirmation": {"turned": (call.get("key_confirmation") or {}).get("turned")},
+            },
+            "exit_by": call.get("exit_by"),
+            "arm_until": call.get("arm_until"),
+            "armed": _armed(call),
+            "triggers_fired_total": len(triggers),
+            "triggers_fired": [
+                {
+                    "ticker": t.get("ticker"),
+                    "kind": t.get("kind"),
+                    "label": t.get("label"),
+                    "grade": t.get("grade"),
+                    "event_date": t.get("event_date"),
+                    "source_count": len(t.get("sources") or []),
+                }
+                for t in triggers[cursor:]
+            ],
+            "missing": list(call.get("missing") or []),
+            "risk_signals": {"count": len(risks), "by_kind": _by_kind(risks)},
+            "counter_case": {"total_chars": len(call.get("counter_case") or "")},
+            "catalyst_surface_total": len(call.get("catalyst_surface") or []),
+            "sections": list(SECTIONS),
+        }
+    )
+    return fit(reply, BRIEF_BUDGET, [TrimRule(("triggers_fired",), min_keep=0, start=cursor)])
+
+
 def view_call(
     call: dict[str, Any],
     *,
     asof: str,
     thesis: dict[str, Any],
     section: Section | None = None,
+    detail: Detail = "standard",
     cursor: int = 0,
 ) -> dict[str, Any]:
     reply = _header(call, asof, thesis)
+    if section is None and detail == "brief":
+        return _brief(call, reply, cursor)
     if section is None:
         armed_members = call.get("armed_members") or []
         risks = call.get("risk_signals") or []
-        by_kind: dict[str, int] = {}
-        for r in risks:
-            by_kind[r.get("kind")] = by_kind.get(r.get("kind"), 0) + 1
+        by_kind = _by_kind(risks)
         catalysts = call.get("catalyst_surface") or []
         triggers = call.get("triggers_fired") or []
         reply.update(

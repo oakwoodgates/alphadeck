@@ -211,6 +211,16 @@ class CallCardResponse(BaseModel):
         )
 
 
+class RecordedTriggerOut(BaseModel):
+    """One entry trigger the recorded card fired, cut to its identity (the sources stay on the live call)."""
+
+    ticker: str | None = None
+    kind: Kind
+    label: str
+    grade: Grade | None = None
+    event_date: date | None = None
+
+
 class RecordedCallSummary(BaseModel):
     """The nightly RECORD in effect for a thesis at the list's ``asof``: the ``calls`` row with the greatest
     ``(asof, seq)`` on or before it, cut to its decision fields. ``record_asof`` is that row's own night (earlier
@@ -236,6 +246,8 @@ class RecordedCallSummary(BaseModel):
     armed_ticker: str | None = None
     armed_count: int
     missing_count: int
+    # the recorded card's ``triggers_fired`` (every one; ticker resolved through the master like the live call)
+    triggers: list[RecordedTriggerOut] = []
 
     @classmethod
     def from_recorded(
@@ -267,6 +279,16 @@ class RecordedCallSummary(BaseModel):
             ),
             armed_count=len(card.armed_members),
             missing_count=len(card.missing),
+            triggers=[
+                RecordedTriggerOut(
+                    ticker=tickers.get(t.security_id),
+                    kind=t.kind,
+                    label=t.label,
+                    grade=t.grade,
+                    event_date=t.event_date,
+                )
+                for t in card.triggers_fired
+            ],
         )
 
 

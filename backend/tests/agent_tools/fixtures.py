@@ -122,9 +122,31 @@ def theses_list(with_call: bool = True) -> list[dict[str, Any]]:
                     "armed_ticker": ticker(i % 90) if armed else None,
                     "armed_count": 3 if armed else 0,
                     "missing_count": 0 if armed else 2,
+                    "triggers": [
+                        {
+                            "ticker": ticker((i + k) % 90),
+                            "kind": "insider" if k % 2 else "technical_breakout",
+                            "label": text(110, i + k),
+                            "grade": "core" if k % 2 else "flip",
+                            "event_date": _day(-k),
+                        }
+                        for k in range(8)
+                    ],
                 }
         out.append(ThesisSummary.model_validate(entry).model_dump(mode="json", exclude_unset=True))
     return out
+
+
+def queue_first_order() -> list[str]:
+    """``cards`` order: the queue, then the other live cards, then the archived ones (list order)."""
+    queue = queue_order()
+    rest = [uid("thesis", i) for i in range(THESES_COUNT) if uid("thesis", i) not in queue]
+    live = [t for t in rest if int(_index(t)) not in ARCHIVED]
+    return queue + live + [t for t in rest if int(_index(t)) in ARCHIVED]
+
+
+def _index(thesis_id: str) -> int:
+    return next(i for i in range(THESES_COUNT) if uid("thesis", i) == thesis_id)
 
 
 def queue_order() -> list[str]:

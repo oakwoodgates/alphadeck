@@ -60,7 +60,8 @@ def list_theses(
 
     ``with_call=true`` (with ``asof``) attaches ``call``: the nightly call of RECORD in effect at ``asof``
     (the ``calls`` row with the greatest ``(asof, seq)`` on or before it; ``null`` = none), read in one
-    query and never recomputed. Its ``record_asof`` is earlier than ``asof`` when the pass wrote no row
+    query and never recomputed: its decision fields and its fired triggers (each ticker resolved through
+    the master in one batch). Its ``record_asof`` is earlier than ``asof`` when the pass wrote no row
     for that night. The Board's live read is ``GET /theses/{id}/call``. Without ``with_call`` the
     response carries no ``call`` key. A read: it writes nothing."""
     if with_call and asof is None:
@@ -70,14 +71,19 @@ def list_theses(
         return [ThesisSummary.from_thesis(t) for t in theses]
     assert asof is not None
     recorded = calls_repo.in_effect_for(conn, [t.id for t in theses], asof)
-    # ONE ticker query per tenant for the batch (in practice one), never per card.
-    armed_by_tenant: dict[UUID, set[UUID]] = {}
+    # ONE ticker query per tenant for the batch (in practice one), never per card: the armed security and every
+    # recorded trigger's security.
+    sids_by_tenant: dict[UUID, set[UUID]] = {}
     for t in theses:
         rec = recorded.get(t.id)
-        if rec is not None and rec.card.armed_security_id is not None:
-            armed_by_tenant.setdefault(t.tenant_id, set()).add(rec.card.armed_security_id)
+        if rec is None:
+            continue
+        sids = sids_by_tenant.setdefault(t.tenant_id, set())
+        if rec.card.armed_security_id is not None:
+            sids.add(rec.card.armed_security_id)
+        sids.update(tr.security_id for tr in rec.card.triggers_fired)
     tickers: dict[UUID, str | None] = {}
-    for tenant_id, sids in armed_by_tenant.items():
+    for tenant_id, sids in sids_by_tenant.items():
         tickers.update(master.tickers_for(conn, sids, tenant_id=tenant_id))
     out: list[ThesisSummary] = []
     for t in theses:

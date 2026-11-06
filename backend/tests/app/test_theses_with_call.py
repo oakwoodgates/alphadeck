@@ -11,8 +11,10 @@ import uuid
 from datetime import date
 
 from calls.assembler import assemble_call
+from domain.call import TriggerRef
 from domain.config import DEFAULT_CONFIG
-from domain.enums import Grade, State, Verdict
+from domain.enums import Grade, Kind, State, Verdict
+from domain.signal import Provenance
 from repositories import calls_repo, thesis_repo
 from tests.calls.factories import make_thesis
 
@@ -39,6 +41,22 @@ def _seed(db, security_id):
             "arm_until": date(2026, 10, 15),
             "armed_security_id": security_id,
             "missing": ["one condition"],
+            "triggers_fired": [
+                TriggerRef(
+                    label="Synthetic insider buy",
+                    kind=Kind.INSIDER,
+                    grade=Grade.CORE,
+                    event_date=date(2026, 10, 4),
+                    security_id=security_id,
+                    sources=[Provenance(source="form4", ref="0000000000-26-000001")],
+                ),
+                TriggerRef(
+                    label="Synthetic breakout",
+                    kind=Kind.TECHNICAL_BREAKOUT,
+                    event_date=date(2026, 10, 5),
+                    security_id=uuid.uuid4(),  # no master row: no ticker, never a guess
+                ),
+            ],
         }
     )
     calls_repo.append(db, armed.model_copy(update={"verdict": Verdict.NOT_YET}))  # superseded
@@ -70,10 +88,26 @@ def test_the_later_night_wins_at_a_later_asof_and_the_earlier_at_an_earlier_one(
     assert later["armed_ticker"] == "DEVCO"  # resolved through the master, like the live call
     assert (later["armed_count"], later["missing_count"]) == (0, 1)
     assert later["recorded_at"]
+    assert later["triggers"] == [
+        {
+            "ticker": "DEVCO",  # resolved through the master in the list's one batch query
+            "kind": "insider",
+            "label": "Synthetic insider buy",
+            "grade": "core",
+            "event_date": "2026-10-04",
+        },
+        {
+            "ticker": None,
+            "kind": "technical_breakout",
+            "label": "Synthetic breakout",
+            "grade": None,
+            "event_date": "2026-10-05",
+        },
+    ]
 
     earlier = _by_id(client.get("/theses?with_call=true&asof=2026-10-03").json())[str(tid)]["call"]
     assert earlier["record_asof"] == "2026-10-01" and earlier["state"] == "incubating"
-    assert earlier["armed_ticker"] is None
+    assert earlier["armed_ticker"] is None and earlier["triggers"] == []
 
 
 def test_a_thesis_with_no_row_by_the_asof_carries_call_null(client, db, security_id):

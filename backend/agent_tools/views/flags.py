@@ -1,7 +1,8 @@
 """``get_data_flags``: the data flags on a card's names (``GET /theses/{id}/data-flags``) or on every card's names
 (``GET /data-flags``, the cross-card read: slow, so the reply states ``compute_s``).
 
-Per member: ``ticker``, ``marked``, each flag's kind / level / reason / the fields it affects / ``call_affected``,
+Per member: ``ticker``, ``marked``, each flag's kind / label / level / reason / what clears it / since when / the
+fields it affects / ``call_affected``,
 the counts of notes and splits, and (cross-card) the cards holding it. A member with no flag, note or split and not
 marked is counted in ``members_clean`` and not listed. Every value is copied from the API's JSON.
 """
@@ -27,8 +28,11 @@ def _member(m: dict[str, Any], *, cross_card: bool) -> dict[str, Any]:
         "flags": [
             {
                 "kind": f.get("kind"),
+                "label": f.get("label"),
                 "level": f.get("level"),
                 "reason": f.get("reason"),
+                "clears": f.get("clears"),
+                "since": f.get("since"),
                 "affects": f.get("affects"),
                 "call_affected": f.get("call_affected"),
             }

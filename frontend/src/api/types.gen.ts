@@ -19,7 +19,8 @@ export interface paths {
          *
          *     ``with_call=true`` (with ``asof``) attaches ``call``: the nightly call of RECORD in effect at ``asof``
          *     (the ``calls`` row with the greatest ``(asof, seq)`` on or before it; ``null`` = none), read in one
-         *     query and never recomputed. Its ``record_asof`` is earlier than ``asof`` when the pass wrote no row
+         *     query and never recomputed: its decision fields and its fired triggers (each ticker resolved through
+         *     the master in one batch). Its ``record_asof`` is earlier than ``asof`` when the pass wrote no row
          *     for that night. The Board's live read is ``GET /theses/{id}/call``. Without ``with_call`` the
          *     response carries no ``call`` key. A read: it writes nothing.
          */
@@ -15598,6 +15599,25 @@ export interface components {
             armed_count: number;
             /** Missing Count */
             missing_count: number;
+            /**
+             * Triggers
+             * @default []
+             */
+            triggers: components["schemas"]["RecordedTriggerOut"][];
+        };
+        /**
+         * RecordedTriggerOut
+         * @description One entry trigger the recorded card fired, cut to its identity (the sources stay on the live call).
+         */
+        RecordedTriggerOut: {
+            /** Ticker */
+            ticker?: string | null;
+            kind: components["schemas"]["Kind"];
+            /** Label */
+            label: string;
+            grade?: components["schemas"]["Grade"] | null;
+            /** Event Date */
+            event_date?: string | null;
         };
         /**
          * ResolveEtfRequest

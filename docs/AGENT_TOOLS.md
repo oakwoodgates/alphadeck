@@ -23,11 +23,12 @@ one size rule. The same views can later be mounted in the API (Phase 7) without 
 | Tool | Reads | Default reply | Budget |
 |---|---|---|---|
 | `get_clock()` | `/clock` | `current_night`, `action_day`, `market_today`, `market_tz` | 500 |
-| `list_theses(asof?, include_archived?, state?, detail?)` | `/theses?with_call=true&asof=` | per card: the nightly RECORD in effect at `asof` (state, verdict, grades, setup strength, `exit_by`, `arm_until`, armed ticker, counts, `record_asof`, `stale`, `reconstructed`); `queue` = live armed cards dated `asof`, in `/theses` order (never sorted); `detail=queue` gives the queue cards in full and the rest briefly | 12,000 (`full`: 24,000) |
-| `get_thesis(thesis, detail?)` | `/theses/{id}` | narrative (600 chars), links with member counts, members flat in link order (silent links last: they never count), catalysts, kill criteria, SIGNAL terms; `full` adds `thesis_fit`, `detail`, every term | 8,000 (`full`: 24,000) |
+| `list_theses(asof?, include_archived?, state?, detail?)` | `/theses?with_call=true&asof=` | `queue` = live armed cards whose record is dated `asof`, in `/theses` order (never sorted). `cards` is ordered QUEUE-FIRST: the queue cards in full, in queue order, each with the nightly RECORD in effect at `asof` (state, verdict, grades, setup strength, `exit_by`, `arm_until`, armed ticker, counts, `record_asof`) and its record's first 3 `triggers` (`ticker`, `kind`, `label`, `event_date`) plus `trigger_count`; then the other live cards briefly (`id`, `name`, `state`, `record_asof`) in `/theses` order; then the archived cards. Lean: `ticker` omitted when null, `archived` / `stale` / `reconstructed` when false, `basket_size` except with `detail=full` (every card in full; `state` filters) | 20,000 (`full`: 24,000) |
+| `get_thesis(thesis, detail?)` | `/theses/{id}` | narrative (600 chars), links in link order (silent links last: they never count), each with its `member_count` and its members grouped under it (`cursor` counts members across the links in that order), catalysts, kill criteria, SIGNAL terms; `full` adds `thesis_fit`, `detail`, every term | 8,000 (`full`: 24,000) |
 | `get_call(thesis, asof?, section?)` | `/theses/{id}/call` | the call recomputed live: state, verdict, grades, keys, horizons, armed name, armed members (10), watch tickers, every fired trigger with its sources (no `detail`), missing, heads of `counter_case` and `expression`, risk signals counted by kind | 8,000 |
+| `get_call(..., detail="brief")` | same | the decision alone, for a pass over many cards: state, verdict, grades, setup strength, keys (turned only), horizons, armed name, each trigger as `{ticker, kind, label, grade, event_date, source_count}` (no sources), missing, risk signals by kind, `counter_case` length, catalyst count | 2,500 |
 | `get_call(..., section=...)` | same | `triggers` (with each source's computation), `risk_signals` (10 per page), `counter_case`, `members`, `expression` in full | 24,000 |
-| `get_data_flags(thesis?, asof?)` | `/theses/{id}/data-flags` or `/data-flags` | per flagged name: each flag's kind, level, reason, affects, `call_affected`; notes and splits counted; cross-card adds the cards holding it and `compute_s` (it is slow) | 8,000 |
+| `get_data_flags(thesis?, asof?)` | `/theses/{id}/data-flags` or `/data-flags` | per flagged name: each flag's kind, label, level, reason, `clears` (what clears it), `since`, affects, `call_affected`; notes and splits counted; cross-card adds the cards holding it and `compute_s` (it is slow) | 8,000 |
 | `get_display_signals(thesis, tickers?, asof?)` | `/theses/{id}/display-signals` | breadth and sector headlines; per member `{kind: {key, label}}`; with `tickers` (1 to 8) each signal's metrics | 8,000 |
 | `get_decisions(thesis)` | `/theses/{id}/decisions` | the operator's log, newest first, as the API gives it | 8,000 |
 | `lookup_ticker(t, asof?, section?)` | `/dashboards/ticker-lookup/resolve` then `/{security_id}` | identity, the cards it sits on (link, `context_role`, the record there), record triggers, tape figures, next 5 card catalysts, decisions, filings summary; `cache` / `compute_ms` pass through; `section=filings` = 25 rows a page | 8,000 |
@@ -37,7 +38,7 @@ derives a date). `thesis` takes a UUID or an exact name (case-insensitive). Ever
 `readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false` and advertises an
 `outputSchema`. Replies are compact JSON text plus `structuredContent`.
 
-Prompts: `board-review(asof?, max_items=5)` (list once, then the first queue cards' calls, flags only where due)
+Prompts: `board-review(asof?, max_items=5)` (list once, then `get_call detail=brief` for the first queue cards, flags only where due; the standard `get_call` is for depth on one card)
 and `explain-call(thesis, asof?)` (the call, its triggers and risk signals, the spine). Both keep the agent's
 own reading under a separate heading and say what was not read.
 

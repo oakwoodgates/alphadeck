@@ -128,20 +128,57 @@ def test_list_theses_queue_is_the_list_order_filtered_to_armed_and_current():
     assert size(reply) <= theses_view.BUDGET_QUEUE
 
 
+def _all_cards(theses, **kwargs):
+    """Every card across the pages, keyed by id (and the first page)."""
+    pages, cursor = [], 0
+    while cursor is not None:
+        pages.append(
+            theses_view.view_list_theses(
+                theses, asof=fx.ASOF, clock=fx.CLOCK, cursor=cursor, **kwargs
+            )
+        )
+        cursor = pages[-1]["next_cursor"]
+    return {c["id"]: c for p in pages for c in p["cards"]}, pages[0]
+
+
 def test_list_theses_queue_cards_carry_the_full_record_and_the_rest_are_brief():
     theses = fx.theses_list()
-    reply = theses_view.view_list_theses(theses, asof=fx.ASOF, clock=fx.CLOCK)
-    by_id = {c["id"]: c for c in reply["cards"]}
-    first = by_id[reply["queue"][0]]
+    by_id, page_one = _all_cards(theses)
+    queue = page_one["queue"]
+    first = by_id[queue[0]]
     source = next(t for t in theses if t["id"] == first["id"])["call"]
     assert first["verdict"] == source["verdict"]
     assert first["setup_strength"] == source["confidence"]
     assert first["grades"]["entry"] == source["entry_grade"]
     assert first["armed_ticker"] == source["armed_ticker"]
-    assert first["stale"] is False
+    # queue-first: page one opens with the queue cards, in queue order
+    shown = [c["id"] for c in page_one["cards"]]
+    assert shown == queue[: len(shown)]
+    for qid in queue:
+        card = by_id[qid]
+        assert card["trigger_count"] == 8 and len(card["triggers"]) == 3
+        assert card["triggers"] == [
+            {k: t[k] for k in ("ticker", "kind", "label", "event_date")}
+            for t in next(x for x in theses if x["id"] == qid)["call"]["triggers"][:3]
+        ]
+        for absent in ("ticker", "basket_size", "archived", "stale"):  # lean: null / false omitted
+            assert absent not in card
+    assert by_id[fx.uid("thesis", 20)]["reconstructed"] is True
     stale = by_id[fx.uid("thesis", 5)]  # armed but stale: brief, never queued
     assert set(stale) == {"id", "name", "state", "record_asof"}
     assert by_id[fx.uid("thesis", 10)]["state"] is None  # no record
+    assert list(by_id)[-2:] == [fx.uid("thesis", 66), fx.uid("thesis", 67)]  # archived last
+
+
+def test_list_theses_names_are_cut_only_past_120_characters():
+    theses = fx.theses_list()
+    theses[0] = {**theses[0], "name": "N" * 119}
+    theses[1] = {**theses[1], "name": "M" * 130}
+    by_id, _ = _all_cards(theses)
+    assert by_id[theses[0]["id"]]["name"] == "N" * 119
+    assert "name_total_chars" not in by_id[theses[0]["id"]]
+    assert by_id[theses[1]["id"]]["name"] == "M" * 120
+    assert by_id[theses[1]["id"]]["name_total_chars"] == 130
 
 
 def test_list_theses_queue_mode_cursor_walks_every_card_in_list_order():
@@ -151,7 +188,7 @@ def test_list_theses_queue_mode_cursor_walks_every_card_in_list_order():
         return theses_view.view_list_theses(theses, asof=fx.ASOF, clock=fx.CLOCK, cursor=cursor)
 
     seen, sizes = walk(make, ["cards"], lambda c: c["id"])
-    assert seen == [t["id"] for t in theses]
+    assert seen == fx.queue_first_order()
     assert max(sizes) <= theses_view.BUDGET_QUEUE
     # every page repeats the whole queue (ids), so the first page alone names every queued card
     assert make(0)["queue"] == make(30)["queue"] == fx.queue_order()
@@ -166,11 +203,12 @@ def test_list_theses_full_detail_fits_and_its_cursor_walks_every_card():
         )
 
     seen, sizes = walk(make, ["cards"], lambda c: c["id"])
-    assert seen == [t["id"] for t in theses]
+    assert seen == fx.queue_first_order()
     assert max(sizes) <= theses_view.BUDGET_FULL
-    reply = make(0)
-    stale = next(c for c in reply["cards"] if c["id"] == fx.uid("thesis", 5))
+    by_id, _ = _all_cards(theses, detail="full")
+    stale = by_id[fx.uid("thesis", 5)]
     assert stale["stale"] is True and stale["state"] == "armed"
+    assert all("basket_size" in c for c in by_id.values())  # kept with detail=full
 
 
 def test_list_theses_state_filter_lists_only_that_state():
@@ -254,6 +292,37 @@ def test_get_call_default_fits_and_copies_the_decision_fields():
         assert t["sources"] and all("detail" not in s for s in t["sources"])
 
 
+def test_get_call_brief_is_the_decision_alone_within_its_budget():
+    call = fx.call_payload()
+    reply = call_view.view_call(call, asof=fx.ASOF, thesis=THESIS, detail="brief")
+    assert size(reply) <= call_view.BRIEF_BUDGET == 2_500
+    assert reply["detail"] == "brief" and reply["asof"] == fx.ASOF and reply["source"] == "live"
+    assert (reply["state"], reply["verdict"]) == (call["state"], call["verdict"])
+    assert reply["keys"] == {"conviction": {"turned": True}, "confirmation": {"turned": True}}
+    assert reply["counter_case"] == {"total_chars": 5_000}
+    assert reply["catalyst_surface_total"] == 14
+    assert reply["risk_signals"]["count"] == 25
+    assert reply["missing"] == call["missing"]
+    shown = reply["triggers_fired"]
+    assert reply["triggers_fired_total"] == 8
+    for got, want in zip(shown, call["triggers_fired"]):
+        assert got == {
+            "ticker": want["ticker"],
+            "kind": want["kind"],
+            "label": want["label"],
+            "grade": want["grade"],
+            "event_date": want["event_date"],
+            "source_count": len(want["sources"]),
+        }
+    if reply["next_cursor"] is not None:  # the cursor continues the brief trigger list
+        rest = call_view.view_call(
+            call, asof=fx.ASOF, thesis=THESIS, detail="brief", cursor=reply["next_cursor"]
+        )
+        assert len(shown) + len(rest["triggers_fired"]) == 8
+    for absent in ("armed_members", "watch_members", "expression", "catalyst_surface"):
+        assert absent not in reply
+
+
 @pytest.mark.parametrize(
     "section,key,total",
     [
@@ -303,7 +372,16 @@ def test_get_data_flags_per_thesis_fits_and_counts_the_clean_members():
     assert reply["members_total"] == 28 and reply["members_clean"] == 25
     assert [m["ticker"] for m in reply["members"]] == ["TK03", "TK11", "TK19"]
     flag = reply["members"][0]["flags"][0]
-    assert set(flag) == {"kind", "level", "reason", "affects", "call_affected"}
+    assert set(flag) == {
+        "kind",
+        "label",
+        "level",
+        "reason",
+        "clears",
+        "since",
+        "affects",
+        "call_affected",
+    }
 
 
 def test_get_data_flags_cross_card_walks_every_member_with_its_cards():

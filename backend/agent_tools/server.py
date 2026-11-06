@@ -226,8 +226,10 @@ def build_server(client: ApiClient, *, trace: bool = False) -> AlphaDeckServer:
         "order), not a ranking of thesis quality. exit_by is a signal-validity horizon, not a trade exit; "
         "arm_until is the entry window. setup_strength (wire confidence) is an experimental relative "
         "indicator, not a probability. stale = the record is older than asof (never in the queue). This is "
-        "the nightly record; get_call recomputes live. detail=queue gives queue cards in full and the rest "
-        "briefly; detail=full gives every card in full (state filters).",
+        "the nightly record; get_call recomputes live. cards are ordered queue-first: the queue cards in "
+        "full (queue order, each with its record's first 3 triggers and trigger_count), then the other live "
+        "cards briefly (list order), then archived cards. detail=full gives every card in full (state "
+        "filters). Omitted keys: ticker when null; archived, stale, reconstructed when false.",
     )
     async def list_theses(
         asof: AsofArg = None,
@@ -277,8 +279,10 @@ def build_server(client: ApiClient, *, trace: bool = False) -> AlphaDeckServer:
         "writes nothing). Triggers fire from deterministic code; every one carries its sources. Grade is "
         "call strength, never a size. The expression is advisory research context, never an order or an "
         "instrument instruction. exit_by is a signal-validity horizon, not a trade exit; setup_strength is "
-        "not a probability. section returns one part in full: triggers (with each source's computation), "
-        "risk_signals (10 per page), counter_case, members, expression.",
+        "not a probability. detail=brief is the decision alone (about 2.5K: triggers without sources, prose "
+        "as lengths) for a pass over many cards; standard (default) adds sources, members and prose heads. "
+        "section returns one part in full: triggers (with each source's computation), risk_signals (10 per "
+        "page), counter_case, members, expression.",
     )
     async def get_call(
         thesis: ThesisArg,
@@ -286,6 +290,7 @@ def build_server(client: ApiClient, *, trace: bool = False) -> AlphaDeckServer:
         section: (
             Literal["triggers", "risk_signals", "counter_case", "members", "expression"] | None
         ) = None,
+        detail: Literal["brief", "standard"] = "standard",
         cursor: CursorArg = 0,
     ) -> Annotated[types.CallToolResult, CallReply]:
         night, _ = await resolve_asof(client, asof)
@@ -295,13 +300,18 @@ def build_server(client: ApiClient, *, trace: bool = False) -> AlphaDeckServer:
             {"asof": night},
             not_found=ToolFailure("unknown_thesis", "No thesis has this id."),
         )
-        return _result(view_call(payload, asof=night, thesis=ref, section=section, cursor=cursor))
+        return _result(
+            view_call(
+                payload, asof=night, thesis=ref, section=section, detail=detail, cursor=cursor
+            )
+        )
 
     @tool(
         "get_data_flags",
         "Data flags on a card's names (with thesis) or on every card's names (without; slow, the reply "
-        "states compute_s). Per flagged name: each flag's kind, level, reason, the fields it affects and "
-        "call_affected (whether it reaches the call), plus counts of notes and splits.",
+        "states compute_s). Per flagged name: each flag's kind, label, level, reason, what clears it, "
+        "since when, the fields it affects and call_affected (whether it reaches the call), plus counts of "
+        "notes and splits.",
     )
     async def get_data_flags(
         thesis: Annotated[

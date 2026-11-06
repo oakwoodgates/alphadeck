@@ -38,7 +38,7 @@ TOOLS = {
 }
 BUDGETS = {
     "get_clock": 500,
-    "list_theses": 12_000,
+    "list_theses": 20_000,
     "get_thesis": 8_000,
     "get_call": 8_000,
     "get_data_flags": 8_000,
@@ -156,6 +156,15 @@ def test_get_call_sections_and_cursor_reach_every_risk_signal():
         return seen
 
     assert len(run(None, body)) == 25
+
+
+def test_get_call_brief_through_the_server():
+    async def body(session):
+        return await session.call_tool("get_call", {"thesis": THESIS_ID, "detail": "brief"})
+
+    result = run(None, body)
+    assert not result.is_error and len(result.content[0].text) <= 2_500
+    assert result.structured_content["detail"] == "brief"
 
 
 def test_cross_card_flags_state_their_compute_time():
@@ -340,6 +349,6 @@ def test_real_sdk_stdio_client_lists_tools_and_prompts_and_calls_over_loopback()
     assert len(prompts.prompts) == 2
     assert clock.structured_content["current_night"] == fx.CLOCK["current_night"]
     assert theses.structured_content["queue"] == fx.queue_order()
-    assert len(theses.content[0].text) <= 12_000
+    assert len(theses.content[0].text) <= 20_000
     assert json.loads(bad.content[0].text)["code"] == "unknown_thesis"
     assert all(method == "GET" for method, _, _ in api.requests)

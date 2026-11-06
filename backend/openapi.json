@@ -12,7 +12,7 @@
           "theses"
         ],
         "summary": "List Theses",
-        "description": "List theses. Archived ones are EXCLUDED by default \u2014 the workbench picker and every default\nconsumer skip them without asking; the Board passes ``include_archived=true`` and renders them\nin a collapsed section (visible + restorable, never vanished).\n\n``with_call=true`` (with ``asof``) attaches ``call``: the nightly call of RECORD in effect at ``asof``\n(the ``calls`` row with the greatest ``(asof, seq)`` on or before it; ``null`` = none), read in one\nquery and never recomputed. Its ``record_asof`` is earlier than ``asof`` when the pass wrote no row\nfor that night. The Board's live read is ``GET /theses/{id}/call``. Without ``with_call`` the\nresponse carries no ``call`` key. A read: it writes nothing.",
+        "description": "List theses. Archived ones are EXCLUDED by default \u2014 the workbench picker and every default\nconsumer skip them without asking; the Board passes ``include_archived=true`` and renders them\nin a collapsed section (visible + restorable, never vanished).\n\n``with_call=true`` (with ``asof``) attaches ``call``: the nightly call of RECORD in effect at ``asof``\n(the ``calls`` row with the greatest ``(asof, seq)`` on or before it; ``null`` = none), read in one\nquery and never recomputed: its decision fields and its fired triggers (each ticker resolved through\nthe master in one batch). Its ``record_asof`` is earlier than ``asof`` when the pass wrote no row\nfor that night. The Board's live read is ``GET /theses/{id}/call``. Without ``with_call`` the\nresponse carries no ``call`` key. A read: it writes nothing.",
         "operationId": "list_theses_theses_get",
         "parameters": [
           {
@@ -35668,6 +35668,14 @@
           "missing_count": {
             "type": "integer",
             "title": "Missing Count"
+          },
+          "triggers": {
+            "items": {
+              "$ref": "#/components/schemas/RecordedTriggerOut"
+            },
+            "type": "array",
+            "title": "Triggers",
+            "default": []
           }
         },
         "type": "object",
@@ -35683,6 +35691,57 @@
         ],
         "title": "RecordedCallSummary",
         "description": "The nightly RECORD in effect for a thesis at the list's ``asof``: the ``calls`` row with the greatest\n``(asof, seq)`` on or before it, cut to its decision fields. ``record_asof`` is that row's own night (earlier\nthan the list's ``asof`` when the pass wrote no row for it); ``reconstructed`` = a ``pipeline.backfill`` row\n(reported, never scored); ``recorded_at`` = when our store wrote it (bookkeeping, not the history clock).\nEvery value is copied from the recorded card; ``armed_ticker`` resolves ``armed_security_id`` through the\nmaster, like the live call. ``confidence`` is setup strength: an experimental relative indicator, not a\nprobability."
+      },
+      "RecordedTriggerOut": {
+        "properties": {
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/Kind"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "grade": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Grade"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "event_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Date"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "label"
+        ],
+        "title": "RecordedTriggerOut",
+        "description": "One entry trigger the recorded card fired, cut to its identity (the sources stay on the live call)."
       },
       "ResolveEtfRequest": {
         "properties": {

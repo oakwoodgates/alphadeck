@@ -2,7 +2,13 @@
 
 The queue is the ``/theses`` order filtered to live cards whose record is ARMED and dated the as-of itself (a stale
 record, ``record_asof < asof``, is never in it: the Board bars a previous-date call from its Decision Queue). It is
-never sorted. Every value is copied from the API's JSON; ``stale`` and the counts only compare and count them.
+never sorted.
+
+``cards`` is ordered QUEUE-FIRST so the first page holds the whole queue: the queue cards in full, in queue order
+(each with its record's first triggers), then the other live cards briefly in ``/theses`` order, then the archived
+cards briefly. A full record is lean: ``ticker`` is omitted when null, ``archived`` / ``stale`` / ``reconstructed``
+when false, ``basket_size`` except with ``detail="full"``. Every value is copied from the API's JSON; ``stale``,
+``trigger_count`` and the counts only compare and count them.
 """
 
 from __future__ import annotations
@@ -11,9 +17,10 @@ from typing import Any, Literal
 
 from ..budget import TrimRule, fit
 
-BUDGET_QUEUE = 12_000
+BUDGET_QUEUE = 20_000
 BUDGET_FULL = 24_000
-NAME_LIMIT = 60
+NAME_LIMIT = 120
+QUEUE_TRIGGERS = 3
 STATES = ("armed", "warming", "incubating", "managing")
 
 Detail = Literal["queue", "full"]
@@ -30,19 +37,18 @@ def _stale(call: dict[str, Any] | None, asof: str) -> bool:
     return call is not None and str(call.get("record_asof")) < asof
 
 
-def _full(entry: dict[str, Any], asof: str) -> dict[str, Any]:
+def _full(entry: dict[str, Any], asof: str, *, detail: Detail, queued: bool) -> dict[str, Any]:
     call = entry.get("call")
     out: dict[str, Any] = {"id": entry.get("id")}
     _name(entry, out)
-    out.update(
-        {
-            "ticker": entry.get("ticker"),
-            "basket_size": entry.get("basket_size"),
-            "archived": entry.get("archived"),
-        }
-    )
+    if entry.get("ticker") is not None:
+        out["ticker"] = entry["ticker"]
+    if detail == "full":
+        out["basket_size"] = entry.get("basket_size")
+    if entry.get("archived"):
+        out["archived"] = True
     if call is None:
-        out.update({"state": None, "record_asof": None, "stale": False})
+        out.update({"state": None, "record_asof": None})
         return out
     out.update(
         {
@@ -60,10 +66,24 @@ def _full(entry: dict[str, Any], asof: str) -> dict[str, Any]:
             "armed_count": call.get("armed_count"),
             "missing_count": call.get("missing_count"),
             "record_asof": call.get("record_asof"),
-            "stale": _stale(call, asof),
-            "reconstructed": call.get("reconstructed"),
         }
     )
+    if _stale(call, asof):
+        out["stale"] = True
+    if call.get("reconstructed"):
+        out["reconstructed"] = True
+    if queued:
+        triggers = call.get("triggers") or []
+        out["trigger_count"] = len(triggers)
+        out["triggers"] = [
+            {
+                "ticker": t.get("ticker"),
+                "kind": t.get("kind"),
+                "label": t.get("label"),
+                "event_date": t.get("event_date"),
+            }
+            for t in triggers[:QUEUE_TRIGGERS]
+        ]
     return out
 
 
@@ -88,6 +108,17 @@ def queue_ids(theses: list[dict[str, Any]], asof: str) -> list[str]:
     ]
 
 
+def queue_first(theses: list[dict[str, Any]], queue: list[str]) -> list[dict[str, Any]]:
+    """The queue cards (queue order), then the other live cards, then the archived ones (both in list order)."""
+    in_queue = set(queue)
+    by_id = {t["id"]: t for t in theses}
+    return [
+        *(by_id[i] for i in queue),
+        *(t for t in theses if t["id"] not in in_queue and not t.get("archived")),
+        *(t for t in theses if t["id"] not in in_queue and t.get("archived")),
+    ]
+
+
 def view_list_theses(
     theses: list[dict[str, Any]],
     *,
@@ -105,12 +136,20 @@ def view_list_theses(
         "no_record": sum(1 for t in theses if t.get("call") is None),
         "stale": sum(1 for t in theses if _stale(t.get("call"), asof)),
     }
-    listed = [t for t in theses if state is None or (t.get("call") or {}).get("state") == state]
+    listed = [
+        t
+        for t in queue_first(theses, queue)
+        if state is None or (t.get("call") or {}).get("state") == state
+    ]
     page = listed[cursor:]
-    if detail == "full":
-        cards = [_full(t, asof) for t in page]
-    else:
-        cards = [_full(t, asof) if t["id"] in in_queue else _brief(t) for t in page]
+    cards = [
+        (
+            _full(t, asof, detail=detail, queued=t["id"] in in_queue)
+            if detail == "full" or t["id"] in in_queue
+            else _brief(t)
+        )
+        for t in page
+    ]
     reply: dict[str, Any] = {
         "asof": asof,
         "source": "record",
