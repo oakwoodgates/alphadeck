@@ -274,8 +274,8 @@ def fund_launches(
     """This card's matching fund launches as of a night (invariant #1, the public clock). A fund is in the window
     ``asof - days``..``asof`` when ANY of its stage dates (filed, effective, ticker, listed) falls inside it, each
     derived ONLY from facts public by ``asof`` (a later 485BPOS, or a symbol first seen after ``asof``, never
-    shows). A ticker or listing counts as activity only when it is STRICTLY LATER than the night the fund's series
-    was first stored (we never saw a symbol arrive for a fund we had only just learned about; recorded_at is used
+    shows). A ticker or listing counts as activity only when it is STRICTLY LATER than the night the fund's new-fund
+    row was first stored (we never saw a symbol arrive for a fund we had only just learned about; recorded_at is used
     only to judge an observed arrival, never as a history gate). Filings are ordered by their newest in-window activity. Counted
     by FILING and by SPONSOR (not by fund), split by tier, plus name hits. ``in_etfs`` reads the card's basket as
     it stands now.
@@ -291,7 +291,7 @@ def read_fund_launches(
     cutoff = asof - timedelta(days=days)
     starts = fund_stage.symbol_starts(symbols)
     # a fund is in the window when ANY of its stage dates falls inside it (it gets its ticker months after its
-    # filing); a ticker or listing is activity only if strictly later than the night the series was first stored
+    # filing); a ticker or listing is activity only if strictly later than the night the new-fund row was first stored
     activity: dict[str, date] = {}
     window: list[fund_stage.FundLaunch] = []
     for lc in fund_stage.derive_launches(views, symbols):
