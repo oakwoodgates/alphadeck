@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import inspect
 import logging
 import os
 import sys
@@ -27,7 +28,7 @@ from .budget import OutputTooLarge
 from .client import DEFAULT_TIMEOUT_S, ApiClient, loopback_base, segment
 from .dashboard_args import check as check_dashboard_args
 from .errors import ToolFailure, compact
-from .prompt_args import DEFAULT_GROUP_BY, PROMPT_NAMES, check_compare
+from .prompt_args import PROMPT_NAMES, PROMPTS, PromptSpec
 from .resolve import match_thesis, resolve_asof, resolve_thesis, resolve_ticker
 from .views.call import view_call
 from .views.dashboards import REGISTRY as DASHBOARDS
@@ -247,6 +248,52 @@ class AlphaDeckServer(MCPServer):
 def _prompt_text(name: str) -> str:
     assert name in PROMPT_NAMES, name
     return resources.files("agent_tools").joinpath(f"prompts/{name}.md").read_text(encoding="utf-8")
+
+
+def _prompt_handler(spec: PromptSpec):
+    """The handler the SDK registers for one prompt. The SDK builds ``prompts/list`` arguments from the handler's
+    signature (``inspect.signature``, which honors ``__signature__``), so the handler carries the entry's exact one.
+    """
+    params, notes = [], {}
+    for name, required, default in spec.arguments:
+        if required or isinstance(default, str):
+            notes[name] = str
+        else:
+            notes[name] = str | None if default is None else type(default)
+        params.append(
+            inspect.Parameter(
+                name,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                default=inspect.Parameter.empty if required else default,
+                annotation=notes[name],
+            )
+        )
+    signature = inspect.Signature(params, return_annotation=str)
+
+    def render(*args: Any, **kwargs: Any) -> str:
+        bound = signature.bind(*args, **kwargs)
+        bound.apply_defaults()
+        values = dict(bound.arguments)
+        if spec.check is not None:
+            try:
+                spec.check(**values)
+            except ValueError as rule:
+                # The SDK turns any other exception raised while rendering into "Error rendering prompt"; only
+                # an MCPError reaches the client with its message, so the rule travels as an invalid-params error.
+                raise MCPError(INVALID_PARAMS, f"Invalid arguments: {rule}") from None
+        text = _prompt_text(spec.name)
+        for placeholder, derive in spec.derived.items():
+            text = text.replace("{{" + placeholder + "}}", derive(values))
+        for name, value in values.items():
+            if value is None and name == "asof":
+                value = "the current night (omit asof)"
+            text = text.replace("{{" + name + "}}", "" if value is None else str(value))
+        return text
+
+    render.__name__ = spec.name.replace("-", "_")
+    render.__signature__ = signature  # type: ignore[attr-defined]
+    render.__annotations__ = {**notes, "return": str}
+    return render
 
 
 def build_server(client: ApiClient, *, trace: bool = False) -> AlphaDeckServer:
@@ -574,62 +621,8 @@ def build_server(client: ApiClient, *, trace: bool = False) -> AlphaDeckServer:
         except ViewError as error:
             raise ToolFailure("invalid_arguments", str(error)) from None
 
-    @server.prompt(
-        name=PROMPT_NAMES[0],
-        description="Review the Decision Queue: the first queue cards' calls, with flags only where due.",
-    )
-    def board_review(asof: str | None = None, max_items: int = 5) -> str:
-        text = _prompt_text(PROMPT_NAMES[0])
-        return text.replace("{{asof}}", asof or "the current night (omit asof)").replace(
-            "{{max_items}}", str(max_items)
-        )
-
-    @server.prompt(
-        name=PROMPT_NAMES[1],
-        description="Explain one card's call: its evidence, missing conditions and spine.",
-    )
-    def explain_call(thesis: str, asof: str | None = None) -> str:
-        text = _prompt_text(PROMPT_NAMES[1])
-        return text.replace("{{thesis}}", thesis).replace(
-            "{{asof}}", asof or "the current night (omit asof)"
-        )
-
-    @server.prompt(
-        name=PROMPT_NAMES[2],
-        description="The morning read from the dashboards: what changed, what is due, what is hot or forming.",
-    )
-    def morning_brief(asof: str | None = None) -> str:
-        text = _prompt_text(PROMPT_NAMES[2])
-        return text.replace("{{asof}}", asof or "the current night (omit asof)")
-
-    @server.prompt(
-        name=PROMPT_NAMES[3],
-        description="What one company is on: its cards, its triggers of record, its tape, the next catalysts.",
-    )
-    def ticker_check(t: str, asof: str | None = None) -> str:
-        text = _prompt_text(PROMPT_NAMES[3])
-        return text.replace("{{t}}", t).replace("{{asof}}", asof or "the current night (omit asof)")
-
-    @server.prompt(
-        name=PROMPT_NAMES[4],
-        description="The Rotation Map at two dates, matched by group key; start before end; link needs a group.",
-    )
-    def compare_rotation(
-        start: str, end: str, group_by: str = DEFAULT_GROUP_BY, group: str | None = None
-    ) -> str:
-        try:
-            check_compare(start, end, group_by, group)
-        except ValueError as rule:
-            # The SDK turns any other exception raised while rendering into "Error rendering prompt"; only an
-            # MCPError reaches the client with its message, so the rule travels as an invalid-params error.
-            raise MCPError(INVALID_PARAMS, f"Invalid arguments: {rule}") from None
-        text = _prompt_text(PROMPT_NAMES[4])
-        return (
-            text.replace("{{group_clause}}", f", group={group}" if group else "")
-            .replace("{{group_by}}", group_by)
-            .replace("{{start}}", start)
-            .replace("{{end}}", end)
-        )
+    for spec in PROMPTS:
+        server.prompt(name=spec.name, description=spec.description)(_prompt_handler(spec))
 
     return server
 

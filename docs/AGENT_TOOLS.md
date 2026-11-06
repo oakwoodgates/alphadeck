@@ -19,6 +19,11 @@ Shape: `client -> resolve -> view -> fit`. `client.py` GETs the loopback API; `r
 or a ticker into an id; `views/` are PURE functions over the API's JSON (no I/O, no clock); `budget.py` is the
 one size rule. The same views can later be mounted in the API (Phase 7) without a rewrite.
 
+A tool declares a `Contract` in `tool_args.py` (its sections, what each section needs, its narrowings and its
+settings); the one `check` turns a bad call into `invalid_arguments` naming what the tool takes, and prompts are
+entries in `PROMPTS` (`prompt_args.py`). `tests/agent_tools/test_contract.py` covers every registered contract and
+the prompt table, so adding a tool is a view, a contract and a fixture.
+
 ## Tools
 
 | Tool | Reads | Default reply | Budget |
