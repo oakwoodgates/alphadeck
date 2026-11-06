@@ -5,7 +5,9 @@ a stdlib loopback HTTP server for the real stdio-client test. GET only; it recor
 from __future__ import annotations
 
 import json
+import re
 import threading
+from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qsl, urlsplit
 
@@ -17,6 +19,76 @@ from tests.agent_tools import fixtures as fx
 UNDATED = {"what-changed", "catalyst-calendar"}  # the two dashboards whose route takes no asof
 THESIS_ID = fx.uid("thesis", 0)
 SECURITY_ID = fx.uid("sec", "lookup")
+
+
+# --- the routes, in the order they are tried: (method, exact path | compiled pattern, handler) ----------------------
+# A handler takes (api, query, **named groups) and returns (status, body), or None to let the next route try.
+
+
+def _clock(api: FakeApi, query: dict[str, str]):
+    return 200, fx.CLOCK
+
+
+def _theses(api: FakeApi, query: dict[str, str]):
+    with_call = query.get("with_call") == "true"
+    if with_call and "asof" not in query:
+        return 422, {"detail": "with_call=true requires asof (YYYY-MM-DD)"}
+    listed = api.theses if api.theses is not None else fx.theses_list(with_call)
+    return 200, listed
+
+
+def _data_flags(api: FakeApi, query: dict[str, str]):
+    return 200, fx.data_flags_all()
+
+
+def _ticker_resolve(api: FakeApi, query: dict[str, str]):
+    if query.get("t", "").upper() == "TK01":
+        return 200, fx.ticker_resolve()
+    return 404, {"detail": "no company with ticker"}
+
+
+def _ticker_lookup(api: FakeApi, query: dict[str, str]):
+    return 200, fx.ticker_lookup()
+
+
+def _dashboard(api: FakeApi, query: dict[str, str], slug: str):
+    if slug not in dfx.PAYLOADS:
+        return None
+    if slug not in UNDATED and "asof" not in query:
+        return 422, {"detail": "asof: Field required"}
+    if slug == "rotation-map" and query.get("group_by") == "business_type":
+        # the comparison's two dates: the end night serves the end variant (keys differ, not labels)
+        if query.get("asof") == dfx.ASOF_END:
+            return 200, dfx.rotation_map_end("business_type")
+        return 200, dfx.rotation_map("business_type")
+    return 200, dfx.PAYLOADS[slug]()
+
+
+def _thesis(api: FakeApi, query: dict[str, str], thesis_id: str, tail: str):
+    if thesis_id not in {t["id"] for t in fx.theses_list(with_call=False)}:
+        return 404, {"detail": "thesis not found"}
+    tail = tail.strip("/")
+    if tail == "call" and thesis_id in api.calls:
+        return 200, api.calls[thesis_id]
+    payload = {
+        "": fx.thesis_detail,
+        "call": fx.call_payload,
+        "data-flags": fx.data_flags_one,
+        "display-signals": fx.display_signals,
+        "decisions": fx.decisions,
+    }.get(tail)
+    return (200, payload()) if payload is not None else None
+
+
+ROUTES: tuple[tuple[str, str | re.Pattern[str], Callable[..., tuple[int, object] | None]], ...] = (
+    ("GET", "/clock", _clock),
+    ("GET", "/theses", _theses),
+    ("GET", "/data-flags", _data_flags),
+    ("GET", "/dashboards/ticker-lookup/resolve", _ticker_resolve),
+    ("GET", f"/dashboards/ticker-lookup/{SECURITY_ID}", _ticker_lookup),
+    ("GET", re.compile(r"^/*dashboards/(?P<slug>[^/]+)/*$"), _dashboard),
+    ("GET", re.compile(r"^/*theses/(?P<thesis_id>[^/]+)(?:/(?P<tail>.*))?$"), _thesis),
+)
 
 
 class FakeApi:
@@ -33,48 +105,19 @@ class FakeApi:
         self.requests.append((method, path, query))
         if method != "GET":
             return 405, {"detail": "read-only fake"}
-        known = {t["id"] for t in fx.theses_list(with_call=False)}
-        if path == "/clock":
-            return 200, fx.CLOCK
-        if path == "/theses":
-            with_call = query.get("with_call") == "true"
-            if with_call and "asof" not in query:
-                return 422, {"detail": "with_call=true requires asof (YYYY-MM-DD)"}
-            listed = self.theses if self.theses is not None else fx.theses_list(with_call)
-            return 200, listed
-        if path == "/data-flags":
-            return 200, fx.data_flags_all()
-        if path == "/dashboards/ticker-lookup/resolve":
-            if query.get("t", "").upper() == "TK01":
-                return 200, fx.ticker_resolve()
-            return 404, {"detail": "no company with ticker"}
-        if path == f"/dashboards/ticker-lookup/{SECURITY_ID}":
-            return 200, fx.ticker_lookup()
-        parts = path.strip("/").split("/")
-        if parts[0] == "dashboards" and len(parts) == 2 and parts[1] in dfx.PAYLOADS:
-            if parts[1] not in UNDATED and "asof" not in query:
-                return 422, {"detail": "asof: Field required"}
-            if parts[1] == "rotation-map" and query.get("group_by") == "business_type":
-                # the comparison's two dates: the end night serves the end variant (keys differ, not labels)
-                if query.get("asof") == dfx.ASOF_END:
-                    return 200, dfx.rotation_map_end("business_type")
-                return 200, dfx.rotation_map("business_type")
-            return 200, dfx.PAYLOADS[parts[1]]()
-        if parts[0] == "theses" and len(parts) >= 2:
-            if parts[1] not in known:
-                return 404, {"detail": "thesis not found"}
-            tail = "/".join(parts[2:])
-            if tail == "call" and parts[1] in self.calls:
-                return 200, self.calls[parts[1]]
-            payload = {
-                "": fx.thesis_detail,
-                "call": fx.call_payload,
-                "data-flags": fx.data_flags_one,
-                "display-signals": fx.display_signals,
-                "decisions": fx.decisions,
-            }.get(tail)
-            if payload is not None:
-                return 200, payload()
+        for route_method, matcher, handler in ROUTES:
+            if route_method != method:
+                continue
+            if isinstance(matcher, str):
+                groups = {} if path == matcher else None
+            else:
+                hit = matcher.match(path)
+                groups = hit.groupdict(default="") if hit else None
+            if groups is None:
+                continue
+            answer = handler(self, query, **groups)
+            if answer is not None:  # None = this route declines; a later route may answer
+                return answer
         return 404, {"detail": "Not Found"}
 
     def handler(self, request: httpx.Request) -> httpx.Response:

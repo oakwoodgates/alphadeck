@@ -118,3 +118,47 @@ def test_defaults_are_filled_and_a_given_value_wins(c):
 def test_a_setting_without_a_rule_is_a_plain_pass_through():
     c = Contract("x", False, ("a",), settings=(Setting("n", "integer", (1, 2), 1, "x"),))
     assert tool_args.check(c, asof=None, section="a", narrows={}, given={"n": 2}) == {"n": 2}
+
+
+# --- the prompt table -------------------------------------------------------------------------------------------
+
+import asyncio  # noqa: E402
+
+from mcp.client.client import Client  # noqa: E402
+
+from agent_tools import server as server_mod  # noqa: E402
+from agent_tools.client import ApiClient  # noqa: E402
+from agent_tools.prompt_args import PROMPT_NAMES, PROMPTS  # noqa: E402
+from tests.agent_tools.fake_api import FakeApi  # noqa: E402
+
+
+def advertised():
+    async def go():
+        client = ApiClient("http://127.0.0.1:8001", transport=FakeApi().transport())
+        try:
+            async with Client(server_mod.build_server(client)) as session:
+                return (await session.list_prompts()).prompts
+        finally:
+            await client.aclose()
+
+    return asyncio.run(go())
+
+
+def test_prompts_list_advertises_exactly_the_table():
+    listed = advertised()
+    assert [p.name for p in listed] == list(PROMPT_NAMES) == [s.name for s in PROMPTS]
+    for spec, prompt in zip(PROMPTS, listed, strict=True):
+        assert prompt.description == spec.description, spec.name
+        assert [(a.name, bool(a.required)) for a in prompt.arguments] == [
+            (name, required) for name, required, _ in spec.arguments
+        ], spec.name
+
+
+@pytest.mark.parametrize("spec", PROMPTS, ids=[s.name for s in PROMPTS])
+def test_every_prompt_file_fills_every_placeholder(spec):
+    text = server_mod._prompt_text(spec.name)
+    given = {n: "2026-11-05" for n, required, _ in spec.arguments if required}
+    if spec.check is not None:
+        given["end"] = "2026-11-06"
+    out = server_mod._prompt_handler(spec)(**given)
+    assert "{{" not in out and out != text
