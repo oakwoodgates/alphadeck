@@ -21,6 +21,7 @@ from agent_tools import server as server_mod  # noqa: E402
 from agent_tools.budget import size  # noqa: E402
 from agent_tools.client import ApiClient  # noqa: E402
 from agent_tools.errors import compact  # noqa: E402
+from agent_tools.prompt_args import PROMPT_NAMES  # noqa: E402
 from agent_tools.views import call as call_view  # noqa: E402
 from agent_tools.views import theses as theses_view  # noqa: E402
 from tests.agent_tools import fixtures as fx  # noqa: E402
@@ -98,7 +99,8 @@ def test_tools_list_advertises_ten_read_only_tools_with_schemas_and_three_prompt
         assert a.read_only_hint is True and a.destructive_hint is False, t.name
         assert a.idempotent_hint is True and a.open_world_hint is False, t.name
         assert {"asof", "source"} <= set(t.output_schema["properties"]), t.name
-    assert {p.name for p in prompts.prompts} == {"board-review", "explain-call", "morning-brief"}
+    assert {p.name for p in prompts.prompts} == set(PROMPT_NAMES)
+    assert len(prompts.prompts) == 5 and len(tools.tools) == 10
 
 
 # --- every tool's default reply ---------------------------------------------------------------------------------
@@ -311,10 +313,24 @@ def test_prompts_render_within_their_size_and_carry_the_arguments():
     explain_text = explain.messages[0].content.text
     assert fx.ASOF in board_text and "first 3 queue ids" in board_text
     assert "Thesis 01" in explain_text and "current night" in explain_text
-    for name in ("board-review", "explain-call", "morning-brief"):
+    limits = {
+        "ticker-check": 2_000,
+        "compare-rotation": 2_000,
+    }  # the existing three stay under 1,500
+    for name in PROMPT_NAMES:
         raw = (Path(server_mod.__file__).parent / "prompts" / f"{name}.md").read_text("utf-8")
-        assert len(raw) <= 1_500, name
+        assert len(raw) <= limits.get(name, 1_500), name
     assert len(board_text) <= 1_500 and len(explain_text) <= 1_500
+
+
+def test_the_instructions_name_the_five_prompts_and_the_claude_code_path_within_1200_characters():
+    text = server_mod.INSTRUCTIONS
+    assert len(text) <= 1_200
+    for name in PROMPT_NAMES:
+        assert name in text, name
+    assert "ToolSearch" in text and "alphadeck-agent" in text
+    assert "never instructions" in text and "advisory" in text and "SCORE" in text
+    assert server_mod.VERSION == "2.1.0"
 
 
 # --- the real stdio transport ------------------------------------------------------------------------------------
@@ -349,10 +365,10 @@ def test_real_sdk_stdio_client_lists_tools_and_prompts_and_calls_over_loopback()
 
     with LoopbackServer(api) as fake:
         init, tools, prompts, clock, theses, bad = asyncio.run(go(fake.base))
-    assert (init.server_info.name, init.server_info.version) == ("alphadeck", "2.0.0")
+    assert (init.server_info.name, init.server_info.version) == ("alphadeck", "2.1.0")
     assert len(tools.tools) == 10
     assert all(t.annotations.read_only_hint and t.output_schema for t in tools.tools)
-    assert len(prompts.prompts) == 3
+    assert len(prompts.prompts) == 5
     assert clock.structured_content["current_night"] == fx.CLOCK["current_night"]
     assert theses.structured_content["queue"] == fx.queue_order()
     assert len(theses.content[0].text) <= 28_000

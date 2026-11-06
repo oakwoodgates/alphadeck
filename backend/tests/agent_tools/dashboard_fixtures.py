@@ -7,6 +7,7 @@ models in ``test_dashboards``), at row sizes close to what the API serves. Built
 
 from __future__ import annotations
 
+import copy
 from functools import cache
 from typing import Any
 
@@ -861,12 +862,56 @@ def _rm_group(g: int) -> dict[str, Any]:
     }
 
 
+BUSINESS_TYPES = (
+    "miner",
+    "utilities",
+    "biotech_pharma",
+    "software",
+    "semiconductors",
+    "banks",
+    "insurance",
+    "reit",
+    "oil_gas",
+    "aerospace_defense",
+    "medical_devices",
+    "retail",
+    "transport",
+    "chemicals",
+    "telecom",
+    "media",
+    "autos",
+    "food_beverage",
+    "construction",
+    "shell_other",
+)
+ASOF_END = "2026-11-11"  # a later night, for the two-date comparison
+
+
+def _bt_group(g: int) -> dict[str, Any]:
+    """A ``business_type`` group (generic labels): the link builder's shape with the type set, no card."""
+    out = _rm_group(g)
+    out.update(
+        {
+            "key": f"business_type:{BUSINESS_TYPES[g]}",
+            "link": None,
+            "thesis_id": None,
+            "thesis_name": None,
+            "business_type": BUSINESS_TYPES[g],
+            "supersector": f"supersector_{g % 5}",
+        }
+    )
+    for w in out["windows"]:
+        w["median"] = round(1.0 + 0.1 * g, 2)
+    return out
+
+
 @cache
-def rotation_map() -> dict[str, Any]:
-    """MEASURED 692K: 66 groups of about 3.6K with 7 members each over 5 windows."""
-    return {
+def rotation_map(group_by: str = "link") -> dict[str, Any]:
+    """MEASURED 692K by link: 66 groups of about 3.6K with 7 members each over 5 windows. ``business_type`` is the
+    MEASURED 20-group read (about 11K); the other values are served the link shape."""
+    payload = {
         "asof": ASOF,
-        "group_by": "link",
+        "group_by": group_by,
         "include_silent": False,
         "live_cards": CARDS,
         "cards_counted": CARDS,
@@ -885,6 +930,37 @@ def rotation_map() -> dict[str, Any]:
         "cache": "computed",
         "compute_ms": 6_200,
     }
+    if group_by == "business_type":
+        payload["groups"] = [_bt_group(g) for g in range(len(BUSINESS_TYPES))]
+    return payload
+
+
+def _ret7(group: dict[str, Any]) -> dict[str, Any]:
+    return next(w for w in group["windows"] if w["key"] == "ret_7d")
+
+
+@cache
+def rotation_map_end(group_by: str = "business_type") -> dict[str, Any]:
+    """The same read at ``ASOF_END``: two ``ret_7d`` medians moved (groups 1 and 2), one group gone (group 3,
+    start-only), one new group (end-only, a different KEY, not a different label), one median ``null`` with ``n``
+    under ``min_priced`` (group 5), and one more card not yet created. Matching is by ``key``."""
+    payload = copy.deepcopy(rotation_map(group_by))
+    payload["asof"] = ASOF_END
+    groups = payload["groups"]
+    _ret7(groups[1])["median"] = round(_ret7(groups[1])["median"] + 1.5, 2)
+    _ret7(groups[2])["median"] = round(_ret7(groups[2])["median"] - 2.0, 2)
+    _ret7(groups[5]).update({"median": None, "n": 2, "up": 1, "above_spy": 1, "tone": None})
+    gone = groups.pop(3)
+    kind = gone["key"].split(":")[0]
+    added = copy.deepcopy(groups[0])
+    added["key"] = f"{kind}:added_at_end"
+    for field in ("link", "business_type"):
+        if added.get(field) is not None:
+            added[field] = "added_at_end"
+    groups.append(added)
+    payload["cards_counted"] = CARDS - 1
+    payload["cards_not_yet_created"] = 1
+    return payload
 
 
 # --- trigger-log --------------------------------------------------------------------------------------------------
