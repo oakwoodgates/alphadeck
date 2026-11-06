@@ -271,9 +271,8 @@ def _store(db, accession, kind, sid, stored):
             "ref",
         ),
     )
-    with (
-        db.cursor() as cur
-    ):  # the fact tables refuse an UPDATE, so the stored instant is set at INSERT
+    # the fact tables refuse an UPDATE, so the stored instant is set at INSERT
+    with db.cursor() as cur:
         cur.execute(
             """INSERT INTO fact_fund_series
                (tenant_id, accession, series_key, series_id, series_name, kind, classes, valid_from, recorded_at)

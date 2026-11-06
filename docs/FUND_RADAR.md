@@ -142,14 +142,18 @@ request, and never feed a call. Code: `backend/app/routers/fund_radar.py`, `fron
   ticker, listed) falls inside it, because a fund gets its ticker months after its filing and would otherwise leave the
   window before "+ add to ETFs" could appear. **The listing rule:** a ticker or listing date is the night we first saw
   the symbol, and it counts as activity only when it is **strictly later than the night the fund's new-fund row was
-  first stored** (when the ticker-file read started tracking it; an earlier "existing" row does not count). We never saw a symbol arrive for a fund we had only just learned about: a backfill stores old funds that
-  were already trading, and their symbols are first seen the same night. Such a fund still shows its stage chips and
+  first stored** (when the ticker-file read started tracking it; an earlier "existing" row does not count). We never
+  saw a symbol arrive for a fund we had only just learned about: a backfill stores old funds that were already
+  trading, and their symbols are first seen the same night. Such a fund still shows its stage chips and
   still counts if it was filed or went effective in the window. The stored time is used only to judge whether a
   first-seen date is an observed arrival; it is not a history gate (history still filters by public date and by symbol
   night at or before `asof`, invariant #1). The "night" is the market date of the stored time, the same rule
   `market_today()` applies to now, so a pass that runs past midnight (symbols stamped with the pass's night, stored a
   few minutes into the next day) is correctly not activity.
-  A Nasdaq listing is found only through a ticker we already know (from the SEC ticker file, or a filing that names it), so a backfill that loads filings out of date order can still date an old listing to the night a later-loaded filing first named its ticker (measured on prod 2026-11-06: 2 such rows, neither on a card); the nightly loads filings in order, so it does not recur there.
+  **Known limit:** a Nasdaq listing is found only through a ticker we already know (from the SEC ticker file, or a
+  filing that names it), so a backfill that loads filings out of date order can still date an old listing to the
+  night a later-loaded filing first named its ticker (measured on prod 2026-11-06: 2 such rows, neither on a card);
+  the nightly loads filings in order, so it does not recur there.
   Every stage is derived **only from facts public by `asof`**, so a 485BPOS, or a symbol first seen after `asof`,
   never shows on a history view. Filings are ordered by their newest in-window activity, and the response says
   `symbol_history_since` (the earliest symbol night visible by `asof`), shown quietly in the Cockpit line's hover.
