@@ -15,10 +15,13 @@ from typing import Any
 from .errors import ToolFailure
 
 # the order ``accepted()`` names the narrowings in (any other narrowing follows in the contract's own order)
-NARROWING_ORDER = ("thesis", "group", "change")
+NARROWING_ORDER = ("thesis", "group", "change", "run", "segment", "t", "fact")
 _NEEDS_TEXT = {
     "thesis": "thesis (a card's id or name)",
     "group": "group (a key from the default reply)",
+    "t": "t (a ticker, or a name for a placement without one)",
+    "segment": "segment (a link label from the default reply)",
+    "fact": "fact (revenue_mix, shares_outstanding or cash_burn)",
 }
 
 
@@ -40,8 +43,8 @@ class Setting:
 class Contract:
     name: str
     dated: bool
-    # ``sections`` are the names; ``needs`` pairs a section with "thesis" | "group" when it reads one card or one
-    # group (a section absent from ``needs`` needs nothing)
+    # ``sections`` are the names; ``needs`` pairs a section with the narrowing it cannot answer without ("thesis" |
+    # "group" | "t" | "segment" | "fact"; a section absent from ``needs`` needs nothing)
     sections: tuple[str, ...]
     narrows: tuple[str, ...] = ()
     settings: tuple[Setting, ...] = ()

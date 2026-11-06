@@ -24,6 +24,7 @@ from mcp.shared.exceptions import MCPError
 from mcp_types import INVALID_PARAMS
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from . import tool_args
 from .budget import OutputTooLarge
 from .client import DEFAULT_TIMEOUT_S, ApiClient, loopback_base, segment
 from .dashboard_args import check as check_dashboard_args
@@ -36,6 +37,10 @@ from .views.dashboards.common import Request, ViewError
 from .views.dashboards.listing import view_list_dashboards
 from .views.decisions import view_decisions
 from .views.flags import view_data_flags
+from .views.research import CONTRACTS as RESEARCH
+from .views.research import onboarding as onboarding_view
+from .views.research import triage as triage_view
+from .views.research.common import ResearchRequest
 from .views.signals import view_display_signals
 from .views.theses import view_list_theses
 from .views.thesis import view_thesis
@@ -44,6 +49,7 @@ from .views.ticker import view_ticker
 NAME = "alphadeck"
 VERSION = "2.1.0"
 DEFAULT_BACKEND = "http://127.0.0.1:8001"
+path_seg = segment  # a tool parameter named ``segment`` shadows the path-segment encoder inside its handler
 log = logging.getLogger("agent_tools")
 
 INSTRUCTIONS = (
@@ -157,6 +163,13 @@ class DashboardReply(_Paged):
     settings: dict[str, Any]
     coverage: dict[str, Any]
     sections: list[str]
+
+
+class ResearchReply(_Paged):
+    thesis: dict[str, Any] | None = None
+    sections: dict[str, str | None] = Field(
+        description="Each section of the tool and what it needs (a narrowing), or null."
+    )
 
 
 def _result(payload: dict[str, Any]) -> types.CallToolResult:
@@ -618,6 +631,87 @@ def build_server(client: ApiClient, *, trace: bool = False) -> AlphaDeckServer:
         )
         try:
             return _result(dash.view()(payload, req))
+        except ViewError as error:
+            raise ToolFailure("invalid_arguments", str(error)) from None
+
+    @tool(
+        "get_triage",
+        "The TRIAGE view of a card at asof: every basket member with its five meters (purity, runway, catalysts, "
+        "dilution, market cap), which of them are still unconfirmed estimates, and each figure's provenance. "
+        "Nothing here is a call input; the meters are the operator's to ratify. The default is the funnel per "
+        "segment (confirmed of total; the silent Context, ETFs and Bench links are marked and never count toward "
+        "the call), the counts and the member rows in the API's order (pips 0 to 4, null = no value; market cap as "
+        "the figure). section=member (needs t) reads one name in full with every meter's provenance; "
+        "section=segment (needs segment) one link's rows; section=unconfirmed the rows with unconfirmed "
+        "estimates; section=silent the rows of the silent links; segment also narrows the default. The read "
+        "recomputes on the API (about 1.5 s for 80 names).",
+    )
+    async def get_triage(
+        thesis: ThesisArg,
+        asof: AsofArg = None,
+        section: Annotated[
+            str | None,
+            Field(
+                description="member (needs t), segment (needs segment), unconfirmed or silent.",
+                max_length=40,
+            ),
+        ] = None,
+        cursor: CursorArg = 0,
+        segment: Annotated[
+            str | None,
+            Field(description="A link label from the default reply.", max_length=200),
+        ] = None,
+        t: Annotated[
+            str | None, Field(description="A ticker on the card (section=member).", max_length=24)
+        ] = None,
+    ) -> Annotated[types.CallToolResult, ResearchReply]:
+        tool_args.check(
+            RESEARCH["get_triage"],
+            asof=asof,
+            section=section,
+            narrows={"segment": segment, "t": t},
+            given={},
+        )
+        night, _ = await resolve_asof(client, asof)
+        ref = await resolve_thesis(client, thesis)
+        payload, _ = await client.get(
+            f"/workbench/theses/{path_seg(ref['id'])}/scored",
+            {"asof": night},
+            not_found=ToolFailure("unknown_thesis", "No thesis has this id."),
+        )
+        req = ResearchRequest(
+            thesis=ref, asof=night, section=section, cursor=cursor, segment=segment, t=t
+        )
+        try:
+            return _result(triage_view.view(payload, req))
+        except ViewError as error:
+            raise ToolFailure("invalid_arguments", str(error)) from None
+
+    @tool(
+        "get_onboarding",
+        "The staged onboarding queue scoped to a card's members: how many names are queued, in progress, "
+        "failed, done or parked, the pending names with their attempts and last error, the recent ones, the "
+        "last run and the nightly window the job yields to. A name still onboarding is why a card is "
+        "ingest_fresh: false. section=pending or recent_done reads that list in full.",
+    )
+    async def get_onboarding(
+        thesis: ThesisArg,
+        section: Annotated[
+            str | None, Field(description="pending or recent_done.", max_length=40)
+        ] = None,
+        cursor: CursorArg = 0,
+    ) -> Annotated[types.CallToolResult, ResearchReply]:
+        tool_args.check(
+            RESEARCH["get_onboarding"], asof=None, section=section, narrows={}, given={}
+        )
+        ref = await resolve_thesis(client, thesis)
+        payload, _ = await client.get(
+            f"/workbench/theses/{path_seg(ref['id'])}/onboarding",
+            not_found=ToolFailure("unknown_thesis", "No thesis has this id."),
+        )
+        req = ResearchRequest(thesis=ref, section=section, cursor=cursor)
+        try:
+            return _result(onboarding_view.view(payload, req))
         except ViewError as error:
             raise ToolFailure("invalid_arguments", str(error)) from None
 

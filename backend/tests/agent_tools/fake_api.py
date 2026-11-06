@@ -15,6 +15,7 @@ import httpx
 
 from tests.agent_tools import dashboard_fixtures as dfx
 from tests.agent_tools import fixtures as fx
+from tests.agent_tools import research_fixtures as rfx
 
 UNDATED = {"what-changed", "catalyst-calendar"}  # the two dashboards whose route takes no asof
 THESIS_ID = fx.uid("thesis", 0)
@@ -80,12 +81,32 @@ def _thesis(api: FakeApi, query: dict[str, str], thesis_id: str, tail: str):
     return (200, payload()) if payload is not None else None
 
 
+def _known(thesis_id: str) -> bool:
+    return thesis_id in {t["id"] for t in fx.theses_list(with_call=False)}
+
+
+def _scored(api: FakeApi, query: dict[str, str], thesis_id: str):
+    if not _known(thesis_id):
+        return 404, {"detail": "thesis not found"}
+    if "asof" not in query:
+        return 422, {"detail": "asof: Field required"}
+    return 200, rfx.scored()
+
+
+def _onboarding(api: FakeApi, query: dict[str, str], thesis_id: str):
+    if not _known(thesis_id):
+        return 404, {"detail": "thesis not found"}
+    return 200, rfx.onboarding()
+
+
 ROUTES: tuple[tuple[str, str | re.Pattern[str], Callable[..., tuple[int, object] | None]], ...] = (
     ("GET", "/clock", _clock),
     ("GET", "/theses", _theses),
     ("GET", "/data-flags", _data_flags),
     ("GET", "/dashboards/ticker-lookup/resolve", _ticker_resolve),
     ("GET", f"/dashboards/ticker-lookup/{SECURITY_ID}", _ticker_lookup),
+    ("GET", re.compile(r"^/*workbench/theses/(?P<thesis_id>[^/]+)/scored$"), _scored),
+    ("GET", re.compile(r"^/*workbench/theses/(?P<thesis_id>[^/]+)/onboarding$"), _onboarding),
     ("GET", re.compile(r"^/*dashboards/(?P<slug>[^/]+)/*$"), _dashboard),
     ("GET", re.compile(r"^/*theses/(?P<thesis_id>[^/]+)(?:/(?P<tail>.*))?$"), _thesis),
 )
