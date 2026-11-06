@@ -17,6 +17,7 @@ from app.schemas_api import (
     ExclusionIn,
     KillCriterionIn,
     MemberDisplaySignalsOut,
+    RecordedCallSummary,
     ThesisDetail,
     ThesisSummary,
 )
@@ -38,23 +39,75 @@ from signals.horizons import display_bounds
 router = APIRouter(prefix="/theses", tags=["theses"])
 
 
-@router.get("", response_model=list[ThesisSummary])
+@router.get("", response_model=list[ThesisSummary], response_model_exclude_unset=True)
 def list_theses(
     include_archived: bool = Query(
         False, description="include archived theses (the Board's explicit, reversible filter)"
+    ),
+    with_call: bool = Query(
+        False,
+        description="attach each thesis's nightly RECORD in effect at `asof` as `call` (requires `asof`)",
+    ),
+    asof: date | None = Query(
+        None,
+        description="the night whose record `with_call` reads (required with `with_call=true`)",
     ),
     conn: psycopg.Connection = Depends(get_conn),
 ) -> list[ThesisSummary]:
     """List theses. Archived ones are EXCLUDED by default — the workbench picker and every default
     consumer skip them without asking; the Board passes ``include_archived=true`` and renders them
-    in a collapsed section (visible + restorable, never vanished)."""
-    return [
-        ThesisSummary.from_thesis(t)
-        for t in thesis_repo.list_all(conn, include_archived=include_archived)
-    ]
+    in a collapsed section (visible + restorable, never vanished).
+
+    ``with_call=true`` (with ``asof``) attaches ``call``: the nightly call of RECORD in effect at ``asof``
+    (the ``calls`` row with the greatest ``(asof, seq)`` on or before it; ``null`` = none), read in one
+    query and never recomputed: its decision fields and its fired triggers (each ticker resolved through
+    the master in one batch). Its ``record_asof`` is earlier than ``asof`` when the pass wrote no row
+    for that night. The Board's live read is ``GET /theses/{id}/call``. Without ``with_call`` the
+    response carries no ``call`` key. A read: it writes nothing."""
+    if with_call and asof is None:
+        raise HTTPException(status_code=422, detail="with_call=true requires asof (YYYY-MM-DD)")
+    theses = thesis_repo.list_all(conn, include_archived=include_archived)
+    if not with_call:
+        return [ThesisSummary.from_thesis(t) for t in theses]
+    assert asof is not None
+    recorded = calls_repo.in_effect_for(conn, [t.id for t in theses], asof)
+    # ONE ticker query per tenant for the batch (in practice one), never per card: the armed security and every
+    # recorded trigger's security.
+    sids_by_tenant: dict[UUID, set[UUID]] = {}
+    for t in theses:
+        rec = recorded.get(t.id)
+        if rec is None:
+            continue
+        sids = sids_by_tenant.setdefault(t.tenant_id, set())
+        if rec.card.armed_security_id is not None:
+            sids.add(rec.card.armed_security_id)
+        sids.update(tr.security_id for tr in rec.card.triggers_fired)
+    tickers: dict[UUID, str | None] = {}
+    for tenant_id, sids in sids_by_tenant.items():
+        tickers.update(master.tickers_for(conn, sids, tenant_id=tenant_id))
+    out: list[ThesisSummary] = []
+    for t in theses:
+        rec = recorded.get(t.id)
+        summary = ThesisSummary.from_thesis(t)
+        summary.call = (
+            RecordedCallSummary.from_recorded(
+                record_asof=rec.asof,
+                seq=rec.seq,
+                reconstructed=rec.reconstructed,
+                recorded_at=rec.recorded_at,
+                card=rec.card,
+                tickers=tickers,
+            )
+            if rec is not None
+            else None
+        )
+        out.append(summary)
+    return out
 
 
-@router.post("/{thesis_id}/archive", response_model=ThesisSummary)
+@router.post(
+    "/{thesis_id}/archive", response_model=ThesisSummary, response_model_exclude_unset=True
+)
 def archive_thesis(
     conn: psycopg.Connection = Depends(get_conn),
     thesis: Thesis = Depends(get_thesis_or_404),
@@ -67,7 +120,9 @@ def archive_thesis(
     return ThesisSummary.from_thesis(thesis_repo.get(conn, thesis.id))
 
 
-@router.post("/{thesis_id}/unarchive", response_model=ThesisSummary)
+@router.post(
+    "/{thesis_id}/unarchive", response_model=ThesisSummary, response_model_exclude_unset=True
+)
 def unarchive_thesis(
     conn: psycopg.Connection = Depends(get_conn),
     thesis: Thesis = Depends(get_thesis_or_404),

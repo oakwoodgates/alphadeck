@@ -31,5 +31,5 @@ dev-down: ## Stop + remove the DEV containers/network. KEEPS the alphadeck_dev_*
 refresh-dev: ## One-way prod->dev data refresh: pg_dump READ from prod -> restore into the dev DB. Never writes prod.
 	bash scripts/refresh-dev.sh
 
-venv: ## Provision/refresh THIS checkout's backend/.venv with `-e ".[dev,replay]"` (what CI installs). Idempotent; fine in a worktree.
+venv: ## Provision/refresh THIS checkout's backend/.venv with `-e ".[dev,replay,mcp]"` (what CI installs). Idempotent; fine in a worktree.
 	bash scripts/ensure-venv.sh

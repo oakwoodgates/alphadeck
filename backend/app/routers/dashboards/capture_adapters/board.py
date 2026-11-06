@@ -38,7 +38,14 @@ def read(conn: psycopg.Connection, request: CaptureRequest) -> list[CapturedResp
     theses = thesis_repo.list_all(conn, include_archived=True)
     limit_cards(len(theses))
     responses = [
-        response("/theses", [ThesisSummary.from_thesis(t) for t in theses], include_archived=True)
+        response(
+            "/theses",
+            [
+                ThesisSummary.from_thesis(t).model_dump(mode="json", exclude_unset=True)
+                for t in theses
+            ],
+            include_archived=True,
+        )
     ]
     view = (request.context.known_at, request.context.clock)
     for thesis in theses:

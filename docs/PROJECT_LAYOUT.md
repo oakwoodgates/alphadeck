@@ -37,7 +37,7 @@ alphadeck/
 ├── .github/workflows/ci.yml        # CI: backend ruff/black/pytest + openapi-diff · frontend tsc/build/vitest + types-diff
 ├── infra/docker-compose.yml        # DB-only slice for the local backend dev loop (shares the pgdata volume)
 ├── scripts/refresh-dev.sh          # ops: the ONE-WAY prod→dev data refresh (pg_dump READ; never writes prod) — DEV_PROD.md
-├── scripts/ensure-venv.sh · .ps1   # tooling: provision THIS checkout's backend/.venv with `-e ".[dev,replay]"` (per worktree, idempotent; `make venv`) + ensure-venv-probe.py, the readiness probe both twins run
+├── scripts/ensure-venv.sh · .ps1   # tooling: provision THIS checkout's backend/.venv with `-e ".[dev,replay,mcp]"` (per worktree, idempotent; `make venv`) + ensure-venv-probe.py, the readiness probe both twins run
 ├── docs/                           # THE CANON — read STAGE_MODEL.md first (the frame), then by stage
 │   ├── STAGE_MODEL.md · PROJECT_OVERVIEW.md · ROADMAP.md · INVARIANTS.md · DATA_FLOW.md · DATA_SOURCES.md
 │   ├── DISCOVERY.md · CHAIN_DRAFTER.md · WORKBENCH_EXTRACTION.md · WORKBENCH_ENRICHMENT.md · WORKBENCH_SCORING.md · TRIAGE.md   # the front half, in stage order

@@ -211,6 +211,87 @@ class CallCardResponse(BaseModel):
         )
 
 
+class RecordedTriggerOut(BaseModel):
+    """One entry trigger the recorded card fired, cut to its identity (the sources stay on the live call)."""
+
+    ticker: str | None = None
+    kind: Kind
+    label: str
+    grade: Grade | None = None
+    event_date: date | None = None
+
+
+class RecordedCallSummary(BaseModel):
+    """The nightly RECORD in effect for a thesis at the list's ``asof``: the ``calls`` row with the greatest
+    ``(asof, seq)`` on or before it, cut to its decision fields. ``record_asof`` is that row's own night (earlier
+    than the list's ``asof`` when the pass wrote no row for it); ``reconstructed`` = a ``pipeline.backfill`` row
+    (reported, never scored); ``recorded_at`` = when our store wrote it (bookkeeping, not the history clock).
+    Every value is copied from the recorded card; ``armed_ticker`` resolves ``armed_security_id`` through the
+    master, like the live call. ``confidence`` is setup strength: an experimental relative indicator, not a
+    probability."""
+
+    record_asof: date
+    seq: int
+    reconstructed: bool
+    recorded_at: datetime
+    state: State
+    verdict: Verdict
+    conviction_grade: Grade | None = None
+    confirmation_grade: Grade | None = None
+    entry_grade: Grade | None = None
+    confidence: float | None = None
+    exit_by: date | None = None
+    arm_until: date | None = None
+    armed_security_id: UUID | None = None
+    armed_ticker: str | None = None
+    armed_count: int
+    missing_count: int
+    # the recorded card's ``triggers_fired`` (every one; ticker resolved through the master like the live call)
+    triggers: list[RecordedTriggerOut] = []
+
+    @classmethod
+    def from_recorded(
+        cls,
+        *,
+        record_asof: date,
+        seq: int,
+        reconstructed: bool,
+        recorded_at: datetime,
+        card: CallCard,
+        tickers: Mapping[UUID, str | None],
+    ) -> "RecordedCallSummary":
+        return cls(
+            record_asof=record_asof,
+            seq=seq,
+            reconstructed=reconstructed,
+            recorded_at=recorded_at,
+            state=card.state,
+            verdict=card.verdict,
+            conviction_grade=card.conviction_grade,
+            confirmation_grade=card.confirmation_grade,
+            entry_grade=card.entry_grade,
+            confidence=card.confidence,
+            exit_by=card.exit_by,
+            arm_until=card.arm_until,
+            armed_security_id=card.armed_security_id,
+            armed_ticker=(
+                tickers.get(card.armed_security_id) if card.armed_security_id is not None else None
+            ),
+            armed_count=len(card.armed_members),
+            missing_count=len(card.missing),
+            triggers=[
+                RecordedTriggerOut(
+                    ticker=tickers.get(t.security_id),
+                    kind=t.kind,
+                    label=t.label,
+                    grade=t.grade,
+                    event_date=t.event_date,
+                )
+                for t in card.triggers_fired
+            ],
+        )
+
+
 class ThesisSummary(BaseModel):
     """Lightweight list item for the Board (the full thesis comes from GET /theses/{id})."""
 
@@ -220,6 +301,10 @@ class ThesisSummary(BaseModel):
     basket_size: int = 0
     narrative: str
     archived: bool = False  # archived = out of the default list + the cron's walk; restorable
+    # Present only on ``GET /theses?with_call=true&asof=``: the nightly record in effect at that as-of (``null`` =
+    # no row on or before it). Absent otherwise (the routes serialize with ``exclude_unset``), so the default
+    # list stays byte-identical.
+    call: RecordedCallSummary | None = None
 
     @classmethod
     def from_thesis(cls, thesis: Thesis) -> "ThesisSummary":

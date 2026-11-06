@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ensure-venv.sh -- provision (or refresh) THIS checkout's backend venv with the extras the suite needs.
 #
-# Makes `backend/.venv` exist and carry `pip install -e ".[dev,replay]"` -- exactly what CI installs
+# Makes `backend/.venv` exist and carry `pip install -e ".[dev,replay,mcp]"` -- exactly what CI installs
 # (.github/workflows/ci.yml): the runtime deps, pytest + pytest-xdist (`pytest -n 6`) + pytest-timeout (the
 # hang guard), the pinned ruff/black, and duckdb + pyarrow so the replay tests EXECUTE instead of being
 # collect-skipped in a lean venv (skipped != passed). Per-checkout BY CONSTRUCTION: the venv lives inside the
@@ -15,7 +15,7 @@
 # Usage:
 #   scripts/ensure-venv.sh [--check] [--force] [--help]
 #
-#   (default)   create backend/.venv if absent, then `pip install -e ".[dev,replay]"` unless already current
+#   (default)   create backend/.venv if absent, then `pip install -e ".[dev,replay,mcp]"` unless already current
 #   --check     report only: exit 0 if the venv is ready, 1 if not; installs NOTHING
 #   --force     re-run the pip install even when the stamp says current
 #   --help      this help
@@ -55,7 +55,7 @@ ROOT="$(cd "$SCRIPT_DIR/.." && (pwd -W 2>/dev/null || pwd))"
 BACKEND="$ROOT/backend"
 VENV="$BACKEND/.venv"
 PROBE="$SCRIPT_DIR/ensure-venv-probe.py"
-EXTRAS="dev,replay"
+EXTRAS="dev,replay,mcp"
 STAMP="$VENV/.alphadeck-venv-stamp"
 
 [ -f "$BACKEND/pyproject.toml" ] || fail "no backend/pyproject.toml under $ROOT -- is this an Alpha Deck checkout?"

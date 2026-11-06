@@ -12,7 +12,7 @@
           "theses"
         ],
         "summary": "List Theses",
-        "description": "List theses. Archived ones are EXCLUDED by default \u2014 the workbench picker and every default\nconsumer skip them without asking; the Board passes ``include_archived=true`` and renders them\nin a collapsed section (visible + restorable, never vanished).",
+        "description": "List theses. Archived ones are EXCLUDED by default \u2014 the workbench picker and every default\nconsumer skip them without asking; the Board passes ``include_archived=true`` and renders them\nin a collapsed section (visible + restorable, never vanished).\n\n``with_call=true`` (with ``asof``) attaches ``call``: the nightly call of RECORD in effect at ``asof``\n(the ``calls`` row with the greatest ``(asof, seq)`` on or before it; ``null`` = none), read in one\nquery and never recomputed: its decision fields and its fired triggers (each ticker resolved through\nthe master in one batch). Its ``record_asof`` is earlier than ``asof`` when the pass wrote no row\nfor that night. The Board's live read is ``GET /theses/{id}/call``. Without ``with_call`` the\nresponse carries no ``call`` key. A read: it writes nothing.",
         "operationId": "list_theses_theses_get",
         "parameters": [
           {
@@ -26,6 +26,37 @@
               "title": "Include Archived"
             },
             "description": "include archived theses (the Board's explicit, reversible filter)"
+          },
+          {
+            "name": "with_call",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "attach each thesis's nightly RECORD in effect at `asof` as `call` (requires `asof`)",
+              "default": false,
+              "title": "With Call"
+            },
+            "description": "attach each thesis's nightly RECORD in effect at `asof` as `call` (requires `asof`)"
+          },
+          {
+            "name": "asof",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "the night whose record `with_call` reads (required with `with_call=true`)",
+              "title": "Asof"
+            },
+            "description": "the night whose record `with_call` reads (required with `with_call=true`)"
           }
         ],
         "responses": {
@@ -35516,6 +35547,202 @@
         "title": "ReadThroughTapeOut",
         "description": "The company's tape. ``ret_7d`` / ``ret_30d`` = its trailing return in percent over the last 7 / 30 trading\ndays; ``vs_spy_*`` = that minus SPY's over the same window, in percentage points; ``last_close`` = the date of\nits last close. ``gap`` = why the vs-SPY cells are blank: ``flagged`` (its data flags reach its price readings;\n``reason`` = the flags' labels, and no return is shown), ``no_tape`` (no bars), ``no_spy`` (SPY has none) or\n``ends_differ`` (its last close is not SPY's last close). ``null`` = shown, or only that window is short."
       },
+      "RecordedCallSummary": {
+        "properties": {
+          "record_asof": {
+            "type": "string",
+            "format": "date",
+            "title": "Record Asof"
+          },
+          "seq": {
+            "type": "integer",
+            "title": "Seq"
+          },
+          "reconstructed": {
+            "type": "boolean",
+            "title": "Reconstructed"
+          },
+          "recorded_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Recorded At"
+          },
+          "state": {
+            "$ref": "#/components/schemas/State"
+          },
+          "verdict": {
+            "$ref": "#/components/schemas/Verdict"
+          },
+          "conviction_grade": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Grade"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "confirmation_grade": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Grade"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "entry_grade": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Grade"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "exit_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit By"
+          },
+          "arm_until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arm Until"
+          },
+          "armed_security_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Armed Security Id"
+          },
+          "armed_ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Armed Ticker"
+          },
+          "armed_count": {
+            "type": "integer",
+            "title": "Armed Count"
+          },
+          "missing_count": {
+            "type": "integer",
+            "title": "Missing Count"
+          },
+          "triggers": {
+            "items": {
+              "$ref": "#/components/schemas/RecordedTriggerOut"
+            },
+            "type": "array",
+            "title": "Triggers",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "record_asof",
+          "seq",
+          "reconstructed",
+          "recorded_at",
+          "state",
+          "verdict",
+          "armed_count",
+          "missing_count"
+        ],
+        "title": "RecordedCallSummary",
+        "description": "The nightly RECORD in effect for a thesis at the list's ``asof``: the ``calls`` row with the greatest\n``(asof, seq)`` on or before it, cut to its decision fields. ``record_asof`` is that row's own night (earlier\nthan the list's ``asof`` when the pass wrote no row for it); ``reconstructed`` = a ``pipeline.backfill`` row\n(reported, never scored); ``recorded_at`` = when our store wrote it (bookkeeping, not the history clock).\nEvery value is copied from the recorded card; ``armed_ticker`` resolves ``armed_security_id`` through the\nmaster, like the live call. ``confidence`` is setup strength: an experimental relative indicator, not a\nprobability."
+      },
+      "RecordedTriggerOut": {
+        "properties": {
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/Kind"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "grade": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Grade"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "event_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Date"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "label"
+        ],
+        "title": "RecordedTriggerOut",
+        "description": "One entry trigger the recorded card fired, cut to its identity (the sources stay on the live call)."
+      },
       "ResolveEtfRequest": {
         "properties": {
           "ticker": {
@@ -39049,6 +39276,16 @@
             "type": "boolean",
             "title": "Archived",
             "default": false
+          },
+          "call": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecordedCallSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",

@@ -501,3 +501,48 @@ def annotations_for_thesis(
         for r in cur.fetchall():
             out.setdefault(r["asof"], []).append(CallAnnotation(**r))
         return out
+
+
+# --- the record in effect on a night (one query for a batch of theses) -------------------------------------
+
+# "In effect at D" = the greatest (asof, seq) with asof <= D, one row per thesis. Lifted from the Hot Board and
+# Forming Quietly dashboards (they held byte-identical copies); the Theme Leaderboard keeps its own read.
+_IN_EFFECT_SQL = (
+    "SELECT DISTINCT ON (thesis_id) thesis_id, asof, seq, reconstructed, recorded_at, card FROM calls "
+    "WHERE thesis_id = ANY(%s) AND asof <= %s ORDER BY thesis_id, asof DESC, seq DESC"
+)
+
+
+class Recorded(NamedTuple):
+    """One ``calls`` row in effect on a night: its own night (``asof``), its insertion order (``seq``), whether
+    ``pipeline.backfill`` wrote it (``reconstructed``), when our store wrote it (``recorded_at``: bookkeeping,
+    never the history gate) and the card."""
+
+    asof: date
+    seq: int
+    reconstructed: bool
+    recorded_at: datetime
+    card: CallCard
+
+
+def in_effect_for(
+    conn: psycopg.Connection, thesis_ids: Collection[UUID], asof: date
+) -> dict[UUID, Recorded]:
+    """The recorded card in effect at ``asof`` per thesis (the greatest ``(asof, seq)`` with ``asof <=`` the
+    as-of), in ONE query; a thesis with no row by then is absent. A plain SELECT: it writes nothing.
+    """
+    ids = list(thesis_ids)
+    if not ids:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(_IN_EFFECT_SQL, (ids, asof))
+        return {
+            r["thesis_id"]: Recorded(
+                asof=r["asof"],
+                seq=r["seq"],
+                reconstructed=r["reconstructed"],
+                recorded_at=r["recorded_at"],
+                card=CallCard.model_validate(r["card"]),
+            )
+            for r in cur.fetchall()
+        }
