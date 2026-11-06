@@ -5,7 +5,7 @@ record, ``record_asof < asof``, is never in it: the Board bars a previous-date c
 never sorted.
 
 ``cards`` is ordered QUEUE-FIRST so the first page holds the whole queue: the queue cards in full, in queue order
-(each with its record's first triggers), then the other live cards briefly in ``/theses`` order, then the archived
+(each with its record's first fired trigger), then the other live cards briefly in ``/theses`` order, then the archived
 cards briefly. A full record is lean: ``ticker`` is omitted when null, ``archived`` / ``stale`` / ``reconstructed``
 when false, ``basket_size`` except with ``detail="full"``. Every value is copied from the API's JSON; ``stale``,
 ``trigger_count`` and the counts only compare and count them.
@@ -17,10 +17,11 @@ from typing import Any, Literal
 
 from ..budget import TrimRule, fit
 
-BUDGET_QUEUE = 20_000
+# the one exception to the 8K rule: the queue page must hold the whole Decision Queue in one read
+BUDGET_QUEUE = 28_000
 BUDGET_FULL = 24_000
 NAME_LIMIT = 120
-QUEUE_TRIGGERS = 3
+QUEUE_TRIGGERS = 1
 STATES = ("armed", "warming", "incubating", "managing")
 
 Detail = Literal["queue", "full"]

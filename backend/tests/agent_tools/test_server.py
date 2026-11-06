@@ -38,7 +38,7 @@ TOOLS = {
 }
 BUDGETS = {
     "get_clock": 500,
-    "list_theses": 20_000,
+    "list_theses": 28_000,
     "get_thesis": 8_000,
     "get_call": 8_000,
     "get_data_flags": 8_000,
@@ -349,6 +349,6 @@ def test_real_sdk_stdio_client_lists_tools_and_prompts_and_calls_over_loopback()
     assert len(prompts.prompts) == 2
     assert clock.structured_content["current_night"] == fx.CLOCK["current_night"]
     assert theses.structured_content["queue"] == fx.queue_order()
-    assert len(theses.content[0].text) <= 20_000
+    assert len(theses.content[0].text) <= 28_000
     assert json.loads(bad.content[0].text)["code"] == "unknown_thesis"
     assert all(method == "GET" for method, _, _ in api.requests)

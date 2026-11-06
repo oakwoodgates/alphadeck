@@ -227,7 +227,7 @@ def build_server(client: ApiClient, *, trace: bool = False) -> AlphaDeckServer:
         "arm_until is the entry window. setup_strength (wire confidence) is an experimental relative "
         "indicator, not a probability. stale = the record is older than asof (never in the queue). This is "
         "the nightly record; get_call recomputes live. cards are ordered queue-first: the queue cards in "
-        "full (queue order, each with its record's first 3 triggers and trigger_count), then the other live "
+        "full (queue order, each with its record's first fired trigger and trigger_count), then the other live "
         "cards briefly (list order), then archived cards. detail=full gives every card in full (state "
         "filters). Omitted keys: ticker when null; archived, stale, reconstructed when false.",
     )

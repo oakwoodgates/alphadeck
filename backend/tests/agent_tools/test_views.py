@@ -151,15 +151,17 @@ def test_list_theses_queue_cards_carry_the_full_record_and_the_rest_are_brief():
     assert first["setup_strength"] == source["confidence"]
     assert first["grades"]["entry"] == source["entry_grade"]
     assert first["armed_ticker"] == source["armed_ticker"]
-    # queue-first: page one opens with the queue cards, in queue order
+    # queue-first: page one holds EVERY queue card, in queue order, within the 28K page
     shown = [c["id"] for c in page_one["cards"]]
-    assert shown == queue[: len(shown)]
+    assert shown[: len(queue)] == queue and len(queue) == 37
+    assert size(page_one) <= theses_view.BUDGET_QUEUE == 28_000
+    assert all(len(c["triggers"]) == 1 for c in page_one["cards"][: len(queue)])
     for qid in queue:
         card = by_id[qid]
-        assert card["trigger_count"] == 8 and len(card["triggers"]) == 3
+        assert card["trigger_count"] == 8 and len(card["triggers"]) == 1
         assert card["triggers"] == [
             {k: t[k] for k in ("ticker", "kind", "label", "event_date")}
-            for t in next(x for x in theses if x["id"] == qid)["call"]["triggers"][:3]
+            for t in next(x for x in theses if x["id"] == qid)["call"]["triggers"][:1]
         ]
         for absent in ("ticker", "basket_size", "archived", "stale"):  # lean: null / false omitted
             assert absent not in card
