@@ -335,7 +335,401 @@ def what_changed() -> dict[str, Any]:
     }
 
 
+# --- hot-board ----------------------------------------------------------------------------------------------------
+
+
+def _cell(i: int, note: str | None = None) -> dict[str, Any]:
+    return {"value": round(1.0 + i % 9 / 3, 2), "note": note}
+
+
+def _hot_trigger(i: int, k: int) -> dict[str, Any]:
+    return {
+        "label": text(95, i + k),
+        "kind": ("insider", "technical_breakout", "laggard", "squeeze")[k % 4],
+        "grade": "core" if k % 2 else "flip",
+        "event_date": fx._day(-k),
+        "sources": [
+            {
+                "source": "form4",
+                "ref": f"0000000000-26-{i * 10 + k:06d}",
+                "url": f"https://www.sec.gov/{i}/{k}",
+            }
+        ],
+    }
+
+
+def _hot_row(i: int) -> dict[str, Any]:
+    return {
+        "key": f"hot-{i}",
+        "kind": ("armed", "warming", "watch", "managing")[i % 4],
+        "thesis_id": tid(i % CARDS),
+        "thesis_name": thesis_name(i % CARDS),
+        "security_id": uid("sec", "hot", i),
+        "ticker": ticker(i % 90),
+        "name": f"Company {i + 1:02d} Synthetic Holdings Incorporated",
+        "also_armed": [{"thesis_id": tid(c), "thesis_name": thesis_name(c)} for c in range(2)],
+        "verdict": "starter_entry",
+        "entry_grade": "flip",
+        "confidence": 0.62,
+        "keys": ["conviction", "confirmation"],
+        "triggers": [_hot_trigger(i, k) for k in range(4)],
+        "risk_kinds": ["breakdown", "dilution_risk"],
+        "clocks": {
+            "arm_night": fx._day(-(i % 15)),
+            "arm_reconstructed": False,
+            "sessions_since": i % 15,
+            "arm_until": fx._day(9),
+            "sessions_left": 9 - i % 9,
+            "closed_ago": None,
+            "exit_by": fx._day(40),
+            "days_to_exit": 40,
+        },
+        "entry_window_closing": i % 7 == 0,
+        "lapsing": False,
+        "since_arm": {
+            "entry_date": fx._day(-(i % 15)),
+            "entry_close": 10.0,
+            "last_date": ASOF,
+            "last_close": 11.5,
+            "ret_pct": 15.0,
+            "iwm_pct": 2.0,
+            "gap": None,
+        },
+        "tape": {
+            "flag": None,
+            "rvol20": _cell(i),
+            "vs_50d": _cell(i),
+            "off_high": _cell(i),
+            "vs_iwm": _cell(i),
+            "rs_leading": True,
+            "rs_leading_vs": ["IWM", "SPY"],
+            "ret_7d": _cell(i),
+            "ret_30d": _cell(i),
+            "buys_30d": 2,
+            "buyers_30d": 1,
+            "adv_usd_20d": _cell(i),
+            "spark": [round(10 + k / 5, 2) for k in range(30)],
+        },
+        "cap": {
+            "value": 450_000_000.0,
+            "tier": "small",
+            "gap": None,
+            "note": None,
+            "close": 11.5,
+            "close_date": ASOF,
+            "shares": 39_000_000.0,
+            "shares_date": fx._day(-30),
+            "ads_ratio": None,
+            "split_factor": None,
+        },
+    }
+
+
+@cache
+def hot_board() -> dict[str, Any]:
+    """MEASURED 194K: 69 rows of about 2.6K (4 triggers with sources, tape, cap)."""
+    return {
+        "asof": ASOF,
+        "clock": "record",
+        "benchmark": "IWM",
+        "live_cards": CARDS,
+        "cards_counted": CARDS,
+        "cards_not_yet_created": 0,
+        "roster_fallback_cards": 1,
+        "cards_armed": 37,
+        "cards_warming": 26,
+        "cards_managing": 0,
+        "cards_incubating": 1,
+        "cards_no_call": 2,
+        "calendar_source": "benchmarks",
+        "calendar_sessions": 250,
+        "calendar_first": "2025-11-05",
+        "calendar_last": ASOF,
+        "price_window_start": "2025-11-05",
+        "no_ticker_rows": 0,
+        "rows_loaded": "armed",
+        "candidate_counts": {"armed": 69, "warming": 120, "watch": 30, "managing": 0},
+        "rows": [_hot_row(i) for i in range(69)],
+        "flagged": _flagged(3),
+        "cache": "hit",
+        "compute_ms": 12,
+    }
+
+
+# --- entry-windows ------------------------------------------------------------------------------------------------
+
+
+def _ew_member(i: int, m: int) -> dict[str, Any]:
+    return {
+        "security_id": uid("sec", "ew", i, m),
+        "ticker": ticker((i + m) % 90),
+        "arm_night": fx._day(-(i % 15)),
+        "entry_on": fx._day(-(i % 15) + 1),
+        "since": round(4.2 + m, 2),
+        "above": True,
+        "flag": None,
+        "triggers": [
+            {
+                "label": text(90, m),
+                "kind": "insider",
+                "grade": "core",
+                "event_date": fx._day(-m),
+                "sources": [{"source": "form4", "ref": f"0000000000-26-{m:06d}", "url": None}],
+            }
+        ],
+    }
+
+
+def _ew_row(i: int) -> dict[str, Any]:
+    return {
+        "thesis_id": tid(i),
+        "thesis_name": thesis_name(i),
+        "state": "armed",
+        "arm_night": fx._day(-(i % 15)),
+        "in_effect": ASOF,
+        "reconstructed": False,
+        "reconstructed_nights": 0,
+        "run_nights": 1 + i % 15,
+        "arm_until": fx._day(9),
+        "exit_by": fx._day(40),
+        "confidence": 0.62,
+        "entry_window_closing": i % 7 == 0,
+        "lapsing": False,
+        "sessions_into": i % 15,
+        "sessions_left": 9 - i % 9,
+        "closed_ago": None,
+        "last_session": ASOF,
+        "hold_days": 40,
+        "member_clocks": [
+            {
+                "security_id": uid("sec", "ew", i, m),
+                "ticker": ticker((i + m) % 90),
+                "headline": m == 0,
+                "entry_window_closing": False,
+                "lapsing": False,
+                "arm_until": fx._day(9),
+                "sessions_left": 9,
+                "closed_ago": None,
+                "last_session": ASOF,
+            }
+            for m in range(3)
+        ],
+        "catalysts": [
+            {"label": text(60, c), "kind": "earnings", "when_date": fx._day(c * 5), "past": False}
+            for c in range(4)
+        ],
+        "members": [_ew_member(i, m) for m in range(3)],
+        "since": {
+            "names": 3,
+            "priced": 3,
+            "flagged": 0,
+            "no_bar": 0,
+            "above": 3,
+            "median": 4.2,
+            "iwm": 1.1,
+            "spy": 0.9,
+        },
+        "spark": {
+            "dates": [fx._day(-k) for k in range(20)],
+            "line": [1.0 + k / 10 for k in range(20)],
+            "iwm": None,
+        },
+    }
+
+
+@cache
+def entry_windows() -> dict[str, Any]:
+    """MEASURED 139K: 37 rows of about 1.6K with 3 members."""
+    return {
+        "asof": ASOF,
+        "clock": "record",
+        "axis_start": "2025-11-05",
+        "axis_end": ASOF,
+        "session_source": "benchmarks",
+        "calendar_sessions": 250,
+        "calendar_last": ASOF,
+        "counts": {
+            "live_cards": CARDS,
+            "cards_counted": CARDS,
+            "cards_not_yet_created": 0,
+            "armed": 37,
+            "managing": 0,
+            "managing_without_arm_night": 0,
+            "warming": 26,
+            "incubating": 1,
+            "no_call": 2,
+            "reconstructed_arm_nights": 1,
+            "armed_names": 110,
+            "priced_names": 108,
+            "unpriced_names": 2,
+        },
+        "flagged": _flagged(2),
+        "rows": [_ew_row(i) for i in range(37)],
+        "cache": "computed",
+        "compute_ms": 9_800,
+    }
+
+
+# --- forming-quietly ----------------------------------------------------------------------------------------------
+
+
+def _fq_trigger(c: int, n: int, k: int) -> dict[str, Any]:
+    return {
+        "label": text(70, c + n + k),
+        "kind": "insider",
+        "grade": "core",
+        "event_date": fx._day(-k),
+        "sources": [
+            {
+                "source": "form4",
+                "ref": f"0000000000-26-{c * 100 + n:06d}",
+                "url": f"https://www.sec.gov/{c}/{n}",
+            }
+            for _ in range(2)
+        ],
+    }
+
+
+def _fq_row(c: int) -> dict[str, Any]:
+    names = [
+        {
+            "security_id": uid("sec", "fq", c, n),
+            "ticker": ticker((c + n) % 90),
+            "triggers": [_fq_trigger(c, n, k) for k in range(3)],
+        }
+        for n in range(20)
+    ]
+    return {
+        "key": f"fq-{c}",
+        "thesis_id": tid(c),
+        "thesis_name": thesis_name(c),
+        "state": "warming" if c % 4 else "incubating",
+        "recorded_on": ASOF,
+        "run_start": fx._day(-(c % 12)),
+        "run_nights": 1 + c % 12,
+        "days_in_state": c % 12,
+        "run_reconstructed": False,
+        "key_conviction": {"turned": c % 2 == 0, "label": "Conviction", "detail": text(60, c)},
+        "key_confirmation": {"turned": False, "label": "Confirmation", "detail": None},
+        "names": names,
+        "missing": [text(120, c + k) for k in range(3)],
+        "watch": [
+            {"security_id": uid("sec", "fqw", c, w), "ticker": ticker((c + w + 40) % 90)}
+            for w in range(4)
+        ],
+        "risks": [
+            {
+                "label": text(200, c + r),
+                "kind": ("breakdown", "dilution_risk", "corporate_risk", "insider_sell")[r % 4],
+                "security_id": uid("sec", "fq", c, r % 20),
+                "ticker": ticker((c + r) % 90),
+            }
+            for r in range(40)
+        ],
+        "quiet": {
+            "names": 20,
+            "read": 18,
+            "unresolved": 0,
+            "flagged": [
+                {
+                    "security_id": uid("sec", "fq", c, 1),
+                    "ticker": ticker(c % 90),
+                    "reason": text(90, c),
+                }
+            ],
+            "insider": [
+                {
+                    "security_id": uid("sec", "fq", c, n),
+                    "ticker": ticker((c + n) % 90),
+                    "buys_30d": 2,
+                    "buyers_30d": 1,
+                    "cluster": False,
+                }
+                for n in range(6)
+            ],
+            "no_form4": 3,
+            "coiling": [
+                {
+                    "security_id": uid("sec", "fq", c, n),
+                    "ticker": ticker((c + n) % 90),
+                    "contraction": 0.42,
+                }
+                for n in range(8)
+            ],
+            "coiling_no_reading": 1,
+            "leading": [
+                {
+                    "security_id": uid("sec", "fq", c, n),
+                    "ticker": ticker((c + n) % 90),
+                    "vs": ["IWM", "SPY"],
+                }
+                for n in range(5)
+            ],
+            "leading_no_reading": 0,
+            "breadth": {
+                "above": 12,
+                "counted": 18,
+                "thin": 0,
+                "pct": 66.7,
+                "delta_pts": 5.0,
+                "thrust": False,
+            },
+            "above_200": 12,
+            "n_200": 18,
+            "no_200": 2,
+            "lit": True,
+        },
+        "adoption": {
+            "counted": True,
+            "percent": 42.5,
+            "recent": 120,
+            "prior": 84,
+            "recent_from": fx._day(-30),
+            "recent_to": ASOF,
+            "prior_from": fx._day(-60),
+            "prior_to": fx._day(-31),
+            "terms_signal": 5,
+            "terms_counted": 5,
+            "terms_partial": 0,
+            "terms_unstored": 0,
+            "months_stored": 24,
+            "latest_partial": False,
+        },
+    }
+
+
+@cache
+def forming_quietly() -> dict[str, Any]:
+    """MEASURED 393K: 29 rows of about 38K (20 names with triggers, 40 risks, 3 missing strings)."""
+    return {
+        "asof": ASOF,
+        "clock": "record",
+        "live_cards": CARDS,
+        "cards_counted": CARDS,
+        "cards_not_yet_created": 0,
+        "roster_fallback_cards": 1,
+        "cards_armed": 37,
+        "cards_warming": 26,
+        "cards_managing": 0,
+        "cards_incubating": 1,
+        "cards_incubating_lit": 1,
+        "cards_no_call": 2,
+        "cards_with_term_months": 25,
+        "cards_without_term_months": 1,
+        "names_read": 560,
+        "names_flagged": 4,
+        "members": [ticker(i) for i in range(30)],
+        "rows": [_fq_row(c) for c in range(29)],
+        "flagged": _flagged(4),
+        "cache": "computed",
+        "compute_ms": 30_000,
+    }
+
+
 PAYLOADS = {
     "daily-digest": daily_digest,
     "what-changed": what_changed,
+    "hot-board": hot_board,
+    "entry-windows": entry_windows,
+    "forming-quietly": forming_quietly,
 }

@@ -379,6 +379,9 @@ def _model_fields(module: str, model: str) -> set[str]:
 
 def _key_checks():
     from agent_tools.views.dashboards import daily_digest as dd
+    from agent_tools.views.dashboards import entry_windows as ew
+    from agent_tools.views.dashboards import forming_quietly as fq
+    from agent_tools.views.dashboards import hot_board as hb
     from agent_tools.views.dashboards import what_changed as wc
 
     return [
@@ -391,6 +394,23 @@ def _key_checks():
         (dd.DUE_INTS, "daily_digest", "DigestDueOut"),
         (wc.ITEM_KEYS, "what_changed", "WhatChangedItemOut"),
         (wc.ANCHOR_KEYS, "what_changed", "WhatChangedOut"),
+        (hb.ROW_KEYS, "hot_board", "HotRowOut"),
+        (hb.TRIGGER_KEYS, "hot_board", "HotTriggerOut"),
+        (hb.SINCE_ARM_KEYS, "hot_board", "HotSinceArmOut"),
+        (hb.CAP_KEYS, "hot_board", "HotCapOut"),
+        (hb.TAPE_KEYS, "hot_board", "HotTapeOut"),
+        (hb.BODY_KEYS, "hot_board", "HotBoardOut"),
+        (ew.ROW_KEYS, "entry_windows", "EntryWindowsRowOut"),
+        (ew.SINCE_KEYS, "entry_windows", "EntryWindowsSinceOut"),
+        (ew.CLOCK_KEYS, "entry_windows", "EntryWindowsMemberClockOut"),
+        (ew.MEMBER_KEYS, "entry_windows", "EntryWindowsMemberOut"),
+        (ew.CATALYST_KEYS, "entry_windows", "EntryWindowsCatalystOut"),
+        (ew.BODY_KEYS, "entry_windows", "EntryWindowsOut"),
+        (fq.ROW_KEYS, "forming_quietly", "FormingRowOut"),
+        (fq.BREADTH_KEYS, "forming_quietly", "FormingBreadthOut"),
+        (fq.ADOPTION_KEYS, "forming_quietly", "FormingAdoptionOut"),
+        (fq.QUIET_INTS, "forming_quietly", "FormingQuietOut"),
+        (fq.TRIGGER_KEYS, "forming_quietly", "FormingTriggerOut"),
     ]
 
 
@@ -398,3 +418,182 @@ def test_every_field_a_view_copies_is_declared_by_the_api_wire_model():
     for keys, module, model in _key_checks():
         missing = set(keys) - _model_fields(module, model)
         assert not missing, f"{model}: {sorted(missing)}"
+
+
+# --- hot-board ---------------------------------------------------------------------------------------------------
+
+
+def test_hot_board_default_rows_copy_the_api_order_and_drop_the_sparkline():
+    src = dfx.hot_board()
+    reply = call("hot-board")
+    assert reply["settings"] == {"rows": "armed"} and reply["rows_loaded"] == "armed"
+    assert reply["candidate_counts"] == src["candidate_counts"] and reply["benchmark"] == "IWM"
+    assert reply["coverage"]["calendar_source"] == "benchmarks"
+    assert reply["rows_total"] == 69 and reply["next_cursor_for"] == "rows"
+    first, want = reply["rows"][0], src["rows"][0]
+    assert (first["ticker"], first["kind"], first["verdict"]) == (
+        want["ticker"],
+        want["kind"],
+        want["verdict"],
+    )
+    assert first["setup_strength"] == want["confidence"] and "confidence" not in first
+    assert (
+        first["also_armed_count"] == 2
+        and first["trigger_count"] == 4
+        and len(first["triggers"]) == 2
+    )
+    assert first["clocks"] == want["clocks"]
+    assert first["since_arm"] == {k: want["since_arm"][k] for k in ("ret_pct", "iwm_pct", "gap")}
+    assert "spark" not in first["tape"] and set(first["tape"]) == set(hb_keys())
+    assert first["cap"] == {"value": 450_000_000.0, "tier": "small", "gap": None}
+
+
+def hb_keys():
+    from agent_tools.views.dashboards import hot_board
+
+    return hot_board.TAPE_KEYS
+
+
+def test_hot_board_rows_setting_is_passed_through_and_the_cursor_walks_every_row_in_order():
+    api = FakeApi()
+
+    async def body(session):
+        args = {"dashboard": "hot-board", "asof": dfx.ASOF, "rows": "all"}
+        return await session.call_tool("read_dashboard", args)
+
+    reply = run(api, body).structured_content
+    assert reply["settings"] == {"rows": "all"}
+    sent = [q for _, p, q in api.requests if p == "/dashboards/hot-board"]
+    assert sent == [{"asof": dfx.ASOF, "rows": "all"}]
+    rows = walk("hot-board", ("rows",))
+    assert_walk([r["ticker"] for r in rows], [r["ticker"] for r in dfx.hot_board()["rows"]])
+
+
+def test_hot_board_row_section_returns_one_cards_rows_in_full():
+    src = [r for r in dfx.hot_board()["rows"] if r["thesis_id"] == dfx.tid(0)]
+    assert len(src) == 2
+    rows = walk("hot-board", ("rows",), section="row", thesis=dfx.tid(0))
+    assert [r["ticker"] for r in rows] == [r["ticker"] for r in src]
+    assert len(rows[0]["triggers"]) == 4 and rows[0]["triggers"][0]["sources"]
+    assert rows[0]["triggers"][0]["label"] == src[0]["triggers"][0]["label"]  # not cut
+    assert rows[0]["tape"]["spark"] == src[0]["tape"]["spark"]
+    narrowed_default = call("hot-board", thesis=dfx.tid(0))
+    assert narrowed_default["rows_total"] == 2 and narrowed_default["narrowed"]["thesis"][
+        "id"
+    ] == dfx.tid(0)
+
+
+def test_a_section_that_needs_a_card_without_one_is_invalid_arguments():
+    for slug, section in (("hot-board", "row"), ("forming-quietly", "names")):
+
+        async def body(session, slug=slug, section=section):
+            args = {"dashboard": slug, "asof": dfx.ASOF, "section": section}
+            return await session.call_tool("read_dashboard", args)
+
+        err = error_of(run(FakeApi(), body))
+        assert err["code"] == "invalid_arguments" and "needs thesis" in err["message"]
+
+
+# --- entry-windows -----------------------------------------------------------------------------------------------
+
+
+def test_entry_windows_default_rows_copy_the_clocks_and_count_the_members():
+    src = dfx.entry_windows()
+    reply = call("entry-windows")
+    assert reply["axis_start"] == src["axis_start"] and reply["axis_end"] == src["axis_end"]
+    assert (
+        reply["coverage"]["counts"] == src["counts"] and reply["coverage"]["flagged"]["count"] == 2
+    )
+    assert reply["coverage"]["session_source"] == "benchmarks"
+    first, want = reply["rows"][0], src["rows"][0]
+    for key in (
+        "thesis_name",
+        "state",
+        "arm_night",
+        "in_effect",
+        "arm_until",
+        "exit_by",
+        "hold_days",
+    ):
+        assert first[key] == want[key]
+    assert first["setup_strength"] == want["confidence"]
+    assert first["member_count"] == 3 and first["catalyst_count"] == 4
+    assert first["since"] == {
+        k: want["since"][k] for k in ("names", "priced", "median", "iwm", "spy")
+    }
+    rows = walk("entry-windows", ("rows",))
+    assert_walk([r["thesis_name"] for r in rows], [r["thesis_name"] for r in src["rows"]])
+
+
+@pytest.mark.parametrize("section,listkey", [("members", "members"), ("catalysts", "catalysts")])
+def test_entry_windows_sections_page_by_card_to_the_end(section, listkey):
+    src = dfx.entry_windows()["rows"]
+    cards = walk("entry-windows", ("cards",), section=section)
+    assert_walk([c["thesis_name"] for c in cards], [r["thesis_name"] for r in src])
+    if section == "members":
+        assert len(cards[0]["members"]) == 3 and len(cards[0]["member_clocks"]) == 3
+        assert cards[0]["members"][0]["trigger_count"] == 1
+    else:
+        assert cards[0]["catalysts"] == [
+            {k: c[k] for k in ("label", "kind", "when_date", "past")} for c in src[0]["catalysts"]
+        ]
+    one = call("entry-windows", section=section, thesis=dfx.tid(5))
+    assert one["cards_total"] == 1 and one["cards"][0]["thesis_name"] == dfx.thesis_name(5)
+
+
+# --- forming-quietly ---------------------------------------------------------------------------------------------
+
+
+def test_forming_quietly_default_is_a_digest_of_each_card_not_its_38k():
+    src = dfx.forming_quietly()
+    reply = call("forming-quietly")
+    assert (
+        reply["coverage"]["cards_with_term_months"] == 25 and reply["coverage"]["names_read"] == 560
+    )
+    assert reply["rows_total"] == 29
+    first, want = reply["rows"][0], src["rows"][0]
+    assert first["name_count"] == 20 and len(first["names"]) == 8 and first["missing_count"] == 3
+    assert first["names"] == [n["ticker"] for n in want["names"][:8]]
+    assert len(first["missing"]) == 2 and first["missing"][0] == {
+        "text": want["missing"][0],
+        "total_chars": 120,
+        "truncated": False,
+    }
+    assert first["risk_count"] == 40 and sum(first["risks_by_kind"].values()) == 40
+    assert first["watch_count"] == 4 and first["keys"] == {
+        "conviction": True,
+        "confirmation": False,
+    }
+    assert first["quiet"]["coiling"] == 8 and first["quiet"]["leading"] == 5
+    assert first["quiet"]["breadth"]["pct"] == 66.7
+    assert first["adoption"] == {"percent": 42.5, "recent": 120, "prior": 84}
+    assert size(first) < 1_000 < len(str(want))
+    rows = walk("forming-quietly", ("rows",))
+    assert_walk([r["thesis_name"] for r in rows], [r["thesis_name"] for r in src["rows"]])
+
+
+def test_forming_quietly_sections_return_one_cards_part_in_full_and_page_to_the_end():
+    card = dfx.forming_quietly()["rows"][3]
+    args = {"thesis": dfx.tid(3)}
+    names = walk("forming-quietly", ("names",), section="names", **args)
+    assert_walk(
+        [(n["ticker"], len(n["triggers"])) for n in names],
+        [(n["ticker"], len(n["triggers"])) for n in card["names"]],
+    )
+    risks = walk("forming-quietly", ("risks",), section="risks", **args)
+    assert_walk(
+        [(r["ticker"], r["kind"]) for r in risks], [(r["ticker"], r["kind"]) for r in card["risks"]]
+    )
+    assert walk("forming-quietly", ("missing",), section="missing", **args) == card["missing"]
+    watch = walk("forming-quietly", ("watch",), section="watch", **args)
+    assert watch == [w["ticker"] for w in card["watch"]]
+    quiet = call("forming-quietly", section="quiet", **args)["quiet"]
+    assert quiet["coiling_total"] == 8 and quiet["breadth"] == card["quiet"]["breadth"]
+    assert quiet["insider"] == card["quiet"]["insider"]
+    adoption = call("forming-quietly", section="adoption", **args)
+    assert adoption["adoption"] == card["adoption"] and adoption["card_in_forming"] is True
+
+
+def test_forming_quietly_names_a_card_that_is_not_forming():
+    reply = call("forming-quietly", section="adoption", thesis=dfx.tid(50))
+    assert reply["card_in_forming"] is False and reply["adoption"] is None
