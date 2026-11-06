@@ -36,7 +36,7 @@ from dashboards.overlap_map import (
     radius,
 )
 from db.session import DEFAULT_TENANT_ID
-from domain.market_time import market_today
+from domain.market_time import current_night, market_today
 from domain.thesis import (
     BENCH_LABEL,
     CONTEXT_LABEL,
@@ -404,11 +404,14 @@ def test_the_route_serves_one_payload_with_cards_referenced_by_index(monkeypatch
         }
     }
     client = _client(monkeypatch, cards, ident, live=5, later=2, fallback=1)
+    # The CURRENT night is the live read (clock "record"); a fixed date turns into a past, public-clock
+    # view once the next night begins (this test failed from 2026-11-05 22:30 ET on).
+    night = current_night().isoformat()
     try:
-        r = client.get("/dashboards/overlap-map", params={"asof": "2026-11-04"})
+        r = client.get("/dashboards/overlap-map", params={"asof": night})
         assert r.status_code == 200, r.text
         body = r.json()
-        again = client.get("/dashboards/overlap-map", params={"asof": "2026-11-04"}).json()
+        again = client.get("/dashboards/overlap-map", params={"asof": night}).json()
     finally:
         app.dependency_overrides.clear()
         CACHE.clear()
