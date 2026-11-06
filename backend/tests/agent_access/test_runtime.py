@@ -229,6 +229,7 @@ def test_service_same_capture_drilldown_png_error_and_settings_isolation():
                 "target_id": 'card:a"[odd]',
                 "source_response_index": 1,
                 "data_limit": 10,
+                "limit": 1,  # a data read no longer pages targets unless asked
             },
         )
         assert inspected["result"]["targets"][0]["text"] == "12.34%"

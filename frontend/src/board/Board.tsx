@@ -51,7 +51,7 @@ interface Row {
 
 export function Board({ header, asof, onSelect }: Props) {
   const { settings, readOnly } = useCaptureView();
-  const { cockpitLinks } = useCaptureBindings();
+  const { cockpitLinks, sourceRefsAt } = useCaptureBindings();
   // the Board is the ONE consumer that asks for archived theses — they render in the collapsed
   // section below (visible + restorable, never vanished); their calls are NOT computed (no cost)
   const thesesQ = useTheses(true);
@@ -69,10 +69,32 @@ export function Board({ header, asof, onSelect }: Props) {
   // S3 — the data flags across the active baskets (compute-on-read, display-only): a ticker the Board shows
   // (the Decision Queue's headline name, a single-name card) carries the same quiet mark as its Cockpit row
   // when a flag reaches a number on it. A separate read: the cards never wait on it.
-  const flagged = flagsBySid(useDataFlags(asof).data);
+  const flagsData = useDataFlags(asof).data;
+  const flagged = flagsBySid(flagsData);
   const flaggedByTicker = new Map(
     [...flagged.values()].filter((m) => m.ticker).map((m) => [m.ticker as string, m]),
   );
+  // a frozen capture only (docs/MCP.md): a card's queue item and column card advertise the evidence the
+  // backend pointed at — its /theses row, its call's decision fields, every /data-flags entry that holds it.
+  // The rows are matched by id in the same frozen bodies the Board renders; the IDs come from the capture.
+  const flagRows = new Map<string, number[]>();
+  if (readOnly) {
+    (flagsData?.members ?? []).forEach((m, j) => {
+      for (const holder of m.theses ?? []) {
+        const rows = flagRows.get(holder.id) ?? [];
+        rows.push(j);
+        flagRows.set(holder.id, rows);
+      }
+    });
+  }
+  const evidenceRefs = (thesisId: string) =>
+    readOnly
+      ? sourceRefsAt([
+          { path: "/theses", pointer: `/${all.findIndex((t) => t.id === thesisId)}` },
+          { path: `/theses/${thesisId}/call` },
+          ...(flagRows.get(thesisId) ?? []).map((j) => ({ path: "/data-flags", pointer: `/members/${j}` })),
+        ])
+      : {};
 
   // pair each thesis with its resolved call — a card appears once its call computes
   const rows: Row[] = theses
@@ -117,6 +139,19 @@ export function Board({ header, asof, onSelect }: Props) {
   return (
     <div className="board-shell" data-mcp-ready={!computing && !thesesQ.isPending} data-mcp-error={Boolean(thesesQ.error || erroredRows.length)}>
       {header}
+
+      {/* Capture mode only: the section counts the page already shows, as notes, so a reader gets them
+          even when the observation text is cut before the column heads. Hidden, never visible chrome. */}
+      {readOnly && !thesesQ.isPending && (
+        <>
+          <div className="dash-note" hidden>{`Decision Queue: ${armedRows.length} items`}</div>
+          {COLUMNS.map((col) => (
+            <div className="dash-note" hidden key={col.state}>
+              {`${col.label}: ${rows.filter((r) => r.call.state === col.state).length}`}
+            </div>
+          ))}
+        </>
+      )}
 
       {/* F11 — honest loudness (#7 / WB#3): every column shares the ONE as-of dial, so a past scrub
           makes EVERY card on screen a recompute, not the recorded call-of-record — a per-card badge
@@ -163,6 +198,7 @@ export function Board({ header, asof, onSelect }: Props) {
                   key={thesis.id}
                   data-mcp-id={targetId("queue", thesis.id)}
                   {...cockpitLinks(thesis.id, headline?.security_id ?? headline?.ticker ?? null)}
+                  {...evidenceRefs(thesis.id)}
                   onClick={() => onSelect(thesis.id, nameKey)}
                 >
                   {/* a theme shows its single TOP-RANKED actionable name (anti-flooding), with a quiet
@@ -240,7 +276,7 @@ export function Board({ header, asof, onSelect }: Props) {
                 {colRows.map(({ thesis, call, stale }) => (
                   // the archive control is a SIBLING of the card (the card is itself a <button> —
                   // nesting one inside would be the nested-button trap), hover-quiet
-                  <div className={`card-wrap${stale ? " recomputing" : ""}`} key={thesis.id} data-mcp-id={targetId("card", thesis.id)} {...cockpitLinks(thesis.id)}>
+                  <div className={`card-wrap${stale ? " recomputing" : ""}`} key={thesis.id} data-mcp-id={targetId("card", thesis.id)} {...cockpitLinks(thesis.id)} {...evidenceRefs(thesis.id)}>
                     <ThesisCard
                       thesis={thesis}
                       call={call}

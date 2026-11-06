@@ -75,7 +75,7 @@ def board_fixture(data):
         "marked": True,
         "flags": [flag],
         "splits": [],
-        "theses": [],
+        "theses": [{"id": thesis["id"], "name": thesis["name"]}],
     }
     data.update(
         responses=[
@@ -88,7 +88,6 @@ def board_fixture(data):
                 {"asof": data["asof"]},
             ),
         ],
-        references=[],
         navigation=[
             {
                 "id": "nav_synthetic_board",
@@ -100,6 +99,18 @@ def board_fixture(data):
             }
         ],
     )
+    # The evidence references the real Board adapter advertises for these frozen responses.
+    from app.routers.dashboards.capture_adapters.board import card_references
+    from app.routers.dashboards.capture_contract import CapturedResponse
+
+    class Budget:
+        def check_budget(self):
+            pass
+
+    frozen = [CapturedResponse.model_validate(item) for item in data["responses"]]
+    data["references"] = [
+        reference.model_dump(mode="json") for reference in card_references(frozen, Budget())
+    ]
 
 
 def rotation_group(label, card_number, median, members):

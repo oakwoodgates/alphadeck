@@ -1,7 +1,7 @@
 {
   "schema_version": "1",
   "id": "explain-call",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "title": "Explain a call from captured evidence",
   "description": "Resolve one Board thesis, follow its advertised Cockpit link, and explain the platform's call using frozen provenance and computation detail.",
   "stage": "MONITOR",
