@@ -271,6 +271,7 @@ def test_daily_digest_default_reply_copies_the_api_and_pages_the_changed_cards()
     assert reply["forming"] == src["forming"] and reply["positions"] == src["positions"]
     assert reply["coverage"]["flagged"]["count"] == 8
     assert len(reply["coverage"]["flagged"]["reasons"]) == 5
+    assert reply["coverage"]["flagged"]["reasons_shown"] == 5  # (f) a cut list says it was cut
     last = reply["last_night"]
     assert last["cards_total"] == 60 and last["cards_with_change"] == 60 and last["lines"] == 120
     first = last["cards"][0]
@@ -284,6 +285,9 @@ def test_daily_digest_default_reply_copies_the_api_and_pages_the_changed_cards()
     assert [r["ticker"] for r in reply["tape"]["rows"]] == [r["ticker"] for r in api_rows[:3]]
     assert [r["ticker"] for r in reply["tape"]["tail"]] == [r["ticker"] for r in api_rows[-3:]]
     assert {"rise", "fall"} <= {r["cut"] for r in reply["tape"]["rows"] + reply["tape"]["tail"]}
+    # (b) the cut is visible: how many of each end the reply carries, beside the API's total
+    assert reply["tape"]["rows_shown"] == len(reply["tape"]["rows"]) == 3
+    assert reply["tape"]["tail_shown"] == len(reply["tape"]["tail"]) == 3
     assert reply["insider"]["rows_total"] == 9 and len(reply["insider"]["rows"]) == 2
     assert reply["due"]["items_total"] == 14 and len(reply["due"]["items"]) == 4
     assert reply["next_cursor_for"] == "last_night/cards"  # the one paged list
@@ -343,10 +347,10 @@ def test_daily_digest_sections_walk_without_repeats_or_gaps(section, listkey, ke
 def test_daily_digest_last_night_section_carries_every_line_and_thesis_narrows_it():
     src = dfx.daily_digest()["last_night"]["cards"]
     one = call("daily-digest", section="last_night", thesis=dfx.tid(3))
-    assert one["narrowed"]["thesis"]["id"] == dfx.tid(3) and one["cards_total"] == 1
-    card = one["cards"][0]
-    assert [x["label"] for x in card["lines"]] == [x["label"] for x in src[3]["lines"]]
-    assert set(card["lines"][0]) == {
+    assert one["narrowed"]["thesis"]["id"] == dfx.tid(3) and one["lines_total"] == 2
+    assert one["card"]["thesis_id"] == dfx.tid(3) and "lines" not in one["card"]
+    assert [x["label"] for x in one["lines"]] == [x["label"] for x in src[3]["lines"]]
+    assert set(one["lines"][0]) == {
         "change",
         "ticker",
         "from_state",
@@ -972,3 +976,78 @@ def test_change_on_another_dashboard_is_invalid_arguments():
     err = error_of(run(api, body))
     assert err["code"] == "invalid_arguments" and "does not take change" in err["message"]
     assert not [r for r in api.requests if r[1].startswith("/dashboards")]
+
+
+# --- Phase 4 Step 0: the fixes from the Phase 3 native retest ------------------------------------------------------
+
+
+def _long_card_digest(lines: int = 40, chars: int = 300) -> dict:
+    """The retest's failing night: one changed card whose lines alone exceed 8,000 characters."""
+    payload = copy.deepcopy(dfx.daily_digest())
+    card = payload["last_night"]["cards"][0]
+    template = card["lines"][0]
+    card["lines"] = [
+        {**template, "ticker": f"TK{k:02d}", "label": f"{k:02d} " + "L" * (chars - 3)}
+        for k in range(lines)
+    ]
+    return payload
+
+
+def test_a_card_with_40_long_lines_fits_the_last_night_section_page():
+    payload = _long_card_digest()
+    reply = REGISTRY["daily-digest"].view()(payload, Request(asof=dfx.ASOF, section="last_night"))
+    assert size(reply) <= BUDGET
+    first = reply["cards"][0]
+    assert first["lines_total"] == 40 and len(first["lines"]) == 12  # cut at LINES_SHOWN
+    assert [x["label"] for x in first["lines"]] == [
+        x["label"] for x in payload["last_night"]["cards"][0]["lines"][:12]
+    ]
+    assert reply["cards"][1]["lines_total"] == 2 and len(reply["cards"][1]["lines"]) == 2
+
+
+def test_the_thesis_narrowed_last_night_walk_covers_all_40_lines():
+    payload = _long_card_digest()
+    card = payload["last_night"]["cards"][0]
+    want = [x["label"] for x in card["lines"]]
+    thesis = {"id": card["thesis_id"], "name": card["thesis_name"]}
+    seen: list[str] = []
+    cursor, pages = 0, 0
+    while cursor is not None:
+        reply = REGISTRY["daily-digest"].view()(
+            payload, Request(asof=dfx.ASOF, section="last_night", thesis=thesis, cursor=cursor)
+        )
+        assert size(reply) <= BUDGET
+        assert reply["card"]["thesis_id"] == card["thesis_id"] and reply["lines_total"] == 40
+        seen.extend(x["label"] for x in reply["lines"])
+        pages += 1
+        assert pages < 50
+        cursor = reply["next_cursor"]
+        if cursor is not None:
+            assert reply["next_cursor_for"] == "lines"
+    assert seen == want and pages > 1
+
+
+def test_a_thesis_with_no_change_last_night_reads_as_no_card():
+    payload = copy.deepcopy(dfx.daily_digest())
+    gone = payload["last_night"]["cards"].pop(4)
+    thesis = {"id": gone["thesis_id"], "name": gone["thesis_name"]}
+    reply = REGISTRY["daily-digest"].view()(
+        payload, Request(asof=dfx.ASOF, section="last_night", thesis=thesis)
+    )
+    assert reply["card"] is None and reply["lines"] == [] and reply["lines_total"] == 0
+
+
+def test_a_last_night_page_too_large_names_the_thesis_narrowing(monkeypatch):
+    from agent_tools.views.dashboards import daily_digest as dd
+
+    monkeypatch.setattr(dd, "BUDGET", 600)
+
+    async def body(session):
+        return await session.call_tool(
+            "read_dashboard",
+            {"dashboard": "daily-digest", "asof": dfx.ASOF, "section": "last_night"},
+        )
+
+    err = error_of(run(FakeApi(), body))
+    assert err["code"] == "output_too_large"
+    assert "thesis=<card> for its lines" in err["message"]

@@ -61,11 +61,13 @@ def test_the_morning_brief_call_plan_costs_at_most_five_calls_and_36000_characte
         insider = digest["insider"]
         if insider["rows_total"] > len(insider["rows"]):  # 4: then insider
             insider = await read(dashboard="daily-digest", asof=dfx.ASOF, section="insider")
-        triggers = await read(dashboard="what-changed", section="triggers")  # 5: the one more call
-        return changed, digest, due, insider, triggers
+        tape = digest["tape"]
+        if tape["rows_total"] > tape["rows_shown"] + tape["tail_shown"]:  # 5: then the tape
+            tape = await read(dashboard="daily-digest", asof=dfx.ASOF, section="tape")
+        return changed, digest, due, insider, tape
 
     with LoopbackServer(FakeApi()) as fake:
-        prompt, (changed, digest, due, insider, triggers) = _run(fake.base, steps)
+        prompt, (changed, digest, due, insider, tape) = _run(fake.base, steps)
     assert dfx.ASOF in prompt and len(prompt) <= 1_500
     assert len(spent) <= MAX_CALLS, spent
     assert sum(chars for _, chars in spent) <= MAX_CHARS, spent
@@ -83,13 +85,13 @@ def test_the_morning_brief_call_plan_costs_at_most_five_calls_and_36000_characte
     # rises and falls both show in the default; the cut sections arrive whole by the follow-ups
     assert digest["tape"]["tail"] and digest["tape"]["rows_total"] == 69
     assert len(due["items"]) == 14 and len(insider["rows"]) == 9 and insider["rows_total"] == 9
-    assert triggers["section"] == "triggers" and triggers["items"]
+    assert tape["section"] == "tape" and tape["rows"] and tape["rows_total"] == 69
     assert [name for name, _ in spent] == [
         "what-changed/default",
         "daily-digest/default",
         "daily-digest/due",
         "daily-digest/insider",
-        "what-changed/triggers",
+        "daily-digest/tape",
     ]
 
 
@@ -101,6 +103,9 @@ def test_the_prompt_names_the_plan_within_1500_characters():
         "what-changed",
         "daily-digest",
         'section="due"',
+        "tail_shown",
+        "forming-quietly",
+        "5 calls in all",
         "Agent interpretation",
         "display only",
     ):

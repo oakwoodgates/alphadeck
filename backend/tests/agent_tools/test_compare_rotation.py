@@ -149,8 +149,14 @@ def test_a_group_plan_costs_at_most_two_calls_and_4000_characters():
 @pytest.mark.parametrize(
     "args,rule",
     [
-        ({"start": "2026-11-11", "end": "2026-11-05"}, "start must be before end"),
-        ({"start": "2026-11-05", "end": "2026-11-05"}, "start must be before end"),
+        (
+            {"start": "2026-11-11", "end": "2026-11-05"},
+            "start 2026-11-11 must be before end 2026-11-05",
+        ),
+        (
+            {"start": "2026-11-05", "end": "2026-11-05"},
+            "start 2026-11-05 must be before end 2026-11-05",
+        ),
         ({"start": "11/05/2026", "end": "2026-11-11"}, "start must be a date as YYYY-MM-DD"),
         ({"start": "2026-11-05", "end": "yesterday"}, "end must be a date as YYYY-MM-DD"),
         ({"start": "2026-02-30", "end": "2026-11-11"}, "start must be a real date"),
