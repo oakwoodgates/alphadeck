@@ -187,6 +187,11 @@ def test_list_theses_limit_caps_the_queue_cards_in_full_and_keeps_queue_and_coun
         shown == fx.queue_first_order()[: len(shown)] and len(shown) > 5
     )  # the queue, briefly after 5
     assert reply["next_cursor_for"] == "cards"  # the cards past the 8K page continue by cursor
+    # (g) the count says what it counts: every card the list holds, not the cards on this page
+    assert "cards_listed" not in reply
+    assert reply["cards_total"] == whole["cards_total"] == len(theses) > len(shown)
+    armed = theses_view.view_list_theses(theses, asof=fx.ASOF, clock=fx.CLOCK, state="armed")
+    assert armed["cards_total"] == whole["counts"]["armed"]
 
 
 def test_list_theses_names_are_cut_only_past_120_characters():

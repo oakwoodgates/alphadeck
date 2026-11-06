@@ -1,5 +1,5 @@
 """The ``morning-brief`` prompt's call plan, run through the REAL stdio client against a loopback fake API (as the
-Phase 1 scale tests do): at most 4 tool calls and 32,000 characters in all, on the synthetic dashboards.
+Phase 1 scale tests do): at most 5 tool calls and 36,000 characters in all, on the synthetic dashboards.
 """
 
 from __future__ import annotations
@@ -18,8 +18,8 @@ from mcp.client.stdio import stdio_client  # noqa: E402
 from tests.agent_tools import dashboard_fixtures as dfx  # noqa: E402
 from tests.agent_tools.fake_api import FakeApi, LoopbackServer  # noqa: E402
 
-MAX_CALLS = 4
-MAX_CHARS = 32_000
+MAX_CALLS = 5
+MAX_CHARS = 36_000
 
 
 def _run(base: str, steps):
@@ -38,7 +38,7 @@ def _run(base: str, steps):
     return asyncio.run(go())
 
 
-def test_the_morning_brief_call_plan_costs_at_most_four_calls_and_32000_characters():
+def test_the_morning_brief_call_plan_costs_at_most_five_calls_and_36000_characters():
     spent: list[tuple[str, int]] = []
 
     async def steps(session):
@@ -56,13 +56,16 @@ def test_the_morning_brief_call_plan_costs_at_most_four_calls_and_32000_characte
         changed = await read(dashboard="what-changed")  # 1
         digest = await read(dashboard="daily-digest", asof=dfx.ASOF)  # 2
         due = digest["due"]
-        if due["items_total"] > len(due["items"]):  # 3: only when the default cut the due list
-            await read(dashboard="daily-digest", asof=dfx.ASOF, section="due")
-        triggers = await read(dashboard="what-changed", section="triggers")  # 4: the one more call
-        return changed, digest, triggers
+        if due["items_total"] > len(due["items"]):  # 3: the sections the default cut, due first
+            due = await read(dashboard="daily-digest", asof=dfx.ASOF, section="due")
+        insider = digest["insider"]
+        if insider["rows_total"] > len(insider["rows"]):  # 4: then insider
+            insider = await read(dashboard="daily-digest", asof=dfx.ASOF, section="insider")
+        triggers = await read(dashboard="what-changed", section="triggers")  # 5: the one more call
+        return changed, digest, due, insider, triggers
 
     with LoopbackServer(FakeApi()) as fake:
-        prompt, (changed, digest, triggers) = _run(fake.base, steps)
+        prompt, (changed, digest, due, insider, triggers) = _run(fake.base, steps)
     assert dfx.ASOF in prompt and len(prompt) <= 1_500
     assert len(spent) <= MAX_CALLS, spent
     assert sum(chars for _, chars in spent) <= MAX_CHARS, spent
@@ -76,14 +79,16 @@ def test_the_morning_brief_call_plan_costs_at_most_four_calls_and_32000_characte
     )
     # the brief has what it reports from: the pass's changes, the due window, the tape, the insider buys
     assert changed["asof"] is None and changed["items_total"] == 559
-    assert (
-        digest["due"]["items_total"] == 14 and digest["tape"]["rows"] and digest["insider"]["rows"]
-    )
+    assert digest["due"]["items_total"] == 14 and digest["tape"]["rows"]
+    # rises and falls both show in the default; the cut sections arrive whole by the follow-ups
+    assert digest["tape"]["tail"] and digest["tape"]["rows_total"] == 69
+    assert len(due["items"]) == 14 and len(insider["rows"]) == 9 and insider["rows_total"] == 9
     assert triggers["section"] == "triggers" and triggers["items"]
     assert [name for name, _ in spent] == [
         "what-changed/default",
         "daily-digest/default",
         "daily-digest/due",
+        "daily-digest/insider",
         "what-changed/triggers",
     ]
 

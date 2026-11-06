@@ -171,7 +171,9 @@ def view_list_theses(
         "limit": limit,
         "counts": counts,
         "queue": queue,
-        "cards_listed": len(listed),
+        "cards_total": len(
+            listed
+        ),  # every card the list holds after the state filter; cards is one page
         "cards": cards,
     }
     budget = (

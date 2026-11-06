@@ -69,7 +69,22 @@ def view(payload: dict[str, Any], req: Request) -> dict[str, Any]:
     if req.section is not None:
         shown = [i for i in of_card if i.get("section") == req.section]
     reply["by_section"] = _count(of_card, "section")
-    reply["by_change"] = _count(shown, "change")
+    reply["by_change"] = _count(
+        shown, "change"
+    )  # before the change narrowing: the keys `change` takes
+    if req.change is not None:
+        shown = [i for i in shown if i.get("change") == req.change]
     reply["items_total"] = len(shown)
+    if not shown:
+        where = req.section or "any section"
+        what = f"{req.change!r} in {where}" if req.change else where
+        suffix = ""
+        if req.change:
+            suffix = (
+                f"; the changes read are: {', '.join(reply['by_change'])}"
+                if reply["by_change"]
+                else f"; {where} holds no changes at all"
+            )
+        reply["note"] = f"nothing changed in {what} since {reply['anchor'].get('since')}" + suffix
     reply["items"] = [_item(i) for i in shown[req.cursor :]]
     return fit(reply, BUDGET, [TrimRule(("items",), min_keep=1, start=req.cursor, hint="cursor")])

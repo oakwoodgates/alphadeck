@@ -49,6 +49,11 @@ class FakeApi:
         if parts[0] == "dashboards" and len(parts) == 2 and parts[1] in dfx.PAYLOADS:
             if parts[1] not in UNDATED and "asof" not in query:
                 return 422, {"detail": "asof: Field required"}
+            if parts[1] == "rotation-map" and query.get("group_by") == "business_type":
+                # the comparison's two dates: the end night serves the end variant (keys differ, not labels)
+                if query.get("asof") == dfx.ASOF_END:
+                    return 200, dfx.rotation_map_end("business_type")
+                return 200, dfx.rotation_map("business_type")
             return 200, dfx.PAYLOADS[parts[1]]()
         if parts[0] == "theses" and len(parts) >= 2:
             if parts[1] not in known:
