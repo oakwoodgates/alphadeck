@@ -1,4 +1,4 @@
-"""The Claude Code skill (``.claude/skills/alphadeck-agent/SKILL.md``) carries the five recipes verbatim: the sync check
+"""The Claude Code skill (``.claude/skills/alphadeck-agent/SKILL.md``) carries the seven recipes verbatim: the sync check
 runs in-process (the same check ``python -m agent_tools.skill_sync --check`` runs), the size and frontmatter bars hold,
 and the tracked skill names no live card, company or ticker.
 """
@@ -13,9 +13,9 @@ from agent_tools import skill_sync
 from agent_tools.prompt_args import PROMPT_NAMES
 
 SKILL = skill_sync.SKILL_PATH
-MAX_CHARS = 12_000
-MAX_LINES = 250
-MAX_HAND_LINES = 80
+MAX_CHARS = 17_000
+MAX_LINES = 300
+MAX_HAND_LINES = 95
 MAX_DESCRIPTION = 1_000
 
 
@@ -92,6 +92,8 @@ def test_the_frontmatter_names_the_skill_and_each_recipe_and_fits_1000_character
         "explain this call",
         "ticker check",
         "compare the rotation map",
+        "ratify queue",
+        "discovery review",
     ):
         assert needle in description, needle
     for name in PROMPT_NAMES:
@@ -131,10 +133,14 @@ TOOLS = (
     "lookup_ticker",
     "list_dashboards",
     "read_dashboard",
+    "get_triage",
+    "get_discovery",
+    "get_extract",
+    "get_onboarding",
 )
 
 
-def test_the_setup_select_line_names_all_ten_tools_and_can_be_pasted():
+def test_the_setup_select_line_names_all_fourteen_tools_and_can_be_pasted():
     line = next(x.strip() for x in _text().splitlines() if x.strip().startswith("select:"))
     assert "..." not in line and " " not in line
     names = line.removeprefix("select:").split(",")

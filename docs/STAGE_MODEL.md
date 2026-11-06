@@ -104,6 +104,8 @@ tools serve worst — that's where Alpha Deck is differentiated, not in re-deriv
 (populate + confirm) + TRIAGE (craft the basket). The Board/Cockpit is MONITOR; the built, forward-accruing
 Scoreboard is SCORE.
 Naming the three stages separately is what kept each buildable.
+The agent tools (`docs/AGENT_TOOLS.md`) read SURFACE and TRIAGE through `get_triage` / `get_discovery` / `get_extract` /
+`get_onboarding` (read-only; ratify stays in the Workbench).
 
 **The "two halves on one spine"** (`PROJECT_OVERVIEW.md` §4) is the same spine at coarser grain: **front half** =
 DISCOVER + SURFACE + TRIAGE (hunt + research); **back half** = MONITOR (park + time); **SEED** is the vault the

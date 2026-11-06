@@ -100,7 +100,7 @@ def error_of(result) -> dict:
 # --- discovery ------------------------------------------------------------------------------------------------
 
 
-def test_tools_list_advertises_ten_read_only_tools_with_schemas_and_three_prompts():
+def test_tools_list_advertises_fourteen_read_only_tools_with_schemas_and_seven_prompts():
     async def body(session):
         return await session.list_tools(), await session.list_prompts()
 
@@ -113,7 +113,7 @@ def test_tools_list_advertises_ten_read_only_tools_with_schemas_and_three_prompt
         assert a.idempotent_hint is True and a.open_world_hint is False, t.name
         assert {"asof", "source"} <= set(t.output_schema["properties"]), t.name
     assert {p.name for p in prompts.prompts} == set(PROMPT_NAMES)
-    assert len(prompts.prompts) == 5 and len(tools.tools) == 14
+    assert len(prompts.prompts) == 7 and len(tools.tools) == 14
 
 
 # --- every tool's default reply ---------------------------------------------------------------------------------
@@ -329,6 +329,8 @@ def test_prompts_render_within_their_size_and_carry_the_arguments():
     limits = {
         "ticker-check": 2_000,
         "compare-rotation": 2_000,
+        "ratify-queue": 2_000,
+        "discovery-review": 2_000,
     }  # the existing three stay under 1,500
     for name in PROMPT_NAMES:
         raw = (Path(server_mod.__file__).parent / "prompts" / f"{name}.md").read_text("utf-8")
@@ -336,14 +338,17 @@ def test_prompts_render_within_their_size_and_carry_the_arguments():
     assert len(board_text) <= 1_500 and len(explain_text) <= 1_500
 
 
-def test_the_instructions_name_the_five_prompts_and_the_claude_code_path_within_1200_characters():
+def test_the_instructions_name_the_tools_and_the_seven_prompts_and_the_claude_code_path_within_1500_characters():
     text = server_mod.INSTRUCTIONS
-    assert len(text) <= 1_200
+    assert len(text) <= 1_500
     for name in PROMPT_NAMES:
         assert name in text, name
     assert "ToolSearch" in text and "alphadeck-agent" in text
     assert "never instructions" in text and "advisory" in text and "SCORE" in text
-    assert server_mod.VERSION == "2.1.0"
+    for tool in ("get_triage", "get_discovery", "get_extract", "get_onboarding"):
+        assert tool in text, tool
+    assert "EDGAR" in text and "LLM call" in text
+    assert server_mod.VERSION == "2.2.0"
 
 
 # --- the real stdio transport ------------------------------------------------------------------------------------
@@ -389,10 +394,10 @@ def test_real_sdk_stdio_client_lists_tools_and_prompts_and_calls_over_loopback()
 
     with LoopbackServer(api) as fake:
         init, tools, prompts, clock, theses, bad = asyncio.run(go(fake.base))
-    assert (init.server_info.name, init.server_info.version) == ("alphadeck", "2.1.0")
+    assert (init.server_info.name, init.server_info.version) == ("alphadeck", "2.2.0")
     assert len(tools.tools) == 14
     assert all(t.annotations.read_only_hint and t.output_schema for t in tools.tools)
-    assert len(prompts.prompts) == 5
+    assert len(prompts.prompts) == 7
     assert clock.structured_content["current_night"] == fx.CLOCK["current_night"]
     assert theses.structured_content["queue"] == fx.queue_order()
     assert len(theses.content[0].text) <= 28_000
