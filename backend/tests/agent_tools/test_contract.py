@@ -91,9 +91,9 @@ def test_a_settings_own_value_rule_is_enforced(c):
 def test_the_since_rule_keeps_its_wording_and_its_accepted_values():
     since = next(s for s in tool_args.CONTRACTS if s.name == "what-changed").settings[0]
     rule = "since takes last_night, 7d or a real date as YYYY-MM-DD."
-    for good in ("7d", "2026-11-05"):
+    for good in ("last_night", "7d", "2026-11-05"):
         assert since.validate(good) is None
-    for bad in ("yesterday", "2026-13-40", "2026-02-30", "30d"):
+    for bad in ("yesterday", "last-night", "2026-13-01", "2026-13-40", "2026-02-30", "30d"):
         assert since.validate(bad) == rule
 
 

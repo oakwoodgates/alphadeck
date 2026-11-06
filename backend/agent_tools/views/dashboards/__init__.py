@@ -47,13 +47,14 @@ class Dashboard(Contract):
         return import_module(f"{__name__}.{self.view_module or self.slug.replace('-', '_')}").view
 
 
+_DATE_SHAPE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _SINCE = re.compile(r"^(last_night|7d|\d{4}-\d{2}-\d{2})$")
 
 
 def _since_rule(value: Any) -> str | None:
     """The rule text when ``since`` is not last_night, 7d or a real YYYY-MM-DD date."""
     ok = bool(_SINCE.match(value))
-    if ok and len(value) == 10:
+    if ok and _DATE_SHAPE.match(value):
         try:
             date.fromisoformat(value)
         except ValueError:
