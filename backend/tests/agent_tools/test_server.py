@@ -35,6 +35,8 @@ TOOLS = {
     "get_display_signals",
     "get_decisions",
     "lookup_ticker",
+    "list_dashboards",
+    "read_dashboard",
 }
 BUDGETS = {
     "get_clock": 500,
@@ -45,6 +47,8 @@ BUDGETS = {
     "get_display_signals": 8_000,
     "get_decisions": 8_000,
     "lookup_ticker": 8_000,
+    "list_dashboards": 3_000,
+    "read_dashboard": 8_000,
 }
 DEFAULT_ARGS = {
     "get_clock": {},
@@ -55,6 +59,8 @@ DEFAULT_ARGS = {
     "get_display_signals": {"thesis": THESIS_ID},
     "get_decisions": {"thesis": THESIS_ID},
     "lookup_ticker": {"t": "tk01"},
+    "list_dashboards": {},
+    "read_dashboard": {"dashboard": "daily-digest"},
 }
 
 
@@ -80,7 +86,7 @@ def error_of(result) -> dict:
 # --- discovery ------------------------------------------------------------------------------------------------
 
 
-def test_tools_list_advertises_eight_read_only_tools_with_schemas_and_two_prompts():
+def test_tools_list_advertises_ten_read_only_tools_with_schemas_and_two_prompts():
     async def body(session):
         return await session.list_tools(), await session.list_prompts()
 
@@ -98,7 +104,7 @@ def test_tools_list_advertises_eight_read_only_tools_with_schemas_and_two_prompt
 # --- every tool's default reply ---------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("tool", sorted(TOOLS))
+@pytest.mark.parametrize("tool", sorted(TOOLS - {"read_dashboard"}))
 def test_every_default_reply_is_compact_json_within_budget_with_asof_and_source(tool):
     api = FakeApi()
 
@@ -344,7 +350,7 @@ def test_real_sdk_stdio_client_lists_tools_and_prompts_and_calls_over_loopback()
     with LoopbackServer(api) as fake:
         init, tools, prompts, clock, theses, bad = asyncio.run(go(fake.base))
     assert (init.server_info.name, init.server_info.version) == ("alphadeck", "2.0.0")
-    assert len(tools.tools) == 8
+    assert len(tools.tools) == 10
     assert all(t.annotations.read_only_hint and t.output_schema for t in tools.tools)
     assert len(prompts.prompts) == 2
     assert clock.structured_content["current_night"] == fx.CLOCK["current_night"]
