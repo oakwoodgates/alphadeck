@@ -954,6 +954,13 @@ def test_an_empty_section_or_narrowing_says_so_with_a_note():
     assert reply["items_total"] == 0
     assert reply["note"] == "nothing changed in keys since last_night"
     assert "note" not in call("what-changed", section="keys")
+    # a narrowing on a section with no changes at all: no empty list after the colon
+    none = REGISTRY["what-changed"].view()(
+        payload, Request(section="keys", change="no_such_change")
+    )
+    assert none["note"] == (
+        "nothing changed in 'no_such_change' in keys since last_night; keys holds no changes at all"
+    )
 
 
 def test_change_on_another_dashboard_is_invalid_arguments():

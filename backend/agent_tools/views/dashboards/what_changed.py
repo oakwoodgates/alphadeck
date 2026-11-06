@@ -78,8 +78,13 @@ def view(payload: dict[str, Any], req: Request) -> dict[str, Any]:
     if not shown:
         where = req.section or "any section"
         what = f"{req.change!r} in {where}" if req.change else where
-        reply["note"] = f"nothing changed in {what} since {reply['anchor'].get('since')}" + (
-            f"; the changes read are: {', '.join(reply['by_change'])}" if req.change else ""
-        )
+        suffix = ""
+        if req.change:
+            suffix = (
+                f"; the changes read are: {', '.join(reply['by_change'])}"
+                if reply["by_change"]
+                else f"; {where} holds no changes at all"
+            )
+        reply["note"] = f"nothing changed in {what} since {reply['anchor'].get('since')}" + suffix
     reply["items"] = [_item(i) for i in shown[req.cursor :]]
     return fit(reply, BUDGET, [TrimRule(("items",), min_keep=1, start=req.cursor, hint="cursor")])
