@@ -12,6 +12,10 @@ from .errors import AccessError
 
 UNSPECIFIED = object()
 ASSET_LIMIT = 12 * 1024
+# A get_workflow reply (descriptor + instructions + policy) must fit the SMALLEST reply ceiling the
+# server accepts (16,000 characters), so a recipe can never be unreadable under any configuration.
+INSTRUCTIONS_LIMIT = 12 * 1024
+DESCRIPTOR_LIMIT = 2 * 1024
 MAX_RECIPES = 8
 IDENTIFIER = r"^[a-z][a-z0-9_]*\Z"
 SLUG = r"^[a-z][a-z0-9-]*\Z"
@@ -193,9 +197,12 @@ class WorkflowRegistry:
                 body = _read_asset(resources.joinpath(name + ".md"))
                 instructions = f"Workflow `{name}` (version `{metadata['version']}`)\n\n"
                 instructions += common + body
-                if not body or len(json.dumps(instructions, ensure_ascii=True)) > 48 * 1024:
+                if (
+                    not body
+                    or len(json.dumps(instructions, ensure_ascii=True)) > INSTRUCTIONS_LIMIT
+                ):
                     raise ValueError("Instructions are empty or exceed the encoded size bound.")
-                if len(json.dumps(metadata, ensure_ascii=True)) > 8 * 1024:
+                if len(json.dumps(metadata, ensure_ascii=True)) > DESCRIPTOR_LIMIT:
                     raise ValueError("Workflow descriptor exceeds the encoded size bound.")
                 self._recipes[name] = (metadata, instructions)
         except (AccessError, OSError, ValueError, RecursionError, SchemaError, ValidationError):

@@ -131,10 +131,10 @@ def run_inspect(arguments_list):
     return asyncio.run(run())
 
 
-def test_schema_version_is_two_everywhere():
-    assert OUTPUT_SCHEMA["properties"]["schema_version"] == {"const": "2"}
+def test_schema_version_is_three_everywhere():
+    assert OUTPUT_SCHEMA["properties"]["schema_version"] == {"const": "3"}
     (read,) = [asyncio.run(_read())]
-    assert read["schema_version"] == "2"
+    assert read["schema_version"] == "3"
 
 
 async def _read():
@@ -370,7 +370,7 @@ def test_capture_timeout_message_uses_the_configured_timeout():
 
 
 def test_trace_logs_reply_size_in_characters_never_content(caplog):
-    payload = {"schema_version": "2", "request_id": "r", "ok": True, "result": {"secret": "zzz"}}
+    payload = {"schema_version": "3", "request_id": "r", "ok": True, "result": {"secret": "zzz"}}
     with caplog.at_level(logging.INFO, logger="agent_access.server"):
         log_reply("inspect_dashboard_item", payload)
     expected = len(json.dumps(payload, ensure_ascii=True, separators=(",", ":")))

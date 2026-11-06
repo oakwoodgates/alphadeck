@@ -1,10 +1,11 @@
-"""board-review 1.1.1 at REAL scale, through the real MCP server over stdio.
+"""board-review 1.2.0 at REAL scale, through the real MCP server over stdio.
 
 A scripted official-SDK client follows the recipe on the 66-card / 42-armed fixture (`board_scale`):
 read the Board, list the whole Decision Queue, check its order from the `theses[<i>]` labels, and make
-ONE batch read per shortlisted item. It sums the characters of every tool reply and counts the calls,
-so the cost of a review is measured, not estimated. The capture and renderer are synthetic stand-ins
-(no DB, backend or browser); the service, server, Board adapter references and recipe are real.
+ONE batch read per shortlisted item. It records the characters of every tool reply and counts the calls,
+so the cost of a review is measured, not estimated, and checks that EVERY reply stays under the reply
+ceiling at the default (40,000) and at a smaller one (20,000). The capture and renderer are synthetic
+stand-ins (no DB, backend or browser); the service, server, Board adapter references and recipe are real.
 """
 
 import asyncio
@@ -39,22 +40,23 @@ CALL_FIELDS = (
     "arm_until",
     "exit_by",
 )
-# A regression guard: the MEASURED synthetic total (214,948 characters) plus about 15%. The original target (under 100K)
-# is NOT met; see docs/MCP.md 'Known limits'.
-CHARACTER_BUDGET, CALL_BUDGET = 248_000, 20
+CEILINGS = (40_000, 20_000)
+# A regression guard at the default ceiling: the MEASURED synthetic total (184,095 characters in 10
+# calls, 2026-11-06) plus about 15%. It was 214,948 characters in 9 calls before the reply ceiling.
+CHARACTER_BUDGET, CALL_BUDGET = 212_000, 20
 
 
 @functools.cache
-def review() -> dict:
-    """Run the recipe once per process; both tests read its outcome."""
-    return asyncio.run(_review())
+def review(ceiling: int) -> dict:
+    """Run the recipe once per process and ceiling; the tests read its outcome."""
+    return asyncio.run(_review(ceiling))
 
 
-async def _review() -> dict:
+async def _review(ceiling: int) -> dict:
     backend = HERE.parents[1]
     script = (
         "import asyncio; from board_scale import scale_service; "
-        "from agent_access.server import run; asyncio.run(run(scale_service()))"
+        f"from agent_access.server import run; asyncio.run(run(scale_service({ceiling})))"
     )
     params = StdioServerParameters(
         command=sys.executable,
@@ -79,17 +81,17 @@ async def _review() -> dict:
             workflow = await call(
                 "get_workflow", name="board-review", arguments={"max_items": MAX_ITEMS}
             )
-            assert workflow["workflow"]["version"] == "1.1.1"
+            assert workflow["workflow"]["version"] == "1.2.0"
             assert "source_ref_ids" in workflow["instructions"]
+            assert "target_limit: 50" not in workflow["instructions"]
             await call("describe_dashboard", dashboard="board")
             board = await call(
                 "read_dashboard",
                 dashboard="board",
                 settings={"dq_open": True, "archived_open": False},
-                target_limit=50,
             )
             snapshot = board["snapshot_id"]
-            # Step 2: the queue's length is the "Decision Queue: <n> items" note.
+            # Step 2: the queue's length is the "Decision Queue: <n> items" note of the summary.
             armed = int(
                 next(
                     re.fullmatch(r"Decision Queue: (\d+) items", note)[1]
@@ -106,6 +108,7 @@ async def _review() -> dict:
                     limit=min(50, armed - len(listed)),
                 )
                 assert page["snapshot_id"] == snapshot and page["offset"] == offset
+                assert page["targets"], "a listing page always progresses"
                 listed += page["targets"]
                 offset = page["next_offset"]
             queue = listed[:armed]
@@ -132,12 +135,39 @@ async def _review() -> dict:
                     source_ref_ids=ids,
                 )
                 assert batch["snapshot_id"] == snapshot
+                # A flag is read whole (its affected fields, reason, call_affected): a flag the
+                # ceiling cut continues with source_ref_id + data_offset, as the recipe says.
+                for item in batch["source_data_items"]:
+                    while item["category"] == "data_flag" and item["next_offset"] is not None:
+                        more = await call(
+                            "inspect_dashboard_item",
+                            snapshot_id=snapshot,
+                            target_id=target["id"],
+                            source_ref_id=item["reference_id"],
+                            data_offset=item["next_offset"],
+                        )
+                        data = more["source_data"]
+                        assert data["offset"] == item["next_offset"]
+                        item.update(
+                            text=item["text"] + data["text"],
+                            next_offset=data["next_offset"],
+                            truncated=data["next_offset"] is not None,
+                        )
                 items.append((target, batch["source_data_items"]))
     return {"armed": armed, "queue": queue, "order": order, "items": items, "replies": replies}
 
 
-def test_board_review_runs_at_real_scale_in_one_snapshot_and_matches_the_capture():
-    outcome = review()
+def describe(ceiling: int, replies: list) -> str:
+    return (
+        f"\nboard-review 1.2.0, max_items={MAX_ITEMS}, ceiling {ceiling:,}: {len(replies)} calls, "
+        f"{sum(size for _, size in replies):,} characters: "
+        + ", ".join(f"{tool} {size:,}" for tool, size in replies)
+    )
+
+
+@pytest.mark.parametrize("ceiling", CEILINGS)
+def test_board_review_runs_at_real_scale_in_one_snapshot_and_matches_the_capture(ceiling):
+    outcome = review(ceiling)
     data = envelope()
     paths = [item["path"] for item in data["responses"]]
     rows = data["responses"][paths.index("/theses")]["body"]
@@ -178,14 +208,17 @@ def test_board_review_runs_at_real_scale_in_one_snapshot_and_matches_the_capture
         assert [json.loads(item["text"]) for item in flags] == held
 
     replies = outcome["replies"]
-    print(
-        f"\nboard-review 1.1.1, max_items={MAX_ITEMS}: {len(replies)} calls, "
-        f"{sum(size for _, size in replies):,} characters: "
-        + ", ".join(f"{tool} {size:,}" for tool, size in replies)
-    )
+    print(describe(ceiling, replies))
     assert len(replies) <= CALL_BUDGET
 
 
+@pytest.mark.parametrize("ceiling", CEILINGS)
+def test_every_board_review_reply_stays_under_the_reply_ceiling(ceiling):
+    replies = review(ceiling)["replies"]
+    over = [(tool, size) for tool, size in replies if size > ceiling]
+    assert not over, over
+
+
 def test_board_review_stays_within_the_measured_character_budget():
-    total = sum(size for _, size in review()["replies"])
+    total = sum(size for _, size in review(40_000)["replies"])
     assert total <= CHARACTER_BUDGET, f"{total:,} characters"

@@ -21,7 +21,7 @@ from agent_access.capture import CaptureClient, loopback_base, validate_capture 
 from agent_access.catalog import Catalog  # noqa: E402
 from agent_access.errors import AccessError  # noqa: E402
 from agent_access.server import OUTPUT_SCHEMA  # noqa: E402
-from agent_access.service import DashboardService, preview  # noqa: E402
+from agent_access.service import DashboardService, fitted_preview, preview  # noqa: E402
 from agent_access.snapshots import SnapshotStore  # noqa: E402
 
 CLOCK = {
@@ -301,9 +301,24 @@ def test_snapshot_capabilities_and_ui_asset_drift_fail_closed():
 
 
 def test_output_preview_is_bounded_and_reports_omissions():
-    value, metadata = preview({"tables": [{"rows": [["x" * 20000] * 10] * 1000}]})
+    value, metadata = preview({"tables": [{"rows": [["x" * 20000] * 10] * 1000}]}, budget=56000)
     assert len(json.dumps(value)) < 80000
     assert metadata["truncated"] and metadata["path_count"] > 0
+
+
+@pytest.mark.parametrize("room", [500, 4000, 16000, 39000])
+def test_fitted_preview_fits_its_room_exactly_and_discloses_pointer_paths(room):
+    value = {
+        "a/b": {"~k": ["·" * 30000]},
+        "tables": [{"rows": [["x" * 2000] * 10] * 1000}],
+    }
+    shown, truncation = fitted_preview(value, room)
+    compact = len(json.dumps(shown, ensure_ascii=True, separators=(",", ":")))
+    compact += len(json.dumps(truncation, ensure_ascii=True, separators=(",", ":")))
+    assert compact <= room and truncation["truncated"]
+    # Paths are RFC 6901 pointers (escaped keys), so each is a usable view_pointer.
+    assert all(path == "" or path.startswith("/") for path in truncation["paths"])
+    assert not any("a/b" in path for path in truncation["paths"])
 
 
 def test_real_official_sdk_stdio_discovery_and_structured_errors():

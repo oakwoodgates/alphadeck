@@ -12,7 +12,9 @@ import pytest
 pytest.importorskip("mcp")
 pytest.importorskip("jsonschema")
 
+from board_scale import envelope as board_envelope_at_scale  # noqa: E402
 from board_scale import scale_service  # noqa: E402
+from board_scale import view as scale_view  # noqa: E402
 from jsonschema import Draft202012Validator, validate  # noqa: E402
 from test_board_references import BoardCapture, BoardRenderer, board_envelope  # noqa: E402
 
@@ -184,7 +186,7 @@ def test_a_cut_item_continues_with_source_ref_id_and_the_reply_stays_bounded():
         assert batch["ok"], batch
         items = batch["result"]["source_data_items"]
         assert len(items) == 32
-        assert len(json.dumps(batch, ensure_ascii=True).encode()) < 128 * 1024
+        assert compact(batch) <= service.reply_ceiling
         first = items[0]
         assert len(first["text"]) == 4000 and first["truncated"]
         assert first["next_offset"] == 4000
@@ -277,26 +279,68 @@ def test_a_valid_batch_passes_the_input_schema():
     assert Draft202012Validator(INPUT_SCHEMAS["inspect_dashboard_item"]).is_valid(arguments)
 
 
-def test_real_scale_board_pages_hold_the_targets_within_the_budgets():
-    """Step 1's goals on the 66-card / 42-armed fixture: read page 1 >= 15 targets in <= 100K
-    characters, and every full inspect page of targets holds 20."""
-    service = scale_service()
+@pytest.mark.parametrize("ceiling, first_page", [(40_000, 15), (20_000, 5)])
+def test_real_scale_board_pages_hold_the_targets_under_the_reply_ceiling(ceiling, first_page):
+    """On the 66-card / 42-armed fixture every page fits the ceiling, never drops or repeats a
+    target, and holds what fits even when that is fewer than the limit asked for."""
+    service = scale_service(ceiling)
 
     async def run():
         read = await call(service, "read_dashboard", dashboard="board", settings=BOARD_SETTINGS)
         assert read["ok"], read
         result = read["result"]
         assert result["target_total"] == 108
-        assert len(result["targets"]) >= 15 and compact(read) <= 100_000
-        pages, offset = [], result["next_target_offset"]
+        assert len(result["targets"]) >= first_page and compact(read) <= ceiling
+        ids, offset = [t["id"] for t in result["targets"]], result["next_target_offset"]
         while offset is not None:
             page = await call(
-                service, "inspect_dashboard_item", snapshot_id=result["snapshot_id"], offset=offset
+                service,
+                "inspect_dashboard_item",
+                snapshot_id=result["snapshot_id"],
+                offset=offset,
+                limit=50,
             )
-            assert compact(page) < 128 * 1024
-            pages.append(len(page["result"]["targets"]))
+            assert compact(page) <= ceiling and page["result"]["targets"]
+            assert page["result"]["target_shape"] == "listing"
+            ids += [t["id"] for t in page["result"]["targets"]]
             offset = page["result"]["next_offset"]
-        return len(result["targets"]), pages
+        return ids
 
-    first, pages = asyncio.run(run())
-    assert all(count == 20 for count in pages[:-1]) and first + sum(pages) == 108
+    ids = asyncio.run(run())
+    data = board_envelope_at_scale()
+    assert ids == [target["id"] for target in scale_view(data)["targets"]]
+
+
+def test_listings_are_lean_and_a_target_id_opens_the_full_record():
+    service = scale_service()
+
+    async def run():
+        read = (await call(service, "read_dashboard", dashboard="board"))["result"]
+        snapshot = read["snapshot_id"]
+        listed = read["targets"][0]
+        record = (
+            await call(
+                service, "inspect_dashboard_item", snapshot_id=snapshot, target_id=listed["id"]
+            )
+        )["result"]
+        return listed, record
+
+    listed, record = asyncio.run(run())
+    assert set(listed) == {
+        "id",
+        "label",
+        "text",
+        "text_total_characters",
+        "visible",
+        "clipped",
+        "in_viewport",
+        "links",
+        "source_refs",
+    }
+    assert len(listed["text"]) <= 200
+    assert record["target_shape"] == "record" and record["next_offset"] is None
+    (full,) = record["targets"]
+    assert {"bounds", "tables", "reference_links"} <= set(full)
+    assert full["source_refs"] == listed["source_refs"] and full["links"] == listed["links"]
+    # A target-only call lists no captured responses by default.
+    assert record["source_responses"] == [] and record["next_source_offset"] is None

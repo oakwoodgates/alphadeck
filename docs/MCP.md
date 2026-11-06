@@ -79,7 +79,8 @@ and proposed PR text for accidental disclosure before publication.
   adds its own).
 - Frozen response: `method`, `path`, canonical query values, HTTP status, and JSON body.
 - Observation: snapshot ID, requested settings, source context/consistency, visible text, structured
-  tables/notes, identifiable targets, and explicit completeness/visibility information.
+  tables/notes, identifiable targets, and explicit completeness/visibility information. The snapshot
+  keeps it whole; a read reply shows a summary of it, and `view_pointer` reads any part.
 - Navigation: an opaque link ID on a target and its backend-owned capture destination; a follow result
   identifies its parent and its independent capture. Captured source references identify bounded JSON
   within an existing snapshot and distinguish call provenance from display basis and authored metadata.
@@ -93,7 +94,7 @@ and proposed PR text for accidental disclosure before publication.
 | `list_dashboards` | Discover dashboards and their implemented capabilities. |
 | `describe_dashboard` | Learn controls, definitions, defaults, date behavior, and limitations. |
 | `read_dashboard` | Capture a requested view, or follow an advertised link into a fresh related capture. |
-| `inspect_dashboard_item` | Inspect a stable target or its captured evidence within a frozen view: one field by pointer, a value's outline, or a batch of one target's references. |
+| `inspect_dashboard_item` | Inspect a stable target or its captured evidence within a frozen view: lean target listings, an `index` or `match` of targets, one target's full record, any part of the frozen view by `view_pointer`, one field by pointer, a value's outline, or a batch of one target's references. |
 | `render_dashboard` | Obtain an overview or target image from the same captured output. |
 | `list_workflows` | Discover versioned recipes and their inputs, defaults, and required surfaces. |
 | `get_workflow` | Read a recipe template, or validate its inputs and obtain instructions for client execution. |
@@ -202,6 +203,12 @@ built-in defaults spelled out:
 alphadeck-mcp --backend-base http://127.0.0.1:8001 --ui-base http://127.0.0.1:5173
 ```
 
+`--reply-ceiling N` sets the most characters any one tool reply may hold (16,000 to 120,000; default
+40,000; see "One reply ceiling" below). The default suits Claude Code; a client that shows larger
+replies can raise it by adding the flag to the server's `args`, for example
+`["--backend-base", "http://127.0.0.1:8001", "--ui-base", "http://127.0.0.1:8081", "--reply-ceiling", "80000"]`
+in `.mcp.json`. A value outside the range refuses to start (exit 2).
+
 `.venv\Scripts\python.exe -m agent_access` with the same arguments is equivalent when the client's
 working directory is `backend/`. Base origins can also be configured through
 `ALPHADECK_MCP_BACKEND_BASE` and `ALPHADECK_MCP_UI_BASE`. Only explicit loopback origins are accepted;
@@ -256,9 +263,9 @@ Recipe discovery and retrieval themselves work while those two services are stop
 
 | Workflow ID | Version | Inputs | Report |
 |---|---|---|---|
-| `board-review` | 1.1.1 | Optional `asof`; `max_items` defaults to 5 (1–20). | Board/queue coverage and a shortlist in displayed Decision Queue order, with reasons and data caveats. |
-| `explain-call` | 1.1.0 | Required `thesis` (name or UUID); optional `asof`. | Platform call and conditions, exact captured evidence, unresolved gaps, and separately labeled agent interpretation. |
-| `compare-rotation` | 1.1.0 | Required `start_date` and `end_date`, earlier first; `group_by` defaults to `card`. | Two dated readings with percentage-point differences, breadth/coverage, membership and flag changes. |
+| `board-review` | 1.2.0 | Optional `asof`; `max_items` defaults to 5 (1–20). | Board/queue coverage and a shortlist in displayed Decision Queue order, with reasons and data caveats. |
+| `explain-call` | 1.2.0 | Required `thesis` (name or UUID); optional `asof`. | Platform call and conditions, exact captured evidence, unresolved gaps, and separately labeled agent interpretation. |
+| `compare-rotation` | 1.2.0 | Required `start_date` and `end_date`, earlier first; `group_by` defaults to `card`. | Two dated readings with percentage-point differences, breadth/coverage, membership and flag changes. |
 
 Version 1.1.0 (2026-11-05) reads evidence through references instead of whole responses. `board-review`
 lists the whole Decision Queue, checks its order from each queue target's `theses[<i>]` label, and makes
@@ -267,6 +274,17 @@ partial, only when an item lacks a reference. `explain-call` confirms the thesis
 `/theses` row and reads the Cockpit's references in batches, with `outline` and `pointer` for the whole
 computed call. `compare-rotation` only states where the response listing comes from under the lean
 inspect defaults.
+
+Version 1.2.0 (2026-11-06) follows the reply ceiling. Every recipe now starts with shared rules
+(`recipes/common.md`): a page can hold fewer items than asked for, so always follow the returned
+offset; the read's observation is a summary and `view_pointer` reads the rest; how listings, `match`
+and `index` work; and a retry rule: on `capture_timeout`, `backend_unavailable` or `ui_unavailable`,
+wait about a minute and retry once, never run two captures at the same time, and if it fails again
+report what you have, labeled partial. `board-review` no longer asks for `target_limit: 50`.
+`explain-call` finds the card with `match` (confirming it from its `thesis_summary` row as before;
+a UUID is first resolved to its `/theses` row's name) and maps the Cockpit with `index`, opening
+targets one at a time with `target_id`. `compare-rotation` reads displayed table rows through
+`view_pointer`.
 
 Omitting `asof` uses the API's current market night when the agent captures the dashboard, not the
 operator's wall-clock date. The call workflow resolves the thesis from the captured Board and asks
@@ -307,7 +325,9 @@ records an operator decision, edits a thesis, fetches external source documents,
 ## Maintain a workflow recipe
 
 Each recipe has matching `<id>.json` metadata and `<id>.md` instructions in the packaged recipes
-directory. Its instructions include evidence and recovery rules. Metadata declares the ID, version, title,
+directory; `common.md`, when present, is prepended to every recipe's instructions. Its instructions
+include evidence and recovery rules. A recipe's encoded instructions stay within 12 KiB and its
+descriptor within 2 KiB (checked at load), so `get_workflow` fits the smallest reply ceiling. Metadata declares the ID, version, title,
 description, stage, input schema, defaults, and required dashboard surfaces. Review and version
 changes to the instructions alongside their synthetic scenarios. Keep names, examples, and fixtures
 synthetic; private reports and captures belong only in ignored local storage.
@@ -330,53 +350,109 @@ these recipes, but scheduling, persisted runs, retries, and report validation ne
 Snapshots live only in the MCP process: ten-minute expiry, eight retained captures, and a 64 MiB
 serialized-content/image storage budget. Python/browser working memory can exceed that serialization
 budget. Restarting the process or evicting a capture invalidates its ID; IDs confer no authorization.
-Tool results cap structured output at 128 KiB and expose truncation/pagination. Exact source JSON is
-available in bounded text chunks; concatenate them before parsing a large response. Overview images
+Every tool reply stays under one reply ceiling (below) and exposes truncation/pagination. Exact source
+JSON is available in bounded text chunks; concatenate them before parsing a large response. Overview images
 cover a 1440 by 1080 viewport, and target images report visible intersections with scrolling/clipping
 ancestors. A screenshot does not imply the whole dashboard fits in that image.
 
-### Lean replies (tool-result `schema_version` "2")
+### One reply ceiling (tool-result `schema_version` "3")
 
-Every tool result carries `schema_version: "2"` (2026-11-05). Version 2 changed only the inspect reply:
+Claude Code moves an MCP text reply over about 50,000 characters into a file instead of showing it to
+the model. In a native Claude test on 2026-11-06, every reply of 55–79K characters was moved, and with
+it the reply's `snapshot_id`, so the agent could not continue. So **every reply of every tool stays at
+or under one reply ceiling**, 40,000 characters by default (`--reply-ceiling`, 16,000 to 120,000),
+measured exactly as the server sends it: the compact
+`json.dumps(payload, ensure_ascii=True, separators=(",", ":"))` text of the TextContent (the size
+`--trace` logs). Every handler sizes its pages against the room the ceiling leaves, so **a page can hold
+fewer items than `limit` / `target_limit` asked for**; its `next_offset` / `next_target_offset` /
+`next_source_offset` / `next_outline_offset` always says where to continue. An explicit `data_limit`
+larger than the room is clamped, never an error. Anything that would still exceed the ceiling fails
+with `output_too_large`, whose message names the paging knobs (`limit`, `source_limit`, `data_limit`,
+`outline_offset`, fewer `source_ref_ids`, `view_pointer`). A capture is expensive, so `read_dashboard`
+never fails on size once it has captured: its reply fits by construction.
 
+Version 3 (2026-11-06) changes these shapes; version 2 (2026-11-05) introduced the compact inspect
+header, which stays.
+
+- **The read's observation is a summary.** `read_dashboard.observation` holds the `title`; ALL `notes`
+  in order (as many as a notes budget holds, with `note_count` and `next_note_index` when cut, so the
+  Board's `Decision Queue: <n> items` and section-count notes are always there); a `text` excerpt
+  (about 3,000 characters) with `text_total_characters` (the rendered innerText) and
+  `text_frozen_characters` (what the snapshot keeps, at most 12,000); `text_semantics`; `tables` as
+  `[{headers, row_count}]` with `table_count`; the counts of annotations, charts, reference links,
+  controls and targets; `capture_truncated` (the parts the browser capture itself cut); and a
+  `read_more` line. The FULL observation stays frozen in the snapshot (`frontend/src/mcp/observe.ts` is
+  unchanged). The read's response listing is a small first page (about 2,000 characters; continue with
+  `inspect_dashboard_item` `source_offset`), and the targets take the remaining room. If even the first
+  target's bindings do not fit, the read returns no targets, `next_target_offset` equal to
+  `target_offset`, and a `targets_truncation.note` saying so.
+- **`view_pointer` reads the frozen view.** `inspect_dashboard_item` with `view_pointer` (RFC 6901, `""`
+  = the whole) points into the snapshot's frozen observation, or with `target_id` into that target's
+  frozen record (its full DOM details). It pages exactly like source data: `view_data` holds JSON text
+  with `data_offset` / `data_limit` / `next_offset`, or, with `outline: true`, each child's key, type
+  and size (`outline_offset`). It is exclusive with `source_response_index`, `source_ref_id`,
+  `source_ref_ids` and `pointer`. An unresolvable pointer is `unknown_pointer`, with the same "outline
+  it" hint. Examples: `/notes/12`, `/annotations` (outline first), `/tables/0/rows`, `/charts/3`.
+- **Lean listings.** A listing page (`inspect_dashboard_item` with `offset` / `limit`, 20 by default,
+  and the read's target page) shows per target only its bindings (`id`, `links`, `source_refs` with
+  `id`, `label` and `category`; the constant `kind` is left out and the stored target keeps it), its
+  `label` (at most 200 characters; `label_total_characters` appears when cut), a `text` excerpt of 200
+  characters with `text_total_characters`, and `visible` / `clipped` / `in_viewport`. No tables,
+  reference links or bounds. Listings report `target_shape: "listing"`.
+- **One target's full record.** `target_id` alone returns that target's record (`target_shape:
+  "record"`): bindings whole, DOM details fitted to the ceiling, every omitted part listed in
+  `truncation.paths` as a `view_pointer` path into that target (`/tables/0/rows/13:` means rows from 13
+  on). A target-only call lists no captured responses unless `source_limit` asks.
+- **Finding a target without paging everything.** `index: true` lists each target as `{id, label}` only
+  (`target_shape: "index"`), as many as fit; `match: "<text>"` keeps only targets whose ID or label
+  contains the text (case-insensitive), applied before paging, so `total` counts the matches (the reply
+  echoes `match`). Both work with `offset` / `limit`, list no captured responses unless asked, and are
+  exclusive with `target_id` and every data read. MEASURED on the synthetic Board (108 targets): the
+  whole index is ONE reply of about 11K characters, at 40,000 and at 20,000.
+- **Bindings never split.** A target's identifiers and references are never split across pages. A
+  listing whose first target's bindings alone exceed the room shows a stub for it (`bindings_omitted`,
+  `binding_characters`) so paging always progresses; read those bindings with `target_id` and
+  `view_pointer: "/source_refs"`.
+- **No listings on a data read.** A call that reads captured JSON or the frozen view
+  (`source_response_index`, `source_ref_id`, `source_ref_ids` or `view_pointer`) returns no target
+  page and no response listing unless it passes `limit` / `source_limit`; then the listings take at
+  most half the room and the data the rest. `total` and `source_total` still count them, and `0` is
+  accepted everywhere. A plain listing keeps its defaults (20 targets, 20 listed responses).
 - **Compact header.** `inspect_dashboard_item` returns `snapshot_id`, `dashboard`, `asof`, `captured_at`,
   `expires_at`, `settings` and `context_hash` (the hash the temporal guard compares) instead of the full
   context. `read_dashboard` and `render_dashboard` keep the full `context` and `consistency`; take them
   from the read.
-- **No listings on a data read.** A call that reads captured JSON (`source_response_index`,
-  `source_ref_id` or `source_ref_ids`) returns no target page and no response listing unless it passes
-  `limit` / `source_limit`. `total` and `source_total` still count them, and `0` is accepted everywhere.
-  A call that reads no data keeps the old defaults (20 targets, 20 listed responses).
-- **Lean target listings.** A listed target's `source_refs` entries carry `id`, `label` and `category`;
-  the constant `kind` (`captured_json`) is left out of listings. The stored target keeps it, and
-  resolving a reference reads the stored target, so validation is unchanged.
-- **Read page budget.** `read_dashboard`'s target page takes the room the rest of its reply leaves under
-  100,000 bytes, between 16,000 and 48,000 bytes of targets; an inspect page of targets has 56,000. A
-  target's identifiers and references are never split across pages; only its DOM details truncate.
+- **Actionable rejections.** A call the input schema rejects for combining arguments answers with the
+  rule's own sentence naming the arguments involved (for example "view_pointer reads the frozen view
+  ...; it cannot be combined with source_response_index, ..."); any other rejection names the offending
+  argument.
 
 ### Reading evidence: pointer, outline, batch
 
-`inspect_dashboard_item` reads captured JSON five ways, all from the frozen capture only.
+`inspect_dashboard_item` reads captured JSON five ways, and the frozen view a sixth, all from the frozen
+capture only.
 
 | Read | Arguments | Returns |
 |---|---|---|
-| A whole response | `source_response_index` | `source_data`: the response's JSON text, paged by `data_offset` / `data_limit` (at most 24,000 characters a page). |
+| A whole response | `source_response_index` | `source_data`: the response's JSON text, paged by `data_offset` / `data_limit` (`data_limit` defaults to, and is clamped at, what fits the reply). |
 | One field | `source_response_index` + `pointer` (RFC 6901, e.g. `/verdict`; `""` = the whole response) | `source_data`: only that value, paged the same way. An unresolvable pointer is `unknown_pointer`. |
 | A value's shape | `outline: true` with `source_response_index` (optionally `pointer`) or `source_ref_id` | `source_data` with `encoding: "json_outline"`: each child's key or index, type and size in characters, no values, 200 per page (`outline_offset` / `next_outline_offset`). |
 | One reference | `target_id` + `source_ref_id` | `source_data` with the reference's `reference_id`, `category`, `label` and `pointer`. |
 | Several references | `target_id` + `source_ref_ids` (1–32 unique IDs that target advertises) | `source_data_items`, in request order. |
+| The frozen view | `view_pointer` (RFC 6901, `""` = the whole observation); with `target_id`, into that target's record; optionally `outline: true` | `view_data` with `scope` (`observation` or `target`), paged like `source_data`. |
 
 A batch item is `{reference_id, category, label, pointer, response_index, path, text, total_characters,
 truncated, next_offset}`; `text` is the value's JSON text, at most 4,000 characters, and every item
-together stays within what the rest of the reply leaves under 112,000 bytes. Each item's frame is
+together stays within what the rest of the reply leaves under the reply ceiling. Each item's frame is
 reserved first, so a batch never drops an item: one cut by either bound says so (`truncated: true`,
 `next_offset`), and continues with a single `source_ref_id` + `data_offset: next_offset` read, which
 serializes the value identically. One ID the target does not advertise fails the whole call with
 `unknown_reference`. `source_ref_ids` needs `target_id` and excludes `source_ref_id`,
 `source_response_index`, `pointer`, `outline`, `outline_offset`, `data_offset` and `data_limit`.
 
-The pattern for an agent: list a target's references (they ride on every target listing), batch-read the
-ones it needs, outline a large value before reading it, then read single fields by pointer.
+The pattern for an agent: find targets with `match` or `index`, list a target's references (they ride
+on every listing entry and record), batch-read the ones it needs, outline a large value before reading
+it, then read single fields by pointer.
 
 The Cockpit hides the call rail when the member panel fully covers it, keeping observation visibility
 consistent with the painted UI. Target rendering rejects hidden targets and detected overlay coverage
@@ -397,7 +473,8 @@ chart sessions fail rather than silently displaying a different requested view.
    direct `dashboard`/`settings`/`asof` request; the destination and selected date come from the capture.
 2. Keep the new Cockpit `snapshot_id`. Its origin identifies the parent capture; the two captures do
    not share a database snapshot. If the temporal context changed, read the parent again before following.
-3. Inspect the Cockpit's call, member, trigger, and source targets. For exact evidence, pass an advertised
+3. Map the Cockpit's targets with `index: true` (or narrow them with `match`), open the ones you need
+   with `target_id`, and inspect its call, member, trigger, and source targets. For exact evidence, pass an advertised
    `source_ref_id` with its `target_id` to `inspect_dashboard_item`, or several of that target's IDs as
    `source_ref_ids`. The Cockpit's `call_result` reference is the whole computed call: outline it first
    (`outline: true`), then read fields by `pointer` on its `response_index`. Source JSON uses the bounded
@@ -437,8 +514,9 @@ In capture mode only, the Board also emits its section counts as observation `no
 `.dash-note` elements, so the visible text is unchanged and the interactive Board emits none), because
 a real Board's observation text is cut by long card narratives before the column heads. One note per
 section, using the counts the UI already displays: `Decision Queue: <n> items`, `Incubating: <n>`,
-`Warming: <n>`, `Armed: <n>`, `Managing: <n>`. `board-review` 1.1.1 reads the queue length from the
-first; only if the note is absent is the length reported as unverified.
+`Warming: <n>`, `Armed: <n>`, `Managing: <n>`. `board-review` (since 1.1.1) reads the queue length from
+the first, in the read's observation summary, which always carries the notes; only if the note is absent
+is the length reported as unverified.
 
 ## Add a dashboard
 
@@ -471,36 +549,46 @@ domain joins inside the application adapter. Remote URLs never become capture de
 
 ## Known limits
 
-Measured on synthetic captures at real scale (`tests/agent_access/board_scale.py`: 66 active cards, 42
-armed, calls of about 49K characters, `/theses` about 90K, `/data-flags` about 163K with each flag entry
-held by about 1.3 cards). Numbers are MEASURED with the tools' own reply encoding unless marked.
+Measured on synthetic captures at real scale, built from dev measurements of 2026-11-06:
+`tests/agent_access/board_scale.py` (66 active cards, 42 armed, 108 targets, calls of about 49K
+characters, `/theses` about 90K, `/data-flags` about 163K with each flag entry held by about 1.3 cards;
+a frozen observation of about 58K, 44K of it annotations, and innerText of about 83K) and
+`tests/agent_access/cockpit_scale.py` (504 targets, a frozen observation of about 391K: annotations
+232K, chart paths 75K, controls 32K, reference links 25K, one 77-row table; bindings median 169
+characters; DOM details median about 970, max about 35K; an id + label + link-ID index of about 104K).
+Numbers are MEASURED with the tools' own reply encoding unless marked.
 
-- **A 5-item `board-review` costs about 215K characters in 9 calls** on the synthetic capture, and the
-  original target (under 100K in about 15 calls) is NOT met. `tests/agent_access/test_board_review_scale.py`
-  runs it through the real server: get_workflow 6.8K, describe_dashboard 1.1K, `read_dashboard` 79.5K
-  (an observation preview of about 28K, calibrated to prod, and 23 targets), one inspect page of the rest
-  of the queue 39K, and five batch reads 15-20K each. Listing the 42 queue targets with their 13-21
-  references each costs about 119K. The test asserts a regression guard of 248,000 characters (the
-  measured total plus about 15%) and at most 20 calls; it is a guard against growth, not a claim that
-  the target is met.
-- **Real-data sizes (MEASURED on the dev stack, 2026-11-05; 65 active cards, 39-item queue; the order-label run alone over-counted it by one, which is why the recipe reads the count from the note):**
-
-  | Reply | Size |
-  |---|---|
-  | `read_dashboard` | 74,577 characters, 48 s |
-  | One listing page (20 targets with references) | about 55K characters |
-  | Each batch read | 12-28K characters |
-  | A minimal 5-item `board-review` | about 237K characters in about 8 calls, about 50 s, in one snapshot |
-  | Before this change | about 1.05M characters in 30+ calls, unable to finish in one snapshot |
-
+- **Every reply stays under the ceiling, at 40,000 and at 20,000** (asserted reply by reply in
+  `test_board_review_scale.py` and `test_explain_call_scale.py`, through the real server over stdio).
+- **A 5-item `board-review`**, synthetic, at the default ceiling: 10 calls, 184,095 characters
+  (get_workflow 8.3K, describe_dashboard 1.1K, `read_dashboard` 39.4K with 18 targets, two listing pages
+  39.1K + 8.3K, five batch reads 15-20K). At 20,000: 13 calls, 189,896 characters (more, smaller pages,
+  and one flag value the ceiling cut, read on with `data_offset`). Before the ceiling it was 214,948 in 9
+  calls, with a 79.5K read. The test's regression guard is 212,000 characters (the measured total plus
+  about 15%) and at most 20 calls; the original target (under 100K in about 15 calls) is still NOT met.
+- **The explain-call path at Cockpit scale**, synthetic (Board read, `match`, one confirming batch read,
+  a fresh Cockpit follow, the whole Cockpit `index`, the call target's record, outline + one pointer
+  read, the 35K target's record cut to fit, three `view_pointer` reads): 18 calls, 237,304 characters at
+  40,000 (the Cockpit read 21.5K, its index three pages of 39.5K, 39.7K and 20.3K, the 35K target's
+  record 30.5K); 21 calls, 207,003 characters at 20,000 (an index of six pages).
+- **Index and match.** The Board index (108 targets) is one reply of about 11K characters at either
+  ceiling; a `match` on one card's name returns its queue item and its card in about 4K.
+- **Real-data sizes before the ceiling (MEASURED on the dev stack by the orchestrator, 2026-11-06):** a
+  Board read at `target_limit` 20 was 69,047 characters (its frozen observation 57,850: annotations
+  44,345, text 12,589, five notes of 84 characters, 104 targets); a Cockpit follow at `target_limit` 1
+  was 59,852 and 64,526 characters (frozen observations of 170K and 398K). The same reads on dev after
+  this change are NOT yet measured here (no captures were run from the build worktree); the orchestrator
+  re-measures them.
 - **Board references and the relationship cap.** A capture holds at most 2,048 references. At 100 cards
   (the capture's card limit), 12 per card leaves room for about 848 distinct flag entries; beyond that
   the Board capture returns 413, and nothing is truncated.
-- **One card with very many flag entries.** A target's references are never split across pages, so a
-  target whose references alone exceed a page's budget makes that page start return `output_too_large`.
-  With lean listings that is about 176 flag entries on one card at the read page's 16,000-byte floor
-  (reached only when the rest of the read reply is large), about 562 at its usual 48,000, and about 658
-  on an inspect page.
+- **One card with very many flag entries.** A target's references are never split across pages. When one
+  target's bindings alone exceed a page's room, the read returns no targets with `next_target_offset`
+  equal to `target_offset` (it never fails after capturing), and a listing shows a stub
+  (`bindings_omitted`) so paging progresses; read the bindings with `target_id` and
+  `view_pointer: "/source_refs"`. MEASURED on the synthetic Board: one card fits a read page with up to
+  406 flag entries and an inspect page with up to 467 at 40,000 (148 and 207 at 20,000; 110 and 155 at
+  16,000).
 
 ## Verification commands
 

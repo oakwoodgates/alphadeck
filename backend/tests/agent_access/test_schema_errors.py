@@ -52,6 +52,14 @@ def test_rejected_arguments_name_the_problem_and_unknown_tools_stay_generic():
                 ("inspect_dashboard_item", {"snapshot_id": "s", "source_ref_ids": ["r"]}),
                 ("describe_dashboard", {"dashboard": "board", "surprise": 1}),
                 ("no_such_tool", {"x": 1}),
+                (
+                    "inspect_dashboard_item",
+                    {"snapshot_id": "s", "view_pointer": "/notes", "source_response_index": 0},
+                ),
+                ("inspect_dashboard_item", {"snapshot_id": "s", "index": True, "target_id": "t"}),
+                ("inspect_dashboard_item", {"snapshot_id": "s", "match": "x", "view_pointer": ""}),
+                ("inspect_dashboard_item", {"snapshot_id": "s", "outline": True}),
+                ("inspect_dashboard_item", {"snapshot_id": "s", "match": "   "}),
             ]
         )
     )
@@ -63,3 +71,17 @@ def test_rejected_arguments_name_the_problem_and_unknown_tools_stay_generic():
     assert "surprise" in errors[2]["message"]
     assert errors[3]["message"] == GENERIC
     assert all(error["message"] != GENERIC for error in errors[:3])
+    # A cross-argument rule answers with its own sentence, naming the arguments involved.
+    assert errors[4]["message"].startswith("view_pointer reads the frozen view")
+    assert "source_response_index" in errors[4]["message"]
+    assert (
+        errors[5]["message"].startswith("index and match") and "target_id" in errors[5]["message"]
+    )
+    assert (
+        errors[6]["message"].startswith("index and match")
+        and "view_pointer" in errors[6]["message"]
+    )
+    assert (
+        errors[7]["message"].startswith("outline needs") and "view_pointer" in errors[7]["message"]
+    )
+    assert "match" in errors[8]["message"]

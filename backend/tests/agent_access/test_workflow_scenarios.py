@@ -28,7 +28,7 @@ from agent_access.references import context_hash  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 DIST = HERE.parents[2] / "frontend/dist"
-# board-review 1.1.0, step 4: the call fields one batch read takes per shortlisted item.
+# board-review 1.2.0, step 4: the call fields one batch read takes per shortlisted item.
 CALL_FIELDS = (
     "state",
     "verdict",
@@ -128,6 +128,26 @@ async def read_source(client, capture, *, data_limit=12000, **locator):
     return json.loads(serialized), source
 
 
+async def frozen(client, capture, view_pointer, **locator):
+    """A part of the snapshot's frozen view (the observation, or with target_id that target),
+    read whole through view_pointer and its returned offsets."""
+    parts, offset = [], 0
+    while offset is not None:
+        page = await call(
+            client,
+            "inspect_dashboard_item",
+            snapshot_id=capture["snapshot_id"],
+            view_pointer=view_pointer,
+            data_offset=offset,
+            **locator,
+        )
+        view = page["view_data"]
+        assert view["offset"] == offset and view["view_pointer"] == view_pointer
+        parts.append(view["text"])
+        offset = view["next_offset"]
+    return json.loads("".join(parts))
+
+
 async def response_body(client, capture, path, *, data_limit=12000):
     response = next(item for item in capture["source_responses"] if item["path"] == path)
     return await read_source(
@@ -223,10 +243,9 @@ def test_board_review_and_explain_call_use_rendered_queue_and_frozen_evidence(br
                 dashboard="board",
                 settings=board_settings,
                 asof=review["asof"],
-                target_limit=50,
             )
             assert board["settings"] == board_settings and board["asof"] == review["asof"]
-            # board-review 1.1.1, step 2: the queue's length is the "Decision Queue: <n> items" note.
+            # board-review 1.2.0, step 2: the queue's length is the "Decision Queue: <n> items" note.
             armed = int(
                 next(
                     re.fullmatch(r"Decision Queue: (\d+) items", note)[1]
@@ -298,12 +317,15 @@ def test_board_review_and_explain_call_use_rendered_queue_and_frozen_evidence(br
             (flag,) = member["flags"]
             assert flag["columns"] == ["ret_7d"] and flag["reason"] == "Synthetic price-series gap"
             assert flag["call_affected"] is False
-            assert any(
-                flag["label"] in (item.get("title") or "")
-                for item in board["observation"]["annotations"]
-            )
-            assert "Synthetic warming" in board["observation"]["text"]
-            assert "Synthetic archived" not in board["observation"]["text"]
+            # The read's observation is a summary; the frozen annotations and text read whole.
+            summary = board["observation"]
+            assert summary["annotation_count"] > 0 and "annotations" not in summary
+            annotations = await frozen(client, board, "/annotations")
+            assert len(annotations) == summary["annotation_count"]
+            assert any(flag["label"] in (item.get("title") or "") for item in annotations)
+            text = await frozen(client, board, "/text")
+            assert text.startswith(summary["text"])
+            assert "Synthetic warming" in text and "Synthetic archived" not in text
 
             explanation = await recipe(
                 client,
@@ -311,11 +333,18 @@ def test_board_review_and_explain_call_use_rendered_queue_and_frozen_evidence(br
                 {"thesis": "Example thesis", "asof": board["asof"]},
                 {"board", "cockpit"},
             )
-            board_targets = await targets(client, board)
-            card = next(
-                t for t in board_targets if t["label"] == explanation["thesis"] and t["links"]
+            # explain-call 1.2.0, step 2: find the card with match, then confirm the identity
+            # from the card's /theses row.
+            matched = await call(
+                client,
+                "inspect_dashboard_item",
+                snapshot_id=board["snapshot_id"],
+                match=explanation["thesis"],
             )
-            # explain-call 1.1.0, step 2: confirm the identity from the card's /theses row.
+            assert matched["next_offset"] is None
+            (card,) = [
+                t for t in matched["targets"] if t["label"] == explanation["thesis"] and t["links"]
+            ]
             summary = next(r for r in card["source_refs"] if r["category"] == "thesis_summary")
             confirmed = await call(
                 client,
@@ -339,7 +368,22 @@ def test_board_review_and_explain_call_use_rendered_queue_and_frozen_evidence(br
             )
             fixture = populated_cockpit()["responses"][2]["body"]
             expected = fixture["triggers_fired"][0]["sources"][0]
+            # Step 4: map the Cockpit with index (id and label only), not a full listing.
+            index, offset = [], 0
+            while offset is not None:
+                page = await call(
+                    client,
+                    "inspect_dashboard_item",
+                    snapshot_id=child["snapshot_id"],
+                    index=True,
+                    offset=offset,
+                )
+                index += page["targets"]
+                offset = page["next_offset"]
+            assert len(index) == child["target_total"]
+            assert all(set(entry) <= {"id", "label", "label_total_characters"} for entry in index)
             cockpit_targets = await targets(client, child)
+            assert [t["id"] for t in cockpit_targets] == [t["id"] for t in index]
             call_target, call_ref = next(
                 (target, reference)
                 for target in cockpit_targets
@@ -369,14 +413,25 @@ def test_board_review_and_explain_call_use_rendered_queue_and_frozen_evidence(br
                 stored[field] = json.loads(value["source_data"]["text"])
             assert stored["verdict"] == "starter_entry"
             assert stored["missing"] == ["Synthetic supporting filing unavailable"]
-            evidence_target, reference = next(
-                (target, reference)
-                for target in cockpit_targets
-                for reference in target["source_refs"]
-                if target["visible"]
-                and reference["category"] == "call_input"
-                and expected["ref"] in target["text"]
-            )
+            # The listing's text is a 200-character excerpt; a target's full record (target_id)
+            # carries its whole rendered text.
+            evidence_target, reference = None, None
+            for target in cockpit_targets:
+                inputs = [r for r in target["source_refs"] if r["category"] == "call_input"]
+                if not (target["visible"] and inputs):
+                    continue
+                record = await call(
+                    client,
+                    "inspect_dashboard_item",
+                    snapshot_id=child["snapshot_id"],
+                    target_id=target["id"],
+                )
+                assert record["target_shape"] == "record"
+                (full,) = record["targets"]
+                if expected["ref"] in full["text"]:
+                    evidence_target, reference = target, inputs[0]
+                    break
+            assert evidence_target is not None
             batch = await call(
                 client,
                 "inspect_dashboard_item",
@@ -485,8 +540,17 @@ def test_compare_rotation_uses_comparable_displayed_medians(browser_base):
             thin = week(before[thin_key])
             assert thin["median"] is None and (thin["up"], thin["n"]) == (1, 2)
 
+            # The read's observation lists each table's headers and row count; compare-rotation
+            # 1.2.0 reads the displayed rows from the frozen view.
+            tables = {}
+            for capture in (start, end):
+                (summary,) = capture["observation"]["tables"]
+                rows = await frozen(client, capture, "/tables/0/rows")
+                assert len(rows) == summary["row_count"]
+                tables[capture["snapshot_id"]] = {"headers": summary["headers"], "rows": rows}
+
             def cell(result, label):
-                (table,) = result["observation"]["tables"]
+                table = tables[result["snapshot_id"]]
                 index = next(
                     i for i, title in enumerate(table["headers"]) if "7d median" in title.lower()
                 )
@@ -507,8 +571,9 @@ def test_compare_rotation_uses_comparable_displayed_medians(browser_base):
                 start, "Synthetic thin"
             )
             assert "%" in cell(end, "Synthetic thin")
-            assert "roster stands in for 1 card" in start["observation"]["text"]
-            assert "roster stands in" not in end["observation"]["text"]
-            assert "SYNFLAG" in start["observation"]["text"]
+            start_text, end_text = [await frozen(client, c, "/text") for c in (start, end)]
+            assert "roster stands in for 1 card" in start_text
+            assert "roster stands in" not in end_text
+            assert "SYNFLAG" in start_text
 
     asyncio.run(run())
