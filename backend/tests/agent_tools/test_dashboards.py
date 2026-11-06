@@ -378,10 +378,13 @@ def _model_fields(module: str, model: str) -> set[str]:
 
 
 def _key_checks():
+    from agent_tools.views.dashboards import catalyst_calendar as cc
     from agent_tools.views.dashboards import daily_digest as dd
     from agent_tools.views.dashboards import entry_windows as ew
     from agent_tools.views.dashboards import forming_quietly as fq
     from agent_tools.views.dashboards import hot_board as hb
+    from agent_tools.views.dashboards import rotation_map as rm
+    from agent_tools.views.dashboards import trigger_log as tl
     from agent_tools.views.dashboards import what_changed as wc
 
     return [
@@ -411,6 +414,18 @@ def _key_checks():
         (fq.ADOPTION_KEYS, "forming_quietly", "FormingAdoptionOut"),
         (fq.QUIET_INTS, "forming_quietly", "FormingQuietOut"),
         (fq.TRIGGER_KEYS, "forming_quietly", "FormingTriggerOut"),
+        (cc.COUNT_KEYS, "catalyst_calendar", "CatalystCalendarOut"),
+        (cc.BUCKET_KEYS, "catalyst_calendar", "CatalystCalendarBucketOut"),
+        (cc.ITEM_KEYS, "catalyst_calendar", "CatalystCalendarItemOut"),
+        (cc.GROUP_KEYS, "catalyst_calendar", "CatalystCalendarUndatedGroupOut"),
+        (cc.CATALYST_KEYS, "catalyst_calendar", "CatalystCalendarUndatedOut"),
+        (rm.GROUP_KEYS, "rotation_map", "RotationGroupOut"),
+        (rm.LABEL_KEYS, "rotation_map", "RotationGroupOut"),
+        (rm.WINDOW_KEYS, "rotation_map", "RotationWindowOut"),
+        (rm.MEMBER_KEYS, "rotation_map", "RotationNameOut"),
+        (tl.BODY_KEYS, "trigger_log", "TriggerLogOut"),
+        (tl.ROW_KEYS, "trigger_log", "TriggerLogRowOut"),
+        (tl.FULL_KEYS, "trigger_log", "TriggerLogRowOut"),
     ]
 
 
@@ -592,6 +607,219 @@ def test_forming_quietly_sections_return_one_cards_part_in_full_and_page_to_the_
     assert quiet["insider"] == card["quiet"]["insider"]
     adoption = call("forming-quietly", section="adoption", **args)
     assert adoption["adoption"] == card["adoption"] and adoption["card_in_forming"] is True
+
+
+def view_walk(slug: str, list_key: str, req_args: dict | None = None, **kw) -> list:
+    """The same cursor walk straight through the view (no HTTP): for the 5.6 MB trigger log."""
+    rows, cursor = [], 0
+    payload = dfx.PAYLOADS[slug]()
+    while cursor is not None:
+        req = Request(asof=None if slug in UNDATED else dfx.ASOF, cursor=cursor, **kw)
+        reply = REGISTRY[slug].view()(payload, req)
+        assert size(reply) <= BUDGET
+        rows.extend(reply[list_key])
+        cursor = reply["next_cursor"]
+    return rows
+
+
+# --- catalyst-calendar -------------------------------------------------------------------------------------------
+
+
+def test_catalyst_calendar_is_undated_and_pages_the_flat_items_across_buckets():
+    src = dfx.catalyst_calendar()
+    reply = call("catalyst-calendar")
+    assert reply["asof"] is None and reply["settings"] == {}
+    assert reply["counts"] == {
+        k: src[k]
+        for k in (
+            "today",
+            "catalysts",
+            "dated",
+            "upcoming_catalysts",
+            "passed_catalysts",
+            "undated",
+            "deadlines",
+        )
+    }
+    assert reply["coverage"]["cards_without_catalysts"] == 1
+    assert [b["key"] for b in reply["buckets"]] == [b["key"] for b in src["buckets"]]
+    assert all(b["item_count"] == 40 for b in reply["buckets"])
+    assert reply["passed_count"] == 134 and reply["undated_groups_count"] == 63
+    assert reply["items_total"] == 200 and reply["next_cursor_for"] == "items"
+    flat = [(b["key"], i["thesis_name"], i["on"]) for b in src["buckets"] for i in b["items"]]
+    rows = walk("catalyst-calendar", ("items",))
+    assert_walk([(r["bucket"], r["thesis_name"], r["on"]) for r in rows], flat)
+    assert {r["bucket"] for r in rows} == {
+        b["key"] for b in src["buckets"]
+    }  # the cursor crosses buckets
+
+
+def test_catalyst_calendar_sections_bucket_passed_and_undated():
+    src = dfx.catalyst_calendar()
+    bucket = src["buckets"][2]
+    rows = walk("catalyst-calendar", ("items",), section="bucket", group=bucket["key"])
+    assert_walk(
+        [(r["thesis_name"], r["on"]) for r in rows],
+        [(i["thesis_name"], i["on"]) for i in bucket["items"]],
+    )
+    passed = walk("catalyst-calendar", ("items",), section="passed")
+    assert len(passed) == 134 and passed[0]["days"] == src["passed"][0]["days"]
+    groups = walk("catalyst-calendar", ("groups",), section="undated")
+    assert_walk(
+        [g["thesis_name"] for g in groups], [g["thesis_name"] for g in src["undated_groups"]]
+    )
+    one = call("catalyst-calendar", section="undated", thesis=dfx.tid(7))
+    assert [c["when_label"] for c in one["catalysts"]] == ["mid 2027"] * 3 and one[
+        "catalysts_total"
+    ] == 3
+    assert call("catalyst-calendar", group="this_week")["items_total"] == 40
+
+
+def test_catalyst_calendar_bucket_section_needs_a_known_group():
+    for args, expect in (
+        ({"section": "bucket"}, "needs group"),
+        ({"group": "soon"}, "Unknown bucket"),
+    ):
+
+        async def body(session, args=args):
+            return await session.call_tool(
+                "read_dashboard", {"dashboard": "catalyst-calendar", **args}
+            )
+
+        err = error_of(run(FakeApi(), body))
+        assert err["code"] == "invalid_arguments" and expect in err["message"]
+
+
+# --- rotation-map ------------------------------------------------------------------------------------------------
+
+
+def test_rotation_map_default_groups_copy_the_api_order_with_window_returns():
+    src = dfx.rotation_map()
+    reply = call("rotation-map")
+    assert reply["settings"] == {"group_by": "link", "include_silent": False}
+    assert reply["spy"] == src["spy"] and reply["coverage"]["silent_rows_left_out"] == 300
+    assert (
+        reply["coverage"]["priced_companies"] == 436 and reply["coverage"]["flagged"]["count"] == 4
+    )
+    assert reply["groups_total"] == 66 and reply["next_cursor_for"] == "groups"
+    first, want = reply["groups"][0], src["groups"][0]
+    assert first["key"] == want["key"] and first["label"] == want["link"]
+    assert set(first["returns"]) == set(dfx.WINDOWS)
+    assert first["returns"]["ret_30d"] == {"median": 2.5, "n": 7, "up": 5, "above_spy": 4}
+    assert (first["names"], first["above_50d"], first["golden"], first["rs_leaders"]) == (
+        7,
+        5,
+        1,
+        3,
+    )
+    assert "members" not in first
+    rows = walk("rotation-map", ("groups",))
+    assert_walk([g["key"] for g in rows], [g["key"] for g in src["groups"]])
+
+
+def test_rotation_map_passes_its_settings_and_reads_members_by_group_key():
+    api = FakeApi()
+
+    async def body(session):
+        args = {
+            "dashboard": "rotation-map",
+            "asof": dfx.ASOF,
+            "group_by": "sector",
+            "include_silent": True,
+        }
+        return await session.call_tool("read_dashboard", args)
+
+    reply = run(api, body).structured_content
+    assert reply["settings"] == {"group_by": "sector", "include_silent": True}
+    sent = [q for _, p, q in api.requests if p == "/dashboards/rotation-map"]
+    assert sent == [{"asof": dfx.ASOF, "group_by": "sector", "include_silent": "true"}]
+    src = dfx.rotation_map()["groups"][4]
+    members = call("rotation-map", section="members", group=src["key"])
+    assert members["members_total"] == 7 and members["narrowed"] == {"group": src["key"]}
+    first = members["members"][0]
+    assert first["cards"] == 2 and first["returns"] == src["members"][0]["returns"]
+    assert (first["cross"], first["cross_date"]) == ("golden", src["members"][0]["cross_date"])
+    flagged = call("rotation-map", section="flagged")
+    assert flagged["flagged_total"] == 4 and set(flagged["flagged"][0]) == {"ticker", "reason"}
+    only = call("rotation-map", group=src["key"])
+    assert only["groups_total"] == 1
+
+
+def test_rotation_map_members_need_a_known_group():
+    for args, expect in (
+        ({"section": "members"}, "needs group"),
+        ({"group": "nope"}, "Unknown group"),
+    ):
+
+        async def body(session, args=args):
+            return await session.call_tool(
+                "read_dashboard", {"dashboard": "rotation-map", "asof": dfx.ASOF, **args}
+            )
+
+        err = error_of(run(FakeApi(), body))
+        assert err["code"] == "invalid_arguments" and expect in err["message"]
+
+
+# --- trigger-log -------------------------------------------------------------------------------------------------
+
+
+def test_trigger_log_default_reply_is_leading_rows_with_counts_and_a_5mb_source():
+    src = dfx.trigger_log()
+    assert len(src["rows"]) == 5_002
+    reply = call("trigger-log")
+    assert reply["settings"] == {"days": 90, "role": "entry"}
+    assert (
+        reply["window_days"] == 90
+        and reply["role"] == "entry"
+        and reply["sessions"] == src["sessions"]
+    )
+    assert reply["rows_total"] == 5_002 and reply["next_cursor_for"] == "rows"
+    assert sum(reply["by_kind"].values()) == 5_002 == sum(reply["by_week"].values())
+    cov = reply["coverage"]
+    assert cov["counts"]["other_role_rows"] == 16_000 and cov["unpriced"] == {"count": 3}
+    assert cov["flagged"]["count"] == 2
+    first, want = reply["rows"][0], src["rows"][0]
+    assert first["ticker"] == want["ticker"] and first["label"] == want["label"][:100]
+    from agent_tools.views.dashboards import trigger_log as tl
+
+    assert set(first) == {*tl.ROW_KEYS, "label"}  # a 95-character label is not cut
+    assert "label_changes" not in first and "sources" not in first
+
+
+def test_trigger_log_passes_days_and_role_and_walks_all_5002_rows_in_the_api_order():
+    api = FakeApi()
+
+    async def body(session):
+        args = {"dashboard": "trigger-log", "asof": dfx.ASOF, "days": 30, "role": "both"}
+        return await session.call_tool("read_dashboard", args)
+
+    reply = run(api, body).structured_content
+    assert reply["settings"] == {"days": 30, "role": "both"}
+    sent = [q for _, p, q in api.requests if p == "/dashboards/trigger-log"]
+    assert sent == [{"asof": dfx.ASOF, "days": "30", "role": "both"}]
+    src = dfx.trigger_log()["rows"]
+    rows = view_walk("trigger-log", "rows")
+    assert_walk(
+        [(r["ticker"], r["thesis_name"], r["event_date"], r["kind"]) for r in rows],
+        [(r["ticker"], r["thesis_name"], r["event_date"], r["kind"]) for r in src],
+    )
+
+
+def test_trigger_log_thesis_narrows_the_rows_and_the_row_section_carries_every_field():
+    src = [r for r in dfx.trigger_log()["rows"] if r["thesis_id"] == dfx.tid(3)]
+    narrowed_reply = call("trigger-log", thesis=dfx.tid(3))
+    assert narrowed_reply["rows_total"] == len(src) and narrowed_reply["narrowed"]["thesis"][
+        "id"
+    ] == dfx.tid(3)
+    rows = view_walk(
+        "trigger-log", "rows", thesis={"id": dfx.tid(3), "name": dfx.thesis_name(3)}, section="row"
+    )
+    assert len(rows) == len(src)
+    assert [r["label_changes"] for r in rows] == [r["label_changes"] for r in src]
+    assert rows[0]["sources"] == src[0]["sources"] and rows[0]["since"] == src[0]["since"]
+    assert rows[0]["label"] == src[0]["label"]
+    paged = walk("trigger-log", ("rows",), section="row", thesis=dfx.tid(3))
+    assert len(paged) == len(src)
 
 
 def test_forming_quietly_names_a_card_that_is_not_forming():

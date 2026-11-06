@@ -726,10 +726,267 @@ def forming_quietly() -> dict[str, Any]:
     }
 
 
+# --- catalyst-calendar --------------------------------------------------------------------------------------------
+
+BUCKETS = (
+    ("this_week", "This week", 0, 6),
+    ("next_week", "Next week", 7, 13),
+    ("next_30_days", "Next 30 days", 14, 30),
+    ("days_31_90", "31 to 90 days", 31, 90),
+    ("later", "Later", 91, None),
+)
+
+
+def _cc_item(n: int, days: int) -> dict[str, Any]:
+    c = n % CARDS
+    return {
+        "item": ("catalyst", "entry_window", "exit_by")[n % 3],
+        "on": fx._day(days),
+        "days": days,
+        "label": text(70, n),
+        "kind": "earnings",
+        "when_label": None,
+        "catalyst_id": uid("cat", n),
+        "thesis_id": tid(c),
+        "thesis_name": thesis_name(c),
+        "state": "armed",
+    }
+
+
+@cache
+def catalyst_calendar() -> dict[str, Any]:
+    """MEASURED 242K: 5 buckets of about 40 items, 63 undated groups, 134 passed."""
+    n = 0
+    buckets = []
+    for key, label, lo, hi in BUCKETS:
+        items = []
+        for k in range(40):
+            items.append(_cc_item(n, lo + k % max(1, (hi or lo + 60) - lo)))
+            n += 1
+        buckets.append(
+            {
+                "key": key,
+                "label": label,
+                "start": fx._day(lo),
+                "end": fx._day(hi) if hi is not None else None,
+                "items": items,
+            }
+        )
+    groups = [
+        {
+            "thesis_id": tid(g),
+            "thesis_name": thesis_name(g),
+            "state": "warming",
+            "count": 3,
+            "catalysts": [
+                {
+                    "catalyst_id": uid("catu", g, k),
+                    "label": text(60, g + k),
+                    "kind": "regulatory",
+                    "when_label": "mid 2027",
+                }
+                for k in range(3)
+            ],
+        }
+        for g in range(63)
+    ]
+    return {
+        "today": ASOF,
+        "live_cards": CARDS,
+        "cards_without_calls": 2,
+        "cards_without_catalysts": 1,
+        "catalysts": 400,
+        "dated": 337,
+        "upcoming_catalysts": 203,
+        "passed_catalysts": 134,
+        "undated": 63,
+        "deadlines": 80,
+        "buckets": buckets,
+        "passed": [_cc_item(1_000 + k, -(1 + k % 90)) for k in range(134)],
+        "undated_groups": groups,
+    }
+
+
+# --- rotation-map -------------------------------------------------------------------------------------------------
+
+WINDOWS = ("ret_1d", "ret_7d", "ret_30d", "ret_90d", "ret_1y")
+
+
+def _rm_member(g: int, m: int) -> dict[str, Any]:
+    return {
+        "security_id": uid("sec", "rm", g, m),
+        "ticker": ticker((g * 7 + m) % 90),
+        "cards": [
+            {
+                "thesis_id": tid(c),
+                "thesis_name": thesis_name(c),
+                "ticker": ticker(m),
+                "links": [f"Link {c}"],
+            }
+            for c in range(2)
+        ],
+        "returns": {w: round(1.5 * (k + 1), 2) for k, w in enumerate(WINDOWS)},
+        "above_50d": True,
+        "rvol20": 1.2,
+        "cross": "golden" if m == 0 else None,
+        "cross_date": fx._day(-5) if m == 0 else None,
+        "rs_leading": m % 2 == 0,
+        "flag": None,
+    }
+
+
+def _rm_group(g: int) -> dict[str, Any]:
+    return {
+        "key": f"link:{g}",
+        "link": f"Link {g + 1} synthetic segment",
+        "thesis_id": tid(g),
+        "thesis_name": thesis_name(g),
+        "business_type": None,
+        "supersector": None,
+        "names": 7,
+        "flagged": 0,
+        "windows": [
+            {"key": w, "median": 2.5, "n": 7, "up": 5, "above_spy": 4, "tone": "pos"}
+            for w in WINDOWS
+        ],
+        "above_50d": 5,
+        "above_50d_n": 7,
+        "rvol20_median": 1.1,
+        "rvol20_n": 7,
+        "golden": 1,
+        "death": 0,
+        "rs_leaders": 3,
+        "rs_n": 7,
+        "members": [_rm_member(g, m) for m in range(7)],
+    }
+
+
+@cache
+def rotation_map() -> dict[str, Any]:
+    """MEASURED 692K: 66 groups of about 3.6K with 7 members each over 5 windows."""
+    return {
+        "asof": ASOF,
+        "group_by": "link",
+        "include_silent": False,
+        "live_cards": CARDS,
+        "cards_counted": CARDS,
+        "cards_not_yet_created": 0,
+        "roster_fallback_cards": 1,
+        "basket_rows": 462,
+        "silent_rows_left_out": 300,
+        "unresolved_rows": 0,
+        "companies": 440,
+        "priced_companies": 436,
+        "spy": {"ret_1d": 0.3, "ret_7d": 1.1, "ret_30d": 2.4, "ret_90d": 5.0, "ret_1y": 14.0},
+        "groups": [_rm_group(g) for g in range(66)],
+        "flagged": _flagged(4),
+        "min_priced": 3,
+        "cross_days": 30,
+        "cache": "computed",
+        "compute_ms": 6_200,
+    }
+
+
+# --- trigger-log --------------------------------------------------------------------------------------------------
+
+KINDS = ("insider", "technical_breakout", "laggard", "breakdown", "dilution_risk")
+
+
+def _tl_row(n: int) -> dict[str, Any]:
+    c = n % CARDS
+    return {
+        "key": f"tl-{n}",
+        "thesis_id": tid(c),
+        "thesis_name": thesis_name(c),
+        "security_id": uid("sec", "tl", n),
+        "ticker": ticker(n % 90),
+        "role": "entry_trigger" if n % 3 else "risk_signal",
+        "kind": KINDS[n % len(KINDS)],
+        "grade": "core" if n % 2 else None,
+        "turns": "conviction" if n % 5 == 0 else None,
+        "label": text(95, n),
+        "label_changes": n % 3,
+        "event_date": fx._day(-(n % 90)),
+        "recorded_on": fx._day(-(n % 90)),
+        "week": fx._day(-(n % 90) - (n % 90) % 7)[:10],
+        "recorded_days_after": 0,
+        "reconstructed": False,
+        "from_state": "warming",
+        "to_state": "armed",
+        "new_card": False,
+        "live": True,
+        "newest": n % 4 == 0,
+        "sessions_since": n % 40,
+        "since": {
+            "status": "priced",
+            "reason": None,
+            "entry_date": fx._day(-(n % 90)),
+            "end_date": ASOF,
+            "ret": 3.1,
+            "bench_ret": 1.0,
+        },
+        "sources": [
+            {
+                "source": "form4",
+                "ref": f"0000000000-26-{n:06d}",
+                "url": f"https://www.sec.gov/tl/{n}",
+                "bar_date": None,
+                "detail": [text(120, n), text(100, n + 1)],
+            }
+        ],
+    }
+
+
+@cache
+def trigger_log() -> dict[str, Any]:
+    """MEASURED 5.58 MB: 5,002 rows of about 1.1K. Built lazily, once per process."""
+    return {
+        "asof": ASOF,
+        "window_days": 90,
+        "window_start": fx._day(-90),
+        "role": "entry",
+        "clock": "record",
+        "rows": [_tl_row(n) for n in range(5_002)],
+        "counts": {
+            "cards_counted": CARDS,
+            "cards_with_nights": 64,
+            "cards_quiet": 2,
+            "cards_no_call": 2,
+            "live_cards": CARDS,
+            "not_yet_created": 0,
+            "roster_fallback": 1,
+            "nights_read": 5_800,
+            "nights_reconstructed": 40,
+            "nights_unreadable": 0,
+            "entry_rows": 3_400,
+            "risk_rows": 1_602,
+            "other_role_rows": 16_000,
+            "carried_live": 70,
+            "names_unpriced": 3,
+            "names_flagged": 2,
+            "rows_no_ticker": 0,
+        },
+        "sessions": {"source": "benchmarks", "count": 63, "first": fx._day(-90), "last": ASOF},
+        "unpriced": [
+            {"security_id": uid("sec", "up", i), "ticker": ticker(i), "reason": text(60, i)}
+            for i in range(3)
+        ],
+        "flagged": [
+            {"security_id": uid("sec", "fl", i), "ticker": ticker(i), "reason": text(60, i)}
+            for i in range(2)
+        ],
+        "cache": "hit",
+        "compute_ms": 4,
+    }
+
+
 PAYLOADS = {
     "daily-digest": daily_digest,
     "what-changed": what_changed,
     "hot-board": hot_board,
     "entry-windows": entry_windows,
     "forming-quietly": forming_quietly,
+    "catalyst-calendar": catalyst_calendar,
+    "rotation-map": rotation_map,
+    "trigger-log": trigger_log,
 }
