@@ -183,9 +183,8 @@ Four small panels in a 2×2 grid: a solid line and a faint line pulling apart, u
   - `backend/dashboards/etfs.py`;
   - `backend/app/routers/dashboards/etfs.py` (one `GET ""`);
   - `backend/tests/dashboards/test_etfs.py`;
-  - `frontend/src/dashboards/etfs/` with `entry.ts`, `capability.json` and `thumbnail.svg`.
-- **The MCP metadata (`docs/MCP.md` "Add a dashboard").** `capability.json` advertises every capability as
-  false (discoverable, not observable) and carries `order: 290`; `entry.ts` spreads it; then `npm run gen:mcp`.
+  - `frontend/src/dashboards/etfs/` with `entry.ts` (its registry metadata inline, `order: 290`) and
+    `thumbnail.svg`.
 - **The contract pair** is regenerated in the same PR (rule 9).
 - **Reuse, never copy from another dashboard:**
   - `baskets.cards_as_of`, `per_company`, `display_members`, `price_flags` and `FlaggedNote`;
