@@ -19,7 +19,13 @@ from mcp.shared.exceptions import MCPError
 
 from .capture import loopback_base
 from .errors import AccessError
-from .service import DashboardService
+from .service import (
+    DEFAULT_REPLY_CEILING,
+    MAX_REPLY_CEILING,
+    MIN_REPLY_CEILING,
+    SCHEMA_VERSION,
+    DashboardService,
+)
 
 ERROR_SCHEMA = {
     "type": "object",
@@ -36,7 +42,7 @@ OUTPUT_SCHEMA = {
     "additionalProperties": False,
     "required": ["schema_version", "request_id", "ok"],
     "properties": {
-        "schema_version": {"const": "2"},
+        "schema_version": {"const": SCHEMA_VERSION},
         "request_id": {"type": "string"},
         "ok": {"type": "boolean"},
         "result": {"type": "object"},
@@ -59,6 +65,9 @@ STRING = {"type": "string", "minLength": 1, "maxLength": 256}
 OFFSET = {"type": "integer", "minimum": 0, "maximum": 10000000}
 LIMIT = {"type": "integer", "minimum": 1, "maximum": 50}
 LIMIT_OR_NONE = {"type": "integer", "minimum": 0, "maximum": 50}
+# An inspect page is bounded by the reply ceiling, not a count: an index page holds every target that fits.
+TARGET_LIMIT = {"type": "integer", "minimum": 0, "maximum": 2000}
+SOURCE_LIMIT = {"type": "integer", "minimum": 0, "maximum": 2048}
 
 
 def schema(properties, required=()):
@@ -97,11 +106,11 @@ INPUT_SCHEMAS = {
             "source_response_index": OFFSET,
             "source_ref_id": STRING,
             "offset": OFFSET,
-            "limit": LIMIT_OR_NONE,
+            "limit": TARGET_LIMIT,
             "data_offset": OFFSET,
-            "data_limit": {"type": "integer", "minimum": 1, "maximum": 24000},
+            "data_limit": {"type": "integer", "minimum": 1, "maximum": MAX_REPLY_CEILING},
             "source_offset": OFFSET,
-            "source_limit": LIMIT_OR_NONE,
+            "source_limit": SOURCE_LIMIT,
             "pointer": {"type": "string", "maxLength": 4096},
             "outline": {"type": "boolean"},
             "outline_offset": OFFSET,
@@ -112,6 +121,9 @@ INPUT_SCHEMAS = {
                 "uniqueItems": True,
                 "items": STRING,
             },
+            "view_pointer": {"type": "string", "maxLength": 4096},
+            "index": {"type": "boolean"},
+            "match": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "\\S"},
         },
         ["snapshot_id"],
     ),
@@ -132,53 +144,149 @@ INPUT_SCHEMAS["read_dashboard"]["oneOf"] = [
         "not": {"anyOf": [{"required": [field]} for field in ("dashboard", "asof", "settings")]},
     },
 ]
+DATA_READ_FIELDS = ("source_response_index", "source_ref_id", "source_ref_ids", "view_pointer")
+
+
+def _excludes(*fields):
+    return {"not": {"anyOf": [{"required": [field]} for field in fields]}}
+
+
+# Each rule's description is the message a call it rejects gets (call_tool), so a model can correct
+# itself without guessing; keep each under 200 characters.
 INPUT_SCHEMAS["inspect_dashboard_item"]["allOf"] = [
     {
+        "description": "source_ref_id needs target_id (the target advertising it) and cannot be "
+        "combined with source_response_index.",
         "if": {"required": ["source_ref_id"]},
         "then": {"required": ["target_id"], "not": {"required": ["source_response_index"]}},
     },
     {
+        "description": "pointer reads a field of a captured response: it needs "
+        "source_response_index and cannot be combined with source_ref_id. For the frozen view, "
+        "use view_pointer.",
         "if": {"required": ["pointer"]},
         "then": {"required": ["source_response_index"], "not": {"required": ["source_ref_id"]}},
     },
     {
+        "description": "outline needs a value to outline: source_response_index (optionally with "
+        "pointer), source_ref_id or view_pointer.",
         "if": {"required": ["outline"], "properties": {"outline": {"const": True}}},
         "then": {
-            "anyOf": [{"required": ["source_response_index"]}, {"required": ["source_ref_id"]}]
+            "anyOf": [
+                {"required": ["source_response_index"]},
+                {"required": ["source_ref_id"]},
+                {"required": ["view_pointer"]},
+            ]
         },
     },
     {
         # A batch read: one target's advertised references; each item states its own continuation.
+        "description": "source_ref_ids needs target_id and cannot be combined with source_ref_id, "
+        "source_response_index, pointer, view_pointer, outline, outline_offset, data_offset or "
+        "data_limit.",
         "if": {"required": ["source_ref_ids"]},
         "then": {
             "required": ["target_id"],
-            "not": {
-                "anyOf": [
-                    {"required": [field]}
-                    for field in (
-                        "source_ref_id",
-                        "source_response_index",
-                        "pointer",
-                        "outline",
-                        "outline_offset",
-                        "data_offset",
-                        "data_limit",
-                    )
-                ]
-            },
+            **_excludes(
+                "source_ref_id",
+                "source_response_index",
+                "pointer",
+                "view_pointer",
+                "outline",
+                "outline_offset",
+                "data_offset",
+                "data_limit",
+            ),
         },
+    },
+    {
+        "description": "view_pointer reads the frozen view (with target_id, that target's record); "
+        "it cannot be combined with source_response_index, source_ref_id, source_ref_ids or "
+        "pointer, which read captured source JSON.",
+        "if": {"required": ["view_pointer"]},
+        "then": _excludes("source_response_index", "source_ref_id", "source_ref_ids", "pointer"),
+    },
+    {
+        "description": "index and match page the target listing; they cannot be combined with "
+        "target_id or a data read (source_*, view_pointer, pointer, outline, data_offset, "
+        "data_limit).",
+        "if": {
+            "anyOf": [
+                {"required": ["index"], "properties": {"index": {"const": True}}},
+                {"required": ["match"]},
+            ]
+        },
+        "then": _excludes(
+            "target_id",
+            *DATA_READ_FIELDS,
+            "pointer",
+            "outline",
+            "outline_offset",
+            "data_offset",
+            "data_limit",
+        ),
     },
 ]
 DESCRIPTIONS = {
-    "list_workflows": "Discover reusable read-only MONITOR workflows for Board review, call explanation, and Rotation Map comparisons. Use get_workflow to retrieve a recipe and then execute its steps with the dashboard tools.",
+    "list_workflows": "Discover reusable read-only MONITOR workflows for Board review, call explanation, and Rotation Map comparisons. Use get_workflow to retrieve a recipe and then execute its steps with the dashboard tools. A page holds what fits the reply ceiling ({ceiling} characters); continue from next_offset.",
     "get_workflow": "Retrieve a packaged recipe by name. Omit arguments to see the complete template with its schema, defaults, required dashboards, and instructions (ready=false). Supply an arguments object to validate and prepare it for client execution (ready=true). Retrieval performs no dashboard reads.",
-    "list_dashboards": "Discover dashboard and detail surfaces, identified by surface_kind, with explicit data/observe/screenshot/drilldown support. Detail surfaces such as Cockpit are discoverable here even when absent from dashboard tiles. Unsupported surfaces remain discoverable.",
+    "list_dashboards": "Discover dashboard and detail surfaces, identified by surface_kind, with explicit data/observe/screenshot/drilldown support. Detail surfaces such as Cockpit are discoverable here even when absent from dashboard tiles. Unsupported surfaces remain discoverable. A page holds what fits the reply ceiling ({ceiling} characters); continue from next_offset.",
     "describe_dashboard": "Describe one dashboard or detail surface: surface_kind, exact settings schema, defaults, as-of support and capability limits. Detail surfaces may require following an advertised link or supplying required settings.",
-    "read_dashboard": "Capture one read-only backend transaction and real rendered DOM. Either supply dashboard/settings/asof for an initial capture, or follow an advertised link with from_snapshot_id,target_id,link_id,freshness='fresh'. Following performs an independent fresh capture preserving the parent date/temporal context; expired parents and changed clocks reject. Returns expiring snapshot ID, observation and origin metadata. Use render_dashboard for its image.",
-    "inspect_dashboard_item": "Inspect frozen targets or read captured JSON. Without a data read it pages targets (offset/limit, 20 by default; target_id narrows to one target) and the captured-response listing (source_offset/source_limit). A target's source_refs are the evidence it advertises: each reference's id, label and category. To read several of them at once, list the target's references, then pass target_id with source_ref_ids (1-32 of that target's reference IDs): source_data_items returns each value as JSON text in request order, up to 4000 characters per item, with its reference_id, category, label, pointer, response_index, path, total_characters, truncated and next_offset; continue a cut item with source_ref_id and data_offset=next_offset. One reference: source_ref_id with target_id, in source_data. Raw data: source_response_index; add pointer (an RFC 6901 JSON Pointer such as /verdict; empty string = the whole response) to read ONE field. To see a large value's shape first, pass outline=true (with source_response_index, optionally with pointer, or with source_ref_id): source_data lists each child's key or index, type and size in characters, with no values, 200 per page (outline_offset / next_outline_offset); then read by pointer. source_ref_ids, source_ref_id and source_response_index are exclusive. Data reads return no target page and no response listing unless you pass limit/source_limit (0 is accepted everywhere). data_offset/data_limit page a single read's JSON text; concatenate the chunks before parsing. Never fetches live data or external source URLs.",
+    "read_dashboard": "Capture one read-only backend transaction and real rendered DOM. Either supply dashboard/settings/asof for an initial capture, or follow an advertised link with from_snapshot_id,target_id,link_id,freshness='fresh'. Following performs an independent fresh capture preserving the parent date/temporal context; expired parents and changed clocks reject. Returns the expiring snapshot ID, capture context, origin metadata, an observation SUMMARY (title, every note, a text excerpt with its total, each table's headers and row count, and counts of annotations, charts, reference links, controls and targets), a first page of lean targets and of captured responses. The full frozen observation stays in the snapshot: read any part with inspect_dashboard_item view_pointer. Every reply stays under the server's reply ceiling ({ceiling} characters), so the target page can hold fewer than target_limit: continue from next_target_offset with inspect_dashboard_item offset. Use render_dashboard for its image.",
+    "inspect_dashboard_item": "Inspect a frozen snapshot: list its targets, open one, read its frozen view, or read captured JSON. Every reply stays under the server's reply ceiling ({ceiling} characters), so a page can hold fewer items than asked for: always continue from the returned next_offset, next_source_offset or next_outline_offset. LISTING (no data read): offset/limit page the targets, 20 by default, as lean entries: id, label, a 200-character text excerpt with text_total_characters, visible/clipped/in_viewport, links and source_refs (each reference's id, label and category); plus the captured-response listing (source_offset/source_limit, 20 by default). index=true lists each target as {id, label} only, as many as fit. match='text' keeps only targets whose id or label contains that text (case-insensitive) before paging; total counts the matches. target_id alone returns that target's full record (tables, reference links, bounds and other DOM details), cut to fit with the omitted paths listed in truncation. FROZEN VIEW: view_pointer (RFC 6901, empty string = the whole) reads the snapshot's frozen observation, or with target_id that target's frozen record. CAPTURED JSON: source_response_index reads one captured response; add pointer (RFC 6901, e.g. /verdict) to read ONE field. target_id + source_ref_id reads one advertised reference. target_id + source_ref_ids (1-32 of that target's reference IDs) returns source_data_items, each value's JSON text in request order, up to 4000 characters per item, with reference_id, category, label, pointer, response_index, path, total_characters, truncated and next_offset; continue a cut item with source_ref_id and data_offset=next_offset. A single read (source_data or view_data) is JSON text paged by data_offset/data_limit (data_limit defaults to, and is clamped at, what fits the reply; concatenate chunks before parsing), or with outline=true each child's key or index, type and size in characters, no values, up to 200 per page (outline_offset). source_ref_ids, source_ref_id, source_response_index and view_pointer are exclusive, and index/match exclude every data read. A data read returns no target page or response listing unless you pass limit/source_limit (0 is accepted everywhere). Never fetches live data or external source URLs.",
     "render_dashboard": "Return the stored overview PNG, or re-render an advertised visible target from the identical captured payload/settings. No live data. Target images reject detected coverage using bounded sampled hit-testing; unsampled thin interior coverage can remain undetected. Cropping metadata describes viewport/overflow geometry, not a proof against occlusion. Inspect image visibility, cropping and expiry metadata.",
 }
 
+COUNT = {"type": "integer", "minimum": 0}
+# read_dashboard's observation: a SUMMARY of the frozen observation, which stays in the snapshot.
+OBSERVATION_SUMMARY = {
+    "type": "object",
+    "required": [
+        "title",
+        "notes",
+        "note_count",
+        "next_note_index",
+        "text",
+        "text_total_characters",
+        "text_frozen_characters",
+        "text_semantics",
+        "tables",
+        "table_count",
+        "annotation_count",
+        "chart_count",
+        "reference_link_count",
+        "control_count",
+        "target_count",
+        "capture_truncated",
+        "read_more",
+    ],
+    "properties": {
+        "title": {"type": ["string", "null"]},
+        "notes": {"type": "array", "items": {"type": "string"}},
+        "note_count": COUNT,
+        "next_note_index": {"type": ["integer", "null"]},
+        "text": {"type": "string"},
+        "text_total_characters": COUNT,
+        "text_frozen_characters": COUNT,
+        "text_semantics": {"type": ["string", "null"]},
+        "tables": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["headers", "row_count"],
+                "properties": {"headers": {"type": "array"}, "row_count": COUNT},
+            },
+        },
+        "table_count": COUNT,
+        "annotation_count": COUNT,
+        "chart_count": COUNT,
+        "reference_link_count": COUNT,
+        "control_count": COUNT,
+        "target_count": COUNT,
+        "capture_truncated": {"type": "array", "items": {"type": "string"}},
+        "read_more": {"type": "string"},
+    },
+}
 RESULT_FIELDS = {
     "list_workflows": {
         "workflows": {"type": "array", "items": {"type": "object"}},
@@ -211,11 +319,17 @@ RESULT_FIELDS = {
         "settings": {"type": "object"},
         "context": {"type": "object"},
         "consistency": {"type": "object"},
-        "observation": {"type": "object"},
-        "observation_truncation": {"type": "object"},
-        "targets": {"type": "array"},
+        "observation": OBSERVATION_SUMMARY,
+        "target_offset": {"type": "integer"},
         "target_total": {"type": "integer"},
+        "targets": {"type": "array", "items": {"type": "object"}},
+        "targets_truncation": {"type": "object"},
+        "next_target_offset": {"type": ["integer", "null"]},
+        "source_responses": {"type": "array", "items": {"type": "object"}},
+        "source_total": {"type": "integer"},
+        "next_source_offset": {"type": ["integer", "null"]},
         "image": {"type": "object"},
+        "policy": {"type": "object"},
     },
     "inspect_dashboard_item": {
         "snapshot_id": STRING,
@@ -225,11 +339,16 @@ RESULT_FIELDS = {
         "expires_at": {"type": "string"},
         "settings": {"type": "object"},
         "context_hash": {"type": "string"},
-        "targets": {"type": "array"},
+        "target_shape": {"enum": ["listing", "index", "record"]},
+        "targets": {"type": "array", "items": {"type": "object"}},
         "truncation": {"type": "object"},
         "total": {"type": "integer"},
         "offset": {"type": "integer"},
         "next_offset": {"type": ["integer", "null"]},
+        "source_responses": {"type": "array", "items": {"type": "object"}},
+        "source_offset": {"type": "integer"},
+        "source_total": {"type": "integer"},
+        "next_source_offset": {"type": ["integer", "null"]},
     },
     "render_dashboard": {
         "snapshot_id": STRING,
@@ -243,7 +362,18 @@ RESULT_FIELDS = {
 # Present only on some replies: described, never required.
 OPTIONAL_RESULT_FIELDS = {
     "inspect_dashboard_item": {
+        "match": {"type": "string"},
         "source_data": {"type": "object"},
+        "view_data": {
+            "type": "object",
+            "required": ["scope", "view_pointer", "encoding"],
+            "properties": {
+                "scope": {"enum": ["observation", "target"]},
+                "target_id": {"type": "string"},
+                "view_pointer": {"type": "string"},
+                "encoding": {"enum": ["json_text", "json_outline"]},
+            },
+        },
         "source_data_items": {
             "type": "array",
             "maxItems": 32,
@@ -333,6 +463,27 @@ def log_reply(name: str, payload: dict) -> None:
     )
 
 
+def tool_descriptions(reply_ceiling: int) -> dict:
+    """Each tool's description, stating the reply ceiling this server was started with."""
+    return {
+        name: text.replace("{ceiling}", str(reply_ceiling)) for name, text in DESCRIPTIONS.items()
+    }
+
+
+def schema_error_message(schema: dict, error) -> str:
+    """An actionable message for a schema-rejected call, at most 200 characters.
+
+    A cross-argument rule (an `allOf` entry) answers with its own description, which names the
+    arguments involved; anything else names the offending argument and what is wrong with it."""
+    path = list(error.absolute_schema_path)
+    if len(path) > 1 and path[0] == "allOf" and isinstance(path[1], int):
+        description = schema["allOf"][path[1]].get("description")
+        if description:
+            return description[:200]
+    where = "/".join(str(part) for part in error.absolute_path)
+    return (f"{where}: {error.message}" if where else error.message)[:200]
+
+
 def make_server(service: DashboardService | None = None) -> Server:
     service = service or DashboardService()
 
@@ -389,7 +540,7 @@ def make_server(service: DashboardService | None = None) -> Server:
                         openWorldHint=False,
                     ),
                 )
-                for name, description in DESCRIPTIONS.items()
+                for name, description in tool_descriptions(service.reply_ceiling).items()
             ]
         )
 
@@ -404,13 +555,11 @@ def make_server(service: DashboardService | None = None) -> Server:
             )
             best = best_match(validator.iter_errors(arguments))
             if best is not None:
-                where = "/".join(str(part) for part in best.absolute_path)
-                message = f"{where}: {best.message}" if where else best.message
-                message = message[:200]
+                message = schema_error_message(INPUT_SCHEMAS[name], best)
         if message is not None:
             payload = {
                 "request_id": secrets.token_hex(8),
-                "schema_version": "2",
+                "schema_version": SCHEMA_VERSION,
                 "ok": False,
                 "error": AccessError("invalid_arguments", message).payload(),
             }
@@ -464,6 +613,14 @@ def main():
         "--ui-base", default=os.environ.get("ALPHADECK_MCP_UI_BASE", "http://127.0.0.1:5173")
     )
     parser.add_argument("--deadline", type=float, default=180)
+    parser.add_argument(
+        "--reply-ceiling",
+        type=int,
+        default=DEFAULT_REPLY_CEILING,
+        help=f"Most characters in any one tool reply ({MIN_REPLY_CEILING}-{MAX_REPLY_CEILING}; "
+        f"default {DEFAULT_REPLY_CEILING}). Claude Code saves a larger MCP text reply to a file "
+        "instead of showing it.",
+    )
     parser.add_argument("--trace", action="store_true")
     args = parser.parse_args()
     logging.basicConfig(
@@ -479,10 +636,17 @@ def main():
             raise AccessError(
                 "invalid_configuration", "Deadline must be between 1 and 300 seconds."
             )
+        if not MIN_REPLY_CEILING <= args.reply_ceiling <= MAX_REPLY_CEILING:
+            raise AccessError(
+                "invalid_configuration",
+                f"Reply ceiling must be between {MIN_REPLY_CEILING} and {MAX_REPLY_CEILING} "
+                "characters.",
+            )
         service = DashboardService(
             backend_base=loopback_base(args.backend_base),
             ui_base=loopback_base(args.ui_base),
             deadline=args.deadline,
+            reply_ceiling=args.reply_ceiling,
         )
         asyncio.run(run(service))
     except AccessError as error:

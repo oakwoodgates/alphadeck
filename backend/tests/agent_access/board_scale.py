@@ -5,8 +5,9 @@ them armed, calls of about 50K characters, a `/theses` list of about 88K and `/d
 with each flag entry held by about 1.3 cards. The capture's references come from the REAL Board adapter
 (`capture_adapters.board.relationships`) and the targets carry them the way `frontend/src/board/Board.tsx`
 binds them, so a budget measured here is the tools' own reply size, not a guess. The rendered view is a
-stand-in for the browser (no Chromium): its observation is calibrated to the prod read reply (about 50K
-characters with 24 small targets and a 50-row response listing, so about 28K of observation).
+stand-in for the browser (no Chromium): its frozen observation (about 58K characters, about 44K of
+it annotations, and 5 notes) follows the dev Board measured on 2026-11-06; the read reply shows only
+its summary.
 """
 
 import copy
@@ -355,9 +356,10 @@ def view(data: dict) -> dict:
     lines += [target["text"] for target in targets[ARMED : ARMED + len(warming)]]
     lines.append(f"ARMED\nact now\n{len(armed)}")
     lines += [target["text"] for target in targets[ARMED + len(warming) :]]
-    page_text = "\n".join(lines) + "\n" + "Synthetic member line on a card. " * 1700
-    # The read previews 50 annotations; theirs are sized so the observation preview lands near the
-    # prod-derived 28K characters.
+    # Sized to the dev Board of 2026-11-06: innerText of about 83K characters (the observation keeps
+    # 12,000) and annotations of about 44K, for a frozen observation of about 58K. The read reply shows
+    # only its summary; the rest is read with view_pointer.
+    page_text = "\n".join(lines) + "\n" + "Synthetic member line on a card. " * 2130
     annotations = [
         {
             "text": f"act within 4d · Starter entry · Synthetic card {k:02d} · "
@@ -369,7 +371,7 @@ def view(data: dict) -> dict:
             "in_viewport": True,
             "bounds": {"x": 612.25, "y": 96.5 + 30 * k, "width": 80.5, "height": 18.0},
         }
-        for k in range(210)
+        for k in range(125)
     ]
     return {
         "status": "ready",
@@ -424,8 +426,9 @@ class ScaleRenderer:
         return rendered, b"\x89PNG synthetic", {"asset_digest": "synthetic", "cropped": False}
 
 
-def scale_service() -> DashboardService:
-    return DashboardService(capture=ScaleCapture(), renderer=ScaleRenderer())
+def scale_service(reply_ceiling: int | None = None) -> DashboardService:
+    extra = {} if reply_ceiling is None else {"reply_ceiling": reply_ceiling}
+    return DashboardService(capture=ScaleCapture(), renderer=ScaleRenderer(), **extra)
 
 
 def sizes(data: dict) -> dict:

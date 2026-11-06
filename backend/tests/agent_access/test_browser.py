@@ -410,11 +410,16 @@ def test_official_sdk_real_board_cockpit_evidence_and_selected_member():
                     expected = fixture["responses"][2]["body"]["triggers_fired"][0]["sources"][
                         int(ref["pointer"].rsplit("/", 1)[1])
                     ]
-                    assert (
-                        expected["source"] in source_target["text"]
-                        and expected["ref"] in source_target["text"]
+                    # A listing carries a 200-character excerpt; the target's full record
+                    # (target_id alone) carries its whole rendered text.
+                    record, _ = await call(
+                        "inspect_dashboard_item",
+                        {"snapshot_id": child["snapshot_id"], "target_id": source_target["id"]},
                     )
-                    assert all(key in source_target["text"] for key in expected["detail"])
+                    (full,) = record["targets"]
+                    assert full["text"].startswith(source_target["text"])
+                    assert expected["source"] in full["text"] and expected["ref"] in full["text"]
+                    assert all(key in full["text"] for key in expected["detail"])
                     source, _ = await call(
                         "inspect_dashboard_item",
                         {

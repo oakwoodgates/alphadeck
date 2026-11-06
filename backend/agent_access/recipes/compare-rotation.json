@@ -1,7 +1,7 @@
 {
   "schema_version": "1",
   "id": "compare-rotation",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "title": "Compare Rotation Map across two dates",
   "description": "Compare dated Rotation Map readings by stable group key, retaining coverage, roster fallback, exclusions and nulls. Requires start_date before end_date.",
   "stage": "MONITOR",
