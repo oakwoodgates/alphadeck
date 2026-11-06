@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 import shutil
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -251,3 +251,80 @@ def test_tenant_default_is_used(db, cache):
     with db.cursor() as cur:
         cur.execute("SELECT DISTINCT tenant_id FROM fact_fund_filing")
         assert [r["tenant_id"] for r in cur.fetchall()] == [DEFAULT_TENANT_ID]
+
+
+def _store(db, accession, kind, sid, stored):
+    """Store one filing + one series row for ``sid`` and stamp both as stored at ``stored`` (a test of nights)."""
+    fund_repo.record_filing_if_changed(
+        db,
+        fund_repo.FundFilingRow(
+            accession,
+            "485APOS",
+            ["0000000001"],
+            "Test Trust",
+            None,
+            date(2026, 10, 1),
+            None,
+            False,
+            None,
+            date(2026, 10, 1),
+            "ref",
+        ),
+    )
+    # the fact tables refuse an UPDATE, so the stored instant is set at INSERT
+    with db.cursor() as cur:
+        cur.execute(
+            """INSERT INTO fact_fund_series
+               (tenant_id, accession, series_key, series_id, series_name, kind, classes, valid_from, recorded_at)
+               VALUES (%s, %s, %s, %s, %s, %s, '[]'::jsonb, %s, %s)""",
+            (
+                DEFAULT_TENANT_ID,
+                accession,
+                sid,
+                sid,
+                "Test Fund " + sid,
+                kind,
+                date(2026, 10, 1),
+                stored,
+            ),
+        )
+    db.commit()
+
+
+def test_first_stored_is_the_night_the_new_row_was_stored_not_an_earlier_existing_row(db, tmp_path):
+    """An 'existing' row stored on night A must not push first_stored back: the ticker-file read only starts
+    tracking the fund once its 'new' row (night B) is stored, so a symbol first seen on B is not news.
+    """
+    night_a = datetime(2026, 11, 1, 17, 0, tzinfo=timezone.utc)
+    night_b = datetime(2026, 11, 5, 17, 0, tzinfo=timezone.utc)
+    b, c = date(2026, 11, 5), date(2026, 11, 9)
+    for sid in ("S000000101", "S000000102"):
+        _store(db, "0000000001-26-0000" + sid[-2:], "existing", sid, night_a)
+        _store(db, "0000000002-26-0000" + sid[-2:], "new", sid, night_b)
+
+    def _tickers(rows):
+        (tmp_path / "fund-tickers").mkdir(exist_ok=True)
+        (tmp_path / "fund-tickers" / "company_tickers_mf.json").write_text(
+            json.dumps({"fields": ["cik", "seriesId", "classId", "symbol"], "data": rows}),
+            encoding="utf-8",
+        )
+
+    client = EdgarClient(cache_dir=tmp_path, allow_live=False)
+    _tickers([[1, "S000000101", "C000000101", "TSTA"]])
+    run_symbol_legs(
+        db, client, night=b, allow_live=False, nasdaq_fetch=None, result=FundRadarResult()
+    )
+    _tickers([[1, "S000000101", "C000000101", "TSTA"], [1, "S000000102", "C000000102", "TSTB"]])
+    run_symbol_legs(
+        db, client, night=c, allow_live=False, nasdaq_fetch=None, result=FundRadarResult()
+    )
+
+    launches = {
+        lc.key: lc
+        for lc in fund_stage.derive_launches(fund_repo.series_views(db), fund_repo.symbol_rows(db))
+    }
+    one, two = launches["S000000101"], launches["S000000102"]
+    assert one.first_stored == b and two.first_stored == b
+    assert one.stage.ticker == b and two.stage.ticker == c
+    assert b not in fund_stage.activity_dates(one.stage, one.first_stored)
+    assert c in fund_stage.activity_dates(two.stage, two.first_stored)

@@ -56,7 +56,7 @@ class FundLaunch:
     stage: FundStage
     symbols: tuple[str, ...] = field(default_factory=tuple)
     source_ref: str = ""
-    # the market date the fund's series was first stored (bookkeeping: see ``activity_dates``); None = unknown
+    # the market date the fund's new-fund row was first stored (bookkeeping: see ``activity_dates``); None = unknown
     first_stored: date | None = None
 
 
@@ -137,11 +137,12 @@ def activity_dates(stage: FundStage, first_stored: date | None) -> list[date]:
     """The dates a fund DID something: filed, effective, and a ticker / listing that is an OBSERVED arrival.
 
     A ticker or listing date is the night WE first saw the symbol. It counts as activity only when it is STRICTLY
-    LATER than the night the fund's series was first stored (``first_stored``, the market date of its earliest
-    ``recorded_at``): we never saw a symbol arrive for a fund we had only just learned about (a backfill stores
-    old funds that were already trading). ``recorded_at`` is used here ONLY to judge that; it is not a history
-    gate. History still filters by public date and by symbol night <= as-of (invariant #1). ``None`` (unknown)
-    leaves the date counted. Used to window the per-card view (a fund gets its ticker months after its filing).
+    LATER than the night the fund's new-fund row was first stored (``first_stored``, the market date of that
+    row's earliest ``recorded_at``, when the ticker-file read started tracking the fund): we never saw a symbol
+    arrive for a fund we had only just learned about (a backfill stores old funds that were already trading).
+    ``recorded_at`` is used here ONLY to judge that; it is not a history gate. History still filters by public date
+    and by symbol night <= as-of (invariant #1). ``None`` (unknown) leaves the date counted. Used to window the
+    per-card view (a fund gets its ticker months after its filing).
     """
     out = [d for d in (stage.filed, stage.effective) if d is not None]
     for d in (stage.ticker, stage.listed):

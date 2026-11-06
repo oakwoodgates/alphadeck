@@ -72,8 +72,10 @@ class SeriesView:
     series_name: str
     kind: str
     classes: list[dict[str, Any]] = field(default_factory=list)
-    # when this series was first stored (min recorded_at over every stored row of its series_key). Bookkeeping:
-    # used only to judge whether a first-seen symbol date is an OBSERVED arrival, never as a history gate
+    # when this series' NEW-fund row was first stored (min recorded_at over its kind='new' rows; NULL if it has
+    # none). That is when the ticker-file read started tracking the fund, so the earliest night its symbol could
+    # have been seen. Bookkeeping: used only to judge whether a first-seen symbol date is an OBSERVED arrival,
+    # never as a history gate
     first_stored: datetime | None = None
 
     @property
@@ -206,8 +208,8 @@ def series_views(
                       f.private_to_public, f.effectiveness_date,
                       s.series_key, s.series_id, s.series_name, s.kind, s.classes, s.first_stored
                FROM (SELECT DISTINCT ON (accession, series_key) *
-                     FROM (SELECT *, min(recorded_at) OVER (PARTITION BY tenant_id, series_key)
-                                      AS first_stored
+                     FROM (SELECT *, min(recorded_at) FILTER (WHERE kind = 'new')
+                                      OVER (PARTITION BY tenant_id, series_key) AS first_stored
                            FROM fact_fund_series WHERE tenant_id = %s
                              AND (NOT %s OR series_key IN (SELECT series_key FROM fact_fund_series
                                                            WHERE tenant_id = %s AND kind = 'new'))
