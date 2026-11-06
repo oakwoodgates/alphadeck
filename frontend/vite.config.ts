@@ -6,7 +6,6 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   plugins: [react()],
   build: {
-    rollupOptions: { input: { app: "index.html", mcp: "mcp-render.html" } },
     // A dashboard's thumbnail.svg (docs/DASHBOARDS.md, "Thumbnails") stays its own small file. Under 4 KB Vite
     // would inline each drawing into the main chunk as a data URL (about 73 KB raw for 27 of them, measured),
     // and every page loads that chunk. Every other asset keeps Vite's default (undefined = inline under 4 KB).

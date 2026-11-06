@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -336,6 +337,19 @@ def test_the_instructions_name_the_five_prompts_and_the_claude_code_path_within_
 # --- the real stdio transport ------------------------------------------------------------------------------------
 
 
+def test_the_retired_ui_base_flag_is_refused():
+    # Phase 4 retired the capture server; --ui-base (ignored since Phase 1) is no longer accepted
+    proc = subprocess.run(
+        [sys.executable, "-m", "agent_tools", "--backend-base", "http://127.0.0.1:8001"]
+        + ["--ui-base", "http://127.0.0.1:8081"],
+        cwd=Path(__file__).resolve().parents[2],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert proc.returncode == 2 and "unrecognized arguments: --ui-base" in proc.stderr
+
+
 def test_real_sdk_stdio_client_lists_tools_and_prompts_and_calls_over_loopback():
     api = FakeApi()
 
@@ -347,8 +361,6 @@ def test_real_sdk_stdio_client_lists_tools_and_prompts_and_calls_over_loopback()
                 "agent_tools",
                 "--backend-base",
                 base,
-                "--ui-base",
-                "http://127.0.0.1:8081",
                 "--trace",
             ],
             cwd=Path(__file__).resolve().parents[2],

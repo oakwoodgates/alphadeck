@@ -35,7 +35,7 @@ def check_compare(start: str, end: str, group_by: str, group: str | None) -> Non
     first = _day("start", start)
     last = _day("end", end)
     if not first < last:
-        raise ValueError("start must be before end.")
+        raise ValueError(f"start {start} must be before end {end}.")
     if group_by not in GROUP_BYS:
         raise ValueError(f"group_by must be one of: {', '.join(GROUP_BYS)}.")
     if group is not None and not group.strip():

@@ -229,7 +229,8 @@ def read_thesis_data_flags(
     *,
     view: tuple[datetime | None, Literal["record", "public"]],
 ) -> DataFlagsResponse:
-    """Canonical per-thesis flags, with the capture's pinned view supplied explicitly."""
+    """The per-thesis flags behind ``GET /theses/{id}/data-flags``; ``view`` is the clock the facts are read on
+    (the route passes ``serve_view(asof)``)."""
     ids: list[UUID] = []
     for m in thesis.basket:
         if m.security_id is not None and m.security_id not in ids:
@@ -262,7 +263,8 @@ def read_data_flags(
     tenant_id: UUID,
     view: tuple[datetime | None, Literal["record", "public"]] | None = None,
 ) -> DataFlagsResponse:
-    """Canonical union flags and wire shaping; capture supplies its one pinned public-clock view."""
+    """The union flags behind ``GET /data-flags`` and their wire shaping; ``view`` is the clock the facts are read
+    on (omitted: ``serve_view(asof)``, what the route uses)."""
     with conn.cursor() as cur:
         cur.execute(
             "SELECT bm.security_id, t.id, t.name FROM basket_member bm JOIN thesis t ON t.id = bm.thesis_id "

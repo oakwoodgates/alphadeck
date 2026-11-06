@@ -1,4 +1,4 @@
-"""The data-first Alpha Deck MCP server: eight read-only tools and two prompts over stdio.
+"""The data-first Alpha Deck MCP server: ten read-only tools and five prompts over stdio.
 
 Each tool composes ``client -> resolve -> view -> fit``: it GETs the loopback API, resolves a thesis or ticker,
 shapes the API's JSON through a pure view (``views/``) and returns it as compact JSON text plus
@@ -454,14 +454,17 @@ def build_server(client: ApiClient, *, trace: bool = False) -> AlphaDeckServer:
         "lookup_ticker",
         "Everything the platform holds on one company at asof: identity, the cards it sits on (its link and "
         "context_role per card, the recorded call there), the triggers the recorded calls show on it, its "
-        "tape, the next catalysts of its cards, the operator's decisions and a filings summary. "
-        "section=filings lists filings newest first, 25 per page. cache and compute_ms show whether the "
-        "page was computed (a cold read is slow).",
+        "tape, the next catalysts of its cards, the operator's decisions and a filings summary. Per card, "
+        "silent is the silent link's label (Context, ETFs, Bench) or null (null = a voting row), and "
+        "place.strength is the NAME's strength on that card, not the card's setup strength. section=filings "
+        "lists filings newest first, section=triggers every trigger event of record on the name, "
+        "section=catalysts every upcoming card catalyst; 25 per page each. cache says whether this read "
+        "computed the page: compute_ms when it did (a cold read is slow), cold_compute_ms on a hit.",
     )
     async def lookup_ticker(
         t: Annotated[str, Field(description="The ticker (a former ticker also resolves).")],
         asof: AsofArg = None,
-        section: Literal["filings"] | None = None,
+        section: Literal["filings", "triggers", "catalysts"] | None = None,
         cursor: CursorArg = 0,
     ) -> Annotated[types.CallToolResult, TickerReply]:
         night, _ = await resolve_asof(client, asof)
@@ -646,11 +649,6 @@ def main() -> None:
         "--backend-base",
         default=os.environ.get("ALPHADECK_MCP_BACKEND_BASE", DEFAULT_BACKEND),
         help="The API's loopback origin, e.g. http://127.0.0.1:8001",
-    )
-    parser.add_argument(
-        "--ui-base",
-        default=None,
-        help="Ignored. Kept so the existing .mcp.json registration still starts this server.",
     )
     parser.add_argument(
         "--timeout",

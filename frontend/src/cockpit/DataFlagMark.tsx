@@ -10,8 +10,6 @@ import {
   markTitle,
   rowLevel,
 } from "./dataFlags";
-import { useCaptureBindings } from "../mcp/bindings";
-import { targetId } from "../mcp/targetId";
 
 /** The row mark's glyph (a small flag; see `DataFlagMark`). */
 export const FLAG_GLYPH = "⚑";
@@ -82,8 +80,7 @@ export function DataNoteLine({ note }: { note: DataNoteOut }) {
  *  since when, what clears it, the cells it touches — or that it touches none), the company's split
  *  rows with their events, and last, quietest, its markers (a short price history). Renders nothing for
  *  a name with none of them (the common case). */
-export function DataFlagsSection({ member, capture }: { member: MemberDataFlagsOut | null | undefined; capture?: { path: string; pointer: string; scope: string } }) {
-  const { sourceRefs } = useCaptureBindings();
+export function DataFlagsSection({ member }: { member: MemberDataFlagsOut | null | undefined }) {
   const flags = member?.flags ?? [];
   const splits = member?.splits ?? [];
   const notes = member?.notes ?? [];
@@ -92,9 +89,7 @@ export function DataFlagsSection({ member, capture }: { member: MemberDataFlagsO
     <>
       <div className="np-h">Data · this name</div>
       {flags.map((f, i) => (
-        <div className={`np-flag ${f.level === "known_wrong" ? "wrong" : "doubt"}`} key={`f${i}`}
-          data-mcp-id={capture ? targetId("flag-evidence", capture.scope, capture.pointer, String(i)) : undefined}
-          {...(capture ? sourceRefs(capture.path, `${capture.pointer}/flags/${i}`) : {})}>
+        <div className={`np-flag ${f.level === "known_wrong" ? "wrong" : "doubt"}`} key={`f${i}`}>
           <div className="np-flag-h">
             <span className="np-flag-lvl">{LEVEL_WORD[f.level]}</span>
             <b>{f.label}</b>

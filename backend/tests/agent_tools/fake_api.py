@@ -20,8 +20,13 @@ SECURITY_ID = fx.uid("sec", "lookup")
 
 
 class FakeApi:
-    def __init__(self, theses: list[dict] | None = None) -> None:
+    def __init__(
+        self, theses: list[dict] | None = None, calls: dict[str, dict] | None = None
+    ) -> None:
         self.theses = theses
+        self.calls = (
+            calls or {}
+        )  # thesis id -> its /call payload (default: fx.call_payload for every card)
         self.requests: list[tuple[str, str, dict]] = []
 
     def route(self, method: str, path: str, query: dict[str, str]) -> tuple[int, object]:
@@ -59,6 +64,8 @@ class FakeApi:
             if parts[1] not in known:
                 return 404, {"detail": "thesis not found"}
             tail = "/".join(parts[2:])
+            if tail == "call" and parts[1] in self.calls:
+                return 200, self.calls[parts[1]]
             payload = {
                 "": fx.thesis_detail,
                 "call": fx.call_payload,

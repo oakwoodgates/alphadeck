@@ -1,5 +1,4 @@
 import "./flagged-note.css";
-import { useCaptureView } from "../mcp/viewContext";
 
 // The quiet page note every price dashboard shares (docs/DASHBOARDS.md rule 5): the companies it leaves out of
 // every number because their data flags reach their price readings (the reason the Cockpit grays those cells;
@@ -36,14 +35,10 @@ export function FlaggedNote({
   flagged: readonly FlaggedName[];
   title?: string;
 }) {
-  const { settings, readOnly } = useCaptureView();
   if (flagged.length === 0) return null;
   const n = flagged.length;
   return (
-    <details
-      className="dash-note dash-flagged"
-      open={readOnly ? settings.flagged_open === true : undefined}
-    >
+    <details className="dash-note dash-flagged">
       <summary title={title ?? TITLE}>
         {n.toLocaleString("en-US")} {n === 1 ? "name" : "names"} left out for a
         flagged price history

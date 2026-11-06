@@ -1,9 +1,9 @@
 # Agent tools (the data-first MCP server)
 
 Status: Phase 1 built 2026-11-06 (the server and the MONITOR read tools); Phase 2 (dashboards as agent views)
-built 2026-11-06. Stage: MONITOR.
-Code: `backend/agent_tools/`. Legacy: the capture server in [`docs/MCP.md`](MCP.md) (`python -m agent_access`)
-stays beside it until Phase 4 retires it.
+built 2026-11-06; Phase 3 (prompts and the Claude Code skill) built 2026-11-06; Phase 4 retired the capture server
+2026-11-06 (see "History"). Stage: MONITOR.
+Code: `backend/agent_tools/`.
 
 ## What it is
 
@@ -32,7 +32,7 @@ one size rule. The same views can later be mounted in the API (Phase 7) without 
 | `get_data_flags(thesis?, asof?)` | `/theses/{id}/data-flags` or `/data-flags` | per flagged name: each flag's kind, label, level, reason, `clears` (what clears it), `since`, affects, `call_affected`; notes and splits counted; cross-card adds the cards holding it and `compute_s` (it is slow). The API lists only names that carry a flag, a note or a split: `names_total` is its own count of the card's names, `listed` the rows it returned (a different count from `list_theses`'s `cards_total`). Call it per card only when `get_call` reports missing conditions or `list_theses` shows `missing_count` above zero | 8,000 |
 | `get_display_signals(thesis, tickers?, asof?)` | `/theses/{id}/display-signals` | breadth and sector headlines; per member `{kind: {key, label}}`; with `tickers` (1 to 8) each signal's metrics | 8,000 |
 | `get_decisions(thesis)` | `/theses/{id}/decisions` | the operator's log, newest first, as the API gives it | 8,000 |
-| `lookup_ticker(t, asof?, section?)` | `/dashboards/ticker-lookup/resolve` then `/{security_id}` | identity, the cards it sits on (link, `context_role`, the record there), record triggers, tape figures, next 5 card catalysts, decisions, filings summary; `cache` / `compute_ms` pass through; `section=filings` = 25 rows a page | 8,000 |
+| `lookup_ticker(t, asof?, section?)` | `/dashboards/ticker-lookup/resolve` then `/{security_id}` | identity, the cards it sits on (link, `context_role`, the record there), record triggers, tape figures, next 5 card catalysts, decisions, filings summary; `cache` passes through, `compute_ms` only when this read computed the page (else `cold_compute_ms`); `section=filings`, `triggers` (every record trigger event on the name) or `catalysts` (every upcoming card catalyst) = 25 rows a page | 8,000 |
 
 Common to every tool: `asof` is optional `YYYY-MM-DD`; omitted, it is the API's `current_night` (the server never
 derives a date). `thesis` takes a UUID or an exact name (case-insensitive). Every tool is annotated
@@ -68,7 +68,7 @@ re-sorts, ranks or computes (views under `backend/agent_tools/views/dashboards/`
 
 | Dashboard | Dated | Settings | Default reply (the paged list) | Sections | Narrows |
 |---|---|---|---|---|---|
-| `daily-digest` | yes | | counts, nights, forming, positions, then `last_night.cards` (paged) and the tape's first 3 AND last 3 rows (`rows`, `tail`: the API lists rises first, so the falls sit at the tail), the leading insider (2) and due (4) rows with their totals | `last_night`, `tape`, `insider`, `due` | `thesis` (last night) |
+| `daily-digest` | yes | | counts, nights, forming, positions, then `last_night.cards` (paged) and the tape's first 3 AND last 3 rows (`rows`, `tail`: the API lists rises first, so the falls sit at the tail; `rows_shown` / `tail_shown` beside `rows_total`), the leading insider (2) and due (4) rows with their totals | `last_night` (each card's lines cut at 12 with `lines_total`; with `thesis`: that one card, every line, paged by line), `tape`, `insider`, `due` | `thesis` (last night) |
 | `what-changed` | no | `since` (`last_night`, `7d`, `YYYY-MM-DD`) | `anchor` (latest, baseline), counts by section and change, `items` (paged) | `column_moves`, `keys`, `names`, `triggers`, `clocks`, `new_cards` | `thesis`, `change` |
 | `hot-board` | yes | `rows` (`armed`, `all`) | candidate counts, `rows` (paged; two triggers each, tape, cap) | `row` (a card's rows in full) | `thesis` |
 | `entry-windows` | yes | | `rows` (paged; clocks, member and catalyst counts) | `members`, `catalysts` (paged by card) | `thesis` |
@@ -145,17 +145,41 @@ The server needs the `mcp` extra, which `scripts/ensure-venv.ps1` / `.sh` now in
 .venv\Scripts\python.exe -m pip install -e ".[dev,replay,mcp]"
 ```
 
-Registration is unchanged: `.mcp.json` declares `alphadeck-prod` (`--backend-base http://127.0.0.1:8000`) and
-`alphadeck-dev` (`--backend-base http://127.0.0.1:8001`), both launching `${ALPHADECK_MCP_COMMAND}`, the main
-checkout's `alphadeck-mcp` console script (set it once as a user environment variable; see `docs/MCP.md`
-"Register with Claude Code" for the per-OS path). After `pip install -e`, that console script serves THIS
-server. It needs no database URL, no browser and no model key: only the API.
+The server needs no database URL, no browser and no model key: only the API. Phase 4 dropped Playwright and
+jsonschema from the `mcp` extra (they were the capture server's); a venv installed before keeps them as unused
+packages until `pip uninstall playwright jsonschema`.
+
+### Register with Claude Code
+
+`.mcp.json` declares two project servers: `alphadeck-prod` (`--backend-base http://127.0.0.1:8000`) and
+`alphadeck-dev` (`--backend-base http://127.0.0.1:8001`). Both launch `${ALPHADECK_MCP_COMMAND}`, the MAIN
+checkout's `alphadeck-mcp` console script. Set that variable once, as a user environment variable, to its
+absolute path:
+
+- Windows: `<main checkout>\backend\.venv\Scripts\alphadeck-mcp.exe`, for example
+  `[Environment]::SetEnvironmentVariable('ALPHADECK_MCP_COMMAND', '<path>', 'User')` in PowerShell, then
+  restart Claude Code so it sees the variable.
+- Linux: `<main checkout>/backend/.venv/bin/alphadeck-mcp`, exported from your shell profile.
+
+The console script (not `python -m agent_tools`) means a session's working directory can never shadow the
+installed package. Approve the two servers when Claude Code first asks, then check them with `claude mcp list`;
+while the variable is unset it shows the literal `${ALPHADECK_MCP_COMMAND}` and "Failed to connect" for both.
+Builder agents cannot use `alphadeck-prod` (`.claude/agents/builder.md` denies `mcp__alphadeck-prod__*`);
+`alphadeck-dev` stays available to them.
+
+### Other MCP clients
+
+Launch the console script over stdio (there is no HTTP endpoint), with absolute paths:
+
+```powershell
+alphadeck-mcp --backend-base http://127.0.0.1:8001
+```
 
 Options: `--backend-base` (a loopback origin with an explicit port; default `http://127.0.0.1:8001` or
-`ALPHADECK_MCP_BACKEND_BASE`), `--timeout` seconds per API request (1 to 600, default 60: the cross-card
-`/data-flags` read and a cold dashboard take up to about 35 s), `--trace` (one stderr line per call:
-`tool=<name> ok=<bool> chars=<n> ms=<n>`, never content) and `--ui-base` (IGNORED; kept so the existing
-registration still starts the server, until Phase 4).
+`ALPHADECK_MCP_BACKEND_BASE`; credentials, URL paths and remote hosts are refused), `--timeout` seconds per API
+request (1 to 600, default 60: the cross-card `/data-flags` read and a cold dashboard take up to about 35 s) and
+`--trace` (one stderr line per call: `tool=<name> ok=<bool> chars=<n> ms=<n>`, never content). Phase 4 removed
+`--ui-base`: a client config that still passes it must drop it (the server refuses an unknown argument).
 
 Run by hand: `python -m agent_tools --backend-base http://127.0.0.1:8001 --trace` (it speaks MCP on stdio).
 
@@ -174,7 +198,16 @@ the schemas it loaded, and a fresh session reads the new ones.
 `test_server.py` (the official SDK client in-process against an httpx `MockTransport` fake API, plus one REAL
 stdio subprocess against a loopback fake API: 10 tools, 5 prompts, read-only, output schemas), `test_dashboards.py`,
 `test_resolve.py`, `test_client.py`, and the prompt call plans through the real stdio client: `test_morning_brief.py`,
-`test_board_review.py`, `test_ticker_check.py`, `test_compare_rotation.py` (with the argument-rule rejections), plus
+`test_board_review.py`, `test_explain_call.py`, `test_ticker_check.py`, `test_compare_rotation.py` (with the
+argument-rule rejections), plus
 `test_skill.py` (the skill equals the prompt files; its size and frontmatter bars). The route the list reads is tested against the database in
 `backend/tests/app/test_theses_with_call.py`. Fixtures are synthetic (`Thesis 01`, `TK01`): no card or company
 name from a live card.
+
+## History
+
+From 2026-11-02 to 2026-11-06 a DOM-capture MCP server served agents: a capture endpoint on the API froze a
+dashboard's responses, a headless Chromium rendered them through a separate frontend render page and the agent
+read the rendered DOM. Phase 4 (PR #506) retired it whole (the server package, the endpoint, the renderer, the
+components' instrumentation and the Chromium CI job) because an agent needs the platform's objects, not its
+pixels; the data-first server here replaced it in Phases 1 to 3 (PRs #503, #504, #505).

@@ -19,9 +19,6 @@ export type DashboardProps = {
 };
 
 export type DashboardEntry = {
-  /** Optional serializable agent capabilities, owned beside each dashboard's entry. */
-  capabilities?: { data: boolean; observe: boolean; screenshot: boolean; drilldown: boolean };
-  response_paths?: string[];
   /** The URL segment: /dashboards/<slug>. Also the folder name, frontend/src/dashboards/<slug>/. */
   slug: string;
   /** Menu order, lowest first (ties by label): the Board 0, then steps of 10, so a new dashboard slots in

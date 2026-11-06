@@ -2,8 +2,6 @@ import { useMemo, useState, type MouseEvent } from "react";
 
 import { STATE_CLASS, STATE_LABEL } from "../../util/format";
 import type { DashboardProps } from "../registry";
-import { useCaptureView } from "../../mcp/viewContext";
-import { targetId } from "../../mcp/targetId";
 import "./narrative-index.css";
 import {
   DEFAULT_SORT,
@@ -203,11 +201,7 @@ function BigChart({
   bench: readonly NarrativeBenchmarkOut[];
   contributors: readonly number[] | null;
 }) {
-  const { settings } = useCaptureView();
-  const [hover, setHover] = useState<number | null>(() => {
-    const at = typeof settings.chart_date === "string" ? dates.indexOf(settings.chart_date) : -1;
-    return at >= 0 ? at : null;
-  });
+  const [hover, setHover] = useState<number | null>(null);
   const spy = benchLine(bench, "SPY");
   const iwm = benchLine(bench, "IWM");
   const domain: Domain = yDomain([c.points, spy, iwm]);
@@ -335,7 +329,7 @@ function Enlarged({
   const q = useNarrativeCard(data.asof, data.window, includeSilent, c.thesis_id);
   const detail = q.data?.window === data.window ? q.data : undefined;
   return (
-    <section className="ni-tile big" aria-label={`${c.thesis_name}, enlarged`} data-mcp-id={targetId("card", c.thesis_id)} data-mcp-detail-ready={!q.isPending && !q.isFetching} data-mcp-error={Boolean(q.error)}>
+    <section className="ni-tile big" aria-label={`${c.thesis_name}, enlarged`}>
       <div className="ni-head">
         <button
           type="button"
@@ -374,7 +368,7 @@ function Enlarged({
           </thead>
           <tbody>
             {detail.members.map((m) => (
-              <tr key={m.security_id ?? `u-${m.ticker}`} className={m.sessions === 0 ? "quiet" : undefined} data-mcp-id={targetId("member", m.security_id ?? m.ticker)}>
+              <tr key={m.security_id ?? `u-${m.ticker}`} className={m.sessions === 0 ? "quiet" : undefined}>
                 <td className="ni-tk">{m.ticker}</td>
                 <td className="ni-num">
                   {m.security_id == null
@@ -406,7 +400,7 @@ function Tile({
   onSelect: DashboardProps["onSelectThesis"];
 }) {
   return (
-    <section className="ni-tile" aria-label={c.thesis_name} data-mcp-id={targetId("card", c.thesis_id)}>
+    <section className="ni-tile" aria-label={c.thesis_name}>
       <div className="ni-head">
         <button
           type="button"
@@ -428,11 +422,10 @@ function Tile({
 }
 
 export default function NarrativeIndex({ asof, onSelectThesis }: DashboardProps) {
-  const { settings, readOnly } = useCaptureView();
-  const [win, setWin] = useState<IndexWindow>((settings.window as IndexWindow) ?? "1y");
-  const [includeSilent, setIncludeSilent] = useState(settings.include_silent === true);
-  const [sort, setSort] = useState<SortState>({ key: (settings.sort_key as SortKey) ?? DEFAULT_SORT.key, dir: (settings.sort_dir as SortState["dir"]) ?? DEFAULT_SORT.dir });
-  const [open, setOpen] = useState<string | null>((settings.open_thesis as string) ?? null);
+  const [win, setWin] = useState<IndexWindow>("1y");
+  const [includeSilent, setIncludeSilent] = useState(false);
+  const [sort, setSort] = useState<SortState>(DEFAULT_SORT);
+  const [open, setOpen] = useState<string | null>(null);
   const q = useNarrativeIndex(asof, win, includeSilent);
   const data = q.data;
 
@@ -445,16 +438,12 @@ export default function NarrativeIndex({ asof, onSelectThesis }: DashboardProps)
       </div>
     );
   }
-  if (q.error || !data) return <div className="dash-note" data-mcp-ready="true" data-mcp-error="true">Could not load the Narrative Index.</div>;
-  if (readOnly && ((open !== null && !data.cards.some((card) => card.thesis_id === open)) ||
-    (typeof settings.chart_date === "string" && (open === null || !data.dates.includes(settings.chart_date))))) {
-    return <div className="dash-note" data-mcp-ready="true" data-mcp-error="true" data-mcp-error-code="invalid_view_state">Requested card or chart date is absent from this captured view. Use card IDs and session dates from this view.</div>;
-  }
+  if (q.error || !data) return <div className="dash-note">Could not load the Narrative Index.</div>;
 
   const onSort = (key: SortKey) => setSort((s) => nextSort(s, key));
 
   return (
-    <div className="ni" data-mcp-ready={!q.isFetching}>
+    <div className="ni">
       <div className="ni-controls">
         <div className="ni-seg" role="group" aria-label="Window">
           <span className="ni-seg-label">Window</span>

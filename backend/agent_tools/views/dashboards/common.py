@@ -75,13 +75,12 @@ class Request:
 
 
 def _name_list(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    return {
-        "count": len(rows),
-        "reasons": [
-            {"ticker": r.get("ticker"), "reason": cut_text(r.get("reason"), 60)["text"]}
-            for r in rows[:REASONS_SHOWN]
-        ],
-    }
+    """``count`` names, the first ``REASONS_SHOWN`` reasons and ``reasons_shown`` (so a cut list says it was cut)."""
+    reasons = [
+        {"ticker": r.get("ticker"), "reason": cut_text(r.get("reason"), 60)["text"]}
+        for r in rows[:REASONS_SHOWN]
+    ]
+    return {"count": len(rows), "reasons_shown": len(reasons), "reasons": reasons}
 
 
 def coverage(

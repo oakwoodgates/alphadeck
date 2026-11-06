@@ -10,9 +10,7 @@
     "preview": "vite preview",
     "typecheck": "tsc -b",
     "test": "vitest run",
-    "gen:api": "openapi-typescript ../backend/openapi.json -o src/api/types.gen.ts",
-    "gen:mcp": "node scripts/generate-mcp-catalog.mjs",
-    "check:mcp": "node scripts/generate-mcp-catalog.mjs --check"
+    "gen:api": "openapi-typescript ../backend/openapi.json -o src/api/types.gen.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.51.0",

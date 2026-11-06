@@ -547,3 +547,71 @@ def test_lookup_ticker_filings_section_walks_every_row_newest_first():
     expected = [r["accession"] for day in page["filings"]["days"] for r in day["rows"]]
     assert seen == expected
     assert max(sizes) <= ticker_view.BUDGET
+
+
+# --- Phase 4 Step 0: lookup_ticker's cache rule and its triggers / catalysts sections --------------------------
+
+
+def test_lookup_ticker_compute_ms_only_when_computed_and_cold_compute_ms_on_a_hit():
+    page = fx.ticker_lookup()
+    computed = ticker_view.view_ticker(page, resolved=fx.ticker_resolve(), asof=fx.ASOF)
+    assert computed["cache"] == "computed" and computed["compute_ms"] == 2400
+    assert "cold_compute_ms" not in computed
+    hit_page = {**page, "cache": "hit", "compute_ms": 557}
+    for section in (None, "filings", "triggers", "catalysts"):
+        hit = ticker_view.view_ticker(
+            hit_page, resolved=fx.ticker_resolve(), asof=fx.ASOF, section=section
+        )
+        assert hit["cache"] == "hit" and hit["cold_compute_ms"] == 557, section
+        assert "compute_ms" not in hit, section
+
+
+def _many(page: dict, events: int, catalysts: int) -> dict:
+    """The lookup fixture with more trigger events and upcoming catalysts than one page holds."""
+    out = copy.deepcopy(page)
+    base_event = out["triggers"]["events"][0]
+    out["triggers"]["events"] = [
+        {**base_event, "recorded_on": f"2026-{1 + k // 28:02d}-{1 + k % 28:02d}"}
+        for k in range(events)
+    ]
+    base_cat = out["card_catalysts"][-1]
+    out["card_catalysts"] = [
+        {**base_cat, "label": f"Catalyst {k:02d}", "passed": False} for k in range(catalysts)
+    ]
+    return out
+
+
+@pytest.mark.parametrize("events,catalysts", [(None, None), (60, 55)])
+def test_lookup_ticker_triggers_and_catalysts_sections_page_to_the_end(events, catalysts):
+    page = fx.ticker_lookup()
+    if events is not None:
+        page = _many(page, events, catalysts)
+    reply = ticker_view.view_ticker(page, resolved=fx.ticker_resolve(), asof=fx.ASOF)
+    assert reply["sections"] == ["filings", "triggers", "catalysts"]
+    seen, sizes = walk(
+        lambda c: ticker_view.view_ticker(
+            page, resolved=fx.ticker_resolve(), asof=fx.ASOF, section="triggers", cursor=c
+        ),
+        ["events"],
+        lambda e: e["recorded_on"],
+    )
+    assert seen == [e["recorded_on"] for e in page["triggers"]["events"]]
+    assert max(sizes) <= ticker_view.BUDGET
+    first = ticker_view.view_ticker(
+        page, resolved=fx.ticker_resolve(), asof=fx.ASOF, section="triggers"
+    )
+    assert first["section"] == "triggers" and len(first["events"]) <= ticker_view.SECTION_PAGE
+    assert first["events_total"] == len(page["triggers"]["events"])
+    assert all("detail" not in s for e in first["events"] for s in e["sources"])
+    upcoming = [c["label"] for c in page["card_catalysts"] if not c["passed"]]
+    seen, sizes = walk(
+        lambda c: ticker_view.view_ticker(
+            page, resolved=fx.ticker_resolve(), asof=fx.ASOF, section="catalysts", cursor=c
+        ),
+        ["card_catalysts"],
+        lambda c: c["label"],
+    )
+    assert seen == upcoming and max(sizes) <= ticker_view.BUDGET
+    if events is not None:  # more than one page each (a page holds 25, fewer when 8,000 cuts it)
+        assert 0 < first["next_cursor"] <= ticker_view.SECTION_PAGE
+        assert first["next_cursor_for"] == "events"

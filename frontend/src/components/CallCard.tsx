@@ -19,8 +19,6 @@ import {
 import { DecisionActions } from "./DecisionActions";
 import { RailPanel } from "./RailPanel";
 import { ProvenanceSources, safeReferenceUrl } from "./ProvenanceSources";
-import { useCaptureBindings } from "../mcp/bindings";
-import { targetId } from "../mcp/targetId";
 
 type TriggerLike = NonNullable<CallCardResponse["triggers_fired"]>[number];
 
@@ -65,8 +63,6 @@ export function CallCard({
   thesisId?: string;
   foreignFiler?: { form: string } | null;
 }) {
-  const { sourceRefs } = useCaptureBindings();
-  const callPath = `/theses/${thesisId}/call`;
   const sc = STATE_CLASS[card.state] ?? "incub";
   const accent = accentVar(sc);
   // F1 — a recompute is a date before the server's current night (the default view is read live)
@@ -78,11 +74,9 @@ export function CallCard({
   const conf = card.confidence == null ? null : Math.round(card.confidence * 100);
   // Newest-first (frontend-only display sort; the backend list order stays stable). Stable sort keeps
   // the per-name / conviction-before-confirmation grouping within an equal date.
-  const triggers = (card.triggers_fired ?? []).map((item, index) => ({ item, index }))
-    .sort((a, b) => byEventDateDesc(a.item, b.item));
+  const triggers = [...(card.triggers_fired ?? [])].sort(byEventDateDesc);
   const missing = card.missing ?? [];
-  const risks = (card.risk_signals ?? []).map((item, index) => ({ item, index }))
-    .sort((a, b) => byEventDateDesc(a.item, b.item));
+  const risks = [...(card.risk_signals ?? [])].sort(byEventDateDesc);
   // F2 — the clocks below are COUNTDOWNS: they count from the action day on a live view (a catalyst dated the action
   // day reads "today"), from the as-of on a past one
   const origin = countdownOrigin(card.asof, appClock);
@@ -99,7 +93,7 @@ export function CallCard({
   const entryClosing = armed && Boolean(card.armed_members[0]?.entry_window_closing);
 
   return (
-    <div className={`callcard cc-${sc}`} data-mcp-id={targetId("call", thesisId ?? "preview")} {...sourceRefs(callPath, "")}>
+    <div className={`callcard cc-${sc}`}>
       <div className="cc-head">
         <span>{CALL_HEAD[card.state] ?? "The Call"}</span>
         {card.conviction_grade && (
@@ -152,9 +146,8 @@ export function CallCard({
 
         {triggers.length > 0 && (
           <RailPanel label="Triggers fired" count={triggers.length}>
-            {triggers.map(({ item: t, index }, i) => (
-              <TriggerRow key={i} item={t} icon="◉" variant="hit" showGrade
-                capture={{ path: callPath, pointer: `/triggers_fired/${index}`, scope: "call-trigger" }} />
+            {triggers.map((t, i) => (
+              <TriggerRow key={i} item={t} icon="◉" variant="hit" showGrade />
             ))}
           </RailPanel>
         )}
@@ -187,16 +180,15 @@ export function CallCard({
 
         {risks.length > 0 && (
           <RailPanel label="Risk signals" count={risks.length}>
-            {risks.map(({ item: r, index }, i) => (
-              <TriggerRow key={i} item={r} icon="▲" variant="warn" showGrade={false}
-                capture={{ path: callPath, pointer: `/risk_signals/${index}`, scope: "call-risk" }} />
+            {risks.map((r, i) => (
+              <TriggerRow key={i} item={r} icon="▲" variant="warn" showGrade={false} />
             ))}
           </RailPanel>
         )}
 
         <div className="counter">
           <b>Counter-case</b>
-          {counterCaseSummary(risks.map(({ item }) => item), missing)}
+          {counterCaseSummary(risks, missing)}
         </div>
 
         {catalysts.length > 0 && (
@@ -302,19 +294,15 @@ export function TriggerRow({
   icon,
   variant,
   showGrade,
-  capture,
 }: {
   item: TriggerLike;
   icon: string;
   variant: "hit" | "warn";
   showGrade: boolean;
-  capture?: { path: string; pointer: string; scope: string };
 }) {
-  const { sourceRefs } = useCaptureBindings();
   const url = (item.sources ?? []).find((s) => safeReferenceUrl(s.url))?.url;
   return (
-    <div className={`trg-item ${variant}`} data-mcp-id={capture ? targetId("trigger", capture.scope, capture.pointer) : undefined}
-      {...(capture ? sourceRefs(capture.path, capture.pointer) : {})}>
+    <div className={`trg-item ${variant}`}>
       <span className="ic">{icon}</span>
       <div className="trg-body">
         {/* dot · ticker · grade tag · text · source — the tag LEADS the text (a trailing tag
@@ -332,8 +320,7 @@ export function TriggerRow({
             </a>
           </>
         )}
-        <ProvenanceSources sources={item.sources ?? []} path={capture?.path ?? ""}
-          pointer={capture?.pointer ?? ""} scope={capture?.scope ?? JSON.stringify(item)} />
+        <ProvenanceSources sources={item.sources ?? []} />
       </div>
       {/* the fire/event date — muted, pinned top-right (timestamp idiom); omitted when absent */}
       {item.event_date && <span className="trg-date">{fmtDate(item.event_date)}</span>}

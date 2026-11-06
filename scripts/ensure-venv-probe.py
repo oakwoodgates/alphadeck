@@ -35,7 +35,6 @@ REQUIRED: dict[str, str] = {
     "duckdb": "replay",
     "pyarrow": "replay",
     "mcp": "mcp (the agent tools server -- `python -m agent_tools`)",
-    "jsonschema": "mcp",
     "fastapi": "runtime",
     "psycopg": "runtime",
     "tzdata": "runtime",

@@ -4,8 +4,10 @@ what is forming (``GET /dashboards/daily-digest``, dated; display only).
 The default reply keeps the counts, the nights, what is forming and the positions whole, then the leading rows of each
 list (the API's order; the tape shows its first AND last rows, since the API lists rises first and the falls sit at the
 tail): ``last_night.cards`` is the ONE paged list (the rest continues by cursor); the tape, insider
-and due lists show their leading rows and carry the full count beside them (``section`` reads one in full). Every
-value is copied from the API's JSON; entries are only counted and strings cut (with their full length).
+and due lists show their leading rows and carry the full count beside them (the tape also says how many of each end
+it shows; ``section`` reads one in full). ``section="last_night"`` cuts each card's lines at ``LINES_SHOWN`` (with
+``lines_total``) so a page always fits; with ``thesis`` it returns that ONE card with every line, paged by line.
+Every value is copied from the API's JSON; entries are only counted and strings cut (with their full length).
 """
 
 from __future__ import annotations
@@ -32,6 +34,11 @@ INSIDER_SHOWN = 2
 DUE_SHOWN = 4
 
 NOT_FRESH_SHOWN = 10
+LINES_SHOWN = (
+    12  # a changed card's lines in the last_night section; thesis= reads one card's every line
+)
+# what the output_too_large message names when a last_night page cannot fit (the per-card lines are the bulk)
+NARROW_HINT = "thesis=<card> for its lines"
 
 CARD_KEYS = ("thesis_id", "thesis_name", "state", "previous_state", "tier")
 HEADLINE_KEYS = ("change", "ticker", "from_state", "to_state", "on")
@@ -75,10 +82,35 @@ def _card(c: dict[str, Any]) -> dict[str, Any]:
 
 
 def _card_full(c: dict[str, Any]) -> dict[str, Any]:
+    """A changed card with its first ``LINES_SHOWN`` lines and ``lines_total`` (thesis= reads every line)."""
+    lines = c.get("lines") or []
     out = pick(c, CARD_KEYS)
-    out["lines"] = [pick(line, LINE_KEYS) for line in c.get("lines") or []]
+    out["lines_total"] = len(lines)
+    out["lines"] = [pick(line, LINE_KEYS) for line in lines[:LINES_SHOWN]]
     _not_fresh(c, out)
     return out
+
+
+def _one_card(reply: dict[str, Any], cards: list[dict[str, Any]], req: Request) -> dict[str, Any]:
+    """The narrowed card (``card``: its fields, null when it did not change) with every line, paged by line."""
+    card = cards[0] if cards else None
+    lines = (card or {}).get("lines") or []
+    head = None
+    if card is not None:
+        head = pick(card, CARD_KEYS)
+        _not_fresh(card, head)
+    reply["card"] = head
+    reply["lines_total"] = len(lines)
+    reply["lines"] = [pick(line, LINE_KEYS) for line in lines[req.cursor :]]
+    return fit(reply, BUDGET, [TrimRule(("lines",), min_keep=1, start=req.cursor, hint="cursor")])
+
+
+def _tape_shown(reply: dict[str, Any]) -> dict[str, Any]:
+    """The tape's ``rows_shown`` / ``tail_shown``: how many of each end the reply carries after the size rule."""
+    tape = reply["tape"]
+    tape["rows_shown"] = len(tape["rows"])
+    tape["tail_shown"] = len(tape["tail"])
+    return reply
 
 
 def _tape_row(r: dict[str, Any]) -> dict[str, Any]:
@@ -106,14 +138,9 @@ def _due_item(i: dict[str, Any]) -> dict[str, Any]:
 
 
 def _paged(
-    reply: dict[str, Any],
-    path: tuple[str, ...],
-    req: Request,
-    *,
-    extra: list[TrimRule] | None = None,
+    reply: dict[str, Any], path: tuple[str, ...], req: Request, *, hint: str = "cursor"
 ) -> dict[str, Any]:
-    rules = [TrimRule(path, min_keep=1, start=req.cursor, hint="cursor")]
-    return fit(reply, BUDGET, rules + (extra or []))
+    return fit(reply, BUDGET, [TrimRule(path, min_keep=1, start=req.cursor, hint=hint)])
 
 
 def view(payload: dict[str, Any], req: Request) -> dict[str, Any]:
@@ -136,10 +163,11 @@ def view(payload: dict[str, Any], req: Request) -> dict[str, Any]:
     reply = header(SLUG, payload, req, sections=SECTIONS, cov=cov, narrowed=narrowed(req))
     if req.section == "last_night":
         if req.thesis is not None:
-            cards = [c for c in cards if c.get("thesis_id") == req.thesis.get("id")]
+            one = [c for c in cards if c.get("thesis_id") == req.thesis.get("id")]
+            return _one_card(reply, one, req)
         reply["cards_total"] = len(cards)
         reply["cards"] = [_card_full(c) for c in cards[req.cursor :]]
-        return _paged(reply, ("cards",), req)
+        return _paged(reply, ("cards",), req, hint=NARROW_HINT)
     if req.section == "tape":
         rows = tape.get("rows") or []
         reply["rows_total"] = len(rows)
@@ -177,6 +205,8 @@ def view(payload: dict[str, Any], req: Request) -> dict[str, Any]:
                 "iwm_pct": tape.get("iwm_pct"),
                 "counts": tape.get("counts"),
                 "rows_total": len(tape.get("rows") or []),
+                "rows_shown": 0,  # set by _tape_shown once the size rule has run
+                "tail_shown": 0,
                 "rows": [_tape_row(r) for r in (tape.get("rows") or [])[:TAPE_SHOWN]],
                 # the API lists rises first, so the falls sit at its tail: show both ends, never re-sorted
                 "tail": [
@@ -216,4 +246,5 @@ def view(payload: dict[str, Any], req: Request) -> dict[str, Any]:
             TrimRule(("insider", "rows"), min_keep=0, hint="section"),
             TrimRule(("positions",), min_keep=0, hint="thesis"),
         ],
+        render=_tape_shown,
     )

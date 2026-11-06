@@ -3,8 +3,10 @@
 The default reply keeps who the company is, the cards it sits on (its link and ``context_role`` per card, the
 recorded call in effect there), the triggers the recorded calls show on it (each source's ``detail`` dropped), its
 tape figures (the sparkline series dropped), the next five catalysts of its cards, the operator's decisions and a
-filings summary. ``section="filings"`` lists the filing rows newest first, 25 to a page. ``cache`` and
-``compute_ms`` pass through (a cold read is slow: the cost is visible). Every value is copied from the API's JSON;
+filings summary. ``section="filings"`` lists the filing rows newest first, ``section="triggers"`` every trigger
+event of record on the name and ``section="catalysts"`` every upcoming catalyst of its cards, 25 to a page. ``cache``
+passes through; the API's ``compute_ms`` rides as ``compute_ms`` only when this read computed the page, else as
+``cold_compute_ms`` (what a cold read costs), the dashboards' header rule. Every value is copied from the API's JSON;
 ``count_by_form`` only counts the listed rows.
 """
 
@@ -18,9 +20,11 @@ BUDGET = 8_000
 NEXT_CATALYSTS = 5
 NEWEST_FILINGS = 5
 FILINGS_PAGE = 25
+SECTION_PAGE = 25  # the triggers and catalysts sections
 DETAIL_LINE_LIMIT = 300
+SECTIONS = ("filings", "triggers", "catalysts")
 
-Section = Literal["filings"]
+Section = Literal["filings", "triggers", "catalysts"]
 
 
 def _cards(cards: dict[str, Any]) -> dict[str, Any]:
@@ -120,6 +124,37 @@ def _filing(row: dict[str, Any], *, full: bool) -> dict[str, Any]:
     return out
 
 
+def _catalyst(c: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "thesis_id": c.get("thesis_id"),
+        "label": c.get("label"),
+        "kind": c.get("kind"),
+        "when_date": c.get("when_date"),
+        "when_label": c.get("when_label"),
+    }
+
+
+def _identity_brief(page: dict[str, Any]) -> dict[str, Any]:
+    identity = page.get("identity") or {}
+    return {
+        "security_id": identity.get("security_id"),
+        "ticker": identity.get("ticker"),
+        "name": identity.get("name"),
+    }
+
+
+def _page(
+    reply: dict[str, Any], key: str, items: list[Any], cursor: int, size: int
+) -> dict[str, Any]:
+    """One page of ``size`` items from ``cursor`` under ``key`` (``<key>_total`` beside it), within the budget."""
+    reply[f"{key}_total"] = len(items)
+    reply[key] = items[cursor : cursor + size]
+    end = cursor + len(reply[key])
+    reply["next_cursor"] = end if end < len(items) else None
+    reply["next_cursor_for"] = key if end < len(items) else None
+    return fit(reply, BUDGET, [TrimRule((key,), min_keep=1, start=cursor)])
+
+
 def view_ticker(
     page: dict[str, Any],
     *,
@@ -136,29 +171,40 @@ def view_ticker(
         "clock": page.get("clock"),
         "matched": resolved.get("matched"),
         "cache": page.get("cache"),
-        "compute_ms": page.get("compute_ms"),
     }
+    if "compute_ms" in page:
+        # on a cache hit the API still reports the cold time: it rides as what a cold read costs, never as this
+        # read's time (the same rule as the dashboards' header)
+        key = "compute_ms" if page.get("cache", "computed") == "computed" else "cold_compute_ms"
+        reply[key] = page.get("compute_ms")
+    triggers = page.get("triggers") or {}
+    events = triggers.get("events") or []
+    upcoming = [c for c in page.get("card_catalysts") or [] if not c.get("passed")]
     if section == "filings":
         reply.update(
             {
                 "section": "filings",
-                "identity": {
-                    "security_id": (page.get("identity") or {}).get("security_id"),
-                    "ticker": (page.get("identity") or {}).get("ticker"),
-                    "name": (page.get("identity") or {}).get("name"),
-                },
+                "identity": _identity_brief(page),
                 "read_days": filings.get("read_days"),
-                "filings_total": len(rows),
-                "filings": [_filing(r, full=True) for r in rows[cursor : cursor + FILINGS_PAGE]],
             }
         )
-        end = cursor + min(FILINGS_PAGE, max(0, len(rows) - cursor))
-        reply["next_cursor"] = end if end < len(rows) else None
-        reply["next_cursor_for"] = "filings" if end < len(rows) else None
-        return fit(reply, BUDGET, [TrimRule(("filings",), min_keep=1, start=cursor)])
-    triggers = page.get("triggers") or {}
-    events = triggers.get("events") or []
-    upcoming = [c for c in page.get("card_catalysts") or [] if not c.get("passed")]
+        return _page(reply, "filings", [_filing(r, full=True) for r in rows], cursor, FILINGS_PAGE)
+    if section == "triggers":
+        reply.update(
+            {
+                "section": "triggers",
+                "identity": _identity_brief(page),
+                "window_start": triggers.get("window_start"),
+                "cards_read": triggers.get("cards_read"),
+                "nights_read": triggers.get("nights_read"),
+            }
+        )
+        return _page(reply, "events", [_event(e) for e in events], cursor, SECTION_PAGE)
+    if section == "catalysts":
+        reply.update({"section": "catalysts", "identity": _identity_brief(page)})
+        return _page(
+            reply, "card_catalysts", [_catalyst(c) for c in upcoming], cursor, SECTION_PAGE
+        )
     count_by_form: dict[str, int] = {}
     for r in rows:
         count_by_form[r.get("form")] = count_by_form.get(r.get("form"), 0) + 1
@@ -175,16 +221,7 @@ def view_ticker(
             },
             "tape": _tape(page.get("tape") or {}),
             "card_catalysts_upcoming": len(upcoming),
-            "card_catalysts": [
-                {
-                    "thesis_id": c.get("thesis_id"),
-                    "label": c.get("label"),
-                    "kind": c.get("kind"),
-                    "when_date": c.get("when_date"),
-                    "when_label": c.get("when_label"),
-                }
-                for c in upcoming[:NEXT_CATALYSTS]
-            ],
+            "card_catalysts": [_catalyst(c) for c in upcoming[:NEXT_CATALYSTS]],
             "decisions": page.get("decisions"),
             "decisions_voided": page.get("decisions_voided"),
             "filings": {
@@ -194,7 +231,7 @@ def view_ticker(
                 "count_by_form": count_by_form,
                 "newest": [_filing(r, full=False) for r in rows[:NEWEST_FILINGS]],
             },
-            "sections": ["filings"],
+            "sections": list(SECTIONS),
         }
     )
     return fit(reply, BUDGET, [TrimRule(("triggers", "events"), min_keep=0, start=cursor)])

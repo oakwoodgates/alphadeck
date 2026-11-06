@@ -1,8 +1,5 @@
 import type { ProvenanceOut } from "../api/hooks";
 import { useState } from "react";
-import { useCaptureBindings } from "../mcp/bindings";
-import { targetId } from "../mcp/targetId";
-import { useCaptureView } from "../mcp/viewContext";
 import "./provenance-sources.css";
 
 export function safeReferenceUrl(value: string | null | undefined): string | null {
@@ -12,25 +9,16 @@ export function safeReferenceUrl(value: string | null | undefined): string | nul
 }
 
 /** The stored source references and computation detail, without fetching or interpreting a source. */
-export function ProvenanceSources({ sources, path, pointer, scope, sourceKey = "sources", label = "Sources" }: {
+export function ProvenanceSources({ sources, label = "Sources" }: {
   sources: readonly ProvenanceOut[];
-  path: string;
-  pointer: string;
-  scope: string;
-  sourceKey?: string;
   label?: string;
 }) {
-  const { readOnly, settings } = useCaptureView();
-  const { sourceRefs } = useCaptureBindings();
   const [open, setOpen] = useState(false);
-  const expanded = readOnly ? settings.evidence_open === true : open;
   if (!sources.length) return null;
-  return <details className="provenance-sources" open={expanded} onToggle={(event) => { if (!readOnly) setOpen(event.currentTarget.open); }}
-    data-mcp-id={targetId("source-block", scope, pointer)} {...sourceRefs(path, pointer)}>
+  return <details className="provenance-sources" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
     <summary>{label} · {sources.length}</summary>
-    {expanded && sources.map((source, index) => <section className="provenance-source" key={index}
-      aria-label={`Source · ${source.source}`} data-mcp-id={targetId("source", scope, pointer, String(index))}
-      {...sourceRefs(path, `${pointer}/${sourceKey}/${index}`)}>
+    {open && sources.map((source, index) => <section className="provenance-source" key={index}
+      aria-label={`Source · ${source.source}`}>
       <dl>
         <dt>Source</dt><dd>{source.source}</dd>
         <dt>Reference</dt><dd>{source.ref}</dd>

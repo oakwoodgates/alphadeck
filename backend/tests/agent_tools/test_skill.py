@@ -118,3 +118,24 @@ def test_skill_sync_is_pure():
     for node in ast.walk(tree):  # the one relative import is the pure argument module
         if isinstance(node, ast.ImportFrom) and node.level:
             assert node.module == "prompt_args"
+
+
+TOOLS = (
+    "get_clock",
+    "list_theses",
+    "get_thesis",
+    "get_call",
+    "get_data_flags",
+    "get_display_signals",
+    "get_decisions",
+    "lookup_ticker",
+    "list_dashboards",
+    "read_dashboard",
+)
+
+
+def test_the_setup_select_line_names_all_ten_tools_and_can_be_pasted():
+    line = next(x.strip() for x in _text().splitlines() if x.strip().startswith("select:"))
+    assert "..." not in line and " " not in line
+    names = line.removeprefix("select:").split(",")
+    assert names == [f"mcp__alphadeck-prod__{t}" for t in TOOLS]

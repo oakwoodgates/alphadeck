@@ -208,7 +208,7 @@ Gray circles of different sizes joined by thin lines, with two overlapping circl
 - `backend/app/routers/dashboards/overlap_map.py` (`APIRouter(prefix="/overlap-map")`, one `GET ""`, its wire models)
 - `backend/tests/dashboards/test_overlap_map.py`
 - `frontend/src/dashboards/overlap-map/`:
-  - `entry.ts`, `capability.json` (every capability false, `order: 300`; then `npm run gen:mcp`) and `thumbnail.svg`;
+  - `entry.ts` (its registry metadata inline, `order: 300`) and `thumbnail.svg`;
   - `OverlapMap.tsx`, `useOverlapMap.ts`, `vennLayout.ts`, `sectorGrid.ts`, `overlap-map.css` and tests.
 - `frontend/src/dashboards/__tests__/registry.test.ts` (the pinned list and orders gain `overlap-map` / 300)
 - `docs/dashboards/overlap-map.md` (this plan; the build adds "Choices to confirm") and its Index row in `docs/DASHBOARDS.md`
