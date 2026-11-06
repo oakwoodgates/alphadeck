@@ -140,9 +140,15 @@ request, and never feed a call. Code: `backend/app/routers/fund_radar.py`, `fron
 - `GET /theses/{id}/fund-launches?asof=YYYY-MM-DD&days=90`: this card's matches **as of a night** (invariant #1).
   **The window rule:** a fund is in the window `asof - days .. asof` when **any** of its stage dates (filed, effective,
   ticker, listed) falls inside it, because a fund gets its ticker months after its filing and would otherwise leave the
-  window before "+ add to ETFs" could appear. **The start-night rule:** a ticker or listing dated the first night its
-  source shows any symbol does not count as activity (those funds were already trading when the radar began reading
-  the files); the fund still shows its stage chips and still counts if it was filed or went effective in the window.
+  window before "+ add to ETFs" could appear. **The listing rule:** a ticker or listing date is the night we first saw
+  the symbol, and it counts as activity only when it is **strictly later than the night the fund's series was first
+  stored**. We never saw a symbol arrive for a fund we had only just learned about: a backfill stores old funds that
+  were already trading, and their symbols are first seen the same night. Such a fund still shows its stage chips and
+  still counts if it was filed or went effective in the window. The stored time is used only to judge whether a
+  first-seen date is an observed arrival; it is not a history gate (history still filters by public date and by symbol
+  night at or before `asof`, invariant #1). The "night" is the market date of the stored time, the same rule
+  `market_today()` applies to now, so a pass that runs past midnight (symbols stamped with the pass's night, stored a
+  few minutes into the next day) is correctly not activity.
   Every stage is derived **only from facts public by `asof`**, so a 485BPOS, or a symbol first seen after `asof`,
   never shows on a history view. Filings are ordered by their newest in-window activity, and the response says
   `symbol_history_since` (the earliest symbol night visible by `asof`), shown quietly in the Cockpit line's hover.
@@ -150,7 +156,7 @@ request, and never feed a call. Code: `backend/app/routers/fund_radar.py`, `fron
   released are left out. The Cockpit's frozen MCP capture reads the same function (`read_fund_launches`). Honest
   limit: `in_etfs` reads the card's basket as it stands **now** (a roster as of a night is not reconstructed for this
   flag), and the ticker / listed dates are the nights we first saw the symbol (neither file carries a date), so a fund
-  already trading when the radar started reads that start night.
+  already trading when the radar started reads the night the files were first read.
 - `POST /radar/funds/attach` and `/detach` `{thesis_id, symbol}`: the operator's click (#10), reversible (#1). Attach
   resolves the symbol through the **same function as `POST /workbench/securities/resolve-etf`** (lookup-or-create,
   `instrument_kind='etf'`), builds the member as "Surface an ETF" does (role "ETF sleeve", segment ETFs, a model
