@@ -2,7 +2,8 @@
 what is forming (``GET /dashboards/daily-digest``, dated; display only).
 
 The default reply keeps the counts, the nights, what is forming and the positions whole, then the leading rows of each
-list (the API's order): ``last_night.cards`` is the ONE paged list (the rest continues by cursor); the tape, insider
+list (the API's order; the tape shows its first AND last rows, since the API lists rises first and the falls sit at the
+tail): ``last_night.cards`` is the ONE paged list (the rest continues by cursor); the tape, insider
 and due lists show their leading rows and carry the full count beside them (``section`` reads one in full). Every
 value is copied from the API's JSON; entries are only counted and strings cut (with their full length).
 """
@@ -30,6 +31,8 @@ TAPE_SHOWN = 3
 INSIDER_SHOWN = 2
 DUE_SHOWN = 4
 
+NOT_FRESH_SHOWN = 10
+
 CARD_KEYS = ("thesis_id", "thesis_name", "state", "previous_state", "tier")
 HEADLINE_KEYS = ("change", "ticker", "from_state", "to_state", "on")
 LINE_KEYS = ("change", "ticker", "from_state", "to_state", "label", "on", "signal_kind")
@@ -37,6 +40,22 @@ TAPE_KEYS = ("ticker", "thesis_name", "sessions_since", "sessions_left", "cut")
 INSIDER_KEYS = ("ticker", "filer", "role", "usd", "trade_date", "filed")
 DUE_KEYS = ("item", "on", "days", "today", "kind", "thesis_name", "state")
 DUE_INTS = ("catalysts", "deadlines", "passed_since", "passed_total", "cards_without_calls")
+
+
+def _not_fresh(src: dict[str, Any], out: dict[str, Any]) -> None:
+    """A card whose last pass did not ingest every name cleanly keeps ``ingest_fresh: false`` (omitted otherwise)."""
+    if src.get("ingest_fresh") is False:
+        out["ingest_fresh"] = False
+
+
+def _cards_not_fresh(payload: dict[str, Any]) -> list[str | None]:
+    """The names of the cards (changed cards, then positions) the API marks ``ingest_fresh: false``, in its order."""
+    names: list[str | None] = []
+    rows = (payload.get("last_night") or {}).get("cards") or []
+    for r in [*rows, *(payload.get("positions") or [])]:
+        if r.get("ingest_fresh") is False and r.get("thesis_name") not in names:
+            names.append(r.get("thesis_name"))
+    return names[:NOT_FRESH_SHOWN]
 
 
 def _headline(h: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -51,12 +70,14 @@ def _card(c: dict[str, Any]) -> dict[str, Any]:
     out = pick(c, CARD_KEYS)
     out["headline"] = _headline(c.get("headline"))
     out["line_count"] = len(c.get("lines") or [])
+    _not_fresh(c, out)
     return out
 
 
 def _card_full(c: dict[str, Any]) -> dict[str, Any]:
     out = pick(c, CARD_KEYS)
     out["lines"] = [pick(line, LINE_KEYS) for line in c.get("lines") or []]
+    _not_fresh(c, out)
     return out
 
 
@@ -107,7 +128,8 @@ def view(payload: dict[str, Any], req: Request) -> dict[str, Any]:
             "no_baseline": {
                 "last_night": last.get("no_baseline"),
                 "insider": insider.get("no_baseline"),
-            }
+            },
+            **({"cards_not_fresh": nf} if (nf := _cards_not_fresh(payload)) else {}),
         },
         skip=("counts",) if req.section is None else (),
     )
@@ -156,6 +178,13 @@ def view(payload: dict[str, Any], req: Request) -> dict[str, Any]:
                 "counts": tape.get("counts"),
                 "rows_total": len(tape.get("rows") or []),
                 "rows": [_tape_row(r) for r in (tape.get("rows") or [])[:TAPE_SHOWN]],
+                # the API lists rises first, so the falls sit at its tail: show both ends, never re-sorted
+                "tail": [
+                    _tape_row(r)
+                    for r in (tape.get("rows") or [])[
+                        max(TAPE_SHOWN, len(tape.get("rows") or []) - TAPE_SHOWN) :
+                    ]
+                ],
             },
             "insider": {
                 "span_start": insider.get("span_start"),
@@ -181,6 +210,7 @@ def view(payload: dict[str, Any], req: Request) -> dict[str, Any]:
         BUDGET,
         [
             TrimRule(("last_night", "cards"), min_keep=1, start=req.cursor, hint="cursor"),
+            TrimRule(("tape", "tail"), min_keep=0, hint="section"),
             TrimRule(("tape", "rows"), min_keep=0, hint="section"),
             TrimRule(("due", "items"), min_keep=0, hint="section"),
             TrimRule(("insider", "rows"), min_keep=0, hint="section"),

@@ -166,6 +166,33 @@ def _failure_result(failure: ToolFailure) -> types.CallToolResult:
     )
 
 
+_PATTERN_HINTS = {
+    "asof": "asof takes a date as YYYY-MM-DD",
+    "since": "since takes last_night, 7d or YYYY-MM-DD",
+}
+
+
+def _invalid_message(error: ValidationError) -> str:
+    """One sentence per failed field that names what the field accepts (the allowed values of a ``Literal`` ride in
+    the validation error's context), so a caller never has to guess the fix."""
+    parts: dict[str, str] = {}
+    for e in error.errors():
+        field = ".".join(str(p) for p in e["loc"])
+        ctx = e.get("ctx") or {}
+        if e["type"] == "literal_error" and "expected" in ctx:
+            allowed = str(ctx["expected"]).replace("'", "")
+            parts[field] = f"{field} must be one of: {allowed}"
+        elif e["type"] == "string_pattern_mismatch":
+            parts[field] = _PATTERN_HINTS.get(field, f"{field} does not match {ctx.get('pattern')}")
+        elif e["type"] == "missing":
+            parts[field] = f"{field} is required"
+        elif e["type"] in ("greater_than_equal", "less_than_equal", "too_long", "too_short"):
+            parts[field] = f"{field}: {e['msg']}"
+        else:
+            parts[field] = f"{field} is invalid ({e['msg']})"
+    return "Invalid arguments: " + "; ".join(parts[k] for k in sorted(parts)) + "."
+
+
 class AlphaDeckServer(MCPServer):
     """``MCPServer`` whose every failure reaches the model as the compact error JSON, never SDK or exception
     text; ``--trace`` logs one line per call (name, outcome, size, time), never content."""
@@ -193,10 +220,7 @@ class AlphaDeckServer(MCPServer):
             if isinstance(cause, ToolFailure):
                 failure = cause
             elif isinstance(cause, ValidationError):
-                fields = sorted({".".join(str(p) for p in e["loc"]) for e in cause.errors()})
-                failure = ToolFailure(
-                    "invalid_arguments", "Invalid arguments: " + ", ".join(fields) + "."
-                )
+                failure = ToolFailure("invalid_arguments", _invalid_message(cause))
             else:
                 failure = ToolFailure("invalid_arguments", f"Unknown tool {name!r}.")
             result = _failure_result(failure)
@@ -459,7 +483,7 @@ def build_server(client: ApiClient, *, trace: bool = False) -> AlphaDeckServer:
         "default reply is the dashboard's counts, caveats (coverage) and its leading rows, within 8,000 "
         "characters; a cut list continues with cursor, and section reads one part in full. asof applies to the "
         "dated dashboards only (omitted = current night). thesis narrows to one card, group to one group or "
-        "bucket key from the default reply, and the settings (since, group_by, include_silent, rows, days, "
+        "bucket key from the default reply, change (what-changed) to one kind of change, and the settings (since, group_by, include_silent, rows, days, "
         "role) go to the dashboards that take them: list_dashboards names which.",
     )
     async def read_dashboard(
@@ -498,6 +522,13 @@ def build_server(client: ApiClient, *, trace: bool = False) -> AlphaDeckServer:
         rows: Literal["armed", "all"] | None = None,
         days: Literal[30, 90, 180] | None = None,
         role: Literal["entry", "risk", "both"] | None = None,
+        change: Annotated[
+            str | None,
+            Field(
+                description="what-changed only: narrow the items to this one change (a key of by_change).",
+                max_length=40,
+            ),
+        ] = None,
     ) -> Annotated[types.CallToolResult, DashboardReply]:
         dash = DASHBOARDS[dashboard]
         given = {
@@ -509,7 +540,7 @@ def build_server(client: ApiClient, *, trace: bool = False) -> AlphaDeckServer:
             "role": role,
         }
         effective = check_dashboard_args(
-            dash, asof=asof, section=section, thesis=thesis, group=group, given=given
+            dash, asof=asof, section=section, thesis=thesis, group=group, given=given, change=change
         )
         night = None
         if dash.dated:
@@ -525,6 +556,7 @@ def build_server(client: ApiClient, *, trace: bool = False) -> AlphaDeckServer:
             cursor=cursor,
             thesis=ref,
             group=group,
+            change=change,
             settings=effective,
         )
         try:

@@ -1,6 +1,6 @@
 Review the Alpha Deck Decision Queue as of {{asof}}.
 
-1. Call list_theses once (detail=queue). Note its asof, the counts and the queue; the queue cards come first
+1. Call list_theses once (detail=queue, limit={{max_items}}). Note its asof, the counts and the queue; the queue cards come first
    in cards, in queue order.
 2. For each of the first {{max_items}} queue ids, in queue order, call get_call once with detail=brief.
    The standard get_call (or a section) is for depth on one card; use it only if the operator asks.

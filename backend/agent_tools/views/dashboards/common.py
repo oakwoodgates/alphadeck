@@ -70,6 +70,7 @@ class Request:
     cursor: int = 0
     thesis: dict[str, Any] | None = None
     group: str | None = None
+    change: str | None = None
     settings: dict[str, Any] = field(default_factory=dict)
 
 
@@ -122,7 +123,10 @@ def header(
     if "cache" in payload:
         out["cache"] = payload["cache"]
     if "compute_ms" in payload:
-        out["compute_ms"] = payload["compute_ms"]
+        # on a cache hit the API still reports the cold time: it rides as what a cold read costs, never as this
+        # read's time (a 173 ms hit that says compute_ms 41,669 reads like a slow call)
+        key = "compute_ms" if payload.get("cache", "computed") == "computed" else "cold_compute_ms"
+        out[key] = payload["compute_ms"]
     out["settings"] = dict(req.settings)
     out["coverage"] = cov
     out["sections"] = list(sections)
@@ -139,6 +143,8 @@ def narrowed(req: Request) -> dict[str, Any] | None:
         out["thesis"] = {"id": req.thesis.get("id"), "name": req.thesis.get("name")}
     if req.group is not None:
         out["group"] = req.group
+    if req.change is not None:
+        out["change"] = req.change
     return out or None
 
 

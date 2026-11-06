@@ -44,6 +44,11 @@ class Dashboard:
     narrows: tuple[str, ...] = ()
     settings: tuple[Setting, ...] = ()
     view_module: str = ""
+    # a section that reads one card or one group says so: section -> "thesis" | "group" (the others need nothing)
+    needs: tuple[tuple[str, str], ...] = ()
+
+    def needs_of(self, section: str) -> str | None:
+        return dict(self.needs).get(section)
 
     def setting_names(self) -> tuple[str, ...]:
         return tuple(s.name for s in self.settings)
@@ -85,7 +90,7 @@ REGISTRY: dict[str, Dashboard] = {
             "Every change between two recorded nights: states, keys, names, triggers, clocks, new cards.",
             False,
             ("column_moves", "keys", "names", "triggers", "clocks", "new_cards"),
-            ("thesis",),
+            ("thesis", "change"),
             (SINCE,),
         ),
         Dashboard(
@@ -95,6 +100,7 @@ REGISTRY: dict[str, Dashboard] = {
             ("row",),
             ("thesis",),
             (ROWS,),
+            needs=(("row", "thesis"),),
         ),
         Dashboard(
             "entry-windows",
@@ -109,6 +115,9 @@ REGISTRY: dict[str, Dashboard] = {
             True,
             ("names", "risks", "missing", "watch", "quiet", "adoption"),
             ("thesis",),
+            needs=tuple(
+                (s, "thesis") for s in ("names", "risks", "missing", "watch", "quiet", "adoption")
+            ),
         ),
         Dashboard(
             "catalyst-calendar",
@@ -116,6 +125,7 @@ REGISTRY: dict[str, Dashboard] = {
             False,
             ("bucket", "passed", "undated"),
             ("thesis", "group"),
+            needs=(("bucket", "group"),),
         ),
         Dashboard(
             "rotation-map",
@@ -124,6 +134,7 @@ REGISTRY: dict[str, Dashboard] = {
             ("members", "flagged"),
             ("group",),
             (GROUP_BY, INCLUDE_SILENT),
+            needs=(("members", "group"),),
         ),
         Dashboard(
             "trigger-log",
@@ -132,6 +143,7 @@ REGISTRY: dict[str, Dashboard] = {
             ("row",),
             ("thesis",),
             (DAYS, ROLE),
+            needs=(("row", "thesis"),),
         ),
     )
 }

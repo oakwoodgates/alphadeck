@@ -51,9 +51,9 @@ def test_the_registry_names_the_eight_dashboards():
     assert {s for s in SLUGS if not REGISTRY[s].dated} == {"what-changed", "catalyst-calendar"}
 
 
-def test_list_dashboards_names_the_eight_with_settings_and_sections_within_3000_chars():
+def test_list_dashboards_names_the_eight_with_settings_and_sections_within_3500_chars():
     reply = view_list_dashboards()
-    assert size(reply) <= 3_000
+    assert size(reply) <= 3_500
     assert [d["slug"] for d in reply["dashboards"]] == list(SLUGS)
     by_slug = {d["slug"]: d for d in reply["dashboards"]}
     assert by_slug["trigger-log"]["settings"][0] == {
@@ -72,6 +72,16 @@ def test_list_dashboards_names_the_eight_with_settings_and_sections_within_3000_
     assert "settings" not in by_slug["daily-digest"]
     for d in reply["dashboards"]:
         assert d["sections"]
+        assert list(d["sections"]) == list(REGISTRY[d["slug"]].sections)
+    # (d) which sections read one card or one group: said once in the listing, enforced by check()
+    needs = {d["slug"]: {s: n for s, n in d["sections"].items() if n} for d in reply["dashboards"]}
+    assert needs["hot-board"] == {"row": "thesis"} and needs["trigger-log"] == {"row": "thesis"}
+    assert needs["catalyst-calendar"] == {"bucket": "group"}
+    assert needs["rotation-map"] == {"members": "group"}
+    assert set(needs["forming-quietly"]) == set(REGISTRY["forming-quietly"].sections)
+    assert set(needs["forming-quietly"].values()) == {"thesis"}
+    assert not needs["daily-digest"] and not needs["entry-windows"] and not needs["what-changed"]
+    assert "change" in by_slug["what-changed"]["narrows"]
 
 
 def test_list_dashboards_through_the_server_is_a_pure_registry_read():
@@ -81,7 +91,7 @@ def test_list_dashboards_through_the_server_is_a_pure_registry_read():
         return await session.call_tool("list_dashboards", {})
 
     result = run(api, body)
-    assert not result.is_error and len(result.content[0].text) <= 3_000
+    assert not result.is_error and len(result.content[0].text) <= 3_500
     assert result.structured_content["asof"] is None
     assert api.requests == []  # no I/O
 
@@ -96,21 +106,54 @@ def test_list_dashboards_through_the_server_is_a_pure_registry_read():
         ({"dashboard": "catalyst-calendar", "asof": "2026-11-05"}, "not dated"),
         (
             {"dashboard": "daily-digest", "rows": "all"},
-            "`daily-digest` takes only: asof, thesis, section.",
+            "`daily-digest` does not take rows; it takes asof, thesis, section, cursor.",
         ),
         (
             {"dashboard": "hot-board", "days": 30},
-            "`hot-board` takes only: asof, rows, thesis, section.",
+            "`hot-board` does not take days; it takes asof, rows, thesis, section, cursor.",
         ),
-        ({"dashboard": "rotation-map", "thesis": "Thesis 01"}, "`thesis` does not narrow"),
-        ({"dashboard": "hot-board", "group": "x"}, "`group` does not narrow"),
-        ({"dashboard": "trigger-log", "include_silent": False}, "takes only: asof, days, role"),
+        (
+            {"dashboard": "rotation-map", "thesis": "Thesis 01"},
+            "does not take thesis; it takes asof, group_by, include_silent, group, section, cursor",
+        ),
+        ({"dashboard": "hot-board", "group": "x"}, "does not take group; it takes asof, rows"),
+        (
+            {"dashboard": "trigger-log", "include_silent": False},
+            "it takes asof, days, role, thesis, section, cursor",
+        ),
+        (
+            {"dashboard": "hot-board", "change": "risk_new"},
+            "`hot-board` does not take change; it takes asof, rows",
+        ),
         ({"dashboard": "hot-board", "section": "nope"}, "has: row"),
         ({"dashboard": "what-changed", "since": "2026-02-30"}, "real date"),
-        ({"dashboard": "what-changed", "since": "yesterday"}, "since"),
-        ({"dashboard": "rotation-map", "group_by": "cap"}, "group_by"),
-        ({"dashboard": "trigger-log", "days": 45}, "days"),
-        ({"dashboard": "no-such-dashboard"}, "dashboard"),
+        (
+            {"dashboard": "what-changed", "since": "yesterday"},
+            "since takes last_night, 7d or YYYY-MM-DD",
+        ),
+        (
+            {"dashboard": "rotation-map", "group_by": "cap"},
+            "group_by must be one of: link, business_type, sector or card",
+        ),
+        ({"dashboard": "trigger-log", "days": 45}, "days must be one of: 30, 90 or 180"),
+        (
+            {"dashboard": "no-such-dashboard"},
+            "dashboard must be one of: daily-digest, what-changed, hot-board, entry-windows, "
+            "forming-quietly, catalyst-calendar, rotation-map or trigger-log",
+        ),
+        ({"dashboard": "hot-board", "asof": "yesterday"}, "asof takes a date as YYYY-MM-DD"),
+        (
+            {"dashboard": "hot-board", "section": "row"},
+            "section=row of `hot-board` needs thesis",
+        ),
+        (
+            {"dashboard": "rotation-map", "section": "members"},
+            "section=members of `rotation-map` needs group",
+        ),
+        (
+            {"dashboard": "forming-quietly", "section": "risks"},
+            "section=risks of `forming-quietly` needs thesis",
+        ),
     ],
 )
 def test_a_setting_the_dashboard_does_not_take_is_invalid_arguments_naming_what_it_takes(
@@ -237,6 +280,10 @@ def test_daily_digest_default_reply_copies_the_api_and_pages_the_changed_cards()
     assert first["headline"]["label"] == want["headline"]["label"][:120]
     assert "label_total_chars" not in first["headline"]  # only a cut string carries its full length
     assert reply["tape"]["rows_total"] == 69 and len(reply["tape"]["rows"]) == 3
+    api_rows = src["tape"]["rows"]  # (a) both ends of the API's list, in its order, never re-sorted
+    assert [r["ticker"] for r in reply["tape"]["rows"]] == [r["ticker"] for r in api_rows[:3]]
+    assert [r["ticker"] for r in reply["tape"]["tail"]] == [r["ticker"] for r in api_rows[-3:]]
+    assert {"rise", "fall"} <= {r["cut"] for r in reply["tape"]["rows"] + reply["tape"]["tail"]}
     assert reply["insider"]["rows_total"] == 9 and len(reply["insider"]["rows"]) == 2
     assert reply["due"]["items_total"] == 14 and len(reply["due"]["items"]) == 4
     assert reply["next_cursor_for"] == "last_night/cards"  # the one paged list
@@ -825,3 +872,96 @@ def test_trigger_log_thesis_narrows_the_rows_and_the_row_section_carries_every_f
 def test_forming_quietly_names_a_card_that_is_not_forming():
     reply = call("forming-quietly", section="adoption", thesis=dfx.tid(50))
     assert reply["card_in_forming"] is False and reply["adoption"] is None
+
+
+# --- Phase 3 Step 0: the fixes from the native retest --------------------------------------------------------------
+
+
+def test_compute_ms_is_this_reads_time_only_when_computed_and_cold_compute_ms_on_a_hit():
+    computed = call("daily-digest")  # the fixture says cache=computed, 41,700 ms
+    assert computed["cache"] == "computed" and computed["compute_ms"] == 41_700
+    assert "cold_compute_ms" not in computed
+    hit = call("trigger-log")  # the fixture says cache=hit, 4 ms: the API's number is the cold time
+    assert hit["cache"] == "hit" and hit["cold_compute_ms"] == 4 and "compute_ms" not in hit
+
+
+def _not_fresh_digest() -> dict:
+    payload = copy.deepcopy(dfx.daily_digest())
+    for i in (1, 2, 3):
+        payload["last_night"]["cards"][i]["ingest_fresh"] = False
+    payload["last_night"]["cards"][5]["ingest_fresh"] = None  # unstamped (a reconstruction)
+    payload["positions"][0]["ingest_fresh"] = False
+    return payload
+
+
+def test_a_card_that_is_not_fresh_keeps_its_flag_and_coverage_names_the_cards():
+    payload = _not_fresh_digest()
+    req = Request(asof=dfx.ASOF)
+    reply = REGISTRY["daily-digest"].view()(payload, req)
+    shown = {c["thesis_name"]: c for c in reply["last_night"]["cards"]}
+    for i in (1, 2, 3):
+        assert shown[dfx.thesis_name(i)]["ingest_fresh"] is False
+    # omitted when true or unstamped
+    assert sum("ingest_fresh" in c for c in reply["last_night"]["cards"]) == 3
+    assert reply["coverage"]["cards_not_fresh"] == [
+        dfx.thesis_name(1),
+        dfx.thesis_name(2),
+        dfx.thesis_name(3),
+        dfx.thesis_name(0),  # the open position's card, after the changed cards, in the API's order
+    ]
+    assert reply["positions"][0]["ingest_fresh"] is False
+    full = REGISTRY["daily-digest"].view()(payload, Request(asof=dfx.ASOF, section="last_night"))
+    assert sum(c.get("ingest_fresh") is False for c in full["cards"]) == 3
+    # the clean fixture carries neither the flag nor the list
+    clean = REGISTRY["daily-digest"].view()(dfx.daily_digest(), req)
+    assert "cards_not_fresh" not in clean["coverage"]
+    assert not any("ingest_fresh" in c for c in clean["last_night"]["cards"])
+
+
+def test_cards_not_fresh_lists_at_most_ten_names():
+    payload = copy.deepcopy(dfx.daily_digest())
+    for c in payload["last_night"]["cards"][:25]:
+        c["ingest_fresh"] = False
+    reply = REGISTRY["daily-digest"].view()(payload, Request(asof=dfx.ASOF))
+    names = reply["coverage"]["cards_not_fresh"]
+    assert names == [c["thesis_name"] for c in payload["last_night"]["cards"][:10]]
+
+
+def test_what_changed_change_narrows_to_one_kind_and_matches_by_change():
+    whole = call("what-changed", section="triggers")
+    assert whole["by_change"] == {"trigger_redated": 34, "trigger_new": 26, "trigger_gone": 15}
+    for change, count in whole["by_change"].items():
+        narrowed = call("what-changed", section="triggers", change=change)
+        assert narrowed["items_total"] == count == whole["by_change"][change]
+        assert narrowed["by_change"] == whole["by_change"]  # the keys `change` takes stay visible
+        assert narrowed["narrowed"]["change"] == change
+        assert {i["change"] for i in narrowed["items"]} == {change}
+    rows = walk("what-changed", ("items",), change="trigger_new")
+    src = [i for i in dfx.what_changed()["items"] if i["change"] == "trigger_new"]
+    assert_walk([r["ticker"] for r in rows], [i["ticker"] for i in src])
+    # with no section: the change across the whole read
+    assert call("what-changed", change="risk_new")["items_total"] == 423
+
+
+def test_an_empty_section_or_narrowing_says_so_with_a_note():
+    empty = call("what-changed", section="keys", change="key_off")
+    assert empty["items_total"] == 0 and empty["items"] == []
+    assert empty["note"].startswith("nothing changed in 'key_off' in keys since last_night")
+    assert "key_on" in empty["note"]  # names the changes the read does hold
+    payload = copy.deepcopy(dfx.what_changed())
+    payload["items"] = [i for i in payload["items"] if i["section"] != "keys"]
+    reply = REGISTRY["what-changed"].view()(payload, Request(section="keys"))
+    assert reply["items_total"] == 0
+    assert reply["note"] == "nothing changed in keys since last_night"
+    assert "note" not in call("what-changed", section="keys")
+
+
+def test_change_on_another_dashboard_is_invalid_arguments():
+    api = FakeApi()
+
+    async def body(session):
+        return await session.call_tool("read_dashboard", {"dashboard": "hot-board", "change": "x"})
+
+    err = error_of(run(api, body))
+    assert err["code"] == "invalid_arguments" and "does not take change" in err["message"]
+    assert not [r for r in api.requests if r[1].startswith("/dashboards")]

@@ -47,7 +47,7 @@ BUDGETS = {
     "get_display_signals": 8_000,
     "get_decisions": 8_000,
     "lookup_ticker": 8_000,
-    "list_dashboards": 3_000,
+    "list_dashboards": 3_500,
     "read_dashboard": 8_000,
 }
 DEFAULT_ARGS = {
