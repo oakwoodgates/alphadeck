@@ -57,17 +57,30 @@
 --   BEGIN;
 --   DROP TRIGGER IF EXISTS workspace_kind_check ON app_user;
 --   ALTER TABLE <each table carrying no_update below> DISABLE TRIGGER no_update;
+--   SET CONSTRAINTS ALL DEFERRED;   -- the edition children's composite FK (see THE EDITION FKs below)
 --   UPDATE <each of the 19 WORKSPACE tables> SET tenant_id = '00000000-0000-0000-0000-000000000001'
 --       WHERE tenant_id = '00000000-0000-0000-0000-000000000002';
 --   UPDATE <each of the 4 MIXED tables> SET tenant_id = '00000000-0000-0000-0000-000000000001'
 --       WHERE tenant_id = '00000000-0000-0000-0000-000000000002' AND ratified_by IS NOT NULL;
 --   UPDATE app_user SET workspace_id = '00000000-0000-0000-0000-000000000001'
 --       WHERE workspace_id = '00000000-0000-0000-0000-000000000002';
+--   SET CONSTRAINTS ALL IMMEDIATE;  -- checks the edition FKs now, before the ALTERs below
 --   ALTER TABLE <each table carrying no_update below> ENABLE TRIGGER no_update;
 --   DELETE FROM schema_migrations WHERE filename = '0078_founding_workspace.sql';
 --   COMMIT;
 --
--- (The `tenant` row ...0002 can stay: an empty workspace reads as empty.)
+-- (The `tenant` row ...0002 can stay: an empty workspace reads as empty. The five edition FKs can stay
+-- DEFERRABLE INITIALLY IMMEDIATE: an immediate deferrable FK is checked at the end of every statement, exactly
+-- as before.)
+--
+-- THE EDITION FKs. The five edition child tables (edition_event / _entry / _call / _outcome / _cause) reference
+-- `edition (id, tenant_id)` through a COMPOSITE foreign key, so moving `edition.tenant_id` alone is refused while
+-- the children still say ...0001, and moving the children first is refused the other way round. This migration
+-- makes those five constraints DEFERRABLE INITIALLY IMMEDIATE (a durable, harmless change: still checked at the
+-- end of every statement unless a transaction defers them), defers them for the move (`SET CONSTRAINTS ALL
+-- DEFERRED`), and checks them once parent and children agree (`SET CONSTRAINTS ALL IMMEDIATE`, before the
+-- trigger re-enables: an ALTER TABLE is refused on a table with pending deferred checks). Every other tenant_id
+-- FK in the schema is the plain `tenant_id -> tenant(id)`, which the move satisfies.
 
 -- 1. the founding workspace ------------------------------------------------------------------------------------
 INSERT INTO tenant (id, name, kind)
@@ -75,6 +88,13 @@ VALUES ('00000000-0000-0000-0000-000000000002', 'founding workspace', 'workspace
 ON CONFLICT (id) DO NOTHING;
 
 -- 2. the move (the append-only guard off for these statements only, by name) ---------------------------------
+-- the edition children's composite FK -> edition (id, tenant_id): deferrable, then deferred for the move
+ALTER TABLE edition_event ALTER CONSTRAINT edition_event_edition_id_tenant_id_fkey DEFERRABLE INITIALLY IMMEDIATE;
+ALTER TABLE edition_entry ALTER CONSTRAINT edition_entry_edition_id_tenant_id_fkey DEFERRABLE INITIALLY IMMEDIATE;
+ALTER TABLE edition_call ALTER CONSTRAINT edition_call_edition_id_tenant_id_fkey DEFERRABLE INITIALLY IMMEDIATE;
+ALTER TABLE edition_outcome ALTER CONSTRAINT edition_outcome_edition_id_tenant_id_fkey DEFERRABLE INITIALLY IMMEDIATE;
+ALTER TABLE edition_cause ALTER CONSTRAINT edition_cause_edition_id_tenant_id_fkey DEFERRABLE INITIALLY IMMEDIATE;
+
 ALTER TABLE calls DISABLE TRIGGER no_update;
 ALTER TABLE call_annotation DISABLE TRIGGER no_update;
 ALTER TABLE operator_decision DISABLE TRIGGER no_update;
@@ -91,6 +111,8 @@ ALTER TABLE fact_revenue_mix DISABLE TRIGGER no_update;
 ALTER TABLE fact_cash_burn DISABLE TRIGGER no_update;
 ALTER TABLE fact_shares_outstanding DISABLE TRIGGER no_update;
 ALTER TABLE fact_catalyst DISABLE TRIGGER no_update;
+
+SET CONSTRAINTS ALL DEFERRED;
 
 -- the 19 WORKSPACE tables (domain.scopes.SCOPE_OF; tests/db/test_0078_founding_workspace.py checks this list)
 UPDATE thesis SET tenant_id = '00000000-0000-0000-0000-000000000002' WHERE tenant_id = '00000000-0000-0000-0000-000000000001';
@@ -118,6 +140,10 @@ UPDATE fact_revenue_mix SET tenant_id = '00000000-0000-0000-0000-000000000002' W
 UPDATE fact_cash_burn SET tenant_id = '00000000-0000-0000-0000-000000000002' WHERE tenant_id = '00000000-0000-0000-0000-000000000001' AND ratified_by IS NOT NULL;
 UPDATE fact_shares_outstanding SET tenant_id = '00000000-0000-0000-0000-000000000002' WHERE tenant_id = '00000000-0000-0000-0000-000000000001' AND ratified_by IS NOT NULL;
 UPDATE fact_catalyst SET tenant_id = '00000000-0000-0000-0000-000000000002' WHERE tenant_id = '00000000-0000-0000-0000-000000000001' AND ratified_by IS NOT NULL;
+
+-- the deferred edition FKs are checked HERE (parent and children agree now); an ALTER TABLE below would be
+-- refused on a table with pending deferred checks
+SET CONSTRAINTS ALL IMMEDIATE;
 
 ALTER TABLE calls ENABLE TRIGGER no_update;
 ALTER TABLE call_annotation ENABLE TRIGGER no_update;
