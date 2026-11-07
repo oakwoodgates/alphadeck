@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
+import { useLogout } from "./api/hooks";
+import { useCurrentUser, useIsSteward } from "./auth/me";
 import { CLOCK_FALLBACK_TITLE, useAppClock } from "./clock";
 import { DASHBOARDS } from "./dashboards/registry";
 import {
@@ -28,9 +30,17 @@ export type NavKey =
   | "scoreboard"
   | "backtest"
   | "radar"
-  | "admin";
+  | "admin"
+  // /account (change password): reached from the user menu, never a tab
+  | "account";
 
-const LINKS: readonly { key: NavKey; label: string; to: (asof: string | null) => string }[] = [
+// `steward`: rendered only for a super admin (docs/AUTH.md) — the API answers 403 to a plain user anyway.
+const LINKS: readonly {
+  key: NavKey;
+  label: string;
+  to: (asof: string | null) => string;
+  steward?: boolean;
+}[] = [
   // Home is `/`: the home dashboard (HOME_DASHBOARD in dashboards/registry.ts; today the Board). Lit only at
   // `/`; the same dashboard at /dashboards/<slug> lights the Dashboards menu instead.
   { key: "home", label: "Home", to: homePath },
@@ -40,12 +50,12 @@ const LINKS: readonly { key: NavKey; label: string; to: (asof: string | null) =>
   { key: "dashboards", label: "Dashboards", to: dashboardsPath },
   { key: "workbench", label: "Workbench", to: workbenchPath },
   { key: "scoreboard", label: "Scoreboard", to: scoreboardPath },
-  // ALWAYS rendered, never gated on data. The `available:false` idiom hides SECTIONS, not tabs, and
+  // Rendered for every steward, never gated on data. The `available:false` idiom hides SECTIONS, not tabs, and
   // gating this one would cost a request on every page load to answer a question the page itself
   // answers in one quiet line. On prod the tab opens a page that says there are no runs.
-  { key: "backtest", label: "Backtest", to: backtestPath },
+  { key: "backtest", label: "Backtest", to: backtestPath, steward: true },
   { key: "radar", label: "Radar", to: radarPath },
-  { key: "admin", label: "Admin", to: adminPath },
+  { key: "admin", label: "Admin", to: adminPath, steward: true },
 ];
 
 type Props = {
@@ -61,6 +71,8 @@ export function AppHeader({ current, asof, onAsofChange }: Props) {
   const [params] = useSearchParams();
   const asofParam = validAsof(params.get(ASOF));
   const clockFailed = useAppClock().failed;
+  const steward = useIsSteward();
+  const me = useCurrentUser();
   return (
     <header className="topbar">
       <div className="brand">
@@ -68,7 +80,7 @@ export function AppHeader({ current, asof, onAsofChange }: Props) {
         ALPHA&nbsp;DECK <small>// research cockpit</small>
       </div>
       <nav className="nav">
-        {LINKS.map((l) =>
+        {LINKS.filter((l) => steward || !l.steward).map((l) =>
           l.key === "dashboards" ? (
             <DashboardsMenu
               key={l.key}
@@ -103,7 +115,28 @@ export function AppHeader({ current, asof, onAsofChange }: Props) {
           browser date
         </span>
       )}
+      {me && <UserMenu displayName={me.display_name} />}
     </header>
+  );
+}
+
+/** The signed-in user (docs/AUTH.md): the display name, Change password (/account) and Sign out (revokes the
+ *  session, clears the cache, lands on /login). Rendered only inside the signed-in shell. */
+function UserMenu({ displayName }: { displayName: string }) {
+  const navigate = useNavigate();
+  const logout = useLogout();
+  return (
+    <div className="user-menu">
+      <span className="user-name">{displayName}</span>
+      <a onClick={() => navigate("/account")}>Change password</a>
+      <button
+        type="button"
+        disabled={logout.isPending}
+        onClick={() => logout.mutate(undefined, { onSettled: () => navigate("/login", { replace: true }) })}
+      >
+        Sign out
+      </button>
+    </div>
   );
 }
 

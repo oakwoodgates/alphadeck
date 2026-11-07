@@ -17,6 +17,7 @@ import {
   useTriageSession,
   useWorkbenchScored,
 } from "../api/hooks";
+import { useIsSteward } from "../auth/me";
 import { ErrorToast } from "../components/ErrorToast";
 import { exportKeptNames, toExportedName } from "../util/exportNames";
 import { ChainEditor } from "./ChainEditor";
@@ -384,7 +385,8 @@ export function Workbench({ header, asof }: Props) {
   // identity write (durable across theses), NOT a promote: the spine carries no type field. The hook
   // invalidates the scored read, so the chip/leaf re-derive everywhere they join.
   const setBType = useSetBusinessType();
-  const retagBusinessType = (securityId: string, businessType: BusinessTypeLeaf | null) =>
+  const steward = useIsSteward();
+  const retagBusinessType =(securityId: string, businessType: BusinessTypeLeaf | null) =>
     setBType.mutate({ securityId, businessType });
 
   // Slice 2b — INCLUDE an available N-PORT holding into the basket (from the SleeveRail). Persists via the
@@ -1269,7 +1271,8 @@ export function Workbench({ header, asof }: Props) {
                         ?.thesis_fit ?? null)
                     : null
                 }
-                onRetag={retagBusinessType}
+                // a write to the SHARED master is stewardship (docs/AUTH.md): no control for a plain user
+                onRetag={steward ? retagBusinessType : undefined}
                 retagPending={setBType.isPending}
                 // the operator's context role for the selected company (read from the spine) + its writer
                 contextRole={selectedMember ? (roleBySid.get(selectedMember.security_id) ?? null) : null}

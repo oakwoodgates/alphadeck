@@ -1,5 +1,6 @@
 import createClient from "openapi-fetch";
 
+import { emitUnauthorized } from "./authEvents";
 import type { paths } from "./types.gen";
 
 // Typed against the generated OpenAPI paths. The /api prefix is a PROXY-LAYER convention only —
@@ -10,3 +11,16 @@ import type { paths } from "./types.gen";
 // Resolve fetch when a read runs: the isolated capture entry installs its frozen fetch before queries,
 // including when the production bundler shares this module between the app and the capture entry.
 export const api = createClient<paths>({ baseUrl: "/api", fetch: (...args) => globalThis.fetch(...args) });
+
+// The login door (docs/AUTH.md): the session cookie rides every request on its own (same origin, HttpOnly). Any
+// 401 — a session that expired, was signed out elsewhere, or a password change — is turned here, in ONE place,
+// into "clear the cache, go to /login" (App.tsx listens). A failed sign-in is the login form's own error, not
+// a redirect, so /auth/login is left out.
+api.use({
+  onResponse({ request, response }) {
+    if (response.status === 401 && !new URL(request.url, "http://x").pathname.endsWith("/auth/login")) {
+      emitUnauthorized();
+    }
+    return response;
+  },
+});
