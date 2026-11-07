@@ -30,7 +30,7 @@ from uuid import UUID
 
 import psycopg
 
-from db.session import DEFAULT_TENANT_ID
+from domain.scopes import DATA_TENANT_ID
 from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
 from radar import repo
 from securities import master
@@ -75,7 +75,7 @@ class ShellSweepResult:
 
 
 def select_unenriched_candidates(
-    conn: psycopg.Connection, *, tenant_id: UUID = DEFAULT_TENANT_ID
+    conn: psycopg.Connection, *, tenant_id: UUID = DATA_TENANT_ID
 ) -> list[str]:
     """CIKs that are SPAC-STRUCTURED (a units-``U`` ticker sibling, or a name matching
     "acquisition corp") and UN-ENRICHED (no non-NULL ``sector`` on ANY of the CIK's rows) — the
@@ -109,7 +109,7 @@ def select_unenriched_candidates(
 
 
 def select_known_shells_lru(
-    conn: psycopg.Connection, *, tenant_id: UUID = DEFAULT_TENANT_ID
+    conn: psycopg.Connection, *, tenant_id: UUID = DATA_TENANT_ID
 ) -> list[str]:
     """The re-enrich pool: every CIK currently enriched ``Blank Checks`` (the radar's known-shell
     set), LEAST-RECENTLY-ENRICHED FIRST. The ordering is load-bearing: re-enrich is NOT
@@ -138,7 +138,7 @@ def run_shell_sweep(
     reenrich: bool = False,
     user_agent: str | None = None,
     edgar_client: EdgarClient | None = None,
-    tenant_id: UUID = DEFAULT_TENANT_ID,
+    tenant_id: UUID = DATA_TENANT_ID,
 ) -> ShellSweepResult:
     """One sweep pass: select -> enrich (the existing ``enrich_for_ciks`` writer, per-CIK
     isolated) -> classify the outcome for the receipt. ``reenrich=True`` ADDS the current

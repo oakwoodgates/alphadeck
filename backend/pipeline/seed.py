@@ -4,8 +4,17 @@ A DEV convenience: it ingests the committed real-data fixtures (the same Wells F
 tests use) and upserts the HIMS thesis under fixed ids, so re-running is idempotent and the curl URL
 is stable. Run after `docker compose up` + `python -m db.migrate`:
 
-    python -m pipeline.seed
+    ALPHADECK_SEED_ON_BOOT=true python -m pipeline.seed
     curl "http://127.0.0.1:8000/theses/<printed-id>/call?asof=2026-06-01"
+
+**Where it writes (auth PR 2, docs/TENANT_SCOPES.md).** The demo cards, their children and their RATIFIED rows go
+into a workspace: ``main`` names the founding workspace (``domain.scopes.FOUNDING_WORKSPACE_ID``, ``...0002``).
+The DATA facts (the master rows, prices, Form 4s, the dilution fact, the DOE feed's catalysts) go to the data
+tenant. The ``seed_*`` functions take ``workspace=`` and default to ``DEFAULT_TENANT_ID``, the tests' workspace
+(``tests.auth_fixtures.TEST_STEWARD`` sits there), so a test calling them reads its card exactly as before.
+
+**The boot gate.** The image runs this module on every start, but ``main`` does nothing (exit 0) unless
+``ALPHADECK_SEED_ON_BOOT`` is true: the dev overlay sets it, the prod default leaves it off.
 
 A live seed (resolve HIMS + pull from EDGAR/Yahoo) can replace the fixture ingest later; the thesis
 definition and the wiring stay the same.
@@ -36,6 +45,7 @@ thing for it, and for nothing else.
 from __future__ import annotations
 
 import json
+import os
 from datetime import date
 from pathlib import Path
 from uuid import UUID
@@ -45,6 +55,7 @@ import psycopg
 from db.bitemporal import fact_exists, fact_exists_thesis
 from db.session import DEFAULT_TENANT_ID, connect
 from domain.enums import CatalystType, Grade
+from domain.scopes import DATA_TENANT_ID, FOUNDING_WORKSPACE_ID
 from domain.thesis import BasketMember, Catalyst, Evidence, KillCriterion, Thesis
 from ingest.cash_burn import ingest_cash_burn
 from ingest.catalyst import ingest_catalyst
@@ -125,7 +136,7 @@ def _ensure_hims_security(conn: psycopg.Connection) -> UUID:
                VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (id) DO NOTHING""",
             (
                 HIMS_SECURITY_ID,
-                DEFAULT_TENANT_ID,
+                DATA_TENANT_ID,
                 _HIMS_CIK,
                 "HIMS",
                 "Hims & Hers Health",
@@ -135,10 +146,10 @@ def _ensure_hims_security(conn: psycopg.Connection) -> UUID:
     return HIMS_SECURITY_ID
 
 
-def _hims_thesis(security_id: UUID) -> Thesis:
+def _hims_thesis(security_id: UUID, *, workspace: UUID) -> Thesis:
     return Thesis(
         id=HIMS_THESIS_ID,
-        tenant_id=DEFAULT_TENANT_ID,
+        tenant_id=workspace,
         name="HIMS — insider conviction (system)",
         narrative=(
             "Director David Wells bought ~$1.2M HIMS open-market off the lows — a high-USD senior "
@@ -186,12 +197,12 @@ def _persist_thesis(conn: psycopg.Connection, thesis: Thesis) -> None:
     (the structural wipe-guard — a promote that doesn't carry them cannot wipe them), so the seed
     persists its authored lists through their sole writers."""
     thesis_repo.upsert(conn, thesis)
-    tenant = thesis.tenant_id or DEFAULT_TENANT_ID
+    tenant = thesis.tenant_id
     thesis_repo.set_catalysts(conn, thesis.id, thesis.catalysts, tenant_id=tenant)
     thesis_repo.set_kill_criteria(conn, thesis.id, thesis.kill_criteria, tenant_id=tenant)
 
 
-def seed_hims(conn: psycopg.Connection) -> UUID:
+def seed_hims(conn: psycopg.Connection, *, workspace: UUID = DEFAULT_TENANT_ID) -> UUID:
     """Ingest the HIMS fixtures + upsert the HIMS thesis (idempotent — a re-run appends ZERO fact rows;
     see the module docstring). Caller commits. Returns the id."""
     security_id = _ensure_hims_security(conn)
@@ -203,7 +214,7 @@ def seed_hims(conn: psycopg.Connection) -> UUID:
             json.loads((_SEED_DATA / "prices" / "HIMS.yahoo.json").read_text(encoding="utf-8"))
         ),
     )
-    thesis = _hims_thesis(security_id)
+    thesis = _hims_thesis(security_id, workspace=workspace)
     _persist_thesis(conn, thesis)
 
     # the real ~$402.5M convertible-notes overhang, parsed deterministically from the committed 8-Ks
@@ -220,7 +231,7 @@ def seed_hims(conn: psycopg.Connection) -> UUID:
         conn,
         "fact_dilution",
         security_id=security_id,
-        tenant_id=DEFAULT_TENANT_ID,
+        tenant_id=DATA_TENANT_ID,
         accession=converts_accession,
     ):
         ingest_convert_terms(
@@ -239,14 +250,14 @@ def _ensure_security(conn: psycopg.Connection, sid: UUID, cik: str, ticker: str,
         cur.execute(
             """INSERT INTO security_master (id, tenant_id, cik, ticker, name, valid_from)
                VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (id) DO NOTHING""",
-            (sid, DEFAULT_TENANT_ID, cik, ticker, name, date(2026, 1, 1)),
+            (sid, DATA_TENANT_ID, cik, ticker, name, date(2026, 1, 1)),
         )
 
 
-def _nuclear_thesis() -> Thesis:
+def _nuclear_thesis(*, workspace: UUID) -> Thesis:
     return Thesis(
         id=NUCLEAR_THESIS_ID,
-        tenant_id=DEFAULT_TENANT_ID,
+        tenant_id=workspace,
         name="Small-scale nuclear (system)",
         narrative=(
             "Sentiment has flipped in younger generations who didn't live through the meltdowns; "
@@ -298,7 +309,7 @@ def _nuclear_thesis() -> Thesis:
     )
 
 
-def seed_nuclear(conn: psycopg.Connection) -> UUID:
+def seed_nuclear(conn: psycopg.Connection, *, workspace: UUID = DEFAULT_TENANT_ID) -> UUID:
     """Seed the small-scale-nuclear THEME thesis (idempotent — a re-run appends ZERO fact rows). Caller
     commits. Returns the id.
 
@@ -311,12 +322,12 @@ def seed_nuclear(conn: psycopg.Connection) -> UUID:
             json.loads((_SEED_DATA / "prices" / f"{ticker}.yahoo.json").read_text(encoding="utf-8"))
         )
         _ingest_new_bars(conn, sid, bars)
-    thesis = _nuclear_thesis()
+    thesis = _nuclear_thesis(workspace=workspace)
     _persist_thesis(conn, thesis)
     return thesis.id
 
 
-def seed_nuclear_catalyst(conn: psycopg.Connection) -> None:
+def seed_nuclear_catalyst(conn: psycopg.Connection, *, workspace: UUID = DEFAULT_TENANT_ID) -> None:
     """Operator-ratify OKLO's catalyst (#10 demo, the PROVISIONAL one) — the DOE Reactor Pilot Program OTA
     (DENE0009589), graded FLIP (a signed but $0-DOE-obligation authorization pathway: a real, not-yet-binding
     commitment -> small entry) with the agreement term (-> 2029-07-01) as its liveness horizon. Co-located
@@ -332,7 +343,7 @@ def seed_nuclear_catalyst(conn: psycopg.Connection) -> None:
         conn,
         "fact_catalyst",
         security_id=OKLO_ID,
-        tenant_id=DEFAULT_TENANT_ID,
+        tenant_id=workspace,
         source_ref=source_ref,
     ):
         return
@@ -350,10 +361,11 @@ def seed_nuclear_catalyst(conn: psycopg.Connection) -> None:
         event_date=date(2026, 2, 9),
         horizon_end=date(2029, 7, 1),
         ratified_by="operator",
+        tenant_id=workspace,
     )
 
 
-def seed_leu_catalyst(conn: psycopg.Connection) -> None:
+def seed_leu_catalyst(conn: psycopg.Connection, *, workspace: UUID = DEFAULT_TENANT_ID) -> None:
     """Operator-ratify LEU's catalyst (the BINDING one) — Centrus's DOE HALEU production contract
     (89243223CNE000030), graded CORE (a binding, multi-year federal production contract: ~$317M obligated
     AND exercised on USAspending = real contracted revenue -> build the position). Liveness = the contract's
@@ -376,7 +388,7 @@ def seed_leu_catalyst(conn: psycopg.Connection) -> None:
         conn,
         "fact_catalyst",
         security_id=LEU_ID,
-        tenant_id=DEFAULT_TENANT_ID,
+        tenant_id=workspace,
         source_ref=source_ref,
     ):
         return
@@ -394,10 +406,13 @@ def seed_leu_catalyst(conn: psycopg.Connection) -> None:
         event_date=date(2022, 11, 30),
         horizon_end=date(2026, 6, 30),
         ratified_by="operator",
+        tenant_id=workspace,
     )
 
 
-def seed_nuclear_theme_conviction(conn: psycopg.Connection) -> None:
+def seed_nuclear_theme_conviction(
+    conn: psycopg.Connection, *, workspace: UUID = DEFAULT_TENANT_ID
+) -> None:
     """Operator-ratify the small-scale-nuclear THEME conviction (M5b) — a thesis-level belief that supplies
     Key 1 as a FALLBACK for a confirmed basket member with no name-specific conviction of its own. Graded
     FLIP (capped at starter — belief never mints a core, rule 2) with a ~12-month operator horizon (re-
@@ -415,7 +430,7 @@ def seed_nuclear_theme_conviction(conn: psycopg.Connection) -> None:
         conn,
         "fact_theme_conviction",
         thesis_id=NUCLEAR_THESIS_ID,
-        tenant_id=DEFAULT_TENANT_ID,
+        tenant_id=workspace,
         source_ref=source_ref,
     ):
         return
@@ -435,6 +450,7 @@ def seed_nuclear_theme_conviction(conn: psycopg.Connection) -> None:
             2027, 1, 15
         ),  # ~12-month operator horizon (live at the 2026-06-05 demo asof)
         ratified_by="operator",
+        tenant_id=workspace,
     )
 
 
@@ -471,10 +487,10 @@ _UNH_FORM4S = [
 ]
 
 
-def _unh_thesis() -> Thesis:
+def _unh_thesis(*, workspace: UUID) -> Thesis:
     return Thesis(
         id=UNH_THESIS_ID,
-        tenant_id=DEFAULT_TENANT_ID,
+        tenant_id=workspace,
         name="UNH — insider cluster (system)",
         narrative=(
             "After the selloff cut UnitedHealth ~46%, the board brought Stephen Hemsley back as CEO — "
@@ -515,7 +531,7 @@ def _unh_thesis() -> Thesis:
     )
 
 
-def seed_unh(conn: psycopg.Connection) -> UUID:
+def seed_unh(conn: psycopg.Connection, *, workspace: UUID = DEFAULT_TENANT_ID) -> UUID:
     """Seed the UNH insider-cluster thesis (idempotent — a re-run appends ZERO fact rows). Caller commits.
     Returns the id.
 
@@ -533,7 +549,7 @@ def seed_unh(conn: psycopg.Connection) -> UUID:
             json.loads((_SEED_DATA / "prices" / "UNH.yahoo.json").read_text(encoding="utf-8"))
         ),
     )
-    thesis = _unh_thesis()
+    thesis = _unh_thesis(workspace=workspace)
     _persist_thesis(conn, thesis)
     return thesis.id
 
@@ -550,7 +566,9 @@ _NNE_10Q = "https://www.sec.gov/Archives/edgar/data/1923891/000149315226023071/f
 _NNE_10K = "https://www.sec.gov/Archives/edgar/data/1923891/000149315225028285/form10-k.htm"
 
 
-def seed_nuclear_revenue_mix(conn: psycopg.Connection) -> None:
+def seed_nuclear_revenue_mix(
+    conn: psycopg.Connection, *, workspace: UUID = DEFAULT_TENANT_ID
+) -> None:
     """Operator-ratified exposure-PURITY facts for the nuclear basket (the Workbench purity meter).
 
     The BASIS is explicit in ``source`` so a revenue-backed 100% (SMR) and a pre-revenue 100% (OKLO/NNE)
@@ -602,7 +620,7 @@ def seed_nuclear_revenue_mix(conn: psycopg.Connection) -> None:
     for sid, seg, pct, source, ref, event_date, note in rows:
         # fact_revenue_mix's natural key is source_ref (the 10-K segment) — a stored fixture is a no-op
         if fact_exists(
-            conn, "fact_revenue_mix", security_id=sid, tenant_id=DEFAULT_TENANT_ID, source_ref=ref
+            conn, "fact_revenue_mix", security_id=sid, tenant_id=workspace, source_ref=ref
         ):
             continue
         ingest_revenue_mix(
@@ -615,10 +633,11 @@ def seed_nuclear_revenue_mix(conn: psycopg.Connection) -> None:
             event_date=event_date,
             note=note,
             ratified_by="operator",
+            tenant_id=workspace,
         )
 
 
-def seed_nuclear_shares(conn: psycopg.Connection) -> None:
+def seed_nuclear_shares(conn: psycopg.Connection, *, workspace: UUID = DEFAULT_TENANT_ID) -> None:
     """Operator-ratified shares-outstanding facts (the Workbench market-cap basis) — latest 10-Q covers."""
     rows = [
         (
@@ -651,7 +670,7 @@ def seed_nuclear_shares(conn: psycopg.Connection) -> None:
             conn,
             "fact_shares_outstanding",
             security_id=sid,
-            tenant_id=DEFAULT_TENANT_ID,
+            tenant_id=workspace,
             source_ref=ref,
         ):
             continue
@@ -664,10 +683,13 @@ def seed_nuclear_shares(conn: psycopg.Connection) -> None:
             event_date=event_date,
             note=note,
             ratified_by="operator",
+            tenant_id=workspace,
         )
 
 
-def seed_nuclear_cash_burn(conn: psycopg.Connection) -> None:
+def seed_nuclear_cash_burn(
+    conn: psycopg.Connection, *, workspace: UUID = DEFAULT_TENANT_ID
+) -> None:
     """Operator-ratified cash + quarterly-burn facts (the Workbench runway basis) — latest 10-Qs.
 
     ``cash_usd`` is the UNIFORM runway numerator: cash + equivalents + ALL marketable securities (current
@@ -714,7 +736,7 @@ def seed_nuclear_cash_burn(conn: psycopg.Connection) -> None:
     for sid, cash, burn, ref, note in rows:
         # natural key = source_ref (the 10-Q) — a stored fixture is a no-op
         if fact_exists(
-            conn, "fact_cash_burn", security_id=sid, tenant_id=DEFAULT_TENANT_ID, source_ref=ref
+            conn, "fact_cash_burn", security_id=sid, tenant_id=workspace, source_ref=ref
         ):
             continue
         ingest_cash_burn(
@@ -727,24 +749,44 @@ def seed_nuclear_cash_burn(conn: psycopg.Connection) -> None:
             event_date=date(2026, 3, 31),
             note=note,
             ratified_by="operator",
+            tenant_id=workspace,
         )
 
 
-def main() -> None:
+SEED_ON_BOOT_ENV = "ALPHADECK_SEED_ON_BOOT"
+
+
+def seed_on_boot() -> bool:
+    """Is the boot seed on? ``ALPHADECK_SEED_ON_BOOT`` true (``1`` / ``true`` / ``yes`` / ``on``). The backend image
+    runs this module on EVERY container start; the dev overlay turns it on, the prod default leaves it off (the
+    demo cards are a dev convenience, not the operator's workspace)."""
+    return os.environ.get(SEED_ON_BOOT_ENV, "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def main(*, workspace: UUID = FOUNDING_WORKSPACE_ID) -> None:
+    """Seed the demo cards into ``workspace`` (the founding workspace, ``...0002``) and their DATA facts into the
+    data tenant. A no-op (exit 0) unless ``ALPHADECK_SEED_ON_BOOT`` is true."""
+    if not seed_on_boot():
+        print(f"seed skipped: {SEED_ON_BOOT_ENV} is not true")
+        return
     conn = connect()
     try:
-        hims_id = seed_hims(conn)
-        nuclear_id = seed_nuclear(conn)
+        hims_id = seed_hims(conn, workspace=workspace)
+        nuclear_id = seed_nuclear(conn, workspace=workspace)
         seed_doe_catalysts(
             conn
-        )  # the DOE/USASpending automated feed -> OKLO starter + LEU core_entry
+        )  # the DOE/USASpending automated feed -> OKLO starter + LEU core_entry (feed rows: DATA)
         seed_nuclear_theme_conviction(
-            conn
+            conn, workspace=workspace
         )  # M5b -> SMR theme-armed starter (NNE stays watch: momentum-only)
-        seed_nuclear_revenue_mix(conn)  # Workbench purity facts (operator-ratified, real 10-K)
-        seed_nuclear_shares(conn)  # Workbench market-cap basis (real 10-Q covers)
-        seed_nuclear_cash_burn(conn)  # Workbench runway basis (real 10-Q, uniform cash rule)
-        unh_id = seed_unh(conn)
+        seed_nuclear_revenue_mix(
+            conn, workspace=workspace
+        )  # Workbench purity facts (ratified, real 10-K)
+        seed_nuclear_shares(
+            conn, workspace=workspace
+        )  # Workbench market-cap basis (real 10-Q covers)
+        seed_nuclear_cash_burn(conn, workspace=workspace)  # Workbench runway basis (real 10-Q)
+        unh_id = seed_unh(conn, workspace=workspace)
         conn.commit()
         print(f"seeded HIMS thesis:    {hims_id}")
         print(f"seeded nuclear thesis: {nuclear_id}")

@@ -161,11 +161,13 @@ def test_archived_included_by_default_and_excludable(db, security_id):
     thesis_repo.set_archived(db, thesis.id, True)
     db.commit()
 
-    result, _, _ = scoreboard_records(db, date(2026, 6, 5))
+    result, _, _ = scoreboard_records(db, date(2026, 6, 5), workspace=DEFAULT_TENANT_ID)
     (rec,) = [t for t in result.theses if t.thesis_id == thesis.id]
     assert rec.archived is True and len(rec.episodes) == 1
 
-    result, _, _ = scoreboard_records(db, date(2026, 6, 5), include_archived=False)
+    result, _, _ = scoreboard_records(
+        db, date(2026, 6, 5), include_archived=False, workspace=DEFAULT_TENANT_ID
+    )
     assert [t for t in result.theses if t.thesis_id == thesis.id] == []
 
 
@@ -186,7 +188,7 @@ def test_unreadable_card_is_fault_isolated(db, security_id):
         )
     db.commit()
 
-    result, _, _ = scoreboard_records(db, date(2026, 6, 5))
+    result, _, _ = scoreboard_records(db, date(2026, 6, 5), workspace=DEFAULT_TENANT_ID)
     by_id = {t.thesis_id: t for t in result.theses}
     assert by_id[bad.id].error is not None and by_id[bad.id].episodes == []
     assert by_id[good.id].error is None and len(by_id[good.id].episodes) == 1
@@ -211,7 +213,7 @@ def test_scoreboard_writes_nothing(db, security_id):
             return (r["c"], r["d"], r["p"])
 
     before = counts()
-    scoreboard_records(db, date(2026, 6, 5))
+    scoreboard_records(db, date(2026, 6, 5), workspace=DEFAULT_TENANT_ID)
     assert counts() == before
 
 
@@ -240,7 +242,7 @@ def test_freeze_era_arm_is_flagged_visible_and_counted(db, security_id):
     conv2, conf2 = keys_fired(security_id, date(2026, 6, 1), conv_liveness=30, conf_liveness=10)
     _record_day(db, clean, [conv2, conf2], date(2026, 6, 1))
 
-    result, _, _ = scoreboard_records(db, date(2026, 7, 15))
+    result, _, _ = scoreboard_records(db, date(2026, 7, 15), workspace=DEFAULT_TENANT_ID)
     by_id = {t.thesis_id: t for t in result.theses}
     (flagged,) = by_id[frozen.id].episodes
     assert flagged.freeze_era is True and flagged.ingest_flagged is True
@@ -794,7 +796,9 @@ def test_basket_size_is_point_in_time(db, security_id):
     _pin_snapshot(db, t.id, datetime(2026, 6, 10, tzinfo=timezone.utc))
 
     def _basket_size(known_at: datetime) -> int:
-        result, _, _ = scoreboard_records(db, date(2026, 6, 20), known_at=known_at)
+        result, _, _ = scoreboard_records(
+            db, date(2026, 6, 20), known_at=known_at, workspace=DEFAULT_TENANT_ID
+        )
         return next(r for r in result.theses if r.thesis_id == t.id).basket_size
 
     assert _basket_size(datetime(2026, 6, 5, tzinfo=timezone.utc)) == 1  # the historical count

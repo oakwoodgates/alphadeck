@@ -58,7 +58,7 @@ def _cut(db) -> datetime:
 
 def _mirror_ids(db, tmp_path, name: str, clock: str, known_by: datetime | None):
     out = tmp_path / name
-    manifest = export_snapshot(db, out, clock=clock, known_by=known_by)
+    manifest = export_snapshot(db, out, clock=clock, known_by=known_by, workspace=DEFAULT_TENANT_ID)
     db.commit()
     ids = {UUID(str(x)) for x in pq.read_table(out / "fact_fundamentals.parquet")["id"].to_pylist()}
     return ids, manifest["tables"]["fact_fundamentals"]["rows_set_aside"]

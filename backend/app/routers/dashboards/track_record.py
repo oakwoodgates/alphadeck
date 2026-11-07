@@ -25,7 +25,7 @@ import psycopg
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict
 
-from app.deps import get_conn, get_current_tenant
+from app.deps import get_conn, get_workspace
 from app.routers.scoreboard import _resolve_edition
 from dashboards.baskets import PriceFlagRead, live_card_ids, read_price_flags
 from dashboards.cache import cached
@@ -47,10 +47,10 @@ from dashboards.track_record import (
     build_row,
     market_of,
 )
-from db.session import DEFAULT_TENANT_ID
 from domain.data_flags import FEED_STOPPED
 from domain.market_cap import CapTier
 from domain.market_time import serve_view, view_day
+from domain.scopes import DATA_TENANT_ID
 from domain.settings import get_settings
 from domain.splits import listed_from_row
 from pipeline import data_flags as flags_reader
@@ -310,6 +310,8 @@ def read_companies(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> dict[UUID, CompanyData]:
     """Each company's bars, share facts (the Workbench's, and the filing covers' ``COVER_METRIC`` rows of
     ``fundamentals_facts``, the cap's fallback) and split list through the request's point-in-time view
@@ -324,10 +326,11 @@ def read_companies(
             conn,
             asof=asof,
             known_at=known_at,
-            tenant_id=DEFAULT_TENANT_ID,
+            data_tenant=DATA_TENANT_ID,
             basket=chunk,
             bounds=None,
             clock=clock,
+            workspace=workspace,
         )
         day = view_day(pit.known_at)
         for sid in chunk:
@@ -353,15 +356,18 @@ def read_benchmarks(
     known_at: datetime | None,
     clock: Literal["record", "public"],
     stale_days: int,
+    *,
+    workspace: UUID,
 ) -> tuple[Benchmarks, Market]:
     """SPY's and IWM's bars at the as-of through the same view, and the market's session clock they give."""
     pit = PointInTimeData(
         conn,
         asof=asof,
         known_at=known_at,
-        tenant_id=DEFAULT_TENANT_ID,
+        data_tenant=DATA_TENANT_ID,
         bounds=None,
         clock=clock,
+        workspace=workspace,
     )
     spy, iwm = bars_of(pit.benchmark_prices("SPY")), bars_of(pit.benchmark_prices("IWM"))
     return benchmarks_of(spy, iwm), market_of(spy, iwm, stale_days=stale_days)
@@ -398,6 +404,8 @@ def read_record(
     edition: Edition | None,
     exclude_annotated: bool,
     exclude_late: bool,
+    *,
+    workspace: UUID,
 ) -> TrackRecord:
     """The whole read: the Scoreboard's episodes (archived cards included, as the Scoreboard does), which companies
     have a price-reaching data flag, the bars of every company with an episode that will be counted, the benchmarks;
@@ -405,6 +413,7 @@ def read_record(
     result, _, _ = scoreboard_records(
         conn,
         asof,
+        workspace=workspace,
         include_archived=True,
         known_at=known_at,
         exclude_annotated=exclude_annotated,
@@ -422,10 +431,10 @@ def read_record(
         if se.episode.arm_date <= asof  # an episode armed after the as-of is not an event
     ]
     sids = sorted({se.episode.security_id for _, se in scored}, key=str)
-    tickers = master.tickers_for(conn, sids, tenant_id=DEFAULT_TENANT_ID)
+    tickers = master.tickers_for(conn, sids, tenant_id=DATA_TENANT_ID)
     flag_reads = read_price_flags(conn, sids, asof, known_at=known_at, clock=clock)
     flags = {sid: f.reason for sid, f in flag_reads.items()}
-    on_cards = live_card_ids(conn)
+    on_cards = live_card_ids(conn, workspace=workspace)
     ended = ended_companies(
         [sid for sid, f in flag_reads.items() if f.kinds == (FEED_STOPPED,)], flag_reads, asof
     )
@@ -442,8 +451,8 @@ def read_record(
         },
         key=str,
     )
-    companies = read_companies(conn, needed, asof, known_at, clock)
-    bench, market = read_benchmarks(conn, asof, known_at, clock, stale_days)
+    companies = read_companies(conn, needed, asof, known_at, clock, workspace=workspace)
+    bench, market = read_benchmarks(conn, asof, known_at, clock, stale_days, workspace=workspace)
 
     rows = []
     for t, se in scored:
@@ -531,7 +540,7 @@ def track_record(
         "EDGAR open; false = set them aside; omitted = the server setting. The response names the reading used",
     ),
     conn: psycopg.Connection = Depends(get_conn),
-    current_tenant: UUID = Depends(get_current_tenant),
+    workspace: UUID = Depends(get_workspace),
 ) -> TrackRecordOut:
     """What the tape did after each arm episode the Scoreboard records, by market-cap tier at the event: one row per
     episode with its cap tier and liquidity band, and, for the next session's entry and the arm night's, the return at
@@ -545,9 +554,7 @@ def track_record(
     date, and a horizon that has not arrived by then is not counted.
     """
     known_at, clock = serve_view(asof)
-    chosen = _resolve_edition(
-        conn, current_tenant, edition
-    )  # 0 = the record; the Scoreboard's own 404
+    chosen = _resolve_edition(conn, workspace, edition)  # 0 = the record; the Scoreboard's own 404
     if chosen is None:
         exclude_annotated = resolve_exclude_annotated(
             None if include_annotated is None else not include_annotated
@@ -556,13 +563,23 @@ def track_record(
     else:  # a stored edition has no reconstructed, annotated or late rows: the readings do not apply
         exclude_annotated = exclude_late = False
     number = chosen.number if chosen is not None else 0
-    newest = _newest_edition(conn, current_tenant)  # one small read, outside the cache
+    newest = _newest_edition(conn, workspace)  # one small read, outside the cache
     got = cached(
         conn,
         SLUG,
         (number, not exclude_annotated, not exclude_late, clock),
         asof,
-        lambda: read_record(conn, asof, known_at, clock, chosen, exclude_annotated, exclude_late),
+        lambda: read_record(
+            conn,
+            asof,
+            known_at,
+            clock,
+            chosen,
+            exclude_annotated,
+            exclude_late,
+            workspace=workspace,
+        ),
+        workspace=workspace,
     )
     page = got.value
     return TrackRecordOut.model_validate(

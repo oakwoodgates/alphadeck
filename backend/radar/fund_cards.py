@@ -4,9 +4,11 @@ imports ``calls/``."""
 
 from __future__ import annotations
 
+from uuid import UUID
+
 import psycopg
 
-from db.session import DEFAULT_TENANT_ID
+from domain.scopes import DATA_TENANT_ID, WorkspaceScope
 from domain.thesis import ETFS_LABEL, Thesis
 from radar.fund_match import CardInput, CompanyRef
 from repositories import thesis_repo
@@ -14,10 +16,11 @@ from securities import master
 
 
 def card_inputs(
-    conn: psycopg.Connection, theses: list[Thesis], *, tenant_id=DEFAULT_TENANT_ID
+    conn: psycopg.Connection, theses: list[Thesis], *, tenant_id: UUID = DATA_TENANT_ID
 ) -> list[CardInput]:
     """The given theses as matcher inputs: term set + COMPANY members (basket rows whose master row is not a
-    fund), each labeled with its link. A row with no master row counts as a company."""
+    fund), each labeled with its link. A row with no master row counts as a company. ``tenant_id`` is the DATA
+    tenant the master is read from."""
     sids = [m.security_id for t in theses for m in t.basket if m.security_id]
     secs = master.get_many(conn, sids, tenant_id=tenant_id)
     cards: list[CardInput] = []
@@ -39,6 +42,7 @@ def card_inputs(
     return cards
 
 
-def load_cards(conn: psycopg.Connection) -> list[CardInput]:
-    """Every live card as matcher input."""
-    return card_inputs(conn, thesis_repo.list_all(conn))
+def load_cards(conn: psycopg.Connection, *, workspace: WorkspaceScope) -> list[CardInput]:
+    """Every live card of ``workspace`` as matcher input (the API passes the caller's workspace; the CLI report
+    passes the every-workspace sentinel)."""
+    return card_inputs(conn, thesis_repo.list_all(conn, workspace=workspace))

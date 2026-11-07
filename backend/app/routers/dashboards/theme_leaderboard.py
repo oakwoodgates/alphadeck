@@ -20,7 +20,7 @@ import psycopg
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict
 
-from app.deps import get_conn
+from app.deps import get_conn, get_workspace
 from dashboards.baskets import (
     Membership,
     cards_as_of,
@@ -52,10 +52,10 @@ from dashboards.theme_leaderboard import (
     names_of,
     recorded_of,
 )
-from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard
 from domain.enums import State, TermTier
 from domain.market_time import serve_view
+from domain.scopes import DATA_TENANT_ID
 from domain.splits import listed_from_row
 from domain.thesis import TermSetEntry
 from signals.base import PointInTimeData
@@ -258,15 +258,18 @@ def _view(
     known_at: datetime | None,
     clock: Literal["record", "public"],
     basket: list[UUID] | None = None,
+    *,
+    workspace: UUID,
 ) -> PointInTimeData:
     return PointInTimeData(
         conn,
         asof=asof,
         known_at=known_at,
-        tenant_id=DEFAULT_TENANT_ID,
+        data_tenant=DATA_TENANT_ID,
         basket=basket,
         bounds=display_bounds(),
         clock=clock,
+        workspace=workspace,
     )
 
 
@@ -323,6 +326,8 @@ def read_breadths(
     known_at: datetime | None,
     clock: Literal["record", "public"],
     card_names: dict[UUID, list[UUID]],
+    *,
+    workspace: UUID,
 ) -> dict[UUID, DisplaySignal | None]:
     """One theme-breadth read per card (``theme_breadth.breadth_for``, the read the Cockpit's basket header makes)
     over the card's counting names whose price history is not flagged: a view of just those names. A card with none
@@ -330,7 +335,9 @@ def read_breadths(
     out: dict[UUID, DisplaySignal | None] = {}
     for thesis_id, sids in card_names.items():
         out[thesis_id] = (
-            theme_breadth.breadth_for(_view(conn, asof, known_at, clock, sids), sids)
+            theme_breadth.breadth_for(
+                _view(conn, asof, known_at, clock, sids, workspace=workspace), sids
+            )
             if sids
             else None
         )
@@ -354,12 +361,14 @@ def read_board(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> Leaderboard:
     """The heavy read the cache holds: every counted card's row, off the counting names' tapes, one breadth read per
     card, the recorded card in effect and the card's term-mention months. Reads only; the request's ``known_at`` +
     ``clock`` ride into the roster read, the data-flag read, IWM's bars, every company's view, every card's breadth
     view and the term-mention view."""
-    counted = cards_as_of(conn, asof, known_at)
+    counted = cards_as_of(conn, asof, known_at, workspace=workspace)
     memberships = memberships_of(counted.cards)
     rows = counted_rows(memberships, include_silent=False)
     by_card: dict[UUID, list[Membership]] = {t.id: [] for t in counted.cards}
@@ -367,7 +376,7 @@ def read_board(
         by_card[m.thesis_id].append(m)
     sids = sorted({m.security_id for m in rows.rows if m.security_id is not None}, key=str)
 
-    flags = price_flags(conn, sids, asof, known_at=known_at, clock=clock)
+    flags = price_flags(conn, sids, asof, known_at=known_at, clock=clock, workspace=workspace)
     members = display_members(MEMBERS, "Theme Leaderboard")
     tapes = per_company(
         conn,
@@ -376,8 +385,9 @@ def read_board(
         known_at,
         clock,
         lambda pit, sid: read_tape(pit, sid, asof, members, flags.get(sid)),
+        workspace=workspace,
     )
-    iwm = read_iwm(_view(conn, asof, known_at, clock), asof)
+    iwm = read_iwm(_view(conn, asof, known_at, clock, workspace=workspace), asof)
     recorded = read_recorded(conn, [t.id for t in counted.cards], asof)
     breadths = read_breadths(
         conn,
@@ -385,8 +395,9 @@ def read_board(
         known_at,
         clock,
         {tid: [sid for sid, _ in names_of(ms) if sid not in flags] for tid, ms in by_card.items()},
+        workspace=workspace,
     )
-    mentions_pit = _view(conn, asof, known_at, clock)
+    mentions_pit = _view(conn, asof, known_at, clock, workspace=workspace)
     terms = {t.id: signal_terms(t.term_set) for t in counted.cards}
     reads = [
         CardRead(
@@ -428,6 +439,7 @@ def theme_leaderboard(
         ..., description="as-of date; only what was recorded and public by then is read"
     ),
     conn: psycopg.Connection = Depends(get_conn),
+    workspace: UUID = Depends(get_workspace),
 ) -> LeaderboardOut:
     """Every counted card with the five parts a stated composite ranks it by: the median 30-day return of its priced
     counting names minus IWM's, the share of those names above their 50-day SMA, the keys its recorded call has
@@ -439,7 +451,14 @@ def theme_leaderboard(
     known_at, clock = serve_view(asof)
     # the clock is part of the key: the same date read live today and on the public clock tomorrow are two
     # reads (a new run clears the cache anyway; this holds even on a night with no run)
-    got = cached(conn, SLUG, (clock,), asof, lambda: read_board(conn, asof, known_at, clock))
+    got = cached(
+        conn,
+        SLUG,
+        (clock,),
+        asof,
+        lambda: read_board(conn, asof, known_at, clock, workspace=workspace),
+        workspace=workspace,
+    )
     return LeaderboardOut.model_validate(
         {
             **{f.name: getattr(got.value, f.name) for f in fields(got.value)},

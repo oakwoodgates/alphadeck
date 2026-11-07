@@ -21,7 +21,7 @@ import psycopg
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict
 
-from app.deps import get_conn
+from app.deps import get_conn, get_workspace
 from dashboards.baskets import (
     Membership,
     cards_as_of,
@@ -51,10 +51,10 @@ from dashboards.forming_quietly import (
     reading_of,
     row_cards,
 )
-from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard
 from domain.enums import Grade, Kind, State, TermTier
 from domain.market_time import serve_view
+from domain.scopes import DATA_TENANT_ID
 from domain.thesis import Thesis
 from repositories import calls_repo
 from securities import master
@@ -341,16 +341,19 @@ def _pit(
     known_at: datetime | None,
     clock: Literal["record", "public"],
     basket: list[UUID] | None = None,
+    *,
+    workspace: UUID,
 ) -> PointInTimeData:
     """The point-in-time view the Cockpit's display signals build (``display_bounds()``, the request's pair)."""
     return PointInTimeData(
         conn,
         asof=asof,
         known_at=known_at,
-        tenant_id=DEFAULT_TENANT_ID,
+        data_tenant=DATA_TENANT_ID,
         basket=basket,
         bounds=display_bounds(),
         clock=clock,
+        workspace=workspace,
     )
 
 
@@ -380,12 +383,14 @@ def read_forming(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> FormingQuietly:
     """The heavy read the cache holds: a row per Warming and Incubating card of the recorded calls in effect, with
     its keys, missing lines, quiet signals and adoption slope. Reads only; the request's ``known_at`` + ``clock``
     ride into the roster read, the data-flag read, every company's view, every card's breadth view and the
     term-month view."""
-    counted = cards_as_of(conn, asof, known_at)
+    counted = cards_as_of(conn, asof, known_at, workspace=workspace)
     by_id = {t.id: t for t in counted.cards}
     names = {tid: t.name for tid, t in by_id.items()}
     recorded = read_recorded(conn, list(names), asof)
@@ -400,7 +405,7 @@ def read_forming(
     per_card = {tid: _counting_names(memberships, tid) for tid in ids}
     sids = sorted({sid for tid in ids for sid, _ in per_card[tid][0]}, key=str)
 
-    flags = price_flags(conn, sids, asof, known_at=known_at, clock=clock)
+    flags = price_flags(conn, sids, asof, known_at=known_at, clock=clock, workspace=workspace)
     members = display_members(MEMBERS, "Forming Quietly")
     unflagged = [s for s in sids if s not in flags]
     read = per_company(
@@ -410,6 +415,7 @@ def read_forming(
         known_at,
         clock,
         lambda p, sid: read_reading(p, sid, asof, members),
+        workspace=workspace,
     )
     readings: dict[UUID, Reading] = {**read, **{s: Reading(flag=flags[s]) for s in flags}}
 
@@ -421,14 +427,16 @@ def read_forming(
         conn, {t.security_id for tid in ids for t in recorded[tid].card.triggers_fired}
     )
 
-    terms_pit = _pit(conn, asof, known_at, clock)
+    terms_pit = _pit(conn, asof, known_at, clock, workspace=workspace)
     rows: list[FormingRow] = []
     for tid in ids:
         thesis = by_id[tid]
         card_names, unresolved, _ = per_card[tid]
         card_sids = [s for s, _ in card_names if s not in flags]
         breadth: DisplaySignal | None = (
-            theme_breadth.breadth_for(_pit(conn, asof, known_at, clock, card_sids), card_sids)
+            theme_breadth.breadth_for(
+                _pit(conn, asof, known_at, clock, card_sids, workspace=workspace), card_sids
+            )
             if card_sids
             else None
         )
@@ -480,6 +488,7 @@ def forming_quietly(
         ..., description="as-of date; only what was recorded and public by then is read"
     ),
     conn: psycopg.Connection = Depends(get_conn),
+    workspace: UUID = Depends(get_workspace),
 ) -> FormingQuietlyOut:
     """Every card the recorded calls in effect at the as-of show Warming or Incubating, in the default order: the
     call's own keys and missing lines, the names behind the keys that turned, the quiet signals on the card's
@@ -490,7 +499,14 @@ def forming_quietly(
     known_at, clock = serve_view(asof)
     # the clock is part of the key: the same date read live today and on the public clock tomorrow are two
     # reads (a new run clears the cache anyway; this holds even on a night with no run)
-    got = cached(conn, SLUG, (clock,), asof, lambda: read_forming(conn, asof, known_at, clock))
+    got = cached(
+        conn,
+        SLUG,
+        (clock,),
+        asof,
+        lambda: read_forming(conn, asof, known_at, clock, workspace=workspace),
+        workspace=workspace,
+    )
     return FormingQuietlyOut.model_validate(
         {**_payload(got.value), "cache": got.status, "compute_ms": got.compute_ms},
     )

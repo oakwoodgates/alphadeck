@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from db.migrate import MIGRATIONS_DIR
 from db.session import DEFAULT_TENANT_ID, connect
 from domain.enums import Authorship, ContextRole, TermTier
+from domain.scopes import WORKSPACE_ANY
 from domain.thesis import (
     BENCH_DESCRIPTOR,
     CONTEXT_DESCRIPTOR,
@@ -93,7 +94,7 @@ def test_upsert_then_get_roundtrips(db, security_id):
     t = _thesis(security_id)
     _persist(db, t)
     db.commit()
-    assert thesis_repo.get(db, t.id) == _hydrated(
+    assert thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY) == _hydrated(
         t
     )  # full domain round-trip; no raw row escapes the repo
 
@@ -109,7 +110,7 @@ def test_chain_structure_survives_reload(db, security_id):
 
     reloaded = connect()  # a fresh connection — the chain must be durable, not session-local
     try:
-        got = thesis_repo.get(reloaded, t.id)
+        got = thesis_repo.get(reloaded, t.id, workspace=WORKSPACE_ANY)
     finally:
         reloaded.close()
 
@@ -150,7 +151,7 @@ def test_thesis_rejects_member_in_unknown_segment():
 
 
 def test_get_missing_returns_none(db):
-    assert thesis_repo.get(db, uuid.uuid4()) is None
+    assert thesis_repo.get(db, uuid.uuid4(), workspace=WORKSPACE_ANY) is None
 
 
 # --- the persisted, tiered term set (discovery precision; written ONLY by set_term_set) ---
@@ -168,7 +169,9 @@ def test_set_term_set_roundtrips(db, security_id):
     ]
     thesis_repo.set_term_set(db, t.id, terms)
     db.commit()
-    assert thesis_repo.get(db, t.id).term_set == terms  # full structural round-trip
+    assert (
+        thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY).term_set == terms
+    )  # full structural round-trip
 
 
 def test_set_term_set_touches_only_the_term_set(db, security_id):
@@ -178,7 +181,7 @@ def test_set_term_set_touches_only_the_term_set(db, security_id):
     db.commit()
     thesis_repo.set_term_set(db, t.id, [TermSetEntry(term="ibogaine", tier=TermTier.SIGNAL)])
     db.commit()
-    got = thesis_repo.get(db, t.id)
+    got = thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY)
     assert [s.label for s in got.segments] == [
         "Telehealth platforms",
         "Compounding / supply",
@@ -204,7 +207,7 @@ def test_upsert_cannot_blank_a_persisted_term_set(db, security_id):
     # re-upsert the thesis object (its term_set defaults to [], as a promote would) + a narrative edit
     thesis_repo.upsert(db, t.model_copy(update={"narrative": "edited"}))
     db.commit()
-    got = thesis_repo.get(db, t.id)
+    got = thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY)
     assert got.narrative == "edited"  # upsert DID write the fields it owns
     assert [e.term for e in got.term_set] == ["psilocin"]  # the term set SURVIVED unblanked
 
@@ -220,7 +223,7 @@ def test_upsert_cannot_blank_authored_catalysts_or_kill_criteria(db, security_id
         db, t.model_copy(update={"narrative": "edited", "catalysts": [], "kill_criteria": []})
     )
     db.commit()
-    got = thesis_repo.get(db, t.id)
+    got = thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY)
     assert got.narrative == "edited"  # upsert DID write the fields it owns
     assert len(got.catalysts) == 1 and len(got.kill_criteria) == 1  # the lists SURVIVED
 
@@ -250,7 +253,7 @@ def test_upsert_updates_mutable_fields_and_is_idempotent(db, security_id):
     thesis_repo.upsert(db, t2)
     db.commit()
 
-    got = thesis_repo.get(db, t.id)
+    got = thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY)
     assert got.narrative == "Position opened; managing to exit-by."
     assert got.position is not None and got.position.opened_on == date(2026, 6, 2)
     assert got.position.entry_price == 24.0
@@ -279,7 +282,7 @@ def test_conviction_roundtrips(db, security_id):
     t.basket[0].conviction = 4
     thesis_repo.upsert(db, t)
     db.commit()
-    assert thesis_repo.get(db, t.id).basket[0].conviction == 4
+    assert thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY).basket[0].conviction == 4
 
 
 def test_unset_conviction_stays_none_never_zero(db, security_id):
@@ -289,7 +292,7 @@ def test_unset_conviction_stays_none_never_zero(db, security_id):
     assert t.basket[0].conviction is None  # the default is unset
     thesis_repo.upsert(db, t)
     db.commit()
-    got = thesis_repo.get(db, t.id)
+    got = thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY)
     assert got.basket[0].conviction is None  # NOT 0
 
 
@@ -323,14 +326,16 @@ def test_conviction_survives_a_resave_through_the_mapper(db, security_id):
     thesis_repo.upsert(db, t)
     db.commit()
 
-    got = thesis_repo.get(db, t.id)  # read back THROUGH the mapper
+    got = thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY)  # read back THROUGH the mapper
     assert got.basket[0].conviction == 3
     # an unrelated edit that resends the read-back basket verbatim (mimics the narrative-edit resave)
     got.narrative = "edited narrative — the basket is resent verbatim"
     thesis_repo.upsert(db, got)
     db.commit()
 
-    assert thesis_repo.get(db, t.id).basket[0].conviction == 3  # not wiped — the mapper carried it
+    assert (
+        thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY).basket[0].conviction == 3
+    )  # not wiped — the mapper carried it
 
 
 # --- Re-scope S1: surfaced_terms — the frozen discovery-term provenance on the member edge ---
@@ -349,7 +354,10 @@ def test_surfaced_terms_roundtrips(db, security_id):
     t.basket[0].surfaced_terms = ["ibogaine", "psilocybin"]
     thesis_repo.upsert(db, t)
     db.commit()
-    assert thesis_repo.get(db, t.id).basket[0].surfaced_terms == ["ibogaine", "psilocybin"]
+    assert thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY).basket[0].surfaced_terms == [
+        "ibogaine",
+        "psilocybin",
+    ]
 
 
 def test_surfaced_terms_default_is_empty_list(db, security_id):
@@ -359,7 +367,7 @@ def test_surfaced_terms_default_is_empty_list(db, security_id):
     assert t.basket[0].surfaced_terms == []  # the model default
     thesis_repo.upsert(db, t)
     db.commit()
-    assert thesis_repo.get(db, t.id).basket[0].surfaced_terms == []
+    assert thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY).basket[0].surfaced_terms == []
 
 
 def test_surfaced_terms_survives_a_resave_through_the_mapper(db, security_id):
@@ -373,13 +381,15 @@ def test_surfaced_terms_survives_a_resave_through_the_mapper(db, security_id):
     db.commit()
     assert _member_count(db, t.id) == 1
 
-    got = thesis_repo.get(db, t.id)  # read back THROUGH the mapper
+    got = thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY)  # read back THROUGH the mapper
     assert got.basket[0].surfaced_terms == ["psilocybin"]
     got.narrative = "edited narrative — the basket is resent verbatim"
     thesis_repo.upsert(db, got)
     db.commit()
 
-    assert thesis_repo.get(db, t.id).basket[0].surfaced_terms == ["psilocybin"]  # not wiped
+    assert thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY).basket[0].surfaced_terms == [
+        "psilocybin"
+    ]  # not wiped
     assert _member_count(db, t.id) == 1  # the table did not grow
 
 
@@ -397,14 +407,14 @@ def test_signed_off_roundtrips_and_survives_a_resave(db, security_id):
     db.commit()
     assert _member_count(db, t.id) == 1
 
-    got = thesis_repo.get(db, t.id)  # read back THROUGH the mapper
+    got = thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY)  # read back THROUGH the mapper
     assert got.basket[0].signed_off is True
     got.narrative = "edited narrative — the basket is resent verbatim"
     thesis_repo.upsert(db, got)
     db.commit()
 
     assert (
-        thesis_repo.get(db, t.id).basket[0].signed_off is True
+        thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY).basket[0].signed_off is True
     )  # not wiped — the mapper carried it
     assert _member_count(db, t.id) == 1  # the table did not grow
 
@@ -415,7 +425,7 @@ def test_signed_off_defaults_false(db, security_id):
     assert t.basket[0].signed_off is False  # the model default
     thesis_repo.upsert(db, t)
     db.commit()
-    assert thesis_repo.get(db, t.id).basket[0].signed_off is False
+    assert thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY).basket[0].signed_off is False
 
 
 def test_multi_segment_membership_roundtrips_n_rows(db, security_id):
@@ -448,7 +458,7 @@ def test_multi_segment_membership_roundtrips_n_rows(db, security_id):
     db.commit()
     assert _member_count(db, t.id) == 2  # N rows STORED, not squashed
 
-    got = thesis_repo.get(db, t.id)
+    got = thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY)
     assert [(m.ticker, m.segment) for m in got.basket] == [
         ("HIMS", "Telehealth platforms"),
         ("HIMS", "Compounding / supply"),
@@ -460,7 +470,7 @@ def test_multi_segment_membership_roundtrips_n_rows(db, security_id):
     thesis_repo.upsert(db, got)
     db.commit()
     assert _member_count(db, t.id) == 2
-    assert len(thesis_repo.get(db, t.id).basket) == 2
+    assert len(thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY).basket) == 2
 
 
 def test_set_surfaced_terms_updates_in_place_and_touches_nothing_else(db, security_id):
@@ -483,7 +493,7 @@ def test_set_surfaced_terms_updates_in_place_and_touches_nothing_else(db, securi
     )
     db.commit()
 
-    got = thesis_repo.get(db, t.id)
+    got = thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY)
     assert got.basket[0].surfaced_terms == ["ketamine", "psilocybin"]
     # everything else untouched
     assert got.basket[0].conviction == 4
@@ -565,12 +575,12 @@ def test_snapshot_written_on_promote_and_deduped_on_unchanged_repromote(db, secu
     assert _snapshot_count(db, t.id) == 1  # promote froze the roster
 
     # an unchanged re-promote of the read-back thesis must NOT grow the table
-    thesis_repo.upsert(db, thesis_repo.get(db, t.id))
+    thesis_repo.upsert(db, thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY))
     db.commit()
     assert _snapshot_count(db, t.id) == 1  # deduped: identical content_hash
 
     # a CHANGED roster DOES append a new snapshot
-    got = thesis_repo.get(db, t.id)
+    got = thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY)
     got.basket[0].conviction = 5
     thesis_repo.upsert(db, got)
     db.commit()
@@ -584,8 +594,8 @@ def test_get_asof_now_matches_live_get(db, security_id):
     t = _thesis(security_id)
     thesis_repo.upsert(db, t)
     db.commit()
-    live = thesis_repo.get(db, t.id)
-    asof_now = thesis_repo.get_asof(db, t.id, datetime.now(timezone.utc))
+    live = thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY)
+    asof_now = thesis_repo.get_asof(db, t.id, datetime.now(timezone.utc), workspace=WORKSPACE_ANY)
     assert asof_now is not None
     assert asof_now.basket == live.basket  # byte-identical roster at a live known_at
     assert asof_now == live  # ...and the whole thesis
@@ -597,12 +607,14 @@ def test_get_asof_returns_the_older_roster_between_two_snapshots(db, security_id
     tid, _sid2 = _two_pinned_rosters(db, security_id)
 
     between = datetime(2026, 6, 5, tzinfo=timezone.utc)  # after A (06-01), before B (06-10)
-    got = thesis_repo.get_asof(db, tid, between)
+    got = thesis_repo.get_asof(db, tid, between, workspace=WORKSPACE_ANY)
     assert [m.ticker for m in got.basket] == ["HIMS"]  # the OLDER 1-member roster
     assert len(got.basket) == 1
 
     after = datetime(2026, 6, 15, tzinfo=timezone.utc)  # after B
-    assert len(thesis_repo.get_asof(db, tid, after).basket) == 2  # the newer 2-member roster
+    assert (
+        len(thesis_repo.get_asof(db, tid, after, workspace=WORKSPACE_ANY).basket) == 2
+    )  # the newer 2-member roster
 
 
 def test_get_asof_no_lookahead_never_reads_a_snapshot_after_known_at(db, security_id):
@@ -612,10 +624,14 @@ def test_get_asof_no_lookahead_never_reads_a_snapshot_after_known_at(db, securit
     tid, _sid2 = _two_pinned_rosters(db, security_id)
 
     before_b = datetime(2026, 6, 9, tzinfo=timezone.utc)
-    assert len(thesis_repo.get_asof(db, tid, before_b).basket) == 1  # future roster not read
+    assert (
+        len(thesis_repo.get_asof(db, tid, before_b, workspace=WORKSPACE_ANY).basket) == 1
+    )  # future roster not read
 
     at_b = datetime(2026, 6, 10, tzinfo=timezone.utc)
-    assert len(thesis_repo.get_asof(db, tid, at_b).basket) == 2  # <= known_at is inclusive
+    assert (
+        len(thesis_repo.get_asof(db, tid, at_b, workspace=WORKSPACE_ANY).basket) == 2
+    )  # <= known_at is inclusive
 
 
 def test_basket_size_asof_count_only_pit_read(db, security_id):
@@ -654,15 +670,17 @@ def test_get_asof_with_no_snapshot_falls_back_to_the_live_roster(db, security_id
         cur.execute("DELETE FROM basket_snapshot WHERE thesis_id = %s", (t.id,))
     db.commit()
     assert _snapshot_count(db, t.id) == 0
-    got = thesis_repo.get_asof(db, t.id, datetime.now(timezone.utc))
+    got = thesis_repo.get_asof(db, t.id, datetime.now(timezone.utc), workspace=WORKSPACE_ANY)
     assert got is not None
     assert [m.ticker for m in got.basket] == ["HIMS"]  # live fallback, not empty
 
     # a known_at BEFORE the first snapshot (re-created here) also falls back to live
-    thesis_repo.upsert(db, thesis_repo.get(db, t.id))
+    thesis_repo.upsert(db, thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY))
     db.commit()
     early = datetime(2000, 1, 1, tzinfo=timezone.utc)
-    assert [m.ticker for m in thesis_repo.get_asof(db, t.id, early).basket] == ["HIMS"]
+    assert [
+        m.ticker for m in thesis_repo.get_asof(db, t.id, early, workspace=WORKSPACE_ANY).basket
+    ] == ["HIMS"]
 
 
 def test_get_asof_none_known_at_is_now(db, security_id):
@@ -671,12 +689,15 @@ def test_get_asof_none_known_at_is_now(db, security_id):
     t = _thesis(security_id)
     thesis_repo.upsert(db, t)
     db.commit()
-    got = thesis_repo.get_asof(db, t.id, None)
+    got = thesis_repo.get_asof(db, t.id, None, workspace=WORKSPACE_ANY)
     assert got is not None and [m.ticker for m in got.basket] == ["HIMS"]
 
 
 def test_get_asof_missing_thesis_returns_none(db):
-    assert thesis_repo.get_asof(db, uuid.uuid4(), datetime.now(timezone.utc)) is None
+    assert (
+        thesis_repo.get_asof(db, uuid.uuid4(), datetime.now(timezone.utc), workspace=WORKSPACE_ANY)
+        is None
+    )
 
 
 def test_deploy_seed_covers_a_snapshotless_thesis(db, security_id):
@@ -696,7 +717,7 @@ def test_deploy_seed_covers_a_snapshotless_thesis(db, security_id):
         cur.execute(seed_sql)  # CREATE ... IF NOT EXISTS (no-ops) + the NOT-EXISTS-guarded seed
     db.commit()
     assert _snapshot_count(db, t.id) == 1  # the snapshotless thesis got seeded
-    got = thesis_repo.get_asof(db, t.id, datetime.now(timezone.utc))
+    got = thesis_repo.get_asof(db, t.id, datetime.now(timezone.utc), workspace=WORKSPACE_ANY)
     assert [m.ticker for m in got.basket] == ["HIMS"]  # the seeded roster == the live roster
 
     # idempotent: a second run seeds nothing more (the thesis now has a snapshot)
@@ -727,9 +748,11 @@ def test_a_thesis_stored_without_the_fixed_links_reads_back_with_both_appended_l
         ("ETFs", ETFS_DESCRIPTOR),
         ("Bench", BENCH_DESCRIPTOR),
     ]
-    got = thesis_repo.get(db, t.id)
-    asof = thesis_repo.get_asof(db, t.id, datetime(2100, 1, 1, tzinfo=timezone.utc))
-    listed = next(x for x in thesis_repo.list_all(db) if x.id == t.id)
+    got = thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY)
+    asof = thesis_repo.get_asof(
+        db, t.id, datetime(2100, 1, 1, tzinfo=timezone.utc), workspace=WORKSPACE_ANY
+    )
+    listed = next(x for x in thesis_repo.list_all(db, workspace=WORKSPACE_ANY) if x.id == t.id)
     for loaded in (got, asof, listed):
         assert [(s.label, s.descriptor) for s in loaded.segments] == want
 
@@ -742,9 +765,9 @@ def test_upserting_a_hydrated_thesis_stores_each_fixed_link_once(db, security_id
     """Round-trip safety: a thesis loaded (links appended) and saved again does not stack a second pair."""
     t = _thesis(security_id)
     thesis_repo.upsert(db, t)
-    thesis_repo.upsert(db, thesis_repo.get(db, t.id))
+    thesis_repo.upsert(db, thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY))
     db.commit()
-    assert [s.label for s in thesis_repo.get(db, t.id).segments] == [
+    assert [s.label for s in thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY).segments] == [
         "Telehealth platforms",
         "Compounding / supply",
         "Context",
@@ -836,13 +859,15 @@ def test_context_role_roundtrips_on_every_row_and_get_asof_hydrates_it(db, secur
     thesis_repo.upsert(db, t)
     db.commit()
     assert _stored_roles(db, t.id) == ["payer", "payer"]  # the column, on BOTH rows
-    assert [m.context_role for m in thesis_repo.get(db, t.id).basket] == [ContextRole.PAYER] * 2
+    assert [m.context_role for m in thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY).basket] == [
+        ContextRole.PAYER
+    ] * 2
     # the snapshot carries it on both rows, and get_asof hydrates the roster from that snapshot
     with db.cursor() as cur:
         cur.execute("SELECT members FROM basket_snapshot WHERE thesis_id = %s", (t.id,))
         (snap,) = cur.fetchall()
     assert [m["context_role"] for m in snap["members"]] == ["payer", "payer"]
-    asof = thesis_repo.get_asof(db, t.id, datetime.now(timezone.utc))
+    asof = thesis_repo.get_asof(db, t.id, datetime.now(timezone.utc), workspace=WORKSPACE_ANY)
     assert [m.context_role for m in asof.basket] == [ContextRole.PAYER] * 2
 
 
@@ -851,9 +876,15 @@ def test_an_unset_role_is_stored_null_and_hydrates_none_both_live_and_asof(db, s
     thesis_repo.upsert(db, t)
     db.commit()
     assert _stored_roles(db, t.id) == [None, None]
-    assert [m.context_role for m in thesis_repo.get(db, t.id).basket] == [None, None]
+    assert [m.context_role for m in thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY).basket] == [
+        None,
+        None,
+    ]
     assert [
-        m.context_role for m in thesis_repo.get_asof(db, t.id, datetime.now(timezone.utc)).basket
+        m.context_role
+        for m in thesis_repo.get_asof(
+            db, t.id, datetime.now(timezone.utc), workspace=WORKSPACE_ANY
+        ).basket
     ] == [None, None]
 
 
@@ -879,7 +910,7 @@ def test_context_role_survives_a_resave_through_the_mapper(db, security_id):
     t = _two_link_company(security_id, ContextRole.FINANCIER)
     thesis_repo.upsert(db, t)
     db.commit()
-    got = thesis_repo.get(db, t.id)
+    got = thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY)
     got.narrative = "edited narrative — the basket is resent verbatim"
     thesis_repo.upsert(db, got)
     db.commit()
@@ -898,11 +929,13 @@ def test_snapshot_hash_parity_a_roleless_roster_never_grows_the_table_and_a_role
     db.commit()
     assert _snapshot_count(db, t.id) == 1
 
-    thesis_repo.upsert(db, thesis_repo.get(db, t.id))  # unchanged, role-less
+    thesis_repo.upsert(
+        db, thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY)
+    )  # unchanged, role-less
     db.commit()
     assert _snapshot_count(db, t.id) == 1
 
-    tagged = thesis_repo.get(db, t.id)
+    tagged = thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY)
     tagged.basket = [
         m.model_copy(update={"context_role": ContextRole.BENCHMARK}) for m in tagged.basket
     ]
@@ -910,11 +943,13 @@ def test_snapshot_hash_parity_a_roleless_roster_never_grows_the_table_and_a_role
     db.commit()
     assert _snapshot_count(db, t.id) == 2  # a role is a roster change
 
-    thesis_repo.upsert(db, thesis_repo.get(db, t.id))  # the same tagged roster again
+    thesis_repo.upsert(
+        db, thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY)
+    )  # the same tagged roster again
     db.commit()
     assert _snapshot_count(db, t.id) == 2
 
-    cleared = thesis_repo.get(db, t.id)
+    cleared = thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY)
     cleared.basket = [m.model_copy(update={"context_role": None}) for m in cleared.basket]
     thesis_repo.upsert(db, cleared)
     db.commit()
@@ -935,7 +970,7 @@ def test_a_roleless_repromote_dedups_against_the_0043_deploy_seed(db, security_i
     db.commit()
     assert _snapshot_count(db, t.id) == 1  # the seed's row
 
-    thesis_repo.upsert(db, thesis_repo.get(db, t.id))
+    thesis_repo.upsert(db, thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY))
     db.commit()
     assert _snapshot_count(db, t.id) == 1  # same hash as the seed: nothing appended
 

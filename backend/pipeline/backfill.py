@@ -78,6 +78,7 @@ import psycopg
 from db.session import connect
 from domain.config import DEFAULT_CONFIG, config_hash
 from domain.market_time import known_at_for_asof, market_today, market_tz
+from domain.scopes import WORKSPACE_ANY
 from domain.settings import get_settings
 from pipeline.backfill_log import write_backfill_log
 from pipeline.call_for_thesis import call_for_thesis
@@ -153,14 +154,14 @@ def run_backfill(
     (before any thesis runs)."""
     known_at = reconstruction_known_at(asof)
     if thesis_id is not None:
-        one = thesis_repo.get(conn, thesis_id)
+        one = thesis_repo.get(conn, thesis_id, workspace=WORKSPACE_ANY)
         if one is None:
             raise LookupError(f"thesis not found: {thesis_id}")
         theses = [one]
     else:
-        theses = thesis_repo.list_all(conn)
+        theses = thesis_repo.list_all(conn, workspace=WORKSPACE_ANY)
     tz = market_tz()
-    created = thesis_repo.created_at_for(conn, [t.id for t in theses])
+    created = thesis_repo.created_at_for(conn, [t.id for t in theses], workspace=WORKSPACE_ANY)
     # ONE explicit cfg for the whole reconstruction, used for BOTH the assemble and its fingerprint (0044) —
     # the same honesty rule `daily.run_daily` holds: the stamp must follow the cfg that produced the card,
     # never a separately-hashed DEFAULT_CONFIG that merely happens to match today.

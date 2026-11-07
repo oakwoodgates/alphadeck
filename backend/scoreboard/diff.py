@@ -47,7 +47,7 @@ from uuid import UUID
 import psycopg
 from pydantic import BaseModel
 
-from domain.scopes import DATA_TENANT_ID
+from domain.scopes import DATA_TENANT_ID, WorkspaceScope
 from replay.episodes import derive_episodes
 from replay.schema import CallSnapshot, Episode, MemberRow, Outcome
 from replay.scoring import score_episode
@@ -623,6 +623,7 @@ def edition_diff(
     before: Edition | None,
     after: Edition | None,
     through: date | None,
+    workspace: WorkspaceScope,
 ) -> EditionDiff:
     """Compare two editions (``None`` = Edition 0, the record) over every thesis, archived included (the
     Scoreboard's default roster), through ``through`` (``None`` = an edition with no night: nothing to
@@ -639,7 +640,7 @@ def edition_diff(
     # ONE reader per tenant for the whole comparison (the market edge is a per-tenant scan, and a company in
     # two theses keeps its tape loaded), pinned once like the Scoreboard's per-request readers
     readers: dict[UUID, MemoPrices] = {}
-    for thesis in thesis_repo.list_all(conn, include_archived=True):
+    for thesis in thesis_repo.list_all(conn, workspace=workspace, include_archived=True):
         tenant = DATA_TENANT_ID  # the price tape is DATA (domain.scopes)
         if tenant not in readers:
             edge = market_tape_edge(conn, tenant_id=tenant, cap=through)

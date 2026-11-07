@@ -176,11 +176,11 @@ def repo(monkeypatch):
     old = Thesis(id=T1, name="Old", narrative="x")
     new = Thesis(id=T2, name="New", narrative="x")
     calls: dict = {"snapshots": [], "get_asof": []}
-    monkeypatch.setattr(baskets.thesis_repo, "list_all", lambda conn: [old, new])
+    monkeypatch.setattr(baskets.thesis_repo, "list_all", lambda conn, **_: [old, new])
     monkeypatch.setattr(
         baskets.thesis_repo,
         "created_at_for",
-        lambda conn, ids: {
+        lambda conn, ids, **_: {
             T1: datetime(2026, 1, 5, tzinfo=timezone.utc),
             T2: datetime(2026, 7, 1, tzinfo=timezone.utc),
         },
@@ -190,7 +190,7 @@ def repo(monkeypatch):
         calls["snapshots"].append(tid)
         return False
 
-    def get_asof(conn, tid, known_at):
+    def get_asof(conn, tid, known_at, **_):
         calls["get_asof"].append((tid, known_at))
         return old
 
@@ -201,7 +201,7 @@ def repo(monkeypatch):
 
 def test_cards_as_of_leaves_out_later_cards_and_counts_a_roster_fallback(repo):
     known_at = datetime(2026, 6, 2, 3, 0, tzinfo=timezone.utc)
-    got = cards_as_of(object(), ASOF, known_at)
+    got = cards_as_of(object(), ASOF, known_at, workspace=DEFAULT_TENANT_ID)
     assert (
         got.live_count,
         [t.name for t in got.cards],
@@ -216,7 +216,7 @@ def test_cards_as_of_leaves_out_later_cards_and_counts_a_roster_fallback(repo):
     assert repo["get_asof"] == [(T1, known_at)]
     # the live view: today's roster, no snapshot read
     repo["get_asof"].clear()
-    live = cards_as_of(object(), date(2026, 10, 1), None)
+    live = cards_as_of(object(), date(2026, 10, 1), None, workspace=DEFAULT_TENANT_ID)
     assert ([t.name for t in live.cards], live.roster_fallback) == (["Old", "New"], 0)
     assert repo["get_asof"] == [] and repo["snapshots"] == [T1]
 
@@ -233,7 +233,7 @@ def test_per_company_reads_each_company_once_through_one_view_per_chunk(monkeypa
         seen.append((pit, sid, pit._basket, pit.asof, pit.known_at, pit.clock))
         return sid.hex
 
-    out = per_company(object(), sids, ASOF, known_at, "public", read)
+    out = per_company(object(), sids, ASOF, known_at, "public", read, workspace=DEFAULT_TENANT_ID)
     assert out == {sid: sid.hex for sid in sids}
     assert [s for _, s, *_ in seen] == sids
     views = {}
@@ -318,7 +318,7 @@ def test_price_flags_maps_only_the_flags_that_reach_a_price_cell(monkeypatch):
 
     monkeypatch.setattr(baskets, "CHUNK", 4)
     monkeypatch.setattr(
-        baskets, "live_card_ids", lambda conn: set(sids)
+        baskets, "live_card_ids", lambda conn, **_: set(sids)
     )  # every company is on a card
     monkeypatch.setattr(baskets.flags_reader, "read_flags", read_flags)
     monkeypatch.setattr(baskets.flags_reader, "run_reads", lambda: ("READINGS", "CORRECTIONS"))
@@ -326,7 +326,14 @@ def test_price_flags_maps_only_the_flags_that_reach_a_price_cell(monkeypatch):
         baskets.master, "tickers_for", lambda conn, ids, tenant_id: {s: "X" for s in ids}
     )
 
-    got = price_flags(object(), sids + [s_island], ASOF, known_at=known_at, clock="public")
+    got = price_flags(
+        object(),
+        sids + [s_island],
+        ASOF,
+        known_at=known_at,
+        clock="public",
+        workspace=DEFAULT_TENANT_ID,
+    )
     assert got == {
         s_island: "mixed-scale price history",
         s_both: "price feed stopped; mixed-scale price history",  # a known-wrong number first
@@ -337,7 +344,10 @@ def test_price_flags_maps_only_the_flags_that_reach_a_price_cell(monkeypatch):
         assert (c["readings"], c["corrections"]) == ("READINGS", "CORRECTIONS")
         assert c["stale_days"] == get_settings().tape_stale_days
         assert c["tenant_id"] == DEFAULT_TENANT_ID and set(c["tickers"]) == set(sids)
-    assert price_flags(object(), [], ASOF, known_at=None, clock="record") == {}
+    assert (
+        price_flags(object(), [], ASOF, known_at=None, clock="record", workspace=DEFAULT_TENANT_ID)
+        == {}
+    )
     assert len(calls) == 2  # no companies: no read
 
 

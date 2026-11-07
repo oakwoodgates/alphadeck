@@ -795,14 +795,13 @@ def earliest_edition_night(
     conn: psycopg.Connection, *, tenant_id: UUID | None = None
 ) -> date | None:
     """The earliest night any published Scoreboard edition re-ran (``edition.first_night``, the minimum over the
-    tenant's editions) — the oldest night an edition PAGE reads; ``None`` when no edition is published. A read,
-    never cached: a new edition with an earlier first night moves the line with it."""
-    from db.session import current_tenant_id  # lazy: the session module reads settings
-
+    editions of ``tenant_id``'s workspace, or of every workspace when none is named) — the oldest night an
+    edition PAGE reads; ``None`` when no edition is published. A read, never cached: a new edition with an
+    earlier first night moves the line with it."""
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT min(first_night) AS n FROM edition WHERE tenant_id = %s",
-            (tenant_id or current_tenant_id(),),
+            "SELECT min(first_night) AS n FROM edition WHERE (%(t)s::uuid IS NULL OR tenant_id = %(t)s)",
+            {"t": tenant_id},
         )
         row = cur.fetchone()
     return (row or {}).get("n")

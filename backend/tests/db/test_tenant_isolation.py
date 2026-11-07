@@ -21,7 +21,7 @@ scope filter reads the right rows by accident and the proof proves nothing. Isol
 not RLS (``security_master.id`` and every ``security_id`` FK carry no tenant).
 
 DB-backed; skips when Postgres is unreachable (the shared ``db`` fixture). The two workspace ids are FIXED (the
-``db`` fixture keeps ``tenant`` rows; ``provision_tenant`` is ON CONFLICT DO NOTHING), so re-runs never accrete.
+``db`` fixture keeps ``tenant`` rows; ``new_workspace`` is ON CONFLICT DO NOTHING), so re-runs never accrete.
 """
 
 from __future__ import annotations
@@ -43,11 +43,11 @@ from ingest.prices.eod_loader import ingest_prices, parse_yahoo_chart
 from ingest.revenue_mix import ingest_revenue_mix
 from ingest.shares import ingest_shares_outstanding
 from pipeline.call_for_thesis import call_for_thesis
-from pipeline.provision_tenant import provision_tenant
 from repositories import thesis_repo
 from securities import master
 from signals.base import PointInTimeData
 from signals.horizons import call_bounds
+from tests.workspaces import new_workspace
 from workbench.chain_draft import (
     PlacementStatus,
     ProposedPlacement,
@@ -69,8 +69,8 @@ _ARM_ASOF = date(
 
 
 def _workspaces(db) -> None:
-    provision_tenant(db, "workspace W", tenant_id=W)
-    provision_tenant(db, "workspace V", tenant_id=V)
+    new_workspace(db, "workspace W", workspace_id=W)
+    new_workspace(db, "workspace V", workspace_id=V)
 
 
 def _security(db, tenant_id: uuid.UUID = DATA, *, ticker: str = "HIMS", cik: str = "0001773751"):
@@ -315,7 +315,7 @@ def test_workspace_cut_smoke(db):
     cluster-buy + breakout arm), upsert the workspace's thesis, and re-derive an Armed call recorded in the
     workspace — with the shared master resolving the ticker under the DATA tenant and the workspace owning no
     master row of its own."""
-    tid = provision_tenant(db, "workspace W", tenant_id=W)
+    tid = new_workspace(db, "workspace W", workspace_id=W)
     assert tid == W
     sid = _security(db, ticker="HIMS", cik="0001773751")
     _arm_facts(db, sid, "DATA-SMOKE-0001")

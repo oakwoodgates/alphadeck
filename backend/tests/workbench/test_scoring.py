@@ -68,7 +68,7 @@ def test_market_cap_shares_without_price_stays_visible(db, security_id):
         ratified_by="operator",
     )
     db.commit()
-    pit = PointInTimeData(db, asof=date(2026, 7, 1), tenant_id=DEFAULT_TENANT_ID)
+    pit = PointInTimeData(db, asof=date(2026, 7, 1), workspace=DEFAULT_TENANT_ID)
     m = score_member(pit, _member(security_id), DEFAULT_CONFIG)
     assert m.market_cap.value is None  # still no cap — price is genuinely missing
     assert len(m.market_cap.provenance) == 2  # the ratified fact + the awaiting-price note
@@ -93,7 +93,7 @@ def test_market_cap_carries_shares_asof_when_priced(db, security_id):
     )
     _price(db, security_id, date(2026, 7, 1), 10.0)
     db.commit()
-    pit = PointInTimeData(db, asof=date(2026, 7, 1), tenant_id=DEFAULT_TENANT_ID)
+    pit = PointInTimeData(db, asof=date(2026, 7, 1), workspace=DEFAULT_TENANT_ID)
     m = score_member(pit, _member(security_id), DEFAULT_CONFIG)
     assert m.market_cap.value == 10_000_000  # the cap computes (1M x $10)
     sh = next(p for p in m.market_cap.provenance if p.source == "10-q-cover")
@@ -107,7 +107,7 @@ def test_market_cap_price_without_shares_stays_visible(db, security_id):
     with a note pointing at the extract → ratify step (never a silent blank)."""
     _price(db, security_id, date(2026, 6, 20), 100.0)
     db.commit()
-    pit = PointInTimeData(db, asof=date(2026, 7, 1), tenant_id=DEFAULT_TENANT_ID)
+    pit = PointInTimeData(db, asof=date(2026, 7, 1), workspace=DEFAULT_TENANT_ID)
     m = score_member(pit, _member(security_id), DEFAULT_CONFIG)
     assert m.market_cap.value is None
     assert [p.source for p in m.market_cap.provenance] == ["price"]
@@ -142,7 +142,7 @@ def test_fund_sleeve_price_reads_as_of_no_lookahead(db):
     _price(db, sid, date(2026, 7, 1), 200.0)  # a FUTURE bar relative to the scored asof below
     db.commit()
     fund = BasketMember(ticker="LIT", role="ETF sleeve", security_id=sid)
-    pit = PointInTimeData(db, asof=date(2026, 6, 15), tenant_id=DEFAULT_TENANT_ID)
+    pit = PointInTimeData(db, asof=date(2026, 6, 15), workspace=DEFAULT_TENANT_ID)
     m = score_member(pit, fund, DEFAULT_CONFIG)
     assert m.market_cap.value is None  # no shares -> no cap; the sleeve is priced, not valued
     price_prov = [p for p in m.market_cap.provenance if p.source == "price"]
@@ -172,7 +172,7 @@ def _annual_shares(db, sid, shares, ratio, status, event=date(2025, 12, 31)):
 
 
 def _mcap(db, sid):
-    pit = PointInTimeData(db, asof=date(2026, 7, 1), tenant_id=DEFAULT_TENANT_ID)
+    pit = PointInTimeData(db, asof=date(2026, 7, 1), workspace=DEFAULT_TENANT_ID)
     return score_member(pit, _member(sid), DEFAULT_CONFIG).market_cap
 
 
@@ -332,7 +332,10 @@ def test_score_member_golden(db, security_id):
     _price(db, security_id, date(2026, 6, 1), 25.0)
     db.commit()
 
-    sm = score_member(PointInTimeData(db, asof=_ASOF, known_at=_KNOWN), _member(security_id))
+    sm = score_member(
+        PointInTimeData(db, asof=_ASOF, known_at=_KNOWN, workspace=DEFAULT_TENANT_ID),
+        _member(security_id),
+    )
 
     assert sm.purity.pips == 3 and sm.purity.value == 77.0
     assert (
@@ -364,7 +367,10 @@ def test_no_data_reads_dash_not_zero(db, security_id):
     """A bare security: the meters that have no fact read "—" (pips None); catalysts is a real 0 (the
     operator's rule — no fake zeros for dilution/purity/runway/market-cap, but 0 catalysts is a 0).
     """
-    sm = score_member(PointInTimeData(db, asof=_ASOF, known_at=_KNOWN), _member(security_id))
+    sm = score_member(
+        PointInTimeData(db, asof=_ASOF, known_at=_KNOWN, workspace=DEFAULT_TENANT_ID),
+        _member(security_id),
+    )
     assert sm.purity.pips is None and sm.runway.pips is None
     assert sm.dilution.pips is None and sm.market_cap.pips is None
     assert sm.catalysts.pips == 0
@@ -389,7 +395,10 @@ def test_vouched_is_provenance_not_a_scoring_input(db, security_id):
         vouched="overridden",
     )
     db.commit()
-    sm = score_member(PointInTimeData(db, asof=_ASOF, known_at=_KNOWN), _member(security_id))
+    sm = score_member(
+        PointInTimeData(db, asof=_ASOF, known_at=_KNOWN, workspace=DEFAULT_TENANT_ID),
+        _member(security_id),
+    )
     assert (
         sm.purity.pips == 4
     )  # 100% -> 4, whatever the vouched provenance; vouched never gates scoring
@@ -400,7 +409,8 @@ def test_unconfirmed_estimates_counts_blank_fact_backed_meters(db, security_id):
     confirmed value; confirming one drops the count. A readiness signal, never a scoring input."""
     assert (
         score_member(
-            PointInTimeData(db, asof=_ASOF, known_at=_KNOWN), _member(security_id)
+            PointInTimeData(db, asof=_ASOF, known_at=_KNOWN, workspace=DEFAULT_TENANT_ID),
+            _member(security_id),
         ).unconfirmed_estimates
         == 3
     )
@@ -417,7 +427,8 @@ def test_unconfirmed_estimates_counts_blank_fact_backed_meters(db, security_id):
     # purity now confirmed -> runway + market cap still unconfirmed
     assert (
         score_member(
-            PointInTimeData(db, asof=_ASOF, known_at=_KNOWN), _member(security_id)
+            PointInTimeData(db, asof=_ASOF, known_at=_KNOWN, workspace=DEFAULT_TENANT_ID),
+            _member(security_id),
         ).unconfirmed_estimates
         == 2
     )
@@ -435,7 +446,10 @@ def test_no_lookahead(db, security_id):
         event_date=date(2026, 9, 1),  # AFTER asof
     )
     db.commit()
-    sm = score_member(PointInTimeData(db, asof=_ASOF, known_at=_KNOWN), _member(security_id))
+    sm = score_member(
+        PointInTimeData(db, asof=_ASOF, known_at=_KNOWN, workspace=DEFAULT_TENANT_ID),
+        _member(security_id),
+    )
     assert sm.purity.pips is None  # the 2026-09-01 fact is in the future as of 2026-06-02
 
 
@@ -452,7 +466,7 @@ def test_pip_cutoffs_are_config_driven(db, security_id):
         event_date=date(2025, 12, 31),
     )
     db.commit()
-    pit = PointInTimeData(db, asof=_ASOF, known_at=_KNOWN)
+    pit = PointInTimeData(db, asof=_ASOF, known_at=_KNOWN, workspace=DEFAULT_TENANT_ID)
     assert score_member(pit, _member(security_id)).purity.pips == 3  # default 80-bar: 77 -> 3
     loosened = DEFAULT_CONFIG.model_copy(update={"purity_pip_pct": (10.0, 25.0, 50.0, 75.0)})
     assert score_member(pit, _member(security_id), loosened).purity.pips == 4  # 75-bar: 77 -> 4

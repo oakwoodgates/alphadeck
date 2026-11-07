@@ -8,6 +8,7 @@ import uuid
 from datetime import date, timedelta
 
 from db.session import DEFAULT_TENANT_ID
+from domain.scopes import WORKSPACE_ANY
 from domain.thesis import Thesis
 from radar import repo
 from repositories import thesis_repo
@@ -123,7 +124,7 @@ def test_attach_is_operator_set_idempotent_and_reversible(client, db, pinned_tod
 
     r = client.post("/radar/spac/attach", json=payload).json()
     assert r["added"] is True and r["ticker"] == "LIVE"
-    loaded = thesis_repo.get(db, t.id)
+    loaded = thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY)
     (member,) = loaded.basket
     assert member.security_id == sid
     assert member.segment is None  # un-characterized all the way through the spine (item F)
@@ -133,7 +134,7 @@ def test_attach_is_operator_set_idempotent_and_reversible(client, db, pinned_tod
     # idempotent second attach — no duplicate member
     r2 = client.post("/radar/spac/attach", json=payload).json()
     assert r2["already"] is True and r2["added"] is False
-    assert len(thesis_repo.get(db, t.id).basket) == 1
+    assert len(thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY).basket) == 1
 
     # the tape now shows the holding (the added-toggle's read)
     body = client.get("/radar/spac").json()
@@ -142,7 +143,7 @@ def test_attach_is_operator_set_idempotent_and_reversible(client, db, pinned_tod
     # detach = the visible inverse (#1) — back to the prior state
     r3 = client.post("/radar/spac/detach", json=payload).json()
     assert r3["removed"] is True
-    assert thesis_repo.get(db, t.id).basket == []
+    assert thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY).basket == []
     # detach again: idempotent no-op
     assert client.post("/radar/spac/detach", json=payload).json()["removed"] is False
 

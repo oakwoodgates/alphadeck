@@ -189,7 +189,7 @@ def test_one_honest_stamp_reads_exactly_like_the_backdated_stamps(db, name):
     fired = {"today": 0, "pre_rule_c": 0}
     for asof in asofs:
         assert _strip(_read(db, live, asof, known_at)) == _strip(_read(db, legacy, asof, known_at))
-        pit = PointInTimeData(db, asof=asof, known_at=known_at)
+        pit = PointInTimeData(db, asof=asof, known_at=known_at, workspace=DEFAULT_TENANT_ID)
         for label, cfg in (("today", DEFAULT_CONFIG), ("pre_rule_c", pre_rule_c)):
             ev_legacy = ra.detect(pit, legacy, asof, cfg)
             ev_live = ra.detect(pit, live, asof, cfg)

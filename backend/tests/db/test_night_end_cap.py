@@ -117,16 +117,18 @@ def test_the_point_in_time_view_and_the_public_mirror_agree(db, security_id, tmp
 
     _plant(db, security_id)
     cap = known_at_for_asof(MON, now=FAR)
-    pit = PointInTimeData(db, asof=MON, known_at=cap, clock="public")
+    pit = PointInTimeData(db, asof=MON, known_at=cap, clock="public", workspace=DEFAULT_TENANT_ID)
     assert [r["accession"] for r in pit.corporate_event_facts(security_id)] == []
     assert [r["accession"] for r in pit.insider_txns(security_id)] == ["past-midnight-4"]
 
-    export_snapshot(db, tmp_path, clock="public")
+    export_snapshot(db, tmp_path, clock="public", workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
-    mirror = ReplayPointInTimeData(con, asof=MON, known_at=cap)
+    mirror = ReplayPointInTimeData(con, asof=MON, known_at=cap, workspace=DEFAULT_TENANT_ID)
     assert [r["accession"] for r in mirror.corporate_event_facts(security_id)] == []
     assert [r["accession"] for r in mirror.insider_txns(security_id)] == ["past-midnight-4"]
-    on_tue = ReplayPointInTimeData(con, asof=TUE, known_at=known_at_for_asof(TUE, now=FAR))
+    on_tue = ReplayPointInTimeData(
+        con, asof=TUE, known_at=known_at_for_asof(TUE, now=FAR), workspace=DEFAULT_TENANT_ID
+    )
     assert [r["accession"] for r in on_tue.corporate_event_facts(security_id)] == ["tue-8k"]
 
 
@@ -178,9 +180,17 @@ def test_a_4a_with_no_stored_acceptance_never_counts_on_the_night_before_its_fil
 
     cap_mon = known_at_for_asof(mon, now=FAR)
     cap_tue = known_at_for_asof(tue, now=FAR)
-    assert codes(PointInTimeData(db, asof=mon, known_at=cap_mon, clock="public")) == {"A"}
-    assert codes(PointInTimeData(db, asof=tue, known_at=cap_tue, clock="public")) == {"P"}
-    export_snapshot(db, tmp_path, clock="public")
+    assert codes(
+        PointInTimeData(db, asof=mon, known_at=cap_mon, clock="public", workspace=DEFAULT_TENANT_ID)
+    ) == {"A"}
+    assert codes(
+        PointInTimeData(db, asof=tue, known_at=cap_tue, clock="public", workspace=DEFAULT_TENANT_ID)
+    ) == {"P"}
+    export_snapshot(db, tmp_path, clock="public", workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
-    assert codes(ReplayPointInTimeData(con, asof=mon, known_at=cap_mon)) == {"A"}
-    assert codes(ReplayPointInTimeData(con, asof=tue, known_at=cap_tue)) == {"P"}
+    assert codes(
+        ReplayPointInTimeData(con, asof=mon, known_at=cap_mon, workspace=DEFAULT_TENANT_ID)
+    ) == {"A"}
+    assert codes(
+        ReplayPointInTimeData(con, asof=tue, known_at=cap_tue, workspace=DEFAULT_TENANT_ID)
+    ) == {"P"}

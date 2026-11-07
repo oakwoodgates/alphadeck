@@ -336,7 +336,7 @@ def _episode_rows(
     edge = market_tape_edge(conn, tenant_id=DATA_TENANT_ID, cap=night)  # the tape is DATA
     src = EditionSource(edition)
     for tid in sorted(editions_repo.last_page_by_thesis(conn, edition.id), key=str):
-        thesis = thesis_repo.get(conn, tid)
+        thesis = thesis_repo.get(conn, tid, workspace=tenant_id)  # the edition's own workspace
         if thesis is None:
             continue
         inked = set(editions_repo.outcomes_for_thesis(conn, edition.id, tid))

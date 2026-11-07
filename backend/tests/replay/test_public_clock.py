@@ -9,6 +9,7 @@ from db.bitemporal import _FACT_IDENTITY, DISPLAY_ONLY_FACT_TABLES, append_fact
 from db.public_clock import PUBLIC_TIME
 from db.session import DEFAULT_TENANT_ID
 from domain.market_time import known_at_for_asof, market_tz
+from domain.scopes import WORKSPACE_ANY
 from replay import export as export_mod
 from replay.export import (
     _PUBLIC_CLOCK,
@@ -104,17 +105,23 @@ def test_a_fact_is_invisible_before_its_accepted_and_visible_after(db, security_
         ),
     )
     db.commit()
-    export_snapshot(db, tmp_path, clock="public")
+    export_snapshot(db, tmp_path, clock="public", workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
         # asof 06-06: the trade has happened, the filing has NOT been accepted -> invisible
         blind = ReplayPointInTimeData(
-            con, asof=date(2026, 6, 6), known_at=known_at_for_asof(date(2026, 6, 6), _PIN)
+            con,
+            asof=date(2026, 6, 6),
+            known_at=known_at_for_asof(date(2026, 6, 6), _PIN),
+            workspace=DEFAULT_TENANT_ID,
         )
         assert blind.insider_txns(security_id) == []
         # asof 06-09, capped at the end of THAT market day -> visible
         seeing = ReplayPointInTimeData(
-            con, asof=date(2026, 6, 9), known_at=known_at_for_asof(date(2026, 6, 9), _PIN)
+            con,
+            asof=date(2026, 6, 9),
+            known_at=known_at_for_asof(date(2026, 6, 9), _PIN),
+            workspace=DEFAULT_TENANT_ID,
         )
         assert [r["accession"] for r in seeing.insider_txns(security_id)] == ["a-1"]
     finally:
@@ -129,11 +136,14 @@ def test_a_bar_is_visible_on_its_own_day_and_not_before(db, security_id, tmp_pat
             _bar(security_id, d=d, close=px, recorded_at=datetime(2026, 9, 1, tzinfo=timezone.utc)),
         )
     db.commit()
-    export_snapshot(db, tmp_path, clock="public")
+    export_snapshot(db, tmp_path, clock="public", workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
         pit = ReplayPointInTimeData(
-            con, asof=date(2026, 6, 1), known_at=known_at_for_asof(date(2026, 6, 1), _PIN)
+            con,
+            asof=date(2026, 6, 1),
+            known_at=known_at_for_asof(date(2026, 6, 1), _PIN),
+            workspace=DEFAULT_TENANT_ID,
         )
         assert [r["d"] for r in pit.price_history(security_id)] == [date(2026, 6, 1)]
     finally:
@@ -159,7 +169,7 @@ def test_a_fact_with_no_clock_in_any_version_is_dropped_and_counted(db, security
         ),
     )
     db.commit()
-    m = export_snapshot(db, tmp_path, clock="public")
+    m = export_snapshot(db, tmp_path, clock="public", workspace=DEFAULT_TENANT_ID)
     counts = m["tables"]["fact_insider_txn"]
     assert counts["rows_out"] == 0
     assert counts["rows_dropped_null_clock"] == 1  # RAW rows
@@ -167,9 +177,9 @@ def test_a_fact_with_no_clock_in_any_version_is_dropped_and_counted(db, security
     con = connect_mirror(tmp_path)
     try:
         assert (
-            ReplayPointInTimeData(con, asof=date(2026, 12, 1), known_at=_PIN).insider_txns(
-                security_id
-            )
+            ReplayPointInTimeData(
+                con, asof=date(2026, 12, 1), known_at=_PIN, workspace=DEFAULT_TENANT_ID
+            ).insider_txns(security_id)
             == []
         )
     finally:
@@ -210,14 +220,14 @@ def test_the_null_fill_keeps_our_BEST_PARSE_not_an_older_one(db, security_id, tm
         ),
     )
     db.commit()
-    m = export_snapshot(db, tmp_path, clock="public")
+    m = export_snapshot(db, tmp_path, clock="public", workspace=DEFAULT_TENANT_ID)
     counts = m["tables"]["fact_insider_txn"]
     assert counts["rows_out"] == 1 and counts["identities_lost"] == 0
     con = connect_mirror(tmp_path)
     try:
-        rows = ReplayPointInTimeData(con, asof=date(2026, 12, 1), known_at=_PIN).insider_txns(
-            security_id
-        )
+        rows = ReplayPointInTimeData(
+            con, asof=date(2026, 12, 1), known_at=_PIN, workspace=DEFAULT_TENANT_ID
+        ).insider_txns(security_id)
         assert len(rows) == 1
         assert rows[0]["insider_role"] == "REPAIRED ROLE"  # the BEST parse, not the older one
         assert rows[0]["recorded_at"] == acc  # ...dated at the accession's acceptance
@@ -253,12 +263,12 @@ def test_a_pure_reparse_collapses_to_the_latest_content(db, security_id, tmp_pat
             ),
         )
     db.commit()
-    export_snapshot(db, tmp_path, clock="public")
+    export_snapshot(db, tmp_path, clock="public", workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
-        rows = ReplayPointInTimeData(con, asof=date(2026, 12, 1), known_at=_PIN).insider_txns(
-            security_id
-        )
+        rows = ReplayPointInTimeData(
+            con, asof=date(2026, 12, 1), known_at=_PIN, workspace=DEFAULT_TENANT_ID
+        ).insider_txns(security_id)
         assert len(rows) == 1 and rows[0]["insider_role"] == "REPAIRED ROLE"
     finally:
         con.close()
@@ -294,14 +304,14 @@ def test_a_restatement_survives_with_its_OWN_clock(db, security_id, tmp_path):
         ),
     )
     db.commit()
-    m = export_snapshot(db, tmp_path, clock="public")
+    m = export_snapshot(db, tmp_path, clock="public", workspace=DEFAULT_TENANT_ID)
     assert m["tables"]["fact_fundamentals"]["versions_collapsed"] == 0  # BOTH survive
     con = connect_mirror(tmp_path)
     try:
 
         def value_at(d):
             rows = ReplayPointInTimeData(
-                con, asof=d, known_at=known_at_for_asof(d, _PIN)
+                con, asof=d, known_at=known_at_for_asof(d, _PIN), workspace=DEFAULT_TENANT_ID
             ).fundamentals_facts(security_id)
             return rows[0]["value"] if rows else None
 
@@ -328,7 +338,7 @@ def test_the_scoring_reader_is_not_corrupted_by_the_collapse(db, security_id, tm
         _bar(security_id, d=d, close=105.0, recorded_at=datetime(2026, 6, 5, tzinfo=timezone.utc)),
     )
     db.commit()
-    export_snapshot(db, tmp_path, clock="public")
+    export_snapshot(db, tmp_path, clock="public", workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
         assert RealizedPrices(con).closes_between(security_id, d, d) == [(d, 105.0)]
@@ -364,7 +374,7 @@ def test_a_re_dated_acceptance_is_the_facts_clock_on_every_version(db, security_
             ),
         )
     db.commit()
-    m = export_snapshot(db, tmp_path, clock="public")
+    m = export_snapshot(db, tmp_path, clock="public", workspace=DEFAULT_TENANT_ID)
     counts = m["tables"]["fact_insider_txn"]
     assert (counts["rows_out"], counts["identities_lost"]) == (1, 0)
     con = connect_mirror(tmp_path)
@@ -372,7 +382,7 @@ def test_a_re_dated_acceptance_is_the_facts_clock_on_every_version(db, security_
 
         def seen(d: date) -> list:
             return ReplayPointInTimeData(
-                con, asof=d, known_at=known_at_for_asof(d, now=_PIN)
+                con, asof=d, known_at=known_at_for_asof(d, now=_PIN), workspace=DEFAULT_TENANT_ID
             ).insider_txns(security_id)
 
         assert seen(date(2026, 6, 2)) == []
@@ -408,7 +418,7 @@ def test_clock_record_is_unchanged(db, security_id, tmp_path):
             ),
         )
     db.commit()
-    m = export_snapshot(db, tmp_path, clock="record")
+    m = export_snapshot(db, tmp_path, clock="record", workspace=DEFAULT_TENANT_ID)
     assert m["clock"] == "record"
     assert m["tables"]["fact_insider_txn"]["rows"] == 2  # BOTH versions kept
     assert m["excluded_tables"] == [] and m["blind_detectors"] == []
@@ -416,9 +426,9 @@ def test_clock_record_is_unchanged(db, security_id, tmp_path):
     con = connect_mirror(tmp_path)
     try:
         # the transaction axis still bites on the SYSTEM clock: pinned before the re-version, v1 wins
-        early = ReplayPointInTimeData(con, asof=date(2026, 12, 1), known_at=r1).insider_txns(
-            security_id
-        )
+        early = ReplayPointInTimeData(
+            con, asof=date(2026, 12, 1), known_at=r1, workspace=DEFAULT_TENANT_ID
+        ).insider_txns(security_id)
         assert len(early) == 1 and early[0]["recorded_at"] == r1
     finally:
         con.close()
@@ -428,7 +438,7 @@ def test_every_fact_table_has_a_clock_so_nothing_is_excluded(db, tmp_path):
     """Since the 2026-10-21 rule every fact table carries a public clock (``db.public_clock`` — the operator-
     ratified Workbench tables and the fund samples at their ratification / sampling instant), so a public mirror
     excludes nothing and blinds nothing."""
-    m = export_snapshot(db, tmp_path, clock="public")
+    m = export_snapshot(db, tmp_path, clock="public", workspace=DEFAULT_TENANT_ID)
     assert m["excluded_tables"] == [] and m["blind_detectors"] == []
     # every MIRROR table (the display-only ones — the filing index, 0070, and the term-mentions count, 0071 — never
     # enter a mirror at all: ``db.bitemporal.DISPLAY_ONLY_FACT_TABLES``, ``tests/replay/test_display_only_tables.py``,
@@ -446,7 +456,7 @@ def test_a_table_without_a_clock_is_excluded_whole_and_named(db, tmp_path, monke
     monkeypatch.setattr(
         export_mod, "PUBLIC_TIME", {t: v for t, v in PUBLIC_TIME.items() if t not in missing}
     )
-    m = export_snapshot(db, tmp_path, clock="public")
+    m = export_snapshot(db, tmp_path, clock="public", workspace=DEFAULT_TENANT_ID)
     assert set(m["excluded_tables"]) == missing
     assert m["blind_detectors"] == ["activist_stake"]  # the one detector that reads only that tape
     for t in m["excluded_tables"]:
@@ -492,18 +502,26 @@ def test_lockstep_caps_the_facts_at_the_end_of_each_session(db, security_id, tmp
         ),
     )
     db.commit()
-    export_snapshot(db, tmp_path, clock="public")
+    export_snapshot(db, tmp_path, clock="public", workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
         t_before, t_after = date(2026, 6, 6), date(2026, 6, 9)
-        pin_before = ReplayPointInTimeData(con, asof=t_before, known_at=_PIN)
+        pin_before = ReplayPointInTimeData(
+            con, asof=t_before, known_at=_PIN, workspace=DEFAULT_TENANT_ID
+        )
         assert pin_before.insider_txns(security_id), "pin mode: the run-wide pin sees it"
         lock_before = ReplayPointInTimeData(
-            con, asof=t_before, known_at=known_at_for_asof(t_before, _PIN)
+            con,
+            asof=t_before,
+            known_at=known_at_for_asof(t_before, _PIN),
+            workspace=DEFAULT_TENANT_ID,
         )
         assert lock_before.insider_txns(security_id) == [], "lockstep: not yet public"
         lock_after = ReplayPointInTimeData(
-            con, asof=t_after, known_at=known_at_for_asof(t_after, _PIN)
+            con,
+            asof=t_after,
+            known_at=known_at_for_asof(t_after, _PIN),
+            workspace=DEFAULT_TENANT_ID,
         )
         assert lock_after.insider_txns(security_id), "lockstep: public by the end of that day"
     finally:
@@ -527,11 +545,11 @@ def test_the_harness_threads_the_known_at_mode(db, tmp_path):
 
     seed_unh(db)
     db.commit()
-    export_snapshot(db, tmp_path, clock="record")
+    export_snapshot(db, tmp_path, clock="record", workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     harness.ReplayPointInTimeData = spy
     try:
-        thesis = thesis_repo.get(db, UNH_THESIS_ID)
+        thesis = thesis_repo.get(db, UNH_THESIS_ID, workspace=WORKSPACE_ANY)
         start, end = date(2025, 5, 1), date(2025, 5, 15)
         harness.replay_thesis_with_roster(
             con, thesis, start=start, end=end, known_at=_PIN, known_at_mode="lockstep"
@@ -568,12 +586,12 @@ def test_a_date_clock_lands_at_06_00_of_its_market_day(db, security_id, tmp_path
         },
     )
     db.commit()
-    export_snapshot(db, tmp_path, clock="public")
+    export_snapshot(db, tmp_path, clock="public", workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
-        (row,) = ReplayPointInTimeData(con, asof=d, known_at=_PIN).corporate_event_facts(
-            security_id
-        )
+        (row,) = ReplayPointInTimeData(
+            con, asof=d, known_at=_PIN, workspace=DEFAULT_TENANT_ID
+        ).corporate_event_facts(security_id)
         assert row["recorded_at"] == datetime(2026, 6, 1, 6, tzinfo=market_tz())  # 06:00 ET (F6)
         assert row["ingested_at"] == datetime(2026, 9, 1, tzinfo=timezone.utc)  # the honest ingest
     finally:
@@ -596,14 +614,14 @@ def test_a_bar_lands_at_its_settle_and_a_correction_at_its_own_publication(
     fix = datetime(2026, 9, 10, 2, 30, tzinfo=timezone.utc)
     append_fact(db, "fact_price_eod", _bar(security_id, d=d, close=105.0, recorded_at=fix))
     db.commit()
-    m = export_snapshot(db, tmp_path, clock="public")
+    m = export_snapshot(db, tmp_path, clock="public", workspace=DEFAULT_TENANT_ID)
     assert m["tables"]["fact_price_eod"]["versions_collapsed"] == 0  # both publications survive
     con = connect_mirror(tmp_path)
     try:
 
         def close_at(asof):
             rows = ReplayPointInTimeData(
-                con, asof=asof, known_at=known_at_for_asof(asof, _PIN)
+                con, asof=asof, known_at=known_at_for_asof(asof, _PIN), workspace=DEFAULT_TENANT_ID
             ).price_history(security_id)
             return [(r["close"], r["recorded_at"]) for r in rows]
 
@@ -741,7 +759,7 @@ def test_the_public_mirror_is_row_for_row_the_live_public_read(db, tmp_path, bas
     from tests.replay.test_pit_parity import _match
 
     secs = _seed_public_parity(db)
-    export_snapshot(db, tmp_path, clock="public")
+    export_snapshot(db, tmp_path, clock="public", workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     accessors = (
         ("insider_txns", "fact_insider_txn"),
@@ -763,9 +781,20 @@ def test_the_public_mirror_is_row_for_row_the_live_public_read(db, tmp_path, bas
         ):
             k = known_at_for_asof(asof, _PIN)
             live = PointInTimeData(
-                db, asof=asof, known_at=k, basket=secs if basket else None, clock="public"
+                db,
+                asof=asof,
+                known_at=k,
+                basket=secs if basket else None,
+                clock="public",
+                workspace=DEFAULT_TENANT_ID,
             )
-            rep = ReplayPointInTimeData(con, asof=asof, known_at=k, basket=secs if basket else None)
+            rep = ReplayPointInTimeData(
+                con,
+                asof=asof,
+                known_at=k,
+                basket=secs if basket else None,
+                workspace=DEFAULT_TENANT_ID,
+            )
             for sid in secs:
                 for accessor, table in accessors:
                     lr, rr = getattr(live, accessor)(sid), getattr(rep, accessor)(sid)
@@ -805,8 +834,12 @@ def test_an_undatable_form4_is_shown_by_the_history_read_and_counted_out_by_the_
     db.commit()
     asof = date(2026, 6, 1)
     (row,) = PointInTimeData(
-        db, asof=asof, known_at=known_at_for_asof(asof, _PIN), clock="public"
+        db,
+        asof=asof,
+        known_at=known_at_for_asof(asof, _PIN),
+        clock="public",
+        workspace=DEFAULT_TENANT_ID,
     ).insider_txns(security_id)
     assert row["recorded_at"] == first
-    m = export_snapshot(db, tmp_path, clock="public")
+    m = export_snapshot(db, tmp_path, clock="public", workspace=DEFAULT_TENANT_ID)
     assert m["tables"]["fact_insider_txn"]["rows_dropped_null_clock"] == 1

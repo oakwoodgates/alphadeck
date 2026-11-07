@@ -13,9 +13,16 @@ until it runs on a prod copy). This job runs right after the nightly pass (``scr
     python -m pipeline.warm_dashboards --pages hot-board,trigger-log --asof 2026-10-30   # a hand-run subset
 
 READ-ONLY, DISPLAY ONLY. It issues GETs to the running API (``<base>/dashboards/...``) and nothing else: no
-database connection, no write, no fact, no call. The cache it fills lives in the API process, so it must go
-through HTTP; it imports nothing from ``dashboards`` or the API (the dashboards leaf scan,
-``tests/dashboards/test_isolation.py``).
+write, no fact, no call. The one thing it reads from the database is the WORKSPACE LIST
+(``SELECT id FROM tenant WHERE kind = 'workspace'``; it runs in the cron container, which has the database URL).
+The cache it fills lives in the API process, so it must go through HTTP; it imports nothing from ``dashboards``
+or the API (the dashboards leaf scan, ``tests/dashboards/test_isolation.py``).
+
+PER WORKSPACE (docs/FEED_LOOP.md). A dashboard read is a workspace read (the cache keys on the workspace), so the
+job walks every workspace in turn and sends ``X-Alphadeck-Workspace: <id>`` beside the system token on each GET;
+the API honors that header for the system principal only. The whole walk runs under the ONE ``--budget-s``: each
+workspace gets what the earlier ones left, and a request the budget never reached is listed skipped.
+``--workspace <id>`` scopes a hand run to one workspace (no database read).
 
 THE AS-OF IS THE NIGHT ITSELF (F1, 2026-10-30). The frontend's dial opens on the server's CURRENT NIGHT
 (``GET /clock`` -> ``domain.market_time.current_night``: the night the nightly pass last recorded), never the
@@ -69,6 +76,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 from domain.market_time import current_night
 
@@ -80,6 +88,9 @@ BASE_URL_ENV = "ALPHADECK_WARM_BASE_URL"
 # the system token (docs/AUTH.md): the bearer credential every GET carries; read-only by construction
 SYSTEM_TOKEN_ENV = "ALPHADECK_SYSTEM_TOKEN"
 EXIT_NO_TOKEN = 1
+# the header that names the workspace a system-token read is for (app/deps.py WORKSPACE_HEADER, mirrored here:
+# this job imports nothing from the API)
+WORKSPACE_HEADER = "X-Alphadeck-Workspace"
 # the compose service name of the API, as the cron sidecar reaches it
 DEFAULT_BASE_URL = "http://backend:8000"
 DEFAULT_TIMEOUT_S = 300.0
@@ -146,6 +157,24 @@ def known_slugs() -> tuple[str, ...]:
         if slug_of(path) not in out:
             out.append(slug_of(path))
     return tuple(out)
+
+
+# --- the workspaces -------------------------------------------------------------------------------------------
+
+
+def list_workspaces() -> list[UUID]:
+    """Every ``kind='workspace'`` tenant, in a stable order: the one database read this job makes (the lazy
+    import keeps the module importable, and the dry-run runnable, without a database driver loaded).
+    """
+    from db.session import connect
+
+    conn = connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM tenant WHERE kind = 'workspace' ORDER BY id")
+            return [r["id"] for r in cur.fetchall()]
+    finally:
+        conn.close()
 
 
 # --- the as-of -------------------------------------------------------------------------------------------------
@@ -245,13 +274,17 @@ class FetchError(Exception):
     """A request that got no HTTP reply (a timeout, a refused connection, a reset)."""
 
 
-def http_fetch(url: str, timeout_s: float, *, token: str | None = None) -> Response:
-    """One GET with the stdlib, carrying ``Authorization: Bearer <token>`` when a token is given. An HTTP error
-    status is a ``Response`` (the status and its body); a request that got no reply raises ``FetchError`` with a
-    short reason."""
+def http_fetch(
+    url: str, timeout_s: float, *, token: str | None = None, workspace: str | None = None
+) -> Response:
+    """One GET with the stdlib, carrying ``Authorization: Bearer <token>`` when a token is given and the
+    ``X-Alphadeck-Workspace`` header when a workspace is named. An HTTP error status is a ``Response`` (the
+    status and its body); a request that got no reply raises ``FetchError`` with a short reason."""
     headers = {"Accept": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
+    if workspace:
+        headers[WORKSPACE_HEADER] = workspace
     req = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(
@@ -395,6 +428,7 @@ class WarmRun:
     budget_s: float
     results: list[PageResult]
     wall_s: float
+    workspace: str | None = None  # the workspace this walk warmed (None: a pre-workspace caller)
 
     def counts(self) -> dict[str, int]:
         asked = [r for r in self.results if not r.skipped]
@@ -416,6 +450,7 @@ class WarmRun:
             "finished_at": self.finished_at.isoformat(),
             "base_url": self.base_url,
             "night": self.night.isoformat() if self.night else None,
+            "workspace": self.workspace,
             "asofs": [a.isoformat() for a in self.asofs],
             "timeout_s": self.timeout_s,
             "budget_s": self.budget_s,
@@ -444,6 +479,7 @@ def run(
     night: date | None = None,
     clock: Callable[[], float] = time.monotonic,
     emit: Callable[[str], None] = lambda line: print(line, flush=True),
+    workspace: str | None = None,
 ) -> WarmRun:
     """Issue ``plan(asofs, pages)`` one request at a time and return what happened. Never raises for a page: a
     non-2xx status, a timeout and a transport bug are each one result and one logged line, and the loop goes on.
@@ -489,6 +525,7 @@ def run(
         budget_s=budget_s,
         results=results,
         wall_s=clock() - t0,
+        workspace=workspace,
     )
 
 
@@ -503,7 +540,9 @@ def write_warm_run(payload: dict[str, Any], *, base_dir: Path | None = None) -> 
     try:
         run_dir.mkdir(parents=True, exist_ok=True)
         started = datetime.fromisoformat(payload["started_at"])
-        path = run_dir / f"{started.strftime('%Y%m%dT%H%M%SZ')}.json"
+        ws = payload.get("workspace")
+        tag = f"-{str(ws).replace('-', '')[-8:]}" if ws else ""
+        path = run_dir / f"{started.strftime('%Y%m%dT%H%M%SZ')}{tag}.json"
         tmp = path.with_name(f".{path.name}.tmp")
         tmp.write_text(json.dumps(payload, indent=1, default=str), encoding="utf-8")
         os.replace(tmp, path)
@@ -560,6 +599,12 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--budget-s", type=float, default=DEFAULT_BUDGET_S, help="total budget for the run"
     )
+    p.add_argument(
+        "--workspace",
+        type=UUID,
+        default=None,
+        help="warm this one workspace only (a hand run; the workspace list is not read)",
+    )
     p.add_argument("--dry-run", action="store_true", help="print the plan; make no request")
     p.add_argument(
         "--runs-dir",
@@ -576,6 +621,7 @@ def main(
     fetch: Fetch = http_fetch,
     env: Mapping[str, str] | None = None,
     emit: Callable[[str], None] = lambda line: print(line, flush=True),
+    workspaces: Callable[[], Sequence[UUID]] | None = None,
 ) -> int:
     """The CLI. Exit 0 whatever a page did (usage errors exit 2, argparse's own); exit 1 when a real run has no
     system token (one loud line, no request)."""
@@ -597,19 +643,35 @@ def main(
     asofs = list(dict.fromkeys(args.asof)) if args.asof else visit_asofs(night)
     base_url = args.base or environ.get(BASE_URL_ENV) or DEFAULT_BASE_URL
     token = (environ.get(SYSTEM_TOKEN_ENV) or "").strip() or None
+    targets: list[UUID]
+    if args.workspace is not None:
+        targets = [args.workspace]
+    else:
+        try:
+            targets = list((workspaces or list_workspaces)())
+        except Exception as exc:  # noqa: BLE001 — a database fault must not look like a warm-up
+            if not args.dry_run:
+                emit(
+                    f"warm-dashboards: NOT RUN — the workspace list could not be read ({type(exc).__name__}: "
+                    f"{exc}). Check the database, or name one with --workspace <id>."
+                )
+                return EXIT_NO_TOKEN
+            targets = []
     if args.dry_run:
         emit(
             f"warm-dashboards: PLAN (dry run, no request) · base {base_url} · night {night.isoformat()} · "
             f"as-of(s) {', '.join(a.isoformat() for a in asofs)} · timeout {args.timeout_s:g}s · budget {args.budget_s:g}s"
-            f" · {SYSTEM_TOKEN_ENV} {'set' if token else 'NOT SET'}"
+            f" · {SYSTEM_TOKEN_ENV} {'set' if token else 'NOT SET'} · {len(targets)} workspace(s)"
         )
-        for req in plan(asofs, pages):
-            emit(f"warm-dashboards:   GET /dashboards/{req.path}?{req.query()}")
-            if req.path == PEER_SCOPES_PATH:
-                emit(
-                    f"warm-dashboards:   GET /dashboards/{PEER_TABLE_PATH}?asof={req.asof.isoformat()}"
-                    "&scope=<default scope>&key=<default key>  and  scope=all   (named by the scopes reply)"
-                )
+        for ws in targets or [None]:
+            emit(f"warm-dashboards:  workspace {ws if ws else '<unknown: the list was not read>'}")
+            for req in plan(asofs, pages):
+                emit(f"warm-dashboards:   GET /dashboards/{req.path}?{req.query()}")
+                if req.path == PEER_SCOPES_PATH:
+                    emit(
+                        f"warm-dashboards:   GET /dashboards/{PEER_TABLE_PATH}?asof={req.asof.isoformat()}"
+                        "&scope=<default scope>&key=<default key>  and  scope=all   (named by the scopes reply)"
+                    )
         return 0
     if token is None:
         emit(
@@ -618,26 +680,36 @@ def main(
             "the cron read the same variable) and redeploy both."
         )
         return EXIT_NO_TOKEN
-    if fetch is http_fetch:
-        fetch = functools.partial(http_fetch, token=token)
+    if not targets:
+        emit("warm-dashboards: no workspace exists, nothing to warm")
+        return 0
     emit(
         f"warm-dashboards: start · base {base_url} · night {night.isoformat()} · "
-        f"as-of(s) {', '.join(a.isoformat() for a in asofs)} · {len(plan(asofs, pages))} planned requests"
+        f"as-of(s) {', '.join(a.isoformat() for a in asofs)} · {len(targets)} workspace(s) · "
+        f"{len(plan(asofs, pages)) * len(targets)} planned requests"
     )
-    outcome = run(
-        asofs,
-        pages,
-        base_url=base_url,
-        timeout_s=args.timeout_s,
-        budget_s=args.budget_s,
-        fetch=fetch,
-        night=night,
-        emit=emit,
-    )
-    emit(outcome.summary_line())
-    path = write_warm_run(outcome.payload(), base_dir=args.runs_dir)
-    if path is not None:
-        emit(f"warm-dashboards: run artifact {path}")
+    started = time.monotonic()
+    for ws in targets:
+        remaining = max(args.budget_s - (time.monotonic() - started), 0.0)  # the ONE budget
+        ws_fetch = fetch
+        if fetch is http_fetch:
+            ws_fetch = functools.partial(http_fetch, token=token, workspace=str(ws))
+        emit(f"warm-dashboards: workspace {ws}")
+        outcome = run(
+            asofs,
+            pages,
+            base_url=base_url,
+            timeout_s=args.timeout_s,
+            budget_s=remaining,
+            fetch=ws_fetch,
+            night=night,
+            emit=emit,
+            workspace=str(ws),
+        )
+        emit(outcome.summary_line())
+        path = write_warm_run(outcome.payload(), base_dir=args.runs_dir)
+        if path is not None:
+            emit(f"warm-dashboards: run artifact {path}")
     return 0
 
 

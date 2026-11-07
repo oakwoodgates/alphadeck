@@ -19,8 +19,9 @@ from uuid import UUID
 import psycopg
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.deps import get_conn, get_current_tenant
+from app.deps import get_conn
 from app.schemas_api import OnboardingNameOut, OnboardingReadoutOut, OnboardingRunOut
+from domain.scopes import DATA_TENANT_ID
 from pipeline import onboarding
 
 router = APIRouter(prefix="/admin/onboarding", tags=["admin"])
@@ -82,31 +83,29 @@ def readout_out(r: onboarding.Readout) -> OnboardingReadoutOut:
 @router.get("", response_model=OnboardingReadoutOut)
 def get_onboarding(
     conn: psycopg.Connection = Depends(get_conn),
-    tenant_id: UUID = Depends(get_current_tenant),
 ) -> OnboardingReadoutOut:
     """The staged onboarding queue (X1): counts per status, the pending names with their per-leg checkpoint,
     the latest done ones, the latest job run, the nightly window the job yields to, and whether the queue
     STALLED. Read-only."""
-    return readout_out(onboarding.readout(conn, tenant_id=tenant_id))
+    return readout_out(onboarding.readout(conn, tenant_id=DATA_TENANT_ID))
 
 
 @router.post("/{security_id}/retry", response_model=OnboardingReadoutOut)
 def retry_onboarding(
     security_id: UUID,
     conn: psycopg.Connection = Depends(get_conn),
-    tenant_id: UUID = Depends(get_current_tenant),
 ) -> OnboardingReadoutOut:
     """Re-queue a FAILED name (attempts reset, checkpoint kept); the job loads it on its next run outside the
     nightly window. 409 when the name is not failed (already queued, in progress or done); 404 when it is not
     in the queue. Returns the refreshed queue."""
-    found = onboarding.rows(conn, tenant_id=tenant_id, security_ids=[security_id])
+    found = onboarding.rows(conn, tenant_id=DATA_TENANT_ID, security_ids=[security_id])
     if not found:
         raise HTTPException(status_code=404, detail="this name is not in the onboarding queue")
-    if not onboarding.retry(conn, security_id, tenant_id=tenant_id):
+    if not onboarding.retry(conn, security_id, tenant_id=DATA_TENANT_ID):
         conn.rollback()
         raise HTTPException(
             status_code=409,
             detail=f"only a failed name can be retried (this one is {found[0].status})",
         )
     conn.commit()
-    return readout_out(onboarding.readout(conn, tenant_id=tenant_id))
+    return readout_out(onboarding.readout(conn, tenant_id=DATA_TENANT_ID))

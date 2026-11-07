@@ -15,7 +15,7 @@ import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
 
-from app.deps import get_conn
+from app.deps import get_conn, get_workspace
 from dashboards.what_changed import (
     Change,
     RecordedCall,
@@ -137,6 +137,7 @@ def what_changed(
         ),
     ),
     conn: psycopg.Connection = Depends(get_conn),
+    workspace: UUID = Depends(get_workspace),
 ) -> WhatChangedOut:
     """What moved on the live cards between the baseline night and the newest recorded night (states, keys,
     armed and watch names, triggers and risk signals), plus the clocks coming due on the newest one. A "now"
@@ -147,7 +148,7 @@ def what_changed(
         choice = parse_since(since)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    theses = thesis_repo.list_all(conn)
+    theses = thesis_repo.list_all(conn, workspace=workspace)
     ids = [t.id for t in theses]
     first, latest = _span(conn, ids) if ids else (None, None)
     previous = (

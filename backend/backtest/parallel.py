@@ -56,7 +56,7 @@ def _worker(job: _Job) -> tuple[str, list[str], tuple[str, int, int]]:
     conn = connect()
     con = connect_mirror(mirror)
     try:
-        thesis = thesis_repo.get(conn, UUID(thesis_id))
+        thesis = thesis_repo.get(conn, UUID(thesis_id), workspace=UUID(tenant_id))
         if thesis is None:
             return thesis_id, [], ("no_sessions", 0, 0)
         snaps, source = replay_thesis_with_roster(
@@ -99,7 +99,9 @@ def replay_all_parallel(
     """
     from repositories import thesis_repo
 
-    theses = thesis_repo.list_all(conn)  # archived EXCLUDED (the locked default)
+    theses = thesis_repo.list_all(
+        conn, workspace=tenant_id
+    )  # archived EXCLUDED (the locked default)
     if workers <= 1 or len(theses) <= 1:
         from replay.harness import replay_all
         from replay.pit import connect_mirror

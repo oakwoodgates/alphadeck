@@ -10,6 +10,7 @@ pytest.importorskip("duckdb")
 pytest.importorskip("pyarrow")
 
 import backtest.run as run_mod  # noqa: E402
+from db.session import DEFAULT_TENANT_ID
 from replay.export import export_snapshot  # noqa: E402
 from tests.replay.test_tape_memo import _PreMemoRealizedPrices  # noqa: E402
 
@@ -48,7 +49,7 @@ def test_the_memo_leaves_the_run_artifacts_byte_identical(db, tmp_path, monkeypa
     db.commit()
 
     mirror = tmp_path / "mirror"
-    export_snapshot(db, mirror)
+    export_snapshot(db, mirror, workspace=DEFAULT_TENANT_ID)
 
     # DISTINCT `now=`: the run id is composed from it, and two `execute()` calls with identical inputs
     # inside one second collide on `create_run_dir`. That became reachable the moment M1 made a

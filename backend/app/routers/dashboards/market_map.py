@@ -18,7 +18,7 @@ import psycopg
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict
 
-from app.deps import get_conn
+from app.deps import get_conn, get_workspace
 from dashboards.baskets import (
     cards_as_of,
     display_members,
@@ -39,8 +39,8 @@ from dashboards.market_map import (
     company_reading,
 )
 from dashboards.market_map import market_map as compute_market_map
-from db.session import DEFAULT_TENANT_ID
 from domain.market_time import serve_view
+from domain.scopes import DATA_TENANT_ID
 from domain.splits import listed_from_row
 from securities import master
 from signals.base import PointInTimeData
@@ -178,10 +178,18 @@ def _readings(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> dict[UUID, CompanyReading]:
     member = _member()
     return per_company(
-        conn, sids, asof, known_at, clock, lambda pit, sid: read_company(pit, sid, asof, member)
+        conn,
+        sids,
+        asof,
+        known_at,
+        clock,
+        lambda pit, sid: read_company(pit, sid, asof, member),
+        workspace=workspace,
     )
 
 
@@ -190,6 +198,8 @@ def _benchmarks(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> dict[str, dict[str, float | None] | None]:
     """SPY's and IWM's own returns: the member's pure ``compute`` (and the year to date) over the benchmark's bars,
     read exactly as a company's. ``None`` for a benchmark with no tape at the as-of."""
@@ -197,9 +207,10 @@ def _benchmarks(
         conn,
         asof=asof,
         known_at=known_at,
-        tenant_id=DEFAULT_TENANT_ID,
+        data_tenant=DATA_TENANT_ID,
         bounds=display_bounds(),
         clock=clock,
+        workspace=workspace,
     )
     return {sym: benchmark_returns(pit.benchmark_prices(sym), asof) for sym in BENCHMARKS}
 
@@ -209,22 +220,26 @@ def read_inputs(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> MapInputs:
     """The heavy read the cache holds: the counted cards' rosters as of the as-of, the price flags (on the same
     view), every unflagged company's readings, the benchmarks' returns. A flagged company's price readings are
     never read (a scale break chains fake returns)."""
-    counted = cards_as_of(conn, asof, known_at)
+    counted = cards_as_of(conn, asof, known_at, workspace=workspace)
     memberships = memberships_of(counted.cards)
     sids = resolved_ids(memberships)
-    flagged = price_flags(conn, sids, asof, known_at=known_at, clock=clock)
-    bench = _benchmarks(conn, asof, known_at, clock)
+    flagged = price_flags(conn, sids, asof, known_at=known_at, clock=clock, workspace=workspace)
+    bench = _benchmarks(conn, asof, known_at, clock, workspace=workspace)
     return MapInputs(
         live_cards=counted.live_count,
         cards_counted=len(counted.cards),
         cards_not_yet_created=counted.not_yet_created,
         roster_fallback_cards=counted.roster_fallback,
         memberships=memberships,
-        readings=_readings(conn, [s for s in sids if s not in flagged], asof, known_at, clock),
+        readings=_readings(
+            conn, [s for s in sids if s not in flagged], asof, known_at, clock, workspace=workspace
+        ),
         spy=bench["SPY"],
         iwm=bench["IWM"],
         flagged=flagged,
@@ -237,6 +252,7 @@ def market_map(
         ..., description="as-of date; no price or share count published after it is read"
     ),
     conn: psycopg.Connection = Depends(get_conn),
+    workspace: UUID = Depends(get_workspace),
 ) -> MarketMapOut:
     """Every company on the cards as a heat-map tile: per company the 1d / 7d / 30d / 90d / year-to-date / 1Y
     returns, the 20-day dollar volume and the approximate market cap with the share count it rests on, with the
@@ -245,7 +261,14 @@ def market_map(
     """
     known_at, clock = serve_view(asof)
     # the clock is part of the key: the same date read live today and on the public clock tomorrow are two reads
-    got = cached(conn, SLUG, (clock,), asof, lambda: read_inputs(conn, asof, known_at, clock))
+    got = cached(
+        conn,
+        SLUG,
+        (clock,),
+        asof,
+        lambda: read_inputs(conn, asof, known_at, clock, workspace=workspace),
+        workspace=workspace,
+    )
     inputs = got.value
     identity = master.identity_for(conn, set(inputs.readings))
     result = compute_market_map(inputs, identity, asof=asof)

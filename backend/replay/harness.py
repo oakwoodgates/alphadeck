@@ -233,7 +233,10 @@ def replay_thesis_with_roster(
         if conn is not None:
             roster_known_at = known_at_for_asof(t, known_at)
             if thesis_repo.snapshot_exists_asof(conn, thesis.id, roster_known_at):
-                roster = thesis_repo.get_asof(conn, thesis.id, roster_known_at) or thesis
+                roster = (
+                    thesis_repo.get_asof(conn, thesis.id, roster_known_at, workspace=tenant_id)
+                    or thesis
+                )
             else:
                 fallback_days += 1  # no snapshot that far back — the live roster stands in, LOUDLY
         # B5a — the prefetch scope is the roster AS RESOLVED AT T, never the passed thesis's live basket:
@@ -293,7 +296,7 @@ def replay_all(
     """
     timelines: dict[UUID, list[CallSnapshot]] = {}
     roster_sources: dict[UUID, RosterSource] = {}
-    for thesis in thesis_repo.list_all(conn):
+    for thesis in thesis_repo.list_all(conn, workspace=tenant_id):
         snaps, source = replay_thesis_with_roster(
             con,
             thesis,

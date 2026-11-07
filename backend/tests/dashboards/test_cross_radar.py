@@ -744,23 +744,23 @@ def test_the_router_reads_the_price_flags_inside_the_cached_read(monkeypatch):
     none = lambda pit, sid, asof: None  # noqa: E731 - the two display members: no reading
     seen: dict = {"flag_reads": 0}
 
-    def fake_flags(conn, ids, asof, *, known_at, clock):
+    def fake_flags(conn, ids, asof, *, known_at, clock, **_):
         seen["flag_reads"] += 1
         seen["flags_view"] = (set(ids), asof, known_at, clock)
         return {S[0]: MIXED}
 
     CACHE.clear()
     monkeypatch.setattr(
-        router_mod, "cards_as_of", lambda conn, asof, known_at: CardsAsOf(1, [], 0, 0)
+        router_mod, "cards_as_of", lambda conn, asof, known_at, **_: CardsAsOf(1, [], 0, 0)
     )
     monkeypatch.setattr(router_mod, "memberships_of", lambda cards: tuple(rows))
     monkeypatch.setattr(router_mod, "display_members", lambda names, dash: {n: none for n in names})
     monkeypatch.setattr(
         router_mod,
         "per_company",
-        lambda conn, sids, asof, known_at, clock, read: {s: read(_Pit(bars), s) for s in sids},
+        lambda conn, sids, asof, known_at, clock, read, **_: {s: read(_Pit(bars), s) for s in sids},
     )
-    monkeypatch.setattr(router_mod, "_spy_dates", lambda conn, asof, known_at, clock: spy)
+    monkeypatch.setattr(router_mod, "_spy_dates", lambda conn, asof, known_at, clock, **_: spy)
     monkeypatch.setattr(router_mod, "price_flags", fake_flags)
     monkeypatch.setattr(CACHE, "_token_fn", lambda conn: "gen-1")
     app.dependency_overrides[get_conn] = lambda: object()
@@ -797,7 +797,7 @@ def stub_client(monkeypatch):
     seen: dict = {"reads": 0}
     rows, readings, identity = _two_link_company()
 
-    def fake_read(conn, asof, known_at, clock):
+    def fake_read(conn, asof, known_at, clock, **_):
         seen["reads"] += 1
         seen["view"] = (asof, known_at, clock)
         return inputs(rows, readings, sessions=[ASOF - timedelta(days=1), ASOF])

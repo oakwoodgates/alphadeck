@@ -83,6 +83,7 @@ import psycopg
 # also where a night's history read ends (``known_at_for_asof``). Re-exported here for every existing
 # ``from pipeline.night_coverage import next_edgar_open`` caller.
 from domain.market_time import next_edgar_open
+from domain.scopes import WORKSPACE_ANY
 from repositories import calls_repo, thesis_repo
 
 
@@ -300,7 +301,7 @@ def read_night_coverage(
     nights = list(nights)
     if not nights:
         return {}
-    spans = _spans(thesis_repo.lifespans(conn))
+    spans = _spans(thesis_repo.lifespans(conn, workspace=WORKSPACE_ANY))
     stamps = _stamps(calls_repo.thesis_night_stamps(conn, asofs=nights))
     return judge_coverage(nights, spans, stamps, run_at=run_at, tz=tz)
 

@@ -24,8 +24,8 @@ from uuid import UUID
 
 import psycopg
 
-from db.session import DEFAULT_TENANT_ID
 from domain.market_time import edgar_night, market_today
+from domain.scopes import DATA_TENANT_ID
 from domain.settings import get_settings
 from ingest import CacheMiss
 from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
@@ -211,7 +211,7 @@ def run_fund_radar(
     allow_live: bool = True,
     user_agent: str | None = None,
     edgar_client: EdgarClient | None = None,
-    tenant_id: UUID = DEFAULT_TENANT_ID,
+    tenant_id: UUID = DATA_TENANT_ID,
     symbol_files: bool = True,
     symbol_night: date | None = None,
     nasdaq_fetch: Callable[[str], str] | None = None,
@@ -352,7 +352,7 @@ def run_symbol_legs(
     allow_live: bool,
     nasdaq_fetch: Callable[[str], str] | None,
     result: FundRadarResult,
-    tenant_id: UUID = DEFAULT_TENANT_ID,
+    tenant_id: UUID = DATA_TENANT_ID,
 ) -> None:
     """Record, for every series we hold, the symbols the SEC ticker file and the Nasdaq directory show — dated
     ``night`` (the first night we saw them). Fail-open and visible: a file that cannot be read is listed on the

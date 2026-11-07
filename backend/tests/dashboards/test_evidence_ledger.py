@@ -702,7 +702,7 @@ def stub_client(monkeypatch):
     }
     other = uuid.uuid4()
 
-    def fake_cards(conn, asof):
+    def fake_cards(conn, asof, **_):
         seen["card_reads"] += 1
         return CardsRead(
             live_cards=3,
@@ -710,12 +710,12 @@ def stub_client(monkeypatch):
             cards=(CardChoice(T1, "Grid", 2), CardChoice(other, "Batteries", 1)),
         )
 
-    def fake_read(conn, thesis_id, asof, known_at, clock):
+    def fake_read(conn, thesis_id, asof, known_at, clock, **_):
         seen["reads"] += 1
         seen["view"] = (thesis_id, asof, known_at, clock)
         return stub_base()
 
-    def fake_get(conn, thesis_id):
+    def fake_get(conn, thesis_id, **_):
         seen["live_reads"] = seen.get("live_reads", 0) + 1
         e = seen["live"]
         return SimpleNamespace(catalysts=e.catalysts, kill_criteria=e.kills, evidence=e.evidence)
@@ -827,7 +827,7 @@ def test_the_picker_list_is_cached(stub_client):
 
 def test_a_card_that_is_a_picker_row_but_vanished_is_a_404_not_a_500(stub_client, monkeypatch):
     client, _ = stub_client
-    monkeypatch.setattr(router_mod.thesis_repo, "get", lambda conn, tid: None)
+    monkeypatch.setattr(router_mod.thesis_repo, "get", lambda conn, tid, **_: None)
     r = client.get(f"/dashboards/evidence-ledger/{T1}", params={"asof": "2026-10-28"})
     assert r.status_code == 404
 

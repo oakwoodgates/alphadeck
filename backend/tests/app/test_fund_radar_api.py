@@ -11,6 +11,7 @@ import pytest
 
 from db.session import DEFAULT_TENANT_ID
 from domain.enums import Authorship, TermTier
+from domain.scopes import WORKSPACE_ANY
 from domain.thesis import BasketMember, Catalyst, KillCriterion, Segment, TermSetEntry, Thesis
 from radar import fund_repo
 from repositories import thesis_repo
@@ -64,7 +65,7 @@ def _card(db, name="Test Card A", *, with_company=False, extra_basket=()) -> The
         ],
     )
     db.commit()
-    return thesis_repo.get(db, t.id)
+    return thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY)
 
 
 def _filing(db, acc, form, day, *, trust="Test Trust", private=False, funds=(), stored_at=None):
@@ -534,7 +535,7 @@ def _rich_card(db) -> Thesis:
         tenant_id=DEFAULT_TENANT_ID,
     )
     db.commit()
-    return thesis_repo.get(db, t.id)
+    return thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY)
 
 
 def _tables(db):
@@ -548,7 +549,7 @@ def test_attach_adds_one_etfs_row_idempotently_and_detach_reverses_it(client, db
     _security(db, "TSTX", name="Test Wrapper ETF")  # offline: the resolve marks the existing row
     t = _rich_card(db)
     before = _tables(db)
-    stored = thesis_repo.get(db, t.id)
+    stored = thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY)
 
     r = client.post("/radar/funds/attach", json={"thesis_id": str(t.id), "symbol": "tstx"}).json()
     assert r["added"] is True and r["already"] is False and r["ticker"] == "TSTX"
@@ -558,7 +559,7 @@ def test_attach_adds_one_etfs_row_idempotently_and_detach_reverses_it(client, db
         k: v for k, v in before.items() if k != "basket_member"
     }
 
-    now = thesis_repo.get(db, t.id)
+    now = thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY)
     (new,) = [m for m in now.basket if m.ticker == "TSTX"]
     assert (new.role, new.segment, new.authored_by, new.signed_off, new.conviction) == (
         "ETF sleeve",

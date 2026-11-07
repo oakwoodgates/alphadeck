@@ -16,6 +16,7 @@ import sys
 from datetime import date
 
 from db.session import connect
+from domain.scopes import WORKSPACE_ANY
 from radar.spac import run_spac_radar
 
 
@@ -37,6 +38,7 @@ def main(argv: list[str] | None = None) -> int:
             days=args.days,
             allow_live=not args.no_live,
             match=not args.no_match,
+            workspace=WORKSPACE_ANY,
         )
     finally:
         conn.close()

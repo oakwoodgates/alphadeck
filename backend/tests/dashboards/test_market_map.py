@@ -629,7 +629,7 @@ def stub_client(monkeypatch):
         }
     }
 
-    def fake_read(conn, asof, known_at, clock):
+    def fake_read(conn, asof, known_at, clock, **_):
         seen["reads"] += 1
         seen["view"] = (asof, known_at, clock)
         return inputs(rows, readings)
@@ -698,24 +698,26 @@ def test_the_router_reads_flags_once_inside_the_cached_read_and_never_reads_a_fl
     rows = [ms(T1, "Grid", "RBOT", S[0]), ms(T1, "Grid", "AAA", S[1])]
     seen: dict = {"flag_reads": 0}
 
-    def fake_flags(conn, ids, asof, *, known_at, clock):
+    def fake_flags(conn, ids, asof, *, known_at, clock, **_):
         seen["flag_reads"] += 1
         seen["flags_view"] = (set(ids), asof, known_at, clock)
         return {S[0]: "mixed-scale price history"}
 
-    def fake_readings(conn, sids, asof, known_at, clock):
+    def fake_readings(conn, sids, asof, known_at, clock, **_):
         seen["read_sids"] = list(sids)
         seen["readings_view"] = (asof, known_at, clock)
         return {s: reading(3.0) for s in sids}
 
     CACHE.clear()
     monkeypatch.setattr(
-        router_mod, "cards_as_of", lambda conn, asof, known_at: CardsAsOf(2, [], 0, 0)
+        router_mod, "cards_as_of", lambda conn, asof, known_at, **_: CardsAsOf(2, [], 0, 0)
     )
     monkeypatch.setattr(router_mod, "memberships_of", lambda cards: tuple(rows))
     monkeypatch.setattr(router_mod, "_readings", fake_readings)
     monkeypatch.setattr(
-        router_mod, "_benchmarks", lambda conn, asof, known_at, clock: {"SPY": None, "IWM": None}
+        router_mod,
+        "_benchmarks",
+        lambda conn, asof, known_at, clock, **_: {"SPY": None, "IWM": None},
     )
     monkeypatch.setattr(router_mod, "price_flags", fake_flags)
     monkeypatch.setattr(router_mod.master, "identity_for", lambda conn, ids, **kw: {})

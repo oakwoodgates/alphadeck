@@ -107,7 +107,9 @@ def test_after_the_repair_every_history_view_reads_its_own_days_scale(db, asof):
     sid = _seed(db, "BTOC")["BTOC"]
     assert tool.apply_plans(db, tool.plan_all(db, tickers=["BTOC"], today=T)).appended > 400
     known_at, clock = serve_view(asof)
-    pit = PointInTimeData(db, asof=asof, known_at=known_at, clock=clock)
+    pit = PointInTimeData(
+        db, asof=asof, known_at=known_at, clock=clock, workspace=DEFAULT_TENANT_ID
+    )
     bars = pit.price_history(sid)
     by_d = {b["d"]: float(b["close"]) for b in bars if b["close"] is not None}
     k = 16 if asof >= date(2026, 10, 15) else 1

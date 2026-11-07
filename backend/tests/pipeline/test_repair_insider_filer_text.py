@@ -69,7 +69,9 @@ def _counts(db) -> tuple[int, int]:
 
 
 def _amkr_legs(db, sid, known_at=FAR) -> list[dict]:
-    rows = PointInTimeData(db, asof=date(2025, 3, 3), known_at=known_at).insider_txns(sid)
+    rows = PointInTimeData(
+        db, asof=date(2025, 3, 3), known_at=known_at, workspace=DEFAULT_TENANT_ID
+    ).insider_txns(sid)
     return [r for r in rows if r["valid_from"] == date(2025, 2, 24) and r["txn_code"] in ("P", "S")]
 
 
@@ -93,7 +95,9 @@ def test_a_bare_row_is_never_screened_by_name(db, bare):
     assert not any(is_internal_transfer(r) for r in _amkr_legs(db, bare["AMKR"]))
     assert _fthm_buy(db, bare["FTHM"])["private_passage"] is None
     # one filer's own buy and sale need no text: Pershing Square pairs before the repair too
-    esi = PointInTimeData(db, asof=date(2015, 7, 1), known_at=FAR).insider_txns(bare["ESI"])
+    esi = PointInTimeData(
+        db, asof=date(2015, 7, 1), known_at=FAR, workspace=DEFAULT_TENANT_ID
+    ).insider_txns(bare["ESI"])
     assert {r["txn_code"] for r in esi if is_internal_transfer(r)} == {"P", "S"}
 
 

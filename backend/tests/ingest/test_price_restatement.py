@@ -271,8 +271,8 @@ def test_a_flip_back_is_held_until_a_later_nights_pull_agrees(db, security_id):
         )
         stamped = cur.fetchone()
     assert (stamped["n"], stamped["stamps"]) == (5, 1)
-    then = PointInTimeData(db, asof=D16, known_at=before_confirm, tenant_id=DEFAULT_TENANT_ID)
-    now = PointInTimeData(db, asof=D16, tenant_id=DEFAULT_TENANT_ID)
+    then = PointInTimeData(db, asof=D16, known_at=before_confirm, workspace=DEFAULT_TENANT_ID)
+    now = PointInTimeData(db, asof=D16, workspace=DEFAULT_TENANT_ID)
     assert float(then.price_history(security_id)[0]["close"]) == A[D07][0]
     assert float(now.price_history(security_id)[0]["close"]) == U[D07][0]
 

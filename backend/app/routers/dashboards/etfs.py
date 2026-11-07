@@ -18,7 +18,7 @@ import psycopg
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict
 
-from app.deps import get_conn
+from app.deps import get_conn, get_workspace
 from dashboards.baskets import (
     cards_as_of,
     display_members,
@@ -40,8 +40,8 @@ from dashboards.etfs import (
     fund_readings,
 )
 from dashboards.etfs import etfs as compute_etfs
-from db.session import DEFAULT_TENANT_ID
 from domain.market_time import serve_view
+from domain.scopes import DATA_TENANT_ID
 from securities import master
 from signals.base import PointInTimeData
 from signals.horizons import display_bounds
@@ -230,7 +230,7 @@ def _etf_ids(conn: psycopg.Connection, sids: list[UUID]) -> set[UUID]:
     if not sids:
         return set()
     with conn.cursor() as cur:
-        cur.execute(_ETF_SQL, (DEFAULT_TENANT_ID, sids))
+        cur.execute(_ETF_SQL, (DATA_TENANT_ID, sids))
         return {r["id"] for r in cur.fetchall()}
 
 
@@ -239,14 +239,17 @@ def _iwm(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> dict[date, float]:
     pit = PointInTimeData(
         conn,
         asof=asof,
         known_at=known_at,
-        tenant_id=DEFAULT_TENANT_ID,
+        data_tenant=DATA_TENANT_ID,
         bounds=display_bounds(),
         clock=clock,
+        workspace=workspace,
     )
     return {
         b["d"]: float(b["close"])
@@ -260,11 +263,13 @@ def read_inputs(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> EtfInputs:
     """The heavy read the cache holds: the counted cards' rosters as of the as-of, the funds among them (by
     kind), the funds' closes, readings and shares samples, the closes of the voting companies of the cards that
     have a fund, IWM's, and the price flags, all on the request's one ``serve_view`` pair."""
-    counted = cards_as_of(conn, asof, known_at)
+    counted = cards_as_of(conn, asof, known_at, workspace=workspace)
     memberships = memberships_of(counted.cards)
     fund_ids = _etf_ids(conn, resolved_ids(memberships))
     fund_cards = {m.thesis_id for m in memberships if m.security_id in fund_ids}
@@ -287,6 +292,7 @@ def read_inputs(
         known_at,
         clock,
         lambda pit, sid: _fund_bundle(pit, sid, asof, members),
+        workspace=workspace,
     )
     closes = per_company(
         conn,
@@ -299,6 +305,7 @@ def read_inputs(
             for b in pit.price_history(sid, lookback_days=LOOKBACK_DAYS)
             if b.get("close") is not None
         },
+        workspace=workspace,
     )
     identity = master.identity_for(conn, fund_ids)
     return etf_inputs(
@@ -308,9 +315,14 @@ def read_inputs(
         funds=funds,
         names={sid: (str(i["name"]) if i.get("name") else None) for sid, i in identity.items()},
         company_closes=closes,
-        iwm=_iwm(conn, asof, known_at, clock),
+        iwm=_iwm(conn, asof, known_at, clock, workspace=workspace),
         flagged=price_flags(
-            conn, [*sorted(fund_ids, key=str), *company_ids], asof, known_at=known_at, clock=clock
+            conn,
+            [*sorted(fund_ids, key=str), *company_ids],
+            asof,
+            known_at=known_at,
+            clock=clock,
+            workspace=workspace,
         ),
         asof=asof,
         live_cards=counted.live_count,
@@ -335,6 +347,7 @@ def etfs(
         "1m", description="panel 1's look back in trading sessions: 1w | 1m | 3m"
     ),
     conn: psycopg.Connection = Depends(get_conn),
+    workspace: UUID = Depends(get_workspace),
 ) -> EtfsOut:
     """The funds on every live card from five angles: each fund against its card's companies over the window
     (equal weight, rebalanced daily, from 100), net money in and out, approximate size and trading, price
@@ -345,7 +358,14 @@ def etfs(
     known_at, clock = serve_view(asof)
     # the clock is part of the key: the same date read live today and on the public clock tomorrow are two
     # reads (a new run clears the cache anyway; this holds even on a night with no run)
-    got = cached(conn, SLUG, (clock,), asof, lambda: read_inputs(conn, asof, known_at, clock))
+    got = cached(
+        conn,
+        SLUG,
+        (clock,),
+        asof,
+        lambda: read_inputs(conn, asof, known_at, clock, workspace=workspace),
+        workspace=workspace,
+    )
     page = compute_etfs(got.value, asof=asof, window=window)
     return EtfsOut.model_validate(
         {

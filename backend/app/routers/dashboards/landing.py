@@ -17,7 +17,7 @@ import psycopg
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict
 
-from app.deps import get_conn
+from app.deps import get_conn, get_workspace
 from dashboards.baskets import (
     GroupBy,
     cards_as_of,
@@ -191,6 +191,8 @@ def _readings(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> dict[UUID, CompanyLanding]:
     """Each company's readings, computed ONCE from the same point-in-time view the Cockpit's
     ``/display-signals`` builds (``known_at`` + ``clock`` from ``serve_view``: the public clock at a past
@@ -202,6 +204,7 @@ def _readings(
         known_at,
         clock,
         lambda pit, sid: company_landing(pit.price_history(sid, lookback_days=LOOKBACK_DAYS), asof),
+        workspace=workspace,
     )
 
 
@@ -210,10 +213,12 @@ def read_inputs(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> LandingInputs:
     """The heavy read the cache holds: the counted cards' rosters as of the as-of, every company's readings
     and its price flags (``price_flags``, on the same view)."""
-    counted = cards_as_of(conn, asof, known_at)
+    counted = cards_as_of(conn, asof, known_at, workspace=workspace)
     memberships = memberships_of(counted.cards)
     sids = resolved_ids(memberships)
     return LandingInputs(
@@ -222,8 +227,8 @@ def read_inputs(
         cards_not_yet_created=counted.not_yet_created,
         roster_fallback_cards=counted.roster_fallback,
         memberships=memberships,
-        readings=_readings(conn, sids, asof, known_at, clock),
-        flagged=price_flags(conn, sids, asof, known_at=known_at, clock=clock),
+        readings=_readings(conn, sids, asof, known_at, clock, workspace=workspace),
+        flagged=price_flags(conn, sids, asof, known_at=known_at, clock=clock, workspace=workspace),
     )
 
 
@@ -235,6 +240,7 @@ def landing(
         False, description="add Context and Bench memberships (their own rows in the Link view)"
     ),
     conn: psycopg.Connection = Depends(get_conn),
+    workspace: UUID = Depends(get_workspace),
 ) -> LandingOut:
     """Where price closed in each window's range, and whether volume backed the move, by link, business
     type, sector or card: per group and per window (1D / 7D / 30D / 90D trading bars), the median range
@@ -245,7 +251,14 @@ def landing(
     known_at, clock = serve_view(asof)
     # the clock is part of the key: the same date read live today and on the public clock tomorrow are two
     # reads (a new run clears the cache anyway; this holds even on a night with no run)
-    got = cached(conn, SLUG, (clock,), asof, lambda: read_inputs(conn, asof, known_at, clock))
+    got = cached(
+        conn,
+        SLUG,
+        (clock,),
+        asof,
+        lambda: read_inputs(conn, asof, known_at, clock, workspace=workspace),
+        workspace=workspace,
+    )
     inputs = got.value
     identity = (
         master.identity_for(conn, set(inputs.readings))

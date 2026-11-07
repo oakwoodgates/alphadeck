@@ -10,6 +10,7 @@ import pytest
 from db.session import DEFAULT_TENANT_ID
 from domain.config import DEFAULT_CONFIG
 from domain.enums import State, Verdict
+from domain.scopes import WORKSPACE_ANY
 from domain.thesis import BasketMember, Thesis
 from ingest.edgar.converts import clean_filing_text, ingest_convert_terms, parse_convert_terms
 from ingest.edgar.form4 import ingest_form4
@@ -131,14 +132,14 @@ def test_live_call_is_byte_identical_to_the_live_roster(db, security_id, live_kn
     via_funnel = call_for_thesis(db, tid, asof, known_at=known, record=False)
 
     # the reference: what the funnel did BEFORE F12 — assemble from the live get() roster, same pit
-    ref = thesis_repo.get(db, tid)
+    ref = thesis_repo.get(db, tid, workspace=WORKSPACE_ANY)
     ref.position = decisions_repo.effective_position(db, ref, asof=asof, known_at=known)
     basket = {m.security_id for m in ref.basket if m.security_id is not None}
     pit = PointInTimeData(
         db,
         asof=asof,
         known_at=known,
-        tenant_id=ref.tenant_id,
+        workspace=ref.tenant_id,
         basket=basket,
         bounds=call_bounds(DEFAULT_CONFIG),
     )

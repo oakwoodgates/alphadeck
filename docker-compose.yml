@@ -99,6 +99,9 @@ services:
       # /dashboards/*, /clock and /health. The SAME variable on the cron sidecar (below); empty = no system
       # principal (the warm-up then refuses with one loud line). Treat it as a secret.
       ALPHADECK_SYSTEM_TOKEN: ${ALPHADECK_SYSTEM_TOKEN:-}
+      # The boot seed (pipeline.seed, run by the image CMD on every start) writes the demo cards into the founding
+      # workspace only when this is true. Off by default (prod); the dev overlay turns it on. Fallback `false`.
+      ALPHADECK_SEED_ON_BOOT: ${ALPHADECK_SEED_ON_BOOT:-false}
       # THE TIMEZONE — ONE host variable, ALPHADECK_MARKET_TZ, feeds every consumer in both services (F3,
       # 2026-09-13). There used to be three names for one answer: ALPHADECK_TZ pinned this container's
       # wall clock, ALPHADECK_CRON_TZ pinned the sidecar's, and ALPHADECK_MARKET_TZ — the one the DOMAIN

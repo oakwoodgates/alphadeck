@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
+from db.session import DEFAULT_TENANT_ID
 from domain.config import DEFAULT_CONFIG
 from domain.enums import CatalystType, Grade, Kind
 from ingest.fundamentals import QuarterPoint, store_quarters
@@ -61,16 +62,20 @@ def _quarters() -> list[QuarterPoint]:
 def test_detector_fires_core_in_replay_anchored_at_filed_not_period_end(db, security_id, tmp_path):
     store_quarters(db, security_id, _quarters())
     db.commit()
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
         # BEFORE the filing — at the inflection's PERIOD END (2023-12-31 < filed 2024-02-15) the fact is not
         # yet knowable, so the mirror-backed detector declines (the anchor is FILED, not the period end).
-        before = ReplayPointInTimeData(con, asof=date(2023, 12, 31), known_at=_PIN)
+        before = ReplayPointInTimeData(
+            con, asof=date(2023, 12, 31), known_at=_PIN, workspace=DEFAULT_TENANT_ID
+        )
         assert ra.detect(before, security_id, date(2023, 12, 31), DEFAULT_CONFIG) is None
 
         # AT/after the filing — fires CORE, anchored at the filed date, provenance = the quarter's accession.
-        rep = ReplayPointInTimeData(con, asof=date(2024, 3, 1), known_at=_PIN)
+        rep = ReplayPointInTimeData(
+            con, asof=date(2024, 3, 1), known_at=_PIN, workspace=DEFAULT_TENANT_ID
+        )
         ev = ra.detect(rep, security_id, date(2024, 3, 1), DEFAULT_CONFIG)
         assert ev is not None
         assert (

@@ -17,7 +17,7 @@ from pydantic import BaseModel
 
 from db.session import DEFAULT_TENANT_ID, connect
 from domain.config import DEFAULT_CONFIG, CallConfig
-from domain.scopes import DATA_TENANT_ID
+from domain.scopes import DATA_TENANT_ID, FOUNDING_WORKSPACE_ID
 from replay.episodes import episodes_for
 from replay.export import export_snapshot
 from replay.harness import replay_all
@@ -145,7 +145,7 @@ def _single_name_security(conn: psycopg.Connection, tenant_id: UUID) -> dict[UUI
     """thesis_id -> its sole member's security_id, for single-name theses (the unit the withheld-arm
     metric can price). Multi-name themes are omitted."""
     out: dict[UUID, UUID] = {}
-    for t in thesis_repo.list_all(conn):
+    for t in thesis_repo.list_all(conn, workspace=tenant_id):
         sids = [m.security_id for m in t.basket if m.security_id is not None]
         if len(sids) == 1:
             out[t.id] = sids[0]
@@ -291,6 +291,12 @@ def main() -> None:
         description="Alpha Deck replay/backtest harness (Phase 1, the instrument)."
     )
     p.add_argument("--start", required=True, help="window start, YYYY-MM-DD")
+    p.add_argument(
+        "--workspace",
+        type=UUID,
+        default=FOUNDING_WORKSPACE_ID,
+        help="the workspace (tenant id) whose cards the replay reads (default: the founding workspace)",
+    )
     p.add_argument("--end", required=True, help="window end, YYYY-MM-DD")
     p.add_argument("--pin", required=True, help="the known_at determinism pin, ISO timestamp")
     p.add_argument(
@@ -314,6 +320,7 @@ def main() -> None:
             pin=pin,
             out_dir=args.out,
             cfg=cfg,
+            tenant_id=args.workspace,
         )
         print(metrics.model_dump_json(indent=2))
     finally:

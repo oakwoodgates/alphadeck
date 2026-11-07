@@ -17,7 +17,7 @@ import psycopg
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict
 
-from app.deps import get_conn
+from app.deps import get_conn, get_workspace
 from dashboards.baskets import cards_as_of
 from dashboards.cache import cached
 from dashboards.overlap_map import OverlapMapResult
@@ -121,11 +121,16 @@ class OverlapMapOut(_Wire):
 
 
 def read_overlap(
-    conn: psycopg.Connection, asof: date, known_at: datetime | None, include_silent: bool
+    conn: psycopg.Connection,
+    asof: date,
+    known_at: datetime | None,
+    include_silent: bool,
+    *,
+    workspace: UUID,
 ) -> OverlapMapResult:
     """The read the cache holds: the counted cards with their rosters at the as-of, the master's identity of
     every company on them, and the layout (``dashboards/overlap_map.py``)."""
-    counted = cards_as_of(conn, asof, known_at)
+    counted = cards_as_of(conn, asof, known_at, workspace=workspace)
     sids = {m.security_id for t in counted.cards for m in t.basket if m.security_id is not None}
     identity = master.identity_for(conn, sids)
     return compute_overlap_map(
@@ -147,6 +152,7 @@ def overlap_map(
         False, description="add Context, ETFs and Bench memberships (left out by default)"
     ),
     conn: psycopg.Connection = Depends(get_conn),
+    workspace: UUID = Depends(get_workspace),
 ) -> OverlapMapOut:
     """Where the cards overlap: each counted card as a bubble, the companies every pair shares (matched by
     security; a company on several links of one card counts once), the groups at each threshold of 1 to 5 shared
@@ -160,7 +166,8 @@ def overlap_map(
         SLUG,
         (clock, include_silent),
         asof,
-        lambda: read_overlap(conn, asof, known_at, include_silent),
+        lambda: read_overlap(conn, asof, known_at, include_silent, workspace=workspace),
+        workspace=workspace,
     )
     return OverlapMapOut.model_validate(
         {

@@ -25,8 +25,8 @@ from uuid import UUID
 
 import psycopg
 
-from db.session import DEFAULT_TENANT_ID
 from domain.market_time import market_today
+from domain.scopes import DATA_TENANT_ID
 from domain.settings import get_settings
 from ingest import CacheMiss
 from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
@@ -153,9 +153,10 @@ def run_spac_radar(
     allow_live: bool = True,
     user_agent: str | None = None,
     edgar_client: EdgarClient | None = None,
-    tenant_id: UUID = DEFAULT_TENANT_ID,
+    tenant_id: UUID = DATA_TENANT_ID,
     match: bool = True,
     notifier: Notifier | None = None,
+    workspace: UUID,
 ) -> RadarRunResult:
     """One radar pass: scan the daily indexes for ``days`` days ending at ``until`` (default
     today), accrete + persist + (optionally) match. Idempotent over a re-scan of the same window
@@ -279,7 +280,9 @@ def run_spac_radar(
 
     matches: list[repo.SpacMatch] = []
     if match:
-        matches = _match_events(conn, client, events, result, tenant_id=tenant_id)
+        matches = _match_events(
+            conn, client, events, result, tenant_id=tenant_id, workspace=workspace
+        )
         conn.commit()
 
     # The ANNOUNCED-only status page (#7 inverse loudness, #3 deterministic): a company that transitioned
@@ -297,6 +300,7 @@ def run_spac_radar(
                 sid_by_cik,
                 result,
                 tenant_id=tenant_id,
+                workspace=workspace,
             )
         except Exception as e:  # noqa: BLE001 — notify is best-effort; the radar's job is the tape
             result.errors.append(f"status notify: {e}")
@@ -312,6 +316,7 @@ def _match_events(
     result: RadarRunResult,
     *,
     tenant_id: UUID,
+    workspace: UUID,
 ) -> list[repo.SpacMatch]:
     """Slice 2: run every thesis's term set over each DA-class filing in this window. A match row
     is recorded only when ≥1 term hit (either tier); the append-if-changed keeps re-scans flat.
@@ -324,7 +329,7 @@ def _match_events(
     ]
     if not da_events:
         return []
-    theses = [t for t in thesis_repo.list_all(conn) if t.term_set]
+    theses = [t for t in thesis_repo.list_all(conn, workspace=workspace) if t.term_set]
     if not theses:
         return []
     matches: list[repo.SpacMatch] = []
@@ -350,7 +355,8 @@ def _match_events(
                 filed=ev.filed,
             )
             matches.append(m)
-            if repo.record_match_if_changed(conn, m, tenant_id=tenant_id):
+            # fact_spac_match is a WORKSPACE table: the match lands in the card's own workspace
+            if repo.record_match_if_changed(conn, m, tenant_id=t.tenant_id):
                 result.matches_appended += 1
             else:
                 result.matches_unchanged += 1
@@ -367,6 +373,7 @@ def _notify_announced(
     result: RadarRunResult,
     *,
     tenant_id: UUID,
+    workspace: UUID,
 ) -> None:
     """Emit ONE ANNOUNCED page per ANNOUNCEMENT — a transitioned CIK — listing every thesis it matched (Q13;
     it used to be one page per (CIK, thesis): MEASURED over the tape, one announcement paged up to five times).
@@ -406,7 +413,7 @@ def _notify_announced(
     except Exception:  # noqa: BLE001 — an enrichment read must not poison the committed radar txn
         conn.rollback()
         ticker_by_sid = {}
-    thesis_name = {t.id: t.name for t in thesis_repo.list_all(conn)}
+    thesis_name = {t.id: t.name for t in thesis_repo.list_all(conn, workspace=workspace)}
     for cik in sorted(by_cik):
         # a match on an archived/deleted thesis — never a ghost line (nor a ghost page)
         live = [m for m in by_cik[cik] if m.thesis_id in thesis_name]

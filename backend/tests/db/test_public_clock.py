@@ -518,7 +518,14 @@ def test_the_pit_threads_the_clock_to_every_read(db, security_id):
     _mixed_history(db, security_id)
     asof = date(2026, 6, 5)
     for basket in (None, [security_id]):
-        pit = PointInTimeData(db, asof=asof, known_at=_eod(asof), basket=basket, clock="public")
+        pit = PointInTimeData(
+            db,
+            asof=asof,
+            known_at=_eod(asof),
+            basket=basket,
+            clock="public",
+            workspace=DEFAULT_TENANT_ID,
+        )
         # 06-01: the 10.0 first version (the 10.5 correction is public only from 06-09); 06-02: ingested
         # 09-01 but settled 06-02 — public, so visible
         assert [float(r["close"]) for r in pit.price_history(security_id)] == [10.0, 11.0]

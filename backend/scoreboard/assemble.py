@@ -5,9 +5,8 @@ from uuid import UUID
 
 import psycopg
 
-from db.session import DEFAULT_TENANT_ID
 from domain.enums import State
-from domain.scopes import DATA_TENANT_ID
+from domain.scopes import DATA_TENANT_ID, WorkspaceScope
 from replay.metrics import MIN_N, compute_metrics
 from replay.schema import CallSnapshot
 from repositories import call_annotations_repo, calls_repo
@@ -103,6 +102,7 @@ def assemble_scoreboard(
     exclude_annotated: bool | None = None,
     exclude_late: bool | None = None,
     edition: Edition | None = None,
+    workspace: WorkspaceScope,
 ) -> ScoreboardResult:
     """The Scoreboard, assembled: every thesis's scored record + the aggregate metric summary.
     Read-only end to end (compute-on-read; the walk and the metric pass write nothing).
@@ -122,6 +122,7 @@ def assemble_scoreboard(
         exclude_annotated=exclude_annotated,
         exclude_late=exclude_late,
         edition=edition,
+        workspace=workspace,
     )
     eligible = [
         e.outcome
@@ -130,10 +131,8 @@ def assemble_scoreboard(
         if e.matured and not e.censored_start and not e.ingest_flagged
     ]
     trimmed = {tid: _censor_leading_warming(snaps) for tid, snaps in timelines.items()}
-    tenant_by_thesis = {t.thesis_id: t.tenant_id for t in result.theses}
-    sid_tenant = {
-        sid: tenant_by_thesis.get(tid) or DEFAULT_TENANT_ID for tid, sid in single_name.items()
-    }
+    # the price tape is DATA (domain.scopes): every single-name security reads its bars from the data tenant
+    sid_tenant = {sid: DATA_TENANT_ID for sid in single_name.values()}
     metrics = compute_metrics(
         eligible,
         timeline=trimmed,

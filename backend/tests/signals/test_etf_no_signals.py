@@ -30,7 +30,7 @@ def _etf(db, ticker="LIT"):
 def test_equity_detectors_noop_on_an_etf(db):
     sid = _etf(db)
     asof = date(2026, 6, 1)
-    pit = PointInTimeData(db, asof=asof, tenant_id=DEFAULT_TENANT_ID)
+    pit = PointInTimeData(db, asof=asof, workspace=DEFAULT_TENANT_ID)
     # insider conviction (Key-1): no code-P open-market buys on a fund -> silent, no error
     assert insider_conviction.detect(pit, sid, asof) is None
     # dilution risk: no convertible-note facts on a fund -> silent, no error

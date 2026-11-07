@@ -209,7 +209,7 @@ def basket(db, tmp_path):
         _tape(db, sid, bars=120, base=100.0 + i)
     _correct_bar(db, sids[0], _T0 + timedelta(days=_CORRECTED_OFFSET), close=_CORRECTED_CLOSE)
     db.commit()
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
         yield sids, con

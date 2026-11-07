@@ -14,8 +14,8 @@ import pytest
 from db.session import DEFAULT_TENANT_ID
 from ingest import CacheMiss
 from pipeline import enrich_identity
-from pipeline.provision_tenant import provision_tenant
 from securities import master
+from tests.workspaces import new_workspace
 
 OTHER_TENANT_ID = uuid.UUID("00000000-0000-0000-0000-0000000000ad")
 
@@ -127,8 +127,8 @@ def test_baskets_scope_reads_the_data_master_and_is_fail_closed(db):
     tenant — shouldn't happen post-guard) resolves to nothing -> counted unenrichable, NEVER resolved under the
     workspace's tenant and never written anywhere."""
     second = uuid.UUID("00000000-0000-0000-0000-0000000000ae")
-    provision_tenant(db, "workspace W", tenant_id=OTHER_TENANT_ID)
-    provision_tenant(db, "workspace V", tenant_id=second)
+    new_workspace(db, "workspace W", workspace_id=OTHER_TENANT_ID)
+    new_workspace(db, "workspace V", workspace_id=second)
     db.commit()
     mine = _sec(db, "OKLO", cik="0001849056")  # the DATA master
     theirs = _sec(db, "FRGN", cik="0009999999")  # the DATA master
@@ -242,7 +242,7 @@ def test_main_rejects_tenant_id_outside_universe(db):
 
 def test_main_universe_respects_tenant_id(db, capsys, monkeypatch):
     """--universe --tenant-id enriches ONLY the named tenant's rows (the populate_master pattern)."""
-    provision_tenant(db, "other", tenant_id=OTHER_TENANT_ID)
+    new_workspace(db, "other", workspace_id=OTHER_TENANT_ID)
     db.commit()
     _sec(db, "OKLO", cik="0001849056")  # demo tenant — must NOT be touched
     theirs = _sec(db, "FRGN", cik="0009999999", tenant_id=OTHER_TENANT_ID)

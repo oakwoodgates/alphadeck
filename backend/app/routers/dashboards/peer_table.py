@@ -21,7 +21,7 @@ import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
 
-from app.deps import get_conn
+from app.deps import get_conn, get_workspace
 from dashboards.baskets import (
     cards_as_of,
     display_members,
@@ -49,10 +49,10 @@ from dashboards.peer_table import (
     scopes,
 )
 from dashboards.peer_table import peer_table as compute_peer_table
-from db.session import DEFAULT_TENANT_ID
 from domain.enums import ContextRole
 from domain.market_cap import CapTier
 from domain.market_time import serve_view
+from domain.scopes import DATA_TENANT_ID
 from domain.splits import listed_from_row
 from securities import master
 from signals.base import PointInTimeData
@@ -394,10 +394,12 @@ class ScopeRead(NamedTuple):
     found: Scopes
 
 
-def read_base(conn: psycopg.Connection, asof: date, known_at: datetime | None) -> ScopeBase:
+def read_base(
+    conn: psycopg.Connection, asof: date, known_at: datetime | None, *, workspace: UUID
+) -> ScopeBase:
     """The cheap roster-level read: the live cards that existed by the as-of with their rosters then, and the
     master identity of every resolved company on them (one SELECT)."""
-    counted = cards_as_of(conn, asof, known_at)
+    counted = cards_as_of(conn, asof, known_at, workspace=workspace)
     memberships = memberships_of(counted.cards)
     sids = resolved_ids(memberships)
     return ScopeBase(
@@ -412,8 +414,10 @@ def read_base(conn: psycopg.Connection, asof: date, known_at: datetime | None) -
     )
 
 
-def _scope_read(conn: psycopg.Connection, asof: date, known_at: datetime | None) -> ScopeRead:
-    base = read_base(conn, asof, known_at)
+def _scope_read(
+    conn: psycopg.Connection, asof: date, known_at: datetime | None, *, workspace: UUID
+) -> ScopeRead:
+    base = read_base(conn, asof, known_at, workspace=workspace)
     return ScopeRead(base, scopes(base, asof))
 
 
@@ -480,6 +484,8 @@ def _spy(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> DisplaySignal | None:
     """SPY's trailing returns by the SAME pure rule the member runs (``trailing_returns.compute``), over SPY's
     as-of bars (``pit.benchmark_prices``); ``None`` = no SPY bars at the as-of."""
@@ -487,9 +493,10 @@ def _spy(
         conn,
         asof=asof,
         known_at=known_at,
-        tenant_id=DEFAULT_TENANT_ID,
+        data_tenant=DATA_TENANT_ID,
         bounds=display_bounds(),
         clock=clock,
+        workspace=workspace,
     )
     bars = pit.benchmark_prices(BENCHMARK, lookback_days=trailing_returns.LOOKBACK_DAYS)
     return trailing_returns.compute(bars, asof)
@@ -501,12 +508,14 @@ def read_reads(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> tuple[dict[UUID, CompanyReads], DisplaySignal | None]:
     """The heavy read, for the companies in scope only: which of them have a price-reaching data flag, then each
     company's readings (``baskets.per_company``, chunked, the request's ``known_at`` + ``clock``), and SPY's.
     """
     members = display_members(MEMBER_NAMES, "Peer Table")
-    flagged = price_flags(conn, sids, asof, known_at=known_at, clock=clock)
+    flagged = price_flags(conn, sids, asof, known_at=known_at, clock=clock, workspace=workspace)
     reads = per_company(
         conn,
         sids,
@@ -514,8 +523,9 @@ def read_reads(
         known_at,
         clock,
         lambda pit, sid: read_company(pit, sid, asof, members, flagged.get(sid)),
+        workspace=workspace,
     )
-    return reads, _spy(conn, asof, known_at, clock)
+    return reads, _spy(conn, asof, known_at, clock, workspace=workspace)
 
 
 def read_table(
@@ -526,8 +536,12 @@ def read_table(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> PeerTable:
-    reads, spy = read_reads(conn, scope_sids(base, scope, key), asof, known_at, clock)
+    reads, spy = read_reads(
+        conn, scope_sids(base, scope, key), asof, known_at, clock, workspace=workspace
+    )
     return compute_peer_table(PeerInputs(base, reads, spy), scope, key, asof)
 
 
@@ -543,10 +557,19 @@ def _scopes_cached(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> Cached[ScopeRead]:
     # the clock is part of the key: the same date read live today and on the public clock tomorrow are two
     # reads (a new run clears the cache anyway; this holds even on a night with no run)
-    return cached(conn, SLUG, ("scopes", clock), asof, lambda: _scope_read(conn, asof, known_at))
+    return cached(
+        conn,
+        SLUG,
+        ("scopes", clock),
+        asof,
+        lambda: _scope_read(conn, asof, known_at, workspace=workspace),
+        workspace=workspace,
+    )
 
 
 @router.get("/scopes", response_model=PeerScopesOut)
@@ -555,12 +578,13 @@ def peer_table_scopes(
         ..., description="as-of date; only the cards that existed by then, with their rosters then"
     ),
     conn: psycopg.Connection = Depends(get_conn),
+    workspace: UUID = Depends(get_workspace),
 ) -> PeerScopesOut:
     """What the Peer Table can be scoped to at the as-of: the business-type leaves and supersectors present on the
     counted cards' rosters (each with its distinct companies) and the counted cards, plus the leaf to open on.
     Display only; a past as-of reads the rosters as they were by the end of that date."""
     known_at, clock = serve_view(asof)
-    got = _scopes_cached(conn, asof, known_at, clock)
+    got = _scopes_cached(conn, asof, known_at, clock, workspace=workspace)
     return PeerScopesOut.model_validate(
         {
             **_payload(got.value.found),
@@ -581,6 +605,7 @@ def peer_table(
         "(``unclassified`` = none); ignored for ``all``",
     ),
     conn: psycopg.Connection = Depends(get_conn),
+    workspace: UUID = Depends(get_workspace),
 ) -> PeerTableOut:
     """The names of one scope side by side, each company once: approximate market cap and tier, latest revenue and
     its year-over-year change, runway, convert overhang, revenue purity, the tape (off the 52-week high, the
@@ -592,7 +617,7 @@ def peer_table(
     known_at, clock = serve_view(asof)
     if scope != "all" and key is None:
         raise HTTPException(status_code=422, detail=f"scope {scope} needs a key")
-    read = _scopes_cached(conn, asof, known_at, clock).value
+    read = _scopes_cached(conn, asof, known_at, clock, workspace=workspace).value
     if not scope_present(read.found, scope, key):
         raise HTTPException(status_code=404, detail="scope not present at this as-of")
     pick = None if scope == "all" else key
@@ -601,7 +626,10 @@ def peer_table(
         SLUG,
         (scope, pick or "", clock),
         asof,
-        lambda: read_table(conn, read.base, scope, pick, asof, known_at, clock),
+        lambda: read_table(
+            conn, read.base, scope, pick, asof, known_at, clock, workspace=workspace
+        ),
+        workspace=workspace,
     )
     page = got.value
     unresolved = [_payload(u) for u in page.unresolved]

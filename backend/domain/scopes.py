@@ -6,9 +6,9 @@ Every table that carries ``tenant_id`` belongs to exactly one scope, named here 
   migration 0076): the company master, every ingested fact, the split / ticker / CIK history, the onboarding
   queue, the price-feed repairs, the Form 4/A tables and their decisions, the set-asides and the repair journal.
   The feed writes it; everyone reads it.
-- **WORKSPACE** — one per user (today the only workspace IS the data tenant's row, so every read is byte-identical
-  to before the split; PR 2 moves the founding workspace out): the thesis and its children, the calls of record,
-  the annotations, the operator's decisions, the editions store, and the thesis-scoped facts.
+- **WORKSPACE** — one per user (a ``tenant`` row with ``kind='workspace'``; migration 0078 moved the founding
+  operator's rows out of the data tenant into ``FOUNDING_WORKSPACE_ID``): the thesis and its children, the calls
+  of record, the annotations, the operator's decisions, the editions store, and the thesis-scoped facts.
 - **MIXED** — the four Workbench scoring-fact tables (``fact_revenue_mix`` / ``fact_cash_burn`` /
   ``fact_shares_outstanding`` / ``fact_catalyst``): a FEED row lives in DATA, a RATIFIED row in the caller's
   workspace, and a read unions the two. The as-of read's latest-version rule (``DISTINCT ON (natural key) ...
@@ -29,6 +29,11 @@ from uuid import UUID
 
 # The ONE shared data tenant: today's ``…0001`` (migration 0001's seeded tenant; 0076 marks it ``kind='data'``).
 DATA_TENANT_ID = UUID("00000000-0000-0000-0000-000000000001")
+
+# The FOUNDING WORKSPACE: a fixed id so migration 0078 (which creates it and moves the founding operator's
+# workspace rows out of the data tenant) is safe to run unattended on boot. The boot seed writes its demo cards here
+# and ``pipeline.users`` attaches the founding operator to it.
+FOUNDING_WORKSPACE_ID = UUID("00000000-0000-0000-0000-000000000002")
 
 
 class Scope(Enum):
@@ -130,27 +135,59 @@ def as_tenants(tenants: UUID | Sequence[UUID]) -> tuple[UUID, ...]:
     return out
 
 
-def resolve_scopes(
-    *, data_tenant: UUID | None, workspace: UUID | None, tenant_id: UUID | None
-) -> tuple[UUID, UUID]:
+class _WorkspaceAny:
+    """The type of ``WORKSPACE_ANY`` (one instance; compare with ``is``)."""
+
+    _instance: _WorkspaceAny | None = None
+
+    def __new__(cls) -> _WorkspaceAny:
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __repr__(self) -> str:
+        return "WORKSPACE_ANY"
+
+    def __reduce__(self) -> str:  # pickles (the backtest's process pool) as the same singleton
+        return "WORKSPACE_ANY"
+
+
+# The "every workspace" sentinel for a card-selecting read (``thesis_repo.get`` / ``get_asof`` / ``list_all`` /
+# ``lifespans`` / ``created_at_for``): no workspace filter. SYSTEM code only — the nightly, the editions job, the
+# repair / backfill CLIs, the replay harness. A request path always names the caller's workspace; a grep test
+# (``tests/app/test_workspace_isolation.py``) fails if this name appears under ``app/``, ``dashboards/`` or the
+# route-facing radar modules.
+WORKSPACE_ANY = _WorkspaceAny()
+
+# What a card-selecting read takes: one workspace's id, or the system sentinel.
+WorkspaceScope = UUID | _WorkspaceAny
+
+
+def workspace_filter(
+    workspace: WorkspaceScope, column: str = "tenant_id"
+) -> tuple[str, tuple[Any, ...]]:
+    """``(sql, params)`` for a card-selecting read: ``" AND <column> = %s"`` with the workspace id, or ``""`` for
+    ``WORKSPACE_ANY``. Anything else (``None`` above all) raises ``TypeError``: a forgotten workspace must fail,
+    never read every workspace."""
+    if workspace is WORKSPACE_ANY:
+        return "", ()
+    if isinstance(workspace, UUID):
+        return f" AND {column} = %s", (workspace,)
+    raise TypeError(
+        f"workspace must be a workspace id (UUID) or domain.scopes.WORKSPACE_ANY, not {workspace!r}"
+    )
+
+
+def resolve_scopes(*, data_tenant: UUID | None, workspace: UUID) -> tuple[UUID, UUID]:
     """``(data_tenant, workspace)`` for a point-in-time view (the live PIT and the replay mirror share it).
 
-    ``tenant_id`` is the TRANSITION ALIAS (PR 2 removes it): one tenant for BOTH scopes, the pre-split
-    meaning, refused beside an explicit ``data_tenant`` / ``workspace`` (two answers to one question). Unset,
-    ``data_tenant`` is ``DATA_TENANT_ID`` and ``workspace`` is the demo/test default (``db.session.
-    DEFAULT_TENANT_ID``, the same row as ``DATA_TENANT_ID`` until PR 2 moves the founding workspace out) —
-    transitional too: PR 2 makes the workspace a required, explicit choice."""
-    if tenant_id is not None:
-        if data_tenant is not None or workspace is not None:
-            raise TypeError(
-                "pass either tenant_id= (the transition alias: one tenant for both scopes) or "
-                "data_tenant= / workspace=, not both"
-            )
-        return tenant_id, tenant_id
-    return (
-        data_tenant if data_tenant is not None else DATA_TENANT_ID,
-        workspace if workspace is not None else DATA_TENANT_ID,
-    )
+    ``workspace`` is REQUIRED and must be a tenant id: a view always names whose workspace rows (the thesis-scoped
+    facts, the ratified MIXED rows) it reads; ``None`` raises ``TypeError`` (auth PR 2 removed the PR 1
+    ``tenant_id=`` transition alias and the silent default). ``data_tenant`` unset is ``DATA_TENANT_ID``, the one
+    shared data tenant."""
+    if not isinstance(workspace, UUID):
+        raise TypeError(f"a point-in-time view must name its workspace (a UUID), not {workspace!r}")
+    return (data_tenant if data_tenant is not None else DATA_TENANT_ID, workspace)
 
 
 class DataTenantMissing(RuntimeError):

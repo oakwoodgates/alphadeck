@@ -4,7 +4,7 @@ The Workbench's market-cap figure = close × shares; the shares number is a SOUR
 XBRL), never a typed guess.
 
     python -m pipeline.ratify_shares --ticker OKLO --shares 141000000 \
-        --source-url "https://www.sec.gov/...10-Q...cover" --date 2026-05-01
+        --source-url "https://www.sec.gov/...10-Q...cover" --date 2026-05-01 --workspace <uuid>
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import argparse
 from datetime import date
 from uuid import UUID
 
-from db.session import DEFAULT_TENANT_ID, connect
+from db.session import connect
 from domain.scopes import DATA_TENANT_ID
 from ingest.edgar.client import EdgarClient
 from ingest.shares import cik_of_source_ref, ingest_shares_outstanding, shares_publication
@@ -35,18 +35,19 @@ def main(argv: list[str] | None = None) -> None:
         "--note", default=None, help="free-text provenance note (share-class composition / caveat)"
     )
     p.add_argument(
-        "--tenant-id",
-        default=str(DEFAULT_TENANT_ID),
-        help="the workspace tenant the fact is written under (the company resolves in the shared DATA master); defaults to the demo tenant",
+        "--workspace",
+        required=True,
+        help="the workspace the fact is written under (a ratified fact is that workspace's own; the company "
+        "resolves in the shared DATA master) -- the workspace id from `pipeline.users list`",
     )
     a = p.parse_args(argv)
 
-    tenant_id = UUID(a.tenant_id)
+    tenant_id = UUID(a.workspace)
     conn = connect()
     try:
         sid = resolve_security(
             conn, a.ticker, DATA_TENANT_ID
-        )  # the master is DATA; the fact: --tenant-id
+        )  # the master is DATA; the fact: --workspace
         event_date = date.fromisoformat(a.date)
         # F9: the filing whose cover carries this count (cache only; none = the ratification instant stands)
         accession, accepted = shares_publication(

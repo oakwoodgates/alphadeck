@@ -977,7 +977,8 @@ def read_flags(
         conn,
         asof=asof,
         known_at=known_at,
-        tenant_id=tenant_id,
+        data_tenant=tenant_id,
+        workspace=tenant_id,  # a DATA-only view (flags read prices, splits, filings): no workspace rows
         basket=ids,
         bounds=None,
         clock=clock,  # type: ignore[arg-type]

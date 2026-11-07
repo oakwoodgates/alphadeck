@@ -5,15 +5,19 @@ across a generation. Pure: the token's three reads are stubbed, so no database i
 from __future__ import annotations
 
 import threading
+import uuid
 from datetime import date
 
 import pytest
 
 from dashboards import cache as cache_mod
 from dashboards.cache import DashboardCache
+from db.session import DEFAULT_TENANT_ID
 
 D = date(2026, 6, 1)
 CONN = object()
+W = DEFAULT_TENANT_ID  # the caller's workspace: part of every key
+V = uuid.UUID("00000000-0000-0000-0000-0000000000b2")  # a second workspace
 
 
 class Counter:
@@ -42,20 +46,41 @@ def token_parts(monkeypatch):
 
 def test_a_miss_computes_then_the_same_key_hits(token_parts):
     c, compute = DashboardCache(), Counter()
-    first = c.get(CONN, "rotation-map", (), D, compute)
-    second = c.get(CONN, "rotation-map", (), D, compute)
+    first = c.get(CONN, "rotation-map", (), D, compute, workspace=W)
+    second = c.get(CONN, "rotation-map", (), D, compute, workspace=W)
     assert (first.status, first.value) == ("computed", "v1")
     assert (second.status, second.value) == ("hit", "v1")
     assert second.compute_ms == first.compute_ms and compute.calls == 1
 
 
-def test_the_key_is_slug_params_and_asof(token_parts):
+def test_the_key_is_workspace_slug_params_and_asof(token_parts):
     c, compute = DashboardCache(), Counter()
-    c.get(CONN, "rotation-map", (), D, compute)
-    assert c.get(CONN, "rotation-map", (True,), D, compute).status == "computed"
-    assert c.get(CONN, "rotation-map", (), date(2026, 6, 2), compute).status == "computed"
-    assert c.get(CONN, "other", (), D, compute).status == "computed"
+    c.get(CONN, "rotation-map", (), D, compute, workspace=W)
+    assert c.get(CONN, "rotation-map", (True,), D, compute, workspace=W).status == "computed"
+    assert (
+        c.get(CONN, "rotation-map", (), date(2026, 6, 2), compute, workspace=W).status == "computed"
+    )
+    assert c.get(CONN, "other", (), D, compute, workspace=W).status == "computed"
     assert compute.calls == 4 and len(c) == 4
+
+
+def test_two_workspaces_never_share_an_entry(token_parts):
+    """The workspace is part of the key (auth PR 2): a page computed for one workspace's cards is never served to
+    another, even for the same slug, params and as-of."""
+    c = DashboardCache()
+    assert c.get(CONN, "rotation-map", (), D, lambda: "W's cards", workspace=W).value == "W's cards"
+    other = c.get(CONN, "rotation-map", (), D, lambda: "V's cards", workspace=V)
+    assert (other.status, other.value) == ("computed", "V's cards")
+    assert c.get(CONN, "rotation-map", (), D, lambda: "never", workspace=W).value == "W's cards"
+    assert len(c) == 2
+
+
+def test_a_lookup_without_a_workspace_id_refuses(token_parts):
+    c = DashboardCache()
+    with pytest.raises(TypeError):
+        c.get(CONN, "rotation-map", (), D, lambda: 1)  # type: ignore[call-arg]
+    with pytest.raises(TypeError, match="workspace"):
+        c.get(CONN, "rotation-map", (), D, lambda: 1, workspace=None)  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize(
@@ -74,10 +99,10 @@ def test_the_key_is_slug_params_and_asof(token_parts):
 )
 def test_each_token_part_moving_clears_the_whole_cache(token_parts, move):
     c, compute = DashboardCache(), Counter()
-    c.get(CONN, "rotation-map", (), D, compute)
-    c.get(CONN, "rotation-map", (), date(2026, 6, 2), compute)
+    c.get(CONN, "rotation-map", (), D, compute, workspace=W)
+    c.get(CONN, "rotation-map", (), date(2026, 6, 2), compute, workspace=W)
     move(token_parts)
-    again = c.get(CONN, "rotation-map", (), D, compute)
+    again = c.get(CONN, "rotation-map", (), D, compute, workspace=W)
     assert again.status == "computed" and again.value == "v3"
     assert len(c) == 1  # the other as-of went with it
 
@@ -107,12 +132,14 @@ def test_the_run_identity_comes_from_the_newest_artifact(monkeypatch):
 def test_the_lru_bound(token_parts):
     c, compute = DashboardCache(max_entries=3), Counter()
     for day in (1, 2, 3):
-        c.get(CONN, "s", (), date(2026, 6, day), compute)
-    c.get(CONN, "s", (), date(2026, 6, 1), compute)  # touch day 1: day 2 is now the oldest
-    c.get(CONN, "s", (), date(2026, 6, 4), compute)
+        c.get(CONN, "s", (), date(2026, 6, day), compute, workspace=W)
+    c.get(
+        CONN, "s", (), date(2026, 6, 1), compute, workspace=W
+    )  # touch day 1: day 2 is now the oldest
+    c.get(CONN, "s", (), date(2026, 6, 4), compute, workspace=W)
     assert len(c) == 3
-    assert c.get(CONN, "s", (), date(2026, 6, 1), compute).status == "hit"
-    assert c.get(CONN, "s", (), date(2026, 6, 2), compute).status == "computed"
+    assert c.get(CONN, "s", (), date(2026, 6, 1), compute, workspace=W).status == "hit"
+    assert c.get(CONN, "s", (), date(2026, 6, 2), compute, workspace=W).status == "computed"
 
 
 def test_the_default_bound_is_64():
@@ -131,10 +158,14 @@ def test_single_flight_two_cold_requests_compute_once(token_parts):
         return "payload"
 
     results = []
-    first = threading.Thread(target=lambda: results.append(c.get(CONN, "s", (), D, slow)))
+    first = threading.Thread(
+        target=lambda: results.append(c.get(CONN, "s", (), D, slow, workspace=W))
+    )
     first.start()
     assert started.wait(5)
-    second = threading.Thread(target=lambda: results.append(c.get(CONN, "s", (), D, slow)))
+    second = threading.Thread(
+        target=lambda: results.append(c.get(CONN, "s", (), D, slow, workspace=W))
+    )
     second.start()
     second.join(0.2)
     assert second.is_alive()  # waiting on the first request's compute, not computing its own
@@ -153,9 +184,9 @@ def test_a_failed_compute_is_not_stored_and_the_next_request_retries(token_parts
         raise RuntimeError("db went away")
 
     with pytest.raises(RuntimeError):
-        c.get(CONN, "s", (), D, boom)
+        c.get(CONN, "s", (), D, boom, workspace=W)
     assert len(c) == 0
-    assert c.get(CONN, "s", (), D, lambda: "ok").status == "computed"
+    assert c.get(CONN, "s", (), D, lambda: "ok", workspace=W).status == "computed"
 
 
 def test_a_value_computed_across_a_generation_is_returned_but_not_stored(token_parts):
@@ -165,17 +196,17 @@ def test_a_value_computed_across_a_generation_is_returned_but_not_stored(token_p
         token_parts["run"] = ("2026-06-02T02:30:00+00:00", "running", None)
         return "mid-run"
 
-    got = c.get(CONN, "s", (), D, compute_while_a_run_starts)
+    got = c.get(CONN, "s", (), D, compute_while_a_run_starts, workspace=W)
     assert (got.status, got.value) == ("computed", "mid-run")
     assert len(c) == 0
-    assert c.get(CONN, "s", (), D, lambda: "after").value == "after"
+    assert c.get(CONN, "s", (), D, lambda: "after", workspace=W).value == "after"
 
 
 def test_the_shared_instance_and_helper(token_parts):
     cache_mod.CACHE.clear()
     try:
-        got = cache_mod.cached(CONN, "s", (), D, lambda: 1)
+        got = cache_mod.cached(CONN, "s", (), D, lambda: 1, workspace=DEFAULT_TENANT_ID)
         assert got.status == "computed"
-        assert cache_mod.cached(CONN, "s", (), D, lambda: 2).value == 1
+        assert cache_mod.cached(CONN, "s", (), D, lambda: 2, workspace=DEFAULT_TENANT_ID).value == 1
     finally:
         cache_mod.CACHE.clear()

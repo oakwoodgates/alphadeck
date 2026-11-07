@@ -140,7 +140,14 @@ def test_pit_accessors_with_basket_and_bounds_equal_the_plain_read(db, known_at)
     add_mid_versions(db)
     for asof in ASOFS:
         for bounds in (call_bounds(DEFAULT_CONFIG), display_bounds(), {}):
-            pit = PointInTimeData(db, asof=asof, known_at=known_at, basket=SECS, bounds=bounds)
+            pit = PointInTimeData(
+                db,
+                asof=asof,
+                known_at=known_at,
+                basket=SECS,
+                bounds=bounds,
+                workspace=DEFAULT_TENANT_ID,
+            )
             for sid in SECS:
                 for accessor, table in ACCESSORS.items():
                     expect = _plain(db, table, sid, asof, known_at, bounds.get(table))
@@ -159,13 +166,22 @@ def test_a_bounded_read_trims_exactly_to_the_floor_and_the_floor_is_real(db):
     remains is exactly the plain read's rows on/after the floor."""
     seed_all(db)
     asof = date(2026, 6, 1)
-    pit = PointInTimeData(db, asof=asof, known_at=PIN, basket=SECS, bounds={"fact_price_eod": 100})
+    pit = PointInTimeData(
+        db,
+        asof=asof,
+        known_at=PIN,
+        basket=SECS,
+        bounds={"fact_price_eod": 100},
+        workspace=DEFAULT_TENANT_ID,
+    )
     rows = pit.price_history(HIMS_SECURITY_ID)
     full = window_prices(_plain(db, "fact_price_eod", HIMS_SECURITY_ID, asof, PIN), asof, None)
     assert rows and len(full) > len(rows)
     assert rows == [r for r in full if r["d"] >= asof - timedelta(days=100)]
     # ...and the same floor on the per-security fallback path (no basket): one memo rule, no exceptions
-    solo = PointInTimeData(db, asof=asof, known_at=PIN, bounds={"fact_price_eod": 100})
+    solo = PointInTimeData(
+        db, asof=asof, known_at=PIN, bounds={"fact_price_eod": 100}, workspace=DEFAULT_TENANT_ID
+    )
     assert solo.price_history(HIMS_SECURITY_ID) == rows
 
 
@@ -191,7 +207,9 @@ def test_prefetch_is_one_query_per_table_and_memoizes_the_empty_case(db, monkeyp
     monkeypatch.setattr(sb, "as_of_many", many)
     monkeypatch.setattr(sb, "as_of", one)
     bounds = call_bounds(DEFAULT_CONFIG)
-    pit = PointInTimeData(db, asof=asof, known_at=PIN, basket=SECS, bounds=bounds)
+    pit = PointInTimeData(
+        db, asof=asof, known_at=PIN, basket=SECS, bounds=bounds, workspace=DEFAULT_TENANT_ID
+    )
     for sid in SECS:
         pit.price_history(sid)
         pit.insider_txns(sid)
@@ -208,7 +226,7 @@ def test_prefetch_is_one_query_per_table_and_memoizes_the_empty_case(db, monkeyp
         _plain(db, "fact_price_eod", spy, asof, PIN, bounds["fact_price_eod"]), asof, None
     )
     calls.update(many=0, one=0)
-    solo = PointInTimeData(db, asof=asof, known_at=PIN)
+    solo = PointInTimeData(db, asof=asof, known_at=PIN, workspace=DEFAULT_TENANT_ID)
     solo.price_history(HIMS_SECURITY_ID)
     solo.price_history(HIMS_SECURITY_ID, lookback_days=10)
     assert calls == {"many": 0, "one": 1}
@@ -219,7 +237,12 @@ def test_accessors_hand_back_fresh_lists(db):
     seed_all(db)
     asof = date(2026, 6, 1)
     pit = PointInTimeData(
-        db, asof=asof, known_at=PIN, basket=SECS, bounds=call_bounds(DEFAULT_CONFIG)
+        db,
+        asof=asof,
+        known_at=PIN,
+        basket=SECS,
+        bounds=call_bounds(DEFAULT_CONFIG),
+        workspace=DEFAULT_TENANT_ID,
     )
     for accessor in ("insider_txns", "price_history", "catalyst_facts"):
         first = getattr(pit, accessor)(HIMS_SECURITY_ID)
@@ -244,7 +267,9 @@ def test_identity_reads_are_batched_and_memoized(db):
             return self._conn.cursor()
 
     proxy = _CountingConn(db)
-    pit = PointInTimeData(proxy, asof=date(2026, 6, 1), known_at=PIN, basket=SECS)
+    pit = PointInTimeData(
+        proxy, asof=date(2026, 6, 1), known_at=PIN, basket=SECS, workspace=DEFAULT_TENANT_ID
+    )
     names = {sid: pit.security_name(sid) for sid in SECS}
     ciks = {sid: pit.security_cik(sid) for sid in SECS}
     assert proxy.cursors == 1

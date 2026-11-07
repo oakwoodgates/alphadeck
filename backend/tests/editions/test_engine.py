@@ -136,7 +136,9 @@ def test_no_snapshot_at_all_means_the_caller_uses_the_live_basket():
 def _cut(db, path):
     """The mirror and its cut, the way ``prepare`` takes it (one consistent snapshot)."""
     with engine.consistent_snapshot(db) as at:
-        export_snapshot(db, path, clock="public", known_by=at, identity=True)
+        export_snapshot(
+            db, path, clock="public", known_by=at, identity=True, workspace=DEFAULT_TENANT_ID
+        )
     return at
 
 

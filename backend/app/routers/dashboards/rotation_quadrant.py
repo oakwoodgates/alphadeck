@@ -19,7 +19,7 @@ import psycopg
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict
 
-from app.deps import get_conn
+from app.deps import get_conn, get_workspace
 from dashboards.baskets import (
     GroupBy,
     cards_as_of,
@@ -44,8 +44,8 @@ from dashboards.rotation_quadrant import (
     quadrant_inputs,
 )
 from dashboards.rotation_quadrant import rotation_quadrant as compute_rotation_quadrant
-from db.session import DEFAULT_TENANT_ID
 from domain.market_time import serve_view
+from domain.scopes import DATA_TENANT_ID
 from securities import master
 from signals.base import PointInTimeData
 from signals.display import trailing_returns
@@ -186,6 +186,8 @@ def _closes(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> dict[UUID, dict[date, float]]:
     """Each company's ``{day: close}`` up to the as-of, from the same point-in-time view the Cockpit's
     ``/display-signals`` builds (``known_at`` + ``clock`` from ``serve_view``)."""
@@ -200,6 +202,7 @@ def _closes(
             for b in pit.price_history(sid, lookback_days=LOOKBACK_DAYS)
             if b.get("close") is not None
         },
+        workspace=workspace,
     )
 
 
@@ -208,15 +211,18 @@ def _spy(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> dict[date, float]:
     """SPY's ``{day: close}`` (``pit.benchmark_prices``; empty = no tape at the as-of)."""
     pit = PointInTimeData(
         conn,
         asof=asof,
         known_at=known_at,
-        tenant_id=DEFAULT_TENANT_ID,
+        data_tenant=DATA_TENANT_ID,
         bounds=display_bounds(),
         clock=clock,
+        workspace=workspace,
     )
     return {
         b["d"]: float(b["close"])
@@ -231,17 +237,19 @@ def read_inputs(
     known_at: datetime | None,
     clock: Literal["record", "public"],
     include_silent: bool,
+    *,
+    workspace: UUID,
 ) -> QuadrantInputs:
     """The heavy read the cache holds: the counted cards' rosters as of the as-of, every counted company's
     closes, identity and price flags (``price_flags``, on the same view), SPY's closes, built into every
     grouping's groups."""
-    counted = cards_as_of(conn, asof, known_at)
+    counted = cards_as_of(conn, asof, known_at, workspace=workspace)
     memberships = memberships_of(counted.cards)
     sids = resolved_ids(counted_rows(memberships, include_silent).rows)
     return quadrant_inputs(
         memberships=memberships,
-        closes=_closes(conn, sids, asof, known_at, clock),
-        spy=_spy(conn, asof, known_at, clock),
+        closes=_closes(conn, sids, asof, known_at, clock, workspace=workspace),
+        spy=_spy(conn, asof, known_at, clock, workspace=workspace),
         identity=master.identity_for(conn, set(sids)) if sids else {},
         asof=asof,
         include_silent=include_silent,
@@ -249,7 +257,7 @@ def read_inputs(
         cards_counted=len(counted.cards),
         cards_not_yet_created=counted.not_yet_created,
         roster_fallback_cards=counted.roster_fallback,
-        flagged=price_flags(conn, sids, asof, known_at=known_at, clock=clock),
+        flagged=price_flags(conn, sids, asof, known_at=known_at, clock=clock, workspace=workspace),
     )
 
 
@@ -284,6 +292,7 @@ def rotation_quadrant(
         False, description="add Context and Bench memberships (their own groups in the Link view)"
     ),
     conn: psycopg.Connection = Depends(get_conn),
+    workspace: UUID = Depends(get_workspace),
 ) -> RotationQuadrantOut:
     """Each group's equal-weighted line against SPY's, as two numbers: x = RS level (the line ÷ SPY's, vs its own
     65-session average; 100 = at it) and y = RS momentum (x vs x 20 sessions ago; 100 = flat), with the quadrant
@@ -299,7 +308,8 @@ def rotation_quadrant(
         SLUG,
         (clock, include_silent),
         asof,
-        lambda: read_inputs(conn, asof, known_at, clock, include_silent),
+        lambda: read_inputs(conn, asof, known_at, clock, include_silent, workspace=workspace),
+        workspace=workspace,
     )
     page = compute_rotation_quadrant(got.value, asof=asof, group_by=group_by)
     return RotationQuadrantOut.model_validate(

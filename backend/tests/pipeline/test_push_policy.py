@@ -27,6 +27,7 @@ import pytest
 
 from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard
+from domain.scopes import WORKSPACE_ANY
 from domain.settings import get_settings
 from notify import DigestEvent, SlackNotifier
 from pipeline import daily, pass_timings, push_policy
@@ -464,7 +465,7 @@ def test_a_ticker_less_name_is_LISTED_by_its_company_name_in_the_digest_and_the_
             (tid, DEFAULT_TENANT_ID),
         )
     db.commit()
-    thesis = thesis_repo.get(db, tid)
+    thesis = thesis_repo.get(db, tid, workspace=WORKSPACE_ANY)
     template = _card(
         1416
     )  # a real armed card's shape; its members replaced by the two direct inputs

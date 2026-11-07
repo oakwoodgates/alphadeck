@@ -6,7 +6,7 @@ from uuid import UUID
 import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.deps import get_conn, get_current_tenant, get_thesis_or_404
+from app.deps import get_conn, get_thesis_or_404, get_workspace
 from app.schemas_api import (
     ActivistStakeOut,
     AnnotatedNightOut,
@@ -29,8 +29,8 @@ from app.schemas_api import (
     _scoreboard_thesis_out,
 )
 from db.clock import db_now
-from db.session import DEFAULT_TENANT_ID
 from domain.market_time import known_at_for_asof, market_now, serve_view, view_day
+from domain.scopes import DATA_TENANT_ID
 from domain.settings import get_settings
 from domain.splits import tape_scale
 from domain.thesis import Thesis
@@ -110,7 +110,7 @@ def get_scoreboard(
         "names the edition served",
     ),
     conn: psycopg.Connection = Depends(get_conn),
-    current_tenant: UUID = Depends(get_current_tenant),
+    current_tenant: UUID = Depends(get_workspace),
 ) -> ScoreboardResponse:
     """The Scoreboard (SCORE): one EDITION scored as-of ``asof`` — a READ-ONLY pass over the
     immutable calls log (or a stored edition's frozen pages), the operator-decision log, and realized
@@ -139,20 +139,20 @@ def get_scoreboard(
         # L1 — the same tri-state for the late-night reading
         exclude_late=None if include_late is None else not include_late,
         edition=chosen,
+        workspace=current_tenant,
     )
     theses_out = []
     for t in result.theses:
-        # Resolve tickers/CIKs under the THESIS's tenant (the get_call precedent): episode names
-        # + the trigger evidence's names, so provenance links attribute correctly per tenant.
+        # Resolve tickers/CIKs/names in the DATA tenant (the master is shared, domain.scopes): episode names
+        # + the trigger evidence's names.
         sids = (
             {e.episode.security_id for e in t.episodes}
             | {tr.security_id for e in t.episodes for tr in e.triggers_at_arm}
             | {s.security_id for s in t.operator_spans if s.security_id is not None}
         )
-        tenant = t.tenant_id or DEFAULT_TENANT_ID
-        ciks = master.ciks_for(conn, sids, tenant_id=tenant)
-        tickers = master.tickers_for(conn, sids, tenant_id=tenant)
-        names = master.names_for(conn, sids, tenant_id=tenant)
+        ciks = master.ciks_for(conn, sids, tenant_id=DATA_TENANT_ID)
+        tickers = master.tickers_for(conn, sids, tenant_id=DATA_TENANT_ID)
+        names = master.names_for(conn, sids, tenant_id=DATA_TENANT_ID)
         theses_out.append(_scoreboard_thesis_out(t, ciks, tickers, names))
     summary = result.summary  # assemble_scoreboard always fills it
 
@@ -289,7 +289,7 @@ def _edition_out(e: editions_repo.Edition) -> ScoreboardEditionOut:
 @router.get("/editions", response_model=ScoreboardEditionsResponse)
 def get_scoreboard_editions(
     conn: psycopg.Connection = Depends(get_conn),
-    current_tenant: UUID = Depends(get_current_tenant),
+    current_tenant: UUID = Depends(get_workspace),
 ) -> ScoreboardEditionsResponse:
     """Every edition the Scoreboard can show: Edition 0 (the original record, the calls log — always
     present, never stored) first, then each stored re-run edition ascending, with its cut, nights, join-date
@@ -341,7 +341,7 @@ def get_scoreboard_edition_diff(
         "than `from` (422 otherwise)",
     ),
     conn: psycopg.Connection = Depends(get_conn),
-    current_tenant: UUID = Depends(get_current_tenant),
+    current_tenant: UUID = Depends(get_workspace),
 ) -> ScoreboardEditionDiffResponse:
     """What changed from one edition to a later one (editions S6) — computed on read, never stored, and
     read-only. Every thesis is compared on the nights BOTH editions cover, through the earlier of the two
@@ -377,13 +377,14 @@ def get_scoreboard_edition_diff(
     after_out = _edition_out(after)
     lasts = [before_out.last_night, after_out.last_night]
     through = min(d for d in lasts if d is not None) if None not in lasts else None
-    result = edition_diff(conn, before=before, after=after, through=through)
+    result = edition_diff(
+        conn, before=before, after=after, through=through, workspace=current_tenant
+    )
     theses_out = []
     for t in result.theses:
         sids = [c.security_id for c in t.companies]
-        tenant = t.tenant_id or DEFAULT_TENANT_ID
-        tickers = master.tickers_for(conn, sids, tenant_id=tenant) if sids else {}
-        names = master.names_for(conn, sids, tenant_id=tenant) if sids else {}
+        tickers = master.tickers_for(conn, sids, tenant_id=DATA_TENANT_ID) if sids else {}
+        names = master.names_for(conn, sids, tenant_id=DATA_TENANT_ID) if sids else {}
         theses_out.append(
             EditionThesisDiffOut(
                 **t.model_dump(exclude={"companies", "tenant_id"}),
@@ -434,7 +435,7 @@ def get_price_window(
         "reading, unchanged",
     ),
     thesis: Thesis = Depends(get_thesis_or_404),
-    current_tenant: UUID = Depends(get_current_tenant),
+    current_tenant: UUID = Depends(get_workspace),
     conn: psycopg.Connection = Depends(get_conn),
 ) -> ScoreboardPriceWindowOut:
     """One episode's realized daily OHLCV bars over ``[start, end]`` — with SMA 50/200 context and four
@@ -482,11 +483,12 @@ def get_price_window(
     tenant can't see is a 404. ``source`` names the fact table the bars came from (invariant #6).
     ``start``/``end``/``security_id`` ride as bound params — the SQL range fragment stays a trusted literal.
     """
-    tenant = thesis.tenant_id or DEFAULT_TENANT_ID
-    if tenant != current_tenant:
-        # Deferred auth: ``get_thesis_or_404`` loads by id only (no tenant filter), so scope the read to
-        # the deployment's tenant HERE — a thesis owned by another tenant is not visible (404, not a leak).
+    if thesis.tenant_id != current_tenant:
+        # ``get_thesis_or_404`` already loads from the caller's workspace only; this stays as a second guard
+        # (a thesis in another workspace is "not found", never a leak).
         raise HTTPException(status_code=404, detail="thesis not found")
+    # every read below is a DATA read (prices, splits, insider rows, corporate events, stakes: domain.scopes)
+    tenant = DATA_TENANT_ID
     # cap=asof carries the no-lookahead guarantee on the valid axis; known_at defaults to now (the scorer's
     # transaction-axis config), so the chart matches the bars behind the ledger's numbers.
     reader = PgRealizedPrices(conn, tenant_id=tenant, cap=asof)

@@ -5,10 +5,11 @@ recognized, the user CLI, and the first-deploy order. Code: `backend/app/auth.py
 `backend/app/routers/auth.py` (the `/auth` routes), `backend/pipeline/users.py` (the CLI), migration
 `0077_auth.sql`; the guards are `backend/tests/app/test_auth_gate.py`.
 
-**One workspace in this release.** Every user sits on tenant `…0001` (`db.session.DEFAULT_TENANT_ID`), the one
-tenant the app has always used, so what a signed-in user SEES is exactly what the app showed before: every call,
-score and dashboard is unchanged. Private workspaces per user are the next change (they move the operator's cards
-off the shared data tenant); until then a second account would see the same cards.
+**One private workspace per user.** Each user has a workspace (`app_user.workspace_id`, a `kind='workspace'`
+tenant): their theses, calls, decisions and ratified facts live there and no other user sees them; the companies,
+prices and filings are shared data (`docs/TENANT_SCOPES.md`). The founding operator's cards moved into the
+**founding workspace** (`…0002`) when migration 0078 ran. A super admin (the data steward) sees other workspaces'
+cards on Admin as ids only.
 
 ## The model
 
@@ -81,36 +82,46 @@ The backend enforces every row; the frontend only hides what a role cannot use.
 No sign-up page and no email delivery: the steward creates every account.
 
 ```bash
-python -m pipeline.users create --email ana@example.com --display-name Ana --super-admin   # prints a 20-char password ONCE
-python -m pipeline.users create --email bo@example.com --display-name Bo --password-stdin < pw.txt
+python -m pipeline.users create --email op@example.com --display-name Op --super-admin --founding   # the operator: the founding workspace
+python -m pipeline.users create --email bo@example.com --display-name Bo --password-stdin < pw.txt     # a NEW workspace "Bo's workspace"
+python -m pipeline.users create --email cy@example.com --display-name Cy --workspace <uuid>         # attach to an existing workspace
 python -m pipeline.users disable --email bo@example.com      # sign-in refused; live sessions + tokens stop at once
 python -m pipeline.users enable --email bo@example.com       # the inverse
 python -m pipeline.users reset-password --email bo@example.com [--password-stdin]   # also signs every session out
 python -m pipeline.users list                                # email, role, workspace, created, disabled, sessions, tokens; never a hash
-python -m pipeline.users token create --email ana@example.com --name mcp   # prints the token ONCE
+python -m pipeline.users token create --email op@example.com --name mcp   # prints the token ONCE
 python -m pipeline.users token revoke --id <token uuid>
+python -m pipeline.users workspace set-webhook --workspace <uuid> --url https://hooks.slack.com/...   # that workspace's push channel
+python -m pipeline.users workspace set-webhook --workspace <uuid> --clear
 ```
 
-`--workspace <uuid>` defaults to `…0001`. A second `create` of an email that exists refuses; it never overwrites.
+`create` makes a NEW workspace named "<display name>'s workspace" for each user unless `--workspace <uuid>` names an
+existing workspace or `--founding` attaches to the founding workspace `…0002` (the two flags exclude each other). A
+second `create` of an email that exists refuses and makes no workspace; it never overwrites. `list` shows each user's
+workspace id and name (and `webhook` when it has one; the URL is never printed). A workspace's pushes go to its own
+webhook; with none set, the env `SLACK_WEBHOOK_URL` serves only a super admin's workspace, and every other workspace
+gets the log (`FEED_LOOP.md`).
 In a container: `docker exec -it alphadeck-backend-1 python -m pipeline.users …`.
 
 ## The first deploy (the operator's go at each step)
 
-1. **Back up** (`scripts/deploy.sh` does it, label it `pre-auth`).
-2. **Migrate** 0077 from a host venv against the target DB (`python -m db.migrate` with `DATABASE_URL` pointed at
-   it), so the user can be created before the new image starts refusing every request.
-3. **Create the steward:** `python -m pipeline.users create --email <operator> --display-name <name> --super-admin`
-   (note the printed password; change it at `/account` after the first sign-in).
+1. **Back up** (`scripts/deploy.sh` does it, label it `pre-workspaces`).
+2. **Deploy** backend + cron + frontend (`scripts/deploy.sh`). Migration 0078 runs on boot and moves the operator's
+   cards, calls, decisions and ratified rows into the founding workspace `…0002`; the app refuses every request
+   until the first user exists (no credential, no entry), and the nightly keeps running.
+3. **Create the operator:** `python -m pipeline.users create --email <operator> --display-name <name> --super-admin
+   --founding` (in the backend container; note the printed password, change it at `/account` after the first
+   sign-in). `--founding` attaches the operator to the workspace holding their cards.
 4. **Mint the ops token:** `python -m pipeline.users token create --email <operator> --name ops`.
 5. **`.env`:** `ALPHADECK_OPS_TOKEN=<that token>` (the deploy script's `/admin/status` probes) and
    `ALPHADECK_SYSTEM_TOKEN=<a long random value>` (the warm-up; e.g.
    `python -c "import secrets; print(secrets.token_urlsafe(32))"`). Leave `ALPHADECK_COOKIE_SECURE` unset (true).
    Current Chrome and Firefox treat `http://localhost` as a secure context and keep a Secure cookie there, so the
-   default should work on the laptop (not yet checked in a browser on prod: if sign-in succeeds but the next page
-   asks again, the browser dropped the cookie, and `ALPHADECK_COOKIE_SECURE=false` is the switch). Any other
-   plain-http host needs `false`; after the server move, TLS makes the default right.
-6. **Deploy** backend + frontend + cron (`scripts/deploy.sh`). Sign in; walk the UI; recompute the current night's
-   calls and diff them against the record (identical: nothing in this change reads or writes a call).
+   default should work on the laptop (if sign-in succeeds but the next page asks again, the browser dropped the
+   cookie, and `ALPHADECK_COOKIE_SECURE=false` is the switch). Any other plain-http host needs `false`; after the
+   server move, TLS makes the default right. Redeploy the backend and cron so they read the new values.
+6. **Verify:** sign in; walk the UI; `GET /admin/status` shows `data_tenant_theses: 0`; recompute the current night's
+   calls and diff them against the record (identical: moving a card to a workspace changes no call).
 7. **The MCP token:** `token create --name mcp`, set `ALPHADECK_MCP_TOKEN` in the user environment, restart the
    Claude Code session ([`AGENT_TOOLS.md`](AGENT_TOOLS.md)).
 

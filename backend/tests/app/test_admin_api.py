@@ -549,17 +549,20 @@ def _stale_row(ticker, *, sid=None, edge=None, kind="price", closed_at=None):
     )
 
 
-def test_status_tape_lists_every_currently_stale_tape_with_its_EDGE(client, cron_runs_dir):
+def test_status_tape_lists_every_currently_stale_tape_with_its_EDGE(client, cron_runs_dir, db):
     """The panel is the operator's "is it watched?" view for prices, ARTIFACT-sourced (this router still
     owns no tables). Each row must name WHICH security, WHEN its tape stopped, and under which thesis —
     a count alone is unactionable. A ticker-less row is kept and identified by id (#9)."""
     a, b = uuid.uuid4(), uuid.uuid4()
+    one = _thesis(
+        db, "Thesis One"
+    )  # a card in the caller's workspace: its NAME shows (others: ids only)
     _artifact(
         asof=_MON,
         at=datetime(2026, 7, 20, 22, 30, tzinfo=timezone.utc),
         results=[
             ThesisRunResult(
-                thesis_id=uuid.uuid4(),
+                thesis_id=one,
                 name="Thesis One",
                 recorded=True,
                 edgar_fetches=88,
@@ -672,22 +675,23 @@ def test_status_tape_reads_a_PRE_T1_row_as_NOT_renamed(client, cron_runs_dir):
     assert row["ticker"] == "OLD" and row["renamed"] is False and row["edgar_tickers"] is None
 
 
-def test_status_tape_DEDUPS_a_security_held_by_two_theses(client, cron_runs_dir):
+def test_status_tape_DEDUPS_a_security_held_by_two_theses(client, cron_runs_dir, db):
     """One dead tape is ONE row even when two theses hold the name — the same dedup the page and the CLI
     summary apply. Otherwise the panel's count would measure holders, not dead tapes."""
     shared = uuid.uuid4()
+    one, two = _thesis(db, "Thesis One"), _thesis(db, "Thesis Two")
     _artifact(
         asof=_MON,
         at=datetime(2026, 7, 20, 22, 30, tzinfo=timezone.utc),
         results=[
             ThesisRunResult(
-                thesis_id=uuid.uuid4(),
+                thesis_id=one,
                 name="Thesis One",
                 recorded=True,
                 tape_stale=(_stale_row("AAA", sid=shared),),
             ),
             ThesisRunResult(
-                thesis_id=uuid.uuid4(),
+                thesis_id=two,
                 name="Thesis Two",
                 recorded=True,
                 tape_stale=(_stale_row("AAA", sid=shared),),
@@ -1429,3 +1433,13 @@ def test_run_daily_503_when_the_lock_cannot_be_checked(client, monkeypatch):
     monkeypatch.setattr(admin, "probe_pass_lock", _down)
     r = client.post("/admin/run-daily")
     assert r.status_code == 503 and "unreachable" in r.json()["detail"]
+
+
+def test_status_counts_the_cards_left_on_the_data_tenant(client, db, cron_runs_dir):
+    """auth PR 2: a card belongs to a workspace; one on the DATA tenant ``...0001`` is read by no user, and the
+    status counts them (the Admin page shows one loud line when the count is not 0)."""
+    assert client.get("/admin/status").json()["data_tenant_theses"] == 0
+    _thesis(
+        db, "A card on the data tenant"
+    )  # the helper files it under DEFAULT_TENANT_ID == DATA_TENANT_ID
+    assert client.get("/admin/status").json()["data_tenant_theses"] == 1
