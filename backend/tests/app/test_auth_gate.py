@@ -62,7 +62,12 @@ def anon(db, monkeypatch):
 
 def _user(db, email: str, *, role: str = "user") -> UUID:
     uid = auth.create_user(
-        db, email=email, display_name=email.split("@")[0], password=PASSWORD, role=role
+        db,
+        email=email,
+        display_name=email.split("@")[0],
+        password=PASSWORD,
+        role=role,
+        workspace_id=FOUNDING_WORKSPACE_ID,
     )
     db.commit()
     return uid

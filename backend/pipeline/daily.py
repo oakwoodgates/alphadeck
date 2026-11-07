@@ -548,45 +548,46 @@ def _push_timing(asof: date) -> NightTiming:
 
 class _WorkspaceNotifiers:
     """The push destination PER WORKSPACE (docs/FEED_LOOP.md): ``tenant.notify_webhook`` when set; else the env
-    ``SLACK_WEBHOOK_URL`` only when the workspace's owner is a super admin; else the log notifier. Built once
-    per pass, one DB read per workspace, cached. An EXPLICIT ``override`` (a test or a caller that supplies its
-    own notifier) answers for every workspace unchanged. FAIL-OPEN: a read that fails answers the log notifier
-    (the record is never at stake, and a push never goes to a destination that could not be confirmed).
+    ``SLACK_WEBHOOK_URL`` only when the workspace's owner is a super admin; else the log notifier.
+
+    The whole ``workspace -> Notifier`` map is read ONCE, at construction (pass start, before the loop opens any
+    per-thesis work), by ONE query, and the read transaction is ended there (the loop opens its own); after that
+    ``for_workspace`` is a pure dict lookup: no query, no commit, no rollback inside the per-thesis transaction. A
+    workspace absent from the map (created mid-pass) answers the log notifier. An EXPLICIT ``override`` (a test or
+    a caller that supplies its own notifier) answers for every workspace unchanged. FAIL-OPEN: a read that fails
+    leaves the map empty, so every workspace logs (the record is never at stake, and a push never goes to a
+    destination that could not be confirmed).
     """
 
     def __init__(self, conn: psycopg.Connection, override: Notifier | None = None) -> None:
-        self._conn = conn
         self._override = override
-        self._cache: dict[UUID, Notifier] = {}
+        self._map: dict[UUID, Notifier] = {}
+        self._log_only: Notifier = notifier_for_workspace(None, owner_is_super_admin=False)
+        if override is not None:
+            return
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT t.id, t.notify_webhook, EXISTS (SELECT 1 FROM app_user u "
+                    "WHERE u.workspace_id = t.id AND u.role = 'super_admin' AND u.disabled_at IS NULL) "
+                    "AS owner_is_super_admin FROM tenant t WHERE t.kind = 'workspace'"
+                )
+                rows = cur.fetchall()
+            self._map = {
+                r["id"]: notifier_for_workspace(
+                    r["notify_webhook"], owner_is_super_admin=bool(r["owner_is_super_admin"])
+                )
+                for r in rows
+            }
+        except Exception:  # noqa: BLE001 — fail-open to the record-only notifier
+            _log.warning("workspace notifier lookup failed (fail-open: log only)", exc_info=True)
+        finally:
+            conn.rollback()  # end the read transaction; the loop opens its own per-thesis work
 
     def for_workspace(self, workspace_id: UUID) -> Notifier:
         if self._override is not None:
             return self._override
-        got = self._cache.get(workspace_id)
-        if got is None:
-            got = self._build(workspace_id)
-            self._cache[workspace_id] = got
-        return got
-
-    def _build(self, workspace_id: UUID) -> Notifier:
-        try:
-            with self._conn.cursor() as cur:
-                cur.execute("SELECT notify_webhook FROM tenant WHERE id = %s", (workspace_id,))
-                row = cur.fetchone()
-                cur.execute(
-                    "SELECT 1 FROM app_user WHERE workspace_id = %s AND role = 'super_admin' "
-                    "AND disabled_at IS NULL LIMIT 1",
-                    (workspace_id,),
-                )
-                is_super = cur.fetchone() is not None
-            self._conn.commit()  # end the read transaction
-            return notifier_for_workspace(
-                (row or {}).get("notify_webhook"), owner_is_super_admin=is_super
-            )
-        except Exception:  # noqa: BLE001 — fail-open to the record-only notifier
-            self._conn.rollback()
-            _log.warning("workspace notifier lookup failed (fail-open: log only)", exc_info=True)
-            return notifier_for_workspace(None, owner_is_super_admin=False)
+        return self._map.get(workspace_id, self._log_only)
 
 
 def run_daily(
