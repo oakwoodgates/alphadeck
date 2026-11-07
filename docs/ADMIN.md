@@ -43,7 +43,15 @@ nights, and containers that don't always restart. Three questions and one safety
   (the wrong-day fire the edge check cannot see). Loud styling is reserved for `stale` / `unhealthy` /
   `gappy`; "current", "never begun", and "never ran" stay quiet, and the missed-nights list renders only when
   there is one to show.
-- **Auth stays deferred** project-wide (these routes ride the same tenancy seam as the rest).
+- **Steward-only, and a workspace's cards are not the steward's to read.** Every `/admin/*` route needs the super
+  admin (`AUTH.md`). A thesis NAME belongs to its workspace: wherever a readout (the feed-freshness panel, the
+  late-only nights, `/admin/status`, `/admin/runs`, `/admin/onboarding`) would name a thesis outside the caller's own
+  workspace it reads `workspace <first 8 hex of the workspace id> · thesis <first 8 hex of the thesis id>` instead;
+  tickers and security ids are shared data and stay. The splits, price-feed and onboarding panels act on the DATA
+  tenant (their tables are DATA), never on the caller's workspace.
+- **The data-tenant count.** `GET /admin/status` carries `data_tenant_theses`, how many `thesis` rows sit under the
+  data tenant `…0001`. It should be 0 (a card belongs to a workspace; migration 0078 moved the operator's out); the
+  Admin page shows one loud line when it is not, because no user can open such a card.
 
 ## Record freshness — "is the record current?"
 

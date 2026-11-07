@@ -99,6 +99,11 @@ bash scripts/deploy.sh --env-only cron                                    # a cr
   `docker exec -it alphadeck-backend-1 python -m pipeline.users token create --email <admin> --name ops`,
   then put it in `.env` as `ALPHADECK_OPS_TOKEN=<token>`. A 401 stops that probe at once and refuses with ONE
   line naming that command (never a silent pass). `/health` and `/api/health` stay open and send nothing.
+- **The workspaces deploy (auth PR 2) has its own order** ([`docs/AUTH.md`](AUTH.md) "The first deploy"): back up,
+  deploy (migration 0078 moves the operator's rows into the founding workspace on boot), then
+  `python -m pipeline.users create --email <operator> --super-admin --founding`, `token create --name ops`, `.env`,
+  verify (`/admin/status` shows `data_tenant_theses: 0`). Redeploy `cron` as well as `backend`: the warm-up now walks
+  every workspace and the nightly pushes per workspace.
 - **Then:** the backup (step 1 below), then the rebuild with `GIT_SHA` read from
   `git rev-parse HEAD` (never an argument; a `GIT_SHA` already in the shell is ignored). If the
   backend was rebuilt without the frontend, it runs `docker restart alphadeck-frontend-1`. Then it

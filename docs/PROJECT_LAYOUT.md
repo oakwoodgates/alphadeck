@@ -162,10 +162,10 @@ alphadeck/
     │   ├── populate_master.py      #   the company-list refresh CLI (SEC universe -> master; dry-run default, weekly)
     │   ├── enrich_identity.py      #   re-enrich master identity from EDGAR submissions (--thesis/--baskets/--universe; the standing backfill for submissions-sourced fields)
     │   ├── audit_identity.py · repoint_canonical.py   #   the shown-vs-bound identity audit CLI + the one-time canonical re-point (#172–#175)
-    │   ├── provision_tenant.py     #   cut a fresh tenant (production)
+    │   ├── users.py                #   the login door's CLI: users, a workspace per user, tokens, a workspace's webhook
     │   └── ratify_*.py (+ ratify_common.py)   #   operator-ratify CLIs (catalyst / cash_burn / revenue_mix / shares) + the shared ticker→security_id resolver
     ├── app/                        # FastAPI
-    │   ├── main.py · deps.py        #   deps: get_conn · get_current_tenant · get_thesis_or_404 · get_llm_client · get_decompose_client · get_keyword_client · get_research_client · get_edgar_client
+    │   ├── main.py · deps.py        #   deps: get_conn · get_workspace · get_thesis_or_404 · get_llm_client · get_decompose_client · get_keyword_client · get_research_client · get_edgar_client
     │   ├── health.py                #   the /health payload + the SEC-User-Agent boot-visibility guard (dev/prod split, #232)
     │   ├── openapi_export.py        #   dumps backend/openapi.json (the frontend's type source)
     │   ├── routers/theses.py        #   GET /theses · /theses/{id} · /theses/{id}/call?asof=

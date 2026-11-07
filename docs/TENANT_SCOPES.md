@@ -25,8 +25,9 @@ scopes**, chosen PER TABLE by one map, `domain.scopes.SCOPE_OF`:
 
 The data tenant is `DATA_TENANT_ID = 00000000-…-0001` — the row 0001_init seeded, which migration 0076 marks
 `kind='data'` (renamed `platform`; a partial unique index allows exactly one). Every other `tenant` row is
-`kind='workspace'` (the default; `pipeline.provision_tenant` creates them). 0076 also adds `tenant.notify_webhook`
-(NULL = log only), the per-workspace push destination PR 2 reads.
+`kind='workspace'` (the default; `pipeline.users create` makes one with each user, `tests/workspaces.new_workspace`
+makes one for a test). 0076 also adds `tenant.notify_webhook` (NULL = log only), the per-workspace push destination
+(`pipeline.users workspace set-webhook`; the nightly's notify reads it, `FEED_LOOP.md`).
 
 **Why a ratified fact is private (the MIXED rule).** A purity split, a cash-burn figure, a catalyst ratified from
 a filing, a hand-confirmed share count: these are a user's JUDGMENTS about a company. Two users may ratify
@@ -46,8 +47,9 @@ post-conditions and raises when one fails; a second run moves nothing. Its heade
 count query the operator runs on prod before and after the deploy, and the inverse statements (the move back).
 
 A trigger on `app_user` (`workspace_kind_check`) refuses a `workspace_id` that is not a `kind='workspace'` tenant:
-no user can sit on the data tenant again. `auth.create_user` and `pipeline.users` default to the founding
-workspace. The boot seed (`pipeline.seed`, on `ALPHADECK_SEED_ON_BOOT=true` only, the dev overlay) writes its demo
+no user can sit on the data tenant again. `pipeline.users create` makes a NEW workspace per user by default
+(`--workspace <uuid>` attaches to an existing one, `--founding` to the founding workspace; `docs/AUTH.md`). The
+boot seed (`pipeline.seed`, on `ALPHADECK_SEED_ON_BOOT=true` only, the dev overlay) writes its demo
 cards into the founding workspace and their DATA facts into the data tenant.
 
 ## The seam — how a read names its scope
@@ -72,10 +74,13 @@ cards into the founding workspace and their DATA facts into the data tenant.
   company platform-wide), the Workbench price pull and ETF resolve, and the data-layer CLIs (`populate_master`,
   `spac_sweep`, `enrich_identity`, `audit_identity`, the fundamentals / fund-shares / price-symbol runs) use
   `DATA_TENANT_ID`, never `thesis.tenant_id`. A job that walks "every live basket" walks every workspace's baskets
-  (a basket is a workspace's; the company it names is shared). `term_mentions` writes a WORKSPACE table: its rows
-  keep the thesis's tenant.
+  (a basket is a workspace's; the company it names is shared). `term_mentions` writes a WORKSPACE table: it runs once
+  per workspace and writes each card's rows under that card's own workspace (`--workspace` scopes a hand run).
 - **The ratify path keeps the caller's tenant** (`POST /workbench/facts`, `/facts/auto-confirm`,
-  `pipeline.ratify_catalyst`, `pipeline.ratify_shares`): only their master lookups name the data tenant.
+  `pipeline.ratify_catalyst`, `pipeline.ratify_shares`): only their master lookups name the data tenant. The two
+  CLIs take a REQUIRED `--workspace <uuid>` (there is no deployment-wide default tenant: `ALPHADECK_TENANT_ID` and
+  `db.session.current_tenant_id` are retired); the data-layer CLIs (`populate_master`, `spac_sweep`,
+  `enrich_identity`) default to the data tenant.
 - **The boot assert** — `scopes.assert_data_tenant(conn)` raises `DataTenantMissing` when the `DATA_TENANT_ID` row
   is missing or not `kind='data'`. The API lifespan and every nightly pass call it; nothing defaults silently.
 
@@ -90,7 +95,8 @@ cards into the founding workspace and their DATA facts into the data tenant.
 - **The request's workspace** is `app.deps.get_workspace`: the signed-in user's `workspace_id`. The SYSTEM principal
   (the cron's dashboard warm-up) has none of its own; it names one per request in the `X-Alphadeck-Workspace:
   <uuid>` header (400 naming the header when missing). The header is honored ONLY for the system principal: a
-  user's header is ignored. `get_current_tenant` returns the same workspace.
+  user's header is ignored. (`SYSTEM_USER.workspace_id` is the nil UUID, a placeholder that names no tenant and is
+  never read.) The old `get_current_tenant` alias is gone: a workspace route depends on `get_workspace`.
 - **Ownership** is one choke point, `app.deps.get_thesis_or_404` (loads from the caller's workspace, else 404 "thesis
   not found": never 403, never a hint that the id exists). The dashboard / radar / fund-radar loads by a
   `{thesis_id}` and the Workbench's optional thesis reads pass the caller's workspace; the job polls
@@ -112,9 +118,23 @@ cards into the founding workspace and their DATA facts into the data tenant.
   tenant (`repositories.tenant_repo.workspaces`); the editions trial / publish and the backtest run take
   `--workspace` (default: the founding workspace); the replay harness and the backtest read one workspace's cards.
 
-`db.session.DEFAULT_TENANT_ID` (`…0001`, equal to `DATA_TENANT_ID`) stays as the TEST default: the suite's signed-in
-steward (`tests.auth_fixtures.TEST_STEWARD`) and the seed functions' default sit there, so the existing API tests
-read their cards exactly as before. Production request paths no longer read a workspace table under it.
+- **The steward routes act on the DATA tenant, never on the caller's workspace.** The splits, onboarding and
+  fundamentals-set-aside readouts and writes (`security_split`, `split_jump_dismissal`, `security_onboarding`,
+  `fundamentals_set_aside` are DATA tables) name `DATA_TENANT_ID`; a steward route that must reach workspace
+  tables does so by id for every workspace (the editions cut line reads every tenant that holds an edition). A grep
+  test pins that `get_workspace` appears in none of `admin.py`, `admin_splits.py`, `admin_onboarding.py`.
+- **The Admin readouts show other workspaces' cards as ids only** (`workspace <8 hex> · thesis <8 hex>`; tickers and
+  security ids stay), and `GET /admin/status` carries `data_tenant_theses`, the count of `thesis` rows left under the
+  data tenant (expected 0; the Admin page shows one loud line when it is not). `docs/ADMIN.md`.
+- **Notify and the warm-up are per workspace.** The nightly builds each card's push destination from its workspace
+  (`tenant.notify_webhook`, else the env webhook only for a super admin's workspace, else the log), the digest is
+  grouped by workspace, and the dashboard warm-up walks every workspace with the system token and the
+  `X-Alphadeck-Workspace` header (`docs/FEED_LOOP.md`).
+
+`db.session.DEFAULT_TENANT_ID` (`…0001`, equal to `DATA_TENANT_ID`) stays for TESTS and the demo SEED only: the suite's
+signed-in steward (`tests.auth_fixtures.TEST_STEWARD`) and the seed functions' default sit there, so the existing API
+tests read their cards exactly as before. Nothing under `app/`, `dashboards/` or `radar/` names it (a grep test pins
+it): a read there names `DATA_TENANT_ID` or the caller's workspace.
 
 ## The growth rule
 
@@ -140,8 +160,11 @@ read their cards exactly as before. Production request paths no longer read a wo
   schema answers 404 for A's id; every list / dashboard GET answers 200 and carries neither A's id nor A's name; a
   cached dashboard page is never served across workspaces; B's promote carrying A's id is a 404; B's own card on the
   same company reads the shared bars and none of A's ratified fact; every row B writes carries B's workspace; the
-  super admin sees no other workspace's card; the system principal's header; and the grep guard (`WORKSPACE_ANY`
-  never appears under `app/`, `dashboards/` or the route-facing radar modules).
+  super admin sees no other workspace's card and the Admin readouts name it as ids only; the system principal's
+  header; a steward who sits on a workspace (not the data tenant) lists and confirms a data-tenant split and reads the
+  data tenant's onboarding queue; and the grep guards (`WORKSPACE_ANY` never appears under `app/`, `dashboards/` or
+  the route-facing radar modules; `DEFAULT_TENANT_ID` nowhere under `app/`, `dashboards/`, `radar/`; `get_workspace`
+  in no admin router; `get_current_tenant` nowhere).
 - `tests/db/test_tenant_isolation.py` — (a) read isolation on both axes; (b) an empty workspace re-derives to an
   honest Incubating from DATA facts alone, never another workspace's ratified rows; (c) a workspace thesis arms off
   DATA facts + its own ratified rows and cites only what it can see; (d) the call of record lands in the thesis's
@@ -149,12 +172,8 @@ read their cards exactly as before. Production request paths no longer read a wo
   13D tapes, the prefetch, the split list, the onboarding queue, the worklists) reads the data tenant and never a
   stray workspace row.
 
-## Known limitations (after PR 2's move)
+## Known limitations
 
-- **The Admin readouts still name other workspaces' theses** (the late-only nights, the cron report lines): ids
-  only is the next step (`tests/app/test_workspace_isolation.py` carries it as a strict xfail).
-- **Notify and the dashboard warm-up are not per workspace yet**: the nightly push and the warm-up still use the
-  env webhook and one workspace (the next step).
 - **The "off every live card" wording** is judged against the CALLER's cards: a company on another workspace's card
   but none of the caller's reads as no longer priced on the caller's dashboards (the wording, not the data).
 - **Isolation is discipline + the tests, not RLS.** The `security_id` FK carries no tenant; RLS is the
