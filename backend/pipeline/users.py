@@ -31,7 +31,8 @@ from uuid import UUID
 import psycopg
 
 from app import auth
-from db.session import DEFAULT_TENANT_ID, connect
+from db.session import connect
+from domain.scopes import FOUNDING_WORKSPACE_ID
 
 GENERATED_PASSWORD_LEN = 20
 _ALPHABET = string.ascii_letters + string.digits
@@ -64,8 +65,8 @@ def create_user(
 ) -> tuple[UUID, str | None]:
     """Create one user. Returns ``(id, generated password or None)``: a password is generated when none is given.
 
-    The default workspace is tenant ...0001 (``DEFAULT_TENANT_ID``), the one workspace of this release. PR 2
-    (workspaces) changes this default to the founding workspace."""
+    The default workspace is the founding workspace (``FOUNDING_WORKSPACE_ID``, migration 0078); a user can never
+    sit on the data tenant (0078's ``app_user`` trigger refuses it)."""
     generated = None
     if password is None:
         password = generated = generate_password()
@@ -76,7 +77,7 @@ def create_user(
             display_name=display_name,
             password=password,
             role="super_admin" if super_admin else "user",
-            workspace_id=workspace_id or DEFAULT_TENANT_ID,
+            workspace_id=workspace_id or FOUNDING_WORKSPACE_ID,
         )
     except ValueError as exc:
         raise UserError(str(exc)) from exc
@@ -140,7 +141,9 @@ def _build_parser() -> argparse.ArgumentParser:
     c.add_argument("--email", required=True)
     c.add_argument("--display-name", required=True)
     c.add_argument("--super-admin", action="store_true", help="the data steward role")
-    c.add_argument("--workspace", type=UUID, default=None, help="default: tenant ...0001")
+    c.add_argument(
+        "--workspace", type=UUID, default=None, help="default: the founding workspace ...0002"
+    )
     c.add_argument("--password-stdin", action="store_true", help="read the password from stdin")
     for name in ("disable", "enable"):
         d = sub.add_parser(name, help=f"{name} a user")

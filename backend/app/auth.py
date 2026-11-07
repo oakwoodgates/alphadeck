@@ -40,6 +40,7 @@ from fastapi import Depends, HTTPException, Request
 
 from app.db_conn import get_conn
 from db.session import DEFAULT_TENANT_ID
+from domain.scopes import FOUNDING_WORKSPACE_ID
 from domain.settings import get_settings
 
 SESSION_COOKIE = "alphadeck_session"
@@ -153,10 +154,11 @@ def create_user(
     display_name: str,
     password: str,
     role: str = "user",
-    workspace_id: UUID = DEFAULT_TENANT_ID,
+    workspace_id: UUID = FOUNDING_WORKSPACE_ID,
 ) -> UUID:
     """Insert one user. Refuses (``ValueError``) a second user with the same email, case-insensitively — it never
-    overwrites. The caller commits."""
+    overwrites. ``workspace_id`` must name a ``kind='workspace'`` tenant (migration 0078's ``app_user`` trigger
+    refuses the data tenant); the default is the founding workspace. The caller commits."""
     if role not in ROLES:
         raise ValueError(f"role must be one of {ROLES}")
     email = email.strip()

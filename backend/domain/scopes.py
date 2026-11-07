@@ -6,9 +6,9 @@ Every table that carries ``tenant_id`` belongs to exactly one scope, named here 
   migration 0076): the company master, every ingested fact, the split / ticker / CIK history, the onboarding
   queue, the price-feed repairs, the Form 4/A tables and their decisions, the set-asides and the repair journal.
   The feed writes it; everyone reads it.
-- **WORKSPACE** — one per user (today the only workspace IS the data tenant's row, so every read is byte-identical
-  to before the split; PR 2 moves the founding workspace out): the thesis and its children, the calls of record,
-  the annotations, the operator's decisions, the editions store, and the thesis-scoped facts.
+- **WORKSPACE** — one per user (a ``tenant`` row with ``kind='workspace'``; migration 0078 moved the founding
+  operator's rows out of the data tenant into ``FOUNDING_WORKSPACE_ID``): the thesis and its children, the calls
+  of record, the annotations, the operator's decisions, the editions store, and the thesis-scoped facts.
 - **MIXED** — the four Workbench scoring-fact tables (``fact_revenue_mix`` / ``fact_cash_burn`` /
   ``fact_shares_outstanding`` / ``fact_catalyst``): a FEED row lives in DATA, a RATIFIED row in the caller's
   workspace, and a read unions the two. The as-of read's latest-version rule (``DISTINCT ON (natural key) ...
@@ -29,6 +29,11 @@ from uuid import UUID
 
 # The ONE shared data tenant: today's ``…0001`` (migration 0001's seeded tenant; 0076 marks it ``kind='data'``).
 DATA_TENANT_ID = UUID("00000000-0000-0000-0000-000000000001")
+
+# The FOUNDING WORKSPACE: a fixed id so migration 0078 (which creates it and moves the founding operator's
+# workspace rows out of the data tenant) is safe to run unattended on boot. The boot seed writes its demo cards here
+# and ``pipeline.users`` attaches the founding operator to it.
+FOUNDING_WORKSPACE_ID = UUID("00000000-0000-0000-0000-000000000002")
 
 
 class Scope(Enum):

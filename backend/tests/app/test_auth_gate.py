@@ -27,7 +27,7 @@ from app import auth
 from app.auth import require_super_admin, require_user
 from app.deps import get_conn
 from app.main import app
-from db.session import DEFAULT_TENANT_ID
+from domain.scopes import FOUNDING_WORKSPACE_ID
 from domain.settings import get_settings
 from tests.auth_fixtures import sign_out
 
@@ -264,7 +264,7 @@ def test_login_sets_the_cookie_and_me_answers(anon, db):
     body = r.json()
     assert body["id"] == str(uid)
     assert body["role"] == "super_admin"
-    assert body["workspace_id"] == str(DEFAULT_TENANT_ID)
+    assert body["workspace_id"] == str(FOUNDING_WORKSPACE_ID)
     me = anon.get("/auth/me")
     assert me.status_code == 200 and me.json()["email"] == "Ana@Test.invalid"
     with db.cursor() as cur:

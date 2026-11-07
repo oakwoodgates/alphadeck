@@ -9,7 +9,7 @@ from uuid import uuid4
 import pytest
 
 from app import auth
-from db.session import DEFAULT_TENANT_ID
+from domain.scopes import FOUNDING_WORKSPACE_ID
 from pipeline import users
 
 
@@ -34,7 +34,9 @@ def test_create_generates_a_password_once_and_stores_only_its_hash(conn):
     conn.commit()
     assert pw is not None and len(pw) == users.GENERATED_PASSWORD_LEN
     row = auth.find_user_by_email(conn, "ana@example.test")
-    assert row["id"] == uid and row["role"] == "user" and row["workspace_id"] == DEFAULT_TENANT_ID
+    assert (
+        row["id"] == uid and row["role"] == "user" and row["workspace_id"] == FOUNDING_WORKSPACE_ID
+    )
     assert row["password_hash"].startswith("$argon2id$") and pw not in row["password_hash"]
     assert auth.verify_password(row["password_hash"], pw)
 
@@ -60,7 +62,7 @@ def test_create_super_admin_on_a_named_workspace_and_a_short_password_refuses(co
         email="st@example.test",
         display_name="Steward",
         super_admin=True,
-        workspace_id=DEFAULT_TENANT_ID,
+        workspace_id=FOUNDING_WORKSPACE_ID,
         password="a long enough passphrase",
     )
     assert pw is None
