@@ -111,7 +111,9 @@ def pass_fixture(tmp_path, monkeypatch):
             ids.append(rid)
         return ids
 
-    def fake_export(conn, mirror, *, tenant_id=None, clock="record"):
+    def fake_export(
+        conn, mirror, *, tenant_id=None, data_tenant=None, workspace=None, clock="record", **_kw
+    ):
         """Writes a MIRROR MANIFEST, because that file is not decoration: `--resume` reads it to decide
         whether a tape already exists, and a stub that skipped it would make every resume look like a
         pass whose mirror had vanished."""
