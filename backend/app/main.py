@@ -38,6 +38,17 @@ async def lifespan(app: FastAPI):
     # a hard boot failure with ALPHADECK_REQUIRE_UA=true. See app/health.py.
     _settings = get_settings()
     enforce_boot_visibility(_settings.user_agent, require_ua=_settings.require_ua)
+    # The two tenant scopes (docs/TENANT_SCOPES.md): every feed write and DATA read names the data tenant, so
+    # refuse to boot — loudly, never a silent default — when its row is missing or not `kind='data'` (0076).
+    # Imported here so this guard stays inside the lifespan body (the module's imports are untouched).
+    from db.session import connect as _connect
+    from domain.scopes import assert_data_tenant
+
+    _conn = _connect()
+    try:
+        assert_data_tenant(_conn)
+    finally:
+        _conn.close()
     yield
 
 
