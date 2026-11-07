@@ -29,6 +29,7 @@ from domain.market_time import (
     serve_decisions_asof,
     serve_view,
 )
+from domain.scopes import DATA_TENANT_ID
 from domain.thesis import Catalyst, ExcludedName, KillCriterion, Thesis
 from pipeline.call_for_thesis import call_for_thesis
 from repositories import calls_repo, decisions_repo, thesis_repo
@@ -85,7 +86,7 @@ def list_theses(
         sids.update(tr.security_id for tr in rec.card.triggers_fired)
     tickers: dict[UUID, str | None] = {}
     for tenant_id, sids in sids_by_tenant.items():
-        tickers.update(master.tickers_for(conn, sids, tenant_id=tenant_id))
+        tickers.update(master.tickers_for(conn, sids, tenant_id=DATA_TENANT_ID))
     out: list[ThesisSummary] = []
     for t in theses:
         rec = recorded.get(t.id)
@@ -230,10 +231,10 @@ def read_call(
         }  # the per-member menu needs each member's ticker
         | {m.security_id for m in card.watch_members}
     )
-    # Resolve tickers/CIKs under the THESIS's tenant — security_master is per-tenant, so a production
-    # thesis's names resolve from production's master, not the demo default.
-    cik_for = master.ciks_for(conn, sec_ids, tenant_id=thesis.tenant_id)
-    ticker_for = master.tickers_for(conn, sec_ids, tenant_id=thesis.tenant_id)
+    # Resolve tickers/CIKs in the DATA tenant — the master is shared data (domain.scopes, docs/TENANT_SCOPES.md),
+    # one master for every workspace.
+    cik_for = master.ciks_for(conn, sec_ids, tenant_id=DATA_TENANT_ID)
+    ticker_for = master.tickers_for(conn, sec_ids, tenant_id=DATA_TENANT_ID)
     return CallCardResponse.from_card(card, cik_for, ticker_for)
 
 
@@ -280,7 +281,7 @@ def read_display_signals(
         bounds=display_bounds(),
         clock=clock,
     )
-    ticker_for = master.tickers_for(conn, set(sids), tenant_id=thesis.tenant_id)
+    ticker_for = master.tickers_for(conn, set(sids), tenant_id=DATA_TENANT_ID)
     members = [
         MemberDisplaySignalsOut(
             security_id=sid,
@@ -300,7 +301,7 @@ def read_display_signals(
     # member -> BusinessSupersector map is IDENTITY, resolved HERE (off the display seam, which cannot
     # read the master) and passed in as an opaque grouping label; ``None`` when no benchmark tape is
     # ingested yet (RS is uncomputable) or the basket is empty.
-    identity = master.identity_for(conn, set(sids), tenant_id=thesis.tenant_id)
+    identity = master.identity_for(conn, set(sids), tenant_id=DATA_TENANT_ID)
     supersector_by_sid = {
         sid: (str(info["business_supersector"]) if info.get("business_supersector") else None)
         for sid, info in identity.items()
@@ -362,7 +363,7 @@ def put_exclusions(
     # bound #2, fail-closed (the promote route's own guard): a caller-supplied security_id must be
     # an exact member of this tenant's master — never a junk row behind an FK error
     for e in body:
-        if not master.exists(conn, e.security_id, tenant_id=thesis.tenant_id):
+        if not master.exists(conn, e.security_id, tenant_id=DATA_TENANT_ID):
             raise HTTPException(
                 status_code=404,
                 detail=f"exclusion {e.ticker or e.security_id} references a security not in "

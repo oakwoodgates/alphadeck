@@ -7,6 +7,7 @@ import psycopg
 
 from db.session import DEFAULT_TENANT_ID
 from domain.enums import State
+from domain.scopes import DATA_TENANT_ID
 from replay.metrics import MIN_N, compute_metrics
 from replay.schema import CallSnapshot
 from repositories import call_annotations_repo, calls_repo
@@ -45,7 +46,8 @@ class _RoutedPrices:
         self._readers: dict[UUID, PgRealizedPrices] = {}
 
     def _for(self, security_id: UUID) -> PgRealizedPrices:
-        tenant = self._sid_tenant.get(security_id, DEFAULT_TENANT_ID)
+        # the price tape is DATA (domain.scopes): one data-tenant reader, whichever workspace holds the name
+        tenant = DATA_TENANT_ID
         if tenant not in self._readers:
             self._readers[tenant] = PgRealizedPrices(
                 self._conn, tenant_id=tenant, cap=self._cap, known_at=self._known_at

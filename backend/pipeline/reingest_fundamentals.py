@@ -83,6 +83,7 @@ from uuid import UUID
 import psycopg
 
 from db.session import connect
+from domain.scopes import DATA_TENANT_ID
 from domain.security import Security
 from domain.settings import get_settings
 from ingest import CacheMiss
@@ -208,7 +209,7 @@ def active_securities(
             if m.security_id is None or m.security_id in seen:
                 continue
             seen.add(m.security_id)
-            sec = master.get(conn, m.security_id, tenant_id=thesis.tenant_id)
+            sec = master.get(conn, m.security_id, tenant_id=DATA_TENANT_ID)  # DATA (domain.scopes)
             if sec is None or (wanted and (sec.ticker or "").upper() not in wanted):
                 continue
             out.append(sec)

@@ -8,6 +8,7 @@ import psycopg
 from db.public_clock import Clock
 from domain.call import CallCard
 from domain.config import DEFAULT_CONFIG, CallConfig, config_hash
+from domain.scopes import DATA_TENANT_ID
 from domain.settings import get_settings
 from domain.thesis import Position, Thesis
 from pipeline.core import assemble_from_pit
@@ -126,11 +127,12 @@ def load_call_inputs(
     # decision rows keeps its stored seed-era position (the precedence rule in decisions_repo).
     thesis.position = _position(conn, thesis, asof, known_at, decisions_asof)
 
-    # Derive the tenant from the THESIS (auth deferred): a thesis lives in exactly one tenant, so its
-    # tenant_id scopes EVERY fact read for this call (threaded once into the pit) AND the call-of-record
-    # write — making both the API read path and the batch pipeline tenant-correct from this one place.
-    # Pass it explicitly: the column is NOT NULL, so a loaded thesis's tenant_id is non-None; never
-    # `or DEFAULT` here, so a None would surface as a bug rather than silently read demo facts.
+    # THE TWO TENANT SCOPES (docs/TENANT_SCOPES.md): a thesis lives in exactly one WORKSPACE (its tenant_id),
+    # and the facts it calls on live in the shared DATA tenant. The pit reads each table through the one map
+    # (``domain.scopes.tenants_for``): a DATA table from ``DATA_TENANT_ID``, a WORKSPACE table from the thesis's
+    # workspace, a MIXED table (the ratified scoring facts) from both. The call-of-record write stays the
+    # thesis's workspace (``call_for_thesis`` above). Pass the workspace explicitly: the column is NOT NULL, so a
+    # loaded thesis's tenant_id is non-None; never `or DEFAULT` here, so a None surfaces as a bug.
     # The resolved basket is the PIT's PREFETCH scope (one query per fact table for the whole thesis)
     # and ``call_bounds(cfg)`` its registry-DERIVED read bounds — from the SAME cfg the assembler runs
     # with, so a widened dial widens the bound. Which rows a detector sees is unchanged (the memo
@@ -140,7 +142,8 @@ def load_call_inputs(
         conn,
         asof=asof,
         known_at=known_at,
-        tenant_id=thesis.tenant_id,
+        data_tenant=DATA_TENANT_ID,
+        workspace=thesis.tenant_id,
         basket=basket,
         bounds=call_bounds(cfg),
         clock=clock,

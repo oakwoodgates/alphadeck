@@ -46,6 +46,7 @@ from psycopg.pq import TransactionStatus
 
 from db.session import connect, name_session
 from db.write_lock import CompanyLockBusy, acquire_company_lock
+from domain.scopes import DATA_TENANT_ID
 from domain.security import Security
 from domain.settings import get_settings
 from ingest.edgar.client import RECURRING_CACHE_TTL_S, CachedNotFound, EdgarClient
@@ -193,14 +194,14 @@ def ingest_fundamentals(
         for m in thesis.basket:
             if m.security_id is None or m.security_id in memo.securities:
                 continue  # unresolved placement, or a name already pulled from another basket
-            sec = master.get(conn, m.security_id, tenant_id=thesis.tenant_id)
+            sec = master.get(conn, m.security_id, tenant_id=DATA_TENANT_ID)  # DATA (domain.scopes)
             if sec is None:
                 memo.securities.add(m.security_id)
                 results.append(NameResult(m.ticker, m.security_id, error="not in tenant master"))
                 continue
             secs.append(sec)
         results += ingest_fundamentals_for_securities(
-            conn, secs, client=client, tenant_id=thesis.tenant_id, memo=memo
+            conn, secs, client=client, tenant_id=DATA_TENANT_ID, memo=memo
         )
     return results
 

@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from db.session import DEFAULT_TENANT_ID, connect
 from domain.config import DEFAULT_CONFIG, CallConfig
+from domain.scopes import DATA_TENANT_ID
 from replay.episodes import episodes_for
 from replay.export import export_snapshot
 from replay.harness import replay_all
@@ -242,7 +243,8 @@ def run(
     (DuckDB-queryable) + ``metrics.json`` (the readable summary) to ``out_dir``. Deterministic for a given
     ``(snapshot, pin, window, cfg)`` — no clock/random in the loop. Returns the metrics."""
     out = Path(out_dir)
-    export_snapshot(conn, out, tenant_id=tenant_id)
+    # the two scopes (domain.scopes): DATA tables from the data tenant, the rest from the workspace
+    export_snapshot(conn, out, data_tenant=DATA_TENANT_ID, workspace=tenant_id)
     con = connect_mirror(out)
     try:
         result = replay_all(
@@ -256,7 +258,7 @@ def run(
         if roster_note:
             print(f"ROSTER: {roster_note}")
         episodes = episodes_for(timeline)
-        realized = RealizedPrices(con, tenant_id=tenant_id)
+        realized = RealizedPrices(con, tenant_id=DATA_TENANT_ID)  # the tape is DATA
         outcomes = score_episodes(episodes, realized)
         metrics = compute_metrics(
             outcomes,

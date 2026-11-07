@@ -40,7 +40,7 @@ from backtest import manifest as mf
 from backtest import store
 from backtest.nulls import _BasketBenchmark, horizon_days
 from backtest.pooled import Stat
-from db.session import DEFAULT_TENANT_ID
+from domain.scopes import DATA_TENANT_ID
 from replay.pit import connect_mirror
 from replay.schema import Episode
 from replay.scoring import RealizedPrices, score_window
@@ -191,7 +191,7 @@ def rebench_run(
     try:
         # The manifest does not record a tenant (the deployment is single-tenant and the run read the
         # default), so this states that rather than inventing a field to read.
-        realized = RealizedPrices(con, tenant_id=DEFAULT_TENANT_ID)
+        realized = RealizedPrices(con, tenant_id=DATA_TENANT_ID)  # the tape is DATA
         bench = _BasketBenchmark(realized, _roster_for(man.theses, live))
         stored = _outcomes(run_dir)
         for ep in _episodes(run_dir):

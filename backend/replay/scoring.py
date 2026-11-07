@@ -61,7 +61,8 @@ class RealizedPrices:
     deliberately forward-unbounded and time-capless — that is the whole distinction between it and
     ``ReplayPointInTimeData``, and it is what lets the scorer read past the as-of while no path exists by
     which forward data can reach an as-of call. There is no time key to get wrong because there is no time
-    bound. ``tenant_id`` is fixed at construction, so a cache entry cannot cross a tenant either.
+    bound. ``tenant_id`` is fixed at construction, so a cache entry cannot cross a tenant either. The price
+    tape is DATA (``domain.scopes``): callers pass the data tenant (``DATA_TENANT_ID``).
 
     **MEMORY.** One ``_Bar`` per row: about 104 B for the tuple, 32 B for the date, 24 B per NON-NULL
     float (``None`` is a singleton and costs nothing, and this tape is largely close-only). Roughly

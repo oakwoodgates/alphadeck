@@ -106,7 +106,8 @@ def scope_of(table: str) -> Scope:
 
 def tenants_for(table: str, *, data: UUID, workspace: UUID) -> tuple[UUID, ...]:
     """The tenant ids a read of ``table`` covers: DATA -> ``(data,)``, WORKSPACE -> ``(workspace,)``, MIXED ->
-    ``(data, workspace)`` — one id when the two are equal (today, before PR 2 moves the founding workspace)."""
+    ``(data, workspace)`` — one id when the two are equal (today, before PR 2 moves the founding workspace).
+    """
     scope = scope_of(table)
     if scope is Scope.DATA:
         return (data,)
@@ -123,8 +124,33 @@ def as_tenants(tenants: UUID | Sequence[UUID]) -> tuple[UUID, ...]:
         return (tenants,)
     out = tuple(dict.fromkeys(tenants))
     if not out or not all(isinstance(t, UUID) for t in out):
-        raise ValueError(f"a tenant scope must be one UUID or a non-empty list of UUIDs: {tenants!r}")
+        raise ValueError(
+            f"a tenant scope must be one UUID or a non-empty list of UUIDs: {tenants!r}"
+        )
     return out
+
+
+def resolve_scopes(
+    *, data_tenant: UUID | None, workspace: UUID | None, tenant_id: UUID | None
+) -> tuple[UUID, UUID]:
+    """``(data_tenant, workspace)`` for a point-in-time view (the live PIT and the replay mirror share it).
+
+    ``tenant_id`` is the TRANSITION ALIAS (PR 2 removes it): one tenant for BOTH scopes, the pre-split
+    meaning, refused beside an explicit ``data_tenant`` / ``workspace`` (two answers to one question). Unset,
+    ``data_tenant`` is ``DATA_TENANT_ID`` and ``workspace`` is the demo/test default (``db.session.
+    DEFAULT_TENANT_ID``, the same row as ``DATA_TENANT_ID`` until PR 2 moves the founding workspace out) —
+    transitional too: PR 2 makes the workspace a required, explicit choice."""
+    if tenant_id is not None:
+        if data_tenant is not None or workspace is not None:
+            raise TypeError(
+                "pass either tenant_id= (the transition alias: one tenant for both scopes) or "
+                "data_tenant= / workspace=, not both"
+            )
+        return tenant_id, tenant_id
+    return (
+        data_tenant if data_tenant is not None else DATA_TENANT_ID,
+        workspace if workspace is not None else DATA_TENANT_ID,
+    )
 
 
 class DataTenantMissing(RuntimeError):

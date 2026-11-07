@@ -40,6 +40,7 @@ from backtest.pooled import build_report
 from db.session import DEFAULT_TENANT_ID, connect
 from domain.config import DEFAULT_CONFIG, CallConfig, config_hash, short_hash
 from domain.market_time import market_today
+from domain.scopes import DATA_TENANT_ID
 from domain.thesis import Thesis
 from replay.episodes import episodes_for
 from replay.export import export_snapshot, mirror_clock, read_mirror_manifest
@@ -184,7 +185,8 @@ def execute(
     mirror = Path(mirror_dir) if mirror_dir else out
     t0 = time.perf_counter()
     if mirror_dir is None:
-        export_snapshot(conn, out, tenant_id=tenant_id, clock=run_clock)
+        # the two scopes (domain.scopes): DATA tables from the data tenant, the rest the workspace's
+        export_snapshot(conn, out, data_tenant=DATA_TENANT_ID, workspace=tenant_id, clock=run_clock)
     timings["export_s"] = round(time.perf_counter() - t0, 2)
     # Read back rather than kept from the export's return value, so the SUPPLIED-mirror and
     # SELF-EXPORTED paths derive the manifest's mirror facts from exactly one place: the bytes on disk.
@@ -220,7 +222,7 @@ def execute(
 
         t0 = time.perf_counter()
         episodes = episodes_for(result.timelines)
-        realized = RealizedPrices(con, tenant_id=tenant_id)
+        realized = RealizedPrices(con, tenant_id=DATA_TENANT_ID)  # the tape is DATA
         outcomes = score_episodes(episodes, realized)
         timings["score_s"] = round(time.perf_counter() - t0, 2)
 
@@ -306,9 +308,10 @@ def execute(
         sids |= {
             m.security_id for snaps in result.timelines.values() for s in snaps for m in s.members
         }
-        tickers = master.tickers_for(conn, sids, tenant_id=tenant_id)
-        names = master.names_for(conn, sids, tenant_id=tenant_id)
-        ciks = master.ciks_for(conn, sids, tenant_id=tenant_id)
+        # the master is DATA (domain.scopes)
+        tickers = master.tickers_for(conn, sids, tenant_id=DATA_TENANT_ID)
+        names = master.names_for(conn, sids, tenant_id=DATA_TENANT_ID)
+        ciks = master.ciks_for(conn, sids, tenant_id=DATA_TENANT_ID)
         ledger = build_ledger(
             result.timelines,
             list(zip(episodes, outcomes, strict=True)),

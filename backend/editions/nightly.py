@@ -82,6 +82,7 @@ from db.clock import db_now
 from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard
 from domain.config import DEFAULT_CONFIG, config_hash
+from domain.scopes import DATA_TENANT_ID
 from domain.settings import get_settings
 from editions import cut as cut_module
 from editions.engine import ThesisJob, build_job, consistent_snapshot, open_mirror, run_jobs
@@ -206,7 +207,7 @@ def loading_names(conn: psycopg.Connection, *, tenant_id: UUID) -> dict[UUID, st
     migration 0059: any status but ``done`` — queued, in progress, or failed and waiting for a retry).
     """
     with conn.cursor() as cur:
-        cur.execute(
+        cur.execute(  # the onboarding queue is DATA (domain.scopes): ``tenant_id`` is the data tenant
             "SELECT security_id, status FROM security_onboarding "
             "WHERE tenant_id = %s AND status <> 'done'",
             (tenant_id,),
@@ -239,12 +240,18 @@ def plan_pages(
             return plan
         last_pages = editions_repo.last_page_by_thesis(conn, edition.id)
         frozen = editions_repo.entries_by_thesis(conn, edition.id)
-        loading = loading_names(conn, tenant_id=tenant_id)
+        loading = loading_names(conn, tenant_id=DATA_TENANT_ID)
         with conn.cursor() as cur:
             cur.execute("SELECT id, name FROM thesis WHERE tenant_id = %s", (tenant_id,))
             plan.names = {r["id"]: r["name"] for r in cur.fetchall()}
         export_snapshot(
-            conn, mirror_dir, tenant_id=tenant_id, clock="public", known_by=known_by, identity=True
+            conn,
+            mirror_dir,
+            data_tenant=DATA_TENANT_ID,
+            workspace=tenant_id,
+            clock="public",
+            known_by=known_by,
+            identity=True,
         )
         rosters, derived = derive_all(conn, known_by=known_by)
         con = open_mirror(mirror_dir)
@@ -326,7 +333,7 @@ def _episode_rows(
 ) -> Iterable[tuple[UUID, Any, set[tuple[UUID, date]], date | None]]:
     """Every thesis with pages in ``edition``, read as the Scoreboard reads it at ``night`` (``EditionSource``,
     prices as known now): ``(thesis_id, ScoredEpisode, already-inked keys, market tape edge)``."""
-    edge = market_tape_edge(conn, tenant_id=tenant_id, cap=night)
+    edge = market_tape_edge(conn, tenant_id=DATA_TENANT_ID, cap=night)  # the tape is DATA
     src = EditionSource(edition)
     for tid in sorted(editions_repo.last_page_by_thesis(conn, edition.id), key=str):
         thesis = thesis_repo.get(conn, tid)

@@ -74,7 +74,8 @@ def find_holds(pit: Any, thesis: Thesis, asof: date) -> dict[UUID, Hold]:
 class HeldPriceView:
     """The point-in-time view a HELD member's price-path triggers read: ``price_history`` for a held security
     returns only its bars BEFORE the step (``Hold.cut``); everything else — every other security, every other
-    accessor, ``asof`` / ``known_at`` / ``tenant_id`` — is the wrapped view's, untouched."""
+    accessor, ``asof`` / ``known_at`` / ``data_tenant`` / ``workspace`` — is the wrapped view's, untouched.
+    """
 
     def __init__(self, inner: Any, holds: Mapping[UUID, Hold]) -> None:
         self._inner = inner
@@ -89,8 +90,12 @@ class HeldPriceView:
         return self._inner.known_at
 
     @property
-    def tenant_id(self) -> UUID:
-        return self._inner.tenant_id
+    def data_tenant(self) -> UUID:
+        return self._inner.data_tenant
+
+    @property
+    def workspace(self) -> UUID:
+        return self._inner.workspace
 
     def price_history(
         self, security_id: UUID, lookback_days: int | None = None

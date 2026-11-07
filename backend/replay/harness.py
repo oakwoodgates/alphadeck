@@ -10,6 +10,7 @@ import psycopg
 from db.session import DEFAULT_TENANT_ID
 from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.market_time import known_at_for_asof
+from domain.scopes import DATA_TENANT_ID
 from domain.thesis import Thesis
 from domain.trading_days import is_scheduled_day
 from pipeline.core import assemble_from_pit
@@ -166,6 +167,7 @@ def replay_thesis(
     tenant_id: UUID = DEFAULT_TENANT_ID,
     conn: psycopg.Connection | None = None,
     known_at_mode: str = "pin",
+    data_tenant: UUID = DATA_TENANT_ID,
 ) -> list[CallSnapshot]:
     """One thesis's call timeline across its real trading sessions in the window — the TIMELINE-ONLY view.
 
@@ -182,6 +184,7 @@ def replay_thesis(
         tenant_id=tenant_id,
         conn=conn,
         known_at_mode=known_at_mode,
+        data_tenant=data_tenant,
     )[0]
 
 
@@ -196,6 +199,7 @@ def replay_thesis_with_roster(
     tenant_id: UUID = DEFAULT_TENANT_ID,
     conn: psycopg.Connection | None = None,
     known_at_mode: str = "pin",
+    data_tenant: UUID = DATA_TENANT_ID,
 ) -> tuple[list[CallSnapshot], RosterSource]:
     """Sweep one thesis's call across its real trading sessions in the window, running the REAL pipeline
     (``assemble_from_pit``) over a replay pit capped at each ``(T, known_at)``. ZERO forward knowledge —
@@ -210,9 +214,13 @@ def replay_thesis_with_roster(
 
     The sessions are resolved ONCE from the passed thesis's roster: which days the window contains is a
     property of the tape, and re-deriving it per T from a shifting roster would make the sweep's own step
-    depend on its output. Only WHICH NAMES the call sees moves with T."""
+    depend on its output. Only WHICH NAMES the call sees moves with T.
+
+    The two tenant scopes (``domain.scopes``): ``tenant_id`` is the thesis's WORKSPACE, ``data_tenant`` the
+    shared DATA tenant — the replay PIT reads each table for ``tenants_for(table, ...)``, and the session
+    calendar reads the price tape (DATA)."""
     sids = [m.security_id for m in thesis.basket if m.security_id is not None]
-    sessions = trading_sessions(con, sids, start, end, tenant_id)
+    sessions = trading_sessions(con, sids, start, end, data_tenant)  # the tape is DATA
     snapshots: list[CallSnapshot] = []
     fallback_days = 0
     # B5a — the PIT's registry-derived read bounds, from the SAME cfg the assembler runs with (the live
@@ -240,7 +248,8 @@ def replay_thesis_with_roster(
             con,
             asof=t,
             known_at=known_at_for_asof(t, known_at) if known_at_mode == "lockstep" else known_at,
-            tenant_id=tenant_id,
+            data_tenant=data_tenant,
+            workspace=tenant_id,
             basket=[m.security_id for m in roster.basket if m.security_id is not None],
             bounds=bounds,
         )
@@ -273,6 +282,7 @@ def replay_all(
     cfg: CallConfig = DEFAULT_CONFIG,
     tenant_id: UUID = DEFAULT_TENANT_ID,
     known_at_mode: str = "pin",
+    data_tenant: UUID = DATA_TENANT_ID,
 ) -> ReplayResult:
     """Replay every thesis over the window, resolving each one's ROSTER point-in-time at every session
     (F4 — see the block comment above). Returns the per-thesis timelines PLUS the roster provenance.
@@ -294,6 +304,7 @@ def replay_all(
             tenant_id=tenant_id,
             conn=conn,
             known_at_mode=known_at_mode,
+            data_tenant=data_tenant,
         )
         timelines[thesis.id] = snaps
         roster_sources[thesis.id] = source

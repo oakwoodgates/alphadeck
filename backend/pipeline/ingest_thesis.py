@@ -52,6 +52,7 @@ from psycopg.pq import TransactionStatus
 from db.session import connect, name_session
 from db.write_lock import CompanyLockBusy, acquire_company_lock
 from domain.onboarding import OnboardingWindow
+from domain.scopes import DATA_TENANT_ID
 from domain.security import Security
 from domain.settings import get_settings
 from domain.thesis import BasketMember
@@ -648,7 +649,9 @@ def ingest_thesis(
             c,
             s,
             m,
-            tenant_id=thesis.tenant_id,
+            # every leg writes DATA (the master, the facts, the 4/As, the splits — domain.scopes): the shared
+            # data tenant, never the thesis's workspace
+            tenant_id=DATA_TENANT_ID,
             allow_live=allow_live,
             force_refresh=force_refresh,
             fund_source=fund_source,
@@ -676,7 +679,7 @@ def ingest_thesis(
             client,
             source,
             members,
-            tenant_id=thesis.tenant_id,
+            tenant_id=DATA_TENANT_ID,  # the fetch-ahead reads + plans DATA rows (domain.scopes)
             allow_live=allow_live,
             force_refresh=force_refresh,
             workers=workers,
@@ -748,7 +751,7 @@ def ingest_thesis(
             except CompanyLockBusy as exc:
                 busy[sid] = exc
         if sid in busy:
-            held = _held_result(conn, client, m, busy[sid], tenant_id=thesis.tenant_id)
+            held = _held_result(conn, client, m, busy[sid], tenant_id=DATA_TENANT_ID)
             window = onboarding.get(sid) if onboarding else None
             # X1 — still listed as onboarding, even when another writer held it
             if window is not None:

@@ -85,6 +85,7 @@ from psycopg.pq import TransactionStatus
 from db.session import connect, name_session, set_statement_timeout
 from db.write_lock import CompanyLockBusy, acquire_company_lock
 from domain.market_time import market_now, market_tz
+from domain.scopes import DATA_TENANT_ID
 from domain.security import Security
 from domain.settings import get_settings
 from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
@@ -160,7 +161,7 @@ _ROW_SQL = """SELECT so.tenant_id, so.security_id, so.status, so.legs_done, so.a
                      so.source, so.thesis_id, so.enqueued_at, so.last_attempt_at, so.finished_at,
                      sm.ticker, sm.name,
                      EXISTS (SELECT 1 FROM basket_member bm JOIN thesis t ON t.id = bm.thesis_id
-                              WHERE bm.security_id = so.security_id AND bm.tenant_id = so.tenant_id
+                              WHERE bm.security_id = so.security_id
                                 AND t.archived_at IS NULL) AS in_live_basket
                 FROM security_onboarding so
                 LEFT JOIN security_master sm ON sm.id = so.security_id"""
@@ -225,7 +226,12 @@ def cold_ids(
       night, so its history is loaded — the legacy names, and a name re-arranged between theses), else cold.
 
     ``thesis_id`` is the promoting thesis, excluded from "another" (its new members are in its basket already
-    by the time the promote asks). Read-only."""
+    by the time the promote asks). Read-only.
+
+    The two tenant scopes (``domain.scopes``): the queue is DATA (``tenant_id`` is the data tenant — one history
+    load per company platform-wide), while "another live basket" is ANY workspace's: the nightly walks every
+    workspace's live baskets, so a name one workspace holds is loaded for all. Only a boolean crosses workspaces.
+    """
     ids = list({s for s in security_ids if s is not None})
     if not ids:
         return set()
@@ -235,7 +241,7 @@ def cold_ids(
                       (SELECT so.status FROM security_onboarding so
                         WHERE so.tenant_id = %(t)s AND so.security_id = s) AS status,
                       EXISTS (SELECT 1 FROM basket_member bm JOIN thesis th ON th.id = bm.thesis_id
-                               WHERE bm.tenant_id = %(t)s AND bm.security_id = s
+                               WHERE bm.security_id = s
                                  AND th.archived_at IS NULL
                                  AND (%(thesis)s::uuid IS NULL OR th.id <> %(thesis)s::uuid)) AS elsewhere
                  FROM unnest(%(ids)s::uuid[]) AS s""",
@@ -426,7 +432,8 @@ def mark_from_results(
     checkpointed; a name with no history-leg failure is ``done``. A name another writer held (``lock_busy``) or
     whose history leg failed is left PENDING — the staged job resumes it (a fast-lane failure is never counted
     as an attempt: the job's own run decides that). Returns ``security_id -> status`` for the rows it touched.
-    Commits."""
+    Commits. ``tenant_id`` is the caller's workspace and scopes nothing here: the queue is DATA
+    (``domain.scopes``), read under ``DATA_TENANT_ID``."""
     wanted = set(security_ids)
     by_id: dict[UUID, list[Any]] = {}
     for r in results:
@@ -436,7 +443,9 @@ def mark_from_results(
         return {}
     current = {
         row.security_id: row
-        for row in rows(conn, tenant_id=tenant_id, security_ids=list(by_id))
+        for row in rows(
+            conn, tenant_id=DATA_TENANT_ID, security_ids=list(by_id)
+        )  # the queue is DATA
         if row.status != STATUS_DONE
     }
     out: dict[UUID, str] = {}
@@ -499,9 +508,15 @@ def plan_promote(
     """THE PROMOTE'S LANE DECISION: queue the new names that are cold (``enqueue_cold``), then take the FAST LANE
     when there are at most ``Settings.onboard_fast_lane_max`` of them and the promote is outside the nightly
     window; otherwise the staged job loads them. No cold name at all (every new name is already loaded
-    elsewhere) is the fast lane too — exactly the pre-X1 on-promote ingest. The caller commits."""
+    elsewhere) is the fast lane too — exactly the pre-X1 on-promote ingest. The caller commits.
+
+    ``tenant_id`` is the promoting WORKSPACE; the queue itself is DATA (``domain.scopes``), so the names are
+    queued under ``DATA_TENANT_ID`` — a company a second workspace promotes is the same queue row.
+    """
     s = get_settings()
-    cold = enqueue_cold(conn, new_ids, tenant_id=tenant_id, source="promote", thesis_id=thesis_id)
+    cold = enqueue_cold(
+        conn, new_ids, tenant_id=DATA_TENANT_ID, source="promote", thesis_id=thesis_id
+    )
     if not cold:
         return PromotePlan(frozenset(), True)
     w = window_bounds(
@@ -1202,9 +1217,14 @@ def readout(
 ) -> Readout:
     """The queue readout. ``security_ids`` scopes it to those names; ``thesis_id`` (the Workbench's per-thesis
     progress) further keeps only the rows still PENDING or enqueued BY that thesis, so a name loaded long ago
-    for another thesis does not inflate this promote's "loaded" count. Read-only."""
+    for another thesis does not inflate this promote's "loaded" count. Read-only.
+
+    The queue is DATA (``domain.scopes``): a caller's ``tenant_id`` (its workspace, or the deployment tenant)
+    scopes the readout to the DATA tenant's queue — the one every workspace shares. ``None`` = every row.
+    """
     s = get_settings()
-    all_rows = rows(conn, tenant_id=tenant_id, security_ids=security_ids)
+    queue_tenant = DATA_TENANT_ID if tenant_id is not None else None
+    all_rows = rows(conn, tenant_id=queue_tenant, security_ids=security_ids)
     if thesis_id is not None:
         all_rows = [r for r in all_rows if r.status in PENDING_STATUSES or r.thesis_id == thesis_id]
     counts = {k: 0 for k in (*PENDING_STATUSES, STATUS_DONE, "parked")}
@@ -1346,8 +1366,8 @@ def main(argv: list[str] | None = None) -> None:
                 if thesis is None:
                     p.error(f"thesis {args.enqueue_thesis} not found")
                 ids = {m.security_id for m in thesis.basket if m.security_id}
-                cold = enqueue_cold(
-                    conn, ids, tenant_id=thesis.tenant_id, source="cli", thesis_id=thesis.id
+                cold = enqueue_cold(  # the queue is DATA (domain.scopes)
+                    conn, ids, tenant_id=DATA_TENANT_ID, source="cli", thesis_id=thesis.id
                 )
                 conn.commit()
                 print(f"onboarding: {len(cold)} of {len(ids)} member(s) are cold and queued")

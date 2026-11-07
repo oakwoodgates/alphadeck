@@ -120,6 +120,7 @@ from psycopg.types.json import Json
 
 from db.bitemporal import append_fact
 from db.session import database_url
+from domain.scopes import DATA_TENANT_ID
 from ingest import CacheMiss
 from ingest.edgar.acceptance import (
     EDGAR_CLOSES,
@@ -275,25 +276,27 @@ def _target_scopes(
     deep walk — the expensive pagination is spent on the names the operator's surfaces actually show.
     NARROWING ONLY: an excluded security's rows are untouched and stay NULL and visible, never dropped (#9).
 
-    THE MEMBERSHIP TEST IS THE (tenant, security) PAIR, not the security alone (invariant #5). A bare
-    ``security_id IN (...)`` would let a basket member in tenant A pull that security's tenant-B rows into
-    the worklist — ``security_master.id`` carries no tenant, so nothing at the database layer would stop
-    it, and the isolation test is the only backstop there is. Today the fork/dev tenants hold the same
-    security ids as prod, so this is a live path to a cross-tenant read, not a theoretical one. Proven by
-    ``tests/db/test_tenant_isolation.py``.
+    THE TWO TENANT SCOPES (``domain.scopes``, invariant #5): the Form 4 rows are DATA and a basket is a
+    WORKSPACE's, so the narrowed worklist is the DATA tenant's rows of the securities ANY workspace holds in a
+    basket (the nightly walks every workspace's baskets). A row stored under a workspace tenant (a stray —
+    the feed never writes one) never enters it: ``security_master.id`` carries no tenant, so nothing at the
+    database layer would stop a bare ``security_id IN (...)`` from pulling it in, and the isolation test is the
+    only backstop there is. Proven by ``tests/db/test_tenant_isolation.py``.
     """
     where = ""
+    params: dict[str, Any] = {}
     if basket_only:
         where = (
-            "WHERE (tenant_id, security_id) IN "
-            "(SELECT tenant_id, security_id FROM basket_member WHERE security_id IS NOT NULL)"
+            "WHERE tenant_id = %(data)s AND security_id IN "
+            "(SELECT security_id FROM basket_member WHERE security_id IS NOT NULL)"
         )
+        params["data"] = DATA_TENANT_ID
     q = (
         "SELECT DISTINCT tenant_id, security_id FROM (" + _LATEST.format(where=where) + ") latest "
         "WHERE accepted IS NULL ORDER BY tenant_id, security_id"
     )
     with conn.cursor() as cur:
-        cur.execute(q)
+        cur.execute(q, params or None)
         return [(r["tenant_id"], r["security_id"]) for r in cur.fetchall()]
 
 
@@ -636,10 +639,12 @@ def _drift_scopes(
     where: list[str] = []
     params: list[Any] = []
     if basket_only:
+        # the Form 4 tables are DATA, a basket is ANY workspace's (domain.scopes; ``_target_scopes``)
         where.append(
-            "(s.tenant_id, s.security_id) IN "
-            "(SELECT tenant_id, security_id FROM basket_member WHERE security_id IS NOT NULL)"
+            "s.tenant_id = %s AND s.security_id IN "
+            "(SELECT security_id FROM basket_member WHERE security_id IS NOT NULL)"
         )
+        params.append(DATA_TENANT_ID)
     if tickers:
         where.append(
             "(s.tenant_id, s.security_id) IN "

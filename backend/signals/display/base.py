@@ -31,7 +31,8 @@ class DisplayPointInTimeData(Protocol):
 
     asof: date
     known_at: datetime
-    tenant_id: UUID
+    data_tenant: UUID  # the shared DATA scope (domain.scopes)
+    workspace: UUID  # the caller's WORKSPACE scope
 
     def price_history(
         self, security_id: UUID, lookback_days: int | None = None

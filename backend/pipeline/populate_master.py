@@ -36,8 +36,9 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-from db.session import connect, current_tenant_id
+from db.session import connect
 from domain.market_time import market_tz
+from domain.scopes import DATA_TENANT_ID
 from domain.settings import get_settings
 from ingest import CacheMiss
 from pipeline.onboarding import window_bounds
@@ -339,7 +340,7 @@ def main(argv: list[str] | None = None) -> int:
         help="run only when an applied refresh exists and is older than this many days (the boot catch-up)",
     )
     a = p.parse_args(argv)
-    tenant_id = UUID(a.tenant_id) if a.tenant_id else current_tenant_id()
+    tenant_id = UUID(a.tenant_id) if a.tenant_id else DATA_TENANT_ID  # the master is DATA
     return run(
         live=a.live,
         apply=a.apply,

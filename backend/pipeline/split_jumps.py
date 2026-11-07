@@ -39,12 +39,14 @@ WINDOW_DAYS = 30
 # the bars shown after the step (the panel's "what happened next")
 AFTER_BARS = 5
 
+# Every workspace's live baskets (the nightly walks them all) over the DATA master: ``%s`` is the data tenant
+# (domain.scopes) — a basket is a workspace's, the company and its tape are shared data.
 _UNION = """
     SELECT DISTINCT bm.security_id, sm.ticker
       FROM basket_member bm
       JOIN thesis t ON t.id = bm.thesis_id
       JOIN security_master sm ON sm.id = bm.security_id
-     WHERE t.archived_at IS NULL AND bm.security_id IS NOT NULL AND bm.tenant_id = %s
+     WHERE t.archived_at IS NULL AND bm.security_id IS NOT NULL AND sm.tenant_id = %s
 """
 
 

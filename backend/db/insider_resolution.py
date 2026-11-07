@@ -18,7 +18,7 @@ re-derivation resolves to today's reading, and an operator verdict still overrul
 
 from __future__ import annotations
 
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 from datetime import datetime
 from uuid import UUID
 
@@ -27,6 +27,7 @@ from psycopg import sql
 
 from db.public_clock import Clock, aux_public_sql, public_params
 from domain.insider_amendments import ResolutionInputs, group_inputs
+from domain.scopes import as_tenants
 
 RESOLVED_TABLE = "fact_insider_txn"
 
@@ -44,16 +45,17 @@ def load_inputs(
     security_ids: Collection[UUID],
     *,
     known_at: datetime,
-    tenant_id: UUID,
+    tenant_id: UUID | Sequence[UUID],
     clock: Clock = "record",
 ) -> ResolutionInputs:
     """Every 4/A record, link and decision of ``security_ids`` recorded at/before ``known_at`` (public by
     ``known_at`` on the public clock), plus every CIK each security has been known by. Five small reads (the
-    tables hold ~one row per amendment)."""
+    tables hold ~one row per amendment). Every table read here is DATA (``domain.scopes``): ``tenant_id`` is
+    the data tenant (one id, or a list — ``tenant_id = ANY(...)``, the as-of read's shape)."""
     ids = list(dict.fromkeys(security_ids))
     if not ids:
         return ResolutionInputs()
-    p = {"t": tenant_id, "ids": ids, "k": known_at, **public_params()}
+    p = {"t": list(as_tenants(tenant_id)), "ids": ids, "k": known_at, **public_params()}
     with conn.cursor() as cur:
         cur.execute(
             # remarks + footnotes: the filer's own words the composition reads (a SUPERSEDE / FIX / ADD
@@ -61,7 +63,7 @@ def load_inputs(
             sql.SQL(
                 "SELECT id, tenant_id, security_id, accession, rows, accepted, filed, remarks, footnotes, "
                 "recorded_at FROM insider_amendment "
-                "WHERE tenant_id = %(t)s AND security_id = ANY(%(ids)s) AND {gate}"
+                "WHERE tenant_id = ANY(%(t)s) AND security_id = ANY(%(ids)s) AND {gate}"
             ).format(gate=_gate("insider_amendment", clock)),
             p,
         )
@@ -71,7 +73,7 @@ def load_inputs(
                 "SELECT id, security_id, amendment_accession, original_accessions, voided_accessions, "
                 "candidate_accessions, method, disposition, status, accepted, recorded_at "
                 "FROM insider_amendment_link "
-                "WHERE tenant_id = %(t)s AND security_id = ANY(%(ids)s) AND {gate}"
+                "WHERE tenant_id = ANY(%(t)s) AND security_id = ANY(%(ids)s) AND {gate}"
             ).format(gate=_gate("insider_amendment_link", clock)),
             p,
         )
@@ -81,18 +83,18 @@ def load_inputs(
                 "SELECT id, security_id, amendment_accession, action, disposition, original_accessions, "
                 "replaced_rows, voided_accessions, revokes, recorded_at "
                 "FROM insider_amendment_decision "
-                "WHERE tenant_id = %(t)s AND security_id = ANY(%(ids)s) AND {gate}"
+                "WHERE tenant_id = ANY(%(t)s) AND security_id = ANY(%(ids)s) AND {gate}"
             ).format(gate=_gate("insider_amendment_decision", clock)),
             p,
         )
         decisions = cur.fetchall()
         cur.execute(
             "SELECT id AS security_id, cik FROM security_master "
-            "WHERE tenant_id = %(t)s AND id = ANY(%(ids)s) AND cik IS NOT NULL "
+            "WHERE tenant_id = ANY(%(t)s) AND id = ANY(%(ids)s) AND cik IS NOT NULL "
             "UNION SELECT security_id, prior_cik FROM security_cik_change "
-            "WHERE tenant_id = %(t)s AND security_id = ANY(%(ids)s) AND prior_cik IS NOT NULL "
+            "WHERE tenant_id = ANY(%(t)s) AND security_id = ANY(%(ids)s) AND prior_cik IS NOT NULL "
             "UNION SELECT security_id, new_cik FROM security_cik_change "
-            "WHERE tenant_id = %(t)s AND security_id = ANY(%(ids)s) AND new_cik IS NOT NULL",
+            "WHERE tenant_id = ANY(%(t)s) AND security_id = ANY(%(ids)s) AND new_cik IS NOT NULL",
             p,
         )
         ciks = [(r["security_id"], r["cik"]) for r in cur.fetchall()]

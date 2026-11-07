@@ -69,6 +69,7 @@ from domain.call import CallCard
 from domain.config import DEFAULT_CONFIG
 from domain.market_time import market_tz
 from domain.rule_log import RuleEntry, declared_since, rule_ids
+from domain.scopes import DATA_TENANT_ID
 from editions.engine import prepare, run_jobs
 from editions.entry import Entry
 from editions.fingerprint import FINGERPRINT_VERSION, engine_fingerprint, fingerprint_version
@@ -489,7 +490,7 @@ def new_run(
     run = NewRun(out=out)
     t0 = time.perf_counter()
     frozen = frozen_entries(conn, edition.id)
-    loading = _loading(conn, tenant_id)
+    loading = _loading(conn, DATA_TENANT_ID)  # the onboarding queue is DATA (domain.scopes)
     conn.commit()
     out.mkdir(parents=True, exist_ok=False)
     prep = prepare(

@@ -54,6 +54,7 @@ from backtest.run import execute
 from backtest.windows import DEFAULT_WINDOW_DAYS, default_concurrency, tile
 from db.session import DEFAULT_TENANT_ID, connect
 from domain.config import DEFAULT_CONFIG, CallConfig, config_hash, short_hash
+from domain.scopes import DATA_TENANT_ID
 from replay.export import export_snapshot, mirror_clock, read_mirror_manifest
 
 SWEEP_NAME = "sweep.json"
@@ -760,7 +761,9 @@ def run_pass(
         # wired: nothing can pass one (there is no `--tenant` on this CLI or on `backtest.run`) and the
         # whole backtest package is single-tenant by construction. Multi-tenant sweeps are a real change,
         # not a parameter.
-        export_snapshot(conn, mirror, tenant_id=DEFAULT_TENANT_ID, clock=clock)
+        export_snapshot(
+            conn, mirror, data_tenant=DATA_TENANT_ID, workspace=DEFAULT_TENANT_ID, clock=clock
+        )
 
     # every variant of every ladder, resolved to a config -- then ONE job per distinct config_hash
     per_ladder = [[(d, apply_overlay(d)) for d in lad.variants] for lad in ladders]

@@ -62,6 +62,7 @@ from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard
 from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.market_time import known_at_for_asof, market_tz
+from domain.scopes import DATA_TENANT_ID
 from domain.thesis import BasketMember, Catalyst, KillCriterion, Position, Thesis
 from editions.entry import Entry, ThesisRoster, derive_all
 from pipeline.core import assemble_from_pit
@@ -305,8 +306,8 @@ def build_job(
     every = set(roster.live_security_ids)
     for s in roster.snapshots:
         every |= s.security_ids
-    sessions = trading_sessions(
-        con, sorted(every, key=lambda u: u.int), first, last, roster.tenant_id
+    sessions = trading_sessions(  # the price tape is DATA (domain.scopes)
+        con, sorted(every, key=lambda u: u.int), first, last, DATA_TENANT_ID
     )
     out: list[NightInput] = []
     for t in sessions:
@@ -347,7 +348,8 @@ def assemble_night(
         con,
         asof=night,
         known_at=night_cap(night, known_by),
-        tenant_id=thesis.tenant_id,
+        data_tenant=DATA_TENANT_ID,
+        workspace=thesis.tenant_id,
         basket=[m.security_id for m in thesis.basket if m.security_id is not None],
         bounds=call_bounds(cfg),
     )
@@ -461,7 +463,13 @@ def prepare(
         if kb > snapshot_at:
             raise ValueError(f"a cut ({kb}) cannot be later than the snapshot it is read from")
         manifest = export_snapshot(
-            conn, out_dir, tenant_id=tenant_id, clock="public", known_by=kb, identity=True
+            conn,
+            out_dir,
+            data_tenant=DATA_TENANT_ID,
+            workspace=tenant_id,
+            clock="public",
+            known_by=kb,
+            identity=True,
         )
         cut = MirrorCut(path=Path(out_dir), known_by=kb, snapshot_at=snapshot_at, manifest=manifest)
         last = end or latest_recorded_night(conn, known_by=kb)

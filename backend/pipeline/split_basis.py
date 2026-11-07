@@ -91,6 +91,8 @@ from statistics import median, median_low
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+from domain.scopes import DATA_TENANT_ID
+
 if TYPE_CHECKING:  # the scan opens a connection; the pure core never needs psycopg
     import psycopg
 
@@ -715,8 +717,10 @@ def _view_example(
 
 # The ACTIVE basket union: every resolved member of every non-archived thesis — the names the nightly pass
 # walks (``thesis_repo.list_all`` skips archived theses; ``ingest_thesis`` skips unresolved members).
-_UNION = """
-    SELECT DISTINCT bm.tenant_id, bm.security_id
+# A basket is a WORKSPACE's, the tape is DATA (domain.scopes): every workspace's live members, read against
+# the data tenant's bars (a trusted constant, never input).
+_UNION = f"""
+    SELECT DISTINCT '{DATA_TENANT_ID}'::uuid AS tenant_id, bm.security_id
       FROM basket_member bm JOIN thesis t ON t.id = bm.thesis_id
      WHERE t.archived_at IS NULL AND bm.security_id IS NOT NULL
 """
