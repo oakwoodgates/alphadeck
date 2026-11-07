@@ -2,14 +2,15 @@
 
 Status: Phase 1 built 2026-11-06 (the server and the MONITOR read tools); Phase 2 (dashboards as agent views)
 built 2026-11-06; Phase 3 (prompts and the Claude Code skill) built 2026-11-06; Phase 4 retired the capture server
-2026-11-06 (see "History"); Phase 5 (the research-stage reads) built 2026-11-06. Stage: MONITOR, plus a read-only look
-at SURFACE and TRIAGE (Phase 5).
+2026-11-06 (see "History"); the shared tool contract (PR #508) made tool registration declarative 2026-11-06; Phase 5
+(the research-stage reads) built 2026-11-06. Stage: MONITOR, plus a read-only look at SURFACE and TRIAGE (Phase 5).
 Code: `backend/agent_tools/`.
 
 ## What it is
 
 A read-only MCP server that lets an agent (Claude Code, or any MCP client) ask the operator's MONITOR
-questions: what is armed and why, explain this call, what is this company on. Its tools return the platform's
+questions: what is armed and why, explain this call, what is this company on; and, since Phase 5, the research
+stages' questions: what did discovery find, what is left to ratify on this card. Its tools return the platform's
 own objects, shaped from the API's JSON: no browser, no DOM, no snapshots. Every reply is bounded, states the
 `asof` it was judged at and its `source` (`record` = the nightly calls log; `live` = the API recomputed or read
 it now), and carries the platform's wording: `exit_by` is a signal-validity horizon, not a trade exit; setup
@@ -118,10 +119,10 @@ arguments. The agent's own reading goes under a separate heading and it says wha
 
 | Prompt | Arguments | Call plan | Budget on the fixtures (MEASURED) |
 |---|---|---|---|
-| `board-review` | `asof?`, `max_items=5` | `list_theses(limit=max_items)`, then `get_call detail=brief` per queue card, flags only where `missing_count` is above zero | at most 10 calls / 36,000 (6 / 17,046 at 5 cards) |
-| `explain-call` | `thesis`, `asof?` | `get_call`, `section=triggers` (and `risk_signals`), `get_thesis` | unchanged |
-| `morning-brief` | `asof?` | `what-changed`, `daily-digest`, then the digest sections the default cut (due, then insider), at most one more call | at most 5 calls / 36,000 (5 / 31,958) |
-| `ticker-check` | `t`, `asof?` | `lookup_ticker`, `get_call detail=brief` for at most 2 cards (armed or warming first), `get_display_signals` for the first | at most 4 calls / 24,000 (4 / 15,195) |
+| `board-review` | `asof?`, `max_items=5` | `list_theses(limit=max_items)`, then `get_call detail=brief` per queue card, flags only where `missing_count` is above zero | at most 10 calls / 36,000 (7 / 18,609 at 5 cards) |
+| `explain-call` | `thesis`, `asof?` | `get_call` (its `catalyst_surface` carries the catalysts), `section=triggers`, `get_thesis`; `section=risk_signals` only when the operator asks | at most 4 calls / 32,000 (3 / 19,785) |
+| `morning-brief` | `asof?` | `what-changed`, `daily-digest`, then up to three more calls in order of need: the digest's `due`, `insider` and `tape` sections where the default cut them, or in place of one a what-changed section or `forming-quietly` | at most 5 calls / 36,000 (5 / 32,236) |
+| `ticker-check` | `t`, `asof?` | `lookup_ticker`, `get_call detail=brief` for at most 2 cards (armed or warming first), `get_display_signals` for the first | at most 4 calls / 24,000 (4 / 15,218) |
 | `compare-rotation` | `start`, `end`, `group_by=business_type`, `group?` | `read_dashboard("rotation-map")` at both dates, matched by group `key` | default at most 4 calls / 32,000 (4 / 22,042); with `group` at most 2 / 4,000 (2 / 2,920) |
 | `ratify-queue` | `thesis`, `asof?` | `get_triage` once (the funnel, the unconfirmed names and the meters without a value), `get_thesis` once (not signed off, model drafts, no conviction or context role), `get_discovery(section="ambiguous")` only when the card has a saved run; `get_extract` only when the operator names the company | at most 3 calls / 24,000 (3 / 23,486) |
 | `discovery-review` | `thesis` | `get_discovery` once (report, capped and empty terms, counts), `section="terms"`, `section="ambiguous"` when any, at most one slice (`status`, `segment` or one `placement`) | at most 4 calls / 32,000 (4 / 27,114) |
@@ -229,6 +230,7 @@ the schemas it loaded, and a fresh session reads the new ones.
 `test_server.py` (the official SDK client in-process against an httpx `MockTransport` fake API, plus one REAL
 stdio subprocess against a loopback fake API: 14 tools, 7 prompts, read-only, output schemas), `test_dashboards.py`, `test_research.py` (the four research views:
 sizes, cursor walks, narrowing, rejections, the wire-key guard, purity), `test_contract.py` (every registered contract),
+`dump_contract.py` (prints the sha256 of the tools and prompts listing: the proof a refactor changed no contract),
 `test_resolve.py`, `test_client.py`, and the prompt call plans through the real stdio client: `test_morning_brief.py`,
 `test_board_review.py`, `test_explain_call.py`, `test_ticker_check.py`, `test_ratify_queue.py`, `test_discovery_review.py`,
 `test_compare_rotation.py` (with the
