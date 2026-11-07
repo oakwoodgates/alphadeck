@@ -455,12 +455,26 @@ at the database layer *forces* a read to pass the right tenant. The standing obl
    grows with the schema**: a new table with a `tenant_id` column fails `tests/db/test_scopes.py` until it is
    named in `SCOPE_OF`.
 3. **No test scenario uses the data tenant as a user's workspace** — with the two equal, a missed scope filter
-   reads the right rows by accident (`DEFAULT_TENANT_ID`, the demo/test default, IS the data tenant until the
-   founding workspace moves out).
+   reads the right rows by accident (`DEFAULT_TENANT_ID`, the test default, IS the data tenant; the isolation
+   proofs provision their own workspaces).
+4. **Every card-selecting read names its workspace.** `thesis_repo.get` / `get_asof` / `list_all` / `lifespans` /
+   `created_at_for` take a REQUIRED `workspace`: the caller's workspace on a request path (`app.deps.get_workspace`;
+   a `{thesis_id}` loads through `get_thesis_or_404`, a thesis in another workspace is a 404); **`WORKSPACE_ANY`
+   only in system code** (the nightly, the editions job, the repair / backfill CLIs, the replay harness), never
+   under `app/`, `dashboards/` or the route-facing radar modules.
+5. **The dashboard cache key carries the workspace** (`(workspace, slug, params, asof)`, required), so a page
+   computed for one workspace is never served to another.
 
 A forgotten filter on a raw query would leak with no DB backstop to catch it. (RLS is the auth-era
 defense-in-depth.)
 
+- *Guards (auth PR 2):* the route gate and the 401 / 403 sweeps (`tests/app/test_auth_gate.py`); the required
+  `workspace` keyword (a missing one raises, `None` raises); the grep test that `WORKSPACE_ANY` never appears in
+  request-path code; the upsert's foreign-id guard (`ThesisNotInWorkspace` -> 404, the other row untouched);
+  migration 0078's self-checking post-conditions and its `app_user` trigger (no user on the data tenant); the
+  two-user isolation suite `tests/app/test_workspace_isolation.py` (every `{thesis_id}` operation in the schema is a
+  404 for another workspace's id, every list carries none of it, the cache key, the shared data, the writes'
+  tenant).
 - *Enforced by:* `tenant_id` on every table; the one map `domain.scopes.SCOPE_OF` + `tenants_for`; the boot
   assert (`scopes.assert_data_tenant` — the API lifespan and the nightly refuse to run without the data tenant);
   seeds upsert/append; `tests/db/test_scopes.py` (the map's completeness, the union / ignore rules with two
