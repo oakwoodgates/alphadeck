@@ -1181,6 +1181,25 @@ describe("Admin — the fundamentals set-aside count (migration 0062)", () => {
   });
 });
 
+describe("Admin — cards left on the data tenant (auth PR 2)", () => {
+  it("is one loud line only when a card sits on the data tenant", () => {
+    h.status = { ...h.status, data: { ...STATUS_CURRENT, data_tenant_theses: 2 } };
+    renderAdmin();
+    const line = screen.getByTestId("adm-data-tenant-theses");
+    expect(line.textContent).toContain("2 card(s) sit on the data tenant");
+    expect(line.className).toContain("adm-loud");
+  });
+
+  it("renders nothing at zero, or from an older backend without the field", () => {
+    h.status = { ...h.status, data: { ...STATUS_CURRENT, data_tenant_theses: 0 } };
+    renderAdmin();
+    expect(screen.queryByTestId("adm-data-tenant-theses")).toBeNull();
+    h.status = { ...h.status, data: { ...STATUS_CURRENT } };
+    renderAdmin();
+    expect(screen.queryByTestId("adm-data-tenant-theses")).toBeNull();
+  });
+});
+
 describe("Admin — the Scoreboard editions nightly line (editions S5)", () => {
   const LINE = "Edition 1 · page for Oct 23 added · 10 theses · self-check passed";
 

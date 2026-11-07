@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
+from db.session import DEFAULT_TENANT_ID
 from ingest.cash_burn import ingest_cash_burn
 from signals.base import PointInTimeData
 
@@ -21,7 +22,9 @@ def test_cash_burn_ingest_and_asof_read(db, security_id):
         ratified_by="operator",
     )
     db.commit()
-    rows = PointInTimeData(db, asof=date(2026, 6, 1), known_at=_KNOWN).cash_burn_facts(security_id)
+    rows = PointInTimeData(
+        db, asof=date(2026, 6, 1), known_at=_KNOWN, workspace=DEFAULT_TENANT_ID
+    ).cash_burn_facts(security_id)
     assert len(rows) == 1
     assert float(rows[0]["cash_usd"]) == 280_000_000.0
     assert float(rows[0]["quarterly_burn_usd"]) == 25_000_000.0
@@ -52,7 +55,11 @@ def test_cash_burn_latest_version_wins_on_correction(db, security_id):
         recorded_at=t2,
     )
     db.commit()
-    at_t1 = PointInTimeData(db, asof=date(2026, 9, 1), known_at=t1).cash_burn_facts(security_id)
-    at_t2 = PointInTimeData(db, asof=date(2026, 9, 1), known_at=t2).cash_burn_facts(security_id)
+    at_t1 = PointInTimeData(
+        db, asof=date(2026, 9, 1), known_at=t1, workspace=DEFAULT_TENANT_ID
+    ).cash_burn_facts(security_id)
+    at_t2 = PointInTimeData(
+        db, asof=date(2026, 9, 1), known_at=t2, workspace=DEFAULT_TENANT_ID
+    ).cash_burn_facts(security_id)
     assert len(at_t1) == 1 and float(at_t1[0]["cash_usd"]) == 280_000_000.0
     assert len(at_t2) == 1 and float(at_t2[0]["cash_usd"]) == 250_000_000.0

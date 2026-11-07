@@ -784,7 +784,7 @@ def _board():
 def stub_client(monkeypatch):
     seen: dict = {"reads": 0}
 
-    def fake_read(conn, asof, known_at, clock):
+    def fake_read(conn, asof, known_at, clock, **_):
         seen["reads"] += 1
         seen["view"] = (asof, known_at, clock)
         return _board()
@@ -893,19 +893,19 @@ def test_read_board_reads_only_the_counting_names_on_the_requests_view(monkeypat
     known_at = datetime(2026, 10, 20, 23, 59, tzinfo=timezone.utc)
     flagged_tape = CompanyTape(flag=MIXED, buyers_30d=2, cap=CapCell(gap="flagged", note=MIXED))
 
-    def fake_cards(conn, asof, known):
+    def fake_cards(conn, asof, known, **_):
         seen["roster"] = (asof, known)
         return CardsAsOf(4, [card_a, card_b], 1, 1)
 
-    def fake_flags(conn, ids, asof, *, known_at, clock):
+    def fake_flags(conn, ids, asof, *, known_at, clock, **_):
         seen["flags"] = (set(ids), asof, known_at, clock)
         return {S[1]: MIXED}
 
-    def fake_per_company(conn, sids, asof, known, clock, read_one):
+    def fake_per_company(conn, sids, asof, known, clock, read_one, **_):
         seen["tapes"] = (list(sids), asof, known, clock)
         return {S[0]: tape(1.0, buyers_30d=0), S[1]: flagged_tape}
 
-    def fake_breadths(conn, asof, known, clock, card_names):
+    def fake_breadths(conn, asof, known, clock, card_names, **_):
         seen["breadth"] = (asof, known, clock, card_names)
         return {}
 
@@ -913,7 +913,7 @@ def test_read_board_reads_only_the_counting_names_on_the_requests_view(monkeypat
         seen.setdefault("mention_reads", []).append(tid)
         return [mrow("alpha term", 2026, 9, 3)]
 
-    def fake_view(conn, asof, known, clock, basket=None):
+    def fake_view(conn, asof, known, clock, basket=None, **_):
         seen["mentions_view"] = (asof, known, clock)
         return SimpleNamespace(term_mentions=fake_mentions)
 
@@ -927,7 +927,7 @@ def test_read_board_reads_only_the_counting_names_on_the_requests_view(monkeypat
     monkeypatch.setattr(router_mod, "read_iwm", lambda pit, asof: 2.5)
     monkeypatch.setattr(router_mod, "_view", fake_view)
 
-    board = router_mod.read_board(object(), ASOF, known_at, "public")
+    board = router_mod.read_board(object(), ASOF, known_at, "public", workspace=DEFAULT_TENANT_ID)
 
     view = (ASOF, known_at, "public")
     assert seen["roster"] == (ASOF, known_at)

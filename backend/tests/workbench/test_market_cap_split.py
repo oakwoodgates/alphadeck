@@ -44,7 +44,7 @@ def _seed(db, *, with_list: bool):
 
 
 def _cap(db, sid):
-    pit = PointInTimeData(db, asof=ASOF, tenant_id=DEFAULT_TENANT_ID)
+    pit = PointInTimeData(db, asof=ASOF, workspace=DEFAULT_TENANT_ID)
     member = BasketMember(ticker="BTOC", role="test", security_id=sid)
     return score_member(pit, member, DEFAULT_CONFIG).market_cap
 

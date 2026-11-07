@@ -24,6 +24,7 @@ from psycopg.types.json import Json
 
 from db.session import DEFAULT_TENANT_ID
 from domain.market_time import known_at_for_asof
+from domain.scopes import WORKSPACE_ANY
 from pipeline.seed import UNH_SECURITY_ID, UNH_THESIS_ID, seed_unh
 from replay.export import export_snapshot
 from replay.harness import ReplayResult, RosterSource, replay_all, replay_thesis_with_roster
@@ -93,7 +94,7 @@ def test_a_member_added_by_a_later_snapshot_is_ABSENT_at_an_earlier_T(db, tmp_pa
     """
     seed_unh(db)
     db.commit()
-    thesis = thesis_repo.get(db, UNH_THESIS_ID)
+    thesis = thesis_repo.get(db, UNH_THESIS_ID, workspace=WORKSPACE_ANY)
     live = [_member(i, m.ticker, m.security_id) for i, m in enumerate(thesis.basket)]
     assert any(m.security_id == UNH_SECURITY_ID for m in thesis.basket)
 
@@ -106,7 +107,7 @@ def test_a_member_added_by_a_later_snapshot_is_ABSENT_at_an_earlier_T(db, tmp_pa
     _snapshot(db, UNH_THESIS_ID, taken_at=before_window, members=[placeholder])
     _snapshot(db, UNH_THESIS_ID, taken_at=added_at, members=[placeholder, *live])
 
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
         snaps, source = replay_thesis_with_roster(
@@ -145,7 +146,7 @@ def test_the_pre_snapshot_fallback_is_TAKEN_and_LABELED(db, tmp_path):
     history begins 2026-09-15, so every session before that takes this path today."""
     seed_unh(db)
     db.commit()
-    thesis = thesis_repo.get(db, UNH_THESIS_ID)
+    thesis = thesis_repo.get(db, UNH_THESIS_ID, workspace=WORKSPACE_ANY)
     # a snapshot that exists only AFTER the window — so no session has a qualifying one
     _snapshot(
         db,
@@ -154,7 +155,7 @@ def test_the_pre_snapshot_fallback_is_TAKEN_and_LABELED(db, tmp_path):
         members=[_member(i, m.ticker, m.security_id) for i, m in enumerate(thesis.basket)],
     )
 
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
         snaps, source = replay_thesis_with_roster(
@@ -184,7 +185,7 @@ def test_a_snapshot_taken_AFTER_the_roster_known_at_is_NEVER_read(db, tmp_path):
     one that happens to exist."""
     seed_unh(db)
     db.commit()
-    thesis = thesis_repo.get(db, UNH_THESIS_ID)
+    thesis = thesis_repo.get(db, UNH_THESIS_ID, workspace=WORKSPACE_ANY)
     original = [_member(i, m.ticker, m.security_id) for i, m in enumerate(thesis.basket)]
     future_only = [_member(0, "PLACEHOLDER", uuid.uuid4())]  # a roster WITHOUT the seeded name
     _snapshot(
@@ -197,7 +198,7 @@ def test_a_snapshot_taken_AFTER_the_roster_known_at_is_NEVER_read(db, tmp_path):
         members=future_only,
     )
 
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
         snaps, source = replay_thesis_with_roster(
@@ -224,7 +225,7 @@ def test_a_current_snapshot_at_pin_now_reproduces_the_PRE_F4_timeline(db, tmp_pa
     roster, every session), value-for-value over the whole timeline."""
     seed_unh(db)
     db.commit()
-    thesis = thesis_repo.get(db, UNH_THESIS_ID)
+    thesis = thesis_repo.get(db, UNH_THESIS_ID, workspace=WORKSPACE_ANY)
     _snapshot(
         db,
         UNH_THESIS_ID,
@@ -232,7 +233,7 @@ def test_a_current_snapshot_at_pin_now_reproduces_the_PRE_F4_timeline(db, tmp_pa
         members=[_member(i, m.ticker, m.security_id) for i, m in enumerate(thesis.basket)],
     )
 
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
         pre_f4, _ = replay_thesis_with_roster(
@@ -276,7 +277,7 @@ def test_replay_all_returns_the_timelines_AND_the_roster_labels(db, tmp_path):
     the roster provenance in the same object and cannot drop it on the floor by accident."""
     seed_unh(db)
     db.commit()
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
         result = replay_all(db, con, start=_START, end=_END, known_at=_PIN)
@@ -312,10 +313,10 @@ def test_a_thesis_with_NO_members_reports_no_sessions_not_snapshot(db, tmp_path)
     and must say so. Claiming "snapshot" would assert a point-in-time roster that was never read."""
     seed_unh(db)
     db.commit()
-    empty = thesis_repo.get(db, UNH_THESIS_ID)
+    empty = thesis_repo.get(db, UNH_THESIS_ID, workspace=WORKSPACE_ANY)
     empty.basket = []  # the "DEV" / "Modern Defense Buildout" shape: promoted, never populated
 
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
         snaps, source = replay_thesis_with_roster(

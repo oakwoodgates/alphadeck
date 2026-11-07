@@ -39,7 +39,7 @@ from db.session import connect
 from db.write_lock import CompanyLockBusy, acquire_company_lock
 from domain.enums import InstrumentKind
 from domain.market_time import market_today
-from domain.scopes import DATA_TENANT_ID
+from domain.scopes import DATA_TENANT_ID, WORKSPACE_ANY
 from domain.settings import get_settings
 from ingest.funds.ingest_security import ingest_fund_shares_for_security
 from ingest.funds.polygon import PolygonFundSource
@@ -110,7 +110,7 @@ def backfill_thesis(
     """Walk every ETF sleeve member of ``thesis_id`` across the date range (see the module docstring
     for the rules). ``ticker`` restricts to one sleeve; ``polygon`` is injectable for tests (defaults
     to the keyed adapter — no key raises loudly: the backfill is Massive.com-only)."""
-    thesis = thesis_repo.get(conn, thesis_id)
+    thesis = thesis_repo.get(conn, thesis_id, workspace=WORKSPACE_ANY)
     if thesis is None:
         raise LookupError(f"thesis {thesis_id} not found")
     if polygon is None:

@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 
 from db.session import connect
+from domain.scopes import WORKSPACE_ANY
 from repositories import thesis_repo
 from securities import master
 
@@ -38,7 +39,7 @@ def main(argv: list[str] | None = None) -> None:
     conn = connect()
     repointed = skipped = 0
     try:
-        for t in thesis_repo.list_all(conn):
+        for t in thesis_repo.list_all(conn, workspace=WORKSPACE_ANY):
             ids = [m.security_id for m in t.basket if m.security_id]
             canon = master.canonicalize_ids(conn, ids, tenant_id=t.tenant_id)
             if not canon:

@@ -38,9 +38,9 @@ import psycopg
 from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.deps import get_conn, get_current_tenant
-from db.session import current_tenant_id
+from app.deps import get_conn
 from domain.market_time import market_today, market_tz
+from domain.scopes import DATA_TENANT_ID
 from domain.splits import (
     AUTO_VIA_LABELS,
     SET_ASIDE,
@@ -381,9 +381,10 @@ def splits_out(
     return out
 
 
-def count_needs_review(conn: psycopg.Connection, *, tenant_id: UUID | None = None) -> int:
-    """The Admin status count ("N splits need review") for this deployment's tenant. SELECTs only."""
-    return split_repo.count_needs_review(conn, tenant_id=tenant_id or current_tenant_id())
+def count_needs_review(conn: psycopg.Connection, *, tenant_id: UUID = DATA_TENANT_ID) -> int:
+    """The Admin status count ("N splits need review"). The split list is DATA (``domain.scopes``): a steward
+    route acts on the data tenant, never on the caller's workspace. SELECTs only."""
+    return split_repo.count_needs_review(conn, tenant_id=tenant_id)
 
 
 def _commit(conn: psycopg.Connection, fn: Callable[[], SplitVersion]) -> SplitVersion:
@@ -421,14 +422,13 @@ def _out(conn: psycopg.Connection, v: SplitVersion) -> AdminSplitListEntryOut:
 @router.get("", response_model=AdminSplitListOut)
 def list_splits(
     conn: psycopg.Connection = Depends(get_conn),
-    tenant_id: UUID = Depends(get_current_tenant),
 ) -> AdminSplitListOut:
     """Every split on the list (its newest version) with both sources' evidence, bucketed for the panel:
     needs review (loud), announced / confirmed / rejected-or-revoked (quiet) — and the split-shaped price jumps
     on basket names that no source listed, after the split-night hold released them (the operator's "is this
     real?"). Read-only."""
     try:
-        return splits_out(conn, tenant_id=tenant_id)
+        return splits_out(conn, tenant_id=DATA_TENANT_ID)
     finally:
         conn.rollback()
 
@@ -438,7 +438,6 @@ def confirm_split(
     version_id: UUID,
     body: AdminSplitListConfirmIn,
     conn: psycopg.Connection = Depends(get_conn),
-    tenant_id: UUID = Depends(get_current_tenant),
 ) -> AdminSplitListEntryOut:
     """CONFIRM a split that needs review with one source's values (``source`` = ``sec`` | ``polygon``): its
     ratio and its first session become the list's (a first session still ahead lands as ``announced``). Undo
@@ -451,7 +450,7 @@ def confirm_split(
             conn,
             version_id,
             source=SOURCE_SEC if body.source == "sec" else SOURCE_POLYGON,
-            tenant_id=tenant_id,
+            tenant_id=DATA_TENANT_ID,
             today=market_today(),
         ),
     )
@@ -462,12 +461,11 @@ def confirm_split(
 def reject_split(
     version_id: UUID,
     conn: psycopg.Connection = Depends(get_conn),
-    tenant_id: UUID = Depends(get_current_tenant),
 ) -> AdminSplitListEntryOut:
     """REJECT a split that needs review (or an announced one): it stays listed, grayed. Undo with
     ``POST /admin/splits/{version_id}/restore``. **404** unknown version, **409** not the newest version / a
     confirmed split (revoke it instead)."""
-    v = _commit(conn, lambda: split_repo.reject(conn, version_id, tenant_id=tenant_id))
+    v = _commit(conn, lambda: split_repo.reject(conn, version_id, tenant_id=DATA_TENANT_ID))
     return _out(conn, v)
 
 
@@ -475,12 +473,11 @@ def reject_split(
 def revoke_split(
     version_id: UUID,
     conn: psycopg.Connection = Depends(get_conn),
-    tenant_id: UUID = Depends(get_current_tenant),
 ) -> AdminSplitListEntryOut:
     """REVOKE a confirmed split, auto-confirmed or not: it stays listed, grayed. Undo with
     ``POST /admin/splits/{version_id}/restore``. **404** unknown version, **409** not the newest version /
     not confirmed."""
-    v = _commit(conn, lambda: split_repo.revoke(conn, version_id, tenant_id=tenant_id))
+    v = _commit(conn, lambda: split_repo.revoke(conn, version_id, tenant_id=DATA_TENANT_ID))
     return _out(conn, v)
 
 
@@ -530,20 +527,19 @@ def dismiss_jump(
     step_date: date,
     body: AdminSplitJumpReasonIn | None = Body(default=None),
     conn: psycopg.Connection = Depends(get_conn),
-    tenant_id: UUID = Depends(get_current_tenant),
 ) -> AdminSplitJumpOut:
     """DISMISS an "is this real?" card — the operator says the split-shaped jump was a REAL MOVE (author
     ``operator:dismiss``, append-only). It leaves the list and is listed under ``dismissed_jumps``; the
     split-night hold never reads it (display only — no call changes). Undo with ``POST
     /admin/splits/jumps/dismissals/{dismissal_id}/undo``. **404** no such jump on the list, **409** already
     dismissed."""
-    jump = _jump_now(conn, tenant_id=tenant_id, security_id=security_id, step_date=step_date)
+    jump = _jump_now(conn, tenant_id=DATA_TENANT_ID, security_id=security_id, step_date=step_date)
     reason = (body.reason if body and body.reason else None) or "a real move, said the operator"
     _commit_jump(
         conn,
         lambda: split_jump_repo.dismiss(
             conn,
-            tenant_id=tenant_id,
+            tenant_id=DATA_TENANT_ID,
             security_id=security_id,
             step_date=step_date,
             reason=reason,
@@ -556,7 +552,7 @@ def dismiss_jump(
             },
         ),
     )
-    return _jump_now(conn, tenant_id=tenant_id, security_id=security_id, step_date=step_date)
+    return _jump_now(conn, tenant_id=DATA_TENANT_ID, security_id=security_id, step_date=step_date)
 
 
 @router.post("/jumps/dismissals/{dismissal_id}/undo", response_model=AdminSplitJumpOut)
@@ -564,17 +560,16 @@ def undo_jump_dismissal(
     dismissal_id: UUID,
     body: AdminSplitJumpReasonIn | None = Body(default=None),
     conn: psycopg.Connection = Depends(get_conn),
-    tenant_id: UUID = Depends(get_current_tenant),
 ) -> AdminSplitJumpOut:
     """UNDO a dismissal (author ``operator:undo``, append-only): the card is back on the "is this real?" list.
     **404** unknown dismissal (or its jump no longer listed), **409** already undone."""
     reason = (body.reason if body and body.reason else None) or "undone by the operator"
     row = _commit_jump(
         conn,
-        lambda: split_jump_repo.undo(conn, dismissal_id, tenant_id=tenant_id, reason=reason),
+        lambda: split_jump_repo.undo(conn, dismissal_id, tenant_id=DATA_TENANT_ID, reason=reason),
     )
     return _jump_now(
-        conn, tenant_id=tenant_id, security_id=row["security_id"], step_date=row["step_date"]
+        conn, tenant_id=DATA_TENANT_ID, security_id=row["security_id"], step_date=row["step_date"]
     )
 
 
@@ -582,10 +577,9 @@ def undo_jump_dismissal(
 def restore_split(
     version_id: UUID,
     conn: psycopg.Connection = Depends(get_conn),
-    tenant_id: UUID = Depends(get_current_tenant),
 ) -> AdminSplitListEntryOut:
     """RESTORE a rejected or revoked split to exactly the state before (a rejected split back to review, a
     revoked one back to confirmed). **404** unknown version, **409** not the newest version / not set
     aside."""
-    v = _commit(conn, lambda: split_repo.restore(conn, version_id, tenant_id=tenant_id))
+    v = _commit(conn, lambda: split_repo.restore(conn, version_id, tenant_id=DATA_TENANT_ID))
     return _out(conn, v)

@@ -62,7 +62,9 @@ def unscreened(monkeypatch):
 
 
 def _read(db, sid, asof: date) -> list[dict]:
-    return PointInTimeData(db, asof=asof, known_at=FAR).insider_txns(sid)
+    return PointInTimeData(db, asof=asof, known_at=FAR, workspace=DEFAULT_TENANT_ID).insider_txns(
+        sid
+    )
 
 
 def _on(rows, d: date, codes: tuple[str, ...] = ("P", "S")) -> list[dict]:
@@ -176,7 +178,9 @@ def test_amkr_james_kims_transfer_to_sujoda_is_screened(db, unscreened, asof, d,
 def test_amkr_every_reader_sees_the_transfer_set_aside(db):
     sid = seed(db, "AMKR")
     asof = date(2025, 3, 3)
-    flow = insider_flow.display(PointInTimeData(db, asof=asof, known_at=FAR), sid, asof)
+    flow = insider_flow.display(
+        PointInTimeData(db, asof=asof, known_at=FAR, workspace=DEFAULT_TENANT_ID), sid, asof
+    )
     metrics = {m.key: m.value for m in flow.metrics}
     assert (metrics["buy_count"], metrics["sell_count"]) == (0, 0)
     assert "set aside 3 internal-transfer txns (~$57M)" in flow.basis.note

@@ -20,6 +20,7 @@ from pathlib import Path
 
 import pytest
 
+from db.session import DEFAULT_TENANT_ID
 from domain.settings import get_settings
 from pipeline import annotate_no_session_rows as ans
 from repositories import call_annotations_repo, thesis_repo
@@ -282,7 +283,9 @@ def test_the_default_reading_sets_the_nights_aside_and_the_include_reading_rever
         e.model_dump(exclude=strip) for e in before.episodes
     ]  # byte-for-byte the pre-annotation record
 
-    summary = assemble_scoreboard(db, asof=_READ, exclude_late=False).summary
+    summary = assemble_scoreboard(
+        db, asof=_READ, exclude_late=False, workspace=DEFAULT_TENANT_ID
+    ).summary
     assert summary.annotated_policy == "excluded"
     assert [(n.asof, n.reasons, n.n_rows) for n in summary.annotated_nights] == [
         (_SAT, ["no_session_day"], 1),

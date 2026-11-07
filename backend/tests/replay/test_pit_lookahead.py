@@ -61,15 +61,19 @@ def test_mirror_has_no_valid_time_lookahead_fundamentals(db, security_id, tmp_pa
         ),
     )
     db.commit()
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
         known = datetime(2024, 6, 30, tzinfo=timezone.utc)
         # as-of 2024-01-15: AFTER the period end, BEFORE the filing -> invisible (no valid-time lookahead)
-        blind = ReplayPointInTimeData(con, asof=date(2024, 1, 15), known_at=known)
+        blind = ReplayPointInTimeData(
+            con, asof=date(2024, 1, 15), known_at=known, workspace=DEFAULT_TENANT_ID
+        )
         assert blind.fundamentals_facts(security_id) == []
         # as-of the filing date -> visible, and stamped at filed
-        seeing = ReplayPointInTimeData(con, asof=date(2024, 2, 15), known_at=known)
+        seeing = ReplayPointInTimeData(
+            con, asof=date(2024, 2, 15), known_at=known, workspace=DEFAULT_TENANT_ID
+        )
         rows = seeing.fundamentals_facts(security_id)
         assert len(rows) == 1 and rows[0]["period_end"] == date(2023, 12, 31)
         assert rows[0]["valid_from"] == date(2024, 2, 15)
@@ -95,11 +99,14 @@ def test_mirror_has_no_valid_time_lookahead(db, security_id, tmp_path):
         ),
     )
     db.commit()
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
         rep = ReplayPointInTimeData(
-            con, asof=date(2026, 6, 2), known_at=datetime(2026, 6, 30, tzinfo=timezone.utc)
+            con,
+            asof=date(2026, 6, 2),
+            known_at=datetime(2026, 6, 30, tzinfo=timezone.utc),
+            workspace=DEFAULT_TENANT_ID,
         )
         rows = rep.insider_txns(security_id)
         assert [r["accession"] for r in rows] == ["a-1"]  # the 06-05 txn is future as-of 06-02
@@ -156,19 +163,19 @@ def test_mirror_has_no_valid_time_lookahead_corporate_events(db, security_id, tm
         ),
     )
     db.commit()
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
         known = datetime(2026, 6, 30, tzinfo=timezone.utc)
         rows = ReplayPointInTimeData(
-            con, asof=date(2026, 6, 2), known_at=known
+            con, asof=date(2026, 6, 2), known_at=known, workspace=DEFAULT_TENANT_ID
         ).corporate_event_facts(security_id)
         assert [r["accession"] for r in rows] == ["e-1"]  # e-2 (filed 06-05) is future as-of 06-02
         assert rows[0]["items"] == ["4.02", "9.01"]  # the resolved VERSION, decoded back to a list
         # pinned BEFORE the resolve was recorded: the same filing honestly reads unresolved (None)
-        early = ReplayPointInTimeData(con, asof=date(2026, 6, 2), known_at=t).corporate_event_facts(
-            security_id
-        )
+        early = ReplayPointInTimeData(
+            con, asof=date(2026, 6, 2), known_at=t, workspace=DEFAULT_TENANT_ID
+        ).corporate_event_facts(security_id)
         assert len(early) == 1 and early[0]["items"] is None
     finally:
         con.close()
@@ -198,12 +205,16 @@ def test_mirror_has_no_transaction_time_lookahead(db, security_id, tmp_path):
         ),
     )
     db.commit()
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
         asof = date(2026, 6, 30)
-        at_t1 = ReplayPointInTimeData(con, asof=asof, known_at=t1).insider_txns(security_id)
-        at_t2 = ReplayPointInTimeData(con, asof=asof, known_at=t2).insider_txns(security_id)
+        at_t1 = ReplayPointInTimeData(
+            con, asof=asof, known_at=t1, workspace=DEFAULT_TENANT_ID
+        ).insider_txns(security_id)
+        at_t2 = ReplayPointInTimeData(
+            con, asof=asof, known_at=t2, workspace=DEFAULT_TENANT_ID
+        ).insider_txns(security_id)
         assert (
             len(at_t1) == 1 and float(at_t1[0]["usd"]) == 2_100_000
         )  # correction not yet known at t1

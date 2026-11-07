@@ -1194,11 +1194,25 @@ def test_no_kinds_reads_nothing_and_an_unknown_kind_fails_loud():
             rows_for_company(pit, W, clock="public", kinds=bad)  # type: ignore[arg-type]
         with pytest.raises(ValueError, match="unknown kinds"):  # before any connection is touched
             filings_mod.read_filing_rows(  # type: ignore[arg-type]
-                object(), [SID], ASOF, None, "public", days=30, kinds=bad
+                object(),
+                [SID],
+                ASOF,
+                None,
+                "public",
+                days=30,
+                kinds=bad,
+                workspace=DEFAULT_TENANT_ID,
             )
     # nothing named: every company has an empty entry and no connection is touched
     got = filings_mod.read_filing_rows(  # type: ignore[arg-type]
-        object(), [SID], ASOF, None, "public", days=30, kinds=frozenset()
+        object(),
+        [SID],
+        ASOF,
+        None,
+        "public",
+        days=30,
+        kinds=frozenset(),
+        workspace=DEFAULT_TENANT_ID,
     )
     assert got == {SID: ()}
 
@@ -1622,7 +1636,7 @@ def stub_client(monkeypatch):
     seen: dict = {"reads": 0, "card_reads": 0}
     other = uuid.uuid4()
 
-    def fake_cards(conn, asof):
+    def fake_cards(conn, asof, **_):
         seen["card_reads"] += 1
         return CardsRead(
             live_cards=3,
@@ -1630,7 +1644,7 @@ def stub_client(monkeypatch):
             cards=(CardChoice(T1, "Grid", 2), CardChoice(other, "Batteries", 1)),
         )
 
-    def fake_read(conn, thesis_id, asof, known_at, clock):
+    def fake_read(conn, thesis_id, asof, known_at, clock, **_):
         seen["reads"] += 1
         seen["view"] = (thesis_id, asof, known_at, clock)
         return card_inputs()
@@ -1726,7 +1740,7 @@ def test_the_router_wire_carries_the_cap_and_each_rows_fold_group(stub_client, m
         memberships=ROSTER,
         rows_by_sid=rows,
     )
-    monkeypatch.setattr(router_mod, "read_inputs", lambda *a: inputs)
+    monkeypatch.setattr(router_mod, "read_inputs", lambda *a, **_: inputs)
     client, _ = stub_client
     body = client.get(
         f"/dashboards/filing-stream/{T1}", params={"asof": "2026-10-28", "days": 30}
@@ -2076,7 +2090,14 @@ def test_read_filing_rows_threads_the_view_into_every_source_and_names_every_com
     other = _security(db, "FSZ", None)  # a company with no filings and no CIK
     db.commit()
     got = read_filing_rows(
-        db, [sid, other], PAST, known_at_for_asof(PAST), "public", days=365, tickers={sid: "CARD"}
+        db,
+        [sid, other],
+        PAST,
+        known_at_for_asof(PAST),
+        "public",
+        days=365,
+        tickers={sid: "CARD"},
+        workspace=DEFAULT_TENANT_ID,
     )
     assert set(got) == {sid, other} and got[other] == ()  # every company has an entry
     rows = got[sid]
@@ -2084,7 +2105,9 @@ def test_read_filing_rows_threads_the_view_into_every_source_and_names_every_com
     assert sorted(r.accession for r in rows if r.kind == "8k") == [EARLY_8K]
     assert sorted(r.accession for r in rows if r.kind == "form4") == [EARLY_F4]
     assert all(r.date <= PAST for r in rows)
-    assert read_filing_rows(db, [], PAST, None, "public", days=30) == {}
+    assert (
+        read_filing_rows(db, [], PAST, None, "public", days=30, workspace=DEFAULT_TENANT_ID) == {}
+    )
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -2379,7 +2402,7 @@ def test_a_past_asof_never_shows_a_share_count_that_was_not_public_by_then(db):
     def rows(asof):
         known_at, clock = serve_view(asof)
         pit = PointInTimeData(
-            db, asof=asof, known_at=known_at, tenant_id=DEFAULT_TENANT_ID, basket=[sid], clock=clock
+            db, asof=asof, known_at=known_at, workspace=DEFAULT_TENANT_ID, basket=[sid], clock=clock
         )
         return rows_from_ratified([], pit.shares_outstanding_facts(sid), [], W)
 

@@ -556,7 +556,9 @@ def _store_as_prod_held_it(db, sec: Security, ticker: str) -> int:
 def _pit(db, asof: date) -> PointInTimeData:
     """A HISTORY view at ``asof`` — the serve path's scrub-back, on the PUBLIC clock (each version counts from
     its filing; INVARIANTS.md §4)."""
-    return PointInTimeData(db, asof=asof, known_at=known_at_for_asof(asof), clock="public")
+    return PointInTimeData(
+        db, asof=asof, known_at=known_at_for_asof(asof), clock="public", workspace=DEFAULT_TENANT_ID
+    )
 
 
 def _revenue(db, sid, asof: date) -> dict[date, dict]:

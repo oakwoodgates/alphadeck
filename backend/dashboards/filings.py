@@ -79,11 +79,11 @@ from psycopg import sql
 
 from dashboards.baskets import per_company
 from db.clock import db_now
-from db.session import DEFAULT_TENANT_ID
 from domain.insider_amendments import AMENDS_ACCESSION
 from domain.insider_internal_transfers import is_internal_transfer, transfer_with
 from domain.insider_joint_reports import JOINT_REPORTERS
 from domain.market_time import market_tz
+from domain.scopes import DATA_TENANT_ID
 from domain.splits import ratio_label
 from securities import master
 from signals.corporate_events import item_label
@@ -1255,7 +1255,7 @@ def read_amendments(
     clock: Literal["record", "public"],
     *,
     start: date,
-    tenant_id: UUID = DEFAULT_TENANT_ID,
+    tenant_id: UUID = DATA_TENANT_ID,
 ) -> dict[UUID, list[dict[str, Any]]]:
     """The Form 4/A filings of ``sids`` as the view reads them: the newest stored version of each accession,
     SELECT only, scoped to the tenant. THE TWO-CLOCK GATE (invariant #1): on BOTH clocks the filing must be dated
@@ -1383,8 +1383,9 @@ def read_filing_rows(
     *,
     days: int,
     tickers: Mapping[UUID, str] | None = None,
-    tenant_id: UUID = DEFAULT_TENANT_ID,
+    tenant_id: UUID = DATA_TENANT_ID,
     kinds: Collection[FilingKind] | None = None,
+    workspace: UUID,
 ) -> dict[UUID, tuple[FilingRow, ...]]:
     """``{security_id: its FilingRows}`` dated from ``asof - days`` through ``asof``, each company's list in
     no particular order (a page sorts). ``known_at`` + ``clock`` are the request's ``serve_view(asof)`` pair,
@@ -1418,4 +1419,4 @@ def read_filing_rows(
         )
         return tuple(r for r in rows if start <= r.date <= asof)
 
-    return per_company(conn, ids, asof, known_at, clock, read)
+    return per_company(conn, ids, asof, known_at, clock, read, workspace=workspace)

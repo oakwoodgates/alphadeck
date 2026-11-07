@@ -19,6 +19,7 @@ from psycopg.types.json import Json
 from db.session import DEFAULT_TENANT_ID
 from domain.enums import State
 from domain.market_time import known_at_for_asof
+from domain.scopes import WORKSPACE_ANY
 from domain.thesis import BasketMember, Segment, Thesis
 from ingest.edgar.form4 import ingest_form4
 from ingest.prices.eod_loader import ingest_prices, parse_yahoo_chart
@@ -236,7 +237,7 @@ def _calls(db, tid):
 
 def _roster(db, tid, members: list[BasketMember]) -> None:
     """Re-save the thesis with this roster (what a promote does: full-replace + one snapshot if it changed)."""
-    t = thesis_repo.get(db, tid)
+    t = thesis_repo.get(db, tid, workspace=WORKSPACE_ANY)
     thesis_repo.upsert(db, t.model_copy(update={"basket": members}))
     db.commit()
 

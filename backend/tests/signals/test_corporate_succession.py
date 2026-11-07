@@ -127,7 +127,7 @@ def test_uroy_real_8k12b_is_stored_and_corporate_risk_does_not_fire(db):
     no risk item, so the tape has no other risk to fire)."""
     sid = _ingested(db, "UROY")
     for asof in (date(2026, 7, 28), date(2026, 10, 16), date(2027, 1, 24)):
-        pit = PointInTimeData(db, asof=asof, known_at=_FAR)
+        pit = PointInTimeData(db, asof=asof, known_at=_FAR, workspace=DEFAULT_TENANT_ID)
         stored = {r["accession"]: r for r in pit.corporate_event_facts(sid)}
         assert stored[_UROY_8K12B]["form"] == "8-K12B"  # STORED and read (#9)
         assert {"3.01", "3.02"} <= set(stored[_UROY_8K12B]["items"])
@@ -139,12 +139,15 @@ def test_uroy_real_tape_the_catalyst_reads_only_the_ordinary_8k(db):
     filing day its 5.02 fires nothing; from 2026-08-07 the PLAIN 8-K's 5.02 (a real officer change)
     fires, and the provenance names that filing alone — the 8-K12B never rides it."""
     sid = _ingested(db, "UROY")
-    day0 = PointInTimeData(db, asof=date(2026, 7, 28), known_at=_FAR)
+    day0 = PointInTimeData(db, asof=date(2026, 7, 28), known_at=_FAR, workspace=DEFAULT_TENANT_ID)
     assert corporate_catalyst.detect(day0, sid, date(2026, 7, 28), _CATALYST_ON) is None
 
     asof = date(2026, 8, 7)
     e = corporate_catalyst.detect(
-        PointInTimeData(db, asof=asof, known_at=_FAR), sid, asof, _CATALYST_ON
+        PointInTimeData(db, asof=asof, known_at=_FAR, workspace=DEFAULT_TENANT_ID),
+        sid,
+        asof,
+        _CATALYST_ON,
     )
     assert e is not None and e.kind is Kind.CATALYST
     assert [p.ref for p in e.provenance] == [_UROY_8K_0807]
@@ -156,13 +159,16 @@ def test_reax_real_8k12b_is_stored_and_neither_detector_fires_on_it(db):
     2026-08-28 (5.02), never from the 8-K12B."""
     sid = _ingested(db, "REAX")
     for asof in (date(2026, 8, 24), date(2026, 10, 16)):
-        pit = PointInTimeData(db, asof=asof, known_at=_FAR)
+        pit = PointInTimeData(db, asof=asof, known_at=_FAR, workspace=DEFAULT_TENANT_ID)
         assert _REAX_8K12B in {r["accession"] for r in pit.corporate_event_facts(sid)}
         assert corporate_risk.detect(pit, sid, asof, DEFAULT_CONFIG) is None
-    day0 = PointInTimeData(db, asof=date(2026, 8, 24), known_at=_FAR)
+    day0 = PointInTimeData(db, asof=date(2026, 8, 24), known_at=_FAR, workspace=DEFAULT_TENANT_ID)
     assert corporate_catalyst.detect(day0, sid, date(2026, 8, 24), _CATALYST_ON) is None
     asof = date(2026, 8, 28)
     e = corporate_catalyst.detect(
-        PointInTimeData(db, asof=asof, known_at=_FAR), sid, asof, _CATALYST_ON
+        PointInTimeData(db, asof=asof, known_at=_FAR, workspace=DEFAULT_TENANT_ID),
+        sid,
+        asof,
+        _CATALYST_ON,
     )
     assert e is not None and [p.ref for p in e.provenance] == ["0001104659-26-103266"]

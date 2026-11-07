@@ -8,7 +8,7 @@ import psycopg
 from db.public_clock import Clock
 from domain.call import CallCard
 from domain.config import DEFAULT_CONFIG, CallConfig, config_hash
-from domain.scopes import DATA_TENANT_ID
+from domain.scopes import DATA_TENANT_ID, WORKSPACE_ANY, WorkspaceScope
 from domain.settings import get_settings
 from domain.thesis import Position, Thesis
 from pipeline.core import assemble_from_pit
@@ -28,6 +28,7 @@ def call_for_thesis(
     run_kind: str = "manual",
     clock: Clock = "record",
     decisions_asof: date | None = None,
+    workspace: WorkspaceScope = WORKSPACE_ANY,
 ) -> CallCard:
     """Load the thesis, RE-DERIVE its dated signal stream from the bitemporal facts as-of (via the shared
     ``assemble_from_pit`` core), and (when ``record``) append the CallCard to the write-only ``calls``
@@ -57,6 +58,9 @@ def call_for_thesis(
     ``decisions_asof`` (F1, the SERVE path's live view only — ``domain.market_time.serve_decisions_asof``): read
     the operator's decisions log up to that day instead of ``asof``. ``None`` (every other caller: the nightly,
     the backfill, ``pipeline.run``, a past view) = ``asof``, the unchanged read. See ``load_call_inputs``.
+
+    ``workspace``: the API passes the caller's workspace (a thesis in another workspace is ``LookupError``, the
+    404); system callers (the nightly, the backfill, the CLIs) keep ``WORKSPACE_ANY``.
     """
     thesis, pit = load_call_inputs(
         conn,
@@ -66,6 +70,7 @@ def call_for_thesis(
         cfg=cfg,
         clock=clock,
         decisions_asof=decisions_asof,
+        workspace=workspace,
     )
     card = assemble_from_pit(pit, thesis, asof, cfg)
     if record:
@@ -89,6 +94,7 @@ def load_call_inputs(
     cfg: CallConfig = DEFAULT_CONFIG,
     clock: Clock = "record",
     decisions_asof: date | None = None,
+    workspace: WorkspaceScope = WORKSPACE_ANY,
 ) -> tuple[Thesis, PointInTimeData]:
     """The INPUT half of ``call_for_thesis`` — everything the funnel reads before it assembles: the thesis
     with its roster AS OF ``known_at`` (basket_snapshot), its position as of both axes (the decisions log),
@@ -116,7 +122,7 @@ def load_call_inputs(
     # so serve / pipeline.run / the daily cron / backfill all get it from one place. A thesis with no
     # qualifying snapshot (pre-F12) falls back to the live roster; get_asof(now) == get, so a live/today
     # call is byte-identical.
-    thesis = thesis_repo.get_asof(conn, thesis_id, known_at)
+    thesis = thesis_repo.get_asof(conn, thesis_id, known_at, workspace=workspace)
     if thesis is None:
         raise LookupError(f"thesis not found: {thesis_id}")
 

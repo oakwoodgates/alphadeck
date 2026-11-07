@@ -675,7 +675,7 @@ def test_the_router_reads_the_default_live_list_and_serves_the_compute(stub_clie
     body = r.json()
 
     # list_all's DEFAULT excludes archived cards; the router must never widen it
-    assert seen["list_all_kwargs"] == {}
+    assert seen["list_all_kwargs"] == {"workspace": DEFAULT_TENANT_ID}
     assert seen["in_effect"] == [T, PREV] and seen["previous_for"] == T
     assert seen["tickers_for"] == {A}
     assert (body["since"], body["since_date"]) == ("last_night", None)

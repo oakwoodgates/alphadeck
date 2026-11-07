@@ -66,7 +66,9 @@ def _security(db, ticker: str) -> uuid.UUID:
 
 
 def _revenue(db, sid, asof: date, known_at: datetime) -> dict[date, dict]:
-    rows = PointInTimeData(db, asof=asof, known_at=known_at).fundamentals_facts(sid)
+    rows = PointInTimeData(
+        db, asof=asof, known_at=known_at, workspace=DEFAULT_TENANT_ID
+    ).fundamentals_facts(sid)
     return {r["period_end"]: r for r in rows if r["metric_key"] == "revenue"}
 
 
@@ -126,7 +128,12 @@ def test_gev_2026_10_01_fires_on_its_genuine_q1_2026_with_the_citation_fixed(db)
     store_versions(db, sid, GEV)
     asof = date(2026, 10, 1)
     ev = ra.detect(
-        PointInTimeData(db, asof=asof, known_at=known_at_for_asof(asof)), sid, asof, DEFAULT_CONFIG
+        PointInTimeData(
+            db, asof=asof, known_at=known_at_for_asof(asof), workspace=DEFAULT_TENANT_ID
+        ),
+        sid,
+        asof,
+        DEFAULT_CONFIG,
     )
     assert ev is not None
     assert ev.asof == date(2026, 4, 22)
@@ -147,7 +154,9 @@ def test_ceg_year_old_inflection_is_not_live_after_its_comparative_refiles(db):
     store_versions(db, sid, CEG)
     early = date(2025, 6, 2)
     ev = ra.detect(
-        PointInTimeData(db, asof=early, known_at=known_at_for_asof(early)),
+        PointInTimeData(
+            db, asof=early, known_at=known_at_for_asof(early), workspace=DEFAULT_TENANT_ID
+        ),
         sid,
         early,
         DEFAULT_CONFIG,
@@ -156,7 +165,9 @@ def test_ceg_year_old_inflection_is_not_live_after_its_comparative_refiles(db):
     assert ev.provenance[0].ref == "0001868275-25-000044"
 
     night = date(2026, 10, 15)
-    pit = PointInTimeData(db, asof=night, known_at=known_at_for_asof(night))
+    pit = PointInTimeData(
+        db, asof=night, known_at=known_at_for_asof(night), workspace=DEFAULT_TENANT_ID
+    )
     assert ra.detect(pit, sid, night, DEFAULT_CONFIG) is None
     # the regression proof: the SAME as-of rows dated by the picked version's valid_from (the pre-D3a
     # read) re-fire the year-old quarter — the exact phantom on the 2026-10-15 record (rule (c) held off:
@@ -227,7 +238,9 @@ def test_the_tie_break_cites_the_newest_period_of_a_shared_filing(db):
     sid = _security(db, "LRHC")
     store_versions(db, sid, LRHC)
     asof = date(2026, 7, 1)
-    pit = PointInTimeData(db, asof=asof, known_at=known_at_for_asof(asof))
+    pit = PointInTimeData(
+        db, asof=asof, known_at=known_at_for_asof(asof), workspace=DEFAULT_TENANT_ID
+    )
     quarters = ra._quarters(pit.fundamentals_facts(sid))
     lv = DEFAULT_CONFIG.revenue_accel_alpha_liveness_days
     hits = [

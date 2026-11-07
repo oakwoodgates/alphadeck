@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.deps import get_conn, get_thesis_or_404
+from app.deps import get_conn, get_thesis_or_404, get_workspace
 from app.schemas_api import (
     CallCardResponse,
     CatalystIn,
@@ -55,6 +55,7 @@ def list_theses(
         description="the night whose record `with_call` reads (required with `with_call=true`)",
     ),
     conn: psycopg.Connection = Depends(get_conn),
+    workspace: UUID = Depends(get_workspace),
 ) -> list[ThesisSummary]:
     """List theses. Archived ones are EXCLUDED by default — the workbench picker and every default
     consumer skip them without asking; the Board passes ``include_archived=true`` and renders them
@@ -68,7 +69,7 @@ def list_theses(
     response carries no ``call`` key. A read: it writes nothing."""
     if with_call and asof is None:
         raise HTTPException(status_code=422, detail="with_call=true requires asof (YYYY-MM-DD)")
-    theses = thesis_repo.list_all(conn, include_archived=include_archived)
+    theses = thesis_repo.list_all(conn, workspace=workspace, include_archived=include_archived)
     if not with_call:
         return [ThesisSummary.from_thesis(t) for t in theses]
     assert asof is not None
@@ -119,7 +120,7 @@ def archive_thesis(
     spine, the calls log, and the decision log all stay. Fully reversible via unarchive."""
     thesis_repo.set_archived(conn, thesis.id, True)
     conn.commit()
-    return ThesisSummary.from_thesis(thesis_repo.get(conn, thesis.id))
+    return ThesisSummary.from_thesis(thesis_repo.get(conn, thesis.id, workspace=thesis.tenant_id))
 
 
 @router.post(
@@ -132,7 +133,7 @@ def unarchive_thesis(
     """Restore an archived thesis whole — back onto the Board and into the cron's nightly walk."""
     thesis_repo.set_archived(conn, thesis.id, False)
     conn.commit()
-    return ThesisSummary.from_thesis(thesis_repo.get(conn, thesis.id))
+    return ThesisSummary.from_thesis(thesis_repo.get(conn, thesis.id, workspace=thesis.tenant_id))
 
 
 @router.put(
@@ -150,7 +151,7 @@ def put_meta_index(
     never touches it."""
     thesis_repo.set_meta_index(conn, thesis.id, body.meta_index)
     conn.commit()
-    return ThesisSummary.from_thesis(thesis_repo.get(conn, thesis.id))
+    return ThesisSummary.from_thesis(thesis_repo.get(conn, thesis.id, workspace=thesis.tenant_id))
 
 
 @router.get("/{thesis_id}", response_model=ThesisDetail)
@@ -222,6 +223,7 @@ def read_call(
         clock=clock,
         record=False,
         decisions_asof=serve_decisions_asof(asof, mclock),
+        workspace=thesis.tenant_id,  # the owned thesis's workspace (get_thesis_or_404 checked the caller's)
     )
     sec_ids = (
         {t.security_id for t in card.triggers_fired}
@@ -276,7 +278,8 @@ def read_display_signals(
         conn,
         asof=asof,
         known_at=known_at,
-        tenant_id=thesis.tenant_id,
+        data_tenant=DATA_TENANT_ID,
+        workspace=thesis.tenant_id,
         basket=sids,
         bounds=display_bounds(),
         clock=clock,
@@ -331,7 +334,7 @@ def put_catalysts(
     ]
     thesis_repo.set_catalysts(conn, thesis.id, cats, tenant_id=thesis.tenant_id)
     conn.commit()
-    return ThesisDetail.from_thesis(thesis_repo.get(conn, thesis.id))
+    return ThesisDetail.from_thesis(thesis_repo.get(conn, thesis.id, workspace=thesis.tenant_id))
 
 
 @router.put("/{thesis_id}/kill-criteria", response_model=ThesisDetail)
@@ -346,7 +349,7 @@ def put_kill_criteria(
     kills = [KillCriterion(id=uuid4(), text=k.text) for k in body]
     thesis_repo.set_kill_criteria(conn, thesis.id, kills, tenant_id=thesis.tenant_id)
     conn.commit()
-    return ThesisDetail.from_thesis(thesis_repo.get(conn, thesis.id))
+    return ThesisDetail.from_thesis(thesis_repo.get(conn, thesis.id, workspace=thesis.tenant_id))
 
 
 @router.put("/{thesis_id}/exclusions", response_model=ThesisDetail)
@@ -372,7 +375,7 @@ def put_exclusions(
     excl = [ExcludedName(security_id=e.security_id, ticker=e.ticker, reason=e.reason) for e in body]
     thesis_repo.set_exclusions(conn, thesis.id, excl, tenant_id=thesis.tenant_id)
     conn.commit()
-    return ThesisDetail.from_thesis(thesis_repo.get(conn, thesis.id))
+    return ThesisDetail.from_thesis(thesis_repo.get(conn, thesis.id, workspace=thesis.tenant_id))
 
 
 def _decision_out(row: dict[str, Any], *, voided: bool) -> DecisionOut:

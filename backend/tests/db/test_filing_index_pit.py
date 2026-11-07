@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
+from db.session import DEFAULT_TENANT_ID
 from domain.market_time import known_at_for_asof
 from ingest.edgar.filing_index import ingest_filing_index
 from signals.base import PointInTimeData, SignalPointInTimeData
@@ -48,10 +49,12 @@ def test_the_RECORD_clock_sees_neither_a_later_filing_nor_one_recorded_after_kno
 ):
     _seed(db, security_id)
     known_at = datetime(2026, 6, 5, 23, tzinfo=timezone.utc)
-    pit = PointInTimeData(db, asof=_ASOF, known_at=known_at)
+    pit = PointInTimeData(db, asof=_ASOF, known_at=known_at, workspace=DEFAULT_TENANT_ID)
     assert _accessions(pit.filing_index(security_id)) == {"ON-TIME"}
     # ...and with the basket prefetch (the dashboards' read path), the same rows
-    batch = PointInTimeData(db, asof=_ASOF, known_at=known_at, basket=[security_id])
+    batch = PointInTimeData(
+        db, asof=_ASOF, known_at=known_at, basket=[security_id], workspace=DEFAULT_TENANT_ID
+    )
     assert _accessions(batch.filing_index(security_id)) == {"ON-TIME"}
 
 
@@ -60,11 +63,22 @@ def test_the_PUBLIC_clock_sees_what_was_FILED_by_the_as_of_never_a_later_filing(
     as-of (visible); the 06-10 filing was not (invisible), whenever we stored either."""
     _seed(db, security_id)
     pit = PointInTimeData(
-        db, asof=_ASOF, known_at=known_at_for_asof(_ASOF), basket=[security_id], clock="public"
+        db,
+        asof=_ASOF,
+        known_at=known_at_for_asof(_ASOF),
+        basket=[security_id],
+        clock="public",
+        workspace=DEFAULT_TENANT_ID,
     )
     assert _accessions(pit.filing_index(security_id)) == {"ON-TIME", "LATE-HELD"}
     later = date(2026, 6, 12)
-    pit = PointInTimeData(db, asof=later, known_at=known_at_for_asof(later), clock="public")
+    pit = PointInTimeData(
+        db,
+        asof=later,
+        known_at=known_at_for_asof(later),
+        clock="public",
+        workspace=DEFAULT_TENANT_ID,
+    )
     assert _accessions(pit.filing_index(security_id)) == {"ON-TIME", "LATE-HELD", "AFTER"}
 
 

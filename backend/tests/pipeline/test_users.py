@@ -9,7 +9,7 @@ from uuid import uuid4
 import pytest
 
 from app import auth
-from db.session import DEFAULT_TENANT_ID
+from domain.scopes import DATA_TENANT_ID, FOUNDING_WORKSPACE_ID
 from pipeline import users
 
 
@@ -20,7 +20,12 @@ def conn(db):
             "TRUNCATE app_user CASCADE"
         )  # the auth tables are not in the shared fixture's truncate
     db.commit()
-    return db
+    yield db
+    db.rollback()
+    with db.cursor() as cur:  # the workspaces `create` made (the shared fixture keeps tenant rows)
+        cur.execute("TRUNCATE app_user CASCADE")
+        cur.execute("DELETE FROM tenant WHERE name LIKE %s", ("%'s workspace",))
+    db.commit()
 
 
 def _count(conn, table: str) -> int:
@@ -34,7 +39,13 @@ def test_create_generates_a_password_once_and_stores_only_its_hash(conn):
     conn.commit()
     assert pw is not None and len(pw) == users.GENERATED_PASSWORD_LEN
     row = auth.find_user_by_email(conn, "ana@example.test")
-    assert row["id"] == uid and row["role"] == "user" and row["workspace_id"] == DEFAULT_TENANT_ID
+    assert row["id"] == uid and row["role"] == "user"
+    # the default: a NEW workspace of the user's own, never the founding one and never the data tenant
+    assert row["workspace_id"] not in (FOUNDING_WORKSPACE_ID, DATA_TENANT_ID)
+    with conn.cursor() as cur:
+        cur.execute("SELECT name, kind FROM tenant WHERE id = %s", (row["workspace_id"],))
+        ws = cur.fetchone()
+    assert ws == {"name": "Ana's workspace", "kind": "workspace"}
     assert row["password_hash"].startswith("$argon2id$") and pw not in row["password_hash"]
     assert auth.verify_password(row["password_hash"], pw)
 
@@ -60,7 +71,7 @@ def test_create_super_admin_on_a_named_workspace_and_a_short_password_refuses(co
         email="st@example.test",
         display_name="Steward",
         super_admin=True,
-        workspace_id=DEFAULT_TENANT_ID,
+        workspace_id=FOUNDING_WORKSPACE_ID,
         password="a long enough passphrase",
     )
     assert pw is None
@@ -143,3 +154,82 @@ def test_the_cli_entry_commits_prints_secrets_once_and_refuses_cleanly(conn):
     assert users.run(["list"], conn, emit=out.append) == 0
     assert len(out) == 1 and "cli@example.test" in out[0] and "super_admin" in out[0]
     assert "argon2" not in out[0] and "tokens 1" in out[0]
+
+
+def test_two_default_creates_get_two_separate_workspaces(conn):
+    users.create_user(conn, email="a1@example.test", display_name="Same test")
+    users.create_user(conn, email="a2@example.test", display_name="Same test")
+    a = auth.find_user_by_email(conn, "a1@example.test")["workspace_id"]
+    b = auth.find_user_by_email(conn, "a2@example.test")["workspace_id"]
+    assert a != b
+
+
+def test_founding_and_an_explicit_workspace_attach_and_the_flags_exclude_each_other(conn):
+    uid, _ = users.create_user(conn, email="f@example.test", display_name="F", founding=True)
+    assert auth.find_user_by_email(conn, "f@example.test")["workspace_id"] == FOUNDING_WORKSPACE_ID
+    users.create_user(
+        conn, email="w@example.test", display_name="W", workspace_id=FOUNDING_WORKSPACE_ID
+    )
+    assert auth.find_user_by_email(conn, "w@example.test")["workspace_id"] == FOUNDING_WORKSPACE_ID
+    with pytest.raises(users.UserError, match="exclude each other"):
+        users.create_user(
+            conn,
+            email="x@example.test",
+            display_name="X",
+            workspace_id=FOUNDING_WORKSPACE_ID,
+            founding=True,
+        )
+    with pytest.raises(users.UserError, match="not a workspace"):
+        users.create_user(conn, email="y@example.test", display_name="Y", workspace_id=uuid4())
+    with pytest.raises(users.UserError, match="not a workspace"):  # the data tenant is no workspace
+        users.create_user(
+            conn, email="z@example.test", display_name="Z", workspace_id=DATA_TENANT_ID
+        )
+
+
+def test_a_refused_duplicate_creates_no_workspace(conn):
+    users.create_user(conn, email="d@example.test", display_name="Dup test")
+    before = _count(conn, "tenant")
+    with pytest.raises(users.UserError, match="already exists"):
+        users.create_user(conn, email="D@example.test", display_name="Dup test")
+    assert _count(conn, "tenant") == before
+
+
+def test_list_shows_the_workspace_and_set_webhook_sets_and_clears_it(conn):
+    out: list[str] = []
+    users.run(
+        ["create", "--email", "l@example.test", "--display-name", "Lee test"], conn, emit=out.append
+    )
+    ws = auth.find_user_by_email(conn, "l@example.test")["workspace_id"]
+    out.clear()
+    users.run(["list"], conn, emit=out.append)
+    assert f"workspace {ws} (Lee test's workspace)" in out[0] and "webhook" not in out[0]
+    url = "https://hooks.example.test/x"
+    assert (
+        users.run(
+            ["workspace", "set-webhook", "--workspace", str(ws), "--url", url],
+            conn,
+            emit=out.append,
+        )
+        == 0
+    )
+    with conn.cursor() as cur:
+        cur.execute("SELECT notify_webhook FROM tenant WHERE id = %s", (ws,))
+        assert cur.fetchone()["notify_webhook"] == url
+    out.clear()
+    users.run(["list"], conn, emit=out.append)
+    assert "webhook" in out[0] and url not in out[0]  # the URL is a secret: never printed
+    users.run(
+        ["workspace", "set-webhook", "--workspace", str(ws), "--clear"], conn, emit=out.append
+    )
+    with conn.cursor() as cur:
+        cur.execute("SELECT notify_webhook FROM tenant WHERE id = %s", (ws,))
+        assert cur.fetchone()["notify_webhook"] is None
+    assert (
+        users.run(
+            ["workspace", "set-webhook", "--workspace", str(DATA_TENANT_ID), "--url", url],
+            conn,
+            emit=out.append,
+        )
+        == 1
+    )

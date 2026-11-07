@@ -19,6 +19,7 @@ import pytest
 from db.migrate import MIGRATIONS_DIR
 from db.session import DEFAULT_TENANT_ID
 from domain.enums import ContextRole
+from domain.scopes import WORKSPACE_ANY
 from domain.thesis import BasketMember, Segment, Thesis
 from repositories import thesis_repo
 
@@ -123,17 +124,19 @@ def test_a_moved_card_gets_one_snapshot_the_live_call_reads_and_an_untouched_car
     assert (_snapshots(db, moved), _snapshots(db, untouched)) == (snaps[0] + 1, snaps[1])
 
     # the live call reads the latest roster snapshot (get_asof(now)) — it sees every fund in ETFs
-    live = thesis_repo.get_asof(db, moved, None)
+    live = thesis_repo.get_asof(db, moved, None, workspace=WORKSPACE_ANY)
     assert {m.ticker: m.segment for m in live.basket} == {
         "QZRA": "Reactors",
         "URA": "ETFs",
         "LIT": "ETFs",
         "SMH": "ETFs",
     }
-    assert live.basket == thesis_repo.get(db, moved).basket  # byte-identical to the live rows
+    assert (
+        live.basket == thesis_repo.get(db, moved, workspace=WORKSPACE_ANY).basket
+    )  # byte-identical to the live rows
 
     # the snapshot is in the repo's own shape: re-saving the same roster dedups against it (no new row)
-    thesis_repo.upsert(db, thesis_repo.get(db, moved))
+    thesis_repo.upsert(db, thesis_repo.get(db, moved, workspace=WORKSPACE_ANY))
     db.commit()
     assert _snapshots(db, moved) == snaps[0] + 1
 

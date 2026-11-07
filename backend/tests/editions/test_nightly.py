@@ -277,7 +277,16 @@ def test_it_refuses_while_the_call_of_record_lock_is_held(db, security_id, tmp_p
         with pytest.raises(NightlyRefused, match="call-of-record lock"):
             run_nightly(db, apply=True, end=END)
         with pytest.raises(SystemExit) as exc:  # the CLI's own exit code
-            main(["nightly", "--apply", "--end", END.isoformat()])
+            main(
+                [
+                    "nightly",
+                    "--apply",
+                    "--end",
+                    END.isoformat(),
+                    "--workspace",
+                    str(DEFAULT_TENANT_ID),
+                ]
+            )
         assert exc.value.code == 75
     finally:
         held.release()

@@ -15,6 +15,7 @@ import pytest
 
 from db.session import DEFAULT_TENANT_ID
 from domain.enums import TermTier
+from domain.scopes import WORKSPACE_ANY
 from domain.thesis import BasketMember, TermSetEntry, Thesis
 from pipeline import backfill_surfaced_terms
 from repositories import thesis_repo
@@ -95,7 +96,7 @@ def _mk_thesis(db, name, members, terms=None, *, tenant_id=DEFAULT_TENANT_ID) ->
 
 
 def _stored(db, tid) -> dict[str, list[str]]:
-    got = thesis_repo.get(db, tid)
+    got = thesis_repo.get(db, tid, workspace=WORKSPACE_ANY)
     return {m.ticker: m.surfaced_terms for m in got.basket}
 
 

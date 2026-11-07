@@ -36,7 +36,9 @@ _PIN = datetime(2100, 1, 1, tzinfo=timezone.utc)
 
 
 def _view(con, asof: date, known_by: datetime = _PIN) -> ReplayPointInTimeData:
-    return ReplayPointInTimeData(con, asof=asof, known_at=known_at_for_asof(asof, known_by))
+    return ReplayPointInTimeData(
+        con, asof=asof, known_at=known_at_for_asof(asof, known_by), workspace=DEFAULT_TENANT_ID
+    )
 
 
 def _one(mirror, query: str) -> tuple:
@@ -44,6 +46,7 @@ def _one(mirror, query: str) -> tuple:
 
 
 def _mirror(db, path, **kw):
+    kw.setdefault("workspace", DEFAULT_TENANT_ID)
     export_snapshot(db, path, clock="public", **kw)
     return connect_mirror(path)
 
@@ -129,8 +132,10 @@ def test_the_mirror_reads_exactly_what_the_postgres_history_read_reads(db, secur
     try:
         for asof in (date(2026, 6, 16), date(2026, 6, 17), date(2026, 7, 10)):
             k = known_at_for_asof(asof)
-            live = PointInTimeData(db, asof=asof, known_at=k, clock="public")
-            rep = ReplayPointInTimeData(con, asof=asof, known_at=k)
+            live = PointInTimeData(
+                db, asof=asof, known_at=k, clock="public", workspace=DEFAULT_TENANT_ID
+            )
+            rep = ReplayPointInTimeData(con, asof=asof, known_at=k, workspace=DEFAULT_TENANT_ID)
             for accessor in ("insider_txns", "price_history"):
                 lr, rr = getattr(live, accessor)(security_id), getattr(rep, accessor)(security_id)
                 key = ("valid_from", "recorded_at")
@@ -154,7 +159,7 @@ def test_nothing_recorded_after_the_cut_exists_in_the_mirror(db, security_id, tm
     seed_big_buy(db, security_id, accession="late", recorded_at=INGESTED)
     db.commit()
     cut = datetime(2026, 7, 1, tzinfo=timezone.utc)  # 20:00 ET 06-30
-    man = export_snapshot(db, tmp_path, clock="public", known_by=cut)
+    man = export_snapshot(db, tmp_path, clock="public", known_by=cut, workspace=DEFAULT_TENANT_ID)
     assert man["known_by"] == cut.isoformat()
     con = connect_mirror(tmp_path)
     try:
@@ -228,11 +233,13 @@ def test_without_a_cut_the_export_is_the_backtests_byte_for_byte(db, security_id
     seed_big_buy(db, security_id)
     db.commit()
     for clock in ("record", "public"):
-        man = export_snapshot(db, tmp_path / clock, clock=clock)
+        man = export_snapshot(db, tmp_path / clock, clock=clock, workspace=DEFAULT_TENANT_ID)
         assert "known_by" not in man and "identity_table" not in man
         assert not (tmp_path / clock / f"{IDENTITY_TABLE}.parquet").exists()
         # a cut after every row changes nothing a reader sees
-        late = export_snapshot(db, tmp_path / f"{clock}-cut", clock=clock, known_by=_PIN)
+        late = export_snapshot(
+            db, tmp_path / f"{clock}-cut", clock=clock, known_by=_PIN, workspace=DEFAULT_TENANT_ID
+        )
         assert {t: v["rows"] for t, v in man["tables"].items()} == {
             t: v["rows"] for t, v in late["tables"].items()
         }
@@ -242,7 +249,12 @@ def test_the_identity_aux_answers_like_the_live_pit(db, security_id, tmp_path):
     e = _mirror(db, tmp_path / "e", identity=True)
     p = _mirror(db, tmp_path / "p")
     try:
-        live = PointInTimeData(db, asof=date(2026, 6, 1), known_at=evening(date(2026, 6, 1)))
+        live = PointInTimeData(
+            db,
+            asof=date(2026, 6, 1),
+            known_at=evening(date(2026, 6, 1)),
+            workspace=DEFAULT_TENANT_ID,
+        )
         assert _view(e, date(2026, 6, 1)).security_cik(security_id) == live.security_cik(
             security_id
         )
@@ -256,7 +268,7 @@ def test_the_identity_aux_answers_like_the_live_pit(db, security_id, tmp_path):
 
 
 def test_a_mirror_that_lost_its_identity_file_fails_loudly(db, security_id, tmp_path):
-    export_snapshot(db, tmp_path, clock="public", identity=True)
+    export_snapshot(db, tmp_path, clock="public", identity=True, workspace=DEFAULT_TENANT_ID)
     (tmp_path / f"{IDENTITY_TABLE}.parquet").unlink()
     with pytest.raises(FileNotFoundError, match=IDENTITY_TABLE):
         connect_mirror(tmp_path)

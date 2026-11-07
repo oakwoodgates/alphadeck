@@ -161,8 +161,8 @@ def test_replay_before_the_reversion_still_sees_the_old_basis(db, security_id):
     )
     db.commit()
 
-    then = PointInTimeData(db, asof=D4, known_at=before_fix, tenant_id=DEFAULT_TENANT_ID)
-    now = PointInTimeData(db, asof=D4, tenant_id=DEFAULT_TENANT_ID)
+    then = PointInTimeData(db, asof=D4, known_at=before_fix, workspace=DEFAULT_TENANT_ID)
+    now = PointInTimeData(db, asof=D4, workspace=DEFAULT_TENANT_ID)
     assert float(then.price_history(security_id)[-1]["close"]) == 100.0  # as it was believed
     assert float(now.price_history(security_id)[-1]["close"]) == 10.0  # as it is known now
 

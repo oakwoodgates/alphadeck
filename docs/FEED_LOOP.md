@@ -530,7 +530,13 @@ the thesis's workspace. The pass refuses to start without the data tenant (`scop
    emit a `TransitionEvent` through the **notify seam** (`backend/notify`: a `Notifier` protocol; the
    `LogNotifier` records every move — a loud log line + the summary's TRANSITIONS block, printed only when
    there are any — and the `SlackNotifier`, when `SLACK_WEBHOOK_URL` is set, pushes by the Q13 push policy
-   below; a further channel is one adapter behind `get_notifier()`, zero cron rework). This
+   below; a further channel is one adapter behind `get_notifier()`, zero cron rework). **The destination is per
+   WORKSPACE** (auth PR 2): the nightly builds the notifier for each card from its workspace — the workspace's own
+   `tenant.notify_webhook` (set with `python -m pipeline.users workspace set-webhook`) when set; else the env
+   `SLACK_WEBHOOK_URL` ONLY when the workspace's owner is a super admin (the founding operator keeps today's
+   channel); else the log notifier (the record, no push). The O4 digest is grouped by workspace and each group goes
+   to its own destination. The crash / health page and the run fingerprint keep the env notifier (an ops page
+   carries counts and labels, never a card name). A user's workspace therefore can never reach the operator's channel. This
    is also the calls-log **material-change line**: clock/trigger churn versions the log via
    `record_if_changed` *without* being a transition; a state/verdict MOVE is what an operator would want
    to be told about.
@@ -2551,10 +2557,12 @@ this step: the Theme Leaderboard 69 to 96 s, the Peer Table's all-cards scope 69
 measured yet, and a visit after a later run or a basket edit still computes cold). `python -m pipeline.warm_dashboards`
 (dry-run with `--dry-run`: the plan, no request) issues ONE GET per heavy page's default view to the running API
 (`ALPHADECK_WARM_BASE_URL`, default `http://backend:8000`), one at a time, and logs one line per page (status, `cache`,
-`compute_ms`, wall ms) plus `data/warm_dashboards/<started>.json`. It is read-only (GETs only: no database
-connection, no write). **The as-of is the night itself (F1, 2026-10-30):** the as-of dial opens on the server's current
+`compute_ms`, wall ms) plus `data/warm_dashboards/<started>.json`. It is read-only (GETs only; the one database read is the workspace list, `SELECT id FROM tenant WHERE
+kind = 'workspace'`, and there is no write). **It walks every workspace** (the dashboard cache keys on the workspace):
+each GET carries the system token and `X-Alphadeck-Workspace: <id>`, the whole walk runs under the one `--budget-s`,
+and `--workspace <id>` scopes a hand run (no database read); one run artifact per workspace. **The as-of is the night itself (F1, 2026-10-30):** the as-of dial opens on the server's current
 night (`GET /clock`, `domain/market_time.current_night` — the night the pass last recorded, until the next pass time) and
-the cache keys on `(slug, params, asof)`, so a pass warms its own night, ONE key that every visit until the next pass asks
+the cache keys on `(workspace, slug, params, asof)`, so a pass warms its own night, ONE key that every visit until the next pass asks
 for (the next morning, the whole weekend after a Friday), a live read on the record clock exactly as that visit's read
 will be (`serve_view` reads the current night live); `--night` names the pass's night (default: the current night),
 `--asof` overrides. (Before F1 the dial read the browser's date and the job warmed the day after the night, plus the

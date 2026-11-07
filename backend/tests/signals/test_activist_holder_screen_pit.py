@@ -81,6 +81,7 @@ def _live(db, asof, sid):
         basket=[sid],
         bounds=call_bounds(_ON),
         clock="public",
+        workspace=DEFAULT_TENANT_ID,
     )
 
 
@@ -115,13 +116,18 @@ def test_the_replay_mirror_screens_identically(db, security_id, tmp_path):
     """Replay parity: the backtest's public mirror reads the same rows, so the same detector gives the same
     output — byte for byte — on every night."""
     _seed(db, security_id)
-    export_snapshot(db, tmp_path, clock="public")
+    export_snapshot(db, tmp_path, clock="public", workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
         for d in _NIGHTS:
             known_at = known_at_for_asof(d, _PIN)
             rep = ReplayPointInTimeData(
-                con, asof=d, known_at=known_at, basket=[security_id], bounds=call_bounds(_ON)
+                con,
+                asof=d,
+                known_at=known_at,
+                basket=[security_id],
+                bounds=call_bounds(_ON),
+                workspace=DEFAULT_TENANT_ID,
             )
             live = _live(db, d, security_id)
             for cfg in (_ON, _OFF):

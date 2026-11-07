@@ -31,6 +31,8 @@ services:
       DATABASE_URL: postgresql://alphadeck:alphadeck@postgres:5432/alphadeck_dev
       # The login door (docs/AUTH.md): dev is plain http on localhost, where a Secure cookie is never sent back.
       ALPHADECK_COOKIE_SECURE: "false"
+      # The boot seed writes the demo cards into the founding workspace (prod leaves it off).
+      ALPHADECK_SEED_ON_BOOT: "true"
     volumes:
       # Dev loop: mount the source over the image's /app so an edit is live (paired with --reload below).
       # The editable install (`pip install -e .`, PEP 660 finder in site-packages) resolves the top-level

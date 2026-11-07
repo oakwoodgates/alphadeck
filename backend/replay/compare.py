@@ -43,7 +43,7 @@ def _single_name_security(conn: psycopg.Connection, tenant_id: UUID) -> dict[UUI
     """thesis_id -> sole member's security_id (single-name theses). Replicated from run.py's trivial
     private helper rather than importing an underscore-private symbol across modules."""
     out: dict[UUID, UUID] = {}
-    for t in thesis_repo.list_all(conn):
+    for t in thesis_repo.list_all(conn, workspace=tenant_id):
         sids = [m.security_id for m in t.basket if m.security_id is not None]
         if len(sids) == 1:
             out[t.id] = sids[0]

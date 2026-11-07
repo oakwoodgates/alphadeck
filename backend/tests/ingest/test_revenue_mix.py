@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
+from db.session import DEFAULT_TENANT_ID
 from ingest.revenue_mix import ingest_revenue_mix
 from signals.base import PointInTimeData
 
@@ -22,9 +23,9 @@ def test_revenue_mix_ingest_and_asof_read(db, security_id):
         ratified_by="operator",
     )
     db.commit()
-    rows = PointInTimeData(db, asof=date(2026, 6, 1), known_at=_KNOWN).revenue_mix_facts(
-        security_id
-    )
+    rows = PointInTimeData(
+        db, asof=date(2026, 6, 1), known_at=_KNOWN, workspace=DEFAULT_TENANT_ID
+    ).revenue_mix_facts(security_id)
     assert len(rows) == 1
     assert rows[0]["segment_label"] == "nuclear"
     assert float(rows[0]["mix_pct"]) == 100.0
@@ -58,7 +59,11 @@ def test_revenue_mix_latest_version_wins_on_correction(db, security_id):
         recorded_at=t2,
     )
     db.commit()
-    at_t1 = PointInTimeData(db, asof=date(2026, 6, 1), known_at=t1).revenue_mix_facts(security_id)
-    at_t2 = PointInTimeData(db, asof=date(2026, 6, 1), known_at=t2).revenue_mix_facts(security_id)
+    at_t1 = PointInTimeData(
+        db, asof=date(2026, 6, 1), known_at=t1, workspace=DEFAULT_TENANT_ID
+    ).revenue_mix_facts(security_id)
+    at_t2 = PointInTimeData(
+        db, asof=date(2026, 6, 1), known_at=t2, workspace=DEFAULT_TENANT_ID
+    ).revenue_mix_facts(security_id)
     assert len(at_t1) == 1 and float(at_t1[0]["mix_pct"]) == 80.0  # correction not yet known at t1
     assert len(at_t2) == 1 and float(at_t2[0]["mix_pct"]) == 100.0  # by t2 the restatement is live

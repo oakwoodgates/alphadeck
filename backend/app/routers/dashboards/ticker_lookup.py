@@ -23,7 +23,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from psycopg.types.json import Json
 from pydantic import BaseModel, ConfigDict
 
-from app.deps import get_conn
+from app.deps import get_conn, get_workspace
 from dashboards.baskets import cards_as_of, per_company, price_flags
 from dashboards.baskets import with_live_entries as cards_with_live_entries
 from dashboards.cache import cached
@@ -53,9 +53,9 @@ from dashboards.ticker_lookup import (
     trigger_log,
     with_live_entries,
 )
-from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard
 from domain.market_time import countdown_origin, market_clock, market_tz, serve_view
+from domain.scopes import DATA_TENANT_ID
 from domain.splits import ListedSplit, listed_from_row
 from domain.thesis import Thesis
 from pipeline.backfill import thesis_existed_on
@@ -147,7 +147,7 @@ def read_decisions(
 
 
 def read_archived(
-    conn: psycopg.Connection, sid: UUID, asof: date, known_at: datetime | None
+    conn: psycopg.Connection, sid: UUID, asof: date, known_at: datetime | None, *, workspace: UUID
 ) -> list[Thesis]:
     """The archived cards that existed by the as-of AND hold the company in their roster then (the counted cards'
     rule: ``get_asof``, today's roster standing in before the first snapshot). The SQL only NARROWS which archived
@@ -155,21 +155,21 @@ def read_archived(
     ``sits_on`` on the roster as of the as-of is the page's rule."""
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT t.id FROM thesis t WHERE t.archived_at IS NOT NULL AND ("
+            "SELECT t.id FROM thesis t WHERE t.archived_at IS NOT NULL AND t.tenant_id = %(ws)s AND ("
             " EXISTS (SELECT 1 FROM basket_member b WHERE b.thesis_id = t.id AND b.security_id = %(sid)s)"
             " OR EXISTS (SELECT 1 FROM basket_snapshot s WHERE s.thesis_id = t.id"
             " AND s.members @> %(probe)s::jsonb)) ORDER BY t.name",
-            {"sid": sid, "probe": Json([{"security_id": str(sid)}])},
+            {"sid": sid, "probe": Json([{"security_id": str(sid)}]), "ws": workspace},
         )
         ids = [r["id"] for r in cur.fetchall()]
-    born = thesis_repo.created_at_for(conn, ids)
+    born = thesis_repo.created_at_for(conn, ids, workspace=workspace)
     tz = market_tz()
     out: list[Thesis] = []
     for tid in ids:
         # a missing created_at keeps the card (the counted cards' recall-first rule)
         if tid in born and not thesis_existed_on(born[tid], asof, tz):
             continue
-        card = thesis_repo.get_asof(conn, tid, known_at)
+        card = thesis_repo.get_asof(conn, tid, known_at, workspace=workspace)
         if card is not None:
             out.append(card)
     return out
@@ -181,7 +181,7 @@ def read_former_tickers(conn: psycopg.Connection, sid: UUID) -> tuple[str, ...]:
         cur.execute(
             "SELECT old_ticker FROM security_ticker_history WHERE tenant_id = %s AND security_id = %s "
             "ORDER BY seen_at, id",
-            (DEFAULT_TENANT_ID, sid),
+            (DATA_TENANT_ID, sid),
         )
         return tuple(dict.fromkeys(r["old_ticker"] for r in cur.fetchall()))
 
@@ -268,6 +268,8 @@ def read_lookup(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> Lookup:
     """The heavy read the cache holds. ``known_at`` + ``clock`` are the request's ``serve_view(asof)`` pair,
     threaded into the counted cards' rosters, the price flags, the point-in-time view and the filings alike.
@@ -278,13 +280,20 @@ def read_lookup(
     me = read_identity(conn, security_id)
     if me is None:
         raise HTTPException(status_code=404, detail="no company with this id")
-    flags = price_flags(conn, [security_id], asof, known_at=known_at, clock=clock)
+    flags = price_flags(
+        conn, [security_id], asof, known_at=known_at, clock=clock, workspace=workspace
+    )
     flag = flags.get(security_id)
 
     # the counted cards and their rosters are the same for every company at one as-of and clock: one cached read
     # (the page below is the per-company one), so only the first lookup after a run or a basket edit loads them
     counted = cached(
-        conn, SLUG, ("cards", clock), asof, lambda: cards_as_of(conn, asof, known_at)
+        conn,
+        SLUG,
+        ("cards", clock),
+        asof,
+        lambda: cards_as_of(conn, asof, known_at, workspace=workspace),
+        workspace=workspace,
     ).value
     mine = [t for t in counted.cards if sits_on(t, security_id)]
     ids = [t.id for t in mine]
@@ -296,7 +305,7 @@ def read_lookup(
             security_id,
             counted.cards,
             effect,
-            read_archived(conn, security_id, asof, known_at),
+            read_archived(conn, security_id, asof, known_at, workspace=workspace),
             live_cards=counted.live_count,
             not_yet_created=counted.not_yet_created,
             roster_fallback=counted.roster_fallback,
@@ -320,6 +329,7 @@ def read_lookup(
         known_at,
         clock,
         lambda pit, sid: read_company(pit, sid, asof, me.instrument_kind == "etf"),
+        workspace=workspace,
     )[security_id]
     tape = tape_of(read.signals, read.asked, bars=read.bars, iwm_bars=read.iwm_bars)
     cap = cap_of(flag, read.close, read.shares, read.splits)
@@ -332,6 +342,7 @@ def read_lookup(
         clock,
         days=READ_DAYS,
         tickers={security_id: me.ticker} if me.ticker else None,
+        workspace=workspace,
     ).get(security_id, ())
     return lookup(
         identity_of(me, cap, tape, flag),
@@ -351,6 +362,8 @@ def read_live_entries(
     known_at: datetime | None,
     clock: Literal["record", "public"],
     origin: date | None,
+    *,
+    workspace: UUID,
 ) -> tuple[list[Excluded], tuple[CardCatalyst, ...], list[DecisionRow]]:
     """What is read live on every request: the counted cards that exclude the company, the catalysts of the cards
     it counts on and the operator's decisions on it. The counted cards (names, rosters) come from the shared
@@ -358,7 +371,12 @@ def read_live_entries(
     ``known_at`` gates the decisions exactly as before (a fill logged after a past view's instant is not there),
     and ``origin`` is where the catalysts' "passed" counts from (F2); the as-of when none."""
     counted = cached(
-        conn, SLUG, ("cards", clock), asof, lambda: cards_as_of(conn, asof, known_at)
+        conn,
+        SLUG,
+        ("cards", clock),
+        asof,
+        lambda: cards_as_of(conn, asof, known_at, workspace=workspace),
+        workspace=workspace,
     ).value
     cards = cards_with_live_entries(conn, counted.cards)
     decisions = decision_rows(
@@ -718,7 +736,7 @@ def ticker_lookup_resolve(
             cur.execute(
                 "SELECT security_id FROM security_ticker_history WHERE tenant_id = %s AND old_ticker = %s "
                 "ORDER BY seen_at DESC, id LIMIT 1",
-                (DEFAULT_TENANT_ID, ticker),
+                (DATA_TENANT_ID, ticker),
             )
             row = cur.fetchone()
         sid, matched = (row["security_id"] if row else None), "former"
@@ -735,6 +753,7 @@ def ticker_lookup(
     security_id: UUID,
     asof: date = Query(..., description="as-of date; nothing public after it is read"),
     conn: psycopg.Connection = Depends(get_conn),
+    workspace: UUID = Depends(get_workspace),
 ) -> TickerLookupOut:
     """Everything the platform holds about one company at the as-of: its identity and approximate market cap, the
     counted cards it sits on and its part in each (the recorded call in effect), the triggers the recorded calls
@@ -755,11 +774,12 @@ def ticker_lookup(
         SLUG,
         (str(security_id), clock),
         asof,
-        lambda: read_lookup(conn, security_id, asof, known_at, clock),
+        lambda: read_lookup(conn, security_id, asof, known_at, clock, workspace=workspace),
+        workspace=workspace,
     )
     # the exclusions, card catalysts and decisions are not snapshotted: read them now, not from the cache
     excluded, catalysts, decisions = read_live_entries(
-        conn, security_id, asof, known_at, clock, origin
+        conn, security_id, asof, known_at, clock, origin, workspace=workspace
     )
     page = with_live_entries(got.value, excluded, catalysts, decisions)
     return TickerLookupOut.model_validate(

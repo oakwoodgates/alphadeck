@@ -13,6 +13,8 @@ What is pinned here, and where it is real:
   request for a page, then the query the frontend's hook sends on that page's default view at the same as-of, is a
   cache ``hit`` (for the current night, today and a past day); and a warm-up of the day AFTER the night (the
   pre-F1 rule) misses the next morning's default read;
+- the WORKSPACES (docs/FEED_LOOP.md): the job walks every workspace and sends ``X-Alphadeck-Workspace`` per request
+  beside the system token, under the one budget, and ``--workspace`` scopes a hand run;
 - the WIRING: ``warm_dashboards`` is the last thing in the nightly wake, fail-open and always 0 (so it can never
   change the pass's status or exit code), and the compose service carries the env it reads.
 
@@ -64,6 +66,16 @@ from pipeline.warm_dashboards import (
 )
 from repositories import thesis_repo
 from tests.auth_fixtures import sign_in_as_steward
+
+_WS_A = uuid.UUID("00000000-0000-0000-0000-0000000000a1")
+_WS_B = uuid.UUID("00000000-0000-0000-0000-0000000000b2")
+
+
+@pytest.fixture(autouse=True)
+def _one_workspace(monkeypatch):
+    """The workspace list is the job's one database read: every test but the workspace ones runs over one."""
+    monkeypatch.setattr(wd, "list_workspaces", lambda: [_WS_A])
+
 
 BACKEND = Path(__file__).resolve().parents[2]
 SCRIPT = (BACKEND / "scripts" / "daily_cron.sh").read_text(encoding="utf-8")
@@ -548,6 +560,7 @@ ARTIFACT_KEYS = {
     "finished_at",
     "base_url",
     "night",
+    "workspace",
     "asofs",
     "timeout_s",
     "budget_s",
@@ -568,8 +581,8 @@ def test_the_artifact_shape(tmp_path):
     assert rc == 0
     (path,) = (tmp_path / "w").iterdir()
     assert re.fullmatch(
-        r"\d{8}T\d{6}Z\.json", path.name
-    )  # the started-at instant, like the other run artifacts
+        r"\d{8}T\d{6}Z-[0-9a-f]{8}\.json", path.name
+    )  # the started-at instant + the workspace tag
     doc = json.loads(path.read_text(encoding="utf-8"))
     assert set(doc) == ARTIFACT_KEYS
     assert doc["kind"] == "warm_dashboards" and doc["status"] == "done"
@@ -619,9 +632,11 @@ def test_a_run_artifact_that_cannot_be_written_never_fails_the_run(tmp_path):
 
 class _Handler(BaseHTTPRequestHandler):
     seen_auth: list = []  # the Authorization header of every GET, in order
+    seen_ws: list = []  # the X-Alphadeck-Workspace header of every GET, in order
 
     def do_GET(self):  # noqa: N802 — the http.server hook
         _Handler.seen_auth.append(self.headers.get("Authorization"))
+        _Handler.seen_ws.append(self.headers.get(wd.WORKSPACE_HEADER))
         if self.path.startswith("/dashboards/slow"):
             time.sleep(1.5)
         status = 500 if self.path.startswith("/dashboards/boom") else 200
@@ -692,6 +707,126 @@ def test_a_whole_run_over_the_real_transport_logs_the_status_cache_and_times(ser
     row = next(line for line in lines if "read-through" in line and "200" in line)
     assert re.fullmatch(
         r"warm-dashboards: 2026-10-29 read-through · 200 · hit · compute 5 ms · wall \d+ ms", row
+    )
+
+
+def test_every_request_names_its_workspace_and_the_walk_covers_every_workspace(
+    server, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(wd, "list_workspaces", lambda: [_WS_A, _WS_B])
+    _Handler.seen_auth.clear()
+    _Handler.seen_ws.clear()
+    lines: list[str] = []
+    rc = main(
+        [
+            "--asof",
+            "2026-10-29",
+            "--pages",
+            "read-through",
+            "--base",
+            server,
+            "--runs-dir",
+            str(tmp_path),
+        ],
+        fetch=http_fetch,
+        env=dict(_TOKEN_ENV),
+        emit=lines.append,
+    )
+    assert rc == 0
+    # one request per workspace, A first then B, each with the bearer token AND its own workspace header
+    assert _Handler.seen_ws == [str(_WS_A), str(_WS_B)]
+    assert set(_Handler.seen_auth) == {f"Bearer {_TOKEN}"}
+    docs = sorted(
+        (json.loads(f.read_text(encoding="utf-8")) for f in tmp_path.glob("*.json")),
+        key=lambda d: d["workspace"],
+    )
+    assert [d["workspace"] for d in docs] == [str(_WS_A), str(_WS_B)]  # one artifact per workspace
+
+
+def test_workspace_scopes_a_hand_run_and_reads_no_list(server, tmp_path, monkeypatch):
+    def boom():  # pragma: no cover — must not run
+        raise AssertionError("the workspace list must not be read when --workspace is given")
+
+    monkeypatch.setattr(wd, "list_workspaces", boom)
+    _Handler.seen_ws.clear()
+    rc = main(
+        [
+            "--asof",
+            "2026-10-29",
+            "--pages",
+            "read-through",
+            "--base",
+            server,
+            "--runs-dir",
+            str(tmp_path),
+            "--workspace",
+            str(_WS_B),
+        ],
+        fetch=http_fetch,
+        env=dict(_TOKEN_ENV),
+        emit=lambda line: None,
+    )
+    assert rc == 0 and _Handler.seen_ws == [str(_WS_B)]
+
+
+def test_the_one_budget_is_shared_across_workspaces(monkeypatch, tmp_path):
+    """The second workspace gets what the first left: a spent budget skips its requests, never restarts a clock."""
+    monkeypatch.setattr(wd, "list_workspaces", lambda: [_WS_A, _WS_B])
+    now = [0.0]
+    monkeypatch.setattr(wd.time, "monotonic", lambda: now[0])
+    rec = Recorder()
+
+    def slow(url: str, timeout: float) -> Response:
+        now[0] += 150.0  # the first workspace's one request spends the whole 100 s budget
+        return rec(url, timeout)
+
+    lines: list[str] = []
+    main(
+        [
+            "--asof",
+            "2026-10-29",
+            "--pages",
+            "read-through",
+            "--budget-s",
+            "100",
+            "--runs-dir",
+            str(tmp_path),
+        ],
+        fetch=slow,
+        env=dict(_TOKEN_ENV),
+        emit=lines.append,
+    )
+    assert len(rec.urls) == 1  # workspace B's request was never made
+    assert any("SKIPPED" in line for line in lines)
+
+
+def test_no_workspace_list_is_a_loud_non_zero_exit_never_a_silent_warm_up(tmp_path, monkeypatch):
+    def down():
+        raise RuntimeError("the database is down")
+
+    monkeypatch.setattr(wd, "list_workspaces", down)
+    lines: list[str] = []
+    rc = main(
+        ["--asof", "2026-10-29", "--runs-dir", str(tmp_path)],
+        fetch=_never,
+        env=dict(_TOKEN_ENV),
+        emit=lines.append,
+    )
+    assert rc != 0 and len(lines) == 1 and "workspace list" in lines[0]
+
+
+def test_the_dry_run_lists_the_workspaces_it_would_warm(monkeypatch):
+    monkeypatch.setattr(wd, "list_workspaces", lambda: [_WS_A, _WS_B])
+    lines: list[str] = []
+    main(
+        ["--dry-run", "--night", "2026-10-30"],
+        fetch=_never,
+        env=dict(_TOKEN_ENV),
+        emit=lines.append,
+    )
+    text = "\n".join(lines)
+    assert (
+        f"workspace {_WS_A}" in text and f"workspace {_WS_B}" in text and "2 workspace(s)" in text
     )
 
 
@@ -953,7 +1088,7 @@ def test_warming_the_day_after_the_night_would_not_have_helped_the_next_morning(
 # ---------------------------------------------------------------------------------------------------------
 
 
-def test_the_job_is_get_only_it_opens_no_database_and_imports_no_dashboard_or_api_code():
+def test_the_job_is_get_only_reads_only_the_workspace_list_and_imports_no_dashboard_or_api_code():
     tree = ast.parse((BACKEND / "pipeline" / "warm_dashboards.py").read_text(encoding="utf-8"))
     imported: set[str] = set()
     for node in ast.walk(tree):
@@ -963,7 +1098,6 @@ def test_the_job_is_get_only_it_opens_no_database_and_imports_no_dashboard_or_ap
             imported.add(node.module)
     banned = (
         "psycopg",
-        "db",
         "dashboards",
         "app",
         "repositories",
@@ -973,6 +1107,8 @@ def test_the_job_is_get_only_it_opens_no_database_and_imports_no_dashboard_or_ap
         "notify",
     )
     assert not [m for m in imported if m.split(".")[0] in banned], imported
+    # the database: only the session's connect(), for the workspace list (one SELECT, no write)
+    assert {m for m in imported if m.split(".")[0] == "db"} == {"db.session"}
     assert "domain.market_time" in imported
     source = (BACKEND / "pipeline" / "warm_dashboards.py").read_text(encoding="utf-8")
     assert not re.search(

@@ -11,7 +11,7 @@ from domain.call import CallCard, TriggerRef
 from domain.config import short_hash
 from domain.enums import Kind, State
 from domain.market_time import market_tz
-from domain.scopes import DATA_TENANT_ID
+from domain.scopes import DATA_TENANT_ID, WorkspaceScope
 from domain.settings import get_settings
 from domain.thesis import Thesis
 from replay.episodes import derive_episodes
@@ -726,6 +726,7 @@ def scoreboard_records(
     exclude_annotated: bool | None = None,
     exclude_late: bool | None = None,
     edition: Edition | None = None,
+    workspace: WorkspaceScope,
 ) -> tuple[ScoreboardResult, dict[UUID, list[CallSnapshot]], dict[UUID, UUID]]:
     """Every thesis's record scored as-of (archived INCLUDED by default — the record is not erased
     by archiving; it just stops accruing). Per-thesis fault isolation: an unreadable historical card
@@ -765,7 +766,10 @@ def scoreboard_records(
     # down; recomputing it per thesis would multiply that scan by the thesis count for an answer that
     # cannot differ between them.
     market_edges: dict[UUID, date | None] = {}
-    for thesis in thesis_repo.list_all(conn, include_archived=include_archived):
+    # ``workspace``: the caller's (the API) or ``WORKSPACE_ANY`` (the scoreboard CLI) — REQUIRED
+    for thesis in thesis_repo.list_all(
+        conn, workspace=workspace, include_archived=include_archived
+    ):
         sids = [m.security_id for m in thesis.basket if m.security_id is not None]
         if len(sids) == 1:
             single_name[thesis.id] = sids[0]

@@ -587,6 +587,15 @@ export function Admin({ header }: Props) {
                 (pipeline.set_aside_fundamentals)
               </div>
             )}
+            {/* auth PR 2 — cards left on the DATA tenant. Should be 0 (a card belongs to a workspace; migration
+                0078 moved the founding operator's out); LOUD only when it is not, because such a card is read by
+                no workspace. Rendered only then; an older backend omits the field. */}
+            {(status.data_tenant_theses ?? 0) > 0 && (
+              <div className="adm-line adm-loud" data-testid="adm-data-tenant-theses">
+                {status.data_tenant_theses} card(s) sit on the data tenant, not in any workspace — no
+                user can open them; move or archive them
+              </div>
+            )}
             {/* editions S5 — the Scoreboard editions' nightly page job, as the backend's one line (which
                 edition, which night, held theses, the self-check). QUIET — the normal night is not news —
                 and louder only when the self-check found a real mismatch or the job crashed (attention).

@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 
 from domain.enums import State, Verdict
+from domain.scopes import WORKSPACE_ANY
 from pipeline.call_for_thesis import call_for_thesis
 from pipeline.seed import HIMS_THESIS_ID, seed_hims
 from repositories import thesis_repo
@@ -26,7 +27,7 @@ def test_seed_is_idempotent(db):
     db.commit()
     seed_hims(db)  # second run must not error or duplicate the thesis
     db.commit()
-    thesis = thesis_repo.get(db, HIMS_THESIS_ID)
+    thesis = thesis_repo.get(db, HIMS_THESIS_ID, workspace=WORKSPACE_ANY)
     assert thesis is not None
     assert len(thesis.basket) == 1
     assert len(thesis.evidence) == 1

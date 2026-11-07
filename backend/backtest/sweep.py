@@ -38,6 +38,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from statistics import median
 from typing import Any, Literal, NamedTuple
+from uuid import UUID
 
 import psycopg
 from pydantic import BaseModel, Field
@@ -54,7 +55,7 @@ from backtest.run import execute
 from backtest.windows import DEFAULT_WINDOW_DAYS, default_concurrency, tile
 from db.session import DEFAULT_TENANT_ID, connect
 from domain.config import DEFAULT_CONFIG, CallConfig, config_hash, short_hash
-from domain.scopes import DATA_TENANT_ID
+from domain.scopes import DATA_TENANT_ID, FOUNDING_WORKSPACE_ID
 from replay.export import export_snapshot, mirror_clock, read_mirror_manifest
 
 SWEEP_NAME = "sweep.json"
@@ -495,6 +496,7 @@ def run_sweep(
     metric_slice: tuple[str, str] | None = None,
     plateau_rule: PlateauRule = DEFAULT_PLATEAU_RULE,
     mirror_dir: str | Path | None = None,
+    workspace: UUID = DEFAULT_TENANT_ID,
 ) -> SweepReport:
     """ONE curve from a cartesian ``grid`` — the single-curve front door onto ``run_pass``."""
     return run_pass(
@@ -518,6 +520,7 @@ def run_sweep(
         resume=resume,
         plateau_rule=plateau_rule,
         mirror_dir=mirror_dir,
+        workspace=workspace,
     )[0]
 
 
@@ -660,6 +663,7 @@ def run_pass(
     resume: str | None = None,
     plateau_rule: PlateauRule = DEFAULT_PLATEAU_RULE,
     mirror_dir: str | Path | None = None,
+    workspace: UUID = DEFAULT_TENANT_ID,
 ) -> list[SweepReport]:
     """Export ONE mirror, run every distinct (config x WINDOW) over it once, and report a curve per ladder.
 
@@ -755,15 +759,10 @@ def run_pass(
         )
     mirror.mkdir(parents=True, exist_ok=True)
     if reuse_hash is None:
-        # DEFAULT_TENANT_ID explicitly, here and in the points below (`execute`'s own default). The sweep
-        # took a `tenant_id` parameter that it then ignored on both legs -- a parameter accepted and
-        # dropped is worse than none, because a caller reads it as honored. It is removed rather than
-        # wired: nothing can pass one (there is no `--tenant` on this CLI or on `backtest.run`) and the
-        # whole backtest package is single-tenant by construction. Multi-tenant sweeps are a real change,
-        # not a parameter.
-        export_snapshot(
-            conn, mirror, data_tenant=DATA_TENANT_ID, workspace=DEFAULT_TENANT_ID, clock=clock
-        )
+        # ONE workspace's cards over the shared DATA (auth PR 2): ``workspace`` reaches BOTH legs, the export
+        # here and every window job's ``execute`` (``_Job.workspace``), so the curve's episodes are that
+        # workspace's and nothing else's. The CLI passes ``--workspace`` (default: the founding workspace).
+        export_snapshot(conn, mirror, data_tenant=DATA_TENANT_ID, workspace=workspace, clock=clock)
 
     # every variant of every ladder, resolved to a config -- then ONE job per distinct config_hash
     per_ladder = [[(d, apply_overlay(d)) for d in lad.variants] for lad in ladders]
@@ -804,6 +803,7 @@ def run_pass(
                     regime=regime,
                     pass_id=pass_id,
                     root=str(root_path),
+                    workspace=str(workspace),
                 )
             )
     run_ids.update(zip(keys, _launch(jobs, concurrency), strict=True))
@@ -998,6 +998,7 @@ class _Job(NamedTuple):
     regime: str | None
     pass_id: str
     root: str
+    workspace: str  # the workspace (tenant id) whose cards the run reads
 
 
 def _run_window(job: _Job) -> str:
@@ -1025,6 +1026,7 @@ def _run_window(job: _Job) -> str:
             regime=job.regime,
             pass_id=job.pass_id,
             root=job.root,
+            tenant_id=UUID(job.workspace),
         )
         return outcome.run_id
     finally:
@@ -1120,6 +1122,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--start", required=True)
     p.add_argument("--end", required=True)
+    p.add_argument(
+        "--workspace",
+        type=UUID,
+        default=FOUNDING_WORKSPACE_ID,
+        help="the workspace (tenant id) whose cards the pass reads (default: the founding workspace)",
+    )
     p.add_argument("--pin", default=None, help="the known_at determinism pin (default: now, UTC)")
     p.add_argument("--dial", default=None, help="the dial to sweep (with --values)")
     p.add_argument("--values", default=None, help="comma-separated values for --dial")
@@ -1362,6 +1370,7 @@ def main(argv: list[str] | None = None) -> int:
             resume=args.resume,
             plateau_rule=args.plateau_rule,
             mirror_dir=args.mirror_dir,
+            workspace=args.workspace,
         )
     finally:
         conn.close()

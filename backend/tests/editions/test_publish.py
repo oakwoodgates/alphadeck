@@ -142,15 +142,47 @@ def test_the_cli_is_a_dry_run_by_default_and_exits_2_on_a_refusal(
 ):
     _seed(db, security_id, monkeypatch)
     start = _counts(db)
-    main(["publish", "--out", str(tmp_path / "cli-dry"), "--end", NIGHT.isoformat()])
+    main(
+        [
+            "publish",
+            "--out",
+            str(tmp_path / "cli-dry"),
+            "--end",
+            NIGHT.isoformat(),
+            "--workspace",
+            str(DEFAULT_TENANT_ID),
+        ]
+    )
     assert "DRY RUN" in capsys.readouterr().out
     assert _counts(db) == start
-    main(["publish", "--apply", "--out", str(tmp_path / "cli"), "--end", NIGHT.isoformat()])
+    main(
+        [
+            "publish",
+            "--apply",
+            "--out",
+            str(tmp_path / "cli"),
+            "--end",
+            NIGHT.isoformat(),
+            "--workspace",
+            str(DEFAULT_TENANT_ID),
+        ]
+    )
     out = capsys.readouterr().out
     assert "PUBLISHED" in out and "calls" in out
     once = _counts(db)
     with pytest.raises(SystemExit) as exc:
-        main(["publish", "--apply", "--out", str(tmp_path / "cli2"), "--end", NIGHT.isoformat()])
+        main(
+            [
+                "publish",
+                "--apply",
+                "--out",
+                str(tmp_path / "cli2"),
+                "--end",
+                NIGHT.isoformat(),
+                "--workspace",
+                str(DEFAULT_TENANT_ID),
+            ]
+        )
     assert exc.value.code == 2 and "REFUSED" in capsys.readouterr().out
     assert _counts(db) == once and once["calls"] == start["calls"]
 

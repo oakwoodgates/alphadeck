@@ -14,7 +14,7 @@ attached; ticker reuse is a conflict, never applied; the price feed follows a re
     # APPLY: write the plan in one transaction, cache the file it was planned from, refresh the fund list
     # (company_tickers_mf.json — one more GET, fail-open) and write a run artifact under data/master_runs/
     python -m pipeline.populate_master --live --apply
-    # a non-default tenant (the production cut): pass an explicit id, else the deployment tenant is used
+    # a non-default tenant (the production cut): pass an explicit id, else the data tenant is used
     python -m pipeline.populate_master --live --apply --tenant-id <uuid>
 
 THE WEEKLY JOB. The cron sidecar fires ``--live --apply --run-kind cron`` every Saturday at 09:00 market time
@@ -325,7 +325,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument(
         "--tenant-id",
         default=None,
-        help="target tenant UUID; defaults to the deployment tenant ($ALPHADECK_TENANT_ID / demo)",
+        help="target tenant UUID; defaults to the data tenant (the master is DATA)",
     )
     p.add_argument(
         "--run-kind",

@@ -118,12 +118,14 @@ def test_prefetch_equals_per_security_rows(db, securities, tmp_path):
     """The batched read equals the per-security read for EVERY security and table: same COUNT first,
     then the same identity tuples IN THE SAME ORDER. Counts first — see the module note."""
     _seed(db, securities)
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
         asof = date(2026, 1, 31)
-        scoped = ReplayPointInTimeData(con, asof=asof, known_at=_KNOWN)
-        batched = ReplayPointInTimeData(con, asof=asof, known_at=_KNOWN, basket=securities)
+        scoped = ReplayPointInTimeData(con, asof=asof, known_at=_KNOWN, workspace=DEFAULT_TENANT_ID)
+        batched = ReplayPointInTimeData(
+            con, asof=asof, known_at=_KNOWN, basket=securities, workspace=DEFAULT_TENANT_ID
+        )
         for table in _SEC_TABLES:
             ident = _FACT_IDENTITY[table]
             for sid in securities:
@@ -141,14 +143,16 @@ def test_prefetch_equals_per_security_rows(db, securities, tmp_path):
 def test_prefetch_picks_the_same_version(db, securities, tmp_path):
     """The re-versioned bar resolves to the LATEST version on both paths (``recorded_at DESC``)."""
     _seed(db, securities)
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
         asof = date(2026, 1, 31)
         sid = securities[0]
-        scoped = ReplayPointInTimeData(con, asof=asof, known_at=_KNOWN).price_history(sid)
+        scoped = ReplayPointInTimeData(
+            con, asof=asof, known_at=_KNOWN, workspace=DEFAULT_TENANT_ID
+        ).price_history(sid)
         batched = ReplayPointInTimeData(
-            con, asof=asof, known_at=_KNOWN, basket=securities
+            con, asof=asof, known_at=_KNOWN, basket=securities, workspace=DEFAULT_TENANT_ID
         ).price_history(sid)
         first = [r for r in scoped if r["d"] == date(2026, 1, 2)]
         assert len(first) == 1 and first[0]["close"] == pytest.approx(99.0)
@@ -161,10 +165,16 @@ def test_empty_member_is_memoized_not_requeried(db, securities, tmp_path):
     """A basket member with NO rows in a table gets an empty list from the prefetch and is never
     re-queried — the ``as_of_many`` rule (an entry for every requested id, ``[]`` included)."""
     _seed(db, securities)
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
-        pit = ReplayPointInTimeData(con, asof=date(2026, 1, 31), known_at=_KNOWN, basket=securities)
+        pit = ReplayPointInTimeData(
+            con,
+            asof=date(2026, 1, 31),
+            known_at=_KNOWN,
+            basket=securities,
+            workspace=DEFAULT_TENANT_ID,
+        )
         empty = securities[-1]  # seeded with nothing
         assert pit.insider_txns(empty) == []
         n_after_first = _count_queries(con, lambda: pit.insider_txns(empty))
@@ -195,11 +205,17 @@ def test_memo_key_excludes_lookback_days(db, securities, tmp_path):
     windows issue ONE query, and each still sees at least its own window (the live twin's memo rule).
     """
     _seed(db, securities)
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
         sid = securities[3]
-        pit = ReplayPointInTimeData(con, asof=date(2026, 1, 31), known_at=_KNOWN, basket=securities)
+        pit = ReplayPointInTimeData(
+            con,
+            asof=date(2026, 1, 31),
+            known_at=_KNOWN,
+            basket=securities,
+            workspace=DEFAULT_TENANT_ID,
+        )
         n_first = _count_queries(con, lambda: pit.price_history(sid, 3650))
         n_second = _count_queries(con, lambda: pit.price_history(sid, 7))
         assert n_first == 1, "the first read is the ONE basket-wide query"
@@ -214,10 +230,16 @@ def test_memo_key_excludes_lookback_days(db, securities, tmp_path):
 def test_prefetch_issues_one_query_per_table(db, securities, tmp_path):
     """The whole point: a basket-wide sweep costs ONE query per table, not one per (table, member)."""
     _seed(db, securities)
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
-        pit = ReplayPointInTimeData(con, asof=date(2026, 1, 31), known_at=_KNOWN, basket=securities)
+        pit = ReplayPointInTimeData(
+            con,
+            asof=date(2026, 1, 31),
+            known_at=_KNOWN,
+            basket=securities,
+            workspace=DEFAULT_TENANT_ID,
+        )
 
         def read_all():
             for sid in securities:
@@ -233,18 +255,20 @@ def test_row_order_is_pinned_and_deterministic(db, securities, tmp_path):
     """Row ORDER is an explicit ``ORDER BY``, not whatever ``QUALIFY`` happened to emit — repeated reads
     on fresh views agree, and the batched order matches the scoped order within a security."""
     _seed(db, securities)
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
         asof = date(2026, 1, 31)
         sid = securities[3]
         runs = [
-            ReplayPointInTimeData(con, asof=asof, known_at=_KNOWN).insider_txns(sid)
+            ReplayPointInTimeData(
+                con, asof=asof, known_at=_KNOWN, workspace=DEFAULT_TENANT_ID
+            ).insider_txns(sid)
             for _ in range(5)
         ]
         assert all(r == runs[0] for r in runs)
         batched = ReplayPointInTimeData(
-            con, asof=asof, known_at=_KNOWN, basket=securities
+            con, asof=asof, known_at=_KNOWN, basket=securities, workspace=DEFAULT_TENANT_ID
         ).insider_txns(sid)
         assert batched == runs[0]
         ident = _FACT_IDENTITY["fact_insider_txn"]
@@ -258,26 +282,40 @@ def test_bounds_floor_drops_only_older_facts(db, securities, tmp_path):
     """A registry floor drops whole facts OLDER than the floor and nothing else — it never changes which
     version of a surviving fact wins (``db/bitemporal.py:176-182``)."""
     _seed(db, securities)
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
         asof = date(2026, 1, 31)
         sid = securities[3]
-        unbounded = ReplayPointInTimeData(con, asof=asof, known_at=_KNOWN).price_history(sid)
+        unbounded = ReplayPointInTimeData(
+            con, asof=asof, known_at=_KNOWN, workspace=DEFAULT_TENANT_ID
+        ).price_history(sid)
         # a 10-day floor sits after the seeded bars (2026-01-02..) as of 2026-01-31 -> all dropped
         tight = ReplayPointInTimeData(
-            con, asof=asof, known_at=_KNOWN, bounds={"fact_price_eod": 10}
+            con,
+            asof=asof,
+            known_at=_KNOWN,
+            bounds={"fact_price_eod": 10},
+            workspace=DEFAULT_TENANT_ID,
         ).price_history(sid)
         assert unbounded and tight == []
         # a floor wider than the tape changes nothing at all
         wide = ReplayPointInTimeData(
-            con, asof=asof, known_at=_KNOWN, bounds={"fact_price_eod": 3650}
+            con,
+            asof=asof,
+            known_at=_KNOWN,
+            bounds={"fact_price_eod": 3650},
+            workspace=DEFAULT_TENANT_ID,
         ).price_history(sid)
         assert wide == unbounded
         # ...and the surviving re-versioned bar still resolves to the LATEST version under a floor
         sid0 = securities[0]
         bounded0 = ReplayPointInTimeData(
-            con, asof=asof, known_at=_KNOWN, bounds={"fact_price_eod": 3650}
+            con,
+            asof=asof,
+            known_at=_KNOWN,
+            bounds={"fact_price_eod": 3650},
+            workspace=DEFAULT_TENANT_ID,
         ).price_history(sid0)
         first = [r for r in bounded0 if r["d"] == date(2026, 1, 2)]
         assert len(first) == 1 and first[0]["close"] == pytest.approx(99.0)
@@ -288,14 +326,21 @@ def test_bounds_floor_drops_only_older_facts(db, securities, tmp_path):
 def test_bounds_apply_identically_on_both_paths(db, securities, tmp_path):
     """The floor is applied on the scoped path AND the prefetch path, with the same result."""
     _seed(db, securities)
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
         asof = date(2026, 1, 31)
         bounds = {"fact_price_eod": 32, "fact_insider_txn": 32}
-        scoped = ReplayPointInTimeData(con, asof=asof, known_at=_KNOWN, bounds=bounds)
+        scoped = ReplayPointInTimeData(
+            con, asof=asof, known_at=_KNOWN, bounds=bounds, workspace=DEFAULT_TENANT_ID
+        )
         batched = ReplayPointInTimeData(
-            con, asof=asof, known_at=_KNOWN, basket=securities, bounds=bounds
+            con,
+            asof=asof,
+            known_at=_KNOWN,
+            basket=securities,
+            bounds=bounds,
+            workspace=DEFAULT_TENANT_ID,
         )
         for sid in securities:
             assert scoped.price_history(sid) == batched.price_history(sid)
@@ -329,10 +374,12 @@ def test_bounds_come_from_the_run_cfg_not_the_default():
 def test_unbounded_by_default(db, securities, tmp_path):
     """No ``bounds`` argument means NO floor — every pre-B5a caller (and the parity gate) is unchanged."""
     _seed(db, securities)
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
-        pit = ReplayPointInTimeData(con, asof=date(2026, 1, 31), known_at=_KNOWN)
+        pit = ReplayPointInTimeData(
+            con, asof=date(2026, 1, 31), known_at=_KNOWN, workspace=DEFAULT_TENANT_ID
+        )
         assert pit._lower("fact_price_eod") is None
         assert len(pit.price_history(securities[3])) == 6
     finally:
@@ -342,10 +389,12 @@ def test_unbounded_by_default(db, securities, tmp_path):
 def test_unknown_table_still_raises(db, securities, tmp_path):
     """The whitelist guard survives the seam rewrite."""
     _seed(db, securities)
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
-        pit = ReplayPointInTimeData(con, asof=date(2026, 1, 31), known_at=_KNOWN)
+        pit = ReplayPointInTimeData(
+            con, asof=date(2026, 1, 31), known_at=_KNOWN, workspace=DEFAULT_TENANT_ID
+        )
         with pytest.raises(ValueError, match="unknown fact table"):
             pit._as_of("fact_not_a_table", "security_id", securities[0])
     finally:
@@ -355,10 +404,16 @@ def test_unknown_table_still_raises(db, securities, tmp_path):
 def test_memo_hands_back_a_fresh_list(db, securities, tmp_path):
     """Mutating a returned list must not corrupt the memo (the live twin's rule)."""
     _seed(db, securities)
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
-        pit = ReplayPointInTimeData(con, asof=date(2026, 1, 31), known_at=_KNOWN, basket=securities)
+        pit = ReplayPointInTimeData(
+            con,
+            asof=date(2026, 1, 31),
+            known_at=_KNOWN,
+            basket=securities,
+            workspace=DEFAULT_TENANT_ID,
+        )
         sid = securities[3]
         rows = pit.price_history(sid)
         n = len(rows)
@@ -371,12 +426,16 @@ def test_memo_hands_back_a_fresh_list(db, securities, tmp_path):
 def test_member_outside_the_basket_falls_back(db, securities, tmp_path):
     """An id outside the basket (a benchmark) takes the per-security path and is memoized there."""
     _seed(db, securities)
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
         outsider = securities[3]
         pit = ReplayPointInTimeData(
-            con, asof=date(2026, 1, 31), known_at=_KNOWN, basket=securities[:2]
+            con,
+            asof=date(2026, 1, 31),
+            known_at=_KNOWN,
+            basket=securities[:2],
+            workspace=DEFAULT_TENANT_ID,
         )
         rows = pit.price_history(outsider)
         assert rows  # served, not silently empty

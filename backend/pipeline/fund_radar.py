@@ -25,6 +25,7 @@ import psycopg
 
 from db.session import connect
 from domain.market_time import market_today
+from domain.scopes import WORKSPACE_ANY
 from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
 from radar import fund_match, fund_repo, fund_stage
 from radar.fund_cards import load_cards
@@ -174,7 +175,7 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 build_report(
                     launches,
-                    load_cards(conn),
+                    load_cards(conn, workspace=WORKSPACE_ANY),
                     today=market_today(),
                     window_days=args.window_days,
                     include_private=args.include_private,

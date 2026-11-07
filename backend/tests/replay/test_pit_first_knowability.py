@@ -67,7 +67,7 @@ def mirror(db, tmp_path):
     db.commit()
     for name, versions in _FIXTURES.items():
         store_versions(db, sids[name], versions)
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
         yield sids, con
@@ -83,9 +83,15 @@ def test_mirror_first_knowability_matches_postgres_row_for_row(db, mirror):
     sids, con = mirror
     basket = list(sids.values())
     for asof, known_at in _PINS:
-        live_pit = PointInTimeData(db, asof=asof, known_at=known_at, basket=basket)
-        scoped = ReplayPointInTimeData(con, asof=asof, known_at=known_at)
-        batched = ReplayPointInTimeData(con, asof=asof, known_at=known_at, basket=basket)
+        live_pit = PointInTimeData(
+            db, asof=asof, known_at=known_at, basket=basket, workspace=DEFAULT_TENANT_ID
+        )
+        scoped = ReplayPointInTimeData(
+            con, asof=asof, known_at=known_at, workspace=DEFAULT_TENANT_ID
+        )
+        batched = ReplayPointInTimeData(
+            con, asof=asof, known_at=known_at, basket=basket, workspace=DEFAULT_TENANT_ID
+        )
         for name, sid in sids.items():
             live = live_pit.fundamentals_facts(sid)
             rep_s, rep_b = scoped.fundamentals_facts(sid), batched.fundamentals_facts(sid)
@@ -103,10 +109,18 @@ def test_detector_events_are_identical_live_and_in_replay(db, mirror):
     for asof, known_at in _PINS:
         for name, sid in sids.items():
             live = ra.detect(
-                PointInTimeData(db, asof=asof, known_at=known_at), sid, asof, DEFAULT_CONFIG
+                PointInTimeData(db, asof=asof, known_at=known_at, workspace=DEFAULT_TENANT_ID),
+                sid,
+                asof,
+                DEFAULT_CONFIG,
             )
             rep = ra.detect(
-                ReplayPointInTimeData(con, asof=asof, known_at=known_at), sid, asof, DEFAULT_CONFIG
+                ReplayPointInTimeData(
+                    con, asof=asof, known_at=known_at, workspace=DEFAULT_TENANT_ID
+                ),
+                sid,
+                asof,
+                DEFAULT_CONFIG,
             )
             assert (live is None) == (rep is None), (name, asof, known_at)
             if live is not None:
@@ -123,7 +137,7 @@ def test_mirror_hides_the_comparative_between_filings_and_dates_at_the_first_fil
     rows = {
         r["period_end"]: r
         for r in ReplayPointInTimeData(
-            con, asof=date(2026, 10, 1), known_at=between
+            con, asof=date(2026, 10, 1), known_at=between, workspace=DEFAULT_TENANT_ID
         ).fundamentals_facts(gev)
     }
     q = rows[date(2025, 3, 31)]
@@ -133,7 +147,7 @@ def test_mirror_hides_the_comparative_between_filings_and_dates_at_the_first_fil
     rows = {
         r["period_end"]: r
         for r in ReplayPointInTimeData(
-            con, asof=date(2026, 10, 1), known_at=after
+            con, asof=date(2026, 10, 1), known_at=after, workspace=DEFAULT_TENANT_ID
         ).fundamentals_facts(gev)
     }
     q = rows[date(2025, 3, 31)]
@@ -149,14 +163,18 @@ def test_replay_gev_cites_q1_2026_and_ceg_does_not_rearm_on_its_comparative(mirr
     sids, con = mirror
     a = date(2026, 10, 1)
     ev = ra.detect(
-        ReplayPointInTimeData(con, asof=a, known_at=known_at_for_asof(a)),
+        ReplayPointInTimeData(
+            con, asof=a, known_at=known_at_for_asof(a), workspace=DEFAULT_TENANT_ID
+        ),
         sids["GEV"],
         a,
         DEFAULT_CONFIG,
     )
     assert ev is not None and ev.asof == date(2026, 4, 22) and "ending 2026-03-31" in ev.label
     n = date(2026, 10, 15)
-    pit = ReplayPointInTimeData(con, asof=n, known_at=known_at_for_asof(n))
+    pit = ReplayPointInTimeData(
+        con, asof=n, known_at=known_at_for_asof(n), workspace=DEFAULT_TENANT_ID
+    )
     assert ra.detect(pit, sids["CEG"], n, DEFAULT_CONFIG) is None
 
 
@@ -194,7 +212,7 @@ def test_honest_stamps_hold_replay_parity_at_every_pin(db, honest, tmp_path):
     historical pin (where the honest rows are not held yet: both engines return nothing for them), just
     before and at each honest history's stamp, and far ahead."""
     legacy, live, stamps = honest
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
         sids = [*legacy.values(), *live.values()]
@@ -205,9 +223,15 @@ def test_honest_stamps_hold_replay_parity_at_every_pin(db, honest, tmp_path):
                 (date(2026, 10, 15), stamp),
             ]
         for asof, known_at in pins:
-            live_pit = PointInTimeData(db, asof=asof, known_at=known_at, basket=sids)
-            scoped = ReplayPointInTimeData(con, asof=asof, known_at=known_at)
-            batched = ReplayPointInTimeData(con, asof=asof, known_at=known_at, basket=sids)
+            live_pit = PointInTimeData(
+                db, asof=asof, known_at=known_at, basket=sids, workspace=DEFAULT_TENANT_ID
+            )
+            scoped = ReplayPointInTimeData(
+                con, asof=asof, known_at=known_at, workspace=DEFAULT_TENANT_ID
+            )
+            batched = ReplayPointInTimeData(
+                con, asof=asof, known_at=known_at, basket=sids, workspace=DEFAULT_TENANT_ID
+            )
             for sid in sids:
                 pg = live_pit.fundamentals_facts(sid)
                 rep_s, rep_b = scoped.fundamentals_facts(sid), batched.fundamentals_facts(sid)
@@ -228,12 +252,14 @@ def test_a_backtest_reads_honest_rows_exactly_like_backdated_ones(db, honest, tm
     their filing whatever the stamp) — a history written under one honest stamp reads row-for-row and
     event-for-event like the same history under the backdated stamps."""
     legacy, live, _stamps = honest
-    export_snapshot(db, tmp_path, clock=clock)
+    export_snapshot(db, tmp_path, clock=clock, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
         pins = _PINS if clock == "public" else [p for p in _PINS if p[1].year == 2100]
         for asof, known_at in pins:
-            pit = ReplayPointInTimeData(con, asof=asof, known_at=known_at)
+            pit = ReplayPointInTimeData(
+                con, asof=asof, known_at=known_at, workspace=DEFAULT_TENANT_ID
+            )
             for name in _FIXTURES:
                 a, b = pit.fundamentals_facts(legacy[name]), pit.fundamentals_facts(live[name])
                 # the bookkeeping stamps differ by construction: ``recorded_at`` on a record mirror, and on a

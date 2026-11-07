@@ -10,11 +10,13 @@ from app.routers import workbench as workbench_router
 from db.session import DEFAULT_TENANT_ID
 from domain.enums import TermTier
 from domain.market_time import known_at_for_asof, market_today
+from domain.scopes import WORKSPACE_ANY
 from domain.thesis import BasketMember, Segment, TermSetEntry, Thesis
 from ingest.cash_burn import ingest_cash_burn
 from ingest.revenue_mix import ingest_revenue_mix
 from repositories import thesis_repo
 from signals.base import PointInTimeData
+from tests.auth_fixtures import TEST_STEWARD
 
 # The measured serve-path leak's shape (the 2026-09-09 audit, fixed by #336): facts dated
 # in the past, INGESTED long after (the 2026-09-01 thaw). Any instant after the June as-of's day-end works.
@@ -1549,7 +1551,9 @@ def test_ratify_cash_burn_writes_and_rederives_runway(client, db, security_id):
             (security_id,),
         )
         row = cur.fetchone()
-    assert row["ratified_by"] == "operator" and row["source"] == "10-q"  # stamped + basis preserved
+    assert (
+        row["ratified_by"] == TEST_STEWARD.email and row["source"] == "10-q"
+    )  # stamped + basis preserved
 
 
 def test_ratify_revenue_mix_preserves_the_basis_source(client, db, security_id):
@@ -1771,7 +1775,7 @@ def test_auto_confirm_never_clobbers_an_operator_override(client, db, monkeypatc
     from app.routers import workbench as wb
 
     sid = _insert_security(db, "NNE", name="Nano Nuclear Energy", cik="0001923891")
-    # the operator's own ratify lands first (their judgment, ratified_by="operator")
+    # the operator's own ratify lands first (their judgment, ratified_by = the signed-in user)
     assert (
         client.post(
             "/workbench/facts",
@@ -1796,7 +1800,7 @@ def test_auto_confirm_never_clobbers_an_operator_override(client, db, monkeypatc
         rows = cur.fetchall()
     assert len(rows) == 1  # the auto path appended nothing
     assert float(rows[0]["shares"]) == 99_000_000.0  # the OPERATOR's value stands
-    assert rows[0]["ratified_by"] == "operator"
+    assert rows[0]["ratified_by"] == TEST_STEWARD.email
 
 
 def test_auto_confirm_ignores_any_client_supplied_value(client, db, monkeypatch):
@@ -3865,7 +3869,9 @@ def test_promote_keeps_a_role_on_both_rows_of_a_two_link_company_through_get_and
         )
         (snap,) = cur.fetchall()
     assert [m["context_role"] for m in snap["members"]] == ["counter_case", "counter_case"]
-    asof = thesis_repo.get_asof(db, uuid.UUID(tid), datetime.now(timezone.utc))
+    asof = thesis_repo.get_asof(
+        db, uuid.UUID(tid), datetime.now(timezone.utc), workspace=WORKSPACE_ANY
+    )
     assert [m.context_role.value for m in asof.basket] == ["counter_case", "counter_case"]
 
 

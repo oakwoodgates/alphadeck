@@ -15,7 +15,7 @@ import argparse
 from datetime import date
 from uuid import UUID
 
-from db.session import DEFAULT_TENANT_ID, connect
+from db.session import connect
 from domain.enums import CatalystType, Grade
 from domain.scopes import DATA_TENANT_ID
 from ingest.catalyst import ingest_catalyst
@@ -41,18 +41,19 @@ def main(argv: list[str] | None = None) -> None:
     )
     p.add_argument("--by", default="operator", help="who ratified")
     p.add_argument(
-        "--tenant-id",
-        default=str(DEFAULT_TENANT_ID),
-        help="the workspace tenant the fact is written under (the company resolves in the shared DATA master); defaults to the demo tenant",
+        "--workspace",
+        required=True,
+        help="the workspace the fact is written under (a ratified fact is that workspace's own; the company "
+        "resolves in the shared DATA master) -- the workspace id from `pipeline.users list`",
     )
     a = p.parse_args(argv)
 
-    tenant_id = UUID(a.tenant_id)
+    tenant_id = UUID(a.workspace)
     conn = connect()
     try:
         sid = resolve_security(
             conn, a.ticker, DATA_TENANT_ID
-        )  # the master is DATA; the fact: --tenant-id
+        )  # the master is DATA; the fact: --workspace
         fid = ingest_catalyst(
             conn,
             sid,

@@ -74,6 +74,7 @@ from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard
 from domain.market_cap import CapTier
 from domain.market_time import market_today, market_tz
+from domain.scopes import WORKSPACE_ANY
 from domain.splits import ListedSplit, listed_from_row
 from domain.thesis import BasketMember, Thesis
 from domain.trading_days import NYSE_CLOSURES
@@ -1086,7 +1087,7 @@ def stub_client(monkeypatch):
     days = weekdays(date(2026, 6, 1), 40)
     bars = [Bar(d, 10.0 + i, 100_000.0) for i, d in enumerate(days)]
 
-    def fake_read(conn, asof, known_at, clock, edition, exclude_annotated, exclude_late):
+    def fake_read(conn, asof, known_at, clock, edition, exclude_annotated, exclude_late, **_):
         seen["reads"].append((asof, known_at, clock, edition, exclude_annotated, exclude_late))
         market = market_of(bars, [])
         row = build_row(
@@ -1294,7 +1295,7 @@ def _card(db, name: str, sid: UUID, ticker: str) -> Thesis:
     )
     thesis_repo.upsert(db, thesis)
     db.commit()
-    return thesis_repo.get(db, thesis.id)
+    return thesis_repo.get(db, thesis.id, workspace=WORKSPACE_ANY)
 
 
 def _arm(
@@ -1591,7 +1592,7 @@ def test_a_stopped_feed_off_every_live_card_is_left_out_as_no_longer_priced(
     db, pinned_today, world, monkeypatch
 ):
     _stopped_world(db)
-    monkeypatch.setattr(router_mod, "live_card_ids", lambda conn: set())
+    monkeypatch.setattr(router_mod, "live_card_ids", lambda conn, **_: set())
     body = _get(db, asof="2026-06-24").json()
     by = {r["ticker"]: r for r in body["rows"]}
     assert by["STOPD"]["left_out"] == "no_longer_priced"
@@ -1614,10 +1615,14 @@ def test_the_shared_price_flag_reason_follows_whether_the_company_sits_on_a_live
     closes = {d: 8.0 + 0.05 * i for i, d in enumerate(TAPE_DAYS)}
     _bars(db, offc, closes, volume=80_000.0, until=date(2026, 6, 12))
     asof = date(2026, 6, 24)
-    got = baskets.price_flags(db, [stopd, offc], asof, known_at=None, clock="public")
+    got = baskets.price_flags(
+        db, [stopd, offc], asof, known_at=None, clock="public", workspace=DEFAULT_TENANT_ID
+    )
     assert got[stopd] == "price feed stopped"
     assert got[offc] == "no longer priced: off every live card since 2026-06-12"
-    assert offc not in baskets.live_card_ids(db) and stopd in baskets.live_card_ids(db)
+    assert offc not in baskets.live_card_ids(
+        db, workspace=DEFAULT_TENANT_ID
+    ) and stopd in baskets.live_card_ids(db, workspace=DEFAULT_TENANT_ID)
 
 
 def test_a_delisted_company_is_counted_and_its_later_horizons_read_path_ended(
@@ -1627,7 +1632,9 @@ def test_a_delisted_company_is_counted_and_its_later_horizons_read_path_ended(
     is COUNTED and the horizons past the last bar read path ended (still in the denominators)."""
     stopd = _stopped_world(db)
     monkeypatch.setattr(router_mod.flags_reader, "run_reads", lambda: (_closed_reading(stopd), {}))
-    monkeypatch.setattr(router_mod, "live_card_ids", lambda conn: set())  # it left the cards too
+    monkeypatch.setattr(
+        router_mod, "live_card_ids", lambda conn, **_: set()
+    )  # it left the cards too
     body = _get(db, asof="2026-06-24").json()
     by = {r["ticker"]: r for r in body["rows"]}
     assert by["STOPD"]["left_out"] is None and by["STOPD"]["feed_stopped"] is True
@@ -1713,7 +1720,7 @@ def test_the_exit_by_column_reconciles_with_the_scoreboards_forward_return_to_th
     from scoreboard.record import scoreboard_records
 
     asof = date(2026, 6, 24)
-    result, _, _ = scoreboard_records(db, asof)
+    result, _, _ = scoreboard_records(db, asof, workspace=DEFAULT_TENANT_ID)
     (scored,) = [se for t in result.theses for se in t.episodes]
     body = _get(db, asof=asof.isoformat()).json()
     span = body["rows"][0]["arm_night"]["spans"]["exit_by"]

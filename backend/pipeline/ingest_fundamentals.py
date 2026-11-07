@@ -46,7 +46,7 @@ from psycopg.pq import TransactionStatus
 
 from db.session import connect, name_session
 from db.write_lock import CompanyLockBusy, acquire_company_lock
-from domain.scopes import DATA_TENANT_ID
+from domain.scopes import DATA_TENANT_ID, WORKSPACE_ANY
 from domain.security import Security
 from domain.settings import get_settings
 from ingest.edgar.client import RECURRING_CACHE_TTL_S, CachedNotFound, EdgarClient
@@ -180,12 +180,12 @@ def ingest_fundamentals(
         allow_live=allow_live, user_agent=user_agent, cache_ttl_s=RECURRING_CACHE_TTL_S
     )
     if thesis_id is not None:
-        one = thesis_repo.get(conn, thesis_id)
+        one = thesis_repo.get(conn, thesis_id, workspace=WORKSPACE_ANY)
         if one is None:
             raise LookupError(f"thesis {thesis_id} not found")
         theses = [one]
     else:
-        theses = thesis_repo.list_all(conn)
+        theses = thesis_repo.list_all(conn, workspace=WORKSPACE_ANY)
 
     memo = PassMemo()
     results: list[NameResult] = []

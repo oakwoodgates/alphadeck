@@ -20,7 +20,7 @@ import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from app.deps import get_conn
+from app.deps import get_conn, get_workspace
 from dashboards.baskets import (  # noqa: F401  (CardsRead: the picker's read; tests stub read_cards)
     CardsRead,
     memberships_of,
@@ -254,6 +254,8 @@ def read_inputs(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> LedgerBase:
     """The heavy read the cache holds: the card's roster as of the as-of (``baskets.cards_as_of``'s rule for one
     card: the live view reads today's roster, a past view the latest snapshot by ``known_at``, today's roster
@@ -261,10 +263,10 @@ def read_inputs(
     company (Context and Bench included: the page tags them) for the shared reader's year, and the roster
     snapshots that date a role."""
     if known_at is None:
-        card, fallback = thesis_repo.get(conn, thesis_id), False
+        card, fallback = thesis_repo.get(conn, thesis_id, workspace=workspace), False
     else:
         fallback = not thesis_repo.snapshot_exists_asof(conn, thesis_id, known_at)
-        card = thesis_repo.get_asof(conn, thesis_id, known_at)
+        card = thesis_repo.get_asof(conn, thesis_id, known_at, workspace=workspace)
     if card is None:
         raise HTTPException(status_code=404, detail="card not counted at this as-of")
     memberships = memberships_of([card])
@@ -295,6 +297,7 @@ def read_inputs(
             clock,
             days=READ_DAYS,
             tickers=tickers,
+            workspace=workspace,
         ),
         snapshots=read_role_snapshots(conn, thesis_id, known_at),
         roster_fallback=fallback,
@@ -302,9 +305,16 @@ def read_inputs(
 
 
 def _cards(
-    conn: psycopg.Connection, asof: date, clock: Literal["record", "public"]
+    conn: psycopg.Connection, asof: date, clock: Literal["record", "public"], *, workspace: UUID
 ) -> Cached[CardsRead]:
-    return cached(conn, SLUG, ("cards", clock), asof, lambda: read_cards(conn, asof))
+    return cached(
+        conn,
+        SLUG,
+        ("cards", clock),
+        asof,
+        lambda: read_cards(conn, asof, workspace=workspace),
+        workspace=workspace,
+    )
 
 
 @router.get("/cards", response_model=EvidenceLedgerCardsOut)
@@ -313,11 +323,12 @@ def evidence_ledger_cards(
         ..., description="as-of date; only the cards that existed by then are listed"
     ),
     conn: psycopg.Connection = Depends(get_conn),
+    workspace: UUID = Depends(get_workspace),
 ) -> EvidenceLedgerCardsOut:
     """The card picker: the live cards that existed by the as-of, A→Z, each with its link count today. Display
     only."""
     _, clock = serve_view(asof)
-    got = _cards(conn, asof, clock)
+    got = _cards(conn, asof, clock, workspace=workspace)
     return EvidenceLedgerCardsOut.model_validate(
         {
             "asof": asof,
@@ -337,6 +348,7 @@ def evidence_ledger_for_card(
         ..., description="as-of date; no call recorded for a later night, no fact public after it"
     ),
     conn: psycopg.Connection = Depends(get_conn),
+    workspace: UUID = Depends(get_workspace),
 ) -> EvidenceLedgerOut:
     """Everything one card's call and facts rest on, in one list: the recorded call's triggers and risk signals
     with their sources, the ratified and stored facts, the card's catalysts, kill criteria and evidence links and
@@ -345,7 +357,9 @@ def evidence_ledger_for_card(
     public by the end of that date (a fact ratified after it never appears). The card's own entries are read live.
     404 when the card is not counted at the as-of."""
     known_at, clock = serve_view(asof)
-    if not any(c.thesis_id == thesis_id for c in _cards(conn, asof, clock).value.cards):
+    if not any(
+        c.thesis_id == thesis_id for c in _cards(conn, asof, clock, workspace=workspace).value.cards
+    ):
         raise HTTPException(status_code=404, detail="card not counted at this as-of")
     # the clock is part of the key: the same date read live today and on the public clock tomorrow are two
     # reads (a new run clears the cache anyway; this holds even on a night with no run)
@@ -354,10 +368,11 @@ def evidence_ledger_for_card(
         SLUG,
         (str(thesis_id), clock),
         asof,
-        lambda: read_inputs(conn, thesis_id, asof, known_at, clock),
+        lambda: read_inputs(conn, thesis_id, asof, known_at, clock, workspace=workspace),
+        workspace=workspace,
     )
     # the card's own entries are not snapshotted: read them now, not from the cache
-    live = thesis_repo.get(conn, thesis_id)
+    live = thesis_repo.get(conn, thesis_id, workspace=workspace)
     if live is None:
         raise HTTPException(status_code=404, detail="card not counted at this as-of")
     page = evidence_ledger(got.value, card_entries(live), asof=asof)

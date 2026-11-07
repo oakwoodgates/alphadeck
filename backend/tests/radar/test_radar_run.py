@@ -14,6 +14,7 @@ import pytest
 
 from db.session import DEFAULT_TENANT_ID
 from domain.enums import TermTier
+from domain.scopes import WORKSPACE_ANY
 from domain.thesis import TermSetEntry, Thesis
 from ingest import CacheMiss
 from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
@@ -131,7 +132,7 @@ def test_radar_run_accretes_persists_matches_and_is_idempotent(db, cache):
     thesis = _seed_thesis(db)
     client = EdgarClient(cache_dir=cache, allow_live=False)
 
-    r = run_spac_radar(db, until=D, days=1, edgar_client=client)
+    r = run_spac_radar(db, until=D, days=1, edgar_client=client, workspace=WORKSPACE_ANY)
 
     # accretion: the unknown 425-filer classified from its own SIC; the pharma 425-filer was not
     assert r.shells_admitted == ["0000002222"]
@@ -159,7 +160,7 @@ def test_radar_run_accretes_persists_matches_and_is_idempotent(db, cache):
     assert m["matched_signal"] == ["psilocybin"] and m["matched_broad"] == []
 
     # IDEMPOTENCY — the re-scan appends nothing; the TABLES do not grow (count, not the read)
-    r2 = run_spac_radar(db, until=D, days=1, edgar_client=client)
+    r2 = run_spac_radar(db, until=D, days=1, edgar_client=client, workspace=WORKSPACE_ANY)
     assert r2.events_appended == 0 and r2.events_unchanged == 2
     assert r2.matches_appended == 0 and r2.matches_unchanged == 1
     assert r2.shells_admitted == []  # now known via the enriched master row, not re-admitted
@@ -171,7 +172,9 @@ def test_radar_run_accretes_persists_matches_and_is_idempotent(db, cache):
 
 def test_uncached_day_skips_quietly_no_live(db, cache):
     client = EdgarClient(cache_dir=cache, allow_live=False)
-    r = run_spac_radar(db, until=date(2026, 8, 4), days=1, edgar_client=client)
+    r = run_spac_radar(
+        db, until=date(2026, 8, 4), days=1, edgar_client=client, workspace=WORKSPACE_ANY
+    )
     assert r.dates_scanned == [] and r.events_appended == 0
     assert any("not cached" in s for s in r.dates_skipped)
     assert r.errors == []
@@ -227,7 +230,7 @@ def test_radar_builds_its_edgar_client_with_the_RECURRING_TTL(db, monkeypatch):
     _RecordingEdgar.seen = []
     monkeypatch.setattr("radar.spac.EdgarClient", _RecordingEdgar)
 
-    run_spac_radar(db, until=D, days=1, allow_live=True)
+    run_spac_radar(db, until=D, days=1, allow_live=True, workspace=WORKSPACE_ANY)
 
     assert len(_RecordingEdgar.seen) == 1
     assert _RecordingEdgar.seen[0]["cache_ttl_s"] == RECURRING_CACHE_TTL_S
@@ -306,7 +309,9 @@ def test_announced_transition_on_a_matched_company_pages_once(db, cache):
     client = EdgarClient(cache_dir=cache, allow_live=False)
     notifier = _CaptureNotifier()
 
-    r = run_spac_radar(db, until=D, days=1, edgar_client=client, notifier=notifier)
+    r = run_spac_radar(
+        db, until=D, days=1, edgar_client=client, notifier=notifier, workspace=WORKSPACE_ANY
+    )
 
     assert r.status_notifications == 1 and len(notifier.spac_status) == 1
     evt = notifier.spac_status[0]
@@ -328,11 +333,15 @@ def test_a_second_run_over_the_same_transition_is_silent(db, cache):
     client = EdgarClient(cache_dir=cache, allow_live=False)
 
     first = _CaptureNotifier()
-    run_spac_radar(db, until=D, days=1, edgar_client=client, notifier=first)
+    run_spac_radar(
+        db, until=D, days=1, edgar_client=client, notifier=first, workspace=WORKSPACE_ANY
+    )
     assert len(first.spac_status) == 1  # the → announced transition paged once
 
     second = _CaptureNotifier()
-    r2 = run_spac_radar(db, until=D, days=1, edgar_client=client, notifier=second)
+    r2 = run_spac_radar(
+        db, until=D, days=1, edgar_client=client, notifier=second, workspace=WORKSPACE_ANY
+    )
     assert second.spac_status == [] and r2.status_notifications == 0  # silent on the re-scan
 
 
@@ -351,7 +360,9 @@ def test_an_unchanged_status_pages_nothing(db, tmp_path):
     client = EdgarClient(cache_dir=cache, allow_live=False)
     notifier = _CaptureNotifier()
 
-    r = run_spac_radar(db, until=D, days=1, edgar_client=client, notifier=notifier)
+    r = run_spac_radar(
+        db, until=D, days=1, edgar_client=client, notifier=notifier, workspace=WORKSPACE_ANY
+    )
 
     assert r.events_appended == 1  # the proxy WAS recorded (a watched event) …
     assert deal_state(_state_events(db, "0000006666")) == "searching"  # … but the deal did not move
@@ -372,7 +383,9 @@ def test_announced_on_a_non_matched_universe_pages_nothing(db, cache):
     client = EdgarClient(cache_dir=cache, allow_live=False)
     notifier = _CaptureNotifier()
 
-    r = run_spac_radar(db, until=D, days=1, edgar_client=client, notifier=notifier)
+    r = run_spac_radar(
+        db, until=D, days=1, edgar_client=client, notifier=notifier, workspace=WORKSPACE_ANY
+    )
 
     assert r.matches_appended == 0  # nothing matched the thesis …
     assert notifier.spac_status == [] and r.status_notifications == 0  # … so nothing paged
@@ -422,7 +435,9 @@ def test_terminated_and_completed_do_NOT_page_announced_only(db, tmp_path, item,
     client = EdgarClient(cache_dir=cache, allow_live=False)
     notifier = _CaptureNotifier()
 
-    r = run_spac_radar(db, until=D, days=1, edgar_client=client, notifier=notifier)
+    r = run_spac_radar(
+        db, until=D, days=1, edgar_client=client, notifier=notifier, workspace=WORKSPACE_ANY
+    )
 
     assert deal_state(_state_events(db, "0000005555")) == expected  # the move really happened …
     assert notifier.spac_status == [] and r.status_notifications == 0  # … just not one we page on

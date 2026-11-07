@@ -20,10 +20,14 @@ def test_pit_insider_txns_have_no_lookahead(db, security_id):
     xml = (_F / "edgar" / "form4_sample.xml").read_text(encoding="utf-8")
     assert ingest_form4(db, security_id, xml, "0001234567-26-000123") == (2, 0)
 
-    early = PointInTimeData(db, asof=date(2026, 5, 20), known_at=_KNOWN).insider_txns(security_id)
+    early = PointInTimeData(
+        db, asof=date(2026, 5, 20), known_at=_KNOWN, workspace=DEFAULT_TENANT_ID
+    ).insider_txns(security_id)
     assert {r["txn_code"] for r in early} == {"S"}  # only the 05-15 sale; the 06-01 buy is future
 
-    later = PointInTimeData(db, asof=date(2026, 6, 1), known_at=_KNOWN).insider_txns(security_id)
+    later = PointInTimeData(
+        db, asof=date(2026, 6, 1), known_at=_KNOWN, workspace=DEFAULT_TENANT_ID
+    ).insider_txns(security_id)
     assert len(later) == 2
 
 
@@ -43,11 +47,17 @@ def test_pit_insider_transaction_time_gate_keys_on_recorded_at(db, security_id):
     )
     db.commit()
     blind = PointInTimeData(
-        db, asof=date(2026, 6, 15), known_at=datetime(2026, 6, 10, tzinfo=timezone.utc)
+        db,
+        asof=date(2026, 6, 15),
+        known_at=datetime(2026, 6, 10, tzinfo=timezone.utc),
+        workspace=DEFAULT_TENANT_ID,
     ).insider_txns(security_id)
     assert blind == []  # accepted 06-03 does NOT open the gate — recorded_at 09-01 is the axis
     seen = PointInTimeData(
-        db, asof=date(2026, 6, 15), known_at=datetime(2026, 9, 2, tzinfo=timezone.utc)
+        db,
+        asof=date(2026, 6, 15),
+        known_at=datetime(2026, 9, 2, tzinfo=timezone.utc),
+        workspace=DEFAULT_TENANT_ID,
     ).insider_txns(security_id)
     assert len(seen) == 2 and all(
         t["accession"] == "acc-accepted" for t in seen
@@ -71,7 +81,7 @@ def test_real_hims_wells_buy_fires_core_via_pit(db, security_id):
         db, security_id, "0001773751"
     )  # R8-A: the security IS the Wells Form 4's issuer (HIMS)
     ingest_form4(db, security_id, xml, "0001773751-26-000086")
-    pit = PointInTimeData(db, asof=date(2026, 6, 1), known_at=_KNOWN)
+    pit = PointInTimeData(db, asof=date(2026, 6, 1), known_at=_KNOWN, workspace=DEFAULT_TENANT_ID)
     ev = insider_conviction.detect(pit, security_id, date(2026, 6, 1), DEFAULT_CONFIG)
     assert ev is not None and ev.grade is Grade.CORE
     assert "1,172,974" in ev.label
@@ -86,7 +96,7 @@ def test_security_name_reads_the_master(db):
             (sid, DEFAULT_TENANT_ID, "KYOCY", "0000054321", "KYOCERA CORP", "2020-01-01"),
         )
     db.commit()
-    pit = PointInTimeData(db, asof=date(2026, 6, 1), known_at=_KNOWN)
+    pit = PointInTimeData(db, asof=date(2026, 6, 1), known_at=_KNOWN, workspace=DEFAULT_TENANT_ID)
     assert pit.security_name(sid) == "KYOCERA CORP"
     assert pit.security_name(uuid.uuid4()) is None  # unknown id -> None (screen keeps the row)
 
@@ -107,7 +117,7 @@ def test_pit_self_filing_excluded_from_call_but_kept_on_tape(db, security_id):
     assert ingest_form4(db, security_id, self_xml, "acc-self") == (2, 0)
     db.commit()
 
-    pit = PointInTimeData(db, asof=date(2026, 6, 1), known_at=_KNOWN)
+    pit = PointInTimeData(db, asof=date(2026, 6, 1), known_at=_KNOWN, workspace=DEFAULT_TENANT_ID)
     # kept on the tape: the self-filing rows are still returned by the point-in-time read (recall #9)
     txns = pit.insider_txns(security_id)
     assert any(t["accession"] == "acc-self" for t in txns)
@@ -119,9 +129,13 @@ def test_pit_price_history_has_no_lookahead(db, security_id):
     rows = parse_stooq_csv((_F / "prices" / "DEVCO.csv").read_text(encoding="utf-8"))
     assert ingest_prices(db, security_id, rows) == 10
 
-    hist = PointInTimeData(db, asof=date(2026, 5, 22), known_at=_KNOWN).price_history(security_id)
+    hist = PointInTimeData(
+        db, asof=date(2026, 5, 22), known_at=_KNOWN, workspace=DEFAULT_TENANT_ID
+    ).price_history(security_id)
     assert len(hist) == 5  # 05-18 .. 05-22
     assert hist[-1]["d"] == date(2026, 5, 22)  # nothing after asof
 
-    full = PointInTimeData(db, asof=date(2026, 6, 1), known_at=_KNOWN).price_history(security_id)
+    full = PointInTimeData(
+        db, asof=date(2026, 6, 1), known_at=_KNOWN, workspace=DEFAULT_TENANT_ID
+    ).price_history(security_id)
     assert len(full) == 10

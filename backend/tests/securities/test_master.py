@@ -474,10 +474,10 @@ def test_all_cik_primary_ids_picks_the_primary_sibling_and_skips_cikless(db):
 def test_all_cik_primary_ids_is_tenant_scoped(db):
     """Tenant isolation (#5): the map covers ONLY the asked tenant's rows — another tenant's CIK never
     leaks into a universe scope (a leaked id would let the enrich write under the wrong tenant)."""
-    from pipeline.provision_tenant import provision_tenant
+    from tests.workspaces import new_workspace
 
     other = uuid.UUID("00000000-0000-0000-0000-0000000000ad")
-    provision_tenant(db, "other", tenant_id=other)
+    new_workspace(db, "other", workspace_id=other)
     db.commit()
     mine = _insert(db, ticker="OKLO", cik="0001849056")
     _insert(db, ticker="FRGN", cik="0009999999", tenant_id=other)

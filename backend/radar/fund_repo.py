@@ -14,7 +14,7 @@ from uuid import UUID
 import psycopg
 from psycopg.types.json import Jsonb
 
-from db.session import DEFAULT_TENANT_ID
+from domain.scopes import DATA_TENANT_ID
 from domain.settings import get_settings
 
 SOURCE_SEC = "sec_ticker_file"
@@ -87,7 +87,7 @@ class SeriesView:
 
 
 def record_filing_if_changed(
-    conn: psycopg.Connection, f: FundFilingRow, *, tenant_id: UUID = DEFAULT_TENANT_ID
+    conn: psycopg.Connection, f: FundFilingRow, *, tenant_id: UUID = DATA_TENANT_ID
 ) -> bool:
     with conn.cursor() as cur:
         cur.execute(
@@ -135,7 +135,7 @@ def record_filing_if_changed(
 
 
 def record_series_if_changed(
-    conn: psycopg.Connection, s: FundSeriesRow, *, tenant_id: UUID = DEFAULT_TENANT_ID
+    conn: psycopg.Connection, s: FundSeriesRow, *, tenant_id: UUID = DATA_TENANT_ID
 ) -> bool:
     with conn.cursor() as cur:
         cur.execute(
@@ -172,7 +172,7 @@ def record_series_if_changed(
 
 
 def record_symbol_if_new(
-    conn: psycopg.Connection, s: SymbolRow, *, tenant_id: UUID = DEFAULT_TENANT_ID
+    conn: psycopg.Connection, s: SymbolRow, *, tenant_id: UUID = DATA_TENANT_ID
 ) -> bool:
     """A symbol is a fact of its first sighting: once stored for (series, class, symbol, source) it is never
     re-versioned (the night we FIRST saw it is the whole fact)."""
@@ -194,7 +194,7 @@ def record_symbol_if_new(
 
 
 def series_views(
-    conn: psycopg.Connection, *, tenant_id: UUID = DEFAULT_TENANT_ID, launches_only: bool = False
+    conn: psycopg.Connection, *, tenant_id: UUID = DATA_TENANT_ID, launches_only: bool = False
 ) -> list[SeriesView]:
     """Every stored fund-in-a-filing (latest version of each series row, joined to the latest version of its
     filing), newest public date first. The stage derive needs the FULL history of a series (a fund filed in
@@ -241,9 +241,7 @@ def series_views(
         ]
 
 
-def symbol_rows(
-    conn: psycopg.Connection, *, tenant_id: UUID = DEFAULT_TENANT_ID
-) -> list[SymbolRow]:
+def symbol_rows(conn: psycopg.Connection, *, tenant_id: UUID = DATA_TENANT_ID) -> list[SymbolRow]:
     with conn.cursor() as cur:
         cur.execute(
             """SELECT series_id, class_id, symbol, source, valid_from

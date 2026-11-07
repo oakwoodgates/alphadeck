@@ -545,7 +545,7 @@ def stub_client(monkeypatch):
     seen: dict = {"reads": 0}
     ds = days(30)
 
-    def fake_read(conn, asof, known_at, clock):
+    def fake_read(conn, asof, known_at, clock, **_):
         seen["reads"] += 1
         seen["view"] = (asof, known_at, clock)
         return build(

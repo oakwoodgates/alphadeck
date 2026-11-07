@@ -9,7 +9,7 @@ edit, not a code edit. The file boundary IS the "don't env-override a validated 
 Access rule (LOAD-BEARING — D5 of the refactor plan):
 - ``get_settings()`` is a cached singleton — use it for STABLE config (LLM dials, base URLs, throttle, the
   user-agent / OpenFIGI key). It reads the process env ONCE.
-- The few env vars the test suite toggles AFTER import — ``DATABASE_URL``, ``ALPHADECK_TENANT_ID``,
+- The few env vars the test suite toggles AFTER import — ``DATABASE_URL`` and
   ``ANTHROPIC_API_KEY`` — are DECLARED here for the typed inventory but are still read LATE at their edge
   (``db.session`` / ``LLMClient``), NEVER off the cached instance. A module-level ``Settings()`` frozen at
   import would read env before a test's monkeypatch (the ``db`` fixture sets ``DATABASE_URL``; an LLM test
@@ -598,8 +598,8 @@ class Settings(BaseSettings):
     ingest_fetch_concurrency: int = 8
 
     # --- Secrets / deploy values: DECLARED here as the typed inventory; READ LATE at the edge (D5) ---
-    # These three are toggled by the test suite AFTER import (the `db` fixture sets DATABASE_URL +
-    # ALPHADECK_TENANT_ID; an LLM test delenv's ANTHROPIC_API_KEY), so their RUNTIME read stays a fresh,
+    # These two are toggled by the test suite AFTER import (the `db` fixture sets DATABASE_URL; an LLM
+    # test delenv's ANTHROPIC_API_KEY), so their RUNTIME read stays a fresh,
     # late os.environ.get at the edge (db.session / LLMClient) — NOT off the cached get_settings(). Declared
     # here only so the env inventory is single-source + typed; the explicit alias keeps each var's EXACT
     # legacy name (the env_prefix would otherwise read ALPHADECK_DATABASE_URL — a different, wrong var).
@@ -608,9 +608,6 @@ class Settings(BaseSettings):
             default="postgresql://alphadeck:alphadeck@localhost:5544/alphadeck",
             validation_alias=AliasChoices("DATABASE_URL"),
         )
-    )
-    tenant_id: str | None = Field(
-        default=None, validation_alias=AliasChoices("ALPHADECK_TENANT_ID")
     )
     anthropic_api_key: str | None = Field(
         default=None, validation_alias=AliasChoices("ANTHROPIC_API_KEY")
@@ -695,7 +692,7 @@ def get_settings() -> Settings:
     """The cached ``Settings`` singleton for STABLE config (the LLM dials, base URLs, throttle, and the
     user-agent / OpenFIGI key). Reads the process env ONCE.
 
-    Do NOT use this for ``DATABASE_URL`` / ``ALPHADECK_TENANT_ID`` / ``ANTHROPIC_API_KEY`` — those are read
+    Do NOT use this for ``DATABASE_URL`` / ``ANTHROPIC_API_KEY`` — those are read
     late at the edge (see the module docstring). A test that overrides an ``ALPHADECK_*`` field must call
     ``get_settings.cache_clear()`` after monkeypatching the env.
     """

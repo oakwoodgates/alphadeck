@@ -4,7 +4,9 @@ from datetime import date, datetime, timezone
 
 import pytest
 
+from db.session import DEFAULT_TENANT_ID
 from domain.config import DEFAULT_CONFIG
+from domain.scopes import WORKSPACE_ANY
 from pipeline.core import assemble_from_pit
 from pipeline.seed import UNH_THESIS_ID, seed_unh
 from replay.export import export_snapshot
@@ -30,7 +32,7 @@ def _replay_the_old_way(con, thesis, *, start, end, known_at) -> list[CallSnapsh
     sids = [m.security_id for m in thesis.basket if m.security_id is not None]
     out: list[CallSnapshot] = []
     for t in trading_sessions(con, sids, start, end, thesis.tenant_id):
-        pit = ReplayPointInTimeData(con, asof=t, known_at=known_at, tenant_id=thesis.tenant_id)
+        pit = ReplayPointInTimeData(con, asof=t, known_at=known_at, workspace=thesis.tenant_id)
         out.append(CallSnapshot.from_card(assemble_from_pit(pit, thesis, t, DEFAULT_CONFIG)))
     return out
 
@@ -41,10 +43,10 @@ def test_prefetched_sweep_is_byte_identical_to_the_plain_sweep(db, tmp_path):
     """The whole claim of B5a in one assertion: 25x fewer queries, the SAME calls."""
     seed_unh(db)
     db.commit()
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
-        thesis = thesis_repo.get(db, UNH_THESIS_ID)
+        thesis = thesis_repo.get(db, UNH_THESIS_ID, workspace=WORKSPACE_ANY)
         fast = replay_thesis(con, thesis, start=_START, end=_END, known_at=_PIN)
         plain = _replay_the_old_way(con, thesis, start=_START, end=_END, known_at=_PIN)
         assert fast, "the UNH window should have trading sessions"
@@ -63,7 +65,7 @@ def test_prefetched_sweep_costs_one_query_per_table_per_session(db, tmp_path):
     dropped the basket or the memo on the floor."""
     seed_unh(db)
     db.commit()
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     calls = {"n": 0}
     orig = type(con).execute
@@ -73,7 +75,7 @@ def test_prefetched_sweep_costs_one_query_per_table_per_session(db, tmp_path):
         return orig(self, *a, **k)
 
     try:
-        thesis = thesis_repo.get(db, UNH_THESIS_ID)
+        thesis = thesis_repo.get(db, UNH_THESIS_ID, workspace=WORKSPACE_ANY)
         sids = [m.security_id for m in thesis.basket if m.security_id is not None]
         n_sessions = len(trading_sessions(con, sids, _START, _END, thesis.tenant_id))
         type(con).execute = counting

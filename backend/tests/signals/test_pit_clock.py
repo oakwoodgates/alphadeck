@@ -54,7 +54,7 @@ def test_a_lagging_host_clock_cannot_hide_a_just_ingested_fact(db, security_id, 
     )
     db.commit()
 
-    pit = PointInTimeData(db, asof=date(2026, 6, 30))
+    pit = PointInTimeData(db, asof=date(2026, 6, 30), workspace=DEFAULT_TENANT_ID)
     assert [r["accession"] for r in pit.insider_txns(security_id)] == ["a-1"]
 
 
@@ -74,7 +74,7 @@ def test_the_default_bound_still_caps_a_later_write(db, security_id):
         _buy(security_id, accession="a-1", valid_from=date(2026, 6, 1), usd=1),
     )
     db.commit()
-    pit = PointInTimeData(db, asof=date(2026, 6, 30))
+    pit = PointInTimeData(db, asof=date(2026, 6, 30), workspace=DEFAULT_TENANT_ID)
     db.commit()  # close the transaction db_now() opened, so the next write starts strictly later
     append_fact(
         db,
@@ -85,7 +85,7 @@ def test_the_default_bound_still_caps_a_later_write(db, security_id):
 
     assert [r["accession"] for r in pit.insider_txns(security_id)] == ["a-1"]
     # ...and a view built now sees both: the row was there, it was the BOUND that excluded it
-    fresh = PointInTimeData(db, asof=date(2026, 6, 30))
+    fresh = PointInTimeData(db, asof=date(2026, 6, 30), workspace=DEFAULT_TENANT_ID)
     assert len(fresh.insider_txns(security_id)) == 2
 
 
@@ -107,7 +107,9 @@ def test_an_explicit_known_at_is_still_honored(db, security_id):
     )
     db.commit()
 
-    pinned = PointInTimeData(db, asof=date(2026, 6, 30), known_at=early)
+    pinned = PointInTimeData(
+        db, asof=date(2026, 6, 30), known_at=early, workspace=DEFAULT_TENANT_ID
+    )
     assert [r["accession"] for r in pinned.insider_txns(security_id)] == ["a-1"]
     assert pinned.known_at == early  # not replaced by the database clock
 
@@ -121,7 +123,7 @@ def test_the_bound_is_pinned_once_not_resolved_per_read(db, security_id):
         _buy(security_id, accession="a-1", valid_from=date(2026, 6, 1), usd=1),
     )
     db.commit()
-    pit = PointInTimeData(db, asof=date(2026, 6, 30))
+    pit = PointInTimeData(db, asof=date(2026, 6, 30), workspace=DEFAULT_TENANT_ID)
     first = pit.known_at
     pit.insider_txns(security_id)
     pit.price_history(security_id)

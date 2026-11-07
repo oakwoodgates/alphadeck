@@ -2900,6 +2900,14 @@ class AdminStatusOut(BaseModel):
     newest edition (a DB read of that edition); ``null`` otherwise. Never a cron verdict.
     ``master_refresh`` is the weekly company-list refresh's one line, from its newest applied run artifact
     (``data/master_runs``; a directory read — no DB); ``null`` until it has run. Never a cron verdict.
+
+    ``data_tenant_theses`` (auth PR 2) is how many ``thesis`` rows sit under the DATA tenant ``...0001``. It
+    should be 0: a card belongs to a workspace (migration 0078 moved the founding operator's cards out), and a
+    card left on the data tenant is read by no workspace. The Admin page shows one loud line when it is not 0.
+
+    A thesis NAME belongs to its workspace: wherever this status names a thesis outside the caller's own
+    workspace (the feed-freshness panel, the late-only nights) it reads ``workspace <8 hex> · thesis <8 hex>``;
+    tickers and security ids stay.
     """
 
     record: AdminRecordOut
@@ -2918,6 +2926,7 @@ class AdminStatusOut(BaseModel):
     missing_closes: AdminMissingClosesOut | None = None
     editions_cut: AdminEditionsCutOut | None = None
     master_refresh: AdminMasterRefreshOut | None = None
+    data_tenant_theses: int = 0
 
 
 class AdminRunsOut(BaseModel):

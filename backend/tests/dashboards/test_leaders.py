@@ -571,17 +571,19 @@ def test_the_router_reads_the_price_flags_inside_the_cached_read(monkeypatch):
     rows, readings = _robots()
     seen: dict = {"flag_reads": 0}
 
-    def fake_flags(conn, ids, asof, *, known_at, clock):
+    def fake_flags(conn, ids, asof, *, known_at, clock, **_):
         seen["flag_reads"] += 1
         seen["flags_view"] = (set(ids), asof, known_at, clock)
         return {S[0]: MIXED}
 
     CACHE.clear()
     monkeypatch.setattr(
-        router_mod, "cards_as_of", lambda conn, asof, known_at: CardsAsOf(2, [], 0, 0)
+        router_mod, "cards_as_of", lambda conn, asof, known_at, **_: CardsAsOf(2, [], 0, 0)
     )
     monkeypatch.setattr(router_mod, "memberships_of", lambda cards: tuple(rows))
-    monkeypatch.setattr(router_mod, "_readings", lambda conn, sids, asof, known_at, clock: readings)
+    monkeypatch.setattr(
+        router_mod, "_readings", lambda conn, sids, asof, known_at, clock, **_: readings
+    )
     monkeypatch.setattr(router_mod, "price_flags", fake_flags)
     monkeypatch.setattr(router_mod.master, "identity_for", lambda conn, ids, **kw: {})
     monkeypatch.setattr(CACHE, "_token_fn", lambda conn: "gen-1")
@@ -619,7 +621,7 @@ def stub_client(monkeypatch):
     readings = {**readings, S[1]: replace(readings[S[1]], pct_off_high=0.0, rvol20=2.0)}
     identity = {**identity, S[1]: {**identity[S[1]], "name": "Bravo Inc"}}
 
-    def fake_read(conn, asof, known_at, clock):
+    def fake_read(conn, asof, known_at, clock, **_):
         seen["reads"] += 1
         seen["view"] = (asof, known_at, clock)
         return inputs(rows, readings)

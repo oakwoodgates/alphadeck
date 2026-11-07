@@ -8,6 +8,7 @@ pytest.importorskip("duckdb")
 pytest.importorskip("pyarrow")
 
 from backtest.parallel import default_workers, replay_all_parallel  # noqa: E402
+from db.session import DEFAULT_TENANT_ID
 from domain.config import DEFAULT_CONFIG  # noqa: E402
 from pipeline.seed import seed_unh  # noqa: E402
 from replay.export import export_snapshot  # noqa: E402
@@ -35,7 +36,7 @@ def test_parallel_is_byte_identical_to_serial(db, tmp_path):
     did it, and that must not reach the output."""
     seed_unh(db)
     db.commit()
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
 
     serial = replay_all_parallel(
         db, tmp_path, start=_START, end=_END, known_at=_PIN, cfg=DEFAULT_CONFIG, workers=1
@@ -54,7 +55,7 @@ def test_the_roster_provenance_survives_the_round_trip(db, tmp_path):
     read -- exactly what F4 added the field to prevent."""
     seed_unh(db)
     db.commit()
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
 
     serial = replay_all_parallel(
         db, tmp_path, start=_START, end=_END, known_at=_PIN, cfg=DEFAULT_CONFIG, workers=1
@@ -76,7 +77,7 @@ def test_one_worker_takes_the_serial_path_untouched(db, tmp_path):
 
     seed_unh(db)
     db.commit()
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
 
     con = connect_mirror(tmp_path)
     try:

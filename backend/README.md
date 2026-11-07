@@ -11,7 +11,7 @@ Python project root. Packages (the file-by-file map is `docs/PROJECT_LAYOUT.md`)
 - `workbench/` — the scorer (the four pip meters, re-derived on read) + `chain_draft` (the exact-membership resolver).
 - `llm/` — the two LLM seams (`flag_explanation` + `chain_decomposition`), model-agnostic, fail-open, SDK lazy-imported.
 - `repositories/` — row↔domain mappers + `thesis_repo` / `calls_repo` (`append` · `record_if_changed`); raw rows never escape.
-- `pipeline/` — `call_for_thesis` (re-derive → assemble → log); **`ingest_thesis`** (M2 per-thesis back-half ingest) + **`daily`** (the call-of-record cron); `seed` / `run` / `populate_master` / `provision_tenant` / `ratify_*` CLIs.
+- `pipeline/` — `call_for_thesis` (re-derive → assemble → log); **`ingest_thesis`** (M2 per-thesis back-half ingest) + **`daily`** (the call-of-record cron); `seed` / `run` / `populate_master` / `users` (accounts + a workspace per user) / `ratify_*` CLIs.
 - `replay/` — the DuckDB/Parquet point-in-time backtest harness.
 - `app/` — FastAPI: `/theses` · `/theses/{id}/call?asof=` · `/workbench/*` (scored · securities · extract · facts · promote · draft-chain) + the `schemas_api` wire contract.
 

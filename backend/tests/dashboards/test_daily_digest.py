@@ -1093,11 +1093,11 @@ def client(monkeypatch):
     calls: list[tuple] = []
     live_calls: list[date] = []
 
-    def fake_read(conn, asof, known_at, clock, origin=None):
+    def fake_read(conn, asof, known_at, clock, origin=None, **_):
         calls.append((asof, clock))
         return inputs(asof=asof, clock=clock, theses=[thesis(T1, "Card A")], origin=origin)
 
-    def fake_live(conn, inp, known_at, clock):
+    def fake_live(conn, inp, known_at, clock, **_):
         live_calls.append(inp.asof)
         return inp
 
@@ -1156,8 +1156,18 @@ def test_the_router_counts_a_live_view_from_the_action_day_and_a_past_one_from_i
     past = http.get("/dashboards/daily-digest", params={"asof": "2026-10-23"}).json()
     assert (past["clock"], past["due"]["start"]) == ("public", "2026-10-23")
     keys = {k for k in CACHE._entries}
-    assert ("daily-digest", ("record", date(2026, 10, 27)), date(2026, 10, 26)) in keys
-    assert ("daily-digest", ("public", date(2026, 10, 23)), date(2026, 10, 23)) in keys
+    assert (
+        DEFAULT_TENANT_ID,
+        "daily-digest",
+        ("record", date(2026, 10, 27)),
+        date(2026, 10, 26),
+    ) in keys
+    assert (
+        DEFAULT_TENANT_ID,
+        "daily-digest",
+        ("public", date(2026, 10, 23)),
+        date(2026, 10, 23),
+    ) in keys
 
 
 def test_the_router_requires_an_asof_and_takes_no_other_parameter(client):

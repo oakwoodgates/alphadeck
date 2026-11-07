@@ -10,10 +10,9 @@ import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import ValidationError
 
-from app.auth import require_super_admin
+from app.auth import CurrentUser, require_super_admin, require_user
 from app.deps import (
     get_conn,
-    get_current_tenant,
     get_decompose_client,
     get_edgar_client,
     get_keyword_client,
@@ -22,6 +21,7 @@ from app.deps import (
     get_research_client,
     get_thesis_or_404,
     get_tier_rec_client,
+    get_workspace,
 )
 from app.routers.admin_onboarding import readout_out
 from app.schemas_api import (
@@ -164,20 +164,21 @@ def read_scored(
         conn,
         asof=asof,
         known_at=known_at,
-        tenant_id=thesis.tenant_id,
+        data_tenant=DATA_TENANT_ID,
+        workspace=thesis.tenant_id,
         basket=basket,
         bounds=scored_bounds(),
         clock=clock,
     )
     scored = score_thesis(pit, thesis)
     sec_ids = {m.security_id for m in scored}
-    cik_for = master.ciks_for(conn, sec_ids, tenant_id=thesis.tenant_id)
-    ticker_for = master.tickers_for(conn, sec_ids, tenant_id=thesis.tenant_id)
-    ident_for = master.identity_for(conn, sec_ids, tenant_id=thesis.tenant_id)
+    cik_for = master.ciks_for(conn, sec_ids, tenant_id=DATA_TENANT_ID)
+    ticker_for = master.tickers_for(conn, sec_ids, tenant_id=DATA_TENANT_ID)
+    ident_for = master.identity_for(conn, sec_ids, tenant_id=DATA_TENANT_ID)
     # #1 thin-history DATA-HEALTH flag (derive-on-read, structurally OUT of the call path): count each name's
     # stored EOD bar-dates in the trailing year at ``asof`` (a name with 0 bars is simply absent from the map
     # -> 0 -> thin, covering the resolver's blind spots). Display-only, never a call input.
-    bar_counts = recent_distinct_bar_counts(conn, sec_ids, asof=asof, tenant_id=thesis.tenant_id)
+    bar_counts = recent_distinct_bar_counts(conn, sec_ids, asof=asof, tenant_id=DATA_TENANT_ID)
     thin_for = {sid: is_thin_history(bar_counts.get(sid, 0)) for sid in sec_ids}
     # 0056 — the operator's KNOWN FEED LIMITATION marks (the vendor serves no history for the symbol): the
     # name panel's quiet data note beside the thin-history flag. Operational state read live (it describes
@@ -185,7 +186,7 @@ def read_scored(
     limited_for = {
         sid: mark.reason
         for sid, mark in price_feed_repo.limited_history_marks(
-            conn, sec_ids, tenant_id=thesis.tenant_id
+            conn, sec_ids, tenant_id=DATA_TENANT_ID
         ).items()
     }
     return WorkbenchScored(
@@ -204,7 +205,7 @@ def search_securities(
     q: str = Query("", description="ticker or name fragment; a discovery net over the master"),
     limit: int = Query(10, ge=1, le=50),
     conn: psycopg.Connection = Depends(get_conn),
-    tenant_id: UUID = Depends(get_current_tenant),
+    tenant_id: UUID = Depends(get_workspace),
 ) -> list[SecurityMatchOut]:
     """Search the current tenant's security master for names to PLACE into a basket (the authoring
     typeahead, Slice 4b). A DISCOVERY NET (INVARIANT #2): exact master rows for the operator to pick from
@@ -213,7 +214,7 @@ def search_securities(
     """
     # a FORMER ticker matches too (the company-list refresh renames a row in place and keeps the old one):
     # typing the ticker the operator remembers still finds the company
-    matches = master.search(conn, q, tenant_id=tenant_id, limit=limit, include_former=True)
+    matches = master.search(conn, q, tenant_id=DATA_TENANT_ID, limit=limit, include_former=True)
     return [
         SecurityMatchOut(
             security_id=m.id,
@@ -230,7 +231,6 @@ def search_securities(
 def resolve_etf(
     req: ResolveEtfRequest,
     conn: psycopg.Connection = Depends(get_conn),
-    tenant_id: UUID = Depends(get_current_tenant),
 ) -> SecurityMatchOut:
     """Surface an operator-supplied ETF ticker as a ``fund`` sleeve's master row (ETF Sleeve, Slice 1). The
     operator TYPES a ticker (e.g. LIT); this resolves it to a ``security_master`` row marked
@@ -326,7 +326,7 @@ def etf_holdings(
         "absent = the latest on file. The response labels the holdings' report-period vintage.",
     ),
     conn: psycopg.Connection = Depends(get_conn),
-    tenant_id: UUID = Depends(get_current_tenant),
+    tenant_id: UUID = Depends(get_workspace),
 ) -> EtfHoldingsOut:
     """Pull a ``fund`` sleeve's N-PORT holdings and overlap them against the thesis basket (ETF Sleeve,
     Slice 2a) — the holdings-seed: *"the ETF holds these N names; here are the M you're missing."*
@@ -356,7 +356,7 @@ def etf_holdings(
     never dropped. An explicit operator click (the drawer toggle — the cost thread), live SEC/OpenFIGI
     behind the cache seams; requires ``ALPHADECK_USER_AGENT``.
     """
-    sec = master.get(conn, security_id, tenant_id=tenant_id)
+    sec = master.get(conn, security_id, tenant_id=DATA_TENANT_ID)
     if sec is None:
         raise HTTPException(status_code=404, detail="unknown security for this tenant")
     if not sec.ticker:
@@ -365,7 +365,7 @@ def etf_holdings(
         )
     basket_sids: set[UUID] = set()
     if thesis_id is not None:
-        thesis = thesis_repo.get(conn, thesis_id)
+        thesis = thesis_repo.get(conn, thesis_id, workspace=tenant_id)
         if thesis is None:
             raise HTTPException(status_code=404, detail="thesis not found")
         basket_sids = {m.security_id for m in thesis.basket if m.security_id is not None}
@@ -412,7 +412,7 @@ def etf_holdings(
         raise HTTPException(status_code=502, detail=f"CUSIP resolution failed: {exc}") from exc
     holding_tickers = [h.ticker for h in report.holdings if h.ticker] + list(cusip_tickers.values())
     master_ids = (
-        master.ids_for_tickers(conn, holding_tickers, tenant_id=tenant_id)
+        master.ids_for_tickers(conn, holding_tickers, tenant_id=DATA_TENANT_ID)
         if holding_tickers
         else {}
     )
@@ -448,7 +448,7 @@ def extract_scoring_facts(
         description="if given, propose a GROUNDED purity % for this thesis (SURFACE 1b); purity-only",
     ),
     conn: psycopg.Connection = Depends(get_conn),
-    tenant_id: UUID = Depends(get_current_tenant),
+    tenant_id: UUID = Depends(get_workspace),
     purity_llm: LLMClient = Depends(get_purity_client),
 ) -> ExtractionResult:
     """Auto-EXTRACT candidate scoring facts for a security from its latest SEC filings (Slice hybrid-1 +
@@ -477,7 +477,13 @@ def extract_scoring_facts(
     stays on the candidate), never a fact until the operator ratifies. PURITY-ONLY: ``thesis_id`` touches no
     other candidate, and its absence (or a fail-open decline) leaves purity as today's HUMAN (located, no value).
     """
-    cik = master.ciks_for(conn, {security_id}, tenant_id=tenant_id).get(security_id)
+    # the optional thesis is the CALLER's (another workspace's id is "not found"), resolved before any SEC work
+    thesis = (
+        thesis_repo.get(conn, thesis_id, workspace=tenant_id) if thesis_id is not None else None
+    )
+    if thesis_id is not None and thesis is None:
+        raise HTTPException(status_code=404, detail="thesis not found")
+    cik = master.ciks_for(conn, {security_id}, tenant_id=DATA_TENANT_ID).get(security_id)
     if not cik:
         raise HTTPException(status_code=404, detail="no CIK for this security — resolve it first")
     try:
@@ -491,7 +497,6 @@ def extract_scoring_facts(
     # narrative; shares/cash are thesis-independent). Fail-open: no thesis / no key / ungrounded -> purity stays
     # today's HUMAN. The proposal is UNVERIFIED and carries its passage; it becomes a fact only on the operator's
     # ratify (never here — this endpoint writes nothing).
-    thesis = thesis_repo.get(conn, thesis_id) if thesis_id is not None else None
     if thesis is not None:
         for c in result.facts:
             if c.fact_type != "revenue_mix":
@@ -511,7 +516,7 @@ def extract_scoring_facts(
 def ingest_security_prices(
     security_id: UUID,
     conn: psycopg.Connection = Depends(get_conn),
-    tenant_id: UUID = Depends(get_current_tenant),
+    tenant_id: UUID = Depends(get_workspace),
 ) -> PriceIngestOut:
     """Pull EOD price bars for ONE security — the price leg DECOUPLED from the back-half ingest, so the
     finalize screen can complete a name (a real market cap) BEFORE the operator promotes. This endpoint
@@ -599,7 +604,7 @@ def set_business_type(
     security_id: UUID,
     req: SetBusinessTypeRequest,
     conn: psycopg.Connection = Depends(get_conn),
-    tenant_id: UUID = Depends(get_current_tenant),
+    tenant_id: UUID = Depends(get_workspace),
 ) -> BusinessTypeOut:
     """Re-tag one security's BUSINESS TYPE (Business-Type M1) — the operator overruling the maps-derived
     classification for ONE name (#10: the maps recommend, the operator decides). ``business_type: null``
@@ -607,17 +612,17 @@ def set_business_type(
     identity (what a company DOES holds across theses), stored ONLY when it differs from the derived leaf
     (0033 store-on-diff — ``securities/master.set_business_type``). MONITOR display identity, never a fact,
     never a call input (#3/#4). The receipt is the security's business-type read AFTER the write."""
-    if not master.exists(conn, security_id, tenant_id=tenant_id):
+    if not master.exists(conn, security_id, tenant_id=DATA_TENANT_ID):
         raise HTTPException(status_code=404, detail="unknown security for this tenant")
     master.set_business_type(
         conn,
         security_id,
         req.business_type.value if req.business_type is not None else None,
         basis="operator:retag",
-        tenant_id=tenant_id,
+        tenant_id=DATA_TENANT_ID,
     )
     conn.commit()
-    sec = master.get(conn, security_id, tenant_id=tenant_id)
+    sec = master.get(conn, security_id, tenant_id=DATA_TENANT_ID)
     if sec is None:  # defensive: the row was just written under this tenant
         raise HTTPException(status_code=404, detail="security not found after re-tag")
     read = resolve_business_type(
@@ -761,14 +766,15 @@ def _kick_member_ingest(
         return None
 
 
-def _fund_ids(conn: psycopg.Connection, thesis: Thesis, tenant_id: UUID) -> set[UUID]:
+def _fund_ids(conn: psycopg.Connection, thesis: Thesis) -> set[UUID]:
     """The basket's ``security_id``s whose master row is a fund (``instrument_kind='etf'``) — the lookup half
-    of the "funds only in ETFs" promote rule, one batch read (``master.get_many``, tenant-scoped).
+    of the "funds only in ETFs" promote rule, one batch read (``master.get_many``, under the data tenant: the
+    master is DATA).
     """
     ids = {m.security_id for m in thesis.basket if m.security_id is not None}
     return {
         sid
-        for sid, sec in master.get_many(conn, ids, tenant_id=tenant_id).items()
+        for sid, sec in master.get_many(conn, ids, tenant_id=DATA_TENANT_ID).items()
         if sec.instrument_kind == InstrumentKind.ETF
     }
 
@@ -777,7 +783,7 @@ def _fund_ids(conn: psycopg.Connection, thesis: Thesis, tenant_id: UUID) -> set[
 def promote(
     req: PromoteThesisRequest,
     conn: psycopg.Connection = Depends(get_conn),
-    tenant_id: UUID = Depends(get_current_tenant),
+    tenant_id: UUID = Depends(get_workspace),
 ) -> PromoteOut:
     """Promote a structured thesis to the Board (Incubating) — the app's FIRST mutation. Create (``id``
     null) or update (``id`` set); the value-chain structure (segments + placements + authorship) persists
@@ -876,7 +882,7 @@ def promote(
     # placement — so a foreign / hallucinated id must NEVER reach the spine. A null id (unplaced name) is OK.
     for m in thesis.basket:
         if m.security_id is not None and not master.exists(
-            conn, m.security_id, tenant_id=tenant_id
+            conn, m.security_id, tenant_id=DATA_TENANT_ID
         ):
             raise HTTPException(
                 status_code=404,
@@ -892,7 +898,7 @@ def promote(
     # (gate-1): a DELIBERATE non-primary line (e.g. intentionally trading the foreign ordinary) is
     # unrepresentable in v1.
     canon = master.canonicalize_ids(
-        conn, [m.security_id for m in thesis.basket if m.security_id], tenant_id=tenant_id
+        conn, [m.security_id for m in thesis.basket if m.security_id], tenant_id=DATA_TENANT_ID
     )
     if canon:
         for i, m in enumerate(thesis.basket):
@@ -921,7 +927,7 @@ def promote(
     # the bound instrument. So is a RENAMED one: the label is the bound row's FORMER ticker (the company-list
     # refresh renamed that very row in place), so the spine's label follows the row's current ticker.
     findings = coherence.classify_members(
-        conn, [(m.ticker, m.security_id) for m in thesis.basket], tenant_id=tenant_id
+        conn, [(m.ticker, m.security_id) for m in thesis.basket], tenant_id=DATA_TENANT_ID
     )
     overrides = set(req.identity_overrides)
     blocked: list[str] = []
@@ -984,7 +990,7 @@ def promote(
     # master row is instrument_kind='etf' (the one marker every fund surface keys on); the master lookup
     # happens HERE and the rule stays pure (``fund_conflicts``). Refused whole, NOTHING written, never a row
     # moved for the operator (WB#1) — the fix is the operator's own move, named per company.
-    misplaced = fund_conflicts(thesis.basket, _fund_ids(conn, thesis, tenant_id))
+    misplaced = fund_conflicts(thesis.basket, _fund_ids(conn, thesis))
     if misplaced:
         raise HTTPException(
             status_code=422,
@@ -1018,7 +1024,7 @@ def promote(
     # A NEW member (or one with no security_id to key by) keeps the payload — its promote IS the entry
     # event. Runs AFTER canonicalize (ids match what the spine stores); the backfill CLI's --overwrite
     # is the only correction path. "Frozen at entry" is a server property, not a client courtesy.
-    stored = thesis_repo.get(conn, thesis.id)
+    stored = thesis_repo.get(conn, thesis.id, workspace=tenant_id)
     if stored is not None:
         frozen = {m.security_id: m.surfaced_terms for m in stored.basket if m.security_id}
         for i, m in enumerate(thesis.basket):
@@ -1029,7 +1035,12 @@ def promote(
     # the spine stores). A brand-new thesis (no stored row) is all-new — the starter-basket case.
     prior_ids = {m.security_id for m in stored.basket if m.security_id} if stored else set()
     new_ids = {m.security_id for m in thesis.basket if m.security_id} - prior_ids
-    thesis_repo.upsert(conn, thesis)
+    try:
+        thesis_repo.upsert(conn, thesis)
+    except thesis_repo.ThesisNotInWorkspace:
+        # another workspace's thesis id: "not found", never "forbidden" (its existence is not revealed)
+        conn.rollback()
+        raise HTTPException(status_code=404, detail="thesis not found") from None
     conn.commit()
     # Kick the new members' back-half ingest AFTER the commit (the job's own connection must see the
     # spine rows) — background, never blocking or failing the promote. No new members → no job at all
@@ -1041,9 +1052,9 @@ def promote(
         # are queued for the staged onboarding job; at most `Settings.onboard_fast_lane_max` of them, outside
         # the nightly window, still ingest at once in the background (the fast lane — a 3-name promote stays
         # instant). Fail-open toward the pre-X1 kick: a queue fault never costs the promote or its names.
-        plan = _plan_lane(conn, thesis.id, tenant_id, new_ids)
+        plan = _plan_lane(conn, thesis.id, DATA_TENANT_ID, new_ids)
         if plan.fast:
-            job = _kick_member_ingest(thesis.id, new_ids, tenant_id=tenant_id)
+            job = _kick_member_ingest(thesis.id, new_ids, tenant_id=DATA_TENANT_ID)
             if job is not None:
                 ingest_ref = PromoteIngestRef(job_id=job.job_id, new_members=len(new_ids))
         else:
@@ -1092,20 +1103,23 @@ def get_thesis_onboarding(
     the names this thesis is still waiting on and the ones its own promotes queued."""
     ids = {m.security_id for m in thesis.basket if m.security_id}
     return readout_out(
-        onboarding.readout(conn, tenant_id=thesis.tenant_id, security_ids=ids, thesis_id=thesis.id)
+        onboarding.readout(conn, tenant_id=DATA_TENANT_ID, security_ids=ids, thesis_id=thesis.id)
     )
 
 
 @router.get("/theses/{thesis_id}/ingest/jobs/{job_id}", response_model=IngestJobStatusOut)
-def get_member_ingest_job(thesis_id: UUID, job_id: str) -> IngestJobStatusOut:
+def get_member_ingest_job(
+    job_id: str, thesis: Thesis = Depends(get_thesis_or_404)
+) -> IngestJobStatusOut:
     """POLL an on-promote new-member ingest job (kicked by ``POST /workbench/theses`` when a promote
     added members). ``queued`` = waiting behind this thesis's running ingest; ``done`` → the summary of
     what landed; ``failed`` → an operator-facing ``error`` (VISIBLE, never silent — the nightly cron
     remains the backstop that ingests everything regardless). **404** if the job is unknown / expired,
     or the registry was wiped by a restart — the FE shows a visible "lost from view" line (never an
-    infinite spinner). The job_id must belong to this thesis."""
+    infinite spinner). The thesis must be the caller's (else 404) and the job_id must belong to it.
+    """
     job = ingest_jobs.get_job(job_id)
-    if job is None or job.thesis_id != str(thesis_id):
+    if job is None or job.thesis_id != str(thesis.id):
         raise HTTPException(
             status_code=404,
             detail="ingest job not found (it may have expired or the server restarted)",
@@ -1268,13 +1282,13 @@ def execute_draft(
             # the pre-flight guard: the fast lane has nothing to enumerate — fail BEFORE discovery (zero
             # EFTS fetches), with the verbatim operator-facing message (never the generic wrapper).
             raise DiscoveryNoSeeds()
-    universe = run_discovery(conn, edgar, term_set, tenant_id=thesis.tenant_id)
+    universe = run_discovery(conn, edgar, term_set, tenant_id=DATA_TENANT_ID)
     # Lazy IDENTITY enrichment (Slice 2): fill sector / exchange / status onto the discovered names' master rows
     # from their submissions, BEFORE resolution — so the chain reconciler's status-gate reads a fresh listing
     # status. Per-CIK fail-visible (a miss leaves a row un-enriched → abstains); the network stays OUT of the
     # pure resolver. Writes only the master's identity columns (machine-parsed, an enrichment basis) — no thesis
     # spine, no fact, no number (#1/#3); the operator's promote remains the only spine writer.
-    enrich_for_ciks(conn, edgar, {**universe.placed, **universe.verify}, tenant_id=thesis.tenant_id)
+    enrich_for_ciks(conn, edgar, {**universe.placed, **universe.verify}, tenant_id=DATA_TENANT_ID)
     # The sweep's OUTCOME rides the draft report (the tri-state — a lost foreign/ADR tail is no longer
     # indistinguishable from "no foreign names exist"). run_research's Callable contract stays str|None (its
     # cache-only-non-None property is load-bearing), so the status travels via a cell the thunk writes; a TTL
@@ -1304,7 +1318,7 @@ def execute_draft(
     segments = proposed_from_decomposition(
         decompose_narrative(decompose_llm, thesis.narrative, research_context=context)
     )
-    chain = resolve_discovered_chain(conn, segments, universe, tenant_id=thesis.tenant_id)
+    chain = resolve_discovered_chain(conn, segments, universe, tenant_id=DATA_TENANT_ID)
 
     # Fill thesis-fit prose for every empty-prose PLACED + VERIFY name — since the prose reroute that is ALL of
     # them: the organizer emits structure + assignment only (no per-name prose — it scaled the organize output
@@ -1450,13 +1464,14 @@ def start_draft_chain(
 
 
 @router.get("/theses/{thesis_id}/draft-chain/jobs/{job_id}", response_model=DraftJobStatus)
-def get_draft_chain_job(thesis_id: UUID, job_id: str) -> DraftJobStatus:
+def get_draft_chain_job(job_id: str, thesis: Thesis = Depends(get_thesis_or_404)) -> DraftJobStatus:
     """POLL a kicked-off draft job. ``done`` → the ``result`` (a ChainDraftOut); ``failed`` → an operator-facing
     ``error`` (discovery-not-ready, a timeout, or an unexpected fault — VISIBLE, #9). **404** if the job is
     unknown / expired, or the registry was wiped by a restart — the FE shows a visible "draft was lost" (never an
-    infinite spinner). The job_id must belong to this thesis."""
+    infinite spinner). The thesis must be the caller's (else 404) and the job_id must belong to it.
+    """
     job = get_job(job_id)
-    if job is None or job.thesis_id != str(thesis_id):
+    if job is None or job.thesis_id != str(thesis.id):
         raise HTTPException(
             status_code=404,
             detail="draft job not found (it may have expired or the server restarted)",
@@ -1579,8 +1594,9 @@ def _has_shares_fact(conn: psycopg.Connection, security_id: UUID, tenant_id: UUI
     """
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT 1 FROM fact_shares_outstanding WHERE tenant_id=%s AND security_id=%s LIMIT 1",
-            (tenant_id, security_id),
+            "SELECT 1 FROM fact_shares_outstanding "
+            "WHERE tenant_id = ANY(%s) AND security_id = %s LIMIT 1",
+            ([DATA_TENANT_ID, tenant_id], security_id),
         )
         return cur.fetchone() is not None
 
@@ -1589,7 +1605,7 @@ def _has_shares_fact(conn: psycopg.Connection, security_id: UUID, tenant_id: UUI
 def auto_confirm_fact(
     req: AutoConfirmRequest,
     conn: psycopg.Connection = Depends(get_conn),
-    tenant_id: UUID = Depends(get_current_tenant),
+    tenant_id: UUID = Depends(get_workspace),
 ) -> AutoConfirmOut:
     """Auto-apply a security's AUTO-tier shares count on get-data — REMOVING a ceremonial confirm, not a real one.
 
@@ -1666,7 +1682,8 @@ def auto_confirm_fact(
 def ratify_fact(
     req: RatifyFactRequest,
     conn: psycopg.Connection = Depends(get_conn),
-    tenant_id: UUID = Depends(get_current_tenant),
+    tenant_id: UUID = Depends(get_workspace),
+    user: CurrentUser = Depends(require_user),
 ) -> RatifiedFactOut:
     """Ratify an extracted candidate -> write the scoring fact (hybrid-2a) — the app's first fact-WRITE. The
     operator confirms/edits a candidate (AUTO as-is, FLAG the composition, HUMAN purity the value); this
@@ -1675,7 +1692,9 @@ def ratify_fact(
     WRITE-SIDE TENANT DISCIPLINE: the security must be in the CURRENT tenant's master (fail-closed) — the
     tenant is the deployment resolver's, but the ``security_id`` is caller-supplied, so a foreign/unknown id
     must not write a junk fact. ``source`` is preserved (the candidate's basis, e.g. ``10-k-segment``);
-    ``ratified_by`` is stamped "operator"; the fact is append-only (a re-ratify is a new row, latest-wins).
+    ``ratified_by`` is stamped with the signed-in user's email; the fact lands in the caller's WORKSPACE (a
+    ratified fact is private research, docs/TENANT_SCOPES.md) and is append-only (a re-ratify is a new row,
+    latest-wins).
 
     ``vouched`` records whether the operator confirmed the shown ``estimate`` as-is or overrode it — PROVENANCE
     for the drift-cron + the agree/disagree signal, NEVER a scoring input (all vouched states score identically).
@@ -1688,7 +1707,7 @@ def ratify_fact(
         source_ref=req.source_ref,
         event_date=req.event_date,
         note=req.note,
-        ratified_by="operator",  # the human ratify path — stamped, not taken from the body
+        ratified_by=user.email,  # the human ratify path — the signed-in user, never taken from the body
         tenant_id=tenant_id,
     )
     if req.fact_type == "revenue_mix":
@@ -1743,7 +1762,7 @@ def ratify_fact(
             source_ref=req.source_ref,
             event_date=req.event_date,
             horizon_end=req.horizon_end,
-            ratified_by="operator",
+            ratified_by=user.email,
             tenant_id=tenant_id,
         )
     else:  # cash_burn

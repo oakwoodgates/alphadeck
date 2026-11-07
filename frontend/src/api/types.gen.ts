@@ -735,7 +735,7 @@ export interface paths {
          *     what landed; ``failed`` → an operator-facing ``error`` (VISIBLE, never silent — the nightly cron
          *     remains the backstop that ingests everything regardless). **404** if the job is unknown / expired,
          *     or the registry was wiped by a restart — the FE shows a visible "lost from view" line (never an
-         *     infinite spinner). The job_id must belong to this thesis.
+         *     infinite spinner). The thesis must be the caller's (else 404) and the job_id must belong to it.
          */
         get: operations["get_member_ingest_job_workbench_theses__thesis_id__ingest_jobs__job_id__get"];
         put?: never;
@@ -886,7 +886,7 @@ export interface paths {
          * @description POLL a kicked-off draft job. ``done`` → the ``result`` (a ChainDraftOut); ``failed`` → an operator-facing
          *     ``error`` (discovery-not-ready, a timeout, or an unexpected fault — VISIBLE, #9). **404** if the job is
          *     unknown / expired, or the registry was wiped by a restart — the FE shows a visible "draft was lost" (never an
-         *     infinite spinner). The job_id must belong to this thesis.
+         *     infinite spinner). The thesis must be the caller's (else 404) and the job_id must belong to it.
          */
         get: operations["get_draft_chain_job_workbench_theses__thesis_id__draft_chain_jobs__job_id__get"];
         put?: never;
@@ -1039,7 +1039,9 @@ export interface paths {
          *     WRITE-SIDE TENANT DISCIPLINE: the security must be in the CURRENT tenant's master (fail-closed) — the
          *     tenant is the deployment resolver's, but the ``security_id`` is caller-supplied, so a foreign/unknown id
          *     must not write a junk fact. ``source`` is preserved (the candidate's basis, e.g. ``10-k-segment``);
-         *     ``ratified_by`` is stamped "operator"; the fact is append-only (a re-ratify is a new row, latest-wins).
+         *     ``ratified_by`` is stamped with the signed-in user's email; the fact lands in the caller's WORKSPACE (a
+         *     ratified fact is private research, docs/TENANT_SCOPES.md) and is append-only (a re-ratify is a new row,
+         *     latest-wins).
          *
          *     ``vouched`` records whether the operator confirmed the shown ``estimate`` as-is or overrode it — PROVENANCE
          *     for the drift-cron + the agree/disagree signal, NEVER a scoring input (all vouched states score identically).
@@ -5290,6 +5292,14 @@ export interface components {
          *     newest edition (a DB read of that edition); ``null`` otherwise. Never a cron verdict.
          *     ``master_refresh`` is the weekly company-list refresh's one line, from its newest applied run artifact
          *     (``data/master_runs``; a directory read — no DB); ``null`` until it has run. Never a cron verdict.
+         *
+         *     ``data_tenant_theses`` (auth PR 2) is how many ``thesis`` rows sit under the DATA tenant ``...0001``. It
+         *     should be 0: a card belongs to a workspace (migration 0078 moved the founding operator's cards out), and a
+         *     card left on the data tenant is read by no workspace. The Admin page shows one loud line when it is not 0.
+         *
+         *     A thesis NAME belongs to its workspace: wherever this status names a thesis outside the caller's own
+         *     workspace (the feed-freshness panel, the late-only nights) it reads ``workspace <8 hex> · thesis <8 hex>``;
+         *     tickers and security ids stay.
          */
         AdminStatusOut: {
             record: components["schemas"]["AdminRecordOut"];
@@ -5312,6 +5322,11 @@ export interface components {
             missing_closes?: components["schemas"]["AdminMissingClosesOut"] | null;
             editions_cut?: components["schemas"]["AdminEditionsCutOut"] | null;
             master_refresh?: components["schemas"]["AdminMasterRefreshOut"] | null;
+            /**
+             * Data Tenant Theses
+             * @default 0
+             */
+            data_tenant_theses: number;
         };
         /**
          * AdminSuccessorCandidateOut
@@ -19455,8 +19470,8 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                thesis_id: string;
                 job_id: string;
+                thesis_id: string;
             };
             cookie?: never;
         };
@@ -19623,8 +19638,8 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                thesis_id: string;
                 job_id: string;
+                thesis_id: string;
             };
             cookie?: never;
         };

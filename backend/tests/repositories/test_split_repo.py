@@ -24,11 +24,11 @@ from domain.splits import (
     VIA_OPERATOR,
     decide,
 )
-from pipeline.provision_tenant import provision_tenant
 from repositories import split_repo
 from repositories.split_repo import SplitConflict
 from tests.domain.test_splits import sec
 from tests.split_fixtures import polygon_row
+from tests.workspaces import new_workspace
 
 ASOF = date(2026, 10, 20)
 OTHER_TENANT = uuid.UUID("00000000-0000-0000-0000-0000000005b1")
@@ -152,7 +152,7 @@ def test_the_as_of_read_honors_both_clocks(db):
 
 
 def test_a_tenant_reads_only_its_own_splits(db):
-    provision_tenant(db, "split-test", tenant_id=OTHER_TENANT)
+    new_workspace(db, "split-test", workspace_id=OTHER_TENANT)
     mine = _security(db, "BTOC")
     theirs = _security(db, "BTOC", tenant=OTHER_TENANT)
     _append(db, mine, _btoc())

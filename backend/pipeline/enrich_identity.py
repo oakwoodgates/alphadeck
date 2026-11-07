@@ -17,7 +17,7 @@ re-run is ~a minute at the polite rate):
 - ``--baskets`` — every (non-archived) thesis's resolved members, each under its OWN tenant (theses are
   tenant-intrinsic — the daily cron's pattern).
 - ``--universe`` — every CIK in the master (the canonical ``is_primary`` row per CIK — identity is
-  company-level, one submissions doc per CIK); takes ``--tenant-id``, defaulting to the deployment tenant.
+  company-level, one submissions doc per CIK); takes ``--tenant-id``, defaulting to the data tenant.
   ~10.6k docs ≈ 20–30 min at the polite rate — an explicit, rare run, never ambient.
 
 Freshness needs NO flag here: ``submissions/*`` is a mutable cache class on the R1 key-classed 12h TTL, so
@@ -44,7 +44,7 @@ from uuid import UUID
 import psycopg
 
 from db.session import connect
-from domain.scopes import DATA_TENANT_ID
+from domain.scopes import DATA_TENANT_ID, WORKSPACE_ANY
 from ingest.edgar.client import EdgarClient
 from repositories import thesis_repo
 from securities import master
@@ -88,12 +88,12 @@ def resolve_baskets_scope(
     Archived theses are excluded (the ``list_all`` default — the daily cron's walk); tenants are
     thesis-intrinsic, so each thesis contributes to its OWN tenant's map."""
     if thesis_id is not None:
-        one = thesis_repo.get(conn, thesis_id)
+        one = thesis_repo.get(conn, thesis_id, workspace=WORKSPACE_ANY)
         if one is None:
             raise LookupError(f"thesis {thesis_id} not found")
         theses = [one]
     else:
-        theses = thesis_repo.list_all(conn)
+        theses = thesis_repo.list_all(conn, workspace=WORKSPACE_ANY)
     scopes: dict[UUID, TenantScope] = {}
     for thesis in theses:
         # the master is DATA (domain.scopes): every basket enriches the one data-tenant master
@@ -169,8 +169,8 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument(
         "--tenant-id",
         default=None,
-        help="--universe only: target tenant UUID; defaults to the deployment tenant "
-        "($ALPHADECK_TENANT_ID / demo). Basket scopes take each thesis's own tenant.",
+        help="--universe only: target tenant UUID; defaults to the data tenant (the master is DATA). "
+        "Basket scopes take the data tenant too.",
     )
     a = p.parse_args(argv)
     if a.tenant_id and not a.universe:

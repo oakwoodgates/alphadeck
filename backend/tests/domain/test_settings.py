@@ -2,7 +2,7 @@
 
 A behavior-preserving move of the 6 LLM dials out of CallConfig, guarded by:
 - the dial GOLDEN — defaults AND types identical to the pre-refactor CallConfig values,
-- the LATE-READ rule (D5) for the 3 env-toggled vars (DATABASE_URL / ALPHADECK_TENANT_ID / ANTHROPIC_API_KEY)
+- the LATE-READ rule (D5) for the 2 env-toggled vars (DATABASE_URL / ANTHROPIC_API_KEY)
   — monkeypatched AFTER import, the late edge read wins, and the ALPHADECK_ prefix does NOT capture them,
 - the OVERRIDE smoke (ALPHADECK_LLM_MODEL reaches the client) + the is-None coalesce fix (F1 — an explicit 0
   is honored, never silently dropped): the path a defaults-only golden never covers.
@@ -11,11 +11,9 @@ No DB, no network, no key.
 
 from __future__ import annotations
 
-from uuid import UUID
-
 import pytest
 
-from db.session import current_tenant_id, database_url
+from db.session import database_url
 from domain.config import CallConfig
 from domain.settings import Settings, get_settings
 from llm.client import LLMClient
@@ -200,9 +198,14 @@ def test_database_url_is_read_late_at_the_edge(monkeypatch):
     assert database_url() == "postgresql://late:read@localhost:5544/proof"
 
 
-def test_tenant_id_is_read_late_at_the_edge(monkeypatch):
-    monkeypatch.setenv("ALPHADECK_TENANT_ID", "00000000-0000-0000-0000-0000000000aa")
-    assert current_tenant_id() == UUID("00000000-0000-0000-0000-0000000000aa")
+def test_the_deployment_tenant_setting_is_gone():
+    """``ALPHADECK_TENANT_ID`` and ``db.session.current_tenant_id`` are retired (auth PR 2): a request names its
+    caller's workspace, a data read names the data tenant, a CLI names its workspace explicitly."""
+    import db.session as session
+    from domain.settings import Settings
+
+    assert not hasattr(session, "current_tenant_id")
+    assert "tenant_id" not in Settings.model_fields
 
 
 def test_anthropic_key_is_read_late_at_the_client_edge(monkeypatch):

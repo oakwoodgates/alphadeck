@@ -6,6 +6,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from calls.assembler import assemble_call
+from db.session import DEFAULT_TENANT_ID
 from domain.config import DEFAULT_CONFIG
 from domain.enums import Grade, State, Verdict
 from domain.thesis import BasketMember, Thesis
@@ -64,7 +65,7 @@ def _thesis(security_id) -> Thesis:
 
 
 def _call_asof(db, security_id, asof: date):
-    pit = PointInTimeData(db, asof=asof, known_at=_KNOWN)
+    pit = PointInTimeData(db, asof=asof, known_at=_KNOWN, workspace=DEFAULT_TENANT_ID)
     events = [
         e
         for e in (

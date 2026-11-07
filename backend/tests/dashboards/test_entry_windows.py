@@ -817,7 +817,7 @@ def test_the_axis_spans_five_sessions_before_the_earliest_arm_night_to_the_lates
 def stub_client(monkeypatch):
     seen: dict = {"reads": 0}
 
-    def fake_read(conn, asof, known_at, clock, origin=None):
+    def fake_read(conn, asof, known_at, clock, origin=None, **_):
         seen["reads"] += 1
         seen["view"] = (asof, known_at, clock)
         seen["origin"] = origin
@@ -873,8 +873,18 @@ def test_the_router_counts_a_live_view_from_the_action_day_and_a_past_one_from_i
     client.get("/dashboards/entry-windows", params={"asof": "2026-10-23"})
     assert seen["view"][2] == "public" and seen["origin"] == date(2026, 10, 23)
     keys = {k for k in CACHE._entries}
-    assert ("entry-windows", ("record", date(2026, 10, 27)), date(2026, 10, 26)) in keys
-    assert ("entry-windows", ("public", date(2026, 10, 23)), date(2026, 10, 23)) in keys
+    assert (
+        DEFAULT_TENANT_ID,
+        "entry-windows",
+        ("record", date(2026, 10, 27)),
+        date(2026, 10, 26),
+    ) in keys
+    assert (
+        DEFAULT_TENANT_ID,
+        "entry-windows",
+        ("public", date(2026, 10, 23)),
+        date(2026, 10, 23),
+    ) in keys
 
 
 def test_the_router_reads_a_live_asof_on_the_record_clock(stub_client):

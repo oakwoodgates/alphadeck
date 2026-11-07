@@ -102,7 +102,9 @@ def _counts(db) -> tuple[int, int]:
 
 
 def _sales(db, sid, d: date | None = None) -> list[dict]:
-    rows = PointInTimeData(db, asof=date(2026, 6, 5), known_at=FAR).insider_txns(sid)
+    rows = PointInTimeData(
+        db, asof=date(2026, 6, 5), known_at=FAR, workspace=DEFAULT_TENANT_ID
+    ).insider_txns(sid)
     return [r for r in rows if r["txn_code"] == "S" and (d is None or r["valid_from"] == d)]
 
 
@@ -165,7 +167,9 @@ def test_a_pre_repair_replay_still_reads_what_the_system_held(db, infq_bare, cac
     pinned = db_now(db)  # the clock that stamps recorded_at
     db.commit()
     repair.run_repair(db, cache_dir=cache, apply=True, log=lambda *_: None)
-    held = PointInTimeData(db, asof=date(2026, 6, 5), known_at=pinned).insider_txns(infq_bare)
+    held = PointInTimeData(
+        db, asof=date(2026, 6, 5), known_at=pinned, workspace=DEFAULT_TENANT_ID
+    ).insider_txns(infq_bare)
     assert SINGER in {r["insider_name"] for r in held if r["txn_code"] == "S"}
 
 

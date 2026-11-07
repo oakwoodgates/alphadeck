@@ -5,13 +5,18 @@ How a dashboard uses it (its router, after ``serve_view(asof)``)::
 
     from dashboards.cache import cached
 
-    got = cached(conn, "rotation-map", (), asof, lambda: read_heavy_inputs(conn, asof, known_at, clock))
+    got = cached(
+        conn, "rotation-map", (), asof, lambda: read_heavy_inputs(conn, asof, known_at, clock),
+        workspace=workspace,  # the caller's (app.deps.get_workspace): part of the key, never optional
+    )
     got.value        # the computed value (shared between requests: treat it as read-only)
     got.status       # "hit" | "computed"
     got.compute_ms   # how long the compute took when it ran (a hit carries the stored figure)
 
-The key is ``(dashboard slug, params tuple, asof)``; ``params`` holds whatever the cached value depends on
-besides the as-of, and must be hashable. Cache the expensive READ, then derive the cheap views from it per
+The key is ``(workspace, dashboard slug, params tuple, asof)``: the WORKSPACE is the caller's (``app.deps.
+get_workspace``) and is REQUIRED, so a page computed for one workspace's cards can never be served to another
+(auth PR 2, docs/TENANT_SCOPES.md). ``params`` holds whatever else the cached value depends on besides the as-of,
+and must be hashable. Cache the expensive READ, then derive the cheap views from it per
 request, so one cold compute serves every grouping and toggle.
 
 The rules it keeps:
@@ -42,6 +47,7 @@ from collections.abc import Callable, Hashable
 from dataclasses import dataclass
 from datetime import date
 from typing import Any, Generic, Literal, TypeVar
+from uuid import UUID
 
 import psycopg
 
@@ -52,7 +58,7 @@ T = TypeVar("T")
 MAX_ENTRIES = 64
 
 CacheStatus = Literal["hit", "computed"]
-Key = tuple[str, tuple[Hashable, ...], date]
+Key = tuple[UUID, str, tuple[Hashable, ...], date]
 
 
 @dataclass(frozen=True)
@@ -139,8 +145,14 @@ class DashboardCache:
         params: tuple[Hashable, ...],
         asof: date,
         compute: Callable[[], T],
+        *,
+        workspace: UUID,
     ) -> Cached[T]:
-        key: Key = (slug, tuple(params), asof)
+        if not isinstance(workspace, UUID):
+            raise TypeError(
+                f"a dashboard cache key needs the caller's workspace id, not {workspace!r}"
+            )
+        key: Key = (workspace, slug, tuple(params), asof)
         token = self._token(conn)
         with self._lock:
             self._sync(token)
@@ -193,6 +205,8 @@ def cached(
     params: tuple[Hashable, ...],
     asof: date,
     compute: Callable[[], T],
+    *,
+    workspace: UUID,
 ) -> Cached[T]:
-    """Look ``(slug, params, asof)`` up in the shared cache, computing (once) on a miss."""
-    return CACHE.get(conn, slug, params, asof, compute)
+    """Look ``(workspace, slug, params, asof)`` up in the shared cache, computing (once) on a miss."""
+    return CACHE.get(conn, slug, params, asof, compute, workspace=workspace)

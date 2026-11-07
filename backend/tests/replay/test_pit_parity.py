@@ -278,14 +278,14 @@ def test_replay_pit_matches_postgres_as_of(db, tmp_path):
     (after the value normalizer). This is what lets DuckDB do the fast sweeps while provably reproducing
     the SoR's as-of result the detectors consume."""
     _seed_all(db)
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
         secs = [HIMS_SECURITY_ID, UNH_SECURITY_ID, SMR_ID, OKLO_ID, NNE_ID, LEU_ID]
         theses = [HIMS_THESIS_ID, UNH_THESIS_ID, NUCLEAR_THESIS_ID]
         for asof in (date(2025, 8, 15), date(2026, 4, 1), date(2026, 6, 5)):
-            live = PointInTimeData(db, asof=asof, known_at=_PIN)
-            rep = ReplayPointInTimeData(con, asof=asof, known_at=_PIN)
+            live = PointInTimeData(db, asof=asof, known_at=_PIN, workspace=DEFAULT_TENANT_ID)
+            rep = ReplayPointInTimeData(con, asof=asof, known_at=_PIN, workspace=DEFAULT_TENANT_ID)
             for sid in secs:
                 _match(
                     live.insider_txns(sid),
@@ -368,7 +368,7 @@ def test_succession_8k_parity_stored_on_both_engines_skipped_on_both(db, tmp_pat
     db.commit()
     cat_on = DEFAULT_CONFIG.model_copy(update={"corporate_catalyst_enabled": True})
 
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
         asofs = (
@@ -381,8 +381,8 @@ def test_succession_8k_parity_stored_on_both_engines_skipped_on_both(db, tmp_pat
         succession_seen = set()
         fired = 0
         for asof in asofs:
-            live = PointInTimeData(db, asof=asof, known_at=_PIN)
-            rep = ReplayPointInTimeData(con, asof=asof, known_at=_PIN)
+            live = PointInTimeData(db, asof=asof, known_at=_PIN, workspace=DEFAULT_TENANT_ID)
+            rep = ReplayPointInTimeData(con, asof=asof, known_at=_PIN, workspace=DEFAULT_TENANT_ID)
             for sid in sids.values():
                 live_rows = live.corporate_event_facts(sid)
                 _match(

@@ -313,20 +313,19 @@ class ReplayPointInTimeData:
         asof: date,
         known_at: datetime,
         data_tenant: UUID | None = None,
-        workspace: UUID | None = None,
-        tenant_id: UUID | None = None,
+        workspace: UUID,
         basket: Iterable[UUID] | None = None,
         bounds: Mapping[str, int | None] | None = None,
     ) -> None:
         """The two scopes exactly as the live ``PointInTimeData`` takes them (``domain.scopes.resolve_scopes``):
-        ``data_tenant`` (default ``DATA_TENANT_ID``) + ``workspace``; ``tenant_id`` is the transition alias
-        (both scopes one tenant; PR 2 removes it). Each table's rows are read for ``tenants_for(table, ...)``.
+        ``data_tenant`` (default ``DATA_TENANT_ID``) + ``workspace`` (REQUIRED). Each table's rows are read for
+        ``tenants_for(table, ...)``.
         """
         self.con = con
         self.asof = asof
         self.known_at = known_at
         self.data_tenant, self.workspace = resolve_scopes(
-            data_tenant=data_tenant, workspace=workspace, tenant_id=tenant_id
+            data_tenant=data_tenant, workspace=workspace
         )
         # the prefetch scope, de-duplicated and ORDER-STABLE (the bound parameter list must not depend on
         # set iteration order — a run has to reproduce itself). Empty == no basket == per-security reads.
