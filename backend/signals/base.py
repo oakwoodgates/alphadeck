@@ -92,8 +92,7 @@ class PointInTimeData:
         asof: date,
         known_at: datetime | None = None,
         data_tenant: UUID | None = None,
-        workspace: UUID | None = None,
-        tenant_id: UUID | None = None,
+        workspace: UUID,
         basket: Iterable[UUID] | None = None,
         bounds: Mapping[str, int | None] | None = None,
         clock: Clock = "record",
@@ -103,10 +102,9 @@ class PointInTimeData:
         workspace's own ratified rows of a MIXED table. Each fact read names its tenants through
         ``domain.scopes.tenants_for`` (docs/TENANT_SCOPES.md).
 
-        ``tenant_id`` is a TRANSITION ALIAS (PR 2 removes it): it sets BOTH scopes to one tenant — every
-        pre-split call site's meaning — and cannot be combined with ``data_tenant`` / ``workspace``.
-        ``workspace`` left unset is ``DEFAULT_TENANT_ID`` (the demo/test default, equal to the data tenant
-        until PR 2 moves the founding workspace out) — likewise transitional."""
+        ``workspace`` is REQUIRED (auth PR 2 removed the ``tenant_id=`` transition alias): a request names the
+        caller's workspace, the call path the thesis's; a pure DATA view (a benchmark tape) still names the
+        caller's, which it simply never reads."""
         self.conn = conn
         self.asof = asof
         # THE TRANSACTION-AXIS BOUND, from the clock that STAMPS ``recorded_at`` (``db.clock.db_now``),
@@ -115,7 +113,7 @@ class PointInTimeData:
         # call. Pinned ONCE here, so every accessor of this view answers against one bound.
         self.known_at = known_at or db_now(conn)
         self.data_tenant, self.workspace = resolve_scopes(
-            data_tenant=data_tenant, workspace=workspace, tenant_id=tenant_id
+            data_tenant=data_tenant, workspace=workspace
         )
         # which axis ``known_at`` bounds (the record clock live, the public clock for a history view)
         self.clock: Clock = clock

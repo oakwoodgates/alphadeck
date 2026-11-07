@@ -42,6 +42,7 @@ from dashboards.etfs import (
 from dashboards.etfs import etfs as compute_etfs
 from db.session import DEFAULT_TENANT_ID
 from domain.market_time import serve_view
+from domain.scopes import DATA_TENANT_ID
 from securities import master
 from signals.base import PointInTimeData
 from signals.horizons import display_bounds
@@ -239,14 +240,17 @@ def _iwm(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> dict[date, float]:
     pit = PointInTimeData(
         conn,
         asof=asof,
         known_at=known_at,
-        tenant_id=DEFAULT_TENANT_ID,
+        data_tenant=DATA_TENANT_ID,
         bounds=display_bounds(),
         clock=clock,
+        workspace=workspace,
     )
     return {
         b["d"]: float(b["close"])
@@ -312,7 +316,7 @@ def read_inputs(
         funds=funds,
         names={sid: (str(i["name"]) if i.get("name") else None) for sid, i in identity.items()},
         company_closes=closes,
-        iwm=_iwm(conn, asof, known_at, clock),
+        iwm=_iwm(conn, asof, known_at, clock, workspace=workspace),
         flagged=price_flags(
             conn,
             [*sorted(fund_ids, key=str), *company_ids],

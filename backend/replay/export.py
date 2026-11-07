@@ -464,9 +464,8 @@ def export_snapshot(
     conn: psycopg.Connection,
     out_dir: str | Path,
     *,
-    tenant_id: UUID | None = None,
     data_tenant: UUID | None = None,
-    workspace: UUID | None = None,
+    workspace: UUID,
     clock: Literal["record", "public"] = "record",
     known_by: datetime | None = None,
     identity: bool = False,
@@ -504,13 +503,11 @@ def export_snapshot(
     **The two tenant scopes** (``domain.scopes``, docs/TENANT_SCOPES.md): each fact table is exported for
     ``tenants_for(table, data=data_tenant, workspace=workspace)`` — a DATA table the data tenant's rows, a
     WORKSPACE table the workspace's, a MIXED table both (the reader resolves the union exactly as the live as-of
-    read does). The aux tables, the split list and the identity aux are DATA. ``tenant_id`` is the transition
-    alias (both scopes one tenant; PR 2 removes it). The manifest's ``tenant_id`` is the workspace; a
+    read does). The aux tables, the split list and the identity aux are DATA. ``workspace`` is REQUIRED. The
+    manifest's ``tenant_id`` is the workspace; a
     ``data_tenant`` key is added only when the two differ, so today's manifest is byte-identical.
     """
-    data_tenant, workspace = resolve_scopes(
-        data_tenant=data_tenant, workspace=workspace, tenant_id=tenant_id
-    )
+    data_tenant, workspace = resolve_scopes(data_tenant=data_tenant, workspace=workspace)
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     excluded = [t for t in FACT_TABLES if clock == "public" and t not in PUBLIC_TIME]

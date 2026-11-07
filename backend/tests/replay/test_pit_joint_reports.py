@@ -11,6 +11,7 @@ from datetime import date, datetime, timezone
 
 import pytest
 
+from db.session import DEFAULT_TENANT_ID
 from domain.insider_joint_reports import JOINT_REPORTERS
 from replay.export import export_snapshot
 from replay.pit import ReplayPointInTimeData, connect_mirror
@@ -25,15 +26,25 @@ TICKERS = ("INFQ", "AMKR", "SMCI", "OKLO", "ALAB", "TSM")
 @pytest.mark.parametrize("basket", [True, False], ids=["prefetch", "scoped"])
 def test_the_mirror_collapses_joint_reports_exactly_like_postgres(db, tmp_path, basket):
     sids = {t: seed(db, t) for t in TICKERS}
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     ids = list(sids.values())
     checked = 0
     for asof in (date(2025, 3, 3), date(2025, 8, 20), date(2026, 6, 5), date(2026, 10, 9)):
         for known_at in (datetime(2026, 1, 1, tzinfo=timezone.utc), FAR):
-            live = PointInTimeData(db, asof=asof, known_at=known_at, basket=ids if basket else None)
+            live = PointInTimeData(
+                db,
+                asof=asof,
+                known_at=known_at,
+                basket=ids if basket else None,
+                workspace=DEFAULT_TENANT_ID,
+            )
             rep = ReplayPointInTimeData(
-                con, asof=asof, known_at=known_at, basket=ids if basket else None
+                con,
+                asof=asof,
+                known_at=known_at,
+                basket=ids if basket else None,
+                workspace=DEFAULT_TENANT_ID,
             )
             for sid in ids:
                 _assert_equal(live.insider_txns(sid), rep.insider_txns(sid))
@@ -43,19 +54,21 @@ def test_the_mirror_collapses_joint_reports_exactly_like_postgres(db, tmp_path, 
 
 def test_parity_is_not_vacuous_the_mirror_really_collapses(db, tmp_path):
     sids = {t: seed(db, t) for t in TICKERS}
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
-    rep = ReplayPointInTimeData(con, asof=date(2026, 6, 5), known_at=FAR)
+    rep = ReplayPointInTimeData(
+        con, asof=date(2026, 6, 5), known_at=FAR, workspace=DEFAULT_TENANT_ID
+    )
     infq = rep.insider_txns(sids["INFQ"])
     assert "SINGER DAVID B" not in {r["insider_name"] for r in infq if r["txn_code"] == "S"}
     assert sum(1 for r in infq if r["txn_code"] == "S" and r.get(JOINT_REPORTERS)) == 16
-    amkr = ReplayPointInTimeData(con, asof=date(2025, 3, 3), known_at=FAR).insider_txns(
-        sids["AMKR"]
-    )
+    amkr = ReplayPointInTimeData(
+        con, asof=date(2025, 3, 3), known_at=FAR, workspace=DEFAULT_TENANT_ID
+    ).insider_txns(sids["AMKR"])
     assert len([r for r in amkr if r["txn_code"] == "P"]) == 1
-    alab = ReplayPointInTimeData(con, asof=date(2025, 8, 20), known_at=FAR).insider_txns(
-        sids["ALAB"]
-    )
+    alab = ReplayPointInTimeData(
+        con, asof=date(2025, 8, 20), known_at=FAR, workspace=DEFAULT_TENANT_ID
+    ).insider_txns(sids["ALAB"])
     assert len(alab) == 4  # the negative stays two trades x two lots on the mirror too
 
 
@@ -72,7 +85,7 @@ def test_a_mirror_without_the_evidence_reads_exactly_as_before(db, tmp_path, mon
     import domain.insider_amendments as insider_amendments
 
     sid = seed(db, "INFQ")
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     # emulate the pre-0054 export ON DISK (the mirror's aux cache is primed when it is opened)
     facts = pq.read_table(tmp_path / "fact_insider_txn.parquet")
     pq.write_table(
@@ -94,7 +107,9 @@ def test_a_mirror_without_the_evidence_reads_exactly_as_before(db, tmp_path, mon
     pq.write_table(am, tmp_path / "insider_amendment.parquet")
     con = connect_mirror(tmp_path)
     asof = date(2026, 6, 5)
-    old = ReplayPointInTimeData(con, asof=asof, known_at=FAR).insider_txns(sid)
+    old = ReplayPointInTimeData(
+        con, asof=asof, known_at=FAR, workspace=DEFAULT_TENANT_ID
+    ).insider_txns(sid)
     assert not any(r.get(JOINT_REPORTERS) for r in old), [
         (r["accession"], r["txn_seq"], r.get("direct_indirect"), r.get("shares_owned_after"))
         for r in old
@@ -102,7 +117,9 @@ def test_a_mirror_without_the_evidence_reads_exactly_as_before(db, tmp_path, mon
     ]
     assert "SINGER DAVID B" in {r["insider_name"] for r in old if r["txn_code"] == "S"}
     monkeypatch.setattr(insider_amendments, "collapse_joint_reports", lambda rows: rows)
-    uncollapsed = PointInTimeData(db, asof=asof, known_at=FAR).insider_txns(sid)
+    uncollapsed = PointInTimeData(
+        db, asof=asof, known_at=FAR, workspace=DEFAULT_TENANT_ID
+    ).insider_txns(sid)
     assert sorted((r["accession"], r["txn_seq"]) for r in old) == sorted(
         (r["accession"], r["txn_seq"]) for r in uncollapsed
     )

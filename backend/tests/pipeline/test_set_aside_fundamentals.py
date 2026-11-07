@@ -24,6 +24,7 @@ import psycopg
 import pytest
 
 from db.bitemporal import KNOWABLE_FROM
+from db.session import DEFAULT_TENANT_ID
 from domain.market_time import known_at_for_asof
 from ingest.edgar import client as edgar_client
 from ingest.edgar.client import EdgarClient
@@ -206,7 +207,12 @@ def _count(db, table: str) -> int:
 def _q4_2017(db, sid, asof: date, *, clock: str = "record", basket: bool = False) -> dict:
     known_at = known_at_for_asof(asof)
     pit = PointInTimeData(
-        db, asof=asof, known_at=known_at, clock=clock, basket=[sid] if basket else None
+        db,
+        asof=asof,
+        known_at=known_at,
+        clock=clock,
+        basket=[sid] if basket else None,
+        workspace=DEFAULT_TENANT_ID,
     )
     return next(r for r in pit.fundamentals_facts(sid) if r["period_end"] == Q4_2017)
 
@@ -295,7 +301,7 @@ def test_both_engines_skip_a_set_aside_version(db, lfmd, tmp_path):
     [(_sid, cand)] = res.appended
     for clock in ("record", "public"):
         out = tmp_path / f"mirror-{clock}"
-        m = export_snapshot(db, out, clock=clock)
+        m = export_snapshot(db, out, clock=clock, workspace=DEFAULT_TENANT_ID)
         assert m["tables"]["fact_fundamentals"]["rows_set_aside"] == 1
         con = connect_mirror(out)
         try:
@@ -303,12 +309,23 @@ def test_both_engines_skip_a_set_aside_version(db, lfmd, tmp_path):
             assert str(cand.fact_id) not in ids
             for asof in (date(2018, 6, 1), date(2019, 6, 3), date(2026, 10, 21)):
                 known_at = known_at_for_asof(asof)
-                live = PointInTimeData(db, asof=asof, known_at=known_at, clock=clock)
-                live_b = PointInTimeData(
-                    db, asof=asof, known_at=known_at, clock=clock, basket=[sec.id]
+                live = PointInTimeData(
+                    db, asof=asof, known_at=known_at, clock=clock, workspace=DEFAULT_TENANT_ID
                 )
-                rep = ReplayPointInTimeData(con, asof=asof, known_at=known_at)
-                rep_b = ReplayPointInTimeData(con, asof=asof, known_at=known_at, basket=[sec.id])
+                live_b = PointInTimeData(
+                    db,
+                    asof=asof,
+                    known_at=known_at,
+                    clock=clock,
+                    basket=[sec.id],
+                    workspace=DEFAULT_TENANT_ID,
+                )
+                rep = ReplayPointInTimeData(
+                    con, asof=asof, known_at=known_at, workspace=DEFAULT_TENANT_ID
+                )
+                rep_b = ReplayPointInTimeData(
+                    con, asof=asof, known_at=known_at, basket=[sec.id], workspace=DEFAULT_TENANT_ID
+                )
                 lr, rr = live.fundamentals_facts(sec.id), rep.fundamentals_facts(sec.id)
                 assert len(lr) == len(rr) == len(rep_b.fundamentals_facts(sec.id)) > 0
                 _match(lr, rr, ["security_id", "metric_key", "period_end"])
@@ -343,7 +360,13 @@ def test_a_set_aside_reparse_falls_back_to_the_version_it_superseded(db, tmp_pat
     assert float(reparse["value"]) == 96_046_000.0
 
     def read() -> float:
-        pit = PointInTimeData(db, asof=asof, known_at=known_at_for_asof(asof), clock="public")
+        pit = PointInTimeData(
+            db,
+            asof=asof,
+            known_at=known_at_for_asof(asof),
+            clock="public",
+            workspace=DEFAULT_TENANT_ID,
+        )
         return float(
             next(r for r in pit.fundamentals_facts(sec.id) if r["period_end"] == q2)["value"]
         )

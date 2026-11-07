@@ -424,7 +424,12 @@ def test_a_weekly_refetch_appends_a_version_ONLY_where_a_value_changed(db, tmp_p
     rows = _newest(db, tid)
     assert rows[("psilocybin", SEP)]["documents"] == 106
     # the accessor reads the newest version, one row per (term, month)
-    pit = PointInTimeData(db, asof=date(2026, 10, 31), known_at=datetime.now(timezone.utc))
+    pit = PointInTimeData(
+        db,
+        asof=date(2026, 10, 31),
+        known_at=datetime.now(timezone.utc),
+        workspace=DEFAULT_TENANT_ID,
+    )
     got = {(r["term"], r["month"]): r["documents"] for r in pit.term_mentions(tid)}
     assert got == {("psilocybin", AUG): 14, ("psilocybin", SEP): 106, ("psilocybin", OCT): 14}
 
@@ -673,7 +678,9 @@ def test_the_accessor_gates_on_valid_from_and_recorded_at_and_reads_the_public_c
     db.commit()
 
     def docs(asof, known_at, clock="record"):
-        pit = PointInTimeData(db, asof=asof, known_at=known_at, clock=clock)
+        pit = PointInTimeData(
+            db, asof=asof, known_at=known_at, clock=clock, workspace=DEFAULT_TENANT_ID
+        )
         return {r["month"]: r["documents"] for r in pit.term_mentions(tid)}
 
     # RECORD clock: valid_from <= asof (June has not closed on 06-15) ...
@@ -720,7 +727,7 @@ def test_an_export_never_writes_the_table_and_the_mirror_opens_without_it(db, tm
     db.commit()
     for clock in ("record", "public"):
         out = tmp_path / clock
-        manifest = export_snapshot(db, out, clock=clock)
+        manifest = export_snapshot(db, out, clock=clock, workspace=DEFAULT_TENANT_ID)
         assert not (out / "fact_term_mentions.parquet").exists()
         assert "fact_term_mentions" not in manifest["tables"]
         con = connect_mirror(out)

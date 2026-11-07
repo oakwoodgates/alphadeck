@@ -929,7 +929,7 @@ def test_read_forming_threads_one_view_into_every_read_and_runs_only_three_membe
         def term_mentions(self, thesis_id):
             return [trow("alpha", m, 10) for m in SIX] if thesis_id == T1 else []
 
-    def fake_pit(conn, asof, known_at, clock, basket=None):
+    def fake_pit(conn, asof, known_at, clock, basket=None, **_):
         seen["pits"].append((asof, known_at, clock, basket))
         return FakePit(basket)
 

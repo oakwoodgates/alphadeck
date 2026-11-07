@@ -42,8 +42,8 @@ from dashboards.narrative_adoption import (
     run_identity,
     run_summary,
 )
-from db.session import DEFAULT_TENANT_ID
 from domain.market_time import serve_view
+from domain.scopes import DATA_TENANT_ID
 from pipeline.term_mentions import latest_run
 from repositories import thesis_repo
 from signals.base import PointInTimeData
@@ -249,6 +249,8 @@ def _closes(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> dict[UUID, dict[date, float]]:
     """Each company's ``{day: close}`` up to the as-of over the axis' window, through the point-in-time view
     (``known_at`` + ``clock`` from ``serve_view``), ``CHUNK`` companies per view."""
@@ -260,10 +262,11 @@ def _closes(
             conn,
             asof=asof,
             known_at=known_at,
-            tenant_id=DEFAULT_TENANT_ID,
+            data_tenant=DATA_TENANT_ID,
             basket=chunk,
             bounds=bounds,
             clock=clock,
+            workspace=workspace,
         )
         for sid in chunk:
             out[sid] = {
@@ -301,9 +304,10 @@ def read_page(
         conn,
         asof=asof,
         known_at=known_at,
-        tenant_id=DEFAULT_TENANT_ID,
+        data_tenant=DATA_TENANT_ID,
         bounds=_price_bounds(),
         clock=clock,
+        workspace=workspace,
     )
     spy = {
         b["d"]: float(b["close"])
@@ -317,7 +321,7 @@ def read_page(
         term_set=[e.model_dump(mode="json") for e in card.term_set],
         rows=pit.term_mentions(thesis_id),
         roster=memberships,
-        closes=_closes(conn, sids, asof, known_at, clock),
+        closes=_closes(conn, sids, asof, known_at, clock, workspace=workspace),
         spy_closes=spy,
         flagged=price_flags(conn, sids, asof, known_at=known_at, clock=clock, workspace=workspace),
     )

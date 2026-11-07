@@ -715,7 +715,9 @@ def test_the_router_reads_flags_once_inside_the_cached_read_and_never_reads_a_fl
     monkeypatch.setattr(router_mod, "memberships_of", lambda cards: tuple(rows))
     monkeypatch.setattr(router_mod, "_readings", fake_readings)
     monkeypatch.setattr(
-        router_mod, "_benchmarks", lambda conn, asof, known_at, clock: {"SPY": None, "IWM": None}
+        router_mod,
+        "_benchmarks",
+        lambda conn, asof, known_at, clock, **_: {"SPY": None, "IWM": None},
     )
     monkeypatch.setattr(router_mod, "price_flags", fake_flags)
     monkeypatch.setattr(router_mod.master, "identity_for", lambda conn, ids, **kw: {})

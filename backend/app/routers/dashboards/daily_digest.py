@@ -60,6 +60,7 @@ from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard
 from domain.enums import Kind, State
 from domain.market_time import countdown_origin, market_clock, serve_view
+from domain.scopes import DATA_TENANT_ID
 from domain.splits import listed_from_row
 from domain.thesis import Thesis
 from repositories import decisions_repo
@@ -683,9 +684,10 @@ def read_digest(
         conn,
         asof=asof,
         known_at=known_at,
-        tenant_id=DEFAULT_TENANT_ID,
+        data_tenant=DATA_TENANT_ID,
         bounds=display_bounds(),
         clock=clock,
+        workspace=workspace,
     )
     iwm_bars = _bars(pit.benchmark_prices(BENCHMARK, lookback_days=window_days))
     flagged = price_flags(

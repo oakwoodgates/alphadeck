@@ -654,7 +654,7 @@ def test_the_router_reads_the_price_flags_inside_the_cached_read(monkeypatch):
     )
     monkeypatch.setattr(router_mod, "memberships_of", lambda cards: tuple(rows))
     monkeypatch.setattr(router_mod, "_tapes", lambda conn, sids, asof, known_at, clock, **_: tapes)
-    monkeypatch.setattr(router_mod, "_spy", lambda conn, asof, known_at, clock: None)
+    monkeypatch.setattr(router_mod, "_spy", lambda conn, asof, known_at, clock, **_: None)
     monkeypatch.setattr(router_mod, "price_flags", fake_flags)
     monkeypatch.setattr(router_mod.master, "identity_for", lambda conn, ids, **kw: {})
     monkeypatch.setattr(CACHE, "_token_fn", lambda conn: "gen-1")

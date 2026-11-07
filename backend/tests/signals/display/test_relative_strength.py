@@ -8,6 +8,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 from uuid import uuid4
 
+from db.session import DEFAULT_TENANT_ID
 from signals.base import PointInTimeData
 from signals.display import relative_strength as rs
 from signals.display.relative_strength import _aligned_rs, compute, sector_rs_for
@@ -128,7 +129,7 @@ def test_benchmark_prices_accessor_resolves_and_caps_as_of(db, security_id):
     )
     db.commit()
 
-    pit = PointInTimeData(db, asof=date(2026, 6, 1))
+    pit = PointInTimeData(db, asof=date(2026, 6, 1), workspace=DEFAULT_TENANT_ID)
     bars = pit.benchmark_prices("SPY")
     assert [b["d"] for b in bars] == [
         date(2026, 5, 1)
@@ -154,7 +155,7 @@ def test_display_reads_the_benchmark_and_honors_no_lookahead(db, security_id):
     ingest_prices(db, security_id, [_pxrow(asof + timedelta(days=1), 9_999.0)])  # future spike
     db.commit()
 
-    sig = rs.display(PointInTimeData(db, asof=asof), security_id, asof)
+    sig = rs.display(PointInTimeData(db, asof=asof, workspace=DEFAULT_TENANT_ID), security_id, asof)
     assert sig is not None and sig.headline.key == "leading"
     assert {e.key for e in sig.events} == {"rs_high_spy", "rs_high_iwm"}
     assert sig.basis.window_end == asof  # the future 9,999 bar never entered the window

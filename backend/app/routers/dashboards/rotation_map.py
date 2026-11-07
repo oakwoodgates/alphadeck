@@ -38,8 +38,8 @@ from dashboards.rotation_map import (
     returns_of,
 )
 from dashboards.rotation_map import rotation_map as compute_rotation_map
-from db.session import DEFAULT_TENANT_ID
 from domain.market_time import serve_view
+from domain.scopes import DATA_TENANT_ID
 from securities import master
 from signals.base import PointInTimeData
 from signals.display import trailing_returns
@@ -193,6 +193,8 @@ def _spy(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> dict[str, float | None] | None:
     """SPY's own trailing returns: the trailing_returns member's pure ``compute`` over the benchmark's bars,
     read exactly as the member reads a company's. ``None`` when there is no SPY tape at the as-of.
@@ -201,9 +203,10 @@ def _spy(
         conn,
         asof=asof,
         known_at=known_at,
-        tenant_id=DEFAULT_TENANT_ID,
+        data_tenant=DATA_TENANT_ID,
         bounds=display_bounds(),
         clock=clock,
+        workspace=workspace,
     )
     bars = pit.benchmark_prices("SPY", lookback_days=trailing_returns.LOOKBACK_DAYS)
     sig = trailing_returns.compute(bars, asof)
@@ -230,7 +233,7 @@ def read_inputs(
         roster_fallback_cards=counted.roster_fallback,
         memberships=memberships,
         tapes=_tapes(conn, sids, asof, known_at, clock, workspace=workspace),
-        spy=_spy(conn, asof, known_at, clock),
+        spy=_spy(conn, asof, known_at, clock, workspace=workspace),
         flagged=price_flags(conn, sids, asof, known_at=known_at, clock=clock, workspace=workspace),
     )
 

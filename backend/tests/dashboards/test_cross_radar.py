@@ -760,7 +760,7 @@ def test_the_router_reads_the_price_flags_inside_the_cached_read(monkeypatch):
         "per_company",
         lambda conn, sids, asof, known_at, clock, read, **_: {s: read(_Pit(bars), s) for s in sids},
     )
-    monkeypatch.setattr(router_mod, "_spy_dates", lambda conn, asof, known_at, clock: spy)
+    monkeypatch.setattr(router_mod, "_spy_dates", lambda conn, asof, known_at, clock, **_: spy)
     monkeypatch.setattr(router_mod, "price_flags", fake_flags)
     monkeypatch.setattr(CACHE, "_token_fn", lambda conn: "gen-1")
     app.dependency_overrides[get_conn] = lambda: object()

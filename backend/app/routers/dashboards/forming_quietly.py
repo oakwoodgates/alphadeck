@@ -51,10 +51,10 @@ from dashboards.forming_quietly import (
     reading_of,
     row_cards,
 )
-from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard
 from domain.enums import Grade, Kind, State, TermTier
 from domain.market_time import serve_view
+from domain.scopes import DATA_TENANT_ID
 from domain.thesis import Thesis
 from repositories import calls_repo
 from securities import master
@@ -341,16 +341,19 @@ def _pit(
     known_at: datetime | None,
     clock: Literal["record", "public"],
     basket: list[UUID] | None = None,
+    *,
+    workspace: UUID,
 ) -> PointInTimeData:
     """The point-in-time view the Cockpit's display signals build (``display_bounds()``, the request's pair)."""
     return PointInTimeData(
         conn,
         asof=asof,
         known_at=known_at,
-        tenant_id=DEFAULT_TENANT_ID,
+        data_tenant=DATA_TENANT_ID,
         basket=basket,
         bounds=display_bounds(),
         clock=clock,
+        workspace=workspace,
     )
 
 
@@ -424,14 +427,16 @@ def read_forming(
         conn, {t.security_id for tid in ids for t in recorded[tid].card.triggers_fired}
     )
 
-    terms_pit = _pit(conn, asof, known_at, clock)
+    terms_pit = _pit(conn, asof, known_at, clock, workspace=workspace)
     rows: list[FormingRow] = []
     for tid in ids:
         thesis = by_id[tid]
         card_names, unresolved, _ = per_card[tid]
         card_sids = [s for s, _ in card_names if s not in flags]
         breadth: DisplaySignal | None = (
-            theme_breadth.breadth_for(_pit(conn, asof, known_at, clock, card_sids), card_sids)
+            theme_breadth.breadth_for(
+                _pit(conn, asof, known_at, clock, card_sids, workspace=workspace), card_sids
+            )
             if card_sids
             else None
         )

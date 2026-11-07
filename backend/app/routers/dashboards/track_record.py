@@ -51,6 +51,7 @@ from db.session import DEFAULT_TENANT_ID
 from domain.data_flags import FEED_STOPPED
 from domain.market_cap import CapTier
 from domain.market_time import serve_view, view_day
+from domain.scopes import DATA_TENANT_ID
 from domain.settings import get_settings
 from domain.splits import listed_from_row
 from pipeline import data_flags as flags_reader
@@ -310,6 +311,8 @@ def read_companies(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> dict[UUID, CompanyData]:
     """Each company's bars, share facts (the Workbench's, and the filing covers' ``COVER_METRIC`` rows of
     ``fundamentals_facts``, the cap's fallback) and split list through the request's point-in-time view
@@ -324,10 +327,11 @@ def read_companies(
             conn,
             asof=asof,
             known_at=known_at,
-            tenant_id=DEFAULT_TENANT_ID,
+            data_tenant=DATA_TENANT_ID,
             basket=chunk,
             bounds=None,
             clock=clock,
+            workspace=workspace,
         )
         day = view_day(pit.known_at)
         for sid in chunk:
@@ -353,15 +357,18 @@ def read_benchmarks(
     known_at: datetime | None,
     clock: Literal["record", "public"],
     stale_days: int,
+    *,
+    workspace: UUID,
 ) -> tuple[Benchmarks, Market]:
     """SPY's and IWM's bars at the as-of through the same view, and the market's session clock they give."""
     pit = PointInTimeData(
         conn,
         asof=asof,
         known_at=known_at,
-        tenant_id=DEFAULT_TENANT_ID,
+        data_tenant=DATA_TENANT_ID,
         bounds=None,
         clock=clock,
+        workspace=workspace,
     )
     spy, iwm = bars_of(pit.benchmark_prices("SPY")), bars_of(pit.benchmark_prices("IWM"))
     return benchmarks_of(spy, iwm), market_of(spy, iwm, stale_days=stale_days)
@@ -445,8 +452,8 @@ def read_record(
         },
         key=str,
     )
-    companies = read_companies(conn, needed, asof, known_at, clock)
-    bench, market = read_benchmarks(conn, asof, known_at, clock, stale_days)
+    companies = read_companies(conn, needed, asof, known_at, clock, workspace=workspace)
+    bench, market = read_benchmarks(conn, asof, known_at, clock, stale_days, workspace=workspace)
 
     rows = []
     for t, se in scored:

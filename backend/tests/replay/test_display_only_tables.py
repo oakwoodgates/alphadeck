@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from db.bitemporal import _FACT_IDENTITY, DISPLAY_ONLY_FACT_TABLES
 from db.public_clock import PUBLIC_TIME
+from db.session import DEFAULT_TENANT_ID
 from ingest.edgar.filing_index import ingest_filing_index
 from replay.export import FACT_TABLES, export_snapshot
 from replay.pit import connect_mirror
@@ -42,7 +43,7 @@ def test_an_export_never_writes_the_index_and_the_mirror_opens_without_it(
     db.commit()
     for clock in ("record", "public"):
         out = tmp_path / clock
-        manifest = export_snapshot(db, out, clock=clock)
+        manifest = export_snapshot(db, out, clock=clock, workspace=DEFAULT_TENANT_ID)
         assert not (out / f"{_INDEX}.parquet").exists()
         assert _INDEX not in manifest["tables"] and _INDEX not in manifest["excluded_tables"]
         con = connect_mirror(out)  # a mirror without the file opens (as every pre-0070 mirror does)

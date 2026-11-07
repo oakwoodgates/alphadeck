@@ -15,6 +15,7 @@ from datetime import date
 import pytest
 
 from db.bitemporal import _FACT_IDENTITY
+from db.session import DEFAULT_TENANT_ID
 from domain.config import DEFAULT_CONFIG
 from domain.enums import Grade, Kind, Role
 from domain.scopes import WORKSPACE_ANY
@@ -282,7 +283,9 @@ def test_every_reader_touches_only_the_tables_it_declared(db):
     thesis = thesis_repo.get(db, NUCLEAR_THESIS_ID, workspace=WORKSPACE_ANY)
 
     def fresh():
-        return _RecordingPIT(PointInTimeData(db, asof=asof, known_at=PIN))
+        return _RecordingPIT(
+            PointInTimeData(db, asof=asof, known_at=PIN, workspace=DEFAULT_TENANT_ID)
+        )
 
     touched_by_call: set[str] = set()
     for detector in registered_detectors():

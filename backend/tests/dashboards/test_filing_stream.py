@@ -2402,7 +2402,7 @@ def test_a_past_asof_never_shows_a_share_count_that_was_not_public_by_then(db):
     def rows(asof):
         known_at, clock = serve_view(asof)
         pit = PointInTimeData(
-            db, asof=asof, known_at=known_at, tenant_id=DEFAULT_TENANT_ID, basket=[sid], clock=clock
+            db, asof=asof, known_at=known_at, workspace=DEFAULT_TENANT_ID, basket=[sid], clock=clock
         )
         return rows_from_ratified([], pit.shares_outstanding_facts(sid), [], W)
 

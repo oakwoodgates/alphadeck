@@ -107,7 +107,7 @@ def test_a_member_added_by_a_later_snapshot_is_ABSENT_at_an_earlier_T(db, tmp_pa
     _snapshot(db, UNH_THESIS_ID, taken_at=before_window, members=[placeholder])
     _snapshot(db, UNH_THESIS_ID, taken_at=added_at, members=[placeholder, *live])
 
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
         snaps, source = replay_thesis_with_roster(
@@ -155,7 +155,7 @@ def test_the_pre_snapshot_fallback_is_TAKEN_and_LABELED(db, tmp_path):
         members=[_member(i, m.ticker, m.security_id) for i, m in enumerate(thesis.basket)],
     )
 
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
         snaps, source = replay_thesis_with_roster(
@@ -198,7 +198,7 @@ def test_a_snapshot_taken_AFTER_the_roster_known_at_is_NEVER_read(db, tmp_path):
         members=future_only,
     )
 
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
         snaps, source = replay_thesis_with_roster(
@@ -233,7 +233,7 @@ def test_a_current_snapshot_at_pin_now_reproduces_the_PRE_F4_timeline(db, tmp_pa
         members=[_member(i, m.ticker, m.security_id) for i, m in enumerate(thesis.basket)],
     )
 
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
         pre_f4, _ = replay_thesis_with_roster(
@@ -277,7 +277,7 @@ def test_replay_all_returns_the_timelines_AND_the_roster_labels(db, tmp_path):
     the roster provenance in the same object and cannot drop it on the floor by accident."""
     seed_unh(db)
     db.commit()
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
         result = replay_all(db, con, start=_START, end=_END, known_at=_PIN)
@@ -316,7 +316,7 @@ def test_a_thesis_with_NO_members_reports_no_sessions_not_snapshot(db, tmp_path)
     empty = thesis_repo.get(db, UNH_THESIS_ID, workspace=WORKSPACE_ANY)
     empty.basket = []  # the "DEV" / "Modern Defense Buildout" shape: promoted, never populated
 
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
         snaps, source = replay_thesis_with_roster(

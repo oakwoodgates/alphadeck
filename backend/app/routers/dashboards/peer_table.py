@@ -49,10 +49,10 @@ from dashboards.peer_table import (
     scopes,
 )
 from dashboards.peer_table import peer_table as compute_peer_table
-from db.session import DEFAULT_TENANT_ID
 from domain.enums import ContextRole
 from domain.market_cap import CapTier
 from domain.market_time import serve_view
+from domain.scopes import DATA_TENANT_ID
 from domain.splits import listed_from_row
 from securities import master
 from signals.base import PointInTimeData
@@ -484,6 +484,8 @@ def _spy(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> DisplaySignal | None:
     """SPY's trailing returns by the SAME pure rule the member runs (``trailing_returns.compute``), over SPY's
     as-of bars (``pit.benchmark_prices``); ``None`` = no SPY bars at the as-of."""
@@ -491,9 +493,10 @@ def _spy(
         conn,
         asof=asof,
         known_at=known_at,
-        tenant_id=DEFAULT_TENANT_ID,
+        data_tenant=DATA_TENANT_ID,
         bounds=display_bounds(),
         clock=clock,
+        workspace=workspace,
     )
     bars = pit.benchmark_prices(BENCHMARK, lookback_days=trailing_returns.LOOKBACK_DAYS)
     return trailing_returns.compute(bars, asof)
@@ -522,7 +525,7 @@ def read_reads(
         lambda pit, sid: read_company(pit, sid, asof, members, flagged.get(sid)),
         workspace=workspace,
     )
-    return reads, _spy(conn, asof, known_at, clock)
+    return reads, _spy(conn, asof, known_at, clock, workspace=workspace)
 
 
 def read_table(

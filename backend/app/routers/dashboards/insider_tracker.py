@@ -49,9 +49,9 @@ from dashboards.insider_tracker import (
 from dashboards.market_cap import CapCell, CompanyReads, cap_cell
 from dashboards.nights import CardNights, Night, Scope
 from dashboards.series import BENCHMARK, SinceStatus
-from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard
 from domain.market_time import serve_view
+from domain.scopes import DATA_TENANT_ID
 from domain.splits import listed_from_row
 from signals.base import PointInTimeData
 from signals.horizons import display_bounds
@@ -307,15 +307,18 @@ def _bench(
     known_at: datetime | None,
     clock: Literal["record", "public"],
     window_days: int,
+    *,
+    workspace: UUID,
 ) -> dict[date, float]:
     """IWM's ``{day: close}`` over the window (``pit.benchmark_prices``; empty = no tape at the as-of)."""
     pit = PointInTimeData(
         conn,
         asof=asof,
         known_at=known_at,
-        tenant_id=DEFAULT_TENANT_ID,
+        data_tenant=DATA_TENANT_ID,
         bounds=display_bounds(),
         clock=clock,
+        workspace=workspace,
     )
     return {
         b["d"]: float(b["close"])
@@ -380,7 +383,7 @@ def read_tracker(
             filings=filings,
             nights=read_nights(conn, [(t.id, t.name) for t in got.cards], asof, window_days),
             closes={sid: t.closes for sid, t in tapes.items()},
-            bench=_bench(conn, asof, known_at, clock, window_days),
+            bench=_bench(conn, asof, known_at, clock, window_days, workspace=workspace),
             flagged=flagged,
             caps={sid: t.cap for sid, t in tapes.items()},
         )

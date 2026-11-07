@@ -59,10 +59,10 @@ from dashboards.hot_board import (
 )
 from dashboards.market_cap import CompanyReads, Gap, cap_cell
 from dashboards.series import session_calendar
-from db.session import DEFAULT_TENANT_ID
 from domain.enums import Grade, Kind, State, Verdict
 from domain.market_cap import CapTier
 from domain.market_time import countdown_origin, market_clock, serve_view
+from domain.scopes import DATA_TENANT_ID
 from domain.splits import listed_from_row
 from repositories import calls_repo
 from securities import master
@@ -328,14 +328,17 @@ def _benchmark_pit(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> PointInTimeData:
     return PointInTimeData(
         conn,
         asof=asof,
         known_at=known_at,
-        tenant_id=DEFAULT_TENANT_ID,
+        data_tenant=DATA_TENANT_ID,
         bounds=display_bounds(),
         clock=clock,
+        workspace=workspace,
     )
 
 
@@ -429,7 +432,7 @@ def read_board(
             roster_tickers.setdefault((m.thesis_id, m.security_id), m.ticker)
 
     window_days = display_bounds().get("fact_price_eod")
-    pit = _benchmark_pit(conn, asof, known_at, clock)
+    pit = _benchmark_pit(conn, asof, known_at, clock, workspace=workspace)
     iwm_bars = _bars(pit.benchmark_prices(BENCHMARK, lookback_days=window_days))
     iwm_trailing = trailing_returns.compute(
         pit.benchmark_prices(BENCHMARK, lookback_days=trailing_returns.LOOKBACK_DAYS), asof

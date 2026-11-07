@@ -139,7 +139,7 @@ def test_live_call_is_byte_identical_to_the_live_roster(db, security_id, live_kn
         db,
         asof=asof,
         known_at=known,
-        tenant_id=ref.tenant_id,
+        workspace=ref.tenant_id,
         basket=basket,
         bounds=call_bounds(DEFAULT_CONFIG),
     )

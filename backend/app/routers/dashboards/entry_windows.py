@@ -32,10 +32,10 @@ from dashboards.entry_windows import (
     entry_windows,
     lookback_days,
 )
-from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard
 from domain.enums import Grade, Kind
 from domain.market_time import countdown_origin, market_clock, serve_view
+from domain.scopes import DATA_TENANT_ID
 from securities import master
 from signals.base import PointInTimeData
 from signals.horizons import MARGIN_DAYS
@@ -284,6 +284,8 @@ def _view(
     clock: Literal["record", "public"],
     days: int,
     basket: Sequence[UUID] = (),
+    *,
+    workspace: UUID,
 ) -> PointInTimeData:
     """A point-in-time view whose price window reaches back ``days`` (plus the horizon registry's own margin):
     the arm night can be older than the Cockpit's display window, and a bar floor that cut it would read the
@@ -292,10 +294,11 @@ def _view(
         conn,
         asof=asof,
         known_at=known_at,
-        tenant_id=DEFAULT_TENANT_ID,
+        data_tenant=DATA_TENANT_ID,
         basket=basket,
         bounds={"fact_price_eod": days + MARGIN_DAYS},
         clock=clock,
+        workspace=workspace,
     )
 
 
@@ -306,12 +309,14 @@ def _closes(
     known_at: datetime | None,
     clock: Literal["record", "public"],
     days: int,
+    *,
+    workspace: UUID,
 ) -> dict[UUID, dict[date, float]]:
     """Each company's ``{day: close}`` up to the as-of, ``CHUNK`` companies per view."""
     out: dict[UUID, dict[date, float]] = {}
     for i in range(0, len(sids), CHUNK):
         chunk = list(sids[i : i + CHUNK])
-        pit = _view(conn, asof, known_at, clock, days, chunk)
+        pit = _view(conn, asof, known_at, clock, days, chunk, workspace=workspace)
         for sid in chunk:
             out[sid] = {
                 b["d"]: float(b["close"])
@@ -327,8 +332,10 @@ def _bench(
     known_at: datetime | None,
     clock: Literal["record", "public"],
     days: int,
+    *,
+    workspace: UUID,
 ) -> dict[str, dict[date, float]]:
-    pit = _view(conn, asof, known_at, clock, days)
+    pit = _view(conn, asof, known_at, clock, days, workspace=workspace)
     return {
         symbol: {
             b["d"]: float(b["close"])
@@ -381,9 +388,9 @@ def read_page(
         recorded,
         master.tickers_for(conn, armed),
         master.ciks_for(conn, [*armed, *fired]),
-        _closes(conn, priced, asof, known_at, clock, days) if priced else {},
+        _closes(conn, priced, asof, known_at, clock, days, workspace=workspace) if priced else {},
         flagged,
-        _bench(conn, asof, known_at, clock, days) if runs else {},
+        _bench(conn, asof, known_at, clock, days, workspace=workspace) if runs else {},
         asof=asof,
         live_cards=counted.live_count,
         not_yet_created=counted.not_yet_created,

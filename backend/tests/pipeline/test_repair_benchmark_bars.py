@@ -220,7 +220,9 @@ def test_a_read_pinned_before_the_repair_still_sees_the_frozen_close(db):
         return float(row["close"])
 
     def rs_close(ticker, d, known_at):
-        bars = PointInTimeData(db, asof=D28, known_at=known_at).benchmark_prices(ticker)
+        bars = PointInTimeData(
+            db, asof=D28, known_at=known_at, workspace=DEFAULT_TENANT_ID
+        ).benchmark_prices(ticker)
         return float(next(b["close"] for b in bars if b["d"] == d))
 
     before, after = NOW - timedelta(minutes=1), NOW

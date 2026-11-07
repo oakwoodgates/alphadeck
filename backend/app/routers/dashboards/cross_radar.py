@@ -46,8 +46,8 @@ from dashboards.cross_radar import (
     timeline_sessions,
 )
 from dashboards.cross_radar import cross_radar as compute_cross_radar
-from db.session import DEFAULT_TENANT_ID
 from domain.market_time import serve_view
+from domain.scopes import DATA_TENANT_ID
 from securities import master
 from signals.base import PointInTimeData
 from signals.display import sma
@@ -292,15 +292,18 @@ def _spy_dates(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> list[date]:
     """SPY's last ``HISTORY_SESSIONS`` sessions up to the as-of, read like the members read a benchmark."""
     pit = PointInTimeData(
         conn,
         asof=asof,
         known_at=known_at,
-        tenant_id=DEFAULT_TENANT_ID,
+        data_tenant=DATA_TENANT_ID,
         bounds=display_bounds(),
         clock=clock,
+        workspace=workspace,
     )
     return recent_dates(pit.benchmark_prices("SPY", lookback_days=sma.LOOKBACK_DAYS))
 
@@ -328,7 +331,9 @@ def read_inputs(
         roster_fallback_cards=counted.roster_fallback,
         memberships=memberships,
         readings=readings,
-        sessions=timeline_sessions(_spy_dates(conn, asof, known_at, clock), seen),
+        sessions=timeline_sessions(
+            _spy_dates(conn, asof, known_at, clock, workspace=workspace), seen
+        ),
         flagged=flagged,
     )
 

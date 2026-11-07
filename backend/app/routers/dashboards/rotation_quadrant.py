@@ -44,8 +44,8 @@ from dashboards.rotation_quadrant import (
     quadrant_inputs,
 )
 from dashboards.rotation_quadrant import rotation_quadrant as compute_rotation_quadrant
-from db.session import DEFAULT_TENANT_ID
 from domain.market_time import serve_view
+from domain.scopes import DATA_TENANT_ID
 from securities import master
 from signals.base import PointInTimeData
 from signals.display import trailing_returns
@@ -211,15 +211,18 @@ def _spy(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> dict[date, float]:
     """SPY's ``{day: close}`` (``pit.benchmark_prices``; empty = no tape at the as-of)."""
     pit = PointInTimeData(
         conn,
         asof=asof,
         known_at=known_at,
-        tenant_id=DEFAULT_TENANT_ID,
+        data_tenant=DATA_TENANT_ID,
         bounds=display_bounds(),
         clock=clock,
+        workspace=workspace,
     )
     return {
         b["d"]: float(b["close"])
@@ -246,7 +249,7 @@ def read_inputs(
     return quadrant_inputs(
         memberships=memberships,
         closes=_closes(conn, sids, asof, known_at, clock, workspace=workspace),
-        spy=_spy(conn, asof, known_at, clock),
+        spy=_spy(conn, asof, known_at, clock, workspace=workspace),
         identity=master.identity_for(conn, set(sids)) if sids else {},
         asof=asof,
         include_silent=include_silent,

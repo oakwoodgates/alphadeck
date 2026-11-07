@@ -9,6 +9,7 @@ import pytest
 
 import replay.harness
 import replay.scoring
+from db.session import DEFAULT_TENANT_ID
 from domain.scopes import WORKSPACE_ANY
 from pipeline.seed import UNH_SECURITY_ID, UNH_THESIS_ID, seed_unh
 from replay.episodes import derive_episodes
@@ -56,7 +57,7 @@ def test_unh_arm_scores_a_finite_forward_outcome(db, tmp_path):
     """
     seed_unh(db)
     db.commit()
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
         thesis = thesis_repo.get(db, UNH_THESIS_ID, workspace=WORKSPACE_ANY)

@@ -16,6 +16,7 @@ from datetime import date
 import pytest
 
 import signals.base as sb
+from db.session import DEFAULT_TENANT_ID
 from domain.config import DEFAULT_CONFIG
 from domain.enums import State
 from domain.scopes import WORKSPACE_ANY
@@ -56,7 +57,7 @@ def _plain_card(db, tid, asof, known_at):
     NO bounds — the per-security read path, memo only."""
     thesis = thesis_repo.get(db, tid, workspace=WORKSPACE_ANY)
     thesis.position = decisions_repo.effective_position(db, thesis, asof=asof, known_at=known_at)
-    pit = PointInTimeData(db, asof=asof, known_at=known_at, tenant_id=thesis.tenant_id)
+    pit = PointInTimeData(db, asof=asof, known_at=known_at, workspace=thesis.tenant_id)
     return assemble_from_pit(pit, thesis, asof, DEFAULT_CONFIG)
 
 
@@ -134,8 +135,15 @@ def test_display_body_is_identical_with_prefetch_and_bounds(db, known_at):
     seed_benchmark_bars(db, asof)
     seed_oldco(db, asof)
     sids = SECS + [OLDCO_ID]
-    fast = PointInTimeData(db, asof=asof, known_at=known_at, basket=sids, bounds=display_bounds())
-    slow = PointInTimeData(db, asof=asof, known_at=known_at)
+    fast = PointInTimeData(
+        db,
+        asof=asof,
+        known_at=known_at,
+        basket=sids,
+        bounds=display_bounds(),
+        workspace=DEFAULT_TENANT_ID,
+    )
+    slow = PointInTimeData(db, asof=asof, known_at=known_at, workspace=DEFAULT_TENANT_ID)
     body_fast, body_slow = _display_body(fast, sids, asof), _display_body(slow, sids, asof)
     assert body_fast == body_slow
     parsed = json.loads(body_fast)
@@ -160,12 +168,22 @@ def test_why_the_display_pit_declares_the_insider_read_unbounded(db):
     asof = date(2026, 6, 1)
     seed_oldco(db, asof)
     bounded = PointInTimeData(
-        db, asof=asof, known_at=PIN, basket=[OLDCO_ID], bounds=call_bounds(DEFAULT_CONFIG)
+        db,
+        asof=asof,
+        known_at=PIN,
+        basket=[OLDCO_ID],
+        bounds=call_bounds(DEFAULT_CONFIG),
+        workspace=DEFAULT_TENANT_ID,
     )
     assert bounded.insider_txns(OLDCO_ID) == []
     assert insider_flow.display(bounded, OLDCO_ID, asof) is None
     display_pit = PointInTimeData(
-        db, asof=asof, known_at=PIN, basket=[OLDCO_ID], bounds=display_bounds()
+        db,
+        asof=asof,
+        known_at=PIN,
+        basket=[OLDCO_ID],
+        bounds=display_bounds(),
+        workspace=DEFAULT_TENANT_ID,
     )
     assert len(display_pit.insider_txns(OLDCO_ID)) == 1
     assert insider_flow.display(display_pit, OLDCO_ID, asof) is not None

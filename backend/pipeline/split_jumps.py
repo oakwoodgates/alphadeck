@@ -117,7 +117,8 @@ def scan_unlisted_jumps(
         conn,
         asof=asof,
         known_at=known_at or known_at_for_asof(asof),
-        tenant_id=tenant_id,
+        data_tenant=tenant_id,
+        workspace=tenant_id,  # a DATA-only view (the price tape): no workspace rows
         basket=union,
         bounds={"fact_price_eod": WINDOW_DAYS + 10},
         clock="public",

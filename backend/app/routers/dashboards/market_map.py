@@ -39,8 +39,8 @@ from dashboards.market_map import (
     company_reading,
 )
 from dashboards.market_map import market_map as compute_market_map
-from db.session import DEFAULT_TENANT_ID
 from domain.market_time import serve_view
+from domain.scopes import DATA_TENANT_ID
 from domain.splits import listed_from_row
 from securities import master
 from signals.base import PointInTimeData
@@ -198,6 +198,8 @@ def _benchmarks(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> dict[str, dict[str, float | None] | None]:
     """SPY's and IWM's own returns: the member's pure ``compute`` (and the year to date) over the benchmark's bars,
     read exactly as a company's. ``None`` for a benchmark with no tape at the as-of."""
@@ -205,9 +207,10 @@ def _benchmarks(
         conn,
         asof=asof,
         known_at=known_at,
-        tenant_id=DEFAULT_TENANT_ID,
+        data_tenant=DATA_TENANT_ID,
         bounds=display_bounds(),
         clock=clock,
+        workspace=workspace,
     )
     return {sym: benchmark_returns(pit.benchmark_prices(sym), asof) for sym in BENCHMARKS}
 
@@ -227,7 +230,7 @@ def read_inputs(
     memberships = memberships_of(counted.cards)
     sids = resolved_ids(memberships)
     flagged = price_flags(conn, sids, asof, known_at=known_at, clock=clock, workspace=workspace)
-    bench = _benchmarks(conn, asof, known_at, clock)
+    bench = _benchmarks(conn, asof, known_at, clock, workspace=workspace)
     return MapInputs(
         live_cards=counted.live_count,
         cards_counted=len(counted.cards),

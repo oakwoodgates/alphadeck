@@ -45,9 +45,9 @@ from dashboards.read_through import (
     tape_of,
 )
 from dashboards.read_through import read_through as compute_read_through
-from db.session import DEFAULT_TENANT_ID
 from domain.enums import ContextRole
 from domain.market_time import countdown_origin, market_clock, serve_view
+from domain.scopes import DATA_TENANT_ID
 from repositories import thesis_repo
 from securities import master
 from signals.base import PointInTimeData
@@ -238,6 +238,8 @@ def _spy(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> Tape | None:
     """SPY's trailing returns by the SAME pure rule the member runs (``trailing_returns.compute``), over SPY's
     as-of bars (``pit.benchmark_prices``); ``None`` = no SPY bars at the as-of."""
@@ -245,9 +247,10 @@ def _spy(
         conn,
         asof=asof,
         known_at=known_at,
-        tenant_id=DEFAULT_TENANT_ID,
+        data_tenant=DATA_TENANT_ID,
         bounds=display_bounds(),
         clock=clock,
+        workspace=workspace,
     )
     bars = pit.benchmark_prices(BENCHMARK, lookback_days=trailing_returns.LOOKBACK_DAYS)
     return tape_of(trailing_returns.compute(bars, asof))
@@ -279,7 +282,7 @@ def read_inputs(
             conn, sids, asof, known_at, clock, days=FILING_DAYS, workspace=workspace
         ),
         tapes=_tapes(conn, sids, asof, known_at, clock, workspace=workspace),
-        spy=_spy(conn, asof, known_at, clock),
+        spy=_spy(conn, asof, known_at, clock, workspace=workspace),
         flagged=price_flags(conn, sids, asof, known_at=known_at, clock=clock, workspace=workspace),
     )
 

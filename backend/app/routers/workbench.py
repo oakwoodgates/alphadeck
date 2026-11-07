@@ -478,6 +478,12 @@ def extract_scoring_facts(
     stays on the candidate), never a fact until the operator ratifies. PURITY-ONLY: ``thesis_id`` touches no
     other candidate, and its absence (or a fail-open decline) leaves purity as today's HUMAN (located, no value).
     """
+    # the optional thesis is the CALLER's (another workspace's id is "not found"), resolved before any SEC work
+    thesis = (
+        thesis_repo.get(conn, thesis_id, workspace=tenant_id) if thesis_id is not None else None
+    )
+    if thesis_id is not None and thesis is None:
+        raise HTTPException(status_code=404, detail="thesis not found")
     cik = master.ciks_for(conn, {security_id}, tenant_id=DATA_TENANT_ID).get(security_id)
     if not cik:
         raise HTTPException(status_code=404, detail="no CIK for this security — resolve it first")
@@ -492,9 +498,6 @@ def extract_scoring_facts(
     # narrative; shares/cash are thesis-independent). Fail-open: no thesis / no key / ungrounded -> purity stays
     # today's HUMAN. The proposal is UNVERIFIED and carries its passage; it becomes a fact only on the operator's
     # ratify (never here — this endpoint writes nothing).
-    thesis = (
-        thesis_repo.get(conn, thesis_id, workspace=tenant_id) if thesis_id is not None else None
-    )
     if thesis is not None:
         for c in result.facts:
             if c.fact_type != "revenue_mix":

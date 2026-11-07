@@ -34,7 +34,7 @@ def _seed(db, sid, *, newest_is_the_carry: bool = False):
 
 
 def _readers(db, tmp_path):
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     return (
         con,

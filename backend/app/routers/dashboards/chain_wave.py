@@ -41,9 +41,9 @@ from dashboards.chain_wave import (
     wave_inputs,
 )
 from dashboards.chain_wave import chain_wave as compute_chain_wave
-from db.session import DEFAULT_TENANT_ID
 from domain.enums import ContextRole
 from domain.market_time import serve_view
+from domain.scopes import DATA_TENANT_ID
 from repositories import thesis_repo
 from signals.base import PointInTimeData
 from signals.display import trailing_returns
@@ -250,15 +250,18 @@ def _spy(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> dict[date, float]:
     """SPY's ``{day: close}`` (``pit.benchmark_prices``; empty = no tape at the as-of)."""
     pit = PointInTimeData(
         conn,
         asof=asof,
         known_at=known_at,
-        tenant_id=DEFAULT_TENANT_ID,
+        data_tenant=DATA_TENANT_ID,
         bounds=display_bounds(),
         clock=clock,
+        workspace=workspace,
     )
     return {
         b["d"]: float(b["close"])
@@ -296,7 +299,7 @@ def read_inputs(
         segments=[s.label for s in card.segments],
         memberships=memberships,
         closes=_closes(conn, sids, asof, known_at, clock, workspace=workspace),
-        spy=_spy(conn, asof, known_at, clock),
+        spy=_spy(conn, asof, known_at, clock, workspace=workspace),
         asof=asof,
         roster_fallback=fallback,
         flagged=price_flags(conn, sids, asof, known_at=known_at, clock=clock, workspace=workspace),

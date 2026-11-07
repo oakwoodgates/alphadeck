@@ -4,6 +4,7 @@ from datetime import date, datetime, timezone
 
 import pytest
 
+from db.session import DEFAULT_TENANT_ID
 from domain.enums import State, Verdict
 from domain.scopes import WORKSPACE_ANY
 from pipeline.seed import UNH_SECURITY_ID, UNH_THESIS_ID, seed_unh
@@ -24,7 +25,7 @@ def test_unh_arc_replays_warm_to_arm_to_ageout(db, tmp_path):
     the replay path with zero forward knowledge."""
     seed_unh(db)
     db.commit()
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
         thesis = thesis_repo.get(db, UNH_THESIS_ID, workspace=WORKSPACE_ANY)

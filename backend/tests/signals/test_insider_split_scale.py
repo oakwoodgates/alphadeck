@@ -175,7 +175,9 @@ def _seed_opad(db):
 def _history(db, asof: date) -> PointInTimeData:
     known_at, clock = serve_view(asof)
     assert clock == "public"  # a past asof: a history view
-    return PointInTimeData(db, asof=asof, known_at=known_at, clock=clock)
+    return PointInTimeData(
+        db, asof=asof, known_at=known_at, clock=clock, workspace=DEFAULT_TENANT_ID
+    )
 
 
 def test_a_split_counts_from_its_own_publication_never_from_the_day_we_listed_it(db):
@@ -218,7 +220,7 @@ def test_the_public_mirror_reads_the_split_list_and_the_scale_exactly_like_postg
     from replay.pit import ReplayPointInTimeData, connect_mirror
 
     sid = _seed_opad(db)
-    export_snapshot(db, tmp_path, clock="public")
+    export_snapshot(db, tmp_path, clock="public", workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
 
     def splits(rows):
@@ -234,7 +236,9 @@ def test_the_public_mirror_reads_the_split_list_and_the_scale_exactly_like_postg
 
     for asof in (date(2026, 6, 5), date(2026, 6, 15)):
         live = _history(db, asof)
-        rep = ReplayPointInTimeData(con, asof=asof, known_at=live.known_at)
+        rep = ReplayPointInTimeData(
+            con, asof=asof, known_at=live.known_at, workspace=DEFAULT_TENANT_ID
+        )
         assert splits(rep.split_events(sid)) == splits(live.split_events(sid))
         assert bars(rep.price_history(sid)) == bars(live.price_history(sid))
         a = insider_conviction.detect(live, sid, asof, DEFAULT_CONFIG)
@@ -251,14 +255,17 @@ def test_an_old_mirror_without_the_split_table_still_opens_and_reads_no_splits(d
     from replay.pit import ReplayPointInTimeData, connect_mirror
 
     sid = _seed_opad(db)
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     (tmp_path / f"{SPLIT_TABLE}.parquet").unlink()
     manifest = json.loads((tmp_path / MANIFEST_NAME).read_text(encoding="utf-8"))
     manifest.pop("split_table")
     (tmp_path / MANIFEST_NAME).write_text(json.dumps(manifest), encoding="utf-8")
     con = connect_mirror(tmp_path)
     rep = ReplayPointInTimeData(
-        con, asof=date(2026, 6, 15), known_at=datetime(2100, 1, 1, tzinfo=timezone.utc)
+        con,
+        asof=date(2026, 6, 15),
+        known_at=datetime(2100, 1, 1, tzinfo=timezone.utc),
+        workspace=DEFAULT_TENANT_ID,
     )
     assert rep.split_events(sid) == []
     assert rep.price_history(sid)  # the facts are all there
@@ -274,7 +281,7 @@ def test_a_mirror_whose_manifest_records_the_split_table_but_lost_the_file_fails
     from replay.pit import connect_mirror
 
     _seed_opad(db)
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     assert read_mirror_manifest(tmp_path).split_table is True
     (tmp_path / f"{SPLIT_TABLE}.parquet").unlink()
     with pytest.raises(FileNotFoundError, match=SPLIT_TABLE):
@@ -295,7 +302,7 @@ def test_a_run_directory_reopened_as_a_mirror_is_held_to_its_split_files_record(
     from replay.pit import ReplayPointInTimeData, connect_mirror
 
     sid = _seed_opad(db)
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     info = MirrorInfo(hash="0" * 64, split_table=SplitTableInfo(rows=1) if recorded else None)
     (tmp_path / MANIFEST_NAME).write_text(
         json.dumps({"run_id": "r", "clock": "record", "mirror": info.model_dump(mode="json")}),
@@ -309,6 +316,9 @@ def test_a_run_directory_reopened_as_a_mirror_is_held_to_its_split_files_record(
         return
     con = connect_mirror(tmp_path)
     rep = ReplayPointInTimeData(
-        con, asof=date(2026, 6, 15), known_at=datetime(2100, 1, 1, tzinfo=timezone.utc)
+        con,
+        asof=date(2026, 6, 15),
+        known_at=datetime(2100, 1, 1, tzinfo=timezone.utc),
+        workspace=DEFAULT_TENANT_ID,
     )
     assert rep.split_events(sid) == []

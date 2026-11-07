@@ -38,8 +38,8 @@ from dashboards.narrative_index import (
     index_inputs,
 )
 from dashboards.narrative_index import narrative_index as compute_narrative_index
-from db.session import DEFAULT_TENANT_ID
 from domain.market_time import market_tz, serve_view
+from domain.scopes import DATA_TENANT_ID
 from repositories import thesis_repo
 from signals.base import PointInTimeData
 from signals.display import trailing_returns
@@ -209,15 +209,18 @@ def _benchmarks(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> dict[str, dict[date, float]]:
     """SPY's and IWM's ``{day: close}`` (``pit.benchmark_prices``; empty = no tape at the as-of)."""
     pit = PointInTimeData(
         conn,
         asof=asof,
         known_at=known_at,
-        tenant_id=DEFAULT_TENANT_ID,
+        data_tenant=DATA_TENANT_ID,
         bounds=display_bounds(),
         clock=clock,
+        workspace=workspace,
     )
     return {
         symbol: {
@@ -262,7 +265,7 @@ def read_inputs(
         cards=[(t.id, t.name) for t in counted.cards],
         memberships=memberships,
         closes=_closes(conn, sids, asof, known_at, clock, workspace=workspace),
-        benchmarks=_benchmarks(conn, asof, known_at, clock),
+        benchmarks=_benchmarks(conn, asof, known_at, clock, workspace=workspace),
         created=created,
         states=_states(conn, ids, asof),
         asof=asof,

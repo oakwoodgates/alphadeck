@@ -8,6 +8,7 @@ import pyarrow.parquet as pq
 import pytest
 from pydantic import BaseModel
 
+from db.session import DEFAULT_TENANT_ID
 from domain.config import DEFAULT_CONFIG
 from domain.enums import State
 from domain.scopes import WORKSPACE_ANY
@@ -157,7 +158,7 @@ def test_cfg_is_swept_not_hardcoded(db, tmp_path):
     """
     seed_unh(db)
     db.commit()
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
         thesis = thesis_repo.get(db, UNH_THESIS_ID, workspace=WORKSPACE_ANY)

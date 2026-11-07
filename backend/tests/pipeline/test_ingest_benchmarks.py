@@ -317,7 +317,9 @@ def test_a_bar_ingested_at_22_35_ET_is_visible_to_that_nights_call_and_not_befor
     assert len(rows) == 1 and rows[0]["recorded_at"] == night25  # honest transaction time, pinned
 
     def latest_d(*, asof, known_at):
-        bars = PointInTimeData(db, asof=asof, known_at=known_at).benchmark_prices("SPY")
+        bars = PointInTimeData(
+            db, asof=asof, known_at=known_at, workspace=DEFAULT_TENANT_ID
+        ).benchmark_prices("SPY")
         return bars[-1]["d"] if bars else None
 
     # the night's own call (known_at = a moment after the leg) sees it

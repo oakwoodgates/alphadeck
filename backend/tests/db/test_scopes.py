@@ -130,11 +130,13 @@ def test_tenants_for_and_the_normalizer():
     assert as_tenants([W, DATA_TENANT_ID, W]) == (W, DATA_TENANT_ID)
     with pytest.raises(ValueError):
         as_tenants([])
-    # the transition alias sets BOTH scopes; it never combines with the explicit pair
-    assert resolve_scopes(data_tenant=None, workspace=None, tenant_id=W) == (W, W)
-    assert resolve_scopes(data_tenant=None, workspace=W, tenant_id=None) == (DATA_TENANT_ID, W)
+    # the workspace is REQUIRED (PR 2 removed the PR 1 `tenant_id=` transition alias); the data tenant defaults
+    assert resolve_scopes(data_tenant=None, workspace=W) == (DATA_TENANT_ID, W)
+    assert resolve_scopes(data_tenant=V, workspace=W) == (V, W)
     with pytest.raises(TypeError):
-        resolve_scopes(data_tenant=None, workspace=W, tenant_id=V)
+        resolve_scopes(data_tenant=None, workspace=None)  # type: ignore[arg-type]
+    with pytest.raises(TypeError):
+        resolve_scopes(data_tenant=None, workspace=W, tenant_id=V)  # type: ignore[call-arg]
 
 
 def test_the_demo_default_is_the_data_tenant():

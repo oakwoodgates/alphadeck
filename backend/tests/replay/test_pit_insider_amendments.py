@@ -13,6 +13,7 @@ from datetime import date, datetime, timedelta, timezone
 import pytest
 
 from db.clock import db_now
+from db.session import DEFAULT_TENANT_ID
 from domain.market_time import known_at_for_asof
 from ingest.edgar.form4 import ingest_form4
 from replay.export import AUX_TABLES, export_snapshot
@@ -125,7 +126,7 @@ def _assert_equal(live: list[dict], rep: list[dict]) -> None:
 def test_the_mirror_resolves_amendments_exactly_like_postgres(db, tmp_path, basket):
     sids = _seed(db)
     before_decisions = _decide(db, sids)
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     ids = list(sids.values())
     asofs = (
@@ -139,9 +140,19 @@ def test_the_mirror_resolves_amendments_exactly_like_postgres(db, tmp_path, bask
     checked = 0
     for asof in asofs:
         for known_at in pins:
-            live = PointInTimeData(db, asof=asof, known_at=known_at, basket=ids if basket else None)
+            live = PointInTimeData(
+                db,
+                asof=asof,
+                known_at=known_at,
+                basket=ids if basket else None,
+                workspace=DEFAULT_TENANT_ID,
+            )
             rep = ReplayPointInTimeData(
-                con, asof=asof, known_at=known_at, basket=ids if basket else None
+                con,
+                asof=asof,
+                known_at=known_at,
+                basket=ids if basket else None,
+                workspace=DEFAULT_TENANT_ID,
             )
             for sid in ids:
                 _assert_equal(live.insider_txns(sid), rep.insider_txns(sid))
@@ -169,17 +180,25 @@ def test_the_mirror_reads_the_sweep_exactly_like_postgres_before_and_after_it(db
     db.commit()
     insider_amendment_repo.sweep(db, security_ids=list(sids.values()))
     db.commit()
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     ids = list(sids.values())
     for known_at in (T_LINK, before_sweep, FAR):
         for asof in (date(2026, 6, 15), date(2026, 8, 31), date(2026, 10, 20)):
-            live = PointInTimeData(db, asof=asof, known_at=known_at, basket=ids)
-            rep = ReplayPointInTimeData(con, asof=asof, known_at=known_at, basket=ids)
+            live = PointInTimeData(
+                db, asof=asof, known_at=known_at, basket=ids, workspace=DEFAULT_TENANT_ID
+            )
+            rep = ReplayPointInTimeData(
+                con, asof=asof, known_at=known_at, basket=ids, workspace=DEFAULT_TENANT_ID
+            )
             for sid in ids:
                 _assert_equal(live.insider_txns(sid), rep.insider_txns(sid))
-    pre = ReplayPointInTimeData(con, asof=date(2026, 10, 20), known_at=before_sweep)
-    post = ReplayPointInTimeData(con, asof=date(2026, 10, 20), known_at=FAR)
+    pre = ReplayPointInTimeData(
+        con, asof=date(2026, 10, 20), known_at=before_sweep, workspace=DEFAULT_TENANT_ID
+    )
+    post = ReplayPointInTimeData(
+        con, asof=date(2026, 10, 20), known_at=FAR, workspace=DEFAULT_TENANT_ID
+    )
     assert {r["insider_role"] for r in pre.insider_txns(sids["FRHC"])} == {
         "Chief Financial Officer"
     }
@@ -198,16 +217,25 @@ def test_parity_is_not_vacuous_the_resolution_moves_rows(db, tmp_path):
     """The parity above must compare RESOLVED reads, not two engines agreeing on raw rows: on the mirror the
     TDG duplicates collapse, the ATCH rows read code P, the FLS buy is gone and VWAV is screened."""
     sids = _seed(db)
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     rep = ReplayPointInTimeData(
-        con, asof=date(2026, 10, 1), known_at=FAR, basket=list(sids.values())
+        con,
+        asof=date(2026, 10, 1),
+        known_at=FAR,
+        basket=list(sids.values()),
+        workspace=DEFAULT_TENANT_ID,
     )
     assert {r["accession"] for r in rep.insider_txns(sids["TDG"])} == {"0001352573-26-000008"}
     assert {r["txn_code"] for r in rep.insider_txns(sids["ATCH"])} == {"P"}
     assert "0001628280-26-035913" not in {r["accession"] for r in rep.insider_txns(sids["FLS"])}
     assert rep.insider_txns(sids["VWAV"]) == []
-    pre = ReplayPointInTimeData(con, asof=date(2026, 10, 1), known_at=T_LINK - timedelta(seconds=1))
+    pre = ReplayPointInTimeData(
+        con,
+        asof=date(2026, 10, 1),
+        known_at=T_LINK - timedelta(seconds=1),
+        workspace=DEFAULT_TENANT_ID,
+    )
     assert {r["txn_code"] for r in pre.insider_txns(sids["ATCH"])} == {
         "A"
     }  # before the link: the original
@@ -217,13 +245,15 @@ def test_a_mirror_without_the_aux_tables_reads_unresolved(db, tmp_path):
     """A mirror exported BEFORE R8-A carries no aux files: it reads exactly what it held (no resolution);
     a PARTIAL aux set is a broken export and refuses to open."""
     sids = _seed(db)
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     for t in AUX_TABLES:
         (tmp_path / f"{t}.parquet").unlink()
     con = connect_mirror(tmp_path)
-    rep = ReplayPointInTimeData(con, asof=date(2026, 10, 1), known_at=FAR)
+    rep = ReplayPointInTimeData(
+        con, asof=date(2026, 10, 1), known_at=FAR, workspace=DEFAULT_TENANT_ID
+    )
     assert {r["txn_code"] for r in rep.insider_txns(sids["ATCH"])} == {"A"}
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     (tmp_path / "insider_amendment_link.parquet").unlink()
     with pytest.raises(FileNotFoundError, match="partial insider-amendment aux set"):
         connect_mirror(tmp_path)
@@ -235,18 +265,22 @@ def test_public_clock_shows_an_amendment_at_its_sec_acceptance(db, tmp_path):
     ingest_originals(db, sid, "ATCH", recorded_at=T_LINK)
     for acc in amendments_of("ATCH"):
         ingest_amendment(db, sid, acc, recorded_at=FAR - timedelta(days=1))
-    export_snapshot(db, tmp_path, clock="public")
+    export_snapshot(db, tmp_path, clock="public", workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     first = min(FILINGS[a].accepted for a in amendments_of("ATCH"))  # 2026-09-29T01:01:24Z
     last = max(FILINGS[a].accepted for a in amendments_of("ATCH"))  # 2026-09-29T01:01:30Z
     asof = date(2026, 9, 28)
     # the originals were public at 17:22Z on 09-28; the 4/As at 21:01 ET the same market day
-    before = ReplayPointInTimeData(con, asof=asof, known_at=first - timedelta(seconds=1))
+    before = ReplayPointInTimeData(
+        con, asof=asof, known_at=first - timedelta(seconds=1), workspace=DEFAULT_TENANT_ID
+    )
     assert {r["txn_code"] for r in before.insider_txns(sid)} == {"A"}
-    after = ReplayPointInTimeData(con, asof=asof, known_at=last)
+    after = ReplayPointInTimeData(con, asof=asof, known_at=last, workspace=DEFAULT_TENANT_ID)
     assert {r["txn_code"] for r in after.insider_txns(sid)} == {"P"}
     # lockstep's end of the 09-28 market day already holds the 4/As (accepted 21:01 ET that evening)
-    eod = ReplayPointInTimeData(con, asof=asof, known_at=known_at_for_asof(asof, FAR))
+    eod = ReplayPointInTimeData(
+        con, asof=asof, known_at=known_at_for_asof(asof, FAR), workspace=DEFAULT_TENANT_ID
+    )
     assert {r["txn_code"] for r in eod.insider_txns(sid)} == {"P"}
 
 
@@ -262,17 +296,26 @@ def test_the_public_mirror_resolves_amendments_exactly_like_the_live_public_read
     """
     sids = _seed(db)
     before_decisions = _decide(db, sids)
-    export_snapshot(db, tmp_path, clock="public")
+    export_snapshot(db, tmp_path, clock="public", workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     ids = list(sids.values())
     checked = 0
     for asof in (date(2025, 8, 15), date(2026, 3, 31), date(2026, 6, 15), date(2026, 10, 1)):
         for known_at in (known_at_for_asof(asof, FAR), before_decisions, FAR):
             live = PointInTimeData(
-                db, asof=asof, known_at=known_at, basket=ids if basket else None, clock="public"
+                db,
+                asof=asof,
+                known_at=known_at,
+                basket=ids if basket else None,
+                clock="public",
+                workspace=DEFAULT_TENANT_ID,
             )
             rep = ReplayPointInTimeData(
-                con, asof=asof, known_at=known_at, basket=ids if basket else None
+                con,
+                asof=asof,
+                known_at=known_at,
+                basket=ids if basket else None,
+                workspace=DEFAULT_TENANT_ID,
             )
             for sid in ids:
                 _assert_equal(live.insider_txns(sid), rep.insider_txns(sid))
@@ -302,7 +345,7 @@ def test_public_clock_counts_an_operator_decision_from_when_it_was_made(db, tmp_
     db.commit()
     decided = db_now(db)
     db.commit()
-    manifest = export_snapshot(db, tmp_path, clock="public")
+    manifest = export_snapshot(db, tmp_path, clock="public", workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     accepted = FILINGS["0001193125-25-282945"].accepted
     rows = con.execute(
@@ -316,7 +359,9 @@ def test_public_clock_counts_an_operator_decision_from_when_it_was_made(db, tmp_
     assert system and all(r[3] == accepted for r in system)  # the system's: the 4/A's acceptance
     asof = date(2025, 11, 20)
     for known_at, buy_stands in ((accepted, True), (decided, False)):
-        live = PointInTimeData(db, asof=asof, known_at=known_at, clock="public")
-        rep = ReplayPointInTimeData(con, asof=asof, known_at=known_at)
+        live = PointInTimeData(
+            db, asof=asof, known_at=known_at, clock="public", workspace=DEFAULT_TENANT_ID
+        )
+        rep = ReplayPointInTimeData(con, asof=asof, known_at=known_at, workspace=DEFAULT_TENANT_ID)
         for view in (live, rep):
             assert any(r["txn_code"] == "P" for r in view.insider_txns(sid)) is buy_stands

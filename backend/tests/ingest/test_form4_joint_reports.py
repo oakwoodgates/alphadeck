@@ -53,7 +53,9 @@ def uncollapsed(monkeypatch):
 
 
 def _read(db, sid, asof: date) -> list[dict]:
-    return PointInTimeData(db, asof=asof, known_at=FAR).insider_txns(sid)
+    return PointInTimeData(db, asof=asof, known_at=FAR, workspace=DEFAULT_TENANT_ID).insider_txns(
+        sid
+    )
 
 
 def _usd(rows) -> float:
@@ -147,7 +149,7 @@ def test_infq_every_reader_sees_it_once(db):
     """The readers past the detectors: the Cockpit's insider-flow member and the Scoreboard sell ledger."""
     sid = seed(db, "INFQ")
     asof = date(2026, 6, 5)
-    pit = PointInTimeData(db, asof=asof, known_at=FAR)
+    pit = PointInTimeData(db, asof=asof, known_at=FAR, workspace=DEFAULT_TENANT_ID)
     flow = insider_flow.display(pit, sid, asof)
     metrics = {m.key: m.value for m in flow.metrics}
     assert metrics["sell_count"] == 17 + 4
@@ -290,7 +292,7 @@ def test_the_as_of_read_and_the_basket_read_agree(db):
     SAME collapse."""
     sids = [seed(db, t) for t in ("INFQ", "AMKR", "OKLO")]
     asof = date(2026, 10, 9)
-    pit = PointInTimeData(db, asof=asof, known_at=FAR, basket=sids)
+    pit = PointInTimeData(db, asof=asof, known_at=FAR, basket=sids, workspace=DEFAULT_TENANT_ID)
     for sid in sids:
         scoped = as_of(
             db,

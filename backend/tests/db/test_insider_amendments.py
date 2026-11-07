@@ -53,7 +53,9 @@ def _rows(db, sid, asof: date, known_at: datetime = FAR) -> list[dict]:
 
 
 def _signal(db, sid, asof: date, known_at: datetime = FAR):
-    pit = PointInTimeData(db, asof=asof, known_at=known_at, basket=[sid])
+    pit = PointInTimeData(
+        db, asof=asof, known_at=known_at, basket=[sid], workspace=DEFAULT_TENANT_ID
+    )
     return insider_conviction.detect(pit, sid, asof, DEFAULT_CONFIG)
 
 

@@ -208,8 +208,10 @@ def test_the_public_mirror_holds_exactly_like_postgres(db, tmp_path, listed):
     sid, tid = _seeded(db, "GAME", listed=listed)
     night = date(2026, 8, 25)
     thesis, live = _view(db, tid, night)
-    export_snapshot(db, tmp_path, clock="public")
-    rep = ReplayPointInTimeData(connect_mirror(tmp_path), asof=night, known_at=live.known_at)
+    export_snapshot(db, tmp_path, clock="public", workspace=DEFAULT_TENANT_ID)
+    rep = ReplayPointInTimeData(
+        connect_mirror(tmp_path), asof=night, known_at=live.known_at, workspace=DEFAULT_TENANT_ID
+    )
     a = assemble_from_pit(live, thesis, night)
     b = assemble_from_pit(rep, thesis, night)
     assert a.missing == b.missing

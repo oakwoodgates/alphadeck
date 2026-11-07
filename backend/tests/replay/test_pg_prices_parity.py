@@ -31,7 +31,7 @@ def _seed(db, sid):
 
 def test_pg_reader_matches_duckdb_reader_and_outcomes(db, security_id, tmp_path):
     _seed(db, security_id)
-    export_snapshot(db, tmp_path)
+    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
     con = connect_mirror(tmp_path)
     try:
         duck = RealizedPrices(con)

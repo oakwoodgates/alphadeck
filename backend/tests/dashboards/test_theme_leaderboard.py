@@ -905,7 +905,7 @@ def test_read_board_reads_only_the_counting_names_on_the_requests_view(monkeypat
         seen["tapes"] = (list(sids), asof, known, clock)
         return {S[0]: tape(1.0, buyers_30d=0), S[1]: flagged_tape}
 
-    def fake_breadths(conn, asof, known, clock, card_names):
+    def fake_breadths(conn, asof, known, clock, card_names, **_):
         seen["breadth"] = (asof, known, clock, card_names)
         return {}
 
@@ -913,7 +913,7 @@ def test_read_board_reads_only_the_counting_names_on_the_requests_view(monkeypat
         seen.setdefault("mention_reads", []).append(tid)
         return [mrow("alpha term", 2026, 9, 3)]
 
-    def fake_view(conn, asof, known, clock, basket=None):
+    def fake_view(conn, asof, known, clock, basket=None, **_):
         seen["mentions_view"] = (asof, known, clock)
         return SimpleNamespace(term_mentions=fake_mentions)
 

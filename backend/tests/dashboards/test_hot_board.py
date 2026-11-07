@@ -1341,7 +1341,7 @@ def _stubbed_read(monkeypatch, theses, recorded, runs, params, *, flagged=None, 
             seen["bench"].append((symbol, lookback_days))
             return [{"d": x, "close": 200.0 + i} for i, x in enumerate(weekdays(d(19), ASOF))]
 
-    def fake_pit(conn, asof, known_at, clock):
+    def fake_pit(conn, asof, known_at, clock, **_):
         seen["pit_view"] = (asof, known_at, clock)
         return FakePit()
 

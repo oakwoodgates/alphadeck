@@ -126,7 +126,7 @@ def _record_pre_d3a(db, thesis: Thesis, asof: date, cfg: CallConfig = _PRE_RULE_
     """One nightly-shaped row exactly as the pre-D3a cron wrote it (assemble, then record_if_changed)."""
     basket = {m.security_id for m in thesis.basket}
     pit = _Pre390PointInTimeData(
-        db, asof=asof, tenant_id=DEFAULT_TENANT_ID, basket=basket, bounds=call_bounds(cfg)
+        db, asof=asof, workspace=DEFAULT_TENANT_ID, basket=basket, bounds=call_bounds(cfg)
     )
     card = assemble_from_pit(
         pit, thesis_repo.get_asof(db, thesis.id, None, workspace=WORKSPACE_ANY), asof, cfg
@@ -173,7 +173,7 @@ def test_the_recorded_nights_are_real_phantom_arms(db, phantom):
 
 def test_the_d3a_off_view_restates_the_pre_d3a_reading_and_nothing_else(db, phantom):
     _, sid = phantom
-    pit = PointInTimeData(db, asof=date(2026, 10, 14), tenant_id=DEFAULT_TENANT_ID, basket={sid})
+    pit = PointInTimeData(db, asof=date(2026, 10, 14), workspace=DEFAULT_TENANT_ID, basket={sid})
     view = PreD3aDatingView(pit)
     on, off = pit.fundamentals_facts(sid), view.fundamentals_facts(sid)
     assert [r["id"] for r in on] == [r["id"] for r in off]  # the SAME picks

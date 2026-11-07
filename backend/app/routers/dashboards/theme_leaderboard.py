@@ -52,10 +52,10 @@ from dashboards.theme_leaderboard import (
     names_of,
     recorded_of,
 )
-from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard
 from domain.enums import State, TermTier
 from domain.market_time import serve_view
+from domain.scopes import DATA_TENANT_ID
 from domain.splits import listed_from_row
 from domain.thesis import TermSetEntry
 from signals.base import PointInTimeData
@@ -258,15 +258,18 @@ def _view(
     known_at: datetime | None,
     clock: Literal["record", "public"],
     basket: list[UUID] | None = None,
+    *,
+    workspace: UUID,
 ) -> PointInTimeData:
     return PointInTimeData(
         conn,
         asof=asof,
         known_at=known_at,
-        tenant_id=DEFAULT_TENANT_ID,
+        data_tenant=DATA_TENANT_ID,
         basket=basket,
         bounds=display_bounds(),
         clock=clock,
+        workspace=workspace,
     )
 
 
@@ -323,6 +326,8 @@ def read_breadths(
     known_at: datetime | None,
     clock: Literal["record", "public"],
     card_names: dict[UUID, list[UUID]],
+    *,
+    workspace: UUID,
 ) -> dict[UUID, DisplaySignal | None]:
     """One theme-breadth read per card (``theme_breadth.breadth_for``, the read the Cockpit's basket header makes)
     over the card's counting names whose price history is not flagged: a view of just those names. A card with none
@@ -330,7 +335,9 @@ def read_breadths(
     out: dict[UUID, DisplaySignal | None] = {}
     for thesis_id, sids in card_names.items():
         out[thesis_id] = (
-            theme_breadth.breadth_for(_view(conn, asof, known_at, clock, sids), sids)
+            theme_breadth.breadth_for(
+                _view(conn, asof, known_at, clock, sids, workspace=workspace), sids
+            )
             if sids
             else None
         )
@@ -380,7 +387,7 @@ def read_board(
         lambda pit, sid: read_tape(pit, sid, asof, members, flags.get(sid)),
         workspace=workspace,
     )
-    iwm = read_iwm(_view(conn, asof, known_at, clock), asof)
+    iwm = read_iwm(_view(conn, asof, known_at, clock, workspace=workspace), asof)
     recorded = read_recorded(conn, [t.id for t in counted.cards], asof)
     breadths = read_breadths(
         conn,
@@ -388,8 +395,9 @@ def read_board(
         known_at,
         clock,
         {tid: [sid for sid, _ in names_of(ms) if sid not in flags] for tid, ms in by_card.items()},
+        workspace=workspace,
     )
-    mentions_pit = _view(conn, asof, known_at, clock)
+    mentions_pit = _view(conn, asof, known_at, clock, workspace=workspace)
     terms = {t.id: signal_terms(t.term_set) for t in counted.cards}
     reads = [
         CardRead(
