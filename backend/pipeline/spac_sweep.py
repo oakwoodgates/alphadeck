@@ -56,7 +56,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument(
         "--tenant-id",
         default=None,
-        help="target tenant UUID; defaults to the deployment tenant ($ALPHADECK_TENANT_ID / demo)",
+        help="target tenant UUID; defaults to the data tenant (the master is DATA)",
     )
     args = p.parse_args(argv)
 

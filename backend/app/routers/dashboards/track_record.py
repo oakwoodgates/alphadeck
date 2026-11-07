@@ -25,7 +25,7 @@ import psycopg
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict
 
-from app.deps import get_conn, get_current_tenant, get_workspace
+from app.deps import get_conn, get_workspace
 from app.routers.scoreboard import _resolve_edition
 from dashboards.baskets import PriceFlagRead, live_card_ids, read_price_flags
 from dashboards.cache import cached
@@ -541,7 +541,6 @@ def track_record(
         "EDGAR open; false = set them aside; omitted = the server setting. The response names the reading used",
     ),
     conn: psycopg.Connection = Depends(get_conn),
-    current_tenant: UUID = Depends(get_current_tenant),
     workspace: UUID = Depends(get_workspace),
 ) -> TrackRecordOut:
     """What the tape did after each arm episode the Scoreboard records, by market-cap tier at the event: one row per
@@ -556,9 +555,7 @@ def track_record(
     date, and a horizon that has not arrived by then is not counted.
     """
     known_at, clock = serve_view(asof)
-    chosen = _resolve_edition(
-        conn, current_tenant, edition
-    )  # 0 = the record; the Scoreboard's own 404
+    chosen = _resolve_edition(conn, workspace, edition)  # 0 = the record; the Scoreboard's own 404
     if chosen is None:
         exclude_annotated = resolve_exclude_annotated(
             None if include_annotated is None else not include_annotated
@@ -567,7 +564,7 @@ def track_record(
     else:  # a stored edition has no reconstructed, annotated or late rows: the readings do not apply
         exclude_annotated = exclude_late = False
     number = chosen.number if chosen is not None else 0
-    newest = _newest_edition(conn, current_tenant)  # one small read, outside the cache
+    newest = _newest_edition(conn, workspace)  # one small read, outside the cache
     got = cached(
         conn,
         SLUG,

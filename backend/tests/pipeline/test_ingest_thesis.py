@@ -15,7 +15,7 @@ from db.session import DEFAULT_TENANT_ID
 from domain.scopes import DATA_TENANT_ID, WORKSPACE_ANY
 from ingest import CacheMiss
 from pipeline import ingest_thesis as IT
-from pipeline.provision_tenant import provision_tenant
+from tests.workspaces import new_workspace
 
 _XML = (Path(__file__).resolve().parents[1] / "fixtures" / "edgar" / "form4_sample.xml").read_text(
     encoding="utf-8"
@@ -310,7 +310,7 @@ def test_a_failed_leg_is_ALSO_captured_STRUCTURED_by_leg(db, security_id, monkey
 
 def test_an_id_missing_from_the_master_is_captured_under_the_MASTER_leg(db, monkeypatch):
     """A placed id that lives in ANOTHER tenant's master (the FK allows it; the tenant read does not)."""
-    provision_tenant(db, "o1-master-leg", tenant_id=_ALT_TENANT)
+    new_workspace(db, "o1-master-leg", workspace_id=_ALT_TENANT)
     db.commit()
     ghost = _add_master(db, ticker="GHOST", cik="0009999997", tenant=_ALT_TENANT)
     _patch(monkeypatch)
@@ -356,7 +356,7 @@ def test_no_lookahead_recorded_at_is_now(db, security_id, monkeypatch):
 def test_ingest_writes_under_the_data_tenant(db, monkeypatch):
     """The two tenant scopes (docs/TENANT_SCOPES.md): a thesis in workspace W (not the data tenant) whose
     member is in the DATA master — the feed's facts land under the DATA tenant, and NONE under W."""
-    provision_tenant(db, "m2a-ingest", tenant_id=_ALT_TENANT)
+    new_workspace(db, "m2a-ingest", workspace_id=_ALT_TENANT)
     db.commit()
     sid = _add_master(db, ticker="ALTCO", cik="0009999999", tenant=DATA_TENANT_ID)
     _patch(monkeypatch, accessions=("ACC-1",), bar_dates=(date(2026, 6, 15),))
@@ -613,7 +613,7 @@ def test_form8k_leg_reversions_when_items_resolve(db, security_id, monkeypatch):
 def test_form8k_leg_writes_under_the_data_tenant(db, monkeypatch):
     """The 8-K leg follows the same scope: a workspace-W thesis's member (in the DATA master) gets its 8-K
     rows under the DATA tenant, none under W."""
-    provision_tenant(db, "s3-8k-ingest", tenant_id=_ALT_TENANT)
+    new_workspace(db, "s3-8k-ingest", workspace_id=_ALT_TENANT)
     db.commit()
     sid = _add_master(db, ticker="ALT8K", cik="0009999998", tenant=DATA_TENANT_ID)
     _patch(monkeypatch, accessions=("ACC-1",), form8ks=(("8K-1", "2026-05-10", "1.01"),))

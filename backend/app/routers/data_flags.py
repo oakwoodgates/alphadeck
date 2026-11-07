@@ -24,7 +24,7 @@ import psycopg
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 
-from app.deps import get_conn, get_current_tenant, get_thesis_or_404
+from app.deps import get_conn, get_thesis_or_404, get_workspace
 from domain.data_flags import DataFlag, MemberFlags, SplitLabel
 from domain.market_time import serve_view
 from domain.scopes import DATA_TENANT_ID
@@ -249,7 +249,7 @@ def read_thesis_data_flags(
 def get_data_flags(
     asof: date = Query(..., description="as-of date; the flags use no data public after it"),
     conn: psycopg.Connection = Depends(get_conn),
-    tenant_id: UUID = Depends(get_current_tenant),
+    tenant_id: UUID = Depends(get_workspace),
 ) -> DataFlagsResponse:
     """Every flagged or marked name across the active basket union at ``asof``, each with the theses holding
     it — the Admin list and the Board's marks (a marker never marks a ticker). Computed on read, never stored;

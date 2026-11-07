@@ -17,7 +17,7 @@ from uuid import UUID
 import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.deps import get_conn, get_current_tenant, get_thesis_or_404, get_workspace
+from app.deps import get_conn, get_thesis_or_404, get_workspace
 from app.routers.workbench import _fund_ids, resolve_etf
 from app.schemas_api import (
     FundAttachOut,
@@ -353,7 +353,6 @@ def _symbol(req: FundAttachRequest) -> str:
 def fund_attach(
     req: FundAttachRequest,
     conn: psycopg.Connection = Depends(get_conn),
-    tenant_id: UUID = Depends(get_current_tenant),
     workspace: UUID = Depends(get_workspace),
 ) -> FundAttachOut:
     """Add a fund to a card's ETFs link — the operator's click (#10). The symbol resolves through the SAME
@@ -367,7 +366,7 @@ def fund_attach(
     thesis = thesis_repo.get(conn, req.thesis_id, workspace=workspace)
     if thesis is None:
         raise HTTPException(status_code=404, detail="thesis not found")
-    sec = resolve_etf(ResolveEtfRequest(ticker=_symbol(req)), conn, tenant_id)
+    sec = resolve_etf(ResolveEtfRequest(ticker=_symbol(req)), conn)
     if any(m.security_id == sec.security_id and m.segment == ETFS_LABEL for m in thesis.basket):
         return FundAttachOut(
             thesis_id=thesis.id, security_id=sec.security_id, ticker=sec.ticker, already=True
@@ -389,7 +388,7 @@ def fund_attach(
     )
     problems = [
         *silent_conflicts(updated.basket),
-        *fund_conflicts(updated.basket, _fund_ids(conn, updated, tenant_id)),
+        *fund_conflicts(updated.basket, _fund_ids(conn, updated)),
     ]
     if problems:
         raise HTTPException(
@@ -408,7 +407,6 @@ def fund_attach(
 def fund_detach(
     req: FundAttachRequest,
     conn: psycopg.Connection = Depends(get_conn),
-    tenant_id: UUID = Depends(get_current_tenant),
     workspace: UUID = Depends(get_workspace),
 ) -> FundAttachOut:
     """The attach inverse (#1): remove ONLY that fund's row from the card's ETFs link, returning to the prior

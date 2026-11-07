@@ -20,7 +20,6 @@ from domain.scopes import WORKSPACE_ANY
 from ingest import CacheMiss
 from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
 from pipeline import spac_sweep
-from pipeline.provision_tenant import provision_tenant
 from radar import repo
 from radar.shell_sweep import (
     run_shell_sweep,
@@ -29,6 +28,7 @@ from radar.shell_sweep import (
 )
 from radar.spac import run_spac_radar
 from securities import master
+from tests.workspaces import new_workspace
 
 OTHER_TENANT_ID = uuid.UUID("00000000-0000-0000-0000-0000000000ad")
 D = date(2026, 8, 3)
@@ -97,7 +97,7 @@ def test_selector_returns_exactly_the_unenriched_spac_structured_ciks(db):
     """Selected: units-``U``-sibling CIKs and 'acquisition corp' names with NO non-NULL sector on
     any row. Excluded: already enriched (6770 OR other — the FACT II shape), non-SPAC-structured
     names, and other tenants' rows (tenant-scoped like every master read)."""
-    provision_tenant(db, "other", tenant_id=OTHER_TENANT_ID)
+    new_workspace(db, "other", workspace_id=OTHER_TENANT_ID)
     db.commit()
     # units pair, un-enriched -> selected (no name hit needed)
     _seed_master(db, "0000001111", "AAA", "Alpha SPAC I", is_primary=True)

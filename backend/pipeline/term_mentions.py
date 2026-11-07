@@ -67,7 +67,7 @@ from uuid import UUID
 import psycopg
 
 from db.bitemporal import append_fact
-from db.session import connect, current_tenant_id
+from db.session import connect
 from domain.market_time import market_tz
 from domain.settings import get_settings
 from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
@@ -81,6 +81,7 @@ from pipeline.run_lock import (
     acquire_job_lock,
 )
 from pipeline.schedule import parse_run_at
+from repositories import tenant_repo
 
 PASS_KIND = "term_mentions"
 MODE_APPLY = "apply"
@@ -647,7 +648,12 @@ def _write_artifact(doc: dict[str, Any], runs_dir: Path) -> Path | None:
     try:
         runs_dir.mkdir(parents=True, exist_ok=True)
         started = datetime.fromisoformat(doc["started_at"])
-        path = runs_dir / f"{started.strftime('%Y%m%dT%H%M%SZ')}.json"
+        tenant = str(doc.get("tenant_id") or "").replace("-", "")[
+            -8:
+        ]  # one artifact per workspace's run
+        path = (
+            runs_dir / f"{started.strftime('%Y%m%dT%H%M%SZ')}{'-' + tenant if tenant else ''}.json"
+        )
         tmp = path.with_name(path.name + ".tmp")
         tmp.write_text(json.dumps(doc, indent=1, default=str), encoding="utf-8")
         tmp.replace(path)
@@ -655,6 +661,26 @@ def _write_artifact(doc: dict[str, Any], runs_dir: Path) -> Path | None:
     except Exception as e:  # noqa: BLE001
         print(f"term-mentions: could not write the run artifact ({type(e).__name__}: {e})")
         return None
+
+
+def catch_up_due(started: datetime, if_stale_days: float, runs_dir: Path) -> bool:
+    """The boot catch-up's question (``--if-stale-days``): is an applied run on record AND older than the limit?
+    Prints the reason and answers False when there is nothing to catch up."""
+    last = latest_run(runs_dir=runs_dir)
+    if last is None:
+        print(
+            "term-mentions: no applied run on record — the first backfill is the operator's call; "
+            "nothing to catch up"
+        )
+        return False
+    try:
+        ran = datetime.fromisoformat(str(last.get("finished_at") or last["started_at"]))
+    except (KeyError, ValueError):
+        ran = None
+    if ran is not None and started - ran < timedelta(days=if_stale_days):
+        print(f"term-mentions: ran {ran:%Y-%m-%d} (under {if_stale_days:g} days ago) — no catch-up")
+        return False
+    return True
 
 
 def _window_now(now: datetime) -> tuple[datetime, datetime] | None:
@@ -714,23 +740,8 @@ def run(
     fake."""
     runs_dir = runs_dir or DEFAULT_RUNS_DIR
     started = now()
-    if if_stale_days is not None:
-        last = latest_run(runs_dir=runs_dir)
-        if last is None:
-            print(
-                "term-mentions: no applied run on record — the first backfill is the operator's call; "
-                "nothing to catch up"
-            )
-            return 0
-        try:
-            ran = datetime.fromisoformat(str(last.get("finished_at") or last["started_at"]))
-        except (KeyError, ValueError):
-            ran = None
-        if ran is not None and started - ran < timedelta(days=if_stale_days):
-            print(
-                f"term-mentions: ran {ran:%Y-%m-%d} (under {if_stale_days:g} days ago) — no catch-up"
-            )
-            return 0
+    if if_stale_days is not None and not catch_up_due(started, if_stale_days, runs_dir):
+        return 0
 
     lock: JobLock | None = None
     if apply:
@@ -1058,9 +1069,10 @@ def main(argv: list[str] | None = None) -> int:
         help="cache only: never reach SEC (a month not cached fails, listed — never a zero)",
     )
     p.add_argument(
-        "--tenant-id",
+        "--workspace",
         default=None,
-        help="target tenant UUID; defaults to the deployment tenant ($ALPHADECK_TENANT_ID / demo)",
+        help="count only this workspace's live cards (default: every workspace, each card written under its "
+        "own workspace)",
     )
     p.add_argument(
         "--run-kind",
@@ -1077,16 +1089,33 @@ def main(argv: list[str] | None = None) -> int:
     a = p.parse_args(argv)
     if a.months < 1:
         p.error("--months must be at least 1")
-    return run(
-        schedule=BACKFILL if a.backfill else WEEKLY,
-        apply=a.apply,
-        live=not a.no_live,
-        tenant_id=UUID(a.tenant_id) if a.tenant_id else current_tenant_id(),
-        months=a.months,
-        thesis_id=UUID(a.thesis) if a.thesis else None,
-        run_kind=a.run_kind,
-        if_stale_days=a.if_stale_days,
-    )
+    if a.if_stale_days is not None and not catch_up_due(
+        _now_utc(), a.if_stale_days, DEFAULT_RUNS_DIR
+    ):
+        return 0
+    if a.workspace:
+        targets = [UUID(a.workspace)]
+    else:
+        conn = connect()
+        try:
+            targets = tenant_repo.workspaces(conn)
+        finally:
+            conn.close()
+    code = 0
+    for ws in targets:  # a card's terms are counted and written under the card's OWN workspace
+        rc = run(
+            schedule=BACKFILL if a.backfill else WEEKLY,
+            apply=a.apply,
+            live=not a.no_live,
+            tenant_id=ws,
+            months=a.months,
+            thesis_id=UUID(a.thesis) if a.thesis else None,
+            run_kind=a.run_kind,
+        )
+        if rc == EXIT_ALREADY_RUNNING:
+            return rc  # refused or stopped: the window / a lock / a pass applies to every workspace
+        code = max(code, rc)
+    return code
 
 
 if __name__ == "__main__":

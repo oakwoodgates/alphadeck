@@ -42,13 +42,6 @@ def get_workspace(request: Request, user: CurrentUser = Depends(require_user)) -
         ) from None
 
 
-def get_current_tenant(workspace: UUID = Depends(get_workspace)) -> UUID:
-    """The caller's workspace (``get_workspace``): the tenant a workspace write (a promote, a ratify, a decision)
-    lands in and a workspace read filters by. Kept under this name for the routes that already depend on it.
-    Overridable in tests, like ``get_conn``."""
-    return workspace
-
-
 def get_thesis_or_404(
     thesis_id: UUID,
     conn: psycopg.Connection = Depends(get_conn),

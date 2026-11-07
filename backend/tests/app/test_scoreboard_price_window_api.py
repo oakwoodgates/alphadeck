@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime, timezone
 
-from app.deps import get_current_tenant
+from app.deps import get_workspace
 from app.main import app
 from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
@@ -217,7 +217,7 @@ def test_price_window_other_tenant_thesis_404(client, db, security_id):
     thesis = persist_thesis(db, security_id)  # tenant = the default
     bar(db, security_id, date(2026, 6, 1), 100.0)
     # flip the deployment's current tenant to a DIFFERENT one → the thesis is not visible
-    app.dependency_overrides[get_current_tenant] = lambda: uuid.uuid4()
+    app.dependency_overrides[get_workspace] = lambda: uuid.uuid4()
     r = _get(client, thesis.id, security_id, "2026-07-15")
     assert r.status_code == 404
 
@@ -999,11 +999,11 @@ def test_price_window_split_factor_reads_only_the_thesis_tenants_split_list(
     row); the thesis tenant's own split does."""
     from decimal import Decimal
 
-    from pipeline.provision_tenant import provision_tenant
     from repositories import split_repo
+    from tests.workspaces import new_workspace
 
     other = uuid.UUID("00000000-0000-0000-0000-0000000000ad")
-    provision_tenant(db, "prod-split-window", tenant_id=other)
+    new_workspace(db, "prod-split-window", workspace_id=other)
     thesis = persist_thesis(db, security_id)
     ohlcv_bar(db, security_id, date(2026, 6, 5), 42.0, 46.0, 40.0, 45.0, 1_000.0)
     insider_buy(

@@ -17,7 +17,7 @@ re-run is ~a minute at the polite rate):
 - ``--baskets`` — every (non-archived) thesis's resolved members, each under its OWN tenant (theses are
   tenant-intrinsic — the daily cron's pattern).
 - ``--universe`` — every CIK in the master (the canonical ``is_primary`` row per CIK — identity is
-  company-level, one submissions doc per CIK); takes ``--tenant-id``, defaulting to the deployment tenant.
+  company-level, one submissions doc per CIK); takes ``--tenant-id``, defaulting to the data tenant.
   ~10.6k docs ≈ 20–30 min at the polite rate — an explicit, rare run, never ambient.
 
 Freshness needs NO flag here: ``submissions/*`` is a mutable cache class on the R1 key-classed 12h TTL, so
@@ -169,8 +169,8 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument(
         "--tenant-id",
         default=None,
-        help="--universe only: target tenant UUID; defaults to the deployment tenant "
-        "($ALPHADECK_TENANT_ID / demo). Basket scopes take each thesis's own tenant.",
+        help="--universe only: target tenant UUID; defaults to the data tenant (the master is DATA). "
+        "Basket scopes take the data tenant too.",
     )
     a = p.parse_args(argv)
     if a.tenant_id and not a.universe:

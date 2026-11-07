@@ -13,7 +13,6 @@ from pydantic import ValidationError
 from app.auth import CurrentUser, require_super_admin, require_user
 from app.deps import (
     get_conn,
-    get_current_tenant,
     get_decompose_client,
     get_edgar_client,
     get_keyword_client,
@@ -22,6 +21,7 @@ from app.deps import (
     get_research_client,
     get_thesis_or_404,
     get_tier_rec_client,
+    get_workspace,
 )
 from app.routers.admin_onboarding import readout_out
 from app.schemas_api import (
@@ -205,7 +205,7 @@ def search_securities(
     q: str = Query("", description="ticker or name fragment; a discovery net over the master"),
     limit: int = Query(10, ge=1, le=50),
     conn: psycopg.Connection = Depends(get_conn),
-    tenant_id: UUID = Depends(get_current_tenant),
+    tenant_id: UUID = Depends(get_workspace),
 ) -> list[SecurityMatchOut]:
     """Search the current tenant's security master for names to PLACE into a basket (the authoring
     typeahead, Slice 4b). A DISCOVERY NET (INVARIANT #2): exact master rows for the operator to pick from
@@ -231,7 +231,6 @@ def search_securities(
 def resolve_etf(
     req: ResolveEtfRequest,
     conn: psycopg.Connection = Depends(get_conn),
-    tenant_id: UUID = Depends(get_current_tenant),
 ) -> SecurityMatchOut:
     """Surface an operator-supplied ETF ticker as a ``fund`` sleeve's master row (ETF Sleeve, Slice 1). The
     operator TYPES a ticker (e.g. LIT); this resolves it to a ``security_master`` row marked
@@ -327,7 +326,7 @@ def etf_holdings(
         "absent = the latest on file. The response labels the holdings' report-period vintage.",
     ),
     conn: psycopg.Connection = Depends(get_conn),
-    tenant_id: UUID = Depends(get_current_tenant),
+    tenant_id: UUID = Depends(get_workspace),
 ) -> EtfHoldingsOut:
     """Pull a ``fund`` sleeve's N-PORT holdings and overlap them against the thesis basket (ETF Sleeve,
     Slice 2a) — the holdings-seed: *"the ETF holds these N names; here are the M you're missing."*
@@ -449,7 +448,7 @@ def extract_scoring_facts(
         description="if given, propose a GROUNDED purity % for this thesis (SURFACE 1b); purity-only",
     ),
     conn: psycopg.Connection = Depends(get_conn),
-    tenant_id: UUID = Depends(get_current_tenant),
+    tenant_id: UUID = Depends(get_workspace),
     purity_llm: LLMClient = Depends(get_purity_client),
 ) -> ExtractionResult:
     """Auto-EXTRACT candidate scoring facts for a security from its latest SEC filings (Slice hybrid-1 +
@@ -517,7 +516,7 @@ def extract_scoring_facts(
 def ingest_security_prices(
     security_id: UUID,
     conn: psycopg.Connection = Depends(get_conn),
-    tenant_id: UUID = Depends(get_current_tenant),
+    tenant_id: UUID = Depends(get_workspace),
 ) -> PriceIngestOut:
     """Pull EOD price bars for ONE security — the price leg DECOUPLED from the back-half ingest, so the
     finalize screen can complete a name (a real market cap) BEFORE the operator promotes. This endpoint
@@ -605,7 +604,7 @@ def set_business_type(
     security_id: UUID,
     req: SetBusinessTypeRequest,
     conn: psycopg.Connection = Depends(get_conn),
-    tenant_id: UUID = Depends(get_current_tenant),
+    tenant_id: UUID = Depends(get_workspace),
 ) -> BusinessTypeOut:
     """Re-tag one security's BUSINESS TYPE (Business-Type M1) — the operator overruling the maps-derived
     classification for ONE name (#10: the maps recommend, the operator decides). ``business_type: null``
@@ -767,9 +766,10 @@ def _kick_member_ingest(
         return None
 
 
-def _fund_ids(conn: psycopg.Connection, thesis: Thesis, tenant_id: UUID) -> set[UUID]:
+def _fund_ids(conn: psycopg.Connection, thesis: Thesis) -> set[UUID]:
     """The basket's ``security_id``s whose master row is a fund (``instrument_kind='etf'``) — the lookup half
-    of the "funds only in ETFs" promote rule, one batch read (``master.get_many``, tenant-scoped).
+    of the "funds only in ETFs" promote rule, one batch read (``master.get_many``, under the data tenant: the
+    master is DATA).
     """
     ids = {m.security_id for m in thesis.basket if m.security_id is not None}
     return {
@@ -783,7 +783,7 @@ def _fund_ids(conn: psycopg.Connection, thesis: Thesis, tenant_id: UUID) -> set[
 def promote(
     req: PromoteThesisRequest,
     conn: psycopg.Connection = Depends(get_conn),
-    tenant_id: UUID = Depends(get_current_tenant),
+    tenant_id: UUID = Depends(get_workspace),
 ) -> PromoteOut:
     """Promote a structured thesis to the Board (Incubating) — the app's FIRST mutation. Create (``id``
     null) or update (``id`` set); the value-chain structure (segments + placements + authorship) persists
@@ -990,7 +990,7 @@ def promote(
     # master row is instrument_kind='etf' (the one marker every fund surface keys on); the master lookup
     # happens HERE and the rule stays pure (``fund_conflicts``). Refused whole, NOTHING written, never a row
     # moved for the operator (WB#1) — the fix is the operator's own move, named per company.
-    misplaced = fund_conflicts(thesis.basket, _fund_ids(conn, thesis, tenant_id))
+    misplaced = fund_conflicts(thesis.basket, _fund_ids(conn, thesis))
     if misplaced:
         raise HTTPException(
             status_code=422,
@@ -1605,7 +1605,7 @@ def _has_shares_fact(conn: psycopg.Connection, security_id: UUID, tenant_id: UUI
 def auto_confirm_fact(
     req: AutoConfirmRequest,
     conn: psycopg.Connection = Depends(get_conn),
-    tenant_id: UUID = Depends(get_current_tenant),
+    tenant_id: UUID = Depends(get_workspace),
 ) -> AutoConfirmOut:
     """Auto-apply a security's AUTO-tier shares count on get-data — REMOVING a ceremonial confirm, not a real one.
 
@@ -1682,7 +1682,7 @@ def auto_confirm_fact(
 def ratify_fact(
     req: RatifyFactRequest,
     conn: psycopg.Connection = Depends(get_conn),
-    tenant_id: UUID = Depends(get_current_tenant),
+    tenant_id: UUID = Depends(get_workspace),
     user: CurrentUser = Depends(require_user),
 ) -> RatifiedFactOut:
     """Ratify an extracted candidate -> write the scoring fact (hybrid-2a) — the app's first fact-WRITE. The

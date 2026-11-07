@@ -6,7 +6,7 @@ from uuid import UUID
 import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.deps import get_conn, get_current_tenant, get_thesis_or_404
+from app.deps import get_conn, get_thesis_or_404, get_workspace
 from app.schemas_api import (
     ActivistStakeOut,
     AnnotatedNightOut,
@@ -110,7 +110,7 @@ def get_scoreboard(
         "names the edition served",
     ),
     conn: psycopg.Connection = Depends(get_conn),
-    current_tenant: UUID = Depends(get_current_tenant),
+    current_tenant: UUID = Depends(get_workspace),
 ) -> ScoreboardResponse:
     """The Scoreboard (SCORE): one EDITION scored as-of ``asof`` — a READ-ONLY pass over the
     immutable calls log (or a stored edition's frozen pages), the operator-decision log, and realized
@@ -289,7 +289,7 @@ def _edition_out(e: editions_repo.Edition) -> ScoreboardEditionOut:
 @router.get("/editions", response_model=ScoreboardEditionsResponse)
 def get_scoreboard_editions(
     conn: psycopg.Connection = Depends(get_conn),
-    current_tenant: UUID = Depends(get_current_tenant),
+    current_tenant: UUID = Depends(get_workspace),
 ) -> ScoreboardEditionsResponse:
     """Every edition the Scoreboard can show: Edition 0 (the original record, the calls log — always
     present, never stored) first, then each stored re-run edition ascending, with its cut, nights, join-date
@@ -341,7 +341,7 @@ def get_scoreboard_edition_diff(
         "than `from` (422 otherwise)",
     ),
     conn: psycopg.Connection = Depends(get_conn),
-    current_tenant: UUID = Depends(get_current_tenant),
+    current_tenant: UUID = Depends(get_workspace),
 ) -> ScoreboardEditionDiffResponse:
     """What changed from one edition to a later one (editions S6) — computed on read, never stored, and
     read-only. Every thesis is compared on the nights BOTH editions cover, through the earlier of the two
@@ -435,7 +435,7 @@ def get_price_window(
         "reading, unchanged",
     ),
     thesis: Thesis = Depends(get_thesis_or_404),
-    current_tenant: UUID = Depends(get_current_tenant),
+    current_tenant: UUID = Depends(get_workspace),
     conn: psycopg.Connection = Depends(get_conn),
 ) -> ScoreboardPriceWindowOut:
     """One episode's realized daily OHLCV bars over ``[start, end]`` — with SMA 50/200 context and four

@@ -61,10 +61,10 @@ from app.schemas_api import (
     BackupOut,
     BackupsOut,
 )
-from db.session import current_tenant_id
 from domain.feed_kinds import PRICE, StaleFeedLabel, feed_kind, stale_feed_bits
 from domain.insider_amendments import page_text
 from domain.market_time import market_now, market_tz
+from domain.scopes import DATA_TENANT_ID
 from domain.settings import get_settings
 from notify import HealthEvent
 from pipeline import edition_run_log
@@ -1180,7 +1180,7 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
     try:
         with conn.transaction():
             fundamentals_set_aside = fundamentals_set_aside_repo.count_active(
-                conn, tenant_id=current_tenant_id()
+                conn, tenant_id=DATA_TENANT_ID
             )
     except Exception:  # noqa: BLE001 — the count is a passenger on the status read
         _log.exception("set-aside count failed (fail-open — the status read is unaffected)")
@@ -1198,9 +1198,7 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
     editions_cut = None
     try:
         with conn.transaction():
-            notice = editions_repo.cut_notice(
-                conn, tenant_id=current_tenant_id(), now=datetime.now(timezone.utc)
-            )
+            notice = editions_repo.newest_cut_notice(conn, now=datetime.now(timezone.utc))
         if notice is not None:
             editions_cut = AdminEditionsCutOut(
                 line=notice.line(),

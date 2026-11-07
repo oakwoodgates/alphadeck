@@ -40,16 +40,16 @@ from domain.scopes import (
 from domain.thesis import BasketMember, Thesis
 from ingest.catalyst import ingest_catalyst
 from ingest.revenue_mix import ingest_revenue_mix
-from pipeline.provision_tenant import provision_tenant
 from repositories import thesis_repo
 from signals.base import PointInTimeData
+from tests.workspaces import new_workspace
 
 _MIGRATIONS = Path(__file__).resolve().parents[2] / "db" / "migrations"
 _KNOWN = datetime(2100, 1, 1, tzinfo=timezone.utc)
 _ASOF = date(2026, 6, 1)
 
 # two user WORKSPACES, neither of them the data tenant (fixed ids: the `db` fixture keeps `tenant` rows, and
-# provision_tenant is ON CONFLICT DO NOTHING, so re-runs never accrete rows)
+# new_workspace is ON CONFLICT DO NOTHING, so re-runs never accrete rows)
 W = uuid.UUID("00000000-0000-0000-0000-0000000000a1")
 V = uuid.UUID("00000000-0000-0000-0000-0000000000a2")
 
@@ -154,7 +154,7 @@ def test_migration_0076_marks_the_one_data_tenant(db):
         )
         row = cur.fetchone()
     assert row["kind"] == "data" and row["name"] == "platform" and row["notify_webhook"] is None
-    provision_tenant(db, "a workspace", tenant_id=W)
+    new_workspace(db, "a workspace", workspace_id=W)
     with db.cursor() as cur:
         cur.execute("SELECT kind FROM tenant WHERE id = %s", (W,))
         assert cur.fetchone()["kind"] == "workspace"  # the default: a new tenant is a workspace
@@ -189,8 +189,8 @@ def test_the_boot_assert_refuses_without_a_data_tenant(db):
 @pytest.fixture
 def two_workspaces(db):
     """W and V provisioned; one company in the DATA master; a W thesis on it."""
-    provision_tenant(db, "workspace W", tenant_id=W)
-    provision_tenant(db, "workspace V", tenant_id=V)
+    new_workspace(db, "workspace W", workspace_id=W)
+    new_workspace(db, "workspace V", workspace_id=V)
     sid = uuid.uuid4()
     with db.cursor() as cur:
         cur.execute(

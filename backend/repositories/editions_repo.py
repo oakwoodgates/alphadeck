@@ -777,6 +777,22 @@ class CutNotice:
         return f"Edition {self.number} · {self.label} · {n} company-night{'s' if n != 1 else ''} changed"
 
 
+def newest_cut_notice(
+    conn: psycopg.Connection, *, now: datetime, days: int = NOTICE_DAYS
+) -> CutNotice | None:
+    """The newest ``cut_notice`` across EVERY tenant that holds an edition (editions are a workspace's own; the
+    Admin line shows the latest cut of any of them: a label and counts, never a card name)."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT DISTINCT tenant_id FROM edition")
+        tenants = [r["tenant_id"] for r in cur.fetchall()]
+    best: CutNotice | None = None
+    for tenant in tenants:
+        got = cut_notice(conn, tenant_id=tenant, now=now, days=days)
+        if got is not None and (best is None or got.published_at > best.published_at):
+            best = got
+    return best
+
+
 def cut_notice(
     conn: psycopg.Connection, *, tenant_id: UUID, now: datetime, days: int = NOTICE_DAYS
 ) -> CutNotice | None:
