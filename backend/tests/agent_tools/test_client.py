@@ -157,3 +157,40 @@ def test_the_timeout_is_the_clients_default_sixty_seconds():
     assert client.timeout == 60.0
     assert client._http.timeout.read == 60.0
     asyncio.run(client.aclose())
+
+
+# --- the login door (docs/AUTH.md): the bearer token and the 401 ------------------------------------------
+
+
+def _get_with(handler, token):
+    async def go():
+        client = ApiClient(
+            "http://127.0.0.1:8001", transport=httpx.MockTransport(handler), timeout=5, token=token
+        )
+        try:
+            return await client.get("/clock")
+        finally:
+            await client.aclose()
+
+    return asyncio.run(go())
+
+
+def test_the_token_rides_as_a_bearer_header_and_no_token_sends_none():
+    seen = []
+
+    def handler(request):
+        seen.append(request.headers.get("authorization"))
+        return httpx.Response(200, json={})
+
+    _get_with(handler, "tok-for-tests")
+    _get_with(handler, None)
+    _get_with(handler, "  ")
+    assert seen == ["Bearer tok-for-tests", None, None]
+
+
+def test_a_401_names_the_env_var_and_the_cli_that_mints_a_token():
+    with pytest.raises(ToolFailure) as exc:
+        _get_with(lambda r: httpx.Response(401, json={"detail": "sign in required"}), None)
+    assert exc.value.code == "api_rejected" and exc.value.retryable is False
+    assert "ALPHADECK_MCP_TOKEN" in exc.value.message
+    assert "pipeline.users token create" in exc.value.message

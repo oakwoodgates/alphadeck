@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from app.deps import get_conn
 from app.main import app
 from pipeline import backup, cron_run_log
+from tests.auth_fixtures import sign_in_as_steward, sign_out
 from workbench import draft_run_log, ingest_jobs, triage_store
 
 
@@ -22,6 +23,18 @@ def _no_ingest_threads(monkeypatch):
     monkeypatch.setattr(ingest_jobs, "_DEFAULT_EXECUTOR", lambda job: None)
     yield
     ingest_jobs.reset_state()
+
+
+@pytest.fixture(autouse=True)
+def _signed_in_as_steward():
+    """Sign EVERY app test in as a super admin on workspace ...0001 (the login door, docs/AUTH.md): both gates
+    are overridden, so a route test exercises the route, not the login. Autouse, so a module that builds its own
+    ``TestClient(app)`` is covered too. Set again before each test, because ``client``'s teardown clears every
+    override. The gate tests (``test_auth_gate.py``) remove it with ``tests.auth_fixtures.sign_out``.
+    """
+    sign_in_as_steward(app)
+    yield
+    sign_out(app)
 
 
 @pytest.fixture

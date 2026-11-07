@@ -10,6 +10,7 @@ import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import ValidationError
 
+from app.auth import require_super_admin
 from app.deps import (
     get_conn,
     get_current_tenant,
@@ -589,7 +590,11 @@ def ingest_security_prices(
     )
 
 
-@router.post("/securities/{security_id}/business-type", response_model=BusinessTypeOut)
+@router.post(
+    "/securities/{security_id}/business-type",
+    response_model=BusinessTypeOut,
+    dependencies=[Depends(require_super_admin)],
+)
 def set_business_type(
     security_id: UUID,
     req: SetBusinessTypeRequest,

@@ -3,6 +3,10 @@
 ``trust_env=False`` (no proxy or netrc from the environment), ``follow_redirects=False``, one timeout for the whole
 request (default 60 s: the cross-card ``/data-flags`` read and a cold dashboard take up to ~35 s MEASURED). The
 client never reads a body into an error message: only the API's own ``detail`` string, cut at 300 characters.
+
+Every API route sits behind a login (docs/AUTH.md). The client sends ``Authorization: Bearer <token>`` when it is
+given one (``server.main`` reads ``ALPHADECK_MCP_TOKEN`` from the environment the stdio server starts in); a 401
+becomes one clear failure naming that variable and the CLI that mints a token. The token is never logged.
 """
 
 from __future__ import annotations
@@ -18,6 +22,12 @@ from .errors import ToolFailure
 
 DEFAULT_TIMEOUT_S = 60.0
 DETAIL_LIMIT = 300
+TOKEN_ENV = "ALPHADECK_MCP_TOKEN"
+NOT_SIGNED_IN = (
+    f"The API answered 401 (sign in required): set {TOKEN_ENV} in the environment the MCP server starts in to "
+    "a token from `python -m pipeline.users token create --email <you> --name mcp`, then reconnect "
+    "(docs/AGENT_TOOLS.md)."
+)
 
 
 def loopback_base(value: str) -> str:
@@ -71,16 +81,20 @@ class ApiClient:
         *,
         timeout: float = DEFAULT_TIMEOUT_S,
         transport: httpx.AsyncBaseTransport | None = None,
+        token: str | None = None,
     ) -> None:
         self.base = loopback_base(base)
         self.timeout = timeout
+        headers = {"accept": "application/json"}
+        if token and token.strip():
+            headers["authorization"] = f"Bearer {token.strip()}"
         self._http = httpx.AsyncClient(
             base_url=self.base,
             timeout=httpx.Timeout(timeout),
             trust_env=False,
             follow_redirects=False,
             transport=transport,
-            headers={"accept": "application/json"},
+            headers=headers,
         )
 
     async def aclose(self) -> None:
@@ -119,6 +133,8 @@ class ApiClient:
         status = response.status_code
         if status == 404 and not_found is not None:
             raise not_found
+        if status == 401:
+            raise ToolFailure("api_rejected", NOT_SIGNED_IN)
         if status >= 500:
             raise ToolFailure("api_error", f"The API answered HTTP {status}.")
         if status >= 300:

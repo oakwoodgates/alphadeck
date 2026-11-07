@@ -30,6 +30,9 @@ dependencies = [
     # (The container ALSO installs system tzdata via apt — see backend/Dockerfile — for the cron sidecar's
     # shell TZ; that covers the shell, not the Python zoneinfo lookup.)
     "tzdata",
+    # argon2-cffi: the password hash for the login door (app/auth.py, argon2id). Pinned exactly: a password
+    # hash format is durable state, so a bump is a deliberate change, never a resolver accident.
+    "argon2-cffi==25.1.0",
 ]
 
 [project.optional-dependencies]

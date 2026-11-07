@@ -29,6 +29,8 @@ services:
       # The in-network address is unchanged (postgres:5432 inside the compose network); ONLY the DB name
       # switches to alphadeck_dev. This is the container's DB URL — not the host dev-loop one.
       DATABASE_URL: postgresql://alphadeck:alphadeck@postgres:5432/alphadeck_dev
+      # The login door (docs/AUTH.md): dev is plain http on localhost, where a Secure cookie is never sent back.
+      ALPHADECK_COOKIE_SECURE: "false"
     volumes:
       # Dev loop: mount the source over the image's /app so an edit is live (paired with --reload below).
       # The editable install (`pip install -e .`, PEP 660 finder in site-packages) resolves the top-level

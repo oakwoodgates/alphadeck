@@ -1,3 +1,5 @@
+import { useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 import {
   Navigate,
   Route,
@@ -10,7 +12,11 @@ import {
 
 import { Admin } from "./admin/Admin";
 import { AppHeader } from "./AppHeader";
-import { useClock, useTheses } from "./api/hooks";
+import { onUnauthorized } from "./api/authEvents";
+import { useClock, useMe, useTheses } from "./api/hooks";
+import { AccountPage } from "./auth/AccountPage";
+import { LoginPage } from "./auth/LoginPage";
+import { MeProvider, StewardsOnly, useIsSteward } from "./auth/me";
 import { Backtest } from "./backtest/Backtest";
 import { browserClock, clockFromServer, ClockProvider, useAppClock } from "./clock";
 import { Cockpit } from "./cockpit/Cockpit";
@@ -105,6 +111,7 @@ function BacktestRoute() {
   const navigate = useNavigate();
   const here = useHere();
   const { asof, asofParam, setAsof } = useAsof();
+  const steward = useIsSteward();
   // The selected run rides ?run= so a run is a shareable link. A view dial like the as-of scrub and
   // the Cockpit's name selection, so it REPLACES — browsing runs never spams history.
   const [searchParams, setSearchParams] = useSearchParams();
@@ -117,6 +124,8 @@ function BacktestRoute() {
       },
       { replace: true },
     );
+  // steward-only (docs/AUTH.md): the API answers 403; a plain user who types the address sees one line
+  if (!steward) return <StewardsOnly header={<AppHeader current="backtest" />} />;
   return (
     <Backtest
       header={<AppHeader current="backtest" asof={asof} onAsofChange={setAsof} />}
@@ -142,8 +151,15 @@ function WorkbenchRoute() {
 }
 
 function AdminRoute() {
-  // A "now" ops surface — no as-of dial; AppHeader still carries ?asof= on its nav links.
+  // A "now" ops surface — no as-of dial; AppHeader still carries ?asof= on its nav links. Steward-only
+  // (docs/AUTH.md): the API answers 403; a plain user who types the address sees one line.
+  const steward = useIsSteward();
+  if (!steward) return <StewardsOnly header={<AppHeader current="admin" />} />;
   return <Admin header={<AppHeader current="admin" />} />;
+}
+
+function AccountRoute() {
+  return <AccountPage header={<AppHeader current="account" />} />;
 }
 
 function RadarRoute() {
@@ -235,7 +251,34 @@ function CockpitRoute() {
   );
 }
 
+/** The login door (docs/AUTH.md): /login renders the sign-in page; every other path waits for GET /auth/me and
+ *  renders the app only for a signed-in user (else /login). Any 401 from any read (the middleware in
+ *  api/client.ts) clears the whole query cache and lands on /login. The HttpOnly cookie is the only client state. */
 export function App() {
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const onLogin = useLocation().pathname === "/login";
+  // not fired on /login: a 401 there would clear the cache and refire it in a loop
+  const me = useMe(!onLogin);
+  useEffect(
+    () =>
+      onUnauthorized(() => {
+        qc.clear();
+        navigate("/login", { replace: true });
+      }),
+    [qc, navigate],
+  );
+  if (onLogin) return <LoginPage />;
+  if (me.isPending) return <div className="center-note">Loading…</div>;
+  if (!me.data) return <Navigate to="/login" replace />;
+  return (
+    <MeProvider value={me.data}>
+      <SignedInApp />
+    </MeProvider>
+  );
+}
+
+function SignedInApp() {
   const { isLoading, error, data: theses } = useTheses();
   // F1 — the server's clock decides the default as-of. Held until it settles (a reply or a failure), so no page
   // renders, and fires its reads, on a wrong date first; a failure falls back to the browser's date and the header
@@ -268,6 +311,7 @@ function AppRoutes() {
       <Route path="/scoreboard" element={<ScoreboardRoute />} />
       <Route path="/backtest" element={<BacktestRoute />} />
       <Route path="/admin" element={<AdminRoute />} />
+      <Route path="/account" element={<AccountRoute />} />
       <Route path="/radar" element={<RadarRoute />} />
       <Route path="/dashboards" element={<DashboardsIndexRoute />} />
       <Route path="/dashboards/:slug" element={<DashboardRoute />} />

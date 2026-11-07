@@ -63,6 +63,7 @@ from pipeline.warm_dashboards import (
     visit_asofs,
 )
 from repositories import thesis_repo
+from tests.auth_fixtures import sign_in_as_steward
 
 BACKEND = Path(__file__).resolve().parents[2]
 SCRIPT = (BACKEND / "scripts" / "daily_cron.sh").read_text(encoding="utf-8")
@@ -269,13 +270,48 @@ def test_the_plan_is_one_request_per_page_per_asof_with_the_pages_exact_default_
     )
 
 
+# the system token every real run carries (the login door, docs/AUTH.md); a test value, never a real secret
+_TOKEN = "warm-test-system-token"
+_TOKEN_ENV = {wd.SYSTEM_TOKEN_ENV: _TOKEN}
+
+
+def test_a_real_run_without_the_system_token_is_one_loud_line_and_exit_1(tmp_path):
+    """Never a loop of silent 401s: no token, no request, one line naming the fix, a non-zero exit."""
+    lines: list[str] = []
+    for env in ({}, {wd.SYSTEM_TOKEN_ENV: "  "}):
+        lines.clear()
+        rc = main(
+            ["--asof", "2026-10-29", "--runs-dir", str(tmp_path)],
+            fetch=_never,
+            env=env,
+            emit=lines.append,
+        )
+        assert rc == wd.EXIT_NO_TOKEN != 0
+        assert len(lines) == 1 and wd.SYSTEM_TOKEN_ENV in lines[0] and "NOT RUN" in lines[0]
+    assert not any(tmp_path.iterdir())  # no run artifact either
+
+
+def test_the_dry_run_names_the_token_presence_never_its_value():
+    lines: list[str] = []
+    main(
+        ["--dry-run", "--night", "2026-10-30"],
+        fetch=_never,
+        env=dict(_TOKEN_ENV),
+        emit=lines.append,
+    )
+    assert f"{wd.SYSTEM_TOKEN_ENV} set" in lines[0] and not any(_TOKEN in line for line in lines)
+    lines.clear()
+    main(["--dry-run", "--night", "2026-10-30"], fetch=_never, env={}, emit=lines.append)
+    assert f"{wd.SYSTEM_TOKEN_ENV} NOT SET" in lines[0]
+
+
 def test_dry_run_lists_every_page_with_its_params_and_makes_no_request(tmp_path):
     lines: list[str] = []
     runs = tmp_path / "warm"
     rc = main(
         ["--dry-run", "--night", "2026-10-28", "--base", "http://api:9", "--runs-dir", str(runs)],
         fetch=_never,
-        env={},
+        env=dict(_TOKEN_ENV),
         emit=lines.append,
     )
     assert rc == 0
@@ -295,7 +331,13 @@ def test_dry_run_on_a_friday_night_plans_friday_only():
     not the pre-F1 Saturday + Monday pair."""
     lines: list[str] = []
     assert (
-        main(["--dry-run", "--night", "2026-10-30"], fetch=_never, env={}, emit=lines.append) == 0
+        main(
+            ["--dry-run", "--night", "2026-10-30"],
+            fetch=_never,
+            env=dict(_TOKEN_ENV),
+            emit=lines.append,
+        )
+        == 0
     )
     text = "\n".join(lines)
     assert (
@@ -310,12 +352,17 @@ def test_pages_scopes_the_run_and_an_unknown_page_is_a_usage_error(tmp_path, cap
     rc = main(
         ["--pages", "hot-board, trigger-log", "--asof", "2026-10-29", "--runs-dir", str(tmp_path)],
         fetch=rec,
-        env={},
+        env=dict(_TOKEN_ENV),
         emit=lambda line: None,
     )
     assert rc == 0 and rec.paths() == ["trigger-log", "hot-board"]  # PAGES order, nothing else
     with pytest.raises(SystemExit) as exc:
-        main(["--pages", "no-such-page", "--dry-run"], fetch=_never, env={}, emit=lambda line: None)
+        main(
+            ["--pages", "no-such-page", "--dry-run"],
+            fetch=_never,
+            env=dict(_TOKEN_ENV),
+            emit=lambda line: None,
+        )
     assert exc.value.code == 2
     assert "unknown page" in capsys.readouterr().err
 
@@ -334,7 +381,7 @@ def test_an_explicit_asof_replaces_the_derived_ones_and_the_base_comes_from_the_
             str(tmp_path),
         ],
         fetch=rec,
-        env={wd.BASE_URL_ENV: "http://elsewhere:1234"},
+        env={wd.BASE_URL_ENV: "http://elsewhere:1234", **_TOKEN_ENV},
         emit=lambda line: None,
     )
     assert rec.urls == [
@@ -344,7 +391,7 @@ def test_an_explicit_asof_replaces_the_derived_ones_and_the_base_comes_from_the_
     main(
         ["--pages", "read-through", "--runs-dir", str(tmp_path)],
         fetch=rec2,
-        env={},
+        env=dict(_TOKEN_ENV),
         emit=lambda line: None,
     )
     assert rec2.urls[0].startswith(f"{wd.DEFAULT_BASE_URL}/dashboards/read-through?asof=")
@@ -367,7 +414,10 @@ def test_a_failing_page_does_not_stop_the_loop_and_the_exit_code_stays_zero(tmp_
     )
     lines: list[str] = []
     rc = main(
-        ["--asof", "2026-10-29", "--runs-dir", str(tmp_path)], fetch=rec, env={}, emit=lines.append
+        ["--asof", "2026-10-29", "--runs-dir", str(tmp_path)],
+        fetch=rec,
+        env=dict(_TOKEN_ENV),
+        emit=lines.append,
     )
     assert rc == 0
     # every page was still asked: the whole PAGES list plus the peer table's two follow-ups
@@ -470,7 +520,7 @@ def test_the_kill_switch_skips_the_whole_step(tmp_path):
     main(
         ["--pages", "read-through", "--asof", "2026-10-29", "--runs-dir", str(tmp_path)],
         fetch=rec,
-        env={wd.KILL_SWITCH_ENV: "1"},
+        env={wd.KILL_SWITCH_ENV: "1", **_TOKEN_ENV},
         emit=lambda line: None,
     )
     assert len(rec.urls) == 1
@@ -512,7 +562,7 @@ def test_the_artifact_shape(tmp_path):
     rc = main(
         ["--night", "2026-10-30", "--base", "http://api:1", "--runs-dir", str(tmp_path / "w")],
         fetch=rec,
-        env={},
+        env=dict(_TOKEN_ENV),
         emit=lambda line: None,
     )
     assert rc == 0
@@ -555,7 +605,7 @@ def test_a_run_artifact_that_cannot_be_written_never_fails_the_run(tmp_path):
     rc = main(
         ["--asof", "2026-10-29", "--pages", "read-through", "--runs-dir", str(blocker / "w")],
         fetch=Recorder(),
-        env={},
+        env=dict(_TOKEN_ENV),
         emit=lines.append,
     )
     assert rc == 0 and any("done ·" in line for line in lines)
@@ -568,7 +618,10 @@ def test_a_run_artifact_that_cannot_be_written_never_fails_the_run(tmp_path):
 
 
 class _Handler(BaseHTTPRequestHandler):
+    seen_auth: list = []  # the Authorization header of every GET, in order
+
     def do_GET(self):  # noqa: N802 — the http.server hook
+        _Handler.seen_auth.append(self.headers.get("Authorization"))
         if self.path.startswith("/dashboards/slow"):
             time.sleep(1.5)
         status = 500 if self.path.startswith("/dashboards/boom") else 200
@@ -616,6 +669,7 @@ def test_the_http_transport_names_a_refused_connection():
 
 
 def test_a_whole_run_over_the_real_transport_logs_the_status_cache_and_times(server, tmp_path):
+    _Handler.seen_auth.clear()
     lines: list[str] = []
     rc = main(
         [
@@ -629,10 +683,12 @@ def test_a_whole_run_over_the_real_transport_logs_the_status_cache_and_times(ser
             str(tmp_path),
         ],
         fetch=http_fetch,
-        env={},
+        env=dict(_TOKEN_ENV),
         emit=lines.append,
     )
     assert rc == 0
+    # the login door: every GET carried the system token as a bearer credential
+    assert _Handler.seen_auth and set(_Handler.seen_auth) == {f"Bearer {_TOKEN}"}
     row = next(line for line in lines if "read-through" in line and "200" in line)
     assert re.fullmatch(
         r"warm-dashboards: 2026-10-29 read-through · 200 · hit · compute 5 ms · wall \d+ ms", row
@@ -771,6 +827,7 @@ def api(db, pinned_today):
     _seed_a_card(db)
     CACHE.clear()
     app.dependency_overrides[get_conn] = lambda: db
+    sign_in_as_steward(app)  # the login door: route tests run signed in (tests/auth_fixtures.py)
     client = TestClient(app)
 
     def fetch(url: str, timeout: float) -> Response:

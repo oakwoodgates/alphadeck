@@ -79,6 +79,19 @@ body {
 /* F1 — the one quiet word when the server's clock could not be read and the browser's date stands in */
 .asof-note { margin-left: 8px; font-size: 10px; color: var(--txt-3); cursor: help; }
 
+/* The login door (docs/AUTH.md): the sign-in page, the account form and the header's user menu. Quiet. */
+.login-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.login-form { display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 340px; padding: 24px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+.login-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--txt-3); }
+.login-form input { font: inherit; font-size: 14px; color: var(--txt); background: var(--bg); border: 1px solid var(--line); border-radius: 5px; padding: 8px 10px; }
+.login-form button { font: inherit; font-size: 13px; padding: 8px 10px; border-radius: 5px; border: 1px solid var(--line); background: var(--bg); color: var(--txt); cursor: pointer; }
+.login-form button:disabled { opacity: 0.6; cursor: default; }
+.login-error { font-size: 12px; color: var(--neg); }
+.account-page { padding: 22px 26px; display: flex; flex-direction: column; gap: 12px; }
+.user-menu { display: flex; align-items: center; gap: 10px; margin-left: 14px; font-size: 11px; color: var(--txt-3); }
+.user-menu a { cursor: pointer; }
+.user-menu button { font: inherit; color: var(--txt-3); background: none; border: 1px solid var(--line); border-radius: 5px; padding: 2px 8px; cursor: pointer; }
+
 .cp-body { flex: 1; display: grid; grid-template-columns: 1fr 380px; }
 /* the rail collapsed: its 380px track goes to the basket table (the toggle lives in .cp-top) */
 .cp-body.rail-closed { grid-template-columns: 1fr; }

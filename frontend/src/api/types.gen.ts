@@ -4,6 +4,89 @@
  */
 
 export interface paths {
+    "/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Login
+         * @description Sign in with email + password: sets the HttpOnly session cookie and returns the user. 401 on a wrong pair
+         *     (the same answer for an unknown email, a wrong password and a disabled account); 429 after too many failures
+         *     for this email from this address, until the lockout ends.
+         */
+        post: operations["login_auth_login_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Logout
+         * @description Sign out: revokes this browser's session and clears the cookie.
+         */
+        post: operations["logout_auth_logout_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Me
+         * @description The signed-in caller: id, email, display name, role, workspace.
+         */
+        get: operations["me_auth_me_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/change-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Change Password
+         * @description Change my password: the current one must match and the new one needs at least 12 characters. Every OTHER
+         *     session of mine is signed out; this one stays signed in.
+         */
+        post: operations["change_password_auth_change_password_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/theses": {
         parameters: {
             query?: never;
@@ -7127,6 +7210,16 @@ export interface components {
          */
         ChainWaveWeeks: 13 | 26 | 52;
         /**
+         * ChangePasswordRequest
+         * @description The current password and the new one (at least 12 characters).
+         */
+        ChangePasswordRequest: {
+            /** Current */
+            current: string;
+            /** New */
+            new: string;
+        };
+        /**
          * ClockOut
          * @description The server's days, from one clock read in the market's zone.
          */
@@ -13016,6 +13109,16 @@ export interface components {
             offset?: number | null;
         };
         /**
+         * LoginRequest
+         * @description Email + password. The email matches case-insensitively.
+         */
+        LoginRequest: {
+            /** Email */
+            email: string;
+            /** Password */
+            password: string;
+        };
+        /**
          * MapCardOut
          * @description A counted card that has a drawn company.
          */
@@ -13182,6 +13285,32 @@ export interface components {
             cache: "hit" | "computed";
             /** Compute Ms */
             compute_ms: number;
+        };
+        /**
+         * MeOut
+         * @description The signed-in caller. `role` is `user` or `super_admin` (the data steward: Admin, Backtest, the
+         *     business-type re-tag). `workspace_id` is the one workspace every user sits on in this release.
+         */
+        MeOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Email */
+            email: string;
+            /** Display Name */
+            display_name: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "user" | "super_admin";
+            /**
+             * Workspace Id
+             * Format: uuid
+             */
+            workspace_id: string;
         };
         /**
          * MemberCallOut
@@ -18463,6 +18592,108 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    login_auth_login_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    logout_auth_logout_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    me_auth_me_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeOut"];
+                };
+            };
+        };
+    };
+    change_password_auth_change_password_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangePasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_theses_theses_get: {
         parameters: {
             query?: {

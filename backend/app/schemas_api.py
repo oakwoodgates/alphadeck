@@ -3304,3 +3304,32 @@ class BacktestSweepsResponse(BaseModel):
     available: bool
     sweeps: list[BacktestSweepRefOut] = Field(default_factory=list)
     labels: list[str] = Field(default_factory=list)
+
+
+# --- the login door (auth PR 1b, app/routers/auth.py, docs/AUTH.md) ---
+
+
+class LoginRequest(BaseModel):
+    """Email + password. The email matches case-insensitively."""
+
+    email: str
+    password: str
+
+
+class ChangePasswordRequest(BaseModel):
+    """The current password and the new one (at least 12 characters)."""
+
+    current: str
+    new: str
+
+
+class MeOut(BaseModel):
+    """The signed-in caller. `role` is `user` or `super_admin` (the data steward: Admin, Backtest, the
+    business-type re-tag). `workspace_id` is the one workspace every user sits on in this release.
+    """
+
+    id: UUID
+    email: str
+    display_name: str
+    role: Literal["user", "super_admin"]
+    workspace_id: UUID

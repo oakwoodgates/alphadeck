@@ -164,7 +164,7 @@ ambiguous thesis adds `candidates`). It never carries exception text, paths or p
 | `backend_unavailable` | The API is not reachable at `--backend-base` (stack down, wrong port) | yes |
 | `api_timeout` | The API did not answer within `--timeout` | yes |
 | `api_error` | The API answered 5xx or a non-JSON body | yes |
-| `api_rejected` | The API answered another 4xx; carries its `detail` (cut at 300) | no |
+| `api_rejected` | The API answered another 4xx; carries its `detail` (cut at 300). A **401** says instead to set `ALPHADECK_MCP_TOKEN` (see "The token" below) | no |
 | `output_too_large` | The reply exceeds its budget at its smallest | no |
 | `internal_error` | Anything else (logged to stderr by class only) | no |
 
@@ -198,6 +198,24 @@ installed package. Approve the two servers when Claude Code first asks, then che
 while the variable is unset it shows the literal `${ALPHADECK_MCP_COMMAND}` and "Failed to connect" for both.
 Builder agents cannot use `alphadeck-prod` (`.claude/agents/builder.md` denies `mcp__alphadeck-prod__*`);
 `alphadeck-dev` stays available to them.
+
+### The token (the login door)
+
+Every API route sits behind a login ([`docs/AUTH.md`](AUTH.md)), so the server sends
+`Authorization: Bearer <token>` with each request. The token comes from the environment variable
+`ALPHADECK_MCP_TOKEN` in the shell (or user environment) the client launches the server from; `.mcp.json` does not
+name it, because a stdio server inherits its parent's environment. Mint one per user on the stack it reads (prod
+and dev keep separate users, so each needs its own token):
+
+```powershell
+python -m pipeline.users token create --email <you> --name mcp    # prints the token ONCE
+[Environment]::SetEnvironmentVariable('ALPHADECK_MCP_TOKEN', '<token>', 'User')   # then restart Claude Code
+```
+
+The token is never logged and never passed as an argument (an argv is visible to every process). Without it, or
+with a revoked one, every tool fails `api_rejected` with a message naming `ALPHADECK_MCP_TOKEN` and the command
+above. One variable serves one stack at a time: the two `.mcp.json` servers share it, so with prod and dev users
+that differ, set it to the token of the stack you are reading (a per-server variable can come later).
 
 ### Other MCP clients
 

@@ -667,6 +667,28 @@ class Settings(BaseSettings):
     def _blank_image_sha_is_unknown(cls, v: object) -> object:
         return None if isinstance(v, str) and not v.strip() else v
 
+    # --- the login door (auth PR 1b, app/auth.py, docs/AUTH.md) ---
+    # `Secure` on the session cookie (ALPHADECK_COOKIE_SECURE). Default true; the dev overlay sets false because
+    # dev is plain http on localhost, where a Secure cookie would never be sent back.
+    cookie_secure: bool = True
+    # Idle expiry of a browser session, in days: slid forward on use (at most once per 5 minutes).
+    session_idle_days: int = 30
+    # The SYSTEM token (ALPHADECK_SYSTEM_TOKEN): the cron's dashboard warm-up sends it as a bearer token. It can
+    # only GET /dashboards/*, /clock and /health; unset = no system principal at all. Treat it as a secret.
+    system_token: str | None = None
+    # The login throttle, per (lower(email), client ip), in-process: this many failures inside the window locks
+    # the pair out (429) for the lockout.
+    login_max_failures: int = 5
+    login_window_s: float = 60
+    login_lockout_s: float = 60
+
+    @field_validator("system_token", mode="before")
+    @classmethod
+    def _blank_system_token_is_unset(cls, v: object) -> object:
+        # compose passes `${ALPHADECK_SYSTEM_TOKEN:-}` = "" when .env does not set it: that is "no system token",
+        # never a token that matches an empty bearer.
+        return None if isinstance(v, str) and not v.strip() else v
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

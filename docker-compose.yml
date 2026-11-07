@@ -91,6 +91,14 @@ services:
       # Here on the backend too so a manual `docker exec ... python -m pipeline.daily` also delivers; the cron
       # sidecar (below) is the automated path.
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      # The login door (docs/AUTH.md). The session cookie's `Secure` flag: true by default (prod is reached over
+      # TLS after the server move); the dev overlay sets "false" (dev is plain http on localhost). Fallback `true`
+      # (NOT empty: an empty value can't parse as a bool).
+      ALPHADECK_COOKIE_SECURE: ${ALPHADECK_COOKIE_SECURE:-true}
+      # The SYSTEM token: the one bearer credential the cron's dashboard warm-up sends. It can only GET
+      # /dashboards/*, /clock and /health. The SAME variable on the cron sidecar (below); empty = no system
+      # principal (the warm-up then refuses with one loud line). Treat it as a secret.
+      ALPHADECK_SYSTEM_TOKEN: ${ALPHADECK_SYSTEM_TOKEN:-}
       # THE TIMEZONE — ONE host variable, ALPHADECK_MARKET_TZ, feeds every consumer in both services (F3,
       # 2026-09-13). There used to be three names for one answer: ALPHADECK_TZ pinned this container's
       # wall clock, ALPHADECK_CRON_TZ pinned the sidecar's, and ALPHADECK_MARKET_TZ — the one the DOMAIN
@@ -266,6 +274,9 @@ services:
       # the shell's failure page (`python -m notify.page`) when a night or a backup fails for good. Unset ->
       # LogNotifier (logged, not delivered); set SLACK_WEBHOOK_URL in `.env` to push to Slack.
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      # The SYSTEM token the dashboard warm-up sends (`warm_dashboards`, docs/AUTH.md) — the SAME variable the
+      # backend checks it against. Unset -> the warm-up prints one loud line and does nothing.
+      ALPHADECK_SYSTEM_TOKEN: ${ALPHADECK_SYSTEM_TOKEN:-}
     depends_on:
       backend:
         condition: service_healthy # the API migrates + seeds on start; the cron needs the ready DB

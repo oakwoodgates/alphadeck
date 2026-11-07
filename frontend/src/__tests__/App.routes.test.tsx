@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { lazy } from "react";
@@ -29,12 +30,24 @@ const h = vi.hoisted(() => ({
   home: "board",
   // F1 — the server's clock (GET /clock): the default as-of is its current night, never the browser's date
   clock: { isPending: false, data: undefined as unknown },
+  // the login door (docs/AUTH.md): the signed-in user from GET /auth/me; a steward, so every tab renders
+  me: { isPending: false, data: undefined as unknown },
 }));
 
 vi.mock("../api/hooks", () => ({
   useTheses: () => h.theses,
   useClock: () => h.clock,
+  useMe: () => h.me,
+  useLogout: () => ({ isPending: false, mutate: () => undefined }),
 }));
+
+const STEWARD = {
+  id: "u-1",
+  email: "steward@example.test",
+  display_name: "Steward",
+  role: "super_admin",
+  workspace_id: "00000000-0000-0000-0000-000000000001",
+};
 
 // A server clock whose current night is NOT the browser's date, so a default as-of read off the browser would show.
 const SERVER_CLOCK = {
@@ -171,10 +184,12 @@ function Where() {
 
 function renderAt(url: string) {
   return render(
-    <MemoryRouter initialEntries={[url]}>
-      <App />
-      <Where />
-    </MemoryRouter>,
+    <QueryClientProvider client={new QueryClient()}>
+      <MemoryRouter initialEntries={[url]}>
+        <App />
+        <Where />
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 
@@ -185,6 +200,7 @@ const dashboardsMenu = () => screen.getByRole("button", { name: "Dashboards" });
 beforeEach(() => {
   h.theses = { isLoading: false, error: null, data: [{ id: "t-1", name: "Thesis One" }] };
   h.clock = { isPending: false, data: SERVER_CLOCK };
+  h.me = { isPending: false, data: STEWARD };
   h.dashboards.length = 0;
   h.dashboards.push(BOARD);
   h.home = REAL.HOME_DASHBOARD;
