@@ -99,6 +99,9 @@ down() { case " $1 " in *" $host "*) return 0 ;; esac; return 1; }
 case "$url" in
   */admin/status)
     if down "${FAKE_ADMIN_DOWN-}"; then reset; fi
+    if [ -n "${FAKE_ADMIN_CODE-}" ]; then
+      echo "curl: (22) The requested URL returned error: ${FAKE_ADMIN_CODE}" >&2; exit 22
+    fi
     t=$(( $(cat "$SHIM_STATE/tries" 2>/dev/null || echo 0) + 1 ))
     echo "$t" > "$SHIM_STATE/tries"
     if [ "$t" -le "${FAKE_ADMIN_FLAKY:-0}" ]; then reset; fi
@@ -590,6 +593,8 @@ def test_every_refusal_is_reported_at_once(deploy):
 
 # --- dry run --------------------------------------------------------------------------------------------
 
+_NO_OPS_TOKEN = "with NO Authorization header (.env sets no ALPHADECK_OPS_TOKEN, so /admin/status will answer 401)"
+
 
 def test_the_dry_run_prints_every_command_and_changes_nothing(deploy):
     r = deploy("--label", "pre-deploy", "backend", "--dry-run")
@@ -605,9 +610,9 @@ def test_the_dry_run_prints_every_command_and_changes_nothing(deploy):
         f"would verify: docker exec alphadeck-backend-1 printenv ALPHADECK_IMAGE_SHA -> {HEAD}",
         "would show:   docker exec alphadeck-cron-1 printenv ALPHADECK_IMAGE_SHA (not rebuilt",
         f"would verify: curl -fsS -g --connect-timeout 5 --max-time 60 {ADMIN_V6} or {ADMIN_V4} "
-        "(tried in turn, 2 tries each)",
+        f"{_NO_OPS_TOKEN} (tried in turn, 2 tries each)",
         f"would read: curl -fsS -g --connect-timeout 5 --max-time 60 {ADMIN_V6} or {ADMIN_V4} "
-        "(tried in turn, 2 tries each; refuse only if every address fails)",
+        f"{_NO_OPS_TOKEN} (tried in turn, 2 tries each; refuse only if every address fails)",
         "would read: docker exec alphadeck-backend-1 python -c <pg_locks read>",
         "OK: dry-run",
     ]:
@@ -779,3 +784,41 @@ def test_a_failed_build_stops_before_the_restart_and_the_checks(deploy):
     assert r.code == 4, r.out
     assert "FAIL: the rebuild failed" in r.out and "stack-recovery" in r.out
     assert not [c for c in r.calls("docker") if " restart " in c or " printenv " in c]
+
+
+# --- the login door: the /admin/status probes carry ALPHADECK_OPS_TOKEN (docs/AUTH.md) --------------------
+
+_OPS = "ops-token-for-the-deploy-test"
+
+
+def test_the_admin_probes_send_the_ops_token_from_dotenv(deploy):
+    deploy.root.joinpath(".env").write_text(
+        f"SLACK_WEBHOOK_URL=\nALPHADECK_OPS_TOKEN={_OPS}\n", encoding="utf-8"
+    )
+    r = deploy("--label", "pre-deploy", "backend")
+    assert r.code == 0, r.out
+    admin = [c for c in r.calls("curl") if c.endswith("/admin/status")]
+    assert len(admin) >= 2  # the running-pass check AND the post-deploy verify
+    assert all(f"Authorization: Bearer {_OPS}" in c for c in admin), admin
+    health = [c for c in r.calls("curl") if c.endswith("/api/health")]
+    assert health and not any("Authorization" in c for c in health)  # the open probe is unchanged
+    assert _OPS not in r.out  # the token never reaches the output
+
+
+def test_the_dry_run_names_the_token_presence_never_its_value(deploy):
+    deploy.root.joinpath(".env").write_text(f"ALPHADECK_OPS_TOKEN='{_OPS}'\n", encoding="utf-8")
+    r = deploy("--label", "pre-deploy", "backend", "--dry-run")
+    assert r.code == 0, r.out
+    assert "with Authorization: Bearer <ALPHADECK_OPS_TOKEN from .env>" in r.out
+    assert _OPS not in r.out
+
+
+def test_a_401_from_admin_status_refuses_with_one_line_naming_the_fix(deploy):
+    r = deploy("--label", "pre-deploy", "backend", FAKE_ADMIN_CODE="401")
+    assert r.code == 3, r.out
+    fix = [ln for ln in r.out.splitlines() if "answered 401" in ln]
+    assert len(fix) == 1, r.out
+    assert "pipeline.users token create" in fix[0] and "ALPHADECK_OPS_TOKEN" in fix[0]
+    # a 401 is an answer: no retry, no walk to the next address
+    assert len([c for c in r.calls("curl") if c.endswith("/admin/status")]) == 1
+    _no_stack_change(r)

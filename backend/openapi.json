@@ -6,6 +6,120 @@
     "version": "0.0.0"
   },
   "paths": {
+    "/auth/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Login",
+        "description": "Sign in with email + password: sets the HttpOnly session cookie and returns the user. 401 on a wrong pair\n(the same answer for an unknown email, a wrong password and a disabled account); 429 after too many failures\nfor this email from this address, until the lockout ends.",
+        "operationId": "login_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Logout",
+        "description": "Sign out: revokes this browser's session and clears the cookie.",
+        "operationId": "logout_auth_logout_post",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        }
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Me",
+        "description": "The signed-in caller: id, email, display name, role, workspace.",
+        "operationId": "me_auth_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/change-password": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Change Password",
+        "description": "Change my password: the current one must match and the new one needs at least 12 characters. Every OTHER\nsession of mine is signed out; this one stays signed in.",
+        "operationId": "change_password_auth_change_password_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/theses": {
       "get": {
         "tags": [
@@ -14769,6 +14883,25 @@
         "title": "ChainWaveWeeks",
         "description": "The window: the last 13, 26 or 52 week columns."
       },
+      "ChangePasswordRequest": {
+        "properties": {
+          "current": {
+            "type": "string",
+            "title": "Current"
+          },
+          "new": {
+            "type": "string",
+            "title": "New"
+          }
+        },
+        "type": "object",
+        "required": [
+          "current",
+          "new"
+        ],
+        "title": "ChangePasswordRequest",
+        "description": "The current password and the new one (at least 12 characters)."
+      },
       "ClockOut": {
         "properties": {
           "current_night": {
@@ -29017,6 +29150,25 @@
         "title": "LocatedPassage",
         "description": "A deterministically-retrieved passage that backs a fact \u2014 the evidence put in front of the operator\n(or, later, S5). Retrieval only: a keyword/section match, never a model's reading."
       },
+      "LoginRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "password": {
+            "type": "string",
+            "title": "Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "LoginRequest",
+        "description": "Email + password. The email matches case-insensitively."
+      },
       "MapCardOut": {
         "properties": {
           "thesis_id": {
@@ -29456,6 +29608,46 @@
         ],
         "title": "MarketMapOut",
         "description": "The whole page in one payload. ``companies`` holds every drawable company's readings, ``memberships`` the\ncards and links each sits on; the page builds every grouping from them. ``spy`` / ``iwm`` = the benchmark's own\nreturns for the same six windows (``null`` = no tape at the as-of). The counts are the work shown on the\npage's quiet line. ``cache`` / ``compute_ms`` = whether the heavy read was served from the shared dashboard\ncache and how long it took when it ran."
+      },
+      "MeOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "user",
+              "super_admin"
+            ],
+            "title": "Role"
+          },
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Workspace Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "email",
+          "display_name",
+          "role",
+          "workspace_id"
+        ],
+        "title": "MeOut",
+        "description": "The signed-in caller. `role` is `user` or `super_admin` (the data steward: Admin, Backtest, the\nbusiness-type re-tag). `workspace_id` is the one workspace every user sits on in this release."
       },
       "MemberCallOut": {
         "properties": {

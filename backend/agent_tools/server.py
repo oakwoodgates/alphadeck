@@ -26,7 +26,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from . import tool_args
 from .budget import OutputTooLarge
-from .client import DEFAULT_TIMEOUT_S, ApiClient, loopback_base, segment
+from .client import DEFAULT_TIMEOUT_S, TOKEN_ENV, ApiClient, loopback_base, segment
 from .dashboard_args import check as check_dashboard_args
 from .errors import ToolFailure, compact
 from .prompt_args import PROMPT_NAMES, PROMPTS, PromptSpec
@@ -901,7 +901,9 @@ def main() -> None:
         base = loopback_base(args.backend_base)
     except ValueError as error:
         parser.exit(2, f"{error}\n")
-    client = ApiClient(base, timeout=args.timeout)
+    # the login door (docs/AUTH.md): the bearer token comes from the environment, never an argument (an argv is
+    # visible to every process on the machine)
+    client = ApiClient(base, timeout=args.timeout, token=os.environ.get(TOKEN_ENV))
     asyncio.run(_serve(build_server(client, trace=args.trace), client))
 
 

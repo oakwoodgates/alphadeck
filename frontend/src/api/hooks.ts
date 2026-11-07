@@ -104,6 +104,66 @@ export function useClock() {
   });
 }
 
+// --- the login door (docs/AUTH.md) ---------------------------------------------------------------------------
+export type MeOut = components["schemas"]["MeOut"];
+
+export const ME_KEY = ["auth", "me"] as const;
+
+/** Who is signed in (GET /auth/me). Long-lived: the user does not change under a session; a sign-in writes it
+ *  straight into the cache and a sign-out (or any 401) clears the whole cache. Never retried: a 401 is an answer. */
+export function useMe(enabled = true) {
+  return useQuery({
+    queryKey: ME_KEY,
+    enabled,
+    staleTime: 60 * 60 * 1000,
+    retry: false,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/auth/me");
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+/** Sign in. On success the user lands in the cache (no extra /auth/me read); the caller navigates. A bad pair
+ *  (401) and a lockout (429) surface as the error's `detail`. */
+export function useLogin() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: { email: string; password: string }) => {
+      const { data, error } = await api.POST("/auth/login", { body });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (me) => {
+      qc.clear();
+      qc.setQueryData(ME_KEY, me);
+    },
+  });
+}
+
+/** Sign out: revokes the session server-side, then the cache is dropped whole (the caller goes to /login). */
+export function useLogout() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const { error } = await api.POST("/auth/logout");
+      if (error) throw error;
+    },
+    onSettled: () => qc.clear(),
+  });
+}
+
+/** Change my password (the current one + a new one of at least 12 characters); every OTHER session is signed out. */
+export function useChangePassword() {
+  return useMutation({
+    mutationFn: async (body: { current: string; new: string }) => {
+      const { error } = await api.POST("/auth/change-password", { body });
+      if (error) throw error;
+    },
+  });
+}
+
 export function useTheses(includeArchived = false) {
   return useQuery({
     // the partial key ["theses"] still invalidates BOTH variants (every mutation that touches the

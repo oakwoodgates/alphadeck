@@ -92,6 +92,13 @@ bash scripts/deploy.sh --env-only cron                                    # a cr
   refuses (fail-closed), and an address that answers with something the script cannot read as a known
   `cron.status` refuses rather than falling through to the next. If `curl http://localhost:8000/...`
   resets by hand, use `curl -g "http://[::1]:8000/..."` (`-g`, so curl does not glob the brackets).
+- **The `/admin/status` reads carry a token.** Every route sits behind the login door
+  ([`docs/AUTH.md`](AUTH.md)) and `/admin/*` is steward-only, so both `/admin/status` probes (the
+  running-pass check and the post-deploy verify) send `Authorization: Bearer $ALPHADECK_OPS_TOKEN`, read as
+  one line from `.env` (never printed; a `--dry-run` says only whether the header is present). Mint it once:
+  `docker exec -it alphadeck-backend-1 python -m pipeline.users token create --email <admin> --name ops`,
+  then put it in `.env` as `ALPHADECK_OPS_TOKEN=<token>`. A 401 stops that probe at once and refuses with ONE
+  line naming that command (never a silent pass). `/health` and `/api/health` stay open and send nothing.
 - **Then:** the backup (step 1 below), then the rebuild with `GIT_SHA` read from
   `git rev-parse HEAD` (never an argument; a `GIT_SHA` already in the shell is ignored). If the
   backend was rebuilt without the frontend, it runs `docker restart alphadeck-frontend-1`. Then it
@@ -175,8 +182,8 @@ Apply its guards yourself: never between 22:20 and 22:50 America/New_York, and n
    curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/api/health   # -> 200: the /api PROXY, not just :8000
    docker exec alphadeck-backend-1 printenv ALPHADECK_IMAGE_SHA             # -> the sha you built (and alphadeck-cron-1)
    docker logs --tail 20 alphadeck-cron-1                                   # the boot lines (cron caveat below)
-   curl http://localhost:8000/admin/status                                  # cron.status + cron.alarms: nothing new
-   curl http://localhost:8000/<endpoint>                                    # the new field
+   curl -H "Authorization: Bearer $ALPHADECK_OPS_TOKEN" http://localhost:8000/admin/status   # cron.status + cron.alarms: nothing new
+   curl -H "Authorization: Bearer $ALPHADECK_OPS_TOKEN" http://localhost:8000/<endpoint>     # the new field (every route but /health needs a credential, docs/AUTH.md)
    ```
    For a frontend change, open the live control in the Browser pane and exercise it.
    Prod: app http://localhost:8080 · API + docs http://localhost:8000/docs.

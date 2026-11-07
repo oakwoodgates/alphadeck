@@ -1,31 +1,26 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
 from uuid import UUID
 
 import psycopg
 from fastapi import Depends, HTTPException
 
-from db.session import connect, current_tenant_id
+from app.auth import CurrentUser, require_user
+from app.db_conn import get_conn  # re-exported: the one connection dependency (app/db_conn.py)
 from domain.settings import get_settings
 from domain.thesis import Thesis
 from ingest.edgar.client import EdgarClient
 from llm.client import LLMClient
 from repositories import thesis_repo
 
-
-def get_conn() -> Iterator[psycopg.Connection]:
-    """Request-scoped DB connection. Overridden in tests to share the fixture's connection."""
-    conn = connect()
-    try:
-        yield conn
-    finally:
-        conn.close()
+__all__ = ["get_conn"]  # re-exported from app.db_conn (moved there so app.auth can depend on it)
 
 
-def get_current_tenant() -> UUID:
-    """The current deployment tenant (env-config, NOT auth). Overridable in tests, like ``get_conn``."""
-    return current_tenant_id()
+def get_current_tenant(user: CurrentUser = Depends(require_user)) -> UUID:
+    """The signed-in caller's workspace (``app.auth.require_user``). One workspace in this PR: every user sits on
+    tenant ...0001 (``db.session.DEFAULT_TENANT_ID``), so every read is the one it was before the login door.
+    Keeps its name for now (PR 2 renames it). Overridable in tests, like ``get_conn``."""
+    return user.workspace_id
 
 
 def get_thesis_or_404(thesis_id: UUID, conn: psycopg.Connection = Depends(get_conn)) -> Thesis:

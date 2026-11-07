@@ -3,8 +3,11 @@ from __future__ import annotations
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Request
+from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
+from fastapi.responses import HTMLResponse, JSONResponse
 
+from app.auth import require_super_admin, require_user
 from app.health import HealthResponse, compute_health, enforce_boot_visibility
 from app.routers import (
     admin,
@@ -12,6 +15,7 @@ from app.routers import (
     admin_onboarding,
     admin_price_feed,
     admin_splits,
+    auth,
     backtest,
     clock,
     dashboards,
@@ -46,30 +50,44 @@ app = FastAPI(
     version="0.0.0",
     summary="Decision-support call-assembler API (advisory only; the CallCard is recomputed on read).",
     lifespan=lifespan,
+    # The schema pages are served from gated routes below (docs/AUTH.md), never open: the built-in ones are off.
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
 )
-app.include_router(theses.router)
+# The login door (docs/AUTH.md): EVERY router is mounted behind `require_user` (or `require_super_admin` for the
+# steward routers), on the ROUTER, never inside a handler, so a request with no session answers 401 before any
+# parameter is validated. tests/app/test_auth_gate.py walks app.routes: a router mounted open fails it.
+_USER = [Depends(require_user)]
+_STEWARD = [Depends(require_super_admin)]
+# /auth decides per route: POST /auth/login is open, the rest carry require_user on their own decorators.
+app.include_router(auth.router)
+app.include_router(theses.router, dependencies=_USER)
 # F1 — the server's current night / action day / today: the app's default as-of, never the browser's date
-app.include_router(clock.router)
-app.include_router(workbench.router)
-app.include_router(scoreboard.router)
-app.include_router(admin.router)
+app.include_router(clock.router, dependencies=_USER)
+app.include_router(workbench.router, dependencies=_USER)
+app.include_router(scoreboard.router, dependencies=_USER)
+app.include_router(admin.router, dependencies=_STEWARD)
 # T2 + Q8 — the operator's price-feed repairs (Adopt / Set / Acknowledge, each with its exact inverse)
-app.include_router(admin_price_feed.router)
-app.include_router(admin_insider_amendments.router)  # R8-A
-app.include_router(admin_splits.router)  # split plan S1 — the split list's review panel
-app.include_router(admin_onboarding.router)  # X1 — the staged cold-ingest queue
+app.include_router(admin_price_feed.router, dependencies=_STEWARD)
+app.include_router(admin_insider_amendments.router, dependencies=_STEWARD)  # R8-A
+# split plan S1 — the split list's review panel
+app.include_router(admin_splits.router, dependencies=_STEWARD)
+# X1 — the staged cold-ingest queue
+app.include_router(admin_onboarding.router, dependencies=_STEWARD)
 # split plan S3 — the shared "is this real?" data flags (compute-on-read, display-only)
-app.include_router(data_flags.router)
-app.include_router(radar.router)
-app.include_router(fund_radar.router)  # the fund launch radar display (docs/FUND_RADAR.md)
+app.include_router(data_flags.router, dependencies=_USER)
+app.include_router(radar.router, dependencies=_USER)
+# the fund launch radar display (docs/FUND_RADAR.md)
+app.include_router(fund_radar.router, dependencies=_USER)
 # The Dashboards (docs/DASHBOARDS.md) — experimental, display-only cross-card views. ONE include: each
 # dashboard mounts its own router inside app/routers/dashboards/, never here.
-app.include_router(dashboards.router)
+app.include_router(dashboards.router, dependencies=_USER)
 # /backtest is ARTIFACT-served and available BY DATA AVAILABILITY -- it is registered
 # unconditionally and reports `available: false` where no store is mounted, so there is no build
 # flag or env var anyone can get wrong. Dev/sig mount the live store; prod mounts a frozen archive.
 # It never writes and is never linked from Board/Cockpit/Scoreboard.
-app.include_router(backtest.router)
+app.include_router(backtest.router, dependencies=_STEWARD)
 
 
 @app.get("/health", tags=["meta"], response_model=HealthResponse)
@@ -77,3 +95,22 @@ def health() -> HealthResponse:
     # The compose healthcheck hits this; it only needs the 200. `degraded` is a body flag an operator/agent
     # SEES (e.g. `{"user_agent": "missing"}`), never a failed check — fail-open (app/health.py).
     return compute_health(get_settings().user_agent)
+
+
+# The schema pages, behind the login (docs/AUTH.md). `app.openapi_export` builds the contract in-process from
+# `app.openapi()`, so it does not go through these routes.
+@app.get("/openapi.json", include_in_schema=False, dependencies=_USER)
+def openapi_json() -> JSONResponse:
+    return JSONResponse(app.openapi())
+
+
+@app.get("/docs", include_in_schema=False, dependencies=_USER)
+def swagger_docs(request: Request) -> HTMLResponse:
+    root = request.scope.get("root_path", "")
+    return get_swagger_ui_html(openapi_url=f"{root}/openapi.json", title=f"{app.title} - docs")
+
+
+@app.get("/redoc", include_in_schema=False, dependencies=_USER)
+def redoc_docs(request: Request) -> HTMLResponse:
+    root = request.scope.get("root_path", "")
+    return get_redoc_html(openapi_url=f"{root}/openapi.json", title=f"{app.title} - ReDoc")

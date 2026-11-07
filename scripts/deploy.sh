@@ -151,11 +151,11 @@ TRY_NOTE="tried in turn, ${LOOPBACK_TRIES} tries each"
 # there (fail-closed) instead of falling through to the next address. The error is curl's 56 ("Recv failure:
 # Connection was reset", 2026-10-29), which comes AFTER the connect, so curl's own `localhost` fallback
 # (a refused connect only) never ran: hence explicit addresses.
-G_OUT="" ; G_ADDR="" ; G_ERR=""
+G_OUT="" ; G_ADDR="" ; G_ERR="" ; G_401=0
 loopback_get() {
   local path="$1" addr n last
   shift
-  G_OUT="" ; G_ADDR="" ; G_ERR=""
+  G_OUT="" ; G_ADDR="" ; G_ERR="" ; G_401=0
   for addr in "${LOOPBACKS[@]}"; do
     for ((n = 1; n <= LOOPBACK_TRIES; n++)); do
       if G_OUT="$(curl "$@" "http://${addr}${path}" 2>&1)"; then
@@ -163,6 +163,11 @@ loopback_get() {
         G_ERR=""
         return 0
       fi
+      # A 401 is an ANSWER (the login door, docs/AUTH.md): the API is up and refused the credential. Retrying
+      # or walking to the next address cannot change it, so stop here and let the caller name the fix.
+      case "$G_OUT" in
+        *"returned error: 401"*) G_ADDR="$addr" ; G_401=1 ; G_ERR="${addr}: 401" ; return 1 ;;
+      esac
       if [ "$n" -lt "$LOOPBACK_TRIES" ]; then sleep "$RETRY_S"; fi
     done
     last="${G_OUT//$'\r'/}"
@@ -176,11 +181,28 @@ loopback_get() {
 # with S_ADDR = the address that answered and S_WHERE = the URL(s) to name in a message.
 # Non-zero, with S_ERR, when it cannot be read or parsed into a known verdict (fail-closed).
 S_STATUS="" ; S_RUNNING="" ; S_ALARMS=() ; S_ERR="" ; S_ADDR="" ; S_WHERE="$ADMIN_URLS"
+# The login door (docs/AUTH.md): /admin/status is steward-only, so the probe sends a super admin's API token,
+# ALPHADECK_OPS_TOKEN from .env (minted with `python -m pipeline.users token create --email <admin> --name ops`).
+# Read as one line from .env, never sourced; never printed (a dry-run names only whether it is set).
+OPS_TOKEN=""
+if [ -f "$REPO_ROOT/.env" ]; then
+  OPS_TOKEN="$(sed -n 's/^[[:space:]]*ALPHADECK_OPS_TOKEN=//p' "$REPO_ROOT/.env" | tail -n 1 | tr -d '\r')"
+  OPS_TOKEN="${OPS_TOKEN#[\"\']}" ; OPS_TOKEN="${OPS_TOKEN%[\"\']}"
+fi
+OPS_AUTH=()
+if [ -n "$OPS_TOKEN" ]; then
+  OPS_AUTH=(-H "Authorization: Bearer ${OPS_TOKEN}")
+  OPS_NOTE="with Authorization: Bearer <ALPHADECK_OPS_TOKEN from .env>"
+else
+  OPS_NOTE="with NO Authorization header (.env sets no ALPHADECK_OPS_TOKEN, so /admin/status will answer 401)"
+fi
+OPS_FIX="/admin/status answered 401 (the login door, docs/AUTH.md): mint a super admin's token with \`python -m pipeline.users token create --email <admin> --name ops\` and put it in .env as ALPHADECK_OPS_TOKEN"
 read_status() {
   local json parsed line
   S_STATUS="" ; S_RUNNING="" ; S_ALARMS=() ; S_ERR="" ; S_ADDR="" ; S_WHERE="$ADMIN_URLS"
-  if ! loopback_get "$ADMIN_PATH" -fsS -g --connect-timeout 5 --max-time 60; then
+  if ! loopback_get "$ADMIN_PATH" -fsS -g --connect-timeout 5 --max-time 60 ${OPS_AUTH[@]+"${OPS_AUTH[@]}"}; then
     S_ERR="$G_ERR"
+    if [ "$G_401" -eq 1 ]; then S_ERR="$OPS_FIX"; S_WHERE="http://${G_ADDR}${ADMIN_PATH}"; fi
     return 1
   fi
   json="$G_OUT"
@@ -378,7 +400,7 @@ PRE_ALARMS=0
 CRON_SHA_BEFORE=""
 if [ "$DRY_RUN" -eq 1 ]; then
   say "stack checks — a dry-run touches no stack; the real run makes these READS before it changes anything:"
-  echo "    would read: curl -fsS -g --connect-timeout 5 --max-time 60 $ADMIN_URLS ($TRY_NOTE; refuse only if every address fails) | docker exec -i $BACKEND_C python -c <parse> — refuse if a pass is running (cron.status running, or unfinished_run running inside its timeout)"
+  echo "    would read: curl -fsS -g --connect-timeout 5 --max-time 60 $ADMIN_URLS $OPS_NOTE ($TRY_NOTE; refuse only if every address fails) | docker exec -i $BACKEND_C python -c <parse> — refuse if a pass is running (cron.status running, or unfinished_run running inside its timeout)"
   echo "    would read: docker exec $BACKEND_C python -c <pg_locks read> — refuse if the call-of-record lock is held (pipeline/run_lock.py)"
 elif [ "$REFUSED" -gt 0 ]; then
   say "stack checks skipped — a local check already refused"
@@ -475,7 +497,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
   else
     echo "    would verify: docker inspect --format '{{.State.Status}}' $CRON_C -> running (the log tail is shown)"
   fi
-  echo "    would verify: curl -fsS -g --connect-timeout 5 --max-time 60 $ADMIN_URLS ($TRY_NOTE) -> cron.status + cron.alarms: no new alarm, no quiet -> loud status"
+  echo "    would verify: curl -fsS -g --connect-timeout 5 --max-time 60 $ADMIN_URLS $OPS_NOTE ($TRY_NOTE) -> cron.status + cron.alarms: no new alarm, no quiet -> loud status"
   if [ "$REFUSED" -gt 0 ]; then
     echo "FAIL: dry-run — the real run would REFUSE: $REFUSED check(s) failed (the REFUSE: lines above); nothing was changed" >&2
     exit 3

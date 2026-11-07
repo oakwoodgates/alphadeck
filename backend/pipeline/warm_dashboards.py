@@ -45,11 +45,17 @@ run under ``--budget-s`` (20 min; a request already in flight finishes first, an
 reached is listed ``skipped``). A page that fails is one logged line and the loop goes on; the exit code is 0
 whatever a page did. Kill switch: ``ALPHADECK_WARM_DASHBOARDS=0`` skips the whole step. Each real run writes
 ``data/warm_dashboards/<started>.json`` (per request: status, cache, compute_ms, wall_ms, error).
+
+THE CREDENTIAL (the login door, docs/AUTH.md). Every route sits behind a login, so every GET carries
+``Authorization: Bearer $ALPHADECK_SYSTEM_TOKEN`` — the system token, which can only read ``/dashboards/*``,
+``/clock`` and ``/health``. Unset, a real run prints ONE loud line naming the fix and exits 1 before any request:
+never a loop of silent 401s that looks like a warm-up.
 """
 
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import logging
 import os
@@ -71,6 +77,9 @@ _log = logging.getLogger("alphadeck.cron")
 KIND = "warm_dashboards"
 KILL_SWITCH_ENV = "ALPHADECK_WARM_DASHBOARDS"
 BASE_URL_ENV = "ALPHADECK_WARM_BASE_URL"
+# the system token (docs/AUTH.md): the bearer credential every GET carries; read-only by construction
+SYSTEM_TOKEN_ENV = "ALPHADECK_SYSTEM_TOKEN"
+EXIT_NO_TOKEN = 1
 # the compose service name of the API, as the cron sidecar reaches it
 DEFAULT_BASE_URL = "http://backend:8000"
 DEFAULT_TIMEOUT_S = 300.0
@@ -236,10 +245,14 @@ class FetchError(Exception):
     """A request that got no HTTP reply (a timeout, a refused connection, a reset)."""
 
 
-def http_fetch(url: str, timeout_s: float) -> Response:
-    """One GET with the stdlib. An HTTP error status is a ``Response`` (the status and its body); a request that
-    got no reply raises ``FetchError`` with a short reason."""
-    req = urllib.request.Request(url, headers={"Accept": "application/json"})
+def http_fetch(url: str, timeout_s: float, *, token: str | None = None) -> Response:
+    """One GET with the stdlib, carrying ``Authorization: Bearer <token>`` when a token is given. An HTTP error
+    status is a ``Response`` (the status and its body); a request that got no reply raises ``FetchError`` with a
+    short reason."""
+    headers = {"Accept": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(
             req, timeout=timeout_s
@@ -564,7 +577,8 @@ def main(
     env: Mapping[str, str] | None = None,
     emit: Callable[[str], None] = lambda line: print(line, flush=True),
 ) -> int:
-    """The CLI. Exit 0 whatever a page did (usage errors exit 2, argparse's own)."""
+    """The CLI. Exit 0 whatever a page did (usage errors exit 2, argparse's own); exit 1 when a real run has no
+    system token (one loud line, no request)."""
     args = _build_parser().parse_args(argv)
     environ = env if env is not None else os.environ
     if switched_off(environ):
@@ -582,10 +596,12 @@ def main(
     night = args.night or current_night()
     asofs = list(dict.fromkeys(args.asof)) if args.asof else visit_asofs(night)
     base_url = args.base or environ.get(BASE_URL_ENV) or DEFAULT_BASE_URL
+    token = (environ.get(SYSTEM_TOKEN_ENV) or "").strip() or None
     if args.dry_run:
         emit(
             f"warm-dashboards: PLAN (dry run, no request) · base {base_url} · night {night.isoformat()} · "
             f"as-of(s) {', '.join(a.isoformat() for a in asofs)} · timeout {args.timeout_s:g}s · budget {args.budget_s:g}s"
+            f" · {SYSTEM_TOKEN_ENV} {'set' if token else 'NOT SET'}"
         )
         for req in plan(asofs, pages):
             emit(f"warm-dashboards:   GET /dashboards/{req.path}?{req.query()}")
@@ -595,6 +611,15 @@ def main(
                     "&scope=<default scope>&key=<default key>  and  scope=all   (named by the scopes reply)"
                 )
         return 0
+    if token is None:
+        emit(
+            f"warm-dashboards: NOT RUN — {SYSTEM_TOKEN_ENV} is not set, and every dashboard read needs it (the "
+            f"login door, docs/AUTH.md). Put a long random value in .env as {SYSTEM_TOKEN_ENV} (the backend and "
+            "the cron read the same variable) and redeploy both."
+        )
+        return EXIT_NO_TOKEN
+    if fetch is http_fetch:
+        fetch = functools.partial(http_fetch, token=token)
     emit(
         f"warm-dashboards: start · base {base_url} · night {night.isoformat()} · "
         f"as-of(s) {', '.join(a.isoformat() for a in asofs)} · {len(plan(asofs, pages))} planned requests"
