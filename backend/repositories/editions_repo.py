@@ -647,8 +647,9 @@ def rerun_nights(conn: psycopg.Connection, edition_id: UUID) -> dict[UUID, list[
 
 
 def frozen_bodies(conn: psycopg.Connection, edition_id: UUID) -> dict[UUID, dict[str, Any]] | None:
-    """The thesis bodies (kill criteria + catalysts) the edition's publish froze, per thesis — ``None`` for an
-    edition published before S7 froze them (its ``published`` event carries no ``bodies``)."""
+    """The thesis bodies (kill criteria + catalysts, and since 2026-11 the meta index switch) the edition's
+    publish froze, per thesis — ``None`` for an edition published before S7 froze them (its ``published``
+    event carries no ``bodies``)."""
     pub = events(conn, edition_id, kind="published")
     if not pub or "bodies" not in pub[0].detail:
         return None

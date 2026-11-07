@@ -175,6 +175,60 @@
         }
       }
     },
+    "/theses/{thesis_id}/meta-index": {
+      "put": {
+        "tags": [
+          "theses"
+        ],
+        "summary": "Put Meta Index",
+        "description": "Mark a card as a META INDEX card (``true``) or a normal card again (``false``). On, none of its names\ncount toward the call: it stays Incubating and never warms, arms, notifies or enters the Decision Queue.\nIts links stay real links for the dashboards and its names are still ingested nightly. Nothing is\ndeleted either way, and the next read reflects the switch. The sole writer of the flag: a promote\nnever touches it.",
+        "operationId": "put_meta_index_theses__thesis_id__meta_index_put",
+        "parameters": [
+          {
+            "name": "thesis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thesis Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MetaIndexIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThesisSummary"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/theses/{thesis_id}": {
       "get": {
         "tags": [
@@ -29620,6 +29674,20 @@
         "title": "MemberDisplaySignalsOut",
         "description": "One resolved basket member's read-only indicators. ``signals: []`` = nothing computable at\nthis asof (e.g. no ingested bars yet) \u2014 an honest empty, the member still shows."
       },
+      "MetaIndexIn": {
+        "properties": {
+          "meta_index": {
+            "type": "boolean",
+            "title": "Meta Index"
+          }
+        },
+        "type": "object",
+        "required": [
+          "meta_index"
+        ],
+        "title": "MetaIndexIn",
+        "description": "The meta index card switch: ``true`` = none of the card's names count toward the call (it stays\nIncubating); ``false`` = a normal card again. Its links and its ingest stay whole either way."
+      },
       "MetricWithNulls": {
         "properties": {
           "name": {
@@ -33622,6 +33690,11 @@
             "type": "array",
             "title": "Exclusions",
             "default": []
+          },
+          "meta_index": {
+            "type": "boolean",
+            "title": "Meta Index",
+            "default": false
           },
           "ingest": {
             "anyOf": [
@@ -38755,6 +38828,11 @@
             "type": "array",
             "title": "Exclusions",
             "default": []
+          },
+          "meta_index": {
+            "type": "boolean",
+            "title": "Meta Index",
+            "default": false
           }
         },
         "type": "object",
@@ -38859,6 +38937,11 @@
           "archived": {
             "type": "boolean",
             "title": "Archived",
+            "default": false
+          },
+          "meta_index": {
+            "type": "boolean",
+            "title": "Meta Index",
             "default": false
           },
           "call": {

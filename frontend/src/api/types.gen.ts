@@ -75,6 +75,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/theses/{thesis_id}/meta-index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Put Meta Index
+         * @description Mark a card as a META INDEX card (``true``) or a normal card again (``false``). On, none of its names
+         *     count toward the call: it stays Incubating and never warms, arms, notifies or enters the Decision Queue.
+         *     Its links stay real links for the dashboards and its names are still ingested nightly. Nothing is
+         *     deleted either way, and the next read reflects the switch. The sole writer of the flag: a promote
+         *     never touches it.
+         */
+        put: operations["put_meta_index_theses__thesis_id__meta_index_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/theses/{thesis_id}": {
         parameters: {
             query?: never;
@@ -13250,6 +13274,15 @@ export interface components {
             signals: components["schemas"]["DisplaySignal"][];
         };
         /**
+         * MetaIndexIn
+         * @description The meta index card switch: ``true`` = none of the card's names count toward the call (it stays
+         *     Incubating); ``false`` = a normal card again. Its links and its ingest stay whole either way.
+         */
+        MetaIndexIn: {
+            /** Meta Index */
+            meta_index: boolean;
+        };
+        /**
          * MetricWithNulls
          * @description A pooled metric and the two things it must be read against.
          *
@@ -14796,6 +14829,11 @@ export interface components {
              * @default []
              */
             exclusions: components["schemas"]["ExcludedName"][];
+            /**
+             * Meta Index
+             * @default false
+             */
+            meta_index: boolean;
             ingest?: components["schemas"]["PromoteIngestRef"] | null;
             onboarding?: components["schemas"]["PromoteOnboardingRef"] | null;
         };
@@ -16967,6 +17005,11 @@ export interface components {
              * @default []
              */
             exclusions: components["schemas"]["ExcludedName"][];
+            /**
+             * Meta Index
+             * @default false
+             */
+            meta_index: boolean;
         };
         /**
          * ThesisEntry
@@ -17025,6 +17068,11 @@ export interface components {
              * @default false
              */
             archived: boolean;
+            /**
+             * Meta Index
+             * @default false
+             */
+            meta_index: boolean;
             call?: components["schemas"]["RecordedCallSummary"] | null;
         };
         /**
@@ -18492,6 +18540,41 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThesisSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_meta_index_theses__thesis_id__meta_index_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                thesis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MetaIndexIn"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

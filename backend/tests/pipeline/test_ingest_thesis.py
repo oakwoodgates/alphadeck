@@ -231,6 +231,28 @@ def test_incremental_appends_only_what_is_new(db, security_id, monkeypatch):
     assert _counts(db) == (base[0] + _F4_PER_ACCESSION, base[1] + 1)
 
 
+def test_a_meta_index_card_still_ingests_its_whole_basket(db, security_id, monkeypatch):
+    """The meta index switch silences the CALL only (``voting_thesis``): the ingest walks the card's full
+    basket — every name, every leg — so its display signals and the dashboards keep their data."""
+    from repositories import thesis_repo
+
+    _patch(monkeypatch, accessions=("ACC-1",), bar_dates=(date(2026, 6, 15), date(2026, 6, 16)))
+    other = _add_master(db, ticker="MIXB", cik="0007770002")
+    tid = _make_thesis(db, [("DEVCO", security_id), ("MIXB", other)])
+    thesis_repo.set_meta_index(db, tid, True)
+    db.commit()
+    assert thesis_repo.get(db, tid).meta_index is True
+
+    results = IT.ingest_thesis(db, tid, allow_live=False)
+
+    assert sorted(r.ticker for r in results) == ["DEVCO", "MIXB"]
+    assert all(r.error is None and r.price_bars_appended == 2 for r in results)
+    assert _counts(db) == (
+        2 * _F4_PER_ACCESSION,
+        4,
+    )  # both names' facts landed, counted at the table
+
+
 def test_unresolved_member_is_skipped(db, monkeypatch):
     _patch(monkeypatch)
     tid = _make_thesis(db, [("NOPE", None)])  # no security_id → nothing to ingest against

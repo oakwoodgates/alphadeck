@@ -470,6 +470,12 @@ export function Cockpit({
             {tickerLabel(thesis?.ticker, basket.length)}
           </span>
           <h1>{thesis?.name ?? "…"}</h1>
+          {/* quiet, lowercase, only when on: a meta index card's names never count toward the call */}
+          {thesis?.meta_index && (
+            <span className="meta-tag" title="Meta index: its names never count toward the call">
+              meta index
+            </span>
+          )}
           {card && (
             <span
               className="state-badge"

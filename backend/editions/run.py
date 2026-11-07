@@ -137,8 +137,8 @@ def finish_run(
         json.dumps([e.as_json() for es in prep.entries.values() for e in es.values()], indent=1),
         encoding="utf-8",
     )
-    # S7 — the thesis bodies the run read (the kill criteria and catalysts a card shows), frozen with the
-    # edition so a later rules trial holds them fixed
+    # S7 — the thesis bodies the run read (the kill criteria and catalysts a card shows, and the meta index
+    # switch), frozen with the edition so a later rules trial holds them fixed
     (out / "bodies.json").write_text(
         json.dumps({str(j.thesis_id): thesis_body(j.base) for j in prep.jobs}, indent=1),
         encoding="utf-8",

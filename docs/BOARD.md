@@ -92,6 +92,15 @@ persisted for display. Change the as-of, and the whole board re-derives — it i
   visible, restorable in one click, out of the default lists and the nightly cron's walk, and **its call
   is not computed** (cost stays the operator's). The spine, calls log, and decision log all stay; a
   promote can neither archive nor resurrect one (the structural guard on `archived_at`).
+- **Meta index** (a card-level switch, beside archive): hover a card → a quiet **meta** control appears
+  just left of the ✕ (also a sibling of the card). One click marks it a **meta index card** — a broad
+  list for watching where money moves across a sector, whose names **never count toward the call**, so it
+  stays in Incubating and never reaches the Decision Queue; the same click makes it a normal card again
+  (reversible, nothing deleted). A marked card carries a quiet lowercase **meta index** tag after its
+  ticker (the context-role tag style), and the Cockpit header shows the same tag; an unmarked card shows
+  nothing. Its links and names stay on the card, the dashboards and the nightly ingest. A promote never
+  flips it (the structural guard on `meta_index`, `PUT /theses/{id}/meta-index` is the only writer). See
+  `docs/CALL_LOGIC.md` §1.
 
 ## The Cockpit — one thesis, deep
 

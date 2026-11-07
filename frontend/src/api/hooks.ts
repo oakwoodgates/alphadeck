@@ -137,6 +137,28 @@ export function useSetArchived() {
   });
 }
 
+// The meta index card switch — beside archive on the Board. On, none of the card's names count toward
+// the call (it stays Incubating); off, it is a normal card again. Reversible in one click (WB#1): the
+// same control flips it back, and nothing is deleted. The call and the detail re-read on success.
+export function useSetMetaIndex() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ thesisId, metaIndex }: { thesisId: string; metaIndex: boolean }) => {
+      const { data, error } = await api.PUT("/theses/{thesis_id}/meta-index", {
+        params: { path: { thesis_id: thesisId } },
+        body: { meta_index: metaIndex },
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (_data, { thesisId }) => {
+      qc.invalidateQueries({ queryKey: ["theses"] });
+      qc.invalidateQueries({ queryKey: ["call", thesisId] });
+      qc.invalidateQueries({ queryKey: ["thesis", thesisId] });
+    },
+  });
+}
+
 export function useThesis(thesisId: string) {
   return useQuery({
     queryKey: ["thesis", thesisId],

@@ -52,6 +52,8 @@ def row_to_thesis(
         kill_criteria=[_row_to_kill(k) for k in kills],
         position=_row_to_position(t),
         archived_at=t.get("archived_at"),
+        # load-bearing: the sole writer is ``set_meta_index``; ``.get`` so a row read before 0075 is off
+        meta_index=bool(t.get("meta_index", False)),
         exclusions=[
             ExcludedName(security_id=e["security_id"], ticker=e["ticker"], reason=e["reason"])
             for e in (exclusions or [])
@@ -142,9 +144,10 @@ def thesis_to_row(thesis: Thesis) -> dict[str, Any]:
         "position_current_price": pos.current_price if pos else None,
         "position_opened_on": pos.opened_on if pos else None,
         "segments": Json([s.model_dump(mode="json") for s in thesis.segments]),
-        # NB: `term_set` and `archived_at` are intentionally NOT here. The full `upsert` never names those
-        # columns, so a `promote` (which omits them) can neither blank the term set nor archive/resurrect the
-        # thesis — the sole writers are the narrow `set_term_set` / `set_archived`.
+        # NB: `term_set`, `archived_at` and `meta_index` are intentionally NOT here. The full `upsert` never
+        # names those columns, so a `promote` (which omits them) can neither blank the term set, archive/resurrect
+        # the thesis, nor flip the meta index switch — the sole writers are the narrow `set_term_set` /
+        # `set_archived` / `set_meta_index`.
     }
 
 

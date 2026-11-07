@@ -16,8 +16,9 @@ No event: no trial, no rows. With an event, THE TRIAL:
 
 - **rules (P)**: the current engine re-runs E's ``rerun`` pages — exactly the nights E's publish computed — at
   ``known_by = E's own cut``, with E's frozen join dates and E's frozen thesis bodies (the kill criteria and
-  catalysts a card shows; an edition published before S7 froze them reads today's, and its comparison then
-  leaves out the two fields they feed, ``counter_case`` and ``catalyst_surface``, and says so). That is the
+  catalysts a card shows, and the meta index switch; an edition published before S7 froze them reads today's
+  kill criteria and catalysts, and its comparison then leaves out the two fields they feed, ``counter_case``
+  and ``catalyst_surface``, and says so, while its switch reads off: it predates the switch). That is the
   data E was saved from, held fixed: the edition's OWN freeze point, the same ``--known-by`` path that
   re-computes an earlier cut exactly — not a replay of history on our store clock (invariant #1; nothing else
   here reads one). P is compared with E's stored pages card by card (canonical equality, money to the cent —
@@ -395,6 +396,11 @@ def rules_trial(
     )
     if not nights:
         return trial
+    # an edition that froze no bodies (published before S7) also predates the meta index switch (2026-11): no
+    # card was one then, so its P holds the switch off (an empty body: ``with_body`` reads it off and keeps
+    # today's kill criteria and catalysts, whose two fields stay left out) — a flip since is a card edit,
+    # never a rule change
+    run_bodies = bodies if bodies is not None else {tid: {} for tid in nights}
     mirror = work_dir / "rules-mirror"
     try:
         prep = prepare(
@@ -405,7 +411,7 @@ def rules_trial(
             tenant_id=tenant_id,
             frozen=frozen,
             nights=nights,
-            bodies=bodies,
+            bodies=run_bodies,
         )
         trial.timings["prepare_s"] = round(time.perf_counter() - t0, 1)
         t1 = time.perf_counter()

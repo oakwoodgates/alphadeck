@@ -243,7 +243,13 @@ def voting_thesis(thesis: Thesis) -> Thesis:
     another row (a company is silent or voting, never both), so removing silent rows never removes a voting
     company's vote. A copy; the argument is untouched (history views hydrate the roster from a snapshot and
     swap it onto the thesis after construction, so the filter must read ``segment`` off the basket as given).
+
+    A META INDEX card (``thesis.meta_index``) has NO voting names: the basket comes back empty, so the call is
+    exactly the call of a card with an empty roster — Incubating, never warming, arming or notifying. Its links
+    and names stay on the card (only this copy is emptied), so the dashboards and the ingest still read them.
     """
+    if thesis.meta_index:
+        return thesis.model_copy(update={"basket": []})
     return thesis.model_copy(update={"basket": [m for m in thesis.basket if not is_silent(m)]})
 
 
@@ -365,6 +371,12 @@ class Thesis(DomainModel):
     # archive, never delete (board hygiene): set ONLY by thesis_repo.set_archived — upsert never
     # names the column, so a promote can neither archive nor resurrect (the term_set guard).
     archived_at: datetime | None = None
+    # the META INDEX card switch (0075): on = none of the card's names count toward the call
+    # (``voting_thesis`` returns an empty basket); its links and its ingest stay whole. Set ONLY by
+    # thesis_repo.set_meta_index — upsert never names the column, so a promote can never flip it (the
+    # archived_at guard). Card state, not versioned: a history view reads it as it is now. NAMING GUARD:
+    # never a "watch" card (``CallCard.watch_members`` is unrelated).
+    meta_index: bool = False
     # the durable exclusion set (#7): loaded with the thesis, written ONLY by set_exclusions (the
     # same structural guard — a promote can't wipe the operator's pruning).
     exclusions: list[ExcludedName] = Field(default_factory=list)

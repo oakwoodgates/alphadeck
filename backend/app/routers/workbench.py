@@ -1041,6 +1041,9 @@ def promote(
                 queued=len(plan.cold), new_members=len(new_ids), reason=plan.reason or ""
             )
     out = PromoteOut.from_thesis(thesis)
+    # the payload never carries the meta index switch and ``upsert`` never writes it, so the response echoes
+    # the STORED flag (read before the upsert, which leaves it untouched) — never the payload's default
+    out.meta_index = stored.meta_index if stored is not None else False
     out.ingest = ingest_ref
     out.onboarding = onboarding_ref
     return out

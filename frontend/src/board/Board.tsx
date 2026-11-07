@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 
 import type { CallCardResponse, ThesisSummary } from "../api/hooks";
-import { useCalls, useDataFlags, useSetArchived, useTheses } from "../api/hooks";
+import { useCalls, useDataFlags, useSetArchived, useSetMetaIndex, useTheses } from "../api/hooks";
 import { countdownOrigin, useAppClock } from "../clock";
 import { DataFlagMark } from "../cockpit/DataFlagMark";
 import { flagsBySid } from "../cockpit/dataFlags";
@@ -51,6 +51,7 @@ export function Board({ header, asof, onSelect }: Props) {
   // section below (visible + restorable, never vanished); their calls are NOT computed (no cost)
   const thesesQ = useTheses(true);
   const setArchived = useSetArchived();
+  const setMetaIndex = useSetMetaIndex();
   const all = thesesQ.data ?? [];
   const theses = all.filter((t) => !t.archived);
   const archived = all.filter((t) => t.archived);
@@ -262,6 +263,30 @@ export function Board({ header, asof, onSelect }: Props) {
                       onClick={() => setArchived.mutate({ thesisId: thesis.id, archived: true })}
                     >
                       ✕
+                    </button>
+                    {/* the meta index switch, beside archive and as quiet (hover-only): one click marks
+                        the card, the same click unmarks it (WB#1) — nothing is deleted either way; the
+                        card's own quiet "meta index" tag shows the state */}
+                    <button
+                      type="button"
+                      className="card-meta"
+                      aria-pressed={Boolean(thesis.meta_index)}
+                      title={
+                        thesis.meta_index
+                          ? "Meta index: its names never count toward the call. Click to make it a normal card again."
+                          : "Meta index: its names never count toward the call. Click to mark this card (it stays Incubating; reversible, nothing deleted)."
+                      }
+                      aria-label={
+                        thesis.meta_index
+                          ? `make ${thesis.name} a normal card again`
+                          : `mark ${thesis.name} as a meta index card`
+                      }
+                      disabled={setMetaIndex.isPending}
+                      onClick={() =>
+                        setMetaIndex.mutate({ thesisId: thesis.id, metaIndex: !thesis.meta_index })
+                      }
+                    >
+                      meta
                     </button>
                   </div>
                 ))}

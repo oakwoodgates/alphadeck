@@ -301,6 +301,8 @@ class ThesisSummary(BaseModel):
     basket_size: int = 0
     narrative: str
     archived: bool = False  # archived = out of the default list + the cron's walk; restorable
+    # a meta index card: none of its names count toward the call (it stays Incubating); reversible
+    meta_index: bool = False
     # Present only on ``GET /theses?with_call=true&asof=``: the nightly record in effect at that as-of (``null`` =
     # no row on or before it). Absent otherwise (the routes serialize with ``exclude_unset``), so the default
     # list stays byte-identical.
@@ -315,6 +317,7 @@ class ThesisSummary(BaseModel):
             basket_size=len(thesis.basket),
             narrative=thesis.narrative,
             archived=thesis.archived_at is not None,
+            meta_index=thesis.meta_index,
         )
 
 
@@ -337,6 +340,8 @@ class ThesisDetail(BaseModel):
     position: Position | None = None
     # the durable exclusion set (#7) — the editor seeds its grayed state from this; never a filter
     exclusions: list[ExcludedName] = []
+    # a meta index card: none of its names count toward the call (written only by PUT /meta-index)
+    meta_index: bool = False
 
     @classmethod
     def from_thesis(cls, t: Thesis) -> "ThesisDetail":
@@ -354,6 +359,7 @@ class ThesisDetail(BaseModel):
             kill_criteria=list(t.kill_criteria),
             position=t.position,
             exclusions=list(t.exclusions),
+            meta_index=t.meta_index,
         )
 
 
@@ -1077,6 +1083,13 @@ class ExclusionIn(BaseModel):
     security_id: UUID
     ticker: str | None = None
     reason: str | None = None
+
+
+class MetaIndexIn(BaseModel):
+    """The meta index card switch: ``true`` = none of the card's names count toward the call (it stays
+    Incubating); ``false`` = a normal card again. Its links and its ingest stay whole either way."""
+
+    meta_index: bool
 
 
 # --- Decision capture (the operator-decisions log) — an EVENT log, never a scoring fact ---
