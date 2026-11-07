@@ -7,11 +7,11 @@ from uuid import UUID
 
 import psycopg
 
-from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard, TriggerRef
 from domain.config import short_hash
 from domain.enums import Kind, State
 from domain.market_time import market_tz
+from domain.scopes import DATA_TENANT_ID
 from domain.settings import get_settings
 from domain.thesis import Thesis
 from replay.episodes import derive_episodes
@@ -575,7 +575,7 @@ def derive_thesis_record(
     # (the single-thesis / standalone path).
     prices = PgRealizedPrices(
         conn,
-        tenant_id=thesis.tenant_id,
+        tenant_id=DATA_TENANT_ID,  # the price tape is DATA (domain.scopes)
         cap=asof,
         known_at=known_at,
         market_edge=market_edge,
@@ -635,7 +635,7 @@ def derive_thesis_record(
             provenance.thaw_lags(
                 conn,
                 provenance.form4_accessions([t for ts in triggers for t in ts]),
-                tenant_id=thesis.tenant_id or DEFAULT_TENANT_ID,
+                tenant_id=DATA_TENANT_ID,  # the Form 4 rows are DATA (domain.scopes)
                 known_at=known_at,
             )
             if recorded
@@ -769,9 +769,9 @@ def scoreboard_records(
         sids = [m.security_id for m in thesis.basket if m.security_id is not None]
         if len(sids) == 1:
             single_name[thesis.id] = sids[0]
-        if thesis.tenant_id not in market_edges:
-            market_edges[thesis.tenant_id] = market_tape_edge(
-                conn, tenant_id=thesis.tenant_id, cap=asof, known_at=known_at
+        if DATA_TENANT_ID not in market_edges:  # the price tape is DATA (domain.scopes): one edge
+            market_edges[DATA_TENANT_ID] = market_tape_edge(
+                conn, tenant_id=DATA_TENANT_ID, cap=asof, known_at=known_at
             )
         # F12 — the roster count AS OF known_at (basket_member is full-replace, so the live count would
         # misreport a past-as-of Scoreboard). A COUNT-ONLY snapshot read — NOT get_asof, which would
@@ -786,7 +786,7 @@ def scoreboard_records(
                 thesis,
                 asof,
                 known_at=known_at,
-                market_edge=market_edges[thesis.tenant_id],
+                market_edge=market_edges[DATA_TENANT_ID],
                 basket_size=pit_basket_size,
                 exclude_annotated=exclude,
                 exclude_late=exclude_late,

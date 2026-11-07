@@ -1,14 +1,13 @@
-"""Provision a tenant — the FK row every table needs before any ingest can target it.
+"""Provision a WORKSPACE tenant — the FK row a workspace's tables need (docs/TENANT_SCOPES.md).
 
-The Phase-1 production cut adds a tenant ALONGSIDE the demo (never a wipe): provision a fresh tenant,
-ingest the operator's real data under it, then every call for a thesis in that tenant reads ONLY that
-tenant's facts (tenant isolation — see docs/PRODUCTION_TENANT.md). Auth is deferred, so the tenant is
-DATA isolation, not authentication: there is no login; a thesis carries its ``tenant_id`` and the call
-path threads it into every fact read.
+A new row is ``kind='workspace'`` (migration 0076's default): it holds a user's theses, calls and ratified
+facts, and it reads the ONE shared data tenant (``domain.scopes.DATA_TENANT_ID``) for the master and every
+ingested fact — the feed never writes a workspace. Never a wipe: it only inserts the row. PR 2 creates a
+workspace with its user (``pipeline.users``) and retires this CLI.
 
-    python -m pipeline.provision_tenant --name production
-    # -> prints the new tenant id; ingest under it via the ingest fns' tenant_id= param, then upsert a
-    #    thesis with that tenant_id and call it (it re-derives from only this tenant's facts).
+    python -m pipeline.provision_tenant --name "a workspace"
+    # -> prints the new tenant id; upsert a thesis with that tenant_id and call it (it reads the DATA facts
+    #    plus this workspace's own ratified rows).
 """
 
 from __future__ import annotations
@@ -24,10 +23,10 @@ from db.session import connect
 def provision_tenant(conn: psycopg.Connection, name: str, *, tenant_id: UUID | None = None) -> UUID:
     """Insert a tenant row (idempotent) and return its id. The caller owns the txn (no commit here).
 
-    ``tenant_id`` defaults to a fresh ``uuid4`` (a new production tenant). Pass an explicit id for an
-    idempotent fixed-id provision (re-runs + tests): ``ON CONFLICT (id) DO NOTHING`` makes re-provisioning
-    a no-op. This ONLY creates the FK row — it never wipes or touches any other tenant (the demo is
-    untouched). NEVER provision production data into ``DEFAULT_TENANT_ID`` — that is the demo tenant.
+    ``tenant_id`` defaults to a fresh ``uuid4`` (a new workspace). Pass an explicit id for an idempotent
+    fixed-id provision (re-runs + tests): ``ON CONFLICT (id) DO NOTHING`` makes re-provisioning a no-op. This
+    ONLY creates the FK row (``kind='workspace'`` by default) — it never wipes or touches any other tenant, and
+    never the data tenant (``…0001``, ``kind='data'``).
     """
     tid = tenant_id or uuid4()
     with conn.cursor() as cur:

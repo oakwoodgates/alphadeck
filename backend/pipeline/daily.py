@@ -66,10 +66,11 @@ from uuid import UUID
 
 import psycopg
 
-from db.session import connect, current_tenant_id, name_session, set_statement_timeout
+from db.session import connect, name_session, set_statement_timeout
 from domain.config import DEFAULT_CONFIG, config_hash
 from domain.feed_kinds import FEED_KINDS, StaleFeedLabel, feed_kind
 from domain.market_time import market_now, market_today, market_tz
+from domain.scopes import DATA_TENANT_ID, assert_data_tenant
 from domain.settings import Settings, get_settings
 from domain.thesis import Thesis
 from domain.trading_days import is_first_session_of_week
@@ -324,11 +325,12 @@ def _refresh_fundamentals(
             # refreshed here either, rather than waiting out the same holder a second time. X1 — nor is a name
             # the pass DEFERRED past its onboarding cap (the job loads its fundamentals with its history)
             continue
-        sec = master.get(conn, n.security_id, tenant_id=thesis.tenant_id)
+        # the master and the fundamentals are DATA (domain.scopes): read + written under the data tenant
+        sec = master.get(conn, n.security_id, tenant_id=DATA_TENANT_ID)
         if sec is not None:
             secs.append(sec)
     return ingest_fundamentals_for_securities(
-        conn, secs, client=client, tenant_id=thesis.tenant_id, memo=memo
+        conn, secs, client=client, tenant_id=DATA_TENANT_ID, memo=memo
     )
 
 
@@ -491,7 +493,8 @@ class _OnboardingPlan:
         out: dict[UUID, OnboardingWindow] = {}
         for m in thesis.basket:
             sid = m.security_id
-            status = self.pending.get((thesis.tenant_id, sid)) if sid is not None else None
+            # the onboarding queue is DATA (domain.scopes): keyed on the data tenant, one load per company
+            status = self.pending.get((DATA_TENANT_ID, sid)) if sid is not None else None
             if sid is None or status is None or sid in out:
                 continue
             if sid not in self.walked and sid not in self.deferred:
@@ -574,6 +577,9 @@ def run_daily(
     (``_catch_up_skip_set``). A thesis whose only row is late, daytime or reconstructed is processed as
     before. The scheduled run and the Admin button pass ``False``: they re-version on purpose.
     """
+    # the two tenant scopes (docs/TENANT_SCOPES.md): every ingest leg below writes the data tenant — refuse
+    # the pass, loudly, when its row is missing or not kind='data' (never a silent default)
+    assert_data_tenant(conn)
     asof = asof or market_today()
     # ONE explicit cfg for the whole pass, used for BOTH the assemble and its fingerprint. Holding it in a
     # local (rather than letting `call_for_thesis` default it and hashing DEFAULT_CONFIG separately) is what
@@ -1554,7 +1560,7 @@ def _run_daily_pass_locked(
         asof=asof,
         allow_live=allow_live,
         started_at=started_at,
-        tenant_id=current_tenant_id(),
+        tenant_id=DATA_TENANT_ID,  # the price tape is DATA (domain.scopes)
         connect=_pass_connect,
         payloads=list_run_logs,
         clock=perf_counter,
@@ -1565,7 +1571,7 @@ def _run_daily_pass_locked(
     jumps = timed("split_jumps")(run_jump_scan)(
         asof=asof,
         allow_live=allow_live,
-        tenant_id=current_tenant_id(),
+        tenant_id=DATA_TENANT_ID,  # the price tape + the dismissals are DATA (domain.scopes)
         connect=_pass_connect,
     )
     # T2 — THE RENAME PROBE (`pipeline/rename_probe.py`, operator Q7 = nightly): for every stopped price

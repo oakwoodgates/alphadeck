@@ -33,9 +33,9 @@ from db.bitemporal import (
 )
 from db.insider_resolution import RESOLVED_TABLE
 from db.public_clock import INGESTED_COL
-from db.session import DEFAULT_TENANT_ID
 from domain.insider_amendments import ResolutionInputs, group_inputs
 from domain.market_time import day_clock_public_by, view_day
+from domain.scopes import resolve_scopes, tenants_for
 from domain.splits import on_view_scale
 from replay.export import (
     AUX_PUBLIC_COL,
@@ -60,7 +60,7 @@ _AUX_JSON_COLS: dict[str, tuple[str, ...]] = {
 @dataclass(frozen=True)
 class _AuxRows:
     """A mirror's insider-amendment aux tables, decoded and grouped by security (text id) — every version,
-    every tenant: each view applies its OWN gate (``tenant_id`` + ``recorded_at <= known_at``) in Python.
+    every tenant: each view applies its OWN gate (its DATA tenant + ``recorded_at <= known_at``) in Python.
     """
 
     amendments: dict[str, list[dict[str, Any]]]
@@ -283,8 +283,9 @@ class ReplayPointInTimeData:
     same ones ``signals.base.PointInTimeData`` already documents, so the two PITs read as twins:
 
     - **memo** — each ``(table, scope_id)`` as-of result is fetched ONCE for this view's lifetime. The key
-      is ONLY the table + the scope id: ``asof`` / ``known_at`` / ``tenant_id`` are constructor-bound, so a
-      memo can never cross a time or tenant boundary, and a per-CALL value (``price_history``'s
+      is the table + the tenant tuple that table reads (``domain.scopes.tenants_for``) + the scope id:
+      ``asof`` / ``known_at`` / ``data_tenant`` / ``workspace`` are constructor-bound, so a memo can never
+      cross a time or a scope boundary, and a per-CALL value (``price_history``'s
       ``lookback_days``) is NEVER part of a key — every caller trims its own window from the memoized rows.
     - **prefetch** — with a ``basket`` (the roster's resolved security ids AT THIS asof), the FIRST read of
       a security-scoped table loads that table for the WHOLE basket in one query and fills the memo,
@@ -311,14 +312,22 @@ class ReplayPointInTimeData:
         *,
         asof: date,
         known_at: datetime,
-        tenant_id: UUID = DEFAULT_TENANT_ID,
+        data_tenant: UUID | None = None,
+        workspace: UUID | None = None,
+        tenant_id: UUID | None = None,
         basket: Iterable[UUID] | None = None,
         bounds: Mapping[str, int | None] | None = None,
     ) -> None:
+        """The two scopes exactly as the live ``PointInTimeData`` takes them (``domain.scopes.resolve_scopes``):
+        ``data_tenant`` (default ``DATA_TENANT_ID``) + ``workspace``; ``tenant_id`` is the transition alias
+        (both scopes one tenant; PR 2 removes it). Each table's rows are read for ``tenants_for(table, ...)``.
+        """
         self.con = con
         self.asof = asof
         self.known_at = known_at
-        self.tenant_id = tenant_id
+        self.data_tenant, self.workspace = resolve_scopes(
+            data_tenant=data_tenant, workspace=workspace, tenant_id=tenant_id
+        )
         # the prefetch scope, de-duplicated and ORDER-STABLE (the bound parameter list must not depend on
         # set iteration order — a run has to reproduce itself). Empty == no basket == per-security reads.
         self._basket: tuple[UUID, ...] = tuple(dict.fromkeys(basket or ()))
@@ -329,11 +338,20 @@ class ReplayPointInTimeData:
         # empty lists — which looks exactly like a 35x speed-up and is measuring nothing.
         self._sid_by_text: dict[str, UUID] = {str(s): s for s in self._basket}
         self._bounds: dict[str, int | None] = dict(bounds or {})
-        self._memo: dict[tuple[str, UUID], list[dict[str, Any]]] = {}
+        self._memo: dict[tuple[str, tuple[UUID, ...], UUID], list[dict[str, Any]]] = {}
         self._scaled: dict[UUID, list[dict[str, Any]]] = {}  # S2 — price rows on the view's scale
         self._prefetched: set[str] = set()
 
     # --- the memo + prefetch seam (every fact accessor below goes through here) ---------------------
+
+    def _tenants(self, table: str) -> tuple[UUID, ...]:
+        """The tenants a read of ``table`` covers (``domain.scopes.tenants_for`` — the live PIT's map)."""
+        return tenants_for(table, data=self.data_tenant, workspace=self.workspace)
+
+    @staticmethod
+    def _tenant_sql(tenants: tuple[UUID, ...]) -> tuple[str, list[str]]:
+        """``tenant_id IN (?, ...)`` + its parameters (the mirror stores uuids as text)."""
+        return f"tenant_id IN ({', '.join('?' for _ in tenants)})", [str(t) for t in tenants]
 
     def _lower(self, table: str) -> date | None:
         """The event-time floor for ``table`` under this view's bounds, or None (unbounded)."""
@@ -383,11 +401,12 @@ class ReplayPointInTimeData:
     def _read_scoped(self, table: str, scope_col: str, scope_id: UUID) -> list[dict[str, Any]]:
         """The per-scope as-of read — one security (or one thesis). The pre-B5a query, plus the optional
         registry floor and the explicit ORDER BY."""
+        tenant_where, tenant_params = self._tenant_sql(self._tenants(table))
         if has_first_knowability(table):
             return self._read_versions(
                 table,
-                f"tenant_id = ? AND {scope_col} = ?",
-                [str(self.tenant_id), str(scope_id)],
+                f"{tenant_where} AND {scope_col} = ?",
+                [*tenant_params, str(scope_id)],
                 list(_FACT_IDENTITY[table]),
             )
         ident = ", ".join(_FACT_IDENTITY[table])  # identity cols (trusted whitelist)
@@ -395,13 +414,13 @@ class ReplayPointInTimeData:
         floor = " AND valid_from >= ?" if lower is not None else ""
         query = (
             f"SELECT * FROM {table} "
-            f"WHERE tenant_id = ? AND {scope_col} = ? "
+            f"WHERE {tenant_where} AND {scope_col} = ? "
             f"AND valid_from <= ? AND {self._gate(table)} <= ?{floor} "
             f"QUALIFY ROW_NUMBER() OVER "
             f"(PARTITION BY {ident} ORDER BY recorded_at DESC, id DESC) = 1 "
             f"ORDER BY {ident}"
         )
-        params: list[Any] = [str(self.tenant_id), str(scope_id), self.asof, self.known_at]
+        params: list[Any] = [*tenant_params, str(scope_id), self.asof, self.known_at]
         if lower is not None:
             params.append(lower)
         res = self.con.execute(query, params)
@@ -430,7 +449,8 @@ class ReplayPointInTimeData:
         sids = [str(s) for s in dict.fromkeys(security_ids)]
         if aux is None or not sids:
             return ResolutionInputs()
-        tenant, known_at = str(self.tenant_id), self.known_at
+        # the 4/A tables are DATA (domain.scopes): the data tenant's rows only
+        tenant, known_at = str(self.data_tenant), self.known_at
 
         def gate(r: dict[str, Any]) -> Any:
             return r[AUX_PUBLIC_COL] if AUX_PUBLIC_COL in r else r["recorded_at"]
@@ -456,11 +476,13 @@ class ReplayPointInTimeData:
         id DESC`` tiebreak, same optional floor, and an entry for EVERY requested id (``[]`` when it has
         no rows, so "nothing on file" is memoized and never re-queried)."""
         placeholders = ", ".join("?" for _ in self._basket)
+        tenants = self._tenants(table)
+        tenant_where, tenant_params = self._tenant_sql(tenants)
         if has_first_knowability(table):
             rows = self._read_versions(
                 table,
-                f"tenant_id = ? AND security_id IN ({placeholders})",
-                [str(self.tenant_id), *[str(s) for s in self._basket]],
+                f"{tenant_where} AND security_id IN ({placeholders})",
+                [*tenant_params, *[str(s) for s in self._basket]],
                 _partition_cols(table),
             )
             grouped: dict[UUID, list[dict[str, Any]]] = {sid: [] for sid in self._basket}
@@ -469,21 +491,21 @@ class ReplayPointInTimeData:
                 if sid is not None:  # an id outside the basket cannot appear, but never guess
                     grouped[sid].append(row)
             for sid, sid_rows in grouped.items():
-                self._memo[(table, sid)] = sid_rows
+                self._memo[(table, tenants, sid)] = sid_rows
             return
         ident = ", ".join(_partition_cols(table))
         lower = self._lower(table)
         floor = " AND valid_from >= ?" if lower is not None else ""
         query = (
             f"SELECT * FROM {table} "
-            f"WHERE tenant_id = ? AND security_id IN ({placeholders}) "
+            f"WHERE {tenant_where} AND security_id IN ({placeholders}) "
             f"AND valid_from <= ? AND {self._gate(table)} <= ?{floor} "
             f"QUALIFY ROW_NUMBER() OVER "
             f"(PARTITION BY {ident} ORDER BY recorded_at DESC, id DESC) = 1 "
             f"ORDER BY {ident}"
         )
         params: list[Any] = [
-            str(self.tenant_id),
+            *tenant_params,
             *[str(s) for s in self._basket],
             self.asof,
             self.known_at,
@@ -503,12 +525,12 @@ class ReplayPointInTimeData:
             rows = self._decode(table, rows)
             if inputs is not None:  # R8-A — the same resolution the scoped read applies, one load
                 rows = inputs.resolve(sid, rows, asof=self.asof, lower=lower)
-            self._memo[(table, sid)] = rows
+            self._memo[(table, tenants, sid)] = rows
 
     def _as_of(self, table: str, scope_col: str, scope_id: UUID) -> list[dict[str, Any]]:
         if table not in _FACT_IDENTITY:
             raise ValueError(f"unknown fact table: {table!r}")
-        key = (table, scope_id)
+        key = (table, self._tenants(table), scope_id)
         if key not in self._memo:
             if (
                 scope_col == "security_id"
@@ -577,7 +599,7 @@ class ReplayPointInTimeData:
         grouped = _splits_of(self.con)
         if not grouped:
             return []
-        tenant = str(self.tenant_id)
+        tenant = str(self.data_tenant)  # the split list is DATA (domain.scopes)
         newest: dict[Any, dict[str, Any]] = {}
         for r in sorted(
             grouped.get(str(security_id), ()), key=lambda r: (r["recorded_at"], str(r["id"]))

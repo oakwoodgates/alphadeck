@@ -22,6 +22,7 @@ from db.public_clock import (
     to_public_row,
 )
 from db.set_aside import exclusion_sql
+from domain.scopes import as_tenants
 
 # Whitelist of bitemporal fact tables -> the natural-key columns that identify one logical fact
 # (so an as-of read keeps the latest *version* of each, by recorded_at). Whitelisting also keeps
@@ -311,10 +312,17 @@ def _as_of(
     scope_id: UUID,
     asof: date,
     known_at: datetime,
-    tenant_id: UUID,
+    tenant_id: UUID | Sequence[UUID],
     clock: Clock = "record",
 ) -> list[dict[str, Any]]:
     """Shared bitemporal point-in-time read, scoped by ``scope_col`` — no lookahead on either axis.
+
+    ``tenant_id`` is ONE tenant or SEVERAL (``domain.scopes.as_tenants``; the caller names them through
+    ``domain.scopes.tenants_for`` — the data tenant for a DATA table, the workspace for a WORKSPACE table, both
+    for a MIXED one). The read is ``tenant_id = ANY(...)``, and the SAME latest-version pick below
+    (``DISTINCT ON (natural key) ... ORDER BY recorded_at DESC, id DESC`` — the natural key carries no tenant)
+    resolves a union across two tenants: a workspace's later ratification overrides the feed row for that
+    workspace's read only. One tenant reads exactly as before.
 
     ``clock="public"`` (a HISTORY view — the past-asof serve path, the backfill) judges the transaction axis on
     each version's PUBLIC instant instead of ``recorded_at`` (``_public_read``; ``db.public_clock``). The
@@ -343,20 +351,21 @@ def _as_of(
     """
     if table not in _FACT_IDENTITY:
         raise ValueError(f"unknown fact table: {table!r}")
+    tenants = list(as_tenants(tenant_id))
     if clock == "public":
         rows = _public_read(
             conn,
             table,
             where=sql.SQL(
-                "tenant_id = %(tenant_id)s AND {scope} = %(scope_id)s AND valid_from <= %(asof)s"
+                "tenant_id = ANY(%(tenants)s) AND {scope} = %(scope_id)s AND valid_from <= %(asof)s"
             ).format(scope=sql.Identifier(scope_col)),
-            params={"tenant_id": tenant_id, "scope_id": scope_id, "asof": asof},
+            params={"tenants": tenants, "scope_id": scope_id, "asof": asof},
             known_at=known_at,
             partition=_FACT_IDENTITY[table],
         )
         if table == insider_resolution.RESOLVED_TABLE and scope_col == "security_id":
             inputs = insider_resolution.load_inputs(
-                conn, [scope_id], known_at=known_at, tenant_id=tenant_id, clock=clock
+                conn, [scope_id], known_at=known_at, tenant_id=tenants, clock=clock
             )
             rows = inputs.resolve(scope_id, rows, asof=asof, lower=None)
         return rows
@@ -369,12 +378,12 @@ def _as_of(
     template = (
         # every visible version (the run walk needs the history), pre-sorted in the Python pick's own order
         "SELECT * FROM {table} "
-        "WHERE tenant_id = %(tenant_id)s AND {scope} = %(scope_id)s "
+        "WHERE tenant_id = ANY(%(tenants)s) AND {scope} = %(scope_id)s "
         "AND valid_from <= %(asof)s AND {knowability} <= %(known_at)s{set_aside} "
         "ORDER BY {ident}, {version_order}"
         if first_knowable
         else "SELECT DISTINCT ON ({ident}) * FROM {table} "
-        "WHERE tenant_id = %(tenant_id)s AND {scope} = %(scope_id)s "
+        "WHERE tenant_id = ANY(%(tenants)s) AND {scope} = %(scope_id)s "
         "AND valid_from <= %(asof)s AND {knowability} <= %(known_at)s{set_aside} "
         "ORDER BY {ident}, recorded_at DESC, id DESC"
     )
@@ -390,7 +399,7 @@ def _as_of(
     if first_knowable:  # a trusted literal from the whitelist, never caller input
         parts["version_order"] = sql.SQL(first_knowable_order(table))  # noqa: S608
     query = sql.SQL(template).format(**parts)
-    params = {"tenant_id": tenant_id, "scope_id": scope_id, "asof": asof, "known_at": known_at}
+    params = {"tenants": tenants, "scope_id": scope_id, "asof": asof, "known_at": known_at}
     if first_knowable:
         return _first_knowable_read(conn, table, query, params, _FACT_IDENTITY[table])
     with conn.cursor() as cur:
@@ -398,7 +407,7 @@ def _as_of(
         rows = cur.fetchall()
     if table == insider_resolution.RESOLVED_TABLE and scope_col == "security_id":
         inputs = insider_resolution.load_inputs(
-            conn, [scope_id], known_at=known_at, tenant_id=tenant_id
+            conn, [scope_id], known_at=known_at, tenant_id=tenants
         )
         rows = inputs.resolve(scope_id, rows, asof=asof, lower=None)
     return rows
@@ -484,7 +493,7 @@ def as_of(
     security_id: UUID,
     asof: date,
     known_at: datetime,
-    tenant_id: UUID,
+    tenant_id: UUID | Sequence[UUID],
     clock: Clock = "record",
 ) -> list[dict[str, Any]]:
     """Bitemporal as-of read for a SECURITY-scoped fact table. **Behavior-identical** to the original
@@ -512,7 +521,7 @@ def as_of_many(
     security_ids: Collection[UUID],
     asof: date,
     known_at: datetime,
-    tenant_id: UUID,
+    tenant_id: UUID | Sequence[UUID],
     valid_from_lower: date | None = None,
     clock: Clock = "record",
 ) -> dict[UUID, list[dict[str, Any]]]:
@@ -551,6 +560,7 @@ def as_of_many(
     """
     if table not in _FACT_IDENTITY:
         raise ValueError(f"unknown fact table: {table!r}")
+    tenants = list(as_tenants(tenant_id))
     ids = list(dict.fromkeys(security_ids))  # de-duplicated, order-preserving
     out: dict[UUID, list[dict[str, Any]]] = {sid: [] for sid in ids}
     if not ids:
@@ -567,10 +577,10 @@ def as_of_many(
             conn,
             table,
             where=sql.SQL(
-                "tenant_id = %(tenant_id)s AND security_id = ANY(%(ids)s) "
+                "tenant_id = ANY(%(tenants)s) AND security_id = ANY(%(ids)s) "
                 "AND valid_from <= %(asof)s{floor}"
             ).format(floor=floor),
-            params={"tenant_id": tenant_id, "ids": ids, "asof": asof, "lower": valid_from_lower},
+            params={"tenants": tenants, "ids": ids, "asof": asof, "lower": valid_from_lower},
             known_at=known_at,
             partition=partition,
         )
@@ -581,7 +591,7 @@ def as_of_many(
             out[row["security_id"]].append(row)
         if table == insider_resolution.RESOLVED_TABLE:
             inputs = insider_resolution.load_inputs(
-                conn, ids, known_at=known_at, tenant_id=tenant_id, clock=clock
+                conn, ids, known_at=known_at, tenant_id=tenants, clock=clock
             )
             for sid in ids:
                 out[sid] = inputs.resolve(sid, out[sid], asof=asof, lower=valid_from_lower)
@@ -589,7 +599,7 @@ def as_of_many(
     ident = sql.SQL(", ").join(sql.Identifier(c) for c in partition)
     knowability = sql.SQL(knowability_expr(table))  # noqa: S608 — hardcoded map, never caller input
     params = {
-        "tenant_id": tenant_id,
+        "tenants": tenants,
         "ids": ids,
         "asof": asof,
         "known_at": known_at,
@@ -598,7 +608,7 @@ def as_of_many(
     if has_first_knowability(table):
         query = sql.SQL(
             "SELECT * FROM {table} "
-            "WHERE tenant_id = %(tenant_id)s AND security_id = ANY(%(ids)s) "
+            "WHERE tenant_id = ANY(%(tenants)s) AND security_id = ANY(%(ids)s) "
             "AND valid_from <= %(asof)s AND {knowability} <= %(known_at)s{set_aside} "
             "ORDER BY {ident}, {version_order}"
         ).format(
@@ -615,7 +625,7 @@ def as_of_many(
     lower = sql.SQL(" AND valid_from >= %(lower)s") if valid_from_lower is not None else sql.SQL("")
     query = sql.SQL(
         "SELECT DISTINCT ON ({ident}) * FROM {table} "
-        "WHERE tenant_id = %(tenant_id)s AND security_id = ANY(%(ids)s) "
+        "WHERE tenant_id = ANY(%(tenants)s) AND security_id = ANY(%(ids)s) "
         "AND valid_from <= %(asof)s AND {knowability} <= %(known_at)s{lower}{set_aside} "
         "ORDER BY {ident}, recorded_at DESC, id DESC"
     ).format(
@@ -633,7 +643,7 @@ def as_of_many(
         # R8-A — the SAME resolution the scoped ``as_of`` applies, over the whole basket in one load; the
         # floor rides along so an amended row dated before it stays out (row-for-row the scoped read
         # trimmed in Python — the PIT fallback's rule)
-        inputs = insider_resolution.load_inputs(conn, ids, known_at=known_at, tenant_id=tenant_id)
+        inputs = insider_resolution.load_inputs(conn, ids, known_at=known_at, tenant_id=tenants)
         for sid in ids:
             out[sid] = inputs.resolve(sid, out[sid], asof=asof, lower=valid_from_lower)
     return out
@@ -646,7 +656,7 @@ def as_of_thesis(
     thesis_id: UUID,
     asof: date,
     known_at: datetime,
-    tenant_id: UUID,
+    tenant_id: UUID | Sequence[UUID],
     clock: Clock = "record",
 ) -> list[dict[str, Any]]:
     """Bitemporal as-of read for a THESIS-scoped fact table (e.g. ``fact_theme_conviction``) — the same
@@ -670,7 +680,7 @@ def _fact_exists(
     *,
     scope_col: str,
     scope_id: UUID,
-    tenant_id: UUID,
+    tenant_id: UUID | Sequence[UUID],
     key: dict[str, Any],
 ) -> bool:
     """Shared "is this natural key stored AT ALL?" probe — see ``fact_exists`` for the contract.
@@ -695,10 +705,10 @@ def _fact_exists(
     )
     query = sql.SQL(
         "SELECT 1 FROM {table} "
-        "WHERE tenant_id = %(tenant_id)s AND {scope} = %(scope_id)s AND {where} LIMIT 1"
+        "WHERE tenant_id = ANY(%(tenants)s) AND {scope} = %(scope_id)s AND {where} LIMIT 1"
     ).format(table=sql.Identifier(table), scope=sql.Identifier(scope_col), where=where)
     with conn.cursor() as cur:
-        cur.execute(query, {"tenant_id": tenant_id, "scope_id": scope_id, **key})
+        cur.execute(query, {"tenants": list(as_tenants(tenant_id)), "scope_id": scope_id, **key})
         return cur.fetchone() is not None
 
 
@@ -707,10 +717,11 @@ def fact_exists(
     table: str,
     *,
     security_id: UUID,
-    tenant_id: UUID,
+    tenant_id: UUID | Sequence[UUID],
     **key: Any,
 ) -> bool:
-    """Is ANY version of this natural key already stored for (tenant, security)?
+    """Is ANY version of this natural key already stored for (tenant(s), security)? ``tenant_id`` is one
+    tenant or several (``domain.scopes.tenants_for``) — the probe asks across all of them.
 
     **This is NOT an as-of read** and must never stand in for one. It is deliberately version- AND
     time-agnostic: no ``valid_from <= asof`` gate, no ``recorded_at <= known_at`` gate, no ``DISTINCT ON``
@@ -736,7 +747,7 @@ def fact_exists_thesis(
     table: str,
     *,
     thesis_id: UUID,
-    tenant_id: UUID,
+    tenant_id: UUID | Sequence[UUID],
     **key: Any,
 ) -> bool:
     """The THESIS-scoped form of ``fact_exists`` (e.g. ``fact_theme_conviction``, which is basket-level and

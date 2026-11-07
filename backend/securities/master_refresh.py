@@ -541,10 +541,15 @@ def _read_master(conn: psycopg.Connection, tenant_id: UUID) -> list[MasterRow]:
 
 
 def _live_basket_ids(conn: psycopg.Connection, tenant_id: UUID) -> set[UUID]:
+    """Every company a live basket holds, in ANY workspace: the master is DATA (``domain.scopes``) and every
+    workspace's baskets read it, so a refresh of the data tenant's master protects them all. ``tenant_id`` is
+    the master being refreshed (the data tenant); a basket carries its workspace's tenant, never the master's.
+    """
     with conn.cursor() as cur:
         cur.execute(
             "SELECT DISTINCT bm.security_id FROM basket_member bm JOIN thesis t ON t.id = bm.thesis_id "
-            "WHERE bm.tenant_id = %s AND bm.security_id IS NOT NULL AND t.archived_at IS NULL",
+            "JOIN security_master sm ON sm.id = bm.security_id "
+            "WHERE sm.tenant_id = %s AND bm.security_id IS NOT NULL AND t.archived_at IS NULL",
             (tenant_id,),
         )
         return {r["security_id"] for r in cur.fetchall()}

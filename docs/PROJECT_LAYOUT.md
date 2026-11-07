@@ -43,7 +43,7 @@ alphadeck/
 │   ├── DISCOVERY.md · CHAIN_DRAFTER.md · WORKBENCH_EXTRACTION.md · WORKBENCH_ENRICHMENT.md · WORKBENCH_SCORING.md · TRIAGE.md   # the front half, in stage order
 │   ├── BOARD.md (the MONITOR surface) · CALL_LOGIC.md (the brain) · FEED_LOOP.md (the rhythm) · ADMIN.md (the ops surface)   # the back half
 │   ├── SCOREBOARD.md · DISPLAY_SIGNALS.md   # SCORE (the forward record) · the read-only tape indicators
-│   ├── CATALYST_CONVICTION.md · THEME_CONVICTION.md · PRODUCTION_TENANT.md · REPLAY.md · DEV_PROD.md   # + the local dev/prod split
+│   ├── CATALYST_CONVICTION.md · THEME_CONVICTION.md · TENANT_SCOPES.md · REPLAY.md · DEV_PROD.md   # + the local dev/prod split
 │   ├── RECALIBRATION.md · POSTMORTEM_CRON_FREEZE_2026-07.md   # the tuning agenda · the ~11-day cache-freeze postmortem
 │   └── mockups/ · PROJECT_LAYOUT.md (this file)   # the visual targets · the file map
 ├── frontend/                       # React + Vite + Tailwind + TanStack Query (SPA)
@@ -268,7 +268,7 @@ alphadeck/
    Forward VALIDATION is the open item — don't overclaim the calls until the record lives with them.
 3. **The Board is not tenant-scoped** (`thesis_repo.list_all` is all-tenants) — a display limitation, not a
    fact leak (per-call reads are isolated); deferred to the auth era. No RLS — isolation is discipline + the
-   poison-row test (`PRODUCTION_TENANT.md`).
+   poison-row test (`TENANT_SCOPES.md`).
 4. **The LLM bound rests partly on the prompt.** The chain drafter's "never a number" is structural (no value
    field) + prompt (Sonnet the lever); the **manual no-number check is its real test** — a fake-client unit
    test can't exercise a prompt. The regex post-filter is the deferred lever (`CHAIN_DRAFTER.md`).

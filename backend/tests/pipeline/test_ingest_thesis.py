@@ -12,6 +12,7 @@ from pathlib import Path
 
 from db.bitemporal import as_of
 from db.session import DEFAULT_TENANT_ID
+from domain.scopes import DATA_TENANT_ID
 from ingest import CacheMiss
 from pipeline import ingest_thesis as IT
 from pipeline.provision_tenant import provision_tenant
@@ -352,19 +353,20 @@ def test_no_lookahead_recorded_at_is_now(db, security_id, monkeypatch):
     assert len(visible) == 2
 
 
-def test_ingest_writes_under_the_thesis_tenant(db, monkeypatch):
-    """Tenant isolation (#4): facts land under the THESIS's tenant, never the demo default."""
+def test_ingest_writes_under_the_data_tenant(db, monkeypatch):
+    """The two tenant scopes (docs/TENANT_SCOPES.md): a thesis in workspace W (not the data tenant) whose
+    member is in the DATA master — the feed's facts land under the DATA tenant, and NONE under W."""
     provision_tenant(db, "m2a-ingest", tenant_id=_ALT_TENANT)
     db.commit()
-    sid = _add_master(db, ticker="ALTCO", cik="0009999999", tenant=_ALT_TENANT)
+    sid = _add_master(db, ticker="ALTCO", cik="0009999999", tenant=DATA_TENANT_ID)
     _patch(monkeypatch, accessions=("ACC-1",), bar_dates=(date(2026, 6, 15),))
     tid = _make_thesis(db, [("ALTCO", sid)], tenant=_ALT_TENANT)
 
     r = IT.ingest_thesis(db, tid, allow_live=False)[0]
 
     assert r.error is None and r.form4_appended == _F4_PER_ACCESSION and r.price_bars_appended == 1
-    assert _counts(db, tenant=_ALT_TENANT) == (_F4_PER_ACCESSION, 1)  # under the alt tenant
-    assert _counts(db, tenant=DEFAULT_TENANT_ID) == (0, 0)  # nothing leaked to the default
+    assert _counts(db, tenant=DATA_TENANT_ID) == (_F4_PER_ACCESSION, 1)  # under the data tenant
+    assert _counts(db, tenant=_ALT_TENANT) == (0, 0)  # never under the thesis's workspace
 
 
 def test_unparseable_filing_is_skipped_not_leg_fatal(db, security_id, monkeypatch, capsys):
@@ -608,18 +610,20 @@ def test_form8k_leg_reversions_when_items_resolve(db, security_id, monkeypatch):
     assert _8k_count(db) == base + 1  # a new VERSION row, never an UPDATE
 
 
-def test_form8k_leg_writes_under_the_thesis_tenant(db, monkeypatch):
+def test_form8k_leg_writes_under_the_data_tenant(db, monkeypatch):
+    """The 8-K leg follows the same scope: a workspace-W thesis's member (in the DATA master) gets its 8-K
+    rows under the DATA tenant, none under W."""
     provision_tenant(db, "s3-8k-ingest", tenant_id=_ALT_TENANT)
     db.commit()
-    sid = _add_master(db, ticker="ALT8K", cik="0009999998", tenant=_ALT_TENANT)
+    sid = _add_master(db, ticker="ALT8K", cik="0009999998", tenant=DATA_TENANT_ID)
     _patch(monkeypatch, accessions=("ACC-1",), form8ks=(("8K-1", "2026-05-10", "1.01"),))
     tid = _make_thesis(db, [("ALT8K", sid)], tenant=_ALT_TENANT)
 
     r = IT.ingest_thesis(db, tid, allow_live=False)[0]
 
     assert r.error is None and r.form8k_appended == 1
-    assert _8k_count(db, tenant=_ALT_TENANT) == 1
-    assert _8k_count(db, tenant=DEFAULT_TENANT_ID) == 0  # nothing leaked to the default
+    assert _8k_count(db, tenant=DATA_TENANT_ID) == 1
+    assert _8k_count(db, tenant=_ALT_TENANT) == 0  # never under the thesis's workspace
 
 
 # --- _report: the price-bar tally must count re-versioned / hole-backfilled bars -------------------

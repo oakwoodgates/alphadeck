@@ -34,7 +34,8 @@ from collections import Counter
 from pathlib import Path
 from uuid import UUID
 
-from db.session import connect, current_tenant_id
+from db.session import connect
+from domain.scopes import DATA_TENANT_ID
 from securities import coherence, master, sec_tickers
 from securities.coherence import CoherenceKind
 
@@ -144,7 +145,9 @@ def audit_draft_runs(conn, root: Path, *, allow_live: bool) -> int:
         pairs.append((p.get("ticker"), sid))
     # Draft-run logs don't record a tenant; the drafts were produced by THIS deployment, so classify under
     # the deployment tenant (the same resolution the workbench writes under).
-    findings = coherence.classify_members(conn, pairs, tenant_id=current_tenant_id())
+    findings = coherence.classify_members(
+        conn, pairs, tenant_id=DATA_TENANT_ID
+    )  # the master is DATA
 
     counts: Counter[str] = Counter()
     cross: dict[str, None] = {}  # ordered de-dup: re-drafts repeat identical rows; the review list

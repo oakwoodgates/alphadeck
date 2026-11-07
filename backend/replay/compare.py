@@ -10,6 +10,7 @@ import psycopg
 from db.session import DEFAULT_TENANT_ID
 from domain.config import CallConfig
 from domain.enums import Grade
+from domain.scopes import DATA_TENANT_ID
 from replay.episodes import episodes_for
 from replay.export import export_snapshot
 from replay.harness import replay_all
@@ -62,11 +63,12 @@ def _score_one(
     timeline = replay_all(
         conn, con, start=START, end=END, known_at=PIN, cfg=cfg, tenant_id=tenant_id
     ).timelines
-    outcomes = score_episodes(episodes_for(timeline), RealizedPrices(con, tenant_id=tenant_id))
+    # the tape is DATA (domain.scopes)
+    outcomes = score_episodes(episodes_for(timeline), RealizedPrices(con, tenant_id=DATA_TENANT_ID))
     metrics = compute_metrics(
         outcomes,
         timeline=timeline,
-        realized=RealizedPrices(con, tenant_id=tenant_id),
+        realized=RealizedPrices(con, tenant_id=DATA_TENANT_ID),
         single_name_security=_single_name_security(conn, tenant_id),
     )
     return outcomes, metrics
@@ -83,7 +85,7 @@ def compare(
     so the only difference between variants is `cfg`. Returns a VariantResult per variant. Read-only over
     the SoR; writes only the Parquet mirror to ``out_dir``. The instrument is used as built, never modified.
     """
-    export_snapshot(conn, out_dir, tenant_id=tenant_id)
+    export_snapshot(conn, out_dir, data_tenant=DATA_TENANT_ID, workspace=tenant_id)
     con = connect_mirror(out_dir)
     try:
         results = []

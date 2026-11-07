@@ -86,8 +86,9 @@ ingests insider + price facts — and, for an ETF sleeve member, a fund shares-o
   §EDGAR etiquette), behind the client's own 8/s; every Yahoo request from the process-wide Yahoo gate (X7 —
   4/s). On top of them the shared `ingest/http.py:polite_get` adds **reactive** backoff: it retries **429 /
   transient 5xx** with capped, jittered exponential backoff, honoring a numeric `Retry-After`, and a 429 / 503
-  pauses the whole pool, before raising (so a leg fails visibly rather than hammering). Tenant comes from the
-  thesis (one thesis = one tenant).
+  pauses the whole pool, before raising (so a leg fails visibly rather than hammering). Every leg writes the
+  shared DATA tenant (`domain.scopes.DATA_TENANT_ID`, `docs/TENANT_SCOPES.md`) — never the thesis's workspace:
+  the facts are shared data, so a company held in two workspaces is ingested once.
 - **Concurrent fetch, serialized write — the fetch-ahead** (`pipeline/fetch_ahead.py`, 2026-10-21). The walk
   was latency-bound: MEASURED on prod 2026-10-20, 1,001 SEC requests at ~0.29 s each and 740 Yahoo pulls,
   all strictly serial (~3.4 SEC req/s against SEC's 10/s), were 536 s of a 686 s pass. So on a live walk a
@@ -516,8 +517,11 @@ and new rules coincide — and `tests/replay/test_pit_first_knowability.py` hold
 ## The daily cron — `pipeline/daily.py`  `[BUILT #71]`
 
 `run_daily(conn, *, asof=today, known_at=now, allow_live=True, force_refresh=True, notifier=None, …)`.
-CLI: `python -m pipeline.daily`. For **each** thesis (`thesis_repo.list_all` — tenant intrinsic
-per-thesis; **archived theses are skipped by the list's default**, the archive slice):
+CLI: `python -m pipeline.daily`. For **each** thesis (`thesis_repo.list_all` — every workspace's theses;
+**archived theses are skipped by the list's default**, the archive slice). The two tenant scopes
+(`docs/TENANT_SCOPES.md`): the ingest legs and master reads name the DATA tenant, the call reads through
+`PointInTimeData(data_tenant=DATA_TENANT_ID, workspace=thesis.tenant_id)`, and the call of record appends under
+the thesis's workspace. The pass refuses to start without the data tenant (`scopes.assert_data_tenant`):
 
 1. **Refresh facts** — `ingest_thesis` (incremental + fail-visible; `force_refresh=True`, the recurring path).
 2. **Assemble TODAY's call WITHOUT writing** — `call_for_thesis(asof=today, known_at=now, record=False)`.
@@ -944,8 +948,8 @@ the nightly itself, inside the window.
 
 **The shape** (`pipeline/onboarding.py`, one table — `security_onboarding`, migration 0059):
 
-- **The queue.** One row per (tenant, security) — onboarding is about a company's facts, shared by every
-  thesis that holds it. `status` = `queued` / `in_progress` / `done` / `failed`; `legs_done` = the per-name
+- **The queue.** One row per company, keyed on the DATA tenant (`docs/TENANT_SCOPES.md`) — onboarding is about
+  a company's facts, shared by every thesis in every workspace that holds it. `status` = `queued` / `in_progress` / `done` / `failed`; `legs_done` = the per-name
   CHECKPOINT. A name is enqueued only when it is **cold**: no row yet AND no other LIVE (non-archived) basket
   holds it — the nightly walks every live basket member every night, so such a name is already loaded (the
   legacy names, and a name re-arranged between theses, never get a row). Enqueue is `INSERT … ON CONFLICT DO

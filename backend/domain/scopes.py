@@ -1,0 +1,184 @@
+"""The TWO tenant scopes over the one ``tenant_id`` column (docs/TENANT_SCOPES.md).
+
+Every table that carries ``tenant_id`` belongs to exactly one scope, named here ONCE:
+
+- **DATA** — the single shared data tenant (``DATA_TENANT_ID``, the ``tenant`` row with ``kind='data'``,
+  migration 0076): the company master, every ingested fact, the split / ticker / CIK history, the onboarding
+  queue, the price-feed repairs, the Form 4/A tables and their decisions, the set-asides and the repair journal.
+  The feed writes it; everyone reads it.
+- **WORKSPACE** — one per user (today the only workspace IS the data tenant's row, so every read is byte-identical
+  to before the split; PR 2 moves the founding workspace out): the thesis and its children, the calls of record,
+  the annotations, the operator's decisions, the editions store, and the thesis-scoped facts.
+- **MIXED** — the four Workbench scoring-fact tables (``fact_revenue_mix`` / ``fact_cash_burn`` /
+  ``fact_shares_outstanding`` / ``fact_catalyst``): a FEED row lives in DATA, a RATIFIED row in the caller's
+  workspace, and a read unions the two. The as-of read's latest-version rule (``DISTINCT ON (natural key) ...
+  ORDER BY recorded_at DESC``) resolves the union: a workspace's later ratification overrides the feed row for
+  that workspace only.
+
+The map must grow with the schema: ``tests/db/test_scopes.py`` parses every migration and fails when a table
+with a ``tenant_id`` column is missing here. Nothing else may hard-code which tenant a table lives in — a read
+names its scope through ``tenants_for``.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from enum import Enum
+from typing import Any
+from uuid import UUID
+
+# The ONE shared data tenant: today's ``…0001`` (migration 0001's seeded tenant; 0076 marks it ``kind='data'``).
+DATA_TENANT_ID = UUID("00000000-0000-0000-0000-000000000001")
+
+
+class Scope(Enum):
+    DATA = "data"
+    WORKSPACE = "workspace"
+    MIXED = "mixed"
+
+
+SCOPE_OF: dict[str, Scope] = {
+    # --- DATA: the shared layer (the feed writes it; every workspace reads it) -----------------------------
+    "security_master": Scope.DATA,
+    "fact_insider_txn": Scope.DATA,
+    "fact_price_eod": Scope.DATA,
+    "fact_dilution": Scope.DATA,
+    "fact_fundamentals": Scope.DATA,
+    "fact_corporate_event": Scope.DATA,
+    "fact_activist_stake": Scope.DATA,
+    "fact_fund_shares": Scope.DATA,
+    "fact_spac_event": Scope.DATA,
+    "fact_filing_index": Scope.DATA,
+    "fact_fund_filing": Scope.DATA,
+    "fact_fund_series": Scope.DATA,
+    "fact_fund_symbol": Scope.DATA,
+    "security_split": Scope.DATA,
+    "security_split_history": Scope.DATA,
+    "security_ticker_history": Scope.DATA,
+    "security_cik_change": Scope.DATA,
+    "security_onboarding": Scope.DATA,
+    "price_symbol_change": Scope.DATA,
+    "price_feed_ack": Scope.DATA,
+    "price_restatement_hold": Scope.DATA,
+    "insider_amendment": Scope.DATA,
+    "insider_amendment_link": Scope.DATA,
+    "insider_amendment_decision": Scope.DATA,
+    "fundamentals_set_aside": Scope.DATA,
+    "split_jump_dismissal": Scope.DATA,
+    "data_repair": Scope.DATA,
+    # --- WORKSPACE: one per user (the thesis and everything hanging off it) --------------------------------
+    "thesis": Scope.WORKSPACE,
+    "basket_member": Scope.WORKSPACE,
+    "evidence": Scope.WORKSPACE,
+    "catalyst": Scope.WORKSPACE,
+    "kill_criterion": Scope.WORKSPACE,
+    "thesis_exclusion": Scope.WORKSPACE,
+    "basket_snapshot": Scope.WORKSPACE,
+    "calls": Scope.WORKSPACE,
+    "call_annotation": Scope.WORKSPACE,
+    "operator_decision": Scope.WORKSPACE,
+    "edition": Scope.WORKSPACE,
+    "edition_event": Scope.WORKSPACE,
+    "edition_entry": Scope.WORKSPACE,
+    "edition_call": Scope.WORKSPACE,
+    "edition_outcome": Scope.WORKSPACE,
+    "edition_cause": Scope.WORKSPACE,
+    "fact_theme_conviction": Scope.WORKSPACE,
+    "fact_term_mentions": Scope.WORKSPACE,
+    "fact_spac_match": Scope.WORKSPACE,
+    # --- MIXED: a feed row in DATA, a ratified row in the workspace; a read unions the two ---------------
+    "fact_revenue_mix": Scope.MIXED,
+    "fact_cash_burn": Scope.MIXED,
+    "fact_shares_outstanding": Scope.MIXED,
+    "fact_catalyst": Scope.MIXED,
+}
+
+
+def scope_of(table: str) -> Scope:
+    """The scope ``table`` lives in. An unmapped table raises: a new tenant-bearing table must be named here."""
+    try:
+        return SCOPE_OF[table]
+    except KeyError:
+        raise KeyError(
+            f"table {table!r} has no tenant scope — add it to domain.scopes.SCOPE_OF"
+        ) from None
+
+
+def tenants_for(table: str, *, data: UUID, workspace: UUID) -> tuple[UUID, ...]:
+    """The tenant ids a read of ``table`` covers: DATA -> ``(data,)``, WORKSPACE -> ``(workspace,)``, MIXED ->
+    ``(data, workspace)`` — one id when the two are equal (today, before PR 2 moves the founding workspace).
+    """
+    scope = scope_of(table)
+    if scope is Scope.DATA:
+        return (data,)
+    if scope is Scope.WORKSPACE:
+        return (workspace,)
+    return (data,) if data == workspace else (data, workspace)
+
+
+def as_tenants(tenants: UUID | Sequence[UUID]) -> tuple[UUID, ...]:
+    """Normalize one tenant id or several to a de-duplicated, order-preserving, non-empty tuple — the shape the
+    accessors bind as ``tenant_id = ANY(%(tenants)s)``. An empty list raises: a read with no scope would answer
+    nothing, silently."""
+    if isinstance(tenants, UUID):
+        return (tenants,)
+    out = tuple(dict.fromkeys(tenants))
+    if not out or not all(isinstance(t, UUID) for t in out):
+        raise ValueError(
+            f"a tenant scope must be one UUID or a non-empty list of UUIDs: {tenants!r}"
+        )
+    return out
+
+
+def resolve_scopes(
+    *, data_tenant: UUID | None, workspace: UUID | None, tenant_id: UUID | None
+) -> tuple[UUID, UUID]:
+    """``(data_tenant, workspace)`` for a point-in-time view (the live PIT and the replay mirror share it).
+
+    ``tenant_id`` is the TRANSITION ALIAS (PR 2 removes it): one tenant for BOTH scopes, the pre-split
+    meaning, refused beside an explicit ``data_tenant`` / ``workspace`` (two answers to one question). Unset,
+    ``data_tenant`` is ``DATA_TENANT_ID`` and ``workspace`` is the demo/test default (``db.session.
+    DEFAULT_TENANT_ID``, the same row as ``DATA_TENANT_ID`` until PR 2 moves the founding workspace out) —
+    transitional too: PR 2 makes the workspace a required, explicit choice."""
+    if tenant_id is not None:
+        if data_tenant is not None or workspace is not None:
+            raise TypeError(
+                "pass either tenant_id= (the transition alias: one tenant for both scopes) or "
+                "data_tenant= / workspace=, not both"
+            )
+        return tenant_id, tenant_id
+    return (
+        data_tenant if data_tenant is not None else DATA_TENANT_ID,
+        workspace if workspace is not None else DATA_TENANT_ID,
+    )
+
+
+class DataTenantMissing(RuntimeError):
+    """The database has no data tenant: the ``tenant`` row ``DATA_TENANT_ID`` is missing or is not
+    ``kind='data'`` (migration 0076 not applied, or a hand-edited row). Every feed write and DATA read names that
+    row, so the app refuses to start rather than default silently."""
+
+
+def assert_data_tenant(conn: Any) -> None:
+    """Raise ``DataTenantMissing`` unless the ``DATA_TENANT_ID`` tenant row exists with ``kind='data'``. Called at
+    API boot (the lifespan) and at the start of the nightly pass. Read-only; ``conn`` is a psycopg connection
+    (dict rows or tuple rows)."""
+    with conn.cursor() as cur:
+        try:
+            cur.execute("SELECT kind FROM tenant WHERE id = %s", (DATA_TENANT_ID,))
+        except Exception as exc:  # noqa: BLE001 — a missing column is the same failure, named
+            raise DataTenantMissing(
+                f"cannot read tenant {DATA_TENANT_ID}'s kind ({exc.__class__.__name__}: {exc}) — "
+                "is migration 0076_tenant_kind applied? Run `python -m db.migrate`."
+            ) from exc
+        row = cur.fetchone()
+    if row is None:
+        raise DataTenantMissing(
+            f"the data tenant {DATA_TENANT_ID} does not exist — run `python -m db.migrate`"
+        )
+    kind = row["kind"] if isinstance(row, dict) else row[0]
+    if kind != "data":
+        raise DataTenantMissing(
+            f"tenant {DATA_TENANT_ID} is kind={kind!r}, not 'data' — migration 0076 marks it; "
+            "refusing to run with no data tenant"
+        )

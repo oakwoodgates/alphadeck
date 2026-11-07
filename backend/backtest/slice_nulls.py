@@ -56,7 +56,7 @@ from backtest import store
 from backtest.nulls import EpisodeNulls, draw_nulls
 from backtest.pooled import SLICE_KEYS, Stat, _slice_key, build_report
 from backtest.rebench import TOLERANCE, _episodes, _find_mirror
-from db.session import DEFAULT_TENANT_ID
+from domain.scopes import DATA_TENANT_ID
 from replay.harness import trading_sessions
 from replay.pit import connect_mirror
 from replay.schema import Episode
@@ -368,12 +368,12 @@ def analyze_run(
 
     con = connect_mirror(mirror)
     try:
-        realized = RealizedPrices(con, tenant_id=DEFAULT_TENANT_ID)
+        realized = RealizedPrices(con, tenant_id=DATA_TENANT_ID)  # the tape is DATA
         # THE TIMING-NULL SESSIONS, reconstructed exactly: the run's `sessions` is the union over its theses
         # of `trading_sessions(live basket)`, which equals `trading_sessions(union of member ids)` because
         # the DISTINCT-over-securities commutes with set union. Same query, same ORDER BY d.
         sessions = trading_sessions(
-            con, _member_union(man), man.window_start, man.window_end, DEFAULT_TENANT_ID
+            con, _member_union(man), man.window_start, man.window_end, DATA_TENANT_ID
         )
         out.timing_candidate_sessions = len(sessions)
         eps = _episodes(run_dir)

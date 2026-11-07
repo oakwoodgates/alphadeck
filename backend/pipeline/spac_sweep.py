@@ -24,7 +24,8 @@ import argparse
 import sys
 from uuid import UUID
 
-from db.session import connect, current_tenant_id
+from db.session import connect
+from domain.scopes import DATA_TENANT_ID
 from radar.shell_sweep import run_shell_sweep
 
 
@@ -66,7 +67,7 @@ def main(argv: list[str] | None = None) -> int:
             allow_live=args.live,
             cap=args.cap,
             reenrich=args.reenrich,
-            tenant_id=UUID(args.tenant_id) if args.tenant_id else current_tenant_id(),
+            tenant_id=UUID(args.tenant_id) if args.tenant_id else DATA_TENANT_ID,  # DATA
         )
     finally:
         conn.close()

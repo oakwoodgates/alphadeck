@@ -120,37 +120,42 @@ def test_baskets_scope_covers_all_theses_dedups_and_skips_archived(db):
     assert scopes[DEFAULT_TENANT_ID].cik_to_sid == {"0001849056": oklo, "0001065059": leu}
 
 
-def test_baskets_scope_is_tenant_intrinsic_and_fail_closed_across_tenants(db):
-    """Tenant threading (#5): each thesis contributes to ITS OWN tenant's map (theses are
-    tenant-intrinsic — the daily cron's pattern), and a member pointing at ANOTHER tenant's master row
-    resolves to nothing under its own tenant (``get_many`` is tenant-scoped) -> counted unenrichable,
-    NEVER written under either tenant."""
-    provision_tenant(db, "other", tenant_id=OTHER_TENANT_ID)
+def test_baskets_scope_reads_the_data_master_and_is_fail_closed(db):
+    """The two tenant scopes (docs/TENANT_SCOPES.md): the master is DATA, so every workspace's basket resolves
+    its members in the ONE data-tenant master and enriches there — two workspaces holding companies yield one
+    DATA scope. Fail-closed: a member whose security is NOT in the DATA master (a stray row under a workspace
+    tenant — shouldn't happen post-guard) resolves to nothing -> counted unenrichable, NEVER resolved under the
+    workspace's tenant and never written anywhere."""
+    second = uuid.UUID("00000000-0000-0000-0000-0000000000ae")
+    provision_tenant(db, "workspace W", tenant_id=OTHER_TENANT_ID)
+    provision_tenant(db, "workspace V", tenant_id=second)
     db.commit()
-    mine = _sec(db, "OKLO", cik="0001849056")
-    theirs = _sec(db, "FRGN", cik="0009999999", tenant_id=OTHER_TENANT_ID)
-    _thesis(db, "Mine", [("OKLO", mine)])
-    _thesis(db, "Theirs", [("FRGN", theirs)], tenant_id=OTHER_TENANT_ID)
-    # the poison member: a demo-tenant thesis holding the OTHER tenant's id (shouldn't happen post-guard)
-    _thesis(db, "Poison", [("FRGN", theirs)])
+    mine = _sec(db, "OKLO", cik="0001849056")  # the DATA master
+    theirs = _sec(db, "FRGN", cik="0009999999")  # the DATA master
+    stray = _sec(db, "STRY", cik="0008888888", tenant_id=OTHER_TENANT_ID)  # a workspace-tenant row
+    _thesis(db, "W card", [("OKLO", mine)], tenant_id=OTHER_TENANT_ID)
+    _thesis(db, "V card", [("FRGN", theirs)], tenant_id=second)
+    _thesis(db, "W poison", [("STRY", stray)], tenant_id=OTHER_TENANT_ID)
 
     scopes = enrich_identity.resolve_baskets_scope(db)
-    assert scopes[DEFAULT_TENANT_ID].cik_to_sid == {"0001849056": mine}
-    assert scopes[DEFAULT_TENANT_ID].unenrichable == 1  # the poison member — visible, never guessed
-    assert scopes[OTHER_TENANT_ID].cik_to_sid == {"0009999999": theirs}
+    assert set(scopes) == {DEFAULT_TENANT_ID}  # one scope: the data tenant (== DEFAULT until PR 2)
+    assert scopes[DEFAULT_TENANT_ID].cik_to_sid == {"0001849056": mine, "0009999999": theirs}
+    assert scopes[DEFAULT_TENANT_ID].unenrichable == 1  # the stray member — visible, never guessed
 
-    # run the enrich: each tenant's rows written under ITS tenant only
     edgar = _FakeEdgar(
         {
             _key("0001849056"): _subs("1849056", sic="Electric Services"),
             _key("0009999999"): _subs("9999999", sic="Metal Mining"),
+            _key("0008888888"): _subs("8888888", sic="Should Never Be Read"),
         }
     )
-    receipts = {r.tenant_id: r for r in enrich_identity.run_enrich(db, edgar, scopes)}
-    assert (receipts[DEFAULT_TENANT_ID].enriched, receipts[DEFAULT_TENANT_ID].skipped) == (1, 0)
-    assert (receipts[OTHER_TENANT_ID].enriched, receipts[OTHER_TENANT_ID].skipped) == (1, 0)
+    (receipt,) = enrich_identity.run_enrich(db, edgar, scopes)
+    assert receipt.tenant_id == DEFAULT_TENANT_ID
+    assert (receipt.enriched, receipt.skipped) == (2, 0)
     assert master.get(db, mine).sector == "Electric Services"
-    assert master.get(db, theirs, tenant_id=OTHER_TENANT_ID).sector == "Metal Mining"
+    assert master.get(db, theirs).sector == "Metal Mining"
+    # the stray workspace-tenant row is never enriched
+    assert master.get(db, stray, tenant_id=OTHER_TENANT_ID).sector is None
 
 
 def test_universe_scope_targets_the_canonical_primary_row_per_cik(db):

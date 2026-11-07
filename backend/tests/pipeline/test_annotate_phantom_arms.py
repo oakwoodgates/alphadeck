@@ -83,7 +83,7 @@ class _Pre390PointInTimeData(PointInTimeData):
                 "SELECT DISTINCT ON (security_id, metric_key, period_end) * FROM fact_fundamentals "
                 "WHERE tenant_id = %s AND security_id = %s AND valid_from <= %s AND recorded_at <= %s "
                 "ORDER BY security_id, metric_key, period_end, recorded_at DESC, id DESC",
-                (self.tenant_id, security_id, self.asof, self.known_at),
+                (self.data_tenant, security_id, self.asof, self.known_at),  # DATA (domain.scopes)
             )
             rows = cur.fetchall()
         return [

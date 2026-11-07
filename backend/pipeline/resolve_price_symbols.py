@@ -48,6 +48,7 @@ import psycopg
 
 from db.session import DEFAULT_TENANT_ID, connect
 from domain.market_time import market_today
+from domain.scopes import DATA_TENANT_ID
 from domain.thesis import Thesis
 from ingest.prices.eod_loader import recent_distinct_bar_counts
 from ingest.prices.resolve_symbol import resolve_price_symbol
@@ -107,7 +108,7 @@ def resolve_thesis(
     ``set_price_symbol`` (skipped under ``--dry-run``). A per-member resolver error is caught and counted,
     never fatal. The caller owns the transaction (commit per thesis)."""
     adopt_map = adopt_map or {}
-    tenant = thesis.tenant_id or DEFAULT_TENANT_ID
+    tenant = DATA_TENANT_ID  # the master is DATA (domain.scopes)
     r = ThesisReceipt(
         thesis_id=thesis.id, tenant_id=tenant, name=thesis.name, members=len(thesis.basket)
     )

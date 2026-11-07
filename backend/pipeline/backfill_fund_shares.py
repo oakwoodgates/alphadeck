@@ -39,6 +39,7 @@ from db.session import connect
 from db.write_lock import CompanyLockBusy, acquire_company_lock
 from domain.enums import InstrumentKind
 from domain.market_time import market_today
+from domain.scopes import DATA_TENANT_ID
 from domain.settings import get_settings
 from ingest.funds.ingest_security import ingest_fund_shares_for_security
 from ingest.funds.polygon import PolygonFundSource
@@ -126,7 +127,7 @@ def backfill_thesis(
     for m in thesis.basket:
         if m.security_id is None:
             continue  # unresolved placement — no exact member to backfill against
-        sec = master.get(conn, m.security_id, tenant_id=thesis.tenant_id)
+        sec = master.get(conn, m.security_id, tenant_id=DATA_TENANT_ID)  # DATA (domain.scopes)
         if sec is None:
             results.append(BackfillResult(m.ticker, m.security_id, error="not in tenant master"))
             continue
@@ -151,7 +152,7 @@ def backfill_thesis(
                 r = ingest_fund_shares_for_security(
                     conn,
                     sec,
-                    tenant_id=thesis.tenant_id,
+                    tenant_id=DATA_TENANT_ID,  # the fund samples are DATA
                     allow_live=allow_live,
                     force_refresh=force_refresh,
                     source=_PinnedDateSource(polygon, d),

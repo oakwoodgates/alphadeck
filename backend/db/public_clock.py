@@ -210,7 +210,14 @@ INGESTED_COL = "ingested_at"
 
 def partition_cols(table: str) -> list[str]:
     """``tenant_id, <scope>, <identity minus scope>`` — ONE logical fact, scoped, exactly as the as-of reads
-    partition it."""
+    partition it.
+
+    ``tenant_id`` leads because a version's public instant is computed WITHIN its own tenant (the two tenant
+    scopes, ``domain.scopes``): a MIXED table's feed rows (the data tenant) and a workspace's ratified rows are
+    each windowed on their own, and the as-of pick then resolves the union across them (``db.bitemporal`` —
+    the natural key carries no tenant). Every cross-version join below (the price tape's edge, the split list,
+    the 4/A record behind a link) matches the row's OWN tenant, which is right for those DATA tables.
+    """
     from db.bitemporal import _FACT_IDENTITY  # local: db.bitemporal imports this module
 
     ident = _FACT_IDENTITY[table]

@@ -65,6 +65,7 @@ from db.write_lock import CompanyLockBusy, acquire_company_lock
 from domain.enums import Authorship, InstrumentKind, TermTier
 from domain.extraction import ExtractedFact, ExtractionResult, Tier
 from domain.market_time import serve_view
+from domain.scopes import DATA_TENANT_ID
 from domain.settings import get_settings
 from domain.thesis import (
     ETFS_LABEL,
@@ -254,19 +255,22 @@ def resolve_etf(
     ticker = req.ticker.strip().upper()
     if not ticker:
         raise HTTPException(status_code=422, detail="a ticker is required")
-    existing_id = master.ids_for_tickers(conn, [ticker], tenant_id=tenant_id).get(ticker)
+    # the master is DATA (domain.scopes, docs/TENANT_SCOPES.md): looked up + written under the data tenant
+    existing_id = master.ids_for_tickers(conn, [ticker], tenant_id=DATA_TENANT_ID).get(ticker)
     try:
         if existing_id is not None:
             # the HIT case (SPY/GLD already present as equity) — flip it in place, then re-read so the
             # response carries the stamped kind (resolve's early-return would return the pre-mark row)
-            master.mark_instrument_kind(conn, existing_id, InstrumentKind.ETF, tenant_id=tenant_id)
-            sec = master.get(conn, existing_id, tenant_id=tenant_id)
+            master.mark_instrument_kind(
+                conn, existing_id, InstrumentKind.ETF, tenant_id=DATA_TENANT_ID
+            )
+            sec = master.get(conn, existing_id, tenant_id=DATA_TENANT_ID)
         else:
             # the CREATE case (a thematic ETF absent from SEC) — insert marked 'etf' from birth (cik=None)
             sec = master.resolve(
                 conn,
                 ticker,
-                tenant_id=tenant_id,
+                tenant_id=DATA_TENANT_ID,
                 instrument_kind=InstrumentKind.ETF,
                 allow_live=True,
             )
@@ -521,7 +525,8 @@ def ingest_security_prices(
     a fresh name is a cache miss and fetches live; a same-day re-click serves from the cache — the daily
     cron, not this endpoint, owns force-refresh). No-lookahead: ``recorded_at`` = now, never backdated.
     Shares ONE implementation with ``pipeline.ingest_thesis`` (``ingest_bars_for_security``)."""
-    sec = master.get(conn, security_id, tenant_id=tenant_id)
+    # the master + the price tape are DATA (domain.scopes): read + written under the data tenant
+    sec = master.get(conn, security_id, tenant_id=DATA_TENANT_ID)
     if sec is None:
         raise HTTPException(status_code=404, detail="unknown security for this tenant")
     if not sec.ticker:
@@ -543,11 +548,11 @@ def ingest_security_prices(
                     sec.id,
                     proposal.proposed_symbol,
                     basis=f"resolver:auto {proposal.why}",
-                    tenant_id=tenant_id,
+                    tenant_id=DATA_TENANT_ID,
                 )
                 conn.commit()
                 sec = (
-                    master.get(conn, security_id, tenant_id=tenant_id) or sec
+                    master.get(conn, security_id, tenant_id=DATA_TENANT_ID) or sec
                 )  # use the resolved symbol
         except (
             Exception
@@ -569,7 +574,7 @@ def ingest_security_prices(
         ) from busy
     try:
         with lock:  # released only after the commit below — the commit must happen under the lock
-            bars = ingest_bars_for_security(conn, sec, tenant_id=tenant_id)
+            bars = ingest_bars_for_security(conn, sec, tenant_id=DATA_TENANT_ID)
             conn.commit()
     except HTTPException:
         raise
@@ -581,7 +586,7 @@ def ingest_security_prices(
         ticker=sec.ticker,
         bars_appended=bars.appended,
         bars_reversioned=bars.reversioned,
-        latest_bar=latest_bar_date(conn, security_id, tenant_id=tenant_id),
+        latest_bar=latest_bar_date(conn, security_id, tenant_id=DATA_TENANT_ID),
     )
 
 
@@ -1612,12 +1617,13 @@ def auto_confirm_fact(
       sum or a stale cover;
     - ``no_candidate`` / ``no_value`` — nothing to apply.
     """
-    if not master.exists(conn, req.security_id, tenant_id=tenant_id):
+    # the master is DATA (domain.scopes); the fact below is written under the caller's tenant
+    if not master.exists(conn, req.security_id, tenant_id=DATA_TENANT_ID):
         raise HTTPException(status_code=404, detail="security not in this tenant's master")
     # the idempotency + no-clobber gate FIRST: cheapest, and it short-circuits before any SEC traffic
     if _has_shares_fact(conn, req.security_id, tenant_id):
         return AutoConfirmOut(applied=False, reason="already_on_file")
-    cik = master.ciks_for(conn, {req.security_id}, tenant_id=tenant_id).get(req.security_id)
+    cik = master.ciks_for(conn, {req.security_id}, tenant_id=DATA_TENANT_ID).get(req.security_id)
     if not cik:
         raise HTTPException(status_code=404, detail="no CIK for this security — resolve it first")
     client = EdgarClient(allow_live=True)
@@ -1674,7 +1680,8 @@ def ratify_fact(
     ``vouched`` records whether the operator confirmed the shown ``estimate`` as-is or overrode it — PROVENANCE
     for the drift-cron + the agree/disagree signal, NEVER a scoring input (all vouched states score identically).
     """
-    if not master.exists(conn, req.security_id, tenant_id=tenant_id):
+    # the master is DATA (domain.scopes); the ratified fact is written under the caller's tenant (``common``)
+    if not master.exists(conn, req.security_id, tenant_id=DATA_TENANT_ID):
         raise HTTPException(status_code=404, detail="security not in this tenant's master")
     common = dict(
         source=req.source,
@@ -1695,7 +1702,9 @@ def ratify_fact(
         )
     elif req.fact_type == "shares_outstanding":
         # F9: the filing whose cover carries the ratified count (cache only; none = the ratification stands)
-        cik = master.ciks_for(conn, {req.security_id}, tenant_id=tenant_id).get(req.security_id)
+        cik = master.ciks_for(conn, {req.security_id}, tenant_id=DATA_TENANT_ID).get(
+            req.security_id
+        )
         accession, accepted = shares_publication(
             EdgarClient(allow_live=False).cache_dir,
             cik or cik_of_source_ref(req.source_ref),

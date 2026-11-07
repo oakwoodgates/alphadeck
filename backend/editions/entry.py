@@ -42,6 +42,7 @@ from zoneinfo import ZoneInfo
 import psycopg
 
 from domain.market_time import market_tz
+from domain.scopes import DATA_TENANT_ID
 
 SEED_MIGRATION = "0043_basket_snapshot.sql"
 
@@ -318,7 +319,8 @@ def derive_all(
     for r in rosters:
         entries[r.thesis_id] = estimate_entries(
             r,
-            first_pulls={sid: ts for (ten, sid), ts in pulls.items() if ten == r.tenant_id},
+            # the price + insider rows are DATA (domain.scopes): the data tenant's first pulls
+            first_pulls={sid: ts for (ten, sid), ts in pulls.items() if ten == DATA_TENANT_ID},
             first_cards={sid: d for (tid, sid), d in cards.items() if tid == r.thesis_id},
         )
     return rosters, entries

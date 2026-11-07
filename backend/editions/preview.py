@@ -23,6 +23,7 @@ from uuid import UUID
 import psycopg
 
 from domain.call import CallCard
+from domain.scopes import DATA_TENANT_ID
 from replay.episodes import derive_episodes
 from replay.schema import CallSnapshot, Episode
 from replay.scoring import score_episode
@@ -93,10 +94,8 @@ def compare_to_record(
         k1 = {(e.security_id, e.arm_date) for e in e1}
         common = sorted(set(rec_days) & set(ed_days))
         differs = [d for d in common if _armed(rec_days[d]) != _armed(ed_days[d])]
-        thesis = thesis_repo.get(conn, tid)
         conn.commit()
-        tenant = thesis.tenant_id if thesis else None
-        prices = PgRealizedPrices(conn, tenant_id=tenant, cap=end)
+        prices = PgRealizedPrices(conn, tenant_id=DATA_TENANT_ID, cap=end)  # the tape is DATA
         s0, s1 = _scored(e0, prices, end), _scored(e1_all, prices, end)
         conn.commit()
         r0 = _returns(s0)

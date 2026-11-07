@@ -98,7 +98,7 @@ Three load-bearing decisions drive the shape:
 | LLM | Anthropic API behind a model-agnostic interface; structured/tool-use outputs with source citations |
 | Frontend | TypeScript · React (Vite SPA) · Tailwind · TanStack Query |
 | Charts | lightweight-charts (price/volume/breakout) · visx/Recharts (analytics) |
-| Ops | Docker Compose → single VPS / Fly / Railway. Monolith. `tenant_id` in schema from day one; login + roles ([`docs/AUTH.md`](docs/AUTH.md)) |
+| Ops | Docker Compose → single VPS / Fly / Railway. Monolith. `tenant_id` on every table, in two scopes: the shared DATA tenant and one WORKSPACE per user (`docs/TENANT_SCOPES.md`); login + roles ([`docs/AUTH.md`](docs/AUTH.md)) |
 
 ## Repo layout (proposed)
 

@@ -33,6 +33,7 @@ import psycopg
 
 from domain.call import CallCard, MemberCall
 from domain.enums import Kind, State
+from domain.scopes import DATA_TENANT_ID
 from domain.thesis import Thesis
 from notify import (
     ArmedName,
@@ -146,7 +147,7 @@ def transition_event(
             # SAVEPOINT: isolate the enrichment read from the record's transaction (the module docstring).
             # The tuple-build stays OUTSIDE the savepoint (pure Python, no DB).
             with conn.transaction():
-                ident = identities(conn, [*card_ids, *dropped], tenant_id=thesis.tenant_id)
+                ident = identities(conn, [*card_ids, *dropped], tenant_id=DATA_TENANT_ID)
             if card.state is State.ARMED:
                 armed_payload = tuple(_armed_name(m, ident) for m in card.armed_members)
             if both_armed:
@@ -226,7 +227,9 @@ def digest_entry(
         if not members:
             return None
         try:
-            ident = identities(conn, [m.security_id for m in members], tenant_id=thesis.tenant_id)
+            ident = identities(
+                conn, [m.security_id for m in members], tenant_id=DATA_TENANT_ID
+            )  # the master is DATA (domain.scopes)
             conn.commit()  # end the read transaction it opened (the record is already committed)
         except (
             Exception

@@ -43,7 +43,8 @@ from uuid import UUID
 
 import psycopg
 
-from db.session import connect, current_tenant_id
+from db.session import connect
+from domain.scopes import DATA_TENANT_ID
 from ingest.edgar.client import EdgarClient
 from repositories import thesis_repo
 from securities import master
@@ -95,11 +96,12 @@ def resolve_baskets_scope(
         theses = thesis_repo.list_all(conn)
     scopes: dict[UUID, TenantScope] = {}
     for thesis in theses:
-        scope = scopes.setdefault(thesis.tenant_id, TenantScope())
+        # the master is DATA (domain.scopes): every basket enriches the one data-tenant master
+        scope = scopes.setdefault(DATA_TENANT_ID, TenantScope())
         sids = [m.security_id for m in thesis.basket if m.security_id is not None]
         if not sids:
             continue
-        secs = master.get_many(conn, sids, tenant_id=thesis.tenant_id)
+        secs = master.get_many(conn, sids, tenant_id=DATA_TENANT_ID)
         for sid in set(sids):
             sec = secs.get(sid)
             if sec is not None and sec.cik:
@@ -180,7 +182,7 @@ def main(argv: list[str] | None = None) -> None:
     conn = connect()
     try:
         if a.universe:
-            tenant = UUID(a.tenant_id) if a.tenant_id else current_tenant_id()
+            tenant = UUID(a.tenant_id) if a.tenant_id else DATA_TENANT_ID  # the master is DATA
             scopes = resolve_universe_scope(conn, tenant_id=tenant)
         else:
             scopes = resolve_baskets_scope(conn, thesis_id=UUID(a.thesis) if a.thesis else None)

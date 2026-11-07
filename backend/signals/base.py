@@ -11,9 +11,9 @@ import psycopg
 from db.bitemporal import as_of, as_of_many, as_of_thesis
 from db.clock import db_now
 from db.public_clock import Clock
-from db.session import DEFAULT_TENANT_ID
 from domain.config import CallConfig
 from domain.market_time import day_clock_public_by, view_day
+from domain.scopes import resolve_scopes, tenants_for
 from domain.signal import SignalEvent
 from domain.splits import on_view_scale
 from domain.trading_days import closure_name
@@ -64,9 +64,10 @@ class PointInTimeData:
 
     - **memo** — each ``(table, security_id)`` as-of result is fetched ONCE for the PIT's lifetime
       (identity reads — ``security_name`` / ``security_cik`` / ``_benchmark_id`` — likewise). The memo key
-      is ONLY the table + the scope id: ``asof`` / ``known_at`` / ``tenant_id`` are fixed at construction,
-      so a memo can never cross a time or tenant boundary, and a per-CALL value (a caller's
-      ``lookback_days``) is NEVER part of a key. Every accessor hands back a FRESH list (the row dicts
+      is the table + the TENANT TUPLE that table reads (``domain.scopes.tenants_for``) + the scope id:
+      ``asof`` / ``known_at`` / ``data_tenant`` / ``workspace`` are fixed at construction, so a memo can never
+      cross a time or a scope boundary, and a per-CALL value (a caller's ``lookback_days``) is NEVER part of
+      a key. Every accessor hands back a FRESH list (the row dicts
       are shared; readers are audited never to mutate a row).
     - **prefetch** — with a ``basket`` (the thesis's resolved security ids), the FIRST read of a
       security-scoped table for a basket member loads that table for the WHOLE basket in one
@@ -90,11 +91,22 @@ class PointInTimeData:
         *,
         asof: date,
         known_at: datetime | None = None,
-        tenant_id: UUID = DEFAULT_TENANT_ID,
+        data_tenant: UUID | None = None,
+        workspace: UUID | None = None,
+        tenant_id: UUID | None = None,
         basket: Iterable[UUID] | None = None,
         bounds: Mapping[str, int | None] | None = None,
         clock: Clock = "record",
     ) -> None:
+        """``data_tenant`` (default ``DATA_TENANT_ID``) is the shared DATA scope — the master, every ingested
+        fact, the split list; ``workspace`` is the caller's WORKSPACE — the thesis-scoped facts and the
+        workspace's own ratified rows of a MIXED table. Each fact read names its tenants through
+        ``domain.scopes.tenants_for`` (docs/TENANT_SCOPES.md).
+
+        ``tenant_id`` is a TRANSITION ALIAS (PR 2 removes it): it sets BOTH scopes to one tenant — every
+        pre-split call site's meaning — and cannot be combined with ``data_tenant`` / ``workspace``.
+        ``workspace`` left unset is ``DEFAULT_TENANT_ID`` (the demo/test default, equal to the data tenant
+        until PR 2 moves the founding workspace out) — likewise transitional."""
         self.conn = conn
         self.asof = asof
         # THE TRANSACTION-AXIS BOUND, from the clock that STAMPS ``recorded_at`` (``db.clock.db_now``),
@@ -102,15 +114,17 @@ class PointInTimeData:
         # column, so a host clock lagging the database made a just-ingested fact invisible to a live
         # call. Pinned ONCE here, so every accessor of this view answers against one bound.
         self.known_at = known_at or db_now(conn)
-        self.tenant_id = tenant_id
+        self.data_tenant, self.workspace = resolve_scopes(
+            data_tenant=data_tenant, workspace=workspace, tenant_id=tenant_id
+        )
         # which axis ``known_at`` bounds (the record clock live, the public clock for a history view)
         self.clock: Clock = clock
         # the resolved basket (prefetch scope); empty == no basket == per-security reads, memoized
         self._basket: frozenset[UUID] = frozenset(basket or ())
         # registry-derived read bounds, DAYS before asof per table (None / absent = unbounded)
         self._bounds: dict[str, int | None] = dict(bounds or {})
-        self._memo: dict[tuple[str, UUID], list[dict[str, Any]]] = {}
-        self._thesis_memo: dict[tuple[str, UUID], list[dict[str, Any]]] = {}
+        self._memo: dict[tuple[str, tuple[UUID, ...], UUID], list[dict[str, Any]]] = {}
+        self._thesis_memo: dict[tuple[str, tuple[UUID, ...], UUID], list[dict[str, Any]]] = {}
         self._prefetched: set[str] = set()
         self._identity: dict[UUID, tuple[str | None, str | None]] = {}  # sid -> (name, cik)
         self._identity_prefetched = False
@@ -129,10 +143,16 @@ class PointInTimeData:
         days = self._bounds.get(table)
         return None if days is None else self.asof - timedelta(days=days)
 
+    def _tenants(self, table: str) -> tuple[UUID, ...]:
+        """The tenants a read of ``table`` covers — the ONE map (``domain.scopes.tenants_for``): the data
+        tenant for a DATA table, the workspace for a WORKSPACE table, both for a MIXED one."""
+        return tenants_for(table, data=self.data_tenant, workspace=self.workspace)
+
     def _rows(self, table: str, security_id: UUID) -> list[dict[str, Any]]:
         """The memoized as-of rows for ``(table, security_id)`` — prefetched for the basket on the first
         touch of the table, per-security otherwise; both paths hold exactly the bounded window."""
-        key = (table, security_id)
+        tenants = self._tenants(table)
+        key = (table, tenants, security_id)
         if key not in self._memo:
             if security_id in self._basket and table not in self._prefetched:
                 batch = as_of_many(
@@ -141,12 +161,12 @@ class PointInTimeData:
                     security_ids=self._basket,
                     asof=self.asof,
                     known_at=self.known_at,
-                    tenant_id=self.tenant_id,
+                    tenant_id=tenants,
                     valid_from_lower=self._lower(table),
                     clock=self.clock,
                 )
                 for sid, rows in batch.items():
-                    self._memo[(table, sid)] = self._on_view_scale(
+                    self._memo[(table, tenants, sid)] = self._on_view_scale(
                         table, sid, rows  # an empty list too: "nothing on file", memoized
                     )
                 self._prefetched.add(table)
@@ -157,7 +177,7 @@ class PointInTimeData:
                     security_id=security_id,
                     asof=self.asof,
                     known_at=self.known_at,
-                    tenant_id=self.tenant_id,
+                    tenant_id=tenants,
                     clock=self.clock,
                 )
                 lower = self._lower(table)
@@ -179,7 +199,10 @@ class PointInTimeData:
         return on_view_scale(rows, self._split_rows(security_id), through=self._view_day)
 
     def _thesis_rows(self, table: str, thesis_id: UUID) -> list[dict[str, Any]]:
-        key = (table, thesis_id)
+        """A THESIS-scoped table (``fact_theme_conviction`` / ``fact_term_mentions``): WORKSPACE tables, so
+        the read covers the workspace only (``domain.scopes``)."""
+        tenants = self._tenants(table)
+        key = (table, tenants, thesis_id)
         if key not in self._thesis_memo:
             self._thesis_memo[key] = as_of_thesis(
                 self.conn,
@@ -187,14 +210,15 @@ class PointInTimeData:
                 thesis_id=thesis_id,
                 asof=self.asof,
                 known_at=self.known_at,
-                tenant_id=self.tenant_id,
+                tenant_id=tenants,
                 clock=self.clock,
             )
         return list(self._thesis_memo[key])
 
     def _identity_row(self, security_id: UUID) -> tuple[str | None, str | None]:
         """``(name, cik)`` from ``security_master`` — an IDENTITY read (never as-of), memoized; the basket's
-        rows are loaded in ONE tenant-filtered query on the first touch, an id outside it per-id."""
+        rows are loaded in ONE tenant-filtered query on the first touch, an id outside it per-id. The master
+        is DATA (``domain.scopes``): read under the data tenant."""
         if security_id not in self._identity:
             if security_id in self._basket and not self._identity_prefetched:
                 for sid in self._basket:
@@ -203,7 +227,7 @@ class PointInTimeData:
                     cur.execute(
                         "SELECT id, name, cik FROM security_master "
                         "WHERE tenant_id = %s AND id = ANY(%s)",
-                        (self.tenant_id, list(self._basket)),
+                        (self.data_tenant, list(self._basket)),
                     )
                     for row in cur.fetchall():
                         self._identity[row["id"]] = (row["name"], row["cik"])
@@ -212,7 +236,7 @@ class PointInTimeData:
                 with self.conn.cursor() as cur:
                     cur.execute(
                         "SELECT name, cik FROM security_master WHERE id = %s AND tenant_id = %s",
-                        (security_id, self.tenant_id),
+                        (security_id, self.data_tenant),
                     )
                     row = cur.fetchone()
                 self._identity[security_id] = (row["name"], row["cik"]) if row else (None, None)
@@ -252,7 +276,7 @@ class PointInTimeData:
         return window_prices(self._rows("fact_price_eod", sid), self.asof, lookback_days)
 
     def _benchmark_id(self, symbol: str) -> UUID | None:
-        """Resolve a benchmark ticker (SPY/IWM) to its ``security_master`` id within this tenant — the
+        """Resolve a benchmark ticker (SPY/IWM) to its ``security_master`` id in the DATA tenant — the
         ``instrument_kind = 'etf'`` filter matches the ``securities.benchmarks`` seed so a benchmark can
         never collide with an operating company that shares the ticker. Identity read, never as-of;
         memoized per symbol for the PIT's lifetime.
@@ -264,7 +288,7 @@ class PointInTimeData:
                     "SELECT id FROM security_master "
                     "WHERE tenant_id = %s AND ticker = %s AND instrument_kind = 'etf' "
                     "ORDER BY recorded_at DESC, id DESC LIMIT 1",
-                    (self.tenant_id, key),
+                    (self.data_tenant, key),
                 )
                 row = cur.fetchone()
             self._bench_ids[key] = row["id"] if row else None
@@ -385,13 +409,13 @@ class PointInTimeData:
             ids = list(self._basket) if security_id in self._basket else [security_id]
             if self.clock == "public":
                 self._splits.update(
-                    split_repo.current_rows(self.conn, tenant_id=self.tenant_id, security_ids=ids)
+                    split_repo.current_rows(self.conn, tenant_id=self.data_tenant, security_ids=ids)
                 )
             else:
                 self._splits.update(
                     split_repo.as_of_rows(
                         self.conn,
-                        tenant_id=self.tenant_id,
+                        tenant_id=self.data_tenant,  # the split list is DATA (domain.scopes)
                         security_ids=ids,
                         known_at=self.known_at,
                     )
@@ -448,7 +472,8 @@ class SignalPointInTimeData(Protocol):
 
     asof: date
     known_at: datetime
-    tenant_id: UUID
+    data_tenant: UUID  # the shared DATA scope (domain.scopes)
+    workspace: UUID  # the caller's WORKSPACE scope
 
     def insider_txns(self, security_id: UUID) -> list[dict[str, Any]]: ...
 

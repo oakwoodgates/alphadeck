@@ -47,6 +47,7 @@ from uuid import UUID
 import psycopg
 from pydantic import BaseModel
 
+from domain.scopes import DATA_TENANT_ID
 from replay.episodes import derive_episodes
 from replay.schema import CallSnapshot, Episode, MemberRow, Outcome
 from replay.scoring import score_episode
@@ -639,7 +640,7 @@ def edition_diff(
     # two theses keeps its tape loaded), pinned once like the Scoreboard's per-request readers
     readers: dict[UUID, MemoPrices] = {}
     for thesis in thesis_repo.list_all(conn, include_archived=True):
-        tenant = thesis.tenant_id
+        tenant = DATA_TENANT_ID  # the price tape is DATA (domain.scopes)
         if tenant not in readers:
             edge = market_tape_edge(conn, tenant_id=tenant, cap=through)
             readers[tenant] = MemoPrices(

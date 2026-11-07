@@ -9,7 +9,9 @@ from psycopg.rows import dict_row
 
 DEFAULT_DATABASE_URL = "postgresql://alphadeck:alphadeck@localhost:5544/alphadeck"
 
-# One seeded tenant (auth deferred, but tenant_id is on every table from day one). Matches 0001_init.sql.
+# The demo/test default tenant — retired in PR 2. Matches 0001_init.sql's seeded row, which migration 0076 marks
+# as THE data tenant: it equals ``domain.scopes.DATA_TENANT_ID`` (a test pins the two equal). A DATA read or a
+# feed write names ``DATA_TENANT_ID``, never this; see docs/TENANT_SCOPES.md.
 DEFAULT_TENANT_ID = UUID("00000000-0000-0000-0000-000000000001")
 
 
@@ -22,7 +24,7 @@ def current_tenant_id() -> UUID:
     auth (auth is deferred). The Workbench works IN one tenant, so it resolves the current tenant here
     rather than listing all tenants mixed (the Board's known limitation). Defaults to the demo tenant.
     Per-thesis reads still take their tenant from the thesis (intrinsic); this scopes the write/promote
-    path and any future tenant-scoped listing. See docs/PRODUCTION_TENANT.md."""
+    path and any future tenant-scoped listing. See docs/TENANT_SCOPES.md."""
     raw = os.environ.get("ALPHADECK_TENANT_ID")
     return UUID(raw) if raw else DEFAULT_TENANT_ID
 
