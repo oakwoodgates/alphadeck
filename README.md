@@ -78,7 +78,8 @@ the API's own JSON (the nightly record and Decision Queue, a call with its evide
 flags, display signals, decisions, a ticker lookup, the eight MONITOR dashboards, and the research stages: what
 discovery found, what is left to ratify, one name's scoring-fact candidates, the onboarding queue), each reply
 bounded and stating its as-of and source, plus seven prompts and, for this repository's Claude Code sessions, the
-`alphadeck-agent` skill. Setup, the tool table and the error codes are in
+`alphadeck-agent` skill. The server signs in with a bearer token from `ALPHADECK_MCP_TOKEN` (minted by
+`python -m pipeline.users token create`). Setup, the tool table and the error codes are in
 [`docs/AGENT_TOOLS.md`](docs/AGENT_TOOLS.md).
 
 Three load-bearing decisions drive the shape:
