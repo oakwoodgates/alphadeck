@@ -77,7 +77,14 @@ from domain.trading_days import is_first_session_of_week
 from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
 from ingest.edgar.filing_index import SKIP_REASONS as FILING_INDEX_SKIP_REASONS
 from ingest.edgar.form25 import delisted_class_is_other
-from notify import DigestThesis, HealthEvent, Notifier, TransitionEvent, get_notifier
+from notify import (
+    DigestThesis,
+    HealthEvent,
+    Notifier,
+    TransitionEvent,
+    get_notifier,
+    notifier_for_workspace,
+)
 from pipeline import onboarding, pass_timings, push_policy
 from pipeline.call_for_thesis import call_for_thesis
 from pipeline.cron_run_log import (
@@ -539,6 +546,49 @@ def _push_timing(asof: date) -> NightTiming:
         return "current"
 
 
+class _WorkspaceNotifiers:
+    """The push destination PER WORKSPACE (docs/FEED_LOOP.md): ``tenant.notify_webhook`` when set; else the env
+    ``SLACK_WEBHOOK_URL`` only when the workspace's owner is a super admin; else the log notifier. Built once
+    per pass, one DB read per workspace, cached. An EXPLICIT ``override`` (a test or a caller that supplies its
+    own notifier) answers for every workspace unchanged. FAIL-OPEN: a read that fails answers the log notifier
+    (the record is never at stake, and a push never goes to a destination that could not be confirmed).
+    """
+
+    def __init__(self, conn: psycopg.Connection, override: Notifier | None = None) -> None:
+        self._conn = conn
+        self._override = override
+        self._cache: dict[UUID, Notifier] = {}
+
+    def for_workspace(self, workspace_id: UUID) -> Notifier:
+        if self._override is not None:
+            return self._override
+        got = self._cache.get(workspace_id)
+        if got is None:
+            got = self._build(workspace_id)
+            self._cache[workspace_id] = got
+        return got
+
+    def _build(self, workspace_id: UUID) -> Notifier:
+        try:
+            with self._conn.cursor() as cur:
+                cur.execute("SELECT notify_webhook FROM tenant WHERE id = %s", (workspace_id,))
+                row = cur.fetchone()
+                cur.execute(
+                    "SELECT 1 FROM app_user WHERE workspace_id = %s AND role = 'super_admin' "
+                    "AND disabled_at IS NULL LIMIT 1",
+                    (workspace_id,),
+                )
+                is_super = cur.fetchone() is not None
+            self._conn.commit()  # end the read transaction
+            return notifier_for_workspace(
+                (row or {}).get("notify_webhook"), owner_is_super_admin=is_super
+            )
+        except Exception:  # noqa: BLE001 — fail-open to the record-only notifier
+            self._conn.rollback()
+            _log.warning("workspace notifier lookup failed (fail-open: log only)", exc_info=True)
+            return notifier_for_workspace(None, owner_is_super_admin=False)
+
+
 def run_daily(
     conn: psycopg.Connection,
     *,
@@ -588,7 +638,7 @@ def run_daily(
     cfg = DEFAULT_CONFIG
     cfg_hash = config_hash(cfg)
     code_sha = get_settings().image_sha
-    notifier = notifier or get_notifier()
+    ws_notifiers = _WorkspaceNotifiers(conn, notifier)
     # The canonical-primary health guard: a master with multi-row CIKs but ZERO is_primary flags resolves
     # every multi-sibling CIK to an ARBITRARY row (warrant / preferred / OTC foreign ordinary) — and nothing
     # errors, so the state is invisible unless something says it. The cron is the daily surface; the line
@@ -613,7 +663,9 @@ def run_daily(
     pending_onboarding = _pending_onboarding(conn)
     onboarding_plan = _OnboardingPlan.for_pass(pending_onboarding, asof)
     # O4 (Q13) — this pass's newly-armed-names digest, one line per already-armed thesis
-    digest: list[DigestThesis] = []
+    digest: dict[UUID, list[DigestThesis]] = (
+        {}
+    )  # by the card's workspace: each group goes to its own channel
     out: list[ThesisRunResult] = []
     # X5 — `per_thesis` makes each thesis a timing scope on a metered pass (a pass-through otherwise)
     for thesis in per_thesis(thesis_repo.list_all(conn, workspace=WORKSPACE_ANY)):
@@ -820,7 +872,7 @@ def run_daily(
                 evt = push_policy.transition_event(
                     conn, thesis, prior, card, asof=asof, timing=_push_timing(asof)
                 )
-                timed("notify")(notifier.notify)(evt)
+                timed("notify")(ws_notifiers.for_workspace(thesis.tenant_id).notify)(evt)
                 res.transition = evt.label
             # R2b — stamp the run's ingest health on the recorded row (PROVENANCE, off the card). We reach
             # here only on a healthy OR partial ingest; ingest_fresh False marks the partial one so the
@@ -845,17 +897,21 @@ def run_daily(
                 conn, thesis, prior, card, covered=push_policy.covers_names(evt)
             )
             if entry is not None:
-                digest.append(entry)
+                digest.setdefault(thesis.tenant_id, []).append(entry)
         except Exception as e:  # noqa: BLE001 — one thesis's call never aborts the cron
             conn.rollback()
             res.error = (f"{res.error}; " if res.error else "") + f"call: {e}"
         out.append(res)
     # O4 (Q13) — ONE quiet digest per pass, after the loop, only when a name newly armed (fail-open: a digest
     # fault never costs a record or another push). A catch-up / late pass carries N1's label.
-    if digest:
-        # X5 — its own pass-level leg (the re-arm history read + the push)
+    for workspace_id, entries in digest.items():
+        # X5 — its own pass-level leg (the re-arm history read + the push), one digest PER WORKSPACE
         timed("digest")(push_policy.send_digest)(
-            conn, notifier, digest, asof=asof, timing=_push_timing(asof)
+            conn,
+            ws_notifiers.for_workspace(workspace_id),
+            entries,
+            asof=asof,
+            timing=_push_timing(asof),
         )
     return out
 
@@ -1184,6 +1240,9 @@ def run_daily_pass(
     ``on_started(started_at, asof)`` is called once the start artifact is written (fail-open): the Admin
     button's bounded runner (``pipeline/bounded_pass.py``) learns from it which artifact to mark ``crashed``
     if it has to stop the pass at the run timeout."""
+    # an EXPLICIT notifier answers for every push (a test seam); None = the per-workspace destinations. The OPS
+    # notifier (the health / crash pages, the run fingerprint) is always the env one when none is passed.
+    thesis_notifier = notifier
     notifier = notifier or get_notifier()
     lock = run_lock
     resolved_asof = asof
@@ -1217,6 +1276,7 @@ def run_daily_pass(
             asof=resolved_asof,
             allow_live=allow_live,
             notifier=notifier,
+            thesis_notifier=thesis_notifier,
             catch_up=catch_up,
             run_kind=run_kind,
             started_at=started_at,
@@ -1326,6 +1386,7 @@ def _run_daily_pass_locked(
     asof: date,
     allow_live: bool,
     notifier: Notifier,
+    thesis_notifier: Notifier | None = None,
     catch_up: bool,
     run_kind: str,
     started_at: datetime | None = None,
@@ -1444,7 +1505,7 @@ def _run_daily_pass_locked(
             conn,
             asof=asof,
             allow_live=allow_live,
-            notifier=notifier,
+            notifier=thesis_notifier,
             run_kind=run_kind,
             catch_up=catch_up,
             known_skips=known_keys(prior_skips),
@@ -2282,7 +2343,6 @@ def main(argv: list[str] | None = None) -> None:
         outcome = run_daily_pass(
             asof=asof,
             allow_live=allow_live,
-            notifier=notifier,
             catch_up=args.catch_up,
             run_kind=args.run_kind,
             run_lock=lock,  # ownership transfers: run_daily_pass releases it when the pass ends

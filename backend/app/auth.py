@@ -14,8 +14,8 @@ Three principals reach the API:
 request answers 401 before FastAPI validates a single parameter. ``require_super_admin`` (the data steward: Admin,
 Backtest, the business-type re-tag) is ``require_user`` + the role, else 403.
 
-One workspace in this PR: every user sits on tenant ...0001 (``db.session.DEFAULT_TENANT_ID``); PR 2 adds
-workspaces. The functions below are the same ones ``pipeline.users`` (the CLI) calls; the caller owns the
+Each user has one WORKSPACE (``app_user.workspace_id``, a ``kind='workspace'`` tenant): the caller's workspace is
+where their theses, calls and ratified facts live (docs/TENANT_SCOPES.md). The functions below are the same ones ``pipeline.users`` (the CLI) calls; the caller owns the
 transaction everywhere except the gate itself (see ``require_user``).
 """
 
@@ -39,7 +39,6 @@ from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatc
 from fastapi import Depends, HTTPException, Request
 
 from app.db_conn import get_conn
-from db.session import DEFAULT_TENANT_ID
 from domain.scopes import FOUNDING_WORKSPACE_ID
 from domain.settings import get_settings
 
@@ -74,13 +73,16 @@ class CurrentUser:
         return self.role == "super_admin"
 
 
-# The system principal: no row in app_user, a fixed nil id, the one workspace, a plain user's role.
+# The system principal: no row in app_user, a fixed nil id, a plain user's role, and NO workspace of its own:
+# ``workspace_id`` is the nil UUID, a placeholder that names no tenant and is never read (``app.deps.get_workspace``
+# answers a system request from the ``X-Alphadeck-Workspace`` header instead, so the cron's warm-up names one
+# workspace per request).
 SYSTEM_USER = CurrentUser(
     id=UUID(int=0),
     email="system",
     display_name="system",
     role="user",
-    workspace_id=DEFAULT_TENANT_ID,
+    workspace_id=UUID(int=0),
     principal="system",
 )
 

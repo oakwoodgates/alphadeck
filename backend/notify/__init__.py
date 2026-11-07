@@ -551,8 +551,14 @@ class SlackNotifier:
     contract holds for every other method here.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, webhook_url: str | None = None) -> None:
         self._log_sink = LogNotifier()  # the record — every transition, independent of the push
+        # a workspace's own destination (``tenant.notify_webhook``, docs/FEED_LOOP.md); None = the env webhook
+        self._webhook_url = webhook_url
+
+    def _url(self) -> str | None:
+        """The webhook this notifier posts to: its workspace's own, else the env ``SLACK_WEBHOOK_URL``."""
+        return self._webhook_url or get_settings().slack_webhook_url
 
     def notify(self, event: TransitionEvent) -> None:
         # (1) record every transition, always — before any push decision
@@ -600,15 +606,14 @@ class SlackNotifier:
             return
         self._post(text, "edition", f"Edition {event.number}")
 
-    @staticmethod
-    def _post(text: str, what: str, subject: str) -> None:
+    def _post(self, text: str, what: str, subject: str) -> None:
         """The one best-effort webhook POST every push shares. NEVER raises: a Slack outage / bad URL /
         network error / 4xx-5xx is logged and swallowed, so it can never corrupt the record."""
         try:
             import httpx  # lazy (repo convention) — the package imports without a live HTTP client
 
             s = get_settings()
-            url = s.slack_webhook_url
+            url = self._url()
             if not url:  # defensive: no webhook => no push (the event is already logged)
                 return
             resp = httpx.post(url, json={"text": text}, timeout=s.http_timeout_s)
@@ -629,10 +634,11 @@ class SlackNotifier:
             import httpx  # lazy (repo convention)
 
             s = get_settings()
-            if not s.slack_webhook_url:
+            url = self._url()
+            if not url:
                 return
             resp = httpx.post(
-                s.slack_webhook_url,
+                url,
                 json={"text": f"🚨 {event.label}"},
                 timeout=s.http_timeout_s,
             )
@@ -657,10 +663,11 @@ class SlackNotifier:
             import httpx  # lazy (repo convention)
 
             s = get_settings()
-            if not s.slack_webhook_url:  # no webhook => no push (the page is already logged above)
+            url = self._url()
+            if not url:  # no webhook => no push (the page is already logged above)
                 return
             resp = httpx.post(
-                s.slack_webhook_url,
+                url,
                 json={"text": self._format_spac(event)},
                 timeout=s.http_timeout_s,
             )
@@ -764,6 +771,18 @@ class SlackNotifier:
         urls += sorted({m.url for m in event.matches if m.url and m.url != event.url})
         lines.extend(urls)
         return "\n".join(lines)
+
+
+def notifier_for_workspace(webhook_url: str | None, *, owner_is_super_admin: bool) -> Notifier:
+    """The notifier for ONE workspace's pushes (docs/FEED_LOOP.md): its own ``tenant.notify_webhook`` when set
+    (a Slack adapter on that URL); else the env ``SLACK_WEBHOOK_URL`` ONLY when the workspace's owner is a
+    super admin (the founding operator keeps today's channel); else the LogNotifier (the record only). A user
+    can therefore never receive the operator's channel by accident."""
+    if webhook_url:
+        return SlackNotifier(webhook_url)
+    if owner_is_super_admin and get_settings().slack_webhook_url:
+        return SlackNotifier()
+    return LogNotifier()
 
 
 def get_notifier() -> Notifier:
