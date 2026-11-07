@@ -75,9 +75,11 @@ Four decision surfaces (plus an operator ops page); clickable mockups live in `d
 
 Local agents read the platform through a read-only MCP server (`agent_tools`): typed, data-first tools over
 the API's own JSON (the nightly record and Decision Queue, a call with its evidence, the thesis spine, data
-flags, display signals, decisions, a ticker lookup), each reply bounded and stating its as-of and source,
-plus five prompts and, for this repository's Claude Code sessions, the `alphadeck-agent` skill. Setup, the
-tool table and the error codes are in [`docs/AGENT_TOOLS.md`](docs/AGENT_TOOLS.md).
+flags, display signals, decisions, a ticker lookup, the eight MONITOR dashboards, and the research stages: what
+discovery found, what is left to ratify, one name's scoring-fact candidates, the onboarding queue), each reply
+bounded and stating its as-of and source, plus seven prompts and, for this repository's Claude Code sessions, the
+`alphadeck-agent` skill. Setup, the tool table and the error codes are in
+[`docs/AGENT_TOOLS.md`](docs/AGENT_TOOLS.md).
 
 Three load-bearing decisions drive the shape:
 
