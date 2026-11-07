@@ -27,6 +27,7 @@ from uuid import UUID
 import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from app.auth import CurrentUser, require_super_admin
 from app.deps import get_conn
 from app.routers.admin_price_feed import price_repairs_out
 from app.routers.admin_splits import count_needs_review as splits_needs_review_count
@@ -372,7 +373,35 @@ def _threshold(doc: dict, key: str, live: int) -> int:
     return int(v) if isinstance(v, int) and not isinstance(v, bool) else live
 
 
-def _tape_out(payloads: list[dict]) -> AdminTapeOut | None:
+class _NameGuard:
+    """A thesis NAME belongs to its workspace (auth PR 2, docs/ADMIN.md): the super admin sees another
+    workspace's card only as ids. ``label`` answers the card's name when it sits in the caller's own workspace,
+    else ``workspace <first 8 hex of the workspace id> · thesis <first 8 hex of the thesis id>``. The owner map
+    is ONE read of ``thesis`` (id -> tenant) per request; a card this read cannot find (deleted) is not the
+    caller's, so it reads as ids too (its workspace shows as ``unknown``). Tickers and security ids are DATA
+    and are never passed through here."""
+
+    def __init__(self, conn: psycopg.Connection | None, workspace: UUID | None) -> None:
+        self._workspace = workspace
+        self._owner: dict[UUID, UUID] = {}
+        if conn is not None:
+            with conn.cursor() as cur:
+                cur.execute("SELECT id, tenant_id FROM thesis")
+                self._owner = {r["id"]: r["tenant_id"] for r in cur.fetchall()}
+
+    def label(self, thesis_id: UUID | str | None, name: str) -> str:
+        try:
+            tid = thesis_id if isinstance(thesis_id, UUID) else UUID(str(thesis_id))
+        except (ValueError, TypeError):
+            return f"thesis {str(thesis_id)[:8]}"
+        owner = self._owner.get(tid)
+        if owner is not None and owner == self._workspace:
+            return name
+        ws = str(owner)[:8] if owner is not None else "unknown"
+        return f"workspace {ws} · thesis {str(tid)[:8]}"
+
+
+def _tape_out(payloads: list[dict], names: _NameGuard | None = None) -> AdminTapeOut | None:
     """The FEED freshness panel (G5a price tapes · F1 fund shares), built from the run artifacts that
     actually EVALUATED recency — ARTIFACT-SOURCED on purpose, not a fresh DB scan: this router's bound is
     "a read surface over the cron's own instrumentation" that owns no tables, and a second definition of
@@ -413,7 +442,11 @@ def _tape_out(payloads: list[dict]) -> AdminTapeOut | None:
                         security_id=UUID(str(s["security_id"])),
                         ticker=s.get("ticker"),
                         edge=date.fromisoformat(s["edge"]) if s.get("edge") else None,
-                        thesis=str(t.get("name") or ""),
+                        thesis=(
+                            names.label(t.get("id"), str(t.get("name") or ""))
+                            if names is not None
+                            else str(t.get("name") or "")
+                        ),
                         kind=kind,
                         # G5b — the delisting classification: a date here reclassifies the row from "stale
                         # — repair" to "closed — stopped trading <date>" (a pre-G5b artifact lacks the key
@@ -865,7 +898,10 @@ def _run_at() -> time:
 
 
 @router.get("/status", response_model=AdminStatusOut)
-def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatusOut:
+def get_admin_status(
+    conn: psycopg.Connection = Depends(get_conn),
+    user: CurrentUser = Depends(require_super_admin),
+) -> AdminStatusOut:
     """The freshness + health summary the admin page opens on — READ-ONLY (writes nothing, owns no
     tables). ``record`` measures the calls-log edge against the last EXPECTED Mon-Fri+RUN_AT run
     (container-local clock; a Friday edge on a Monday morning is CURRENT — never a weekend false
@@ -1147,7 +1183,8 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
 
     # G5a — the price-tape panel, from the artifacts ALREADY read above (no second read, no DB query): the
     # "is it watched?" view for prices. None until a pass has evaluated recency.
-    tape = _tape_out(payloads)
+    names = _NameGuard(conn, user.workspace_id)
+    tape = _tape_out(payloads, names)
     # T4 — the split-basis panel, from the same artifacts (no second read, no DB query)
     split_defects = _split_out(payloads)
     # MISSING CLOSES — the night's quiet line + the loud still-missing closes, from the same artifacts (no DB)
@@ -1192,6 +1229,20 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
         editions_nightly = _editions_nightly_out(edition_run_log.latest_edition_run())
     except Exception:  # noqa: BLE001 — the line is a passenger on the status read
         _log.exception("editions nightly line failed (fail-open — the status read is unaffected)")
+
+    # auth PR 2 — cards left on the DATA tenant (should be 0: a card belongs to a workspace). Fail-open.
+    data_tenant_theses = 0
+    try:
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT count(*) AS n FROM thesis WHERE tenant_id = %s", (DATA_TENANT_ID,)
+                )
+                data_tenant_theses = int(cur.fetchone()["n"])
+    except Exception:  # noqa: BLE001 — the count is a passenger on the status read
+        _log.exception(
+            "data-tenant thesis count failed (fail-open — the status read is unaffected)"
+        )
 
     # editions S7 — the automatic cut's one line, for seven days after it published the newest edition (a DB
     # read of that edition). Fail-open like the line above.
@@ -1250,7 +1301,7 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
             late_only_nights=[
                 AdminLateOnlyNightOut(
                     thesis_id=n.thesis_id,
-                    thesis_name=n.thesis_name,
+                    thesis_name=names.label(n.thesis_id, n.thesis_name),
                     asof=n.asof,
                     recorded_at=n.recorded_at.astimezone(tz),
                     edgar_open=n.edgar_open.astimezone(tz),
@@ -1274,6 +1325,7 @@ def get_admin_status(conn: psycopg.Connection = Depends(get_conn)) -> AdminStatu
         missing_closes=missing_closes,
         editions_cut=editions_cut,
         master_refresh=master_refresh,
+        data_tenant_theses=data_tenant_theses,
     )
 
 

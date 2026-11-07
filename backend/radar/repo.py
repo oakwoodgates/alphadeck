@@ -12,15 +12,15 @@ from uuid import UUID
 
 import psycopg
 
-from db.session import DEFAULT_TENANT_ID
 from domain.market_time import market_today
+from domain.scopes import DATA_TENANT_ID
 
 # SIC 6770's official description, verbatim — the deterministic shell tell (`sector` stores
 # EDGAR's sicDescription; the slice-0 FE classifier reads the same string).
 BLANK_CHECKS = "Blank Checks"
 
 
-def known_shell_ciks(conn: psycopg.Connection, *, tenant_id: UUID = DEFAULT_TENANT_ID) -> set[str]:
+def known_shell_ciks(conn: psycopg.Connection, *, tenant_id: UUID = DATA_TENANT_ID) -> set[str]:
     """CIKs (zero-padded, the master's stored form) whose enriched sector reads blank-check —
     the radar's known-shell set (lazy accretion source (i))."""
     with conn.cursor() as cur:
@@ -33,7 +33,7 @@ def known_shell_ciks(conn: psycopg.Connection, *, tenant_id: UUID = DEFAULT_TENA
 
 
 def tickers_for(
-    conn: psycopg.Connection, security_ids: list[UUID], *, tenant_id: UUID = DEFAULT_TENANT_ID
+    conn: psycopg.Connection, security_ids: list[UUID], *, tenant_id: UUID = DATA_TENANT_ID
 ) -> dict[UUID, str | None]:
     """Map master ids -> tickers (display join for the tape + the attach receipt)."""
     if not security_ids:
@@ -59,7 +59,7 @@ class SpacEvent:
 
 
 def record_event_if_changed(
-    conn: psycopg.Connection, ev: SpacEvent, *, tenant_id: UUID = DEFAULT_TENANT_ID
+    conn: psycopg.Connection, ev: SpacEvent, *, tenant_id: UUID = DATA_TENANT_ID
 ) -> bool:
     """Append the event unless the latest version of this accession already says the same thing.
     The compare is the FACT surface (form / items / filed / security_id join) — a company-name
@@ -113,7 +113,7 @@ class SpacMatch:
 
 
 def record_match_if_changed(
-    conn: psycopg.Connection, m: SpacMatch, *, tenant_id: UUID = DEFAULT_TENANT_ID
+    conn: psycopg.Connection, m: SpacMatch, *, tenant_id: UUID = DATA_TENANT_ID
 ) -> bool:
     with conn.cursor() as cur:
         cur.execute(
@@ -154,7 +154,7 @@ def list_events(
     *,
     days: int = 90,
     limit: int = 200,
-    tenant_id: UUID = DEFAULT_TENANT_ID,
+    tenant_id: UUID = DATA_TENANT_ID,
 ) -> list[dict[str, Any]]:
     """The tape read: the LATEST version of each accession filed within the window, newest first."""
     cutoff = market_today() - timedelta(days=days)
@@ -174,7 +174,7 @@ def list_events(
 
 
 def events_for_ciks(
-    conn: psycopg.Connection, ciks: list[str], *, tenant_id: UUID = DEFAULT_TENANT_ID
+    conn: psycopg.Connection, ciks: list[str], *, tenant_id: UUID = DATA_TENANT_ID
 ) -> list[dict[str, Any]]:
     """The FULL latest-version event history for the given CIKs (no window) — the state derive
     must see history beyond the tape's display window or an old announcement reads as searching."""
@@ -192,7 +192,7 @@ def events_for_ciks(
 
 
 def latest_matches(
-    conn: psycopg.Connection, accessions: list[str], *, tenant_id: UUID = DEFAULT_TENANT_ID
+    conn: psycopg.Connection, accessions: list[str], *, tenant_id: UUID = DATA_TENANT_ID
 ) -> list[dict[str, Any]]:
     """The latest version of every (accession, thesis) match row for the given accessions."""
     if not accessions:
@@ -213,7 +213,7 @@ def matched_terms_for(
     cik: str,
     thesis_id: UUID,
     *,
-    tenant_id: UUID = DEFAULT_TENANT_ID,
+    tenant_id: UUID = DATA_TENANT_ID,
 ) -> list[str]:
     """The union of a CIK's matched terms for one thesis (latest version per accession) — the
     ``surfaced_terms`` provenance an attach freezes onto the new basket member."""

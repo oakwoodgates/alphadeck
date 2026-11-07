@@ -25,8 +25,8 @@ from uuid import UUID
 
 import psycopg
 
-from db.session import DEFAULT_TENANT_ID
 from domain.market_time import market_today
+from domain.scopes import DATA_TENANT_ID
 from domain.settings import get_settings
 from ingest import CacheMiss
 from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
@@ -153,7 +153,7 @@ def run_spac_radar(
     allow_live: bool = True,
     user_agent: str | None = None,
     edgar_client: EdgarClient | None = None,
-    tenant_id: UUID = DEFAULT_TENANT_ID,
+    tenant_id: UUID = DATA_TENANT_ID,
     match: bool = True,
     notifier: Notifier | None = None,
     workspace: UUID,

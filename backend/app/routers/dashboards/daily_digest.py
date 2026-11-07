@@ -56,7 +56,6 @@ from dashboards.hot_board import LogRow, SinceGap, candidates
 from dashboards.insider_tracker import RoleClass
 from dashboards.nights import CardNights, Night, Scope
 from dashboards.what_changed import Change, Section, security_ids
-from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard
 from domain.enums import Kind, State
 from domain.market_time import countdown_origin, market_clock, serve_view
@@ -595,7 +594,8 @@ def read_held(
                 _SHARES_SQL,
                 {
                     "thesis": thesis.id,
-                    "tenant": thesis.tenant_id or DEFAULT_TENANT_ID,
+                    "tenant": thesis.tenant_id
+                    or DATA_TENANT_ID,  # a stored card always has its workspace
                     "day": pos.opened_on,
                     "sid": pos.security_id,
                     "known": known_at,

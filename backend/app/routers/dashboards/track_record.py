@@ -47,7 +47,6 @@ from dashboards.track_record import (
     build_row,
     market_of,
 )
-from db.session import DEFAULT_TENANT_ID
 from domain.data_flags import FEED_STOPPED
 from domain.market_cap import CapTier
 from domain.market_time import serve_view, view_day
@@ -432,7 +431,7 @@ def read_record(
         if se.episode.arm_date <= asof  # an episode armed after the as-of is not an event
     ]
     sids = sorted({se.episode.security_id for _, se in scored}, key=str)
-    tickers = master.tickers_for(conn, sids, tenant_id=DEFAULT_TENANT_ID)
+    tickers = master.tickers_for(conn, sids, tenant_id=DATA_TENANT_ID)
     flag_reads = read_price_flags(conn, sids, asof, known_at=known_at, clock=clock)
     flags = {sid: f.reason for sid, f in flag_reads.items()}
     on_cards = live_card_ids(conn, workspace=workspace)

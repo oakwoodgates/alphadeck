@@ -40,7 +40,6 @@ from dashboards.etfs import (
     fund_readings,
 )
 from dashboards.etfs import etfs as compute_etfs
-from db.session import DEFAULT_TENANT_ID
 from domain.market_time import serve_view
 from domain.scopes import DATA_TENANT_ID
 from securities import master
@@ -231,7 +230,7 @@ def _etf_ids(conn: psycopg.Connection, sids: list[UUID]) -> set[UUID]:
     if not sids:
         return set()
     with conn.cursor() as cur:
-        cur.execute(_ETF_SQL, (DEFAULT_TENANT_ID, sids))
+        cur.execute(_ETF_SQL, (DATA_TENANT_ID, sids))
         return {r["id"] for r in cur.fetchall()}
 
 

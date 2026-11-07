@@ -15,7 +15,11 @@ filter would read the right rows by accident), and real session cookies from ``P
 - S (a super admin, W_S) sees none of A's work either: ``GET /theses`` is ``[]`` and A's id is a 404;
 - the SYSTEM principal names its workspace in ``X-Alphadeck-Workspace`` (400 without it) and a user's header is
   ignored;
-- ``WORKSPACE_ANY`` (the every-workspace sentinel) never appears in request-path code.
+- ``WORKSPACE_ANY`` (the every-workspace sentinel) never appears in request-path code;
+- the steward routes act on the DATA tenant, never on the caller's workspace (S sits on W_S, not DATA, so a missed
+  scope cannot hide): a split in the data tenant is listed and confirmed from Admin, the onboarding readout reads
+  the data tenant's queue, and ``get_workspace`` / ``get_current_tenant`` / ``DEFAULT_TENANT_ID`` appear where
+  they must not.
 
 DB-backed (the shared ``db`` fixture; skips when Postgres is unreachable).
 """
@@ -452,10 +456,6 @@ def test_the_super_admin_sees_no_other_workspace_theses(world):
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Builder B (B3): the Admin readouts still name another workspace's thesis; ids only is next",
-)
 def test_admin_readouts_never_name_another_workspace_thesis(world, db):
     """As the super admin, no Admin readout carries another workspace's thesis NAME (ids only, B3). A's card has
     a LATE-ONLY night (a row recorded after its night's next EDGAR open), which ``/admin/status`` lists by name.
@@ -480,6 +480,13 @@ def test_admin_readouts_never_name_another_workspace_thesis(world, db):
         r = s.get(page)
         assert r.status_code == 200, f"{page}: {r.status_code}"
         assert world["a_name"] not in r.text, f"{page} names another workspace's thesis"
+    # ...and the late-only night lists it as ids: the workspace and the thesis, 8 hex each
+    late = s.get("/admin/status").json()["record"]["late_only_nights"]
+    mine = [n for n in late if n["thesis_id"] == str(world["a_id"])]
+    assert mine, "the late-only night should list the thesis by id"
+    assert mine[0]["thesis_name"] == (
+        f"workspace {str(world['w_a'])[:8]} \u00b7 thesis {str(world['a_id'])[:8]}"
+    )
 
 
 # --- the system principal ---------------------------------------------------------------------------------------
@@ -524,3 +531,84 @@ def test_workspace_any_never_appears_in_request_path_code():
     ]
     offenders = [str(p) for p in files if "WORKSPACE_ANY" in p.read_text(encoding="utf-8")]
     assert offenders == []
+
+
+def test_default_tenant_id_appears_nowhere_in_the_request_path_packages():
+    """``db.session.DEFAULT_TENANT_ID`` is for tests and the demo seed only: under ``app/``, ``dashboards/`` and
+    ``radar/`` a read names ``DATA_TENANT_ID`` (a DATA read) or the caller's workspace."""
+    files = [p for r in ("app", "dashboards", "radar") for p in (_BACKEND / r).rglob("*.py")]
+    offenders = [str(p) for p in files if "DEFAULT_TENANT_ID" in p.read_text(encoding="utf-8")]
+    assert offenders == []
+
+
+def test_steward_routes_never_act_on_the_callers_workspace():
+    """A steward route acts on the DATA tenant or on every workspace by id, never on "the caller's workspace":
+    ``get_workspace`` appears in none of the admin routers, and the retired ``get_current_tenant`` nowhere.
+    """
+    for name in ("admin.py", "admin_splits.py", "admin_onboarding.py"):
+        text = (_BACKEND / "app" / "routers" / name).read_text(encoding="utf-8")
+        assert "get_workspace" not in text, name
+    offenders = [
+        str(p)
+        for p in (_BACKEND / "app").rglob("*.py")
+        if "get_current_tenant" in p.read_text(encoding="utf-8")
+    ]
+    assert offenders == []
+
+
+# --- the steward routes read and write the DATA tenant (S sits on W_S) ---------------------------------------
+
+
+def test_the_steward_confirms_a_data_tenant_split_and_reads_the_onboarding_queue(world, db):
+    from domain.splits import STATUS_NEEDS_REVIEW
+    from pipeline import onboarding
+    from repositories import split_repo
+
+    sid, s = world["sid"], world["s"]
+    key = date(2026, 5, 18)
+    seeded = split_repo.append_version(
+        db,
+        tenant_id=DATA_TENANT_ID,
+        security_id=sid,
+        key_date=key,
+        values={
+            "status": STATUS_NEEDS_REVIEW,
+            "polygon_split_from": 1,
+            "polygon_split_to": 8,
+            "polygon_execution_date": key,
+            "effective_date": key,
+            "value_source": "polygon",
+            "ratio_from": 1,
+            "ratio_to": 8,
+            "valid_from": key,
+        },
+        action=split_repo.ACTION_DETECT,
+        author=split_repo.AUTHOR_DETECT,
+    )
+    onboarding.enqueue(db, [sid], tenant_id=DATA_TENANT_ID, source="test")
+    db.commit()
+
+    def count(tenant):
+        with db.cursor() as cur:
+            cur.execute(
+                "SELECT count(*) AS n FROM security_split WHERE security_id = %s AND tenant_id = %s",
+                (sid, tenant),
+            )
+            return cur.fetchone()["n"]
+
+    before_data, before_ws = count(DATA_TENANT_ID), count(world["w_s"])
+    listed = s.get("/admin/splits")
+    assert listed.status_code == 200, listed.text
+    assert [x["version_id"] for x in listed.json()["needs_review"]] == [str(seeded.id)]
+    assert s.get("/admin/status").json()["splits_needs_review"] == 1
+
+    r = s.post(f"/admin/splits/{seeded.id}/confirm", json={"source": "polygon"})
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] in ("confirmed", "announced")
+    # exactly one new version, under the DATA tenant, none under the steward's workspace
+    assert count(DATA_TENANT_ID) == before_data + 1
+    assert count(world["w_s"]) == before_ws == 0
+
+    onb = s.get("/admin/onboarding")
+    assert onb.status_code == 200, onb.text
+    assert sum(onb.json()["counts"].values()) >= 1  # the data tenant's queued row is read

@@ -53,9 +53,9 @@ from dashboards.ticker_lookup import (
     trigger_log,
     with_live_entries,
 )
-from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard
 from domain.market_time import countdown_origin, market_clock, market_tz, serve_view
+from domain.scopes import DATA_TENANT_ID
 from domain.splits import ListedSplit, listed_from_row
 from domain.thesis import Thesis
 from pipeline.backfill import thesis_existed_on
@@ -181,7 +181,7 @@ def read_former_tickers(conn: psycopg.Connection, sid: UUID) -> tuple[str, ...]:
         cur.execute(
             "SELECT old_ticker FROM security_ticker_history WHERE tenant_id = %s AND security_id = %s "
             "ORDER BY seen_at, id",
-            (DEFAULT_TENANT_ID, sid),
+            (DATA_TENANT_ID, sid),
         )
         return tuple(dict.fromkeys(r["old_ticker"] for r in cur.fetchall()))
 
@@ -736,7 +736,7 @@ def ticker_lookup_resolve(
             cur.execute(
                 "SELECT security_id FROM security_ticker_history WHERE tenant_id = %s AND old_ticker = %s "
                 "ORDER BY seen_at DESC, id LIMIT 1",
-                (DEFAULT_TENANT_ID, ticker),
+                (DATA_TENANT_ID, ticker),
             )
             row = cur.fetchone()
         sid, matched = (row["security_id"] if row else None), "former"
