@@ -34,7 +34,6 @@ import psycopg
 
 from db.session import DEFAULT_TENANT_ID
 from domain.config import CallConfig
-from domain.scopes import WORKSPACE_ANY
 from replay.harness import ReplayResult, RosterSource, replay_thesis_with_roster
 from replay.schema import CallSnapshot
 
@@ -57,7 +56,7 @@ def _worker(job: _Job) -> tuple[str, list[str], tuple[str, int, int]]:
     conn = connect()
     con = connect_mirror(mirror)
     try:
-        thesis = thesis_repo.get(conn, UUID(thesis_id), workspace=WORKSPACE_ANY)
+        thesis = thesis_repo.get(conn, UUID(thesis_id), workspace=UUID(tenant_id))
         if thesis is None:
             return thesis_id, [], ("no_sessions", 0, 0)
         snaps, source = replay_thesis_with_roster(
@@ -101,7 +100,7 @@ def replay_all_parallel(
     from repositories import thesis_repo
 
     theses = thesis_repo.list_all(
-        conn, workspace=WORKSPACE_ANY
+        conn, workspace=tenant_id
     )  # archived EXCLUDED (the locked default)
     if workers <= 1 or len(theses) <= 1:
         from replay.harness import replay_all

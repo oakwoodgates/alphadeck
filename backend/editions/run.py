@@ -67,6 +67,7 @@ from db.session import DEFAULT_TENANT_ID, connect
 from domain.call import CallCard
 from domain.config import DEFAULT_CONFIG
 from domain.rule_log import rule_ids
+from domain.scopes import FOUNDING_WORKSPACE_ID
 from domain.settings import get_settings
 from editions.engine import Prepared, prepare, run_jobs, thesis_body
 from editions.entry import Entry
@@ -474,16 +475,22 @@ def _main_nightly(args: argparse.Namespace) -> None:
     conn = connect()
     if not args.apply:
         conn.read_only = True
+    results = []
     try:
-        result = nightly.run_nightly(
-            conn,
-            apply=args.apply,
-            end=args.end,
-            workers=args.workers,
-            keep_mirror=args.keep_mirror,
-            max_nights=args.max_nights or nightly.MAX_NIGHTS_PER_RUN,
-            trial_workers=args.trial_workers,
-        )
+        # the editions store is per WORKSPACE: every kind='workspace' tenant gets its own pass, never a default
+        for workspace in _workspaces(conn, args.workspace):
+            results.append(
+                nightly.run_nightly(
+                    conn,
+                    apply=args.apply,
+                    end=args.end,
+                    workers=args.workers,
+                    keep_mirror=args.keep_mirror,
+                    max_nights=args.max_nights or nightly.MAX_NIGHTS_PER_RUN,
+                    trial_workers=args.trial_workers,
+                    tenant_id=workspace,
+                )
+            )
     except nightly.NightlyRefused as exc:
         print(
             f"editions nightly: REFUSED — {exc}. Nothing was written (exit {nightly.EXIT_ALREADY_RUNNING})"
@@ -495,7 +502,8 @@ def _main_nightly(args: argparse.Namespace) -> None:
         raise
     finally:
         conn.close()
-    nightly.print_result(result)
+    for result in results:
+        nightly.print_result(result)
 
 
 def _main_cut(args: argparse.Namespace) -> None:
@@ -528,17 +536,23 @@ def _main_cut(args: argparse.Namespace) -> None:
 
         known_by = db_now(conn)
         conn.commit()
+        results = []
         try:
-            result = cut.run_cut(
-                conn,
-                apply=args.apply,
-                known_by=known_by,
-                end=args.end,
-                work_dir=work,
-                workers=args.workers,
-                keep_mirror=args.keep_mirror,
-                lock_probe=lock.call_of_record_holder,
-            )
+            # one cut decision per WORKSPACE (each has its own editions), never a default tenant
+            for workspace in _workspaces(conn, args.workspace):
+                results.append(
+                    cut.run_cut(
+                        conn,
+                        apply=args.apply,
+                        known_by=known_by,
+                        end=args.end,
+                        tenant_id=workspace,
+                        work_dir=work / str(workspace),
+                        workers=args.workers,
+                        keep_mirror=args.keep_mirror,
+                        lock_probe=lock.call_of_record_holder,
+                    )
+                )
         except cut.CutRefused as exc:
             print(
                 f"editions cut: REFUSED — {exc}. Nothing was written (exit {EXIT_ALREADY_RUNNING})"
@@ -548,18 +562,28 @@ def _main_cut(args: argparse.Namespace) -> None:
         conn.close()
         lock.release()
         shutil.rmtree(work, ignore_errors=True)
-    cut.print_cut(result)
-    if args.apply and result.status in ("cut", "no_change"):
-        from pipeline import edition_run_log
+    for result in results:
+        cut.print_cut(result)
+        if args.apply and result.status in ("cut", "no_change"):
+            from pipeline import edition_run_log
 
-        edition_run_log.write_edition_run(
-            {
-                "kind": "editions_cut",
-                "mode": "apply",
-                "started_at": known_by.isoformat(),
-                "cut": result.as_json(),
-            }
-        )
+            edition_run_log.write_edition_run(
+                {
+                    "kind": "editions_cut",
+                    "mode": "apply",
+                    "started_at": known_by.isoformat(),
+                    "cut": result.as_json(),
+                }
+            )
+
+
+def _workspaces(conn, named: UUID | None) -> list[UUID]:
+    """The workspaces a per-workspace job runs for: ``--workspace`` when named, else every ``kind='workspace'``
+    tenant (``repositories.tenant_repo.workspaces``). Never the data tenant, never a hard-coded default.
+    """
+    from repositories import tenant_repo
+
+    return [named] if named is not None else tenant_repo.workspaces(conn)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -644,7 +668,19 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="keep a new edition's mirror in its run directory (default: removed)",
     )
+    for one in (tr, pb, nt, ct):
+        one.add_argument(
+            "--workspace",
+            type=UUID,
+            default=None,
+            help="the workspace (tenant id) to run for; nightly / cut default to EVERY workspace, trial / "
+            "publish to the founding workspace",
+        )
     args = ap.parse_args(argv)
+    if args.cmd in ("trial", "publish") and args.workspace is None:
+        args.workspace = (
+            FOUNDING_WORKSPACE_ID  # a re-run is ONE workspace's; the founding operator's by default
+        )
 
     if args.cmd == "nightly":
         _main_nightly(args)
@@ -664,6 +700,7 @@ def main(argv: list[str] | None = None) -> None:
                 end=args.end,
                 known_by=args.known_by,
                 workers=args.workers,
+                tenant_id=args.workspace,
             )
         except PublishRefused as exc:
             print(exc)
@@ -678,7 +715,14 @@ def main(argv: list[str] | None = None) -> None:
         conn.read_only = True
         try:
             out = args.out or _default_out("trial")
-            meta = run_trial(conn, out, end=args.end, known_by=args.known_by, workers=args.workers)
+            meta = run_trial(
+                conn,
+                out,
+                end=args.end,
+                known_by=args.known_by,
+                workers=args.workers,
+                tenant_id=args.workspace,
+            )
             print((out / "preview.txt").read_text(encoding="utf-8"))
             print(
                 f"\nrun dir {out} | cut {meta['known_by']} | {meta['n_theses']} theses, "

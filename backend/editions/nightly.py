@@ -82,7 +82,7 @@ from db.clock import db_now
 from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard
 from domain.config import DEFAULT_CONFIG, config_hash
-from domain.scopes import DATA_TENANT_ID, WORKSPACE_ANY
+from domain.scopes import DATA_TENANT_ID
 from domain.settings import get_settings
 from editions import cut as cut_module
 from editions.engine import ThesisJob, build_job, consistent_snapshot, open_mirror, run_jobs
@@ -336,7 +336,7 @@ def _episode_rows(
     edge = market_tape_edge(conn, tenant_id=DATA_TENANT_ID, cap=night)  # the tape is DATA
     src = EditionSource(edition)
     for tid in sorted(editions_repo.last_page_by_thesis(conn, edition.id), key=str):
-        thesis = thesis_repo.get(conn, tid, workspace=WORKSPACE_ANY)
+        thesis = thesis_repo.get(conn, tid, workspace=tenant_id)  # the edition's own workspace
         if thesis is None:
             continue
         inked = set(editions_repo.outcomes_for_thesis(conn, edition.id, tid))

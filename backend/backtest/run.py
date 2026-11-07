@@ -40,7 +40,7 @@ from backtest.pooled import build_report
 from db.session import DEFAULT_TENANT_ID, connect
 from domain.config import DEFAULT_CONFIG, CallConfig, config_hash, short_hash
 from domain.market_time import market_today
-from domain.scopes import DATA_TENANT_ID, WORKSPACE_ANY
+from domain.scopes import DATA_TENANT_ID, FOUNDING_WORKSPACE_ID
 from domain.thesis import Thesis
 from replay.episodes import episodes_for
 from replay.export import export_snapshot, mirror_clock, read_mirror_manifest
@@ -196,7 +196,8 @@ def execute(
     con = connect_mirror(mirror)
     timings["connect_mirror_s"] = round(time.perf_counter() - t0, 2)
     try:
-        theses = {t.id: t for t in thesis_repo.list_all(conn, workspace=WORKSPACE_ANY)}
+        # ONE workspace's cards (``tenant_id`` is the workspace the run reads; the CLI's --workspace)
+        theses = {t.id: t for t in thesis_repo.list_all(conn, workspace=tenant_id)}
 
         t0 = time.perf_counter()
         # B5b — the theses are independent, so the sweep fans out by thesis over the SAME frozen
@@ -468,6 +469,12 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     p.add_argument("--start", required=True, help="window start, YYYY-MM-DD")
+    p.add_argument(
+        "--workspace",
+        type=UUID,
+        default=FOUNDING_WORKSPACE_ID,
+        help="the workspace (tenant id) whose cards the run replays (default: the founding workspace)",
+    )
     p.add_argument("--end", required=True, help="window end, YYYY-MM-DD")
     p.add_argument(
         "--pin",
@@ -601,6 +608,7 @@ def main(argv: list[str] | None = None) -> int:
             decision_rule=args.decision_rule,
             regime=args.regime,
             root=args.out_root,
+            tenant_id=args.workspace,
         )
     finally:
         conn.close()

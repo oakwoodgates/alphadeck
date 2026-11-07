@@ -675,7 +675,7 @@ def test_the_manual_cli_is_a_dry_run_by_default(db, security_id, tmp_path, monke
     monkeypatch.setattr(cut, "engine_fingerprint", nightly.engine_fingerprint)
     monkeypatch.chdir(tmp_path)
     before = _counts(db)
-    main(["cut", "--workers", "1", "--end", END.isoformat()])
+    main(["cut", "--workers", "1", "--end", END.isoformat(), "--workspace", str(DEFAULT_TENANT_ID)])
     out = capsys.readouterr().out
     assert "trial (dry run): the rules changed no page" in out
     assert _counts(db) == before

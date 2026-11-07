@@ -10,7 +10,7 @@ import psycopg
 from db.session import DEFAULT_TENANT_ID
 from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.market_time import known_at_for_asof
-from domain.scopes import DATA_TENANT_ID, WORKSPACE_ANY
+from domain.scopes import DATA_TENANT_ID
 from domain.thesis import Thesis
 from domain.trading_days import is_scheduled_day
 from pipeline.core import assemble_from_pit
@@ -234,7 +234,7 @@ def replay_thesis_with_roster(
             roster_known_at = known_at_for_asof(t, known_at)
             if thesis_repo.snapshot_exists_asof(conn, thesis.id, roster_known_at):
                 roster = (
-                    thesis_repo.get_asof(conn, thesis.id, roster_known_at, workspace=WORKSPACE_ANY)
+                    thesis_repo.get_asof(conn, thesis.id, roster_known_at, workspace=tenant_id)
                     or thesis
                 )
             else:
@@ -296,7 +296,7 @@ def replay_all(
     """
     timelines: dict[UUID, list[CallSnapshot]] = {}
     roster_sources: dict[UUID, RosterSource] = {}
-    for thesis in thesis_repo.list_all(conn, workspace=WORKSPACE_ANY):
+    for thesis in thesis_repo.list_all(conn, workspace=tenant_id):
         snaps, source = replay_thesis_with_roster(
             con,
             thesis,
