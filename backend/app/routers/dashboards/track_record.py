@@ -25,7 +25,7 @@ import psycopg
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict
 
-from app.deps import get_conn, get_current_tenant
+from app.deps import get_conn, get_current_tenant, get_workspace
 from app.routers.scoreboard import _resolve_edition
 from dashboards.baskets import PriceFlagRead, live_card_ids, read_price_flags
 from dashboards.cache import cached
@@ -398,6 +398,8 @@ def read_record(
     edition: Edition | None,
     exclude_annotated: bool,
     exclude_late: bool,
+    *,
+    workspace: UUID,
 ) -> TrackRecord:
     """The whole read: the Scoreboard's episodes (archived cards included, as the Scoreboard does), which companies
     have a price-reaching data flag, the bars of every company with an episode that will be counted, the benchmarks;
@@ -405,6 +407,7 @@ def read_record(
     result, _, _ = scoreboard_records(
         conn,
         asof,
+        workspace=workspace,
         include_archived=True,
         known_at=known_at,
         exclude_annotated=exclude_annotated,
@@ -425,7 +428,7 @@ def read_record(
     tickers = master.tickers_for(conn, sids, tenant_id=DEFAULT_TENANT_ID)
     flag_reads = read_price_flags(conn, sids, asof, known_at=known_at, clock=clock)
     flags = {sid: f.reason for sid, f in flag_reads.items()}
-    on_cards = live_card_ids(conn)
+    on_cards = live_card_ids(conn, workspace=workspace)
     ended = ended_companies(
         [sid for sid, f in flag_reads.items() if f.kinds == (FEED_STOPPED,)], flag_reads, asof
     )
@@ -532,6 +535,7 @@ def track_record(
     ),
     conn: psycopg.Connection = Depends(get_conn),
     current_tenant: UUID = Depends(get_current_tenant),
+    workspace: UUID = Depends(get_workspace),
 ) -> TrackRecordOut:
     """What the tape did after each arm episode the Scoreboard records, by market-cap tier at the event: one row per
     episode with its cap tier and liquidity band, and, for the next session's entry and the arm night's, the return at
@@ -562,7 +566,17 @@ def track_record(
         SLUG,
         (number, not exclude_annotated, not exclude_late, clock),
         asof,
-        lambda: read_record(conn, asof, known_at, clock, chosen, exclude_annotated, exclude_late),
+        lambda: read_record(
+            conn,
+            asof,
+            known_at,
+            clock,
+            chosen,
+            exclude_annotated,
+            exclude_late,
+            workspace=workspace,
+        ),
+        workspace=workspace,
     )
     page = got.value
     return TrackRecordOut.model_validate(

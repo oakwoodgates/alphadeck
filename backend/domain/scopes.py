@@ -135,6 +135,49 @@ def as_tenants(tenants: UUID | Sequence[UUID]) -> tuple[UUID, ...]:
     return out
 
 
+class _WorkspaceAny:
+    """The type of ``WORKSPACE_ANY`` (one instance; compare with ``is``)."""
+
+    _instance: _WorkspaceAny | None = None
+
+    def __new__(cls) -> _WorkspaceAny:
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __repr__(self) -> str:
+        return "WORKSPACE_ANY"
+
+    def __reduce__(self) -> str:  # pickles (the backtest's process pool) as the same singleton
+        return "WORKSPACE_ANY"
+
+
+# The "every workspace" sentinel for a card-selecting read (``thesis_repo.get`` / ``get_asof`` / ``list_all`` /
+# ``lifespans`` / ``created_at_for``): no workspace filter. SYSTEM code only — the nightly, the editions job, the
+# repair / backfill CLIs, the replay harness. A request path always names the caller's workspace; a grep test
+# (``tests/app/test_workspace_isolation.py``) fails if this name appears under ``app/``, ``dashboards/`` or the
+# route-facing radar modules.
+WORKSPACE_ANY = _WorkspaceAny()
+
+# What a card-selecting read takes: one workspace's id, or the system sentinel.
+WorkspaceScope = UUID | _WorkspaceAny
+
+
+def workspace_filter(
+    workspace: WorkspaceScope, column: str = "tenant_id"
+) -> tuple[str, tuple[Any, ...]]:
+    """``(sql, params)`` for a card-selecting read: ``" AND <column> = %s"`` with the workspace id, or ``""`` for
+    ``WORKSPACE_ANY``. Anything else (``None`` above all) raises ``TypeError``: a forgotten workspace must fail,
+    never read every workspace."""
+    if workspace is WORKSPACE_ANY:
+        return "", ()
+    if isinstance(workspace, UUID):
+        return f" AND {column} = %s", (workspace,)
+    raise TypeError(
+        f"workspace must be a workspace id (UUID) or domain.scopes.WORKSPACE_ANY, not {workspace!r}"
+    )
+
+
 def resolve_scopes(
     *, data_tenant: UUID | None, workspace: UUID | None, tenant_id: UUID | None
 ) -> tuple[UUID, UUID]:

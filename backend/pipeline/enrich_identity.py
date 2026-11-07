@@ -44,7 +44,7 @@ from uuid import UUID
 import psycopg
 
 from db.session import connect
-from domain.scopes import DATA_TENANT_ID
+from domain.scopes import DATA_TENANT_ID, WORKSPACE_ANY
 from ingest.edgar.client import EdgarClient
 from repositories import thesis_repo
 from securities import master
@@ -88,12 +88,12 @@ def resolve_baskets_scope(
     Archived theses are excluded (the ``list_all`` default — the daily cron's walk); tenants are
     thesis-intrinsic, so each thesis contributes to its OWN tenant's map."""
     if thesis_id is not None:
-        one = thesis_repo.get(conn, thesis_id)
+        one = thesis_repo.get(conn, thesis_id, workspace=WORKSPACE_ANY)
         if one is None:
             raise LookupError(f"thesis {thesis_id} not found")
         theses = [one]
     else:
-        theses = thesis_repo.list_all(conn)
+        theses = thesis_repo.list_all(conn, workspace=WORKSPACE_ANY)
     scopes: dict[UUID, TenantScope] = {}
     for thesis in theses:
         # the master is DATA (domain.scopes): every basket enriches the one data-tenant master

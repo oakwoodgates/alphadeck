@@ -975,7 +975,7 @@ def test_identities_carry_the_name_the_leaf_the_supersector_and_the_royalty_over
 def stub_client(monkeypatch):
     seen: dict = {"base": 0, "reads": [], "views": []}
 
-    def fake_base(conn, asof, known_at):
+    def fake_base(conn, asof, known_at, **_):
         seen["base"] += 1
         seen["views"].append((asof, known_at))
         return base(
@@ -983,7 +983,7 @@ def stub_client(monkeypatch):
             PEER_IDS | {S5: ident(bt="bank", ss="financials")},
         )
 
-    def fake_reads(conn, sids, asof, known_at, clock):
+    def fake_reads(conn, sids, asof, known_at, clock, **_):
         seen["reads"].append((tuple(sids), asof, known_at, clock))
         return {s: PEER_READS[s] for s in sids if s in PEER_READS}, SPY
 

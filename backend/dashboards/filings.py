@@ -1385,6 +1385,7 @@ def read_filing_rows(
     tickers: Mapping[UUID, str] | None = None,
     tenant_id: UUID = DEFAULT_TENANT_ID,
     kinds: Collection[FilingKind] | None = None,
+    workspace: UUID,
 ) -> dict[UUID, tuple[FilingRow, ...]]:
     """``{security_id: its FilingRows}`` dated from ``asof - days`` through ``asof``, each company's list in
     no particular order (a page sorts). ``known_at`` + ``clock`` are the request's ``serve_view(asof)`` pair,
@@ -1418,4 +1419,4 @@ def read_filing_rows(
         )
         return tuple(r for r in rows if start <= r.date <= asof)
 
-    return per_company(conn, ids, asof, known_at, clock, read)
+    return per_company(conn, ids, asof, known_at, clock, read, workspace=workspace)

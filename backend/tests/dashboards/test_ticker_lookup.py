@@ -1220,7 +1220,7 @@ def stub_client(monkeypatch):
 
     base = sample_lookup()
 
-    def fake_read(conn, security_id, asof, known_at, clock):
+    def fake_read(conn, security_id, asof, known_at, clock, **_):
         seen["reads"] += 1
         seen["view"] = (security_id, asof, known_at, clock)
         # the heavy read carries no exclusions, card catalysts or decisions: they are read live
@@ -1232,7 +1232,7 @@ def stub_client(monkeypatch):
             decisions_voided=0,
         )
 
-    def fake_live(conn, security_id, asof, known_at, clock, origin):
+    def fake_live(conn, security_id, asof, known_at, clock, origin, **_):
         seen["live_reads"] += 1
         seen["origin"] = origin
         return list(base.cards.excluded), base.card_catalysts, list(base.decisions)
@@ -1284,8 +1284,8 @@ def test_the_router_counts_a_live_view_from_the_action_day_and_a_past_one_from_i
     assert seen["view"][3] == "public" and seen["origin"] == date(2026, 10, 23)
     keys = {k for k in CACHE._entries}
     # the origin only moves the catalysts' passed flag, read live: it is not part of the key
-    assert ("ticker-lookup", (str(SID), "record"), date(2026, 10, 26)) in keys
-    assert ("ticker-lookup", (str(SID), "public"), date(2026, 10, 23)) in keys
+    assert (DEFAULT_TENANT_ID, "ticker-lookup", (str(SID), "record"), date(2026, 10, 26)) in keys
+    assert (DEFAULT_TENANT_ID, "ticker-lookup", (str(SID), "public"), date(2026, 10, 23)) in keys
 
 
 def test_the_router_wire_shape(stub_client):

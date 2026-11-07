@@ -12,7 +12,7 @@ import psycopg
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict
 
-from app.deps import get_conn
+from app.deps import get_conn, get_workspace
 from dashboards.shared_names import shared_names as compute_shared_names
 from domain.enums import ContextRole
 from repositories import thesis_repo
@@ -87,11 +87,12 @@ def shared_names(
         False, description="drop Context and Bench memberships before both sections are computed"
     ),
     conn: psycopg.Connection = Depends(get_conn),
+    workspace: UUID = Depends(get_workspace),
 ) -> SharedNamesOut:
     """The companies on more than one live card (matched by security), the cards each sits on, and every
     pair of cards that shares a company. A "now" view of today's baskets; archived cards are excluded.
     """
-    theses = thesis_repo.list_all(conn)
+    theses = thesis_repo.list_all(conn, workspace=workspace)
     names = master.names_for(
         conn, {m.security_id for t in theses for m in t.basket if m.security_id is not None}
     )

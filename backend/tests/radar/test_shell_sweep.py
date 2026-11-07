@@ -16,6 +16,7 @@ from datetime import date
 from pathlib import Path
 
 from db.session import DEFAULT_TENANT_ID
+from domain.scopes import WORKSPACE_ANY
 from ingest import CacheMiss
 from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
 from pipeline import spac_sweep
@@ -174,7 +175,9 @@ def test_sweep_admission_feeds_the_next_radar_run(db, tmp_path):
     )
     client = _client(tmp_path)
 
-    r1 = run_spac_radar(db, until=D, days=1, edgar_client=client, match=False)
+    r1 = run_spac_radar(
+        db, until=D, days=1, edgar_client=client, match=False, workspace=WORKSPACE_ANY
+    )
     assert r1.filings_seen == 1 and r1.events_appended == 0  # seen, dropped: un-known shell
     assert _count(db, "TRUE") == 1  # nothing enriched either — no accretion for an 8-K
 
@@ -182,7 +185,9 @@ def test_sweep_admission_feeds_the_next_radar_run(db, tmp_path):
     assert sw.admitted == ["0000002222"] and sw.errors == []
     assert repo.known_shell_ciks(db) == {"0000002222"}
 
-    r2 = run_spac_radar(db, until=D, days=1, edgar_client=client, match=False)
+    r2 = run_spac_radar(
+        db, until=D, days=1, edgar_client=client, match=False, workspace=WORKSPACE_ANY
+    )
     assert r2.events_appended == 1 and r2.errors == []  # the previously-dropped 8-K, collected
     with db.cursor() as cur:
         cur.execute("SELECT form, cik, items FROM fact_spac_event")

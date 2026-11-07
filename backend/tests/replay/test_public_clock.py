@@ -9,6 +9,7 @@ from db.bitemporal import _FACT_IDENTITY, DISPLAY_ONLY_FACT_TABLES, append_fact
 from db.public_clock import PUBLIC_TIME
 from db.session import DEFAULT_TENANT_ID
 from domain.market_time import known_at_for_asof, market_tz
+from domain.scopes import WORKSPACE_ANY
 from replay import export as export_mod
 from replay.export import (
     _PUBLIC_CLOCK,
@@ -531,7 +532,7 @@ def test_the_harness_threads_the_known_at_mode(db, tmp_path):
     con = connect_mirror(tmp_path)
     harness.ReplayPointInTimeData = spy
     try:
-        thesis = thesis_repo.get(db, UNH_THESIS_ID)
+        thesis = thesis_repo.get(db, UNH_THESIS_ID, workspace=WORKSPACE_ANY)
         start, end = date(2025, 5, 1), date(2025, 5, 15)
         harness.replay_thesis_with_roster(
             con, thesis, start=start, end=end, known_at=_PIN, known_at_mode="lockstep"

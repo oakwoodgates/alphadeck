@@ -1157,7 +1157,7 @@ def _hand_board(rows="armed"):
 def stub_client(monkeypatch):
     seen: dict = {"reads": 0, "rows": []}
 
-    def fake_read(conn, asof, known_at, clock, rows="all", origin=None):
+    def fake_read(conn, asof, known_at, clock, rows="all", origin=None, **_):
         seen["reads"] += 1
         seen["view"] = (asof, known_at, clock)
         seen["origin"] = origin
@@ -1208,8 +1208,18 @@ def test_the_router_counts_a_live_view_from_the_action_day_and_a_past_one_from_i
     client.get("/dashboards/hot-board", params={"asof": "2026-10-23"})
     assert seen["view"][2] == "public" and seen["origin"] == date(2026, 10, 23)
     keys = {k for k in CACHE._entries}
-    assert ("hot-board", ("armed", "record", date(2026, 10, 27)), date(2026, 10, 26)) in keys
-    assert ("hot-board", ("armed", "public", date(2026, 10, 23)), date(2026, 10, 23)) in keys
+    assert (
+        DEFAULT_TENANT_ID,
+        "hot-board",
+        ("armed", "record", date(2026, 10, 27)),
+        date(2026, 10, 26),
+    ) in keys
+    assert (
+        DEFAULT_TENANT_ID,
+        "hot-board",
+        ("armed", "public", date(2026, 10, 23)),
+        date(2026, 10, 23),
+    ) in keys
 
 
 def test_the_router_wire_shape(stub_client):
@@ -1277,8 +1287,18 @@ def test_the_two_reads_are_cached_apart_by_rows_and_by_clock(stub_client):
     assert seen["reads"] == 2  # each now answers from its own entry
     # the keys: (rows, clock, countdown origin), per as-of; a past view counts down from its own as-of (F2)
     keys = {k for k in CACHE._entries}
-    assert ("hot-board", ("armed", "public", date(2026, 6, 1)), date(2026, 6, 1)) in keys
-    assert ("hot-board", ("all", "public", date(2026, 6, 1)), date(2026, 6, 1)) in keys
+    assert (
+        DEFAULT_TENANT_ID,
+        "hot-board",
+        ("armed", "public", date(2026, 6, 1)),
+        date(2026, 6, 1),
+    ) in keys
+    assert (
+        DEFAULT_TENANT_ID,
+        "hot-board",
+        ("all", "public", date(2026, 6, 1)),
+        date(2026, 6, 1),
+    ) in keys
     assert len(keys) == 2
 
 
@@ -1300,7 +1320,7 @@ def _stubbed_read(monkeypatch, theses, recorded, runs, params, *, flagged=None, 
         "ciks": [],
     }
 
-    def fake_cards(conn, asof, known_at):
+    def fake_cards(conn, asof, known_at, **_):
         seen["roster"].append((asof, known_at))
         return CardsAsOf(len(theses) + 1, list(theses), 1, 1)
 
@@ -1312,7 +1332,7 @@ def _stubbed_read(monkeypatch, theses, recorded, runs, params, *, flagged=None, 
         seen["runs"].append((ids, asof))
         return {t: runs[t] for t in ids if t in runs}
 
-    def fake_flags(conn, ids, asof, *, known_at, clock):
+    def fake_flags(conn, ids, asof, *, known_at, clock, **_):
         seen["flags"].append((set(ids), asof, known_at, clock))
         return {s: why for s, why in flagged.items() if s in ids}
 
@@ -1325,7 +1345,7 @@ def _stubbed_read(monkeypatch, theses, recorded, runs, params, *, flagged=None, 
         seen["pit_view"] = (asof, known_at, clock)
         return FakePit()
 
-    def fake_per_company(conn, sids, asof, known_at, clock, read):
+    def fake_per_company(conn, sids, asof, known_at, clock, read, **_):
         seen["company"].append((list(sids), asof, known_at, clock))
         return {
             sid: CompanyTape(

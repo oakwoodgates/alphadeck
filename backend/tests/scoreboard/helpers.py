@@ -11,6 +11,7 @@ from calls.assembler import assemble_call
 from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
 from domain.config import DEFAULT_CONFIG
+from domain.scopes import WORKSPACE_ANY
 from domain.signal import SignalEvent
 from domain.thesis import BasketMember, Thesis
 from repositories import thesis_repo
@@ -37,7 +38,9 @@ def persist_thesis(db, security_id: UUID, thesis_id: UUID | None = None) -> Thes
     )
     thesis_repo.upsert(db, thesis)
     db.commit()
-    return thesis_repo.get(db, thesis.id)  # reload: tenant_id stamped by the repo
+    return thesis_repo.get(
+        db, thesis.id, workspace=WORKSPACE_ANY
+    )  # reload: tenant_id stamped by the repo
 
 
 _NY = ZoneInfo("America/New_York")

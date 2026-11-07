@@ -8,6 +8,7 @@ import psycopg
 
 from db.session import connect
 from domain.market_time import market_today
+from domain.scopes import WORKSPACE_ANY
 from scoreboard.record import scoreboard_records
 from scoreboard.schema import ScoreboardResult, ScoredEpisode
 
@@ -133,6 +134,7 @@ def main() -> None:
             include_archived=not args.exclude_archived,
             exclude_annotated=False if args.include_annotated else None,
             exclude_late=False if args.include_late else None,
+            workspace=WORKSPACE_ANY,  # the CLI scores every workspace's theses
         )
         if args.json:
             print(result.model_dump_json(indent=2))

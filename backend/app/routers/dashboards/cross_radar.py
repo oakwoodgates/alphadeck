@@ -19,7 +19,7 @@ import psycopg
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict
 
-from app.deps import get_conn
+from app.deps import get_conn, get_workspace
 from dashboards.baskets import (
     GroupBy,
     cards_as_of,
@@ -266,6 +266,8 @@ def _readings(
     known_at: datetime | None,
     clock: Literal["record", "public"],
     flagged: Collection[UUID] = (),
+    *,
+    workspace: UUID,
 ) -> tuple[dict[UUID, CompanyCrosses], set[date]]:
     """Each company's cross history and readings, computed ONCE from the same point-in-time view the Cockpit's
     ``/display-signals`` builds (``known_at`` + ``clock`` from ``serve_view``), plus every session a priced
@@ -282,7 +284,7 @@ def _readings(
             seen.update(recent_dates(bars))
         return got
 
-    return per_company(conn, sids, asof, known_at, clock, read), seen
+    return per_company(conn, sids, asof, known_at, clock, read, workspace=workspace), seen
 
 
 def _spy_dates(
@@ -308,15 +310,17 @@ def read_inputs(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> RadarInputs:
     """The heavy read the cache holds: the counted cards' rosters as of the as-of, every company's cross
     history and readings, its price flags (``price_flags``, on the same view), the timeline's sessions.
     """
-    counted = cards_as_of(conn, asof, known_at)
+    counted = cards_as_of(conn, asof, known_at, workspace=workspace)
     memberships = memberships_of(counted.cards)
     sids = resolved_ids(memberships)
-    flagged = price_flags(conn, sids, asof, known_at=known_at, clock=clock)
-    readings, seen = _readings(conn, sids, asof, known_at, clock, flagged)
+    flagged = price_flags(conn, sids, asof, known_at=known_at, clock=clock, workspace=workspace)
+    readings, seen = _readings(conn, sids, asof, known_at, clock, flagged, workspace=workspace)
     return RadarInputs(
         live_cards=counted.live_count,
         cards_counted=len(counted.cards),
@@ -343,6 +347,7 @@ def cross_radar(
         description="add price-crosses-the-200d ticks to the timeline (never counted in a cluster)",
     ),
     conn: psycopg.Connection = Depends(get_conn),
+    workspace: UUID = Depends(get_workspace),
 ) -> CrossRadarOut:
     """Golden and death crosses (the 50-day SMA crossing the 200-day) by link, business type, sector or card:
     clusters (several names crossing the same way within 10 sessions), first movers (exactly one), names
@@ -352,7 +357,14 @@ def cross_radar(
     known_at, clock = serve_view(asof)
     # the clock is part of the key: the same date read live today and on the public clock tomorrow are two
     # reads (a new run clears the cache anyway; this holds even on a night with no run)
-    got = cached(conn, SLUG, (clock,), asof, lambda: read_inputs(conn, asof, known_at, clock))
+    got = cached(
+        conn,
+        SLUG,
+        (clock,),
+        asof,
+        lambda: read_inputs(conn, asof, known_at, clock, workspace=workspace),
+        workspace=workspace,
+    )
     inputs = got.value
     identity = (
         master.identity_for(conn, set(inputs.readings))

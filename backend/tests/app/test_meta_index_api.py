@@ -12,6 +12,7 @@ import uuid
 from datetime import date, datetime, timezone
 
 from db.session import DEFAULT_TENANT_ID
+from domain.scopes import WORKSPACE_ANY
 from domain.thesis import BasketMember, Segment, Thesis
 from repositories import thesis_repo
 from tests.editions.fixtures import seed_big_buy, seed_tape
@@ -140,10 +141,12 @@ def test_upsert_never_names_the_column(db, security_id):
     db.commit()
     thesis_repo.upsert(db, t.model_copy(update={"narrative": "re-saved", "meta_index": False}))
     db.commit()
-    got = thesis_repo.get(db, t.id)
+    got = thesis_repo.get(db, t.id, workspace=WORKSPACE_ANY)
     assert got.meta_index is True and got.narrative == "re-saved"
     # the history read carries it too (card state, read as it is now)
-    asof = thesis_repo.get_asof(db, t.id, datetime(2000, 1, 1, tzinfo=timezone.utc))
+    asof = thesis_repo.get_asof(
+        db, t.id, datetime(2000, 1, 1, tzinfo=timezone.utc), workspace=WORKSPACE_ANY
+    )
     assert asof is not None and asof.meta_index is True
     db.commit()
 

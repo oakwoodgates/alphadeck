@@ -985,7 +985,7 @@ def sample_tracker(window_days: int = 30, include_silent: bool = False) -> Insid
 def stub_client(monkeypatch):
     seen: dict = {"reads": []}
 
-    def fake_read(conn, asof, window_days, include_silent, known_at, clock):
+    def fake_read(conn, asof, window_days, include_silent, known_at, clock, **_):
         seen["reads"].append((asof, window_days, include_silent, known_at, clock))
         return sample_tracker(window_days, include_silent)
 
@@ -1472,8 +1472,10 @@ def test_db_the_narrowed_reader_returns_the_full_reads_form4_rows_and_no_other_k
     _other_kinds(db, w)
     sids = [w.sa, w.sb, w.sc]
     args = (db, sids, asof, known_at_for_asof(asof), "public")
-    full = filings_mod.read_filing_rows(*args, days=120)
-    narrow = filings_mod.read_filing_rows(*args, days=120, kinds=FORM4_KINDS)
+    full = filings_mod.read_filing_rows(*args, days=120, workspace=DEFAULT_TENANT_ID)
+    narrow = filings_mod.read_filing_rows(
+        *args, days=120, kinds=FORM4_KINDS, workspace=DEFAULT_TENANT_ID
+    )
 
     assert set(narrow) == set(full) == set(sids)  # every company has an entry either way
     for sid in sids:
@@ -1484,8 +1486,14 @@ def test_db_the_narrowed_reader_returns_the_full_reads_form4_rows_and_no_other_k
     assert four_a == ([AMEND_EARLY] if asof == PAST else [AMEND_EARLY, AMEND_LATE])
 
     # the default is unchanged
-    assert filings_mod.read_filing_rows(*args, days=120, kinds=None) == full
-    assert filings_mod.read_filing_rows(*args, days=120, kinds=ALL_KINDS) == full
+    assert (
+        filings_mod.read_filing_rows(*args, days=120, kinds=None, workspace=DEFAULT_TENANT_ID)
+        == full
+    )
+    assert (
+        filings_mod.read_filing_rows(*args, days=120, kinds=ALL_KINDS, workspace=DEFAULT_TENANT_ID)
+        == full
+    )
 
 
 def test_db_the_narrowed_reader_never_loads_another_kinds_table_or_runs_the_4a_select_without_form4a(
@@ -1515,19 +1523,21 @@ def test_db_the_narrowed_reader_never_loads_another_kinds_table_or_runs_the_4a_s
     monkeypatch.setattr(filings_mod, "read_amendments", amendments_spy)
     args = (db, [w.sa, w.sb, w.sc], LATER, known_at_for_asof(LATER), "public")
 
-    filings_mod.read_filing_rows(*args, days=120, kinds=FORM4_KINDS)
+    filings_mod.read_filing_rows(*args, days=120, kinds=FORM4_KINDS, workspace=DEFAULT_TENANT_ID)
     assert set(tables) == {"fact_insider_txn"} and len(amendment_selects) == 1
 
     tables.clear()
     amendment_selects.clear()
-    form4 = filings_mod.read_filing_rows(*args, days=120, kinds={"form4"})
+    form4 = filings_mod.read_filing_rows(
+        *args, days=120, kinds={"form4"}, workspace=DEFAULT_TENANT_ID
+    )
     assert set(tables) == {"fact_insider_txn"} and amendment_selects == []
     assert {r.kind for rs in form4.values() for r in rs} == {"form4"}
 
     # the full read loads every kind's table, so the spy is not blind
     tables.clear()
     amendment_selects.clear()
-    filings_mod.read_filing_rows(*args, days=120)
+    filings_mod.read_filing_rows(*args, days=120, workspace=DEFAULT_TENANT_ID)
     assert {
         "fact_insider_txn",
         "fact_corporate_event",

@@ -18,6 +18,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from db.session import DEFAULT_TENANT_ID
 from domain.settings import get_settings
 from pipeline.night_coverage import next_edgar_open
 from replay.episodes import derive_episodes
@@ -229,11 +230,11 @@ def test_the_setting_off_and_the_param_are_identical_to_the_record_before_L1(
     pre_l1 = _include_late_episodes(db, thesis.id)
     assert pre_l1 == [(_FRI, _WED)]  # the late rows bridge 10-12 and 10-13
 
-    param = assemble_scoreboard(db, asof=_READ, exclude_late=False)
+    param = assemble_scoreboard(db, asof=_READ, exclude_late=False, workspace=DEFAULT_TENANT_ID)
     monkeypatch.setenv("ALPHADECK_SCOREBOARD_EXCLUDE_LATE", "false")
     get_settings.cache_clear()
     try:
-        off = assemble_scoreboard(db, asof=_READ)
+        off = assemble_scoreboard(db, asof=_READ, workspace=DEFAULT_TENANT_ID)
     finally:
         monkeypatch.delenv("ALPHADECK_SCOREBOARD_EXCLUDE_LATE")
         get_settings.cache_clear()
@@ -241,7 +242,7 @@ def test_the_setting_off_and_the_param_are_identical_to_the_record_before_L1(
     assert off.model_dump() == param.model_dump()  # the env path and the param path: one reading
     assert _arms(param.theses[0]) == pre_l1
 
-    default = assemble_scoreboard(db, asof=_READ)
+    default = assemble_scoreboard(db, asof=_READ, workspace=DEFAULT_TENANT_ID)
     assert default.summary.late_policy == "excluded"
     # set aside: 10-12 scores its on-time de-arm, 10-13 reads as a gap -> the run closes on 10-12
     assert _arms(default.theses[0]) == [(_FRI, _MON)]
@@ -337,7 +338,7 @@ def test_the_three_filters_compose_by_AND(db, security_id):
     # a reconstruction is never scored under ANY reading — the 10-13 arm above is the late row's
     assert _include_late_episodes(db, thesis.id) == [(_TUE, _WED)]
 
-    summary = assemble_scoreboard(db, asof=_READ).summary
+    summary = assemble_scoreboard(db, asof=_READ, workspace=DEFAULT_TENANT_ID).summary
     # 10-13 is NOT a reconstructed-only night (a late honest row shares it) -> named in the LATE list.
     # 10-12's earlier_recorded_at is the on-time row ignoring the ANNOTATED filter (that row is itself set
     # aside under the annotated reading, and named in annotated_nights) — the late judgment is its own.
@@ -356,8 +357,8 @@ def test_every_reading_writes_nothing(db, security_id):
     _mixed_log(db, security_id)
     before = (_count(db, "calls"), _count(db, "call_annotation"))
     for kw in ({}, {"exclude_late": False}, {"exclude_late": True}):
-        assemble_scoreboard(db, asof=_READ, **kw)
-        scoreboard_records(db, _READ, **kw)
+        assemble_scoreboard(db, asof=_READ, workspace=DEFAULT_TENANT_ID, **kw)
+        scoreboard_records(db, _READ, workspace=DEFAULT_TENANT_ID, **kw)
     assert (_count(db, "calls"), _count(db, "call_annotation")) == before
 
 

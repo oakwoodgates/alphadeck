@@ -62,7 +62,7 @@ from db.session import DEFAULT_TENANT_ID
 from domain.call import CallCard
 from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.market_time import known_at_for_asof, market_tz
-from domain.scopes import DATA_TENANT_ID
+from domain.scopes import DATA_TENANT_ID, WORKSPACE_ANY
 from domain.thesis import BasketMember, Catalyst, KillCriterion, Position, Thesis
 from editions.entry import Entry, ThesisRoster, derive_all
 from pipeline.core import assemble_from_pit
@@ -299,7 +299,7 @@ def build_job(
     first, last = window
     if start is not None:
         first = max(first, start)
-    base = thesis_repo.get(conn, roster.thesis_id)
+    base = thesis_repo.get(conn, roster.thesis_id, workspace=WORKSPACE_ANY)
     if base is None:
         return None
     base = with_body(base, body)

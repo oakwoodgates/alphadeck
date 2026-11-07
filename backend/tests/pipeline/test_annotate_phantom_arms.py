@@ -28,6 +28,7 @@ from db.session import DEFAULT_TENANT_ID
 from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.enums import State
 from domain.market_time import known_at_for_asof
+from domain.scopes import WORKSPACE_ANY
 from domain.thesis import BasketMember, Thesis
 from ingest.prices.eod_loader import ingest_prices_backfill, parse_stooq_csv
 from pipeline import annotate_phantom_arms as apa
@@ -127,7 +128,9 @@ def _record_pre_d3a(db, thesis: Thesis, asof: date, cfg: CallConfig = _PRE_RULE_
     pit = _Pre390PointInTimeData(
         db, asof=asof, tenant_id=DEFAULT_TENANT_ID, basket=basket, bounds=call_bounds(cfg)
     )
-    card = assemble_from_pit(pit, thesis_repo.get_asof(db, thesis.id, None), asof, cfg)
+    card = assemble_from_pit(
+        pit, thesis_repo.get_asof(db, thesis.id, None, workspace=WORKSPACE_ANY), asof, cfg
+    )
     assert calls_repo.record_if_changed(
         db, card, DEFAULT_TENANT_ID, run_kind="cron", ingest_fresh=True
     )
@@ -315,7 +318,7 @@ def _scoreboard(db, **kw):
     row (recorded after the next EDGAR open), which the default reading sets aside before the annotation
     policy is ever reached. These tests isolate the ANNOTATED reading; the late reading (and how the two
     compose) is ``tests/scoreboard/test_late_rows.py``'s."""
-    return assemble_scoreboard(db, exclude_late=False, **kw)
+    return assemble_scoreboard(db, exclude_late=False, workspace=DEFAULT_TENANT_ID, **kw)
 
 
 def _episodes(result) -> list[tuple[str, date]]:

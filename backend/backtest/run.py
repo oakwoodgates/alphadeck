@@ -40,7 +40,7 @@ from backtest.pooled import build_report
 from db.session import DEFAULT_TENANT_ID, connect
 from domain.config import DEFAULT_CONFIG, CallConfig, config_hash, short_hash
 from domain.market_time import market_today
-from domain.scopes import DATA_TENANT_ID
+from domain.scopes import DATA_TENANT_ID, WORKSPACE_ANY
 from domain.thesis import Thesis
 from replay.episodes import episodes_for
 from replay.export import export_snapshot, mirror_clock, read_mirror_manifest
@@ -196,7 +196,7 @@ def execute(
     con = connect_mirror(mirror)
     timings["connect_mirror_s"] = round(time.perf_counter() - t0, 2)
     try:
-        theses = {t.id: t for t in thesis_repo.list_all(conn)}
+        theses = {t.id: t for t in thesis_repo.list_all(conn, workspace=WORKSPACE_ANY)}
 
         t0 = time.perf_counter()
         # B5b — the theses are independent, so the sweep fans out by thesis over the SAME frozen

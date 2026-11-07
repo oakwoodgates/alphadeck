@@ -22,7 +22,7 @@ import psycopg
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict
 
-from app.deps import get_conn
+from app.deps import get_conn, get_workspace
 from dashboards.baskets import (
     cards_as_of,
     display_members,
@@ -215,13 +215,21 @@ def _tapes(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> dict[UUID, Tape | None]:
     """Each company's trailing returns, computed ONCE by the ``trailing_returns`` display member, from the same
     point-in-time view the Cockpit's ``/display-signals`` builds (``known_at`` + ``clock`` from ``serve_view``).
     """
     member = display_members(("trailing_returns",), "Read-Throughs")["trailing_returns"]
     return per_company(
-        conn, sids, asof, known_at, clock, lambda pit, sid: tape_of(member(pit, sid, asof))
+        conn,
+        sids,
+        asof,
+        known_at,
+        clock,
+        lambda pit, sid: tape_of(member(pit, sid, asof)),
+        workspace=workspace,
     )
 
 
@@ -250,11 +258,13 @@ def read_inputs(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> ReadThroughInputs:
     """The heavy read: the counted cards' rosters as of the as-of, then, for the companies that carry a role on
     any of them, their identity, a year of filing rows (the shared reader), their tape and their price flags.
     """
-    counted = cards_as_of(conn, asof, known_at)
+    counted = cards_as_of(conn, asof, known_at, workspace=workspace)
     memberships = memberships_of(counted.cards)
     sids = resolved_ids([m for m in memberships if m.context_role])
     return ReadThroughInputs(
@@ -265,10 +275,12 @@ def read_inputs(
         memberships=memberships,
         catalysts=(),  # read live on every request (``read_live_catalysts``)
         identity=identities(master.identity_for(conn, set(sids))) if sids else {},
-        filings=read_filing_rows(conn, sids, asof, known_at, clock, days=FILING_DAYS),
-        tapes=_tapes(conn, sids, asof, known_at, clock),
+        filings=read_filing_rows(
+            conn, sids, asof, known_at, clock, days=FILING_DAYS, workspace=workspace
+        ),
+        tapes=_tapes(conn, sids, asof, known_at, clock, workspace=workspace),
         spy=_spy(conn, asof, known_at, clock),
-        flagged=price_flags(conn, sids, asof, known_at=known_at, clock=clock),
+        flagged=price_flags(conn, sids, asof, known_at=known_at, clock=clock, workspace=workspace),
     )
 
 
@@ -295,6 +307,7 @@ def _payload(obj: Any) -> dict[str, Any]:
 def read_through(
     asof: date = Query(..., description="as-of date; nothing published after it is read"),
     conn: psycopg.Connection = Depends(get_conn),
+    workspace: UUID = Depends(get_workspace),
 ) -> ReadThroughOut:
     """Every company tagged with a context role on a card counted at the as-of (payers, counter-cases, direct
     reads, participants, financiers, benchmarks), one row per company and role, with the card chips it sits on, its
@@ -309,7 +322,14 @@ def read_through(
     # the clock is the key: the same date read live today and on the public clock tomorrow are two reads (a new
     # run clears the cache anyway; this holds even on a night with no run). The origin is not (it only moves the
     # catalyst countdown, which is built per request from the live catalysts)
-    got = cached(conn, SLUG, (clock,), asof, lambda: read_inputs(conn, asof, known_at, clock))
+    got = cached(
+        conn,
+        SLUG,
+        (clock,),
+        asof,
+        lambda: read_inputs(conn, asof, known_at, clock, workspace=workspace),
+        workspace=workspace,
+    )
     live = replace(got.value, catalysts=read_live_catalysts(conn, got.value.cards))
     page = compute_read_through(live, asof, origin)
     return ReadThroughOut.model_validate(

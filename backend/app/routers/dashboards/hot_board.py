@@ -22,7 +22,7 @@ import psycopg
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict
 
-from app.deps import get_conn
+from app.deps import get_conn, get_workspace
 from dashboards.baskets import (
     cards_as_of,
     display_members,
@@ -401,6 +401,8 @@ def read_board(
     clock: Literal["record", "public"],
     rows: RowsRead = "all",
     origin: date | None = None,
+    *,
+    workspace: UUID,
 ) -> HotBoard:
     """The heavy read the cache holds: the candidate rows this read carries (``rows``: the armed ones alone, or every
     counted card's recorded call's), with their clocks, since-arm returns, tape readings and caps, plus every kind's
@@ -408,7 +410,7 @@ def read_board(
     nights, the data-flag read and the tape run for the chosen subset only, so a row that is only counted costs no
     display member. Reads only; the request's ``known_at`` + ``clock`` ride into the roster read, the data-flag
     read, the benchmark's bars and every company's view."""
-    counted = cards_as_of(conn, asof, known_at)
+    counted = cards_as_of(conn, asof, known_at, workspace=workspace)
     names = {t.id: t.name for t in counted.cards}
     recorded = read_recorded(conn, list(names), asof)
     all_cands: list[Candidate] = candidates(names, recorded)
@@ -433,7 +435,7 @@ def read_board(
         pit.benchmark_prices(BENCHMARK, lookback_days=trailing_returns.LOOKBACK_DAYS), asof
     )
 
-    flags = price_flags(conn, sids, asof, known_at=known_at, clock=clock)
+    flags = price_flags(conn, sids, asof, known_at=known_at, clock=clock, workspace=workspace)
     members = display_members(MEMBERS, "Hot Board")
     tapes = per_company(
         conn,
@@ -444,6 +446,7 @@ def read_board(
         lambda p, sid: read_tape(
             p, sid, asof, members, flags.get(sid), since_from.get(sid), iwm_trailing
         ),
+        workspace=workspace,
     )
     calendar, source = session_calendar(
         (d for d, _ in iwm_bars),
@@ -497,6 +500,7 @@ def hot_board(
         ),
     ),
     conn: psycopg.Connection = Depends(get_conn),
+    workspace: UUID = Depends(get_workspace),
 ) -> HotBoardOut:
     """Every name the recorded calls in effect at the as-of show Armed, one row each, with the tape beside it:
     the call's own fields, the arm night and the session clocks, the return since the arm night against IWM, the
@@ -517,7 +521,8 @@ def hot_board(
         SLUG,
         (rows, clock, origin),
         asof,
-        lambda: read_board(conn, asof, known_at, clock, rows, origin),
+        lambda: read_board(conn, asof, known_at, clock, rows, origin, workspace=workspace),
+        workspace=workspace,
     )
     return HotBoardOut.model_validate(
         {**_payload(got.value), "cache": got.status, "compute_ms": got.compute_ms},

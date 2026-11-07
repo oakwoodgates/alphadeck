@@ -955,7 +955,7 @@ def sample_log(window_days: int = 90, role: str = "entry") -> TriggerLog:
 def stub_client(monkeypatch):
     seen: dict = {"reads": []}
 
-    def fake_read(conn, asof, window_days, role, known_at, clock):
+    def fake_read(conn, asof, window_days, role, known_at, clock, **_):
         seen["reads"].append((asof, window_days, known_at, clock, role))
         return sample_log(window_days, role)
 

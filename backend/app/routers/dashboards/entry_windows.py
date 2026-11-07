@@ -21,7 +21,7 @@ import psycopg
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict
 
-from app.deps import get_conn
+from app.deps import get_conn, get_workspace
 from dashboards.baskets import CHUNK, cards_as_of, price_flags
 from dashboards.cache import cached
 from dashboards.entry_windows import (
@@ -345,11 +345,13 @@ def read_page(
     known_at: datetime | None,
     clock: Literal["record", "public"],
     origin: date | None = None,
+    *,
+    workspace: UUID,
 ) -> EntryWindows:
     """The heavy read the cache holds: the counted cards, their runs, the armed names' tape and the page built
     from them. ``known_at`` + ``clock`` are the request's one ``serve_view(asof)`` pair; ``origin`` is where the
     countdowns count from (F2)."""
-    counted = cards_as_of(conn, asof, known_at)
+    counted = cards_as_of(conn, asof, known_at, workspace=workspace)
     ids = [t.id for t in counted.cards]
     nights = _nights(conn, ids, asof)
     runs = {tid: run for tid, rows in nights.items() if (run := armed_run(rows)) is not None}
@@ -370,7 +372,7 @@ def read_page(
         for m in recorded[(tid, run.last)].armed_members
         for t in m.triggers
     }
-    flagged = price_flags(conn, armed, asof, known_at=known_at, clock=clock)
+    flagged = price_flags(conn, armed, asof, known_at=known_at, clock=clock, workspace=workspace)
     days = lookback_days((run.first for run in runs.values()), asof)
     priced = [sid for sid in armed if sid not in flagged]
     return entry_windows(
@@ -395,6 +397,7 @@ def entry_windows_page(
         ..., description="as-of date; nothing recorded or published after it is read"
     ),
     conn: psycopg.Connection = Depends(get_conn),
+    workspace: UUID = Depends(get_workspace),
 ) -> EntryWindowsOut:
     """Each Armed card's entry window (to ``arm_until``) and hold horizon (to ``exit_by``) from its arm night, on
     one date axis with the as-of marked, the IWM sessions into and left in the window, the dated catalysts inside
@@ -412,7 +415,8 @@ def entry_windows_page(
         SLUG,
         (clock, origin),
         asof,
-        lambda: read_page(conn, asof, known_at, clock, origin),
+        lambda: read_page(conn, asof, known_at, clock, origin, workspace=workspace),
+        workspace=workspace,
     )
     return EntryWindowsOut.model_validate(
         {**asdict(got.value), "clock": clock, "cache": got.status, "compute_ms": got.compute_ms}

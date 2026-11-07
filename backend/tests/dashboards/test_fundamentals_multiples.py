@@ -691,7 +691,7 @@ def stub_client(monkeypatch):
     seen: dict = {"reads": 0, "card_reads": 0}
     other = uuid.uuid4()
 
-    def fake_cards(conn, asof):
+    def fake_cards(conn, asof, **_):
         seen["card_reads"] += 1
         return CardsRead(
             live_cards=3,
@@ -699,7 +699,7 @@ def stub_client(monkeypatch):
             cards=(CardChoice(T1, "Grid", 2), CardChoice(other, "Batteries", 1)),
         )
 
-    def fake_read(conn, thesis_id, asof, known_at, clock):
+    def fake_read(conn, thesis_id, asof, known_at, clock, **_):
         seen["reads"] += 1
         seen["view"] = (thesis_id, asof, known_at, clock)
         return base()

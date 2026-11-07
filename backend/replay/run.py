@@ -17,7 +17,7 @@ from pydantic import BaseModel
 
 from db.session import DEFAULT_TENANT_ID, connect
 from domain.config import DEFAULT_CONFIG, CallConfig
-from domain.scopes import DATA_TENANT_ID
+from domain.scopes import DATA_TENANT_ID, WORKSPACE_ANY
 from replay.episodes import episodes_for
 from replay.export import export_snapshot
 from replay.harness import replay_all
@@ -145,7 +145,7 @@ def _single_name_security(conn: psycopg.Connection, tenant_id: UUID) -> dict[UUI
     """thesis_id -> its sole member's security_id, for single-name theses (the unit the withheld-arm
     metric can price). Multi-name themes are omitted."""
     out: dict[UUID, UUID] = {}
-    for t in thesis_repo.list_all(conn):
+    for t in thesis_repo.list_all(conn, workspace=WORKSPACE_ANY):
         sids = [m.security_id for m in t.basket if m.security_id is not None]
         if len(sids) == 1:
             out[t.id] = sids[0]

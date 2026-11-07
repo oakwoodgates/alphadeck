@@ -21,7 +21,7 @@ import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
 
-from app.deps import get_conn
+from app.deps import get_conn, get_workspace
 from dashboards.baskets import (  # noqa: F401  (CardChoice: re-exported under its old name)
     CardChoice,
     CardsRead,
@@ -225,6 +225,8 @@ def _closes(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> dict[UUID, dict[date, float]]:
     """Each company's ``{day: close}`` up to the as-of, from the same point-in-time view the Cockpit's
     ``/display-signals`` builds (``known_at`` + ``clock`` from ``serve_view``)."""
@@ -239,6 +241,7 @@ def _closes(
             for b in pit.price_history(sid, lookback_days=LOOKBACK_DAYS)
             if b.get("close") is not None
         },
+        workspace=workspace,
     )
 
 
@@ -270,6 +273,8 @@ def read_inputs(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> WaveInputs:
     """The heavy read the cache holds: the card's roster as of the as-of (``baskets.cards_as_of``'s rule for one
     card: the live view reads today's roster, a past view the latest snapshot by ``known_at``, today's roster
@@ -277,10 +282,10 @@ def read_inputs(
     role rows read them and the toggle is sliced per request), SPY's closes, built into every row's 52 weeks.
     """
     if known_at is None:
-        card, fallback = thesis_repo.get(conn, thesis_id), False
+        card, fallback = thesis_repo.get(conn, thesis_id, workspace=workspace), False
     else:
         fallback = not thesis_repo.snapshot_exists_asof(conn, thesis_id, known_at)
-        card = thesis_repo.get_asof(conn, thesis_id, known_at)
+        card = thesis_repo.get_asof(conn, thesis_id, known_at, workspace=workspace)
     if card is None:
         raise HTTPException(status_code=404, detail="card not counted at this as-of")
     memberships = memberships_of([card])
@@ -290,18 +295,25 @@ def read_inputs(
         thesis_name=card.name,
         segments=[s.label for s in card.segments],
         memberships=memberships,
-        closes=_closes(conn, sids, asof, known_at, clock),
+        closes=_closes(conn, sids, asof, known_at, clock, workspace=workspace),
         spy=_spy(conn, asof, known_at, clock),
         asof=asof,
         roster_fallback=fallback,
-        flagged=price_flags(conn, sids, asof, known_at=known_at, clock=clock),
+        flagged=price_flags(conn, sids, asof, known_at=known_at, clock=clock, workspace=workspace),
     )
 
 
 def _cards(
-    conn: psycopg.Connection, asof: date, clock: Literal["record", "public"]
+    conn: psycopg.Connection, asof: date, clock: Literal["record", "public"], *, workspace: UUID
 ) -> Cached[CardsRead]:
-    return cached(conn, SLUG, ("cards", clock), asof, lambda: read_cards(conn, asof))
+    return cached(
+        conn,
+        SLUG,
+        ("cards", clock),
+        asof,
+        lambda: read_cards(conn, asof, workspace=workspace),
+        workspace=workspace,
+    )
 
 
 @router.get("/cards", response_model=ChainWaveCardsOut)
@@ -310,11 +322,12 @@ def chain_wave_cards(
         ..., description="as-of date; only the cards that existed by then are listed"
     ),
     conn: psycopg.Connection = Depends(get_conn),
+    workspace: UUID = Depends(get_workspace),
 ) -> ChainWaveCardsOut:
     """The card picker: the live cards that existed by the as-of, A→Z, each with its link count today. Display
     only."""
     _, clock = serve_view(asof)
-    got = _cards(conn, asof, clock)
+    got = _cards(conn, asof, clock, workspace=workspace)
     return ChainWaveCardsOut.model_validate(
         {
             "asof": asof,
@@ -336,6 +349,7 @@ def chain_wave(
         False, description="add Context and Bench as the last two chain rows"
     ),
     conn: psycopg.Connection = Depends(get_conn),
+    workspace: UUID = Depends(get_workspace),
 ) -> ChainWaveOut:
     """One card's links in chain order, week by week: each cell is the link's equal-weighted weekly return
     (rebalanced daily) minus SPY's, in percentage points, so a move traveling along the chain shows as a
@@ -344,7 +358,9 @@ def chain_wave(
     listed. Display only; a past as-of reads what was public by the end of that date. 404 when the card is not
     counted at the as-of."""
     known_at, clock = serve_view(asof)
-    if not any(c.thesis_id == thesis_id for c in _cards(conn, asof, clock).value.cards):
+    if not any(
+        c.thesis_id == thesis_id for c in _cards(conn, asof, clock, workspace=workspace).value.cards
+    ):
         raise HTTPException(status_code=404, detail="card not counted at this as-of")
     # the clock is part of the key: the same date read live today and on the public clock tomorrow are two
     # reads (a new run clears the cache anyway; this holds even on a night with no run)
@@ -353,7 +369,8 @@ def chain_wave(
         SLUG,
         (str(thesis_id), clock),
         asof,
-        lambda: read_inputs(conn, thesis_id, asof, known_at, clock),
+        lambda: read_inputs(conn, thesis_id, asof, known_at, clock, workspace=workspace),
+        workspace=workspace,
     )
     page = compute_chain_wave(got.value, asof=asof, weeks=int(weeks), include_silent=include_silent)
     return ChainWaveOut.model_validate(

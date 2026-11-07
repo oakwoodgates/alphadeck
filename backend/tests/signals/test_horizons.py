@@ -17,6 +17,7 @@ import pytest
 from db.bitemporal import _FACT_IDENTITY
 from domain.config import DEFAULT_CONFIG
 from domain.enums import Grade, Kind, Role
+from domain.scopes import WORKSPACE_ANY
 from pipeline.seed import NUCLEAR_THESIS_ID, SMR_ID
 from repositories import thesis_repo
 from signals import laggard, registered_detectors, split_hold, theme_conviction
@@ -278,7 +279,7 @@ def test_every_reader_touches_only_the_tables_it_declared(db):
     seed_all(db)
     asof = date(2026, 6, 5)
     seed_benchmark_bars(db, asof)
-    thesis = thesis_repo.get(db, NUCLEAR_THESIS_ID)
+    thesis = thesis_repo.get(db, NUCLEAR_THESIS_ID, workspace=WORKSPACE_ANY)
 
     def fresh():
         return _RecordingPIT(PointInTimeData(db, asof=asof, known_at=PIN))

@@ -16,7 +16,7 @@ import psycopg
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
 
-from app.deps import get_conn
+from app.deps import get_conn, get_workspace
 from dashboards.idea_timeline import AnnotationRow, CallRow, Clocks, DecisionRow
 from dashboards.idea_timeline import idea_timeline as compute_idea_timeline
 from domain.market_time import market_today
@@ -193,12 +193,14 @@ class IdeaTimelineOut(_Wire):
 
 
 @router.get("", response_model=IdeaTimelineOut)
-def idea_timeline(conn: psycopg.Connection = Depends(get_conn)) -> IdeaTimelineOut:
+def idea_timeline(
+    conn: psycopg.Connection = Depends(get_conn), workspace: UUID = Depends(get_workspace)
+) -> IdeaTimelineOut:
     """Each live card's recorded state over time (the calls log as runs of one state), with its dated
     catalysts, the logged decisions and the latest call's exit-by and entry window. A "now" view; archived
     cards are excluded.
     """
-    theses = thesis_repo.list_all(conn)
+    theses = thesis_repo.list_all(conn, workspace=workspace)
     ids = [t.id for t in theses]
     return IdeaTimelineOut.model_validate(
         compute_idea_timeline(

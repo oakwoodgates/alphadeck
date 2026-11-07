@@ -1331,9 +1331,18 @@
           "workbench"
         ],
         "summary": "Get Member Ingest Job",
-        "description": "POLL an on-promote new-member ingest job (kicked by ``POST /workbench/theses`` when a promote\nadded members). ``queued`` = waiting behind this thesis's running ingest; ``done`` \u2192 the summary of\nwhat landed; ``failed`` \u2192 an operator-facing ``error`` (VISIBLE, never silent \u2014 the nightly cron\nremains the backstop that ingests everything regardless). **404** if the job is unknown / expired,\nor the registry was wiped by a restart \u2014 the FE shows a visible \"lost from view\" line (never an\ninfinite spinner). The job_id must belong to this thesis.",
+        "description": "POLL an on-promote new-member ingest job (kicked by ``POST /workbench/theses`` when a promote\nadded members). ``queued`` = waiting behind this thesis's running ingest; ``done`` \u2192 the summary of\nwhat landed; ``failed`` \u2192 an operator-facing ``error`` (VISIBLE, never silent \u2014 the nightly cron\nremains the backstop that ingests everything regardless). **404** if the job is unknown / expired,\nor the registry was wiped by a restart \u2014 the FE shows a visible \"lost from view\" line (never an\ninfinite spinner). The thesis must be the caller's (else 404) and the job_id must belong to it.",
         "operationId": "get_member_ingest_job_workbench_theses__thesis_id__ingest_jobs__job_id__get",
         "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
           {
             "name": "thesis_id",
             "in": "path",
@@ -1342,15 +1351,6 @@
               "type": "string",
               "format": "uuid",
               "title": "Thesis Id"
-            }
-          },
-          {
-            "name": "job_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Job Id"
             }
           }
         ],
@@ -1608,9 +1608,18 @@
           "workbench"
         ],
         "summary": "Get Draft Chain Job",
-        "description": "POLL a kicked-off draft job. ``done`` \u2192 the ``result`` (a ChainDraftOut); ``failed`` \u2192 an operator-facing\n``error`` (discovery-not-ready, a timeout, or an unexpected fault \u2014 VISIBLE, #9). **404** if the job is\nunknown / expired, or the registry was wiped by a restart \u2014 the FE shows a visible \"draft was lost\" (never an\ninfinite spinner). The job_id must belong to this thesis.",
+        "description": "POLL a kicked-off draft job. ``done`` \u2192 the ``result`` (a ChainDraftOut); ``failed`` \u2192 an operator-facing\n``error`` (discovery-not-ready, a timeout, or an unexpected fault \u2014 VISIBLE, #9). **404** if the job is\nunknown / expired, or the registry was wiped by a restart \u2014 the FE shows a visible \"draft was lost\" (never an\ninfinite spinner). The thesis must be the caller's (else 404) and the job_id must belong to it.",
         "operationId": "get_draft_chain_job_workbench_theses__thesis_id__draft_chain_jobs__job_id__get",
         "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
           {
             "name": "thesis_id",
             "in": "path",
@@ -1619,15 +1628,6 @@
               "type": "string",
               "format": "uuid",
               "title": "Thesis Id"
-            }
-          },
-          {
-            "name": "job_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Job Id"
             }
           }
         ],
@@ -1935,7 +1935,7 @@
           "workbench"
         ],
         "summary": "Ratify Fact",
-        "description": "Ratify an extracted candidate -> write the scoring fact (hybrid-2a) \u2014 the app's first fact-WRITE. The\noperator confirms/edits a candidate (AUTO as-is, FLAG the composition, HUMAN purity the value); this\npersists it via the existing ``ingest_*`` so the meter re-derives on the next scored read.\n\nWRITE-SIDE TENANT DISCIPLINE: the security must be in the CURRENT tenant's master (fail-closed) \u2014 the\ntenant is the deployment resolver's, but the ``security_id`` is caller-supplied, so a foreign/unknown id\nmust not write a junk fact. ``source`` is preserved (the candidate's basis, e.g. ``10-k-segment``);\n``ratified_by`` is stamped \"operator\"; the fact is append-only (a re-ratify is a new row, latest-wins).\n\n``vouched`` records whether the operator confirmed the shown ``estimate`` as-is or overrode it \u2014 PROVENANCE\nfor the drift-cron + the agree/disagree signal, NEVER a scoring input (all vouched states score identically).",
+        "description": "Ratify an extracted candidate -> write the scoring fact (hybrid-2a) \u2014 the app's first fact-WRITE. The\noperator confirms/edits a candidate (AUTO as-is, FLAG the composition, HUMAN purity the value); this\npersists it via the existing ``ingest_*`` so the meter re-derives on the next scored read.\n\nWRITE-SIDE TENANT DISCIPLINE: the security must be in the CURRENT tenant's master (fail-closed) \u2014 the\ntenant is the deployment resolver's, but the ``security_id`` is caller-supplied, so a foreign/unknown id\nmust not write a junk fact. ``source`` is preserved (the candidate's basis, e.g. ``10-k-segment``);\n``ratified_by`` is stamped with the signed-in user's email; the fact lands in the caller's WORKSPACE (a\nratified fact is private research, docs/TENANT_SCOPES.md) and is append-only (a re-ratify is a new row,\nlatest-wins).\n\n``vouched`` records whether the operator confirmed the shown ``estimate`` as-is or overrode it \u2014 PROVENANCE\nfor the drift-cron + the agree/disagree signal, NEVER a scoring input (all vouched states score identically).",
         "operationId": "ratify_fact_workbench_facts_post",
         "requestBody": {
           "content": {

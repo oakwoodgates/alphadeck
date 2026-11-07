@@ -88,6 +88,7 @@ from psycopg.rows import dict_row
 from db.bitemporal import _FACT_IDENTITY
 from db.clock import db_now
 from db.session import DEFAULT_TENANT_ID
+from domain.scopes import WORKSPACE_ANY
 from pipeline.call_for_thesis import call_for_thesis
 from pipeline.run_lock import repair_lock_or_exit
 from repositories import calls_repo, data_repair_repo, thesis_repo
@@ -475,7 +476,7 @@ def snapshot_canonical_calls(
     """``calls_repo._canonical`` of every non-archived thesis's CallCard at ``asof``/``known_at``,
     read-only (``record=False``) — the "did this DELETE change what any call reads" snapshot."""
     out: dict[UUID, str] = {}
-    for thesis in thesis_repo.list_all(conn, include_archived=False):
+    for thesis in thesis_repo.list_all(conn, include_archived=False, workspace=WORKSPACE_ANY):
         card = call_for_thesis(conn, thesis.id, asof, known_at=known_at, record=False)
         out[thesis.id] = calls_repo._canonical(card)
     return out

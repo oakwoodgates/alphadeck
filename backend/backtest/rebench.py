@@ -40,7 +40,7 @@ from backtest import manifest as mf
 from backtest import store
 from backtest.nulls import _BasketBenchmark, horizon_days
 from backtest.pooled import Stat
-from domain.scopes import DATA_TENANT_ID
+from domain.scopes import DATA_TENANT_ID, WORKSPACE_ANY
 from replay.pit import connect_mirror
 from replay.schema import Episode
 from replay.scoring import RealizedPrices, score_window
@@ -330,7 +330,7 @@ def _live_rosters() -> dict[UUID, list[UUID | None]]:
     try:
         return {
             t.id: [m.security_id for m in t.basket]
-            for t in thesis_repo.list_all(conn, include_archived=True)
+            for t in thesis_repo.list_all(conn, include_archived=True, workspace=WORKSPACE_ANY)
         }
     finally:
         conn.close()

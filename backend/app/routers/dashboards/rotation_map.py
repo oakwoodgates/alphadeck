@@ -17,7 +17,7 @@ import psycopg
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict
 
-from app.deps import get_conn
+from app.deps import get_conn, get_workspace
 from dashboards.baskets import (
     GroupBy,
     cards_as_of,
@@ -170,6 +170,8 @@ def _tapes(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> dict[UUID, CompanyTape]:
     """Each company's readings, computed ONCE, from the same point-in-time view the Cockpit's
     ``/display-signals`` builds (``known_at`` + ``clock`` from ``serve_view``: the public clock at a past
@@ -182,6 +184,7 @@ def _tapes(
         known_at,
         clock,
         lambda pit, sid: company_tape({n: m(pit, sid, asof) for n, m in members.items()}),
+        workspace=workspace,
     )
 
 
@@ -212,10 +215,12 @@ def read_inputs(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> RotationInputs:
     """The heavy read the cache holds: the counted cards' rosters as of the as-of, every company's readings
     and price flags (``price_flags``, on the same view), SPY's returns."""
-    counted = cards_as_of(conn, asof, known_at)
+    counted = cards_as_of(conn, asof, known_at, workspace=workspace)
     memberships = memberships_of(counted.cards)
     sids = resolved_ids(memberships)
     return RotationInputs(
@@ -224,9 +229,9 @@ def read_inputs(
         cards_not_yet_created=counted.not_yet_created,
         roster_fallback_cards=counted.roster_fallback,
         memberships=memberships,
-        tapes=_tapes(conn, sids, asof, known_at, clock),
+        tapes=_tapes(conn, sids, asof, known_at, clock, workspace=workspace),
         spy=_spy(conn, asof, known_at, clock),
-        flagged=price_flags(conn, sids, asof, known_at=known_at, clock=clock),
+        flagged=price_flags(conn, sids, asof, known_at=known_at, clock=clock, workspace=workspace),
     )
 
 
@@ -238,6 +243,7 @@ def rotation_map(
         False, description="add Context and Bench memberships (their own rows in the Link view)"
     ),
     conn: psycopg.Connection = Depends(get_conn),
+    workspace: UUID = Depends(get_workspace),
 ) -> RotationMapOut:
     """Which links, business types, sectors or cards have price moving: per group, the median 1d / 7d /
     30d / 90d / 1Y return with how many names are up, the share above the 50-day SMA, the median 20-day
@@ -247,7 +253,14 @@ def rotation_map(
     known_at, clock = serve_view(asof)
     # the clock is part of the key: the same date read live today and on the public clock tomorrow are two
     # reads (a new run clears the cache anyway; this holds even on a night with no run)
-    got = cached(conn, SLUG, (clock,), asof, lambda: read_inputs(conn, asof, known_at, clock))
+    got = cached(
+        conn,
+        SLUG,
+        (clock,),
+        asof,
+        lambda: read_inputs(conn, asof, known_at, clock, workspace=workspace),
+        workspace=workspace,
+    )
     inputs = got.value
     identity = (
         master.identity_for(conn, set(inputs.tapes))

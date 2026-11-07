@@ -383,7 +383,7 @@ def _client(monkeypatch, cards, identity, *, live=None, later=0, fallback=0):
     monkeypatch.setattr(
         router_mod,
         "cards_as_of",
-        lambda conn, asof, known_at: CardsAsOf(
+        lambda conn, asof, known_at, **_: CardsAsOf(
             live if live is not None else len(cards), cards, later, fallback
         ),
     )

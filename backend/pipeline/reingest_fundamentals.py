@@ -83,7 +83,7 @@ from uuid import UUID
 import psycopg
 
 from db.session import connect
-from domain.scopes import DATA_TENANT_ID
+from domain.scopes import DATA_TENANT_ID, WORKSPACE_ANY
 from domain.security import Security
 from domain.settings import get_settings
 from ingest import CacheMiss
@@ -195,12 +195,12 @@ def active_securities(
     """Every resolved basket member of every non-archived thesis (or one thesis) — the nightly's scope
     (``pipeline.ingest_fundamentals``) — de-duplicated by security; ``tickers`` narrows it."""
     if thesis_id is not None:
-        one = thesis_repo.get(conn, thesis_id)
+        one = thesis_repo.get(conn, thesis_id, workspace=WORKSPACE_ANY)
         if one is None:
             raise LookupError(f"thesis {thesis_id} not found")
         theses = [one]
     else:
-        theses = thesis_repo.list_all(conn)
+        theses = thesis_repo.list_all(conn, workspace=WORKSPACE_ANY)
     wanted = {t.upper() for t in tickers}
     seen: set[UUID] = set()
     out: list[Security] = []

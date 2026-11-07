@@ -8,6 +8,7 @@ from uuid import UUID
 import psycopg
 from psycopg.types.json import Json
 
+from domain.scopes import WorkspaceScope, workspace_filter
 from domain.thesis import BasketMember, Catalyst, ExcludedName, KillCriterion, TermSetEntry, Thesis
 from repositories.mappers import (
     _row_to_basket_member,
@@ -18,10 +19,21 @@ from repositories.mappers import (
 )
 
 
-def get(conn: psycopg.Connection, thesis_id: UUID) -> Thesis | None:
-    """Load a Thesis (with its children) by id, or None. Raw rows never escape this package."""
+class ThesisNotInWorkspace(LookupError):
+    """``upsert`` was handed a thesis id that exists under ANOTHER workspace (the foreign-id overwrite guard). The
+    promote route answers 404 "thesis not found": a caller never learns that another workspace's id exists.
+    """
+
+
+def get(conn: psycopg.Connection, thesis_id: UUID, *, workspace: WorkspaceScope) -> Thesis | None:
+    """Load a Thesis (with its children) by id, or None. Raw rows never escape this package.
+
+    ``workspace`` is REQUIRED: the caller's workspace id (a thesis in another workspace reads as None — the API's
+    404), or ``domain.scopes.WORKSPACE_ANY`` for system code (the nightly, the CLIs, the replay harness).
+    """
+    clause, params = workspace_filter(workspace)
     with conn.cursor() as cur:
-        cur.execute("SELECT * FROM thesis WHERE id = %s", (thesis_id,))
+        cur.execute(f"SELECT * FROM thesis WHERE id = %s{clause}", (thesis_id, *params))
         t = cur.fetchone()
         if t is None:
             return None
@@ -45,7 +57,13 @@ def get(conn: psycopg.Connection, thesis_id: UUID) -> Thesis | None:
     return row_to_thesis(t, basket, evidence, catalysts, kills, exclusions)
 
 
-def get_asof(conn: psycopg.Connection, thesis_id: UUID, known_at: datetime | None) -> Thesis | None:
+def get_asof(
+    conn: psycopg.Connection,
+    thesis_id: UUID,
+    known_at: datetime | None,
+    *,
+    workspace: WorkspaceScope,
+) -> Thesis | None:
     """Load a Thesis with its basket ROSTER as it was known at ``known_at`` — the roster's point-in-time
     read (F12, the SECOND bitemporal leak). ``basket_member`` is full-replace / non-temporal, so a plain
     ``get`` reconstructs a PAST-dated recompute on TODAY's roster; ``basket_snapshot`` (migration 0043)
@@ -63,8 +81,9 @@ def get_asof(conn: psycopg.Connection, thesis_id: UUID, known_at: datetime | Non
     snapshot — the deploy seed writes one per existing thesis, and ``upsert`` writes one on every roster
     change — so the live/today call path (serve asof=today, the nightly record) is unchanged. Callers own
     the transaction. This is roster METADATA, never a call input (#3): the reassigned basket only re-scopes
-    the PIT prefetch and the armed/watch grouping, exactly as the live roster did."""
-    thesis = get(conn, thesis_id)
+    the PIT prefetch and the armed/watch grouping, exactly as the live roster did. ``workspace`` as ``get``.
+    """
+    thesis = get(conn, thesis_id, workspace=workspace)
     if thesis is None:
         return None
     with conn.cursor() as cur:
@@ -335,42 +354,57 @@ def entries_for(
     return out
 
 
-def list_all(conn: psycopg.Connection, *, include_archived: bool = False) -> list[Thesis]:
+def list_all(
+    conn: psycopg.Connection, *, workspace: WorkspaceScope, include_archived: bool = False
+) -> list[Thesis]:
     """Every thesis, each fully loaded, ordered by name. ARCHIVED theses are EXCLUDED by default —
     the Board's default list, the workbench picker, and the daily cron's walk all skip them without
     asking (an archived test basket stops accumulating calls-of-record; the Scoreboard's data stays
     clean). ``include_archived=True`` is the explicit, reversible filter (the Board's collapsed
     "Archived" section). The API projects these to lightweight summaries; at this scale a full load
-    per thesis is fine (optimize if the universe grows)."""
-    where = "" if include_archived else "WHERE archived_at IS NULL"
+    per thesis is fine (optimize if the universe grows).
+
+    ``workspace`` is REQUIRED: the caller's workspace (the API) or ``WORKSPACE_ANY`` (the nightly's walk of every
+    workspace, the CLIs)."""
+    clause, params = workspace_filter(workspace)
+    where = "TRUE" if include_archived else "archived_at IS NULL"
     with conn.cursor() as cur:
-        cur.execute(f"SELECT id FROM thesis {where} ORDER BY name")
+        cur.execute(f"SELECT id FROM thesis WHERE {where}{clause} ORDER BY name", params)
         ids = [r["id"] for r in cur.fetchall()]
-    return [thesis for thesis in (get(conn, i) for i in ids) if thesis is not None]
+    return [
+        thesis for thesis in (get(conn, i, workspace=workspace) for i in ids) if thesis is not None
+    ]
 
 
-def created_at_for(conn: psycopg.Connection, thesis_ids: Iterable[UUID]) -> dict[UUID, datetime]:
+def created_at_for(
+    conn: psycopg.Connection, thesis_ids: Iterable[UUID], *, workspace: WorkspaceScope
+) -> dict[UUID, datetime]:
     """``thesis_id -> created_at`` (an aware instant — the column is ``timestamptz``) for the ids given;
     an unknown id is simply absent. The domain ``Thesis`` deliberately does not carry ``created_at``
     (it is a row fact, not part of the spine the promote payload owns — ``upsert`` never names it, so
     it is stable for the life of the row). This narrow read exists for the ONE question that needs it:
     did the thesis EXIST on a past night (``pipeline.backfill``'s existence gate, and the repair script
-    that shares its rule)? Read-only."""
+    that shares its rule)? Read-only. ``workspace`` as ``list_all`` (an id in another workspace is absent).
+    """
     ids = list(thesis_ids)
     if not ids:
         return {}
+    clause, params = workspace_filter(workspace)
     with conn.cursor() as cur:
-        cur.execute("SELECT id, created_at FROM thesis WHERE id = ANY(%s)", (ids,))
+        cur.execute(f"SELECT id, created_at FROM thesis WHERE id = ANY(%s){clause}", (ids, *params))
         return {r["id"]: r["created_at"] for r in cur.fetchall()}
 
 
-def lifespans(conn: psycopg.Connection) -> list[dict]:
+def lifespans(conn: psycopg.Connection, *, workspace: WorkspaceScope) -> list[dict]:
     """``{id, created_at, archived_at}`` for EVERY thesis, archived ones included (all tenants, like the
     cron's walk) — the per-(thesis, night) coverage read's roster (M1, ``pipeline/night_coverage.py``):
     which theses a given night's pass was due to record. Both columns are ``timestamptz`` (aware);
-    ``archived_at`` is ``NULL`` for a live thesis. Read-only."""
+    ``archived_at`` is ``NULL`` for a live thesis. Read-only. ``workspace`` as ``list_all``."""
+    clause, params = workspace_filter(workspace)
     with conn.cursor() as cur:
-        cur.execute("SELECT id, created_at, archived_at FROM thesis ORDER BY id")
+        cur.execute(
+            f"SELECT id, created_at, archived_at FROM thesis WHERE TRUE{clause} ORDER BY id", params
+        )
         return list(cur.fetchall())
 
 
@@ -408,11 +442,19 @@ def upsert(conn: psycopg.Connection, thesis: Thesis) -> None:
     before the authoring surfaces existed, the old full-replace here wiped [] over [] silently on
     every narrative edit — the wipe-trap's third instance, caught before it had rows to lose).
     The caller owns the transaction (commit/rollback).
+
+    THE FOREIGN-ID GUARD: when a thesis with this id already exists under a DIFFERENT tenant than
+    ``thesis.tenant_id``, nothing is written and ``ThesisNotInWorkspace`` is raised (the promote answers 404), so a
+    payload carrying another workspace's thesis id can never overwrite it.
     """
     row = thesis_to_row(thesis)
     tid = thesis.id
     tenant = row["tenant_id"]
     with conn.cursor() as cur:
+        cur.execute("SELECT tenant_id FROM thesis WHERE id = %s FOR UPDATE", (tid,))
+        existing = cur.fetchone()
+        if existing is not None and existing["tenant_id"] != tenant:
+            raise ThesisNotInWorkspace(f"thesis {tid} is not in workspace {tenant}")
         cur.execute(
             """
             INSERT INTO thesis (id, tenant_id, parent_id, name, narrative, ticker,

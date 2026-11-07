@@ -12,7 +12,7 @@ from pathlib import Path
 
 from db.bitemporal import as_of
 from db.session import DEFAULT_TENANT_ID
-from domain.scopes import DATA_TENANT_ID
+from domain.scopes import DATA_TENANT_ID, WORKSPACE_ANY
 from ingest import CacheMiss
 from pipeline import ingest_thesis as IT
 from pipeline.provision_tenant import provision_tenant
@@ -242,7 +242,7 @@ def test_a_meta_index_card_still_ingests_its_whole_basket(db, security_id, monke
     tid = _make_thesis(db, [("DEVCO", security_id), ("MIXB", other)])
     thesis_repo.set_meta_index(db, tid, True)
     db.commit()
-    assert thesis_repo.get(db, tid).meta_index is True
+    assert thesis_repo.get(db, tid, workspace=WORKSPACE_ANY).meta_index is True
 
     results = IT.ingest_thesis(db, tid, allow_live=False)
 

@@ -23,7 +23,7 @@ import psycopg
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from app.deps import get_conn
+from app.deps import get_conn, get_workspace
 from dashboards.baskets import (
     cards_as_of,
     companies_in,
@@ -331,12 +331,14 @@ def read_tracker(
     include_silent: bool,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> InsiderTracker:
     """The cached read: the counted cards and their rosters at the as-of, every counted name's filings from
     ``CLUSTER_WINDOW_DAYS`` before the window through the as-of, the recorded nights of the window, then, for the
     names with a purchase in the window only, the data flags, the tape and the cap, and IWM's tape.
     """
-    got = cards_as_of(conn, asof, known_at)
+    got = cards_as_of(conn, asof, known_at, workspace=workspace)
     counted = counted_rows(memberships_of(got.cards), include_silent)
     sids = resolved_ids(counted.rows)
     # the ticker a name shows under is the one most of its cards use (the Cockpit's ?name= key)
@@ -352,11 +354,18 @@ def read_tracker(
         days=window_days + CLUSTER_WINDOW_DAYS,
         tickers=tickers,
         kinds=FORM4_KINDS,
+        workspace=workspace,
     )
     buying = purchase_security_ids(filings, asof, window_days)
-    flagged = price_flags(conn, buying, asof, known_at=known_at, clock=clock)
+    flagged = price_flags(conn, buying, asof, known_at=known_at, clock=clock, workspace=workspace)
     tapes = per_company(
-        conn, buying, asof, known_at, clock, lambda pit, sid: read_tape(pit, sid, flagged.get(sid))
+        conn,
+        buying,
+        asof,
+        known_at,
+        clock,
+        lambda pit, sid: read_tape(pit, sid, flagged.get(sid)),
+        workspace=workspace,
     )
     return insider_tracker(
         TrackerInputs(
@@ -392,6 +401,7 @@ def insider_tracker_page(
         description="also read the names the cards hold in Context and Bench (tagged; off by default)",
     ),
     conn: psycopg.Connection = Depends(get_conn),
+    workspace: UUID = Depends(get_workspace),
 ) -> InsiderTrackerOut:
     """Every open-market insider purchase (Form 4 code P) across the counted cards' names in the window, newest
     filing first, one row per Form 4: the filer and the role as the filing gives them, the shares, price and dollar
@@ -407,7 +417,8 @@ def insider_tracker_page(
         SLUG,
         (window, silent, clock),
         asof,
-        lambda: read_tracker(conn, asof, window, silent, known_at, clock),
+        lambda: read_tracker(conn, asof, window, silent, known_at, clock, workspace=workspace),
+        workspace=workspace,
     )
     return InsiderTrackerOut.model_validate(
         {**asdict(got.value), "clock": clock, "cache": got.status, "compute_ms": got.compute_ms}

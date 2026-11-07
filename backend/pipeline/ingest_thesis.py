@@ -103,6 +103,7 @@ from pipeline.pass_timings import timed
 
 if TYPE_CHECKING:  # the nightly passes one in (S4); the unit itself never builds or imports it
     from pipeline.detect_splits import SplitDetector
+from domain.scopes import WORKSPACE_ANY
 from repositories import thesis_repo
 from securities import master, sec_tickers
 
@@ -612,7 +613,7 @@ def ingest_thesis(
     no lock, no fetch, no write — and comes back as a listed ``onboarding_deferred`` result. ``None`` / an absent
     member = the full walk, byte-identical to before X1.
     """
-    thesis = thesis_repo.get(conn, thesis_id)
+    thesis = thesis_repo.get(conn, thesis_id, workspace=WORKSPACE_ANY)
     if thesis is None:
         raise LookupError(f"thesis {thesis_id} not found")
     client = edgar_client or EdgarClient(allow_live=allow_live, user_agent=user_agent)

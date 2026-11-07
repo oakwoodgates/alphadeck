@@ -20,7 +20,7 @@ import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
 
-from app.deps import get_conn
+from app.deps import get_conn, get_workspace
 from dashboards.baskets import (  # noqa: F401  (CardsRead: the picker's read; tests stub read_cards)
     CardsRead,
     memberships_of,
@@ -222,16 +222,18 @@ def read_inputs(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> StreamInputs:
     """The heavy read the cache holds: the card's roster as of the as-of (``baskets.cards_as_of``'s rule for one
     card: the live view reads today's roster, a past view the latest snapshot by ``known_at``, today's roster
     standing in before the first one), then every roster company's rows for the 365-day window (Context and
     Bench included: the toggle is sliced on the page) through the shared reader."""
     if known_at is None:
-        card, fallback = thesis_repo.get(conn, thesis_id), False
+        card, fallback = thesis_repo.get(conn, thesis_id, workspace=workspace), False
     else:
         fallback = not thesis_repo.snapshot_exists_asof(conn, thesis_id, known_at)
-        card = thesis_repo.get_asof(conn, thesis_id, known_at)
+        card = thesis_repo.get_asof(conn, thesis_id, known_at, workspace=workspace)
     if card is None:
         raise HTTPException(status_code=404, detail="card not counted at this as-of")
     memberships = memberships_of([card])
@@ -250,15 +252,23 @@ def read_inputs(
             clock,
             days=READ_DAYS,
             tickers=tickers,
+            workspace=workspace,
         ),
         roster_fallback=fallback,
     )
 
 
 def _cards(
-    conn: psycopg.Connection, asof: date, clock: Literal["record", "public"]
+    conn: psycopg.Connection, asof: date, clock: Literal["record", "public"], *, workspace: UUID
 ) -> Cached[CardsRead]:
-    return cached(conn, SLUG, ("cards", clock), asof, lambda: read_cards(conn, asof))
+    return cached(
+        conn,
+        SLUG,
+        ("cards", clock),
+        asof,
+        lambda: read_cards(conn, asof, workspace=workspace),
+        workspace=workspace,
+    )
 
 
 @router.get("/cards", response_model=FilingStreamCardsOut)
@@ -267,11 +277,12 @@ def filing_stream_cards(
         ..., description="as-of date; only the cards that existed by then are listed"
     ),
     conn: psycopg.Connection = Depends(get_conn),
+    workspace: UUID = Depends(get_workspace),
 ) -> FilingStreamCardsOut:
     """The card picker: the live cards that existed by the as-of, A→Z, each with its link count today. Display
     only."""
     _, clock = serve_view(asof)
-    got = _cards(conn, asof, clock)
+    got = _cards(conn, asof, clock, workspace=workspace)
     return FilingStreamCardsOut.model_validate(
         {
             "asof": asof,
@@ -292,6 +303,7 @@ def filing_stream_for_card(
         FilingStreamDays.D90, description="the window: the last 30 | 90 | 365 days"
     ),
     conn: psycopg.Connection = Depends(get_conn),
+    workspace: UUID = Depends(get_workspace),
 ) -> FilingStreamOut:
     """One card's names' filing-derived facts, newest day first: 8-Ks with their items, Form 4s with the filer's
     own words, Form 4/As, 13D/G stakes, revenue prints, every other form in the company's EDGAR index (its
@@ -300,7 +312,9 @@ def filing_stream_for_card(
     past as-of reads what was public by the end of that date (a fact public after it never appears). 404 when
     the card is not counted at the as-of."""
     known_at, clock = serve_view(asof)
-    if not any(c.thesis_id == thesis_id for c in _cards(conn, asof, clock).value.cards):
+    if not any(
+        c.thesis_id == thesis_id for c in _cards(conn, asof, clock, workspace=workspace).value.cards
+    ):
         raise HTTPException(status_code=404, detail="card not counted at this as-of")
     # the clock is part of the key: the same date read live today and on the public clock tomorrow are two
     # reads (a new run clears the cache anyway; this holds even on a night with no run)
@@ -309,7 +323,8 @@ def filing_stream_for_card(
         SLUG,
         (str(thesis_id), clock),
         asof,
-        lambda: read_inputs(conn, thesis_id, asof, known_at, clock),
+        lambda: read_inputs(conn, thesis_id, asof, known_at, clock, workspace=workspace),
+        workspace=workspace,
     )
     page = filing_stream(got.value, asof=asof, days=int(days))
     inputs = page.inputs

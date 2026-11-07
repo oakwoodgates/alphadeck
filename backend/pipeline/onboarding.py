@@ -85,7 +85,7 @@ from psycopg.pq import TransactionStatus
 from db.session import connect, name_session, set_statement_timeout
 from db.write_lock import CompanyLockBusy, acquire_company_lock
 from domain.market_time import market_now, market_tz
-from domain.scopes import DATA_TENANT_ID
+from domain.scopes import DATA_TENANT_ID, WORKSPACE_ANY
 from domain.security import Security
 from domain.settings import get_settings
 from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
@@ -1362,7 +1362,7 @@ def main(argv: list[str] | None = None) -> None:
             if args.enqueue_thesis:
                 from repositories import thesis_repo
 
-                thesis = thesis_repo.get(conn, UUID(args.enqueue_thesis))
+                thesis = thesis_repo.get(conn, UUID(args.enqueue_thesis), workspace=WORKSPACE_ANY)
                 if thesis is None:
                     p.error(f"thesis {args.enqueue_thesis} not found")
                 ids = {m.security_id for m in thesis.basket if m.security_id}

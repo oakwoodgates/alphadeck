@@ -70,7 +70,7 @@ from db.session import connect, name_session, set_statement_timeout
 from domain.config import DEFAULT_CONFIG, config_hash
 from domain.feed_kinds import FEED_KINDS, StaleFeedLabel, feed_kind
 from domain.market_time import market_now, market_today, market_tz
-from domain.scopes import DATA_TENANT_ID, assert_data_tenant
+from domain.scopes import DATA_TENANT_ID, WORKSPACE_ANY, assert_data_tenant
 from domain.settings import Settings, get_settings
 from domain.thesis import Thesis
 from domain.trading_days import is_first_session_of_week
@@ -616,7 +616,7 @@ def run_daily(
     digest: list[DigestThesis] = []
     out: list[ThesisRunResult] = []
     # X5 — `per_thesis` makes each thesis a timing scope on a metered pass (a pass-through otherwise)
-    for thesis in per_thesis(thesis_repo.list_all(conn)):
+    for thesis in per_thesis(thesis_repo.list_all(conn, workspace=WORKSPACE_ANY)):
         res = ThesisRunResult(thesis_id=thesis.id, name=thesis.name)
         on_time_at = skip.get(thesis.id)
         if on_time_at is not None:

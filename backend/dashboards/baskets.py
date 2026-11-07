@@ -36,9 +36,9 @@ from uuid import UUID
 
 import psycopg
 
-from db.session import DEFAULT_TENANT_ID
 from domain.data_flags import FEED_STOPPED, KIND_LABEL, PRICE_CELLS, DataFlag
 from domain.market_time import market_tz
+from domain.scopes import DATA_TENANT_ID
 from domain.settings import get_settings
 from domain.thesis import SILENT_LABELS, Thesis, is_silent
 from pipeline import data_flags as flags_reader
@@ -127,11 +127,12 @@ def card_choices(theses: Iterable[Thesis]) -> tuple[CardChoice, ...]:
     return tuple(out)
 
 
-def picker_cards(conn: psycopg.Connection, asof: date) -> CardsRead:
-    """The picker every one-card dashboard shares (the Chain Wave, the Filing Stream): the live cards that
-    existed by the as-of (``cards_that_existed``), each with its link count today, A→Z."""
-    live = thesis_repo.list_all(conn)
-    created = thesis_repo.created_at_for(conn, [t.id for t in live])
+def picker_cards(conn: psycopg.Connection, asof: date, *, workspace: UUID) -> CardsRead:
+    """The picker every one-card dashboard shares (the Chain Wave, the Filing Stream): the live cards of
+    ``workspace`` (the caller's) that existed by the as-of (``cards_that_existed``), each with its link count
+    today, A→Z."""
+    live = thesis_repo.list_all(conn, workspace=workspace)
+    created = thesis_repo.created_at_for(conn, [t.id for t in live], workspace=workspace)
     kept, later = cards_that_existed(live, created, asof, market_tz())
     return CardsRead(len(live), later, card_choices(kept))
 
@@ -162,11 +163,14 @@ class CardsAsOf(NamedTuple):
     roster_fallback: int  # counted cards with no roster snapshot by then: today's roster stands in
 
 
-def cards_as_of(conn: psycopg.Connection, asof: date, known_at: datetime | None) -> CardsAsOf:
-    """The live cards that existed by ``asof``, each with its roster as of ``known_at`` (``serve_view``'s:
-    ``None`` = the live view, where today's roster IS the roster as of today)."""
-    live = thesis_repo.list_all(conn)
-    created = thesis_repo.created_at_for(conn, [t.id for t in live])
+def cards_as_of(
+    conn: psycopg.Connection, asof: date, known_at: datetime | None, *, workspace: UUID
+) -> CardsAsOf:
+    """The live cards of ``workspace`` (the caller's) that existed by ``asof``, each with its roster as of
+    ``known_at`` (``serve_view``'s: ``None`` = the live view, where today's roster IS the roster as of today).
+    """
+    live = thesis_repo.list_all(conn, workspace=workspace)
+    created = thesis_repo.created_at_for(conn, [t.id for t in live], workspace=workspace)
     kept, later = cards_that_existed(live, created, asof, market_tz())
     if known_at is None:
         # the live view: today's roster IS the roster as of today (get_asof(now) is byte-identical to it)
@@ -176,7 +180,7 @@ def cards_as_of(conn: psycopg.Connection, asof: date, known_at: datetime | None)
         for t in kept:
             if not thesis_repo.snapshot_exists_asof(conn, t.id, known_at):
                 fallback += 1  # no roster snapshot by then: get_asof keeps today's roster
-            got = thesis_repo.get_asof(conn, t.id, known_at)
+            got = thesis_repo.get_asof(conn, t.id, known_at, workspace=workspace)
             if got is not None:
                 cards.append(got)
     return CardsAsOf(len(live), cards, later, fallback)
@@ -228,10 +232,13 @@ def per_company(
     known_at: datetime | None,
     clock: Literal["record", "public"],
     read: Callable[[PointInTimeData, UUID], T],
+    *,
+    workspace: UUID,
 ) -> dict[UUID, T]:
     """``read(pit, sid)`` ONCE per company, through the same point-in-time view the Cockpit's
     ``/display-signals`` builds (``bounds=display_bounds()``; ``known_at`` + ``clock`` from ``serve_view``:
-    the public clock at a past as-of, the live read today), ``CHUNK`` companies per view."""
+    the public clock at a past as-of, the live read today), ``CHUNK`` companies per view. The view reads the
+    DATA facts and ``workspace``'s own ratified rows (the caller's), never another workspace's."""
     bounds = display_bounds()
     out: dict[UUID, T] = {}
     for i in range(0, len(sids), CHUNK):
@@ -240,7 +247,8 @@ def per_company(
             conn,
             asof=asof,
             known_at=known_at,
-            tenant_id=DEFAULT_TENANT_ID,
+            data_tenant=DATA_TENANT_ID,
+            workspace=workspace,
             basket=chunk,
             bounds=bounds,
             clock=clock,
@@ -286,7 +294,6 @@ def read_price_flags(
     *,
     known_at: datetime | None,
     clock: Literal["record", "public"],
-    tenant_id: UUID = DEFAULT_TENANT_ID,
 ) -> dict[UUID, PriceFlagRead]:
     """``security_id -> PriceFlagRead`` for each company whose data flags reach its price readings at ``asof``
     (``reaches_price``; the reason is the flags' labels, e.g. "mixed-scale price history", UNCHANGED: the
@@ -302,13 +309,13 @@ def read_price_flags(
     if not ids:
         return {}
     readings, corrections = flags_reader.run_reads()
-    tickers = master.tickers_for(conn, ids, tenant_id=tenant_id)
+    tickers = master.tickers_for(conn, ids, tenant_id=DATA_TENANT_ID)
     stale_days = get_settings().tape_stale_days
     out: dict[UUID, PriceFlagRead] = {}
     for i in range(0, len(ids), CHUNK):
         got = flags_reader.read_flags(
             conn,
-            tenant_id=tenant_id,
+            tenant_id=DATA_TENANT_ID,
             security_ids=ids[i : i + CHUNK],
             tickers=tickers,
             asof=asof,
@@ -328,10 +335,16 @@ def read_price_flags(
     return out
 
 
-def live_card_ids(conn: psycopg.Connection) -> set[UUID]:
-    """Every company on the basket of a live (unarchived) card, silent rows included: a company on no live card is
-    one the nightly stopped fetching prices for."""
-    return {m.security_id for t in thesis_repo.list_all(conn) for m in t.basket if m.security_id}
+def live_card_ids(conn: psycopg.Connection, *, workspace: UUID) -> set[UUID]:
+    """Every company on the basket of a live (unarchived) card of ``workspace`` (the caller's), silent rows
+    included: a company on none of them is one the nightly stopped fetching prices for, as far as this
+    workspace can see."""
+    return {
+        m.security_id
+        for t in thesis_repo.list_all(conn, workspace=workspace)
+        for m in t.basket
+        if m.security_id
+    }
 
 
 def off_card_reason(read: PriceFlagRead) -> str:
@@ -354,19 +367,17 @@ def price_flags(
     *,
     known_at: datetime | None,
     clock: Literal["record", "public"],
-    tenant_id: UUID = DEFAULT_TENANT_ID,
+    workspace: UUID,
 ) -> dict[UUID, str]:
     """``security_id -> reason`` for each company whose data flags reach its price readings at ``asof``
     (``read_price_flags``). A stopped feed on a company on NO live card (any basket row, silent ones included,
     on an unarchived card) reads "no longer priced: off every live card since <its last bar date>" (operator
     decision 2026-11-04: the nightly stopped fetching a company that left every card, and "price feed stopped"
     misdescribes it); on a company still on a card it keeps "price feed stopped"."""
-    reads = read_price_flags(
-        conn, security_ids, asof, known_at=known_at, clock=clock, tenant_id=tenant_id
-    )
+    reads = read_price_flags(conn, security_ids, asof, known_at=known_at, clock=clock)
     if not any(FEED_STOPPED in r.kinds for r in reads.values()):
         return {sid: r.reason for sid, r in reads.items()}
-    on_cards = live_card_ids(conn)
+    on_cards = live_card_ids(conn, workspace=workspace)
     return {sid: r.reason if sid in on_cards else off_card_reason(r) for sid, r in reads.items()}
 
 

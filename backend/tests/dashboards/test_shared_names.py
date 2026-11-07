@@ -370,7 +370,7 @@ def test_the_router_reads_the_default_live_list_and_serves_the_compute(stub_clie
     body = r.json()
 
     # list_all's DEFAULT excludes archived cards; the router must never widen it
-    assert seen["list_all_kwargs"] == {}
+    assert seen["list_all_kwargs"] == {"workspace": DEFAULT_TENANT_ID}
     assert seen["names_for_ids"] == {A, B}
     assert body["counting_only"] is False
     assert (body["live_cards"], body["basket_rows"], body["unresolved_rows"]) == (3, 6, 0)

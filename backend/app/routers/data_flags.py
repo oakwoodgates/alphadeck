@@ -27,6 +27,7 @@ from pydantic import BaseModel, Field
 from app.deps import get_conn, get_current_tenant, get_thesis_or_404
 from domain.data_flags import DataFlag, MemberFlags, SplitLabel
 from domain.market_time import serve_view
+from domain.scopes import DATA_TENANT_ID
 from domain.settings import get_settings
 from domain.thesis import Thesis
 from pipeline import data_flags as flags_reader
@@ -235,7 +236,7 @@ def read_thesis_data_flags(
     for m in thesis.basket:
         if m.security_id is not None and m.security_id not in ids:
             ids.append(m.security_id)
-    out = _read(conn, tenant_id=thesis.tenant_id, ids=ids, asof=asof, view=view)
+    out = _read(conn, tenant_id=DATA_TENANT_ID, ids=ids, asof=asof, view=view)
     return DataFlagsResponse(
         thesis_id=thesis.id,
         asof=asof,
@@ -279,7 +280,7 @@ def read_data_flags(
         if all(x.id != r["id"] for x in refs):
             refs.append(DataFlagThesisRefOut(id=r["id"], name=r["name"]))
     ids = list(held)
-    out = _read(conn, tenant_id=tenant_id, ids=ids, asof=asof, view=view)
+    out = _read(conn, tenant_id=DATA_TENANT_ID, ids=ids, asof=asof, view=view)
     members = [_member_out(out[s], held[s]) for s in ids if out[s].flags or out[s].notes]
     members.sort(key=lambda m: (not m.marked, m.ticker or str(m.security_id)))
     return DataFlagsResponse(asof=asof, names=len(ids), members=members)

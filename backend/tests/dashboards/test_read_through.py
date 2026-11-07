@@ -646,7 +646,7 @@ def test_the_default_order_is_newest_last_filing_first_then_no_filing_a_to_z_the
 def stub_client(monkeypatch):
     seen: dict = {"reads": 0, "live_reads": 0}
 
-    def fake_read(conn, asof, known_at, clock):
+    def fake_read(conn, asof, known_at, clock, **_):
         seen["reads"] += 1
         seen["view"] = (asof, known_at, clock)
         return inputs(

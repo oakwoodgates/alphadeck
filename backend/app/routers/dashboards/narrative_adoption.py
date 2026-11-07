@@ -22,7 +22,7 @@ import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
 
-from app.deps import get_conn
+from app.deps import get_conn, get_workspace
 from dashboards.baskets import (  # noqa: F401  (CardsRead: the picker's read; tests stub read_cards)
     CHUNK,
     CardsRead,
@@ -280,6 +280,8 @@ def read_page(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> tuple[Adoption, bool]:
     """The heavy read the cache holds, built into the page: ``(the page, roster_fallback)``. The card's roster
     as of the as-of (``baskets.cards_as_of``'s rule for one card: the live view reads today's roster, a past
@@ -287,10 +289,10 @@ def read_page(
     term counts and SPY's bars on the request's ``known_at`` + ``clock``, the roster's closes and price flags
     on the same pair."""
     if known_at is None:
-        card, fallback = thesis_repo.get(conn, thesis_id), False
+        card, fallback = thesis_repo.get(conn, thesis_id, workspace=workspace), False
     else:
         fallback = not thesis_repo.snapshot_exists_asof(conn, thesis_id, known_at)
-        card = thesis_repo.get_asof(conn, thesis_id, known_at)
+        card = thesis_repo.get_asof(conn, thesis_id, known_at, workspace=workspace)
     if card is None:
         raise HTTPException(status_code=404, detail="card not counted at this as-of")
     memberships = memberships_of([card])
@@ -317,15 +319,22 @@ def read_page(
         roster=memberships,
         closes=_closes(conn, sids, asof, known_at, clock),
         spy_closes=spy,
-        flagged=price_flags(conn, sids, asof, known_at=known_at, clock=clock),
+        flagged=price_flags(conn, sids, asof, known_at=known_at, clock=clock, workspace=workspace),
     )
     return page, fallback
 
 
 def _cards(
-    conn: psycopg.Connection, asof: date, clock: Literal["record", "public"]
+    conn: psycopg.Connection, asof: date, clock: Literal["record", "public"], *, workspace: UUID
 ) -> Cached[CardsRead]:
-    return cached(conn, SLUG, ("cards", clock), asof, lambda: read_cards(conn, asof))
+    return cached(
+        conn,
+        SLUG,
+        ("cards", clock),
+        asof,
+        lambda: read_cards(conn, asof, workspace=workspace),
+        workspace=workspace,
+    )
 
 
 @router.get("/cards", response_model=AdoptionCardsOut)
@@ -334,11 +343,12 @@ def adoption_cards(
         ..., description="as-of date; only the cards that existed by then are listed"
     ),
     conn: psycopg.Connection = Depends(get_conn),
+    workspace: UUID = Depends(get_workspace),
 ) -> AdoptionCardsOut:
     """The card picker: the live cards that existed by the as-of, A→Z, each with its link count today. Display
     only."""
     _, clock = serve_view(asof)
-    got = _cards(conn, asof, clock)
+    got = _cards(conn, asof, clock, workspace=workspace)
     return AdoptionCardsOut.model_validate(
         {
             "asof": asof,
@@ -356,6 +366,7 @@ def adoption_for_card(
     thesis_id: UUID,
     asof: date = Query(..., description="as-of date; nothing published after it is read"),
     conn: psycopg.Connection = Depends(get_conn),
+    workspace: UUID = Depends(get_workspace),
 ) -> AdoptionOut:
     """One card's narrative adoption: the filings that mention its SIGNAL terms per month over 36 months, split
     into reports, 8-Ks, new-issuance paper and the rest, with the filers and the new filers per month, a table
@@ -363,7 +374,9 @@ def adoption_for_card(
     count is absent, never zero. Display only; a past as-of reads the roster as of that date and ends the curve
     at the last month that had closed by then. 404 when the card is not counted at the as-of."""
     known_at, clock = serve_view(asof)
-    if not any(c.thesis_id == thesis_id for c in _cards(conn, asof, clock).value.cards):
+    if not any(
+        c.thesis_id == thesis_id for c in _cards(conn, asof, clock, workspace=workspace).value.cards
+    ):
         raise HTTPException(status_code=404, detail="card not counted at this as-of")
     run = read_last_run()
     # the clock is part of the key (the same date read live today and on the public clock tomorrow are two
@@ -374,7 +387,8 @@ def adoption_for_card(
         SLUG,
         (str(thesis_id), clock, run_identity(run)),
         asof,
-        lambda: read_page(conn, thesis_id, asof, known_at, clock),
+        lambda: read_page(conn, thesis_id, asof, known_at, clock, workspace=workspace),
+        workspace=workspace,
     )
     page, fallback = got.value
     return AdoptionOut.model_validate(

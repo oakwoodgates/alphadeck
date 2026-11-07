@@ -5,6 +5,7 @@ from datetime import date, datetime, timezone
 import pytest
 
 from domain.enums import State, Verdict
+from domain.scopes import WORKSPACE_ANY
 from pipeline.seed import UNH_SECURITY_ID, UNH_THESIS_ID, seed_unh
 from replay.export import export_snapshot
 from replay.harness import replay_thesis
@@ -26,7 +27,7 @@ def test_unh_arc_replays_warm_to_arm_to_ageout(db, tmp_path):
     export_snapshot(db, tmp_path)
     con = connect_mirror(tmp_path)
     try:
-        thesis = thesis_repo.get(db, UNH_THESIS_ID)
+        thesis = thesis_repo.get(db, UNH_THESIS_ID, workspace=WORKSPACE_ANY)
         snaps = replay_thesis(
             con, thesis, start=date(2025, 4, 1), end=date(2026, 6, 1), known_at=_PIN
         )

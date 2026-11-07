@@ -17,7 +17,7 @@ import psycopg
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict
 
-from app.deps import get_conn
+from app.deps import get_conn, get_workspace
 from dashboards.baskets import (
     GroupBy,
     cards_as_of,
@@ -192,6 +192,8 @@ def _readings(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> dict[UUID, CompanyReading]:
     """Each company's readings, computed ONCE, from the same point-in-time view the Cockpit's
     ``/display-signals`` builds (``known_at`` + ``clock`` from ``serve_view``: the public clock at a past
@@ -204,6 +206,7 @@ def _readings(
         known_at,
         clock,
         lambda pit, sid: company_reading({n: m(pit, sid, asof) for n, m in members.items()}),
+        workspace=workspace,
     )
 
 
@@ -212,10 +215,12 @@ def read_inputs(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> LeadersInputs:
     """The heavy read the cache holds: the counted cards' rosters as of the as-of, every company's readings
     and its price flags (``price_flags``, on the same view)."""
-    counted = cards_as_of(conn, asof, known_at)
+    counted = cards_as_of(conn, asof, known_at, workspace=workspace)
     memberships = memberships_of(counted.cards)
     sids = resolved_ids(memberships)
     return LeadersInputs(
@@ -224,8 +229,8 @@ def read_inputs(
         cards_not_yet_created=counted.not_yet_created,
         roster_fallback_cards=counted.roster_fallback,
         memberships=memberships,
-        readings=_readings(conn, sids, asof, known_at, clock),
-        flagged=price_flags(conn, sids, asof, known_at=known_at, clock=clock),
+        readings=_readings(conn, sids, asof, known_at, clock, workspace=workspace),
+        flagged=price_flags(conn, sids, asof, known_at=known_at, clock=clock, workspace=workspace),
     )
 
 
@@ -238,6 +243,7 @@ def leaders(
         description="the insider-cluster groups: link | business_type | sector | card",
     ),
     conn: psycopg.Connection = Depends(get_conn),
+    workspace: UUID = Depends(get_workspace),
 ) -> LeadersOut:
     """Names across every card within 2% of their 52-week high, with relative strength at a 13-week high,
     coiling, with open-market insider buys in the last 30 days, or with RVOL 20D at 1.5 or more; the names on
@@ -247,7 +253,14 @@ def leaders(
     known_at, clock = serve_view(asof)
     # the clock is part of the key: the same date read live today and on the public clock tomorrow are two
     # reads (a new run clears the cache anyway; this holds even on a night with no run)
-    got = cached(conn, SLUG, (clock,), asof, lambda: read_inputs(conn, asof, known_at, clock))
+    got = cached(
+        conn,
+        SLUG,
+        (clock,),
+        asof,
+        lambda: read_inputs(conn, asof, known_at, clock, workspace=workspace),
+        workspace=workspace,
+    )
     inputs = got.value
     identity = master.identity_for(conn, set(inputs.readings))
     result = compute_leaders(

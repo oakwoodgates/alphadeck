@@ -18,7 +18,7 @@ import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
 
-from app.deps import get_conn
+from app.deps import get_conn, get_workspace
 from dashboards.baskets import (
     cards_as_of,
     counted_rows,
@@ -184,6 +184,8 @@ def _closes(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> dict[UUID, dict[date, float]]:
     """Each company's ``{day: close}`` up to the as-of, from the same point-in-time view the Cockpit's
     ``/display-signals`` builds (``known_at`` + ``clock`` from ``serve_view``)."""
@@ -198,6 +200,7 @@ def _closes(
             for b in pit.price_history(sid, lookback_days=LOOKBACK_DAYS)
             if b.get("close") is not None
         },
+        workspace=workspace,
     )
 
 
@@ -240,22 +243,25 @@ def read_inputs(
     known_at: datetime | None,
     clock: Literal["record", "public"],
     include_silent: bool,
+    *,
+    workspace: UUID,
 ) -> IndexInputs:
     """The heavy read the cache holds: the counted cards' rosters as of the as-of, every counted company's
     closes and price flags (``price_flags``, on the same view), the benchmarks', each card's creation day and
     latest recorded state, built into every card's 1Y series."""
-    counted = cards_as_of(conn, asof, known_at)
+    counted = cards_as_of(conn, asof, known_at, workspace=workspace)
     memberships = memberships_of(counted.cards)
     sids = resolved_ids(counted_rows(memberships, include_silent).rows)
     ids = [t.id for t in counted.cards]
     tz = market_tz()
     created = {
-        tid: at.astimezone(tz).date() for tid, at in thesis_repo.created_at_for(conn, ids).items()
+        tid: at.astimezone(tz).date()
+        for tid, at in thesis_repo.created_at_for(conn, ids, workspace=workspace).items()
     }
     return index_inputs(
         cards=[(t.id, t.name) for t in counted.cards],
         memberships=memberships,
-        closes=_closes(conn, sids, asof, known_at, clock),
+        closes=_closes(conn, sids, asof, known_at, clock, workspace=workspace),
         benchmarks=_benchmarks(conn, asof, known_at, clock),
         created=created,
         states=_states(conn, ids, asof),
@@ -264,7 +270,7 @@ def read_inputs(
         live_cards=counted.live_count,
         cards_not_yet_created=counted.not_yet_created,
         roster_fallback_cards=counted.roster_fallback,
-        flagged=price_flags(conn, sids, asof, known_at=known_at, clock=clock),
+        flagged=price_flags(conn, sids, asof, known_at=known_at, clock=clock, workspace=workspace),
     )
 
 
@@ -281,7 +287,7 @@ def _page_dict(page: NarrativeIndex) -> dict[str, Any]:
     }
 
 
-def _inputs(conn: psycopg.Connection, asof: date, include_silent: bool):
+def _inputs(conn: psycopg.Connection, asof: date, include_silent: bool, *, workspace: UUID):
     known_at, clock = serve_view(asof)
     # the clock is part of the key: the same date read live today and on the public clock tomorrow are two
     # reads (a new run clears the cache anyway; this holds even on a night with no run)
@@ -290,7 +296,8 @@ def _inputs(conn: psycopg.Connection, asof: date, include_silent: bool):
         SLUG,
         (clock, include_silent),
         asof,
-        lambda: read_inputs(conn, asof, known_at, clock, include_silent),
+        lambda: read_inputs(conn, asof, known_at, clock, include_silent, workspace=workspace),
+        workspace=workspace,
     )
 
 
@@ -300,13 +307,14 @@ def narrative_index(
     window: Window = Query("1y", description="the look back in trading sessions: 1y | 90d | 30d"),
     include_silent: bool = Query(False, description="add Context and Bench names to each basket"),
     conn: psycopg.Connection = Depends(get_conn),
+    workspace: UUID = Depends(get_workspace),
 ) -> NarrativeIndexOut:
     """Each card's basket as of the as-of as one equal-weighted line (rebalanced daily, from 100 at the window
     start) against SPY and IWM over the same sessions, with the card's creation day and the window return,
     the return vs SPY and the return since creation. A name whose data flags reach its price readings is left
     out of the line and listed on its card. Display only; a past as-of reads what was public by the end of
     that date."""
-    got = _inputs(conn, asof, include_silent)
+    got = _inputs(conn, asof, include_silent, workspace=workspace)
     page = compute_narrative_index(got.value, asof=asof, window=window)
     return NarrativeIndexOut.model_validate(
         {**_page_dict(page), "cache": got.status, "compute_ms": got.compute_ms}
@@ -320,11 +328,12 @@ def narrative_index_card(
     window: Window = Query("1y", description="the look back in trading sessions: 1y | 90d | 30d"),
     include_silent: bool = Query(False, description="add Context and Bench names to the basket"),
     conn: psycopg.Connection = Depends(get_conn),
+    workspace: UUID = Depends(get_workspace),
 ) -> NarrativeCardDetailOut:
     """One card enlarged: its index, SPY and IWM over the window, how many names contributed each session and
     each name's sessions in the window. Served off the same cached read as the grid. 404 when the card is not
     counted at the as-of."""
-    got = _inputs(conn, asof, include_silent)
+    got = _inputs(conn, asof, include_silent, workspace=workspace)
     detail = card_detail(got.value, thesis_id, asof=asof, window=window)
     if detail is None:
         raise HTTPException(status_code=404, detail="card not counted at this as-of")

@@ -16,7 +16,7 @@ import psycopg
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
 
-from app.deps import get_conn
+from app.deps import get_conn, get_workspace
 from dashboards.catalyst_calendar import LatestCall
 from dashboards.catalyst_calendar import catalyst_calendar as compute_catalyst_calendar
 from domain.market_time import market_today
@@ -127,11 +127,13 @@ class CatalystCalendarOut(_Wire):
 
 
 @router.get("", response_model=CatalystCalendarOut)
-def catalyst_calendar(conn: psycopg.Connection = Depends(get_conn)) -> CatalystCalendarOut:
+def catalyst_calendar(
+    conn: psycopg.Connection = Depends(get_conn), workspace: UUID = Depends(get_workspace)
+) -> CatalystCalendarOut:
     """Every live card's dated catalysts and its latest call's entry window and exit-by, bucketed from today,
     with the passed catalysts and the undated ones per card. A "now" view; archived cards are excluded.
     """
-    theses = thesis_repo.list_all(conn)
+    theses = thesis_repo.list_all(conn, workspace=workspace)
     return CatalystCalendarOut.model_validate(
         compute_catalyst_calendar(
             theses,

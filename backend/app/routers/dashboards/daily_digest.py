@@ -24,7 +24,7 @@ import psycopg
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from app.deps import get_conn
+from app.deps import get_conn, get_workspace
 from dashboards.baskets import (
     cards_as_of,
     companies_in,
@@ -634,6 +634,8 @@ def read_digest(
     known_at: datetime | None,
     clock: Literal["record", "public"],
     origin: date | None = None,
+    *,
+    workspace: UUID,
 ) -> DigestInputs:
     """The cached read: the counted cards and their rosters at the as-of, the night pair and the cards in effect on
     each, the Managing cards' positions, the Form 4 filings filed since P, the armed names' and the held names'
@@ -641,7 +643,7 @@ def read_digest(
     into every one of them. The page is NOT built here: the cards' entries and the positions are read live on every
     request (``live_digest_inputs``) and the pure compute runs after, so what this holds is the heavy part only.
     """
-    got = cards_as_of(conn, asof, known_at)
+    got = cards_as_of(conn, asof, known_at, workspace=workspace)
     theses = got.cards
     names = {t.id: t.name for t in theses}
     ids = list(names)
@@ -686,7 +688,9 @@ def read_digest(
         clock=clock,
     )
     iwm_bars = _bars(pit.benchmark_prices(BENCHMARK, lookback_days=window_days))
-    flagged = price_flags(conn, tape_sids, asof, known_at=known_at, clock=clock)
+    flagged = price_flags(
+        conn, tape_sids, asof, known_at=known_at, clock=clock, workspace=workspace
+    )
     tapes = per_company(
         conn,
         tape_sids,
@@ -694,6 +698,7 @@ def read_digest(
         known_at,
         clock,
         lambda p, sid: read_name_tape(p, sid, sid in held_sids, flagged.get(sid)),
+        workspace=workspace,
     )
 
     # section 4: the voting names' Form 4 filings from P less the cluster window (Context and Bench never count)
@@ -712,6 +717,7 @@ def read_digest(
             days=(asof - read_start(previous)).days,
             tickers=shown,
             kinds=FORM4_KINDS,
+            workspace=workspace,
         )
         nights = read_span_nights(conn, [(t.id, t.name) for t in theses], previous, latest)
 
@@ -752,6 +758,8 @@ def live_digest_inputs(
     inp: DigestInputs,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> DigestInputs:
     """The cached inputs with what a decision or a card edit moves laid in NOW (operator decision 2026-11-04): the
     counted cards' catalysts and kill criteria, and the Managing cards' positions (the decision log read at the
@@ -773,7 +781,9 @@ def live_digest_inputs(
     if new:
         for sid in new:
             flagged.pop(sid, None)
-        flagged.update(price_flags(conn, new, inp.asof, known_at=known_at, clock=clock))
+        flagged.update(
+            price_flags(conn, new, inp.asof, known_at=known_at, clock=clock, workspace=workspace)
+        )
         tapes.update(
             per_company(
                 conn,
@@ -782,6 +792,7 @@ def live_digest_inputs(
                 known_at,
                 clock,
                 lambda p, sid: read_name_tape(p, sid, True, flagged.get(sid)),
+                workspace=workspace,
             )
         )
         tickers.update(master.tickers_for(conn, [sid for sid in new if sid not in tickers]))
@@ -799,6 +810,7 @@ def daily_digest_page(
         ..., description="as-of date; only what was recorded and public by then is read"
     ),
     conn: psycopg.Connection = Depends(get_conn),
+    workspace: UUID = Depends(get_workspace),
 ) -> DailyDigestOut:
     """The morning page at the as-of: what the newest recorded night changed against the one before, the Managing
     cards' positions, what is due this week, the insider buys filed since the earlier night, the armed names' last
@@ -817,10 +829,11 @@ def daily_digest_page(
         SLUG,
         (clock, origin),
         asof,
-        lambda: read_digest(conn, asof, known_at, clock, origin),
+        lambda: read_digest(conn, asof, known_at, clock, origin, workspace=workspace),
+        workspace=workspace,
     )
     # the cards' entries and the positions are not snapshotted: read them now, not from the cache
-    page = daily_digest(live_digest_inputs(conn, got.value, known_at, clock))
+    page = daily_digest(live_digest_inputs(conn, got.value, known_at, clock, workspace=workspace))
     return DailyDigestOut.model_validate(
         {**_payload(page), "cache": got.status, "compute_ms": got.compute_ms}
     )

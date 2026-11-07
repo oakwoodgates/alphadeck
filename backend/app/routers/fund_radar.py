@@ -17,7 +17,7 @@ from uuid import UUID
 import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.deps import get_conn, get_current_tenant, get_thesis_or_404
+from app.deps import get_conn, get_current_tenant, get_thesis_or_404, get_workspace
 from app.routers.workbench import _fund_ids, resolve_etf
 from app.schemas_api import (
     FundAttachOut,
@@ -35,6 +35,7 @@ from app.schemas_api import (
 )
 from domain.enums import Authorship
 from domain.market_time import market_today
+from domain.scopes import DATA_TENANT_ID
 from domain.thesis import (
     ETFS_LABEL,
     BasketMember,
@@ -186,7 +187,7 @@ def _facts(
 
 
 def _tape(
-    conn: psycopg.Connection, days: int, include_private: bool
+    conn: psycopg.Connection, days: int, include_private: bool, *, workspace: UUID
 ) -> tuple[list[FundFilingOut], FundTapeCountsOut]:
     """The whole-window tape (every filing, matched or not) and its counts; the route trims to matched_only."""
     today = market_today()
@@ -204,7 +205,7 @@ def _tape(
     shown = window if include_private else [lc for lc in window if not lc.private_to_public]
 
     matches: dict[str, list[FundMatchOut]] = {}
-    for card in card_inputs(conn, thesis_repo.list_all(conn)):
+    for card in card_inputs(conn, thesis_repo.list_all(conn, workspace=workspace)):
         for cm in fund_match.match_launches(shown, card):
             matches.setdefault(cm.launch.key, []).append(_match_out(card, cm))
 
@@ -235,13 +236,14 @@ def fund_tape(
         True, description="keep only filings with a fund that fits a live card (counts stay whole)"
     ),
     conn: psycopg.Connection = Depends(get_conn),
+    workspace: UUID = Depends(get_workspace),
 ) -> RadarFundsOut:
     """The fund launch tape: one row per FILING, newest first by public date, each with its funds (stage dates,
     symbols) and every live card each fund fits (theme read with its tier, name read with its token). The counts
     always cover the WHOLE window, so the UI can say "N more" (keep-it-visible); ``matched_only`` only trims the
     rows. Old confidential filings SEC released are held back (counted) unless ``include_private``. Display
     only: reads stored facts, derives on read, makes no request."""
-    filings, counts = _tape(conn, days, include_private)
+    filings, counts = _tape(conn, days, include_private, workspace=workspace)
     if matched_only:
         filings = [f for f in filings if any(fund.matches for fund in f.funds)]
     return RadarFundsOut(
@@ -352,6 +354,7 @@ def fund_attach(
     req: FundAttachRequest,
     conn: psycopg.Connection = Depends(get_conn),
     tenant_id: UUID = Depends(get_current_tenant),
+    workspace: UUID = Depends(get_workspace),
 ) -> FundAttachOut:
     """Add a fund to a card's ETFs link — the operator's click (#10). The symbol resolves through the SAME
     function as ``POST /workbench/securities/resolve-etf`` (lookup-or-create, ``instrument_kind='etf'``); the
@@ -361,7 +364,7 @@ def fund_attach(
     (``silent_conflicts`` / ``fund_conflicts``), so a fund can never land outside ETFs. Idempotent: already in
     ETFs returns ``already`` and writes nothing. Prices are NOT pulled here (the screen does, as Surface an ETF
     does). Reversible via detach (#1)."""
-    thesis = thesis_repo.get(conn, req.thesis_id)
+    thesis = thesis_repo.get(conn, req.thesis_id, workspace=workspace)
     if thesis is None:
         raise HTTPException(status_code=404, detail="thesis not found")
     sec = resolve_etf(ResolveEtfRequest(ticker=_symbol(req)), conn, tenant_id)
@@ -406,15 +409,16 @@ def fund_detach(
     req: FundAttachRequest,
     conn: psycopg.Connection = Depends(get_conn),
     tenant_id: UUID = Depends(get_current_tenant),
+    workspace: UUID = Depends(get_workspace),
 ) -> FundAttachOut:
     """The attach inverse (#1): remove ONLY that fund's row from the card's ETFs link, returning to the prior
     state (prices and facts stay; a re-attach re-binds the same id). Not there is the idempotent no-op
     (``removed=False``)."""
-    thesis = thesis_repo.get(conn, req.thesis_id)
+    thesis = thesis_repo.get(conn, req.thesis_id, workspace=workspace)
     if thesis is None:
         raise HTTPException(status_code=404, detail="thesis not found")
     sym = _symbol(req)
-    sid = master.ids_for_tickers(conn, [sym], tenant_id=tenant_id).get(sym)
+    sid = master.ids_for_tickers(conn, [sym], tenant_id=DATA_TENANT_ID).get(sym)
     if sid is None:
         return FundAttachOut(thesis_id=thesis.id, ticker=sym, removed=False)
     kept = [m for m in thesis.basket if not (m.security_id == sid and m.segment == ETFS_LABEL)]

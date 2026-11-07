@@ -574,7 +574,7 @@ def stub_client(monkeypatch):
     seen: dict = {"reads": 0}
     rows, tapes, identity = _two_link_company()
 
-    def fake_read(conn, asof, known_at, clock):
+    def fake_read(conn, asof, known_at, clock, **_):
         seen["reads"] += 1
         seen["view"] = (asof, known_at, clock)
         return inputs(rows, tapes, spy={w: 1.0 for w in WINDOWS})
@@ -643,17 +643,17 @@ def test_the_router_reads_the_price_flags_inside_the_cached_read(monkeypatch):
     rows, tapes = _robots()
     seen: dict = {"flag_reads": 0}
 
-    def fake_flags(conn, ids, asof, *, known_at, clock):
+    def fake_flags(conn, ids, asof, *, known_at, clock, **_):
         seen["flag_reads"] += 1
         seen["flags_view"] = (set(ids), asof, known_at, clock)
         return {S[0]: MIXED}
 
     CACHE.clear()
     monkeypatch.setattr(
-        router_mod, "cards_as_of", lambda conn, asof, known_at: CardsAsOf(2, [], 0, 0)
+        router_mod, "cards_as_of", lambda conn, asof, known_at, **_: CardsAsOf(2, [], 0, 0)
     )
     monkeypatch.setattr(router_mod, "memberships_of", lambda cards: tuple(rows))
-    monkeypatch.setattr(router_mod, "_tapes", lambda conn, sids, asof, known_at, clock: tapes)
+    monkeypatch.setattr(router_mod, "_tapes", lambda conn, sids, asof, known_at, clock, **_: tapes)
     monkeypatch.setattr(router_mod, "_spy", lambda conn, asof, known_at, clock: None)
     monkeypatch.setattr(router_mod, "price_flags", fake_flags)
     monkeypatch.setattr(router_mod.master, "identity_for", lambda conn, ids, **kw: {})

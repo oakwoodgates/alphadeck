@@ -5,6 +5,7 @@ from datetime import date, datetime, timezone
 import pytest
 
 from domain.config import DEFAULT_CONFIG
+from domain.scopes import WORKSPACE_ANY
 from pipeline.core import assemble_from_pit
 from pipeline.seed import UNH_THESIS_ID, seed_unh
 from replay.export import export_snapshot
@@ -44,7 +45,7 @@ def test_prefetched_sweep_is_byte_identical_to_the_plain_sweep(db, tmp_path):
     export_snapshot(db, tmp_path)
     con = connect_mirror(tmp_path)
     try:
-        thesis = thesis_repo.get(db, UNH_THESIS_ID)
+        thesis = thesis_repo.get(db, UNH_THESIS_ID, workspace=WORKSPACE_ANY)
         fast = replay_thesis(con, thesis, start=_START, end=_END, known_at=_PIN)
         plain = _replay_the_old_way(con, thesis, start=_START, end=_END, known_at=_PIN)
         assert fast, "the UNH window should have trading sessions"
@@ -73,7 +74,7 @@ def test_prefetched_sweep_costs_one_query_per_table_per_session(db, tmp_path):
         return orig(self, *a, **k)
 
     try:
-        thesis = thesis_repo.get(db, UNH_THESIS_ID)
+        thesis = thesis_repo.get(db, UNH_THESIS_ID, workspace=WORKSPACE_ANY)
         sids = [m.security_id for m in thesis.basket if m.security_id is not None]
         n_sessions = len(trading_sessions(con, sids, _START, _END, thesis.tenant_id))
         type(con).execute = counting

@@ -792,7 +792,7 @@ def _hand_page():
 def stub_client(monkeypatch):
     seen: dict = {"reads": 0}
 
-    def fake_read(conn, asof, known_at, clock):
+    def fake_read(conn, asof, known_at, clock, **_):
         seen["reads"] += 1
         seen["view"] = (asof, known_at, clock)
         return _hand_page()
@@ -906,7 +906,7 @@ def test_read_forming_threads_one_view_into_every_read_and_runs_only_three_membe
         "breadth": [],
     }
 
-    def fake_cards(conn, asof, known_at):
+    def fake_cards(conn, asof, known_at, **_):
         seen["roster"].append((asof, known_at))
         return CardsAsOf(5, theses, 1, 1)
 
@@ -918,7 +918,7 @@ def test_read_forming_threads_one_view_into_every_read_and_runs_only_three_membe
         seen["runs"].append((list(ids), asof))
         return {T1: [log(d(27)), log(d(28))], T2: [log(d(28), State.INCUBATING)]}
 
-    def fake_flags(conn, ids, asof, *, known_at, clock):
+    def fake_flags(conn, ids, asof, *, known_at, clock, **_):
         seen["flags"].append((set(ids), asof, known_at, clock))
         return {B: "mixed-scale price history"}
 
@@ -937,7 +937,7 @@ def test_read_forming_threads_one_view_into_every_read_and_runs_only_three_membe
         seen["breadth"].append((pit.basket, list(sids)))
         return theme_breadth.compute([[float(i) for i in range(1, 99)] for _ in sids])
 
-    def fake_per_company(conn, sids, asof, known_at, clock, read):
+    def fake_per_company(conn, sids, asof, known_at, clock, read, **_):
         seen["company"].append((list(sids), asof, known_at, clock))
         return {
             sid: (

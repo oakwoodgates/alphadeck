@@ -61,6 +61,7 @@ from uuid import UUID
 import psycopg
 
 from db.session import DEFAULT_TENANT_ID, connect
+from domain.scopes import WORKSPACE_ANY
 from domain.thesis import Thesis
 from ingest.edgar.client import EdgarClient
 from repositories import thesis_repo
@@ -202,12 +203,12 @@ def run_backfill(
     its own tenant), backfill each, COMMIT PER THESIS (a crashed run keeps its progress), return the
     receipts."""
     if thesis_id is not None:
-        one = thesis_repo.get(conn, thesis_id)
+        one = thesis_repo.get(conn, thesis_id, workspace=WORKSPACE_ANY)
         if one is None:
             raise LookupError(f"thesis {thesis_id} not found")
         theses = [one]
     else:
-        theses = thesis_repo.list_all(conn)
+        theses = thesis_repo.list_all(conn, workspace=WORKSPACE_ANY)
     receipts: list[ThesisReceipt] = []
     for thesis in theses:
         r = backfill_thesis(conn, edgar, thesis, overwrite=overwrite, force=force)

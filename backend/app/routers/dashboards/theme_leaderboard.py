@@ -20,7 +20,7 @@ import psycopg
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict
 
-from app.deps import get_conn
+from app.deps import get_conn, get_workspace
 from dashboards.baskets import (
     Membership,
     cards_as_of,
@@ -354,12 +354,14 @@ def read_board(
     asof: date,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> Leaderboard:
     """The heavy read the cache holds: every counted card's row, off the counting names' tapes, one breadth read per
     card, the recorded card in effect and the card's term-mention months. Reads only; the request's ``known_at`` +
     ``clock`` ride into the roster read, the data-flag read, IWM's bars, every company's view, every card's breadth
     view and the term-mention view."""
-    counted = cards_as_of(conn, asof, known_at)
+    counted = cards_as_of(conn, asof, known_at, workspace=workspace)
     memberships = memberships_of(counted.cards)
     rows = counted_rows(memberships, include_silent=False)
     by_card: dict[UUID, list[Membership]] = {t.id: [] for t in counted.cards}
@@ -367,7 +369,7 @@ def read_board(
         by_card[m.thesis_id].append(m)
     sids = sorted({m.security_id for m in rows.rows if m.security_id is not None}, key=str)
 
-    flags = price_flags(conn, sids, asof, known_at=known_at, clock=clock)
+    flags = price_flags(conn, sids, asof, known_at=known_at, clock=clock, workspace=workspace)
     members = display_members(MEMBERS, "Theme Leaderboard")
     tapes = per_company(
         conn,
@@ -376,6 +378,7 @@ def read_board(
         known_at,
         clock,
         lambda pit, sid: read_tape(pit, sid, asof, members, flags.get(sid)),
+        workspace=workspace,
     )
     iwm = read_iwm(_view(conn, asof, known_at, clock), asof)
     recorded = read_recorded(conn, [t.id for t in counted.cards], asof)
@@ -428,6 +431,7 @@ def theme_leaderboard(
         ..., description="as-of date; only what was recorded and public by then is read"
     ),
     conn: psycopg.Connection = Depends(get_conn),
+    workspace: UUID = Depends(get_workspace),
 ) -> LeaderboardOut:
     """Every counted card with the five parts a stated composite ranks it by: the median 30-day return of its priced
     counting names minus IWM's, the share of those names above their 50-day SMA, the keys its recorded call has
@@ -439,7 +443,14 @@ def theme_leaderboard(
     known_at, clock = serve_view(asof)
     # the clock is part of the key: the same date read live today and on the public clock tomorrow are two
     # reads (a new run clears the cache anyway; this holds even on a night with no run)
-    got = cached(conn, SLUG, (clock,), asof, lambda: read_board(conn, asof, known_at, clock))
+    got = cached(
+        conn,
+        SLUG,
+        (clock,),
+        asof,
+        lambda: read_board(conn, asof, known_at, clock, workspace=workspace),
+        workspace=workspace,
+    )
     return LeaderboardOut.model_validate(
         {
             **{f.name: getattr(got.value, f.name) for f in fields(got.value)},

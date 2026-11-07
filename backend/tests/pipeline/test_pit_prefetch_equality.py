@@ -18,6 +18,7 @@ import pytest
 import signals.base as sb
 from domain.config import DEFAULT_CONFIG
 from domain.enums import State
+from domain.scopes import WORKSPACE_ANY
 from pipeline.call_for_thesis import call_for_thesis
 from pipeline.core import assemble_from_pit
 from pipeline.seed import HIMS_THESIS_ID, NNE_ID, NUCLEAR_THESIS_ID, UNH_THESIS_ID
@@ -53,7 +54,7 @@ _KNOWN_ATS = pytest.mark.parametrize("known_at", [PIN, MID], ids=["pin-sees-all"
 def _plain_card(db, tid, asof, known_at):
     """The reference card: the SAME funnel steps as ``call_for_thesis`` but over a PIT with NO basket and
     NO bounds — the per-security read path, memo only."""
-    thesis = thesis_repo.get(db, tid)
+    thesis = thesis_repo.get(db, tid, workspace=WORKSPACE_ANY)
     thesis.position = decisions_repo.effective_position(db, thesis, asof=asof, known_at=known_at)
     pit = PointInTimeData(db, asof=asof, known_at=known_at, tenant_id=thesis.tenant_id)
     return assemble_from_pit(pit, thesis, asof, DEFAULT_CONFIG)

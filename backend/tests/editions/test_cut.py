@@ -359,7 +359,7 @@ def test_the_trial_stores_what_it_proved_and_what_changed_reads_it_back(
     stored = _counts(db)["edition_cause"]
     assert stored > 0 and two.reason["trial"]["n_proven"] == stored
     assert two.reason["trial"]["n_company_nights_changed"] > 0
-    d = edition_diff(db, before=one, after=two, through=one.last_night)
+    d = edition_diff(db, before=one, after=two, through=one.last_night, workspace=DEFAULT_TENANT_ID)
     db.commit()
     assert d.causes is True
     (th,) = [t for t in d.theses if t.companies]
@@ -367,7 +367,9 @@ def test_the_trial_stores_what_it_proved_and_what_changed_reads_it_back(
     assert co.nights and {n.cause for n in co.nights} == {"rule_change"}
     assert co.episodes and {e.cause for e in co.episodes} == {"rule_change"}
     # the earlier pair (the record -> Edition 2) has no single trial: no cause anywhere
-    zero = edition_diff(db, before=None, after=two, through=one.last_night)
+    zero = edition_diff(
+        db, before=None, after=two, through=one.last_night, workspace=DEFAULT_TENANT_ID
+    )
     db.commit()
     assert zero.causes is False
     assert {n.cause for t in zero.theses for c in t.companies for n in c.nights} <= {None}

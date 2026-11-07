@@ -22,7 +22,7 @@ import psycopg
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from app.deps import get_conn
+from app.deps import get_conn, get_workspace
 from dashboards.baskets import cards_as_of, per_company, price_flags
 from dashboards.cache import cached
 from dashboards.nights import CardNights, Night, Role, Scope
@@ -250,6 +250,8 @@ def _closes(
     known_at: datetime | None,
     clock: Literal["record", "public"],
     window_days: int,
+    *,
+    workspace: UUID,
 ) -> dict[UUID, dict[date, float]]:
     """Each company's as-traded ``{day: close}`` over the window up to the as-of, from the same point-in-time
     view the Cockpit's ``/display-signals`` builds (``known_at`` + ``clock`` from ``serve_view``).
@@ -265,6 +267,7 @@ def _closes(
             for b in pit.price_history(sid, lookback_days=window_days)
             if b.get("close") is not None
         },
+        workspace=workspace,
     )
 
 
@@ -298,17 +301,19 @@ def read_log(
     role: RoleChoice,
     known_at: datetime | None,
     clock: Literal["record", "public"],
+    *,
+    workspace: UUID,
 ) -> TriggerLog:
     """The cached read: the counted cards and their rosters at the as-of, each card's recorded nights in the
     window, then the tape of the names a trigger of the loaded role(s) fired on (a flagged name is not priced)
     and IWM's.
     """
-    got = cards_as_of(conn, asof, known_at)
+    got = cards_as_of(conn, asof, known_at, workspace=workspace)
     collected = collect(
         read_nights(conn, [(t.id, t.name) for t in got.cards], asof, window_days), role=role
     )
     sids = sorted({e.security_id for e in collected.events}, key=str)
-    flagged = price_flags(conn, sids, asof, known_at=known_at, clock=clock)
+    flagged = price_flags(conn, sids, asof, known_at=known_at, clock=clock, workspace=workspace)
     return trigger_log(
         collected,
         asof=asof,
@@ -322,7 +327,13 @@ def read_log(
         master_tickers=master.tickers_for(conn, sids),
         ciks=master.ciks_for(conn, sids),
         closes=_closes(
-            conn, [s for s in sids if s not in flagged], asof, known_at, clock, window_days
+            conn,
+            [s for s in sids if s not in flagged],
+            asof,
+            known_at,
+            clock,
+            window_days,
+            workspace=workspace,
         ),
         bench=_bench(conn, asof, known_at, clock, window_days),
         flagged=flagged,
@@ -343,6 +354,7 @@ def trigger_log_page(
         "record, so each choice is its own read; counts.other_role_rows says how many rows the other role holds",
     ),
     conn: psycopg.Connection = Depends(get_conn),
+    workspace: UUID = Depends(get_workspace),
 ) -> TriggerLogOut:
     """Every entry trigger and risk signal the recorded calls show firing across the cards in the window, newest
     recorded night first, for the role(s) asked: each trigger once (the same security, kind and fire date is one
@@ -358,7 +370,8 @@ def trigger_log_page(
         SLUG,
         (window, role, clock),
         asof,
-        lambda: read_log(conn, asof, window, role, known_at, clock),
+        lambda: read_log(conn, asof, window, role, known_at, clock, workspace=workspace),
+        workspace=workspace,
     )
     return TriggerLogOut.model_validate(
         {**asdict(got.value), "clock": clock, "cache": got.status, "compute_ms": got.compute_ms}

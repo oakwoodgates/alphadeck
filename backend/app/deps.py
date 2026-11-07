@@ -3,7 +3,7 @@ from __future__ import annotations
 from uuid import UUID
 
 import psycopg
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 
 from app.auth import CurrentUser, require_user
 from app.db_conn import get_conn  # re-exported: the one connection dependency (app/db_conn.py)
@@ -16,19 +16,49 @@ from repositories import thesis_repo
 __all__ = ["get_conn"]  # re-exported from app.db_conn (moved there so app.auth can depend on it)
 
 
-def get_current_tenant(user: CurrentUser = Depends(require_user)) -> UUID:
-    """The signed-in caller's workspace (``app.auth.require_user``). One workspace in this PR: every user sits on
-    tenant ...0001 (``db.session.DEFAULT_TENANT_ID``), so every read is the one it was before the login door.
-    Keeps its name for now (PR 2 renames it). Overridable in tests, like ``get_conn``."""
-    return user.workspace_id
+WORKSPACE_HEADER = "X-Alphadeck-Workspace"
 
 
-def get_thesis_or_404(thesis_id: UUID, conn: psycopg.Connection = Depends(get_conn)) -> Thesis:
-    """Load the thesis for a ``/{thesis_id}`` route, or raise 404 — the shared load-or-404 the call, scored,
-    detail, and draft-chain routes all need (the thesis carries its own tenant; auth deferred). ``get_conn``
-    is request-cached, so this shares the route's connection (and the fixture conn under the test override).
-    """
-    thesis = thesis_repo.get(conn, thesis_id)
+def get_workspace(request: Request, user: CurrentUser = Depends(require_user)) -> UUID:
+    """The workspace a request reads and writes: the signed-in caller's own (``user.workspace_id``).
+
+    The SYSTEM principal (the cron's dashboard warm-up, ``app.auth.SYSTEM_USER``) has no workspace of its own: it
+    names one per request in the ``X-Alphadeck-Workspace: <uuid>`` header, honored ONLY for that principal (every
+    other caller's header is ignored, so a user can never read another workspace by sending it). A system request
+    on a workspace-scoped route without a well-formed header answers 400 naming the header."""
+    if user.principal != "system":
+        return user.workspace_id
+    raw = request.headers.get(WORKSPACE_HEADER)
+    if not raw:
+        raise HTTPException(
+            status_code=400,
+            detail=f"the system principal must name a workspace in the {WORKSPACE_HEADER} header",
+        )
+    try:
+        return UUID(raw.strip())
+    except ValueError:
+        raise HTTPException(
+            status_code=400, detail=f"{WORKSPACE_HEADER} must be a workspace id (a UUID)"
+        ) from None
+
+
+def get_current_tenant(workspace: UUID = Depends(get_workspace)) -> UUID:
+    """The caller's workspace (``get_workspace``): the tenant a workspace write (a promote, a ratify, a decision)
+    lands in and a workspace read filters by. Kept under this name for the routes that already depend on it.
+    Overridable in tests, like ``get_conn``."""
+    return workspace
+
+
+def get_thesis_or_404(
+    thesis_id: UUID,
+    conn: psycopg.Connection = Depends(get_conn),
+    workspace: UUID = Depends(get_workspace),
+) -> Thesis:
+    """Load the thesis for a ``/{thesis_id}`` route from the CALLER'S workspace, or raise 404 — the one ownership
+    choke point (a thesis in another workspace is "not found", never "forbidden": its existence is not revealed).
+    ``get_conn`` is request-cached, so this shares the route's connection (and the fixture conn under the test
+    override)."""
+    thesis = thesis_repo.get(conn, thesis_id, workspace=workspace)
     if thesis is None:
         raise HTTPException(status_code=404, detail="thesis not found")
     return thesis

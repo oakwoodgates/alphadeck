@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from domain.config import DEFAULT_CONFIG
 from domain.enums import State
+from domain.scopes import WORKSPACE_ANY
 from pipeline.seed import (
     UNH_THESIS_ID,
     seed_hims,
@@ -159,7 +160,7 @@ def test_cfg_is_swept_not_hardcoded(db, tmp_path):
     export_snapshot(db, tmp_path)
     con = connect_mirror(tmp_path)
     try:
-        thesis = thesis_repo.get(db, UNH_THESIS_ID)
+        thesis = thesis_repo.get(db, UNH_THESIS_ID, workspace=WORKSPACE_ANY)
         base = replay_thesis(con, thesis, start=_START, end=_END, known_at=_PIN, cfg=DEFAULT_CONFIG)
         strict = DEFAULT_CONFIG.model_copy(update={"breakout_min_return": 0.50})
         tweaked = replay_thesis(con, thesis, start=_START, end=_END, known_at=_PIN, cfg=strict)

@@ -14,6 +14,7 @@ from datetime import date
 from uuid import UUID
 
 from db.session import DEFAULT_TENANT_ID
+from domain.scopes import WORKSPACE_ANY
 from domain.thesis import Thesis
 from notify import SlackNotifier
 from radar import repo
@@ -126,7 +127,17 @@ def test_a_real_three_thesis_announcement_is_ONE_page(db):
 
     cap = _Capture()
     result = RadarRunResult()
-    _notify_announced(db, cap, {}, EVENTS, MATCHES, {CIK: SID}, result, tenant_id=DEFAULT_TENANT_ID)
+    _notify_announced(
+        db,
+        cap,
+        {},
+        EVENTS,
+        MATCHES,
+        {CIK: SID},
+        result,
+        tenant_id=DEFAULT_TENANT_ID,
+        workspace=WORKSPACE_ANY,
+    )
 
     (evt,) = cap.spac_status  # ONE page for the announcement
     assert result.status_notifications == 1
@@ -157,7 +168,15 @@ def test_a_match_on_an_ARCHIVED_thesis_is_left_off_the_page(db):
     db.commit()
     cap = _Capture()
     _notify_announced(
-        db, cap, {}, EVENTS, MATCHES, {CIK: SID}, RadarRunResult(), tenant_id=DEFAULT_TENANT_ID
+        db,
+        cap,
+        {},
+        EVENTS,
+        MATCHES,
+        {CIK: SID},
+        RadarRunResult(),
+        tenant_id=DEFAULT_TENANT_ID,
+        workspace=WORKSPACE_ANY,
     )
     (evt,) = cap.spac_status
     assert evt.thesis_names == ("AI Memory & Storage", "Rainbow Rush")

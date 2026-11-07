@@ -23,7 +23,7 @@ from uuid import UUID
 import psycopg
 
 from domain.call import CallCard
-from domain.scopes import DATA_TENANT_ID
+from domain.scopes import DATA_TENANT_ID, WORKSPACE_ANY
 from replay.episodes import derive_episodes
 from replay.schema import CallSnapshot, Episode
 from replay.scoring import score_episode
@@ -70,7 +70,10 @@ def _returns(rows: list[dict[str, Any]]) -> list[float]:
 def compare_to_record(
     conn: psycopg.Connection, cards: dict[UUID, list[CallCard]], *, end: date
 ) -> dict[str, Any]:
-    names = {t.id: t.name for t in thesis_repo.list_all(conn, include_archived=True)}
+    names = {
+        t.id: t.name
+        for t in thesis_repo.list_all(conn, include_archived=True, workspace=WORKSPACE_ANY)
+    }
     conn.commit()
     rows: list[dict[str, Any]] = []
     tot = dict.fromkeys(

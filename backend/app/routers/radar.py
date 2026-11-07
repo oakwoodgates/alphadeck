@@ -10,7 +10,7 @@ from uuid import UUID
 import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.deps import get_conn
+from app.deps import get_conn, get_workspace
 from app.schemas_api import (
     RadarSpacOut,
     SpacAttachOut,
@@ -33,6 +33,7 @@ def spac_tape(
     days: int = Query(90, ge=1, le=365, description="tape window (filed within the last N days)"),
     limit: int = Query(200, ge=1, le=1000),
     conn: psycopg.Connection = Depends(get_conn),
+    workspace: UUID = Depends(get_workspace),
 ) -> RadarSpacOut:
     """The SPAC Radar tape: blank-check transition filings (latest version per accession) newest
     first, each with its CIK's read-time deal state (derived over the FULL stored history, not just
@@ -53,8 +54,8 @@ def spac_tape(
         )
     state_by_cik = {c: deal_state(evs) for c, evs in by_cik.items()}
 
-    match_rows = repo.latest_matches(conn, [r["accession"] for r in rows])
-    theses = thesis_repo.list_all(conn)
+    match_rows = repo.latest_matches(conn, [r["accession"] for r in rows], tenant_id=workspace)
+    theses = thesis_repo.list_all(conn, workspace=workspace)
     thesis_name = {t.id: t.name for t in theses}
     holders_by_sid: dict[UUID, list[UUID]] = {}
     for t in theses:
@@ -105,11 +106,11 @@ def spac_tape(
 
 
 def _resolve_attach_target(
-    conn: psycopg.Connection, req: SpacAttachRequest
+    conn: psycopg.Connection, req: SpacAttachRequest, *, workspace: UUID
 ) -> tuple[Thesis, UUID, str]:
     """Shared attach/detach resolution: the thesis (404), the canonical master id (422 when the
     CIK has no master row), and its ticker (422 when unlisted — not directly investable here)."""
-    thesis = thesis_repo.get(conn, req.thesis_id)
+    thesis = thesis_repo.get(conn, req.thesis_id, workspace=workspace)
     if thesis is None:
         raise HTTPException(status_code=404, detail="thesis not found")
     cik10 = req.cik.zfill(10)
@@ -130,21 +131,25 @@ def _resolve_attach_target(
 
 @router.post("/spac/attach", response_model=SpacAttachOut)
 def spac_attach(
-    req: SpacAttachRequest, conn: psycopg.Connection = Depends(get_conn)
+    req: SpacAttachRequest,
+    conn: psycopg.Connection = Depends(get_conn),
+    workspace: UUID = Depends(get_workspace),
 ) -> SpacAttachOut:
     """Add a radar name to a thesis basket — the operator's click, so ``operator_set`` (#10: the
     radar recommended, the operator decided). The member lands uncharacterized (role "—", no
     segment — the finalize rail characterizes it, item F), with ``surfaced_terms`` frozen from
     the stored term matches (factual provenance, never client-supplied). Idempotent:
     already-in-basket returns ``already`` and writes nothing. Reversible via detach (#1)."""
-    thesis, sid, ticker = _resolve_attach_target(conn, req)
+    thesis, sid, ticker = _resolve_attach_target(conn, req, workspace=workspace)
     if any(m.security_id == sid for m in thesis.basket):
         return SpacAttachOut(thesis_id=thesis.id, security_id=sid, ticker=ticker, already=True)
     member = BasketMember(
         ticker=ticker,
         role="—",
         security_id=sid,
-        surfaced_terms=repo.matched_terms_for(conn, req.cik.zfill(10), thesis.id),
+        surfaced_terms=repo.matched_terms_for(
+            conn, req.cik.zfill(10), thesis.id, tenant_id=thesis.tenant_id
+        ),
         authored_by=Authorship.OPERATOR_SET,
     )
     thesis_repo.upsert(conn, thesis.model_copy(update={"basket": [*thesis.basket, member]}))
@@ -154,12 +159,14 @@ def spac_attach(
 
 @router.post("/spac/detach", response_model=SpacAttachOut)
 def spac_detach(
-    req: SpacAttachRequest, conn: psycopg.Connection = Depends(get_conn)
+    req: SpacAttachRequest,
+    conn: psycopg.Connection = Depends(get_conn),
+    workspace: UUID = Depends(get_workspace),
 ) -> SpacAttachOut:
     """The attach inverse (#1 reversibility): remove the name from the basket, returning to the
     prior state — facts/prices stay bitemporal, a re-attach re-binds the same id. Not-in-basket
     is the idempotent no-op (``removed=False``)."""
-    thesis, sid, ticker = _resolve_attach_target(conn, req)
+    thesis, sid, ticker = _resolve_attach_target(conn, req, workspace=workspace)
     kept = [m for m in thesis.basket if m.security_id != sid]
     if len(kept) == len(thesis.basket):
         return SpacAttachOut(thesis_id=thesis.id, security_id=sid, ticker=ticker, removed=False)
