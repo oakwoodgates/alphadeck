@@ -11,6 +11,7 @@ import pytest
 import editions.engine as engine
 from db.session import DEFAULT_TENANT_ID
 from domain.enums import State
+from domain.thesis import Catalyst, KillCriterion, Thesis
 from editions.engine import (
     ThesisJob,
     build_job,
@@ -20,9 +21,12 @@ from editions.engine import (
     prepare,
     run_job,
     run_jobs,
+    thesis_body,
+    with_body,
 )
 from editions.entry import Entry, Snapshot, ThesisRoster
 from replay.export import export_snapshot
+from repositories import thesis_repo
 from repositories.calls_repo import _canonical
 from tests.editions.fixtures import member_rows, seed_big_buy, seed_tape
 from tests.scoreboard.helpers import persist_thesis
@@ -215,6 +219,80 @@ def test_a_job_round_trips_exactly(db, security_id, tmp_path):
     job, _ = _cards(db, roster, entries, kb, tmp_path / "mirror")
     again = ThesisJob.from_json(job.to_json())
     assert again == job and again.to_json() == job.to_json()
+
+
+# --- the meta index switch: carried by the job, frozen with the body ---------------------------------------
+
+
+def _flagged(*, meta_index: bool) -> Thesis:
+    return Thesis(
+        id=uuid.UUID(int=0x3E7C),
+        name="Meta index body",
+        narrative="x",
+        kill_criteria=[KillCriterion(id=uuid.UUID(int=0xC1), text="the theme stalls")],
+        catalysts=[Catalyst(id=uuid.UUID(int=0xC2), label="a readout")],
+        meta_index=meta_index,
+    )
+
+
+def test_the_frozen_body_carries_the_meta_index_switch():
+    body = thesis_body(_flagged(meta_index=True))
+    assert body["meta_index"] is True
+    # frozen ON, read back onto a card that is OFF today: the frozen value wins
+    assert with_body(_flagged(meta_index=False), body).meta_index is True
+    # and the other way round
+    assert (
+        with_body(_flagged(meta_index=True), thesis_body(_flagged(meta_index=False))).meta_index
+        is False
+    )
+    assert with_body(_flagged(meta_index=True), None).meta_index is True  # None = today's body
+
+
+def test_a_body_frozen_before_the_switch_existed_reads_it_off():
+    today = _flagged(meta_index=True)
+    old = {k: v for k, v in thesis_body(today).items() if k != "meta_index"}  # a pre-2026-11 freeze
+    assert with_body(today, old).meta_index is False
+    # the meta-only body (an edition that froze no bodies): the switch off, today's lists kept
+    kept = with_body(today, {})
+    assert kept.meta_index is False
+    assert kept.kill_criteria == today.kill_criteria and kept.catalysts == today.catalysts
+
+
+def test_a_job_carries_the_meta_index_switch_through_its_json(db, security_id, tmp_path):
+    thesis, roster, entries, kb = _setup(db, security_id, tmp_path)
+    thesis_repo.set_meta_index(db, thesis.id, True)
+    db.commit()
+    job, _ = _cards(db, roster, entries, kb, tmp_path / "mirror")
+    assert job.base.meta_index is True  # read from the card, through the mapper
+    again = ThesisJob.from_json(job.to_json())
+    assert again.base.meta_index is True and again == job
+
+
+def test_a_meta_index_card_never_warms_or_arms_in_the_engine(db, security_id, tmp_path):
+    """The replay engine reads the card through the job (the worker's JSON round trip, ``run_jobs``): with the
+    switch on, the big buy that warms the card on 06-17 counts for nothing — every page is Incubating with no
+    trigger. Off again, the same night warms (the non-vacuity twin)."""
+    thesis, roster, entries, kb = _setup(db, security_id, tmp_path)
+
+    def pages(on: bool):
+        thesis_repo.set_meta_index(db, thesis.id, on)
+        db.commit()
+        con = open_mirror(tmp_path / "mirror")
+        try:
+            job = build_job(db, con, roster, entries, end=date(2026, 7, 10), known_by=kb)
+            db.commit()
+        finally:
+            con.close()
+        return run_jobs(tmp_path / "mirror", [job], workers=1)[thesis.id]
+
+    flagged = pages(True)
+    assert flagged and {c.state for c in flagged} == {State.INCUBATING}
+    assert not any(c.triggers_fired or c.armed_members or c.watch_members for c in flagged)
+    assert not any(c.key_conviction.turned for c in flagged)
+
+    normal = {c.asof: c for c in pages(False)}
+    assert normal[date(2026, 6, 17)].state is State.WARMING
+    assert [c.asof for c in flagged] == sorted(normal)  # the same nights, only the vote differs
 
 
 def test_a_cut_cannot_be_later_than_its_snapshot(db, tmp_path):

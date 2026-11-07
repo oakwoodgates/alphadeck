@@ -129,6 +129,16 @@ RULE_LOG: tuple[RuleEntry, ...] = (
         label="split holds name Massive.com",
         description="Recorded split-hold messages use the market-data vendor's current name, Massive.com.",
     ),
+    RuleEntry(
+        id="2026-11-meta-index-card",
+        date=date(2026, 11, 6),
+        label="a meta index card has no voting names",
+        description=(
+            "A card the operator marks as a meta index card keeps its links and its ingest, but none of its "
+            "names count toward the call, so it stays Incubating; every existing card's call is unchanged, "
+            "because the switch defaults off."
+        ),
+    ),
 )
 
 

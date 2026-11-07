@@ -29,6 +29,12 @@ export function ThesisCard({
       <div className="tk">
         {tickerLabel(thesis.ticker, thesis.basket_size)}
         <DataFlagMark member={flags} />
+        {/* quiet, lowercase, only when on (WB#3): a meta index card's names never count toward the call */}
+        {thesis.meta_index && (
+          <span className="meta-tag" title="Meta index: its names never count toward the call">
+            meta index
+          </span>
+        )}
       </div>
       <div className="nm">{thesis.name}</div>
       <div className="desc">{thesis.narrative}</div>

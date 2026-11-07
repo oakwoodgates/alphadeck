@@ -28,7 +28,7 @@ from db.session import DEFAULT_TENANT_ID
 from domain import rule_log
 from domain.rule_log import RuleEntry
 from editions.nightly import run_nightly
-from repositories import data_repair_repo, editions_repo
+from repositories import data_repair_repo, editions_repo, thesis_repo
 from tests.editions.fixtures import seed_big_buy
 from tests.editions.test_nightly import END, _counts, _published
 
@@ -209,6 +209,63 @@ def test_an_older_fingerprint_version_counts_as_a_change_and_is_tried_once(
     # the published edition itself carries version 2: nothing to try
     assert not cut.detect(db, old, engine=real).rules
     db.commit()
+
+
+# --- the meta index switch is card state, frozen with the body ------------------------------------------------
+
+
+def test_a_meta_index_flip_after_the_cut_is_a_card_edit_never_a_rule_change(
+    db, security_id, tmp_path, monkeypatch
+):
+    """The publish froze the switch (off) with the thesis body. Flipping it on afterwards and then shipping a
+    rules change that moves nothing: P holds the frozen switch, so the trial records no change — the flip is
+    never credited to a rule."""
+    monkeypatch.setattr(rule_log, "RULE_LOG", ())
+    thesis, _, _, ed = _published(db, security_id, monkeypatch, tmp_path)
+    frozen = editions_repo.frozen_bodies(db, ed.id)
+    db.commit()
+    assert frozen[thesis.id]["meta_index"] is False  # frozen with the body at publish
+    thesis_repo.set_meta_index(db, thesis.id, True)
+    db.commit()
+    _new_fingerprint(monkeypatch)
+    before = _counts(db)
+    r = _nightly(db, tmp_path)
+    assert r.cut["status"] == "no_change", r.cut
+    assert r.cut["rules_trial"]["pages"]["pages_changed"] == 0
+    assert _counts(db)["edition"] == before["edition"] == 1
+
+
+def test_non_vacuity_the_same_flip_read_from_todays_card_changes_the_pages(
+    db, security_id, tmp_path, monkeypatch
+):
+    """The twin: with the frozen body ignored (today's card read instead), the same flip DOES move the
+    edition's pages — the fixture's big buy warms the card, and a meta index card never warms."""
+    monkeypatch.setattr(rule_log, "RULE_LOG", ())
+    thesis, _, _, _ = _published(db, security_id, monkeypatch, tmp_path)
+    thesis_repo.set_meta_index(db, thesis.id, True)
+    db.commit()
+    _new_fingerprint(monkeypatch)
+    monkeypatch.setattr(engine, "with_body", lambda t, body: t)
+    r = _nightly(db, tmp_path)
+    assert r.cut["rules_trial"]["pages"]["pages_changed"] > 0, r.cut
+
+
+def test_an_edition_that_froze_no_bodies_holds_the_switch_off(
+    db, security_id, tmp_path, monkeypatch
+):
+    """An edition published before S7 froze no bodies, and it predates the switch: P reads today's kill
+    criteria and catalysts (their two fields left out) but holds the switch off, so a flip is still a card
+    edit."""
+    monkeypatch.setattr(rule_log, "RULE_LOG", ())
+    thesis, _, _, _ = _published(db, security_id, monkeypatch, tmp_path)
+    monkeypatch.setattr(cut.editions_repo, "frozen_bodies", lambda conn, edition_id: None)
+    thesis_repo.set_meta_index(db, thesis.id, True)
+    db.commit()
+    _new_fingerprint(monkeypatch)
+    r = _nightly(db, tmp_path)
+    assert r.cut["status"] == "no_change", r.cut
+    assert r.cut["rules_trial"]["bodies"].startswith("today's")
+    assert r.cut["rules_trial"]["pages"]["pages_changed"] == 0
 
 
 def test_a_declared_rule_that_moves_history_cuts_a_labeled_edition_and_closes_the_old_one(

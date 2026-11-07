@@ -247,24 +247,31 @@ class ThesisJob:
 
 
 def thesis_body(thesis: Thesis) -> dict[str, Any]:
-    """The parts of a thesis body a card reads — the kill criteria (``counter_case``) and the catalysts
-    (``catalyst_surface``) — as JSON, the form an edition freezes them in (S7)."""
+    """The parts of a thesis body a card reads — the kill criteria (``counter_case``), the catalysts
+    (``catalyst_surface``) and the meta index switch (which names vote at all) — as JSON, the form an edition
+    freezes them in (S7). A card edit is never credited to a rule change: flipping the switch is one.
+    """
     return {
         "kill_criteria": [k.model_dump(mode="json") for k in thesis.kill_criteria],
         "catalysts": [c.model_dump(mode="json") for c in thesis.catalysts],
+        "meta_index": thesis.meta_index,
     }
 
 
 def with_body(thesis: Thesis, body: dict[str, Any] | None) -> Thesis:
-    """``thesis`` with a frozen body (``thesis_body``'s form) in place of today's; ``None`` = today's."""
+    """``thesis`` with a frozen body (``thesis_body``'s form) in place of today's; ``None`` = today's.
+
+    A body frozen before the meta index switch existed (2026-11) has no ``meta_index`` key: no card could be a
+    meta index card then, so it reads off. A body without the kill criteria / catalysts keys (the meta-only
+    body ``editions.cut`` gives an edition that froze no bodies) keeps today's for those two."""
     if body is None:
         return thesis
-    return thesis.model_copy(
-        update={
-            "kill_criteria": [KillCriterion.model_validate(k) for k in body["kill_criteria"]],
-            "catalysts": [Catalyst.model_validate(c) for c in body["catalysts"]],
-        }
-    )
+    update: dict[str, Any] = {"meta_index": bool(body.get("meta_index", False))}
+    if "kill_criteria" in body:
+        update["kill_criteria"] = [KillCriterion.model_validate(k) for k in body["kill_criteria"]]
+    if "catalysts" in body:
+        update["catalysts"] = [Catalyst.model_validate(c) for c in body["catalysts"]]
+    return thesis.model_copy(update=update)
 
 
 def build_job(

@@ -388,6 +388,18 @@ def set_archived(conn: psycopg.Connection, thesis_id: UUID, archived: bool) -> N
         )
 
 
+def set_meta_index(conn: psycopg.Connection, thesis_id: UUID, on: bool) -> None:
+    """Mark / unmark a thesis as a META INDEX card — the SOLE writer of ``meta_index`` (``upsert`` never names
+    the column, so a full-replace promote can never flip it: the ``set_archived`` guard). On, none of the
+    card's names count toward the call (``domain.thesis.voting_thesis``); off, it is a normal card again on the
+    next read. Nothing is deleted either way. Idempotent. The caller owns the transaction."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE thesis SET meta_index = %s, updated_at = now() WHERE id = %s",
+            (bool(on), thesis_id),
+        )
+
+
 def upsert(conn: psycopg.Connection, thesis: Thesis) -> None:
     """Insert or update a thesis. The basket is replaced (the promote payload owns it); evidence is
     APPEND-ONLY (new rows added, existing ones never modified or removed). Catalysts and kill

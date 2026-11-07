@@ -18,7 +18,7 @@ from domain.signal import Provenance
 from repositories import calls_repo, thesis_repo
 from tests.calls.factories import make_thesis
 
-LEGACY_KEYS = {"id", "name", "ticker", "basket_size", "narrative", "archived"}
+LEGACY_KEYS = {"id", "name", "ticker", "basket_size", "narrative", "archived", "meta_index"}
 
 
 def _seed(db, security_id):

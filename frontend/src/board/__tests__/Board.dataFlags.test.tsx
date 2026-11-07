@@ -47,6 +47,7 @@ vi.mock("../../api/hooks", () => ({
   useCalls: (subjects: { id: string }[]) =>
     subjects.map((s) => h.calls[s.id] ?? { data: undefined, isLoading: false, isError: false }),
   useSetArchived: () => ({ mutate: () => {}, isPending: false }),
+  useSetMetaIndex: () => ({ mutate: () => {}, isPending: false }),
 }));
 
 import { Board } from "../Board";

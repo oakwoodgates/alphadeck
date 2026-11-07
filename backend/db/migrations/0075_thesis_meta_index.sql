@@ -1,0 +1,16 @@
+-- 0075 — thesis.meta_index: the meta index card switch (operator sign-off 2026-11-06).
+--
+-- A card with the flag on is a META INDEX card: a broad list for watching where money moves across a sector.
+-- NONE of its names count toward the call — `domain.thesis.voting_thesis` returns an empty basket for it at the
+-- one assembly seam, so the card stays Incubating and never warms, arms, notifies, or enters the Decision Queue.
+-- Its links stay real links (every dashboard reads them), and its names are still ingested nightly (the ingest
+-- walks the full basket), so the display signals and dashboards have data. Turning it off makes it a normal card
+-- again on the next read; nothing is deleted. Default false: every existing card's call is unchanged.
+--
+-- Card state, NOT versioned: a history view reads the flag as it is now, like the card's narrative (the
+-- immutable calls log keeps what was actually said). The editions engine freezes it with the card body.
+--
+-- The column is deliberately NOT written by `upsert` (thesis_to_row never names it — the archived_at /
+-- term_set structural guard): a full-replace promote can never flip it; the narrow `set_meta_index` is the
+-- sole writer. NAMING GUARD: never call it a "watch" card (`CallCard.watch_members` is unrelated).
+ALTER TABLE thesis ADD COLUMN IF NOT EXISTS meta_index boolean NOT NULL DEFAULT false;

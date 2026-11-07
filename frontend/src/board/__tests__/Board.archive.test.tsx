@@ -26,6 +26,7 @@ vi.mock("../../api/hooks", () => ({
       isLoading: false,
     })),
   useSetArchived: () => ({ mutate: h.setArchived, isPending: false }),
+  useSetMetaIndex: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 import { Board } from "../Board";

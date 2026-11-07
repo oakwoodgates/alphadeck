@@ -17,6 +17,7 @@ from app.schemas_api import (
     ExclusionIn,
     KillCriterionIn,
     MemberDisplaySignalsOut,
+    MetaIndexIn,
     RecordedCallSummary,
     ThesisDetail,
     ThesisSummary,
@@ -129,6 +130,24 @@ def unarchive_thesis(
 ) -> ThesisSummary:
     """Restore an archived thesis whole — back onto the Board and into the cron's nightly walk."""
     thesis_repo.set_archived(conn, thesis.id, False)
+    conn.commit()
+    return ThesisSummary.from_thesis(thesis_repo.get(conn, thesis.id))
+
+
+@router.put(
+    "/{thesis_id}/meta-index", response_model=ThesisSummary, response_model_exclude_unset=True
+)
+def put_meta_index(
+    body: MetaIndexIn,
+    conn: psycopg.Connection = Depends(get_conn),
+    thesis: Thesis = Depends(get_thesis_or_404),
+) -> ThesisSummary:
+    """Mark a card as a META INDEX card (``true``) or a normal card again (``false``). On, none of its names
+    count toward the call: it stays Incubating and never warms, arms, notifies or enters the Decision Queue.
+    Its links stay real links for the dashboards and its names are still ingested nightly. Nothing is
+    deleted either way, and the next read reflects the switch. The sole writer of the flag: a promote
+    never touches it."""
+    thesis_repo.set_meta_index(conn, thesis.id, body.meta_index)
     conn.commit()
     return ThesisSummary.from_thesis(thesis_repo.get(conn, thesis.id))
 

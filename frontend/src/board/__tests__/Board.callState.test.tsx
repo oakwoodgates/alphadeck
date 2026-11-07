@@ -21,6 +21,7 @@ vi.mock("../../api/hooks", () => ({
   useCalls: (subjects: { id: string }[]) =>
     subjects.map((s) => h.calls[s.id] ?? { data: undefined, isLoading: false, isError: false }),
   useSetArchived: () => ({ mutate: h.setArchived, isPending: false }),
+  useSetMetaIndex: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 import { ClockProvider } from "../../clock";

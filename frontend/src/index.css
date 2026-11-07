@@ -247,7 +247,9 @@ table.basket { view-transition-name: cp-basket; }
 tr.bkt-quiet td, tr.bkt-context td, tr.bkt-etfs td, tr.bkt-bench td { color: var(--txt-3); }
 tr.bkt-quiet .tk, tr.bkt-context .tk, tr.bkt-etfs .tk, tr.bkt-bench .tk { color: var(--txt-2); }
 /* the business-type lens's "context" / "bench" tag beside a silent name's ticker — small, lowercase, muted */
-.silent-tag, .role-tag { color: var(--txt-4); font-size: 9.5px; margin-left: 6px; letter-spacing: 0.02em; cursor: help; }
+/* (and the card-level "meta index" tag on the Board card + the Cockpit header — the same quiet style, shown only when on) */
+.silent-tag, .role-tag, .meta-tag { color: var(--txt-4); font-size: 9.5px; margin-left: 6px; letter-spacing: 0.02em; cursor: help; }
+.meta-tag { font-family: var(--sans); font-weight: 400; }
 table.basket td.exitby.lapse { color: var(--warm); }
 /* the entry-window (confirmation) clock, its own column beside exit-by — the clock that actually
    governs how long an armed-family member stays armed (arm_until), and the one that closes first.
@@ -1371,6 +1373,11 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .card-wrap .card-x { position: absolute; top: 6px; right: 6px; width: 20px; height: 20px; line-height: 1; font-size: 11px; color: var(--txt-4); background: transparent; border: 1px solid transparent; border-radius: 5px; cursor: pointer; opacity: 0; transition: opacity 0.12s; }
 .card-wrap:hover .card-x { opacity: 1; }
 .card-wrap .card-x:hover { color: var(--txt-2); border-color: var(--line-2); background: var(--panel-2); }
+/* the meta index switch, the ✕'s quiet neighbor: hover-only like it; pressed (on) reads a shade brighter */
+.card-wrap .card-meta { position: absolute; top: 6px; right: 30px; height: 20px; padding: 0 5px; line-height: 1; font-family: var(--sans); font-size: 9.5px; letter-spacing: 0.02em; color: var(--txt-4); background: transparent; border: 1px solid transparent; border-radius: 5px; cursor: pointer; opacity: 0; transition: opacity 0.12s; }
+.card-wrap:hover .card-meta, .card-wrap .card-meta:focus-visible { opacity: 1; }
+.card-wrap .card-meta[aria-pressed="true"] { color: var(--txt-3); }
+.card-wrap .card-meta:hover { color: var(--txt-2); border-color: var(--line-2); background: var(--panel-2); }
 .arch-sect { margin: 10px 14px 18px; color: var(--txt-4); }
 .arch-sect summary { cursor: pointer; font-size: 10.5px; letter-spacing: 0.07em; text-transform: uppercase; }
 .arch-row { display: flex; align-items: center; gap: 10px; padding: 4px 2px; font-size: 12px; color: var(--txt-3); }
