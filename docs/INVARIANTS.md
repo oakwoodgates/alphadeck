@@ -216,8 +216,9 @@ replay stays honest.
   `PointInTimeData` per request / per cron assemble **memoizes** each `(table, security_id)` as-of result
   and **prefetches** a whole basket per table in ONE `db.bitemporal.as_of_many` query — the SAME
   `valid_from <= asof AND recorded_at <= known_at` gate, the same latest-version pick and tiebreak, tenant-
-  filtered exactly like `as_of`. A memo can never cross a time or tenant boundary: `asof` / `known_at` /
-  `tenant_id` are fixed at construction and a per-call value (a reader's `lookback_days`) is never a memo key.
+  filtered exactly like `as_of`. A memo can never cross a time or scope boundary: `asof` / `known_at` /
+  `data_tenant` / `workspace` are fixed at construction, the memo key carries the tenant tuple the table reads
+  (`domain.scopes.tenants_for`, §5), and a per-call value (a reader's `lookback_days`) is never a memo key.
   **Read bounds are derived, never hand-typed.** A bounded table (`fact_price_eod`, `fact_insider_txn`) is
   floored at `valid_from >= asof - bound`, where every reader DECLARES its max horizon (`Detector.horizons(cfg)`
   from the SAME `CallConfig` the assembler runs with; `DisplayMember.horizons` from the module `LOOKBACK_DAYS`;
@@ -423,23 +424,51 @@ replay stays honest.
   the split unlisted, not held with it listed — the list row the only variable; the public mirror's card ==
   Postgres's on a held night).
 
-## 5. Tenant isolation; production is a fresh tenant, never a destructive wipe
+## 5. Two tenant scopes — shared DATA, a private WORKSPACE per user; every read names its scope through the map
 
-Every row carries `tenant_id`. Dev/demo data is a tenant; **production is a new tenant**. Never build a
-destructive reset path or assume a single global tenant — seeds are idempotent and additive.
+Every row carries `tenant_id`, and every tenant-bearing table belongs to exactly ONE scope, named once in
+`domain/scopes.py` (`SCOPE_OF`; docs/TENANT_SCOPES.md):
 
-**Isolation is discipline + the poison-row test, NOT RLS** — the `security_id` FK carries no tenant, so
-nothing at the database layer *forces* a read to pass the right `tenant_id`. The standing obligation: **every
-new read path MUST route through the tenant-filtered accessors** (`db.bitemporal.as_of` / `as_of_thesis`,
-`securities/master.*`, the `PointInTimeData` methods) — never a raw fact query — **and the isolation test
-MUST GROW with each new read surface**. A forgotten filter on a raw query would leak with no DB backstop to
-catch it. (RLS is the auth-era defense-in-depth; see `docs/PRODUCTION_TENANT.md`.)
+- **DATA** — the single shared data tenant (`DATA_TENANT_ID`, the `tenant` row with `kind='data'`, migration
+  0076): the company master, every ingested fact, the split / ticker / CIK history, the onboarding queue, the
+  price-feed repairs, the Form 4/A tables, the set-asides, the repair journal. The feed writes it; every
+  workspace reads it.
+- **WORKSPACE** — one per user: the thesis and its children, the calls of record, the annotations, the
+  operator's decisions, the editions store, the thesis-scoped facts.
+- **MIXED** — the four Workbench scoring-fact tables (`fact_revenue_mix` / `fact_cash_burn` /
+  `fact_shares_outstanding` / `fact_catalyst`): a FEED row lives in DATA, a RATIFIED row in the caller's
+  workspace, and a read unions the two; the latest-version pick resolves the union (a workspace's later
+  ratification overrides the feed row for that workspace only).
 
-- *Enforced by:* `tenant_id` on every table; `DEFAULT_TENANT_ID` for the demo; seeds upsert/append; the
-  poison-row proof `tests/db/test_tenant_isolation.py` (grown for each new accessor — insider/price/theme,
-  the three scoring facts, the Workbench scored read, the known-feed-limitation read of 0056, the S2 split
-  list on the repo / live PIT / replay mirror paths, the S5 split-jump scan), plus the Scoreboard price-window's direct split read
-  (`tests/app/test_scoreboard_price_window_api.py`).
+Never build a destructive reset path or assume a single global tenant — seeds are idempotent and additive.
+Nothing but `domain/scopes.py` may hard-code which tenant a table lives in.
+
+**Isolation is discipline + the poison-row test, NOT RLS** — the `security_id` FK carries no tenant, so nothing
+at the database layer *forces* a read to pass the right tenant. The standing obligations:
+
+1. **Every read names its scope through the map.** A fact read goes through the tenant-filtered accessors
+   (`db.bitemporal.as_of` / `as_of_many` / `as_of_thesis` / `fact_exists`, which take one tenant or several;
+   `securities/master.*`; the `PointInTimeData` methods, which pick per table with `tenants_for`) — never a raw
+   fact query with a hand-picked tenant. A DATA read names `DATA_TENANT_ID`; a WORKSPACE read names the
+   caller's workspace; a MIXED read names both. A feed writer names `DATA_TENANT_ID`, never `thesis.tenant_id`.
+2. **The isolation test grows with each new read surface** (`tests/db/test_tenant_isolation.py`), and **the map
+   grows with the schema**: a new table with a `tenant_id` column fails `tests/db/test_scopes.py` until it is
+   named in `SCOPE_OF`.
+3. **No test scenario uses the data tenant as a user's workspace** — with the two equal, a missed scope filter
+   reads the right rows by accident (`DEFAULT_TENANT_ID`, the demo/test default, IS the data tenant until the
+   founding workspace moves out).
+
+A forgotten filter on a raw query would leak with no DB backstop to catch it. (RLS is the auth-era
+defense-in-depth.)
+
+- *Enforced by:* `tenant_id` on every table; the one map `domain.scopes.SCOPE_OF` + `tenants_for`; the boot
+  assert (`scopes.assert_data_tenant` — the API lifespan and the nightly refuse to run without the data tenant);
+  seeds upsert/append; `tests/db/test_scopes.py` (the map's completeness, the union / ignore rules with two
+  workspaces that are not the data tenant, the replay mirror's same map); the poison-row proof
+  `tests/db/test_tenant_isolation.py` (grown for each new accessor — insider/price/theme, the three scoring
+  facts, the Workbench scored read, the known-feed-limitation read of 0056, the S2 split list on the repo /
+  live PIT / replay mirror paths, the S5 split-jump scan, the onboarding queue), plus the Scoreboard
+  price-window's direct split read (`tests/app/test_scoreboard_price_window_api.py`).
 
 ## 6. The call-assembler is pure and deterministic
 

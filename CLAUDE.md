@@ -128,7 +128,7 @@ See `README.md` for the full table. Key shape:
 - **Orchestration** = scheduled scripts now; Dagster only when the ingest→normalize→signal DAG earns it.
 - **LLM** = Anthropic API behind a model-agnostic interface (`backend/llm`, fail-open + lazy-imported). **Two seams, both in the Workbench:** the FLAG-explanation drafter (Haiku — an aid to a FLAG ratify) and the narrative→chain seam (Sonnet — it ORGANIZES + narrates the EDGAR-discovered universe, never enumerates; `docs/CHAIN_DRAFTER.md` + `docs/DISCOVERY.md`). Discovery itself is deterministic EFTS, not the LLM (the LLM is demoted to keyword-gen + a tail-sweep). Use structured/tool-use outputs, always with source citations, and **never to source a number**.
 - **Frontend** = TypeScript, React (Vite SPA), Tailwind, TanStack Query for server state; lightweight-charts for price views.
-- **Ops** = Docker Compose → single VPS/Fly/Railway. Monolith. `tenant_id` in every table from day one; auth deferred.
+- **Ops** = Docker Compose → single VPS/Fly/Railway. Monolith. `tenant_id` on every table names one of TWO scopes per table — the shared DATA tenant (the master + every ingested fact) or a user's WORKSPACE (theses, calls, ratified facts) — through the one map `domain/scopes.py` (`docs/TENANT_SCOPES.md`).
 
 ## Conventions
 

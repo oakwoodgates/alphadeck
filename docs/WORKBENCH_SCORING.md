@@ -3,7 +3,7 @@
 > Repo path: `docs/WORKBENCH_SCORING.md`. How the Workbench turns a basket name into **scores** — the
 > four 0-4 "pip" meters + the market-cap figure shown per name, **re-derived on read, never persisted**.
 > Siblings: `CALL_LOGIC.md` (the back-half brain), `RECALIBRATION.md` (the cutoffs as tunable dials),
-> `INVARIANTS.md` (the load-bearing rules this slice added), `PRODUCTION_TENANT.md` (the tenant resolver),
+> `INVARIANTS.md` (the load-bearing rules this slice added), `TENANT_SCOPES.md` (the tenant scopes),
 > `ROADMAP.md` (Phase-2 sequencing). The DATA behind the scores is the three ratify bridges
 > (`fact_revenue_mix` / `fact_shares_outstanding` / `fact_cash_burn`) + the dilution clock — produced by the
 > **extract → ratify hybrid** (`WORKBENCH_EXTRACTION.md`, the production side; this doc is the consumption side).

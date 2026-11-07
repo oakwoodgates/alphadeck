@@ -215,6 +215,13 @@ def _read_table_public(
     gate: the public instant still decides what a view at ``T`` sees.
     """
     part_cols = partition_cols(table)
+    if len(as_tenants(tenants)) > 1:
+        # A MIXED union (domain.scopes): the collapse spans the tenants, exactly as the live public read's pick
+        # does (``db.bitemporal._public_read``: the natural key carries no tenant, then ``public DESC,
+        # recorded_at DESC``). Partitioning per tenant would keep one row per tenant at the SAME rewritten
+        # instant and leave the reader's ``id`` tiebreak to choose between a feed row and a workspace's later
+        # ratification at random. One tenant: unchanged (the dropped column is a constant).
+        part_cols = [c for c in part_cols if c != "tenant_id"]
     part = sql.SQL(", ").join(sql.Identifier(c) for c in part_cols)
     versions = public_versions_sql(
         table,

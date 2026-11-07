@@ -118,7 +118,7 @@ insider `Ins 30d`/`Ins 90d`, three lenses (call-state · business-type · value-
 | Back-half core: store, two-key arming, assembler, catalysts, through-line | ≤ #39 | `CALL_LOGIC.md`, `CATALYST_CONVICTION.md` |
 | Confirmation honesty + the Workbench design pass (mockup + spec) | #40, #41 | `docs/mockups/mockup_workbench_nuclear.html` |
 | M5: per-member ranked menu + theme arming | #42, #43 | `CALL_LOGIC.md`, `THEME_CONVICTION.md` |
-| Phase 1 trust: replay harness · recalibration pass 1 (zero dial changes) · production tenant | #44, #45, #46 | `REPLAY.md`, `RECALIBRATION.md`, `PRODUCTION_TENANT.md` |
+| Phase 1 trust: replay harness · recalibration pass 1 (zero dial changes) · production tenant | #44, #45, #46 | `REPLAY.md`, `RECALIBRATION.md`, `TENANT_SCOPES.md` (replaced `PRODUCTION_TENANT.md`) |
 | Workbench MVP: persistence seam · ratify bridges + seed · scoring engine · UI · authoring | #47–#54 | `WORKBENCH_SCORING.md`, `TRIAGE.md` |
 | Extract → ratify → score hybrid + the broadener (any-name universe) | #55–#58 | `WORKBENCH_EXTRACTION.md` |
 | LLM seam 1: the FLAG-explanation drafter (structural no-write bound) | #59 | `WORKBENCH_EXTRACTION.md` |
