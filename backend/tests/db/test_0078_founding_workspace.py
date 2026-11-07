@@ -34,6 +34,15 @@ _SQL = _SQL_PATH.read_text(encoding="utf-8")
 
 _WORKSPACE_TABLES = sorted(t for t, s in SCOPE_OF.items() if s is Scope.WORKSPACE)
 _MIXED_TABLES = sorted(t for t, s in SCOPE_OF.items() if s is Scope.MIXED)
+_EDITION_TABLES = (
+    "edition",
+    "edition_event",
+    "edition_entry",
+    "edition_call",
+    "edition_outcome",
+    "edition_cause",
+)
+_EDITION_FKS = tuple(f"{t}_edition_id_tenant_id_fkey" for t in _EDITION_TABLES[1:])
 
 
 def _count(
@@ -82,6 +91,41 @@ def _old_shape(db, security_id: uuid.UUID) -> dict[str, uuid.UUID]:
             "NULL, %s)",
             (DATA_TENANT_ID, security_id, date(2026, 1, 1)),
         )
+        # an edition with a row in EACH of its five child tables: the children reference edition (id, tenant_id)
+        # through a COMPOSITE foreign key, the path that refused the move on a real prod copy
+        cur.execute(
+            "INSERT INTO edition (tenant_id, number, label, causes, engine_fingerprint, config_hash, "
+            "data_known_by, first_night) VALUES (%s, 1, 'first re-run', ARRAY['initial'], 'fp', 'cfg', now(), %s) "
+            "RETURNING id",
+            (DATA_TENANT_ID, date(2026, 6, 1)),
+        )
+        ids["edition"] = ed = cur.fetchone()["id"]
+        t = ids["thesis"]
+        cur.execute(
+            "INSERT INTO edition_event (tenant_id, edition_id, kind) VALUES (%s, %s, 'published')",
+            (DATA_TENANT_ID, ed),
+        )
+        cur.execute(
+            "INSERT INTO edition_entry (tenant_id, edition_id, thesis_id, security_id, entry_date, estimated, "
+            "method) VALUES (%s, %s, %s, %s, %s, false, 'snapshot')",
+            (DATA_TENANT_ID, ed, t, security_id, date(2026, 5, 1)),
+        )
+        cur.execute(
+            "INSERT INTO edition_call (tenant_id, edition_id, thesis_id, asof, state, verdict, card, "
+            "data_known_by, engine_fingerprint, page_kind, computed_at) "
+            "VALUES (%s, %s, %s, %s, 'Incubating', 'none', '{}'::jsonb, now(), 'fp', 'rerun', now())",
+            (DATA_TENANT_ID, ed, t, date(2026, 6, 1)),
+        )
+        cur.execute(
+            "INSERT INTO edition_outcome (tenant_id, edition_id, thesis_id, security_id, arm_date, kind, outcome, "
+            "night, prices_known_by) VALUES (%s, %s, %s, %s, %s, 'matured', '{}'::jsonb, %s, now())",
+            (DATA_TENANT_ID, ed, t, security_id, date(2026, 5, 4), date(2026, 6, 1)),
+        )
+        cur.execute(
+            "INSERT INTO edition_cause (tenant_id, edition_id, thesis_id, security_id, night, cause) "
+            "VALUES (%s, %s, %s, %s, %s, 'rule_change')",
+            (DATA_TENANT_ID, ed, t, security_id, date(2026, 6, 1)),
+        )
         cur.execute("ALTER TABLE app_user DISABLE TRIGGER workspace_kind_check")
         cur.execute(
             "INSERT INTO app_user (id, email, display_name, password_hash, role, workspace_id) "
@@ -121,6 +165,7 @@ def test_0078_moves_the_workspace_rows_and_the_ratified_row_and_keeps_the_feed_r
                 "basket_snapshot",
                 "calls",
                 "operator_decision",
+                *_EDITION_TABLES,
             ):
                 assert _count(cur, table, DATA_TENANT_ID) == 0, table
                 assert _count(cur, table, FOUNDING_WORKSPACE_ID) >= 1, table
@@ -135,6 +180,21 @@ def test_0078_moves_the_workspace_rows_and_the_ratified_row_and_keeps_the_feed_r
             assert cur.fetchone()["workspace_id"] == FOUNDING_WORKSPACE_ID
             cur.execute("SELECT kind FROM tenant WHERE id = %s", (FOUNDING_WORKSPACE_ID,))
             assert cur.fetchone()["kind"] == "workspace"
+            # the edition and every one of its children moved together (the composite FK holds)
+            for table in _EDITION_TABLES:
+                col = "id" if table == "edition" else "edition_id"
+                cur.execute(
+                    f"SELECT tenant_id FROM {table} WHERE {col} = %s",
+                    (ids["edition"],),  # noqa: S608
+                )
+                assert {r["tenant_id"] for r in cur.fetchall()} == {FOUNDING_WORKSPACE_ID}, table
+            # the five composite FKs are DEFERRABLE (INITIALLY IMMEDIATE) afterwards
+            cur.execute(
+                "SELECT conname, condeferrable, condeferred FROM pg_constraint WHERE conname = ANY(%s)",
+                (list(_EDITION_FKS),),
+            )
+            got = {r["conname"]: (r["condeferrable"], r["condeferred"]) for r in cur.fetchall()}
+            assert got == {name: (True, False) for name in _EDITION_FKS}
 
         # a second run moves nothing and its post-conditions still pass
         before = _snapshot(db)
