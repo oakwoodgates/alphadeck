@@ -60,6 +60,10 @@ behind `require_user` (the generated contract `backend/openapi.json` is exported
 | `PUT /account/notifications/slack-webhook` | `{url}` → 204; the URL must start with `https://hooks.slack.com/` (400 otherwise); replaces any earlier one, stamps `updated_at` |
 | `DELETE /account/notifications/slack-webhook` | → 204; clears the URL (the row stays); a no-op when none is set |
 | `POST /account/notifications/slack-webhook/test` | → `{delivered, detail}`: one plain line ("Alpha Deck test message for <name>") through the real Slack POST path, 10 s timeout; a failure is `delivered: false`, never an error. 404 when none is saved |
+| `GET /account/agents` | `{hosted, connector_url, steward, stdio_server}`: `hosted` when `ALPHADECK_PUBLIC_ORIGIN` is set, and then `connector_url` = `<origin>/mcp` (else null); `steward` = the caller is a super admin; `stdio_server` = true (the local agent tools server exists on every install). See `AGENT_TOOLS.md` §Hosted endpoint |
+| `GET /account/tokens` | `{tokens: [{id, name, created_at, last_used_at, revoked_at}]}`: my own API tokens, live first, then revoked, newest first; never the token or its hash |
+| `POST /account/tokens` | `{name}` → 201 `{id, name, created_at, token}`: the token is in THIS reply only, never again (only its sha256 is stored). The name is trimmed, 1 to 60 characters (400 otherwise); at most 20 live tokens per user (409 `too many tokens; revoke one first`) |
+| `DELETE /account/tokens/{token_id}` | → 204; my own token only: another user's token or an unknown id is 404 `no such token` (alike, never 403); an already revoked token is 204; a token may revoke itself. It stops working on its next request |
 
 Every `/account` route acts on the caller's own rows (no user id in any path); the system token is refused (403).
 
@@ -67,7 +71,10 @@ Every `/account` route acts on the caller's own rows (no user id in any path); t
 
 `/settings/profile` (display name + email, and the change-password form below them) and
 `/settings/notifications` (the user's own Slack webhook: a status line, a write-only URL field, Save, and when one is
-set Remove and Send a test message). `/settings` and an unknown tab go to `/settings/profile`; the old `/account`
+set Remove and Send a test message) and `/settings/agents` (how an AI client reaches the user's workspace: the
+connector URL and the four client how-tos when the install is hosted, a quiet paragraph when not; and the user's own
+access tokens: create one, shown once until Done; revoke one, which stays on screen grayed for the visit; "Show
+revoked tokens"; `AGENT_TOOLS.md` §Hosted endpoint). `/settings` and an unknown tab go to `/settings/profile`; the old `/account`
 link redirects there too. Reached from the user menu ("Settings"), never a top tab. The tabs come from one registry
 (`frontend/src/settings/registry.ts`): a new settings page is one folder + one entry. What arrives on the webhook:
 a card of the user's arming or changing while armed, and the nightly digest; never the ops pages
@@ -92,7 +99,8 @@ state.
 | Admin page and every `/admin/*` route (cron status, backups, run-daily, splits, price-feed repairs, insider amendments, onboarding) | 403; the nav entry is hidden; typing `/admin` shows "stewards only" | yes |
 | Backtest page and `/backtest/*` | 403; hidden likewise | yes |
 | The business-type re-tag (`POST /workbench/securities/{id}/business-type`), a write to the SHARED company master | 403; the control is hidden | yes |
-| User and token management | own name, email, password and Slack webhook only (`/settings`) | the CLI |
+| User and token management | own name, email, password and Slack webhook, and own API tokens on the Agents tab (`/settings`) | the CLI, plus their own on `/settings` |
+| The Agents tab (`/settings/agents`) | yes: the connector URL and their own tokens | yes, plus one sentence on the steward scope |
 
 The backend enforces every row; the frontend only hides what a role cannot use.
 

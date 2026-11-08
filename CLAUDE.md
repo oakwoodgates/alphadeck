@@ -277,7 +277,7 @@ curl "http://127.0.0.1:8000/theses/<id>/call?asof=2026-06-01"
 curl -X POST "http://127.0.0.1:8000/workbench/theses/<id>/draft-chain"
 
 # frontend dev (from frontend\): npm install · npm run dev   # Vite on :5173, proxies /api -> :8000
-# the read-only agent tools MCP server (alphadeck-prod / alphadeck-dev in .mcp.json; set ALPHADECK_MCP_COMMAND once; reconnect after a contract change): install, registration, tools and errors in docs/AGENT_TOOLS.md; Claude Code sessions: the `alphadeck-agent` skill carries the same recipes as the prompts, and `python -m agent_tools.skill_sync --check` keeps it equal to them
+# the read-only agent tools MCP server (alphadeck-prod / alphadeck-dev in .mcp.json; set ALPHADECK_MCP_COMMAND once; reconnect after a contract change; with ALPHADECK_PUBLIC_ORIGIN set it is also hosted in the API at /mcp, signed in per user with a token from Settings > Agents): install, registration, tools and errors in docs/AGENT_TOOLS.md; Claude Code sessions: the `alphadeck-agent` skill carries the same recipes as the prompts, and `python -m agent_tools.skill_sync --check` keeps it equal to them
 ```
 
 Keep this section current as the source of truth for build/run/test.

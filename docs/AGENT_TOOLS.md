@@ -3,8 +3,9 @@
 Status: Phase 1 built 2026-11-06 (the server and the MONITOR read tools); Phase 2 (dashboards as agent views)
 built 2026-11-06; Phase 3 (prompts and the Claude Code skill) built 2026-11-06; Phase 4 retired the capture server
 2026-11-06 (see "History"); the shared tool contract (PR #508) made tool registration declarative 2026-11-06; Phase 5
-(the research-stage reads) built 2026-11-06. Stage: MONITOR, plus a read-only look at SURFACE and TRIAGE (Phase 5).
-Code: `backend/agent_tools/`.
+(the research-stage reads) built 2026-11-06; the hosted endpoint (per-user MCP Phase 1: the server in the API at
+`/mcp`, each user's own token, the Settings "Agents" tab) built 2026-11-08. Stage: MONITOR, plus a read-only look at
+SURFACE and TRIAGE (Phase 5). Code: `backend/agent_tools/`.
 
 ## What it is
 
@@ -19,7 +20,8 @@ feed the call. The server computes no state, grade, date or number, and it write
 
 Shape: `client -> resolve -> view -> fit`. `client.py` GETs the loopback API; `resolve.py` turns a thesis name
 or a ticker into an id; `views/` are PURE functions over the API's JSON (no I/O, no clock); `budget.py` is the
-one size rule. The same views can later be mounted in the API (Phase 7) without a rewrite.
+one size rule. Each tool asks `client_for()` for its API client: the stdio server hands back its one loopback client,
+and the hosted endpoint (below) builds one per call that carries the caller's own token.
 
 A tool declares a `Contract` in `tool_args.py` (its sections, what each section needs, its narrowings and its
 settings); the one `check` turns a bad call into `invalid_arguments` naming what the tool takes, and prompts are
@@ -166,12 +168,14 @@ ambiguous thesis adds `candidates`). It never carries exception text, paths or p
 | `api_error` | The API answered 5xx or a non-JSON body | yes |
 | `api_rejected` | The API answered another 4xx; carries its `detail` (cut at 300). A **401** says instead to set `ALPHADECK_MCP_TOKEN` (see "The token" below) | no |
 | `output_too_large` | The reply exceeds its budget at its smallest | no |
+| `forbidden` | The tool needs a scope the caller does not hold ("This tool needs the steward scope."); such a tool is not listed for that caller either. No tool needs one today | no |
 | `internal_error` | Anything else (logged to stderr by class only) | no |
 
 ## Install and register
 
-The server needs the `mcp` extra, which `scripts/ensure-venv.ps1` / `.sh` now install
-(`-e ".[dev,replay,mcp]"`, what CI installs). In the MAIN checkout, from `backend/`:
+The SDK (`mcp==2.3.0`) is a base dependency since the hosted endpoint (the API image mounts the server); the `mcp`
+extra is kept as an empty list so `-e ".[dev,replay,mcp]"` (`scripts/ensure-venv.ps1` / `.sh`, what CI installs)
+keeps working. In the MAIN checkout, from `backend/`:
 
 ```powershell
 .venv\Scripts\python.exe -m pip install -e ".[dev,replay,mcp]"
@@ -219,7 +223,8 @@ that differ, set it to the token of the stack you are reading (a per-server vari
 
 ### Other MCP clients
 
-Launch the console script over stdio (there is no HTTP endpoint), with absolute paths:
+Launch the console script over stdio, with absolute paths (an install with a public address also serves the
+server over HTTP: "Hosted endpoint" below):
 
 ```powershell
 alphadeck-mcp --backend-base http://127.0.0.1:8001
@@ -233,12 +238,56 @@ request (1 to 600, default 60: the cross-card `/data-flags` read and a cold dash
 
 Run by hand: `python -m agent_tools --backend-base http://127.0.0.1:8001 --trace` (it speaks MCP on stdio).
 
+## Hosted endpoint
+
+The same server, mounted IN the API at `/mcp` (Streamable HTTP, stateless; `backend/agent_tools/hosted.py`), so
+any MCP client that can send a bearer token reaches it without a local process. Every user reads only their own
+workspace: the API's login door signs each request in.
+
+- **The switch:** `ALPHADECK_PUBLIC_ORIGIN`, the app's public origin (for example `https://deck.example.com`; no
+  path; `http` only on localhost, e.g. `http://localhost:8081` on dev). Unset (the default) = no `/mcp`, no
+  well-known document, nothing changes. Set = the connector URL is `<origin>/mcp`. Prod keeps it unset until the
+  server move ([`DEPLOY.md`](DEPLOY.md)): the host has no TLS yet, and a token must never cross a network in clear.
+- **The token:** each user's own personal access token, created on **Settings > Agents** (or with
+  `python -m pipeline.users token create`) and sent as `Authorization: Bearer <token>`. The endpoint verifies it
+  by asking the API's own `GET /auth/me` in-process with that bearer and nothing else, so a revoked token, a
+  disabled user, a session cookie alone and the system token are all 401; there is no cache, so a revocation bites
+  on the next request. Every API read a tool makes carries the same bearer, so the workspace is the API's choice,
+  never the server's (nothing under `agent_tools/` names a tenant).
+- **Claude Code:**
+  `claude mcp add --transport http alphadeck https://deck.example.com/mcp --header "Authorization: Bearer <token>"`,
+  then start a new session. The `.mcp.json` form, if your client expands variables in headers (keep the token in
+  the environment, never in the file):
+
+  ```json
+  { "mcpServers": { "alphadeck-http": { "type": "http", "url": "https://deck.example.com/mcp",
+      "headers": { "Authorization": "Bearer ${ALPHADECK_MCP_TOKEN}" } } } }
+  ```
+- **No OAuth yet.** A client that only connects through an OAuth sign-in (claude.ai, ChatGPT, Grok custom
+  connectors) cannot connect in this phase. A 401 carries
+  `WWW-Authenticate: Bearer ... resource_metadata="<origin>/.well-known/oauth-protected-resource/mcp"` and that
+  RFC 9728 document is served (`resource` = the connector URL, `authorization_servers` = the origin, as the SDK
+  spells it with a trailing slash, `scopes_supported` = `read`, `steward`), but nothing answers at an authorization
+  server yet.
+- **Scopes:** every tool needs `read`, which every user holds; `steward` (a `super_admin`) is reserved for later
+  steward tools. A tool whose scope the caller lacks is not listed and answers `forbidden`. Today a steward lists
+  the same 14 tools as anyone.
+- **The nightly window:** a hosted reply between 22:15 and 23:30 market time carries `"nightly_window": true` at
+  its top level (a note, never a refusal): the nightly pass is writing the record. The stdio server leaves the rule
+  to its caller (the skill).
+- **nginx** (`frontend/nginx.conf`): `location = /mcp` (exact, never a prefix: a redirect to `/mcp/` would strip
+  the Authorization header; buffering off for event-stream replies; 300 s timeouts) and
+  `location ^~ /.well-known/oauth-protected-resource`, both straight to the backend without the `/api` prefix.
+  `GET /mcp` answers 405 (stateless: there is no server-initiated stream to open); `POST /mcp` is never redirected.
+- **Transport checks:** the `Host` header must be the origin's host (bare, or with any port; the SDK matches a
+  value exactly or `host:*` as `host:` plus any port) and a browser `Origin`, when sent, must be the origin.
+
 ## Reconnect after a contract change
 
 An MCP client keeps the tool schemas it loaded when it connected. After this server's tools change (a new
 argument, a renamed field, a new tool), reconnect the server in the client (in Claude Code: `/mcp`, then
 reconnect, or restart the session); otherwise the model keeps calling the old contract. The server's advertised
-version (`alphadeck` `2.2.0`) changes with its contract: a tool or prompt added or removed, or a description
+version (`alphadeck` `2.3.0`) changes with its contract: a tool or prompt added or removed, or a description
 whose meaning changes, bumps the MINOR. A client sees the version at `initialize`; a running Claude Code session keeps
 the schemas it loaded, and a fresh session reads the new ones.
 
@@ -253,7 +302,7 @@ sizes, cursor walks, narrowing, rejections, the wire-key guard, purity), `test_c
 `test_board_review.py`, `test_explain_call.py`, `test_ticker_check.py`, `test_ratify_queue.py`, `test_discovery_review.py`,
 `test_compare_rotation.py` (with the
 argument-rule rejections), plus
-`test_skill.py` (the skill equals the prompt files; its size and frontmatter bars). The route the list reads is tested against the database in
+`test_skill.py` (the skill equals the prompt files; its size and frontmatter bars), `test_principal.py` (every tool read-only with a scope, the scope gate, the stdio principal, the window, the grep guards: no tenant, no `db` or `repositories` import) and `test_hosted.py` (the hosted endpoint against the real API and database: two users and a steward, the 401 shapes, the RFC 9728 document, 50 interleaved calls, no redirect). The route the list reads is tested against the database in
 `backend/tests/app/test_theses_with_call.py`. Fixtures are synthetic (`Thesis 01`, `TK01`): no card or company
 name from a live card.
 

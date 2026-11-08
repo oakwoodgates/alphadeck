@@ -79,8 +79,9 @@ flags, display signals, decisions, a ticker lookup, the eight MONITOR dashboards
 discovery found, what is left to ratify, one name's scoring-fact candidates, the onboarding queue), each reply
 bounded and stating its as-of and source, plus seven prompts and, for this repository's Claude Code sessions, the
 `alphadeck-agent` skill. The server signs in with a bearer token from `ALPHADECK_MCP_TOKEN` (minted by
-`python -m pipeline.users token create`). Setup, the tool table and the error codes are in
-[`docs/AGENT_TOOLS.md`](docs/AGENT_TOOLS.md).
+`python -m pipeline.users token create`). With `ALPHADECK_PUBLIC_ORIGIN` set, the same server also answers inside
+the API at `/mcp`, where each user signs in with their own token from Settings > Agents and reads only their own
+workspace. Setup, the tool table and the error codes are in [`docs/AGENT_TOOLS.md`](docs/AGENT_TOOLS.md).
 
 Three load-bearing decisions drive the shape:
 
