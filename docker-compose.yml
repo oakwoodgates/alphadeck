@@ -99,6 +99,10 @@ services:
       # /dashboards/*, /clock and /health. The SAME variable on the cron sidecar (below); empty = no system
       # principal (the warm-up then refuses with one loud line). Treat it as a secret.
       ALPHADECK_SYSTEM_TOKEN: ${ALPHADECK_SYSTEM_TOKEN:-}
+      # The app's PUBLIC origin (docs/AGENT_TOOLS.md §Hosted endpoint). Set = the agent tools server answers at
+      # <origin>/mcp with each user's own token; empty (the default) = no /mcp, nothing changes. https unless
+      # the host is loopback. Prod keeps it UNSET until the server move (docs/DEPLOY.md).
+      ALPHADECK_PUBLIC_ORIGIN: ${ALPHADECK_PUBLIC_ORIGIN:-}
       # The boot seed (pipeline.seed, run by the image CMD on every start) writes the demo cards into the founding
       # workspace only when this is true. Off by default (prod); the dev overlay turns it on. Fallback `false`.
       ALPHADECK_SEED_ON_BOOT: ${ALPHADECK_SEED_ON_BOOT:-false}

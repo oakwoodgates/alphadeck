@@ -33,11 +33,16 @@ dependencies = [
     # argon2-cffi: the password hash for the login door (app/auth.py, argon2id). Pinned exactly: a password
     # hash format is durable state, so a bump is a deliberate change, never a resolver accident.
     "argon2-cffi==25.1.0",
+    # The MCP SDK: the agent tools server (agent_tools/), now also mounted IN the API at /mcp when
+    # ALPHADECK_PUBLIC_ORIGIN is set (agent_tools/hosted.py), so the API image needs it. Pinned exactly: the
+    # server composes the SDK's auth + transport internals.
+    "mcp==2.3.0",
 ]
 
 [project.optional-dependencies]
-# Local agent access: optional, so the production API image stays lean.
-mcp = ["mcp==2.3.0"]
+# Kept (empty) so `.[dev,replay,mcp]` (ensure-venv, CI, the docs' install line) keeps working: `mcp` is a base
+# dependency since the hosted endpoint (docs/AGENT_TOOLS.md §Hosted endpoint).
+mcp = []
 dev = [
     "pytest>=8.0",
     "pytest-xdist>=3.5",    # `pytest -n 6`: per-worker DBs via the testdb hook (PYTEST_XDIST_WORKER suffix); measured 305 -> 94 s

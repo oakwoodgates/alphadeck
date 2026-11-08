@@ -54,7 +54,14 @@ async def lifespan(app: FastAPI):
         assert_data_tenant(_conn)
     finally:
         _conn.close()
-    yield
+    # The hosted agent tools endpoint (docs/AGENT_TOOLS.md §Hosted endpoint): mounted below only when
+    # ALPHADECK_PUBLIC_ORIGIN is set; its session manager's task group lives exactly as long as the API.
+    hosted = getattr(app.state, "hosted", None)
+    if hosted is None:
+        yield
+    else:
+        async with hosted.lifespan():
+            yield
 
 
 app = FastAPI(
@@ -128,3 +135,26 @@ def swagger_docs(request: Request) -> HTMLResponse:
 def redoc_docs(request: Request) -> HTMLResponse:
     root = request.scope.get("root_path", "")
     return get_redoc_html(openapi_url=f"{root}/openapi.json", title=f"{app.title} - ReDoc")
+
+
+def _mount_hosted_agent_tools() -> None:
+    """ALPHADECK_PUBLIC_ORIGIN set = the agent tools server answers at /mcp (plus its RFC 9728 document), appended
+    AFTER every route above (docs/AGENT_TOOLS.md §Hosted endpoint). Unset = nothing is imported or mounted. The
+    import is lazy: with the origin set and the `mcp` package missing, boot FAILS with one clear line.
+    """
+    settings = get_settings()
+    if not settings.public_origin:
+        return
+    try:
+        from agent_tools.hosted import mount_hosted
+    except ModuleNotFoundError as exc:
+        if exc.name and (exc.name == "mcp" or exc.name.startswith("mcp.")):
+            raise RuntimeError(
+                "ALPHADECK_PUBLIC_ORIGIN is set but the `mcp` package (mcp==2.3.0) is not installed: "
+                "the hosted /mcp endpoint cannot be mounted"
+            ) from exc
+        raise
+    mount_hosted(app, settings)
+
+
+_mount_hosted_agent_tools()

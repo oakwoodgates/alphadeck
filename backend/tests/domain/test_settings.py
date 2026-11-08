@@ -327,3 +327,52 @@ def test_a_real_sha_passes_through_verbatim(monkeypatch):
         assert get_settings().image_sha == sha  # and it reaches the cached singleton
     finally:
         get_settings.cache_clear()
+
+
+# --- public_origin: the hosted agent tools endpoint's switch (docs/AGENT_TOOLS.md §Hosted endpoint) -------------
+
+
+def test_public_origin_is_unset_by_default_and_blank_is_unset(monkeypatch):
+    monkeypatch.delenv("ALPHADECK_PUBLIC_ORIGIN", raising=False)
+    assert Settings(_env_file=None).public_origin is None
+    for blank in ("", "   "):
+        monkeypatch.setenv("ALPHADECK_PUBLIC_ORIGIN", blank)
+        assert Settings(_env_file=None).public_origin is None
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("https://deck.example.com", "https://deck.example.com"),
+        ("https://deck.example.com/", "https://deck.example.com"),  # one trailing slash stripped
+        ("  https://deck.example.com:8443  ", "https://deck.example.com:8443"),
+        ("http://localhost:8081", "http://localhost:8081"),
+        ("http://127.0.0.1:8001/", "http://127.0.0.1:8001"),
+        ("http://localhost", "http://localhost"),  # a port is optional here
+    ],
+)
+def test_public_origin_accepts_https_and_loopback_http(monkeypatch, raw, expected):
+    monkeypatch.setenv("ALPHADECK_PUBLIC_ORIGIN", raw)
+    assert Settings(_env_file=None).public_origin == expected
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "http://deck.example.com",  # http on a public host
+        "https://deck.example.com/mcp",  # a path
+        "https://deck.example.com//",  # only ONE trailing slash is forgiven
+        "https://deck.example.com?x=1",
+        "https://deck.example.com#top",
+        "https://user:pw@deck.example.com",
+        "deck.example.com",  # no scheme
+        "ftp://deck.example.com",
+        "https://deck.example.com:99999",
+    ],
+)
+def test_public_origin_refuses_anything_but_a_bare_origin(monkeypatch, raw):
+    from pydantic import ValidationError
+
+    monkeypatch.setenv("ALPHADECK_PUBLIC_ORIGIN", raw)
+    with pytest.raises(ValidationError, match="ALPHADECK_PUBLIC_ORIGIN"):
+        Settings(_env_file=None)

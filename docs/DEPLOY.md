@@ -288,6 +288,10 @@ then re-run step 1 + step 2.
   Never `docker compose down -v` against prod; never `DROP DATABASE alphadeck`.
 - **`--no-deps`** — rebuild only the named service; leaves postgres + the cron sidecar
   running untouched.
+- **Prod keeps `ALPHADECK_PUBLIC_ORIGIN` UNSET until the server move.** Set, the API answers the hosted agent
+  tools endpoint at `/mcp` (docs/AGENT_TOOLS.md §Hosted endpoint); the host still binds `:8000` on every interface
+  with no TLS, so a bearer token would cross the network in the clear. Unset, `/mcp` and the well-known document
+  answer 404 through nginx and nothing else changes.
 - **A forgotten `GIT_SHA` is safe, a wrong one is not.** Omitting it stamps `NULL` (honest: the
   image did not declare its commit). Never pass a sha you did not just read out of the checkout
   being built — `calls.code_sha` is a provenance claim, and a wrong claim is worse than none.
