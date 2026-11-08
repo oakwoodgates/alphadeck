@@ -15,6 +15,7 @@ import {
   tickerLabel,
   verdictLabel,
 } from "../util/format";
+import { workbenchPath } from "../nav";
 import { ThesisCard } from "./ThesisCard";
 import { useRowCap } from "./useRowCap";
 
@@ -219,6 +220,14 @@ export function Board({ header, asof, onSelect }: Props) {
           </button>
         )}
       </div>
+
+      {/* a brand-new workspace has no cards: one quiet line, not a banner (#7) */}
+      {!thesesQ.isLoading && !thesesQ.error && all.length === 0 && (
+        <div className="col-empty board-empty">
+          No cards yet. Create your first thesis in the{" "}
+          <a href={workbenchPath(null)}>Workbench (+ New thesis)</a>.
+        </div>
+      )}
 
       <div className="board">
         {COLUMNS.map((col) => {
