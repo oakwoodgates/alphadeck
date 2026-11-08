@@ -22,6 +22,7 @@ from app.routers import (
     dashboards,
     data_flags,
     fund_radar,
+    oauth_consent,
     radar,
     scoreboard,
     theses,
@@ -83,6 +84,8 @@ _STEWARD = [Depends(require_super_admin)]
 app.include_router(auth.router)
 # the signed-in user's own settings (the Settings page, docs/AUTH.md)
 app.include_router(account.router, dependencies=_USER)
+# the OAuth consent page's read + decision (docs/CONNECTORS.md): the browser session only, checked per route
+app.include_router(oauth_consent.router, dependencies=_USER)
 app.include_router(theses.router, dependencies=_USER)
 # F1 — the server's current night / action day / today: the app's default as-of, never the browser's date
 app.include_router(clock.router, dependencies=_USER)
@@ -137,16 +140,19 @@ def redoc_docs(request: Request) -> HTMLResponse:
     return get_redoc_html(openapi_url=f"{root}/openapi.json", title=f"{app.title} - ReDoc")
 
 
-def _mount_hosted_agent_tools() -> None:
-    """ALPHADECK_PUBLIC_ORIGIN set = the agent tools server answers at /mcp (plus its RFC 9728 document), appended
-    AFTER every route above (docs/AGENT_TOOLS.md §Hosted endpoint). Unset = nothing is imported or mounted. The
-    import is lazy: with the origin set and the `mcp` package missing, boot FAILS with one clear line.
+def _mount_hosted() -> None:
+    """ALPHADECK_PUBLIC_ORIGIN set = the agent tools server answers at /mcp (plus its RFC 9728 document) and our own
+    OAuth authorization server answers at /authorize, /token, /register, /revoke and its RFC 8414 document, all
+    appended AFTER every route above (docs/AGENT_TOOLS.md §Hosted endpoint, docs/CONNECTORS.md). Unset = nothing
+    is imported or mounted. The imports are lazy: with the origin set and the `mcp` package missing, boot FAILS
+    with one clear line.
     """
     settings = get_settings()
     if not settings.public_origin:
         return
     try:
         from agent_tools.hosted import mount_hosted
+        from app.oauth.server import mount_oauth
     except ModuleNotFoundError as exc:
         if exc.name and (exc.name == "mcp" or exc.name.startswith("mcp.")):
             raise RuntimeError(
@@ -155,6 +161,7 @@ def _mount_hosted_agent_tools() -> None:
             ) from exc
         raise
     mount_hosted(app, settings)
+    mount_oauth(app, settings)
 
 
-_mount_hosted_agent_tools()
+_mount_hosted()

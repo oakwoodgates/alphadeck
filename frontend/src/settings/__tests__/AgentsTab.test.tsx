@@ -217,3 +217,104 @@ describe("the Agents tab", () => {
     expect(count("DELETE /account/tokens/t-1")).toBe(1);
   });
 });
+
+// --- Connected apps (the OAuth sign-in, docs/CONNECTORS.md) -----------------------------------------------------
+
+const CLAUDE_APP = {
+  id: "g-1",
+  client_name: "Claude",
+  client_known: true,
+  scopes: ["read"],
+  created_at: "2026-11-07T14:00:00Z",
+  last_used_at: "2026-11-07T15:00:00Z",
+  revoked_at: null,
+};
+const SELF_REGISTERED = {
+  id: "g-2",
+  client_name: "Research Desk",
+  client_known: false,
+  scopes: ["read"],
+  created_at: "2026-11-06T14:00:00Z",
+  last_used_at: null,
+  revoked_at: null,
+};
+const OLD_APP = {
+  ...CLAUDE_APP,
+  id: "g-0",
+  created_at: "2026-11-01T14:00:00Z",
+  revoked_at: "2026-11-02T14:00:00Z",
+};
+
+describe("Connected apps", () => {
+  it("lists live apps with the unverified tag on a self-registered one; disconnected ones wait for the toggle", async () => {
+    routes["GET /account/connections"] = {
+      status: 200,
+      body: { connections: [CLAUDE_APP, SELF_REGISTERED, OLD_APP] },
+    };
+    renderAt("/settings/agents");
+    expect(await screen.findByRole("heading", { name: "Connected apps" })).toBeInTheDocument();
+    const table = await screen.findByRole("table", { name: "Connected apps" });
+    const heads = within(table)
+      .getAllByRole("columnheader")
+      .map((h) => h.textContent);
+    expect(heads).toEqual(["App", "Access", "Connected", "Last used", ""]);
+    const rows = within(table).getAllByRole("row").slice(1);
+    expect(rows).toHaveLength(2);
+    expect(rows[0].textContent).toContain("Claude");
+    expect(within(rows[0]).queryByText("unverified")).toBeNull();
+    expect(within(rows[1]).getByText("unverified")).toBeInTheDocument();
+    expect(rows[1].textContent).toContain("“Research Desk”");
+    expect(within(rows[1]).getByText("never")).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByLabelText("Show disconnected apps"));
+    const all = within(table).getAllByRole("row").slice(1);
+    expect(all).toHaveLength(3);
+    expect(all[2]).toHaveClass("revoked");
+    expect(within(all[2]).getByText("disconnected")).toBeInTheDocument();
+  });
+
+  it("Disconnect asks nothing; the row stays, grayed, with 'disconnected just now'", async () => {
+    let connections = [CLAUDE_APP];
+    routes["GET /account/connections"] = () => ({ status: 200, body: { connections } });
+    routes["DELETE /account/connections/g-1"] = () => {
+      connections = [{ ...CLAUDE_APP, revoked_at: "2026-11-08T15:00:00Z" }];
+      return { status: 204 };
+    };
+    renderAt("/settings/agents");
+    const table = await screen.findByRole("table", { name: "Connected apps" });
+    await userEvent.setup().click(within(table).getByRole("button", { name: "Disconnect" }));
+    expect(await within(table).findByText("disconnected just now")).toBeInTheDocument();
+    expect(within(table).getByText("Claude").closest("tr")).toHaveClass("revoked");
+    expect(within(table).queryByRole("button", { name: "Disconnect" })).toBeNull();
+    expect(count("DELETE /account/connections/g-1")).toBe(1);
+  });
+
+  it("empty: one quiet line, no table", async () => {
+    routes["GET /account/connections"] = { status: 200, body: { connections: [] } };
+    renderAt("/settings/agents");
+    expect(await screen.findByText("No app is connected yet. Connect one with the URL above.")).toBeInTheDocument();
+    expect(screen.queryByRole("table", { name: "Connected apps" })).toBeNull();
+    expect(screen.queryByLabelText("Show disconnected apps")).toBeNull();
+  });
+
+  it("with oauth off the Claude block keeps its Phase 2 line", async () => {
+    routes["GET /account/connections"] = { status: 200, body: { connections: [] } };
+    routes["GET /account/agents"] = { status: 200, body: { ...HOSTED, oauth: false } };
+    renderAt("/settings/agents");
+    await screen.findByLabelText("Connector URL");
+    expect(screen.getByText(/Available once sign-in through Claude is enabled/)).toBeInTheDocument();
+    expect(screen.queryByText("alphadeck-claude")).toBeNull();
+  });
+
+  it("with oauth on: the live steps and the client-ID fallback; ChatGPT and Grok keep their Phase 4 line", async () => {
+    routes["GET /account/connections"] = { status: 200, body: { connections: [] } };
+    routes["GET /account/agents"] = { status: 200, body: { ...HOSTED, oauth: true } };
+    renderAt("/settings/agents");
+    await screen.findByLabelText("Connector URL");
+    expect(screen.getByText(/leave the client identity on its default/)).toBeInTheDocument();
+    expect(screen.getByText(/on the page that opens/)).toBeInTheDocument();
+    expect(screen.getByText("alphadeck-claude").tagName).toBe("CODE");
+    expect(screen.queryByText(/Available once sign-in through Claude is enabled/)).toBeNull();
+    expect(screen.getByText(/sign-in through ChatGPT is enabled on this install \(Phase 4\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Grok is enabled on this install \(Phase 4\)/)).toBeInTheDocument();
+  });
+});

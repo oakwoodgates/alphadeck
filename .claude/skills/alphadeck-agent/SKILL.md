@@ -19,8 +19,8 @@ ARGUMENTS: $ARGUMENTS
 The first word names the recipe, the rest are its arguments in order; with none, ask which read the operator wants
 (or infer it). A Claude Code session cannot run an MCP prompt itself, so the recipes below are the prompt files
 verbatim, kept equal by `python -m agent_tools.skill_sync --check`. An install with a public address also serves the
-same tools over HTTP at `<origin>/mcp`, signed in with the user's own token from Settings > Agents (every reply is that
-user's workspace only; docs/AGENT_TOOLS.md §Hosted endpoint); the recipes read the same either way.
+same tools over HTTP at `<origin>/mcp`, signed in with the user's own token from Settings > Agents or an OAuth sign-in
+(every reply is that user's workspace only; docs/AGENT_TOOLS.md §Hosted endpoint); the recipes read the same either way.
 
 ## Setup
 

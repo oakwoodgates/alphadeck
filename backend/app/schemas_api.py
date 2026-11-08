@@ -2905,6 +2905,9 @@ class AdminStatusOut(BaseModel):
     should be 0: a card belongs to a workspace (migration 0078 moved the founding operator's cards out), and a
     card left on the data tenant is read by no workspace. The Admin page shows one loud line when it is not 0.
 
+    ``oauth_clients`` (migration 0080) counts the registered OAuth clients, static and self-registered; ``null``
+    when the count could not be read. Read-only, never a cron verdict.
+
     A thesis NAME belongs to its workspace: wherever this status names a thesis outside the caller's own
     workspace (the feed-freshness panel, the late-only nights) it reads ``workspace <8 hex> · thesis <8 hex>``;
     tickers and security ids stay.
@@ -2927,6 +2930,7 @@ class AdminStatusOut(BaseModel):
     editions_cut: AdminEditionsCutOut | None = None
     master_refresh: AdminMasterRefreshOut | None = None
     data_tenant_theses: int = 0
+    oauth_clients: AdminOAuthClientsOut | None = None
 
 
 class AdminRunsOut(BaseModel):
@@ -3344,6 +3348,24 @@ class MeOut(BaseModel):
     workspace_id: UUID
 
 
+class MeTokenOut(BaseModel):
+    """The bearer a request signed in with: `token` (a personal access token) or `oauth` (an app connected through
+    the OAuth sign-in, with its `client_id`). `scopes` are what it may do: `read`, plus `steward` for a super admin's
+    token or an app the steward granted it."""
+
+    principal: Literal["token", "oauth"]
+    client_id: str | None = None
+    scopes: list[str]
+
+
+class AuthMeOut(MeOut):
+    """The signed-in caller. For a bearer, `token` says which kind and its scopes (and an app's `role` is
+    `super_admin` only when the user is one AND granted it `steward`); omitted for a browser session.
+    """
+
+    token: MeTokenOut | None = None
+
+
 # --- the Settings page (app/routers/account.py, docs/AUTH.md §Settings page) ---
 
 
@@ -3378,12 +3400,14 @@ class SlackTestOut(BaseModel):
 class AgentsOut(BaseModel):
     """How an AI client reaches my workspace on this install. `hosted` is true when the app has a public address
     (the agent tools server answers at `connector_url`); `steward` is whether I am a super admin; `stdio_server`
-    is whether the local agent tools server exists (always, on every install)."""
+    is whether the local agent tools server exists (always, on every install); `oauth` is whether an AI client can
+    sign in here with my email and password (the OAuth sign-in is mounted)."""
 
     hosted: bool
     connector_url: str | None = None
     steward: bool
     stdio_server: bool
+    oauth: bool = False
 
 
 class TokenOut(BaseModel):
@@ -3418,3 +3442,65 @@ class TokenCreatedOut(BaseModel):
     name: str
     created_at: datetime
     token: str
+
+
+# --- the OAuth sign-in (app/routers/oauth_consent.py, app/routers/account.py, docs/CONNECTORS.md) ---
+
+
+class ConsentScopeOut(BaseModel):
+    """One scope an app asked for: `label` is the consent page's words; `grantable` is false when my account cannot
+    grant it (the `steward` scope for a plain user), and Allow then leaves it out."""
+
+    name: str
+    label: str
+    grantable: bool
+
+
+class ConsentOut(BaseModel):
+    """A pending sign-in request from an app. `client_known` is true for a client Alpha Deck ships with (Claude,
+    Claude Code) and false for one that registered itself under `client_name`. `redirect_host` is where Allow or
+    Deny sends me back. The request expires at `expires_at` (ten minutes after the app asked)."""
+
+    client_name: str
+    client_known: bool
+    scopes: list[ConsentScopeOut]
+    redirect_host: str
+    expires_at: datetime
+
+
+class ConsentDecisionIn(BaseModel):
+    decision: Literal["allow", "deny"]
+
+
+class ConsentDecisionOut(BaseModel):
+    """Where to send the browser next: the app's redirect URI with a one-time code (Allow) or `access_denied`
+    (Deny)."""
+
+    redirect_to: str
+
+
+class ConnectionOut(BaseModel):
+    """An app connected to my account. `scopes` are what I allowed; `last_used_at` is null when it never read
+    anything (updated at most every 5 minutes); `revoked_at` is set once I disconnected it."""
+
+    id: UUID
+    client_name: str
+    client_known: bool
+    scopes: list[str]
+    created_at: datetime
+    last_used_at: datetime | None = None
+    revoked_at: datetime | None = None
+
+
+class ConnectionListOut(BaseModel):
+    """The apps connected to my account: live ones first, then disconnected ones, newest first within each."""
+
+    connections: list[ConnectionOut]
+
+
+class AdminOAuthClientsOut(BaseModel):
+    """How many OAuth clients are registered: the `static` ones Alpha Deck ships with and the `dcr` ones that
+    registered themselves."""
+
+    static: int
+    dcr: int

@@ -1,20 +1,24 @@
 import { useState } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 
 import { useLogin } from "../api/hooks";
 import { errorDetail } from "./me";
+import { safeNext } from "./next";
 
-// The login page (docs/AUTH.md): email, password, one error line. Success lands on Home. There is no sign-up and
-// no password reset by email: a steward creates accounts with `python -m pipeline.users`.
+// The login page (docs/AUTH.md): email, password, one error line. Success lands on Home, or back on the OAuth
+// consent page that sent the visitor here (`?next=`, honored for that one path shape only: auth/next.ts). There is
+// no sign-up and no password reset by email: a steward creates accounts with `python -m pipeline.users`.
 export function LoginPage() {
   const navigate = useNavigate();
+  const [params] = useSearchParams();
   const login = useLogin();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const next = safeNext(params.get("next"));
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    login.mutate({ email, password }, { onSuccess: () => navigate("/", { replace: true }) });
+    login.mutate({ email, password }, { onSuccess: () => navigate(next ?? "/", { replace: true }) });
   };
 
   return (

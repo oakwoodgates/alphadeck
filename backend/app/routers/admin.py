@@ -29,6 +29,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.auth import CurrentUser, require_super_admin
 from app.deps import get_conn
+from app.oauth import store as oauth_store
 from app.routers.admin_price_feed import price_repairs_out
 from app.routers.admin_splits import count_needs_review as splits_needs_review_count
 from app.schemas_api import (
@@ -41,6 +42,7 @@ from app.schemas_api import (
     AdminMasterRefreshOut,
     AdminMissingCloseOut,
     AdminMissingClosesOut,
+    AdminOAuthClientsOut,
     AdminPartialNightOut,
     AdminReconstructedNightOut,
     AdminRecordOut,
@@ -1244,6 +1246,14 @@ def get_admin_status(
             "data-tenant thesis count failed (fail-open — the status read is unaffected)"
         )
 
+    # 0080 — the registered OAuth clients, static and self-registered (a count only). Fail-open.
+    oauth_clients = None
+    try:
+        with conn.transaction():
+            oauth_clients = AdminOAuthClientsOut(**oauth_store.count_clients(conn))
+    except Exception:  # noqa: BLE001 — the count is a passenger on the status read
+        _log.exception("oauth client count failed (fail-open — the status read is unaffected)")
+
     # editions S7 — the automatic cut's one line, for seven days after it published the newest edition (a DB
     # read of that edition). Fail-open like the line above.
     editions_cut = None
@@ -1326,6 +1336,7 @@ def get_admin_status(
         editions_cut=editions_cut,
         master_refresh=master_refresh,
         data_tenant_theses=data_tenant_theses,
+        oauth_clients=oauth_clients,
     )
 
 

@@ -457,3 +457,68 @@ def test_the_hosted_mcp_route_is_gated_and_its_metadata_document_is_open(anon):
     assert not any(
         getattr(r, "path", None) == "/mcp" for r in app.routes
     )  # unset origin: not mounted
+
+
+# --- the OAuth sign-in (docs/CONNECTORS.md) ------------------------------------------------------------------------
+
+# The authorization server's five routes (the MCP SDK's own, app/oauth/server.py): Starlette routes outside the
+# route-gate walk and the 401 sweep, like /mcp. Each authenticates its own way, so each is OPEN BY NATURE: the
+# metadata document is public, /authorize hands the decision to the consent page (the user's session), and
+# /token, /register and /revoke authenticate the CLIENT. ``OPEN`` above is unchanged.
+AS_OPEN_BY_NATURE = (
+    "/.well-known/oauth-authorization-server",
+    "/authorize",
+    "/token",
+    "/register",
+    "/revoke",
+)
+
+
+def test_the_authorization_server_routes_are_reachable_without_a_credential():
+    """Each answers with the SDK's own reply (never our gate's 401, never a 404). None of these requests gets as
+    far as the database, so the provider's connection is one that refuses to open."""
+    pytest.importorskip("mcp")
+    from contextlib import contextmanager
+
+    from starlette.applications import Starlette
+
+    from app.oauth.provider import AlphaDeckAuthProvider
+    from app.oauth.server import AS_PATHS, build_oauth_routes
+
+    @contextmanager
+    def no_db():
+        raise AssertionError("an unauthenticated AS request reached the database")
+        yield  # pragma: no cover
+
+    origin = "http://127.0.0.1:8000"
+    server = build_oauth_routes(origin, AlphaDeckAuthProvider(no_db, public_origin=origin))
+    assert tuple(AS_PATHS) == AS_OPEN_BY_NATURE
+    assert sorted(r.path for r in server.routes) == sorted(AS_OPEN_BY_NATURE)
+    c = TestClient(Starlette(routes=server.routes), base_url=origin)
+    meta = c.get("/.well-known/oauth-authorization-server")
+    assert meta.status_code == 200 and meta.json()["issuer"] == f"{origin}/"
+    authorize = c.get("/authorize")
+    assert authorize.status_code == 400 and authorize.json()["error"] == "invalid_request"
+    token = c.post("/token", data={})
+    assert token.status_code == 401 and token.json()["error"] == "invalid_client"
+    register = c.post("/register", json={})
+    assert register.status_code == 400 and register.json()["error"] == "invalid_client_metadata"
+    revoke = c.post("/revoke", data={})
+    assert revoke.status_code == 401 and revoke.json()["error"] == "unauthorized_client"
+    # unset origin (this suite): none of them is mounted on the API
+    assert not any(getattr(r, "path", None) in AS_OPEN_BY_NATURE for r in app.routes)
+
+
+def test_the_consent_routes_are_api_routes_behind_require_user():
+    found = {
+        (m, r.path): r
+        for r in app.routes
+        if isinstance(r, APIRoute) and r.path.startswith("/oauth/consent")
+        for m in r.methods
+    }
+    assert set(found) == {
+        ("GET", "/oauth/consent/{consent_id}"),
+        ("POST", "/oauth/consent/{consent_id}"),
+    }
+    for r in found.values():
+        assert require_user in _gates(r.dependant)

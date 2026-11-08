@@ -12,6 +12,8 @@ There is no sign-up page and no email delivery: the super admin creates every ac
     python -m pipeline.users list                                  # email, role, workspace, webhook, created, disabled, sessions
     python -m pipeline.users token create --email ana@example.com --name mcp    # prints the token ONCE
     python -m pipeline.users token revoke --id <token uuid>
+    python -m pipeline.users oauth-client list                     # the OAuth clients (static + self-registered)
+    python -m pipeline.users oauth-client disable --client-id <id> # refused everywhere from the next request
 
 Every user has ONE workspace. ``create`` makes a NEW workspace named "<display name>'s workspace" by default;
 ``--workspace <uuid>`` attaches the user to an existing workspace and ``--founding`` to the founding workspace
@@ -40,6 +42,7 @@ from uuid import UUID, uuid4
 import psycopg
 
 from app import auth
+from app.oauth import store as oauth_store
 from db.session import connect
 from domain.scopes import FOUNDING_WORKSPACE_ID
 
@@ -204,6 +207,13 @@ def _build_parser() -> argparse.ArgumentParser:
     tc.add_argument("--name", required=True)
     tr = tsub.add_parser("revoke", help="revoke a token by id")
     tr.add_argument("--id", type=UUID, required=True)
+    o = sub.add_parser("oauth-client", help="OAuth clients (docs/CONNECTORS.md)")
+    osub = o.add_subparsers(dest="oauth_cmd", required=True)
+    osub.add_parser("list", help="every OAuth client (never a secret)")
+    od = osub.add_parser(
+        "disable", help="refuse a client everywhere (its connections stop working)"
+    )
+    od.add_argument("--client-id", required=True)
     return p
 
 
@@ -265,6 +275,21 @@ def run(
             revoke_token(conn, args.id)
             conn.commit()
             emit(f"revoked token {args.id}")
+        elif args.cmd == "oauth-client" and args.oauth_cmd == "list":
+            for c in oauth_store.list_clients(conn):
+                emit(
+                    f"{c['client_id']}	{c['client_name'] or '-'}	{c['registration']}	"
+                    f"scope {c['scope']}	auth {c['token_endpoint_auth_method']}	"
+                    f"created {c['created_at']:%Y-%m-%d}	"
+                    f"{'disabled ' + format(c['disabled_at'], '%Y-%m-%d') if c['disabled_at'] else 'enabled'}	"
+                    f"connections {c['live_grants']}"
+                )
+            conn.commit()
+        elif args.cmd == "oauth-client" and args.oauth_cmd == "disable":
+            if not oauth_store.disable_client(conn, args.client_id):
+                raise UserError(f"no enabled OAuth client {args.client_id!r}")
+            conn.commit()
+            emit(f"disabled OAuth client {args.client_id}")
     except UserError as exc:
         conn.rollback()
         emit(f"refused: {exc}")
