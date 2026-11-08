@@ -13,6 +13,10 @@ injected ``connection`` context manager (prod: a fresh connection closed after; 
   which reads the presented secret into ``PRESENTED_SECRET`` for the request; ``get_client`` hands the SDK that
   same value only when its sha256 is the stored hash (else a random value no request can match), and the SDK's
   own comparison then decides.
+* ``get_client`` gives EVERY client the scope ``read steward``, whatever its registration declared (the stored
+  ``scope`` column and ``metadata`` stay informational). Clients learn the valid scopes from the protected-resource
+  document and the consent page caps a grant by the user's role, so a registration's scope never gates an
+  authorization request.
 * ``authorize`` never decides: it stores a pending consent and sends the browser to the consent page
   (``/oauth/consent/<id>``), where the signed-in user allows or denies (``app/routers/oauth_consent.py``).
 
@@ -146,7 +150,9 @@ class AlphaDeckAuthProvider:
             client_id=row["client_id"],
             client_name=row["client_name"],
             redirect_uris=row["redirect_uris"],
-            scope=row["scope"],
+            scope=" ".join(
+                store.SCOPES
+            ),  # every client may ASK for every scope; the consent page caps
             token_endpoint_auth_method=row["token_endpoint_auth_method"],
             grant_types=row["grant_types"],
             client_secret=secret,

@@ -598,6 +598,28 @@ def test_a_plain_user_cannot_grant_steward(ow):
     assert t["scope"] == "read"
 
 
+def test_a_client_registered_without_a_scope_may_ask_for_steward_and_the_role_caps_it(ow):
+    reg = ow.register(token_endpoint_auth_method="none")
+    assert reg.status_code == 201, reg.text
+    client_id = reg.json()["client_id"]
+    _, challenge = _pkce()
+    r = ow.authorize(client_id, CLAUDE_CALLBACK, challenge, scope="read steward")
+    assert r.status_code == 302
+    assert "invalid_scope" not in r.headers["location"]
+    cid = ow.consent_id(client_id, CLAUDE_CALLBACK, challenge, scope="read steward")
+    page = ow.session("a").get(f"/oauth/consent/{cid}").json()
+    assert [(s["name"], s["grantable"]) for s in page["scopes"]] == [
+        ("read", True),
+        ("steward", False),
+    ]
+    plain = ow.connect("a", client_id=client_id, redirect_uri=CLAUDE_CALLBACK, scope="read steward")
+    assert plain["scope"] == "read"
+    steward = ow.connect(
+        "s", client_id=client_id, redirect_uri=CLAUDE_CALLBACK, scope="read steward"
+    )
+    assert steward["scope"] == "read steward"
+
+
 def test_the_stewards_scopes_decide_the_admin_role(ow):
     page_cid = ow.consent_id(CLAUDE, CLAUDE_CALLBACK, _pkce()[1], scope="read steward")
     page = ow.session("s").get(f"/oauth/consent/{page_cid}").json()
