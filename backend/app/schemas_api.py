@@ -3373,3 +3373,48 @@ class SlackTestOut(BaseModel):
 
     delivered: bool
     detail: str
+
+
+class AgentsOut(BaseModel):
+    """How an AI client reaches my workspace on this install. `hosted` is true when the app has a public address
+    (the agent tools server answers at `connector_url`); `steward` is whether I am a super admin; `stdio_server`
+    is whether the local agent tools server exists (always, on every install)."""
+
+    hosted: bool
+    connector_url: str | None = None
+    steward: bool
+    stdio_server: bool
+
+
+class TokenOut(BaseModel):
+    """One of my access tokens. The token itself is never returned after it is created. `last_used_at` is null
+    when it was never used (it is updated at most every 5 minutes); `revoked_at` is set once it is revoked.
+    """
+
+    id: UUID
+    name: str
+    created_at: datetime
+    last_used_at: datetime | None = None
+    revoked_at: datetime | None = None
+
+
+class TokenListOut(BaseModel):
+    """My access tokens: live ones first, then revoked ones, newest first within each."""
+
+    tokens: list[TokenOut]
+
+
+class TokenCreateIn(BaseModel):
+    """A name for a new access token (trimmed, 1 to 60 characters), e.g. the machine or client it is for."""
+
+    name: str
+
+
+class TokenCreatedOut(BaseModel):
+    """The new access token. `token` is shown in this reply only, never again: store it where the client reads
+    it."""
+
+    id: UUID
+    name: str
+    created_at: datetime
+    token: str
