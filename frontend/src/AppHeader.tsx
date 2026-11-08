@@ -33,7 +33,9 @@ export type NavKey =
   | "radar"
   | "admin"
   // /settings/:tab (profile, notifications): reached from the user menu, never a tab
-  | "settings";
+  | "settings"
+  // /oauth/consent/:id (an app's sign-in request): reached from the app, never a tab
+  | "consent";
 
 // `steward`: rendered only for a super admin (docs/AUTH.md) — the API answers 403 to a plain user anyway.
 const LINKS: readonly {

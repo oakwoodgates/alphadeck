@@ -1,14 +1,23 @@
 import { useEffect, useRef, useState } from "react";
 
-import { useAgents, useCreateToken, useRevokeToken, useTokens } from "../../api/hooks";
-import type { TokenCreatedOut, TokenOut } from "../../api/hooks";
+import {
+  useAgents,
+  useConnections,
+  useCreateToken,
+  useDisconnect,
+  useRevokeToken,
+  useTokens,
+} from "../../api/hooks";
+import type { ConnectionOut, TokenCreatedOut, TokenOut } from "../../api/hooks";
 import { errorDetail } from "../../auth/me";
 
 // /settings/agents — how an AI client reaches MY workspace (docs/AGENT_TOOLS.md §Hosted endpoint) and my access
 // tokens. The copy is the signed-off mockup's (docs/temp/mockups/agents-tab-mockup-2026-11-08.html). A quiet page:
 // no banner when the install has no public address. Every action has a visible inverse or is re-doable: a token
 // revoked here stays on screen, grayed, for the rest of the visit (hide, never vanish); after a reload the list hides
-// revoked tokens unless "Show revoked tokens" is ticked. A new token is shown ONCE, until Done.
+// revoked tokens unless "Show revoked tokens" is ticked. A new token is shown ONCE, until Done. Connected apps
+// (the OAuth sign-in, docs/CONNECTORS.md; copy from docs/temp/mockups/consent-and-connected-apps-mockup-2026-11-08.html)
+// follow the same rules: a disconnected app stays on screen, grayed, for the visit.
 
 const COPIED_MS = 2000;
 
@@ -43,7 +52,17 @@ export function whenLabel(iso: string, now: Date = new Date()): string {
   return day === today ? `today ${pad(d.getHours())}:${pad(d.getMinutes())}` : day;
 }
 
-function ConnectSection({ hosted, url, steward }: { hosted: boolean; url: string | null; steward: boolean }) {
+function ConnectSection({
+  hosted,
+  url,
+  steward,
+  oauth,
+}: {
+  hosted: boolean;
+  url: string | null;
+  steward: boolean;
+  oauth: boolean;
+}) {
   if (!hosted || !url) {
     return (
       <p className="muted">
@@ -74,22 +93,47 @@ function ConnectSection({ hosted, url, steward }: { hosted: boolean; url: string
         <details>
           <summary>Claude (claude.ai)</summary>
           <div className="body">
-            <ol>
-              <li>
-                In Claude, open <b>Customize → Connectors → Add custom connector</b>.
-              </li>
-              <li>
-                Paste the URL above. Under Authentication choose <b>Sign in now</b>.
-              </li>
-              <li>
-                Sign in with your Alpha Deck email and password, then <b>Allow</b>.
-              </li>
-            </ol>
+            {oauth ? (
+              <ol>
+                <li>
+                  In Claude, open <b>Customize → Connectors → Add custom connector</b>.
+                </li>
+                <li>
+                  Paste the URL above. Under Authentication choose <b>Sign in now</b> and leave the client identity on
+                  its default.
+                </li>
+                <li>
+                  Sign in with your Alpha Deck email and password on the page that opens, then <b>Allow</b>.
+                </li>
+              </ol>
+            ) : (
+              <ol>
+                <li>
+                  In Claude, open <b>Customize → Connectors → Add custom connector</b>.
+                </li>
+                <li>
+                  Paste the URL above. Under Authentication choose <b>Sign in now</b>.
+                </li>
+                <li>
+                  Sign in with your Alpha Deck email and password, then <b>Allow</b>.
+                </li>
+              </ol>
+            )}
+            {oauth && (
+              <p>
+                If Claude asks for a client ID instead, enter <code>alphadeck-claude</code> and leave the secret blank.
+              </p>
+            )}
             <p>
               On a Free plan one custom connector is allowed. On a Team plan the Owner adds it under Organization
               settings → Connectors, and each member signs in to it individually.
             </p>
-            <p>Available once sign-in through Claude is enabled on this install (Phase 2). Until then use Claude Code below.</p>
+            {!oauth && (
+              <p>
+                Available once sign-in through Claude is enabled on this install (Phase 2). Until then use Claude Code
+                below.
+              </p>
+            )}
           </div>
         </details>
         <details open>
@@ -290,10 +334,116 @@ export function AgentsTab() {
           hosted={agents.data.hosted}
           url={agents.data.connector_url ?? null}
           steward={agents.data.steward}
+          oauth={agents.data.oauth ?? false}
         />
       )}
       <h3>Access tokens</h3>
       <TokensSection />
+      <h3>Connected apps</h3>
+      <ConnectionsSection />
     </div>
+  );
+}
+
+function ConnectionRow({
+  connection,
+  disconnectedNow,
+  onDisconnect,
+  busy,
+}: {
+  connection: ConnectionOut;
+  disconnectedNow: boolean;
+  onDisconnect: () => void;
+  busy: boolean;
+}) {
+  const gone = connection.revoked_at != null || disconnectedNow;
+  return (
+    <tr className={gone ? "revoked" : undefined}>
+      <td>
+        {connection.client_known ? (
+          connection.client_name
+        ) : (
+          <>
+            “{connection.client_name}” <span className="tag">unverified</span>
+          </>
+        )}
+      </td>
+      <td className="scopes-cell">{connection.scopes.join(" ")}</td>
+      <td className="when">{whenLabel(connection.created_at)}</td>
+      <td className="when">{connection.last_used_at ? whenLabel(connection.last_used_at) : "never"}</td>
+      <td className={gone ? "act muted" : "act"}>
+        {disconnectedNow ? (
+          "disconnected just now"
+        ) : gone ? (
+          "disconnected"
+        ) : (
+          <button className="btn" type="button" disabled={busy} onClick={onDisconnect}>
+            Disconnect
+          </button>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+/** The apps signed in to my account through the OAuth sign-in (docs/CONNECTORS.md). Disconnect asks nothing and
+ *  keeps the row, grayed, for the visit (hide, never vanish); "Show disconnected apps" brings back older ones. */
+function ConnectionsSection() {
+  const connections = useConnections();
+  const disconnect = useDisconnect();
+  const [showGone, setShowGone] = useState(false);
+  const [goneNow, setGoneNow] = useState<ReadonlySet<string>>(new Set());
+
+  const all = connections.data?.connections ?? [];
+  const rows = all.filter((c) => c.revoked_at == null || showGone || goneNow.has(c.id));
+  const anyGone = all.some((c) => c.revoked_at != null);
+  const disconnectOne = (id: string) =>
+    disconnect.mutate(id, { onSuccess: () => setGoneNow((prev) => new Set(prev).add(id)) });
+
+  return (
+    <>
+      <p className="muted">
+        Apps you signed in to with your Alpha Deck account. Each one reads your workspace with the access you allowed
+        and nothing more. Disconnect an app to sign it out everywhere at once.
+      </p>
+      {connections.isPending && <p className="muted">Loading…</p>}
+      {connections.isError && <p className="login-error">Your connected apps could not be read.</p>}
+      {connections.data && rows.length === 0 && (
+        <p className="muted">No app is connected yet. Connect one with the URL above.</p>
+      )}
+      {connections.data && rows.length > 0 && (
+        <table className="tokens" aria-label="Connected apps">
+          <thead>
+            <tr>
+              <th>App</th>
+              <th>Access</th>
+              <th>Connected</th>
+              <th>Last used</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((c) => (
+              <ConnectionRow
+                key={c.id}
+                connection={c}
+                disconnectedNow={goneNow.has(c.id)}
+                busy={disconnect.isPending}
+                onDisconnect={() => disconnectOne(c.id)}
+              />
+            ))}
+          </tbody>
+        </table>
+      )}
+      {disconnect.isError && (
+        <p className="login-error">{errorDetail(disconnect.error, "The app was not disconnected.")}</p>
+      )}
+      {anyGone && (
+        <label className="show-revoked">
+          <input type="checkbox" checked={showGone} onChange={(e) => setShowGone(e.target.checked)} /> Show
+          disconnected apps
+        </label>
+      )}
+    </>
   );
 }

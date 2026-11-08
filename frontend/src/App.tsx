@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import {
   Navigate,
   Route,
@@ -16,6 +16,7 @@ import { onUnauthorized } from "./api/authEvents";
 import { useClock, useMe, useTheses } from "./api/hooks";
 import { LoginPage } from "./auth/LoginPage";
 import { MeProvider, StewardsOnly, useIsSteward } from "./auth/me";
+import { loginPath } from "./auth/next";
 import { Backtest } from "./backtest/Backtest";
 import { browserClock, clockFromServer, ClockProvider, useAppClock } from "./clock";
 import { Cockpit } from "./cockpit/Cockpit";
@@ -36,6 +37,7 @@ import {
   thesisPath,
   validAsof,
 } from "./nav";
+import { ConsentPage } from "./oauth/ConsentPage";
 import { Radar } from "./radar/Radar";
 import { Scoreboard } from "./scoreboard/Scoreboard";
 import { isSettingsTab, SETTINGS_DEFAULT_TAB } from "./settings/registry";
@@ -178,6 +180,14 @@ function SettingsRoute() {
   );
 }
 
+/** /oauth/consent/:id — an app's sign-in request (docs/CONNECTORS.md), inside the signed-in shell like every page.
+ *  A signed-out visitor reaches it back through /login?next= (auth/next.ts). */
+function ConsentRoute() {
+  const { consentId } = useParams();
+  if (!consentId) return <Navigate to="/" replace />;
+  return <ConsentPage consentId={consentId} header={<AppHeader current="consent" />} />;
+}
+
 function RadarRoute() {
   // Like Admin: a "now" watch surface — no as-of dial; AppHeader carries ?asof= on its nav links.
   return <Radar header={<AppHeader current="radar" />} />;
@@ -273,20 +283,26 @@ function CockpitRoute() {
 export function App() {
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const onLogin = useLocation().pathname === "/login";
+  const pathname = useLocation().pathname;
+  const onLogin = pathname === "/login";
   // not fired on /login: a 401 there would clear the cache and refire it in a loop
   const me = useMe(!onLogin);
+  // the path a 401 sends back through /login?next= (only a consent page is ever carried: auth/next.ts)
+  const here = useRef(pathname);
+  useEffect(() => {
+    here.current = pathname;
+  }, [pathname]);
   useEffect(
     () =>
       onUnauthorized(() => {
         qc.clear();
-        navigate("/login", { replace: true });
+        navigate(loginPath(here.current), { replace: true });
       }),
     [qc, navigate],
   );
   if (onLogin) return <LoginPage />;
   if (me.isPending) return <div className="center-note">Loading…</div>;
-  if (!me.data) return <Navigate to="/login" replace />;
+  if (!me.data) return <Navigate to={loginPath(pathname)} replace />;
   return (
     <MeProvider value={me.data}>
       <SignedInApp />
@@ -333,6 +349,7 @@ function AppRoutes() {
       {/* the old change-password page: its links keep working */}
       <Route path="/account" element={<Navigate to="/settings/profile" replace />} />
       <Route path="/radar" element={<RadarRoute />} />
+      <Route path="/oauth/consent/:consentId" element={<ConsentRoute />} />
       <Route path="/dashboards" element={<DashboardsIndexRoute />} />
       <Route path="/dashboards/:slug" element={<DashboardRoute />} />
       <Route path="/thesis/:thesisId" element={<CockpitRoute />} />

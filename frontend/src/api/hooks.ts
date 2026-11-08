@@ -295,6 +295,70 @@ export function useRevokeToken() {
   });
 }
 
+// --- the OAuth sign-in (docs/CONNECTORS.md): the consent page + Connected apps ------------------------------------
+
+export type ConsentOut = components["schemas"]["ConsentOut"];
+export type ConnectionOut = components["schemas"]["ConnectionOut"];
+
+export const CONNECTIONS_KEY = ["account", "connections"] as const;
+
+/** An app's pending sign-in request (GET /oauth/consent/{id}). Never retried: a 404 / 410 is an answer (the
+ *  request expired or was answered), and the page says so. */
+export function useConsent(consentId: string) {
+  return useQuery({
+    queryKey: ["oauth", "consent", consentId],
+    retry: false,
+    staleTime: Infinity,
+    queryFn: async () => {
+      const { data, error, response } = await api.GET("/oauth/consent/{consent_id}", {
+        params: { path: { consent_id: consentId } },
+      });
+      if (error) throw Object.assign(new Error("consent"), { status: response.status, body: error });
+      return data;
+    },
+  });
+}
+
+/** Allow or deny an app's sign-in request; the reply says where to send the browser. */
+export function useDecideConsent(consentId: string) {
+  return useMutation({
+    mutationFn: async (decision: "allow" | "deny") => {
+      const { data, error, response } = await api.POST("/oauth/consent/{consent_id}", {
+        params: { path: { consent_id: consentId } },
+        body: { decision },
+      });
+      if (error) throw Object.assign(new Error("decision"), { status: response.status, body: error });
+      return data;
+    },
+  });
+}
+
+/** The apps connected to my account (never a token), live first, then disconnected. */
+export function useConnections() {
+  return useQuery({
+    queryKey: CONNECTIONS_KEY,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/account/connections");
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+/** Disconnect one app (idempotent): every token it holds stops working. */
+export function useDisconnect() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (grantId: string) => {
+      const { error } = await api.DELETE("/account/connections/{grant_id}", {
+        params: { path: { grant_id: grantId } },
+      });
+      if (error) throw error;
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: CONNECTIONS_KEY }),
+  });
+}
+
 export function useTheses(includeArchived = false) {
   return useQuery({
     // the partial key ["theses"] still invalidates BOTH variants (every mutation that touches the

@@ -129,6 +129,29 @@ body {
 .agents-tab table.tokens td.act { text-align: right; white-space: nowrap; }
 .agents-tab .show-revoked { font-size: 12px; color: var(--txt-3); display: flex; align-items: center; gap: 6px; }
 .agents-tab .show-revoked input { accent-color: var(--txt-3); }
+.agents-tab table.tokens td.scopes-cell { font-family: var(--mono); font-size: 11px; color: var(--txt-2); }
+.agents-tab .tag, .consent .tag { display: inline-block; margin-left: 6px; font-family: var(--mono); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--txt-3); border: 1px solid var(--line-2); border-radius: 4px; padding: 1px 5px; vertical-align: middle; }
+/* the OAuth consent page (/oauth/consent/:id, docs/CONNECTORS.md): one quiet card, centered like the login form */
+.consent-wrap { display: flex; align-items: flex-start; justify-content: center; padding: 48px 16px; }
+.consent { width: 100%; max-width: 440px; display: flex; flex-direction: column; gap: 14px; padding: 22px 24px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+.consent p { margin: 0; line-height: 1.45; }
+.consent h2 { margin: 0; font-size: 15px; font-weight: 700; line-height: 1.35; }
+.consent .who { font-size: 12.5px; color: var(--txt-2); margin-top: 6px; }
+.consent .scopes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.consent .scopes li { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; line-height: 1.4; }
+.consent .scopes li::before { content: "•"; color: var(--txt-3); }
+.consent .scopes li.na { color: var(--txt-4); text-decoration: line-through; }
+.consent .scopes li.na small { text-decoration: none; color: var(--txt-4); font-size: 11.5px; margin-left: 4px; }
+.consent .never { font-size: 12.5px; color: var(--txt-2); }
+.consent .back { font-size: 12px; color: var(--txt-3); }
+.consent .back code { font-family: var(--mono); font-size: 11.5px; color: var(--txt-2); }
+.consent .actions { display: flex; gap: 8px; margin-top: 4px; }
+.consent .actions button { font: inherit; font-size: 13px; padding: 8px 14px; border-radius: 5px; border: 1px solid var(--line); background: var(--bg); color: var(--txt); cursor: pointer; }
+.consent .actions button.primary { border-color: var(--line-2); background: var(--panel-2); }
+.consent .actions button:disabled { opacity: 0.6; cursor: default; }
+.consent .muted { color: var(--txt-3); font-size: 13px; }
+.consent .signed-as { font-size: 11.5px; color: var(--txt-4); margin-top: 2px; }
+.consent .signed-as a { color: var(--txt-3); cursor: pointer; }
 .agents-tab .reveal { display: flex; flex-direction: column; gap: 10px; padding: 14px; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 8px; }
 .agents-tab .reveal .name { font-size: 13px; }
 .agents-tab .reveal .once { font-size: 12.5px; color: var(--txt-2); }
