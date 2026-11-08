@@ -98,6 +98,40 @@ body {
 .settings-actions { display: flex; gap: 8px; }
 .settings-actions button { font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 5px; border: 1px solid var(--line); background: var(--bg); color: var(--txt); cursor: pointer; }
 .settings-actions button:disabled { opacity: 0.6; cursor: default; }
+/* the Agents tab (/settings/agents): the connector URL, the four client how-tos, the tokens table, the one-time reveal */
+.agents-tab { max-width: 560px; }
+.agents-tab h3:first-child { margin-top: 4px; }
+.agents-tab p { margin: 0; line-height: 1.45; }
+.agents-tab .btn { font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 5px; border: 1px solid var(--line); background: var(--bg); color: var(--txt); cursor: pointer; }
+.agents-tab .btn:disabled { opacity: 0.6; cursor: default; }
+.agents-tab .url-row { display: flex; gap: 8px; align-items: stretch; }
+.agents-tab .url-row input { flex: 1; min-width: 0; font-family: var(--mono); font-size: 12.5px; color: var(--txt); background: var(--bg); border: 1px solid var(--line); border-radius: 5px; padding: 7px 10px; }
+.agents-tab .steward-line { font-size: 12.5px; color: var(--txt-2); }
+.agents-tab details { border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+.agents-tab details + details { margin-top: 6px; }
+.agents-tab summary { cursor: pointer; padding: 8px 12px; font-size: 13px; color: var(--txt-2); list-style: none; display: flex; align-items: center; gap: 8px; }
+.agents-tab summary::-webkit-details-marker { display: none; }
+.agents-tab summary::before { content: "▸"; color: var(--txt-4); font-size: 11px; }
+.agents-tab details[open] summary::before { content: "▾"; }
+.agents-tab details[open] summary { color: var(--txt); border-bottom: 1px solid var(--line); }
+.agents-tab details .body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 8px; font-size: 12.5px; color: var(--txt-2); }
+.agents-tab details ol { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+.agents-tab code { font-family: var(--mono); font-size: 11.5px; }
+.agents-tab .cmd { display: block; background: var(--bg); border: 1px solid var(--line); border-radius: 5px; padding: 7px 9px; color: var(--txt); white-space: pre-wrap; word-break: break-all; }
+.agents-tab .cmd-row { display: flex; gap: 8px; align-items: flex-start; }
+.agents-tab .cmd-row .cmd { flex: 1; }
+.agents-tab table.tokens { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.agents-tab table.tokens th { text-align: left; font-weight: 600; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--txt-3); padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.agents-tab table.tokens td { padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.agents-tab table.tokens td:first-child { white-space: nowrap; }
+.agents-tab table.tokens td.when { font-family: var(--mono); font-size: 11.5px; color: var(--txt-2); white-space: nowrap; }
+.agents-tab table.tokens tr.revoked td, .agents-tab table.tokens tr.revoked td.when { color: var(--txt-4); }
+.agents-tab table.tokens td.act { text-align: right; white-space: nowrap; }
+.agents-tab .show-revoked { font-size: 12px; color: var(--txt-3); display: flex; align-items: center; gap: 6px; }
+.agents-tab .show-revoked input { accent-color: var(--txt-3); }
+.agents-tab .reveal { display: flex; flex-direction: column; gap: 10px; padding: 14px; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 8px; }
+.agents-tab .reveal .name { font-size: 13px; }
+.agents-tab .reveal .once { font-size: 12.5px; color: var(--txt-2); }
 .user-menu { display: flex; align-items: center; gap: 10px; margin-left: 14px; font-size: 11px; color: var(--txt-3); }
 .user-menu a { cursor: pointer; }
 .user-menu button { font: inherit; color: var(--txt-3); background: none; border: 1px solid var(--line); border-radius: 5px; padding: 2px 8px; cursor: pointer; }

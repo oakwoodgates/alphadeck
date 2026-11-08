@@ -106,7 +106,7 @@ describe("the Settings page", () => {
     const tablist = await screen.findByRole("tablist", { name: "Settings" });
     const tabs = within(tablist).getAllByRole("tab");
     expect(tabs.map((t) => t.textContent)).toEqual(SETTINGS_TABS.map((t) => t.label));
-    expect(SETTINGS_TABS.map((t) => t.slug)).toEqual(["profile", "notifications"]);
+    expect(SETTINGS_TABS.map((t) => t.slug)).toEqual(["profile", "notifications", "agents"]);
     expect(within(tablist).getByRole("tab", { name: "Notifications" })).toHaveAttribute("aria-selected", "true");
     expect(within(tablist).getByRole("tab", { name: "Profile" })).toHaveAttribute("aria-selected", "false");
   });
