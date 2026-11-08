@@ -647,9 +647,30 @@ describe("App routes — guards render on any URL", () => {
     expect(screen.getByText("Loading…")).toBeInTheDocument();
   });
 
-  it("API unreachable / nothing seeded", () => {
+  it("API unreachable (the request failed)", () => {
     h.theses = { isLoading: false, error: new Error("boom"), data: undefined };
     renderAt("/scoreboard");
-    expect(screen.getByText(/API not reachable or no thesis seeded/)).toBeInTheDocument();
+    expect(screen.getByText(/API not reachable/)).toBeInTheDocument();
+  });
+
+  it("a signed-in user with an EMPTY workspace gets the app, never the seed hint", async () => {
+    h.theses = { isLoading: false, error: null, data: [] };
+    renderAt("/");
+    expect(await screen.findByText("BOARD")).toBeInTheDocument();
+    expect(screen.queryByText(/API not reachable/)).toBeNull();
+    expect(screen.queryByText(/pipeline\.seed/)).toBeNull();
+  });
+
+  it("an empty workspace reaches the Workbench, Scoreboard and Account on their own URLs", async () => {
+    h.theses = { isLoading: false, error: null, data: [] };
+    for (const [url, text] of [
+      ["/workbench", "WORKBENCH"],
+      ["/scoreboard", "SCOREBOARD"],
+      ["/radar", "RADAR"],
+    ] as const) {
+      const { unmount } = renderAt(url);
+      expect(await screen.findByText(text)).toBeInTheDocument();
+      unmount();
+    }
   });
 });

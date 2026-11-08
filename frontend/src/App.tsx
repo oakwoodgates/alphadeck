@@ -287,11 +287,13 @@ function SignedInApp() {
 
   // The guards use no router hooks, so loading/error render identically on every URL.
   if (isLoading || clock.isPending) return <div className="center-note">Loading…</div>;
-  if (error || !theses?.length) {
+  // Only a FAILED read is fatal. A loaded empty list is a brand-new workspace (auth: every user has a private
+  // workspace that starts with zero cards) — the app renders, and the Board says so quietly.
+  if (error || !theses) {
     return (
       <div className="center-note err">
-        API not reachable or no thesis seeded — start the backend on :8000 and run{" "}
-        <code>&nbsp;python -m pipeline.seed</code>.
+        API not reachable — start the backend on :8000. (A fresh local database also needs{" "}
+        <code>&nbsp;python -m pipeline.seed</code>.)
       </div>
     );
   }
