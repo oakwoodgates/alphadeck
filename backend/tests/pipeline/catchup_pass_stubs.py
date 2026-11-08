@@ -13,6 +13,7 @@ inputs; nothing about the baseline is stubbed.
 
 from __future__ import annotations
 
+import inspect
 import time as _time
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -29,6 +30,7 @@ from pipeline.split_basis import SplitScan
 from pipeline.split_jumps import JumpScan
 from pipeline.successor_cik import SuccessorScan
 from pipeline.tape_health import StaleTape
+from radar.spac import run_spac_radar as _real_run_spac_radar
 
 # The reason `run_daily` records on a thesis a catch-up skipped (its shape, `daily.run_daily`'s M2 branch).
 ON_TIME = "on-time call-of-record already recorded 2026-10-15 22:41 EDT"
@@ -84,9 +86,13 @@ def prime_pass(monkeypatch) -> Pager:
     monkeypatch.setattr(daily, "run_amendment_sweep", lambda **k: SweepOutcome(ran=True))
     monkeypatch.setattr("pipeline.ingest_benchmarks.ingest_benchmarks", lambda conn, **k: [])
     monkeypatch.setattr("pipeline.ingest_fundamentals.ingest_fundamentals", lambda conn, **k: [])
-    monkeypatch.setattr(
-        "radar.spac.run_spac_radar", lambda conn, **k: SimpleNamespace(summary="stub", errors=[])
-    )
+
+    def _radar(conn, **k):
+        # the leg swallows exceptions: bind to the REAL signature so a wrong call is a visible failure
+        inspect.signature(_real_run_spac_radar).bind(conn, **k)
+        return SimpleNamespace(summary="stub", errors=[])
+
+    monkeypatch.setattr("radar.spac.run_spac_radar", _radar)
     monkeypatch.setattr(
         "radar.funds.run_fund_radar", lambda conn, **k: SimpleNamespace(summary="stub", errors=[])
     )

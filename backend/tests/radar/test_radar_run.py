@@ -22,6 +22,7 @@ from radar import repo
 from radar.spac import run_spac_radar
 from radar.state import StateEvent, deal_state
 from repositories import thesis_repo
+from tests.workspaces import new_workspace
 
 D = date(2026, 8, 3)
 
@@ -343,6 +344,47 @@ def test_a_second_run_over_the_same_transition_is_silent(db, cache):
         db, until=D, days=1, edgar_client=client, notifier=second, workspace=WORKSPACE_ANY
     )
     assert second.spac_status == [] and r2.status_notifications == 0  # silent on the re-scan
+
+
+def test_the_announced_page_goes_to_each_workspace_with_only_its_own_cards(db, cache):
+    """Three workspaces, one card each: the DA filing matches the first two cards and not the third. The page
+    is ONE per (announcement, workspace), through that workspace's own notifier, naming only its own card.
+    """
+    _seed_master(db, "0000001111", "KNWN", "Blank Checks")
+    _seed_master(db, "0000002222", "NEWS", None)
+    ws = {k: new_workspace(db, f"ws {k}") for k in "abc"}
+    cards: dict[str, Thesis] = {}
+    for k, term in (("a", "psilocybin"), ("b", "psilocybin"), ("c", "quantum computing")):
+        t = Thesis(id=uuid.uuid4(), name=f"Card {k}", narrative="n", tenant_id=ws[k])
+        thesis_repo.upsert(db, t)
+        thesis_repo.set_term_set(db, t.id, [TermSetEntry(term=term, tier=TermTier.SIGNAL)])
+        cards[k] = t
+    db.commit()
+    fakes = {w: _CaptureNotifier() for w in ws.values()}
+    client = EdgarClient(cache_dir=cache, allow_live=False)
+
+    r = run_spac_radar(
+        db,
+        until=D,
+        days=1,
+        edgar_client=client,
+        notifier_for=lambda w: fakes[w],
+        workspace=WORKSPACE_ANY,
+    )
+
+    assert r.errors == []
+    assert r.status_notifications == 2
+    for k in "ab":
+        (evt,) = fakes[ws[k]].spac_status
+        assert evt.cik == "0000002222"
+        assert [m.thesis_id for m in evt.matches] == [cards[k].id]
+        assert evt.thesis_names == (f"Card {k}",)
+    assert fakes[ws["c"]].spac_status == []
+    # the match rows landed under each matching card's OWN workspace (and none for the third)
+    with db.cursor() as cur:
+        cur.execute("SELECT thesis_id, tenant_id FROM fact_spac_match")
+        landed = {row["thesis_id"]: row["tenant_id"] for row in cur.fetchall()}
+    assert landed == {cards["a"].id: ws["a"], cards["b"].id: ws["b"]}
 
 
 def test_an_unchanged_status_pages_nothing(db, tmp_path):

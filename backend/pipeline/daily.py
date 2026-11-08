@@ -1836,8 +1836,16 @@ def _run_daily_pass_locked(
 
             radar_conn = _pass_connect()
             try:
+                # the page goes to each card's OWN workspace destination (the per-thesis pushes' rule),
+                # never the ops channel; the match leg reads every workspace's cards (WORKSPACE_ANY)
+                ws_notifiers = _WorkspaceNotifiers(radar_conn, thesis_notifier)
                 rr = timed("spac_radar")(run_spac_radar)(
-                    radar_conn, until=asof, days=3, allow_live=True, notifier=notifier
+                    radar_conn,
+                    until=asof,
+                    days=3,
+                    allow_live=True,
+                    notifier_for=ws_notifiers.for_workspace,
+                    workspace=WORKSPACE_ANY,
                 )
             finally:
                 radar_conn.close()

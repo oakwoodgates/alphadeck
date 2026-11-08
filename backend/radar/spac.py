@@ -18,6 +18,7 @@ date/CIK/doc is recorded in the result's errors, never silently dropped (#9). Ne
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any
@@ -26,7 +27,7 @@ from uuid import UUID
 import psycopg
 
 from domain.market_time import market_today
-from domain.scopes import DATA_TENANT_ID
+from domain.scopes import DATA_TENANT_ID, WorkspaceScope
 from domain.settings import get_settings
 from ingest import CacheMiss
 from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
@@ -156,15 +157,18 @@ def run_spac_radar(
     tenant_id: UUID = DATA_TENANT_ID,
     match: bool = True,
     notifier: Notifier | None = None,
-    workspace: UUID,
+    notifier_for: Callable[[UUID], Notifier] | None = None,
+    workspace: WorkspaceScope,
 ) -> RadarRunResult:
     """One radar pass: scan the daily indexes for ``days`` days ending at ``until`` (default
     today), accrete + persist + (optionally) match. Idempotent over a re-scan of the same window
     (append-only if-changed). The caller may pass its own ``edgar_client`` (tests: a fixture-cache
     client with ``allow_live=False``).
 
-    ``notifier`` (the nightly cron passes one; the CLI passes none) fires ONE ANNOUNCED-only Slack page
-    per announcement (per transitioned CIK, listing every matched thesis — Q13) when a shell's deal-state
+    ``notifier`` (a single destination: tests, a future caller) or ``notifier_for`` (resolves a WORKSPACE id
+    to that workspace's own destination: the nightly passes it; the CLI passes neither) fires ONE
+    ANNOUNCED-only Slack page per announcement PER WORKSPACE, to that workspace's own destination (per
+    transitioned CIK and workspace, listing only that workspace's matched theses — Q13) when a shell's deal-state
     transitions INTO ``announced`` this run AND its DA-class filing matched at least one thesis's term
     set — deterministic (#3, ``deal_state``), loudness-marks-the-
     exception (#7), and naturally idempotent (the baseline is the prior RECORDED state, so a re-scan over
@@ -262,7 +266,8 @@ def run_spac_radar(
     # rule). Only built when a notifier is listening (the CLI path passes none and pays for no extra read).
     # State is a read-time derive, never stored (radar/state.py).
     prior_by_cik: dict[str, dict[str, StateEvent]] = {}
-    if notifier is not None:
+    listening = notifier is not None or notifier_for is not None
+    if listening:
         for h in repo.events_for_ciks(conn, sorted({ev.cik for ev in events}), tenant_id=tenant_id):
             prior_by_cik.setdefault(h["cik"], {})[h["accession"]] = StateEvent(
                 filed=h["filed"],
@@ -289,11 +294,20 @@ def run_spac_radar(
     # INTO `announced` this run AND matched a thesis's term set. It runs AFTER the commits above so a notify
     # fault can never roll back committed radar facts (the SAVEPOINT-in-the-cron-loop trap); the whole block
     # is fail-open and fail-visible (#9 — a fault is recorded in errors, never raised).
-    if notifier is not None:
+    if listening:
+        if notifier_for is not None:
+            resolve = notifier_for
+        else:
+            fixed = notifier
+            assert fixed is not None
+
+            def resolve(_ws: UUID) -> Notifier:
+                return fixed
+
         try:
             _notify_announced(
                 conn,
-                notifier,
+                resolve,
                 prior_by_cik,
                 events,
                 matches,
@@ -316,7 +330,7 @@ def _match_events(
     result: RadarRunResult,
     *,
     tenant_id: UUID,
-    workspace: UUID,
+    workspace: WorkspaceScope,
 ) -> list[repo.SpacMatch]:
     """Slice 2: run every thesis's term set over each DA-class filing in this window. A match row
     is recorded only when ≥1 term hit (either tier); the append-if-changed keeps re-scans flat.
@@ -365,7 +379,7 @@ def _match_events(
 
 def _notify_announced(
     conn: psycopg.Connection,
-    notifier: Notifier,
+    resolve: Callable[[UUID], Notifier],
     prior_by_cik: dict[str, dict[str, StateEvent]],
     events: list[repo.SpacEvent],
     matches: list[repo.SpacMatch],
@@ -373,9 +387,10 @@ def _notify_announced(
     result: RadarRunResult,
     *,
     tenant_id: UUID,
-    workspace: UUID,
+    workspace: WorkspaceScope,
 ) -> None:
-    """Emit ONE ANNOUNCED page per ANNOUNCEMENT — a transitioned CIK — listing every thesis it matched (Q13;
+    """Emit ONE ANNOUNCED page per ANNOUNCEMENT PER WORKSPACE — a transitioned CIK — to that workspace's own
+    destination (``resolve``), listing only that workspace's theses it matched (Q13;
     it used to be one page per (CIK, thesis): MEASURED over the tape, one announcement paged up to five times).
     A CIK
     transitioned when its deal-state moved INTO ``announced`` this run (prior != announced AND new ==
@@ -413,37 +428,43 @@ def _notify_announced(
     except Exception:  # noqa: BLE001 — an enrichment read must not poison the committed radar txn
         conn.rollback()
         ticker_by_sid = {}
-    thesis_name = {t.id: t.name for t in thesis_repo.list_all(conn, workspace=workspace)}
+    live_theses = thesis_repo.list_all(conn, workspace=workspace)
+    thesis_name = {t.id: t.name for t in live_theses}
+    thesis_ws = {t.id: t.tenant_id for t in live_theses}
     for cik in sorted(by_cik):
         # a match on an archived/deleted thesis — never a ghost line (nor a ghost page)
-        live = [m for m in by_cik[cik] if m.thesis_id in thesis_name]
-        if not live:
-            continue
-        thesis_matches = tuple(
-            SpacThesisMatch(
-                thesis_id=m.thesis_id,
-                thesis_name=thesis_name[m.thesis_id],
-                accession=m.accession,
-                signal_terms=tuple(m.matched_signal),
-                broad_terms=tuple(m.matched_broad),
-                url=url_by_accession.get(m.accession, m.source_ref),
+        live_all = [m for m in by_cik[cik] if m.thesis_id in thesis_name]
+        # one page per (CIK, workspace): a workspace's page names only its own cards
+        by_ws: dict[UUID, list[repo.SpacMatch]] = {}
+        for m in live_all:
+            by_ws.setdefault(thesis_ws[m.thesis_id], []).append(m)
+        for ws in sorted(by_ws, key=str):
+            live = by_ws[ws]
+            thesis_matches = tuple(
+                SpacThesisMatch(
+                    thesis_id=m.thesis_id,
+                    thesis_name=thesis_name[m.thesis_id],
+                    accession=m.accession,
+                    signal_terms=tuple(m.matched_signal),
+                    broad_terms=tuple(m.matched_broad),
+                    url=url_by_accession.get(m.accession, m.source_ref),
+                )
+                for m in sorted(live, key=lambda m: (thesis_name[m.thesis_id], str(m.thesis_id)))
             )
-            for m in sorted(live, key=lambda m: (thesis_name[m.thesis_id], str(m.thesis_id)))
-        )
-        lead = _lead_match(live)
-        sid = sid_by_cik.get(cik)
-        notifier.notify_spac_status(
-            SpacStatusEvent(
-                cik=cik,
-                company_name=company_by_cik.get(cik, cik),
-                ticker=ticker_by_sid.get(sid) if sid else None,
-                accession=lead.accession,
-                filed=lead.filed,
-                matches=thesis_matches,
-                url=url_by_accession.get(lead.accession, lead.source_ref),
+            lead = _lead_match(live)
+            sid = sid_by_cik.get(cik)
+            resolve(ws).notify_spac_status(
+                SpacStatusEvent(
+                    cik=cik,
+                    company_name=company_by_cik.get(cik, cik),
+                    ticker=ticker_by_sid.get(sid) if sid else None,
+                    accession=lead.accession,
+                    filed=lead.filed,
+                    matches=thesis_matches,
+                    url=url_by_accession.get(lead.accession, lead.source_ref),
+                )
             )
-        )
-        result.status_notifications += 1
+            result.status_notifications += 1
 
 
 def announcements(

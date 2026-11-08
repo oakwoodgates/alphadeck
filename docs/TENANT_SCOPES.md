@@ -128,7 +128,7 @@ cards into the founding workspace and their DATA facts into the data tenant.
   data tenant (expected 0; the Admin page shows one loud line when it is not). `docs/ADMIN.md`.
 - **Notify and the warm-up are per workspace.** The nightly builds each card's push destination from its workspace
   (`tenant.notify_webhook`, else the env webhook only for a super admin's workspace, else the log), the digest is
-  grouped by workspace, and the dashboard warm-up walks every workspace with the system token and the
+  grouped by workspace, the SPAC radar's announced page goes per workspace to its own destination (only its own cards), and the dashboard warm-up walks every workspace with the system token and the
   `X-Alphadeck-Workspace` header (`docs/FEED_LOOP.md`).
 
 `db.session.DEFAULT_TENANT_ID` (`…0001`, equal to `DATA_TENANT_ID`) stays for TESTS and the demo SEED only: the suite's
