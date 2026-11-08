@@ -164,6 +164,77 @@ export function useChangePassword() {
   });
 }
 
+// --- the Settings page (/settings/:tab, docs/AUTH.md §Settings page) ---------------------------------------------
+
+export type ProfileUpdate = components["schemas"]["ProfileUpdate"];
+export type SlackWebhookOut = components["schemas"]["SlackWebhookOut"];
+export type SlackTestOut = components["schemas"]["SlackTestOut"];
+
+/** Change my display name + email. On success the reply IS the new /auth/me, written straight into its cache
+ *  (the useLogin precedent, no refetch), so the header's name changes at once. */
+export function useUpdateProfile() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: ProfileUpdate) => {
+      const { data, error } = await api.PUT("/account/profile", { body });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (me) => {
+      qc.setQueryData(ME_KEY, me);
+    },
+  });
+}
+
+export const SLACK_WEBHOOK_KEY = ["account", "slack-webhook"] as const;
+
+/** Whether I have a Slack webhook set (never the URL: the API does not return it). */
+export function useSlackWebhook() {
+  return useQuery({
+    queryKey: SLACK_WEBHOOK_KEY,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/account/notifications/slack-webhook");
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+export function useSetSlackWebhook() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (url: string) => {
+      const { error } = await api.PUT("/account/notifications/slack-webhook", { body: { url } });
+      if (error) throw error;
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: SLACK_WEBHOOK_KEY }),
+  });
+}
+
+export function useClearSlackWebhook() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const { error } = await api.DELETE("/account/notifications/slack-webhook");
+      if (error) throw error;
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: SLACK_WEBHOOK_KEY }),
+  });
+}
+
+/** Send one test line to my saved webhook; the reply says whether Slack accepted it. */
+export function useTestSlackWebhook() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const { data, error } = await api.POST("/account/notifications/slack-webhook/test");
+      if (error) throw error;
+      return data;
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: SLACK_WEBHOOK_KEY }),
+  });
+}
+
 export function useTheses(includeArchived = false) {
   return useQuery({
     // the partial key ["theses"] still invalidates BOTH variants (every mutation that touches the

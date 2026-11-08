@@ -158,7 +158,7 @@ from pipeline.split_jumps import report_lines as jump_report_lines
 from pipeline.successor_cik import SuccessorScan, previous_successor_keys, run_successor_scan
 from pipeline.successor_cik import report_lines as successor_report_lines
 from pipeline.tape_health import StaleTape, stale_fund_shares, stale_tapes
-from repositories import calls_repo, price_feed_repo, thesis_repo
+from repositories import calls_repo, price_feed_repo, thesis_repo, user_meta_repo
 from securities import master
 
 _log = logging.getLogger(__name__)
@@ -547,8 +547,9 @@ def _push_timing(asof: date) -> NightTiming:
 
 
 class _WorkspaceNotifiers:
-    """The push destination PER WORKSPACE (docs/FEED_LOOP.md): ``tenant.notify_webhook`` when set; else the env
-    ``SLACK_WEBHOOK_URL`` only when the workspace's owner is a super admin; else the log notifier.
+    """The push destination PER WORKSPACE (docs/FEED_LOOP.md step 3): every enabled user of the workspace who set
+    a webhook (``user_meta.slack_webhook_url``, one Slack notifier over all of them); else the env
+    ``SLACK_WEBHOOK_URL`` only when the workspace holds an enabled super admin; else the log notifier.
 
     The whole ``workspace -> Notifier`` map is read ONCE, at construction (pass start, before the loop opens any
     per-thesis work), by ONE query, and the read transaction is ended there (the loop opens its own); after that
@@ -562,22 +563,14 @@ class _WorkspaceNotifiers:
     def __init__(self, conn: psycopg.Connection, override: Notifier | None = None) -> None:
         self._override = override
         self._map: dict[UUID, Notifier] = {}
-        self._log_only: Notifier = notifier_for_workspace(None, owner_is_super_admin=False)
+        self._log_only: Notifier = notifier_for_workspace((), has_super_admin=False)
         if override is not None:
             return
         try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT t.id, t.notify_webhook, EXISTS (SELECT 1 FROM app_user u "
-                    "WHERE u.workspace_id = t.id AND u.role = 'super_admin' AND u.disabled_at IS NULL) "
-                    "AS owner_is_super_admin FROM tenant t WHERE t.kind = 'workspace'"
-                )
-                rows = cur.fetchall()
+            destinations = user_meta_repo.webhooks_by_workspace(conn)  # ONE query
             self._map = {
-                r["id"]: notifier_for_workspace(
-                    r["notify_webhook"], owner_is_super_admin=bool(r["owner_is_super_admin"])
-                )
-                for r in rows
+                wid: notifier_for_workspace(d.urls, has_super_admin=d.has_super_admin)
+                for wid, d in destinations.items()
             }
         except Exception:  # noqa: BLE001 — fail-open to the record-only notifier
             _log.warning("workspace notifier lookup failed (fail-open: log only)", exc_info=True)

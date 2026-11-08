@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { lazy } from "react";
@@ -5,6 +6,7 @@ import { MemoryRouter, useLocation } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppHeader, type NavKey } from "../AppHeader";
+import { MeProvider } from "../auth/me";
 import type { DashboardEntry } from "../dashboards/registry";
 
 // The Home tab and the Dashboards ▾ menu in the shared top bar (docs/DASHBOARDS.md). The registry is mocked
@@ -185,5 +187,42 @@ describe("AppHeader — the Dashboards menu", () => {
   it("on any other page the trigger is not on", () => {
     renderAt("/");
     expect(trigger()).not.toHaveClass("on");
+  });
+});
+
+describe("AppHeader — the user menu", () => {
+  const ME = {
+    id: "u-2",
+    email: "ana@example.test",
+    display_name: "Ana Test",
+    role: "user" as const,
+    workspace_id: "00000000-0000-0000-0000-0000000000a2",
+  };
+
+  function renderSignedIn(url: string) {
+    return render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MeProvider value={ME}>
+          <MemoryRouter initialEntries={[url]}>
+            <AppHeader current="scoreboard" />
+            <Where />
+          </MemoryRouter>
+        </MeProvider>
+      </QueryClientProvider>,
+    );
+  }
+
+  it("says Settings (not Change password) beside the name", () => {
+    renderSignedIn("/scoreboard");
+    expect(screen.getByText("Ana Test")).toBeInTheDocument();
+    expect(screen.getByText("Settings")).toBeInTheDocument();
+    expect(screen.queryByText("Change password")).toBeNull();
+  });
+
+  it("navigates to /settings/profile, carrying ?asof=", async () => {
+    const user = userEvent.setup();
+    renderSignedIn("/scoreboard?asof=2026-06-01");
+    await user.click(screen.getByText("Settings"));
+    expect(screen.getByTestId("where").textContent).toBe("/settings/profile?asof=2026-06-01");
   });
 });

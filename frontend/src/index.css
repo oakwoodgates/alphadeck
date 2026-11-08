@@ -88,6 +88,16 @@ body {
 .login-form button:disabled { opacity: 0.6; cursor: default; }
 .login-error { font-size: 12px; color: var(--neg); }
 .account-page { padding: 22px 26px; display: flex; flex-direction: column; gap: 12px; }
+/* the Settings page (/settings/:tab): a quiet tablist over the active tab; no badges, no banners */
+.settings-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
+.settings-tabs button { font: inherit; font-size: 13px; color: var(--txt-3); background: none; border: none; border-bottom: 2px solid transparent; padding: 6px 10px; cursor: pointer; }
+.settings-tabs button.on { color: var(--txt); border-bottom-color: var(--txt-3); cursor: default; }
+.settings-section { display: flex; flex-direction: column; gap: 12px; max-width: 520px; }
+.settings-section h3 { font-size: 13px; font-weight: 600; margin: 12px 0 0; }
+.settings-status { font-size: 13px; margin: 0; }
+.settings-actions { display: flex; gap: 8px; }
+.settings-actions button { font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 5px; border: 1px solid var(--line); background: var(--bg); color: var(--txt); cursor: pointer; }
+.settings-actions button:disabled { opacity: 0.6; cursor: default; }
 .user-menu { display: flex; align-items: center; gap: 10px; margin-left: 14px; font-size: 11px; color: var(--txt-3); }
 .user-menu a { cursor: pointer; }
 .user-menu button { font: inherit; color: var(--txt-3); background: none; border: 1px solid var(--line); border-radius: 5px; padding: 2px 8px; cursor: pointer; }

@@ -120,6 +120,138 @@
         }
       }
     },
+    "/account/profile": {
+      "put": {
+        "tags": [
+          "account"
+        ],
+        "summary": "Update Profile",
+        "description": "Change my display name and email. The name must not be empty and the email needs an `@` (400 otherwise);\nan email another user already has, in any case, answers 409. Changing only the case of my own email is\nallowed. My sessions and tokens stay signed in.",
+        "operationId": "update_profile_account_profile_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/account/notifications/slack-webhook": {
+      "get": {
+        "tags": [
+          "account"
+        ],
+        "summary": "Get Slack Webhook",
+        "description": "Whether I have a Slack webhook set, and when I last saved it. The URL is never returned (it is a\ncredential).",
+        "operationId": "get_slack_webhook_account_notifications_slack_webhook_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlackWebhookOut"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "account"
+        ],
+        "summary": "Set Slack Webhook",
+        "description": "Save my Slack incoming-webhook URL: armed calls and the nightly digest for my cards are pushed there. It\nmust start with `https://hooks.slack.com/` (400 otherwise). Replaces any URL saved before.",
+        "operationId": "set_slack_webhook_account_notifications_slack_webhook_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SlackWebhookIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "account"
+        ],
+        "summary": "Clear Slack Webhook",
+        "description": "Remove my Slack webhook: my cards' pushes are logged only. A no-op when none is set.",
+        "operationId": "clear_slack_webhook_account_notifications_slack_webhook_delete",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        }
+      }
+    },
+    "/account/notifications/slack-webhook/test": {
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "summary": "Test Slack Webhook",
+        "description": "Send one plain test line to my saved Slack webhook and report whether Slack accepted it (`delivered`) with\na short `detail`. 404 when no webhook is saved. A delivery failure is an answer, never an error.",
+        "operationId": "test_slack_webhook_account_notifications_slack_webhook_test_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlackTestOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/theses": {
       "get": {
         "tags": [
@@ -33741,6 +33873,25 @@
         "title": "ProduceTermsRequest",
         "description": "Body for ``POST /theses/{id}/terms`` (optional). ``seeds`` are the operator-anchored canonical compounds\n(e.g. the known psychedelic compounds) \u2014 persisted as operator-authored SIGNAL, the recall guarantor against\nkeyword-gen non-determinism. Omitted / empty seeds -> regenerate preserves the thesis's EXISTING operator\nseeds and just re-rolls the LLM-proposed terms."
       },
+      "ProfileUpdate": {
+        "properties": {
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          }
+        },
+        "type": "object",
+        "required": [
+          "display_name",
+          "email"
+        ],
+        "title": "ProfileUpdate",
+        "description": "My display name and email. The name is trimmed and must not be empty; the email needs an `@` and must not\nbe another user's (case-insensitively)."
+      },
       "PromoteIngestRef": {
         "properties": {
           "job_id": {
@@ -38506,6 +38657,65 @@
         ],
         "title": "SharedNamesOut",
         "description": "The whole page. The counts are the work shown on its quiet line: every basket row on the live cards,\nthe Context / Bench rows a ``counting_only`` read left out, and the rows with no resolved security\n(counted, not matched)."
+      },
+      "SlackTestOut": {
+        "properties": {
+          "delivered": {
+            "type": "boolean",
+            "title": "Delivered"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "delivered",
+          "detail"
+        ],
+        "title": "SlackTestOut",
+        "description": "The test message's outcome: `delivered` when Slack answered 2xx, and a short plain `detail`."
+      },
+      "SlackWebhookIn": {
+        "properties": {
+          "url": {
+            "type": "string",
+            "title": "Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "title": "SlackWebhookIn",
+        "description": "A Slack incoming-webhook URL: it must start with `https://hooks.slack.com/`."
+      },
+      "SlackWebhookOut": {
+        "properties": {
+          "set": {
+            "type": "boolean",
+            "title": "Set"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "set"
+        ],
+        "title": "SlackWebhookOut",
+        "description": "Whether I have a Slack webhook set, and when it was last saved. The URL itself is never returned."
       },
       "Slice": {
         "properties": {

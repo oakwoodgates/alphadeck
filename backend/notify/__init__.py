@@ -19,6 +19,7 @@ or any other quiet move is recorded only. A SPAC announcement is ONE push listin
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from typing import Literal, Protocol
@@ -530,6 +531,26 @@ def _improved(event: TransitionEvent) -> str:
     return ", ".join(bits)
 
 
+def post_text(url: str, text: str, *, timeout: float | None = None) -> tuple[bool, str]:
+    """ONE incoming-webhook POST of ``{"text": text}`` — the Slack POST path every push and the Settings page's
+    test message share. Returns ``(delivered, detail)``: delivered when Slack answered 2xx; the detail is a short
+    plain line ("Slack answered 404", "could not reach Slack (ConnectError)") that never carries the URL (a
+    webhook URL is a credential). NEVER raises. ``timeout`` defaults to ``http_timeout_s``."""
+    try:
+        import httpx  # lazy (repo convention) — the package imports without a live HTTP client
+
+        if timeout is None:
+            timeout = get_settings().http_timeout_s
+        resp = httpx.post(url, json={"text": text}, timeout=timeout)
+        resp.raise_for_status()
+        return True, f"Slack answered {getattr(resp, 'status_code', '2xx')}"
+    except Exception as exc:  # noqa: BLE001 — best-effort delivery, never raises
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        if status is not None:
+            return False, f"Slack answered {status}"
+        return False, f"could not reach Slack ({type(exc).__name__})"
+
+
 class SlackNotifier:
     """The loud DELIVERY channel: an incoming-webhook POST, gated by inverse loudness (#7).
 
@@ -551,14 +572,22 @@ class SlackNotifier:
     contract holds for every other method here.
     """
 
-    def __init__(self, webhook_url: str | None = None) -> None:
-        self._log_sink = LogNotifier()  # the record — every transition, independent of the push
-        # a workspace's own destination (``tenant.notify_webhook``, docs/FEED_LOOP.md); None = the env webhook
-        self._webhook_url = webhook_url
+    def __init__(self, webhook_urls: Sequence[str] | None = None) -> None:
+        # the record — every transition, ONCE, however many URLs this notifier posts to: the sink is per
+        # NOTIFIER, never per URL (one sink per URL would write each transition N times — the double-log trap)
+        self._log_sink = LogNotifier()
+        # the users' own destinations (``user_meta.slack_webhook_url``, docs/FEED_LOOP.md); None = the env webhook
+        self._webhook_urls: tuple[str, ...] | None = (
+            None if webhook_urls is None else tuple(webhook_urls)
+        )
 
-    def _url(self) -> str | None:
-        """The webhook this notifier posts to: its workspace's own, else the env ``SLACK_WEBHOOK_URL``."""
-        return self._webhook_url or get_settings().slack_webhook_url
+    def _urls(self) -> tuple[str, ...]:
+        """The webhooks this notifier posts to: the ones it was given; else the env ``SLACK_WEBHOOK_URL`` when
+        set; else none."""
+        if self._webhook_urls is not None:
+            return self._webhook_urls
+        env = get_settings().slack_webhook_url
+        return (env,) if env else ()
 
     def notify(self, event: TransitionEvent) -> None:
         # (1) record every transition, always — before any push decision
@@ -607,21 +636,26 @@ class SlackNotifier:
         self._post(text, "edition", f"Edition {event.number}")
 
     def _post(self, text: str, what: str, subject: str) -> None:
-        """The one best-effort webhook POST every push shares. NEVER raises: a Slack outage / bad URL /
-        network error / 4xx-5xx is logged and swallowed, so it can never corrupt the record."""
+        """The one best-effort fan-out every push shares: ONE POST per URL (``post_text``), each fail-open on its
+        own, so one bad URL never starves the next. NEVER raises: a Slack outage / bad URL / network error /
+        4xx-5xx is logged (without the URL, a credential) and swallowed, so it can never corrupt the record.
+        """
         try:
-            import httpx  # lazy (repo convention) — the package imports without a live HTTP client
-
-            s = get_settings()
-            url = self._url()
-            if not url:  # defensive: no webhook => no push (the event is already logged)
-                return
-            resp = httpx.post(url, json={"text": text}, timeout=s.http_timeout_s)
-            resp.raise_for_status()
-        except Exception:  # noqa: BLE001 — best-effort delivery, never breaks the cron/record
-            _log.warning(
-                "slack %s failed for %s (fail-open, logged only)", what, subject, exc_info=True
-            )
+            urls = self._urls()
+        except Exception:  # noqa: BLE001 — a settings fault never breaks the cron/record
+            _log.warning("slack %s skipped for %s (fail-open, logged only)", what, subject)
+            return
+        for i, url in enumerate(urls):  # no webhook => no push (the event is already logged)
+            delivered, detail = post_text(url, text)
+            if not delivered:
+                _log.warning(
+                    "slack %s failed for %s to destination %d of %d: %s (fail-open, logged only)",
+                    what,
+                    subject,
+                    i + 1,
+                    len(urls),
+                    detail,
+                )
 
     def notify_health(self, event: HealthEvent) -> None:
         """R4 — the DURABLE page on a bad cron night. Unlike ``notify`` (which pushes only a→armed), EVERY
@@ -631,24 +665,11 @@ class SlackNotifier:
         """
         self._log_sink.notify_health(event)  # (1) record — always, before any push
         try:
-            import httpx  # lazy (repo convention)
-
-            s = get_settings()
-            url = self._url()
-            if not url:
-                return
-            resp = httpx.post(
-                url,
-                json={"text": f"🚨 {event.label}"},
-                timeout=s.http_timeout_s,
-            )
-            resp.raise_for_status()
-        except Exception:  # noqa: BLE001 — best-effort delivery, never breaks the cron
-            _log.warning(
-                "slack health notify failed for '%s' (fail-open, logged only)",
-                event.label,
-                exc_info=True,
-            )
+            text = f"🚨 {event.label}"
+        except Exception:  # noqa: BLE001 — a formatting fault never breaks the cron
+            _log.warning("slack health page could not format (fail-open, logged only)")
+            return
+        self._post(text, "health notify", f"'{event.label}'")
 
     def notify_spac_status(self, event: SpacStatusEvent) -> None:
         """A thesis-matched SPAC shell reached ``announced`` (a DA). ANNOUNCED-ONLY loudness (#7): the radar
@@ -660,24 +681,15 @@ class SlackNotifier:
         NEVER raise, so a delivery fault can never fail the radar leg or the cron that runs it."""
         self._log_sink.notify_spac_status(event)  # (1) record — always, before any push
         try:
-            import httpx  # lazy (repo convention)
-
-            s = get_settings()
-            url = self._url()
-            if not url:  # no webhook => no push (the page is already logged above)
-                return
-            resp = httpx.post(
-                url,
-                json={"text": self._format_spac(event)},
-                timeout=s.http_timeout_s,
-            )
-            resp.raise_for_status()
-        except Exception:  # noqa: BLE001 — best-effort delivery, never breaks the radar/cron
+            text = self._format_spac(event)
+        except Exception:  # noqa: BLE001 — a formatting fault never breaks the radar/cron
             _log.warning(
-                "slack spac-status notify failed for %s (fail-open, logged only)",
+                "slack spac-status page could not format %s (fail-open, logged only)",
                 event.label,
                 exc_info=True,
             )
+            return
+        self._post(text, "spac-status notify", event.label)
 
     @staticmethod
     def _format(event: TransitionEvent) -> str:
@@ -773,14 +785,17 @@ class SlackNotifier:
         return "\n".join(lines)
 
 
-def notifier_for_workspace(webhook_url: str | None, *, owner_is_super_admin: bool) -> Notifier:
-    """The notifier for ONE workspace's pushes (docs/FEED_LOOP.md): its own ``tenant.notify_webhook`` when set
-    (a Slack adapter on that URL); else the env ``SLACK_WEBHOOK_URL`` ONLY when the workspace's owner is a
-    super admin (the founding operator keeps today's channel); else the LogNotifier (the record only). A user
-    can therefore never receive the operator's channel by accident."""
-    if webhook_url:
-        return SlackNotifier(webhook_url)
-    if owner_is_super_admin and get_settings().slack_webhook_url:
+def notifier_for_workspace(urls: Sequence[str], *, has_super_admin: bool) -> Notifier:
+    """The notifier for ONE workspace's pushes (docs/FEED_LOOP.md step 3): every enabled user's own webhook
+    (``user_meta.slack_webhook_url``) when any is set — ONE Slack adapter over all of them (deduplicated, sorted),
+    so each push reaches every user once and the log records it once; else the env ``SLACK_WEBHOOK_URL`` ONLY
+    when the workspace holds an enabled super admin (the founding operator keeps today's channel with no manual
+    step); else the LogNotifier (the record only). A plain user's workspace can never reach the env channel.
+    """
+    unique = tuple(sorted({u for u in urls if u}))
+    if unique:
+        return SlackNotifier(unique)
+    if has_super_admin and get_settings().slack_webhook_url:
         return SlackNotifier()
     return LogNotifier()
 

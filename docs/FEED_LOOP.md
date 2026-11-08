@@ -531,11 +531,15 @@ the thesis's workspace. The pass refuses to start without the data tenant (`scop
    `LogNotifier` records every move — a loud log line + the summary's TRANSITIONS block, printed only when
    there are any — and the `SlackNotifier`, when `SLACK_WEBHOOK_URL` is set, pushes by the Q13 push policy
    below; a further channel is one adapter behind `get_notifier()`, zero cron rework). **The destination is per
-   WORKSPACE** (auth PR 2): the nightly builds the notifier for each card from its workspace — the workspace's own
-   `tenant.notify_webhook` (set with `python -m pipeline.users workspace set-webhook`) when set; else the env
-   `SLACK_WEBHOOK_URL` ONLY when the workspace's owner is a super admin (the founding operator keeps today's
-   channel); else the log notifier (the record, no push). The O4 digest is grouped by workspace and each group goes
-   to its own destination. The crash / health page and the run fingerprint keep the env notifier (an ops page
+   USER of the card's workspace** (migration 0079): the nightly reads, in ONE query at pass start
+   (`repositories.user_meta_repo.webhooks_by_workspace`), every ENABLED user's own webhook
+   (`user_meta.slack_webhook_url`, set on the Settings page, `/settings/notifications`, docs/AUTH.md) and builds
+   ONE Slack notifier per workspace over all of them (deduplicated: two users on one URL get one post; each URL
+   fail-open on its own; the log records each transition once, however many URLs). A workspace whose users set
+   no webhook reaches the env `SLACK_WEBHOOK_URL` ONLY when it holds an enabled super admin (the founding operator
+   keeps today's channel with no manual step); else the log notifier (the record, no push). A disabled user keeps
+   their setting and is skipped. The O4 digest is grouped by workspace and each group goes to every URL of that
+   workspace. The crash / health page and the run fingerprint keep the env notifier (an ops page
    carries counts and labels, never a card name). A user's workspace therefore can never reach the operator's channel. This
    is also the calls-log **material-change line**: clock/trigger churn versions the log via
    `record_if_changed` *without* being a transition; a state/verdict MOVE is what an operator would want
@@ -697,8 +701,8 @@ the thesis's workspace. The pass refuses to start without the data tenant (`scop
     ticker by its company name ("Acme Uranium Corp (no ticker)"); and if even the master read failed, by its
     security id. No format collapses names into a count.
   - **One SPAC push per announcement.** The radar's →announced page is ONE event per transitioned company,
-    listing every matched thesis and its matched terms (`radar.spac.announcements`), per WORKSPACE, to that
-    workspace's own destination (the per-thesis pushes' rule; the ops channel never carries a card name) and
+    listing every matched thesis and its matched terms (`radar.spac.announcements`), per WORKSPACE, to every
+    user of that workspace who set a webhook (the per-thesis pushes' rule; the ops channel never carries a card name) and
     naming only that workspace's cards; it used to page once per (company, thesis).
   - **Deliberately NOT a push:** an armed thesis whose armed-name count moves while its verdict holds still
     emits no `TransitionEvent` (the trigger is unchanged); its newly armed names reach the operator through

@@ -9,16 +9,16 @@ There is no sign-up page and no email delivery: the super admin creates every ac
     python -m pipeline.users disable --email bo@example.com        # sign-in refused; live sessions + tokens stop
     python -m pipeline.users enable --email bo@example.com         # the inverse
     python -m pipeline.users reset-password --email bo@example.com [--password-stdin]
-    python -m pipeline.users list                                  # email, role, workspace, created, disabled, sessions
-    python -m pipeline.users workspace set-webhook --workspace <uuid> --url https://hooks.slack.com/...
-    python -m pipeline.users workspace set-webhook --workspace <uuid> --clear
+    python -m pipeline.users list                                  # email, role, workspace, webhook, created, disabled, sessions
     python -m pipeline.users token create --email ana@example.com --name mcp    # prints the token ONCE
     python -m pipeline.users token revoke --id <token uuid>
 
 Every user has ONE workspace. ``create`` makes a NEW workspace named "<display name>'s workspace" by default;
 ``--workspace <uuid>`` attaches the user to an existing workspace and ``--founding`` to the founding workspace
 (the operator's, ``...0002``, where migration 0078 moved the founding rows). The two flags exclude each other.
-``workspace set-webhook`` sets the workspace's own push destination (``tenant.notify_webhook``); ``--clear`` unsets it.
+A user's Slack webhook (their own push destination, ``user_meta.slack_webhook_url``, migration 0079) is set by the
+user on the Settings page (``/settings/notifications``), never here: ``list`` shows only whether it is set (a
+``webhook`` flag per USER), never the URL.
 
 A generated password (20 characters) or a minted token is printed ONCE and never stored in the clear: the
 database keeps an argon2id hash (passwords) or a sha256 (tokens). ``list`` never prints a hash.
@@ -120,15 +120,6 @@ def _require_workspace(conn: psycopg.Connection, workspace_id: UUID) -> None:
         raise UserError(f"{workspace_id} is not a workspace")
 
 
-def set_webhook(conn: psycopg.Connection, workspace_id: UUID, url: str | None) -> None:
-    """Set (or, with ``None``, clear) a workspace's push destination. The URL must be http(s)."""
-    _require_workspace(conn, workspace_id)
-    if url is not None and not url.lower().startswith(("https://", "http://")):
-        raise UserError("the webhook URL must start with https:// (or http://)")
-    with conn.cursor() as cur:
-        cur.execute("UPDATE tenant SET notify_webhook = %s WHERE id = %s", (url, workspace_id))
-
-
 def set_disabled(conn: psycopg.Connection, email: str, disabled: bool) -> UUID:
     row = _require_user(conn, email)
     auth.set_disabled(conn, row["id"], disabled)
@@ -151,15 +142,17 @@ def reset_password(conn: psycopg.Connection, email: str, password: str | None = 
 
 
 def list_users(conn: psycopg.Connection) -> list[dict[str, Any]]:
-    """Every user with its live-session count. No hash ever leaves this function."""
+    """Every user with its live-session count and whether the user set a Slack webhook. No hash and no webhook
+    URL ever leaves this function."""
     with conn.cursor() as cur:
         cur.execute(
             "SELECT u.email, u.display_name, u.role, u.workspace_id, t.name AS workspace_name, "
-            "(t.notify_webhook IS NOT NULL) AS workspace_webhook, u.created_at, u.disabled_at, "
+            "(m.slack_webhook_url IS NOT NULL) AS webhook, u.created_at, u.disabled_at, "
             "(SELECT count(*) FROM user_session s WHERE s.user_id = u.id AND s.revoked_at IS NULL "
             " AND s.expires_at > now()) AS sessions, "
             "(SELECT count(*) FROM api_token t WHERE t.user_id = u.id AND t.revoked_at IS NULL) AS tokens "
-            "FROM app_user u JOIN tenant t ON t.id = u.workspace_id ORDER BY u.created_at, u.email"
+            "FROM app_user u JOIN tenant t ON t.id = u.workspace_id "
+            "LEFT JOIN user_meta m ON m.user_id = u.id ORDER BY u.created_at, u.email"
         )
         return list(cur.fetchall())
 
@@ -204,13 +197,6 @@ def _build_parser() -> argparse.ArgumentParser:
     r.add_argument("--email", required=True)
     r.add_argument("--password-stdin", action="store_true")
     sub.add_parser("list", help="every user (no hashes)")
-    w = sub.add_parser("workspace", help="a workspace's settings")
-    wsub = w.add_subparsers(dest="workspace_cmd", required=True)
-    ws = wsub.add_parser("set-webhook", help="set or clear the workspace's push (Slack) webhook")
-    ws.add_argument("--workspace", type=UUID, required=True)
-    wg = ws.add_mutually_exclusive_group(required=True)
-    wg.add_argument("--url", default=None)
-    wg.add_argument("--clear", action="store_true")
     t = sub.add_parser("token", help="API tokens")
     tsub = t.add_subparsers(dest="token_cmd", required=True)
     tc = tsub.add_parser("create", help="mint a bearer token (prints it once)")
@@ -265,15 +251,11 @@ def run(
             for u in list_users(conn):
                 emit(
                     f"{u['email']}\t{u['role']}\tworkspace {u['workspace_id']} ({u['workspace_name']})"
-                    f"{' webhook' if u['workspace_webhook'] else ''}\t"
+                    f"{' webhook' if u['webhook'] else ''}\t"
                     f"created {u['created_at']:%Y-%m-%d}\t"
                     f"{'disabled ' + format(u['disabled_at'], '%Y-%m-%d') if u['disabled_at'] else 'enabled'}\t"
                     f"sessions {u['sessions']}\ttokens {u['tokens']}"
                 )
-        elif args.cmd == "workspace" and args.workspace_cmd == "set-webhook":
-            set_webhook(conn, args.workspace, None if args.clear else args.url)
-            conn.commit()
-            emit(f"workspace {args.workspace}: webhook {'cleared' if args.clear else 'set'}")
         elif args.cmd == "token" and args.token_cmd == "create":
             tid, token = create_token(conn, args.email, args.name)
             conn.commit()

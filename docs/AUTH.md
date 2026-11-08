@@ -2,8 +2,9 @@
 
 Every route of the API sits behind a login. This page is the model, the roles, the three ways a caller is
 recognized, the user CLI, and the first-deploy order. Code: `backend/app/auth.py` (the gate),
-`backend/app/routers/auth.py` (the `/auth` routes), `backend/pipeline/users.py` (the CLI), migration
-`0077_auth.sql`; the guards are `backend/tests/app/test_auth_gate.py`.
+`backend/app/routers/auth.py` (the `/auth` routes), `backend/app/routers/account.py` (the `/account` routes the
+Settings page uses), `backend/pipeline/users.py` (the CLI), migrations `0077_auth.sql` and `0079_user_meta.sql`; the
+guards are `backend/tests/app/test_auth_gate.py`.
 
 **One private workspace per user.** Each user has a workspace (`app_user.workspace_id`, a `kind='workspace'`
 tenant): their theses, calls, decisions and ratified facts live there and no other user sees them; the companies,
@@ -18,6 +19,7 @@ cards on Admin as ids only.
 | `app_user` | `email` (unique case-insensitively), `display_name`, `password_hash` (argon2id; the password itself is never stored), `role` (`user` / `super_admin`), `workspace_id`, `created_at`, `disabled_at` |
 | `user_session` | one browser sign-in: the sha256 of the cookie's random token, `created_at`, `last_seen_at`, `expires_at` (the idle deadline), `revoked_at` |
 | `api_token` | one named bearer token: its sha256, `created_at`, `last_used_at`, `revoked_at` |
+| `user_meta` | the user's PREFERENCES, 1:1 with `app_user` (`user_id` PK; 0079): one typed column per setting, NULL = unset, a missing row = every setting unset; first `slack_webhook_url` (their own push destination), `created_at`, `updated_at`. Not the gate's table: nothing here rides into `/auth/me` |
 
 Tokens (session and API) are `secrets.token_urlsafe(32)` (256 bits); the database keeps only their sha256, so a
 read of these tables cannot be replayed as a credential. Nothing is deleted: sign-out, revocation and disabling
@@ -53,6 +55,23 @@ behind `require_user` (the generated contract `backend/openapi.json` is exported
 | `POST /auth/logout` | revokes this browser's session, clears the cookie |
 | `GET /auth/me` | `{id, email, display_name, role, workspace_id}` |
 | `POST /auth/change-password` | `{current, new}`; `new` needs at least 12 characters; every OTHER session of the user is signed out |
+| `PUT /account/profile` | `{display_name, email}` → the user (`/auth/me`'s shape). 400 on an empty name or an email with no `@`; 409 `that email is already in use` when another user has it (case-insensitively); changing only the case of your own email is allowed. Sessions and tokens stay signed in |
+| `GET /account/notifications/slack-webhook` | `{set, updated_at}`; the URL is NEVER returned, by this or any route (a webhook URL is a credential) |
+| `PUT /account/notifications/slack-webhook` | `{url}` → 204; the URL must start with `https://hooks.slack.com/` (400 otherwise); replaces any earlier one, stamps `updated_at` |
+| `DELETE /account/notifications/slack-webhook` | → 204; clears the URL (the row stays); a no-op when none is set |
+| `POST /account/notifications/slack-webhook/test` | → `{delivered, detail}`: one plain line ("Alpha Deck test message for <name>") through the real Slack POST path, 10 s timeout; a failure is `delivered: false`, never an error. 404 when none is saved |
+
+Every `/account` route acts on the caller's own rows (no user id in any path); the system token is refused (403).
+
+## The Settings page
+
+`/settings/profile` (display name + email, and the change-password form below them) and
+`/settings/notifications` (the user's own Slack webhook: a status line, a write-only URL field, Save, and when one is
+set Remove and Send a test message). `/settings` and an unknown tab go to `/settings/profile`; the old `/account`
+link redirects there too. Reached from the user menu ("Settings"), never a top tab. The tabs come from one registry
+(`frontend/src/settings/registry.ts`): a new settings page is one folder + one entry. What arrives on the webhook:
+a card of the user's arming or changing while armed, and the nightly digest; never the ops pages
+(`FEED_LOOP.md` step 3).
 
 ## The cookie and CSRF
 
@@ -73,7 +92,7 @@ state.
 | Admin page and every `/admin/*` route (cron status, backups, run-daily, splits, price-feed repairs, insider amendments, onboarding) | 403; the nav entry is hidden; typing `/admin` shows "stewards only" | yes |
 | Backtest page and `/backtest/*` | 403; hidden likewise | yes |
 | The business-type re-tag (`POST /workbench/securities/{id}/business-type`), a write to the SHARED company master | 403; the control is hidden | yes |
-| User and token management | own password only (`/account`) | the CLI |
+| User and token management | own name, email, password and Slack webhook only (`/settings`) | the CLI |
 
 The backend enforces every row; the frontend only hides what a role cannot use.
 
@@ -88,17 +107,16 @@ python -m pipeline.users create --email cy@example.com --display-name Cy --works
 python -m pipeline.users disable --email bo@example.com      # sign-in refused; live sessions + tokens stop at once
 python -m pipeline.users enable --email bo@example.com       # the inverse
 python -m pipeline.users reset-password --email bo@example.com [--password-stdin]   # also signs every session out
-python -m pipeline.users list                                # email, role, workspace, created, disabled, sessions, tokens; never a hash
+python -m pipeline.users list                                # email, role, workspace, webhook flag, created, disabled, sessions, tokens; never a hash
 python -m pipeline.users token create --email op@example.com --name mcp   # prints the token ONCE
 python -m pipeline.users token revoke --id <token uuid>
-python -m pipeline.users workspace set-webhook --workspace <uuid> --url https://hooks.slack.com/...   # that workspace's push channel
-python -m pipeline.users workspace set-webhook --workspace <uuid> --clear
 ```
 
 `create` makes a NEW workspace named "<display name>'s workspace" for each user unless `--workspace <uuid>` names an
 existing workspace or `--founding` attaches to the founding workspace `…0002` (the two flags exclude each other). A
 second `create` of an email that exists refuses and makes no workspace; it never overwrites. `list` shows each user's
-workspace id and name (and `webhook` when it has one; the URL is never printed). A workspace's pushes go to its own
+workspace id and name (and `webhook` when that USER set one on the Settings page; the URL is never printed). The CLI
+does not set webhooks: each user sets their own. A workspace's pushes go to every enabled user of it who set a
 webhook; with none set, the env `SLACK_WEBHOOK_URL` serves only a super admin's workspace, and every other workspace
 gets the log (`FEED_LOOP.md`).
 In a container: `docker exec -it alphadeck-backend-1 python -m pipeline.users …`.
@@ -110,7 +128,7 @@ In a container: `docker exec -it alphadeck-backend-1 python -m pipeline.users �
    cards, calls, decisions and ratified rows into the founding workspace `…0002`; the app refuses every request
    until the first user exists (no credential, no entry), and the nightly keeps running.
 3. **Create the operator:** `python -m pipeline.users create --email <operator> --display-name <name> --super-admin
-   --founding` (in the backend container; note the printed password, change it at `/account` after the first
+   --founding` (in the backend container; note the printed password, change it at `/settings/profile` after the first
    sign-in). `--founding` attaches the operator to the workspace holding their cards.
 4. **Mint the ops token:** `python -m pipeline.users token create --email <operator> --name ops`.
 5. **`.env`:** `ALPHADECK_OPS_TOKEN=<that token>` (the deploy script's `/admin/status` probes) and

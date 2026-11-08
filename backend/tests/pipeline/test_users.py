@@ -11,6 +11,7 @@ import pytest
 from app import auth
 from domain.scopes import DATA_TENANT_ID, FOUNDING_WORKSPACE_ID
 from pipeline import users
+from repositories import user_meta_repo
 
 
 @pytest.fixture
@@ -195,41 +196,40 @@ def test_a_refused_duplicate_creates_no_workspace(conn):
     assert _count(conn, "tenant") == before
 
 
-def test_list_shows_the_workspace_and_set_webhook_sets_and_clears_it(conn):
+def test_list_shows_the_workspace_and_a_per_user_webhook_flag_from_user_meta(conn):
     out: list[str] = []
     users.run(
         ["create", "--email", "l@example.test", "--display-name", "Lee test"], conn, emit=out.append
     )
-    ws = auth.find_user_by_email(conn, "l@example.test")["workspace_id"]
-    out.clear()
-    users.run(["list"], conn, emit=out.append)
-    assert f"workspace {ws} (Lee test's workspace)" in out[0] and "webhook" not in out[0]
-    url = "https://hooks.example.test/x"
-    assert (
-        users.run(
-            ["workspace", "set-webhook", "--workspace", str(ws), "--url", url],
-            conn,
-            emit=out.append,
-        )
-        == 0
-    )
-    with conn.cursor() as cur:
-        cur.execute("SELECT notify_webhook FROM tenant WHERE id = %s", (ws,))
-        assert cur.fetchone()["notify_webhook"] == url
-    out.clear()
-    users.run(["list"], conn, emit=out.append)
-    assert "webhook" in out[0] and url not in out[0]  # the URL is a secret: never printed
     users.run(
-        ["workspace", "set-webhook", "--workspace", str(ws), "--clear"], conn, emit=out.append
+        ["create", "--email", "m@example.test", "--display-name", "Mo test"], conn, emit=out.append
     )
-    with conn.cursor() as cur:
-        cur.execute("SELECT notify_webhook FROM tenant WHERE id = %s", (ws,))
-        assert cur.fetchone()["notify_webhook"] is None
-    assert (
+    lee = auth.find_user_by_email(conn, "l@example.test")
+    out.clear()
+    users.run(["list"], conn, emit=out.append)
+    assert f"workspace {lee['workspace_id']} (Lee test's workspace)" in out[0]
+    assert all("webhook" not in line for line in out)
+    url = "https://hooks.slack.com/services/TEST0000/TEST0000/invented-for-tests"
+    user_meta_repo.set_slack_webhook(conn, lee["id"], url)
+    conn.commit()
+    out.clear()
+    users.run(["list"], conn, emit=out.append)
+    lee_line = next(line for line in out if line.startswith("l@example.test"))
+    mo_line = next(line for line in out if line.startswith("m@example.test"))
+    assert "webhook" in lee_line and "webhook" not in mo_line  # per USER, not per workspace
+    assert all(url not in line for line in out)  # the URL is a secret: never printed
+    user_meta_repo.set_slack_webhook(conn, lee["id"], None)
+    conn.commit()
+    out.clear()
+    users.run(["list"], conn, emit=out.append)
+    assert all("webhook" not in line for line in out)
+
+
+def test_the_workspace_set_webhook_subcommand_is_gone(conn):
+    with pytest.raises(SystemExit):
         users.run(
-            ["workspace", "set-webhook", "--workspace", str(DATA_TENANT_ID), "--url", url],
+            ["workspace", "set-webhook", "--workspace", str(uuid4()), "--clear"],
             conn,
-            emit=out.append,
+            emit=lambda _line: None,
         )
-        == 1
-    )
+    assert not hasattr(users, "set_webhook")

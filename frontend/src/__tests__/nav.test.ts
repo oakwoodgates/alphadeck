@@ -6,10 +6,18 @@ import {
   dashboardsPath,
   homePath,
   scoreboardPath,
+  settingsPath,
   thesisPath,
   validAsof,
   workbenchPath,
 } from "../nav";
+
+describe("settingsPath", () => {
+  it("builds /settings/<tab> with ?asof= riding only when set", () => {
+    expect(settingsPath("profile", null)).toBe("/settings/profile");
+    expect(settingsPath("notifications", "2026-06-01")).toBe("/settings/notifications?asof=2026-06-01");
+  });
+});
 
 describe("validAsof — the ?asof= guard", () => {
   it("accepts a well-formed ISO date", () => {
