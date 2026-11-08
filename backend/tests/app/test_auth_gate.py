@@ -425,3 +425,35 @@ def test_only_hashes_are_stored(anon, db):
         assert cur.fetchone()["token_hash"] == auth.token_hash(cookie) != cookie
         cur.execute("SELECT token_hash FROM api_token")
         assert cur.fetchone()["token_hash"] == auth.token_hash(token) != token
+
+
+def test_the_hosted_mcp_route_is_gated_and_its_metadata_document_is_open(anon):
+    """The hosted agent tools endpoint (docs/AGENT_TOOLS.md §Hosted endpoint) adds two Starlette ``Route``s, not
+    ``APIRoute``s: they sit OUTSIDE the route-gate walk and the 401 sweep above BY DESIGN (neither appears in
+    ``app.openapi()``), so this test holds them to the rule instead. ``POST /mcp`` without a credential is 401 (the
+    SDK's bearer gate, whose verifier IS ``GET /auth/me``); the RFC 9728 protected-resource document is open by
+    nature (a client reads it to learn how to sign in). ``OPEN`` above is unchanged."""
+    pytest.importorskip("mcp")
+    from starlette.applications import Starlette
+
+    from agent_tools.hosted import build_hosted
+
+    hosted = build_hosted(app, public_origin="http://127.0.0.1:8000")
+    mounted = TestClient(
+        Starlette(routes=hosted.routes, lifespan=lambda _: hosted.lifespan()),
+        base_url="http://127.0.0.1:8000",
+    )
+    with mounted:
+        r = mounted.post(
+            "/mcp",
+            json={"jsonrpc": "2.0", "id": 1, "method": "ping"},
+            headers={"accept": "application/json, text/event-stream"},
+        )
+        assert r.status_code == 401
+        assert "resource_metadata=" in r.headers["www-authenticate"]
+        prm = mounted.get("/.well-known/oauth-protected-resource/mcp")
+        assert prm.status_code == 200
+        assert prm.json()["resource"] == "http://127.0.0.1:8000/mcp"
+    assert not any(
+        getattr(r, "path", None) == "/mcp" for r in app.routes
+    )  # unset origin: not mounted

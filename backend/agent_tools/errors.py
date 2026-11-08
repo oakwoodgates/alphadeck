@@ -22,6 +22,7 @@ CODES = frozenset(
         "api_rejected",
         "output_too_large",
         "internal_error",
+        "forbidden",
     }
 )
 RETRYABLE = frozenset({"backend_unavailable", "api_timeout", "api_error"})

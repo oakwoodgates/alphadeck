@@ -1,6 +1,8 @@
-"""The data-first Alpha Deck MCP server: fourteen read-only tools and seven prompts over stdio.
+"""The data-first Alpha Deck MCP server: fourteen read-only tools and seven prompts, over stdio or hosted
+(``hosted.py``).
 
-Each tool composes ``client -> resolve -> view -> fit``: it GETs the loopback API, resolves a thesis or ticker,
+Each tool composes ``client -> resolve -> view -> fit``: it asks ``client_for()`` for the API client of the running
+request (stdio: the one loopback client; hosted: a client carrying the caller's own bearer), GETs the API, resolves a thesis or ticker,
 shapes the API's JSON through a pure view (``views/``) and returns it as compact JSON text plus
 ``structuredContent``. Nothing here computes a state, a grade, a date or a number, and nothing writes.
 """
@@ -10,10 +12,13 @@ from __future__ import annotations
 import argparse
 import asyncio
 import inspect
+import json
 import logging
 import os
 import sys
 import time
+from collections.abc import Callable
+from contextvars import ContextVar
 from importlib import resources
 from typing import Annotated, Any, Literal
 
@@ -29,6 +34,15 @@ from .budget import OutputTooLarge
 from .client import DEFAULT_TIMEOUT_S, TOKEN_ENV, ApiClient, loopback_base, segment
 from .dashboard_args import check as check_dashboard_args
 from .errors import ToolFailure, compact
+from .principal import (
+    CURRENT_PRINCIPAL,
+    DEFAULT_PRINCIPAL,
+    KNOWN_SCOPES,
+    READ,
+    Principal,
+    scopes_for_role,
+)
+from .principal import current as current_principal
 from .prompt_args import PROMPT_NAMES, PROMPTS, PromptSpec
 from .resolve import match_thesis, resolve_asof, resolve_thesis, resolve_ticker
 from .views.call import view_call
@@ -49,7 +63,7 @@ from .views.thesis import view_thesis
 from .views.ticker import view_ticker
 
 NAME = "alphadeck"
-VERSION = "2.2.0"
+VERSION = "2.3.0"
 DEFAULT_BACKEND = "http://127.0.0.1:8001"
 path_seg = segment  # a tool parameter named ``segment`` shadows the path-segment encoder inside its handler
 log = logging.getLogger("agent_tools")
@@ -68,12 +82,32 @@ INSTRUCTIONS = (
     "morning-brief, board-review, explain-call, ticker-check, compare-rotation, ratify-queue (what is left to "
     "ratify on a card) and discovery-review (what discovery found). A Claude Code session cannot run these "
     "prompts itself: load the tools with one ToolSearch call and follow the same recipes in this "
-    "repository's alphadeck-agent skill."
+    "repository's alphadeck-agent skill. Over HTTP the server is mounted in the API at /mcp and signs each "
+    "request in with the caller's own token; every reply is that user's workspace only."
 )
 
 READ_ONLY = types.ToolAnnotations(
     readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
 )
+# The scope each registered tool needs (``register_tool`` records it). Every tool today is ``read``; a tool whose
+# scope the caller does not hold is neither listed nor callable (``AlphaDeckServer``).
+SCOPES: dict[str, str] = {}
+
+# What a tool handler asks for its API client: stdio hands back the one loopback client, hosted builds one per call
+# carrying the caller's bearer (``hosted.hosted_client_for``).
+ClientProvider = Callable[[], ApiClient]
+# The clients a provider opened for the running tool call; ``AlphaDeckServer.call_tool`` closes them when the call
+# ends (``track``). None outside a call.
+_OPENED: ContextVar[list[ApiClient] | None] = ContextVar("alphadeck_opened_clients", default=None)
+
+
+def track(client: ApiClient) -> ApiClient:
+    """Mark a client a provider opened for this one call, so the call closes it when it ends."""
+    opened = _OPENED.get()
+    if opened is not None:
+        opened.append(client)
+    return client
+
 
 AsofArg = Annotated[
     str | None,
@@ -217,14 +251,77 @@ def _invalid_message(error: ValidationError) -> str:
     return "Invalid arguments: " + "; ".join(parts[k] for k in sorted(parts)) + "."
 
 
+def _held(name: str, principal: Principal) -> bool:
+    return SCOPES.get(name, READ) in principal.scopes
+
+
+def _with_window_note(result: Any) -> Any:
+    """The reply with ``"nightly_window": true`` at its top level (structured content and the JSON text alike)."""
+    if not isinstance(result, types.CallToolResult):
+        return result
+    if isinstance(result.structured_content, dict):
+        payload = {**result.structured_content, "nightly_window": True}
+        return types.CallToolResult(
+            content=[types.TextContent(type="text", text=compact(payload))],
+            structured_content=payload,
+            is_error=result.is_error,
+        )
+    text = "".join(getattr(block, "text", "") for block in result.content or [])
+    try:
+        body = json.loads(text)
+    except ValueError:
+        return result
+    if not isinstance(body, dict):
+        return result
+    return types.CallToolResult(
+        content=[types.TextContent(type="text", text=compact({**body, "nightly_window": True}))],
+        is_error=result.is_error,
+    )
+
+
 class AlphaDeckServer(MCPServer):
     """``MCPServer`` whose every failure reaches the model as the compact error JSON, never SDK or exception
-    text; ``--trace`` logs one line per call (name, outcome, size, time), never content."""
+    text; ``--trace`` logs one line per call (name, outcome, size, time), never content.
+
+    The tool registry is scope-gated: ``tools/list`` shows only the tools whose scope (``SCOPES``) the current
+    principal holds, and ``tools/call`` of any other answers ``forbidden``. ``nightly_window`` (set by the hosted
+    build only) marks a reply inside the nightly window."""
 
     trace: bool = False
+    nightly_window: Callable[[], bool] | None = None
+
+    async def list_tools(self) -> list[types.Tool]:
+        principal = current_principal()
+        return [t for t in await super().list_tools() if _held(t.name, principal)]
 
     async def call_tool(self, name: str, arguments: dict[str, Any], context: Any = None) -> Any:
         started = time.monotonic()
+        opened = _OPENED.set([])
+        try:
+            result = await self._call(name, arguments, context)
+        finally:
+            for client in _OPENED.get() or []:
+                await client.aclose()
+            _OPENED.reset(opened)
+        if self.nightly_window is not None and self.nightly_window():
+            result = _with_window_note(result)
+        if self.trace:
+            text = "".join(
+                getattr(block, "text", "") for block in getattr(result, "content", []) or []
+            )
+            log.info(
+                "tool=%s ok=%s chars=%d ms=%d",
+                name,
+                not getattr(result, "is_error", False),
+                len(text),
+                int((time.monotonic() - started) * 1000),
+            )
+        return result
+
+    async def _call(self, name: str, arguments: dict[str, Any], context: Any) -> Any:
+        if name in SCOPES and not _held(name, current_principal()):
+            # the message never describes the tool: a caller without the scope learns only that it needs it
+            return _failure_result(ToolFailure("forbidden", "This tool needs the steward scope."))
         try:
             result = await super().call_tool(name, arguments, context)
         except UnexpectedToolError as exc:
@@ -248,17 +345,6 @@ class AlphaDeckServer(MCPServer):
             else:
                 failure = ToolFailure("invalid_arguments", f"Unknown tool {name!r}.")
             result = _failure_result(failure)
-        if self.trace:
-            text = "".join(
-                getattr(block, "text", "") for block in getattr(result, "content", []) or []
-            )
-            log.info(
-                "tool=%s ok=%s chars=%d ms=%d",
-                name,
-                not getattr(result, "is_error", False),
-                len(text),
-                int((time.monotonic() - started) * 1000),
-            )
         return result
 
 
@@ -313,14 +399,33 @@ def _prompt_handler(spec: PromptSpec):
     return render
 
 
-def build_server(client: ApiClient, *, trace: bool = False) -> AlphaDeckServer:
-    server = AlphaDeckServer(name=NAME, version=VERSION, instructions=INSTRUCTIONS)
+def register_tool(server: MCPServer, name: str, description: str, *, scope: str = READ):
+    """The one way a tool is registered: read-only annotations, structured output, and its scope in ``SCOPES``."""
+    if scope not in KNOWN_SCOPES:
+        raise ValueError(f"unknown scope {scope!r}")
+    SCOPES[name] = scope
+    return server.tool(
+        name=name, description=description, annotations=READ_ONLY, structured_output=True
+    )
+
+
+def build_server(
+    client_for: ClientProvider,
+    *,
+    trace: bool = False,
+    auth: Any = None,
+    token_verifier: Any = None,
+) -> AlphaDeckServer:
+    """The server over ``client_for`` (each tool call asks it for the API client to use). ``auth`` /
+    ``token_verifier`` are the SDK's, passed only by the hosted build (``hosted.py``)."""
+    extra: dict[str, Any] = {}
+    if auth is not None:
+        extra = {"auth": auth, "token_verifier": token_verifier}
+    server = AlphaDeckServer(name=NAME, version=VERSION, instructions=INSTRUCTIONS, **extra)
     server.trace = trace
 
-    def tool(name: str, description: str):
-        return server.tool(
-            name=name, description=description, annotations=READ_ONLY, structured_output=True
-        )
+    def tool(name: str, description: str, *, scope: str = READ):
+        return register_tool(server, name, description, scope=scope)
 
     @tool(
         "get_clock",
@@ -328,6 +433,7 @@ def build_server(client: ApiClient, *, trace: bool = False) -> AlphaDeckServer:
         "action_day (the session the operator can act in), market_today and market_tz.",
     )
     async def get_clock() -> Annotated[types.CallToolResult, ClockReply]:
+        client = client_for()
         clock, _ = await client.get("/clock")
         return _result({"asof": clock.get("current_night"), "source": "live", **clock})
 
@@ -360,6 +466,7 @@ def build_server(client: ApiClient, *, trace: bool = False) -> AlphaDeckServer:
         ] = None,
         cursor: CursorArg = 0,
     ) -> Annotated[types.CallToolResult, ThesesReply]:
+        client = client_for()
         night, clock = await resolve_asof(client, asof)
         if clock is None:
             clock, _ = await client.get("/clock")
@@ -392,6 +499,7 @@ def build_server(client: ApiClient, *, trace: bool = False) -> AlphaDeckServer:
         detail: Literal["summary", "full"] = "summary",
         cursor: CursorArg = 0,
     ) -> Annotated[types.CallToolResult, ThesisReply]:
+        client = client_for()
         theses, _ = await client.get("/theses", {"include_archived": True})
         ref = match_thesis(theses, thesis)
         archived = next((t.get("archived") for t in theses if str(t.get("id")) == ref["id"]), None)
@@ -422,6 +530,7 @@ def build_server(client: ApiClient, *, trace: bool = False) -> AlphaDeckServer:
         detail: Literal["brief", "standard"] = "standard",
         cursor: CursorArg = 0,
     ) -> Annotated[types.CallToolResult, CallReply]:
+        client = client_for()
         night, _ = await resolve_asof(client, asof)
         ref = await resolve_thesis(client, thesis)
         payload, _ = await client.get(
@@ -452,6 +561,7 @@ def build_server(client: ApiClient, *, trace: bool = False) -> AlphaDeckServer:
         asof: AsofArg = None,
         cursor: CursorArg = 0,
     ) -> Annotated[types.CallToolResult, FlagsReply]:
+        client = client_for()
         night, _ = await resolve_asof(client, asof)
         if thesis is None:
             payload, seconds = await client.get("/data-flags", {"asof": night})
@@ -487,6 +597,7 @@ def build_server(client: ApiClient, *, trace: bool = False) -> AlphaDeckServer:
         asof: AsofArg = None,
         cursor: CursorArg = 0,
     ) -> Annotated[types.CallToolResult, SignalsReply]:
+        client = client_for()
         night, _ = await resolve_asof(client, asof)
         ref = await resolve_thesis(client, thesis)
         payload, _ = await client.get(
@@ -507,6 +618,7 @@ def build_server(client: ApiClient, *, trace: bool = False) -> AlphaDeckServer:
     async def get_decisions(
         thesis: ThesisArg, cursor: CursorArg = 0
     ) -> Annotated[types.CallToolResult, DecisionsReply]:
+        client = client_for()
         ref = await resolve_thesis(client, thesis)
         payload, _ = await client.get(
             f"/theses/{segment(ref['id'])}/decisions",
@@ -531,6 +643,7 @@ def build_server(client: ApiClient, *, trace: bool = False) -> AlphaDeckServer:
         section: Literal["filings", "triggers", "catalysts"] | None = None,
         cursor: CursorArg = 0,
     ) -> Annotated[types.CallToolResult, TickerReply]:
+        client = client_for()
         night, _ = await resolve_asof(client, asof)
         resolved = await resolve_ticker(client, t)
         page, _ = await client.get(
@@ -604,6 +717,7 @@ def build_server(client: ApiClient, *, trace: bool = False) -> AlphaDeckServer:
             ),
         ] = None,
     ) -> Annotated[types.CallToolResult, DashboardReply]:
+        client = client_for()
         dash = DASHBOARDS[dashboard]
         given = {
             "since": since,
@@ -669,6 +783,7 @@ def build_server(client: ApiClient, *, trace: bool = False) -> AlphaDeckServer:
             str | None, Field(description="A ticker on the card (section=member).", max_length=24)
         ] = None,
     ) -> Annotated[types.CallToolResult, ResearchReply]:
+        client = client_for()
         tool_args.check(
             RESEARCH["get_triage"],
             asof=asof,
@@ -735,6 +850,7 @@ def build_server(client: ApiClient, *, trace: bool = False) -> AlphaDeckServer:
             Field(description="A placement's ticker or name (section=placement).", max_length=200),
         ] = None,
     ) -> Annotated[types.CallToolResult, ResearchReply]:
+        client = client_for()
         tool_args.check(
             RESEARCH["get_discovery"],
             asof=None,
@@ -803,6 +919,7 @@ def build_server(client: ApiClient, *, trace: bool = False) -> AlphaDeckServer:
             ),
         ] = None,
     ) -> Annotated[types.CallToolResult, ResearchReply]:
+        client = client_for()
         tool_args.check(
             RESEARCH["get_extract"],
             asof=None,
@@ -842,6 +959,7 @@ def build_server(client: ApiClient, *, trace: bool = False) -> AlphaDeckServer:
         ] = None,
         cursor: CursorArg = 0,
     ) -> Annotated[types.CallToolResult, ResearchReply]:
+        client = client_for()
         tool_args.check(
             RESEARCH["get_onboarding"], asof=None, section=section, narrows={}, given={}
         )
@@ -862,8 +980,28 @@ def build_server(client: ApiClient, *, trace: bool = False) -> AlphaDeckServer:
     return server
 
 
+async def stdio_principal(client: ApiClient) -> Principal:
+    """The stdio caller's principal, from ``GET /auth/me`` with the server's token: its role's scopes. Any failure
+    (no token, the API down, the system token) is the plain default, logged by its failure code only; the tools then
+    behave exactly as before (a missing token still fails per call with the 401 message)."""
+    try:
+        me, _ = await client.get("/auth/me")
+    except ToolFailure as failure:
+        log.warning("principal: /auth/me failed (%s); using the plain read scope", failure.code)
+        return DEFAULT_PRINCIPAL
+    if not isinstance(me, dict):
+        return DEFAULT_PRINCIPAL
+    subject = me.get("id")
+    return Principal(
+        scopes_for_role(me.get("role")),
+        str(subject) if subject is not None else None,
+        "pat",
+    )
+
+
 async def _serve(server: AlphaDeckServer, client: ApiClient) -> None:
     try:
+        CURRENT_PRINCIPAL.set(await stdio_principal(client))
         await server.run_stdio_async()
     finally:
         await client.aclose()
@@ -904,7 +1042,7 @@ def main() -> None:
     # the login door (docs/AUTH.md): the bearer token comes from the environment, never an argument (an argv is
     # visible to every process on the machine)
     client = ApiClient(base, timeout=args.timeout, token=os.environ.get(TOKEN_ENV))
-    asyncio.run(_serve(build_server(client, trace=args.trace), client))
+    asyncio.run(_serve(build_server(lambda: client, trace=args.trace), client))
 
 
 if __name__ == "__main__":

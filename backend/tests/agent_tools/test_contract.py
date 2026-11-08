@@ -142,7 +142,7 @@ def advertised():
     async def go():
         client = ApiClient("http://127.0.0.1:8001", transport=FakeApi().transport())
         try:
-            async with Client(server_mod.build_server(client)) as session:
+            async with Client(server_mod.build_server(lambda: client)) as session:
                 return (await session.list_prompts()).prompts
         finally:
             await client.aclose()
