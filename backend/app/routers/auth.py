@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from app import auth
 from app.auth import CurrentUser, require_user
 from app.db_conn import get_conn
-from app.schemas_api import ChangePasswordRequest, LoginRequest, MeOut
+from app.schemas_api import AuthMeOut, ChangePasswordRequest, LoginRequest, MeOut, MeTokenOut
 from domain.settings import get_settings
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -93,10 +93,19 @@ def logout(request: Request, conn: psycopg.Connection = Depends(get_conn)) -> Re
     return response
 
 
-@router.get("/me", response_model=MeOut)
-def me(user: CurrentUser = Depends(require_user)) -> MeOut:
-    """The signed-in caller: id, email, display name, role, workspace."""
-    return _me(user)
+@router.get("/me", response_model=AuthMeOut, response_model_exclude_none=True)
+def me(user: CurrentUser = Depends(require_user)) -> AuthMeOut:
+    """The signed-in caller: id, email, display name, role, workspace. A bearer also gets `token`: which kind it is
+    and its scopes (an app connected through the OAuth sign-in names its `client_id`). The hosted agent tools
+    endpoint reads this to know what the caller may do."""
+    token = None
+    if user.principal in ("token", "oauth"):
+        token = MeTokenOut(
+            principal=user.principal,  # type: ignore[arg-type]
+            client_id=user.client_id,
+            scopes=sorted(user.scopes),
+        )
+    return AuthMeOut(**_me(user).model_dump(), token=token)
 
 
 @router.post("/change-password", status_code=204)
@@ -110,6 +119,10 @@ def change_password(
     session of mine is signed out; this one stays signed in."""
     if user.principal == "system":
         raise HTTPException(status_code=403, detail="the system token has no password")
+    if (
+        user.principal == "oauth"
+    ):  # the gate refuses it first (auth.oauth_may); this is the second line
+        raise HTTPException(status_code=403, detail="a connected app cannot manage your account")
     row = auth.find_user_by_email(conn, user.email)
     if row is None or not auth.verify_password(row["password_hash"], req.current):
         raise HTTPException(status_code=400, detail="the current password is wrong")

@@ -7,6 +7,11 @@ Three principals reach the API:
   Idle expiry ``session_idle_days`` (slid forward on use, at most once per ``_TOUCH_EVERY``).
 * **token** — ``Authorization: Bearer <token>`` against ``api_token`` (sha256 only), minted by
   ``python -m pipeline.users token create``: the MCP agent tools, the deploy script's probes, curl.
+* **oauth** — ``Authorization: Bearer <token>`` against ``oauth_access_token`` (sha256 only): an app the user
+  connected through our OAuth sign-in (docs/CONNECTORS.md). Two rules, both here in the gate: a token without the
+  ``write`` scope (none carries it yet) answers 403 on every request that is not GET / HEAD / OPTIONS, and the
+  role is ``super_admin`` only when the user is one AND the token carries ``steward``. It never reaches
+  ``/account`` or ``/auth/change-password`` (a connected app never manages the account that connected it).
 * **system** — the ``ALPHADECK_SYSTEM_TOKEN`` env secret (the cron's dashboard warm-up). It can only READ:
   ``GET`` under ``/dashboards/``, ``/clock`` and ``/health``; anything else answers 403.
 
@@ -48,7 +53,23 @@ MIN_PASSWORD_LEN = 12
 # token, so a page that fires twenty reads costs one UPDATE, not twenty.
 _TOUCH_EVERY = timedelta(minutes=5)
 
-Principal = Literal["session", "token", "system"]
+Principal = Literal["session", "token", "oauth", "system"]
+
+# The scopes a caller holds (docs/CONNECTORS.md): a user's session and personal tokens hold their role's (``read``,
+# plus ``steward`` for a super admin); an OAuth token holds what the user granted the app; the system token holds
+# ``read``. ``write`` is the scope a non-GET request would need from an OAuth token: none carries it in this phase.
+READ_SCOPE = "read"
+STEWARD_SCOPE = "steward"
+WRITE_SCOPE = "write"
+_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+def scopes_for_role(role: str) -> frozenset[str]:
+    """``{"read"}``, plus ``"steward"`` for a ``super_admin`` (``agent_tools.principal.scopes_for_role``'s rule)."""
+    return (
+        frozenset({READ_SCOPE, STEWARD_SCOPE}) if role == "super_admin" else frozenset({READ_SCOPE})
+    )
+
 
 # argon2id with the library's current defaults (RFC 9106 low-memory profile). The PHC string carries its own
 # parameters, so a later change of defaults still verifies old hashes (and `check_needs_rehash` upgrades them).
@@ -66,6 +87,22 @@ class CurrentUser:
     role: str
     workspace_id: UUID
     principal: Principal
+    # empty = the role's own scopes (filled in below): only an OAuth token states its own
+    scopes: frozenset[str] = frozenset()
+    # the connected app, for an ``oauth`` principal only
+    client_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.scopes:
+            object.__setattr__(
+                self,
+                "scopes",
+                (
+                    frozenset({READ_SCOPE})
+                    if self.principal == "system"
+                    else scopes_for_role(self.role)
+                ),
+            )
 
     @property
     def is_super_admin(self) -> bool:
@@ -431,6 +468,38 @@ def _token_user(conn: psycopg.Connection, token: str) -> CurrentUser | None:
     return _user_from_row(row, "token")
 
 
+def _oauth_user(conn: psycopg.Connection, token: str) -> CurrentUser | None:
+    """The bearer as a live OAuth access token (``app.oauth.store.gate_lookup``), with its two rules' inputs: the
+    token's scopes, and the role capped by them."""
+    from app.oauth import store as oauth_store  # no MCP SDK import: the store is plain SQL
+
+    row = oauth_store.gate_lookup(conn, token)
+    if row is None:
+        return None
+    scopes = frozenset(row["oauth_scopes"])
+    role = "super_admin" if row["role"] == "super_admin" and STEWARD_SCOPE in scopes else "user"
+    return CurrentUser(
+        id=row["id"],
+        email=row["email"],
+        display_name=row["display_name"],
+        role=role,
+        workspace_id=row["workspace_id"],
+        principal="oauth",
+        scopes=scopes,
+        client_id=row["oauth_client_id"],
+    )
+
+
+def oauth_may(method: str, path: str, scopes: frozenset[str]) -> str | None:
+    """Why an ``oauth`` principal may NOT make this request (the 403 detail), or None when it may. A token without
+    ``write`` reads only; no OAuth token manages the account that connected it."""
+    if path == "/account" or path.startswith("/account/") or path == "/auth/change-password":
+        return "a connected app cannot manage your account"
+    if method.upper() not in _SAFE_METHODS and WRITE_SCOPE not in scopes:
+        return "this connected app can only read"
+    return None
+
+
 def _bearer(request: Request) -> str | None:
     raw = request.headers.get("authorization")
     if not raw:
@@ -449,7 +518,8 @@ def system_may(method: str, path: str) -> bool:
 
 
 def require_user(request: Request, conn: psycopg.Connection = Depends(get_conn)) -> CurrentUser:
-    """The gate on every router: the session cookie, else a bearer API token, else the system token; else 401.
+    """The gate on every router: the session cookie, else a bearer API token, else a bearer OAuth access token
+    (403 on any request ``oauth_may`` refuses), else the system token; else 401.
 
     The gate ENDS the transaction it opened (``commit``): its own reads and the occasional ``last_seen_at`` /
     ``last_used_at`` touch are committed before the route runs, so the route starts on an idle connection exactly
@@ -465,6 +535,12 @@ def require_user(request: Request, conn: psycopg.Connection = Depends(get_conn))
         if bearer:
             user = _token_user(conn, bearer)
             if user is not None:
+                return user
+            user = _oauth_user(conn, bearer)
+            if user is not None:
+                refused = oauth_may(request.method, request.url.path, user.scopes)
+                if refused is not None:
+                    raise HTTPException(status_code=403, detail=refused)
                 return user
             system = get_settings().system_token
             if system and hmac.compare_digest(bearer.encode("utf-8"), system.encode("utf-8")):

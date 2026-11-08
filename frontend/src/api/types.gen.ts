@@ -55,7 +55,9 @@ export interface paths {
         };
         /**
          * Me
-         * @description The signed-in caller: id, email, display name, role, workspace.
+         * @description The signed-in caller: id, email, display name, role, workspace. A bearer also gets `token`: which kind it is
+         *     and its scopes (an app connected through the OAuth sign-in names its `client_id`). The hosted agent tools
+         *     endpoint reads this to know what the caller may do.
          */
         get: operations["me_auth_me_get"];
         put?: never;
@@ -149,7 +151,8 @@ export interface paths {
         /**
          * Get Agents
          * @description How an AI client reaches my workspace here: whether this install has a public address and, if so, the
-         *     connector URL to give a client (the agent tools server signs in with my own access token).
+         *     connector URL to give a client (the agent tools server signs in with my own access token or my OAuth
+         *     sign-in), and whether that OAuth sign-in is available (`oauth`).
          */
         get: operations["get_agents_account_agents_get"];
         put?: never;
@@ -206,6 +209,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account/connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Connections
+         * @description The apps I connected to my account with the OAuth sign-in: live ones first, then disconnected ones, newest
+         *     first. `client_known` is false for an app that registered itself (its name is its own claim).
+         */
+        get: operations["list_connections_account_connections_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account/connections/{grant_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Disconnect
+         * @description Disconnect one app: every access and refresh token it holds stops working on its next request. A
+         *     disconnected app is a no-op (204). An app that is not mine, or no app at all, answers 404 alike.
+         */
+        delete: operations["disconnect_account_connections__grant_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account/notifications/slack-webhook/test": {
         parameters: {
             query?: never;
@@ -221,6 +266,36 @@ export interface paths {
          *     a short `detail`. 404 when no webhook is saved. A delivery failure is an answer, never an error.
          */
         post: operations["test_slack_webhook_account_notifications_slack_webhook_test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/oauth/consent/{consent_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Consent
+         * @description An app's pending sign-in request, for the consent page: the app's name, whether Alpha Deck ships with it,
+         *     each scope it asked for with whether my account can grant it, and the host Allow or Deny sends me back to.
+         *     Browser session only (403 for any bearer); 404 for an unknown id; 410 when it expired, was answered, or its
+         *     app was disabled.
+         */
+        get: operations["get_consent_oauth_consent__consent_id__get"];
+        put?: never;
+        /**
+         * Decide Consent
+         * @description Allow or deny an app's sign-in request; returns where to send the browser (the app's redirect URI with a
+         *     one-time code, or `access_denied`). Allow grants only the scopes my account can grant. Browser session only
+         *     (403 for any bearer); 404 unknown; 409 when it was already answered; 410 when it expired or its app was
+         *     disabled.
+         */
+        post: operations["decide_consent_oauth_consent__consent_id__post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4332,6 +4407,17 @@ export interface components {
             accession: string;
         };
         /**
+         * AdminOAuthClientsOut
+         * @description How many OAuth clients are registered: the `static` ones Alpha Deck ships with and the `dcr` ones that
+         *     registered themselves.
+         */
+        AdminOAuthClientsOut: {
+            /** Static */
+            static: number;
+            /** Dcr */
+            dcr: number;
+        };
+        /**
          * AdminPartialNightOut
          * @description One scheduled night the pass did not fully cover (M1): some thesis in that night's roster has no
          *     call-of-record recorded at/after the night's ``RUN_AT`` and no ``pipeline.backfill`` reconstruction
@@ -5437,6 +5523,9 @@ export interface components {
          *     should be 0: a card belongs to a workspace (migration 0078 moved the founding operator's cards out), and a
          *     card left on the data tenant is read by no workspace. The Admin page shows one loud line when it is not 0.
          *
+         *     ``oauth_clients`` (migration 0080) counts the registered OAuth clients, static and self-registered; ``null``
+         *     when the count could not be read. Read-only, never a cron verdict.
+         *
          *     A thesis NAME belongs to its workspace: wherever this status names a thesis outside the caller's own
          *     workspace (the feed-freshness panel, the late-only nights) it reads ``workspace <8 hex> · thesis <8 hex>``;
          *     tickers and security ids stay.
@@ -5467,6 +5556,7 @@ export interface components {
              * @default 0
              */
             data_tenant_theses: number;
+            oauth_clients?: components["schemas"]["AdminOAuthClientsOut"] | null;
         };
         /**
          * AdminSuccessorCandidateOut
@@ -5987,7 +6077,8 @@ export interface components {
          * AgentsOut
          * @description How an AI client reaches my workspace on this install. `hosted` is true when the app has a public address
          *     (the agent tools server answers at `connector_url`); `steward` is whether I am a super admin; `stdio_server`
-         *     is whether the local agent tools server exists (always, on every install).
+         *     is whether the local agent tools server exists (always, on every install); `oauth` is whether an AI client can
+         *     sign in here with my email and password (the OAuth sign-in is mounted).
          */
         AgentsOut: {
             /** Hosted */
@@ -5998,6 +6089,11 @@ export interface components {
             steward: boolean;
             /** Stdio Server */
             stdio_server: boolean;
+            /**
+             * Oauth
+             * @default false
+             */
+            oauth: boolean;
         };
         /**
          * AnnotatedNightOut
@@ -6036,6 +6132,33 @@ export interface components {
              * @default 1
              */
             n_rows: number;
+        };
+        /**
+         * AuthMeOut
+         * @description The signed-in caller. For a bearer, `token` says which kind and its scopes (and an app's `role` is
+         *     `super_admin` only when the user is one AND granted it `steward`); omitted for a browser session.
+         */
+        AuthMeOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Email */
+            email: string;
+            /** Display Name */
+            display_name: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "user" | "super_admin";
+            /**
+             * Workspace Id
+             * Format: uuid
+             */
+            workspace_id: string;
+            token?: components["schemas"]["MeTokenOut"] | null;
         };
         /**
          * Authorship
@@ -7418,6 +7541,92 @@ export interface components {
              * @description the market's zone, e.g. America/New_York
              */
             market_tz: string;
+        };
+        /**
+         * ConnectionListOut
+         * @description The apps connected to my account: live ones first, then disconnected ones, newest first within each.
+         */
+        ConnectionListOut: {
+            /** Connections */
+            connections: components["schemas"]["ConnectionOut"][];
+        };
+        /**
+         * ConnectionOut
+         * @description An app connected to my account. `scopes` are what I allowed; `last_used_at` is null when it never read
+         *     anything (updated at most every 5 minutes); `revoked_at` is set once I disconnected it.
+         */
+        ConnectionOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Client Name */
+            client_name: string;
+            /** Client Known */
+            client_known: boolean;
+            /** Scopes */
+            scopes: string[];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Last Used At */
+            last_used_at?: string | null;
+            /** Revoked At */
+            revoked_at?: string | null;
+        };
+        /** ConsentDecisionIn */
+        ConsentDecisionIn: {
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "allow" | "deny";
+        };
+        /**
+         * ConsentDecisionOut
+         * @description Where to send the browser next: the app's redirect URI with a one-time code (Allow) or `access_denied`
+         *     (Deny).
+         */
+        ConsentDecisionOut: {
+            /** Redirect To */
+            redirect_to: string;
+        };
+        /**
+         * ConsentOut
+         * @description A pending sign-in request from an app. `client_known` is true for a client Alpha Deck ships with (Claude,
+         *     Claude Code) and false for one that registered itself under `client_name`. `redirect_host` is where Allow or
+         *     Deny sends me back. The request expires at `expires_at` (ten minutes after the app asked).
+         */
+        ConsentOut: {
+            /** Client Name */
+            client_name: string;
+            /** Client Known */
+            client_known: boolean;
+            /** Scopes */
+            scopes: components["schemas"]["ConsentScopeOut"][];
+            /** Redirect Host */
+            redirect_host: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+        };
+        /**
+         * ConsentScopeOut
+         * @description One scope an app asked for: `label` is the consent page's words; `grantable` is false when my account cannot
+         *     grant it (the `steward` scope for a plain user), and Allow then leaves it out.
+         */
+        ConsentScopeOut: {
+            /** Name */
+            name: string;
+            /** Label */
+            label: string;
+            /** Grantable */
+            grantable: boolean;
         };
         /**
          * ContextRole
@@ -13484,6 +13693,23 @@ export interface components {
             workspace_id: string;
         };
         /**
+         * MeTokenOut
+         * @description The bearer a request signed in with: `token` (a personal access token) or `oauth` (an app connected through
+         *     the OAuth sign-in, with its `client_id`). `scopes` are what it may do: `read`, plus `steward` for a super admin's
+         *     token or an app the steward granted it.
+         */
+        MeTokenOut: {
+            /**
+             * Principal
+             * @enum {string}
+             */
+            principal: "token" | "oauth";
+            /** Client Id */
+            client_id?: string | null;
+            /** Scopes */
+            scopes: string[];
+        };
+        /**
          * MemberCallOut
          * @description One basket member's call in the per-member ranked menu (M5 Part A). `armed_members` is ranked
          *     (the headline is [0]); `watch_members` are confirmation-only ("moving, no conviction yet").
@@ -18928,7 +19154,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MeOut"];
+                    "application/json": components["schemas"]["AuthMeOut"];
                 };
             };
         };
@@ -19168,6 +19394,55 @@ export interface operations {
             };
         };
     };
+    list_connections_account_connections_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionListOut"];
+                };
+            };
+        };
+    };
+    disconnect_account_connections__grant_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                grant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     test_slack_webhook_account_notifications_slack_webhook_test_post: {
         parameters: {
             query?: never;
@@ -19184,6 +19459,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SlackTestOut"];
+                };
+            };
+        };
+    };
+    get_consent_oauth_consent__consent_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                consent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConsentOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decide_consent_oauth_consent__consent_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                consent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConsentDecisionIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConsentDecisionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

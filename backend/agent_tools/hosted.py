@@ -6,7 +6,9 @@ calls ``mount_hosted``; unset = nothing here is imported (docs/AGENT_TOOLS.md §
 * **The login door IS the verifier.** A bearer is valid when the API's own gate accepts it: ``MeVerifier`` asks
   ``GET /auth/me`` in-process (``httpx.ASGITransport``, no socket) with that bearer and nothing else, so a revoked
   token, a disabled user, the system token (403 at ``/auth/me``: it is not a user) and a session cookie alone are
-  all 401 here. No cache: a revocation bites on the next request.
+  all 401 here. No cache: a revocation bites on the next request. A personal access token is ``client_id="pat"``
+  with its role's scopes; an OAuth access token (docs/CONNECTORS.md) carries the connected app's client id and the
+  scopes the user granted, from ``/auth/me``'s ``token`` object.
 * **Every API read rides the caller's bearer.** ``hosted_client_for`` builds, per tool call, an ``ApiClient`` over
   the same in-process transport with the request's token; the API's gate then scopes it to the caller's own
   workspace. Nothing here names a tenant; the call closes the client when it ends (``server.track``).
@@ -99,6 +101,18 @@ class MeVerifier:
         if status == 200:
             try:
                 me = response.json()
+                info = me.get("token") or {}
+                if info.get("principal") == "oauth":
+                    # an app connected through the OAuth sign-in: its own client id and the scopes the user
+                    # granted it (the gate already capped the role by them)
+                    return AccessToken(
+                        token=token,
+                        client_id=str(info["client_id"]),
+                        scopes=sorted(str(s) for s in info["scopes"]),
+                        subject=str(me["id"]),
+                        resource=self.resource,
+                        expires_at=None,
+                    )
                 return AccessToken(
                     token=token,
                     client_id="pat",

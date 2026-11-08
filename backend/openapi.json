@@ -69,7 +69,7 @@
           "auth"
         ],
         "summary": "Me",
-        "description": "The signed-in caller: id, email, display name, role, workspace.",
+        "description": "The signed-in caller: id, email, display name, role, workspace. A bearer also gets `token`: which kind it is\nand its scopes (an app connected through the OAuth sign-in names its `client_id`). The hosted agent tools\nendpoint reads this to know what the caller may do.",
         "operationId": "me_auth_me_get",
         "responses": {
           "200": {
@@ -77,7 +77,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MeOut"
+                  "$ref": "#/components/schemas/AuthMeOut"
                 }
               }
             }
@@ -236,7 +236,7 @@
           "account"
         ],
         "summary": "Get Agents",
-        "description": "How an AI client reaches my workspace here: whether this install has a public address and, if so, the\nconnector URL to give a client (the agent tools server signs in with my own access token).",
+        "description": "How an AI client reaches my workspace here: whether this install has a public address and, if so, the\nconnector URL to give a client (the agent tools server signs in with my own access token or my OAuth\nsign-in), and whether that OAuth sign-in is available (`oauth`).",
         "operationId": "get_agents_account_agents_get",
         "responses": {
           "200": {
@@ -351,6 +351,65 @@
         }
       }
     },
+    "/account/connections": {
+      "get": {
+        "tags": [
+          "account"
+        ],
+        "summary": "List Connections",
+        "description": "The apps I connected to my account with the OAuth sign-in: live ones first, then disconnected ones, newest\nfirst. `client_known` is false for an app that registered itself (its name is its own claim).",
+        "operationId": "list_connections_account_connections_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionListOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/account/connections/{grant_id}": {
+      "delete": {
+        "tags": [
+          "account"
+        ],
+        "summary": "Disconnect",
+        "description": "Disconnect one app: every access and refresh token it holds stops working on its next request. A\ndisconnected app is a no-op (204). An app that is not mine, or no app at all, answers 404 alike.",
+        "operationId": "disconnect_account_connections__grant_id__delete",
+        "parameters": [
+          {
+            "name": "grant_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Grant Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/account/notifications/slack-webhook/test": {
       "post": {
         "tags": [
@@ -366,6 +425,102 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SlackTestOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oauth/consent/{consent_id}": {
+      "get": {
+        "tags": [
+          "oauth"
+        ],
+        "summary": "Get Consent",
+        "description": "An app's pending sign-in request, for the consent page: the app's name, whether Alpha Deck ships with it,\neach scope it asked for with whether my account can grant it, and the host Allow or Deny sends me back to.\nBrowser session only (403 for any bearer); 404 for an unknown id; 410 when it expired, was answered, or its\napp was disabled.",
+        "operationId": "get_consent_oauth_consent__consent_id__get",
+        "parameters": [
+          {
+            "name": "consent_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Consent Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsentOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "oauth"
+        ],
+        "summary": "Decide Consent",
+        "description": "Allow or deny an app's sign-in request; returns where to send the browser (the app's redirect URI with a\none-time code, or `access_denied`). Allow grants only the scopes my account can grant. Browser session only\n(403 for any bearer); 404 unknown; 409 when it was already answered; 410 when it expired or its app was\ndisabled.",
+        "operationId": "decide_consent_oauth_consent__consent_id__post",
+        "parameters": [
+          {
+            "name": "consent_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Consent Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConsentDecisionIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsentDecisionOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -8802,6 +8957,25 @@
         "title": "AdminNameChangeFilingOut",
         "description": "An 8-K carrying item 5.03 (an articles amendment \u2014 where a corporate name change is filed)."
       },
+      "AdminOAuthClientsOut": {
+        "properties": {
+          "static": {
+            "type": "integer",
+            "title": "Static"
+          },
+          "dcr": {
+            "type": "integer",
+            "title": "Dcr"
+          }
+        },
+        "type": "object",
+        "required": [
+          "static",
+          "dcr"
+        ],
+        "title": "AdminOAuthClientsOut",
+        "description": "How many OAuth clients are registered: the `static` ones Alpha Deck ships with and the `dcr` ones that\nregistered themselves."
+      },
       "AdminPartialNightOut": {
         "properties": {
           "asof": {
@@ -11015,6 +11189,16 @@
             "type": "integer",
             "title": "Data Tenant Theses",
             "default": 0
+          },
+          "oauth_clients": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdminOAuthClientsOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -11023,7 +11207,7 @@
           "cron"
         ],
         "title": "AdminStatusOut",
-        "description": "The admin page's one-GET summary: record freshness + the newest run + the cron verdict + the\nnewest DB snapshot + the feed-freshness panel. READ-ONLY \u2014 the endpoint owns no tables and writes\nnothing (test-proved; the ``last_backup`` join is a pure directory read, and ``tape`` is read from\nthe run artifacts). ``last_backup`` is ``None`` = the quiet \"no snapshots yet\" state; ``tape`` is\n``None`` until a pass has evaluated feed recency (the quiet \"not looked yet\" state).\n\n``backend_sha`` is this backend's OWN ``Settings.image_sha`` (``null`` = built without ``GIT_SHA``) and\n``cron_sha`` the ``code_sha`` the newest CRON-kind run artifact recorded (``null`` = unknown, or no\ncron pass has recorded its identity yet) \u2014 the pair the identity alarm compares (I1). The latest\nself-audit rides ``last_run.audit``.\n\nM1: ``last_run`` is the newest FINISHED pass (a pre-M1 artifact counts as finished); when the newest\nartifact is a pass that has not finished, ``unfinished_run`` describes it (``null`` otherwise).\n\n``split_defects`` (T4) is the split-basis panel \u2014 ``null`` until a finished live pass has scanned (a\npartial catch-up counts: the scan reads the whole basket union); a defect is a FEED problem (flag\nonly), so it never changes ``cron.status``.\n\n``price_repairs`` (T2 + Q8 + T3 + T7) is the \"Price feed repairs\" panel \u2014 renamed names with their\nsplice-verified successors to Adopt, unpriceable names to Set / Acknowledge / Remove, members whose\ncompany now files under a successor CIK to Adopt, the quiet closed and acknowledged names, and every\nstanding operator repair with its Undo. A feed matter, never the cron verdict.\n\n``splits_needs_review`` (split plan S1) is how many splits on the split list one source could not settle\n(one source only, a disagreement, an extractor abstain) \u2014 the \"Splits\" panel (``GET /admin/splits``) holds\nthem. ``null`` when the count could not be read; never a cron verdict.\n\n``fundamentals_set_aside`` (migration 0062) is how many stored fundamentals versions are set aside \u2014 the\nrevenue rows the data-quality screen would have refused, stored before it existed, which every read skips\n(``python -m pipeline.set_aside_fundamentals``). A quiet line; ``null`` when the count could not be read.\n\n``editions_nightly`` (editions S5) is the Scoreboard editions' nightly page job's one line, from its newest\napplied run artifact; ``null`` until that job has run (a directory read \u2014 no DB). Never a cron verdict.\n\n``missing_closes`` (2026-10-23) is the missing-closing-price flag: the night's quiet count line and, loud,\nany older session's close still missing after a later session's pass; ``null`` until a live pass has run\nthe check (a file read \u2014 no DB). Never paged, never a cron verdict.\n``editions_cut`` (editions S7) is the automatic cut's one line for seven days after it published the\nnewest edition (a DB read of that edition); ``null`` otherwise. Never a cron verdict.\n``master_refresh`` is the weekly company-list refresh's one line, from its newest applied run artifact\n(``data/master_runs``; a directory read \u2014 no DB); ``null`` until it has run. Never a cron verdict.\n\n``data_tenant_theses`` (auth PR 2) is how many ``thesis`` rows sit under the DATA tenant ``...0001``. It\nshould be 0: a card belongs to a workspace (migration 0078 moved the founding operator's cards out), and a\ncard left on the data tenant is read by no workspace. The Admin page shows one loud line when it is not 0.\n\nA thesis NAME belongs to its workspace: wherever this status names a thesis outside the caller's own\nworkspace (the feed-freshness panel, the late-only nights) it reads ``workspace <8 hex> \u00b7 thesis <8 hex>``;\ntickers and security ids stay."
+        "description": "The admin page's one-GET summary: record freshness + the newest run + the cron verdict + the\nnewest DB snapshot + the feed-freshness panel. READ-ONLY \u2014 the endpoint owns no tables and writes\nnothing (test-proved; the ``last_backup`` join is a pure directory read, and ``tape`` is read from\nthe run artifacts). ``last_backup`` is ``None`` = the quiet \"no snapshots yet\" state; ``tape`` is\n``None`` until a pass has evaluated feed recency (the quiet \"not looked yet\" state).\n\n``backend_sha`` is this backend's OWN ``Settings.image_sha`` (``null`` = built without ``GIT_SHA``) and\n``cron_sha`` the ``code_sha`` the newest CRON-kind run artifact recorded (``null`` = unknown, or no\ncron pass has recorded its identity yet) \u2014 the pair the identity alarm compares (I1). The latest\nself-audit rides ``last_run.audit``.\n\nM1: ``last_run`` is the newest FINISHED pass (a pre-M1 artifact counts as finished); when the newest\nartifact is a pass that has not finished, ``unfinished_run`` describes it (``null`` otherwise).\n\n``split_defects`` (T4) is the split-basis panel \u2014 ``null`` until a finished live pass has scanned (a\npartial catch-up counts: the scan reads the whole basket union); a defect is a FEED problem (flag\nonly), so it never changes ``cron.status``.\n\n``price_repairs`` (T2 + Q8 + T3 + T7) is the \"Price feed repairs\" panel \u2014 renamed names with their\nsplice-verified successors to Adopt, unpriceable names to Set / Acknowledge / Remove, members whose\ncompany now files under a successor CIK to Adopt, the quiet closed and acknowledged names, and every\nstanding operator repair with its Undo. A feed matter, never the cron verdict.\n\n``splits_needs_review`` (split plan S1) is how many splits on the split list one source could not settle\n(one source only, a disagreement, an extractor abstain) \u2014 the \"Splits\" panel (``GET /admin/splits``) holds\nthem. ``null`` when the count could not be read; never a cron verdict.\n\n``fundamentals_set_aside`` (migration 0062) is how many stored fundamentals versions are set aside \u2014 the\nrevenue rows the data-quality screen would have refused, stored before it existed, which every read skips\n(``python -m pipeline.set_aside_fundamentals``). A quiet line; ``null`` when the count could not be read.\n\n``editions_nightly`` (editions S5) is the Scoreboard editions' nightly page job's one line, from its newest\napplied run artifact; ``null`` until that job has run (a directory read \u2014 no DB). Never a cron verdict.\n\n``missing_closes`` (2026-10-23) is the missing-closing-price flag: the night's quiet count line and, loud,\nany older session's close still missing after a later session's pass; ``null`` until a live pass has run\nthe check (a file read \u2014 no DB). Never paged, never a cron verdict.\n``editions_cut`` (editions S7) is the automatic cut's one line for seven days after it published the\nnewest edition (a DB read of that edition); ``null`` otherwise. Never a cron verdict.\n``master_refresh`` is the weekly company-list refresh's one line, from its newest applied run artifact\n(``data/master_runs``; a directory read \u2014 no DB); ``null`` until it has run. Never a cron verdict.\n\n``data_tenant_theses`` (auth PR 2) is how many ``thesis`` rows sit under the DATA tenant ``...0001``. It\nshould be 0: a card belongs to a workspace (migration 0078 moved the founding operator's cards out), and a\ncard left on the data tenant is read by no workspace. The Admin page shows one loud line when it is not 0.\n\n``oauth_clients`` (migration 0080) counts the registered OAuth clients, static and self-registered; ``null``\nwhen the count could not be read. Read-only, never a cron verdict.\n\nA thesis NAME belongs to its workspace: wherever this status names a thesis outside the caller's own\nworkspace (the feed-freshness panel, the late-only nights) it reads ``workspace <8 hex> \u00b7 thesis <8 hex>``;\ntickers and security ids stay."
       },
       "AdminSuccessorCandidateOut": {
         "properties": {
@@ -12201,6 +12385,11 @@
           "stdio_server": {
             "type": "boolean",
             "title": "Stdio Server"
+          },
+          "oauth": {
+            "type": "boolean",
+            "title": "Oauth",
+            "default": false
           }
         },
         "type": "object",
@@ -12210,7 +12399,7 @@
           "stdio_server"
         ],
         "title": "AgentsOut",
-        "description": "How an AI client reaches my workspace on this install. `hosted` is true when the app has a public address\n(the agent tools server answers at `connector_url`); `steward` is whether I am a super admin; `stdio_server`\nis whether the local agent tools server exists (always, on every install)."
+        "description": "How an AI client reaches my workspace on this install. `hosted` is true when the app has a public address\n(the agent tools server answers at `connector_url`); `steward` is whether I am a super admin; `stdio_server`\nis whether the local agent tools server exists (always, on every install); `oauth` is whether an AI client can\nsign in here with my email and password (the OAuth sign-in is mounted)."
       },
       "AnnotatedNightOut": {
         "properties": {
@@ -12258,6 +12447,56 @@
         ],
         "title": "AnnotatedNightOut",
         "description": "One annotated night (D3b, F10): a (thesis, as-of) whose recorded row carries an ACTIVE ``exclude``\nannotation \u2014 a phantom arm, or a row dated a day with no market session \u2014 under the default reading it\nis set aside like a reconstructed night; under the ``include_annotated`` reading it is scored.\n``reasons`` are the annotation tokens (e.g. ``stale_comparative_revenue``, ``no_session_day``), ``rules``\nthe code identities that judged it (``d3a-first-knowability@<sha>``, ``no-session-night@<sha>``),\n``n_rows`` the annotated rows on the night."
+      },
+      "AuthMeOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "user",
+              "super_admin"
+            ],
+            "title": "Role"
+          },
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Workspace Id"
+          },
+          "token": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MeTokenOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "email",
+          "display_name",
+          "role",
+          "workspace_id"
+        ],
+        "title": "AuthMeOut",
+        "description": "The signed-in caller. For a bearer, `token` says which kind and its scopes (and an app's `role` is\n`super_admin` only when the user is one AND granted it `steward`); omitted for a browser session."
       },
       "Authorship": {
         "type": "string",
@@ -15230,6 +15469,179 @@
         ],
         "title": "ClockOut",
         "description": "The server's days, from one clock read in the market's zone."
+      },
+      "ConnectionListOut": {
+        "properties": {
+          "connections": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectionOut"
+            },
+            "type": "array",
+            "title": "Connections"
+          }
+        },
+        "type": "object",
+        "required": [
+          "connections"
+        ],
+        "title": "ConnectionListOut",
+        "description": "The apps connected to my account: live ones first, then disconnected ones, newest first within each."
+      },
+      "ConnectionOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "client_name": {
+            "type": "string",
+            "title": "Client Name"
+          },
+          "client_known": {
+            "type": "boolean",
+            "title": "Client Known"
+          },
+          "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Scopes"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "client_name",
+          "client_known",
+          "scopes",
+          "created_at"
+        ],
+        "title": "ConnectionOut",
+        "description": "An app connected to my account. `scopes` are what I allowed; `last_used_at` is null when it never read\nanything (updated at most every 5 minutes); `revoked_at` is set once I disconnected it."
+      },
+      "ConsentDecisionIn": {
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "allow",
+              "deny"
+            ],
+            "title": "Decision"
+          }
+        },
+        "type": "object",
+        "required": [
+          "decision"
+        ],
+        "title": "ConsentDecisionIn"
+      },
+      "ConsentDecisionOut": {
+        "properties": {
+          "redirect_to": {
+            "type": "string",
+            "title": "Redirect To"
+          }
+        },
+        "type": "object",
+        "required": [
+          "redirect_to"
+        ],
+        "title": "ConsentDecisionOut",
+        "description": "Where to send the browser next: the app's redirect URI with a one-time code (Allow) or `access_denied`\n(Deny)."
+      },
+      "ConsentOut": {
+        "properties": {
+          "client_name": {
+            "type": "string",
+            "title": "Client Name"
+          },
+          "client_known": {
+            "type": "boolean",
+            "title": "Client Known"
+          },
+          "scopes": {
+            "items": {
+              "$ref": "#/components/schemas/ConsentScopeOut"
+            },
+            "type": "array",
+            "title": "Scopes"
+          },
+          "redirect_host": {
+            "type": "string",
+            "title": "Redirect Host"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "client_name",
+          "client_known",
+          "scopes",
+          "redirect_host",
+          "expires_at"
+        ],
+        "title": "ConsentOut",
+        "description": "A pending sign-in request from an app. `client_known` is true for a client Alpha Deck ships with (Claude,\nClaude Code) and false for one that registered itself under `client_name`. `redirect_host` is where Allow or\nDeny sends me back. The request expires at `expires_at` (ten minutes after the app asked)."
+      },
+      "ConsentScopeOut": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "grantable": {
+            "type": "boolean",
+            "title": "Grantable"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "label",
+          "grantable"
+        ],
+        "title": "ConsentScopeOut",
+        "description": "One scope an app asked for: `label` is the consent page's words; `grantable` is false when my account cannot\ngrant it (the `steward` scope for a plain user), and Allow then leaves it out."
       },
       "ContextRole": {
         "type": "string",
@@ -29941,6 +30353,43 @@
         ],
         "title": "MeOut",
         "description": "The signed-in caller. `role` is `user` or `super_admin` (the data steward: Admin, Backtest, the\nbusiness-type re-tag). `workspace_id` is the one workspace every user sits on in this release."
+      },
+      "MeTokenOut": {
+        "properties": {
+          "principal": {
+            "type": "string",
+            "enum": [
+              "token",
+              "oauth"
+            ],
+            "title": "Principal"
+          },
+          "client_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Id"
+          },
+          "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Scopes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "principal",
+          "scopes"
+        ],
+        "title": "MeTokenOut",
+        "description": "The bearer a request signed in with: `token` (a personal access token) or `oauth` (an app connected through\nthe OAuth sign-in, with its `client_id`). `scopes` are what it may do: `read`, plus `steward` for a super admin's\ntoken or an app the steward granted it."
       },
       "MemberCallOut": {
         "properties": {

@@ -12,6 +12,11 @@ a second line, by each writer here.
 * ``GET /account/agents`` says how an AI client reaches the caller's workspace (the hosted connector URL when
   ``ALPHADECK_PUBLIC_ORIGIN`` is set); ``/account/tokens`` lists, creates (the token shown ONCE) and revokes the
   caller's own personal access tokens (docs/AGENT_TOOLS.md §Hosted endpoint). Another user's token is 404.
+* ``/account/connections`` lists the apps connected to the caller's account through the OAuth sign-in and
+  disconnects one (docs/CONNECTORS.md). Another user's connection is 404.
+
+An app connected through the OAuth sign-in (the ``oauth`` principal) never reaches this router: the gate refuses
+it (``auth.oauth_may``) and ``_refuse_system`` refuses it again here.
 """
 
 from __future__ import annotations
@@ -19,13 +24,16 @@ from __future__ import annotations
 from uuid import UUID
 
 import psycopg
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from app import auth
 from app.auth import CurrentUser, require_user
 from app.db_conn import get_conn
+from app.oauth import store as oauth_store
 from app.schemas_api import (
     AgentsOut,
+    ConnectionListOut,
+    ConnectionOut,
     MeOut,
     ProfileUpdate,
     SlackTestOut,
@@ -51,6 +59,8 @@ MAX_LIVE_TOKENS = 20
 def _refuse_system(user: CurrentUser) -> None:
     if user.principal == "system":
         raise HTTPException(status_code=403, detail="the system token has no account")
+    if user.principal == "oauth":
+        raise HTTPException(status_code=403, detail="a connected app cannot manage your account")
 
 
 @router.put("/profile", response_model=MeOut)
@@ -128,9 +138,10 @@ def clear_slack_webhook(
 
 
 @router.get("/agents", response_model=AgentsOut)
-def get_agents(user: CurrentUser = Depends(require_user)) -> AgentsOut:
+def get_agents(request: Request, user: CurrentUser = Depends(require_user)) -> AgentsOut:
     """How an AI client reaches my workspace here: whether this install has a public address and, if so, the
-    connector URL to give a client (the agent tools server signs in with my own access token)."""
+    connector URL to give a client (the agent tools server signs in with my own access token or my OAuth
+    sign-in), and whether that OAuth sign-in is available (`oauth`)."""
     _refuse_system(user)
     origin = get_settings().public_origin
     url = None
@@ -141,7 +152,11 @@ def get_agents(user: CurrentUser = Depends(require_user)) -> AgentsOut:
 
         url = connector_url(origin)
     return AgentsOut(
-        hosted=bool(origin), connector_url=url, steward=user.is_super_admin, stdio_server=True
+        hosted=bool(origin),
+        connector_url=url,
+        steward=user.is_super_admin,
+        stdio_server=True,
+        oauth=getattr(request.app.state, "oauth", None) is not None,
     )
 
 
@@ -205,6 +220,50 @@ def revoke_token(
         conn.rollback()
         raise HTTPException(status_code=404, detail="no such token")
     auth.revoke_api_token(conn, token_id)
+    conn.commit()
+    return Response(status_code=204)
+
+
+def _connection_out(row: dict) -> ConnectionOut:
+    return ConnectionOut(
+        id=row["id"],
+        client_name=row["client_name"] or row["client_id"],
+        client_known=row["registration"] == "static",
+        scopes=list(row["scopes"]),
+        created_at=row["created_at"],
+        last_used_at=row["last_used_at"],
+        revoked_at=row["revoked_at"],
+    )
+
+
+@router.get("/connections", response_model=ConnectionListOut)
+def list_connections(
+    user: CurrentUser = Depends(require_user),
+    conn: psycopg.Connection = Depends(get_conn),
+) -> ConnectionListOut:
+    """The apps I connected to my account with the OAuth sign-in: live ones first, then disconnected ones, newest
+    first. `client_known` is false for an app that registered itself (its name is its own claim)."""
+    _refuse_system(user)
+    rows = oauth_store.list_connections(conn, user.id)
+    conn.commit()  # end the read transaction
+    return ConnectionListOut(connections=[_connection_out(r) for r in rows])
+
+
+@router.delete("/connections/{grant_id}", status_code=204)
+def disconnect(
+    grant_id: UUID,
+    user: CurrentUser = Depends(require_user),
+    conn: psycopg.Connection = Depends(get_conn),
+) -> Response:
+    """Disconnect one app: every access and refresh token it holds stops working on its next request. A
+    disconnected app is a no-op (204). An app that is not mine, or no app at all, answers 404 alike.
+    """
+    _refuse_system(user)
+    row = oauth_store.get_grant(conn, grant_id)
+    if row is None or row["user_id"] != user.id:
+        conn.rollback()
+        raise HTTPException(status_code=404, detail="no such connection")
+    oauth_store.revoke_grant(conn, grant_id)
     conn.commit()
     return Response(status_code=204)
 

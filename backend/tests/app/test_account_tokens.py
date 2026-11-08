@@ -167,6 +167,7 @@ def test_agents_unhosted(two):
         "connector_url": None,
         "steward": False,
         "stdio_server": True,
+        "oauth": False,
     }
     assert two["s"].get("/account/agents").json()["steward"] is True
 
@@ -180,4 +181,5 @@ def test_agents_hosted(two, monkeypatch):
         "connector_url": "https://deck.example.com/mcp",
         "steward": False,
         "stdio_server": True,
+        "oauth": False,  # the AS is mounted only at boot (app.state.oauth): not in this test
     }
