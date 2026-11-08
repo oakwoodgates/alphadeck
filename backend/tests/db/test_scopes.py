@@ -149,11 +149,10 @@ def test_the_demo_default_is_the_data_tenant():
 
 def test_migration_0076_marks_the_one_data_tenant(db):
     with db.cursor() as cur:
-        cur.execute(
-            "SELECT kind, name, notify_webhook FROM tenant WHERE id = %s", (DATA_TENANT_ID,)
-        )
+        # 0076's notify_webhook column is gone since 0079 (the destination moved to user_meta)
+        cur.execute("SELECT kind, name FROM tenant WHERE id = %s", (DATA_TENANT_ID,))
         row = cur.fetchone()
-    assert row["kind"] == "data" and row["name"] == "platform" and row["notify_webhook"] is None
+    assert row["kind"] == "data" and row["name"] == "platform"
     new_workspace(db, "a workspace", workspace_id=W)
     with db.cursor() as cur:
         cur.execute("SELECT kind FROM tenant WHERE id = %s", (W,))

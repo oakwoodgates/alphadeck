@@ -127,6 +127,22 @@ def check_new_password(password: str) -> None:
         raise ValueError(f"a password needs at least {MIN_PASSWORD_LEN} characters")
 
 
+def check_email(email: str) -> str:
+    """The one email rule: trimmed, non-empty, with an ``@``. Returns the trimmed email; raises ``ValueError``."""
+    email = email.strip()
+    if not email or "@" not in email:
+        raise ValueError("an email address is required")
+    return email
+
+
+def check_display_name(display_name: str) -> str:
+    """The one display-name rule: trimmed and non-empty. Returns the trimmed name; raises ``ValueError``."""
+    display_name = display_name.strip()
+    if not display_name:
+        raise ValueError("a display name is required")
+    return display_name
+
+
 # --- users -------------------------------------------------------------------------------------------------------
 
 
@@ -163,11 +179,8 @@ def create_user(
     """
     if role not in ROLES:
         raise ValueError(f"role must be one of {ROLES}")
-    email = email.strip()
-    if not email or "@" not in email:
-        raise ValueError("an email address is required")
-    if not display_name.strip():
-        raise ValueError("a display name is required")
+    email = check_email(email)
+    display_name = check_display_name(display_name)
     check_new_password(password)
     if find_user_by_email(conn, email) is not None:
         raise ValueError(f"a user with email {email!r} already exists")
@@ -176,9 +189,31 @@ def create_user(
         cur.execute(
             "INSERT INTO app_user (id, email, display_name, password_hash, role, workspace_id) "
             "VALUES (%s, %s, %s, %s, %s, %s)",
-            (uid, email, display_name.strip(), hash_password(password), role, workspace_id),
+            (uid, email, display_name, hash_password(password), role, workspace_id),
         )
     return uid
+
+
+def update_profile(
+    conn: psycopg.Connection, user_id: UUID, *, display_name: str, email: str
+) -> dict[str, Any]:
+    """Change a user's display name and email (the Settings page's Profile tab). The rules are ``create_user``'s
+    (``check_display_name``, ``check_email``; ``ValueError``). Another user's email, case-insensitively, raises
+    ``psycopg.errors.UniqueViolation`` from the ``lower(email)`` index (the route answers 409; no pre-check that
+    could race); changing only the case of your own email is allowed. Sessions and tokens are untouched (the
+    session is the cookie, not the email). Returns the updated ``app_user`` row. The caller commits.
+    """
+    email = check_email(email)
+    display_name = check_display_name(display_name)
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE app_user SET email = %s, display_name = %s WHERE id = %s RETURNING *",
+            (email, display_name, user_id),
+        )
+        row = cur.fetchone()
+    if row is None:
+        raise ValueError("no such user")
+    return row
 
 
 def set_password(conn: psycopg.Connection, user_id: UUID, password: str) -> None:

@@ -3342,3 +3342,34 @@ class MeOut(BaseModel):
     display_name: str
     role: Literal["user", "super_admin"]
     workspace_id: UUID
+
+
+# --- the Settings page (app/routers/account.py, docs/AUTH.md §Settings page) ---
+
+
+class ProfileUpdate(BaseModel):
+    """My display name and email. The name is trimmed and must not be empty; the email needs an `@` and must not
+    be another user's (case-insensitively)."""
+
+    display_name: str
+    email: str
+
+
+class SlackWebhookOut(BaseModel):
+    """Whether I have a Slack webhook set, and when it was last saved. The URL itself is never returned."""
+
+    set: bool
+    updated_at: datetime | None = None
+
+
+class SlackWebhookIn(BaseModel):
+    """A Slack incoming-webhook URL: it must start with `https://hooks.slack.com/`."""
+
+    url: str
+
+
+class SlackTestOut(BaseModel):
+    """The test message's outcome: `delivered` when Slack answered 2xx, and a short plain `detail`."""
+
+    delivered: bool
+    detail: str

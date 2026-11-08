@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from app.auth import require_super_admin, require_user
 from app.health import HealthResponse, compute_health, enforce_boot_visibility
 from app.routers import (
+    account,
     admin,
     admin_insider_amendments,
     admin_onboarding,
@@ -73,6 +74,8 @@ _USER = [Depends(require_user)]
 _STEWARD = [Depends(require_super_admin)]
 # /auth decides per route: POST /auth/login is open, the rest carry require_user on their own decorators.
 app.include_router(auth.router)
+# the signed-in user's own settings (the Settings page, docs/AUTH.md)
+app.include_router(account.router, dependencies=_USER)
 app.include_router(theses.router, dependencies=_USER)
 # F1 — the server's current night / action day / today: the app's default as-of, never the browser's date
 app.include_router(clock.router, dependencies=_USER)

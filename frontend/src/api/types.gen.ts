@@ -87,6 +87,79 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Update Profile
+         * @description Change my display name and email. The name must not be empty and the email needs an `@` (400 otherwise);
+         *     an email another user already has, in any case, answers 409. Changing only the case of my own email is
+         *     allowed. My sessions and tokens stay signed in.
+         */
+        put: operations["update_profile_account_profile_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account/notifications/slack-webhook": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Slack Webhook
+         * @description Whether I have a Slack webhook set, and when I last saved it. The URL is never returned (it is a
+         *     credential).
+         */
+        get: operations["get_slack_webhook_account_notifications_slack_webhook_get"];
+        /**
+         * Set Slack Webhook
+         * @description Save my Slack incoming-webhook URL: armed calls and the nightly digest for my cards are pushed there. It
+         *     must start with `https://hooks.slack.com/` (400 otherwise). Replaces any URL saved before.
+         */
+        put: operations["set_slack_webhook_account_notifications_slack_webhook_put"];
+        post?: never;
+        /**
+         * Clear Slack Webhook
+         * @description Remove my Slack webhook: my cards' pushes are logged only. A no-op when none is set.
+         */
+        delete: operations["clear_slack_webhook_account_notifications_slack_webhook_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account/notifications/slack-webhook/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test Slack Webhook
+         * @description Send one plain test line to my saved Slack webhook and report whether Slack accepted it (`delivered`) with
+         *     a short `detail`. 404 when no webhook is saved. A delivery failure is an answer, never an error.
+         */
+        post: operations["test_slack_webhook_account_notifications_slack_webhook_test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/theses": {
         parameters: {
             query?: never;
@@ -14885,6 +14958,17 @@ export interface components {
             seeds: string[];
         };
         /**
+         * ProfileUpdate
+         * @description My display name and email. The name is trimmed and must not be empty; the email needs an `@` and must not
+         *     be another user's (case-insensitively).
+         */
+        ProfileUpdate: {
+            /** Display Name */
+            display_name: string;
+            /** Email */
+            email: string;
+        };
+        /**
          * PromoteIngestRef
          * @description The promote response's ingest kick (PR-4): a promote that ADDED members starts their back-half
          *     ingest (Form 4 + 8-K + 13D/G + EOD — the same per-thesis unit the cron runs, scoped to the new ids)
@@ -16847,6 +16931,34 @@ export interface components {
             pairs: components["schemas"]["SharedNamePairOut"][];
         };
         /**
+         * SlackTestOut
+         * @description The test message's outcome: `delivered` when Slack answered 2xx, and a short plain `detail`.
+         */
+        SlackTestOut: {
+            /** Delivered */
+            delivered: boolean;
+            /** Detail */
+            detail: string;
+        };
+        /**
+         * SlackWebhookIn
+         * @description A Slack incoming-webhook URL: it must start with `https://hooks.slack.com/`.
+         */
+        SlackWebhookIn: {
+            /** Url */
+            url: string;
+        };
+        /**
+         * SlackWebhookOut
+         * @description Whether I have a Slack webhook set, and when it was last saved. The URL itself is never returned.
+         */
+        SlackWebhookOut: {
+            /** Set */
+            set: boolean;
+            /** Updated At */
+            updated_at?: string | null;
+        };
+        /**
          * Slice
          * @description One ALGORITHM slice. ``key`` names only algorithm dimensions — see SLICE_KEYS.
          */
@@ -18705,6 +18817,128 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_profile_account_profile_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfileUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_slack_webhook_account_notifications_slack_webhook_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlackWebhookOut"];
+                };
+            };
+        };
+    };
+    set_slack_webhook_account_notifications_slack_webhook_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SlackWebhookIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    clear_slack_webhook_account_notifications_slack_webhook_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    test_slack_webhook_account_notifications_slack_webhook_test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlackTestOut"];
                 };
             };
         };

@@ -530,6 +530,26 @@ def _improved(event: TransitionEvent) -> str:
     return ", ".join(bits)
 
 
+def post_text(url: str, text: str, *, timeout: float | None = None) -> tuple[bool, str]:
+    """ONE incoming-webhook POST of ``{"text": text}`` — the Slack POST path every push and the Settings page's
+    test message share. Returns ``(delivered, detail)``: delivered when Slack answered 2xx; the detail is a short
+    plain line ("Slack answered 404", "could not reach Slack (ConnectError)") that never carries the URL (a
+    webhook URL is a credential). NEVER raises. ``timeout`` defaults to ``http_timeout_s``."""
+    try:
+        import httpx  # lazy (repo convention) — the package imports without a live HTTP client
+
+        if timeout is None:
+            timeout = get_settings().http_timeout_s
+        resp = httpx.post(url, json={"text": text}, timeout=timeout)
+        resp.raise_for_status()
+        return True, f"Slack answered {getattr(resp, 'status_code', '2xx')}"
+    except Exception as exc:  # noqa: BLE001 — best-effort delivery, never raises
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        if status is not None:
+            return False, f"Slack answered {status}"
+        return False, f"could not reach Slack ({type(exc).__name__})"
+
+
 class SlackNotifier:
     """The loud DELIVERY channel: an incoming-webhook POST, gated by inverse loudness (#7).
 
