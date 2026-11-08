@@ -14,7 +14,6 @@ import { Admin } from "./admin/Admin";
 import { AppHeader } from "./AppHeader";
 import { onUnauthorized } from "./api/authEvents";
 import { useClock, useMe, useTheses } from "./api/hooks";
-import { AccountPage } from "./auth/AccountPage";
 import { LoginPage } from "./auth/LoginPage";
 import { MeProvider, StewardsOnly, useIsSteward } from "./auth/me";
 import { Backtest } from "./backtest/Backtest";
@@ -33,11 +32,14 @@ import {
   editionFrom,
   homePath,
   railOpenFrom,
+  settingsPath,
   thesisPath,
   validAsof,
 } from "./nav";
 import { Radar } from "./radar/Radar";
 import { Scoreboard } from "./scoreboard/Scoreboard";
+import { isSettingsTab, SETTINGS_DEFAULT_TAB } from "./settings/registry";
+import { SettingsPage } from "./settings/SettingsPage";
 import { Workbench } from "./workbench/Workbench";
 
 // App is the routing shell: each route wrapper below translates the URL (path + params) into the
@@ -158,8 +160,22 @@ function AdminRoute() {
   return <Admin header={<AppHeader current="admin" />} />;
 }
 
-function AccountRoute() {
-  return <AccountPage header={<AppHeader current="account" />} />;
+/** /settings/:tab — the signed-in user's Settings page (docs/AUTH.md §Settings page). The tab is validated against
+ *  settings/registry.ts: absent or unknown lands on the default tab with the URL made canonical (the validAsof
+ *  idiom: absent and malformed are identical). Choosing a tab PUSHES (a tab is a sub-page, so Back walks tabs);
+ *  ?asof= rides along. */
+function SettingsRoute() {
+  const navigate = useNavigate();
+  const { tab } = useParams();
+  const { asofParam } = useAsof();
+  if (!isSettingsTab(tab)) return <Navigate to={settingsPath(SETTINGS_DEFAULT_TAB, asofParam)} replace />;
+  return (
+    <SettingsPage
+      header={<AppHeader current="settings" />}
+      tab={tab}
+      onSelectTab={(slug) => navigate(settingsPath(slug, asofParam))}
+    />
+  );
 }
 
 function RadarRoute() {
@@ -313,7 +329,9 @@ function AppRoutes() {
       <Route path="/scoreboard" element={<ScoreboardRoute />} />
       <Route path="/backtest" element={<BacktestRoute />} />
       <Route path="/admin" element={<AdminRoute />} />
-      <Route path="/account" element={<AccountRoute />} />
+      <Route path="/settings/:tab?" element={<SettingsRoute />} />
+      {/* the old change-password page: its links keep working */}
+      <Route path="/account" element={<Navigate to="/settings/profile" replace />} />
       <Route path="/radar" element={<RadarRoute />} />
       <Route path="/dashboards" element={<DashboardsIndexRoute />} />
       <Route path="/dashboards/:slug" element={<DashboardRoute />} />

@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { lazy } from "react";
-import { MemoryRouter, useLocation } from "react-router";
+import { MemoryRouter, useLocation, useNavigate } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "../App";
@@ -174,7 +174,26 @@ vi.mock("../cockpit/Cockpit", () => ({
     </div>
   ),
 }));
+// The Settings page: its header, the active tab, and one button per registry tab calling onSelectTab (the page's
+// own suite, settings/__tests__, renders the real tabs).
+vi.mock("../settings/SettingsPage", () => ({
+  SettingsPage: (p: any) => (
+    <div>
+      {p.header}
+      <h1>SETTINGS</h1>
+      <span data-testid="settings-tab">{p.tab}</span>
+      <button onClick={() => p.onSelectTab("profile")}>pick-profile</button>
+      <button onClick={() => p.onSelectTab("notifications")}>pick-notifications</button>
+    </div>
+  ),
+}));
 /* eslint-enable @typescript-eslint/no-explicit-any */
+
+// Back, as the browser's button would: one step back in the router's history
+function GoBack() {
+  const navigate = useNavigate();
+  return <button onClick={() => navigate(-1)}>browser-back</button>;
+}
 
 // prints the router's location, so a navigation is asserted on the URL itself
 function Where() {
@@ -188,6 +207,7 @@ function renderAt(url: string) {
       <MemoryRouter initialEntries={[url]}>
         <App />
         <Where />
+        <GoBack />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -672,5 +692,56 @@ describe("App routes — guards render on any URL", () => {
       expect(await screen.findByText(text)).toBeInTheDocument();
       unmount();
     }
+  });
+});
+
+describe("App routes — /settings/:tab", () => {
+  it("/settings renders the Profile tab with the URL made canonical", () => {
+    renderAt("/settings");
+    expect(screen.getByText("SETTINGS")).toBeInTheDocument();
+    expect(screen.getByTestId("settings-tab")).toHaveTextContent("profile");
+    expect(where()).toBe("/settings/profile");
+  });
+
+  it("/settings/notifications renders that tab", () => {
+    renderAt("/settings/notifications");
+    expect(screen.getByTestId("settings-tab")).toHaveTextContent("notifications");
+    expect(where()).toBe("/settings/notifications");
+  });
+
+  it("an unknown tab lands on Profile", () => {
+    renderAt("/settings/junk");
+    expect(screen.getByTestId("settings-tab")).toHaveTextContent("profile");
+    expect(where()).toBe("/settings/profile");
+  });
+
+  it("the old /account redirects to /settings/profile", () => {
+    renderAt("/account");
+    expect(screen.getByTestId("settings-tab")).toHaveTextContent("profile");
+    expect(where()).toBe("/settings/profile");
+  });
+
+  it("a tab click PUSHES (Back returns to the previous tab) and ?asof= rides", async () => {
+    const user = userEvent.setup();
+    renderAt("/settings/profile?asof=2026-06-01");
+    await user.click(screen.getByText("pick-notifications"));
+    expect(where()).toBe("/settings/notifications?asof=2026-06-01");
+    expect(screen.getByTestId("settings-tab")).toHaveTextContent("notifications");
+    await user.click(screen.getByText("browser-back"));
+    expect(where()).toBe("/settings/profile?asof=2026-06-01");
+    expect(screen.getByTestId("settings-tab")).toHaveTextContent("profile");
+  });
+
+  it("an unknown tab keeps ?asof= on the canonical URL", () => {
+    renderAt("/settings/junk?asof=2026-06-01");
+    expect(where()).toBe("/settings/profile?asof=2026-06-01");
+  });
+
+  it("the user menu's Settings link opens /settings/profile with ?asof= carried", async () => {
+    const user = userEvent.setup();
+    renderAt("/scoreboard?asof=2026-06-01");
+    await user.click(screen.getByText("Settings"));
+    expect(where()).toBe("/settings/profile?asof=2026-06-01");
+    expect(screen.getByText("SETTINGS")).toBeInTheDocument();
   });
 });

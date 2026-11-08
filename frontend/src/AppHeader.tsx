@@ -14,6 +14,7 @@ import {
   homePath,
   radarPath,
   scoreboardPath,
+  settingsPath,
   validAsof,
   workbenchPath,
 } from "./nav";
@@ -31,8 +32,8 @@ export type NavKey =
   | "backtest"
   | "radar"
   | "admin"
-  // /account (change password): reached from the user menu, never a tab
-  | "account";
+  // /settings/:tab (profile, notifications): reached from the user menu, never a tab
+  | "settings";
 
 // `steward`: rendered only for a super admin (docs/AUTH.md) — the API answers 403 to a plain user anyway.
 const LINKS: readonly {
@@ -120,15 +121,17 @@ export function AppHeader({ current, asof, onAsofChange }: Props) {
   );
 }
 
-/** The signed-in user (docs/AUTH.md): the display name, Change password (/account) and Sign out (revokes the
- *  session, clears the cache, lands on /login). Rendered only inside the signed-in shell. */
+/** The signed-in user (docs/AUTH.md): the display name, Settings (/settings/profile, carrying ?asof=) and Sign out
+ *  (revokes the session, clears the cache, lands on /login). Rendered only inside the signed-in shell. */
 function UserMenu({ displayName }: { displayName: string }) {
   const navigate = useNavigate();
   const logout = useLogout();
+  const [searchParams] = useSearchParams();
+  const asofParam = validAsof(searchParams.get(ASOF));
   return (
     <div className="user-menu">
       <span className="user-name">{displayName}</span>
-      <a onClick={() => navigate("/account")}>Change password</a>
+      <a onClick={() => navigate(settingsPath("profile", asofParam))}>Settings</a>
       <button
         type="button"
         disabled={logout.isPending}

@@ -190,14 +190,14 @@ describe("the login door", () => {
     expect(qc.getQueryData(["clock"])).toBeUndefined();
   });
 
-  it("Change password opens /account with the form", async () => {
+  it("Settings opens /settings/profile with the change-password form", async () => {
     routes["GET /auth/me"] = { status: 200, body: STEWARD };
     routes["POST /auth/change-password"] = { status: 204 };
     renderAt("/radar");
     expect(await screen.findByText("RADAR PAGE")).toBeInTheDocument();
     const user = userEvent.setup();
-    await user.click(screen.getByText("Change password"));
-    expect(where()).toBe("/account");
+    await user.click(screen.getByText("Settings"));
+    expect(where()).toBe("/settings/profile");
     await user.type(screen.getByLabelText("Current password"), "the old passphrase");
     await user.type(screen.getByLabelText("New password"), "a new passphrase!");
     await user.type(screen.getByLabelText("New password again"), "a new passphrase!");

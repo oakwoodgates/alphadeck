@@ -10,6 +10,9 @@
 //   /dashboards/:slug    one dashboard (its dashboards/<slug>/entry.ts, collected by dashboards/registry.ts);
 //                        /dashboards/board is the Board
 //   /thesis/:thesisId    the Cockpit (singular, deliberately outside the API's /theses namespace)
+//   /settings/:tab       the signed-in user's Settings page, one tab per settings/registry.ts entry
+//                        (/settings/profile, /settings/notifications); /settings and an unknown tab go to
+//                        /settings/profile; the old /account redirects there too. Reached from the user menu
 //   ?asof=YYYY-MM-DD     any view; absent or malformed = today
 //   ?name=<key>          Cockpit only; the NamePanel open on that member (ticker or security_id)
 //   ?rail=0              Cockpit only; the call rail collapsed (absent = open, the default)
@@ -69,6 +72,11 @@ export const homePath = (asof: string | null) => withParams("/", { [ASOF]: asof 
 export const scoreboardPath = (asof: string | null) => withParams("/scoreboard", { [ASOF]: asof });
 
 export const workbenchPath = (asof: string | null) => withParams("/workbench", { [ASOF]: asof });
+
+// The Settings page (settings/registry.ts names the tabs): a "now" surface with no as-of dial, but the param rides
+// along so leaving Settings keeps the operator's as-of elsewhere.
+export const settingsPath = (tab: string, asof: string | null) =>
+  withParams(`/settings/${encodeURIComponent(tab)}`, { [ASOF]: asof });
 
 /** The selected backtest run (?run=<run_id>) — a run is a shareable link. */
 export const RUN = "run";
