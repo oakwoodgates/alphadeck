@@ -63,7 +63,7 @@ from .views.thesis import view_thesis
 from .views.ticker import view_ticker
 
 NAME = "alphadeck"
-VERSION = "2.3.0"
+VERSION = "2.4.0"
 DEFAULT_BACKEND = "http://127.0.0.1:8001"
 path_seg = segment  # a tool parameter named ``segment`` shadows the path-segment encoder inside its handler
 log = logging.getLogger("agent_tools")
@@ -81,9 +81,9 @@ INSTRUCTIONS = (
     "advisory: it times signals and never sizes, routes or judges a thesis. Guided reads (prompts): "
     "morning-brief, board-review, explain-call, ticker-check, compare-rotation, ratify-queue (what is left to "
     "ratify on a card) and discovery-review (what discovery found). A Claude Code session cannot run these "
-    "prompts itself: load the tools with one ToolSearch call and follow the same recipes in this "
-    "repository's alphadeck-agent skill. Over HTTP the server is mounted in the API at /mcp and signs each "
-    "request in with the caller's own token; every reply is that user's workspace only."
+    "prompts: load the tools with one ToolSearch call and follow the same recipes in this "
+    "repository's alphadeck-agent skill. Over HTTP, mounted in the API at /mcp, it signs each "
+    "request in with the caller's own token or OAuth sign-in; every reply is that user's workspace only."
 )
 
 READ_ONLY = types.ToolAnnotations(

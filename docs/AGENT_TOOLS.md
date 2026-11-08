@@ -263,12 +263,14 @@ workspace: the API's login door signs each request in.
   { "mcpServers": { "alphadeck-http": { "type": "http", "url": "https://deck.example.com/mcp",
       "headers": { "Authorization": "Bearer ${ALPHADECK_MCP_TOKEN}" } } } }
   ```
-- **No OAuth yet.** A client that only connects through an OAuth sign-in (claude.ai, ChatGPT, Grok custom
-  connectors) cannot connect in this phase. A 401 carries
-  `WWW-Authenticate: Bearer ... resource_metadata="<origin>/.well-known/oauth-protected-resource/mcp"` and that
-  RFC 9728 document is served (`resource` = the connector URL, `authorization_servers` = the origin, as the SDK
-  spells it with a trailing slash, `scopes_supported` = `read`, `steward`), but nothing answers at an authorization
-  server yet.
+- **The OAuth sign-in:** a client that connects through OAuth (claude.ai's custom connectors, Claude Code's
+  `/mcp` sign-in; ChatGPT and Grok in a later phase) signs the user in on OUR consent page and gets a one-hour
+  access token the endpoint verifies the same way (`GET /auth/me`; the `oauth` principal, read-only, its scopes the
+  ones the user allowed). A 401 carries
+  `WWW-Authenticate: Bearer ... resource_metadata="<origin>/.well-known/oauth-protected-resource/mcp"`; that RFC 9728
+  document (`resource` = the connector URL, `authorization_servers` = the origin, as the SDK spells it with a
+  trailing slash, `scopes_supported` = `read`, `steward`) points at our authorization server, whose RFC 8414 document
+  names the same issuer. The flow, the clients, the tables and revocation: [`CONNECTORS.md`](CONNECTORS.md).
 - **Scopes:** every tool needs `read`, which every user holds; `steward` (a `super_admin`) is reserved for later
   steward tools. A tool whose scope the caller lacks is not listed and answers `forbidden`. Today a steward lists
   the same 14 tools as anyone.
@@ -276,8 +278,9 @@ workspace: the API's login door signs each request in.
   its top level (a note, never a refusal): the nightly pass is writing the record. The stdio server leaves the rule
   to its caller (the skill).
 - **nginx** (`frontend/nginx.conf`): `location = /mcp` (exact, never a prefix: a redirect to `/mcp/` would strip
-  the Authorization header; buffering off for event-stream replies; 300 s timeouts) and
-  `location ^~ /.well-known/oauth-protected-resource`, both straight to the backend without the `/api` prefix.
+  the Authorization header; buffering off for event-stream replies; 300 s timeouts),
+  `location ^~ /.well-known/oauth-protected-resource`, and the authorization server's five exact locations
+  ([`CONNECTORS.md`](CONNECTORS.md)), all straight to the backend without the `/api` prefix.
   `GET /mcp` answers 405 (stateless: there is no server-initiated stream to open); `POST /mcp` is never redirected.
 - **Transport checks:** the `Host` header must be the origin's host (bare, or with any port; the SDK matches a
   value exactly or `host:*` as `host:` plus any port) and a browser `Origin`, when sent, must be the origin.
@@ -287,7 +290,7 @@ workspace: the API's login door signs each request in.
 An MCP client keeps the tool schemas it loaded when it connected. After this server's tools change (a new
 argument, a renamed field, a new tool), reconnect the server in the client (in Claude Code: `/mcp`, then
 reconnect, or restart the session); otherwise the model keeps calling the old contract. The server's advertised
-version (`alphadeck` `2.3.0`) changes with its contract: a tool or prompt added or removed, or a description
+version (`alphadeck` `2.4.0`) changes with its contract: a tool or prompt added or removed, or a description
 whose meaning changes, bumps the MINOR. A client sees the version at `initialize`; a running Claude Code session keeps
 the schemas it loaded, and a fresh session reads the new ones.
 
