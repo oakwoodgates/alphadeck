@@ -129,7 +129,7 @@ def test_a_real_three_thesis_announcement_is_ONE_page(db):
     result = RadarRunResult()
     _notify_announced(
         db,
-        cap,
+        lambda _ws: cap,
         {},
         EVENTS,
         MATCHES,
@@ -169,7 +169,7 @@ def test_a_match_on_an_ARCHIVED_thesis_is_left_off_the_page(db):
     cap = _Capture()
     _notify_announced(
         db,
-        cap,
+        lambda _ws: cap,
         {},
         EVENTS,
         MATCHES,

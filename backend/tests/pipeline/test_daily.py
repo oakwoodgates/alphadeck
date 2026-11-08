@@ -7,6 +7,7 @@ dedups on read, so a duplicate append hides behind a correct read while the tabl
 
 from __future__ import annotations
 
+import inspect
 import json
 import uuid
 from datetime import date, datetime, time, timedelta, timezone
@@ -21,6 +22,7 @@ from domain.call import CallCard, KeyState, MemberCall, TriggerRef
 from domain.config import DEFAULT_CONFIG, config_hash
 from domain.enums import Grade, Kind, State, Verdict
 from domain.feed_kinds import StaleFeedLabel
+from domain.scopes import WORKSPACE_ANY
 from domain.settings import get_settings
 from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
 from ingest.edgar.form4 import ingest_form4
@@ -35,6 +37,7 @@ from pipeline.rename_probe import RenameProbe
 from pipeline.split_basis import SplitScan
 from pipeline.split_jumps import JumpScan
 from pipeline.successor_cik import SuccessorScan
+from radar.spac import run_spac_radar as _real_run_spac_radar
 from repositories import calls_repo, price_feed_repo
 from tests import price_feed_fixtures as fx
 
@@ -770,7 +773,11 @@ def _prime_pass(monkeypatch, *, bench_raises=False, sweep_raises=False):
     monkeypatch.setattr(daily, "run_amendment_sweep", _amend_sweep)
 
     def _radar(conn, **k):
+        # bind against the REAL signature first: the leg swallows exceptions, so a missing/unknown keyword
+        # must surface as a MISSING call (the call-count assertions below fail), never as a green pass
+        inspect.signature(_real_run_spac_radar).bind(conn, **k)
         order.append("spac_radar")
+        seen["spac_radar"] = k
         calls["spac_radar"] += 1
         return SimpleNamespace(summary="stub", errors=[])
 
@@ -939,6 +946,17 @@ def test_pass_runs_shell_sweep_BEFORE_the_radar_leg(monkeypatch):
     daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
     assert calls["shell_sweep"] == 1 and calls["spac_radar"] == 1
     assert order.index("shell_sweep") < order.index("spac_radar")
+
+
+def test_spac_radar_leg_calls_the_real_signature_with_a_workspace_resolver(monkeypatch):
+    # the leg passes workspace=WORKSPACE_ANY and a per-workspace resolver, never the env/ops notifier
+    _, calls, seen = _prime_pass(monkeypatch)
+    daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
+    assert calls["spac_radar"] == 1
+    k = seen["spac_radar"]
+    assert k["workspace"] is WORKSPACE_ANY
+    assert callable(k["notifier_for"])
+    assert "notifier" not in k
 
 
 def test_pass_shell_sweep_failure_is_FAIL_OPEN_radar_still_runs(monkeypatch):

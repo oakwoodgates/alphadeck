@@ -697,8 +697,9 @@ the thesis's workspace. The pass refuses to start without the data tenant (`scop
     ticker by its company name ("Acme Uranium Corp (no ticker)"); and if even the master read failed, by its
     security id. No format collapses names into a count.
   - **One SPAC push per announcement.** The radar's →announced page is ONE event per transitioned company,
-    listing every matched thesis and its matched terms (`radar.spac.announcements`); it used to page once
-    per (company, thesis).
+    listing every matched thesis and its matched terms (`radar.spac.announcements`), per WORKSPACE, to that
+    workspace's own destination (the per-thesis pushes' rule; the ops channel never carries a card name) and
+    naming only that workspace's cards; it used to page once per (company, thesis).
   - **Deliberately NOT a push:** an armed thesis whose armed-name count moves while its verdict holds still
     emits no `TransitionEvent` (the trigger is unchanged); its newly armed names reach the operator through
     the digest. MEASURED alternative (not built): making a names-only move a thesis-level event would have
