@@ -30,7 +30,7 @@ def run(api: FakeApi | None, body):
     async def go():
         client = ApiClient("http://127.0.0.1:8001", transport=(api or FakeApi()).transport())
         try:
-            async with Client(server_mod.build_server(client)) as session:
+            async with Client(server_mod.build_server(lambda: client)) as session:
                 return await body(session)
         finally:
             await client.aclose()

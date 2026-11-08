@@ -293,6 +293,37 @@ def create_api_token(conn: psycopg.Connection, user_id: UUID, name: str) -> tupl
     return tid, token
 
 
+def list_api_tokens(conn: psycopg.Connection, user_id: UUID) -> list[dict[str, Any]]:
+    """``user_id``'s API tokens (never a hash): live ones first, then revoked, newest first within each."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, name, created_at, last_used_at, revoked_at FROM api_token WHERE user_id = %s "
+            "ORDER BY (revoked_at IS NOT NULL), created_at DESC, id",
+            (user_id,),
+        )
+        return list(cur.fetchall())
+
+
+def count_live_api_tokens(conn: psycopg.Connection, user_id: UUID) -> int:
+    """How many of ``user_id``'s API tokens are not revoked."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT count(*) AS n FROM api_token WHERE user_id = %s AND revoked_at IS NULL",
+            (user_id,),
+        )
+        return cur.fetchone()["n"]
+
+
+def get_api_token(conn: psycopg.Connection, token_id: UUID) -> dict[str, Any] | None:
+    """One API token's row by id (never its hash), or None. The caller checks ``user_id`` before acting on it."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, user_id, name, created_at, last_used_at, revoked_at FROM api_token WHERE id = %s",
+            (token_id,),
+        )
+        return cur.fetchone()
+
+
 def revoke_api_token(conn: psycopg.Connection, token_id: UUID) -> bool:
     """Revoke one API token by id. True when a live token was revoked. The caller commits."""
     with conn.cursor() as cur:

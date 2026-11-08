@@ -139,6 +139,73 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account/agents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Agents
+         * @description How an AI client reaches my workspace here: whether this install has a public address and, if so, the
+         *     connector URL to give a client (the agent tools server signs in with my own access token).
+         */
+        get: operations["get_agents_account_agents_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account/tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Tokens
+         * @description My access tokens (never the token itself): live ones first, then revoked ones, newest first.
+         */
+        get: operations["list_tokens_account_tokens_get"];
+        put?: never;
+        /**
+         * Create Token
+         * @description Create a named access token for an AI client or a script. The token is in this reply ONLY, never again.
+         *     The name is trimmed and must be 1 to 60 characters (400 otherwise); at most 20 live tokens per user (409).
+         */
+        post: operations["create_token_account_tokens_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account/tokens/{token_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke Token
+         * @description Revoke one of my access tokens: it stops working on its next request. Revoking a revoked token is a no-op
+         *     (204). A token that is not mine, or no token at all, answers 404 alike.
+         */
+        delete: operations["revoke_token_account_tokens__token_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account/notifications/slack-webhook/test": {
         parameters: {
             query?: never;
@@ -5915,6 +5982,22 @@ export interface components {
             term: string;
             /** Documents */
             documents: number;
+        };
+        /**
+         * AgentsOut
+         * @description How an AI client reaches my workspace on this install. `hosted` is true when the app has a public address
+         *     (the agent tools server answers at `connector_url`); `steward` is whether I am a super admin; `stdio_server`
+         *     is whether the local agent tools server exists (always, on every install).
+         */
+        AgentsOut: {
+            /** Hosted */
+            hosted: boolean;
+            /** Connector Url */
+            connector_url?: string | null;
+            /** Steward */
+            steward: boolean;
+            /** Stdio Server */
+            stdio_server: boolean;
         };
         /**
          * AnnotatedNightOut
@@ -17914,6 +17997,66 @@ export interface components {
             reason: string;
         };
         /**
+         * TokenCreateIn
+         * @description A name for a new access token (trimmed, 1 to 60 characters), e.g. the machine or client it is for.
+         */
+        TokenCreateIn: {
+            /** Name */
+            name: string;
+        };
+        /**
+         * TokenCreatedOut
+         * @description The new access token. `token` is shown in this reply only, never again: store it where the client reads
+         *     it.
+         */
+        TokenCreatedOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Token */
+            token: string;
+        };
+        /**
+         * TokenListOut
+         * @description My access tokens: live ones first, then revoked ones, newest first within each.
+         */
+        TokenListOut: {
+            /** Tokens */
+            tokens: components["schemas"]["TokenOut"][];
+        };
+        /**
+         * TokenOut
+         * @description One of my access tokens. The token itself is never returned after it is created. `last_used_at` is null
+         *     when it was never used (it is updated at most every 5 minutes); `revoked_at` is set once it is revoked.
+         */
+        TokenOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Last Used At */
+            last_used_at?: string | null;
+            /** Revoked At */
+            revoked_at?: string | null;
+        };
+        /**
          * TrackCapOut
          * @description The approximate market cap (USD) AT THE EVENT and its tier: the as-traded close of the last session before the
          *     arm date times the share count PUBLIC before it (``close_date`` / ``shares_date`` are the close's date and the
@@ -18920,6 +19063,108 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    get_agents_account_agents_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentsOut"];
+                };
+            };
+        };
+    };
+    list_tokens_account_tokens_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenListOut"];
+                };
+            };
+        };
+    };
+    create_token_account_tokens_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TokenCreateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenCreatedOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_token_account_tokens__token_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
             };
         };
     };

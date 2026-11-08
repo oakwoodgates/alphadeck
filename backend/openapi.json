@@ -230,6 +230,127 @@
         }
       }
     },
+    "/account/agents": {
+      "get": {
+        "tags": [
+          "account"
+        ],
+        "summary": "Get Agents",
+        "description": "How an AI client reaches my workspace here: whether this install has a public address and, if so, the\nconnector URL to give a client (the agent tools server signs in with my own access token).",
+        "operationId": "get_agents_account_agents_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentsOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/account/tokens": {
+      "get": {
+        "tags": [
+          "account"
+        ],
+        "summary": "List Tokens",
+        "description": "My access tokens (never the token itself): live ones first, then revoked ones, newest first.",
+        "operationId": "list_tokens_account_tokens_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenListOut"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "summary": "Create Token",
+        "description": "Create a named access token for an AI client or a script. The token is in this reply ONLY, never again.\nThe name is trimmed and must be 1 to 60 characters (400 otherwise); at most 20 live tokens per user (409).",
+        "operationId": "create_token_account_tokens_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenCreateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenCreatedOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/account/tokens/{token_id}": {
+      "delete": {
+        "tags": [
+          "account"
+        ],
+        "summary": "Revoke Token",
+        "description": "Revoke one of my access tokens: it stops working on its next request. Revoking a revoked token is a no-op\n(204). A token that is not mine, or no token at all, answers 404 alike.",
+        "operationId": "revoke_token_account_tokens__token_id__delete",
+        "parameters": [
+          {
+            "name": "token_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Token Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/account/notifications/slack-webhook/test": {
       "post": {
         "tags": [
@@ -12055,6 +12176,41 @@
         ],
         "title": "AdoptionTermShareOut",
         "description": "One term's documents in a month (the month's top terms)."
+      },
+      "AgentsOut": {
+        "properties": {
+          "hosted": {
+            "type": "boolean",
+            "title": "Hosted"
+          },
+          "connector_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connector Url"
+          },
+          "steward": {
+            "type": "boolean",
+            "title": "Steward"
+          },
+          "stdio_server": {
+            "type": "boolean",
+            "title": "Stdio Server"
+          }
+        },
+        "type": "object",
+        "required": [
+          "hosted",
+          "steward",
+          "stdio_server"
+        ],
+        "title": "AgentsOut",
+        "description": "How an AI client reaches my workspace on this install. `hosted` is true when the app has a public address\n(the agent tools server answers at `connector_url`); `steward` is whether I am a super admin; `stdio_server`\nis whether the local agent tools server exists (always, on every install)."
       },
       "AnnotatedNightOut": {
         "properties": {
@@ -41143,6 +41299,118 @@
         ],
         "title": "TierRecommendation",
         "description": "An advisory tier recommendation for ONE term (INVARIANT #10 \u2014 the LLM recommends, the operator decides).\nDISPLAY-ONLY: it is the response of ``POST .../recommend-tiers``, never persisted, never mutating\n``authored_by``. The operator confirms it via the EXISTING tier toggle (``PUT .../terms/edit``), where\n``stamp_edited_term_set`` stamps ``operator_edited``. Deliberately a SEPARATE wire type \u2014 it never rides on\n``ThesisDetail.term_set``, so a produce/edit round-trip can't persist it (the ``matched_terms`` precedent).\nCarries NO number (#3): a tier label + a one-line reason."
+      },
+      "TokenCreateIn": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "TokenCreateIn",
+        "description": "A name for a new access token (trimmed, 1 to 60 characters), e.g. the machine or client it is for."
+      },
+      "TokenCreatedOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "token": {
+            "type": "string",
+            "title": "Token"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "created_at",
+          "token"
+        ],
+        "title": "TokenCreatedOut",
+        "description": "The new access token. `token` is shown in this reply only, never again: store it where the client reads\nit."
+      },
+      "TokenListOut": {
+        "properties": {
+          "tokens": {
+            "items": {
+              "$ref": "#/components/schemas/TokenOut"
+            },
+            "type": "array",
+            "title": "Tokens"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tokens"
+        ],
+        "title": "TokenListOut",
+        "description": "My access tokens: live ones first, then revoked ones, newest first within each."
+      },
+      "TokenOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "created_at"
+        ],
+        "title": "TokenOut",
+        "description": "One of my access tokens. The token itself is never returned after it is created. `last_used_at` is null\nwhen it was never used (it is updated at most every 5 minutes); `revoked_at` is set once it is revoked."
       },
       "TrackCapOut": {
         "properties": {

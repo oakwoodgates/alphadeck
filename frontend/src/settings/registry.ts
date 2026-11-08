@@ -1,3 +1,4 @@
+import { AgentsTab } from "./agents/AgentsTab";
 import { SlackTab } from "./notifications/SlackTab";
 import { ProfileTab } from "./profile/ProfileTab";
 
@@ -20,6 +21,7 @@ export type SettingsTab = {
 export const SETTINGS_TABS: readonly SettingsTab[] = [
   { slug: "profile", label: "Profile", Component: ProfileTab },
   { slug: "notifications", label: "Notifications", Component: SlackTab },
+  { slug: "agents", label: "Agents", Component: AgentsTab },
 ];
 
 export const SETTINGS_DEFAULT_TAB = "profile";

@@ -235,6 +235,66 @@ export function useTestSlackWebhook() {
   });
 }
 
+// --- the Agents tab (/settings/agents, docs/AGENT_TOOLS.md §Hosted endpoint) -------------------------------------
+
+export type AgentsOut = components["schemas"]["AgentsOut"];
+export type TokenOut = components["schemas"]["TokenOut"];
+export type TokenCreatedOut = components["schemas"]["TokenCreatedOut"];
+
+export const AGENTS_KEY = ["account", "agents"] as const;
+export const TOKENS_KEY = ["account", "tokens"] as const;
+
+/** How an AI client reaches my workspace here: whether the install is hosted, and the connector URL if so. */
+export function useAgents() {
+  return useQuery({
+    queryKey: AGENTS_KEY,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/account/agents");
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+/** My access tokens (never the token itself), live first, then revoked. */
+export function useTokens() {
+  return useQuery({
+    queryKey: TOKENS_KEY,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/account/tokens");
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+/** Create a named token; the reply carries the token itself, ONCE. */
+export function useCreateToken() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (name: string) => {
+      const { data, error } = await api.POST("/account/tokens", { body: { name } });
+      if (error) throw error;
+      return data;
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: TOKENS_KEY }),
+  });
+}
+
+/** Revoke one of my tokens (idempotent). */
+export function useRevokeToken() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (tokenId: string) => {
+      const { error } = await api.DELETE("/account/tokens/{token_id}", {
+        params: { path: { token_id: tokenId } },
+      });
+      if (error) throw error;
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: TOKENS_KEY }),
+  });
+}
+
 export function useTheses(includeArchived = false) {
   return useQuery({
     // the partial key ["theses"] still invalidates BOTH variants (every mutation that touches the

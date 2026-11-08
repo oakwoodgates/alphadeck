@@ -30,8 +30,10 @@ wrong var). ``env_file`` is deliberately NOT enabled — nothing reads a ``.env`
 
 from __future__ import annotations
 
+import ipaddress
 from datetime import time
 from functools import lru_cache
+from urllib.parse import urlsplit
 
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -679,12 +681,71 @@ class Settings(BaseSettings):
     login_window_s: float = 60
     login_lockout_s: float = 60
 
+    # The app's PUBLIC origin (ALPHADECK_PUBLIC_ORIGIN), e.g. https://deck.example.com. Set = the agent tools server
+    # is mounted in this API at /mcp and the connector URL is advertised; UNSET (the default) = no /mcp, no
+    # well-known document, nothing changes. https is required unless the host is loopback (dev:
+    # http://localhost:8081). See docs/AGENT_TOOLS.md §Hosted endpoint.
+    public_origin: str | None = None
+
     @field_validator("system_token", mode="before")
     @classmethod
     def _blank_system_token_is_unset(cls, v: object) -> object:
         # compose passes `${ALPHADECK_SYSTEM_TOKEN:-}` = "" when .env does not set it: that is "no system token",
         # never a token that matches an empty bearer.
         return None if isinstance(v, str) and not v.strip() else v
+
+    @field_validator("public_origin", mode="before")
+    @classmethod
+    def _check_public_origin(cls, v: object) -> object:
+        # compose passes `${ALPHADECK_PUBLIC_ORIGIN:-}` = "" when unset: that is "not hosted". Anything else must be
+        # a bare origin (scheme + host [+ port]); a bad value fails boot loudly rather than mounting a wrong URL.
+        if v is None:
+            return None
+        if not isinstance(v, str):
+            raise ValueError(
+                "ALPHADECK_PUBLIC_ORIGIN must be a URL origin such as https://deck.example.com"
+            )
+        return check_public_origin(v)
+
+
+def _is_loopback_host(host: str) -> bool:
+    """``localhost`` or a loopback IP (the rule of ``agent_tools.client.loopback_base``, without its port rule)."""
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def check_public_origin(value: str) -> str | None:
+    """``ALPHADECK_PUBLIC_ORIGIN``, normalized: blank -> None; whitespace and ONE trailing slash stripped; it must be
+    a scheme + host (+ port) with no path, query, fragment or credentials; https, or http only on a loopback host.
+    Raises ``ValueError`` otherwise."""
+    value = value.strip()
+    if not value:
+        return None
+    if value.endswith("/"):
+        value = value[:-1]
+    bad = ValueError(
+        "ALPHADECK_PUBLIC_ORIGIN must be an origin such as https://deck.example.com "
+        "(no path, query or fragment; http only on localhost)"
+    )
+    parsed = urlsplit(value)
+    try:
+        port = parsed.port  # an out-of-range or non-numeric port raises here
+    except ValueError:
+        raise bad from None
+    del port
+    if not parsed.scheme or not parsed.hostname or parsed.username or parsed.password:
+        raise bad
+    if parsed.path or parsed.query or parsed.fragment or "?" in value or "#" in value:
+        raise bad
+    if parsed.scheme == "https":
+        return value
+    if parsed.scheme == "http" and _is_loopback_host(parsed.hostname):
+        return value
+    raise bad
 
 
 @lru_cache(maxsize=1)
