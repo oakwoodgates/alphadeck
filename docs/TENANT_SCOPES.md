@@ -26,8 +26,9 @@ scopes**, chosen PER TABLE by one map, `domain.scopes.SCOPE_OF`:
 The data tenant is `DATA_TENANT_ID = 00000000-…-0001` — the row 0001_init seeded, which migration 0076 marks
 `kind='data'` (renamed `platform`; a partial unique index allows exactly one). Every other `tenant` row is
 `kind='workspace'` (the default; `pipeline.users create` makes one with each user, `tests/workspaces.new_workspace`
-makes one for a test). 0076 also adds `tenant.notify_webhook` (NULL = log only), the per-workspace push destination
-(`pipeline.users workspace set-webhook`; the nightly's notify reads it, `FEED_LOOP.md`).
+makes one for a test). 0076 also added `tenant.notify_webhook`, a per-workspace push destination; migration 0079
+dropped it: the destination is now per USER, `user_meta.slack_webhook_url` (keyed on the user, no `tenant_id`; set
+on the Settings page; the nightly's notify reads every enabled user's of a workspace, `FEED_LOOP.md`).
 
 **Why a ratified fact is private (the MIXED rule).** A purity split, a cash-burn figure, a catalyst ratified from
 a filing, a hand-confirmed share count: these are a user's JUDGMENTS about a company. Two users may ratify
@@ -127,7 +128,8 @@ cards into the founding workspace and their DATA facts into the data tenant.
   security ids stay), and `GET /admin/status` carries `data_tenant_theses`, the count of `thesis` rows left under the
   data tenant (expected 0; the Admin page shows one loud line when it is not). `docs/ADMIN.md`.
 - **Notify and the warm-up are per workspace.** The nightly builds each card's push destination from its workspace
-  (`tenant.notify_webhook`, else the env webhook only for a super admin's workspace, else the log), the digest is
+  (every enabled user's `user_meta.slack_webhook_url`, else the env webhook only for a super admin's workspace,
+  else the log), the digest is
   grouped by workspace, the SPAC radar's announced page goes per workspace to its own destination (only its own cards), and the dashboard warm-up walks every workspace with the system token and the
   `X-Alphadeck-Workspace` header (`docs/FEED_LOOP.md`).
 
