@@ -22,7 +22,7 @@ framed by **stage**, not by surface.
 | **SURFACE** | The system POPULATES each name — estimated scoring facts + machine-parsed identity — for the operator to confirm. | System recommends | `WORKBENCH_EXTRACTION.md`, `WORKBENCH_ENRICHMENT.md` |
 | **TRIAGE** | Craft the discovered draft into a chosen, weighted basket through **three gates**: cheap cut (zero API) → mark for data (bounded spend) → finalize on data. | Operator crafts | `TRIAGE.md` |
 | **MONITOR** | The chosen basket becomes a parked thesis → incubate → warm → arm → monitor after an operator-entered position. The two-key call loop; `Managing` is thesis monitoring, not portfolio risk management. | System times and watches the thesis; operator gates | `BOARD.md` (the surface), `CALL_LOGIC.md` (the brain), `FEED_LOOP.md` (the rhythm) |
-| **SCORE** | Forward attribution — the platform's calls vs the operator's decisions (follow-blindly = v2). The record is now **instrumented**: per-episode record-provenance + a maturity horizon, an operator **ops surface** (freshness/health + Run-daily-now), a DB-snapshot safety net, and a per-episode **drill-down** (a price chart with a numbered insider/trigger/lifecycle overlay + an event ledger); it scores the nightly log's honest rows only — a night reconstructed by a backfill is reported, never scored. *(v1 built — the Scoreboard.)* | System judges | `REPLAY.md` (the historical twin) → `SCOREBOARD.md` (the forward one) · `ADMIN.md` (the ops surface) |
+| **SCORE** | Forward attribution — the platform's calls vs the operator's decisions (follow-blindly = v2). The record is now **instrumented**: per-episode record-provenance + a maturity horizon, an operator **ops surface** (freshness/health + Run-daily-now), a DB-snapshot safety net, and a per-episode **drill-down** (a price chart with a numbered insider/trigger/lifecycle overlay + an event ledger); Edition 0 scores the nightly log's honest rows only — a night reconstructed by a backfill is reported, never scored. Editions ≥ 1 read stored public-clock re-runs; the newest published edition is the default unless configured otherwise (0 if none). *(v1 built — the Scoreboard.)* | System judges | `REPLAY.md` (the historical twin) → `SCOREBOARD.md` (the forward one) · `ADMIN.md` (the ops surface) |
 
 ## The trust gradient
 
@@ -43,12 +43,16 @@ being *auto-applied*. This pattern now recurs across the whole arc — the **#10
 
 - **DISCOVER** — the **tier recommendation** (SIGNAL vs BROAD per term) and the **off-thesis flag** (the narrator's
   "doesn't fit" opinion) — recommend; the operator confirms/prunes.
-- **SURFACE** — the **grounded purity estimate**, the **market-cap estimate**, and the **derived archetype** —
-  recommend a value/class; the operator confirms or overrides.
-- On confirm, **authorship transfers to the operator** (`system_drafted` → `operator_edited`) — the record shows
-  the operator as the decider, and the confirmation is stable across a re-roll.
+- **SURFACE** — the **grounded purity estimate** and the **market-cap estimate** recommend values; the operator
+  confirms or overrides. **Business type** replaced the retired archetype: derived display identity appears
+  immediately with its basis; a steward can re-tag it on the shared master. It is never a call input.
+- **Confirmation is object-specific.** Changing a term's tier stamps `operator_edited` (a newly added term is
+  `operator_set`); ratifying a scoring fact records `ratified_by="operator"`. Basket-company sign-off sets
+  `signed_off`, not authorship. Only editing its description (`thesis_fit`) changes the member's `authored_by`
+  from `system_drafted` to `operator_edited`; sign-off is carried across a re-roll, but only an edited description
+  pins it (`TRIAGE.md`).
 
-The invariant already anticipated this ("any later flag/archetype recommendation"); the family is now shipped.
+The invariant anticipated flag/classification recommendations; the family is now shipped, with these distinct records of operator authority.
 See `INVARIANTS.md` #10.
 
 ## The third thread — cost is the operator's to spend, never spent ambiently

@@ -265,7 +265,7 @@ dollars is "under $1M" (a real measurement); under 20 volume-bearing bars is unp
      card since <last bar>` (the company is on no live card; we stopped looking, the path did not end) and
      `price feed stopped` (still on a card: a data fault).
   3. Any other price flag, alone or beside a stopped feed, leaves the episode out as ever (`flagged`).
-- Reads use the default tenant, like every dashboard (auth is deferred).
+- Reads use the authenticated caller's workspace through `get_workspace`; shared DATA facts follow the two-scope model (`../AUTH.md`, `../TENANT_SCOPES.md`).
 
 **The table and the page.**
 - The pooled row is every counted episode, unpinned ones included, so the rows add up to it. A left-out episode is in

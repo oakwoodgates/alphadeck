@@ -74,7 +74,7 @@ after the operator enters, through the signal-validity window.
 
 A structured, versioned record containing:
 - **Narrative** — the story / conviction (operator's words, preserved).
-- **Basket** — the specific instruments chosen, tagged by archetype (leader / high-beta / lotto / shovels).
+- **Basket** — the specific instruments chosen, grouped into value-chain links. Business type is derived display identity on the security master, with a steward re-tag; the old per-member archetype was retired (`WORKBENCH_ENRICHMENT.md`).
 - **Evidence** — linked filings and data points (immutable references).
 - **Catalysts** — dated events that should move it.
 - **Signals** — the quantitative triggers being monitored.
@@ -165,7 +165,7 @@ Not one ranking; a shelf of lenses the operator walks when adding/working a sect
 - **Emergence detector** — composite of regulatory/personnel milestones + attention rate-of-change + institutional first-footprint (first 13F, first initiation, first thematic ETF) + capital-markets activity (IPO/SPAC pipeline, uplistings).
 - **Insider-conviction scoring** — open-market buys only, weighted by opportunistic-vs-routine trader, clustering, role (CEO/CFO), size, and proximity to earnings.
 - **Squeeze radar** — SI % / days-to-cover / borrow fee + utilization / gamma overlay, gated on a catalyst and an attention spike.
-- **ETF radar** — three faces on free/EDGAR data: (1) *availability* — the thematic ETFs expressing a theme today; (2) *coming* — new ETF registrations (SEC N-1A / 485 filings), where a fresh thematic launch is itself an emergence marker (early signal, sometimes a top); (3) *holdings & flows* — ETF holdings seed the decomposition universe for free, and holdings changes + AUM flows are a positioning signal. Always surfaces fund internals (holdings, weights, expense ratio, AUM, liquidity/spread) so a mislabeled or thin/expensive fund is visible, not assumed. **Role:** the *safe-exposure sleeve* — the durable, low-torque expression of a thesis (give up the leader/lotto upside for duration and diversification), distinct from the single-name alpha sleeve.
+- **ETF radar** — three faces on free/EDGAR data: (1) *availability* — the thematic ETFs expressing a theme today; (2) *coming* — new ETF registrations (SEC N-1A / 485 filings), built as the display-only fund launch radar (`FUND_RADAR.md`; `etf_launch` remains reserved, not emitted); (3) *holdings & flows* — ETF holdings seed the decomposition universe for free, and holdings changes + derived flows provide display-only positioning context, never a call, sizing or execution input. Always surfaces fund internals (holdings, weights, expense ratio, AUM, liquidity/spread) so a mislabeled or thin/expensive fund is visible, not assumed. **Role:** the *safe-exposure sleeve* — the durable, low-torque expression of a thesis (give up the leader/lotto upside for duration and diversification), distinct from the single-name alpha sleeve.
 
 ## 11. Constraints & key decisions
 
@@ -175,7 +175,7 @@ Not one ranking; a shelf of lenses the operator walks when adding/working a sect
   position, while the firm's OMS / execution / risk systems own the trade.
 - **Data posture:** bootstrap on free sources (EDGAR incl. N-1A/485 for ETF launches, FINRA short interest (planned, not built), free price/fundamentals, public ETF holdings, on-chain/crypto data for crypto-adjacent themes). Pay case-by-case for the right thing (borrow data, options/gamma, premium fundamentals, ETF flows). See `docs/DATA_SOURCES.md`.
 - **LLM-in-the-loop:** filing classification & summarization, DD drafting, and the reasoning behind each "call" (with citations to source).
-- **Trajectory:** personal project first; possible SaaS later. Keep multi-tenant seams in the schema, but don't pay the multi-tenant tax yet.
+- **Trajectory:** personal project first; possible SaaS later. Authenticated private workspaces are built (`AUTH.md`, `TENANT_SCOPES.md`); shared/team workspaces, user-login SSO and RLS remain deferred.
 
 ## 12. Engineering foundations
 
@@ -195,7 +195,7 @@ Not one ranking; a shelf of lenses the operator walks when adding/working a sect
 4. **Laggard scanner + theme taxonomy** — over EOD price.
 5. **Squeeze radar / options-gamma** — phase in when paying for borrow + options data.
 
-*ETF radar phases across the above: holdings-as-universe-seed lands early (it feeds the decomposition in step 3); the new-launch detector rides the EDGAR brick (step 2); flows/positioning come later alongside the signal engine.*
+*ETF radar phases across the above: holdings-as-universe-seed feeds discovery; the built launch radar rides the EDGAR brick; launch and flow displays are context only. Any future ETF trigger requires a separate operator-approved rule.*
 
 ## Status of earlier open questions
 

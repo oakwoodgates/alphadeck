@@ -233,7 +233,8 @@ alphadeck/
   `get_thesis_or_404` dependency + `_provenance_out`; Tier 3 the FE shared bits + as-of-defaults-to-today;
   Tier 4 the shared `client` test fixture). No behavior change; gated by the suite + the openapi↔types guard.
 - **Post-MVP — SCORE + the honesty / ops / breadth arc (#158–#238):** the **Scoreboard v1** (the forward-record
-  episode ledger + the operator track + n-gated aggregate metrics + replay-history-alongside — #158–#164) and
+  episode ledger + the operator track + n-gated aggregate metrics + replay-history-alongside — #158–#164;
+  that panel was later replaced by stored editions, `SCOREBOARD.md`) and
   its **episode drill-down** (the drawer, four timing lenses, the Summary|Timing toggle, the price sparkline +
   the on-demand `price-window` endpoint — #227–#231, `SCOREBOARD.md`); the read-only **display-signal tape**
   (SMA / 52-week / volume / insider-flow / ETF-flow context — #192–#206 + #237, `DISPLAY_SIGNALS.md`); the
@@ -255,8 +256,9 @@ alphadeck/
   false-positive — the attempts-vs-successes fetch counter (O5), the dead-man's-switch heartbeat (H2) and the
   durable `market_today()` are DONE, `INVARIANTS.md` §6); **2f "the real WHY"**;
   **insider Class B** + the `insider_flow` sell-side ceiling; Phase-3 breadth
-  (ETF radar *coming-launches* N-1A/485, more catalyst sources, umbrella hierarchy, live LLM
-  counter-case) — by appetite. See `ROADMAP.md`.
+  (more catalyst sources, umbrella hierarchy, live LLM
+  counter-case) — by appetite. The N-1A/485 fund launch radar is built as display-only context, not a call
+  trigger (`FUND_RADAR.md`). See `ROADMAP.md`.
 
 ## Flags for the reviewer (current)
 
@@ -266,13 +268,14 @@ alphadeck/
    and now tracks the forward record** (#158–#164), but that record **began 2026-07-10 and is still accruing**
    (freeze-touched → the aggregate metrics are honestly empty until the first clean-data arm matures, #214).
    Forward VALIDATION is the open item — don't overclaim the calls until the record lives with them.
-3. **The Board is not tenant-scoped** (`thesis_repo.list_all` is all-tenants) — a display limitation, not a
-   fact leak (per-call reads are isolated); deferred to the auth era. No RLS — isolation is discipline + the
-   poison-row test (`TENANT_SCOPES.md`).
+3. **The Board is workspace-scoped** — `/theses` passes the signed-in user's workspace to
+   `thesis_repo.list_all`; per-thesis routes enforce the same ownership boundary (`AUTH.md`). No RLS —
+   isolation uses explicit query scopes + the poison-row test (`TENANT_SCOPES.md`). Shared/team workspaces
+   and user-login SSO remain deferred; hosted connector OAuth is separate (`CONNECTORS.md`).
 4. **The LLM bound rests partly on the prompt.** The chain drafter's "never a number" is structural (no value
    field) + prompt (Sonnet the lever); the **manual no-number check is its real test** — a fake-client unit
    test can't exercise a prompt. The regex post-filter is the deferred lever (`CHAIN_DRAFTER.md`).
-5. **`GET /theses/{id}` returns the wire `ThesisDetail`** (no `tenant_id` on the wire); benign for
-   single-tenant / deferred-auth.
+5. **`GET /theses/{id}` returns the wire `ThesisDetail`** (no `tenant_id` on the wire); the server derives
+   the workspace from the authenticated user and returns 404 for a thesis outside it.
 6. **The openapi↔types contract is generated** — any FastAPI schema change (incl. a route docstring) must
    regenerate `backend/openapi.json` + `frontend/src/api/types.gen.ts` in the same PR (CI diff-guards both).

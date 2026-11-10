@@ -1,6 +1,6 @@
 # Auth — the login door
 
-Every route of the API sits behind a login. This page is the model, the roles, the four ways a caller is
+Application routes sit behind the login gate, with the public and conditional protocol routes listed below. This page is the model, the roles, the four ways a caller is
 recognized, the user CLI, and the first-deploy order. Code: `backend/app/auth.py` (the gate),
 `backend/app/routers/auth.py` (the `/auth` routes), `backend/app/routers/account.py` (the `/account` routes the
 Settings page uses), `backend/app/routers/oauth_consent.py` + `backend/app/oauth/` (the OAuth sign-in for AI clients,
@@ -30,7 +30,7 @@ stamp a column, and re-enabling clears it.
 
 ## The four principals
 
-`require_user` (mounted on every router in `app/main.py`, on the ROUTER, so a request with no credential answers
+`require_user` (mounted on application routers in `app/main.py`, on the ROUTER, so a request with no credential answers
 401 before any parameter is validated) tries, in order:
 
 1. **session** — the `alphadeck_session` cookie → a live, unexpired, unrevoked session of an enabled user. The
@@ -58,8 +58,15 @@ stamp a column, and re-enabling clears it.
 Else 401. A disabled user's sessions and tokens stop working at once (the gate checks `disabled_at` on every
 request). `require_super_admin` = `require_user` + the role, else 403. The secret compare is constant-time.
 
-Open routes: `GET /health` and `POST /auth/login`, nothing else. `/docs`, `/redoc` and `/openapi.json` are served
-behind `require_user` (the generated contract `backend/openapi.json` is exported in-process and is unaffected).
+The default API's open routes are `GET /health` and `POST /auth/login`. When `ALPHADECK_PUBLIC_ORIGIN` is set,
+the hosted connector also mounts public discovery documents (`/.well-known/oauth-authorization-server` and
+`/.well-known/oauth-protected-resource/mcp`) and the OAuth protocol routes `/authorize`, `/token`, `/register`
+and `/revoke` outside `require_user`. These use their own protocol checks: client authentication (including
+public clients), PKCE for the code exchange, registration validation/throttling, and the session-only consent
+decision; they are not anonymous access to workspace data. `/oauth/consent/{id}` still requires a browser
+session, and `/mcp` requires a valid user bearer token. See [`CONNECTORS.md`](CONNECTORS.md).
+`/docs`, `/redoc` and `/openapi.json` remain behind `require_user` (the generated contract
+`backend/openapi.json` is exported in-process and is unaffected).
 
 ## The routes
 

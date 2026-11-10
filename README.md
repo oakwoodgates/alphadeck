@@ -66,10 +66,10 @@ Four decision surfaces (plus an operator ops page); clickable mockups live in `d
 - **Board** — pipeline of theses as cards flowing through the four lifecycle states. Home base.
 - **Cockpit** — thesis detail: narrative + conviction notes (preserved), the basket grouped by each name's **own** call state (collapsible per-name buckets, Managing → Quiet) with a read-only **per-name panel** (its call, its own triggers, its slice of the operator record), evidence, catalyst calendar, and the live **call card** ([`docs/BOARD.md`](docs/BOARD.md)).
 - **Workbench** — the front half: drop in a narrative, draft the value chain, ratify the names + facts, promote a thesis to the Board. **Built** — the create → draft → ratify → score → promote loop ([`docs/CHAIN_DRAFTER.md`](docs/CHAIN_DRAFTER.md)).
-- **Scoreboard** — review/calibration: the episode ledger over the forward record — the platform's calls (scored on their own `exit_by` signal-validity yardstick) vs your logged decisions, overrides with their outcomes, gated aggregate metrics. Setup strength remains experimental until this forward record supports calibration; the `n ≥ 5` aggregate-metric gate is a UI safeguard against over-reading a tiny sample, not an evidence threshold. Every row opens a **per-episode drill-down** — timing lenses, a price chart with a numbered insider/trigger/lifecycle overlay, and an event ledger sharing the chart's numbering; the ledger's **Timing** view carries the MAE/MFE excursion pair (close and wick) and each episode's path sparkline. The record it scores is the nightly log's honest rows — a night reconstructed by a backfill is reported, never scored. *(v1 built — `docs/SCOREBOARD.md`; the follow-blindly counterfactual + deltas are v2, replay-history-alongside + the drill-down are built.)*
+- **Scoreboard** — review/calibration: the episode ledger over the forward record — the platform's calls (scored on their own `exit_by` signal-validity yardstick) vs your logged decisions, overrides with their outcomes, gated aggregate metrics. Setup strength remains experimental until this forward record supports calibration; the `n ≥ 5` aggregate-metric gate is a UI safeguard against over-reading a tiny sample, not an evidence threshold. Every row opens a **per-episode drill-down** — timing lenses, a price chart with a numbered insider/trigger/lifecycle overlay, and an event ledger sharing the chart's numbering; the ledger's **Timing** view carries the MAE/MFE excursion pair (close and wick) and each episode's path sparkline. Edition 0 scores the nightly log's honest rows — a night reconstructed by a backfill is reported, never scored. Stored editions ≥ 1 are frozen public-clock re-runs; the default is the newest published edition (0 if none, unless configured otherwise). *(v1 built — `docs/SCOREBOARD.md`; the follow-blindly counterfactual + deltas are v2; editions replaced the replay-history-alongside panel, and the drill-down is built.)*
 - **Admin** — the operator ops page (no as-of dial): record freshness (hole-aware — a night with no call-of-record reads `gappy`, by date) + a cron-health verdict, a **Run daily now** trigger, and the **DB-snapshot** button (create / list / keep-last-7 / nightly; restore stays CLI-only). A read surface over the cron's own instrumentation plus two explicit triggers ([`docs/ADMIN.md`](docs/ADMIN.md)).
 
-**Signature design principle — inverse loudness:** visual (and notification) loudness runs *inversely* to how much the interface wants you to act. Incubating is dormant and quiet (the vault — nothing to react to); Warming glows faintly; Armed is loud and unmissable; Managing is a calm thesis-monitoring panel for a position the operator entered. The UI *is* the gate.
+**Signature design principle — inverse loudness:** Incubating is dormant and quiet (the vault — nothing to react to); Warming is subdued; Armed is prominent in both visuals and notifications; Managing is a calm thesis-monitoring panel for a position the operator entered. The UI *is* the gate.
 
 ## Architecture & stack
 
@@ -135,7 +135,9 @@ alpha-deck/
 
 **Out** (see CLAUDE.md): trade execution / brokerage writes, position sizing, and portfolio-risk management
 (all handed off to the firm's OMS / execution / risk stack); intraday/streaming; options-gamma & paid borrow
-data; crypto / commodities / prediction markets; runtime auth & multi-tenancy.
+data; crypto / commodities / prediction markets; shared/team workspaces, user-login SSO and row-level security.
+Authenticated private workspaces are built (`docs/AUTH.md`, `docs/TENANT_SCOPES.md`); hosted connector OAuth is
+available when `ALPHADECK_PUBLIC_ORIGIN` is set (`docs/CONNECTORS.md`).
 
 ## Build order
 
@@ -161,7 +163,7 @@ harness + recalibration + the production-tenant cut); the Board + Cockpit UI; an
 (FLAG-explanation + the narrative → chain drafter), and the create-thesis front door. The **M2 feed loop** —
 the per-thesis back-half ingest + the daily call-of-record cron + the price-source seam + the scheduling
 sidecar — makes it feed itself. On top, the **front half is now framed as stages** (the Workbench = three of
-them): **SURFACE** (recommended-until-confirmed facts + identity enrichment + the derived archetype +
+them): **SURFACE** (recommended-until-confirmed facts + identity enrichment + the derived business type +
 the grounded purity estimate) and **TRIAGE** (basket crafting — include-controls, sort/filter, the conviction
 weight) shipped, plus EDGAR-first **DISCOVER** and the off-thesis flag — see [`docs/STAGE_MODEL.md`](docs/STAGE_MODEL.md).
 Sequencing: [`docs/ROADMAP.md`](docs/ROADMAP.md); how it feeds itself:

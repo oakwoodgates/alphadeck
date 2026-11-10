@@ -52,8 +52,11 @@ bash scripts/deploy.sh --env-only cron                                    # a cr
   Open a Git Bash terminal, or from PowerShell call it by path:
   `& "C:\Program Files\Git\bin\bash.exe" scripts/deploy.sh --label pre-deploy-pr123 backend cron`.
 - **Services:** any of `frontend`, `backend`, `cron`, chosen by "The load-bearing fact" above and the
-  cron caveat below. A build needs `--label`, which names the pre-deploy backup (a labeled dump is
-  prune-exempt).
+  cron caveat below. A build needs `--label`, which names the pre-deploy backup. Labeled dumps are deleted
+  only when BOTH older than `ALPHADECK_BACKUP_LABELED_MAX_AGE_DAYS` (default **90**) AND outside the newest
+  `ALPHADECK_BACKUP_LABELED_KEEP` (default **20**); either dial `<= 0` disables labeled pruning. See
+  [`FEED_LOOP.md`](FEED_LOOP.md#backups--restore-slice-4--built) for retention and the read-only
+  `python -m pipeline.backup --prune-dry-run` inspection (in the backend container; no dump or deletion).
 - **It refuses, changing nothing (exit 3),** on any of these:
   - a linked worktree, or no `.env` at the checkout root;
   - a dirty tree, or a branch other than `main`;
@@ -158,11 +161,13 @@ Apply its guards yourself: never between 22:20 and 22:50 America/New_York, and n
    costs legibility on that night's rows and nothing else. Do not invent one after the fact. Run it
    from the checkout you are deploying (step 2 has already put you on the merged `main`). It matters
    most on **cron**, whose image writes the rows that ARE the record.
-   A backend rebuild re-runs the idempotent migrate + seed (~20-40s, brief API blip —
-   safe, it is what every restart does). "Idempotent" now covers the FACT tables too: until
-   PR-1c every boot re-appended the demo fixtures as a fresh bitemporal version (~1,900 rows a
-   restart; the seed names reached ~140-155 stored versions per price bar and 175 per Form 4
-   fact), so a rebuild is no longer a write.
+   A backend restart runs `db.migrate`, then `pipeline.seed`, before serving. **Startup can write schema
+   and data through unapplied migrations**; idempotency does not make deployment read-only. The seed
+   skips unless `ALPHADECK_SEED_ON_BOOT=true` (off by default in prod, on in the dev overlay).
+   Before PR-1c, every boot re-appended demo fixtures as fresh bitemporal versions (~1,900 rows a restart;
+   the seed names reached ~140-155 stored versions per price bar and 175 per Form 4 fact). The seed's
+   fact-idempotency fix stopped those duplicate appends; it did not remove migration writes. Keep the
+   pre-deploy backup, nightly-window and running-pass/lock guards above.
 
    **Cron caveat — the daily-pipeline path.** The `cron` service shares the backend build
    context (`build: ./backend`) but is a SEPARATE image (`alphadeck-cron`) and container
@@ -284,7 +289,9 @@ then re-run step 1 + step 2.
 
 ## Safety
 
-- **Prod DB is read-only to deploy** — a deploy rebuilds IMAGES, never touches data.
+- **Deploy is not read-only to prod data** — rebuilding replaces images, but backend startup applies
+  unapplied migrations, which can write schema and data. Prod demo seeding is off by default, not all
+  startup writes. Back up first and honor Flow A's nightly-window and running-pass/lock guards.
   Never `docker compose down -v` against prod; never `DROP DATABASE alphadeck`.
 - **`--no-deps`** — rebuild only the named service; leaves postgres + the cron sidecar
   running untouched.
