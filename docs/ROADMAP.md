@@ -299,7 +299,8 @@ insider `Ins 30d`/`Ins 90d`, three lenses (call-state · business-type · value-
 - **Laggard scanner** — BUILT: a second confirmation path. `signals/laggard.py` emits a flip-grade `LAGGARD`
   confirmation on a lagging-but-uptrend co-member while a basket leader's breakout is live (run after the
   per-member loop in `pipeline/core.py`).
-- **ETF radar** — universe seed; the N-1A/485 launch detector (emergence signal); holdings-derived flows; the
+- **ETF radar** — universe seed; the built N-1A/485 launch radar and ETF flows are display-only context, not
+  call inputs (`FUND_RADAR.md`); `etf_launch` remains a reserved, un-emitted trigger kind. The
   `safe_sleeve` card field exists but is unpopulated.
 - **More catalyst sources** (`CATALYST_CONVICTION.md` §3): the automated 8-K material-agreement detector; the
   NRC license-action feed; wire the DOE loans award-type group so the loan-guarantee → core rule fires.
@@ -341,7 +342,9 @@ insider `Ins 30d`/`Ins 90d`, three lenses (call-state · business-type · value-
   (`STAGE_MODEL.md` records the reasoning). TRIAGE captures a conviction *weight* but does no sizing math;
   the platform is EDGAR-only (no private-data surface → no MNPI vector); TA/price-pattern prediction is parked.
 - **Deferred** (scope, not principle): intraday / streaming data; options-gamma; borrow + squeeze radar;
-  crypto / commodities / prediction markets; runtime auth / multi-tenant serving; Dagster; Neo4j.
+  crypto / commodities / prediction markets; shared/team workspaces, user-login SSO and row-level security;
+  Dagster; Neo4j. Authenticated private workspaces are built (`AUTH.md`, `TENANT_SCOPES.md`); hosted connector
+  OAuth is available when `ALPHADECK_PUBLIC_ORIGIN` is set (`CONNECTORS.md`).
 - **The live Scoreboard v1 is built** — the forward twin of the replay harness. It can earn trust only by
   *living with the calls over time*: the ledger is standing and forward outcomes accrue. The `n ≥ 5` UI gate
   merely suppresses tiny aggregates; it is not the point at which evidence becomes sufficient.

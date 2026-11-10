@@ -785,9 +785,10 @@ the thesis's workspace. The pass refuses to start without the data tenant (`scop
 - **Per-thesis isolation.** Each thesis's ingest and call each run in their own try; one thesis's failure is
   captured into its `ThesisRunResult` and skipped — **never fatal** to the run (the cron finishes the rest).
 - **No-lookahead.** `asof = today`, `known_at = now` (`PointInTimeData` defaults `None → now`); never backdated.
-- **Option B intact.** The cron ingests **FACTS** and appends the **call-of-record** (the write-only
-  accountability log). It builds **NO read-serving signal/score cache** — calls still re-derive on read. The
-  call-of-record log is never read back to serve (`INVARIANTS.md` #6; `DATA_FLOW.md`).
+- **Option B intact.** The cron ingests **FACTS** and appends the **call-of-record** accountability log.
+  `/theses/{id}/call` still re-derives from facts; `/theses?with_call=true&asof=` reads the recorded call instead.
+  Scoreboard Edition 0 reads `calls`, while editions ≥ 1 read separate stored re-runs (`SCOREBOARD.md`).
+  None of these is a mutable signal cache (`INVARIANTS.md` #6; `DATA_FLOW.md`).
 - **Scoreboard-ready, not coupled.** One clean versioned row per (thesis, day); same-day re-runs collapse via
   `calls_repo.latest_for_thesis`'s `DISTINCT ON (asof)`. That is exactly what the built Scoreboard reads —
   with zero Scoreboard code in the cron.

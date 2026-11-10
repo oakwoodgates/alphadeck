@@ -518,8 +518,9 @@ stamped a fresh "policy" on every cron night.
   `pipeline.core`, from the point-in-time view — the assembler stays pure (`tests/calls/test_split_hold_missing.py`).
 - *Also honored by (M2 — Option B intact):* the daily cron (`pipeline.daily`) appends the day's call-of-record
   via `calls_repo.record_if_changed` — idempotent (the `calls` log is immutable [`no_update`] + non-unique, so
-  a conditional append, not an UPSERT) — but it builds **no read-serving signal/score cache**; the serve path
-  still recomputes from facts, and the log is never read back to serve. (`_canonical` makes the compare
+  a conditional append, not an UPSERT) — but it builds **no mutable signal/score cache**; `/theses/{id}/call`
+  still recomputes from facts. `with_call=true` on `/theses` reads the recorded call, and Scoreboard Edition 0
+  reads the log; stored editions ≥ 1 use separate tables (`SCOREBOARD.md`). (`_canonical` makes the compare
   order-independent so a pure reorder can't re-append; `tests/repositories/test_calls_repo.py`,
   `tests/pipeline/test_daily.py`.) See `FEED_LOOP.md`.
 - *Also honored by (the reconstructed row — `pipeline.backfill`, migration 0042):* a missed night's row is
@@ -778,10 +779,10 @@ pattern: the chain drafter PROPOSES names, the operator RATIFIES; exact membersh
 A tier recommendation is the same shape one level up.
 
 What this does NOT loosen (state it so the freedom isn't misread): no LLM-proposed term ever places
-autonomously; no model-sourced number (#1); recall stays sacred (#9). On confirm, **authorship transfers
-to the operator** (`system_drafted` recommendation → `operator_edited`) — so the record shows the
-operator as the decider, and a confirmed recommendation is operator-authored and **stable across a
-regenerate** (it does not return determinism to the model).
+autonomously; no model-sourced number (#1); recall stays sacred (#9). For the **term set**, an operator's
+tier change stamps `operator_edited`; a newly added term is `operator_set`, while an unchanged tier keeps
+its stored authorship (`stamp_edited_term_set`). Operator-authored terms are **stable across a regenerate**
+(it does not return determinism to the model). This is not the basket-description authorship rule below.
 
 The illustrating case is the *valuable* one, not the defensive one: the model surfaces a discriminating
 term the operator **didn't** seed, recommends it as SIGNAL, shows why — and it sits as an opportunity
@@ -789,7 +790,7 @@ until the operator adopts it. The project's core value (surface what the operato
 restraint (the LLM never autonomously places) live in the same act; pending-until-confirmed is what lets
 them coexist.
 
-- *Enforced by:* the authorship model (`system_drafted` → `operator_edited` on confirm; the #100
+- *Enforced by:* the term-set authorship model (`operator_edited` on a tier change; the #100
   diff-stamp `stamp_edited_term_set`, `tests/workbench/test_term_set.py`); the chain drafter's
   propose-then-ratify seam (`workbench/chain_draft.resolve_placements`); the rule that no recommendation
   is persisted as a tier or auto-applied (a recommendation rides display-only, like the `matched_terms`
@@ -813,20 +814,28 @@ link keeps every candidate on show with Keep the original as its Undo.
 **The #10 family — the shipped recommend→confirm seams** (the pattern the frame calls out, `STAGE_MODEL.md`): the
 **tier recommendation** (SIGNAL/BROAD per term — `DISCOVERY.md`), the **off-thesis flag** (the narrator's opinion —
 `CHAIN_DRAFTER.md`), the **grounded purity estimate** + the **market-cap estimate** (SURFACE values —
-`WORKBENCH_EXTRACTION.md`), and the **derived archetype** (`WORKBENCH_ENRICHMENT.md`). Each is the same shape: a
-visible, pending recommendation that changes nothing until the operator confirms, on which authorship transfers to
-the operator (`system_drafted` → `operator_edited`). Every stage boundary is one of these handoffs.
+`WORKBENCH_EXTRACTION.md`). A recommendation stays pending until the operator acts, but the record depends on
+the object: term edits follow `stamp_edited_term_set` above; fact ratification records `ratified_by="operator"`;
+basket-company sign-off sets `signed_off`, never `authored_by`. Only editing the member's description
+(`thesis_fit`) changes `system_drafted` → `operator_edited`; sign-off is carried across a re-roll, while only
+an edited description pins it (`TRIAGE.md`). **Business type**, which replaced the archetype, is derived display
+identity shown with its basis; a steward's re-tag overrides it on the shared master, never on the call path
+(`WORKBENCH_ENRICHMENT.md`). These are distinct records of operator authority, not a blanket authorship transfer.
 
-**The archetype's single home (item F, the three-gate round).** The recommend→confirm seam only reads cleanly when
-"my decision" and "the system's suggestion" can't blur — so the archetype is **decided ONCE, on the finalize rail**
-(the DDRail hint → the operator applies it or picks manually; either way `operator_edited`). Placement **never
-stamps a default**: a placed-but-not-finalized member carries `archetype = NULL` end-to-end (nullable column,
-optional on the models, never coerced on save) — the old hardcoded `high_beta` placement default asserted the most
-aggressive risk class before anyone decided, and once saved it read as an operator decision that never happened.
-Un-decided is un-decided all the way through the spine. *Enforced by:* migration `0018_archetype_nullable`;
+**The archetype's single home (item F, the three-gate round) — HISTORICAL, superseded by Business-Type M1.**
+Migration `0034_drop_basket_member_archetype.sql` removed `basket_member.archetype`; do not restore a nullable
+archetype field or its old authorship behavior. Current identity is the derived business type plus the master's
+re-tag (`WORKBENCH_ENRICHMENT.md`); `instrument_kind='etf'` carries the old fund distinction and the purity meter
+carries off-thesis status.
+
+The old rule kept "my decision" and "the system's suggestion" separate: the archetype was decided once on the
+finalize rail (the DDRail hint → apply or pick manually; then `operator_edited`). Placement stamped no default:
+a placed-but-not-finalized member carried `archetype = NULL` end-to-end. The earlier hardcoded `high_beta`
+default had asserted the most aggressive risk class before anyone decided. *Historical enforcement references
+(not current guarantees):* migration `0018_archetype_nullable`;
 `tests/repositories/test_thesis_repo.py` (null round-trip, never-coerced resave) +
 `tests/app/test_workbench_api.py::test_promote_and_scored_carry_a_null_archetype`; the editor/AddName carry no
-archetype control (FE tests).
+archetype control (FE tests at that time).
 
 ## Operating principles + known gaps
 

@@ -12,7 +12,7 @@
 |---|---|---|
 | **SEC EDGAR** — submissions API, **full-text search (EFTS)**, daily index/RSS | 8-Ks, Form 4 + Form 4/A (insider; amendments resolved at read — §Form 4/A), 10-K/Q, S-1/S-3 (offerings), 13D/G, 13F | filing intelligence, insider-conviction, dilution clock, language-diff, first-footprint, **the EDGAR-first name-discovery universe** (`DISCOVERY.md`) |
 | **EDGAR — XBRL financial datasets + 10-Q/10-K filing text** | structured financials (cash, burn, shares) + the filing passages | dilution clock, fundamentals (§2.2 revenue + the Band 03 S4 shares-outstanding series: three companyfacts share concepts stored `_xbrl`-keyed for the `share_creep` risk detector), **the Workbench scoring-fact extractor** (10-Q/10-K → candidate purity / shares / burn facts) |
-| **EDGAR — N-1A / 485 registrations** | new fund/ETF registrations & launches | **ETF radar** (coming launches = emergence signal) |
+| **EDGAR — N-1A / 485 registrations** | new fund/ETF registrations & launches | **ETF radar** (built display-only context; `etf_launch` is reserved, not emitted — `FUND_RADAR.md`, `CALL_LOGIC.md`) |
 | **SEC `company_tickers_exchange.json`** (one file: ticker → CIK → name → exchange) | the full US filer universe | **the company list** (`populate_master`, weekly in the cron sidecar) — seeds and keeps current the security master so the extract → ratify → score loop runs on any name; a rename updates the company's row in place |
 | **USASpending.gov** — federal award API (`spending_by_award` + `awards/{id}`) | DOE contracts, grants, OTAs, loan guarantees + structured terms (obligation, period of performance) | **catalyst-conviction** (the automated DOE feed, §below) — the first automated Key-1 source |
 | **Public ETF holdings** (issuer/fund daily holdings files) | constituents, weights, expense ratio, AUM | **ETF radar** (universe seed + holdings/flows); pure-play scoring |
@@ -23,7 +23,8 @@
 | **On-chain / crypto data** (free, rich) | TVL, holders, flows for crypto-adjacent themes | emergence detector *for crypto-adjacent themes only* |
 
 ETF **flows** (inflows/outflows) can be **derived for free** from daily shares-outstanding × NAV deltas
-before paying a vendor.
+before paying a vendor. The built ETF net-flow display is context only, never a call, sizing or execution input;
+promoting flows to a trigger would require a separate operator-approved rule.
 
 ## Paid, case-by-case (later, only when a module needs it)
 
@@ -877,8 +878,8 @@ is moot under the public clock (each sits on its public date already).
 ## Notes on the ETF radar's three faces
 
 1. **Availability** — map theme → expressing ETFs (curation + holdings-overlap against the theme universe).
-2. **Coming** — watch EDGAR N-1A/485 for new thematic registrations; a fresh launch is an emergence-kind
-   signal (early tell, occasionally a top). **Built as a display-only tape: [`FUND_RADAR.md`](FUND_RADAR.md)**
+2. **Coming** — watch EDGAR N-1A/485 for new thematic registrations; a fresh launch is emergence context,
+   not a call trigger. **Built as a display-only tape: [`FUND_RADAR.md`](FUND_RADAR.md)**
    (no `etf_launch` signal is emitted).
-3. **Holdings & flows** — holdings seed the decomposition for free; holdings changes + derived flows are a
-   positioning signal. Always expose fund internals so a mislabeled/thin/expensive fund is visible.
+3. **Holdings & flows** — holdings seed the decomposition for free; holdings changes + derived flows are
+   display-only positioning context, never a call, sizing or execution input. Always expose fund internals so a mislabeled/thin/expensive fund is visible.
