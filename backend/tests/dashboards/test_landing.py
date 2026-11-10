@@ -39,7 +39,7 @@ from dashboards.landing import (
 )
 from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
-from domain.market_time import market_today
+from domain.market_time import current_night, market_today, serve_view
 from domain.thesis import BENCH_LABEL, CONTEXT_LABEL, BasketMember, Segment, Thesis
 from repositories import thesis_repo
 from signals.display import sma
@@ -730,19 +730,39 @@ def _security(db, ticker: str) -> UUID:
     return sid
 
 
-def test_a_bar_published_after_a_past_asof_stays_invisible(db):
-    """30 daily bars ending three days before today (close 10, 11, ..., 39; volume 100), each public at its own
-    session. That last bar is then re-versioned NOW at a lower close on heavy volume: the past view at its date
-    still reads the ORIGINAL bar (the correction was not public by the end of that day), a live view reads the
-    correction (its tape is three days old, inside the stale gap)."""
-    last = market_today() - timedelta(days=3)
+@pytest.mark.parametrize(
+    "view_at",
+    [
+        pytest.param(datetime(2026, 11, 8, 21, tzinfo=timezone.utc), id="sunday"),
+        pytest.param(
+            datetime(2026, 11, 10, 2, 20, tzinfo=timezone.utc), id="monday-before-nightly"
+        ),
+        pytest.param(datetime(2026, 11, 10, 3, 31, tzinfo=timezone.utc), id="monday-after-nightly"),
+    ],
+)
+def test_a_bar_published_after_a_past_asof_stays_invisible(db, pin_market_clock, view_at):
+    """A historical view reads the original bar; a live view reads its later correction.
+
+    Pin the market clock across the weekend/Monday boundary. Before Monday's nightly pass, Friday is
+    still the current night, so "today minus three days" is NOT necessarily a historical view. Thursday
+    stays historical in every case, and its tape is recent enough for the live view's stale-gap guard.
+    """
+    pin_market_clock(view_at)
+    last = date(2026, 11, 5)
+    corrected_at = datetime(2026, 11, 8, 12, tzinfo=timezone.utc)
+    assert last < current_night()
+    known_at, clock = serve_view(last)
+    assert clock == "public" and known_at is not None
+    assert known_at < corrected_at < view_at
+    assert serve_view(market_today()) == (None, "record")
+
     sid = _security(db, "LAND")
     start = last - timedelta(days=29)
     for i in range(30):
         d = start + timedelta(days=i)
         _price(db, sid, d, 10.0 + i, 100.0, datetime.combine(d, time.min, tzinfo=timezone.utc))
-    # the last bar (close 39, volume 100), corrected now to close 30 on 500
-    _price(db, sid, last, 30.0, 500.0, datetime.now(timezone.utc))
+    # The last bar (close 39, volume 100), corrected after its night ended to close 30 on 500.
+    _price(db, sid, last, 30.0, 500.0, corrected_at)
     thesis = Thesis(
         id=uuid.uuid4(),
         tenant_id=DEFAULT_TENANT_ID,
@@ -778,7 +798,7 @@ def test_a_bar_published_after_a_past_asof_stays_invisible(db):
     assert then["vol_ratio"] == 1.0 and then["quadrant"] == "thin_rally"
     assert then["range_pos"] == 50.0
     assert past["cards_counted"] == 1 and past["priced_companies"] == 1
-    # the real flag reader rode both views: a clean three-day-old tape carries no price flag
+    # The real flag reader rode both views: the fixed tape stays inside the stale gap.
     assert past["flagged"] == [] and live["flagged"] == []
     # no roster snapshot by then, so today's roster stood in (and is counted)
     assert past["roster_fallback_cards"] == 1
