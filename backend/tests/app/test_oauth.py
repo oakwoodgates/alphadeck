@@ -637,7 +637,47 @@ def test_the_stewards_scopes_decide_the_admin_role(ow):
     async def names(session, init):
         return sorted(t.name for t in (await session.list_tools()).tools)
 
-    assert len(ow.mcp(full["access_token"], names)) == 14
+    assert (
+        len(ow.mcp(full["access_token"], names)) == 16
+    )  # read + steward: the two Admin reads join
+    assert len(ow.mcp(read_only["access_token"], names)) == 14  # a steward's app granted read only
+
+
+def test_a_steward_app_reads_the_split_list_only_with_the_steward_grant(ow):
+    full = ow.connect("s", client_id=CLAUDE, redirect_uri=CLAUDE_CALLBACK, scope="read steward")
+    read_only = ow.connect("s", client_id=CLAUDE_CODE, scope="read")
+    api_splits = ow.api("GET", "/admin/splits", full["access_token"]).json()
+    seen: list[str] = []
+
+    async def spy(scope, receive, send):
+        if scope["type"] == "http":
+            seen.append(scope["path"])
+        await app(scope, receive, send)
+
+    async def listing(session, init):
+        return sorted(t.name for t in (await session.list_tools()).tools)
+
+    async def read(session, init):
+        return await session.call_tool("get_splits", {})
+
+    def mcp(token, body):
+        async def go():
+            hosted = build_hosted(spy, public_origin=ORIGIN)
+            asgi = Starlette(routes=hosted.routes)
+            async with hosted.lifespan():
+                return await _session_call(asgi, token, body)
+
+        return asyncio.run(go())
+
+    refused = mcp(read_only["access_token"], read)  # the read-only grant: refused by the registry
+    assert refused.is_error and json.loads(refused.content[0].text)["code"] == "forbidden"
+    assert [p for p in seen if p.startswith("/admin")] == []
+    seen.clear()
+    assert "get_splits" in mcp(full["access_token"], listing)
+    reply = mcp(full["access_token"], read)  # the steward grant: lists 16 and reads the list
+    assert not reply.is_error, reply.content[0].text
+    assert reply.structured_content["counts"]["total"] == api_splits["total"]
+    assert [p for p in seen if p.startswith("/admin")] == ["/admin/splits"]
 
 
 # --- 7. read-only tokens cannot write ---------------------------------------------------------------------------

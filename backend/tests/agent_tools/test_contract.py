@@ -12,6 +12,7 @@ from agent_tools import tool_args  # noqa: E402
 from agent_tools.errors import ToolFailure  # noqa: E402
 from agent_tools.tool_args import CONTRACTS, Contract, Setting  # noqa: E402
 from agent_tools.views import (  # noqa: E402,F401  (importing registers the contracts)
+    admin,
     dashboards,
     research,
 )

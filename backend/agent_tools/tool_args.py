@@ -79,6 +79,27 @@ def register(contract: Contract) -> Contract:
     return contract
 
 
+def contract(
+    name: str,
+    dated: bool,
+    sections: tuple[tuple[str, str | None], ...],
+    narrows: tuple[str, ...] = (),
+    settings: tuple[Setting, ...] = (),
+) -> Contract:
+    """Build and register a tool's contract from its ``(section, need)`` pairs (``need`` None = the section needs
+    nothing): the one definition every view package uses."""
+    return register(
+        Contract(
+            name,
+            dated,
+            tuple(s for s, _ in sections),
+            narrows,
+            settings,
+            tuple((s, need) for s, need in sections if need),
+        )
+    )
+
+
 def accepted(contract: Contract) -> str:
     return contract.accepted()
 

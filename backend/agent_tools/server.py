@@ -39,12 +39,16 @@ from .principal import (
     DEFAULT_PRINCIPAL,
     KNOWN_SCOPES,
     READ,
+    STEWARD,
     Principal,
     scopes_for_role,
 )
 from .principal import current as current_principal
 from .prompt_args import PROMPT_NAMES, PROMPTS, PromptSpec
 from .resolve import match_thesis, resolve_asof, resolve_thesis, resolve_ticker
+from .views.admin import CONTRACTS as ADMIN
+from .views.admin import splits as splits_view
+from .views.admin import status as status_view
 from .views.call import view_call
 from .views.dashboards import REGISTRY as DASHBOARDS
 from .views.dashboards.common import Request, ViewError
@@ -207,6 +211,12 @@ class ResearchReply(_Paged):
     thesis: dict[str, Any] | None = None
     sections: dict[str, str | None] = Field(
         description="Each section of the tool and what it needs (a narrowing), or null."
+    )
+
+
+class AdminReply(_Paged):
+    source: Literal["live"] = Field(
+        description="live = the API read it now (the steward reads are never recorded)."
     )
 
 
@@ -971,6 +981,74 @@ def build_server(
         req = ResearchRequest(thesis=ref, section=section, cursor=cursor)
         try:
             return _result(onboarding_view.view(payload, req))
+        except ViewError as error:
+            raise ToolFailure("invalid_arguments", str(error)) from None
+
+    @tool(
+        "get_splits",
+        "The steward's split list (Admin > Splits), read live from the shared data layer: every split's newest "
+        "version with both sources' evidence side by side (the SEC filing's located passage and Massive.com's "
+        "row), bucketed as the panel shows them: needs_review (one source could not settle it: the loud list), "
+        "announced (both agree, the first session still ahead), confirmed, set_aside (rejected or revoked, "
+        "kept), plus the split-shaped price jumps no source listed. The default reply is the counts and the "
+        "needs-review rows; section=needs_review, announced, confirmed, set_aside or jumps pages one bucket; "
+        "section=one with t reads one ticker's every entry and jump in full. Reads only: a split's values "
+        "change only on the panel. Steward scope.",
+        scope=STEWARD,
+    )
+    async def get_splits(
+        section: Annotated[
+            str | None,
+            Field(
+                description="needs_review, announced, confirmed, set_aside, jumps or one (needs t).",
+                max_length=40,
+            ),
+        ] = None,
+        t: Annotated[
+            str | None, Field(description="A ticker (section=one only).", max_length=40)
+        ] = None,
+        cursor: CursorArg = 0,
+        asof: AsofArg = None,  # refused by the contract: the steward reads are not dated
+    ) -> Annotated[types.CallToolResult, AdminReply]:
+        client = client_for()
+        tool_args.check(ADMIN["get_splits"], asof=asof, section=section, narrows={"t": t}, given={})
+        if t is not None and section != "one":
+            raise ToolFailure("invalid_arguments", splits_view.T_RULE)
+        payload, _ = await client.get("/admin/splits")
+        req = ResearchRequest(section=section, cursor=cursor, t=t)
+        try:
+            return _result(splits_view.view(payload, req))
+        except ViewError as error:
+            raise ToolFailure("invalid_arguments", str(error)) from None
+
+    @tool(
+        "get_admin_status",
+        "The steward's Admin status (GET /admin/status), read live: the cron verdict and its alarms, the "
+        "record's edge and missed nights, the newest finished pass and any unfinished one, the newest backup, "
+        "the identity pair (backend_sha, cron_sha), the feed-freshness counts, the split-basis and "
+        "price-repair counts, the one-line jobs (editions, missing closes, master refresh) and the panel's "
+        "counts (splits needing review, fundamentals set aside, data-tenant theses, OAuth clients). "
+        "section=tape, price_repairs, split_defects, missing_closes, record or run reads one panel in full. A "
+        "health readout, never a call input. Steward scope.",
+        scope=STEWARD,
+    )
+    async def get_admin_status(
+        section: Annotated[
+            str | None,
+            Field(
+                description="tape, price_repairs, split_defects, missing_closes, record or run.",
+                max_length=40,
+            ),
+        ] = None,
+        cursor: CursorArg = 0,
+        asof: AsofArg = None,  # refused by the contract: the steward reads are not dated
+    ) -> Annotated[types.CallToolResult, AdminReply]:
+        client = client_for()
+        tool_args.check(ADMIN["get_admin_status"], asof=asof, section=section, narrows={}, given={})
+        payload, _ = await client.get("/admin/status")
+        req = ResearchRequest(section=section, cursor=cursor)
+        try:
+            return _result(status_view.view(payload, req))
         except ViewError as error:
             raise ToolFailure("invalid_arguments", str(error)) from None
 
