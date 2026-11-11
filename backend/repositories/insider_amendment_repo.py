@@ -60,6 +60,7 @@ from uuid import UUID
 import psycopg
 from psycopg.types.json import Json
 
+from db.change_stamp import mark_changed
 from db.insider_resolution import load_inputs
 from domain.insider_amendment_cards import (
     CardAction,
@@ -298,7 +299,10 @@ def _insert(conn: psycopg.Connection, values: dict[str, Any]) -> dict[str, Any]:
             f"VALUES ({', '.join('%s' for _ in cols)}) RETURNING *",
             [Json(v) if isinstance(v, dict) else v for v in values.values()],
         )
-        return cur.fetchone()
+        row = cur.fetchone()
+    # a decision changes which insider rows count for the company: move its change stamp (dashboards)
+    mark_changed(conn, [values.get("security_id")])
+    return row
 
 
 def decide(

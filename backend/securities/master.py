@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 
 import psycopg
 
+from db.change_stamp import mark_changed
 from db.session import DEFAULT_TENANT_ID
 from domain.enums import BusinessType, InstrumentKind
 from domain.market_time import market_today
@@ -15,6 +16,16 @@ from securities import figi, sec_tickers
 from securities.business_type import resolve_business_type
 from securities.filer_coverage import foreign_filer_form
 from securities.origin import resolve_origin
+
+
+def _stamped(conn: psycopg.Connection, security_id: UUID, rowcount: int) -> bool:
+    """The identity writers' common tail: an UPDATE that touched the row moves the company's change stamp in
+    the same transaction (``db.change_stamp``: these writers run outside the company write lock, so without it
+    the dashboards would serve the company stale). Returns whether a row was updated."""
+    if rowcount > 0:
+        mark_changed(conn, [security_id])
+        return True
+    return False
 
 
 def _row_to_security(row: dict) -> Security:
@@ -229,7 +240,7 @@ def enrich(
                 security_id,
             ),
         )
-        return cur.rowcount > 0
+        return _stamped(conn, security_id, cur.rowcount)
 
 
 def mark_instrument_kind(
@@ -254,7 +265,7 @@ def mark_instrument_kind(
             "UPDATE security_master SET instrument_kind = %s WHERE tenant_id = %s AND id = %s",
             (str(kind), tenant_id, security_id),
         )
-        return cur.rowcount > 0
+        return _stamped(conn, security_id, cur.rowcount)
 
 
 def set_price_symbol(
@@ -293,7 +304,7 @@ def set_price_symbol(
             "WHERE tenant_id = %s AND id = %s",
             (price_symbol, price_symbol, basis, tenant_id, security_id),
         )
-        return cur.rowcount > 0
+        return _stamped(conn, security_id, cur.rowcount)
 
 
 def restore_price_symbol(
@@ -319,7 +330,7 @@ def restore_price_symbol(
             "WHERE tenant_id = %s AND id = %s",
             (price_symbol, price_symbol_basis, tenant_id, security_id),
         )
-        return cur.rowcount > 0
+        return _stamped(conn, security_id, cur.rowcount)
 
 
 def set_name(
@@ -341,7 +352,7 @@ def set_name(
             "UPDATE security_master SET name = %s WHERE tenant_id = %s AND id = %s",
             (name, tenant_id, security_id),
         )
-        return cur.rowcount > 0
+        return _stamped(conn, security_id, cur.rowcount)
 
 
 # The columns an operator CIK RE-POINT touches (T7, migration 0049): the CIK itself, the display name, and
@@ -413,7 +424,7 @@ def set_cik(
             "UPDATE security_master SET cik = %s WHERE tenant_id = %s AND id = %s",
             (cik, tenant_id, security_id),
         )
-        return cur.rowcount > 0
+        return _stamped(conn, security_id, cur.rowcount)
 
 
 def restore_cik_identity(
@@ -438,7 +449,7 @@ def restore_cik_identity(
             "WHERE tenant_id = %(tenant)s AND id = %(sid)s",
             params,
         )
-        return cur.rowcount > 0
+        return _stamped(conn, security_id, cur.rowcount)
 
 
 def set_business_type(
@@ -484,7 +495,7 @@ def set_business_type(
             "WHERE tenant_id = %s AND id = %s",
             (stored, basis, tenant_id, security_id),
         )
-        return cur.rowcount > 0
+        return _stamped(conn, security_id, cur.rowcount)
 
 
 def ciks_for(

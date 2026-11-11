@@ -330,3 +330,46 @@ def test_the_database_accepts_the_new_action_and_still_refuses_an_unknown_one(db
         repo.mark_limited_history(db, sid, reason="   ", basis="operator:limited-history")
     db.rollback()
     assert _count(db, "price_feed_ack") == 0
+
+
+def test_every_repair_that_writes_moves_the_companys_change_stamp(db):
+    """Each price-feed repair that writes a row moves the company's change stamp in its own transaction
+    (``db.change_stamp``: the dashboards drop that company's pieces); an idempotent no-op writes nothing and
+    stamps nothing."""
+    from db.change_stamp import stamp_map
+
+    sid = fx.insert_security(db, "WONDF", with_tape=False)
+
+    def seq():
+        got = stamp_map(db).get(sid)
+        db.rollback()
+        return got
+
+    seen = [seq()]
+    ack, _ = repo.acknowledge(db, sid, reason="keep", basis="operator:acknowledge")
+    db.commit()
+    seen.append(seq())
+    repo.acknowledge(db, sid, reason="again", basis="operator:acknowledge")  # nothing written
+    db.commit()
+    assert seq() == seen[-1]
+    repo.revoke(db, ack.id, reason="revoked", basis="operator:revoke")
+    db.commit()
+    seen.append(seq())
+    mark, _ = repo.mark_limited_history(db, sid, reason=_WHY, basis="operator:limited-history")
+    db.commit()
+    seen.append(seq())
+    repo.revoke(
+        db, mark.id, reason="undone", basis="operator:revoke", action=repo.ACK_LIMITED_HISTORY
+    )
+    db.commit()
+    seen.append(seq())
+    change = repo.apply_change(db, sid, action="set", symbol="WNDR.TO", basis="operator:set")
+    db.commit()
+    seen.append(seq())
+    repo.undo_change(db, change.id, basis="operator:undo")
+    db.commit()
+    seen.append(seq())
+    assert seen[0] is None
+    assert None not in seen[1:] and seen[1:] == sorted(
+        set(seen[1:])
+    )  # every write drew a later seq

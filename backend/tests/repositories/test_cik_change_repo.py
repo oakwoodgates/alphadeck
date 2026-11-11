@@ -221,3 +221,20 @@ def test_set_cik_refuses_a_malformed_CIK_before_any_write(db):
             master.set_cik(db, sid, bad)
     db.rollback()
     assert _row(db, sid)["cik"] == "0001711570"
+
+
+def test_ADOPT_and_UNDO_each_move_the_companys_change_stamp(db):
+    """The CIK re-point and its undo write the master outside the company write lock, so each moves the
+    company's change stamp in its own transaction (``db.change_stamp``: the dashboards' cache)."""
+    from db.change_stamp import stamp_map
+
+    sid = fx.insert_security(db, "REAX")
+    assert stamp_map(db).get(sid) is None
+    db.rollback()
+    change = _adopt(db, sid, "REAX")
+    adopted = stamp_map(db)[sid]
+    db.rollback()
+    cik_change_repo.undo(db, change.id, basis="operator:undo")
+    db.commit()
+    assert stamp_map(db)[sid] > adopted
+    db.rollback()

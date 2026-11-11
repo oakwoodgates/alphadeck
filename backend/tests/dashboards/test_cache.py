@@ -1,6 +1,7 @@
 """The shared dashboard cache (``dashboards/cache.py``, ``docs/DASHBOARDS.md`` rule 7): a hit after a miss, each
 part of the generation token clearing it, the LRU bound, single-flight, and never storing a value computed
-across a generation. Pure: the token's three reads are stubbed, so no database is needed."""
+across a generation. Pure: the token's reads are stubbed, so no database is needed (the DB-backed proofs of the
+two levels and the per-company stamp live in ``test_cache_db.py``)."""
 
 from __future__ import annotations
 
@@ -32,15 +33,23 @@ class Counter:
 
 @pytest.fixture
 def token_parts(monkeypatch):
-    """The three token reads, each a value a test can move."""
+    """The token reads, each a value a test can move (the stamp map and the benchmark ids too: they are read
+    when the stamp fingerprint moves)."""
     parts = {
         "run": ("2026-06-01T02:30:00+00:00", "finished", "x"),
+        "repair": (None, 0),
         "basket": 1,
-        "cards": ((1, "A"),),
+        "cards": ((1, "A", False),),
+        "stamps": (0, 0, 0),
+        "stamp_map": {},
     }
     monkeypatch.setattr(cache_mod, "latest_run_identity", lambda: parts["run"])
+    monkeypatch.setattr(cache_mod, "latest_repair", lambda conn: parts["repair"])
     monkeypatch.setattr(cache_mod, "latest_basket_snapshot", lambda conn: parts["basket"])
     monkeypatch.setattr(cache_mod, "live_cards", lambda conn: parts["cards"])
+    monkeypatch.setattr(cache_mod, "stamp_fingerprint", lambda conn: parts["stamps"])
+    monkeypatch.setattr(cache_mod, "stamp_map", lambda conn: dict(parts["stamp_map"]))
+    monkeypatch.setattr(cache_mod, "benchmark_security_ids", lambda conn: frozenset())
     return parts
 
 
@@ -91,13 +100,17 @@ def test_a_lookup_without_a_workspace_id_refuses(token_parts):
         ),  # a new pass started
         lambda p: p.update(run=(p["run"][0], "finished", "y")),  # the same pass finished
         lambda p: p.update(run=None),
+        lambda p: p.update(repair=(7, 1)),  # a data repair applied
         lambda p: p.update(basket=2),  # a roster edit
-        lambda p: p.update(cards=((1, "A"), (2, "B"))),  # a card created / restored
+        lambda p: p.update(cards=((1, "A", False), (2, "B", False))),  # a card created / restored
         lambda p: p.update(cards=()),  # a card archived
-        lambda p: p.update(cards=((1, "A renamed"),)),  # a rename
+        lambda p: p.update(cards=((1, "A renamed", False),)),  # a rename
+        lambda p: p.update(cards=((1, "A", True),)),  # the meta index switch flipped
+        lambda p: p.update(stamps=(3, 3, 1), stamp_map={uuid.uuid4(): 3}),  # a company changed
     ],
 )
 def test_each_token_part_moving_clears_the_whole_cache(token_parts, move):
+    """Every part of the token clears the page entries (pieces are ``test_pieces``' / ``test_cache_db``'s)."""
     c, compute = DashboardCache(), Counter()
     c.get(CONN, "rotation-map", (), D, compute, workspace=W)
     c.get(CONN, "rotation-map", (), date(2026, 6, 2), compute, workspace=W)
@@ -107,11 +120,11 @@ def test_each_token_part_moving_clears_the_whole_cache(token_parts, move):
     assert len(c) == 1  # the other as-of went with it
 
 
-def test_the_production_token_reads_its_three_parts(token_parts):
-    assert cache_mod.generation_token(CONN) == (
-        token_parts["run"],
-        token_parts["basket"],
-        token_parts["cards"],
+def test_the_production_token_reads_its_parts_in_two_levels(token_parts):
+    assert cache_mod.generation_token(CONN) == cache_mod.Generation(
+        hard=(token_parts["run"], token_parts["repair"]),
+        soft=(token_parts["basket"], token_parts["cards"]),
+        stamps=token_parts["stamps"],
     )
 
 

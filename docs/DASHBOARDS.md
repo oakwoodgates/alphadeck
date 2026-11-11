@@ -131,8 +131,8 @@ the data flags). Its plan is `docs/BOARD.md`.
    `docs/BACKTEST.md` §"Sliced by market cap". The bands are defined once, in
    `backend/domain/market_cap.py` (`CapTier`, `cap_tier`; built with the Peer Table, which slices its names by them).
 
-7. **Cache.** Allowed, in-process, used only by dashboards. It must refresh after every new cron run
-   and after any basket edit, and it keys on "a new run happened", never on a clock (the run schedule
+7. **Cache.** Allowed, in-process, used only by dashboards. It must refresh after every new cron run,
+   any basket edit and any change to a company's stored data, and it keys on events, never on a clock (the run schedule
    will grow: market open, market close, nightly, pre-market). It is built once, with the first
    dashboard that needs it, then shared, never reinvented per dashboard.
    It lives in `backend/dashboards/cache.py` (built with the Rotation Map): a dashboard's router calls
@@ -147,8 +147,16 @@ the data flags). Its plan is `docs/BOARD.md`.
    Pages also share per-company pieces through `dashboards.baskets`: a company's price-reaching flags
    (`read_price_flags`) and each display member's reading (the members `display_members` hands out, called
    from a `per_company` callback). Inside a page compute a company is read once per as-of, clock, view and
-   workspace, then reused by every other page. The pieces are cleared with the page entries (a new
-   generation, `clear()`), and a compute that fails or crosses a generation stores none of them.
+   workspace, then reused by every other page. A compute that fails or crosses a generation stores none of
+   them. Each event clears only what it can have changed (no timer, no TTL, no polling):
+   - a new cron run or a new `data_repair` row clears everything, page entries and pieces;
+   - a basket snapshot, or a card created, archived, renamed or switched to a meta index, clears the page
+     entries only (no company's data changed, so the pieces stay);
+   - a company's change stamp (`security_change`, `db/change_stamp.py`) clears the page entries and drops
+     that company's pieces only (every piece when it is a benchmark). The company write lock's release
+     stamps the company after every fact ingest, and every other writer stamps in its own transaction.
+   - The rule for authors: a writer that changes a company's stored data outside the company write lock
+     calls `db.change_stamp.mark_changed`, or dashboards serve that company stale.
    A one-card dashboard starts from its picker, `picker_cards` (the counted cards A→Z with their link counts;
    built with the Chain Wave, shared since the Filing Stream).
    The cron warms the heavy pages after each pass (`pipeline.warm_dashboards`, last in the nightly wake, GETs

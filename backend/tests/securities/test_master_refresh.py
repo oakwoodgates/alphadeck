@@ -497,3 +497,32 @@ def test_the_plan_reports_in_plain_english(db):
         "Company list · refreshed Oct 25 · 1 new · 1 renames · 0 conflicts"
     )
     assert _count(db, "security_ticker_history") == 0  # a plan is a look: nothing applied
+
+
+def test_apply_stamps_every_company_it_inserted_renamed_or_updated_and_no_other(db):
+    """The refresh writes the master outside the company write lock, so it moves the change stamp of every
+    company it inserted, renamed or updated, at the end of its transaction (``db.change_stamp``: the
+    dashboards' cache); an untouched company keeps no stamp, and a no-op re-apply stamps nothing."""
+    from db.change_stamp import stamp_map
+
+    renamed = _row(db, cik=_CIK, ticker="SVAC", name="Starboard Value Acquisition")
+    kept = _row(db, cik=_OTHER, ticker="KEEP", name="Co")
+    untouched = _row(db, cik="0002222222", ticker="ALONE", name="Alone Co")
+    rows = [
+        (_CIK, "GFUZ", "General Fusion Inc.", "Nasdaq"),
+        (_OTHER, "KEEP", "Co Renamed", "Nasdaq"),  # a name update
+        ("0001111111", "NEWC", "New Co", "NYSE"),  # a new company
+        ("0002222222", "ALONE", "Alone Co", "Nasdaq"),  # unchanged
+    ]
+    plan, written = _refresh(db, rows)
+    assert written["renamed"] == 1 and written["inserted"] == 1 and written["updated"] >= 1
+    stamped = stamp_map(db)
+    db.rollback()
+    expected = (
+        {r.id for r in plan.renames} | {u.id for u in plan.updates} | {i.id for i in plan.inserts}
+    )
+    assert set(stamped) == expected
+    assert renamed in stamped and kept in stamped and untouched not in stamped
+    _refresh(db, rows)  # the second apply changes nothing...
+    assert stamp_map(db) == stamped  # ...and stamps nothing
+    db.rollback()

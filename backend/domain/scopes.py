@@ -71,6 +71,7 @@ SCOPE_OF: dict[str, Scope] = {
     "fundamentals_set_aside": Scope.DATA,
     "split_jump_dismissal": Scope.DATA,
     "data_repair": Scope.DATA,
+    "security_change": Scope.DATA,
     # --- WORKSPACE: one per user (the thesis and everything hanging off it) --------------------------------
     "thesis": Scope.WORKSPACE,
     "basket_member": Scope.WORKSPACE,
