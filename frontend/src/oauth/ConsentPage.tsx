@@ -23,7 +23,7 @@ function isGone(error: unknown): boolean {
   return status === 404 || status === 409 || status === 410;
 }
 
-/** "Read the Admin readouts (the splits queue, …)" -> "Read the Admin readouts": the struck, short form. */
+/** "Read the Admin readouts (the split list, …)" -> "Read the Admin readouts": the struck, short form. */
 function shortLabel(label: string): string {
   return label.replace(/\s*\([^)]*\)\s*$/, "");
 }

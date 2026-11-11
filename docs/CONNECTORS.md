@@ -68,12 +68,12 @@ workspace), and the app deletes no row.
 | Scope | The consent page's words | Who can grant it |
 |---|---|---|
 | `read` | "Read your cards, calls, decisions and ratified facts" | every user (always on the page, added when the app asked for nothing) |
-| `steward` | "Read the Admin readouts (the splits queue, the onboarding queue, the status)" | a super admin only; a plain user sees it struck, "not available to your account", and Allow leaves it out |
+| `steward` | "Read the Admin readouts (the split list, the status)" | a super admin only; a client granted it lists `get_splits` and `get_admin_status` and the `splits-review` prompt; a plain user sees it struck, "not available to your account", and Allow leaves it out |
 
 At the API (the `oauth` principal, [`AUTH.md`](AUTH.md)): a token without `write` (none carries it) answers 403 on
 every non-GET request, inside the gate; the role is `super_admin` only when the user is one AND the token carries
 `steward`; `/account/*` and `/auth/change-password` refuse it. At `/mcp` the token's scopes become the tool principal's.
-Today every tool needs `read`, so a steward's connector lists the same 14 tools.
+Fourteen tools need `read`; `get_splits` and `get_admin_status` need `steward`, so a connector granted `read steward` by a super admin lists 16 tools and 8 prompts, and any other lists 14 and 7.
 
 ## The consent page
 

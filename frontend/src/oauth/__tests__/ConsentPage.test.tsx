@@ -45,7 +45,7 @@ const CLOCK = {
 const READ = { name: "read", label: "Read your cards, calls, decisions and ratified facts", grantable: true };
 const STEWARD_SCOPE = {
   name: "steward",
-  label: "Read the Admin readouts (the splits queue, the onboarding queue, the status)",
+  label: "Read the Admin readouts (the split list, the status)",
   grantable: false,
 };
 const KNOWN = {
@@ -183,7 +183,7 @@ describe("the consent page", () => {
     expect(screen.getByText(/This app registered itself under that name/)).toBeInTheDocument();
     expect(screen.getByText("unverified")).toBeInTheDocument();
     expect(
-      screen.getByText("Read the Admin readouts (the splits queue, the onboarding queue, the status)."),
+      screen.getByText("Read the Admin readouts (the split list, the status)."),
     ).not.toHaveClass("na");
     expect(screen.getByText(/Signed in as Operator \(steward\)\./)).toBeInTheDocument();
   });
