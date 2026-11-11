@@ -450,7 +450,10 @@ def test_a_plain_user_is_refused_the_steward_reads_at_the_registry_and_at_the_ap
         seen.clear()
         for r in run_as(world["tokens"][who], body, api=spy):
             assert r.is_error
-            assert json.loads(_text(r)) == {
+            reply = json.loads(_text(r))
+            # the hosted note rides every reply inside the nightly window: never depend on the wall clock
+            reply.pop("nightly_window", None)
+            assert reply == {
                 "code": "forbidden",
                 "message": "This tool needs the steward scope.",
                 "retryable": False,
