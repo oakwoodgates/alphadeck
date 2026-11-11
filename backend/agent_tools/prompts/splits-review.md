@@ -1,4 +1,4 @@
-Splits review{{t_clause}}: what the split list holds for the steward to settle on Admin > Splits. At most 4 tool calls. Steward only: if get_splits is not listed, say so and stop.
+Splits review{{t_clause}}: what the split list holds for the steward to settle on Admin > Splits. At most 5 tool calls. Steward only: if get_splits is not listed, say so and stop.
 
 1. get_splits() once. Note counts (needs_review, announced, confirmed, set_aside, unlisted_jumps, dismissed_jumps, total) and each needs-review row: ticker, the two sources side by side (sec: form, filed, date_kind, ratio_label, abstain_reason, the passage; polygon: execution_date, ratio_label), confirm_options, actions, decided_by.
 2. get_splits(section="one", t=<ticker>) for at most 3 names: the one the operator named, else the needs-review rows whose sources disagree or whose extractor abstained (abstain_reason set). Read the whole passage before you say what the filing states.

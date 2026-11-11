@@ -339,13 +339,41 @@ def test_a_bad_get_admin_status_call_is_rejected(args, message):
     assert [p for _, p, _ in api.requests if p.startswith("/admin")] == []
 
 
-def test_an_asof_is_refused_by_either_steward_tool():
+def test_an_asof_argument_is_ignored_by_either_steward_tool_and_the_reply_is_undated():
+    # MEASURED: neither tool advertises asof, so the SDK's argument model drops it silently (no error); the reply
+    # stays `asof: null`, like the research tools' undated reads
     for tool in ("get_splits", "get_admin_status"):
-        failure = failed(FakeApi(), tool, asof="2026-11-06")
-        assert failure["code"] == "invalid_arguments"
-        assert failure["message"].startswith(
-            f"`{tool}` is not dated, so it takes no asof; it takes "
-        )
+        reply = ok(FakeApi(), tool, asof="2026-11-01")
+        assert reply["asof"] is None and reply["source"] == "live"
+
+
+def test_an_empty_split_list_renders_zero_counts_and_an_empty_page():
+    empty = {
+        "needs_review": [],
+        "announced": [],
+        "confirmed": [],
+        "set_aside": [],
+        "total": 0,
+        "unlisted_jumps": [],
+        "dismissed_jumps": [],
+        "unlisted_jumps_error": None,
+    }
+    api = FakeApi(splits=empty)
+    reply = ok(api, "get_splits")
+    assert reply["counts"] == {
+        "needs_review": 0,
+        "announced": 0,
+        "confirmed": 0,
+        "set_aside": 0,
+        "unlisted_jumps": 0,
+        "dismissed_jumps": 0,
+        "total": 0,
+    }
+    assert reply["needs_review"] == [] and reply["jumps"] == [] and reply["next_cursor"] is None
+    page = ok(api, "get_splits", section="needs_review")
+    assert page["needs_review"] == [] and page["total"] == 0
+    jumps = ok(api, "get_splits", section="jumps")
+    assert jumps["unlisted"] == [] and jumps["dismissed"] == []
 
 
 def test_neither_steward_tool_ever_sends_anything_but_a_get():

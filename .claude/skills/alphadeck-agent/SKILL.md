@@ -4,12 +4,11 @@ description: >-
   Read Alpha Deck through its MCP server (alphadeck-prod = the operator's record on :8000, alphadeck-dev = the dev
   stack on :8001) and run its guided reads: the morning brief (what changed last night, what is due, what is hot or
   forming), the Decision Queue review, explaining one card's call, checking what a company is on (ticker check),
-  comparing the Rotation Map across two dates, what is left to ratify on a card, what a card's discovery run found, the splits review (a steward's read of the
-  split list).
-  Trigger on "morning brief", "what changed last night", "review the board", "review the queue", "explain this call",
+  comparing the Rotation Map across two dates, what is left to ratify on a card, what a card's discovery run found,
+  the splits review (a steward's read of the split list). Trigger on "morning brief", "what changed last night", "review the board", "review the queue", "explain this call",
   "what is <ticker> on", "ticker check", "compare the rotation map", "ratify queue", "what is left to ratify",
-  "discovery review", "what did discovery find", "splits review", "review the splits", "use the alphadeck MCP". Read-only; the nightly window and the
-  privacy rule apply.
+  "discovery review", "what did discovery find", "splits review", "review the splits", "use the alphadeck MCP".
+  Read-only; the nightly window and the privacy rule apply.
 argument-hint: "[morning-brief|board-review|explain-call|ticker-check|compare-rotation|ratify-queue|discovery-review|splits-review] [the recipe's arguments]"
 ---
 
@@ -222,7 +221,7 @@ Rules: VERIFY means surfaced on BROAD terms and never dropped, not "rejected"; o
 Fill: `{{t_clause}}` = empty, or `, starting with TK01` for a named ticker. Steward only.
 
 <!-- recipe:splits-review -->
-Splits review{{t_clause}}: what the split list holds for the steward to settle on Admin > Splits. At most 4 tool calls. Steward only: if get_splits is not listed, say so and stop.
+Splits review{{t_clause}}: what the split list holds for the steward to settle on Admin > Splits. At most 5 tool calls. Steward only: if get_splits is not listed, say so and stop.
 
 1. get_splits() once. Note counts (needs_review, announced, confirmed, set_aside, unlisted_jumps, dismissed_jumps, total) and each needs-review row: ticker, the two sources side by side (sec: form, filed, date_kind, ratio_label, abstain_reason, the passage; polygon: execution_date, ratio_label), confirm_options, actions, decided_by.
 2. get_splits(section="one", t=<ticker>) for at most 3 names: the one the operator named, else the needs-review rows whose sources disagree or whose extractor abstained (abstain_reason set). Read the whole passage before you say what the filing states.

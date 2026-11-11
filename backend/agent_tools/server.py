@@ -1025,10 +1025,9 @@ def build_server(
             str | None, Field(description="A ticker (section=one only).", max_length=40)
         ] = None,
         cursor: CursorArg = 0,
-        asof: AsofArg = None,  # refused by the contract: the steward reads are not dated
     ) -> Annotated[types.CallToolResult, AdminReply]:
         client = client_for()
-        tool_args.check(ADMIN["get_splits"], asof=asof, section=section, narrows={"t": t}, given={})
+        tool_args.check(ADMIN["get_splits"], asof=None, section=section, narrows={"t": t}, given={})
         if t is not None and section != "one":
             raise ToolFailure("invalid_arguments", splits_view.T_RULE)
         payload, _ = await client.get("/admin/splits")
@@ -1058,10 +1057,9 @@ def build_server(
             ),
         ] = None,
         cursor: CursorArg = 0,
-        asof: AsofArg = None,  # refused by the contract: the steward reads are not dated
     ) -> Annotated[types.CallToolResult, AdminReply]:
         client = client_for()
-        tool_args.check(ADMIN["get_admin_status"], asof=asof, section=section, narrows={}, given={})
+        tool_args.check(ADMIN["get_admin_status"], asof=None, section=section, narrows={}, given={})
         payload, _ = await client.get("/admin/status")
         req = ResearchRequest(section=section, cursor=cursor)
         try:

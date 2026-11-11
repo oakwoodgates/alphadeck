@@ -120,7 +120,7 @@ Two more tools read the Admin panels a super admin (the steward) works from, so 
 reads the split list with both sources' evidence in a few calls. Read-only, like every tool here: a split is
 confirmed, rejected or restored only on Admin > Splits. They are registered with `scope="steward"`, so a plain user
 never lists them. Views are under `backend/agent_tools/views/admin/` (pure; the contracts are declared in
-`views/admin/__init__.py`). Both are undated (`asof: null`, `source: live`; an `asof` argument is refused), read the
+`views/admin/__init__.py`). Both are undated (`asof: null`, `source: live`; they take no `asof` and answer `asof: null`), read the
 shared data layer live, and page inside the 8,000-character rule. The API's order is the panel's: nothing here sorts,
 scores or decides whether the two sources agree.
 
@@ -153,7 +153,7 @@ arguments. The agent's own reading goes under a separate heading and it says wha
 | `ticker-check` | `t`, `asof?` | `lookup_ticker`, `get_call detail=brief` for at most 2 cards (armed or warming first), `get_display_signals` for the first | at most 4 calls / 24,000 (4 / 15,218) |
 | `compare-rotation` | `start`, `end`, `group_by=business_type`, `group?` | `read_dashboard("rotation-map")` at both dates, matched by group `key` | default at most 4 calls / 32,000 (4 / 22,042); with `group` at most 2 / 4,000 (2 / 2,920) |
 | `ratify-queue` | `thesis`, `asof?` | `get_triage` once (the funnel, the unconfirmed names and the meters without a value), `get_thesis` once (not signed off, model drafts, no conviction or context role), `get_discovery(section="ambiguous")` only when the card has a saved run; `get_extract` only when the operator names the company | at most 3 calls / 24,000 (3 / 23,486) |
-| `splits-review` | `t?` | steward only: `get_splits` once (counts and the needs-review rows with both sources side by side), `section=one` for at most 3 names (the named one, else a disagreement or an abstain), `section=jumps` only when the default counted an unlisted jump; the report ends "confirm or reject each on Admin > Splits" | at most 4 calls / 24,000 (4 / 9,147) |
+| `splits-review` | `t?` | steward only: `get_splits` once (counts and the needs-review rows with both sources side by side), `section=one` for at most 3 names (the named one, else a disagreement or an abstain), `section=jumps` only when the default counted an unlisted jump; the report ends "confirm or reject each on Admin > Splits" | at most 5 calls / 24,000 (4 / 9,147) |
 | `discovery-review` | `thesis` | `get_discovery` once (report, capped and empty terms, counts), `section="terms"`, `section="ambiguous"` when any, at most one slice (`status`, `segment` or one `placement`) | at most 4 calls / 32,000 (4 / 27,114) |
 
 `compare-rotation` refuses a broken rule before any read: `start` not before `end`, a date not `YYYY-MM-DD`, a

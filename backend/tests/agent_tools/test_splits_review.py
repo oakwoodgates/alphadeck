@@ -19,7 +19,7 @@ from mcp.client.stdio import stdio_client  # noqa: E402
 
 from tests.agent_tools.fake_api import FakeApi, LoopbackServer  # noqa: E402
 
-MAX_CALLS = 4
+MAX_CALLS = 5  # one list read + at most 3 names + the jumps call; the fixture needs 4
 MAX_CHARS = 24_000
 ROOT = Path(__file__).resolve().parents[2]
 PROMPT_FILE = ROOT / "agent_tools" / "prompts" / "splits-review.md"
