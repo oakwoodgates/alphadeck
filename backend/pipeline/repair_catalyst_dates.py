@@ -20,8 +20,10 @@ agreement was executed in February 2026 (its work period starts 2026-02-09), it 
 2026-05-18). So the OLD date, the work period's start, was 36 days BEFORE the public knew.
 ``signals/catalyst_conviction.py`` fires at ``valid_from``, so a history view or a backtest in that span
 read a catalyst the public did not know about: an invariant #1 lookahead. The RECORD date is 62 days AFTER
-the announcement. It is a never-early bound, late by design: this source does not carry the announcement
-date at all.
+the announcement. It is late by design: this source does not carry the announcement date. It is NOT
+proven that this date can never come too early: a record can appear on USAspending some days after its
+action date (not measured), so for an award nobody announced, the record date may be a few days before
+the public could see it.
 
 THE RULE is ``ingest.doe.feed.parse_award`` (its ``_event_date``: the date the award was recorded, else the
 work period's start) — IMPORTED and RUN on the award's payload, never re-stated here, so this tool and the

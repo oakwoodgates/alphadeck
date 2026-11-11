@@ -60,10 +60,12 @@ fact_catalyst / fact_dilution  date       ``valid_from`` — the announcement da
                                           WRITER owns that construction: a DOE award catalyst's
                                           ``valid_from`` is the date the award was RECORDED (USAspending
                                           ``date_signed``, its first action date — ``ingest.doe.feed``,
-                                          rule log ``2026-11-catalysts-dated-by-record-date``): never
-                                          early, and it can be LATER than the announcement, which that
-                                          source does not carry; its work-period start only when the
-                                          award carries no record date
+                                          rule log ``2026-11-catalysts-dated-by-record-date``): late by
+                                          design (it can be LATER than the announcement, which that
+                                          source does not carry), and not proven against a date a few
+                                          days too early (a record can appear after its action date);
+                                          its work-period start only when the award carries no record
+                                          date
 fact_shares_outstanding        published  F9 (2026-11): the ACCEPTANCE of the filing whose companyfacts cover
                                           row carries the version's count on its date (``filing_accepted`` —
                                           on any version of the fact stating that same count and date: one

@@ -27,8 +27,11 @@
   **A DOE catalyst counts from the date the award was recorded** (USAspending `date_signed`, its first
   action date in the federal record; rule log `2026-11-catalysts-dated-by-record-date`), not from the
   day its work period starts and not from the day the agreement was signed. A work period can start
-  before the public could know of the award (#1); the record date is a never-early bound, late by
-  design, because this source does not carry the announcement date (the measured case is in
+  before the public could know of the award (#1). The record date is late by design: for the one
+  award checked it is 62 days after the public announcement, because this source does not carry the
+  announcement date. It is not proven that this date can never come too early: a record can appear
+  on USAspending some days after its action date (not measured), so for an award nobody announced,
+  the record date may be a few days before the public could see it (detail in
   `docs/DATA_SOURCES.md`). No record date in the payload → the work period's start; neither → the
   award is skipped. When the two dates differ the label says both ("recorded …, work period from …").
   The horizon is still the work period's end.

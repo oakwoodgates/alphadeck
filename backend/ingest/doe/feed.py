@@ -111,8 +111,10 @@ def _event_date(recorded_date: date | None, start_date: date | None) -> date | N
     before this rule, can be EARLY: for that award it is 36 days before the public announcement, so a
     history view in between read a catalyst the public did not know about. (On the six seeded awards,
     MEASURED 2026-11-11, three start before their record date, one of them by 98 days.) The record date is
-    a NEVER-EARLY bound, and it is LATE BY DESIGN: for that award it is 62 days after the announcement,
-    because this source does not carry the announcement date at all.
+    LATE BY DESIGN: for the one award checked it is 62 days after the public announcement, because this
+    source does not carry the announcement date. It is NOT proven that this date can never come too
+    early: a record can appear on USAspending some days after its action date (not measured), so for an
+    award nobody announced, the record date may be a few days before the public could see it.
 
     - a readable record date -> the record date, also when it is EARLIER than the work period's start;
     - no readable record date -> the work period's start (the behavior before this rule);

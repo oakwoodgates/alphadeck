@@ -516,13 +516,15 @@ only *coincide* for insider buys, which is exactly why the two conviction source
   record), not the day its work period starts and not the day the agreement was signed. An award can
   be executed, and even announced, before it is recorded: the OKLO OTA was executed in February 2026
   (its work period starts 2026-02-09), announced on 2026-03-17 and recorded on 2026-05-18. The work
-  period's start was 36 days before the public knew (#1). The record date is a never-early bound, 62
-  days after the announcement and late by design, because this source does not carry the announcement
-  date. An award with no record date still counts from the work period's start. The term's end is
-  unchanged, so liveness simply starts later (1,140 days for this award, 1,238 when it was dated by
-  the start). When the two dates differ, the trigger's label says both. One home:
-  `ingest/doe/feed.py::_event_date`; rows stored before the rule are re-dated by
-  `python -m pipeline.repair_catalyst_dates`.
+  period's start was 36 days before the public knew (#1). The record date is late by design: for this
+  award, the one checked, it is 62 days after the public announcement, because this source does not
+  carry the announcement date. It is not proven that this date can never come too early: a record can
+  appear on USAspending some days after its action date (not measured), so for an award nobody
+  announced, the record date may be a few days before the public could see it. An award with no
+  record date still counts from the work period's start. The term's end is unchanged, so liveness
+  simply starts later (1,140 days for this award, 1,238 when it was dated by the start). When the two
+  dates differ, the trigger's label says both. One home: `ingest/doe/feed.py::_event_date`; rows
+  stored before the rule are re-dated by `python -m pipeline.repair_catalyst_dates`.
 - **`theme_conviction` `[built — M5b]` — grade-DECOUPLED liveness, capped at flip.** An operator-ratified,
   **thesis-level** conviction (the basket-level analog of an insider buy / a name's catalyst), broadcast onto
   each eligible member as a Key-1 **fallback**. Always **`flip`** (capped at starter — belief never mints a

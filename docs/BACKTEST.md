@@ -64,8 +64,11 @@ point is unchanged: the ratification is hindsight.
 (DENE0009589, 2026-11-11): the agreement was executed in February 2026 (its work period starts
 2026-02-09), it was announced publicly on 2026-03-17, and DOE recorded it on 2026-05-18. The old date was
 36 days BEFORE the public knew, so a run read the catalyst too early (a lookahead). The record date is 62
-days AFTER the announcement, so a run now reads this catalyst 62 days later than the public could: a
-never-early bound, late by design, because USAspending does not carry the announcement date.
+days AFTER the announcement, so a run now reads this catalyst 62 days later than the public could: late
+by design, because USAspending does not carry the announcement date. It is not proven that the record
+date can never come too early: a record can appear on USAspending some days after its action date (not
+measured), so for an award nobody announced, the record date may be a few days before the public could
+see it.
 
 ## A run is an immutable, addressable artifact
 

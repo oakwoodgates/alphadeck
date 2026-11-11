@@ -258,15 +258,17 @@ is the work period's end either way. Rows stored before the rule are re-dated by
 `python -m pipeline.repair_catalyst_dates` (dry-run by default; it re-parses these committed payloads,
 never the network).
 
-**KNOWN LIMITATION: the record date is late by design.** An award can be executed, and even announced,
-before it is recorded. For the one award checked against public sources (DENE0009589, 2026-11-11): the
-agreement was executed in February 2026 (the company's 10-Q filed 2026-11-06 says so; the record's work
-period starts 2026-02-09), it was announced publicly on 2026-03-17, and DOE recorded it on 2026-05-18
+**KNOWN LIMITATION: the record date is late by design, and it is not proven that it can never come too
+early.** An award can be executed, and even announced, before it is recorded. For the one award checked
+against public sources (DENE0009589, 2026-11-11): the agreement was executed in February 2026 (the
+company's 10-Q filed 2026-11-06 says so; the record's work period starts 2026-02-09), it was announced
+publicly on 2026-03-17, and DOE recorded it on 2026-05-18
 (USAspending transactions API: one transaction, "New Award", action date 2026-05-18). So the old date,
 the work period's start, was 36 days BEFORE the public knew, and the record date is 62 days AFTER. The
 catalyst now counts 62 days after the public announcement, because this source does not carry the
-announcement date at all. The record date is a never-early bound: it removes the lookahead and accepts
-the lateness.
+announcement date at all. That lateness is by design. The other direction is NOT proven: one award was
+checked, and a record can appear on USAspending some days after its action date (not measured), so for
+an award nobody announced, the record date may be a few days before the public could see it.
 
 **Etiquette** (mirrors EDGAR): cache-first on disk (`data/doe_cache/`; committed fixtures in
 `backend/seed_data/doe/`), live pulls explicit opt-in, a rate-limit gate, the test transport raises on a
