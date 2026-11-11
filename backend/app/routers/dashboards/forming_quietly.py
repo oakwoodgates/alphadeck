@@ -416,6 +416,7 @@ def read_forming(
         clock,
         lambda p, sid: read_reading(p, sid, asof, members),
         workspace=workspace,
+        piece="forming-quietly.reading",
     )
     readings: dict[UUID, Reading] = {**read, **{s: Reading(flag=flags[s]) for s in flags}}
 

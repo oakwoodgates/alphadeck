@@ -28,7 +28,7 @@ writes nothing.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Hashable, Iterable, Mapping, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import date, datetime, tzinfo
@@ -285,11 +285,58 @@ def per_company(
     read: Callable[[PointInTimeData, UUID], T],
     *,
     workspace: UUID,
+    piece: str | None = None,
+    variant: Callable[[UUID], Hashable] | None = None,
 ) -> dict[UUID, T]:
     """``read(pit, sid)`` ONCE per company, through the same point-in-time view the Cockpit's
     ``/display-signals`` builds (``bounds=display_bounds()``; ``known_at`` + ``clock`` from ``serve_view``:
     the public clock at a past as-of, the live read today), ``CHUNK`` companies per view. The view reads the
-    DATA facts and ``workspace``'s own ratified rows (the caller's), never another workspace's."""
+    DATA facts and ``workspace``'s own ratified rows (the caller's), never another workspace's.
+
+    ``piece`` names the page's own per-company result (a ``dashboards.cache`` piece, kind ``page:<piece>``),
+    so a recompute after a basket edit or one company's change reads only the companies with no stored result.
+    Shared ONLY inside a page compute of the same ``workspace``; anywhere else (and with ``piece=None``) every
+    company is read and nothing is stored. ``variant(sid)`` is the one per-company page value ``read`` also
+    depends on besides the view (a price flag, say): a stored result is reused only while it is unchanged.
+    The stored results are shared between pages and recomputes: a caller treats them as read-only. The result
+    keeps ``sids``' order either way; the companies read are chunked in their own order."""
+    if piece is None or piece_workspace() != workspace:
+        return _read_companies(conn, sids, asof, known_at, clock, read, workspace=workspace)
+    kind = f"{PAGE_PIECE_PREFIX}{piece}"
+    known: dict[UUID, T] = {}
+    want: dict[UUID, Hashable] = {}
+    for sid in dict.fromkeys(sids):
+        value = variant(sid) if variant is not None else _NO_VARIANT
+        found, stored = get_piece(kind, sid, asof, clock, known_at)
+        if found and stored[0] == value:
+            known[sid] = stored[1]
+        else:
+            want[sid] = value
+    if want:
+        got = _read_companies(conn, list(want), asof, known_at, clock, read, workspace=workspace)
+        for sid, result in got.items():
+            put_piece(kind, sid, asof, clock, known_at, (want[sid], result))
+            known[sid] = result
+    return {sid: known[sid] for sid in sids}
+
+
+# the kind prefix of a page's own per-company result (``per_company(piece=...)``)
+PAGE_PIECE_PREFIX = "page:"
+# the stored variant value of a piece read with no ``variant`` (equal only to itself)
+_NO_VARIANT: Hashable = object()
+
+
+def _read_companies(
+    conn: psycopg.Connection,
+    sids: Sequence[UUID],
+    asof: date,
+    known_at: datetime | None,
+    clock: Literal["record", "public"],
+    read: Callable[[PointInTimeData, UUID], T],
+    *,
+    workspace: UUID,
+) -> dict[UUID, T]:
+    """``per_company``'s read: one view per ``CHUNK`` of ``sids`` (in their order), ``read`` once per company."""
     bounds = display_bounds()
     out: dict[UUID, T] = {}
     view = _CompanyView(asof, known_at, clock, workspace)

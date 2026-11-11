@@ -293,6 +293,7 @@ def read_inputs(
         clock,
         lambda pit, sid: _fund_bundle(pit, sid, asof, members),
         workspace=workspace,
+        piece="etfs.fund_bundle",
     )
     closes = per_company(
         conn,
@@ -306,6 +307,7 @@ def read_inputs(
             if b.get("close") is not None
         },
         workspace=workspace,
+        piece="etfs.closes",
     )
     identity = master.identity_for(conn, fund_ids)
     return etf_inputs(

@@ -274,17 +274,23 @@ def _readings(
     company printed in its last ``HISTORY_SESSIONS`` bars (for the timeline's axis; a ``flagged`` company's
     bars never shape it)."""
     members = display_members(MEMBERS, "Cross Radar")
-    seen: set[date] = set()
 
-    def read(pit: PointInTimeData, sid: UUID) -> CompanyCrosses:
+    # pure (a stored result is shared): the company's crosses and, when priced, its recent sessions; the
+    # timeline's ``seen`` is folded from the results below, so a reused result still shapes it
+    def read(pit: PointInTimeData, sid: UUID) -> tuple[CompanyCrosses, tuple[date, ...]]:
         bars = pit.price_history(sid, lookback_days=sma.LOOKBACK_DAYS)
         sigs = {n: m(pit, sid, asof) for n, m in members.items()}
         got = company_crosses(bars, asof, sigs["sma_position"], sigs["relative_strength"])
-        if got.priced and sid not in flagged:
-            seen.update(recent_dates(bars))
-        return got
+        return got, (tuple(recent_dates(bars)) if got.priced else ())
 
-    return per_company(conn, sids, asof, known_at, clock, read, workspace=workspace), seen
+    reads = per_company(
+        conn, sids, asof, known_at, clock, read, workspace=workspace, piece="cross-radar.crosses"
+    )
+    seen: set[date] = set()
+    for sid, (_, dates) in reads.items():
+        if sid not in flagged:
+            seen.update(dates)
+    return {sid: got for sid, (got, _) in reads.items()}, seen
 
 
 def _spy_dates(

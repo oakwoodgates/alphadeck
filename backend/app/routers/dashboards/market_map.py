@@ -190,6 +190,7 @@ def _readings(
         clock,
         lambda pit, sid: read_company(pit, sid, asof, member),
         workspace=workspace,
+        piece="market-map.reading",
     )
 
 

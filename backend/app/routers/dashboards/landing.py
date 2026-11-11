@@ -205,6 +205,7 @@ def _readings(
         clock,
         lambda pit, sid: company_landing(pit.price_history(sid, lookback_days=LOOKBACK_DAYS), asof),
         workspace=workspace,
+        piece="landing.reading",
     )
 
 

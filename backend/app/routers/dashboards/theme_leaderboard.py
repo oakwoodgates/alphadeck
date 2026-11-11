@@ -386,6 +386,8 @@ def read_board(
         clock,
         lambda pit, sid: read_tape(pit, sid, asof, members, flags.get(sid)),
         workspace=workspace,
+        piece="theme-leaderboard.tape",
+        variant=lambda sid: flags.get(sid),
     )
     iwm = read_iwm(_view(conn, asof, known_at, clock, workspace=workspace), asof)
     recorded = read_recorded(conn, [t.id for t in counted.cards], asof)

@@ -230,6 +230,7 @@ def _tapes(
         clock,
         lambda pit, sid: tape_of(member(pit, sid, asof)),
         workspace=workspace,
+        piece="read-through.tape",
     )
 
 

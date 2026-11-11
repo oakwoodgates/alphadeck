@@ -207,6 +207,7 @@ def _readings(
         clock,
         lambda pit, sid: company_reading({n: m(pit, sid, asof) for n, m in members.items()}),
         workspace=workspace,
+        piece="leaders.reading",
     )
 
 

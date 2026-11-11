@@ -50,7 +50,8 @@ The rules it keeps:
 **Pieces: one company's result, shared by every page.** Many pages read the same per-company inputs (a
 company's price-reaching data flags, a display member's reading). A piece is one such value, keyed by
 ``(workspace, kind, security_id, asof, clock, known_at)``; ``kind`` names the input (``"price_flags"``,
-``"member:<name>"``), ``known_at`` is the caller's (``None`` on the live view), and a stored ``None`` is a
+``"member:<name>"``, or ``"page:<name>"``: a page's own per-company result, ``baskets.per_company(piece=)``),
+``known_at`` is the caller's (``None`` on the live view), and a stored ``None`` is a
 real value. Pieces are only read and written while a page's compute runs inside ``get`` (a piece session,
 held in a context variable, so code run outside ``cached()`` computes exactly as before and stores
 nothing); the session's workspace is the page's own, so two workspaces never share one. A compute's new
