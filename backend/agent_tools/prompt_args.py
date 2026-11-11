@@ -42,10 +42,12 @@ class PromptSpec:
     """One guided read: its name (= the file under ``prompts/``), what it says in ``prompts/list``, its arguments
     as ``(name, required, default)`` in the order the client sees them, an optional pre-render ``check`` (called with
     the arguments by name; raises ``ValueError(rule)``) and ``derived`` placeholders (name -> function of the
-    argument values). Imports nothing beyond this module's own (the purity test pins them), so no dataclass.
+    argument values). ``scope`` is the scope a caller needs to list and get it (``"read"``, or ``"steward"``; a
+    plain string, like the tool registry's). Imports nothing beyond this module's own (the purity test pins them),
+    so no dataclass.
     """
 
-    __slots__ = ("name", "description", "arguments", "check", "derived")
+    __slots__ = ("name", "description", "arguments", "check", "derived", "scope")
 
     def __init__(
         self,
@@ -54,12 +56,14 @@ class PromptSpec:
         arguments: tuple,
         check: object = None,
         derived: dict | None = None,
+        scope: str = "read",
     ) -> None:
         self.name = name
         self.description = description
         self.arguments = arguments
         self.check = check
         self.derived = derived or {}
+        self.scope = scope
 
     def __repr__(self) -> str:
         return f"PromptSpec({self.name!r})"
@@ -112,5 +116,16 @@ PROMPTS: tuple[PromptSpec, ...] = (
         "status and the names waiting for a pick.",
         (("thesis", True, None),),
     ),
+    PromptSpec(
+        "splits-review",
+        "The split list for the steward to settle: each needs-review split's two sources side by side, the "
+        "located passage, the matching confirm option; then the announced splits and the unlisted jumps. "
+        "Steward scope.",
+        (("t", False, None),),
+        derived={"t_clause": lambda v: f", starting with {v['t']}" if v["t"] else ""},
+        scope="steward",
+    ),
 )
 PROMPT_NAMES = tuple(p.name for p in PROMPTS)
+# the scope each prompt needs: a prompt the caller does not hold is neither listed nor gettable (``AlphaDeckServer``)
+PROMPT_SCOPES = {p.name: p.scope for p in PROMPTS}

@@ -305,7 +305,7 @@ def test_b_sees_only_b(world):
         return init, tools, replies, foreign
 
     init, tools, replies, foreign = run_as(world["tokens"]["b"], body)
-    assert (init.server_info.name, init.server_info.version) == ("alphadeck", "2.4.0")
+    assert (init.server_info.name, init.server_info.version) == ("alphadeck", "2.5.0")
     assert {t.name for t in tools.tools} == TOOLS and len(tools.tools) == 14
     listed, thesis, call, flags, ticker = replies
     for r in replies:

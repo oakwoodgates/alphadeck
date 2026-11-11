@@ -24,6 +24,8 @@ pytest.importorskip("mcp")
 
 from mcp import types  # noqa: E402
 from mcp.client.client import Client  # noqa: E402
+from mcp.shared.exceptions import MCPError  # noqa: E402
+from mcp_types import INVALID_PARAMS  # noqa: E402
 
 from agent_tools import server as server_mod  # noqa: E402
 from agent_tools.client import ApiClient  # noqa: E402
@@ -220,6 +222,58 @@ def test_layer_three_the_apis_403_answers_forbidden_with_the_registry_bypassed(t
     body = json.loads(called.content[0].text)
     assert body["code"] == "forbidden" and body["message"] == "stewards only"
     assert [p for _, p, _ in api.requests if p.startswith("/admin")] == [path]  # it reached the API
+
+
+# --- the scope-gated prompt ------------------------------------------------------------------------------------
+
+
+def _prompts(principal, *, get: str | None = None, arguments: dict | None = None):
+    async def go():
+        client = _client()
+        reset = CURRENT_PRINCIPAL.set(principal)
+        try:
+            async with Client(server_mod.build_server(lambda: client)) as session:
+                names = [p.name for p in (await session.list_prompts()).prompts]
+                tools = {t.name for t in (await session.list_tools()).tools}
+                got = None
+                if get is not None:
+                    try:
+                        got = await session.get_prompt(get, arguments)
+                    except MCPError as error:
+                        got = error
+                return names, tools, got
+        finally:
+            CURRENT_PRINCIPAL.reset(reset)
+            await client.aclose()
+
+    return asyncio.run(go())
+
+
+def test_the_steward_lists_sixteen_tools_and_eight_prompts_a_plain_principal_fourteen_and_seven():
+    names, tools, _ = _prompts(STEWARD_PRINCIPAL)
+    assert len(names) == 8 and "splits-review" in names and len(tools) == 16
+    names, tools, _ = _prompts(PLAIN_PRINCIPAL)
+    assert len(names) == 7 and "splits-review" not in names and len(tools) == 14
+    names, tools, _ = _prompts(None)  # no principal at all is plain
+    assert len(names) == 7 and len(tools) == 14
+
+
+def test_a_plain_principal_cannot_get_the_steward_prompt_and_is_told_why():
+    _, _, got = _prompts(PLAIN_PRINCIPAL, get="splits-review", arguments={})
+    assert isinstance(got, MCPError)
+    assert got.error.code == INVALID_PARAMS
+    assert got.error.message == "This prompt needs the steward scope."
+    # a prompt of the read scope is unaffected
+    _, _, fine = _prompts(PLAIN_PRINCIPAL, get="ticker-check", arguments={"t": "TK01"})
+    assert not isinstance(fine, MCPError) and "TK01" in fine.messages[0].content.text
+
+
+def test_the_steward_gets_the_prompt_with_its_placeholder_filled():
+    _, _, bare = _prompts(STEWARD_PRINCIPAL, get="splits-review", arguments={})
+    text = bare.messages[0].content.text
+    assert text.startswith("Splits review: ") and "{{" not in text
+    _, _, named = _prompts(STEWARD_PRINCIPAL, get="splits-review", arguments={"t": "TK01"})
+    assert named.messages[0].content.text.startswith("Splits review, starting with TK01: ")
 
 
 # --- the stdio principal ---------------------------------------------------------------------------------------
