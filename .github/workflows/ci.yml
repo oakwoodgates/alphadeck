@@ -54,7 +54,7 @@ jobs:
         run: ruff check .
       - name: Black (format check)
         run: black --check .
-      - name: Pytest (parallel, -n 4: serial was ~19 min)
+      - name: Pytest (parallel, -n 4)  # serial was ~19 min
         run: pytest -n 4
 
   frontend:
