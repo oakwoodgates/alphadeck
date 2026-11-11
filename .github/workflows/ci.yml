@@ -33,7 +33,9 @@ jobs:
           --health-retries 10
     env:
       DATABASE_URL: postgresql://alphadeck:alphadeck@localhost:5544/alphadeck
-      ALPHADECK_TEST_DB: alphadeck_test   # the per-worktree test-DB hook pins CI to a stable, demo-safe name
+      # ALPHADECK_TEST_DB is deliberately NOT set: a pin wins over the per-worker suffix, so under `pytest -n` every
+      # worker would share one DB and the per-test TRUNCATE would wipe the others' rows. Unpinned, the hook derives
+      # alphadeck_test_<hash>_gwN per worker (still behind the fail-closed alphadeck_test prefix guard).
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -52,8 +54,8 @@ jobs:
         run: ruff check .
       - name: Black (format check)
         run: black --check .
-      - name: Pytest
-        run: pytest
+      - name: Pytest (parallel, -n 4: serial was ~19 min)
+        run: pytest -n 4
 
   frontend:
     name: frontend (typecheck + build)

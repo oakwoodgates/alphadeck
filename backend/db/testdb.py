@@ -56,12 +56,13 @@ def _worktree_root() -> str:
 def resolve_test_db_name() -> str:
     """Resolve the per-worktree test DB name, then HARD-GUARD it (fail-closed).
 
-    Precedence: an explicit ``ALPHADECK_TEST_DB`` pin wins (CI / a deliberate operator choice); otherwise
+    Precedence: an explicit ``ALPHADECK_TEST_DB`` pin wins (a deliberate serial run only; never combine a
+    pin with ``-n``, since a pin skips the worker suffix and all workers would share one DB); otherwise
     auto-derive a name stable per worktree by hashing the worktree root (with a ``PYTEST_XDIST_WORKER``
     suffix so within-run parallelism gets its own DB too). The guard fires on BOTH paths, before any URL is
     built or socket opened: the name MUST start with ``alphadeck_test`` or this raises.
     """
-    name = os.environ.get("ALPHADECK_TEST_DB")  # 1. explicit pin wins (CI / operator)
+    name = os.environ.get("ALPHADECK_TEST_DB")  # 1. explicit pin wins (serial runs only)
     if not name:
         root = _worktree_root()  # 2. auto-derive, stable per worktree
         name = f"{_TEST_DB_PREFIX}_" + hashlib.sha1(root.encode()).hexdigest()[:8]

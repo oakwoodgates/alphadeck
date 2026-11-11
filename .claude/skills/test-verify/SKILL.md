@@ -34,7 +34,7 @@ idempotency count-the-table rule); the fail-closed test-DB hook is
    checkout's) venv**: its editable install points at the OTHER tree, and it can be pruned mid-run.
    **Postgres reachable?** Anything serving host port 5544 works (the full stack, or
    `docker compose -f infra/docker-compose.yml up -d`). The test DB name is
-   auto-derived — no env needed (`ALPHADECK_TEST_DB` pins one; CI does). Under `-n`,
+   auto-derived — no env needed (`ALPHADECK_TEST_DB` pins one for a serial run only, never with `-n`; CI leaves it unset and runs `-n 4`). Under `-n`,
    each xdist worker gets its own `alphadeck_test_<hash>_gwN` (the hook's
    `PYTEST_XDIST_WORKER` suffix), so workers never share a DB.
 2. **Run the full suite** (from `backend\`, venv active) — parallel:
