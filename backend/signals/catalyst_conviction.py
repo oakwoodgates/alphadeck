@@ -28,8 +28,9 @@ def liveness(fact: dict[str, Any], cfg: CallConfig) -> int:
     **The cap (`cfg.catalyst_max_horizon_days`, A2) applies to the PUBLISHED branch only, and `None` —
     the default — means no cap, which is byte-identically today.** An agreement's term is a fact about
     the agreement; how long the EDGE survives is a policy question about this platform, and the two are
-    not the same number. A DOE OTA running to 2029 buys a 1,238-day signal-validity window off one
-    event, and nothing before this dial could ask whether that is too long. It is deliberately NOT
+    not the same number. A DOE OTA running to 2029 buys a 1,140-day signal-validity window off one
+    event (counted from the award's signing date, 2026-05-18, which is the fact's ``valid_from``), and
+    nothing before this dial could ask whether that is too long. It is deliberately NOT
     applied to `catalyst_default_horizon_days`: that fallback answers "we do not know this agreement's
     term", the cap answers "we do not believe the edge outlives N days", and each has its own dial so a
     sweep of either stays interpretable.

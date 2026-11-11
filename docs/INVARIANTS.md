@@ -183,7 +183,7 @@ replay stays honest.
   `Settings.price_settle_time`), a vendor RE-version from its own `recorded_at` (it carries no publication time
   of its own — we cannot know it earlier); an 8-K / 13D / revenue print from its trusted SEC acceptance (`valid_from` = that acceptance's
   night, so one submitted after 17:30 ET counts from that evening — F7), else its `filed` date; a restatement from its own filing; catalyst / dilution / theme conviction from `valid_from` (the
-  backtest's operator decision; a DOE award catalyst's `valid_from` is the award's SIGNING date, and its work-period start only when the record carries no signing date: rule log `2026-11-catalysts-dated-by-signing`); a share count from its filing's acceptance (the earliest filing whose cover row states it —
+  backtest's operator decision); a share count from its filing's acceptance (the earliest filing whose cover row states it —
   F9), else `recorded_at`; revenue mix, cash burn and the fund-shares samples from `recorded_at` (their `valid_from` is a period / as-of date, not a publication date).
   The 4/A tables: the amendment and the system's link from the 4/A's acceptance, a SYSTEM decision from that
   same publication, an OPERATOR decision from when the operator made it. The version a past view reads is the
