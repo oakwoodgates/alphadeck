@@ -191,6 +191,29 @@ def test_the_steward_lists_sixteen_tools_and_a_plain_principal_fourteen():
     assert names == TOOLS and len(names) == 14
 
 
+def _listing(principal) -> dict:
+    async def go():
+        client = ApiClient("http://127.0.0.1:8001", transport=FakeApi().transport())
+        reset = CURRENT_PRINCIPAL.set(principal)
+        try:
+            async with Client(server_mod.build_server(lambda: client)) as session:
+                return {t.name: t for t in (await session.list_tools()).tools}
+        finally:
+            CURRENT_PRINCIPAL.reset(reset)
+            await client.aclose()
+
+    return asyncio.run(go())
+
+
+def test_the_monitor_descriptions_say_what_the_new_fields_mean():
+    tools = _listing(STEWARD_PRINCIPAL)
+    clock = tools["get_clock"].description
+    assert "current_night = the night the last pass recorded" in clock
+    assert "RECORD night" in clock and "market_today = today's date in market time" in clock
+    assert "no_record: true" in tools["list_theses"].description
+    assert "not_yet_created" in tools["lookup_ticker"].description
+
+
 @pytest.mark.parametrize("tool", sorted(STEWARD_TOOLS))
 def test_layer_one_the_registry_refuses_a_plain_principal_before_any_request(tool):
     api = FakeApi(steward=True)  # the API would answer: only the registry stands in the way

@@ -7,7 +7,7 @@ never sorted.
 ``cards`` is ordered QUEUE-FIRST so the first page holds the whole queue: the queue cards in full, in queue order
 (each with its record's first fired trigger), then the other live cards briefly in ``/theses`` order, then the archived
 cards briefly. A full record is lean: ``ticker`` is omitted when null, ``archived`` / ``stale`` / ``reconstructed``
-when false, ``basket_size`` except with ``detail="full"``. Every value is copied from the API's JSON; ``stale``,
+when false. A card with no nightly record carries ``no_record: true`` beside ``state: null``. Every value is copied from the API's JSON; ``stale``,
 ``trigger_count`` and the counts only compare and count them.
 """
 
@@ -45,12 +45,11 @@ def _full(entry: dict[str, Any], asof: str, *, detail: Detail, queued: bool) -> 
     _name(entry, out)
     if entry.get("ticker") is not None:
         out["ticker"] = entry["ticker"]
-    if detail == "full":
-        out["basket_size"] = entry.get("basket_size")
+    out["basket_size"] = entry.get("basket_size")
     if entry.get("archived"):
         out["archived"] = True
     if call is None:
-        out.update({"state": None, "record_asof": None})
+        out.update({"state": None, "record_asof": None, "no_record": True})
         return out
     out.update(
         {
@@ -93,8 +92,11 @@ def _brief(entry: dict[str, Any]) -> dict[str, Any]:
     call = entry.get("call")
     out: dict[str, Any] = {"id": entry.get("id")}
     _name(entry, out)
+    out["basket_size"] = entry.get("basket_size")
     out["state"] = call.get("state") if call else None
     out["record_asof"] = call.get("record_asof") if call else None
+    if call is None:
+        out["no_record"] = True
     return out
 
 

@@ -456,8 +456,9 @@ def build_server(
 
     @tool(
         "get_clock",
-        "The API's market clock: current_night (the night the last pass recorded; the default as-of), "
-        "action_day (the session the operator can act in), market_today and market_tz.",
+        "The API's market clock: current_night = the night the last pass recorded (the default as-of: a "
+        "RECORD night, not today's date); market_today = today's date in market time; action_day = the "
+        "session the operator can act in; market_tz.",
     )
     async def get_clock() -> Annotated[types.CallToolResult, ClockReply]:
         client = client_for()
@@ -476,7 +477,8 @@ def build_server(
         "cards briefly (list order), then archived cards. detail=full gives every card in full (state "
         "filters). limit (1 to 100) caps how many queue cards come in full (queue order); the rest of the "
         "queue is listed briefly and queue and counts stay whole: use it for a short review. Omitted keys: "
-        "ticker when null; archived, stale, reconstructed when false.",
+        "ticker when null; archived, stale, reconstructed when false. A card with no nightly record yet "
+        "carries no_record: true (state null); get_call recomputes it live.",
     )
     async def list_theses(
         asof: AsofArg = None,
@@ -659,7 +661,9 @@ def build_server(
         "context_role per card, the recorded call there), the triggers the recorded calls show on it, its "
         "tape, the next catalysts of its cards, the operator's decisions and a filings summary. Per card, "
         "silent is the silent link's label (Context, ETFs, Bench) or null (null = a voting row), and "
-        "place.strength is the NAME's strength on that card, not the card's setup strength. section=filings "
+        "place.strength is the NAME's strength on that card, not the card's setup strength. cards.counted = the "
+        "cards that existed by the as-of; not_yet_created = live cards created after it (their rosters are "
+        "not read here, so a name on only such a card shows no rows). section=filings "
         "lists filings newest first, section=triggers every trigger event of record on the name, "
         "section=catalysts every upcoming card catalyst; 25 per page each. cache says whether this read "
         "computed the page: compute_ms when it did (a cold read is slow), cold_compute_ms on a hit.",
