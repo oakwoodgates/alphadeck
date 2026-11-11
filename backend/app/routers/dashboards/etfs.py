@@ -307,7 +307,7 @@ def read_inputs(
             if b.get("close") is not None
         },
         workspace=workspace,
-        piece="etfs.closes",
+        piece=f"closes.{LOOKBACK_DAYS}d",
     )
     identity = master.identity_for(conn, fund_ids)
     return etf_inputs(

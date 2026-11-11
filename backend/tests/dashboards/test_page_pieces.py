@@ -166,6 +166,15 @@ def test_a_piece_read_with_a_variant_is_not_a_hit_for_a_read_without_one(cache, 
     assert read.calls == sids + sids
 
 
+def test_two_piece_names_never_share_a_result(cache, views):
+    sids, read = _ids(1), Callback()
+    cache.get(CONN, "a", (), D, _page(read, sids, piece="closes.420d"), workspace=W)
+    got = cache.get(CONN, "b", (), D, _page(read, sids, piece="closes.130d"), workspace=W)
+    assert read.calls == sids + sids  # the second name read the company again
+    assert cache.piece_count() == 2
+    assert got.value[sids[0]] == ("r", sids[0])
+
+
 # --- order ---------------------------------------------------------------------------------------------------
 
 

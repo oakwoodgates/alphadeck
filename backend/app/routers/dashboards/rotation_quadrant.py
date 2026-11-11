@@ -203,7 +203,7 @@ def _closes(
             if b.get("close") is not None
         },
         workspace=workspace,
-        piece="closes.trailing_returns_lookback",
+        piece=f"closes.{LOOKBACK_DAYS}d",
     )
 
 
