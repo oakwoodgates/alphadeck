@@ -114,6 +114,22 @@ def test_a_second_seed_run_appends_zero_rows_to_every_table(seeded):
     assert after_second == after_first
 
 
+def test_the_seed_stamps_the_companies_it_wrote_and_a_re_run_stamps_nothing(seeded):
+    """The seed writes facts outside the company write lock, so it moves each company's change stamp in its own
+    transaction (``db.change_stamp``: a dashboards cache already serving that database drops the company's
+    pieces). COUNT THE LOG: a second run appends no fact, so it appends no stamp either."""
+    from db.change_stamp import stamp_fingerprint, stamp_map
+
+    conn, _, _ = seeded
+    first = stamp_map(conn)
+    assert set(first) >= set(_SEED_SECURITY_IDS)  # every seeded company: its bars at least
+    before = stamp_fingerprint(conn)
+    conn.rollback()
+    _seed_everything(conn)
+    assert stamp_fingerprint(conn) == before
+    conn.rollback()
+
+
 def test_a_third_and_fourth_run_stay_flat_too(seeded):
     """The guard is a fixed point, not a one-shot: the boot loop runs this hundreds of times."""
     conn, after_first, _ = seeded

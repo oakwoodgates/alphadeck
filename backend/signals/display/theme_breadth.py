@@ -175,16 +175,22 @@ def _headline(
     )
 
 
-def breadth_for(pit: DisplayPointInTimeData, security_ids: list[UUID]) -> DisplaySignal | None:
-    """Read each resolved member's ascending closes via the point-in-time view (as-of capped on
-    ``pit.asof`` — the no-lookahead boundary, #1), then compute the pure breadth-thrust. The DB touch is
-    confined here (like ``sma.display``); the arithmetic is the pure ``compute``."""
-    member_closes = [
-        [
-            float(b["close"])
-            for b in pit.price_history(sid, lookback_days=LOOKBACK_DAYS)
-            if b.get("close") is not None
-        ]
-        for sid in security_ids
+def member_closes(pit: DisplayPointInTimeData, security_id: UUID) -> list[float]:
+    """ONE member's ascending close series as the breadth reads it: its bars over ``LOOKBACK_DAYS`` through
+    the point-in-time view (as-of capped on ``pit.asof`` — the no-lookahead boundary, #1), a bar with no
+    close left out. A member with no bars is an empty series (``compute`` shows it, never counts it, #9).
+    THE one definition of "a member's closes": ``breadth_for`` builds its series with it, and a reader that
+    reads each member once and computes per basket (the dashboards' ``dashboards.breadth``) calls it too.
+    """
+    return [
+        float(b["close"])
+        for b in pit.price_history(security_id, lookback_days=LOOKBACK_DAYS)
+        if b.get("close") is not None
     ]
-    return compute(member_closes)
+
+
+def breadth_for(pit: DisplayPointInTimeData, security_ids: list[UUID]) -> DisplaySignal | None:
+    """Read each resolved member's ascending closes via the point-in-time view (``member_closes``), then
+    compute the pure breadth-thrust. The DB touch is confined here (like ``sma.display``); the arithmetic is
+    the pure ``compute``."""
+    return compute([member_closes(pit, sid) for sid in security_ids])

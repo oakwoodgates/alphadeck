@@ -185,6 +185,12 @@ the data flags). Its plan is `docs/BOARD.md`.
    re-reading the fact tables; a page that wants one family names it (`kinds=`; Insider Buying reads `form4` and `form4a`
    alone, and every other kind's read is skipped, not filtered). A ratified fact, and a catalyst a person ratified, carry who ratified them and the
    day (`ratifier`, `ratified_on`; the Evidence Ledger's authority classes read them).
+   Inside a page compute the reader keeps each company's rows as a piece named by the kinds read and the window
+   (`filings_piece`: `filings.all.365d`), reused only for exactly the same read (the same shown ticker and tenant too;
+   a narrower window is never a wider stored one filtered), and its Form 4/A SELECT runs only when a company is read.
+   The per-card theme breadth lives in `backend/dashboards/breadth.py` (`read_breadths`, built for the Theme
+   Leaderboard and Forming Quietly): each company's closes are read once however many cards hold it and kept as a
+   piece, and each card's reading is the one `theme_breadth.breadth_for` makes over that card's names.
 
 8. **Self-contained layout, self-registering**, so dashboards build in parallel and delete cleanly. A slug
    is lowercase letters, digits and `-` (`tape-breadth`); the Python module name swaps `-` for `_`

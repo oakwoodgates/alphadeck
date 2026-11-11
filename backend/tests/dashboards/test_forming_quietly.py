@@ -933,9 +933,12 @@ def test_read_forming_threads_one_view_into_every_read_and_runs_only_three_membe
         seen["pits"].append((asof, known_at, clock, basket))
         return FakePit(basket)
 
-    def fake_breadth(pit, sids):
-        seen["breadth"].append((pit.basket, list(sids)))
-        return theme_breadth.compute([[float(i) for i in range(1, 99)] for _ in sids])
+    def fake_breadths(conn, asof, known_at, clock, card_names, **_):
+        seen["breadth"].append((asof, known_at, clock, {t: list(s) for t, s in card_names.items()}))
+        return {
+            tid: theme_breadth.compute([[float(i) for i in range(1, 99)] for _ in sids])
+            for tid, sids in card_names.items()
+        }
 
     def fake_per_company(conn, sids, asof, known_at, clock, read, **_):
         seen["company"].append((list(sids), asof, known_at, clock))
@@ -955,7 +958,8 @@ def test_read_forming_threads_one_view_into_every_read_and_runs_only_three_membe
     monkeypatch.setattr(router_mod, "_pit", fake_pit)
     monkeypatch.setattr(router_mod, "price_flags", fake_flags)
     monkeypatch.setattr(router_mod, "per_company", fake_per_company)
-    monkeypatch.setattr(router_mod.theme_breadth, "breadth_for", fake_breadth)
+    # the breadth read moved to the shared ``dashboards.breadth.read_breadths`` (each name's closes read once)
+    monkeypatch.setattr(router_mod, "read_breadths", fake_breadths)
 
     def fake_members(names, who):
         seen["members"] = tuple(names)
@@ -982,10 +986,10 @@ def test_read_forming_threads_one_view_into_every_read_and_runs_only_three_membe
     assert seen["company"][0] == (sorted([A, D], key=str), ASOF, known_at, "public")
     assert seen["members"] == MEMBERS
     assert seen["recorded"] == [([T1, T2, T3, T4], ASOF)] and seen["runs"] == [([T1, T2], ASOF)]
-    # one breadth read per row card, over its unflagged counting names; one term-month view for them all
-    assert seen["breadth"] == [([A], [A]), ([D], [D])]
-    assert all(p[:3] == (ASOF, known_at, "public") for p in seen["pits"]) and len(seen["pits"]) == 3
-    assert [p[3] for p in seen["pits"]].count(None) == 1
+    # one breadth reading per row card, over its unflagged counting names, on the request's view (one shared
+    # read for them all); one term-month view for them all
+    assert seen["breadth"] == [(ASOF, known_at, "public", {T1: [A], T2: [D]})]
+    assert seen["pits"] == [(ASOF, known_at, "public", None)]
 
     rows = {r["thesis_name"]: r for r in body["rows"]}
     assert set(rows) == {"Card A", "Card B"}

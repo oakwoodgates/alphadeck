@@ -861,8 +861,10 @@ export function useResolveSecurities(query: string) {
 // resolves it (lookup-or-create) and marks it instrument_kind='etf', returning the SecurityMatchOut the FE
 // adds to the basket as the sleeve member (the master row's instrument_kind is its marker). An EXPLICIT
 // operator action (typing a ticker + click);
-// retry:false (a one-shot resolve, re-click on failure). No invalidation here — the caller fires the existing
-// ingest-prices (which re-derives the scored view) after adding the member. Unlike useResolveSecurities this
+// retry:false (a one-shot resolve, re-click on failure). No scored-view invalidation here — the caller fires the
+// existing ingest-prices (which re-derives the scored view) after adding the member. The dashboards ARE marked
+// stale: the resolve can flip an EXISTING company's master row to a fund, which moves what a dashboard shows for
+// it (the server stamps the company; this is the page's half). Unlike useResolveSecurities this
 // needs NO prior master match (a thematic ETF absent from the master is the point).
 async function postResolveEtf(ticker: string): Promise<SecurityMatchOut> {
   const { data, error } = await api.POST("/workbench/securities/resolve-etf", {
@@ -873,7 +875,14 @@ async function postResolveEtf(ticker: string): Promise<SecurityMatchOut> {
 }
 
 export function useResolveEtf() {
-  return useMutation({ retry: false, mutationFn: postResolveEtf });
+  const qc = useQueryClient();
+  return useMutation({
+    retry: false,
+    mutationFn: postResolveEtf,
+    onSuccess: () => {
+      invalidateDashboards(qc);
+    },
+  });
 }
 
 // Promote/save a structured thesis (the app's only mutation): create/update via full-replace upsert,

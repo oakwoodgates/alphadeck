@@ -162,8 +162,10 @@ The build made these choices that the plan above does not spell out. Each is the
     `asof` on or before the as-of, not gated by `known_at`.
 15. **Cost not measured.** The plan asks to MEASURE the cold read here; the build did not (the orchestrator measures on dev
     with a production copy). What the read does, per request: four display members plus the price, shares and split reads for
-    the cap, once per counting name (a name only on Context or Bench is never read); one `breadth_for` view per card (a second
-    read of each name's last 250 days of bars); one term-mention read per card; the data-flag read; IWM's bars.
+    the cap, once per counting name (a name only on Context or Bench is never read); one breadth reading per card, each
+    name's last 250 days of closes read once across the cards and kept as a piece (since 2026-11,
+    `dashboards/breadth.py::read_breadths`; before that one `breadth_for` view per card, so a name on N cards was read N
+    times); one term-mention read per card; the data-flag read; IWM's bars.
 
 ### MEASURED (dev with a prod data copy, 2026-10-29, after the nightly pass)
 

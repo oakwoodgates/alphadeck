@@ -2,7 +2,8 @@
 ``ingest_catalyst``) run outside the company write lock: the Workbench's ``POST /workbench/facts`` and
 ``POST /workbench/facts/auto-confirm``, the ``pipeline.ratify_*`` CLIs. So each moves the company's change stamp
 in the SAME transaction as its fact (``db.change_stamp``: the dashboards' cache drops that company's pieces).
-The route-level proof is ``tests/app/test_workbench_api.py``'s. DB-backed."""
+The route-level proof is ``tests/app/test_workbench_api.py``'s. ``ingest_convert_terms`` (``fact_dilution``'s one
+writer, called by the seed, never under the lock) keeps the same rule. DB-backed."""
 
 from __future__ import annotations
 
@@ -16,6 +17,7 @@ from db.session import DEFAULT_TENANT_ID
 from domain.enums import CatalystType, Grade
 from ingest.cash_burn import ingest_cash_burn
 from ingest.catalyst import ingest_catalyst
+from ingest.edgar.converts import ConvertTerms, ingest_convert_terms
 from ingest.revenue_mix import ingest_revenue_mix
 from ingest.shares import ingest_shares_outstanding
 
@@ -44,6 +46,19 @@ WRITERS = {
         label="a filed award",
         ratified_by="operator",
         **_COMMON,
+    ),
+    "dilution": lambda db, sid: ingest_convert_terms(
+        db,
+        sid,
+        ConvertTerms(
+            principal_total_usd=350_000_000,
+            coupon_pct=2.5,
+            maturity_date=date(2031, 6, 1),
+            conversion_rate=12.5,
+            conversion_price_usd=80.0,
+            issued_date=date(2026, 5, 1),
+        ),
+        accession="0000876543-26-000060",
     ),
 }
 

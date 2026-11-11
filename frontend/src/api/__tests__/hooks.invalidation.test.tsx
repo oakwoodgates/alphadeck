@@ -28,6 +28,7 @@ import {
   useIngestJobStatus,
   useIngestPrices,
   usePromoteThesis,
+  useResolveEtf,
   useSectionData,
   useSetBusinessType,
   useSpacAttach,
@@ -212,6 +213,8 @@ describe("a write that can change a dashboard marks dashboard queries stale", ()
     ["a price-feed repair (useAdoptPriceSymbol)", () => useAdoptPriceSymbol(), { securityId: "sec-1", symbol: "TSTX" }],
     ["an insider-amendment decision (useApplyAmendment)", () => useApplyAmendment(), { securityId: "sec-1", accession: "a-1" }],
     ["a split action (useConfirmSplit)", () => useConfirmSplit(), { versionId: "v1", source: "sec" }],
+    // the resolve can flip an existing company's master row to a fund
+    ["useResolveEtf", () => useResolveEtf(), "TSTX"],
   ];
   for (const [name, hook, vars] of cases) {
     it(`${name}: dashboards invalidated, an unrelated key untouched`, async () => {

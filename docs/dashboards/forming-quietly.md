@@ -164,10 +164,11 @@ orchestrator to measure on dev with a prod copy.
    the number is not dropped.
 6. **"Cards with term months / without"** on the work line = row cards with at least one stored SIGNAL-term month among
    their six closed months, and the rest.
-7. **Breadth cost.** One `breadth_for` read per row card runs on its own point-in-time view over the card's unflagged
-   counting names, so a name on several row cards has its closes read once for the three members (through
-   `baskets.per_company`) and once more per card for breadth. This is the plan's wording taken literally; a shared read
-   would save the repeat if the measured cost asks for it.
+7. **Breadth cost.** Each row card's breadth is `theme_breadth.breadth_for`'s reading over the card's unflagged counting
+   names. Since 2026-11 the names' breadth closes are read once per company, however many row cards hold it, through the
+   shared `dashboards/breadth.py::read_breadths` (`baskets.per_company`, kept as a piece: `docs/DASHBOARDS.md` rule 7),
+   beside the one read for the three members. Before that it was one `breadth_for` view per row card, so a name on
+   several row cards was read once more per card (the plan's wording taken literally).
 8. **Default order and the sorts.** Warming cards by the run's first night (newest first, ties by card name); then
    Incubating cards with a slope percent (largest first); then the rest by card name. The server sends this order and
    "the record order" is the page's default. The alternatives (card name, days in state, insider buyers, adoption percent)

@@ -10,7 +10,8 @@ pieces. So every event that changes a company's stored data appends a row for th
   benchmarks, split history);
 - every narrow writer that changes a company's stored data OUTSIDE that lock calls ``mark_changed`` in the
   same transaction as its write (the master's identity writers, the split list, the Form 4/A decisions, the
-  ratified facts, the price-feed repair log, the company-list refresh).
+  ratified facts, the convertible-note terms, the price-feed repair log, the company-list refresh, the demo
+  seed's fixture bars and Form 4s).
 
 **The rule for authors:** a writer that changes a company's stored data outside the company write lock calls
 ``mark_changed``, or dashboards serve that company stale.

@@ -21,6 +21,7 @@ from psycopg.types.json import Json
 from pydantic import BaseModel
 
 from db.bitemporal import append_fact
+from db.change_stamp import mark_changed
 from db.session import DEFAULT_TENANT_ID
 from domain.settings import get_settings
 
@@ -155,7 +156,10 @@ def ingest_convert_terms(
     }
     if recorded_at is not None:
         values["recorded_at"] = recorded_at
-    return append_fact(conn, "fact_dilution", values)
+    fid = append_fact(conn, "fact_dilution", values)
+    # written outside the company write lock: move the company's change stamp (the dashboards' cache)
+    mark_changed(conn, [security_id])
+    return fid
 
 
 def _filing_doc_url(cik: str | int, accession: str, doc: str) -> str:

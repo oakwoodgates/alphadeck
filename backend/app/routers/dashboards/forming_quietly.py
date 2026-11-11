@@ -3,9 +3,10 @@ as-of dial. It READS the cards counted at the as-of with their rosters then (``d
 log (the one recorded card in effect per card, and the rows the run walk reads for the Warming and Incubating ones),
 the master's tickers and issuer CIKs, then for the Warming and Incubating cards' counting names only: the three display
 members' readings through the same point-in-time view the Cockpit builds (``baskets.per_company``), one
-``theme_breadth.breadth_for`` read per card and the card's EDGAR term-mention months
-(``PointInTimeData.term_mentions``). The request's one ``serve_view(asof)`` pair is threaded into every read: the
-roster, the data-flag read, the members' views, the breadth views and the term-month view. It never calls
+theme-breadth reading per card (each name's closes read once, ``dashboards.breadth.read_breadths``) and the card's
+EDGAR term-mention months (``PointInTimeData.term_mentions``). The request's one ``serve_view(asof)`` pair is
+threaded into every read: the roster, the data-flag read, the members' views, the breadth read and the term-month
+view. It never calls
 ``call_for_thesis``: the rows are the RECORD. The whole read is cached per (clock, as-of) in the shared dashboard cache
 (``dashboards/cache.py``, ``docs/DASHBOARDS.md`` rule 7); the Incubating toggle, filters and sorts are the page's. Its
 wire models live here, not in ``app/schemas_api.py`` (rule 8)."""
@@ -32,6 +33,7 @@ from dashboards.baskets import (
     per_company,
     price_flags,
 )
+from dashboards.breadth import read_breadths
 from dashboards.cache import cached
 from dashboards.filings import source_url
 from dashboards.forming_quietly import (
@@ -59,8 +61,7 @@ from domain.thesis import Thesis
 from repositories import calls_repo
 from securities import master
 from signals.base import PointInTimeData
-from signals.display import theme_breadth
-from signals.display.base import DisplayMember, DisplaySignal
+from signals.display.base import DisplayMember
 from signals.horizons import display_bounds
 
 router = APIRouter(prefix="/forming-quietly")
@@ -388,8 +389,8 @@ def read_forming(
 ) -> FormingQuietly:
     """The heavy read the cache holds: a row per Warming and Incubating card of the recorded calls in effect, with
     its keys, missing lines, quiet signals and adoption slope. Reads only; the request's ``known_at`` + ``clock``
-    ride into the roster read, the data-flag read, every company's view, every card's breadth view and the
-    term-month view."""
+    ride into the roster read, the data-flag read, every company's view, the breadth read and the term-month view.
+    """
     counted = cards_as_of(conn, asof, known_at, workspace=workspace)
     by_id = {t.id: t for t in counted.cards}
     names = {tid: t.name for tid, t in by_id.items()}
@@ -428,19 +429,21 @@ def read_forming(
         conn, {t.security_id for tid in ids for t in recorded[tid].card.triggers_fired}
     )
 
+    # one breadth reading per row card, over its counting names whose price history is not flagged (the reading
+    # the Cockpit's basket header makes); each name's closes are read once, however many cards hold it
+    breadths = read_breadths(
+        conn,
+        asof,
+        known_at,
+        clock,
+        {tid: [s for s, _ in per_card[tid][0] if s not in flags] for tid in ids},
+        workspace=workspace,
+    )
     terms_pit = _pit(conn, asof, known_at, clock, workspace=workspace)
     rows: list[FormingRow] = []
     for tid in ids:
         thesis = by_id[tid]
         card_names, unresolved, _ = per_card[tid]
-        card_sids = [s for s, _ in card_names if s not in flags]
-        breadth: DisplaySignal | None = (
-            theme_breadth.breadth_for(
-                _pit(conn, asof, known_at, clock, card_sids, workspace=workspace), card_sids
-            )
-            if card_sids
-            else None
-        )
 
         def ticker_of(sid: UUID, tid: UUID = tid) -> str:
             return roster_tickers.get((tid, sid)) or master_tickers.get(sid) or str(sid)
@@ -451,7 +454,7 @@ def read_forming(
                 thesis.name,
                 recorded[tid],
                 runs.get(tid, []),
-                quiet_of(card_names, readings, breadth, unresolved=unresolved),
+                quiet_of(card_names, readings, breadths[tid], unresolved=unresolved),
                 adoption_slope(terms_pit.term_mentions(tid), _signal_terms(thesis), asof),
                 asof=asof,
                 ticker_of=ticker_of,
