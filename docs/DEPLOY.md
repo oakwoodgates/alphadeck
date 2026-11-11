@@ -361,4 +361,8 @@ then re-run step 1 + step 2.
 - Prefer the targeted `--no-deps <service>` over a full `docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build`
   (which rebuilds + restarts the whole stack — still safe, just slower).
 - The prod stack is `restart: unless-stopped` — it self-recovers after a daemon/laptop
-  reboot; a deploy just swaps in the new image.
+  reboot; a deploy just swaps in the new image. After a reboot every container starts in the same second
+  (restart policies ignore `depends_on`) and Postgres needs ~30 s to accept connections. The backend's boot
+  command runs `python -m db.wait` first (polls every second, at most 300 s, override with
+  `ALPHADECK_DB_WAIT_S`), so it waits instead of crash-looping into Docker's growing restart backoff; the
+  restart policy remains the backstop if the wait times out.

@@ -61,7 +61,7 @@ services:
     # Override the Dockerfile CMD for the edit loop: keep the (idempotent) migrate + seed, then serve with
     # --reload. --reload runs a single process, so it stays compatible with the single-worker invariant. Same
     # as dev.
-    command: ["sh", "-c", "python -m db.migrate && python -m pipeline.seed && exec python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"]
+    command: ["sh", "-c", "python -m db.wait && python -m db.migrate && python -m pipeline.seed && exec python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"]
 
   frontend:
     ports: !override

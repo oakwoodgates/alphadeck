@@ -166,8 +166,9 @@ services:
       retries: 12
       start_period: 20s # cover migrate + seed before failures count
     # Self-recover after a daemon/VM restart — and the reboot race: `depends_on` orders only the
-    # INITIAL `up`, not restarts, so on a reboot the backend can beat postgres; the restart policy
-    # retries until postgres is up and the healthcheck passes.
+    # INITIAL `up`, not restarts, so on a reboot the backend can beat postgres. The boot command waits
+    # for the database itself (`python -m db.wait`, at most 300 s) before migrating; the restart policy
+    # is the backstop if that wait times out.
     restart: unless-stopped
     logging: *capped-logs # O3 — the capped json-file log (top of file)
 
