@@ -14,7 +14,7 @@
 | **EDGAR — XBRL financial datasets + 10-Q/10-K filing text** | structured financials (cash, burn, shares) + the filing passages | dilution clock, fundamentals (§2.2 revenue + the Band 03 S4 shares-outstanding series: three companyfacts share concepts stored `_xbrl`-keyed for the `share_creep` risk detector), **the Workbench scoring-fact extractor** (10-Q/10-K → candidate purity / shares / burn facts) |
 | **EDGAR — N-1A / 485 registrations** | new fund/ETF registrations & launches | **ETF radar** (built display-only context; `etf_launch` is reserved, not emitted — `FUND_RADAR.md`, `CALL_LOGIC.md`) |
 | **SEC `company_tickers_exchange.json`** (one file: ticker → CIK → name → exchange) | the full US filer universe | **the company list** (`populate_master`, weekly in the cron sidecar) — seeds and keeps current the security master so the extract → ratify → score loop runs on any name; a rename updates the company's row in place |
-| **USASpending.gov** — federal award API (`spending_by_award` + `awards/{id}`) | DOE contracts, grants, OTAs, loan guarantees + structured terms (obligation, period of performance) | **catalyst-conviction** (the automated DOE feed, §below) — the first automated Key-1 source |
+| **USASpending.gov** — federal award API (`spending_by_award` + `awards/{id}`) | DOE contracts, grants, OTAs, loan guarantees + structured terms (obligation, signing date, period of performance) | **catalyst-conviction** (the automated DOE feed, §below) — the first automated Key-1 source; a catalyst counts from the award's **signing date** |
 | **Public ETF holdings** (issuer/fund daily holdings files) | constituents, weights, expense ratio, AUM | **ETF radar** (universe seed + holdings/flows); pure-play scoring |
 | **Massive.com reference API** (free tier with `MASSIVE_API_KEY`, via the legacy host `api.polygon.io`) | ETF shares outstanding **by date** (exact counts + real history; 5 req/min) | **ETF net flow** — the primary `fact_fund_shares` source when keyed (`ingest/funds/polygon.py`; the issuer/aggregator scrapers are the keyless fallback) + the historical backfill (`pipeline.backfill_fund_shares`); and the **split reference** (`/v3/reference/splits`, whole market by date — no ticker sent) — the second source the split list confirms against (`ingest/polygon_splits.py`, `pipeline.backfill_splits`; it shares the fund leg's 5/min pacer) |
 | **FINRA short interest** (bi-monthly; PLANNED, not built) | SI %, days-to-cover | squeeze radar (context tier) |
@@ -243,6 +243,19 @@ all resolve to `None`).
 **Pipeline:** discover (search net, one award-type group per call — the API 422s on mixed groups) → resolve
 exactly by recipient_id → fetch award detail → derive grade + base-period-of-performance horizon → emit a
 `fact_catalyst`. Expired awards are emitted too (real, provenanced) but liveness keeps them off the card.
+
+**Which date the catalyst counts from: the award's signing date** (the detail's `date_signed`; rule log
+`2026-11-catalysts-dated-by-signing`, one home in `ingest/doe/feed.py::_event_date`). That date is the
+fact's `valid_from`, the day the detector fires and the day the public clock treats the catalyst as public
+(#1). It is NOT `period_of_performance.start_date`: an award can be signed months after its work period is
+dated to start, and until it is signed there is no award. MEASURED on the six committed payloads
+(2026-11-11): three were signed after their start (2026-02-09 → signed 2026-05-18, 98 days; 2012-06-01 →
+2012-11-30; 2010-03-23 → 2010-12-21) and the three contracts were signed the day the work starts. A
+signing date earlier than the start also counts from the signing. No readable signing date → the work
+period's start; neither date → the award is skipped. When the two dates differ the label says both. The
+horizon (`horizon_end`) is the work period's end either way. Rows stored before the rule are re-dated by
+`python -m pipeline.repair_catalyst_dates` (dry-run by default; it re-parses these committed payloads,
+never the network).
 
 **Etiquette** (mirrors EDGAR): cache-first on disk (`data/doe_cache/`; committed fixtures in
 `backend/seed_data/doe/`), live pulls explicit opt-in, a rate-limit gate, the test transport raises on a

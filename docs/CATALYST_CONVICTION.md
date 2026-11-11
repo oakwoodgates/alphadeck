@@ -24,6 +24,11 @@
   fetches award detail, and derives grade + horizon deterministically. The broadened spike (§9) chose DOE
   over the 8-K deal-keyword path (a polarity trap — surfaces financings/dilution, not power deals). Full
   data-source detail + the entity traps in `docs/DATA_SOURCES.md`.
+  **A DOE catalyst counts from the award's signing date** (`date_signed`; rule log
+  `2026-11-catalysts-dated-by-signing`), not from the day its work period starts: an award can be signed
+  months after that start, and it cannot be acted on before it exists (#1). No signing date in the record
+  → the work period's start; neither → the award is skipped. When the two dates differ the label says
+  both ("signed …, work period from …"). The horizon is still the work period's end.
 - **Signal shape** (§2): `role=entry_trigger`, **one** `kind=catalyst` + a `type` discriminator
   (`gov_funding` for DOE), fires on the **subject security** (name-specific co-location, §5), real provenance.
 - **Liveness ≠ grade (option A).** A catalyst's liveness is its relevance **horizon** — the agreement's
@@ -69,7 +74,8 @@ mandatory trade-exit rule; the clean gap between insider-flip ~18d and core/cata
 **Seeded demo state — two real DOE catalysts, on opposite ends of the grade.** Both ratified via the
 bridge from USAspending records, both co-located with a live 2026-06-02 breakout:
 - **OKLO** — DOE Reactor Pilot Program **OTA** (`DENE0009589`), **flip** (authorization pathway, $0 DOE
-  obligation), horizon → 2029. Alone, it arms OKLO as a disciplined **starter**.
+  obligation), dated at its signing (2026-05-18; its work period starts 2026-02-09), horizon → 2029.
+  Alone, it arms OKLO as a disciplined **starter**.
 - **LEU** (Centrus) — DOE **HALEU production contract** (`89243223CNE000030`), **core** (~$317M obligated
   *and exercised* = binding contracted revenue), horizon = the contract's **base term → 2026-06-30** (the
   ~$1.1B all-options ceiling to 2028 is DOE-discretion, **not** folded in). It arms LEU as a real
@@ -127,7 +133,7 @@ system; anchoring it to *verifiable commitment* (not narrative) is the whole poi
 | `security_id` | the **subject** of the catalyst — the 8-K filer / the awardee. Name-specific → co-locates with *that name's* breakout via the existing per-security model (§5). |
 | `provenance` | the filing accession / dataset record **+ the parsed terms** (counterparty, $ size, term) — show the work, like the converts detector. |
 | `score` | from the parsed terms (obligation magnitude / bindingness), bounded — same spirit as `insider_conviction._score`; it contributes to setup strength, not position sizing. |
-| `asof` | the catalyst's **event date** (filing/award date), not the query asof — anchors liveness to when conviction formed, exactly like the insider cluster. |
+| `asof` | the catalyst's **event date** (filing/award date; for a DOE award, its **signing date**), not the query asof — anchors liveness to when conviction formed, exactly like the insider cluster. |
 
 ## 3. Data sources  `[ranked]` — deterministic or operator-ratified (invariant #3)
 

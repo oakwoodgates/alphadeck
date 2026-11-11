@@ -507,9 +507,18 @@ only *coincide* for insider buys, which is exactly why the two conviction source
   A2 the published branch passes through an optional ceiling, `catalyst_max_horizon_days`, **`None` by
   default and therefore inert today**. The ceiling exists because the term is a fact about the
   *agreement* while the edge horizon is a policy question about *this platform*, and one DOE OTA can put
-  1,238 days between them (OKLO, event 2026-02-09, term to 2029-07-01). It caps the published term ONLY;
+  1,140 days between them (OKLO, signed 2026-05-18, term to 2029-07-01). It caps the published term ONLY;
   the no-term fallback keeps its own dial, because "we do not believe the edge outlives N days" and "we
   do not know this agreement's term" are different claims.
+  **Which date a DOE award counts from (rule log `2026-11-catalysts-dated-by-signing`):** its event date
+  (`valid_from`, the day the detector fires and the day the public clock treats it as public) is the
+  award's **signing date** (`date_signed`), not the day its work period starts. An award can be signed
+  months after that start (the OKLO OTA's work period starts 2026-02-09, 98 days before it was signed),
+  and before the signing there is no award to act on (#1). An award with no signing date still counts
+  from the work period's start. The term's end is unchanged, so liveness simply starts later (1,140 days
+  for this award, 1,238 when it was dated by the start). When the two dates differ, the trigger's label
+  says both. One home: `ingest/doe/feed.py::_event_date`; rows stored before the rule are re-dated by
+  `python -m pipeline.repair_catalyst_dates`.
 - **`theme_conviction` `[built — M5b]` — grade-DECOUPLED liveness, capped at flip.** An operator-ratified,
   **thesis-level** conviction (the basket-level analog of an insider buy / a name's catalyst), broadcast onto
   each eligible member as a Key-1 **fallback**. Always **`flip`** (capped at starter — belief never mints a

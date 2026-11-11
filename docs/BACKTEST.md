@@ -37,15 +37,27 @@ cannot drift:
 3. **Survivorship** — the roster is today's, not history's, wherever no `basket_snapshot` reaches back.
 4. **Adjusted closes** — the tape is split/dividend adjusted.
 5. **A recompute, never the record** — and, explicitly, an operator-ratified fact is modeled as public on its
-   ANNOUNCEMENT date, so the ratification itself is hindsight (FLAG-H, below).
+   ANNOUNCEMENT date (for a DOE award: its signing date), so the ratification itself is hindsight (FLAG-H,
+   below).
 
 ### FLAG-H — the ratification is hindsight, and the label says so
 
-MEASURED: `fact_catalyst.valid_from` spans 2010-03-23 … 2026-02-09 while every row's `recorded_at` is
-2026-06-10. A catalyst the operator ratified in 2026 is therefore modeled as knowable in 2010. The DATA axis
-is right — the announcement date IS the public date — but the DECISION to record it is hindsight. Eight rows
-total, so the impact is negligible; it is labeled rather than corrected because the honest fix (a ratification
-clock) does not exist and pretending otherwise would be worse than saying it.
+MEASURED (before rule `2026-11-catalysts-dated-by-signing`): `fact_catalyst.valid_from` spanned 2010-03-23 …
+2026-02-09 while every row's `recorded_at` was 2026-06-10. A catalyst the operator ratified in 2026 is
+therefore modeled as knowable in 2010. The DATA axis is meant to be right — `valid_from` is the date the
+catalyst became public — but the DECISION to record it is hindsight. Eight rows total, so the impact is
+negligible; it is labeled rather than corrected because the honest fix (a ratification clock) does not exist
+and pretending otherwise would be worse than saying it.
+
+**The data axis had its own error, fixed 2026-11-11.** 3 of the 6 DOE feed rows were dated at the award's
+work-period START, which is before the award was signed: work period from 2026-02-09, signed 2026-05-18;
+from 2012-06-01, signed 2012-11-30; from 2010-03-23, signed 2010-12-21 (both ends of the span above are
+such start dates). A run read those three before they existed. A DOE catalyst now counts from its
+**signing date** (`ingest/doe/feed.py::_event_date`; the work period's start only when the record carries
+no signing date), and `python -m pipeline.repair_catalyst_dates` re-dates the stored rows. Under the rule
+the six feed rows span 2010-12-21 … 2026-05-18 (derived from the committed payloads, not yet re-measured
+on the store: do that after the repair is applied). A run made before the repair read the three early
+dates. FLAG-H's own point is unchanged: the ratification is hindsight.
 
 ## A run is an immutable, addressable artifact
 

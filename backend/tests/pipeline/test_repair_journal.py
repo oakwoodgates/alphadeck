@@ -227,6 +227,15 @@ def _impossible(monkeypatch, tmp_path):
     return m, [], ["--apply"], ("repair_impossible_txn_dates", 1)
 
 
+def _catalyst_dates(monkeypatch, tmp_path):
+    from pipeline import repair_catalyst_dates as m
+
+    monkeypatch.setattr(m, "scan", lambda conn: [])
+    monkeypatch.setattr(m, "ratified_beside", lambda conn, plans: [])
+    monkeypatch.setattr(m, "apply", lambda conn, plans: m.ApplyResult(deleted=3, appended=3))
+    return m, [], ["--apply"], ("repair_catalyst_dates", 6)
+
+
 def _accepted(monkeypatch, tmp_path):
     from pipeline import backfill_accepted as m
 
@@ -276,6 +285,7 @@ TOOLS = {
     "repair_activist_misattribution": _activist,
     "repair_adr_insider_misattribution": _adr,
     "repair_impossible_txn_dates": _impossible,
+    "repair_catalyst_dates": _catalyst_dates,
     "backfill_accepted": _accepted,
     "backfill_accepted_drift": _accepted_drift,
     "backfill_aff10b5_1": _aff10b5_1,
@@ -284,6 +294,7 @@ DELETES = {
     "dedup_identical_versions",
     "repair_activist_misattribution",
     "repair_impossible_txn_dates",
+    "repair_catalyst_dates",
 }
 
 
