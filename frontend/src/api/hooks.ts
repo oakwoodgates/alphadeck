@@ -1,5 +1,6 @@
 import {
   keepPreviousData,
+  type QueryClient,
   useMutation,
   useQueries,
   useQuery,
@@ -10,6 +11,16 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "./client";
 import { MONITOR_STALE_MS } from "./queryClient";
 import type { components } from "./types.gen";
+
+// Refresh every cross-card dashboard read after a write that can change what one shows. A PREFIX
+// predicate on purpose: every dashboard hook keys as ["dashboard-<slug>", asof, ...], so a new
+// dashboard is covered without touching this file. Invalidation refetches only the MOUNTED queries
+// and marks the rest stale, so the next visit refetches instead of serving the 10-minute window.
+export function invalidateDashboards(qc: QueryClient) {
+  return qc.invalidateQueries({
+    predicate: (q) => typeof q.queryKey[0] === "string" && q.queryKey[0].startsWith("dashboard-"),
+  });
+}
 
 // Wire types — generated from the backend's OpenAPI (never hand-written; run `npm run gen:api`).
 export type ThesisSummary = components["schemas"]["ThesisSummary"];
@@ -388,7 +399,10 @@ export function useSetArchived() {
       if (error) throw error;
       return data;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["theses"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["theses"] });
+      invalidateDashboards(qc);
+    },
   });
 }
 
@@ -410,6 +424,7 @@ export function useSetMetaIndex() {
       qc.invalidateQueries({ queryKey: ["theses"] });
       qc.invalidateQueries({ queryKey: ["call", thesisId] });
       qc.invalidateQueries({ queryKey: ["thesis", thesisId] });
+      invalidateDashboards(qc);
     },
   });
 }
@@ -636,6 +651,8 @@ export function useScoreboard(
   return useQuery({
     queryKey: ["scoreboard", asof, includeArchived, includeAnnotated, includeLate, edition] as const,
     enabled: Boolean(asof),
+    // the record changes at the nightly pass (the daily-run job invalidates ["scoreboard"]) and on a logged decision (now invalidated too)
+    staleTime: MONITOR_STALE_MS,
     queryFn: async () => {
       const { data, error } = await api.GET("/scoreboard", {
         params: {
@@ -795,6 +812,9 @@ export function usePostDecision(thesisId: string) {
       // ThesisDetail carries the derived position too (its security_id drives the per-name panel's
       // "Position · this name" block) — refresh it so a logged take/close reflects immediately.
       qc.invalidateQueries({ queryKey: ["thesis", thesisId] });
+      // a logged decision enters the Scoreboard's record and the dashboards that read decisions
+      qc.invalidateQueries({ queryKey: ["scoreboard"] });
+      invalidateDashboards(qc);
     },
   });
 }
@@ -884,6 +904,7 @@ export function usePromoteThesis() {
         qc.invalidateQueries({ queryKey: ["call", thesis.id] });
         qc.invalidateQueries({ queryKey: ["display-signals", thesis.id] });
       }
+      invalidateDashboards(qc);
     },
   });
 }
@@ -1025,6 +1046,7 @@ export function useIngestPrices() {
       // 10-minute-stale card or tape behind it (PR-1a invalidation audit).
       qc.invalidateQueries({ queryKey: ["call"] });
       qc.invalidateQueries({ queryKey: ["display-signals"] });
+      invalidateDashboards(qc);
     },
   });
 }
@@ -1060,6 +1082,7 @@ export function useSetBusinessType() {
       // The display `sector_rs` member GROUPS by business supersector, so a re-tag moves the
       // rotation strip. NOT the call: business type is display identity, never a call input.
       qc.invalidateQueries({ queryKey: ["display-signals"] });
+      invalidateDashboards(qc);
     },
   });
 }
@@ -1152,6 +1175,7 @@ export function useSectionData(thesisId: string) {
     qc.invalidateQueries({ queryKey: ["workbench-scored"] });
     qc.invalidateQueries({ queryKey: ["call"] });
     qc.invalidateQueries({ queryKey: ["display-signals"] });
+    invalidateDashboards(qc);
   };
 
   return { run, running, report, reset: () => setReport(null) };
@@ -1210,15 +1234,19 @@ function useInvalidateOnJobDone(
   jobId: string | null,
   status: string | undefined,
   keys: readonly unknown[][],
+  options: { dashboards?: boolean } = {},
 ) {
   const qc = useQueryClient();
   const latestKeys = useRef(keys);
   latestKeys.current = keys;
+  const withDashboards = useRef(options.dashboards === true);
+  withDashboards.current = options.dashboards === true;
   const firedFor = useRef<string | null>(null);
   useEffect(() => {
     if (!jobId || status !== "done" || firedFor.current === jobId) return;
     firedFor.current = jobId;
     for (const queryKey of latestKeys.current) qc.invalidateQueries({ queryKey });
+    if (withDashboards.current) invalidateDashboards(qc);
   }, [jobId, status, qc]);
 }
 
@@ -1249,7 +1277,7 @@ export function useIngestJobStatus(thesisId: string, jobId: string | null) {
     ["call", thesisId],
     ["display-signals", thesisId],
     ["workbench-scored", thesisId],
-  ]);
+  ], { dashboards: true });
   return q;
 }
 
@@ -1286,6 +1314,7 @@ export function useThesisOnboarding(thesisId: string, enabled: boolean) {
       ]) {
         qc.invalidateQueries({ queryKey });
       }
+      invalidateDashboards(qc);
     }
     seen.current = done;
   }, [done, thesisId, qc]);
@@ -1429,6 +1458,7 @@ export function useRatifyFact() {
       // NOT display-signals (PR-1a invalidation audit): the only display member that reads a share
       // count is `etf_flow`, and it reads `fact_fund_shares` (the ETF sample table) — never the
       // `fact_shares_outstanding` this ratify writes. A ratified fact reaches no display member.
+      invalidateDashboards(qc); // the cross-card dashboards (a ratified fact can move a cap or a call)
     },
   });
 }
@@ -1452,6 +1482,7 @@ export function useAutoConfirmShares() {
       qc.invalidateQueries({ queryKey: ["call"] }); // a shares fact can complete a cap -> the call
       // NOT display-signals — same reason as useRatifyFact: `fact_shares_outstanding` feeds no
       // display member (`etf_flow` reads the separate `fact_fund_shares` table).
+      invalidateDashboards(qc);
     },
   });
 }
@@ -1472,6 +1503,7 @@ export function usePutCatalysts(thesisId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["thesis", thesisId] }); // the calendar re-reads
       qc.invalidateQueries({ queryKey: ["call", thesisId] }); // the catalyst surface rides the card
+      invalidateDashboards(qc);
     },
   });
 }
@@ -1519,6 +1551,7 @@ export function useSpacAttach() {
       // these: the card and the tape are computed over the basket (PR-1a invalidation audit).
       qc.invalidateQueries({ queryKey: ["call", v.thesis_id] });
       qc.invalidateQueries({ queryKey: ["display-signals", v.thesis_id] });
+      invalidateDashboards(qc);
     },
   });
 }
@@ -1592,6 +1625,7 @@ export function useFundAttach() {
       qc.invalidateQueries({ queryKey: ["workbench-scored"] });
       qc.invalidateQueries({ queryKey: ["call", v.thesis_id] });
       qc.invalidateQueries({ queryKey: ["display-signals", v.thesis_id] });
+      invalidateDashboards(qc);
     },
   });
 }
@@ -1623,6 +1657,7 @@ export function useSpacCatalyst() {
     onSuccess: (_d, v) => {
       qc.invalidateQueries({ queryKey: ["thesis", v.thesisId] });
       qc.invalidateQueries({ queryKey: ["call", v.thesisId] });
+      invalidateDashboards(qc);
     },
   });
 }
@@ -1640,7 +1675,10 @@ export function usePutExclusions(thesisId: string) {
       if (error) throw error;
       return data;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["thesis", thesisId] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["thesis", thesisId] });
+      invalidateDashboards(qc);
+    },
   });
 }
 
@@ -1658,6 +1696,7 @@ export function usePutKillCriteria(thesisId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["thesis", thesisId] });
       qc.invalidateQueries({ queryKey: ["call", thesisId] }); // the counter-case re-derives
+      invalidateDashboards(qc);
     },
   });
 }
@@ -1748,7 +1787,7 @@ export function useDailyRunJob(jobId: string | null) {
     ["call"],
     ["display-signals"],
     ["scoreboard"],
-  ]);
+  ], { dashboards: true });
   return q;
 }
 
@@ -1769,7 +1808,11 @@ function useAdminRepair<TVars, TData>(fn: (vars: TVars) => Promise<TData>) {
   return useMutation({
     retry: false,
     mutationFn: fn,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin-status"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-status"] });
+      // a symbol, CIK, acknowledgement or limited-history change moves what a dashboard shows
+      invalidateDashboards(qc);
+    },
   });
 }
 
@@ -1921,6 +1964,7 @@ function useAmendmentDecision<TVars, TData>(fn: (vars: TVars) => Promise<TData>)
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-insider-amendments"] });
       qc.invalidateQueries({ queryKey: ["admin-status"] });
+      invalidateDashboards(qc);
     },
   });
 }
@@ -2067,6 +2111,7 @@ function useSplitAction<TVars, TData>(fn: (vars: TVars) => Promise<TData>) {
       qc.invalidateQueries({ queryKey: ["admin-status"] });
       // S3 — a confirm / reject settles a "split needs review" flag: the marks re-read
       qc.invalidateQueries({ queryKey: ["data-flags"] });
+      invalidateDashboards(qc);
     },
   });
 }
