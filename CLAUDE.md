@@ -225,7 +225,7 @@ bash scripts/ensure-venv.sh                              #   runtime deps + pyte
 
 # backend dev loop (from backend\, venv active)
 python -m db.migrate                                    # apply migrations (idempotent)
-python -m db.wait   # block until Postgres accepts a connection (at most 300 s; the image's boot command runs it before migrate)
+python -m db.wait                                       # block until Postgres accepts a connection (at most 300 s; the image's boot command runs it before migrate)
 python -m pipeline.seed                                 # seed the HIMS demo thesis
 python -m pipeline.users list                           # the login door (docs/AUTH.md): users + workspaces + tokens, no sign-up page — create --email E --display-name N [--super-admin] [--password-stdin] [--workspace UUID | --founding] (a NEW workspace per user by default; prints a generated password ONCE) · disable / enable / reset-password --email E · token create --email E --name N (prints the token ONCE) · token revoke --id ID; `list` shows a per-USER `webhook` flag (a user sets their own Slack webhook on the Settings page, /settings/notifications); never prints a hash or a webhook URL
 python -m pipeline.populate_master --live               # the company list: DRY-RUN the SEC universe refresh (new companies, renames old->new, new classes, conflicts, price pins) — writes nothing; --apply writes it in one transaction + data/master_runs/ (a rename updates the company's row IN PLACE; UA req'd). Weekly in the cron sidecar (Saturday 09:00 ET)
