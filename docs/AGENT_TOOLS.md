@@ -48,7 +48,7 @@ derives a date). `thesis` takes a UUID or an exact name (case-insensitive). Ever
 `readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false` and advertises an
 `outputSchema`. Replies are compact JSON text plus `structuredContent`.
 
-The guided reads are seven prompts; see "Prompts and the Claude Code skill" below. Four more tools read the research
+The guided reads are eight prompts (the eighth is the steward's); see "Prompts and the Claude Code skill" below. Four more tools read the research
 stages; see "Research-stage reads (Phase 5)".
 
 ## Dashboards (Phase 2)
@@ -114,9 +114,35 @@ company, and it passes `thesis` only when the operator asks for the on-thesis pu
 scored view on every read (about 1.5 s for 80 names), so it is read once per review. The three undated tools
 (`get_discovery`, `get_extract`, `get_onboarding`) take no `asof` and answer `asof: null`.
 
+## Steward reads (Phase 3)
+
+Two more tools read the Admin panels a super admin (the steward) works from, so "processing stock splits with Claude"
+reads the split list with both sources' evidence in a few calls. Read-only, like every tool here: a split is
+confirmed, rejected or restored only on Admin > Splits. They are registered with `scope="steward"`, so a plain user
+never lists them. Views are under `backend/agent_tools/views/admin/` (pure; the contracts are declared in
+`views/admin/__init__.py`). Both are undated (`asof: null`, `source: live`; they take no `asof` and answer `asof: null`), read the
+shared data layer live, and page inside the 8,000-character rule. The API's order is the panel's: nothing here sorts,
+scores or decides whether the two sources agree.
+
+| Tool | Reads | Default reply | Budget |
+|---|---|---|---|
+| `get_splits(section?, t?)` | `/admin/splits` | `counts` (needs_review, announced, confirmed, set_aside, unlisted and dismissed jumps, total), then every needs-review row: ticker, company name, the dates, the label, `decided_by`, the SEC filing's reading beside Massive.com's (`sec`: form, filed, `date_kind`, ratio, `abstain_reason`, the located passage cut at 300 with `passage_chars`; `polygon`: execution date, ratio), the `confirm_options` labels and the allowed `actions`; and the first five unlisted jumps. `section=needs_review`, `announced`, `confirmed` or `set_aside` pages that bucket (a set-aside row adds `restore_to` and its note); `section=jumps` pages the unlisted then the dismissed jumps; `section=one` with `t` reads one ticker's every entry (every field, `version_id` included, the passage cut at 1,500) and every jump (with the bars after it) in full, `found: 0` when the list does not hold it | 8,000 |
+| `get_admin_status(section?)` | `/admin/status` | the cron verdict and its alarms, the record's edge and missed nights (counts of the partial, reconstructed and late-only nights), the newest finished pass (its problems cut at 3 with the total, the self-audit as counts and the failed checks' names) and any unfinished one, the newest backup, `backend_sha` and `cron_sha`, the feed-freshness, split-basis and price-repair counts, the four one-line jobs and the panel counts. `section=tape`, `price_repairs`, `split_defects`, `missing_closes`, `record` or `run` pages one panel's rows whole, each row under its list's name | 8,000 |
+
+**Three layers.** (1) The registry: a tool registered `steward` is neither listed nor callable for a principal without
+the scope (`forbidden`, "This tool needs the steward scope.", before any API request). (2) The gate behind it: an OAuth
+token without `steward` is a plain user at the API even when its user is a super admin. (3) The API: `/admin/*` is
+`require_super_admin`, and its 403 ("stewards only") answers the tool as `forbidden` too. Each layer is tested with the
+others bypassed (`test_principal.py`). A stdio server learns its scopes once, from `GET /auth/me` with its token: the
+stdio server lists the two tools when its token is a super admin's. A thesis from another workspace is already spelled
+`workspace <8 hex> · thesis <8 hex>` in the status payload; the view copies it and resolves nothing.
+
+The `splits-review` prompt (below) is the guided read over `get_splits`; it is listed only to a caller who holds the
+steward scope.
+
 ## Prompts and the Claude Code skill
 
-Seven guided reads, each a prompt file under `backend/agent_tools/prompts/` (package data) that a handler fills with its
+Eight guided reads (the last one, `splits-review`, is listed to stewards only), each a prompt file under `backend/agent_tools/prompts/` (package data) that a handler fills with its
 arguments. The agent's own reading goes under a separate heading and it says what it did not read.
 
 | Prompt | Arguments | Call plan | Budget on the fixtures (MEASURED) |
@@ -127,6 +153,7 @@ arguments. The agent's own reading goes under a separate heading and it says wha
 | `ticker-check` | `t`, `asof?` | `lookup_ticker`, `get_call detail=brief` for at most 2 cards (armed or warming first), `get_display_signals` for the first | at most 4 calls / 24,000 (4 / 15,218) |
 | `compare-rotation` | `start`, `end`, `group_by=business_type`, `group?` | `read_dashboard("rotation-map")` at both dates, matched by group `key` | default at most 4 calls / 32,000 (4 / 22,042); with `group` at most 2 / 4,000 (2 / 2,920) |
 | `ratify-queue` | `thesis`, `asof?` | `get_triage` once (the funnel, the unconfirmed names and the meters without a value), `get_thesis` once (not signed off, model drafts, no conviction or context role), `get_discovery(section="ambiguous")` only when the card has a saved run; `get_extract` only when the operator names the company | at most 3 calls / 24,000 (3 / 23,486) |
+| `splits-review` | `t?` | steward only: `get_splits` once (counts and the needs-review rows with both sources side by side), `section=one` for at most 3 names (the named one, else a disagreement or an abstain), `section=jumps` only when the default counted an unlisted jump; the report ends "confirm or reject each on Admin > Splits" | at most 5 calls / 24,000 (4 / 9,147) |
 | `discovery-review` | `thesis` | `get_discovery` once (report, capped and empty terms, counts), `section="terms"`, `section="ambiguous"` when any, at most one slice (`status`, `segment` or one `placement`) | at most 4 calls / 32,000 (4 / 27,114) |
 
 `compare-rotation` refuses a broken rule before any read: `start` not before `end`, a date not `YYYY-MM-DD`, a
@@ -140,7 +167,7 @@ skill `.claude/skills/alphadeck-agent/SKILL.md`: the model invokes it when the o
 the operator types `/alphadeck-agent morning-brief 2026-11-05`. Each recipe block in the skill is the prompt file,
 verbatim, between `<!-- recipe:<name> -->` markers. `python -m agent_tools.skill_sync --check` exits 1 with a diff when
 a block differs from its file, a prompt has no block or a block names no prompt (a test runs the same check in CI);
-`--write` regenerates the blocks after a prompt edit. The server's `instructions` name the seven prompts and this path.
+`--write` regenerates the blocks after a prompt edit. The server's `instructions` name the eight prompts and this path. A prompt carries a scope like a tool: `list_prompts` hides, and `get_prompt` refuses (invalid params, "This prompt needs the steward scope."), one the caller does not hold, so a plain caller's tools and prompts listing is the same fourteen tools and seven prompts as before.
 
 ## The size rule
 
@@ -168,7 +195,7 @@ ambiguous thesis adds `candidates`). It never carries exception text, paths or p
 | `api_error` | The API answered 5xx or a non-JSON body | yes |
 | `api_rejected` | The API answered another 4xx; carries its `detail` (cut at 300). A **401** says instead to set `ALPHADECK_MCP_TOKEN` (see "The token" below) | no |
 | `output_too_large` | The reply exceeds its budget at its smallest | no |
-| `forbidden` | The tool needs a scope the caller does not hold ("This tool needs the steward scope."); such a tool is not listed for that caller either. No tool needs one today | no |
+| `forbidden` | The tool needs a scope the caller does not hold ("This tool needs the steward scope."); such a tool is not listed for that caller either. Needed by `get_splits` and `get_admin_status`; also the API's own 403 behind them ("stewards only", for a token that is not a super admin's) | no |
 | `internal_error` | Anything else (logged to stderr by class only) | no |
 
 ## Install and register
@@ -271,9 +298,10 @@ workspace: the API's login door signs each request in.
   document (`resource` = the connector URL, `authorization_servers` = the origin, as the SDK spells it with a
   trailing slash, `scopes_supported` = `read`, `steward`) points at our authorization server, whose RFC 8414 document
   names the same issuer. The flow, the clients, the tables and revocation: [`CONNECTORS.md`](CONNECTORS.md).
-- **Scopes:** every tool needs `read`, which every user holds; `steward` (a `super_admin`) is reserved for later
-  steward tools. A tool whose scope the caller lacks is not listed and answers `forbidden`. Today a steward lists
-  the same 14 tools as anyone.
+- **Scopes:** 14 tools need `read`, which every user holds; `get_splits` and `get_admin_status` need `steward` (a
+  `super_admin`). A tool whose scope the caller lacks is not listed and answers `forbidden`: a steward's connector
+  (an app granted `read steward`) lists 16 tools and 8 prompts, a plain user or a steward's app granted `read` only
+  lists 14 and 7.
 - **The nightly window:** a hosted reply between 22:15 and 23:30 market time carries `"nightly_window": true` at
   its top level (a note, never a refusal): the nightly pass is writing the record. The stdio server leaves the rule
   to its caller (the skill).
@@ -290,7 +318,7 @@ workspace: the API's login door signs each request in.
 An MCP client keeps the tool schemas it loaded when it connected. After this server's tools change (a new
 argument, a renamed field, a new tool), reconnect the server in the client (in Claude Code: `/mcp`, then
 reconnect, or restart the session); otherwise the model keeps calling the old contract. The server's advertised
-version (`alphadeck` `2.4.0`) changes with its contract: a tool or prompt added or removed, or a description
+version (`alphadeck` `2.5.0`) changes with its contract: a tool or prompt added or removed, or a description
 whose meaning changes, bumps the MINOR. A client sees the version at `initialize`; a running Claude Code session keeps
 the schemas it loaded, and a fresh session reads the new ones.
 
@@ -298,14 +326,14 @@ the schemas it loaded, and a fresh session reads the new ones.
 
 `backend/tests/agent_tools/`: `test_views.py` (shape and budget per view, every cursor walked to the end),
 `test_server.py` (the official SDK client in-process against an httpx `MockTransport` fake API, plus one REAL
-stdio subprocess against a loopback fake API: 14 tools, 7 prompts, read-only, output schemas), `test_dashboards.py`, `test_research.py` (the four research views:
+stdio subprocess against a loopback fake API: 14 tools, 7 prompts for a plain caller, read-only, output schemas), `test_dashboards.py`, `test_research.py` (the four research views:
 sizes, cursor walks, narrowing, rejections, the wire-key guard, purity), `test_contract.py` (every registered contract),
 `dump_contract.py` (prints the sha256 of the tools and prompts listing: the proof a refactor changed no contract),
 `test_resolve.py`, `test_client.py`, and the prompt call plans through the real stdio client: `test_morning_brief.py`,
 `test_board_review.py`, `test_explain_call.py`, `test_ticker_check.py`, `test_ratify_queue.py`, `test_discovery_review.py`,
 `test_compare_rotation.py` (with the
-argument-rule rejections), plus
-`test_skill.py` (the skill equals the prompt files; its size and frontmatter bars), `test_principal.py` (every tool read-only with a scope, the scope gate, the stdio principal, the window, the grep guards: no tenant, no `db` or `repositories` import) and `test_hosted.py` (the hosted endpoint against the real API and database: two users and a steward, the 401 shapes, the RFC 9728 document, 50 interleaved calls, no redirect). The route the list reads is tested against the database in
+argument-rule rejections), `test_splits_review.py` (the steward's call plan, and a plain stdio caller not offered the prompt), `test_admin_views.py` (the two steward tools: default replies, every section, the rejections, the budget), plus
+`test_skill.py` (the skill equals the prompt files; its size and frontmatter bars), `test_principal.py` (every tool read-only with a scope, the scope gate, the stdio principal, the window, the grep guards: no tenant, no `db` or `repositories` import) and `test_hosted.py` (the hosted endpoint against the real API and database: two users and a steward, the 401 shapes, the RFC 9728 document, 50 interleaved calls, the steward reads against a seeded split, no redirect). The route the list reads is tested against the database in
 `backend/tests/app/test_theses_with_call.py`. Fixtures are synthetic (`Thesis 01`, `TK01`): no card or company
 name from a live card.
 
@@ -315,4 +343,6 @@ From 2026-11-02 to 2026-11-06 a DOM-capture MCP server served agents: a capture 
 dashboard's responses, a headless Chromium rendered them through a separate frontend render page and the agent
 read the rendered DOM. Phase 4 (PR #506) retired it whole (the server package, the endpoint, the renderer, the
 components' instrumentation and the Chromium CI job) because an agent needs the platform's objects, not its
-pixels; the data-first server here replaced it in Phases 1 to 3 (PRs #503, #504, #505).
+pixels; the data-first server here replaced it in Phases 1 to 3 (PRs #503, #504, #505). Version 2.5.0 (Phase 3 of the
+per-user plan) added the two steward reads, the scope-gated `splits-review` prompt and the client's 403 to `forbidden`
+mapping.

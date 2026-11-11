@@ -24,6 +24,8 @@ pytest.importorskip("mcp")
 
 from mcp import types  # noqa: E402
 from mcp.client.client import Client  # noqa: E402
+from mcp.shared.exceptions import MCPError  # noqa: E402
+from mcp_types import INVALID_PARAMS  # noqa: E402
 
 from agent_tools import server as server_mod  # noqa: E402
 from agent_tools.client import ApiClient  # noqa: E402
@@ -41,6 +43,7 @@ _AGENT_TOOLS = Path(server_mod.__file__).resolve().parent
 STEWARD_PRINCIPAL = Principal(frozenset({"read", "steward"}), "s", "pat")
 PLAIN_PRINCIPAL = Principal(frozenset({"read"}), "u", "pat")
 THROWAWAY = "zz_steward_probe"
+STEWARD_TOOLS = {"get_splits", "get_admin_status"}  # the two registered with scope="steward"
 
 
 def _client() -> ApiClient:
@@ -61,7 +64,7 @@ def test_every_registered_tool_is_read_only_and_has_a_scope():
         return registered
 
     registered = asyncio.run(go())
-    assert {t.name for t in registered} == TOOLS
+    assert {t.name for t in registered} == TOOLS | STEWARD_TOOLS
     for t in registered:
         a = t.annotations
         assert a is not None, t.name
@@ -70,7 +73,8 @@ def test_every_registered_tool_is_read_only_and_has_a_scope():
         assert a.idempotent_hint is True, t.name
         assert a.open_world_hint is False, t.name
         assert server_mod.SCOPES.get(t.name) in {"read", "steward"}, t.name
-    assert {server_mod.SCOPES[t.name] for t in registered} == {"read"}  # Phase 1: no steward tool
+    assert {server_mod.SCOPES[t.name] for t in registered} == {"read", "steward"}
+    assert {n for n, scope in server_mod.SCOPES.items() if scope == "steward"} == STEWARD_TOOLS
 
 
 def test_scopes_for_role():
@@ -142,7 +146,7 @@ def test_a_steward_principal_lists_and_calls_it(gated):
     server, client = gated()
     names, called, plain = _list_and_call(server, STEWARD_PRINCIPAL)
     asyncio.run(client.aclose())
-    assert names == TOOLS | {THROWAWAY}
+    assert names == TOOLS | STEWARD_TOOLS | {THROWAWAY}
     assert not called.is_error and called.structured_content["ok"] is True
     assert not plain.is_error
 
@@ -153,6 +157,123 @@ def test_no_principal_behaves_as_plain(gated):
     asyncio.run(client.aclose())
     assert names == TOOLS
     assert json.loads(called.content[0].text)["code"] == "forbidden"
+
+
+# --- the two steward reads: the three layers, each tested with the others bypassed -------------------------------
+
+
+def _steward_call(
+    api: FakeApi, principal, tool: str = "get_splits", *, bypass_registry: bool = False
+):
+    async def go():
+        client = ApiClient("http://127.0.0.1:8001", transport=api.transport())
+        reset = CURRENT_PRINCIPAL.set(principal)
+        try:
+            server = server_mod.build_server(lambda: client)
+            if (
+                bypass_registry
+            ):  # (the build records each tool's scope, so the bypass comes after it)
+                server_mod.SCOPES[tool] = "read"
+            async with Client(server) as session:
+                names = {t.name for t in (await session.list_tools()).tools}
+                return names, await session.call_tool(tool, {})
+        finally:
+            CURRENT_PRINCIPAL.reset(reset)
+            await client.aclose()
+
+    return asyncio.run(go())
+
+
+def test_the_steward_lists_sixteen_tools_and_a_plain_principal_fourteen():
+    names, _ = _steward_call(FakeApi(), STEWARD_PRINCIPAL)
+    assert names == TOOLS | STEWARD_TOOLS and len(names) == 16
+    names, _ = _steward_call(FakeApi(), PLAIN_PRINCIPAL)
+    assert names == TOOLS and len(names) == 14
+
+
+@pytest.mark.parametrize("tool", sorted(STEWARD_TOOLS))
+def test_layer_one_the_registry_refuses_a_plain_principal_before_any_request(tool):
+    api = FakeApi(steward=True)  # the API would answer: only the registry stands in the way
+    _, called = _steward_call(api, PLAIN_PRINCIPAL, tool)
+    assert called.is_error
+    assert json.loads(called.content[0].text) == {
+        "code": "forbidden",
+        "message": "This tool needs the steward scope.",
+        "retryable": False,
+    }
+    assert [
+        p for _, p, _ in api.requests if p.startswith("/admin")
+    ] == []  # refused before dispatch
+
+
+@pytest.mark.parametrize(
+    "tool,path", [("get_splits", "/admin/splits"), ("get_admin_status", "/admin/status")]
+)
+def test_layer_three_the_apis_403_answers_forbidden_with_the_registry_bypassed(tool, path):
+    saved = dict(server_mod.SCOPES)
+    api = FakeApi(steward=False)
+    try:  # layer 1 bypassed: the registry treats the tool as `read`, so a plain principal holds it
+        names, called = _steward_call(api, PLAIN_PRINCIPAL, tool, bypass_registry=True)
+    finally:
+        server_mod.SCOPES.clear()
+        server_mod.SCOPES.update(saved)
+    assert tool in names  # listed and callable, so only the API can refuse
+    assert called.is_error
+    body = json.loads(called.content[0].text)
+    assert body["code"] == "forbidden" and body["message"] == "stewards only"
+    assert [p for _, p, _ in api.requests if p.startswith("/admin")] == [path]  # it reached the API
+
+
+# --- the scope-gated prompt ------------------------------------------------------------------------------------
+
+
+def _prompts(principal, *, get: str | None = None, arguments: dict | None = None):
+    async def go():
+        client = _client()
+        reset = CURRENT_PRINCIPAL.set(principal)
+        try:
+            async with Client(server_mod.build_server(lambda: client)) as session:
+                names = [p.name for p in (await session.list_prompts()).prompts]
+                tools = {t.name for t in (await session.list_tools()).tools}
+                got = None
+                if get is not None:
+                    try:
+                        got = await session.get_prompt(get, arguments)
+                    except MCPError as error:
+                        got = error
+                return names, tools, got
+        finally:
+            CURRENT_PRINCIPAL.reset(reset)
+            await client.aclose()
+
+    return asyncio.run(go())
+
+
+def test_the_steward_lists_sixteen_tools_and_eight_prompts_a_plain_principal_fourteen_and_seven():
+    names, tools, _ = _prompts(STEWARD_PRINCIPAL)
+    assert len(names) == 8 and "splits-review" in names and len(tools) == 16
+    names, tools, _ = _prompts(PLAIN_PRINCIPAL)
+    assert len(names) == 7 and "splits-review" not in names and len(tools) == 14
+    names, tools, _ = _prompts(None)  # no principal at all is plain
+    assert len(names) == 7 and len(tools) == 14
+
+
+def test_a_plain_principal_cannot_get_the_steward_prompt_and_is_told_why():
+    _, _, got = _prompts(PLAIN_PRINCIPAL, get="splits-review", arguments={})
+    assert isinstance(got, MCPError)
+    assert got.error.code == INVALID_PARAMS
+    assert got.error.message == "This prompt needs the steward scope."
+    # a prompt of the read scope is unaffected
+    _, _, fine = _prompts(PLAIN_PRINCIPAL, get="ticker-check", arguments={"t": "TK01"})
+    assert not isinstance(fine, MCPError) and "TK01" in fine.messages[0].content.text
+
+
+def test_the_steward_gets_the_prompt_with_its_placeholder_filled():
+    _, _, bare = _prompts(STEWARD_PRINCIPAL, get="splits-review", arguments={})
+    text = bare.messages[0].content.text
+    assert text.startswith("Splits review: ") and "{{" not in text
+    _, _, named = _prompts(STEWARD_PRINCIPAL, get="splits-review", arguments={"t": "TK01"})
+    assert named.messages[0].content.text.startswith("Splits review, starting with TK01: ")
 
 
 # --- the stdio principal ---------------------------------------------------------------------------------------

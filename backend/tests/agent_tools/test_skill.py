@@ -1,4 +1,4 @@
-"""The Claude Code skill (``.claude/skills/alphadeck-agent/SKILL.md``) carries the seven recipes verbatim: the sync check
+"""The Claude Code skill (``.claude/skills/alphadeck-agent/SKILL.md``) carries the eight recipes verbatim: the sync check
 runs in-process (the same check ``python -m agent_tools.skill_sync --check`` runs), the size and frontmatter bars hold,
 and the tracked skill names no live card, company or ticker.
 """
@@ -13,9 +13,10 @@ from agent_tools import skill_sync
 from agent_tools.prompt_args import PROMPT_NAMES
 
 SKILL = skill_sync.SKILL_PATH
-MAX_CHARS = 17_000
+# the bars moved for the eighth recipe (splits-review) and the two steward tools: 17,000 / 95 before
+MAX_CHARS = 18_500
 MAX_LINES = 300
-MAX_HAND_LINES = 95
+MAX_HAND_LINES = 100
 MAX_DESCRIPTION = 1_000
 
 
@@ -94,6 +95,8 @@ def test_the_frontmatter_names_the_skill_and_each_recipe_and_fits_1000_character
         "compare the rotation map",
         "ratify queue",
         "discovery review",
+        "splits review",
+        "review the splits",
     ):
         assert needle in description, needle
     for name in PROMPT_NAMES:
@@ -144,4 +147,17 @@ def test_the_setup_select_line_names_all_fourteen_tools_and_can_be_pasted():
     line = next(x.strip() for x in _text().splitlines() if x.strip().startswith("select:"))
     assert "..." not in line and " " not in line
     names = line.removeprefix("select:").split(",")
-    assert names == [f"mcp__alphadeck-prod__{t}" for t in TOOLS]
+    assert names == [f"mcp__alphadeck-prod__{t}" for t in TOOLS]  # a plain user's paste still loads
+
+
+def test_the_steward_line_adds_exactly_the_two_admin_reads_to_the_select_line():
+    text = " ".join(_text().split())  # the sentence wraps across lines
+    match = re.search(r"A steward adds `([^`]+)` to that line", text)
+    assert match, "the setup names what a steward adds"
+    added = match.group(1)
+    assert added.startswith(",") and " " not in added
+    assert added.removeprefix(",").split(",") == [
+        "mcp__alphadeck-prod__get_splits",
+        "mcp__alphadeck-prod__get_admin_status",
+    ]
+    assert "does not list them" in text  # a plain user's session never lists them

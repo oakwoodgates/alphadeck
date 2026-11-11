@@ -22,11 +22,14 @@ from agent_tools import server as server_mod  # noqa: E402
 from agent_tools.budget import size  # noqa: E402
 from agent_tools.client import ApiClient  # noqa: E402
 from agent_tools.errors import compact  # noqa: E402
-from agent_tools.prompt_args import PROMPT_NAMES  # noqa: E402
+from agent_tools.prompt_args import PROMPT_NAMES, PROMPT_SCOPES  # noqa: E402
 from agent_tools.views import call as call_view  # noqa: E402
 from agent_tools.views import theses as theses_view  # noqa: E402
 from tests.agent_tools import fixtures as fx  # noqa: E402
 from tests.agent_tools.fake_api import THESIS_ID, FakeApi, LoopbackServer  # noqa: E402
+
+# what a plain (read-only) caller is offered: the steward-scoped prompt is hidden from it
+READ_PROMPTS = tuple(n for n in PROMPT_NAMES if PROMPT_SCOPES[n] == "read")
 
 TOOLS = {
     "get_clock",
@@ -112,7 +115,7 @@ def test_tools_list_advertises_fourteen_read_only_tools_with_schemas_and_seven_p
         assert a.read_only_hint is True and a.destructive_hint is False, t.name
         assert a.idempotent_hint is True and a.open_world_hint is False, t.name
         assert {"asof", "source"} <= set(t.output_schema["properties"]), t.name
-    assert {p.name for p in prompts.prompts} == set(PROMPT_NAMES)
+    assert {p.name for p in prompts.prompts} == set(READ_PROMPTS)
     assert len(prompts.prompts) == 7 and len(tools.tools) == 14
 
 
@@ -331,6 +334,7 @@ def test_prompts_render_within_their_size_and_carry_the_arguments():
         "compare-rotation": 2_000,
         "ratify-queue": 2_000,
         "discovery-review": 2_000,
+        "splits-review": 2_000,
     }  # the existing three stay under 1,500
     for name in PROMPT_NAMES:
         raw = (Path(server_mod.__file__).parent / "prompts" / f"{name}.md").read_text("utf-8")
@@ -338,7 +342,7 @@ def test_prompts_render_within_their_size_and_carry_the_arguments():
     assert len(board_text) <= 1_500 and len(explain_text) <= 1_500
 
 
-def test_the_instructions_name_the_tools_and_the_seven_prompts_and_the_claude_code_path_within_1500_characters():
+def test_the_instructions_name_the_tools_and_the_eight_prompts_and_the_claude_code_path_within_1500_characters():
     text = server_mod.INSTRUCTIONS
     assert len(text) <= 1_500
     for name in PROMPT_NAMES:
@@ -348,7 +352,11 @@ def test_the_instructions_name_the_tools_and_the_seven_prompts_and_the_claude_co
     for tool in ("get_triage", "get_discovery", "get_extract", "get_onboarding"):
         assert tool in text, tool
     assert "EDGAR" in text and "LLM call" in text
-    assert server_mod.VERSION == "2.4.0"
+    assert server_mod.VERSION == "2.5.0"
+    assert len(PROMPT_NAMES) == 8
+    for tool in ("get_splits", "get_admin_status"):
+        assert tool in text, tool
+    assert "steward" in text
 
 
 # --- the real stdio transport ------------------------------------------------------------------------------------
@@ -394,7 +402,7 @@ def test_real_sdk_stdio_client_lists_tools_and_prompts_and_calls_over_loopback()
 
     with LoopbackServer(api) as fake:
         init, tools, prompts, clock, theses, bad = asyncio.run(go(fake.base))
-    assert (init.server_info.name, init.server_info.version) == ("alphadeck", "2.4.0")
+    assert (init.server_info.name, init.server_info.version) == ("alphadeck", "2.5.0")
     assert len(tools.tools) == 14
     assert all(t.annotations.read_only_hint and t.output_schema for t in tools.tools)
     assert len(prompts.prompts) == 7

@@ -12,6 +12,7 @@ from agent_tools import tool_args  # noqa: E402
 from agent_tools.errors import ToolFailure  # noqa: E402
 from agent_tools.tool_args import CONTRACTS, Contract, Setting  # noqa: E402
 from agent_tools.views import (  # noqa: E402,F401  (importing registers the contracts)
+    admin,
     dashboards,
     research,
 )
@@ -151,9 +152,12 @@ def advertised():
 
 
 def test_prompts_list_advertises_exactly_the_table():
-    listed = advertised()
-    assert [p.name for p in listed] == list(PROMPT_NAMES) == [s.name for s in PROMPTS]
-    for spec, prompt in zip(PROMPTS, listed, strict=True):
+    listed = advertised()  # a plain caller: the steward-scoped prompt is hidden
+    offered = [s for s in PROMPTS if s.scope == "read"]
+    assert [p.name for p in listed] == [s.name for s in offered]
+    assert [s.name for s in PROMPTS if s.scope != "read"] == ["splits-review"]
+    assert list(PROMPT_NAMES) == [s.name for s in PROMPTS]
+    for spec, prompt in zip(offered, listed, strict=True):
         assert prompt.description == spec.description, spec.name
         assert [(a.name, bool(a.required)) for a in prompt.arguments] == [
             (name, required) for name, required, _ in spec.arguments

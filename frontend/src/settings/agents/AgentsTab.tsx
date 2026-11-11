@@ -85,8 +85,8 @@ function ConnectSection({
       </div>
       {steward && (
         <p className="steward-line">
-          You are a steward: a client you grant the steward scope also reads the Admin readouts (the splits queue, the
-          onboarding queue, the status). It still cannot confirm or change anything.
+          You are a steward: a client you grant the steward scope also reads the Admin readouts (the split list, the
+          status). It still cannot confirm or change anything.
         </p>
       )}
       <div className="agent-clients">

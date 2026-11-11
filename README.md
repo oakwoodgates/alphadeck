@@ -78,7 +78,7 @@ the API's own JSON (the nightly record and Decision Queue, a call with its evide
 flags, display signals, decisions, a ticker lookup, the eight MONITOR dashboards, and the research stages: what
 discovery found, what is left to ratify, one name's scoring-fact candidates, the onboarding queue), each reply
 bounded and stating its as-of and source, plus seven prompts and, for this repository's Claude Code sessions, the
-`alphadeck-agent` skill. The server signs in with a bearer token from `ALPHADECK_MCP_TOKEN` (minted by
+`alphadeck-agent` skill. A steward (a super admin) also reads the Admin split list and status through two more tools and an eighth prompt (`splits-review`); a plain user never lists them. The server signs in with a bearer token from `ALPHADECK_MCP_TOKEN` (minted by
 `python -m pipeline.users token create`). With `ALPHADECK_PUBLIC_ORIGIN` set, the same server also answers inside
 the API at `/mcp`, where each user signs in with their own token from Settings > Agents, or with an OAuth sign-in
 on our own consent page ([`docs/CONNECTORS.md`](docs/CONNECTORS.md)), and reads only their own workspace. Setup, the tool table and the error codes are in [`docs/AGENT_TOOLS.md`](docs/AGENT_TOOLS.md).

@@ -13,6 +13,7 @@ from urllib.parse import parse_qsl, urlsplit
 
 import httpx
 
+from tests.agent_tools import admin_fixtures as afx
 from tests.agent_tools import dashboard_fixtures as dfx
 from tests.agent_tools import fixtures as fx
 from tests.agent_tools import research_fixtures as rfx
@@ -126,8 +127,33 @@ def _onboarding(api: FakeApi, query: dict[str, str], thesis_id: str):
     return 200, rfx.onboarding()
 
 
+def _auth_me(api: FakeApi, query: dict[str, str]):
+    if (
+        api.me_role is None
+    ):  # the default: no login door, so a stdio server stays the plain principal
+        return None
+    return 200, {"id": "00000000-0000-0000-0000-00000000fa4e", "role": api.me_role}
+
+
+def _admin(api: FakeApi, query: dict[str, str], build: Callable[[], dict]):
+    if not api.steward:  # the real route's ``require_super_admin``
+        return 403, {"detail": "stewards only"}
+    return 200, build()
+
+
+def _admin_splits(api: FakeApi, query: dict[str, str]):
+    return _admin(api, query, lambda: api.splits if api.splits is not None else afx.splits())
+
+
+def _admin_status(api: FakeApi, query: dict[str, str]):
+    return _admin(api, query, lambda: api.status if api.status is not None else afx.status())
+
+
 ROUTES: tuple[tuple[str, str | re.Pattern[str], Callable[..., tuple[int, object] | None]], ...] = (
     ("GET", "/clock", _clock),
+    ("GET", "/auth/me", _auth_me),
+    ("GET", "/admin/splits", _admin_splits),
+    ("GET", "/admin/status", _admin_status),
     ("GET", "/theses", _theses),
     ("GET", "/data-flags", _data_flags),
     ("GET", "/dashboards/ticker-lookup/resolve", _ticker_resolve),
@@ -153,7 +179,17 @@ class FakeApi:
         calls: dict[str, dict] | None = None,
         details: dict[str, dict] | None = None,
         runs_disabled: bool = False,
+        steward: bool = True,
+        me_role: str | None = None,
+        splits: dict | None = None,
+        status: dict | None = None,
     ) -> None:
+        # GET /auth/me answers this role (None = 404): what a stdio server learns its scopes from
+        self.me_role = me_role
+        # the caller is a super admin: /admin/* answers 403 "stewards only" otherwise
+        self.steward = steward
+        self.splits = splits  # the GET /admin/splits payload (default: afx.splits())
+        self.status = status  # the GET /admin/status payload (default: afx.status())
         self.theses = theses
         self.details = (
             details or {}

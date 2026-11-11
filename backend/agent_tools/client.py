@@ -135,6 +135,9 @@ class ApiClient:
             raise not_found
         if status == 401:
             raise ToolFailure("api_rejected", NOT_SIGNED_IN)
+        if status == 403:
+            # the API's own refusal (a route only a steward may read) answers with the registry's code
+            raise ToolFailure("forbidden", _detail(response))
         if status >= 500:
             raise ToolFailure("api_error", f"The API answered HTTP {status}.")
         if status >= 300:

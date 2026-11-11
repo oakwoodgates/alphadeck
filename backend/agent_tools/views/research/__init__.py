@@ -6,29 +6,11 @@ tests read. Pure: no I/O.
 
 from __future__ import annotations
 
-from ...tool_args import Contract, Setting, register
+from ...tool_args import Contract, Setting
+from ...tool_args import contract as _contract
 from . import discovery, extract, onboarding, triage
 
 __all__ = ["CONTRACTS"]
-
-
-def _contract(
-    name: str,
-    dated: bool,
-    sections: tuple[tuple[str, str | None], ...],
-    narrows: tuple[str, ...] = (),
-    settings: tuple = (),
-) -> Contract:
-    return register(
-        Contract(
-            name,
-            dated,
-            tuple(s for s, _ in sections),
-            narrows,
-            settings,
-            tuple((s, need) for s, need in sections if need),
-        )
-    )
 
 
 def _status_rule(value: object) -> str | None:

@@ -194,3 +194,10 @@ def test_a_401_names_the_env_var_and_the_cli_that_mints_a_token():
     assert exc.value.code == "api_rejected" and exc.value.retryable is False
     assert "ALPHADECK_MCP_TOKEN" in exc.value.message
     assert "pipeline.users token create" in exc.value.message
+
+
+def test_a_403_is_forbidden_with_the_apis_own_detail():
+    with pytest.raises(ToolFailure) as exc:
+        _get_with(lambda r: httpx.Response(403, json={"detail": "stewards only"}), "tok")
+    assert (exc.value.code, exc.value.message) == ("forbidden", "stewards only")
+    assert exc.value.retryable is False

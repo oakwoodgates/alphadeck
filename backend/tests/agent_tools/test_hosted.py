@@ -305,7 +305,7 @@ def test_b_sees_only_b(world):
         return init, tools, replies, foreign
 
     init, tools, replies, foreign = run_as(world["tokens"]["b"], body)
-    assert (init.server_info.name, init.server_info.version) == ("alphadeck", "2.4.0")
+    assert (init.server_info.name, init.server_info.version) == ("alphadeck", "2.5.0")
     assert {t.name for t in tools.tools} == TOOLS and len(tools.tools) == 14
     listed, thesis, call, flags, ticker = replies
     for r in replies:
@@ -357,15 +357,113 @@ def test_fifty_interleaved_calls_each_answer_their_own_caller(world):
         assert cards[other]["id"] not in _text(r)
 
 
-# --- 8.5 the steward lists the same tools in Phase 1 -----------------------------------------------------------
+# --- 8.5 the steward lists the two Admin reads; a plain user never sees them -------------------------------------
 
 
-def test_the_steward_lists_the_same_fourteen_tools(world):
+def _seed_needs_review_split(db, sid) -> uuid.UUID:
+    """One needs-review split on the world's synthetic security, on the DATA tenant, the way the steward-route test
+    seeds it (``tests/app/test_workspace_isolation.py``)."""
+    from domain.splits import STATUS_NEEDS_REVIEW
+    from repositories import split_repo
+
+    key = date(2026, 5, 18)
+    seeded = split_repo.append_version(
+        db,
+        tenant_id=DATA_TENANT_ID,
+        security_id=sid,
+        key_date=key,
+        values={
+            "status": STATUS_NEEDS_REVIEW,
+            "polygon_split_from": 1,
+            "polygon_split_to": 8,
+            "polygon_execution_date": key,
+            "effective_date": key,
+            "value_source": "polygon",
+            "ratio_from": 1,
+            "ratio_to": 8,
+            "valid_from": key,
+        },
+        action=split_repo.ACTION_DETECT,
+        author=split_repo.AUTHOR_DETECT,
+    )
+    db.commit()
+    return seeded.id
+
+
+def test_the_steward_lists_sixteen_tools_and_a_plain_user_fourteen(world):
     async def names(session, init):
         return sorted(t.name for t in (await session.list_tools()).tools)
 
-    assert run_as(world["tokens"]["s"], names) == run_as(world["tokens"]["b"], names)
-    assert len(run_as(world["tokens"]["s"], names)) == 14
+    steward = run_as(world["tokens"]["s"], names)
+    assert len(steward) == 16
+    assert sorted(set(steward) - TOOLS) == ["get_admin_status", "get_splits"]
+    for who in ("a", "b"):
+        listed = run_as(world["tokens"][who], names)
+        assert len(listed) == 14 and set(listed) == TOOLS
+
+
+def test_the_steward_reads_the_split_list_and_the_status_the_api_serves(world, db):
+    version_id = _seed_needs_review_split(db, world["sid"])
+    rest = TestClient(app, base_url="https://testserver", raise_server_exceptions=False)
+    bearer = {"authorization": f"Bearer {world['tokens']['s']}"}
+    api_splits = rest.get("/admin/splits", headers=bearer).json()
+    api_status = rest.get("/admin/status", headers=bearer).json()
+    assert [x["version_id"] for x in api_splits["needs_review"]] == [str(version_id)]
+
+    async def body(session, init):
+        return (
+            await session.call_tool("get_splits", {}),
+            await session.call_tool("get_splits", {"section": "one", "t": "tk01"}),
+            await session.call_tool("get_admin_status", {}),
+        )
+
+    listed, one, status = run_as(world["tokens"]["s"], body)
+    for r in (listed, one, status):
+        assert not r.is_error, _text(r)
+    assert listed.structured_content["counts"]["needs_review"] == 1
+    assert listed.structured_content["counts"]["total"] == api_splits["total"]
+    assert listed.structured_content["needs_review"][0]["ticker"] == "TK01"
+    assert one.structured_content["found"] == 1
+    assert one.structured_content["entries"][0]["version_id"] == str(version_id)
+    assert status.structured_content["cron"]["status"] == api_status["cron"]["status"]
+    assert (
+        status.structured_content["splits_needs_review"] == api_status["splits_needs_review"] == 1
+    )
+
+
+def test_a_plain_user_is_refused_the_steward_reads_at_the_registry_and_at_the_api(world, db):
+    _seed_needs_review_split(db, world["sid"])
+    seen: list[str] = []
+
+    async def spy(scope, receive, send):
+        if scope["type"] == "http":
+            seen.append(scope["path"])
+        await app(scope, receive, send)
+
+    async def body(session, init):
+        return (
+            await session.call_tool("get_splits", {}),
+            await session.call_tool("get_admin_status", {}),
+        )
+
+    for who in ("a", "b"):
+        seen.clear()
+        for r in run_as(world["tokens"][who], body, api=spy):
+            assert r.is_error
+            reply = json.loads(_text(r))
+            # the hosted note rides every reply inside the nightly window: never depend on the wall clock
+            reply.pop("nightly_window", None)
+            assert reply == {
+                "code": "forbidden",
+                "message": "This tool needs the steward scope.",
+                "retryable": False,
+            }
+        assert [p for p in seen if p.startswith("/admin")] == []  # layer 1: never dispatched
+    # layer 3, on its own: the API refuses a plain user's PAT at the route
+    rest = TestClient(app, base_url="https://testserver", raise_server_exceptions=False)
+    for path in ("/admin/splits", "/admin/status"):
+        r = rest.get(path, headers={"authorization": f"Bearer {world['tokens']['b']}"})
+        assert r.status_code == 403 and r.json() == {"detail": "stewards only"}
 
 
 # --- 8.6 no redirect, no 5xx ------------------------------------------------------------------------------------

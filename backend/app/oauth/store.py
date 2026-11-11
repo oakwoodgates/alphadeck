@@ -28,7 +28,7 @@ WRITE = "write"  # no token carries it in this phase: an OAuth token without it 
 SCOPES = (READ, STEWARD)
 SCOPE_LABELS = {
     READ: "Read your cards, calls, decisions and ratified facts",
-    STEWARD: "Read the Admin readouts (the splits queue, the onboarding queue, the status)",
+    STEWARD: "Read the Admin readouts (the split list, the status)",
 }
 
 CONSENT_TTL = timedelta(minutes=10)
