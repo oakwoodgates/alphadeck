@@ -701,6 +701,8 @@ def read_digest(
         clock,
         lambda p, sid: read_name_tape(p, sid, sid in held_sids, flagged.get(sid)),
         workspace=workspace,
+        piece="daily-digest.name_tape",
+        variant=lambda sid: (flagged.get(sid), sid in held_sids),
     )
 
     # section 4: the voting names' Form 4 filings from P less the cluster window (Context and Bench never count)

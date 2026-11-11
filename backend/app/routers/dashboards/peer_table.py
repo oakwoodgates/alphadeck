@@ -524,6 +524,8 @@ def read_reads(
         clock,
         lambda pit, sid: read_company(pit, sid, asof, members, flagged.get(sid)),
         workspace=workspace,
+        piece="peer-table.reads",
+        variant=lambda sid: flagged.get(sid),
     )
     return reads, _spy(conn, asof, known_at, clock, workspace=workspace)
 

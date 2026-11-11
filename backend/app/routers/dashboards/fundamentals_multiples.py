@@ -247,7 +247,16 @@ def read_page(
             rows=tuple(pit.fundamentals_facts(sid)),
         )
 
-    reads = per_company(conn, sids, asof, known_at, clock, read, workspace=workspace)
+    reads = per_company(
+        conn,
+        sids,
+        asof,
+        known_at,
+        clock,
+        read,
+        workspace=workspace,
+        piece="fundamentals-multiples.company",
+    )
     # a set-aside is a judgment about a stored version, skipped by every read; this only COUNTS the active ones
     # on the card's revenue rows that were public by the as-of (read only)
     on_card = set(sids)

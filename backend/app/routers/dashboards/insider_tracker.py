@@ -369,6 +369,8 @@ def read_tracker(
         clock,
         lambda pit, sid: read_tape(pit, sid, flagged.get(sid)),
         workspace=workspace,
+        piece="insider-tracker.tape",
+        variant=lambda sid: flagged.get(sid),
     )
     return insider_tracker(
         TrackerInputs(

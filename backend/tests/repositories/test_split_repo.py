@@ -241,3 +241,47 @@ def test_a_future_first_session_confirms_as_announced(db):
     db.commit()
     assert c.status == STATUS_ANNOUNCED and c.confirmed_via == VIA_OPERATOR
     assert split_repo.allowed_actions(c) == ["reject"]
+
+
+def test_every_verb_moves_the_companys_change_stamp(db):
+    """``append_version`` (and so confirm / reject / revoke / restore) moves the company's change stamp in the
+    same transaction (``db.change_stamp``: the dashboards' cache drops that company's pieces)."""
+    from db.change_stamp import stamp_map
+
+    def seq():
+        got = stamp_map(db).get(sid)
+        db.rollback()
+        return got
+
+    sid = _security(db, "WNRS")
+    other = _security(db, "BTOC")
+    assert seq() is None
+    v1 = _append(db, sid, _wnrs())
+    seen = [seq()]
+    c = split_repo.confirm(db, v1.id, source="polygon", tenant_id=DEFAULT_TENANT_ID, today=ASOF)
+    db.commit()
+    seen.append(seq())
+    r = split_repo.revoke(db, c.id, tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+    seen.append(seq())
+    rs = split_repo.restore(db, r.id, tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+    seen.append(seq())
+    split_repo.revoke(db, rs.id, tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+    seen.append(seq())
+    assert None not in seen and seen == sorted(set(seen))  # each verb drew a new, later seq
+    assert stamp_map(db).get(other) is None  # only that company
+    db.rollback()
+
+
+def test_reject_moves_the_companys_change_stamp(db):
+    from db.change_stamp import stamp_map
+
+    sid = _security(db, "WNRS")
+    v1 = _append(db, sid, _wnrs())
+    before = stamp_map(db)[sid]
+    split_repo.reject(db, v1.id, tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+    assert stamp_map(db)[sid] > before
+    db.rollback()

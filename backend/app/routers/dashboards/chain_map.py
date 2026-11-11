@@ -248,6 +248,7 @@ def read_page(
         clock,
         lambda pit, sid: pct_vs_50d(sma(pit, sid, asof)),
         workspace=workspace,
+        piece="chain-map.pct_vs_50d",
     )
     filings = read_filing_rows(
         conn, sids, asof, known_at, clock, days=FILING_DAYS, workspace=workspace

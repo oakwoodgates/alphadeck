@@ -53,6 +53,7 @@ from uuid import UUID
 import psycopg
 
 from db.bitemporal import fact_exists, fact_exists_thesis
+from db.change_stamp import mark_changed
 from db.session import DEFAULT_TENANT_ID, connect
 from domain.enums import CatalystType, Grade
 from domain.scopes import DATA_TENANT_ID, FOUNDING_WORKSPACE_ID
@@ -102,9 +103,16 @@ def _ingest_new_bars(conn: psycopg.Connection, security_id: UUID, bars: list[dic
     fixture history is present (a date the store is missing is still filled) while a re-run of an
     unchanged fixture appends NOTHING. A restatement is deliberately NOT re-versioned here — the committed
     fixture is static, and the live re-version pass belongs to ``ingest.prices.ingest_security``, which the
-    cron drives. Returns the count appended."""
+    cron drives. Returns the count appended.
+
+    The seed writes outside the company write lock, so bars it appends move the company's change stamp in the
+    same transaction (``db.change_stamp``, the dashboards' cache); a re-run that appends nothing stamps nothing.
+    """
     stored = stored_bars(conn, security_id)
-    return ingest_prices(conn, security_id, [b for b in bars if b["d"] not in stored])
+    appended = ingest_prices(conn, security_id, [b for b in bars if b["d"] not in stored])
+    if appended:
+        mark_changed(conn, [security_id])
+    return appended
 
 
 def _ingest_form4_once(
@@ -114,7 +122,9 @@ def _ingest_form4_once(
 
     ``existing_accessions`` is read ONCE for the security (accession is the filing identity and the lead
     column of the insider natural key, so "accession present" ⇔ "its txns stored") — the same guard the
-    per-thesis ingest uses. Returns the count of transaction rows appended."""
+    per-thesis ingest uses. Returns the count of transaction rows appended. Rows it appends move the company's
+    change stamp in the same transaction (the seed writes outside the company write lock; ``db.change_stamp``).
+    """
     seen = existing_accessions(conn, security_id)
     count = 0
     for accession, fname in filings:
@@ -126,6 +136,8 @@ def _ingest_form4_once(
             (_SEED_DATA / "edgar" / fname).read_text(encoding="utf-8"),
             accession,
         ).appended  # the seed's committed fixtures carry no impossible dates; a rejection would PRINT
+    if count:
+        mark_changed(conn, [security_id])
     return count
 
 

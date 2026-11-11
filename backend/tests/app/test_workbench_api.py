@@ -4018,3 +4018,49 @@ def test_promote_sees_two_listings_of_one_company_as_one_for_the_role_check(clie
     )
     assert ok.status_code == 200
     assert [m["context_role"] for m in ok.json()["basket"]] == ["payer", "payer"]
+
+
+# --- the change stamp: the ratified facts and the re-tag reach the dashboards' cache ---------------------------
+
+
+def _stamp(db, sid):
+    from db.change_stamp import stamp_map
+
+    got = stamp_map(db).get(sid)
+    db.rollback()
+    return got
+
+
+def test_ratify_and_auto_confirm_and_the_retag_each_move_the_companys_change_stamp(
+    client, db, monkeypatch
+):
+    """``POST /workbench/facts``, ``POST /workbench/facts/auto-confirm`` and the business-type re-tag write a
+    company's stored data outside the company write lock, so each moves its change stamp, committed with the
+    write (``db.change_stamp``: the dashboards' cache drops that company's pieces)."""
+    from app.routers import workbench as wb
+
+    sid = _insert_security(db, "NNE", name="Nano Nuclear Energy", cik="0001923891")
+    assert _stamp(db, sid) is None
+    monkeypatch.setattr(wb, "extract_for_security", lambda c, cik: [_auto_shares_candidate()])
+    assert _auto_confirm(client, sid).json()["applied"] is True
+    seen = [_stamp(db, sid)]
+    r = client.post(
+        "/workbench/facts",
+        json={
+            "fact_type": "cash_burn",
+            "security_id": str(sid),
+            "source": "10-q",
+            "source_ref": "https://www.sec.gov/nne-10q.htm",
+            "event_date": "2026-03-31",
+            "cash_usd": 1_000_000_000,
+            "quarterly_burn_usd": 50_000_000,
+        },
+    )
+    assert r.status_code == 200
+    seen.append(_stamp(db, sid))
+    r = client.post(
+        f"/workbench/securities/{sid}/business-type", json={"business_type": "biotech_pharma"}
+    )
+    assert r.status_code == 200
+    seen.append(_stamp(db, sid))
+    assert None not in seen and seen == sorted(set(seen))  # each write drew a new, later seq

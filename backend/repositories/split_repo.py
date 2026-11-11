@@ -37,6 +37,7 @@ import psycopg
 from psycopg import sql as pgsql
 from pydantic import BaseModel
 
+from db.change_stamp import mark_changed
 from db.public_clock import Clock, public_params, split_versions_sql, to_public_row
 from domain.splits import (
     SET_ASIDE,
@@ -368,6 +369,8 @@ def append_version(
             row,
         )
         new_id = cur.fetchone()["id"]
+    # the split list changes the company's price scale and market cap: move its change stamp (dashboards)
+    mark_changed(conn, [security_id])
     out = get_version(conn, new_id)
     assert out is not None
     return out

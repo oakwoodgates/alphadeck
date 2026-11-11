@@ -671,3 +671,56 @@ def test_identity_for_carries_the_resolved_price_symbol(db):
     out = master.identity_for(db, [fdct, hims])
     assert out[fdct]["price_symbol"] == "FDCTD"  # the exception symbol travels
     assert out[hims]["price_symbol"] is None  # priced under the canonical ticker
+
+
+_IDENTITY_WRITERS = {
+    "enrich": lambda db, sid: master.enrich(
+        db, sid, SecurityIdentity(sector="Electric Services", status="active"), source="s"
+    ),
+    "mark_instrument_kind": lambda db, sid: master.mark_instrument_kind(
+        db, sid, InstrumentKind.ETF
+    ),
+    "set_price_symbol": lambda db, sid: master.set_price_symbol(
+        db, sid, "OTHR", basis="operator:set"
+    ),
+    "restore_price_symbol": lambda db, sid: master.restore_price_symbol(db, sid, None, None),
+    "set_name": lambda db, sid: master.set_name(db, sid, "A New Name Inc."),
+    "set_cik": lambda db, sid: master.set_cik(db, sid, "0007654321"),
+    "restore_cik_identity": lambda db, sid: master.restore_cik_identity(
+        db, sid, {c: None for c in master.CIK_IDENTITY_COLUMNS} | {"cik": "0001234567"}
+    ),
+    "set_business_type": lambda db, sid: master.set_business_type(
+        db, sid, BusinessType.BIOTECH_PHARMA.value, basis="operator:retag"
+    ),
+}
+
+
+@pytest.mark.parametrize("writer", sorted(_IDENTITY_WRITERS))
+def test_every_identity_writer_moves_the_companys_change_stamp(db, writer):
+    """The master's identity writers run outside the company write lock, so each moves the company's change
+    stamp in the SAME transaction as its UPDATE (``db.change_stamp``: the dashboards' cache drops that
+    company's pieces); an unknown id updates nothing and stamps nothing."""
+    from db.change_stamp import stamp_map
+
+    sid = _insert(db, ticker="OKLO", name="Oklo Inc.", cik="0001234567")
+    other = _insert(db, ticker="KEEP", name="Kept Inc.")
+    assert stamp_map(db) == {}
+    db.rollback()
+    assert _IDENTITY_WRITERS[writer](db, sid) is True
+    assert sid in stamp_map(db)  # inside the writer's own (still open) transaction
+    db.rollback()
+    assert stamp_map(db) == {}  # the stamp rolls back WITH the write
+    db.rollback()
+    _IDENTITY_WRITERS[writer](db, sid)
+    db.commit()
+    first = stamp_map(db)
+    db.rollback()
+    assert set(first) == {sid} and other not in first
+    _IDENTITY_WRITERS[writer](db, sid)  # a re-write stamps again (over-invalidation is harmless)
+    db.commit()
+    assert stamp_map(db)[sid] > first[sid]
+    db.rollback()
+    assert _IDENTITY_WRITERS[writer](db, uuid.uuid4()) is False
+    db.commit()
+    assert set(stamp_map(db)) == {sid}
+    db.rollback()

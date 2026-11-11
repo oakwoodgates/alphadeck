@@ -34,4 +34,24 @@ describe("usePostDecision", () => {
     // the #3 fix — the per-name panel's position now refreshes when a fill lands
     expect(spy).toHaveBeenCalledWith({ queryKey: ["thesis", "t-1"] });
   });
+
+  it("marks every Scoreboard variant and every dashboard stale, and leaves unrelated keys alone", async () => {
+    const qc = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    );
+    qc.setQueryData(["scoreboard", "2026-01-02", true, null, null, null], { rows: [] });
+    qc.setQueryData(["scoreboard", "2026-01-02", false, null, null, 1], { rows: [] });
+    qc.setQueryData(["dashboard-x", "2026-01-02"], { rows: [] });
+    qc.setQueryData(["auth-me"], { me: 1 });
+    const stale = (key: unknown[]) => qc.getQueryState(key)?.isInvalidated === true;
+
+    const { result } = renderHook(() => usePostDecision("t-1"), { wrapper });
+    result.current.mutate({ action: "take", decision_date: "2026-07-21", price: 12.5 });
+
+    await waitFor(() => expect(stale(["dashboard-x", "2026-01-02"])).toBe(true));
+    expect(stale(["scoreboard", "2026-01-02", true, null, null, null])).toBe(true);
+    expect(stale(["scoreboard", "2026-01-02", false, null, null, 1])).toBe(true);
+    expect(stale(["auth-me"])).toBe(false);
+  });
 });

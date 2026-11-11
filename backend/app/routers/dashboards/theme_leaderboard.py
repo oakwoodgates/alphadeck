@@ -1,10 +1,11 @@
 """The Theme Leaderboard dashboard's API (``docs/dashboards/theme-leaderboard.md``): one GET over every live card, at the
 as-of dial. It READS the cards counted at the as-of with their rosters then (``dashboards/baskets.py``), the ``calls``
 log (the one recorded card in effect per card), the counting names' display-member readings through the same
-point-in-time view the Cockpit builds (``baskets.per_company``), one theme-breadth read per card and each card's
-term-mention months, and hands everything to the pure compute in ``dashboards/theme_leaderboard.py``, where every
-rule lives. The request's one ``serve_view(asof)`` pair is threaded into every read: the roster, the data-flag read,
-IWM's bars, each company's view, each card's breadth view and the term-mention view. It never calls
+point-in-time view the Cockpit builds (``baskets.per_company``), one theme-breadth reading per card (each name's
+closes read once, ``dashboards.breadth.read_breadths``) and each card's term-mention months, and hands everything to
+the pure compute in ``dashboards/theme_leaderboard.py``, where every rule lives. The request's one
+``serve_view(asof)`` pair is threaded into every read: the roster, the data-flag read, IWM's bars, each company's
+view, the breadth read and the term-mention view. It never calls
 ``call_for_thesis``: the keys are the RECORD. The whole read is cached per (clock, as-of) in the shared dashboard cache
 (``dashboards/cache.py``, ``docs/DASHBOARDS.md`` rule 7); the filters, sorts, percentiles and score are the page's. Its
 wire models live here, not in ``app/schemas_api.py`` (rule 8)."""
@@ -31,6 +32,7 @@ from dashboards.baskets import (
     per_company,
     price_flags,
 )
+from dashboards.breadth import read_breadths
 from dashboards.cache import cached
 from dashboards.market_cap import CompanyReads, cap_cell, metric_of
 from dashboards.theme_leaderboard import (
@@ -59,8 +61,8 @@ from domain.scopes import DATA_TENANT_ID
 from domain.splits import listed_from_row
 from domain.thesis import TermSetEntry
 from signals.base import PointInTimeData
-from signals.display import insider_flow, theme_breadth, trailing_returns
-from signals.display.base import DisplayMember, DisplaySignal
+from signals.display import insider_flow, trailing_returns
+from signals.display.base import DisplayMember
 from signals.horizons import display_bounds
 
 router = APIRouter(prefix="/theme-leaderboard")
@@ -320,30 +322,6 @@ def read_tape(
     return company_tape({name: m(pit, sid, asof) for name, m in members.items()}, cap)
 
 
-def read_breadths(
-    conn: psycopg.Connection,
-    asof: date,
-    known_at: datetime | None,
-    clock: Literal["record", "public"],
-    card_names: dict[UUID, list[UUID]],
-    *,
-    workspace: UUID,
-) -> dict[UUID, DisplaySignal | None]:
-    """One theme-breadth read per card (``theme_breadth.breadth_for``, the read the Cockpit's basket header makes)
-    over the card's counting names whose price history is not flagged: a view of just those names. A card with none
-    has no reading."""
-    out: dict[UUID, DisplaySignal | None] = {}
-    for thesis_id, sids in card_names.items():
-        out[thesis_id] = (
-            theme_breadth.breadth_for(
-                _view(conn, asof, known_at, clock, sids, workspace=workspace), sids
-            )
-            if sids
-            else None
-        )
-    return out
-
-
 def signal_terms(term_set: list[TermSetEntry]) -> tuple[str, ...]:
     """A card's current SIGNAL terms (BROAD is never counted), stripped, blanks dropped, de-duplicated
     case-insensitively with the first spelling kept: ``pipeline.term_mentions.signal_terms``' rule over the card's
@@ -364,10 +342,12 @@ def read_board(
     *,
     workspace: UUID,
 ) -> Leaderboard:
-    """The heavy read the cache holds: every counted card's row, off the counting names' tapes, one breadth read per
-    card, the recorded card in effect and the card's term-mention months. Reads only; the request's ``known_at`` +
-    ``clock`` ride into the roster read, the data-flag read, IWM's bars, every company's view, every card's breadth
-    view and the term-mention view."""
+    """The heavy read the cache holds: every counted card's row, off the counting names' tapes, one breadth reading
+    per card (``dashboards.breadth.read_breadths``: the reading the Cockpit's basket header makes, over the card's
+    counting names whose price history is not flagged; a card with none has no reading), the recorded card in
+    effect and the card's term-mention months. Reads only; the request's ``known_at`` + ``clock`` ride into the
+    roster read, the data-flag read, IWM's bars, every company's view, the breadth read and the term-mention view.
+    """
     counted = cards_as_of(conn, asof, known_at, workspace=workspace)
     memberships = memberships_of(counted.cards)
     rows = counted_rows(memberships, include_silent=False)
@@ -386,6 +366,8 @@ def read_board(
         clock,
         lambda pit, sid: read_tape(pit, sid, asof, members, flags.get(sid)),
         workspace=workspace,
+        piece="theme-leaderboard.tape",
+        variant=lambda sid: flags.get(sid),
     )
     iwm = read_iwm(_view(conn, asof, known_at, clock, workspace=workspace), asof)
     recorded = read_recorded(conn, [t.id for t in counted.cards], asof)

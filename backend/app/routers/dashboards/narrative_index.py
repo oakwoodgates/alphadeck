@@ -201,6 +201,7 @@ def _closes(
             if b.get("close") is not None
         },
         workspace=workspace,
+        piece=f"closes.{LOOKBACK_DAYS}d",
     )
 
 

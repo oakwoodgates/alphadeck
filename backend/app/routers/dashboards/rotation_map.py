@@ -185,6 +185,7 @@ def _tapes(
         clock,
         lambda pit, sid: company_tape({n: m(pit, sid, asof) for n, m in members.items()}),
         workspace=workspace,
+        piece="rotation-map.tape",
     )
 
 

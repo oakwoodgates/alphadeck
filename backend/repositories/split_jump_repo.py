@@ -22,6 +22,8 @@ from uuid import UUID
 import psycopg
 from psycopg.types.json import Json
 
+from db.change_stamp import mark_changed
+
 AUTHOR_DISMISS = "operator:dismiss"
 AUTHOR_UNDO = "operator:undo"
 ACTION_DISMISS = "dismiss"
@@ -112,7 +114,9 @@ def dismiss(
                 Json(dict(detail or {})),
             ),
         )
-        return cur.fetchone()
+        row = cur.fetchone()
+    mark_changed(conn, [security_id])  # the company's change stamp (dashboards)
+    return row
 
 
 def undo(
@@ -156,4 +160,6 @@ def undo(
                 author,
             ),
         )
-        return cur.fetchone()
+        row = cur.fetchone()
+    mark_changed(conn, [target["security_id"]])  # the company's change stamp (dashboards)
+    return row

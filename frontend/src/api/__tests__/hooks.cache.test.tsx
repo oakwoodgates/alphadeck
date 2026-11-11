@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const h = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
 vi.mock("../client", () => ({ api: { GET: h.get, POST: h.post } }));
 
-import { useCall, useDisplaySignals, useWorkbenchScored } from "../hooks";
+import { useCall, useDisplaySignals, useScoreboard, useWorkbenchScored } from "../hooks";
 import { createQueryClient, MONITOR_STALE_MS } from "../queryClient";
 
 const wrap = (qc: QueryClient) =>
@@ -92,6 +92,24 @@ describe("C1b — a MONITOR read stays fresh for MONITOR_STALE_MS", () => {
     const third = mount();
     await waitFor(() => expect(h.get).toHaveBeenCalledTimes(2));
     expect(third.result.current.data).toEqual(card);
+  });
+});
+
+describe("the Scoreboard stays fresh for MONITOR_STALE_MS", () => {
+  it("a remount inside the window fires no second request", async () => {
+    h.get.mockResolvedValue({ data: { rows: [] }, error: null });
+    const qc = createQueryClient();
+    const mount = () => renderHook(() => useScoreboard("2026-09-02"), { wrapper: wrap(qc) });
+
+    const first = mount();
+    await waitFor(() => expect(first.result.current.isSuccess).toBe(true));
+    expect(h.get).toHaveBeenCalledTimes(1);
+    first.unmount();
+
+    const second = mount();
+    await waitFor(() => expect(second.result.current.isSuccess).toBe(true));
+    await new Promise((r) => setTimeout(r, 25)); // give a refetch every chance to land
+    expect(h.get).toHaveBeenCalledTimes(1);
   });
 });
 

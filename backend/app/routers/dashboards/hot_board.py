@@ -450,6 +450,8 @@ def read_board(
             p, sid, asof, members, flags.get(sid), since_from.get(sid), iwm_trailing
         ),
         workspace=workspace,
+        piece="hot-board.tape",
+        variant=lambda sid: (flags.get(sid), since_from.get(sid), iwm_trailing),
     )
     calendar, source = session_calendar(
         (d for d, _ in iwm_bars),

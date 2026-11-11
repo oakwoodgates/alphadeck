@@ -60,6 +60,15 @@ The rules, in one place:
   family (Insider Buying: ``FORM4_KINDS``) names it. The rows of a kind it does read are the same rows the full read
   returns for it. The one cross-kind rule, the filing-index dedupe, compares against the kinds read, so a ``filing``
   row is only deduped against the richer kinds in ``kinds``.
+- **Kept per company.** Inside a page compute ``read_filing_rows`` keeps each company's rows as a piece of the
+  shared dashboard cache (``baskets.per_company(piece=...)``, ``docs/DASHBOARDS.md`` rule 7), so a recompute after
+  a basket edit reads no company and one after a company's change stamp reads that company alone. EXACT REUSE
+  ONLY: the piece is named by the kinds read and the window length (``filings_piece``: ``filings.all.365d``,
+  ``filings.form4+form4a.60d``), and a stored result is reused only for the same shown ticker and tenant. A
+  narrower window is never served by filtering a wider stored one (the 4/A SELECT is windowed, and the 4/A merge
+  and the filing-index dedupe depend on which records are in view). The 4/A SELECT runs only when at least one
+  company is read. The stored tuples are shared between pages: a ``FilingRow`` is frozen and holds only immutable
+  values, so no caller can change one.
 
 Display only (rule 1): this module READS (the point-in-time view, one SELECT) and writes nothing.
 """
@@ -1374,6 +1383,17 @@ def rows_for_company(
     return [*rows, *index]
 
 
+def filings_piece(kinds: Collection[str] | None, days: int) -> str:
+    """The name of the reader's per-company piece (``baskets.per_company(piece=...)``): everything a company's
+    stored rows depend on besides the company, the view and the per-company variant, so two reads share a
+    stored result only when it is exactly the same read. ``filings.<kinds>.<days>d``: the kinds read (``all`` for
+    every kind, whether asked as ``None`` or as the whole set; else the kinds A to Z, joined by ``+``) and the
+    window length. A different window or a different set of kinds is another piece, never a filter over this one.
+    """
+    read = "all" if kinds is None or set(kinds) == ALL_KINDS else "+".join(sorted(set(kinds)))
+    return f"filings.{read}.{days}d"
+
+
 def read_filing_rows(
     conn: psycopg.Connection,
     sids: Sequence[UUID],
@@ -1396,6 +1416,12 @@ def read_filing_rows(
     ``kinds`` = read only these kinds (``None`` = every kind, the default every existing page uses). A kind left
     out costs nothing: its point-in-time table is never loaded, and the 4/A SELECT runs only when ``form4a`` is
     read. The Form 4 / 4/A two-clock gate is the same either way (``FORM4_KINDS`` = the insider family).
+
+    Inside a page compute each company's rows are kept as a piece (the module's "Kept per company" rule): only
+    the companies with no stored result for these kinds, this window, this shown ticker and this tenant are read,
+    and the 4/A SELECT runs only when at least one is (once, on the first company read, over the asked companies:
+    each company's records are its own, so the rows are the ones the up-front SELECT returned). The returned
+    tuples are shared with other pages and recomputes: read-only.
     """
     check_kinds(kinds)
     ids = list(dict.fromkeys(sids))
@@ -1406,17 +1432,33 @@ def read_filing_rows(
     start = asof - timedelta(days=days)
     names = {k: v for k, v in master.tickers_for(conn, ids, tenant_id=tenant_id).items() if v}
     names.update({k: v for k, v in (tickers or {}).items() if v})
-    amendments = (
-        read_amendments(conn, ids, asof, known_at, clock, start=start, tenant_id=tenant_id)
-        if kinds is None or "form4a" in kinds
-        else {}
-    )
+    reads_4a = kinds is None or "form4a" in kinds
+    amendments: dict[UUID, list[dict[str, Any]]] | None = None
 
     def read(pit: Any, sid: UUID) -> tuple[FilingRow, ...]:
+        nonlocal amendments
+        if amendments is None:  # the first company actually read: nothing read, no SELECT
+            amendments = (
+                read_amendments(conn, ids, asof, known_at, clock, start=start, tenant_id=tenant_id)
+                if reads_4a
+                else {}
+            )
         who = Who(sid, names.get(sid, "?"), pit.security_cik(sid), pit.security_name(sid))
         rows = rows_for_company(
             pit, who, clock=clock, amendments=amendments.get(sid, ()), kinds=kinds
         )
         return tuple(r for r in rows if start <= r.date <= asof)
 
-    return per_company(conn, ids, asof, known_at, clock, read, workspace=workspace)
+    return per_company(
+        conn,
+        ids,
+        asof,
+        known_at,
+        clock,
+        read,
+        workspace=workspace,
+        piece=filings_piece(kinds, days),
+        # what a stored result depends on besides the company, the view and the piece's name: the ticker the
+        # rows show and the tenant the tickers and the 4/A records are read under
+        variant=lambda sid: (names.get(sid, "?"), tenant_id),
+    )

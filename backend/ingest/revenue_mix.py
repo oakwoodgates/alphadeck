@@ -13,6 +13,7 @@ from uuid import UUID
 import psycopg
 
 from db.bitemporal import append_fact
+from db.change_stamp import mark_changed
 from db.session import DEFAULT_TENANT_ID
 
 
@@ -53,4 +54,7 @@ def ingest_revenue_mix(
     }
     if recorded_at is not None:
         values["recorded_at"] = recorded_at
-    return append_fact(conn, "fact_revenue_mix", values)
+    fid = append_fact(conn, "fact_revenue_mix", values)
+    # written outside the company write lock: move the company's change stamp (the dashboards' cache)
+    mark_changed(conn, [security_id])
+    return fid

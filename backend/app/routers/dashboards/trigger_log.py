@@ -268,6 +268,8 @@ def _closes(
             if b.get("close") is not None
         },
         workspace=workspace,
+        piece="trigger-log.closes",
+        variant=lambda sid: window_days,
     )
 
 

@@ -1152,3 +1152,24 @@ def test_the_cik_set_includes_the_cik_change_log(db):
     db.commit()
     inputs = load_inputs(db, [sid], known_at=FAR, tenant_id=T)
     assert inputs.own_ciks[str(sid)] == {"2038439", "9999999"}
+
+
+def test_a_decision_and_its_revoke_each_move_the_companys_change_stamp(db):
+    """The operator's verdict and its undo change which insider rows count for the company outside the company
+    write lock, so each moves the company's change stamp in its own transaction (``db.change_stamp``).
+    """
+    from db.change_stamp import stamp_map
+
+    sid = seed(db, "FLS")
+    acc = "0001628280-26-037326"
+    before = stamp_map(db).get(sid)
+    db.rollback()
+    use = insider_amendment_repo.decide(db, sid, acc, "apply", reason="x", basis="operator:apply")
+    db.commit()
+    decided = stamp_map(db)[sid]
+    db.rollback()
+    assert before is None or decided > before
+    insider_amendment_repo.revoke(db, use["id"], reason="undo", basis="operator:revoke")
+    db.commit()
+    assert stamp_map(db)[sid] > decided
+    db.rollback()

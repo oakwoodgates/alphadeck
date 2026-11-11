@@ -59,10 +59,11 @@ def db(_migrated):
     with conn.cursor() as cur:
         # thesis CASCADE clears the whole spine (basket/evidence/catalyst/kill_criterion/calls too);
         # `edition` (0063) references no thesis, so it is named — its event/entry/page/cause rows cascade;
-        # `data_repair` (0065, the repair journal) references only the tenant, so it is named too
+        # `data_repair` (0065, the repair journal) references only the tenant, so it is named too, and so is
+        # `security_change` (0081, the dashboards' change log: no foreign key to the master by design)
         cur.execute(
             "TRUNCATE thesis, fact_insider_txn, fact_price_eod, security_master, edition, "
-            "data_repair CASCADE"
+            "data_repair, security_change CASCADE"
         )
     conn.commit()
     try:

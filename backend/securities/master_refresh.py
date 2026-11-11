@@ -59,6 +59,7 @@ from uuid import UUID, uuid4
 
 import psycopg
 
+from db.change_stamp import mark_changed
 from db.session import DEFAULT_TENANT_ID
 from domain.market_time import market_today
 from domain.price_feed_basis import BASIS_RENAME_PIN
@@ -967,6 +968,12 @@ def apply_plan(
             f"the refresh would leave {len(dupes)} CIK(s) with two primary rows "
             f"({', '.join(dupes[:5])}) — nothing written"
         )
+    # every company this refresh inserted, renamed or updated: one change stamp each, at the end of the
+    # caller's transaction (the dashboards' cache, ``db.change_stamp``)
+    mark_changed(
+        conn,
+        [r.id for r in plan.renames] + [u.id for u in plan.updates] + [i.id for i in plan.inserts],
+    )
     return {
         "inserted": len(plan.inserts),
         "updated": len(plan.updates),

@@ -45,6 +45,7 @@ import psycopg
 from psycopg.types.json import Json
 from pydantic import BaseModel
 
+from db.change_stamp import mark_changed
 from securities import master
 
 ACTIONS_CHANGE = ("adopt", "set")  # 'undo' is written only by `undo_change`
@@ -382,7 +383,9 @@ def _decide(
                VALUES (%s, %s, %s, %s, %s, %s) RETURNING *""",
             (before["tenant_id"], security_id, action, reason.strip(), basis, Json(detail or {})),
         )
-        return PriceFeedAck(**cur.fetchone()), True
+        out = PriceFeedAck(**cur.fetchone())
+    mark_changed(conn, [security_id])  # the company's change stamp (dashboards)
+    return out, True
 
 
 def revoke(
@@ -416,6 +419,7 @@ def revoke(
     if row is None:
         what = "acknowledgment" if action == ACK_ACKNOWLEDGE else "feed-limitation mark"
         raise LookupError(f"no active {what} with id {ack_id}")
+    mark_changed(conn, [row["security_id"]])  # the company's change stamp (dashboards)
     return PriceFeedAck(**row)
 
 

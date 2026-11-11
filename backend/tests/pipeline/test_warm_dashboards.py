@@ -1127,7 +1127,8 @@ def test_the_warm_up_is_the_last_step_of_the_nightly_wake_after_the_editions_pag
     (at,) = calls
     boot_end = code.index('if [ "${CRON_EXIT_AFTER_BOOT:-}" = 1 ]; then')
     assert at > code.index("while :; do", boot_end)  # never in the boot block
-    assert code[at - 1] == 'editions_nightly "${target}"'  # after the backup and the editions page
+    # after the backup, the editions page and the dashboards' change log prune (2026-11-11)
+    assert code[at - 2 : at] == ['editions_nightly "${target}"', "prune_change_log"]
     assert code[at + 1 : at + 3] == ["fi", "done"]  # and nothing follows it in the wake
     assert [ln for ln in code if "pipeline.warm_dashboards" in ln] == [
         'timeout -k 30 "${WARM_DASHBOARDS_TIMEOUT_S}" python -m pipeline.warm_dashboards --night "$1"'
@@ -1195,6 +1196,51 @@ def test_the_hook_honors_the_kill_switch_without_starting_python(tmp_path):
     assert "ALPHADECK_WARM_DASHBOARDS=0" in r.stdout and "OFF" in r.stdout
     assert "hook-rc=0" in r.stdout
     assert not (tmp_path / "ran").exists()  # the CLI was never started
+
+
+def test_the_change_log_prune_runs_once_in_the_nightly_wake_never_in_the_pass():
+    """``prune_change_log`` (``db.change_stamp --prune``) sits once in the nightly wake, right before the warm-up,
+    and nowhere in ``run_pass`` / ``pipeline.daily`` (nothing about dashboards may cost the call-of-record).
+    """
+    code = _code_lines()
+    assert [i for i, ln in enumerate(code) if ln == "prune_change_log"] == [
+        code.index('warm_dashboards "${_last}"') - 1
+    ]
+    assert [ln for ln in code if "db.change_stamp" in ln] == [
+        "timeout -k 10 300 python -m db.change_stamp --prune"
+    ]
+    daily = (BACKEND / "pipeline" / "daily.py").read_text(encoding="utf-8")
+    assert "change_stamp" not in daily and "prune" not in "\n".join(
+        ln for ln in code if ln.startswith("run_pass")
+    )
+
+
+@needs_sh
+@pytest.mark.parametrize(
+    "rc, says",
+    [(0, None), (1, "change log prune FAILED (exit 1)"), (124, "TIMED OUT after 300s")],
+)
+def test_the_prune_hook_is_fail_open_and_always_returns_zero(tmp_path, rc, says):
+    stub = tmp_path / "bin"
+    stub.mkdir()
+    (stub / "python").write_text(f'#!/bin/sh\necho "stub $*"\nexit {rc}\n', encoding="utf-8")
+    (stub / "python").chmod(0o755)
+    script = tmp_path / "hook.sh"
+    script.write_text(
+        _function("prune_change_log") + 'prune_change_log\necho "hook-rc=$?"\n', encoding="utf-8"
+    )
+    path = f"{stub}{':' if sys.platform != 'win32' else ';'}" + os.environ["PATH"]
+    r = subprocess.run(
+        ["sh", str(script)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env={**os.environ, "PATH": path},
+    )
+    assert "stub -m db.change_stamp --prune" in r.stdout, r.stdout + r.stderr
+    assert "hook-rc=0" in r.stdout
+    if says:
+        assert says in r.stdout
 
 
 def test_compose_carries_the_env_the_warm_up_reads_and_its_defaults_match():
