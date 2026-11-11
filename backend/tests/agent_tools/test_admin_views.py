@@ -69,7 +69,17 @@ def test_the_default_splits_reply_is_the_counts_and_the_needs_review_rows_in_the
         "unlisted_jumps": 1,
         "dismissed_jumps": 1,
         "total": 8,
+        "needs_review_by_reason": {
+            "sources_differ": 1,
+            "extractor_abstained": 1,
+            "one_source": 1,
+        },
     }
+    assert [r["review_reason"] for r in reply["needs_review"]] == [
+        "sources_differ",
+        "extractor_abstained",
+        "one_source",
+    ]
     assert "unlisted_jumps_error" not in reply
     assert [r["ticker"] for r in reply["needs_review"]] == [
         "TK01",
@@ -98,6 +108,29 @@ def test_the_default_splits_reply_is_the_counts_and_the_needs_review_rows_in_the
         "sessions_since",
     }
     assert reply["next_cursor"] is None
+
+
+def test_the_reason_counts_sum_to_the_needs_review_count_and_reason_narrows_the_section():
+    api = FakeApi()
+    counts = ok(api, "get_splits")["counts"]
+    assert sum(counts["needs_review_by_reason"].values()) == counts["needs_review"]
+    reply = ok(api, "get_splits", section="needs_review", reason="sources_differ")
+    assert [r["ticker"] for r in reply["needs_review"]] == ["TK01"]
+    assert reply["total"] == 1 and reply["narrowed"] == {"reason": "sources_differ"}
+    both = ok(api, "get_splits", section="needs_review")
+    assert both["total"] == 3 and "narrowed" not in both
+    # the reason is applied by the view: the API is asked for the whole list
+    assert all(path == "/admin/splits" for _, path, _ in api.requests)
+
+
+def test_reason_is_refused_on_another_section_and_an_unknown_one_names_the_three():
+    api = FakeApi()
+    err = failed(api, "get_splits", section="announced", reason="sources_differ")
+    assert err["code"] == "invalid_arguments"
+    assert err["message"] == "reason narrows section=needs_review only."
+    err = failed(api, "get_splits", section="needs_review", reason="nope")
+    assert err["code"] == "invalid_arguments"
+    assert "sources_differ, extractor_abstained, one_source" in err["message"]
 
 
 def test_an_unlisted_jumps_error_is_copied():
@@ -368,6 +401,7 @@ def test_an_empty_split_list_renders_zero_counts_and_an_empty_page():
         "unlisted_jumps": 0,
         "dismissed_jumps": 0,
         "total": 0,
+        "needs_review_by_reason": {"sources_differ": 0, "extractor_abstained": 0, "one_source": 0},
     }
     assert reply["needs_review"] == [] and reply["jumps"] == [] and reply["next_cursor"] is None
     page = ok(api, "get_splits", section="needs_review")

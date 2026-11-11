@@ -69,7 +69,7 @@ from .views.thesis import view_thesis
 from .views.ticker import view_ticker
 
 NAME = "alphadeck"
-VERSION = "2.5.0"
+VERSION = "2.6.0"
 DEFAULT_BACKEND = "http://127.0.0.1:8001"
 path_seg = segment  # a tool parameter named ``segment`` shadows the path-segment encoder inside its handler
 log = logging.getLogger("agent_tools")
@@ -145,6 +145,13 @@ class _Reply(BaseModel):
     asof: str | None = Field(description="The as-of the reply was judged at (null = not dated).")
     source: Literal["record", "live"] = Field(
         description="record = the nightly calls log; live = the API recomputed or read it now."
+    )
+    nightly_window: bool | None = Field(
+        default=None,
+        description=(
+            "true when the hosted endpoint answered inside the nightly window (22:15 to 23:30 market "
+            "time: the pass is writing the record); absent otherwise"
+        ),
     )
 
 
@@ -520,7 +527,9 @@ def build_server(
         "get_thesis",
         "The thesis spine (current metadata, not dated): narrative, links (segments) with their members "
         "(ticker, context_role = the operator's tag for the company's part on this card, operator "
-        "conviction = a 1-5 size weight that never touches the call, signed_off, authored_by), catalysts, "
+        "conviction = a 1-5 size weight that never touches the call, signed_off, authored_by), counts (members, "
+        "voting, silent, not_signed_off, system_drafted, no_conviction, no_context_role, exclusions: over every "
+        "member, not just the page), catalysts, "
         "kill criteria and the discovery terms. Members in the silent links (Context, ETFs, Bench) never "
         "count toward the call. detail=full adds each member's thesis_fit and detail, the whole narrative "
         "and every term with its tier.",
@@ -848,7 +857,9 @@ def build_server(
         "recommendations, never deletions (recall is sacred). status and segment narrow the placements; "
         "section=placement (needs t, a ticker or a name) reads one in full, ambiguous lists the names waiting for "
         "a pick with their candidates, report adds the placements behind each capped, empty and failed term, "
-        "terms joins the term set with the run. A card with no saved run answers with a note.",
+        "terms joins the term set with the run. status or segment alone gives the run's id, written_at and the "
+        "slice's own counts (section=report reads the run's report). An unknown run id is refused with the "
+        "card's run ids. A card with no saved run answers with a note.",
     )
     async def get_discovery(
         thesis: ThesisArg,
@@ -933,8 +944,11 @@ def build_server(
         "fact's passages in full). COST: up to 4 EDGAR requests when the filings are not cached; with thesis, "
         "ONE LLM call (the grounded purity proposal) when a key is set. Pass thesis only when the operator asks "
         "for the on-thesis purity proposal. The extract is DB-free: a candidate does not know whether its fact "
-        "is already on file (get_triage section=member does). Nothing here is stored; the operator ratifies in "
-        "the Workbench.",
+        "is already on file (get_triage section=member does). "
+        + QUARTERLY_BURN_SIGN
+        + ". A fact with more "
+        "passages than shown carries more: the section call that reads them all. Nothing here is stored; the "
+        "operator ratifies in the Workbench.",
     )
     async def get_extract(
         t: Annotated[str, Field(description="The ticker (a former ticker also resolves).")],

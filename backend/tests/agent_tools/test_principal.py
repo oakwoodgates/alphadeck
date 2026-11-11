@@ -205,6 +205,17 @@ def _listing(principal) -> dict:
     return asyncio.run(go())
 
 
+def test_every_tools_output_schema_documents_the_nightly_window_note():
+    """E41: the hosted endpoint adds ``nightly_window: true`` inside the window; no handler sets it."""
+    tools = _listing(STEWARD_PRINCIPAL)
+    assert len(tools) == 16
+    for name, tool in tools.items():
+        props = (tool.output_schema or {}).get("properties", {})
+        assert "nightly_window" in props, name
+        assert "nightly window" in props["nightly_window"]["description"], name
+        assert "nightly_window" not in (tool.output_schema or {}).get("required", []), name
+
+
 def test_the_monitor_descriptions_say_what_the_new_fields_mean():
     tools = _listing(STEWARD_PRINCIPAL)
     clock = tools["get_clock"].description
@@ -220,6 +231,13 @@ def test_the_research_descriptions_say_what_the_new_fields_mean():
     assert "never needed a cold walk" in tools["get_onboarding"].description
     assert "section=report reads the run's report" in tools["get_discovery"].description
     assert "more" in tools["get_extract"].description
+
+
+def test_the_steward_descriptions_say_what_the_new_fields_mean():
+    splits = _listing(STEWARD_PRINCIPAL)["get_splits"].description
+    assert "polygon.ticker is the vendor's symbol at the split" in splits
+    assert "ticker is the master's current one" in splits
+    assert "needs_review_by_reason" in splits and "review_reason" in splits
 
 
 @pytest.mark.parametrize("tool", sorted(STEWARD_TOOLS))

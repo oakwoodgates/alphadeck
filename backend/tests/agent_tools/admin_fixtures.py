@@ -78,6 +78,7 @@ def _entry(n: int, status: str, **over: Any) -> dict[str, Any]:
         "confirm_options": [],
         "actions": ["reject"],
         "restore_to": None,
+        "review_reason": None,
     }
     base.update(over)
     return base
@@ -99,6 +100,7 @@ def needs_review_row(n: int, **over: Any) -> dict[str, Any]:
         "decided_by": "needs review",
         "confirm_options": [_option("sec", "SEC: 1-for-10")],
         "actions": ["confirm_sec", "reject"],
+        "review_reason": "one_source",
         **over,
     }
     return _entry(n, "needs_review", **fields)
@@ -139,11 +141,13 @@ def splits(extra_needs_review: int = 0) -> dict[str, Any]:
                 _option("polygon", "Massive.com: 1-for-10"),
             ],
             actions=["confirm_sec", "confirm_polygon", "reject"],
+            review_reason="sources_differ",
         ),
         needs_review_row(
             2,
             sec=_sec(2, abstain="two ratios in the passage"),
             confirm_options=[_option("polygon", "Massive.com: 1-for-10")],
+            review_reason="extractor_abstained",
         ),
         needs_review_row(3, sec=None),
     ]

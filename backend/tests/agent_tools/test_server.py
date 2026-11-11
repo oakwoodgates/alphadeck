@@ -352,7 +352,7 @@ def test_the_instructions_name_the_tools_and_the_eight_prompts_and_the_claude_co
     for tool in ("get_triage", "get_discovery", "get_extract", "get_onboarding"):
         assert tool in text, tool
     assert "EDGAR" in text and "LLM call" in text
-    assert server_mod.VERSION == "2.5.0"
+    assert server_mod.VERSION == "2.6.0"
     assert len(PROMPT_NAMES) == 8
     for tool in ("get_splits", "get_admin_status"):
         assert tool in text, tool
@@ -402,7 +402,7 @@ def test_real_sdk_stdio_client_lists_tools_and_prompts_and_calls_over_loopback()
 
     with LoopbackServer(api) as fake:
         init, tools, prompts, clock, theses, bad = asyncio.run(go(fake.base))
-    assert (init.server_info.name, init.server_info.version) == ("alphadeck", "2.5.0")
+    assert (init.server_info.name, init.server_info.version) == ("alphadeck", "2.6.0")
     assert len(tools.tools) == 14
     assert all(t.annotations.read_only_hint and t.output_schema for t in tools.tools)
     assert len(prompts.prompts) == 7

@@ -32,6 +32,7 @@ class ResearchRequest:
     status: str | None = None
     run: str | None = None
     fact: str | None = None
+    reason: str | None = None
 
 
 def header(req: ResearchRequest) -> dict[str, Any]:
