@@ -139,6 +139,17 @@ RULE_LOG: tuple[RuleEntry, ...] = (
             "because the switch defaults off."
         ),
     ),
+    RuleEntry(
+        id="2026-11-catalysts-dated-by-record-date",
+        date=date(2026, 11, 11),
+        label="a DOE award catalyst counts from the date it was recorded",
+        description=(
+            "A DOE award catalyst now counts from the date the award was recorded in the federal record "
+            "(USAspending's first action date) instead of the day its work period starts, because the work "
+            "period can start before the public could know of the award; an award with no record date "
+            "still counts from the work period's start."
+        ),
+    ),
 )
 
 

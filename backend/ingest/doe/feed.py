@@ -6,6 +6,12 @@ Pipeline (all deterministic — invariant #3, never model-sourced):
 
 The grade rule and the obligation threshold are the only call-logic here; both are flagged ``PROPOSED``
 and live in ``CallConfig`` so the operator can confirm/tune them at review (this is the operator's edge).
+
+The catalyst's EVENT DATE (``fact_catalyst.valid_from``: the day it fires and the day the public clock
+treats it as public) is the date the award was RECORDED — USAspending's ``date_signed``, which is the
+award's first action date in the federal record, NOT the day the agreement was signed — and its
+work-period start only when the award carries no record date. ``_event_date`` is the one home of that
+rule (rule log ``2026-11-catalysts-dated-by-record-date``).
 """
 
 from __future__ import annotations
@@ -49,7 +55,12 @@ _DOE = {"type": "awarding", "tier": "toptier", "name": "Department of Energy"}
 
 @dataclass(frozen=True)
 class DoeCatalyst:
-    """A resolved, graded DOE award — the deterministic parse, ready to become a catalyst fact."""
+    """A resolved, graded DOE award — the deterministic parse, ready to become a catalyst fact.
+
+    ``event_date`` is the date the catalyst counts from (``_event_date``: the date the award was recorded,
+    else the work period's start). ``start_date`` and ``recorded_date`` are the two payload dates it was
+    chosen from, kept so a reader (the label, ``pipeline.repair_catalyst_dates``) can show which one it is.
+    """
 
     ticker: str
     generated_internal_id: str
@@ -61,6 +72,10 @@ class DoeCatalyst:
     horizon_end: date | None
     obligation: float
     category: str
+    start_date: date | None = None
+    # the payload's ``date_signed``: the award's FIRST ACTION DATE in the federal record — the day it was
+    # recorded, NOT the day the agreement was signed (an award can be executed, and announced, before it)
+    recorded_date: date | None = None
 
 
 def _to_date(value: object) -> date | None:
@@ -68,6 +83,44 @@ def _to_date(value: object) -> date | None:
     if not value:
         return None
     return date.fromisoformat(str(value)[:10])
+
+
+def _record_date(value: object) -> date | None:
+    """The date the award was RECORDED — the payload's ``date_signed`` (the source's own name for the
+    award's first action date in the federal record) — when the payload carries a READABLE one, else
+    ``None``. A missing value and one that is not a date are the same answer (the caller then falls back to
+    the work period's start), so the record date can never be the reason an award fails to parse."""
+    try:
+        return _to_date(value)
+    except ValueError:
+        return None
+
+
+def _event_date(recorded_date: date | None, start_date: date | None) -> date | None:
+    """THE EVENT-DATE RULE, defined once (rule log ``2026-11-catalysts-dated-by-record-date``; invariant #1).
+
+    A DOE award catalyst counts from the date the award was RECORDED: USAspending's ``date_signed``, which
+    is the award's FIRST ACTION DATE in the federal record. It is NOT the day the agreement was signed. An
+    award can be executed, and even announced, before it is recorded. For the one award checked against
+    public sources (DENE0009589, 2026-11-11): the agreement was executed in February 2026 (its work period
+    starts 2026-02-09), it was announced publicly on 2026-03-17, and DOE recorded it on 2026-05-18 (one
+    transaction, "New Award", action date 2026-05-18).
+
+    WHY THE RECORD DATE. ``fact_catalyst.valid_from`` is this date, and the public clock reads it as the
+    day the catalyst became public (``db.public_clock``). The work period's start, which the feed used
+    before this rule, can be EARLY: for that award it is 36 days before the public announcement, so a
+    history view in between read a catalyst the public did not know about. (On the six seeded awards,
+    MEASURED 2026-11-11, three start before their record date, one of them by 98 days.) The record date is
+    LATE BY DESIGN: for the one award checked it is 62 days after the public announcement, because this
+    source does not carry the announcement date. It is NOT proven that this date can never come too
+    early: a record can appear on USAspending some days after its action date (not measured), so for an
+    award nobody announced, the record date may be a few days before the public could see it.
+
+    - a readable record date -> the record date, also when it is EARLIER than the work period's start;
+    - no readable record date -> the work period's start (the behavior before this rule);
+    - neither -> ``None`` (the caller skips the award: nothing honest to anchor it on).
+    """
+    return recorded_date or start_date
 
 
 def _derive_grade(category: str, obligation: float, cfg: CallConfig) -> Grade:
@@ -132,10 +185,20 @@ def parse_award(
     ticker: str,
     cfg: CallConfig = DEFAULT_CONFIG,
 ) -> DoeCatalyst | None:
-    """Fetch an award's detail and deterministically parse it into a graded catalyst (``None`` to skip)."""
+    """Fetch an award's detail and deterministically parse it into a graded catalyst (``None`` to skip).
+
+    The event date is the date the award was recorded (the payload's ``date_signed``: its first action date
+    in the federal record, not the day the agreement was signed), else its work period's start
+    (``_event_date``, the one home of that rule). ``horizon_end`` is the work period's end either way, so
+    liveness (``horizon_end - valid_from``) follows the event date. When the two dates differ the label
+    says both (invariant #6: the card shows which date the catalyst counts from); when they are equal, or
+    the award carries no record date, the label is exactly what it was before the rule.
+    """
     d = client.award_detail(generated_internal_id)
     po = d.get("period_of_performance") or {}
-    event_date = _to_date(po.get("start_date"))
+    start_date = _to_date(po.get("start_date"))
+    recorded_date = _record_date(d.get("date_signed"))  # the source's own key name
+    event_date = _event_date(recorded_date, start_date)
     if event_date is None:
         return None  # no action date → can't anchor liveness honestly; skip
     category = (d.get("category") or "").lower()
@@ -149,6 +212,8 @@ def parse_award(
         + (f": {desc[:80]}" if desc else "")
         + f" — ${obligation:,.0f} obligated, term to {horizon_end or 'n/a'}"
     )
+    if recorded_date is not None and start_date is not None and recorded_date != start_date:
+        label += f" · recorded {recorded_date}, work period from {start_date}"
     return DoeCatalyst(
         ticker=ticker,
         generated_internal_id=generated_internal_id,
@@ -160,6 +225,8 @@ def parse_award(
         horizon_end=horizon_end,
         obligation=obligation,
         category=category,
+        start_date=start_date,
+        recorded_date=recorded_date,
     )
 
 

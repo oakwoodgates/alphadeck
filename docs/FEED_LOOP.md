@@ -865,7 +865,7 @@ make the overlap routine, which is why the guard is per company rather than per 
   `repair_insider_filer_text`, `repair_insider_ownership`, `repair_benchmark_bars`, `relink_amendments`,
   and — new — `dedup_identical_versions`, `backfill_accepted`, `backfill_aff10b5_1`,
   `repair_adr_insider_misattribution`, `repair_activist_misattribution`, `repair_impossible_txn_dates`,
-  `repair_shares_cover_dates`), so a
+  `repair_shares_cover_dates`, `repair_catalyst_dates`), so a
   repair never runs beside any company writer and none starts under it.
 - **The lock order (the deadlock rule):** call-of-record lock → the fact-writer gate → a company lock, never
   the reverse. The nightly holds call-of-record and takes gate(shared)+company per company; a repair holds

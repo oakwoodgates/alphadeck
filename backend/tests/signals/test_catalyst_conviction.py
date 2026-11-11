@@ -65,16 +65,19 @@ def test_liveness_is_the_agreement_term_when_published():
 # same -38.465% median at all five settings). That dial is a FALLBACK, read only when a fact publishes no
 # `horizon_end`, and every catalyst fact on the tape publishes one. The real instance is below.
 
-_DOE_EVENT = date(2026, 2, 9)  # OKLO's DOE Reactor Pilot OTA (DENE0009589), as seeded
+# OKLO's DOE Reactor Pilot OTA (DENE0009589), as seeded: dated at the date the award was RECORDED (rule
+# 2026-11-catalysts-dated-by-record-date; its work period starts 2026-02-09, where it was dated before, which
+# made this figure 1,238)
+_DOE_EVENT = date(2026, 5, 18)
 _DOE_TERM = date(2029, 7, 1)  # its period of performance
-_DOE_DAYS = (_DOE_TERM - _DOE_EVENT).days  # 1,238 days of signal validity off ONE event
+_DOE_DAYS = (_DOE_TERM - _DOE_EVENT).days  # 1,140 days of signal validity off ONE event
 
 
-def test_the_real_DOE_fact_buys_1238_days_and_the_cap_is_what_can_shorten_it():
+def test_the_real_DOE_fact_buys_1140_days_and_the_cap_is_what_can_shorten_it():
     """The instance, stated as a number: a single 2026 OTA keeps a catalyst live into 2029 under today's
     config. Whether an edge survives that long is exactly the question a timing platform should be able
     to ask, and before this dial nothing could ask it."""
-    assert _DOE_DAYS == 1238
+    assert _DOE_DAYS == 1140
     uncapped = catalyst_conviction.liveness(
         _cat(d=_DOE_EVENT, horizon_end=_DOE_TERM), DEFAULT_CONFIG
     )
