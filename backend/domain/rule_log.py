@@ -140,13 +140,14 @@ RULE_LOG: tuple[RuleEntry, ...] = (
         ),
     ),
     RuleEntry(
-        id="2026-11-catalysts-dated-by-signing",
+        id="2026-11-catalysts-dated-by-record-date",
         date=date(2026, 11, 11),
-        label="a DOE award catalyst counts from its signing date",
+        label="a DOE award catalyst counts from the date it was recorded",
         description=(
-            "A DOE award catalyst now counts from the day the award was signed instead of the day its work "
-            "period starts, because an award can be signed months after that start and no one could act on "
-            "it before it existed; an award with no signing date still counts from the work period's start."
+            "A DOE award catalyst now counts from the date the award was recorded in the federal record "
+            "(USAspending's first action date) instead of the day its work period starts, because the work "
+            "period can start before the public could know of the award; an award with no record date "
+            "still counts from the work period's start."
         ),
     ),
 )

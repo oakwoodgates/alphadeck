@@ -208,8 +208,9 @@ class CallConfig(DomainModel):
     # is a FALLBACK, read only when a fact publishes no `horizon_end`, and every catalyst fact on the
     # tape publishes one. The dial that can actually move a catalyst's liveness is therefore a cap on the
     # published term — which is also the real policy question: a DOE OTA whose period of performance runs
-    # to 2029 buys a 1,140-day signal-validity window off one event (counted from its signing date), and
-    # whether an edge survives that long is exactly what a timing platform should be able to ask.
+    # to 2029 buys a 1,140-day signal-validity window off one event (counted from the date the award was
+    # recorded), and whether an edge survives that long is exactly what a timing platform should be able
+    # to ask.
     #
     # THE ASYMMETRY IS DELIBERATE: the cap binds only the PUBLISHED branch, so with a cap of 90 a
     # five-year agreement is live for 90 days while a term-less catalyst is still live for the 365-day

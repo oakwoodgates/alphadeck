@@ -1,24 +1,32 @@
 """Repair CLI: re-date the stored DOE award catalysts that were dated by their WORK PERIOD's start.
 
-THE GAP (MEASURED on prod, 2026-11-11). Until rule ``2026-11-catalysts-dated-by-signing`` the DOE feed set a
-catalyst's event date from the award's ``period_of_performance.start_date``. ``fact_catalyst.valid_from`` is
-that date, and the public clock reads it as the day the catalyst became public (``db.public_clock``:
-``fact_catalyst`` is the ``date`` kind on ``valid_from``). An award can be SIGNED months after its work period
-is dated to start, and until it is signed there is no award. The committed payloads
-(``seed_data/doe/award/*.json``) show it for 3 of the 6 seeded awards:
+THE GAP (MEASURED on prod, 2026-11-11). Until rule ``2026-11-catalysts-dated-by-record-date`` the DOE feed
+set a catalyst's event date from the award's ``period_of_performance.start_date``.
+``fact_catalyst.valid_from`` is that date, and the public clock reads it as the day the catalyst became
+public (``db.public_clock``: ``fact_catalyst`` is the ``date`` kind on ``valid_from``). A work period can
+start before the public could know of the award. The rule dates a catalyst by the date the award was
+RECORDED instead: USAspending's ``date_signed``, which is the award's first action date in the federal
+record (NOT the day the agreement was signed). The committed payloads (``seed_data/doe/award/*.json``) put
+the two dates apart for 3 of the 6 seeded awards:
 
-- ``ASST_NON_DENE0009589_089``: start 2026-02-09, signed 2026-05-18 (98 days)
-- ``ASST_NON_DENE0000530_089``: start 2012-06-01, signed 2012-11-30
-- ``ASST_NON_DESC0003997_089``: start 2010-03-23, signed 2010-12-21
-- the three ``CONT_AWD_*`` contracts: start == signed
+- ``ASST_NON_DENE0009589_089``: start 2026-02-09, recorded 2026-05-18 (98 days)
+- ``ASST_NON_DENE0000530_089``: start 2012-06-01, recorded 2012-11-30
+- ``ASST_NON_DESC0003997_089``: start 2010-03-23, recorded 2010-12-21
+- the three ``CONT_AWD_*`` contracts: start == recorded
 
-``signals/catalyst_conviction.py`` fires at ``valid_from``, so a history view or a backtest between an award's
-start and its signing read a catalyst that did not exist yet: an invariant #1 lookahead.
+WHAT THE DATES MEAN, for the one award checked against public sources (DENE0009589, 2026-11-11): the
+agreement was executed in February 2026 (its work period starts 2026-02-09), it was announced publicly on
+2026-03-17, and DOE recorded it on 2026-05-18 (USAspending: one transaction, "New Award", action date
+2026-05-18). So the OLD date, the work period's start, was 36 days BEFORE the public knew.
+``signals/catalyst_conviction.py`` fires at ``valid_from``, so a history view or a backtest in that span
+read a catalyst the public did not know about: an invariant #1 lookahead. The RECORD date is 62 days AFTER
+the announcement. It is a never-early bound, late by design: this source does not carry the announcement
+date at all.
 
-THE RULE is ``ingest.doe.feed.parse_award`` (its ``_event_date``: the signing date, else the work period's
-start) — IMPORTED and RUN on the award's payload, never re-stated here, so this tool and the feed cannot
-drift apart. The feed already writes new rows under the rule; this tool is the one-time repair for the rows
-stored before it.
+THE RULE is ``ingest.doe.feed.parse_award`` (its ``_event_date``: the date the award was recorded, else the
+work period's start) — IMPORTED and RUN on the award's payload, never re-stated here, so this tool and the
+feed cannot drift apart. The feed already writes new rows under the rule; this tool is the one-time repair
+for the rows stored before it.
 
 WHAT IT DOES, per stored natural key ``(tenant, security_id, source_ref)``:
 
@@ -33,12 +41,13 @@ WHAT IT DOES, per stored natural key ``(tenant, security_id, source_ref)``:
 
 WHY IT DELETES, and does not only append a corrected version. On this table a version's date IS its
 ``valid_from``, and both clocks gate a read on ``valid_from <= asof`` per VERSION: on the public clock each
-version counts from its OWN ``valid_from``. A corrected version dated at the signing is invisible to a view
-between the two dates, so that view would fall back to the early-dated version and still read the catalyst
-before it existed. Appending alone would leave the lookahead exactly where it is. Only removing the
-early-dated versions closes it. (``fact_catalyst`` carries a ``no_update`` trigger, so a date cannot be fixed
-in place; that trigger guards UPDATE only.) The delete leaves the table in the state a fresh feed run under
-the rule would produce, and it is journaled as a deleting repair so the editions cut re-reads history.
+version counts from its OWN ``valid_from``. A corrected version dated at the record date is invisible to a
+view between the two dates, so that view would fall back to the early-dated version and still read the
+catalyst from its work period's start. Appending alone would leave the lookahead exactly where it is. Only
+removing the early-dated versions closes it. (``fact_catalyst`` carries a ``no_update`` trigger, so a date
+cannot be fixed in place; that trigger guards UPDATE only.) The delete leaves the table in the state a fresh
+feed run under the rule would produce, and it is journaled as a deleting repair so the editions cut re-reads
+history.
 
 SCOPE: rows the DOE feed wrote and nobody ratified (``source = 'doe_usaspending'`` and ``ratified_by IS
 NULL``). A ratified row (``source = 'ratified'`` or a ``ratified_by``) is the operator's and is NEVER
@@ -339,15 +348,14 @@ def _line(p: KeyPlan) -> str:
     stored = ", ".join(d.isoformat() for d in p.stored_dates)
     head = f"  {name} {p.award_id}: stored {stored}"
     if p.action == NO_PAYLOAD:
-        return f"{head} · rule n/a · start n/a · signed n/a -> no payload, left as stored"
+        return f"{head} · rule n/a · start n/a · recorded n/a -> no payload, left as stored"
     if p.parsed is None:
-        return (
-            f"{head} · rule n/a · start n/a · signed n/a -> no date in the payload, left as stored"
-        )
+        return f"{head} · rule n/a · start n/a · recorded n/a -> no date in the payload, left as stored"
     c = p.parsed
+    # "recorded" = the payload's ``date_signed``: the award's first action date in the federal record
     dates = (
         f" · rule {c.event_date.isoformat()} · start {c.start_date or 'n/a'} · "
-        f"signed {c.date_signed or 'n/a'}"
+        f"recorded {c.recorded_date or 'n/a'}"
     )
     if p.action == KEEP:
         return f"{head}{dates} -> keep"
@@ -382,7 +390,8 @@ def _summary_counts(plans: list[KeyPlan], per_action: Counter[str]) -> str:
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(
         description="Re-date the stored DOE award catalysts that were dated by the work period's start: "
-        "under the current rule a catalyst counts from the award's signing date. Re-parses the committed "
+        "under the current rule a catalyst counts from the date the award was recorded (USAspending's "
+        "date_signed, its first action date in the federal record). Re-parses the committed "
         "payloads (never the network). Dry-run by default; --apply deletes the early-dated versions and "
         "appends the corrected ones under the repair lock."
     )
@@ -440,8 +449,8 @@ def main(argv: list[str] | None = None) -> None:
                 conn,
                 tool=TOOL,
                 summary=(
-                    f"re-dated {per_action[RE_DATE]} DOE award catalyst(s) to the award's signing date "
-                    f"(deleted {result.deleted} early-dated row(s), appended {result.appended})"
+                    f"re-dated {per_action[RE_DATE]} DOE award catalyst(s) to the date the award was "
+                    f"recorded (deleted {result.deleted} early-dated row(s), appended {result.appended})"
                 ),
                 rows_changed=result.deleted + result.appended,
                 deletes=True,

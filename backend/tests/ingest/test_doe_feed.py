@@ -79,16 +79,17 @@ def test_feed_derives_grade_and_horizon_from_real_fixtures():
     parsed = {gid: parse_award(client, gid, ticker) for gid, ticker in found.items()}
     by_piid = {c.piid: c for c in parsed.values() if c is not None}
 
-    # LEU's $317M HALEU production CONTRACT -> core, horizon = base term (option A), event = the signing
-    # date (this contract was signed the day its work period starts)
+    # LEU's $317M HALEU production CONTRACT -> core, horizon = base term (option A), event = the date the
+    # award was recorded (for this contract, the same day its work period starts)
     leu = by_piid["89243223CNE000030"]
     assert leu.ticker == "LEU" and leu.grade is Grade.CORE and leu.category == "contract"
     assert leu.event_date == date(2022, 11, 30) and leu.horizon_end == date(2026, 6, 30)
     assert leu.obligation > 3e8 and "89243223CNE000030" in leu.source_ref
 
     # OKLO's reactor-pilot OTA -> flip (assistance/other, $0), horizon -> 2029 (a long, durable horizon).
-    # Event = the SIGNING date 2026-05-18, not the work period's start 2026-02-09 (98 days earlier): the
-    # award did not exist until it was signed (rule 2026-11-catalysts-dated-by-signing)
+    # Event = the date the award was RECORDED, 2026-05-18 (the payload's `date_signed`: its first action
+    # date in the federal record), not the work period's start 2026-02-09, 98 days earlier (rule
+    # 2026-11-catalysts-dated-by-record-date)
     oklo = by_piid["DENE0009589"]
     assert oklo.ticker == "OKLO" and oklo.grade is Grade.FLIP and oklo.category == "other"
     assert oklo.event_date == date(2026, 5, 18) and oklo.horizon_end == date(2029, 7, 1)
@@ -99,13 +100,14 @@ def test_feed_derives_grade_and_horizon_from_real_fixtures():
     assert grant.grade is Grade.FLIP and grant.category != "contract" and grant.obligation > 1e8
 
 
-# --- the event date: the award's SIGNING date (rule 2026-11-catalysts-dated-by-signing) -----------------
+# --- the event date: the date the award was RECORDED (rule 2026-11-catalysts-dated-by-record-date) ------
 #
-# The six committed payloads, one row each: award id -> (work period start, date signed, the label the
+# The six committed payloads, one row each: award id -> (work period start, date recorded, the label the
 # feed built BEFORE the rule). The dates are the payloads' own ``period_of_performance.start_date`` and
-# ``date_signed``; the labels were MEASURED by running the pre-rule ``feed.py`` on these payloads
-# (2026-11-11), so "byte-identical" below is checked against what the feed really wrote, not against a
-# string this file derives from the new code.
+# ``date_signed`` (the source's name for the award's first action date in the federal record: the day it
+# was recorded, NOT the day the agreement was signed); the labels were MEASURED by running the pre-rule
+# ``feed.py`` on these payloads (2026-11-11), so "byte-identical" below is checked against what the feed
+# really wrote, not against a string this file derives from the new code.
 _SIX_AWARDS: dict[str, tuple[date, date, str]] = {
     "ASST_NON_DENE0009589_089": (
         date(2026, 2, 9),
@@ -145,33 +147,30 @@ _SIX_AWARDS: dict[str, tuple[date, date, str]] = {
     ),
 }
 _OKLO_AWARD = "ASST_NON_DENE0009589_089"
-_OKLO_SIGNED = date(2026, 5, 18)
+_OKLO_RECORDED = date(2026, 5, 18)
 
 
-def test_all_six_committed_awards_count_from_their_signing_date():
-    """Pure (no DB), on the six REAL payloads: every award's event date is its ``date_signed``. Three were
-    signed after their work period started (so their date MOVES, and the label now says both dates); the
-    three contracts were signed the day the work starts (nothing moves, and the label is byte-for-byte what
-    the feed wrote before the rule)."""
+def test_all_six_committed_awards_count_from_the_date_they_were_recorded():
+    """Pure (no DB), on the six REAL payloads: every award's event date is its ``date_signed`` — the date
+    it was recorded. Three were recorded after their work period started (so their date MOVES, and the
+    label now says both dates); the three contracts were recorded the day the work starts (nothing moves,
+    and the label is byte-for-byte what the feed wrote before the rule)."""
     client = _offline_client()
     found = discover(client)
     assert set(found) == set(_SIX_AWARDS)  # the six, no more: the table below covers every payload
 
     moved, unmoved = [], []
-    for gid, (start, signed, label_before) in _SIX_AWARDS.items():
+    for gid, (start, recorded, label_before) in _SIX_AWARDS.items():
         c = parse_award(client, gid, found[gid])
         assert c is not None, gid
-        assert c.event_date == signed, gid  # THE RULE: the signing date
-        assert (c.start_date, c.date_signed) == (
-            start,
-            signed,
-        ), gid  # both dates carried, as stored
-        if signed != start:
+        assert c.event_date == recorded, gid  # THE RULE: the date the award was recorded
+        # both dates carried, as the payload states them
+        assert (c.start_date, c.recorded_date) == (start, recorded), gid
+        if recorded != start:
             moved.append(gid)
-            assert (
-                c.event_date > start
-            ), gid  # signed AFTER the work period began: the old date was early
-            assert c.label == f"{label_before} · signed {signed}, work period from {start}", gid
+            # recorded AFTER the work period began: the old date was the earlier one
+            assert c.event_date > start, gid
+            assert c.label == f"{label_before} · recorded {recorded}, work period from {start}", gid
         else:
             unmoved.append(gid)
             assert c.label == label_before, gid  # byte-identical to the label before the rule
@@ -187,7 +186,9 @@ def test_all_six_committed_awards_count_from_their_signing_date():
 class _OneAward:
     """INPUT-CONTRACT stub (not a fixture, not a real award): hands ``parse_award`` ONE minimal detail dict,
     so each test below states the rule's branch directly on its inputs. The six real payloads all carry
-    both dates, signed on or after the start, so they cannot exercise these branches."""
+    both dates, recorded on or after the start, so they cannot exercise these branches. The stub's dicts
+    use the payload's own key, ``date_signed`` (the source's name for the date the award was recorded).
+    """
 
     def __init__(self, detail: dict) -> None:
         self._detail = detail
@@ -212,45 +213,45 @@ def _contract_award(**overrides) -> dict:
 _LABEL_NO_SUFFIX = "DOE grant (DEXX0000001): A TEST AWARD — $1,000 obligated, term to 2027-03-01"
 
 
-def test_input_contract_no_signing_date_falls_back_to_the_work_period_start():
-    """INPUT-CONTRACT: a payload with no ``date_signed`` is dated as it was before the rule (the work
-    period's start), and its label is the pre-rule label (no second date to show)."""
+def test_input_contract_no_record_date_falls_back_to_the_work_period_start():
+    """INPUT-CONTRACT: a payload with no ``date_signed`` (no record date) is dated as it was before the rule
+    (the work period's start), and its label is the pre-rule label (no second date to show)."""
     for missing in (None, ""):
         c = parse_award(_OneAward(_contract_award(date_signed=missing)), "GID", "TKR")
         assert c is not None and c.event_date == date(2025, 3, 1)
-        assert (c.start_date, c.date_signed) == (date(2025, 3, 1), None)
+        assert (c.start_date, c.recorded_date) == (date(2025, 3, 1), None)
         assert c.label == _LABEL_NO_SUFFIX
     no_key = _contract_award()
     del no_key["date_signed"]
     assert parse_award(_OneAward(no_key), "GID", "TKR").event_date == date(2025, 3, 1)
 
 
-def test_input_contract_an_unreadable_signing_date_falls_back_to_the_work_period_start():
-    """INPUT-CONTRACT: "readable" means it parses as a date. A signing date that does not is treated as
+def test_input_contract_an_unreadable_record_date_falls_back_to_the_work_period_start():
+    """INPUT-CONTRACT: "readable" means it parses as a date. A record date that does not is treated as
     absent, so the new field can never be the reason an award fails to parse."""
     c = parse_award(_OneAward(_contract_award(date_signed="not a date")), "GID", "TKR")
-    assert c is not None and c.event_date == date(2025, 3, 1) and c.date_signed is None
+    assert c is not None and c.event_date == date(2025, 3, 1) and c.recorded_date is None
     assert c.label == _LABEL_NO_SUFFIX
 
 
-def test_input_contract_a_signing_date_before_the_start_still_counts_from_the_signing():
-    """INPUT-CONTRACT: an award is public once signed, whenever its work begins — a signing date EARLIER
-    than the start is the event date too. The term's end is unchanged, so liveness simply runs longer.
-    """
+def test_input_contract_a_record_date_before_the_start_still_counts_from_the_record_date():
+    """INPUT-CONTRACT: a record date EARLIER than the work period's start is the event date too (the award
+    is in the federal record from then, whenever its work begins). The term's end is unchanged, so liveness
+    simply runs longer."""
     c = parse_award(_OneAward(_contract_award(date_signed="2025-01-15")), "GID", "TKR")
     assert c is not None and c.event_date == date(2025, 1, 15)
     assert c.horizon_end == date(2027, 3, 1)
-    assert c.label == f"{_LABEL_NO_SUFFIX} · signed 2025-01-15, work period from 2025-03-01"
+    assert c.label == f"{_LABEL_NO_SUFFIX} · recorded 2025-01-15, work period from 2025-03-01"
 
 
-def test_input_contract_a_signing_date_equal_to_the_start_leaves_the_label_alone():
+def test_input_contract_a_record_date_equal_to_the_start_leaves_the_label_alone():
     """INPUT-CONTRACT: equal dates -> one date, nothing to explain, the pre-rule label."""
     c = parse_award(_OneAward(_contract_award(date_signed="2025-03-01")), "GID", "TKR")
     assert c is not None and c.event_date == date(2025, 3, 1) and c.label == _LABEL_NO_SUFFIX
 
 
-def test_input_contract_a_signing_date_with_no_start_date_dates_the_award():
-    """INPUT-CONTRACT: the signing date alone is enough to anchor the award (before the rule a payload with
+def test_input_contract_a_record_date_with_no_start_date_dates_the_award():
+    """INPUT-CONTRACT: the record date alone is enough to anchor the award (before the rule a payload with
     no start date was skipped). There is no second date, so the label carries no suffix."""
     c = parse_award(
         _OneAward(_contract_award(period_of_performance={"end_date": "2027-03-01"})), "GID", "TKR"
@@ -260,7 +261,7 @@ def test_input_contract_a_signing_date_with_no_start_date_dates_the_award():
 
 
 def test_input_contract_neither_date_skips_the_award():
-    """INPUT-CONTRACT: no signing date and no start date -> ``None`` (nothing honest to anchor it on)."""
+    """INPUT-CONTRACT: no record date and no start date -> ``None`` (nothing honest to anchor it on)."""
     for detail in (
         _contract_award(date_signed=None, period_of_performance={}),
         _contract_award(date_signed=None, period_of_performance=None),
@@ -282,12 +283,13 @@ def _oklo_award_rows(db, asof: date, *, clock: str, known_at: datetime) -> list[
     return [r for r in rows if r["source_ref"].endswith(_OKLO_AWARD)]
 
 
-def test_the_award_is_not_read_before_it_was_signed_on_either_clock(db):
+def test_the_award_is_not_read_before_it_was_recorded_on_either_clock(db):
     """POINT-IN-TIME (invariant #1), on the real feed rows. The DENE0009589 award's work period starts
-    2026-02-09 and it was signed 2026-05-18. A view on 2026-03-01 — between the two — must not read it:
-    on the RECORD clock (``known_at`` = now, the live read's gate) and on the PUBLIC clock (a history view,
-    capped at that night's end). From 2026-05-18 it is read, dated at its signing. And the detector does not
-    fire on it before 2026-05-18.
+    2026-02-09 and it was recorded 2026-05-18. A view on 2026-03-01 — between the two, and before the
+    award's public announcement of 2026-03-17 — must not read it: on the RECORD clock (``known_at`` = now,
+    the live read's gate) and on the PUBLIC clock (a history view, capped at that night's end). From
+    2026-05-18 it is read, dated at its record date. And the detector does not fire on it before
+    2026-05-18 (which is late by design: this source does not carry the announcement date).
 
     Before the rule this row's ``valid_from`` was 2026-02-09, so both reads at 2026-03-01 returned it.
     """
@@ -304,13 +306,13 @@ def test_the_award_is_not_read_before_it_was_signed_on_either_clock(db):
     # because the fact is not dated yet on 2026-03-01
     assert _oklo_award_rows(db, between, clock="public", known_at=now) == []
 
-    for clock, known_at in (("record", now), ("public", known_at_for_asof(_OKLO_SIGNED))):
-        (row,) = _oklo_award_rows(db, _OKLO_SIGNED, clock=clock, known_at=known_at)
-        assert row["valid_from"] == _OKLO_SIGNED and row["horizon_end"] == date(2029, 7, 1)
+    for clock, known_at in (("record", now), ("public", known_at_for_asof(_OKLO_RECORDED))):
+        (row,) = _oklo_award_rows(db, _OKLO_RECORDED, clock=clock, known_at=known_at)
+        assert row["valid_from"] == _OKLO_RECORDED and row["horizon_end"] == date(2029, 7, 1)
         assert row["source"] == "doe_usaspending" and row["ratified_by"] is None
-        assert "signed 2026-05-18, work period from 2026-02-09" in row["label"]
+        assert "recorded 2026-05-18, work period from 2026-02-09" in row["label"]
 
-    # the detector, through the real point-in-time view: nothing before the signing, on either clock
+    # the detector, through the real point-in-time view: nothing before the record date, on either clock
     def fired(asof: date, clock: str):
         pit = PointInTimeData(
             db,
@@ -324,10 +326,10 @@ def test_the_award_is_not_read_before_it_was_signed_on_either_clock(db):
     for clock in ("record", "public"):
         for before in (date(2026, 2, 9), between, date(2026, 5, 15), date(2026, 5, 17)):
             assert fired(before, clock) is None, (clock, before)
-        ev = fired(_OKLO_SIGNED, clock)
-        assert ev is not None and ev.fired and ev.asof == _OKLO_SIGNED  # fires AT the signing date
+        ev = fired(_OKLO_RECORDED, clock)
+        assert ev is not None and ev.fired and ev.asof == _OKLO_RECORDED  # fires AT the record date
         # liveness follows the event date: the term's end is unchanged, the window starts 98 days later
-        assert ev.alpha_liveness_days == (date(2029, 7, 1) - _OKLO_SIGNED).days == 1140
+        assert ev.alpha_liveness_days == (date(2029, 7, 1) - _OKLO_RECORDED).days == 1140
 
 
 def test_feed_arms_the_nuclear_theme_with_a_ranked_per_member_menu(db):

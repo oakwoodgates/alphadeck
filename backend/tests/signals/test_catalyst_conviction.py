@@ -65,8 +65,8 @@ def test_liveness_is_the_agreement_term_when_published():
 # same -38.465% median at all five settings). That dial is a FALLBACK, read only when a fact publishes no
 # `horizon_end`, and every catalyst fact on the tape publishes one. The real instance is below.
 
-# OKLO's DOE Reactor Pilot OTA (DENE0009589), as seeded: dated at the award's SIGNING date (rule
-# 2026-11-catalysts-dated-by-signing; its work period starts 2026-02-09, where it was dated before, which
+# OKLO's DOE Reactor Pilot OTA (DENE0009589), as seeded: dated at the date the award was RECORDED (rule
+# 2026-11-catalysts-dated-by-record-date; its work period starts 2026-02-09, where it was dated before, which
 # made this figure 1,238)
 _DOE_EVENT = date(2026, 5, 18)
 _DOE_TERM = date(2029, 7, 1)  # its period of performance

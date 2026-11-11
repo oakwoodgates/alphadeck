@@ -370,7 +370,8 @@ def seed_nuclear_catalyst(conn: psycopg.Connection, *, workspace: UUID = DEFAULT
         ),
         source="ratified",
         source_ref=source_ref,
-        event_date=date(2026, 5, 18),  # the SIGNING date (the work period starts 2026-02-09)
+        # the date the award was RECORDED (USAspending `date_signed`); its work period starts 2026-02-09
+        event_date=date(2026, 5, 18),
         horizon_end=date(2029, 7, 1),
         ratified_by="operator",
         tenant_id=workspace,

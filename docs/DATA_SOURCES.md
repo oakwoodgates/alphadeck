@@ -14,7 +14,7 @@
 | **EDGAR — XBRL financial datasets + 10-Q/10-K filing text** | structured financials (cash, burn, shares) + the filing passages | dilution clock, fundamentals (§2.2 revenue + the Band 03 S4 shares-outstanding series: three companyfacts share concepts stored `_xbrl`-keyed for the `share_creep` risk detector), **the Workbench scoring-fact extractor** (10-Q/10-K → candidate purity / shares / burn facts) |
 | **EDGAR — N-1A / 485 registrations** | new fund/ETF registrations & launches | **ETF radar** (built display-only context; `etf_launch` is reserved, not emitted — `FUND_RADAR.md`, `CALL_LOGIC.md`) |
 | **SEC `company_tickers_exchange.json`** (one file: ticker → CIK → name → exchange) | the full US filer universe | **the company list** (`populate_master`, weekly in the cron sidecar) — seeds and keeps current the security master so the extract → ratify → score loop runs on any name; a rename updates the company's row in place |
-| **USASpending.gov** — federal award API (`spending_by_award` + `awards/{id}`) | DOE contracts, grants, OTAs, loan guarantees + structured terms (obligation, signing date, period of performance) | **catalyst-conviction** (the automated DOE feed, §below) — the first automated Key-1 source; a catalyst counts from the award's **signing date** |
+| **USASpending.gov** — federal award API (`spending_by_award` + `awards/{id}`) | DOE contracts, grants, OTAs, loan guarantees + structured terms (obligation, record date, period of performance) | **catalyst-conviction** (the automated DOE feed, §below) — the first automated Key-1 source; a catalyst counts from **the date the award was recorded** |
 | **Public ETF holdings** (issuer/fund daily holdings files) | constituents, weights, expense ratio, AUM | **ETF radar** (universe seed + holdings/flows); pure-play scoring |
 | **Massive.com reference API** (free tier with `MASSIVE_API_KEY`, via the legacy host `api.polygon.io`) | ETF shares outstanding **by date** (exact counts + real history; 5 req/min) | **ETF net flow** — the primary `fact_fund_shares` source when keyed (`ingest/funds/polygon.py`; the issuer/aggregator scrapers are the keyless fallback) + the historical backfill (`pipeline.backfill_fund_shares`); and the **split reference** (`/v3/reference/splits`, whole market by date — no ticker sent) — the second source the split list confirms against (`ingest/polygon_splits.py`, `pipeline.backfill_splits`; it shares the fund leg's 5/min pacer) |
 | **FINRA short interest** (bi-monthly; PLANNED, not built) | SI %, days-to-cover | squeeze radar (context tier) |
@@ -244,18 +244,29 @@ all resolve to `None`).
 exactly by recipient_id → fetch award detail → derive grade + base-period-of-performance horizon → emit a
 `fact_catalyst`. Expired awards are emitted too (real, provenanced) but liveness keeps them off the card.
 
-**Which date the catalyst counts from: the award's signing date** (the detail's `date_signed`; rule log
-`2026-11-catalysts-dated-by-signing`, one home in `ingest/doe/feed.py::_event_date`). That date is the
-fact's `valid_from`, the day the detector fires and the day the public clock treats the catalyst as public
-(#1). It is NOT `period_of_performance.start_date`: an award can be signed months after its work period is
-dated to start, and until it is signed there is no award. MEASURED on the six committed payloads
-(2026-11-11): three were signed after their start (2026-02-09 → signed 2026-05-18, 98 days; 2012-06-01 →
-2012-11-30; 2010-03-23 → 2010-12-21) and the three contracts were signed the day the work starts. A
-signing date earlier than the start also counts from the signing. No readable signing date → the work
-period's start; neither date → the award is skipped. When the two dates differ the label says both. The
-horizon (`horizon_end`) is the work period's end either way. Rows stored before the rule are re-dated by
+**Which date the catalyst counts from: the date the award was recorded** (the detail's `date_signed`,
+which is the award's FIRST ACTION DATE in the federal record, not the day the agreement was signed; rule
+log `2026-11-catalysts-dated-by-record-date`, one home in `ingest/doe/feed.py::_event_date`). That date
+is the fact's `valid_from`, the day the detector fires and the day the public clock treats the catalyst
+as public (#1). It is NOT `period_of_performance.start_date`: a work period can start before the public
+could know of the award. MEASURED on the six committed payloads (2026-11-11): three were recorded after
+their start (2026-02-09 → recorded 2026-05-18, 98 days; 2012-06-01 → 2012-11-30; 2010-03-23 →
+2010-12-21) and the three contracts were recorded the day the work starts. A record date earlier than
+the start also counts from the record date. No readable record date → the work period's start; neither
+date → the award is skipped. When the two dates differ the label says both. The horizon (`horizon_end`)
+is the work period's end either way. Rows stored before the rule are re-dated by
 `python -m pipeline.repair_catalyst_dates` (dry-run by default; it re-parses these committed payloads,
 never the network).
+
+**KNOWN LIMITATION: the record date is late by design.** An award can be executed, and even announced,
+before it is recorded. For the one award checked against public sources (DENE0009589, 2026-11-11): the
+agreement was executed in February 2026 (the company's 10-Q filed 2026-11-06 says so; the record's work
+period starts 2026-02-09), it was announced publicly on 2026-03-17, and DOE recorded it on 2026-05-18
+(USAspending transactions API: one transaction, "New Award", action date 2026-05-18). So the old date,
+the work period's start, was 36 days BEFORE the public knew, and the record date is 62 days AFTER. The
+catalyst now counts 62 days after the public announcement, because this source does not carry the
+announcement date at all. The record date is a never-early bound: it removes the lookahead and accepts
+the lateness.
 
 **Etiquette** (mirrors EDGAR): cache-first on disk (`data/doe_cache/`; committed fixtures in
 `backend/seed_data/doe/`), live pulls explicit opt-in, a rate-limit gate, the test transport raises on a
