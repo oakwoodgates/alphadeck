@@ -29,8 +29,9 @@ The rules it keeps:
   - SOFT (clears page entries only; pieces survive, since no company's data changed): the newest basket
     snapshot (``max(taken_at)``, which moves on every roster edit) and the live (unarchived) cards' ids,
     names and meta index switch (archiving, restoring, creating, renaming or flipping a card moves it);
-  - the STAMPS (clears page entries and the pieces of exactly the companies that changed): the per-company
-    change stamp's fingerprint (``db.change_stamp``, one aggregate read). When it moves, the stamp map is
+  - the STAMPS (clears page entries and the pieces of exactly the companies that changed): the fingerprint
+    of the per-company change log (``db.change_stamp``, an append-only log, one aggregate read; a prune moves
+    it too, and a pruned company reads as gone). When it moves, the stamp map (each company's newest seq) is
     read and compared with the one the cache remembers; every piece (all groups, kinds and workspaces) of a
     company whose stamp is new, different or gone is dropped, and every piece when one of them is a
     benchmark (each company's relative strength is priced against the benchmarks). Every state change

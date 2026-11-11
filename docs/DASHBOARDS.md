@@ -152,9 +152,10 @@ the data flags). Its plan is `docs/BOARD.md`.
    - a new cron run or a new `data_repair` row clears everything, page entries and pieces;
    - a basket snapshot, or a card created, archived, renamed or switched to a meta index, clears the page
      entries only (no company's data changed, so the pieces stay);
-   - a company's change stamp (`security_change`, `db/change_stamp.py`) clears the page entries and drops
-     that company's pieces only (every piece when it is a benchmark). The company write lock's release
-     stamps the company after every fact ingest, and every other writer stamps in its own transaction.
+   - a company's change stamp (a row in `security_change`, an append-only log, `db/change_stamp.py`)
+     clears the page entries and drops that company's pieces only (every piece when it is a benchmark).
+     The company write lock's release stamps the company after every fact ingest, and every other writer
+     stamps in its own transaction. The cron sidecar prunes rows older than 24 hours after each pass.
    - The rule for authors: a writer that changes a company's stored data outside the company write lock
      calls `db.change_stamp.mark_changed`, or dashboards serve that company stale.
    A one-card dashboard starts from its picker, `picker_cards` (the counted cards A→Z with their link counts;

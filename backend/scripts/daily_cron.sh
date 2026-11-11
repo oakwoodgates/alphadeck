@@ -150,7 +150,8 @@
 #   no write), for the as-of the next visit sends: the night itself (F1 — the app's dial opens on the server's
 #   current night, which stays this night until the next pass), so the morning visit is a cache hit. Bounded by WARM_DASHBOARDS_TIMEOUT_S, fail-open (one log line, never the
 #   loop, never the pass's status or exit code), off with ALPHADECK_WARM_DASHBOARDS=0 (an env-only cron deploy).
-#   docs/FEED_LOOP.md §the dashboard cache warm-up.
+#   docs/FEED_LOOP.md §the dashboard cache warm-up. Just before it, `prune_change_log` deletes the dashboards'
+#   change log rows older than 24 hours (`python -m db.change_stamp --prune`; fail-open, one log line).
 # - RUNS A THIRD SCHEDULE: THE WEEKLY COMPANY-LIST REFRESH (2026-10-24). `master_refresh_loop` fires
 #   `python -m pipeline.populate_master --live --apply --run-kind cron` every Saturday 09:00 (MASTER_REFRESH_DOW /
 #   MASTER_REFRESH_AT, container TZ), in the background like onboard_loop: SEC's current company file onto the
@@ -543,6 +544,24 @@ warm_dashboards() {
   return 0
 }
 
+# prune_change_log -> the dashboards' change log prune (`python -m db.change_stamp --prune`): deletes the
+# `security_change` rows older than 24 hours, so the fingerprint the dashboards' cache reads on every lookup stays
+# small. Safe right after a pass: the pass's start and finish artifacts hard-clear every cache, and a row older
+# than 24 hours was committed long before the pass began (`db/change_stamp.prune`). It sits in this SCHEDULING
+# layer, just before `warm_dashboards` (so the warm-up fills the cache after the prune moved the fingerprint),
+# never inside `pipeline.daily`: nothing about dashboards may cost the call-of-record. Bounded by `timeout` (300 s),
+# FAIL-OPEN and ALWAYS returns 0: the CLI prints its one line; a failure or a timeout is one log line here.
+prune_change_log() {
+  timeout -k 10 300 python -m db.change_stamp --prune
+  _pc_rc=$?
+  case "${_pc_rc}" in
+    0) ;;
+    124) echo "daily-cron: change log prune TIMED OUT after 300s (continuing; the next night prunes)" ;;
+    *) echo "daily-cron: change log prune FAILED (exit ${_pc_rc}) (continuing; the next night prunes)" ;;
+  esac
+  return 0
+}
+
 # onboard_loop -> X1, THE SECOND SCHEDULE: the staged cold-ingest job (`python -m pipeline.onboarding`), fired
 # every ONBOARD_EVERY_S after the previous run ENDS (so two runs never overlap), forever, in the background of
 # this one sidecar. The loop is deliberately dumb — every rule lives in the job and is checked there:
@@ -854,6 +873,8 @@ while :; do
     # Editions S5 — the Scoreboard editions' nightly page, AFTER the backup (so the dump never waits on it and
     # never captures a half-run), in this scheduling layer (never run_daily_pass). Fail-open; see the function.
     editions_nightly "${target}"
+    # The dashboards' change log prune (rows older than 24 hours), just before the warm-up. Fail-open.
+    prune_change_log
     # The dashboards' cache warm-up, LAST: after the pass, the backup and the editions page, so the cache it fills
     # is the generation the morning visit reads (nothing after this moves it). NIGHT is the last expected night
     # (`_last`, read above), the one the pass or the catch-up just recorded. Fail-open; see the function.

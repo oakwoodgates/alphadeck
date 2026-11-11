@@ -172,31 +172,16 @@ class CompanyLock:
         self.release()
 
 
-# How long the release's stamp may wait for another transaction's stamp of the same company (a row lock on
-# ``security_change``). Shorter than Postgres's default ``deadlock_timeout`` (1 s), so a release never waits
-# long and is never part of a deadlock: when it gives up, the other transaction is stamping this very company
-# and its commit moves the stamp anyway.
-STAMP_LOCK_TIMEOUT_MS = 500
-
-
 def _stamp_company(conn: psycopg.Connection, security_id: UUID) -> None:
-    """Move ``security_id``'s change stamp (``db.change_stamp``) as part of a lock release. Never raises and
-    never ends or poisons a caller's transaction: on an idle connection the stamp is its own short transaction
-    (committed here); inside a caller's OPEN transaction it is a SAVEPOINT (``conn.transaction()``), so a
-    failed stamp rolls back only itself and the stamp commits with the caller's commit. A failure is a
-    WARNING, never a blocked unlock."""
+    """Append ``security_id``'s change stamp (``db.change_stamp``, an INSERT into an append-only log: it waits
+    for no other stamp) as part of a lock release. Never raises and never ends or poisons a caller's
+    transaction: on an idle connection the stamp is its own short transaction (committed here); inside a
+    caller's OPEN transaction it is a SAVEPOINT (``conn.transaction()``), so a failed stamp rolls back only
+    itself and the stamp commits with the caller's commit. A failure is a WARNING, never a blocked unlock.
+    """
     try:
         with conn.transaction():
-            with conn.cursor() as cur:
-                cur.execute("SELECT current_setting('lock_timeout') AS v")
-                row = cur.fetchone()
-                prior = row["v"] if isinstance(row, dict) else row[0]
-                cur.execute(
-                    "SELECT set_config('lock_timeout', %s, true)", (f"{STAMP_LOCK_TIMEOUT_MS}ms",)
-                )
-                mark_changed(conn, [security_id])
-                # SET LOCAL outlives a released savepoint: put the caller's value back for its transaction
-                cur.execute("SELECT set_config('lock_timeout', %s, true)", (prior,))
+            mark_changed(conn, [security_id])
     except Exception:  # noqa: BLE001 — a stamp never blocks the unlock or fails the writer
         _log.warning(
             "company lock: change stamp failed for %s — dashboards may show this company stale until "

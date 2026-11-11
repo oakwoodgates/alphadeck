@@ -2285,6 +2285,9 @@ The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
   --night …` (default **1800 s**; `ALPHADECK_WARM_DASHBOARDS=0` is the kill switch, an env-only cron deploy;
   compose `ALPHADECK_WARM_BASE_URL` / `ALPHADECK_WARM_DASHBOARDS_TIMEOUT_S`). Fail-open and always returns 0, so it
   can never change the pass's status or exit code. The section "The dashboards' cache warm-up" below has the job.
+  Just before it, `prune_change_log` runs `timeout -k 10 300 python -m db.change_stamp --prune`: it deletes the
+  dashboards' change log rows (`security_change`, 0081) older than 24 hours, fail-open with one log line, never
+  inside `pipeline.daily` (`docs/DASHBOARDS.md` rule 7).
 - **A third schedule: the weekly company-list refresh (2026-10-24)** `[BUILT]`. After the boot block, beside
   `onboard_loop`, the sidecar starts `master_refresh_loop` in the BACKGROUND: `timeout -k 60
   MASTER_REFRESH_TIMEOUT_S python -m pipeline.populate_master --live --apply --run-kind cron` every
