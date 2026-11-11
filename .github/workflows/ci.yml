@@ -26,7 +26,10 @@ jobs:
           POSTGRES_DB: alphadeck
         ports:
           - 5544:5432
+        # The data directory lives in memory (tmpfs): every DB test opens with a TRUNCATE, which is disk-sync
+        # heavy, and this database is thrown away with the job.
         options: >-
+          --tmpfs /var/lib/postgresql/data
           --health-cmd "pg_isready -U alphadeck"
           --health-interval 5s
           --health-timeout 5s
