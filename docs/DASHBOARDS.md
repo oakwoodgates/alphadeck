@@ -144,6 +144,11 @@ the data flags). Its plan is `docs/BOARD.md`.
    the chunked point-in-time read (`per_company`), and the companies whose data flags reach their price
    readings (`price_flags`, the `/data-flags` reader, read by every price dashboard; `flagged_in_view` names
    them on a page, rule 5). A dashboard that groups cards' names reuses it rather than re-deriving the rule.
+   Pages also share per-company pieces through `dashboards.baskets`: a company's price-reaching flags
+   (`read_price_flags`) and each display member's reading (the members `display_members` hands out, called
+   from a `per_company` callback). Inside a page compute a company is read once per as-of, clock, view and
+   workspace, then reused by every other page. The pieces are cleared with the page entries (a new
+   generation, `clear()`), and a compute that fails or crosses a generation stores none of them.
    A one-card dashboard starts from its picker, `picker_cards` (the counted cards A→Z with their link counts;
    built with the Chain Wave, shared since the Filing Stream).
    The cron warms the heavy pages after each pass (`pipeline.warm_dashboards`, last in the nightly wake, GETs

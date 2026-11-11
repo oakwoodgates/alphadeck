@@ -29,6 +29,7 @@ writes nothing.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import date, datetime, tzinfo
 from typing import Literal, NamedTuple, TypeVar
@@ -36,6 +37,7 @@ from uuid import UUID
 
 import psycopg
 
+from dashboards.cache import get_piece, piece_workspace, put_piece
 from domain.data_flags import FEED_STOPPED, KIND_LABEL, PRICE_CELLS, DataFlag
 from domain.market_time import market_tz
 from domain.scopes import DATA_TENANT_ID
@@ -47,7 +49,7 @@ from repositories import thesis_repo
 from securities import master
 from signals.base import PointInTimeData
 from signals.display import registered_display_members
-from signals.display.base import DisplayMember
+from signals.display.base import DisplayMember, DisplayPointInTimeData, DisplaySignal
 from signals.horizons import display_bounds
 
 GroupBy = Literal["link", "business_type", "sector", "card"]
@@ -216,13 +218,62 @@ def resolved_ids(memberships: Iterable[Membership]) -> list[UUID]:
 # --- the chunked point-in-time read --------------------------------------------------------------------------
 
 
+@dataclass
+class _CompanyView:
+    """The point-in-time view ``per_company`` is running its callbacks over (``pit`` = the current chunk's)."""
+
+    asof: date
+    known_at: datetime | None
+    clock: Literal["record", "public"]
+    workspace: UUID
+    pit: PointInTimeData | None = None
+
+
+_VIEW: ContextVar[_CompanyView | None] = ContextVar("dashboard_company_view", default=None)
+
+
+@dataclass(frozen=True, slots=True)
+class SharedMember(DisplayMember):
+    """A registered display member whose reading of one company is shared by every page of a cache generation
+    (a ``dashboards.cache`` piece, kind ``member:<name>``). Shared ONLY when called from a ``per_company``
+    callback with that call's own view and as-of, inside a page compute of the same workspace; any other call
+    computes as the plain member does (its kind check included)."""
+
+    def __call__(
+        self, pit: DisplayPointInTimeData, security_id: UUID, asof: date
+    ) -> DisplaySignal | None:
+        view = _VIEW.get()
+        if (
+            view is None
+            or pit is not view.pit
+            or asof != view.asof
+            or pit.asof != view.asof
+            or getattr(pit, "clock", None) != view.clock
+            or piece_workspace() != view.workspace
+        ):
+            return DisplayMember.__call__(self, pit, security_id, asof)
+        kind = f"member:{self.name}"
+        found, value = get_piece(kind, security_id, view.asof, view.clock, view.known_at)
+        if found:
+            return value
+        sig = DisplayMember.__call__(self, pit, security_id, asof)
+        put_piece(kind, security_id, view.asof, view.clock, view.known_at, sig)
+        return sig
+
+
 def display_members(names: Sequence[str], dashboard: str) -> dict[str, DisplayMember]:
-    """The named display members, in ``names`` order. A renamed member fails loud, never reads as "no tape"."""
+    """The named display members, in ``names`` order, each a ``SharedMember`` (its reading of a company is
+    shared across pages, see the class). A renamed member fails loud, never reads as "no tape"."""
     by_name = {m.name: m for m in registered_display_members()}
     missing = [n for n in names if n not in by_name]
     if missing:  # a renamed member must fail loud, never read as "no tape"
         raise RuntimeError(f"{dashboard}: display members not registered: {missing}")
-    return {n: by_name[n] for n in names}
+    return {
+        n: SharedMember(
+            name=by_name[n].name, compute=by_name[n].compute, horizons=by_name[n].horizons
+        )
+        for n in names
+    }
 
 
 def per_company(
@@ -241,20 +292,27 @@ def per_company(
     DATA facts and ``workspace``'s own ratified rows (the caller's), never another workspace's."""
     bounds = display_bounds()
     out: dict[UUID, T] = {}
-    for i in range(0, len(sids), CHUNK):
-        chunk = list(sids[i : i + CHUNK])
-        pit = PointInTimeData(
-            conn,
-            asof=asof,
-            known_at=known_at,
-            data_tenant=DATA_TENANT_ID,
-            workspace=workspace,
-            basket=chunk,
-            bounds=bounds,
-            clock=clock,
-        )
-        for sid in chunk:
-            out[sid] = read(pit, sid)
+    view = _CompanyView(asof, known_at, clock, workspace)
+    # a ``SharedMember`` that ``read`` calls with this view may share its reading
+    active = _VIEW.set(view)
+    try:
+        for i in range(0, len(sids), CHUNK):
+            chunk = list(sids[i : i + CHUNK])
+            pit = PointInTimeData(
+                conn,
+                asof=asof,
+                known_at=known_at,
+                data_tenant=DATA_TENANT_ID,
+                workspace=workspace,
+                basket=chunk,
+                bounds=bounds,
+                clock=clock,
+            )
+            view.pit = pit
+            for sid in chunk:
+                out[sid] = read(pit, sid)
+    finally:
+        _VIEW.reset(active)
     return out
 
 
@@ -304,35 +362,58 @@ def read_price_flags(
     view's clock. ``known_at`` + ``clock`` are the request's ``serve_view(asof)`` pair (the route takes the
     same pair; a dashboard calls ``serve_view`` once per request, ``docs/DASHBOARDS.md`` rule 2). Read
     ``CHUNK`` companies per call: each company's flags are its own reads, so a chunk changes nothing but the
-    memory one view holds."""
+    memory one view holds.
+
+    Inside a page compute (``dashboards.cache``) each company's read is a shared piece (kind ``price_flags``,
+    ``None`` = no price-reaching flag): only the companies no page of this generation has read yet are read,
+    in ``CHUNK``s in their asked order. The result keeps the asked order either way (``read_flags`` answers
+    each chunk in the order it was asked)."""
     ids = list(dict.fromkeys(security_ids))
     if not ids:
         return {}
-    readings, corrections = flags_reader.run_reads()
-    tickers = master.tickers_for(conn, ids, tenant_id=DATA_TENANT_ID)
-    stale_days = get_settings().tape_stale_days
-    out: dict[UUID, PriceFlagRead] = {}
-    for i in range(0, len(ids), CHUNK):
-        got = flags_reader.read_flags(
-            conn,
-            tenant_id=DATA_TENANT_ID,
-            security_ids=ids[i : i + CHUNK],
-            tickers=tickers,
-            asof=asof,
-            known_at=known_at,
-            clock=clock,
-            stale_days=stale_days,
-            readings=readings,
-            corrections=corrections,
-        )
-        for sid, member in got.items():
-            reason = price_reason(member.flags)
-            if reason is None:
-                continue
-            reaching = [f for f in member.flags if reaches_price(f)]
-            since = next((f.since for f in reaching if f.kind == FEED_STOPPED), None)
-            out[sid] = PriceFlagRead(reason, tuple(dict.fromkeys(f.kind for f in reaching)), since)
-    return out
+    known: dict[UUID, PriceFlagRead | None] = {}
+    for sid in ids:
+        found, value = get_piece(PRICE_FLAGS_PIECE, sid, asof, clock, known_at)
+        if found:
+            known[sid] = value
+    missing = [sid for sid in ids if sid not in known]
+    if missing:
+        readings, corrections = flags_reader.run_reads()
+        tickers = master.tickers_for(conn, missing, tenant_id=DATA_TENANT_ID)
+        stale_days = get_settings().tape_stale_days
+        for i in range(0, len(missing), CHUNK):
+            chunk = missing[i : i + CHUNK]
+            got = flags_reader.read_flags(
+                conn,
+                tenant_id=DATA_TENANT_ID,
+                security_ids=chunk,
+                tickers=tickers,
+                asof=asof,
+                known_at=known_at,
+                clock=clock,
+                stale_days=stale_days,
+                readings=readings,
+                corrections=corrections,
+            )
+            for sid in chunk:
+                member = got.get(sid)
+                read = None if member is None else _price_flag_read(member.flags)
+                known[sid] = read
+                put_piece(PRICE_FLAGS_PIECE, sid, asof, clock, known_at, read)
+    return {sid: r for sid in ids if (r := known[sid]) is not None}
+
+
+PRICE_FLAGS_PIECE = "price_flags"
+
+
+def _price_flag_read(flags: Sequence[DataFlag]) -> PriceFlagRead | None:
+    """One company's ``PriceFlagRead`` from its flags, ``None`` when none reaches a price reading."""
+    reason = price_reason(flags)
+    if reason is None:
+        return None
+    reaching = [f for f in flags if reaches_price(f)]
+    since = next((f.since for f in reaching if f.kind == FEED_STOPPED), None)
+    return PriceFlagRead(reason, tuple(dict.fromkeys(f.kind for f in reaching)), since)
 
 
 def live_card_ids(conn: psycopg.Connection, *, workspace: UUID) -> set[UUID]:
