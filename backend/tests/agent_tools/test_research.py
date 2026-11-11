@@ -239,7 +239,7 @@ def test_triage_an_unknown_segment_or_ticker_is_invalid_arguments_naming_the_lab
 @pytest.mark.parametrize(
     ("args", "expect"),
     [
-        ({"section": "member"}, "section=member of `get_triage` needs t (a ticker"),
+        ({"section": "member"}, "section=member of `get_triage` needs t (a member's ticker"),
         ({"section": "segment"}, "section=segment of `get_triage` needs segment (a link label"),
         (
             {"section": "nope"},
@@ -433,6 +433,12 @@ def test_discovery_status_and_segment_narrow_the_placements(args, expected):
         assert len(rows) == expected
     reply = call("get_discovery", **DISCOVERY, **args)
     assert reply["narrowed"] == args and reply["placements_total"] == len(want)
+    # A9: a slice's first page names the run and counts the slice; the whole report/segments/counts stay behind
+    assert reply["run"] == {"run_id": rfx.RUN_LATEST_ID, "written_at": "2026-11-04T20:00:00+00:00"}
+    assert reply["counts"]["rows_total"] == len(want)
+    assert sum(reply["counts"]["by_status"].values()) == len(want)
+    assert "segments" not in reply and "report" not in reply["run"]
+    assert "section=report" in reply["more"]
 
 
 def test_discovery_the_ambiguous_status_fits_one_page_and_the_section_lists_all_27_with_candidates():
@@ -532,11 +538,17 @@ def test_discovery_a_card_with_no_saved_run_answers_with_a_note_not_an_error():
     assert again["note"] == "no saved draft run for this card" and again["runs"] == []
 
 
-def test_discovery_a_disabled_run_loader_and_an_unknown_run_pass_the_apis_detail_through():
+def test_discovery_a_disabled_run_loader_passes_the_apis_detail_and_an_unknown_run_names_the_known_ones():
     err = failure("get_discovery", FakeApi(runs_disabled=True), **DISCOVERY)
     assert err["code"] == "api_rejected" and err["message"] == "run loader is disabled"
-    err = failure("get_discovery", **DISCOVERY, run="2026-01-01T00-00-00_nope")
-    assert err["code"] == "api_rejected" and err["message"] == "saved run not found"
+    api = FakeApi()
+    err = failure("get_discovery", api, **DISCOVERY, run="2026-01-01T00-00-00_nope")
+    assert err["code"] == "invalid_arguments"
+    assert err["message"] == (
+        f"Unknown run 2026-01-01T00-00-00_nope; this card's runs are: "
+        f"{rfx.RUN_LATEST_ID}, {rfx.RUN_SMALL_ID}."
+    )
+    assert not [r for r in api.requests if "/runs/" in r[1]]  # refused before any run request
     small = call("get_discovery", **DISCOVERY, run=rfx.RUN_SMALL_ID)
     assert small["run"]["run_id"] == rfx.RUN_SMALL_ID
     assert small["counts"]["placements_total"] == 203 and len(small["segments"]) == 4
@@ -609,6 +621,9 @@ def test_extract_default_has_no_thesis_so_no_llm_call_and_cuts_every_excerpt_at_
     assert len(first["excerpt"]) == 300 and first["excerpt_total_chars"] == 3_004
     assert first["excerpt"] == source[0]["located_passages"][0]["excerpt"][:300]
     assert facts["cash_burn"]["passages"][1]["excerpt_total_chars"] == 700
+    # A5: a `more` hint only where passages were left out (revenue_mix has 3 of which 2 are shown)
+    assert revenue["more"] == "section=passages fact=revenue_mix"
+    assert "more" not in facts["cash_burn"] and "more" not in facts["shares_outstanding"]
     assert len(revenue["note"]) == 200 and revenue["note_total_chars"] > 200
     assert facts["shares_outstanding"]["value"] == 152_000_000.0
     assert facts["shares_outstanding"]["flags"] == ["dual-class"]
@@ -796,3 +811,52 @@ def test_the_research_views_import_nothing_from_the_client_server_httpx_mcp_or_e
                 assert not any(
                     name == b or name.startswith(b + ".") for b in banned
                 ), f"{path.name} imports {name}"
+
+
+# --- the MCP tuning items (A1, A2-adjacent, A5, A6, A8) ---------------------------------------------------------------
+
+
+def test_triage_a1_an_empty_link_answers_an_empty_page_and_the_rejection_lists_the_apis_labels():
+    # the fixture's ETFs link has no members (MEMBER_COUNTS) yet is in the API's segment list
+    reply = call("get_triage", **TRIAGE, segment=ETFS_LABEL)
+    assert reply["members"] == [] and reply["members_total"] == 0
+    assert reply["narrowed"] == {"segment": ETFS_LABEL}
+    folded = call("get_triage", **TRIAGE, section="segment", segment=ETFS_LABEL.lower())
+    assert folded["members"] == [] and folded["members_total"] == 0
+    err = failure("get_triage", **TRIAGE, segment="Segment 99")
+    api_labels = [s["label"] for s in SCORED["segments"]]
+    assert err["message"] == (
+        "No segment 'Segment 99' on this card; the labels are: " + ", ".join(api_labels) + "."
+    )
+    assert ETFS_LABEL in err["message"]  # the empty link is named, in the API's order
+
+
+def test_triage_a1_a_member_only_label_is_still_found_and_listed_after_the_apis_labels():
+    payload = copy.deepcopy(SCORED)
+    payload["members"][0]["segment"] = "Discovered"
+    req = ResearchRequest(thesis=THESIS, asof=rfx.ASOF, segment="discovered")
+    reply = triage_view.view(payload, req)
+    assert reply["members_total"] == 1 and reply["members"][0]["segment"] == "Discovered"
+    with pytest.raises(ViewError) as caught:
+        triage_view.view(payload, ResearchRequest(thesis=THESIS, asof=rfx.ASOF, segment="nope"))
+    assert str(caught.value).endswith(", Discovered.")
+
+
+def test_triage_a8_the_t_need_wording_is_the_tools_own():
+    err = failure("get_triage", thesis=rfx.THESIS_ID, section="member")
+    assert err["message"] == (
+        "section=member of `get_triage` needs t (a member's ticker from the default reply)."
+    )
+    err = failure("get_discovery", thesis=rfx.THESIS_ID, section="placement")
+    assert "t (a ticker, or a name for a placement without one)" in err["message"]
+
+
+def test_a5_the_extract_description_copies_the_domain_burn_sign_sentence():
+    from domain.extraction import QUARTERLY_BURN_SIGN
+
+    async def body(session):
+        return {t.name: t.description for t in (await session.list_tools()).tools}
+
+    descriptions = run(FakeApi(), body)
+    assert QUARTERLY_BURN_SIGN in descriptions["get_extract"]
+    assert "positive when the company consumed cash" in QUARTERLY_BURN_SIGN

@@ -32,7 +32,7 @@ def _session(base: str):
     return stdio_client(params)
 
 
-def test_the_splits_review_call_plan_costs_at_most_four_calls_and_24000_characters():
+def test_the_splits_review_call_plan_costs_at_most_five_calls_and_24000_characters():
     spent: list[tuple[str, int]] = []
     api = FakeApi(me_role="super_admin")
 
@@ -50,13 +50,24 @@ def test_the_splits_review_call_plan_costs_at_most_four_calls_and_24000_characte
                     return result.structured_content
 
                 default = await read()  # 1
-                one = await read(section="one", t="TK01")  # 2: the named name
-                abstained = await read(section="one", t="TK02")  # 3: its extractor abstained
-                jumps = await read(section="jumps")  # 4: the default reply counted an unlisted jump
-                return listed, prompt.messages[0].content.text, default, one, abstained, jumps
+                differ = await read(section="needs_review", reason="sources_differ")  # 2
+                abstained = await read(section="needs_review", reason="extractor_abstained")  # 3
+                one = await read(
+                    section="one", t="TK01"
+                )  # 4: the named name (fewer `one` reads: both reasons ran)
+                jumps = await read(section="jumps")  # 5: the default reply counted an unlisted jump
+                return (
+                    listed,
+                    prompt.messages[0].content.text,
+                    default,
+                    differ,
+                    abstained,
+                    one,
+                    jumps,
+                )
 
     with LoopbackServer(api) as fake:
-        listed, prompt, default, one, abstained, jumps = asyncio.run(go(fake.base))
+        listed, prompt, default, differ, abstained, one, jumps = asyncio.run(go(fake.base))
     assert "splits-review" in listed
     assert prompt.startswith("Splits review, starting with TK01: ") and "{{" not in prompt
     assert len(PROMPT_FILE.read_text(encoding="utf-8")) <= 2_000 and len(prompt) <= 2_000
@@ -74,8 +85,16 @@ def test_the_splits_review_call_plan_costs_at_most_four_calls_and_24000_characte
     # what the report needs is in those reads
     assert default["counts"]["needs_review"] == 3 and default["counts"]["unlisted_jumps"] == 1
     assert [r["ticker"] for r in default["needs_review"]] == ["TK01", "TK02", "TK03"]
+    assert default["counts"]["needs_review_by_reason"] == {
+        "sources_differ": 1,
+        "extractor_abstained": 1,
+        "one_source": 1,
+    }
+    assert [r["ticker"] for r in differ["needs_review"]] == ["TK01"]
+    assert differ["needs_review"][0]["review_reason"] == "sources_differ"
     assert one["found"] == 2 and one["entries"][0]["sec"]["passage_chars"] > 300
-    assert abstained["entries"][0]["sec"]["abstain_reason"] == "two ratios in the passage"
+    assert abstained["needs_review"][0]["sec"]["abstain_reason"] == "two ratios in the passage"
+    assert abstained["needs_review"][0]["review_reason"] == "extractor_abstained"
     assert [j["ticker"] for j in jumps["unlisted"]] == ["TK08"]
 
 

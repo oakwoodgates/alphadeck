@@ -44,6 +44,17 @@ class LocatedPassage(DomainModel):
     offset: int | None = None
 
 
+# The sign of ``quarterly_burn_usd``, defined ONCE here. Every producer agrees: the periodic extractor
+# (``ingest.edgar.extract._cash_burn``: ``burn = -operating_cash_flow``) and the annual runway path
+# (``ingest.edgar.annual_runway``: negative OCF -> a POSITIVE quarterly burn) emit it, the ``cash_burn`` writer
+# (``ingest.cash_burn``) stores it as given and the runway meter (``workbench.scoring._runway``) reads ``<= 0``
+# as cash-generative. The read-only agent tools copy this sentence into their descriptions.
+QUARTERLY_BURN_SIGN = (
+    "quarterly_burn_usd is positive when the company consumed cash in operations over the quarter; "
+    "zero or negative means cash-generative"
+)
+
+
 class ExtractedFact(DomainModel):
     """One candidate scoring fact for a security, with its tier, raw value(s), located evidence, and flags.
     The shape mirrors the three ``ingest_*`` writers: shares -> ``value``; cash_burn -> ``cash_usd`` +
@@ -58,7 +69,9 @@ class ExtractedFact(DomainModel):
     # raw figures — None for HUMAN (purity) and for any value the extractor would only LOCATE, not parse
     value: float | None = None  # shares_outstanding
     cash_usd: float | None = None  # cash_burn
-    quarterly_burn_usd: float | None = None  # cash_burn
+    quarterly_burn_usd: float | None = (
+        None  # cash_burn; sign: see QUARTERLY_BURN_SIGN (positive = cash consumed)
+    )
     # The statement's own ISO currency (Retrieval Slice A follow-up), set ONLY by the IFRS annual-
     # statements runway path — an IFRS filer reports in its native currency (TWD/EUR/CAD/…) and the
     # ``*_usd`` fields then carry native-currency values (the runway RATIO stays currency-correct). This

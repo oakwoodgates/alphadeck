@@ -112,6 +112,9 @@ class AdminSplitListEntryOut(BaseModel):
     and a stale one is refused. ``ratio_from`` -> ``ratio_to`` = old shares -> new shares; ``price_factor`` =
     old / new (prices before the split x it). ``decided_by`` is the source label the panel shows ("auto: SEC +
     Massive.com", "you, 10-20"). ``actions`` = what the status allows; ``restore_to`` = where Restore returns it.
+    ``review_reason`` (a needs-review split only) = why it waits: ``sources_differ`` (SEC and Massive.com state
+    different values), ``extractor_abstained`` (the SEC reading abstained) or ``one_source`` (only one source states
+    both a ratio and a date).
     """
 
     version_id: UUID
@@ -139,6 +142,7 @@ class AdminSplitListEntryOut(BaseModel):
     confirm_options: list[AdminSplitListOptionOut] = Field(default_factory=list)
     actions: list[str] = Field(default_factory=list)
     restore_to: str | None = None
+    review_reason: Literal["sources_differ", "extractor_abstained", "one_source"] | None = None
 
 
 class AdminSplitJumpBarOut(BaseModel):
@@ -229,6 +233,20 @@ def _decided_by(v: SplitVersion) -> str:
     return f"{auto + ' · ' if auto else ''}{verb}, {_md(v.recorded_at)}"
 
 
+def _review_reason(
+    v: SplitVersion, n_options: int
+) -> Literal["sources_differ", "extractor_abstained", "one_source"] | None:
+    """Why a needs-review split waits (``None`` on any other status). Two confirmable values = the sources differ;
+    else the SEC reading abstained; else only one source states both a ratio and a date."""
+    if v.status != STATUS_NEEDS_REVIEW:
+        return None
+    if n_options >= 2:
+        return "sources_differ"
+    if v.sec_abstain_reason:
+        return "extractor_abstained"
+    return "one_source"
+
+
 def split_out(v: SplitVersion, *, restore_to: str | None = None) -> AdminSplitListEntryOut:
     options = []
     for src in split_repo.confirm_options(v):
@@ -307,6 +325,7 @@ def split_out(v: SplitVersion, *, restore_to: str | None = None) -> AdminSplitLi
         confirm_options=options,
         actions=split_repo.allowed_actions(v),
         restore_to=restore_to,
+        review_reason=_review_reason(v, len(options)),
     )
 
 

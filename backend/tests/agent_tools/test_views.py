@@ -163,12 +163,18 @@ def test_list_theses_queue_cards_carry_the_full_record_and_the_rest_are_brief():
             {k: t[k] for k in ("ticker", "kind", "label", "event_date")}
             for t in next(x for x in theses if x["id"] == qid)["call"]["triggers"][:1]
         ]
-        for absent in ("ticker", "basket_size", "archived", "stale"):  # lean: null / false omitted
+        for absent in ("ticker", "archived", "stale", "no_record"):  # lean: null / false omitted
             assert absent not in card
+        assert card["basket_size"] == next(x for x in theses if x["id"] == qid)["basket_size"]
     assert by_id[fx.uid("thesis", 20)]["reconstructed"] is True
     stale = by_id[fx.uid("thesis", 5)]  # armed but stale: brief, never queued
-    assert set(stale) == {"id", "name", "state", "record_asof"}
-    assert by_id[fx.uid("thesis", 10)]["state"] is None  # no record
+    assert set(stale) == {"id", "name", "basket_size", "state", "record_asof"}
+    assert "no_record" not in stale  # a card with a (stale) record never carries the marker
+    no_record = by_id[
+        fx.uid("thesis", 10)
+    ]  # D28/D29: the absence is explicit, and A4: basket_size is kept
+    assert no_record["state"] is None and no_record["no_record"] is True
+    assert no_record["basket_size"] == 20 + 10 % 15
     assert list(by_id)[-2:] == [fx.uid("thesis", 66), fx.uid("thesis", 67)]  # archived last
 
 
@@ -615,3 +621,63 @@ def test_lookup_ticker_triggers_and_catalysts_sections_page_to_the_end(events, c
     if events is not None:  # more than one page each (a page holds 25, fewer when 8,000 cuts it)
         assert 0 < first["next_cursor"] <= ticker_view.SECTION_PAGE
         assert first["next_cursor_for"] == "events"
+
+
+def test_list_theses_a_card_with_no_record_says_so_in_every_detail():
+    theses = fx.theses_list()
+    for detail, limit in (("queue", None), ("full", None), ("queue", 1)):
+        by_id, _ = _all_cards(theses, detail=detail, limit=limit)
+        card = by_id[fx.uid("thesis", 10)]
+        assert card["state"] is None and card["no_record"] is True, (detail, limit)
+        assert card["record_asof"] is None and "basket_size" in card
+        with_record = by_id[fx.uid("thesis", 1)]
+        assert "no_record" not in with_record and "basket_size" in with_record
+
+
+def test_get_thesis_a2_counts_cover_every_member_not_just_the_page():
+    detail = fx.thesis_detail()
+    detail["basket"] = [
+        {
+            **m,
+            "signed_off": True,
+            "authored_by": "operator_edited",
+            "conviction": 3,
+            "context_role": "payer",
+        }
+        for m in detail["basket"][:6]
+    ]
+    first, second, third, fourth, fifth, sixth = detail["basket"]
+    first["signed_off"] = False  # one not signed off
+    second["authored_by"] = "system_drafted"  # one system drafted
+    third["conviction"] = None
+    fourth["conviction"] = None  # two without conviction
+    fifth["context_role"] = None  # one without a context role
+    for m, label in zip(
+        (first, second, third, fourth, fifth, sixth), fx.REAL_LINKS[:4] + fx.SILENT[:2]
+    ):
+        m["segment"] = label  # the last two members sit in silent links
+    detail["exclusions"] = [{"ticker": "TK99"}]
+    reply = thesis_view.view_thesis(detail, cursor=4)  # a page past the first four members
+    assert reply["counts"] == {
+        "members": 6,
+        "voting": 4,
+        "silent": 2,
+        "not_signed_off": 1,
+        "system_drafted": 1,
+        "no_conviction": 2,
+        "no_context_role": 1,
+        "exclusions": 1,
+    }
+    assert reply["exclusions_count"] == 1
+    assert (
+        sum(len(s["members"]) for s in reply["segments"]) == 2
+    )  # the page itself holds only the last two
+    full = thesis_view.view_thesis(detail, mode="full")
+    assert full["counts"] == reply["counts"]
+
+
+def test_lookup_ticker_copies_not_yet_created_so_a_zero_row_reply_is_explained():
+    page = fx.ticker_lookup()
+    page["cards"]["not_yet_created"] = 2
+    reply = ticker_view.view_ticker(page, resolved=fx.ticker_resolve(), asof=fx.ASOF)
+    assert reply["cards"]["not_yet_created"] == 2

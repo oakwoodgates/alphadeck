@@ -29,6 +29,8 @@ from mcp.shared.exceptions import MCPError
 from mcp_types import INVALID_PARAMS
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from domain.extraction import QUARTERLY_BURN_SIGN
+
 from . import tool_args
 from .budget import OutputTooLarge
 from .client import DEFAULT_TIMEOUT_S, TOKEN_ENV, ApiClient, loopback_base, segment
@@ -67,7 +69,7 @@ from .views.thesis import view_thesis
 from .views.ticker import view_ticker
 
 NAME = "alphadeck"
-VERSION = "2.5.0"
+VERSION = "2.6.0"
 DEFAULT_BACKEND = "http://127.0.0.1:8001"
 path_seg = segment  # a tool parameter named ``segment`` shadows the path-segment encoder inside its handler
 log = logging.getLogger("agent_tools")
@@ -143,6 +145,13 @@ class _Reply(BaseModel):
     asof: str | None = Field(description="The as-of the reply was judged at (null = not dated).")
     source: Literal["record", "live"] = Field(
         description="record = the nightly calls log; live = the API recomputed or read it now."
+    )
+    nightly_window: bool | None = Field(
+        default=None,
+        description=(
+            "true when the hosted endpoint answered inside the nightly window (22:15 to 23:30 market "
+            "time: the pass is writing the record); absent otherwise"
+        ),
     )
 
 
@@ -456,8 +465,9 @@ def build_server(
 
     @tool(
         "get_clock",
-        "The API's market clock: current_night (the night the last pass recorded; the default as-of), "
-        "action_day (the session the operator can act in), market_today and market_tz.",
+        "The API's market clock: current_night = the night the last pass recorded (the default as-of: a "
+        "RECORD night, not today's date); market_today = today's date in market time; action_day = the "
+        "session the operator can act in; market_tz.",
     )
     async def get_clock() -> Annotated[types.CallToolResult, ClockReply]:
         client = client_for()
@@ -476,7 +486,8 @@ def build_server(
         "cards briefly (list order), then archived cards. detail=full gives every card in full (state "
         "filters). limit (1 to 100) caps how many queue cards come in full (queue order); the rest of the "
         "queue is listed briefly and queue and counts stay whole: use it for a short review. Omitted keys: "
-        "ticker when null; archived, stale, reconstructed when false.",
+        "ticker when null; archived, stale, reconstructed when false. A card with no nightly record yet "
+        "carries no_record: true (state null); get_call recomputes it live.",
     )
     async def list_theses(
         asof: AsofArg = None,
@@ -516,7 +527,9 @@ def build_server(
         "get_thesis",
         "The thesis spine (current metadata, not dated): narrative, links (segments) with their members "
         "(ticker, context_role = the operator's tag for the company's part on this card, operator "
-        "conviction = a 1-5 size weight that never touches the call, signed_off, authored_by), catalysts, "
+        "conviction = a 1-5 size weight that never touches the call, signed_off, authored_by), counts (members, "
+        "voting, silent, not_signed_off, system_drafted, no_conviction, no_context_role, exclusions: over every "
+        "member, not just the page), catalysts, "
         "kill criteria and the discovery terms. Members in the silent links (Context, ETFs, Bench) never "
         "count toward the call. detail=full adds each member's thesis_fit and detail, the whole narrative "
         "and every term with its tier.",
@@ -659,7 +672,9 @@ def build_server(
         "context_role per card, the recorded call there), the triggers the recorded calls show on it, its "
         "tape, the next catalysts of its cards, the operator's decisions and a filings summary. Per card, "
         "silent is the silent link's label (Context, ETFs, Bench) or null (null = a voting row), and "
-        "place.strength is the NAME's strength on that card, not the card's setup strength. section=filings "
+        "place.strength is the NAME's strength on that card, not the card's setup strength. cards.counted = the "
+        "cards that existed by the as-of; not_yet_created = live cards created after it (their rosters are "
+        "not read here, so a name on only such a card shows no rows). section=filings "
         "lists filings newest first, section=triggers every trigger event of record on the name, "
         "section=catalysts every upcoming card catalyst; 25 per page each. cache says whether this read "
         "computed the page: compute_ms when it did (a cold read is slow), cold_compute_ms on a hit.",
@@ -842,7 +857,9 @@ def build_server(
         "recommendations, never deletions (recall is sacred). status and segment narrow the placements; "
         "section=placement (needs t, a ticker or a name) reads one in full, ambiguous lists the names waiting for "
         "a pick with their candidates, report adds the placements behind each capped, empty and failed term, "
-        "terms joins the term set with the run. A card with no saved run answers with a note.",
+        "terms joins the term set with the run. status or segment alone gives the run's id, written_at and the "
+        "slice's own counts (section=report reads the run's report). An unknown run id is refused with the "
+        "card's run ids. A card with no saved run answers with a note.",
     )
     async def get_discovery(
         thesis: ThesisArg,
@@ -891,6 +908,11 @@ def build_server(
         runs, _ = await client.get(f"{base}/runs")
         draft = None
         if runs:
+            if run is not None and run not in [r.get("run_id") for r in runs]:
+                known = ", ".join(str(r.get("run_id")) for r in runs[:5])
+                raise ToolFailure(
+                    "invalid_arguments", f"Unknown run {run}; this card's runs are: {known}."
+                )
             run_id = run or runs[0]["run_id"]
             draft, _ = await client.get(f"{base}/runs/{path_seg(run_id)}")
         detail = None
@@ -922,8 +944,11 @@ def build_server(
         "fact's passages in full). COST: up to 4 EDGAR requests when the filings are not cached; with thesis, "
         "ONE LLM call (the grounded purity proposal) when a key is set. Pass thesis only when the operator asks "
         "for the on-thesis purity proposal. The extract is DB-free: a candidate does not know whether its fact "
-        "is already on file (get_triage section=member does). Nothing here is stored; the operator ratifies in "
-        "the Workbench.",
+        "is already on file (get_triage section=member does). "
+        + QUARTERLY_BURN_SIGN
+        + ". A fact with more "
+        "passages than shown carries more: the section call that reads them all. Nothing here is stored; the "
+        "operator ratifies in the Workbench.",
     )
     async def get_extract(
         t: Annotated[str, Field(description="The ticker (a former ticker also resolves).")],
@@ -977,7 +1002,8 @@ def build_server(
         "The staged onboarding queue scoped to a card's members: how many names are queued, in progress, "
         "failed, done or parked, the pending names with their attempts and last error, the recent ones, the "
         "last run and the nightly window the job yields to. A name still onboarding is why a card is "
-        "ingest_fresh: false. section=pending or recent_done reads that list in full.",
+        "ingest_fresh: false. A card member absent from the queue never needed a cold walk (its history was "
+        "already loaded). section=pending or recent_done reads that list in full.",
     )
     async def get_onboarding(
         thesis: ThesisArg,
@@ -1009,7 +1035,10 @@ def build_server(
         "announced (both agree, the first session still ahead), confirmed, set_aside (rejected or revoked, "
         "kept), plus the split-shaped price jumps no source listed. The default reply is the counts and the "
         "needs-review rows; section=needs_review, announced, confirmed, set_aside or jumps pages one bucket; "
-        "section=one with t reads one ticker's every entry and jump in full. Reads only: a split's values "
+        "section=one with t reads one ticker's every entry and jump in full. Every needs-review row carries "
+        "review_reason (sources_differ, extractor_abstained or one_source) and counts.needs_review_by_reason "
+        "counts them; reason narrows section=needs_review to one. polygon.ticker is the vendor's symbol at the "
+        "split; ticker is the master's current one (they differ after a rename). Reads only: a split's values "
         "change only on the panel. Steward scope.",
         scope=STEWARD,
     )
@@ -1025,13 +1054,26 @@ def build_server(
             str | None, Field(description="A ticker (section=one only).", max_length=40)
         ] = None,
         cursor: CursorArg = 0,
+        reason: Annotated[
+            str | None,
+            Field(
+                description="Narrow section=needs_review: sources_differ, extractor_abstained or one_source.",
+                max_length=40,
+            ),
+        ] = None,
     ) -> Annotated[types.CallToolResult, AdminReply]:
         client = client_for()
-        tool_args.check(ADMIN["get_splits"], asof=None, section=section, narrows={"t": t}, given={})
+        tool_args.check(
+            ADMIN["get_splits"],
+            asof=None,
+            section=section,
+            narrows={"t": t},
+            given={"reason": reason},
+        )
         if t is not None and section != "one":
             raise ToolFailure("invalid_arguments", splits_view.T_RULE)
         payload, _ = await client.get("/admin/splits")
-        req = ResearchRequest(section=section, cursor=cursor, t=t)
+        req = ResearchRequest(section=section, cursor=cursor, t=t, reason=reason)
         try:
             return _result(splits_view.view(payload, req))
         except ViewError as error:

@@ -80,6 +80,7 @@ def test_a_section_whose_need_is_missing_is_rejected(c):
             "segment": "segment (a link label from the default reply)",
             "fact": "fact (revenue_mix, shares_outstanding or cash_burn)",
         }[need]
+        what = c.needs_text.get(need) or what  # A8: a tool's own wording wins over the shared one
         assert err.message == f"section={section} of `{c.name}` needs {what}."
         # given the need, the same call passes
         tool_args.check(c, asof=None, section=section, narrows={need: "x"}, given={})
@@ -172,3 +173,20 @@ def test_every_prompt_file_fills_every_placeholder(spec):
         given["end"] = "2026-11-06"
     out = server_mod._prompt_handler(spec)(**given)
     assert "{{" not in out and out != text
+
+
+def test_a8_a_contract_with_needs_text_names_it_and_one_without_falls_back_to_the_shared_wording():
+    own = Contract(
+        "probe", False, ("one",), ("t",), needs=(("one", "t"),), needs_text={"t": "t (mine)"}
+    )
+    assert (
+        reject(own, section="one", narrows={}).message == "section=one of `probe` needs t (mine)."
+    )
+    plain = Contract("probe", False, ("one",), ("t",), needs=(("one", "t"),))
+    assert reject(plain, section="one", narrows={}).message == (
+        "section=one of `probe` needs t (a ticker, or a name for a placement without one)."
+    )
+    by_name = {c.name: c for c in CONTRACTS}
+    assert by_name["get_triage"].needs_text["t"] == "t (a member's ticker from the default reply)"
+    assert by_name["get_splits"].needs_text["t"] == "t (a ticker on the split list)"
+    assert "get_discovery" in by_name and not by_name["get_discovery"].needs_text

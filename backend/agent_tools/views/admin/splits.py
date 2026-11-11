@@ -1,5 +1,7 @@
 """``get_splits``: the steward's split list (``GET /admin/splits``, undated, read live from the shared data layer).
 
+``review_reason`` (the API's: sources_differ, extractor_abstained or one_source) rides every needs-review row,
+``counts.needs_review_by_reason`` counts it and ``reason=`` narrows ``section=needs_review`` to one value.
 The default reply keeps the counts, the whole needs-review list (the panel's loud one) and the first unlisted jumps;
 a section pages one bucket in the API's order; ``one`` with a ticker reads that ticker's every entry and jump in full.
 Every value is copied from the API's JSON: the view never sorts, derives a date or a ratio, or decides whether the two
@@ -23,8 +25,12 @@ SECTIONS = (
     ("one", "t"),
 )
 BUCKETS = ("needs_review", "announced", "confirmed", "set_aside")
+# why a needs-review split waits: the API's own ``review_reason`` (the view copies and counts it, never derives it)
+REASONS = ("sources_differ", "extractor_abstained", "one_source")
+REASON_RULE = "reason must be one of: " + ", ".join(REASONS) + "."
 
 T_RULE = "t narrows section=one only."
+REASON_SECTION_RULE = "reason narrows section=needs_review only."
 PASSAGE_BRIEF = 300
 PASSAGE_FULL = 1_500
 NOTE_BRIEF = 200
@@ -41,6 +47,7 @@ ENTRY_BRIEF_KEYS = (
     "status",
     "direction",
     "decided_by",
+    "review_reason",
 )
 JUMP_BRIEF_KEYS = (
     "ticker",
@@ -115,6 +122,11 @@ def _matches(ticker: str, e: dict[str, Any]) -> bool:
 def view(payload: dict[str, Any], req: ResearchRequest) -> dict[str, Any]:
     if req.t is not None and req.section != "one":
         raise ViewError(T_RULE)
+    if req.reason is not None:
+        if req.reason not in REASONS:
+            raise ViewError(REASON_RULE)
+        if req.section != "needs_review":
+            raise ViewError(REASON_SECTION_RULE)
     lists = {b: payload.get(b) or [] for b in BUCKETS}
     unlisted = payload.get("unlisted_jumps") or []
     dismissed = payload.get("dismissed_jumps") or []
@@ -125,6 +137,10 @@ def view(payload: dict[str, Any], req: ResearchRequest) -> dict[str, Any]:
             "unlisted_jumps": len(unlisted),
             "dismissed_jumps": len(dismissed),
             "total": payload.get("total"),
+            "needs_review_by_reason": {
+                r: sum(1 for e in lists["needs_review"] if e.get("review_reason") == r)
+                for r in REASONS
+            },
         }
         if payload.get("unlisted_jumps_error") is not None:
             reply["unlisted_jumps_error"] = payload.get("unlisted_jumps_error")
@@ -141,6 +157,9 @@ def view(payload: dict[str, Any], req: ResearchRequest) -> dict[str, Any]:
         )
     if req.section in BUCKETS:
         rows = lists[req.section]
+        if req.reason is not None:
+            rows = [e for e in rows if e.get("review_reason") == req.reason]
+            reply["narrowed"] = {"reason": req.reason}
         reply["section"] = req.section
         reply["total"] = len(rows)
         reply[req.section] = [_brief_entry(e, req.section) for e in rows[req.cursor :]]

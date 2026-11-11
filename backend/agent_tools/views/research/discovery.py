@@ -1,7 +1,8 @@
 """``get_discovery``: what discovery found for a card (``GET /workbench/theses/{id}/runs`` then ``/runs/{run_id}``;
 ``section="terms"`` also reads the thesis for its term set; undated).
 
-The default reply keeps the run's report (the #9 visibility: failed, capped and empty terms whole), the placements counted
+A slice (``status`` and/or ``segment``) first page carries the run's id, ``written_at`` and the slice's own counts
+instead of the whole report (``section="report"`` reads it). The default reply keeps the run's report (the #9 visibility: failed, capped and empty terms whole), the placements counted
 by status, source and segment, and the ONE paged list of placements in the run's order, narrowed by ``status`` and/or
 ``segment``. VERIFY and off-thesis are recommendations, never deletions. A card with no saved run answers with an empty
 ``runs`` list and a note, never an error. Every value is copied from the API's JSON; this module counts entries,
@@ -211,22 +212,29 @@ def view(
     placements = run.get("placements") or []
     first_page = req.cursor == 0
     if req.section is None:
+        rows = _narrowed(placements, run, req)
+        narrowed = {k: v for k, v in (("status", req.status), ("segment", req.segment)) if v}
         if first_page:
             reply["runs_total"] = len(runs)
             reply["runs"] = _runs(runs)
-            report = _report(run)
-            reply["run"] = {
-                "run_id": run_id,
-                "written_at": summary.get("written_at"),
-                "scope": (run.get("report") or {}).get("scope"),
-                "report": report,
-            }
-            reply["segments"] = _segments(run, placements)
-            reply["counts"] = _counts(placements)
+            if narrowed:
+                # a slice read: the run's identity and the slice's own counts, not the whole report (section=report)
+                reply["run"] = {"run_id": run_id, "written_at": summary.get("written_at")}
+                reply["counts"] = {"rows_total": len(rows), "by_status": _by_status(rows)}
+                reply["more"] = (
+                    "section=report for the run's report; no status or segment for the whole run"
+                )
+            else:
+                reply["run"] = {
+                    "run_id": run_id,
+                    "written_at": summary.get("written_at"),
+                    "scope": (run.get("report") or {}).get("scope"),
+                    "report": _report(run),
+                }
+                reply["segments"] = _segments(run, placements)
+                reply["counts"] = _counts(placements)
         else:
             reply["run"] = {"run_id": run_id}
-        rows = _narrowed(placements, run, req)
-        narrowed = {k: v for k, v in (("status", req.status), ("segment", req.segment)) if v}
         if narrowed:
             reply["narrowed"] = narrowed
         reply["placements_total"] = len(rows)

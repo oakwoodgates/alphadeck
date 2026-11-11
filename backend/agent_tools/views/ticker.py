@@ -31,6 +31,7 @@ def _cards(cards: dict[str, Any]) -> dict[str, Any]:
     return {
         "live_cards": cards.get("live_cards"),
         "counted": cards.get("counted"),
+        "not_yet_created": cards.get("not_yet_created"),
         "rows": [
             {
                 "thesis_id": r.get("thesis_id"),

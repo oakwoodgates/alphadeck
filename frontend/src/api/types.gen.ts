@@ -5159,6 +5159,9 @@ export interface components {
          *     and a stale one is refused. ``ratio_from`` -> ``ratio_to`` = old shares -> new shares; ``price_factor`` =
          *     old / new (prices before the split x it). ``decided_by`` is the source label the panel shows ("auto: SEC +
          *     Massive.com", "you, 10-20"). ``actions`` = what the status allows; ``restore_to`` = where Restore returns it.
+         *     ``review_reason`` (a needs-review split only) = why it waits: ``sources_differ`` (SEC and Massive.com state
+         *     different values), ``extractor_abstained`` (the SEC reading abstained) or ``one_source`` (only one source states
+         *     both a ratio and a date).
          */
         AdminSplitListEntryOut: {
             /**
@@ -5227,6 +5230,8 @@ export interface components {
             actions?: string[];
             /** Restore To */
             restore_to?: string | null;
+            /** Review Reason */
+            review_reason?: ("sources_differ" | "extractor_abstained" | "one_source") | null;
         };
         /**
          * AdminSplitListOptionOut

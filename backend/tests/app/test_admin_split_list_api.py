@@ -69,6 +69,9 @@ def test_the_panel_is_loud_only_where_one_source_cannot_settle_it(client, db, tm
         "polygon"
     ]  # the SEC side states no ratio
     assert mi["actions"] == ["confirm:polygon", "reject"]
+    # why it waits: the SEC reading abstained (review_reason is for needs-review rows only)
+    assert mi["review_reason"] == "extractor_abstained"
+    assert btoc["review_reason"] is None
     # the Admin status carries the loud count
     assert client.get("/admin/status").json()["splits_needs_review"] == 3
 
@@ -168,6 +171,7 @@ def test_enha_offers_its_real_first_session_once_the_8_01_8k_is_read(
         _enha_backfill(db, tmp_path, asof=date(2026, 10, 20))
     _, before = _find(client.get(BASE).json(), "ENHA", "2026-10-28")
     assert before["sec"] is None and before["actions"] == ["confirm:polygon", "reject"]
+    assert before["review_reason"] == "one_source"  # only Massive.com states a ratio and a date
     _enha_backfill(db, tmp_path, asof=date(2026, 10, 23))
     bucket, card = _find(client.get(BASE).json(), "ENHA", "2026-10-28")
     assert (bucket, card["effective_date"], card["value_source"]) == (
@@ -188,6 +192,7 @@ def test_enha_offers_its_real_first_session_once_the_8_01_8k_is_read(
         ("polygon", "1-for-10 reverse split, first session 2026-10-28"),
     ]
     assert card["actions"] == ["confirm:sec", "confirm:polygon", "reject"]
+    assert card["review_reason"] == "sources_differ"  # two confirmable values
     monkeypatch.setattr(admin_splits, "market_today", lambda: date(2026, 10, 28))
     n = split_repo.count_rows(db)
     r = client.post(f"{BASE}/{card['version_id']}/confirm", json={"source": "sec"})

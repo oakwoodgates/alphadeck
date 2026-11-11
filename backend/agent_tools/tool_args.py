@@ -9,7 +9,7 @@ covers it with no new test code.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from .errors import ToolFailure
@@ -49,6 +49,8 @@ class Contract:
     narrows: tuple[str, ...] = ()
     settings: tuple[Setting, ...] = ()
     needs: tuple[tuple[str, str], ...] = ()
+    # per-narrowing wording that overrides the shared ``_NEEDS_TEXT`` for this tool
+    needs_text: dict[str, str] = field(default_factory=dict)
 
     def needs_of(self, section: str) -> str | None:
         return dict(self.needs).get(section)
@@ -85,6 +87,7 @@ def contract(
     sections: tuple[tuple[str, str | None], ...],
     narrows: tuple[str, ...] = (),
     settings: tuple[Setting, ...] = (),
+    needs_text: dict[str, str] | None = None,
 ) -> Contract:
     """Build and register a tool's contract from its ``(section, need)`` pairs (``need`` None = the section needs
     nothing): the one definition every view package uses."""
@@ -96,6 +99,7 @@ def contract(
             narrows,
             settings,
             tuple((s, need) for s, need in sections if need),
+            dict(needs_text or {}),
         )
     )
 
@@ -138,7 +142,7 @@ def check(
     if need is not None and narrows.get(need) is None:
         raise ToolFailure(
             "invalid_arguments",
-            f"section={section} of `{name}` needs {_NEEDS_TEXT.get(need, need)}.",
+            f"section={section} of `{name}` needs {contract.needs_text.get(need) or _NEEDS_TEXT.get(need, need)}.",
         )
     for s in contract.settings:
         value = given.get(s.name)
