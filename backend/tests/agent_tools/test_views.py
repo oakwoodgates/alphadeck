@@ -634,6 +634,48 @@ def test_list_theses_a_card_with_no_record_says_so_in_every_detail():
         assert "no_record" not in with_record and "basket_size" in with_record
 
 
+def test_get_thesis_a2_counts_cover_every_member_not_just_the_page():
+    detail = fx.thesis_detail()
+    detail["basket"] = [
+        {
+            **m,
+            "signed_off": True,
+            "authored_by": "operator_edited",
+            "conviction": 3,
+            "context_role": "payer",
+        }
+        for m in detail["basket"][:6]
+    ]
+    first, second, third, fourth, fifth, sixth = detail["basket"]
+    first["signed_off"] = False  # one not signed off
+    second["authored_by"] = "system_drafted"  # one system drafted
+    third["conviction"] = None
+    fourth["conviction"] = None  # two without conviction
+    fifth["context_role"] = None  # one without a context role
+    for m, label in zip(
+        (first, second, third, fourth, fifth, sixth), fx.REAL_LINKS[:4] + fx.SILENT[:2]
+    ):
+        m["segment"] = label  # the last two members sit in silent links
+    detail["exclusions"] = [{"ticker": "TK99"}]
+    reply = thesis_view.view_thesis(detail, cursor=4)  # a page past the first four members
+    assert reply["counts"] == {
+        "members": 6,
+        "voting": 4,
+        "silent": 2,
+        "not_signed_off": 1,
+        "system_drafted": 1,
+        "no_conviction": 2,
+        "no_context_role": 1,
+        "exclusions": 1,
+    }
+    assert reply["exclusions_count"] == 1
+    assert (
+        sum(len(s["members"]) for s in reply["segments"]) == 2
+    )  # the page itself holds only the last two
+    full = thesis_view.view_thesis(detail, mode="full")
+    assert full["counts"] == reply["counts"]
+
+
 def test_lookup_ticker_copies_not_yet_created_so_a_zero_row_reply_is_explained():
     page = fx.ticker_lookup()
     page["cards"]["not_yet_created"] = 2

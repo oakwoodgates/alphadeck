@@ -10,10 +10,17 @@ from . import splits, status
 
 __all__ = ["CONTRACTS"]
 
+
 CONTRACTS: dict[str, Contract] = {
     c.name: c
     for c in (
-        contract("get_splits", False, splits.SECTIONS, ("t",)),
+        contract(
+            "get_splits",
+            False,
+            splits.SECTIONS,
+            ("t",),
+            needs_text={"t": "t (a ticker on the split list)"},
+        ),
         contract("get_admin_status", False, status.SECTIONS),
     )
 }

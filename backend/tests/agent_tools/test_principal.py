@@ -214,6 +214,14 @@ def test_the_monitor_descriptions_say_what_the_new_fields_mean():
     assert "not_yet_created" in tools["lookup_ticker"].description
 
 
+def test_the_research_descriptions_say_what_the_new_fields_mean():
+    tools = _listing(STEWARD_PRINCIPAL)
+    assert "counts (members, voting, silent" in tools["get_thesis"].description
+    assert "never needed a cold walk" in tools["get_onboarding"].description
+    assert "section=report reads the run's report" in tools["get_discovery"].description
+    assert "more" in tools["get_extract"].description
+
+
 @pytest.mark.parametrize("tool", sorted(STEWARD_TOOLS))
 def test_layer_one_the_registry_refuses_a_plain_principal_before_any_request(tool):
     api = FakeApi(steward=True)  # the API would answer: only the registry stands in the way

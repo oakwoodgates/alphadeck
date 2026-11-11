@@ -33,7 +33,13 @@ STATUS = Setting(
 CONTRACTS: dict[str, Contract] = {
     c.name: c
     for c in (
-        _contract("get_triage", True, triage.SECTIONS, ("segment", "t")),
+        _contract(
+            "get_triage",
+            True,
+            triage.SECTIONS,
+            ("segment", "t"),
+            needs_text={"t": "t (a member's ticker from the default reply)"},
+        ),
         _contract(
             "get_discovery",
             False,

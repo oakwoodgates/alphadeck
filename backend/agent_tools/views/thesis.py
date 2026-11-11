@@ -4,7 +4,8 @@ Members are grouped under their link (a member's ``segment`` is its link label),
 real link in ``segments`` order, then any label not in ``segments`` (the Discovered pen, in first-seen order), then
 the three silent links (Context, ETFs, Bench, read from ``domain.thesis``) whose names never count toward the call.
 ``cursor`` counts members across the links in that order, so a long basket continues where the reply stopped;
-each link states ``member_count`` (all of its members, on this page or not).
+each link states ``member_count`` (all of its members, on this page or not). ``counts`` (members, voting, silent,
+not_signed_off, system_drafted, no_conviction, no_context_role, exclusions) counts every member, never just the page.
 
 Naming guard: a member's ``context_role`` is the operator's tag for the company's part on this card; the member's
 free-text ``role`` prose is not shown (and neither is ever called "role" alone).
@@ -85,6 +86,18 @@ def view_thesis(
             members.append(row)
     terms = detail.get("term_set") or []
     narrative = detail.get("narrative") or ""
+    # counts over EVERY member (not this page): a count only, no judgment
+    n_silent = sum(1 for m in basket if m.get("segment") in silent)
+    counts = {
+        "members": len(basket),
+        "voting": len(basket) - n_silent,
+        "silent": n_silent,
+        "not_signed_off": sum(1 for m in basket if not m.get("signed_off")),
+        "system_drafted": sum(1 for m in basket if m.get("authored_by") == "system_drafted"),
+        "no_conviction": sum(1 for m in basket if m.get("conviction") is None),
+        "no_context_role": sum(1 for m in basket if m.get("context_role") is None),
+        "exclusions": len(detail.get("exclusions") or []),
+    }
     reply: dict[str, Any] = {
         "asof": None,
         "source": "live",
@@ -93,6 +106,7 @@ def view_thesis(
         "name": detail.get("name"),
         "ticker": detail.get("ticker"),
         "archived": archived,
+        "counts": counts,
         "narrative": (
             {"text": narrative, "total_chars": len(narrative), "truncated": False}
             if full

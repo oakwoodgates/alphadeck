@@ -74,6 +74,8 @@ def _fact(f: dict[str, Any]) -> dict[str, Any]:
             out[key] = f[key]
     out["passages_total"] = len(passages)
     out["passages"] = [_passage(p, full=False) for p in passages[:PASSAGES_SHOWN]]
+    if len(passages) > PASSAGES_SHOWN:
+        out["more"] = f"section=passages fact={f.get('fact_type')}"
     return out
 
 

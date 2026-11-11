@@ -29,6 +29,8 @@ from mcp.shared.exceptions import MCPError
 from mcp_types import INVALID_PARAMS
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from domain.extraction import QUARTERLY_BURN_SIGN
+
 from . import tool_args
 from .budget import OutputTooLarge
 from .client import DEFAULT_TIMEOUT_S, TOKEN_ENV, ApiClient, loopback_base, segment
@@ -895,6 +897,11 @@ def build_server(
         runs, _ = await client.get(f"{base}/runs")
         draft = None
         if runs:
+            if run is not None and run not in [r.get("run_id") for r in runs]:
+                known = ", ".join(str(r.get("run_id")) for r in runs[:5])
+                raise ToolFailure(
+                    "invalid_arguments", f"Unknown run {run}; this card's runs are: {known}."
+                )
             run_id = run or runs[0]["run_id"]
             draft, _ = await client.get(f"{base}/runs/{path_seg(run_id)}")
         detail = None
@@ -981,7 +988,8 @@ def build_server(
         "The staged onboarding queue scoped to a card's members: how many names are queued, in progress, "
         "failed, done or parked, the pending names with their attempts and last error, the recent ones, the "
         "last run and the nightly window the job yields to. A name still onboarding is why a card is "
-        "ingest_fresh: false. section=pending or recent_done reads that list in full.",
+        "ingest_fresh: false. A card member absent from the queue never needed a cold walk (its history was "
+        "already loaded). section=pending or recent_done reads that list in full.",
     )
     async def get_onboarding(
         thesis: ThesisArg,
@@ -1013,7 +1021,10 @@ def build_server(
         "announced (both agree, the first session still ahead), confirmed, set_aside (rejected or revoked, "
         "kept), plus the split-shaped price jumps no source listed. The default reply is the counts and the "
         "needs-review rows; section=needs_review, announced, confirmed, set_aside or jumps pages one bucket; "
-        "section=one with t reads one ticker's every entry and jump in full. Reads only: a split's values "
+        "section=one with t reads one ticker's every entry and jump in full. Every needs-review row carries "
+        "review_reason (sources_differ, extractor_abstained or one_source) and counts.needs_review_by_reason "
+        "counts them; reason narrows section=needs_review to one. polygon.ticker is the vendor's symbol at the "
+        "split; ticker is the master's current one (they differ after a rename). Reads only: a split's values "
         "change only on the panel. Steward scope.",
         scope=STEWARD,
     )
@@ -1029,13 +1040,26 @@ def build_server(
             str | None, Field(description="A ticker (section=one only).", max_length=40)
         ] = None,
         cursor: CursorArg = 0,
+        reason: Annotated[
+            str | None,
+            Field(
+                description="Narrow section=needs_review: sources_differ, extractor_abstained or one_source.",
+                max_length=40,
+            ),
+        ] = None,
     ) -> Annotated[types.CallToolResult, AdminReply]:
         client = client_for()
-        tool_args.check(ADMIN["get_splits"], asof=None, section=section, narrows={"t": t}, given={})
+        tool_args.check(
+            ADMIN["get_splits"],
+            asof=None,
+            section=section,
+            narrows={"t": t},
+            given={"reason": reason},
+        )
         if t is not None and section != "one":
             raise ToolFailure("invalid_arguments", splits_view.T_RULE)
         payload, _ = await client.get("/admin/splits")
-        req = ResearchRequest(section=section, cursor=cursor, t=t)
+        req = ResearchRequest(section=section, cursor=cursor, t=t, reason=reason)
         try:
             return _result(splits_view.view(payload, req))
         except ViewError as error:

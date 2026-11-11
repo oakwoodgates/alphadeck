@@ -169,18 +169,26 @@ def _counts(members: list[dict[str, Any]]) -> dict[str, int]:
     }
 
 
-def _segment_members(members: list[dict[str, Any]], label: str) -> list[dict[str, Any]]:
-    rows = [m for m in members if m.get("segment") == label]
-    if rows:
-        return rows
+def _segment_members(
+    payload: dict[str, Any], members: list[dict[str, Any]], label: str
+) -> list[dict[str, Any]]:
+    """The member rows of a link. The API's own segment list is matched FIRST (exact, then case-folded), so an empty
+    link answers an empty list; then the labels only member rows carry (the Discovered pen)."""
+    api_labels = [s.get("label") for s in payload.get("segments") or []]
     folded = label.strip().casefold()
-    rows = [m for m in members if (m.get("segment") or "").casefold() == folded]
-    if rows:
-        return rows
+    for matcher in (lambda x: x == label, lambda x: (x or "").casefold() == folded):
+        for known in api_labels:
+            if matcher(known):
+                return [m for m in members if m.get("segment") == known]
+        for m in members:
+            if matcher(m.get("segment")):
+                return [r for r in members if r.get("segment") == m.get("segment")]
+    labels = list(api_labels)
+    for m in members:
+        if m.get("segment") not in labels:
+            labels.append(m.get("segment"))
     raise ViewError(
-        f"No segment {label!r} on this card; the labels are: "
-        + ", ".join(sorted({str(m.get("segment")) for m in members}))
-        + "."
+        f"No segment {label!r} on this card; the labels are: " + ", ".join(map(str, labels)) + "."
     )
 
 
@@ -204,7 +212,7 @@ def view(payload: dict[str, Any], req: ResearchRequest) -> dict[str, Any]:
             reply["counts"] = _counts(members)
         shown = members
         if req.segment is not None:
-            shown = _segment_members(members, req.segment)
+            shown = _segment_members(payload, members, req.segment)
             reply["narrowed"] = {"segment": req.segment}
         return _paged(reply, shown, req)
     reply["section"] = req.section
@@ -216,7 +224,7 @@ def view(payload: dict[str, Any], req: ResearchRequest) -> dict[str, Any]:
         return _paged(reply, found, req, build=_full)
     if req.section == "segment":
         reply["narrowed"] = {"segment": req.segment}
-        return _paged(reply, _segment_members(members, req.segment or ""), req)
+        return _paged(reply, _segment_members(payload, members, req.segment or ""), req)
     if req.section == "unconfirmed":
         rows = [m for m in members if (m.get("unconfirmed_estimates") or 0) > 0]
         return _paged(reply, rows, req)
