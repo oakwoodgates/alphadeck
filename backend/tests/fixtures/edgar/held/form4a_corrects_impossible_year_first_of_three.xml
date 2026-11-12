@@ -1,0 +1,98 @@
+<?xml version="1.0"?>
+<ownershipDocument>
+
+    <schemaVersion>X0306</schemaVersion>
+
+    <documentType>4/A</documentType>
+
+    <periodOfReport>2018-09-19</periodOfReport>
+
+    <dateOfOriginalSubmission>2018-09-21</dateOfOriginalSubmission>
+
+    <notSubjectToSection16>0</notSubjectToSection16>
+
+    <issuer>
+        <issuerCik>0000866829</issuerCik>
+        <issuerName>HELIX ENERGY SOLUTIONS GROUP INC</issuerName>
+        <issuerTradingSymbol>HLX</issuerTradingSymbol>
+    </issuer>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001041815</rptOwnerCik>
+            <rptOwnerName>KRATZ OWEN E</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>3505 W SAM HOUSTON PARKWAY N.</rptOwnerStreet1>
+            <rptOwnerStreet2>SUITE 400</rptOwnerStreet2>
+            <rptOwnerCity>HOUSTON</rptOwnerCity>
+            <rptOwnerState>TX</rptOwnerState>
+            <rptOwnerZipCode>77043</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>1</isDirector>
+            <isOfficer>1</isOfficer>
+            <isTenPercentOwner>0</isTenPercentOwner>
+            <isOther>0</isOther>
+            <officerTitle>PRESIDENT &amp; CEO</officerTitle>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <nonDerivativeTable>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Common Stock</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2018-09-19</value>
+                <footnoteId id="F1"/>
+            </transactionDate>
+            <deemedExecutionDate></deemedExecutionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>S</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+            </transactionCoding>
+            <transactionTimeliness>
+                <value></value>
+            </transactionTimeliness>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>110000</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>9.61</value>
+                    <footnoteId id="F2"/>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>D</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>6702602</value>
+                    <footnoteId id="F3"/>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+    </nonDerivativeTable>
+
+    <footnotes>
+        <footnote id="F1">The correct Transaction Date was 09/19/2018, which was consistent with and reflected the reported Date of Earliest Transaction, and not 09/19/2019 as previously reported. The dates on the Form 4 for the transactions on September 20, 2018 and September 21, 2018 were correctly reported.</footnote>
+        <footnote id="F2">The price reported in Column 4 is a weighted average price. These shares were sold in multiple transactions at prices ranging from $9.57 to $9.71, inclusive. The reporting person undertakes to provide Helix Energy Solutions Group, Inc., any security holder of Helix Energy Solutions Group, Inc., or the staff of the Securities and Exchange Commission, upon request, full information regarding the number of shares sold at each separate price within the ranges set forth in this footnote of this Form 4.</footnote>
+        <footnote id="F3">Mr. Kratz disclaims beneficial ownership of 1,000,000 shares included in this amount, which shares are held by Joss Investments Limited Partnership, an entity in which he is a general partner.</footnote>
+    </footnotes>
+
+    <remarks></remarks>
+
+    <ownerSignature>
+        <signatureName>/s/ Greg Sergesketter by power of attorney</signatureName>
+        <signatureDate>2020-03-13</signatureDate>
+    </ownerSignature>
+</ownershipDocument>

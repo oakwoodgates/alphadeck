@@ -21,6 +21,26 @@ What each one is (times in New York):
   FILER'S OWN CORRECTION — once the 4/A counts, that trade reads once, from the amendment.
 - ``amended_impossible_year`` — accepted 2023-11-17 20:52, period 2023-11-16: row 1 a sale dated 2027-11-17
   (the year rule). Its 4/A (accepted 2023-11-28 20:47) carries that sale dated 2023-11-17.
+
+The pairs below (rule ``2026-11-amendment-linker-sees-held-rows``) each pair a Form 4 holding a held row with the
+filer's own 4/A; the acceptance instants are the stored ones the orchestrator read from prod on 2026-11-11, and
+each filing date is the acceptance's New York date (every one accepted before 22:00 ET — the date each 4/A's
+``dateOfOriginalSubmission`` names for its original):
+
+- ``impossible_year_second_of_two`` — accepted 2023-10-24 17:51: row 0 a sale dated 2023-10-23, row 1 a sale
+  dated 2024-10-24 (the year rule). Its 4/A (2024-01-31 19:42) carries ONLY row 1, dated 2023-10-24.
+- ``after_filing_one_of_eighteen`` — accepted 2005-11-16 21:35: eighteen rows, row 7 a 300-share sale at $3.37
+  dated 2005-11-24 (after the filing); row 13 is another 300-share sale (at $3.04). Its 4/A (2005-11-29 21:30)
+  carries ONLY row 7's sale, dated 2005-11-14.
+- ``two_after_filing_gifts`` — accepted 2021-02-12 19:14: eight rows, rows 4 and 5 gifts dated 2020-11-30, rows 6
+  and 7 gifts of the same size dated 2021-12-31 (after the filing). Its 4/A (2021-07-20 15:45) carries ONLY rows 6
+  and 7, dated 2020-12-31.
+- ``impossible_year_first_of_three`` — accepted 2018-09-21 17:32: row 0 a sale dated 2019-09-19 (the year rule),
+  rows 1 and 2 sales dated 2018-09-20 / 09-21. Its 4/A (2020-03-13 16:06) carries ONLY row 0, dated 2018-09-19.
+- ``after_filing_sale_beside_exercises`` — accepted 2015-11-03 16:08: two exercises dated 2015-11-02 and a sale
+  dated 2015-11-20 (after the filing). Its 4/A (2016-03-02 10:19) restates all three, the sale dated 2015-11-02.
+- ``only_row_after_filing`` — accepted 2022-01-03 17:05: one row, an award dated 2022-12-30 (after the filing).
+  Its 4/A (2022-01-05 16:49) restates it dated 2021-12-30.
 """
 
 from __future__ import annotations
@@ -112,6 +132,91 @@ FILINGS: dict[str, Filing] = {
         "form4a_restates_impossible_year_row.xml",
         "amended_impossible_year",
     ),
+    # --- rule 2026-11-amendment-linker-sees-held-rows ---
+    "0001628280-23-035012": _f(
+        "4",
+        "2023-10-24",
+        "2023-10-24T21:51:01+00:00",
+        "form4_impossible_year_second_of_two.xml",
+        "impossible_year_second_of_two",
+    ),
+    "0001628280-24-002791": _f(
+        "4/A",
+        "2024-01-31",
+        "2024-02-01T00:42:57+00:00",
+        "form4a_corrects_impossible_year_second_of_two.xml",
+        "impossible_year_second_of_two",
+    ),
+    "0000903651-05-000023": _f(
+        "4",
+        "2005-11-16",
+        "2005-11-17T02:35:37+00:00",
+        "form4_after_filing_one_of_eighteen.xml",
+        "after_filing_one_of_eighteen",
+    ),
+    "0000903651-05-000029": _f(
+        "4/A",
+        "2005-11-29",
+        "2005-11-30T02:30:55+00:00",
+        "form4a_corrects_one_after_filing_row_of_eighteen.xml",
+        "after_filing_one_of_eighteen",
+    ),
+    "0001209191-21-010430": _f(
+        "4",
+        "2021-02-12",
+        "2021-02-13T00:14:13+00:00",
+        "form4_two_after_filing_gifts.xml",
+        "two_after_filing_gifts",
+    ),
+    "0001209191-21-047333": _f(
+        "4/A",
+        "2021-07-20",
+        "2021-07-20T19:45:26+00:00",
+        "form4a_corrects_two_after_filing_gifts.xml",
+        "two_after_filing_gifts",
+    ),
+    "0001209191-18-051954": _f(
+        "4",
+        "2018-09-21",
+        "2018-09-21T21:32:17+00:00",
+        "form4_impossible_year_first_of_three.xml",
+        "impossible_year_first_of_three",
+    ),
+    "0001209191-20-018843": _f(
+        "4/A",
+        "2020-03-13",
+        "2020-03-13T20:06:29+00:00",
+        "form4a_corrects_impossible_year_first_of_three.xml",
+        "impossible_year_first_of_three",
+    ),
+    "0001209191-15-078036": _f(
+        "4",
+        "2015-11-03",
+        "2015-11-03T21:08:51+00:00",
+        "form4_after_filing_sale_beside_exercises.xml",
+        "after_filing_sale_beside_exercises",
+    ),
+    "0001209191-16-104229": _f(
+        "4/A",
+        "2016-03-02",
+        "2016-03-02T15:19:07+00:00",
+        "form4a_restates_every_row_sale_redated.xml",
+        "after_filing_sale_beside_exercises",
+    ),
+    "0001209191-22-000235": _f(
+        "4",
+        "2022-01-03",
+        "2022-01-03T22:05:00+00:00",
+        "form4_only_row_after_filing.xml",
+        "only_row_after_filing",
+    ),
+    "0001209191-22-001751": _f(
+        "4/A",
+        "2022-01-05",
+        "2022-01-05T21:49:20+00:00",
+        "form4a_restates_only_row_redated.xml",
+        "only_row_after_filing",
+    ),
 }
 
 # each group's issuer CIK (the filings' own ``issuerCik``) — the member screen and the other-issuer screen read it
@@ -123,6 +228,12 @@ CIKS: dict[str, str] = {
     "impossible_year": "0001283699",
     "amended_after_filing": "0001551152",
     "amended_impossible_year": "0001807794",
+    "impossible_year_second_of_two": "0001807794",
+    "after_filing_one_of_eighteen": "0000903651",
+    "two_after_filing_gifts": "0000108312",
+    "impossible_year_first_of_three": "0000866829",
+    "after_filing_sale_beside_exercises": "0000903129",
+    "only_row_after_filing": "0000030305",
 }
 TICKERS: dict[str, str] = {g: f"HLD{i}" for i, g in enumerate(CIKS)}
 

@@ -313,7 +313,7 @@ def test_the_cli_dry_runs_read_only_then_applies_once(db, monkeypatch, tmp_path,
     RL.main(["--cache-dir", str(cache)])
     out = capsys.readouterr().out
     assert seen["read_only"] is True  # the dry run's connection physically cannot write
-    assert "re-link 1 (1 made public after the amendment, 0 row tie-break)" in out
+    assert "re-link 1 (1 made public after the amendment, 0 row tie-break, 0 held rows)" in out
     assert IEHC_4A in out and "DRY-RUN" in out
     assert _count(db, "insider_amendment_link") == links0
     assert _count(db, "insider_amendment_decision") == decs0

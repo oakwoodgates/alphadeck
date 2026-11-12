@@ -1,0 +1,91 @@
+<?xml version="1.0"?>
+<ownershipDocument>
+
+    <schemaVersion>X0202</schemaVersion>
+
+    <documentType>4/A</documentType>
+
+    <periodOfReport>2005-11-14</periodOfReport>
+
+    <dateOfOriginalSubmission>2005-11-16</dateOfOriginalSubmission>
+
+    <issuer>
+        <issuerCik>0000903651</issuerCik>
+        <issuerName>INNODATA ISOGEN INC</issuerName>
+        <issuerTradingSymbol>INOD</issuerTradingSymbol>
+    </issuer>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001120631</rptOwnerCik>
+            <rptOwnerName>TANPHO JURGEN</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>INNODATA ISOGEN, INC.</rptOwnerStreet1>
+            <rptOwnerStreet2>THREE UNIVERSITY PLAZA</rptOwnerStreet2>
+            <rptOwnerCity>HACKENSACK</rptOwnerCity>
+            <rptOwnerState>NJ</rptOwnerState>
+            <rptOwnerZipCode>07601</rptOwnerZipCode>
+            <rptOwnerStateDescription></rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>0</isDirector>
+            <isOfficer>1</isOfficer>
+            <isTenPercentOwner>0</isTenPercentOwner>
+            <isOther>0</isOther>
+            <officerTitle>Vice President</officerTitle>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <nonDerivativeTable>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Common Stock</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2005-11-14</value>
+                <footnoteId id="F1"/>
+            </transactionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>S</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+            </transactionCoding>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>300</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>3.37</value>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>D</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>16280</value>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+                <natureOfOwnership>
+                    <value></value>
+                </natureOfOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+    </nonDerivativeTable>
+
+    <footnotes>
+        <footnote id="F1">This amendment is being filed for the purpose of correcting a typographical error which incorrectly listed the Transaction Date as November 24, 2005.</footnote>
+    </footnotes>
+
+    <remarks></remarks>
+
+    <ownerSignature>
+        <signatureName>Amy Agress, Attorney-In-Fact for Jurgen Tanpho</signatureName>
+        <signatureDate>2005-11-29</signatureDate>
+    </ownerSignature>
+</ownershipDocument>

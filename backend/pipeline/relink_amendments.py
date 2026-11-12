@@ -10,6 +10,15 @@ when exactly one candidate holds a row the amendment accounts for by exact shape
 New 4/As link under the fixed cascade at ingest; this CLI moves the STORED links those two rules change
 (``relink_rule``) and nothing else.
 
+THE HELD ROWS (rule ``2026-11-amendment-linker-sees-held-rows``, 2026-11-12). The linker now reads an original's
+HELD Form 4 rows (``insider_txn_hold`` — a row whose date cannot be true) as rows of that filing
+(``ingest.edgar.form4a.stored_rows_by_accession``). A stored link computed without them can be wrong: a 4/A that
+corrects only the held row was read as a whole correction of the filing's other, real rows, or its match replaced
+a real row instead of the held one. The third rule (``RELINK_HELD``, ``[sees-held-rows]``) moves such a link: the
+cascade over the stored rows ALONE says what the stored link says, and seeing the held rows changes the link, the
+system's pick or the rows its decision replaces. Each line prints the rows the old and the new system decision
+replace (``whole`` = the whole original). Same mechanics as below; each company re-linked gets a change stamp.
+
 HOW — append-only, the existing mechanics (``repositories.insider_amendment_repo.relink``): per amendment a NEW
 ``insider_amendment_link`` version, a SYSTEM ``revoke`` (basis ``system:relink``) of the standing system decision
 that was computed against the wrong original, and the system's decision against the new original when it
@@ -49,7 +58,7 @@ from uuid import UUID
 import psycopg
 
 from db.session import connect
-from domain.insider_amendments import RELINK_ORDER, RELINK_TIE_BREAK
+from domain.insider_amendments import RELINK_HELD, RELINK_ORDER, RELINK_TIE_BREAK
 from ingest import CacheMiss
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.form4a import accepted_times, filed_dates
@@ -83,15 +92,30 @@ def _count(conn: psycopg.Connection, table: str) -> int:
         return int(cur.fetchone()["n"])
 
 
+def _rows(rows: Any) -> str:
+    """A decision's replaced rows as printed: ``whole`` (none named — the whole original), else the row keys."""
+    if rows is None:
+        return "whole"
+    return ",".join(sorted(rows)) or "none"
+
+
 def _line(it: repo.RelinkItem) -> str:
     old, new = it.old, it.new
     was = ",".join(old["original_accessions"] or []) or ",".join(old["candidate_accessions"] or [])
     now = ",".join(new.original_accessions) or "-"
     revoke = f" · revokes {it.revoke['action']}/{it.revoke['basis']}" if it.revoke else ""
     decide = f" · decides {new.system_action}/{new.basis}" if new.basis else ""
+    # the rows each side's system decision replaces (an apply), so a re-link that keeps the original but moves
+    # the replaced rows (rule sees-held-rows) shows what changes
+    old_rows = (
+        f" replaces {_rows(it.revoke.get('replaced_rows'))}"
+        if it.revoke is not None and it.revoke.get("action") == "apply"
+        else ""
+    )
+    new_rows = f" replaces {_rows(new.replaced_rows)}" if new.system_action == "apply" else ""
     return (
-        f"  {it.ticker or it.security_id} {it.accession} [{it.rule}] {old['disposition']} -> {was or '-'}  "
-        f"==>  {new.disposition} -> {now} ({new.method}){revoke}{decide}"
+        f"  {it.ticker or it.security_id} {it.accession} [{it.rule}] {old['disposition']} -> {was or '-'}"
+        f"{old_rows}  ==>  {new.disposition} -> {now}{new_rows} ({new.method}){revoke}{decide}"
     )
 
 
@@ -99,7 +123,8 @@ def report(plan: repo.RelinkPlan) -> None:
     print(
         f"considered {plan.considered} stored link(s) · re-link {len(plan.items)} "
         f"({sum(1 for i in plan.items if i.rule == RELINK_ORDER)} made public after the amendment, "
-        f"{sum(1 for i in plan.items if i.rule == RELINK_TIE_BREAK)} row tie-break) · operator's — untouched "
+        f"{sum(1 for i in plan.items if i.rule == RELINK_TIE_BREAK)} row tie-break, "
+        f"{sum(1 for i in plan.items if i.rule == RELINK_HELD)} held rows) · operator's — untouched "
         f"{len(plan.operator_held)} · drift (reported, not moved) {len(plan.drift)} · securities with no cached "
         f"index {len(plan.no_index)}"
     )
@@ -248,8 +273,8 @@ def run(
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(
         description="R8 linker fix: re-link the stored Form 4/As the old cascade linked to the wrong original "
-        "(an original made public after its amendment; an ambiguous set one row settles). Append-only; "
-        "dry-run by default."
+        "(an original made public after its amendment; an ambiguous set one row settles; an original whose "
+        "held rows the old link did not see). Append-only; dry-run by default."
     )
     p.add_argument("--apply", action="store_true", help="append (default: dry-run, read-only)")
     p.add_argument(

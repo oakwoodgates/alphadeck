@@ -20,6 +20,10 @@ Two screens, both deterministic over the filing itself:
   amended row whose date cannot be true is refused by the SAME rule as an original one: kept out of the
   amendment record, never clamped (#3), and — since migration 0082 — HELD in ``insider_txn_hold`` with form
   ``'4/A'`` and printed in full once. Applying a held 4/A row is not built.
+
+The linker reads an original's HELD Form 4 rows too (rule ``2026-11-amendment-linker-sees-held-rows``,
+``stored_rows_by_accession``): a 4/A that corrects only the held row of a filing is a matched replacement of that
+row, never a whole correction of the filing's other, real rows.
 """
 
 from __future__ import annotations
@@ -49,6 +53,7 @@ from domain.insider_amendments import (
     filer_text,
     link_amendment,
     norm_cik,
+    with_held_rows,
 )
 from ingest.edgar.acceptance import AcceptanceTally, resolve_filing_acceptance, trusted_listed
 from ingest.edgar.form4 import (
@@ -450,11 +455,22 @@ def _json_row(r: dict[str, Any]) -> dict[str, Any]:
 
 
 def stored_rows_by_accession(
-    conn: psycopg.Connection, security_id: UUID, *, tenant_id: UUID = DEFAULT_TENANT_ID
+    conn: psycopg.Connection,
+    security_id: UUID,
+    *,
+    tenant_id: UUID = DEFAULT_TENANT_ID,
+    with_holds: bool = True,
 ) -> dict[str, list[dict[str, Any]]]:
-    """Every STORED Form 4 row of one security — the latest version per natural key, no time gate (the
-    linker compares against what is held now) — grouped by accession. The amendment's link is computed
-    against the FULL rows here, never against a windowed as-of read, and stored; a read applies it.
+    """THE LINKER'S VIEW of one security's Form 4 filings: every STORED Form 4 row — the latest version per
+    natural key, no time gate (the linker compares against what is held now) — grouped by accession, AND (rule
+    ``2026-11-amendment-linker-sees-held-rows``) every HELD Form 4 row (``insider_txn_hold``, form '4') as a row
+    of its filing, marked held, carrying the hold's parsed values and no date
+    (``domain.insider_amendments.with_held_rows``: a stored row that also has a hold is ONE row, the held one; a
+    filing whose every row is held is still listed). The amendment's link is computed against the FULL rows
+    here, never against a windowed as-of read, and stored; a read applies it.
+
+    ``with_holds=False`` = the stored rows alone — the view every link was computed on before the rule (the
+    re-link reads it to tell a link the held rows change from drift).
     """
     with conn.cursor() as cur:
         cur.execute(
@@ -468,9 +484,19 @@ def stored_rows_by_accession(
         out: dict[str, list[dict[str, Any]]] = {}
         for r in cur.fetchall():
             out.setdefault(r["accession"], []).append(r)
+        holds: list[dict[str, Any]] = []
+        if with_holds:
+            cur.execute(
+                'SELECT accession, txn_seq, form, "row", accepted FROM insider_txn_hold '
+                "WHERE tenant_id = %s AND security_id = %s AND form = '4'",
+                (tenant_id, security_id),
+            )
+            holds = cur.fetchall()
     for rows in out.values():
         rows.sort(key=lambda r: r["txn_seq"])
-    return out
+    if not holds:
+        return out
+    return with_held_rows(out, holds)  # type: ignore[return-value]
 
 
 def existing_amendment_accessions(

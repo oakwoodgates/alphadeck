@@ -260,6 +260,9 @@ BASIS_RELINK = "system:relink"
 # ambiguous and exactly one candidate holds a row the amendment accounts for
 RELINK_ORDER = "made-public-after"
 RELINK_TIE_BREAK = "row-tie-break"
+# rule ``2026-11-amendment-linker-sees-held-rows`` — the third re-link rule: the old link was computed without the
+# original's HELD rows (``insider_txn_hold``), and seeing them changes the link or the rows it replaces
+RELINK_HELD = "sees-held-rows"
 # the R8 re-derivation (2026-10-21) — the basis of the SYSTEM's ``revoke`` of its own LEGACY decision: an ``apply``
 # written before the row match existed (``replaced_rows`` NULL = the WHOLE original replaced) on a MATCHED
 # disposition, taken back and re-recorded with its row match (``match_rows``) when the row match changes the
@@ -681,8 +684,79 @@ def before_after(
 
 def row_key(row: Mapping[str, Any]) -> str:
     """A STORED row's identity inside its filing: ``"<accession>#<txn_seq>"`` (one row per transaction — the
-    filing's position — so the pair is unique within the security's tape)."""
+    filing's position — so the pair is unique within the security's tape). A HELD row of the linker's view
+    (``with_held_rows``) has the same key: its filing's accession and its position in that filing.
+    """
     return f"{row.get('accession')}#{row.get('txn_seq')}"
+
+
+# --- the linker's view of an original: its stored rows AND its held rows -----------------------------------
+
+# rule ``2026-11-amendment-linker-sees-held-rows`` (2026-11-12). The marker on a linker row that comes from a
+# HELD Form 4 row (``insider_txn_hold``, form '4'): its date as written cannot be true, so it carries no date
+# (``valid_from`` None) and the filing's own text rides in ``txn_date_as_filed`` (evidence, never compared).
+HELD_ROW = "held"
+_HOLD_FORM_4 = "4"
+_LINKER_FIELDS = (
+    "insider_name",
+    "insider_role",
+    "txn_code",
+    "shares",
+    "price",
+    "usd",
+    "aff_10b5_1",
+    "rpt_owner_cik",
+)
+
+
+def is_held_row(row: Mapping[str, Any]) -> bool:
+    """A row of the linker's view that is a HELD Form 4 row (``with_held_rows``)."""
+    return bool(row.get(HELD_ROW))
+
+
+def held_linker_row(hold: Mapping[str, Any]) -> dict[str, Any]:
+    """One HELD Form 4 row (an ``insider_txn_hold`` row) as the linker reads an original's row: the hold's parsed
+    values (person, role, code, shares, price, the 10b5-1 flag, the owner's CIK), its filing's accession and its
+    position (``txn_seq`` — the row key ``accession#seq``), the filing's acceptance, NO date (``valid_from``
+    None: the written date cannot be true, so it never matches or ranks a row by date), the date as filed
+    (``txn_date_as_filed``) and the ``held`` marker."""
+    raw = hold.get("row") or {}
+    r: Mapping[str, Any] = raw if isinstance(raw, Mapping) else {}
+    out: dict[str, Any] = {k: r.get(k) for k in _LINKER_FIELDS}
+    out.update(
+        {
+            "accession": str(hold["accession"]),
+            "valid_from": None,
+            "txn_seq": int(hold["txn_seq"]),
+            "accepted": hold.get("accepted"),
+            "txn_date_as_filed": r.get("txn_date_as_filed") or r.get("txn_date"),
+            HELD_ROW: True,
+        }
+    )
+    return out
+
+
+def with_held_rows(
+    stored: Mapping[str, Sequence[Mapping[str, Any]]], holds: Iterable[Mapping[str, Any]]
+) -> dict[str, list[Mapping[str, Any]]]:
+    """PURE — the linker's view of a security's Form 4 filings: ``stored`` (accession -> its stored rows) with each
+    HELD Form 4 row (``holds`` — ``insider_txn_hold`` rows; a Form 4/A hold is ignored) added to its filing as one
+    of that filing's rows (``held_linker_row``). A stored row that also has a hold (an older ingest stored it at
+    its written date before the hold rule existed) is ONE row: the held one, never two. A filing whose every row
+    is held appears with its held rows alone, so a 4/A correcting it still finds it as an original. Rows are in
+    filing order (``txn_seq``). No hold -> the same rows, unchanged."""
+    by_acc: dict[str, dict[int, Mapping[str, Any]]] = {}
+    for h in holds:
+        if str(h.get("form") or _HOLD_FORM_4) != _HOLD_FORM_4:
+            continue
+        by_acc.setdefault(str(h["accession"]), {})[int(h["txn_seq"])] = held_linker_row(h)
+    out: dict[str, list[Mapping[str, Any]]] = {acc: list(rows) for acc, rows in stored.items()}
+    for acc, held in by_acc.items():
+        rows = [r for r in out.get(acc, []) if int(r.get("txn_seq") or 0) not in held]
+        rows.extend(held.values())
+        rows.sort(key=lambda r: int(r.get("txn_seq") or 0))
+        out[acc] = rows
+    return out
 
 
 def _same_owner(a: Mapping[str, Any], b: Mapping[str, Any]) -> bool:
@@ -966,6 +1040,12 @@ def match_rows(
        leftover with no decisive words is simply kept beside the addition.
 
     Every other unaccounted original row STANDS; every other unmatched amendment row is an addition.
+
+    A HELD original row (``is_held_row`` — rule ``2026-11-amendment-linker-sees-held-rows``) carries no date: it
+    is paired FIRST, before every shape above — same owner + code + shares + price, then same owner + code +
+    shares — and never by a rule that needs a date (the sums and the share fix included). Within a pass the
+    originals go in date order (a held row first: it has none) then filing position, each taking the first
+    unused amendment row in date order.
     """
 
     def _key_order(r: Mapping[str, Any]) -> tuple[Any, ...]:
@@ -977,7 +1057,12 @@ def match_rows(
     used: set[int] = set()
 
     def same_date(o: Mapping[str, Any], a: Mapping[str, Any]) -> bool:
-        return _row_date(o) == _row_date(a)
+        # a HELD original has no date (its written one cannot be true): it never matches on date
+        d = _row_date(o)
+        return d is not None and d == _row_date(a)
+
+    def held(o: Mapping[str, Any]) -> bool:
+        return is_held_row(o)
 
     def same_code(o: Mapping[str, Any], a: Mapping[str, Any]) -> bool:
         return o.get("txn_code") == a.get("txn_code")
@@ -1027,6 +1112,12 @@ def match_rows(
                 accounted.add(i)
                 used.update(combo)
 
+    # rule 2026-11-amendment-linker-sees-held-rows — a HELD original (its written date cannot be true, so it
+    # carries none) is matched FIRST, on owner + code + shares + price, then on owner + code + shares: its date
+    # never disqualifies it and never ranks it below a stored row, and when a held row and a stored row both
+    # fit, replacing the held one keeps the real stored row in the read
+    pair(lambda o, a: held(o) and same_code(o, a) and same_shares(o, a) and same_price(o, a))
+    pair(lambda o, a: held(o) and same_code(o, a) and same_shares(o, a))
     # the exact shapes that keep the share count first, then the sums (exact arithmetic), then the share fix
     # (same date + code + price — last, so equal-priced lots consolidate by their sum, never pair one-to-one)
     pair(
@@ -1745,25 +1836,84 @@ def link_identity(link: Mapping[str, Any] | LinkResult) -> tuple[Any, ...]:
     )
 
 
-def relink_rule(stored: Mapping[str, Any], fresh: LinkResult) -> str | None:
-    """PURE — the R8 linker fix's re-link of a STORED link: ``RELINK_ORDER`` when the fresh cascade refuses an
-    original / candidate the stored link names as made public after the amendment (IEHC), ``RELINK_TIE_BREAK``
-    when it settles a stored AMBIGUOUS link by the row tie-break (SKYT); ``None`` when the fresh link says the
-    same thing, or differs for any OTHER reason (drift — rows or filing dates stored since; never re-linked by
-    this rule, only reported). Only these two rules move a stored link."""
-    if link_identity(stored) == link_identity(fresh):
-        return None
-    named = (
-        set(_list(stored.get("original_accessions")))
-        | set(_list(stored.get("voided_accessions")))
-        | set(_list(stored.get("candidate_accessions")))
+def fresh_effect(link: LinkResult) -> tuple[Any, ...]:
+    """What a fresh ``LinkResult`` would make the system record: the link (``link_identity``), the system's pick
+    (rule 2b's target, else ``None``), and the system's decision against the original — its action and the rows
+    an ``apply`` replaces (``None`` = the whole original / no row match)."""
+    if link.pick is not None:
+        res = link.pick.resolution
+        return (
+            link_identity(link),
+            link.pick.target,
+            res.action if res is not None else None,
+            (
+                tuple(sorted(res.replaced_rows))
+                if res is not None and res.replaced_rows is not None
+                else None
+            ),
+        )
+    action = link.system_action if link.basis is not None else None
+    replaced = link.replaced_rows if action == ACTION_APPLY else None
+    return (
+        link_identity(link),
+        None,
+        action,
+        tuple(sorted(replaced)) if replaced is not None else None,
     )
-    if named & set(fresh.excluded_later):
-        return RELINK_ORDER
-    if fresh.tie_break and str(stored.get("disposition")) == AMBIGUOUS:
-        # the pick is settled among the SAME candidates the stored link offered the operator
-        if set(fresh.candidate_accessions) <= set(_list(stored.get("candidate_accessions"))):
-            return RELINK_TIE_BREAK
+
+
+def stored_effect(
+    link: Mapping[str, Any],
+    link_decision: Mapping[str, Any] | None,
+    verdict: Mapping[str, Any] | None,
+) -> tuple[Any, ...]:
+    """``fresh_effect``'s terms for a STORED link and its standing decisions (the system's link pick and its
+    verdict), so the two compare."""
+    action = verdict.get("action") if verdict is not None else None
+    rows = verdict.get("replaced_rows") if verdict is not None and action == ACTION_APPLY else None
+    return (
+        link_identity(link),
+        link_decision.get("target_accession") if link_decision is not None else None,
+        action,
+        tuple(sorted(_list(rows))) if rows is not None else None,
+    )
+
+
+def relink_rule(
+    stored: Mapping[str, Any],
+    fresh: LinkResult,
+    *,
+    blind: LinkResult | None = None,
+    standing: tuple[Mapping[str, Any] | None, Mapping[str, Any] | None] = (None, None),
+) -> str | None:
+    """PURE — the re-link of a STORED link: ``RELINK_ORDER`` when the fresh cascade refuses an original /
+    candidate the stored link names as made public after the amendment (IEHC), ``RELINK_TIE_BREAK`` when it
+    settles a stored AMBIGUOUS link by the row tie-break (SKYT), ``RELINK_HELD`` (rule
+    ``2026-11-amendment-linker-sees-held-rows``) when ``blind`` — the same cascade over the stored rows ALONE,
+    without the held rows (the view every link was computed on before the rule) — says what the stored link says
+    and seeing the held rows changes the link, the system's pick or the rows its decision replaces (``standing``
+    = the stored link's standing ``(link decision, verdict)``); ``None`` when the fresh link says the same thing,
+    or differs for any OTHER reason (drift — rows or filing dates stored since; never re-linked by this rule,
+    only reported). Only these three rules move a stored link."""
+    if link_identity(stored) != link_identity(fresh):
+        named = (
+            set(_list(stored.get("original_accessions")))
+            | set(_list(stored.get("voided_accessions")))
+            | set(_list(stored.get("candidate_accessions")))
+        )
+        if named & set(fresh.excluded_later):
+            return RELINK_ORDER
+        if fresh.tie_break and str(stored.get("disposition")) == AMBIGUOUS:
+            # the pick is settled among the SAME candidates the stored link offered the operator
+            if set(fresh.candidate_accessions) <= set(_list(stored.get("candidate_accessions"))):
+                return RELINK_TIE_BREAK
+    if (
+        blind is not None
+        and link_identity(stored) == link_identity(blind)
+        and fresh_effect(blind) != fresh_effect(fresh)
+        and stored_effect(stored, *standing) != fresh_effect(fresh)
+    ):
+        return RELINK_HELD
     return None
 
 

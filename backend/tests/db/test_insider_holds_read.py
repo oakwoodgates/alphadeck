@@ -202,6 +202,12 @@ def test_the_filers_4a_restating_an_impossible_year_row_replaces_the_held_row(db
     assert trade[0]["accession"] == "0001628280-23-040161" and not trade[0].get("date_basis")
     assert trade[0]["valid_from"] == date(2023, 11, 17)
     assert not any(r.get("hold_id") for r in after)
+    # the 4/A corrects the held row only: the filing's other, real sale stays in the read (rule
+    # 2026-11-amendment-linker-sees-held-rows — the linker sees the held row and replaces just it)
+    assert _dates(after) == [
+        (date(2023, 11, 16), "S", 15000.0, None),
+        (date(2023, 11, 17), "S", 15000.0, None),
+    ]
 
 
 # --- the replay twin -------------------------------------------------------------------------------------------

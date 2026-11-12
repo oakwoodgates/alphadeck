@@ -675,7 +675,10 @@ Depth: the submissions `recent` window, the same accepted depth as Form 4.
   acceptance instants read from the SAME submissions index — `acceptanceDateTime` — else the filing dates; the
   stored rows' `accepted` column is not that clock), and an ambiguous set is settled when exactly one candidate
   holds a row the amendment accounts for by exact shape. Rule, measurement and the re-link of the stored links:
-  `FEED_LOOP.md` §the R8 linker fix.
+  `FEED_LOOP.md` §the R8 linker fix. **Held rows (2026-11-12, rule `2026-11-amendment-linker-sees-held-rows`):**
+  the cascade reads an original's HELD Form 4 rows (`insider_txn_hold`) as rows of that filing, with no date, so
+  a 4/A correcting only a held row replaces that row alone and a filing whose every row is held is still found
+  (`FEED_LOOP.md` §the linker sees held rows).
 - **The dispositions** and what each does to the read are in `CALL_LOGIC.md` §3 (insider) and
   `domain/insider_amendments.py`: correction, void, duplicates, partial / consolidation / addition /
   restatement, **field change** (Table I identical but a signal row's owner role / name / 10b5-1 flag moved —
