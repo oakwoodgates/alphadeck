@@ -105,7 +105,7 @@ from pipeline.schedule import (
 )
 from pipeline.split_basis import new_labels_of as split_new_labels
 from pipeline.successor_cik import new_labels_of as successor_new_labels
-from repositories import calls_repo, editions_repo, fundamentals_set_aside_repo
+from repositories import calls_repo, editions_repo, fundamentals_set_aside_repo, insider_hold_repo
 from scoreboard.late import late_only_nights
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -1226,6 +1226,15 @@ def get_admin_status(
     except Exception:  # noqa: BLE001 — the count is a passenger on the status read
         _log.exception("split list count failed (fail-open — the status read is unaffected)")
 
+    # bad dates step 3 — how many held insider rows are OWED a steward decision (the "Held insider rows" panel's
+    # loud count). SELECTs in a SAVEPOINT, fail-open like the split count.
+    insider_holds_owed = None
+    try:
+        with conn.transaction():
+            insider_holds_owed = insider_hold_repo.count_owed(conn, tenant_id=DATA_TENANT_ID)
+    except Exception:  # noqa: BLE001 — the count is a passenger on the status read
+        _log.exception("held insider rows count failed (fail-open — the status read is unaffected)")
+
     # migration 0062 — how many stored fundamentals versions the data-quality set-aside skips (one QUIET line:
     # informational, never a cron verdict). A SELECT in a SAVEPOINT, fail-open like the split count.
     fundamentals_set_aside = None
@@ -1343,6 +1352,7 @@ def get_admin_status(
         split_defects=split_defects,
         price_repairs=price_repairs,
         splits_needs_review=splits_needs_review,
+        insider_holds_owed=insider_holds_owed,
         fundamentals_set_aside=fundamentals_set_aside,
         editions_nightly=editions_nightly,
         missing_closes=missing_closes,

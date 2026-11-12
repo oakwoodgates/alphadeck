@@ -86,6 +86,7 @@ def test_a_hold_is_new_on_the_first_pass_and_known_on_the_next(db, tmp_path, cap
         "evaluated": True,
         "total": 1,
         "by_reason": {"year_before_1934": 1},
+        "by_bucket": {"owed": 1},
         "new": [
             {
                 "key": key,
@@ -98,6 +99,7 @@ def test_a_hold_is_new_on_the_first_pass_and_known_on_the_next(db, tmp_path, cap
                 "price": first.new[0].price,
                 "date_as_filed": "0023-03-23",
                 "reason": "year_before_1934",
+                "bucket": "owed",
             }
         ],
         "known": 0,
@@ -327,3 +329,79 @@ def test_the_printed_report_carries_the_hold_lines_and_the_per_thesis_count(db, 
     daily._report([], holds=known)
     out = capsys.readouterr().out
     assert "1 known held insider row(s)" in out and "INSIDER ROWS HELD" not in out
+
+
+# --- step 3: the buckets, and only a NEW OWED row is loud ---------------------------------------------------
+
+
+def test_a_new_row_placed_by_the_rule_is_a_quiet_count_and_a_new_owed_row_pages(db, tmp_path):
+    """REAL filings (``tests/held_fixtures.py``): an on-time filing's held rows are placed by the rule (counted,
+    never paged); a late filing's are owed (paged once). The block counts both by bucket."""
+    from tests import held_fixtures as H
+
+    H.seed(db, "on_time_a")
+    placed = _scan(None)
+    assert placed.by_bucket == {"placed_by_rule": 3}
+    assert placed.payload()[BLOCK]["by_bucket"] == {"placed_by_rule": 3}
+    assert [r["bucket"] for r in placed.payload()[BLOCK]["new"]] == ["placed_by_rule"] * 3
+    assert (placed.new_labels, placed.new_more) == ((), 0)  # nothing to page
+    assert report_lines(placed) == [
+        "3 new held insider row(s) that need no decision (3 placed by rule (counted from the filing "
+        "night)) — quiet"
+    ]
+    assert (
+        daily.assess_health(
+            [],
+            asof=_ASOF,
+            allow_live=True,
+            freeze_check=False,
+            insider_holds_new=placed.new_labels,
+            insider_holds_more=placed.new_more,
+        )
+        is None
+    )
+    doc = placed.payload()
+    assert (new_labels_of(doc), new_more_of(doc)) == (
+        (),
+        0,
+    )  # the Admin history pages nothing either
+
+    _write(tmp_path, 0, placed)
+    H.seed(db, "late")
+    late = _scan(previous_hold_keys(base_dir=tmp_path))
+    assert late.by_bucket == {"owed": 3, "placed_by_rule": 3}
+    assert [h.bucket for h in late.new] == ["owed"] * 3 and late.known == 3
+    assert len(late.new_labels) == 3
+    lines = report_lines(late)
+    assert lines[0].startswith("INSIDER ROWS HELD — 3 NEW, OWED A STEWARD DECISION")
+    assert lines[-1].startswith("3 known held insider row(s)")
+    health = daily.assess_health(
+        [],
+        asof=_ASOF,
+        allow_live=True,
+        freeze_check=False,
+        insider_holds_new=late.new_labels,
+        insider_holds_more=late.new_more,
+    )
+    assert health is not None and "3 insider row(s) held" in health.label
+    assert "owed a steward decision" in health.label
+
+
+def test_an_artifact_written_before_the_buckets_still_shows_the_page_it_emitted():
+    """An artifact from before step 3 carries no ``bucket``: every new row was paged then, so the Admin
+    history re-derives that page (a direct-input artifact dict, the shape step 1 wrote)."""
+    doc = {
+        BLOCK: {
+            "new": [
+                {
+                    "key": "s:0000000000-24-000001:0:4",
+                    "ticker": "ABCD",
+                    "accession": "0000000000-24-000001",
+                    "form": "4",
+                    "code": "P",
+                    "shares": 10,
+                },
+            ]
+        }
+    }
+    assert new_labels_of(doc) == ("ABCD 0000000000-24-000001 (P, 10 sh)",)

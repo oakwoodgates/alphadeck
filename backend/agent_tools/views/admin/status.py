@@ -41,7 +41,13 @@ RUN_KEYS = (
     "catch_up",
     "code_sha",
 )
-SCALARS = ("splits_needs_review", "fundamentals_set_aside", "data_tenant_theses", "oauth_clients")
+SCALARS = (
+    "splits_needs_review",
+    "insider_holds_owed",
+    "fundamentals_set_aside",
+    "data_tenant_theses",
+    "oauth_clients",
+)
 LINES = {
     "editions_nightly": ("line", "attention"),
     "missing_closes": ("line", "loud_lines"),

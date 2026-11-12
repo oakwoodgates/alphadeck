@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from typing import Any
 
@@ -53,6 +54,7 @@ from domain.insider_amendments import (
     AMENDS_ACCESSION,
     INSIDER_TXN_COLUMNS,
     STATUS_APPLIED,
+    Suppression,
     _as_date,
     _same_owner,
     _same_value,
@@ -199,13 +201,14 @@ def _row_of(hold: Mapping[str, Any]) -> Mapping[str, Any]:
     return row if isinstance(row, Mapping) else {}
 
 
-def filer_corrected(
+def correcting_amendment(
     hold: Mapping[str, Any],
     states: Sequence[Any],
     amendments: Mapping[str, Mapping[str, Any]],
-) -> bool:
-    """Rule 2: an APPLIED amendment visible to the read, linked to the hold's filing (it emits for it), carries a
-    row with the same reporting person, transaction code, shares and price as the held row."""
+) -> str | None:
+    """Rule 3's evidence: the accession of the first APPLIED amendment visible to the read, linked to the hold's
+    filing (it emits for it), that carries a row with the same reporting person, transaction code, shares and
+    price as the held row — ``None`` when there is none."""
     held = _row_of(hold)
     acc = str(hold["accession"])
     for st in states:
@@ -221,8 +224,232 @@ def filer_corrected(
                 and _same_value(r.get("shares"), held.get("shares"), _SHARES_TOL)
                 and _same_value(r.get("price"), held.get("price"), _PRICE_TOL)
             ):
-                return True
-    return False
+                return str(st.accession)
+    return None
+
+
+def filer_corrected(
+    hold: Mapping[str, Any],
+    states: Sequence[Any],
+    amendments: Mapping[str, Mapping[str, Any]],
+) -> bool:
+    """Rule 3: an APPLIED amendment visible to the read, linked to the hold's filing (it emits for it), carries a
+    row with the same reporting person, transaction code, shares and price as the held row."""
+    return correcting_amendment(hold, states, amendments) is not None
+
+
+# --- where a hold sits (the steward's queue) — ONE classification, shared with the read ----------------------
+
+BUCKET_OWED = (
+    "owed"  # no standing decision, not placed by the rule, not covered by the filer: the steward's
+)
+BUCKET_PLACED = "placed_by_rule"  # an on-time filing: counts from its filing night
+BUCKET_FILER = "filer_corrected"  # the read's step 2 or 3: the filer's own amendment decides it
+BUCKET_DECIDED = "decided"  # a standing steward approve: counts at the ratified date
+BUCKET_DISMISSED = "dismissed"  # a standing steward dismiss: not counted
+BUCKET_AMENDMENT_ROW = "amendment_row"  # a held Form 4/A row: listed, never applied (not built)
+BUCKETS = (
+    BUCKET_OWED,
+    BUCKET_PLACED,
+    BUCKET_FILER,
+    BUCKET_DECIDED,
+    BUCKET_DISMISSED,
+    BUCKET_AMENDMENT_ROW,
+)
+
+
+def why_withdrawn(amendment: str | None) -> str:
+    """``filer_corrected``'s ``why`` for rule 2, the filing withdrawn or a duplicate copy."""
+    by = f" {amendment}" if amendment else ""
+    return f"the filer's Form 4/A{by} withdraws this filing, or marks it a duplicate copy"
+
+
+def why_row_replaced(amendment: str | None) -> str:
+    """``filer_corrected``'s ``why`` for rule 2, the row replaced."""
+    by = f" {amendment}" if amendment else ""
+    return f"the filer's Form 4/A{by} replaces this row"
+
+
+def _suppressor(states: Sequence[Any], accession: str, key: str) -> str | None:
+    """The first visible amendment that suppresses the filing or replaces the row (the ``why``'s evidence)."""
+    for st in states:
+        if accession in st.suppress or key in st.suppress_rows:
+            return str(st.accession)
+    return None
+
+
+def why_same_trade(amendment: str) -> str:
+    """``filer_corrected``'s ``why`` for rule 3: the amendment that carries the same trade."""
+    return f"the filer's Form 4/A {amendment} carries the same trade"
+
+
+@dataclass(frozen=True)
+class HoldState:
+    """Where ONE held row sits as a read sees it: its ``bucket`` (``BUCKETS``), the date the read counts it from
+    (``day`` — the filing night for ``placed_by_rule``, the ratified date for ``decided``, else ``None``) and how
+    (``basis``: ``filing_night`` / ``ratified``), the standing steward ``decision`` it rests on (``decided`` /
+    ``dismissed``), and a short ``why`` for ``filer_corrected``."""
+
+    bucket: str
+    day: date | None = None
+    basis: str | None = None
+    decision: Mapping[str, Any] | None = None
+    why: str | None = None
+
+    @property
+    def counted(self) -> bool:
+        """Does the read return the row (at ``day``, before its ``asof`` / floor gates)?"""
+        return self.day is not None
+
+
+def hold_state(
+    hold: Mapping[str, Any],
+    *,
+    sup: Suppression,
+    states: Sequence[Any],
+    amendments: Mapping[str, Mapping[str, Any]],
+    standing: Mapping[tuple[str, int], Mapping[str, Any]],
+    on_time_days: int,
+) -> HoldState:
+    """PURE — the ONE decision ladder (the module docstring's steps 2–6) for one hold, given what the read can
+    see: ``sup`` / ``states`` / ``amendments`` = the 4/A resolution's suppression, effective states and newest
+    record per accession; ``standing`` = ``standing_hold_decisions`` over the visible steward decisions.
+    ``resolve_holds`` and the steward's queue (``repositories.insider_hold_repo``) both call this, so the panel
+    can never disagree with the read. A Form 4/A hold is ``amendment_row`` (the read never applies one).
+    """
+    if str(hold.get("form") or HOLD_FORM_4) != HOLD_FORM_4:
+        return HoldState(BUCKET_AMENDMENT_ROW)
+    acc, seq = str(hold["accession"]), int(hold["txn_seq"])
+    # 2. the filing withdrawn / a duplicate copy, or the row replaced
+    if acc in sup.withdrawn:
+        return HoldState(BUCKET_FILER, why=why_withdrawn(_suppressor(states, acc, "")))
+    rk = row_key({"accession": acc, "txn_seq": seq})
+    if rk in sup.rows:
+        return HoldState(BUCKET_FILER, why=why_row_replaced(_suppressor(states, acc, rk)))
+    # 3. the filer's correction carries the same trade
+    corrected_by = correcting_amendment(hold, states, amendments)
+    if corrected_by is not None:
+        return HoldState(BUCKET_FILER, why=why_same_trade(corrected_by))
+    # 4. the steward's standing decision
+    d = standing.get((acc, seq))
+    if d is not None:
+        if d["action"] != ACTION_APPROVE:
+            return HoldState(BUCKET_DISMISSED, decision=d)
+        return HoldState(
+            BUCKET_DECIDED, day=_as_date(d.get("ratified_date")), basis=BASIS_RATIFIED, decision=d
+        )
+    # 5. the placement rule (6: else it waits for the steward)
+    night = placement_night(hold, on_time_days)
+    if night is not None:
+        return HoldState(BUCKET_PLACED, day=night, basis=BASIS_FILING_NIGHT)
+    return HoldState(BUCKET_OWED)
+
+
+def hold_states(
+    holds: Iterable[Mapping[str, Any]],
+    *,
+    hold_decisions: Iterable[Mapping[str, Any]],
+    links: Iterable[Mapping[str, Any]],
+    decisions: Iterable[Mapping[str, Any]],
+    amendments: Iterable[Mapping[str, Any]],
+    on_time_days: int,
+) -> dict[tuple[str, int, str], HoldState]:
+    """PURE — ``(accession, txn_seq, form) -> HoldState`` for ONE security's holds over the visible inputs (the
+    same inputs ``resolve_holds`` takes)."""
+    states = effective_states(links, decisions)
+    sup = suppression_of(states)
+    by_acc = latest_by_accession(amendments, "accession")
+    standing = standing_hold_decisions(hold_decisions)
+    return {
+        (str(h["accession"]), int(h["txn_seq"]), str(h.get("form") or HOLD_FORM_4)): hold_state(
+            h,
+            sup=sup,
+            states=states,
+            amendments=by_acc,
+            standing=standing,
+            on_time_days=on_time_days,
+        )
+        for h in holds
+    }
+
+
+# --- the suggested date (spec 4.5) — arithmetic on the filing's own fields, never a model ----------------------
+
+_WRITTEN_DATE = re.compile(r"^\s*(\d{1,4})-(\d{1,2})-(\d{1,2})")
+
+
+def filing_market_date(hold: Mapping[str, Any]) -> date | None:
+    """The latest date a held row's trade can be: the market date of its filing's acceptance, else its filing
+    date (``filed``), else ``None`` (neither known)."""
+    at = _aware(hold.get("accepted"))
+    if at is not None:
+        return market_date_of(at)
+    return _as_date(hold.get("filed"))
+
+
+def _written_month_day(text: object) -> tuple[int, int] | None:
+    if text is None:
+        return None
+    m = _WRITTEN_DATE.match(str(text))
+    if m is None:
+        return None
+    month, day = int(m.group(2)), int(m.group(3))
+    if not 1 <= month <= 12 or not 1 <= day <= 31:
+        return None
+    return month, day
+
+
+def date_as_filed(hold: Mapping[str, Any]) -> str | None:
+    """The text of the filing's own transaction date (the hold's ``row``)."""
+    r = _row_of(hold)
+    v = r.get(TXN_DATE_AS_FILED) or r.get("txn_date")
+    return None if v is None else str(v)
+
+
+def suggested_date(hold: Mapping[str, Any]) -> tuple[date | None, bool]:
+    """THE SUGGESTION (spec 4.5) — a recommendation only, never applied by itself: the written month and day in
+    the latest year that puts it on or before the filing's market date (``filing_market_date``), tried in that
+    date's year and the year before, so a suggestion is never more than a year before its filing.
+
+    Returns ``(date, agrees)``. ``agrees`` is True only when the date is on or after a readable period of
+    report that is possible under the year rule. ``(None, False)`` when the written date cannot be read, its
+    month and day exist in neither year (Feb 29 outside a leap year), or no filing date is known."""
+    md_ = _written_month_day(date_as_filed(hold))
+    ceiling = filing_market_date(hold)
+    if md_ is None or ceiling is None:
+        return None, False
+    month, day = md_
+    found: date | None = None
+    for year in (ceiling.year, ceiling.year - 1):
+        try:
+            cand = date(year, month, day)
+        except ValueError:
+            continue
+        if cand <= ceiling:
+            found = cand
+            break
+    if found is None:
+        return None, False
+    por = _readable_date(hold.get("period_of_report_as_filed"))
+    agrees = por is not None and year_is_possible(por, str(hold["accession"])) and found >= por
+    return found, agrees
+
+
+def ratify_problem(hold: Mapping[str, Any], ratified: date) -> str | None:
+    """Why a steward's ratified date cannot stand (``None`` = it can): it must pass the year rule (not before
+    1934, not after the accession's filing year) and be on or before the filing's market date — which must be
+    known."""
+    if not year_is_possible(ratified, str(hold["accession"])):
+        return (
+            f"{ratified.isoformat()} fails the year rule (before {SECTION_16_EPOCH_YEAR}, or after the "
+            "filing's year)"
+        )
+    ceiling = filing_market_date(hold)
+    if ceiling is None:
+        return "the filing has no acceptance and no filing date, so no ratified date can be checked"
+    if ratified > ceiling:
+        return f"{ratified.isoformat()} is after the filing's market date {ceiling.isoformat()}"
+    return None
 
 
 def held_fact_row(hold: Mapping[str, Any], valid_from: date, basis: str) -> dict[str, Any]:
@@ -285,20 +512,17 @@ def resolve_holds(
     own = frozenset(c for c in (norm_cik(x) for x in own_ciks) if c)
     emitted: list[dict[str, Any]] = []
     for h in sorted(form4, key=lambda x: (str(x["accession"]), int(x["txn_seq"]))):
-        acc, seq = str(h["accession"]), int(h["txn_seq"])
-        # 2. the filing withdrawn / a duplicate copy, or the row replaced
-        if acc in sup.withdrawn or row_key({"accession": acc, "txn_seq": seq}) in sup.rows:
-            continue
-        if filer_corrected(h, states, by_acc):  # 3. the filer's correction carries the same trade
-            continue
-        d = standing.get((acc, seq))
-        if d is not None:  # 4. the steward's decision
-            if d["action"] != ACTION_APPROVE:
-                continue
-            day, basis = _as_date(d.get("ratified_date")), BASIS_RATIFIED
-        else:  # 5. the placement rule (6: else it waits)
-            day, basis = placement_night(h, on_time_days), BASIS_FILING_NIGHT
-        if day is None or day > asof or (lower is not None and day < lower):
+        # steps 2-6: the ONE ladder (``hold_state``) the steward's queue also reads
+        st = hold_state(
+            h,
+            sup=sup,
+            states=states,
+            amendments=by_acc,
+            standing=standing,
+            on_time_days=on_time_days,
+        )
+        day, basis = st.day, st.basis
+        if day is None or basis is None or day > asof or (lower is not None and day < lower):
             continue
         out = held_fact_row(h, day, basis)
         if not is_other_issuer(out, own):
@@ -306,6 +530,31 @@ def resolve_holds(
     if not emitted and len(kept) == len(rows):
         return rows if isinstance(rows, list) else list(rows)
     return kept + emitted
+
+
+# --- the words --------------------------------------------------------------------------------------------
+
+# the hold's ``reason`` code (``ingest.edgar.form4.HOLD_*``, the rule's own) in the operator's words
+REASON_WORDS = {
+    "year_before_1934": "the year is before 1934, when insider reporting began",
+    "year_after_filing_year": "the year is after the year the filing was made",
+    "after_filing": "the date is after SEC accepted the filing",
+}
+
+# each bucket as the panel and the run report name it
+BUCKET_WORDS = {
+    BUCKET_OWED: "owed your decision",
+    BUCKET_PLACED: "placed by rule (counted from the filing night)",
+    BUCKET_FILER: "corrected by the filer",
+    BUCKET_DECIDED: "decided",
+    BUCKET_DISMISSED: "dismissed",
+    BUCKET_AMENDMENT_ROW: "held in a Form 4/A (cannot be applied yet)",
+}
+
+
+def reason_words(code: str | None) -> str:
+    """A hold's reason code in the operator's words (the code itself when it is not one the rule writes)."""
+    return REASON_WORDS.get(code or "", code or "unknown")
 
 
 # The most held rows one page NAMES; the rest are counted (the Form 4/A page's cap, the same number).
@@ -349,10 +598,37 @@ def page_names(named: Sequence[str], more: int) -> str:
 
 
 def page_bit(named: Sequence[str], more: int) -> str:
-    """The health line for NEW held rows, without its closing note (each surface adds its own: the page says
-    "not a cron error", the Admin run row its benign marker)."""
+    """The health line for NEW held rows OWED a steward decision (a new row placed by rule, corrected by the
+    filer or held in a Form 4/A is a quiet count, never paged), without its closing note (each surface adds its
+    own: the page says "not a cron error", the Admin run row its benign marker)."""
     n = len(named) + more
     return (
-        f"{n} insider row(s) held because the filing's transaction date cannot be true: "
-        f"{page_names(named, more)} — held, not stored as a fact, and no date is invented"
+        f"{n} insider row(s) held because the filing's transaction date cannot be true, owed a steward "
+        f"decision: {page_names(named, more)} — not counted until a steward decides on Admin (Held insider "
+        "rows), and no date is invented"
     )
+
+
+def quiet_new_line(by_bucket: Mapping[str, int]) -> str:
+    """The printed report's ONE quiet line for NEW held rows that need no decision (placed by rule, corrected
+    by the filer, a Form 4/A row): counted, never paged. ``""`` when there are none."""
+    quiet = {b: n for b, n in by_bucket.items() if n and b != BUCKET_OWED}
+    if not quiet:
+        return ""
+    parts = "; ".join(f"{n} {BUCKET_WORDS.get(b, b)}" for b, n in sorted(quiet.items()))
+    return f"{sum(quiet.values())} new held insider row(s) that need no decision ({parts}) — quiet"
+
+
+def owed_flag_reason(n: int, accessions: Sequence[str]) -> str:
+    """The data flag's reason for a company with OWED held rows (``domain.data_flags.INSIDER_HOLD_OWED``)."""
+    filings = ", ".join(accessions)
+    return (
+        f"{n} insider row(s) from filing {filings} are held: the filing's transaction date cannot be true, "
+        "and no steward has ratified a date yet, so the insider counts leave them out."
+    )
+
+
+OWED_FLAG_CLEARS = (
+    "Clears when a steward ratifies a date or dismisses the row on Admin (Held insider rows), or when the "
+    "filer's own Form 4/A corrects it."
+)

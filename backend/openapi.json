@@ -3839,6 +3839,204 @@
         }
       }
     },
+    "/admin/insider-holds": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "List Holds",
+        "description": "Every held insider row with its evidence, bucketed for the panel: owed your decision (loud); placed by\nrule, corrected by the filer, decided, dismissed and held Form 4/A rows (quiet). Each row carries the date\nthe filing wrote, its period of report and signature date, the suggested date and whether it agrees with\nthe filing, and its standing decision. Read-only.",
+        "operationId": "list_holds_admin_insider_holds_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminInsiderHoldsOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/insider-holds/{hold_id}/approve": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Approve Hold",
+        "description": "RATIFY a date (basis ``steward:approve``): the held row counts from that date, for every read made from\nnow on (a past night's view is not rewritten). Omit ``ratified_date`` to ratify the suggested date. Undo\nwith ``POST /admin/insider-holds/decisions/{id}/revoke``. **404** unknown held row, **409** a decision\nalready stands / the filer's own Form 4/A decides it / a Form 4/A row, **422** no date and no suggestion,\na date that fails the year rule, or one after the filing's market date (or none is known).",
+        "operationId": "approve_hold_admin_insider_holds__hold_id__approve_post",
+        "parameters": [
+          {
+            "name": "hold_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Hold Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/AdminHoldApproveIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminInsiderHoldOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/insider-holds/{hold_id}/dismiss": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Dismiss Hold",
+        "description": "DISMISS the held row as not a trade (basis ``steward:dismiss``): it is not counted, for every read made\nfrom now on. A reason is required. Undo with the revoke route. **404** unknown held row, **409** a decision\nalready stands / the filer's own Form 4/A decides it / a Form 4/A row, **422** no reason.",
+        "operationId": "dismiss_hold_admin_insider_holds__hold_id__dismiss_post",
+        "parameters": [
+          {
+            "name": "hold_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Hold Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminHoldDismissIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminInsiderHoldOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/insider-holds/decisions/{decision_id}/revoke": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Revoke Hold Decision",
+        "description": "UNDO a steward decision (basis ``steward:revoke``): the held row returns to the state before it (the\nplacement rule, or owed). **404** unknown decision, **409** the decision is itself an Undo, or was already\nundone.",
+        "operationId": "revoke_hold_decision_admin_insider_holds_decisions__decision_id__revoke_post",
+        "parameters": [
+          {
+            "name": "decision_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Decision Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/AdminHoldRevokeIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminInsiderHoldOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/admin/splits": {
       "get": {
         "tags": [
@@ -7775,6 +7973,193 @@
         "title": "AdminFormerNameOut",
         "description": "One of EDGAR's ``formerNames`` for the filer (``since`` / ``until`` as ``YYYY-MM-DD``, ``\"\"`` when\nEDGAR omits them) \u2014 evidence that the company EDGAR lists under a new symbol is the same filer."
       },
+      "AdminHeldRowOut": {
+        "properties": {
+          "insider_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Insider Name"
+          },
+          "insider_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Insider Role"
+          },
+          "txn_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Txn Code"
+          },
+          "shares": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shares"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price"
+          },
+          "usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Usd"
+          }
+        },
+        "type": "object",
+        "title": "AdminHeldRowOut",
+        "description": "The held Table I row as the filing reported it (``txn_date`` is not here: see ``date_as_filed``)."
+      },
+      "AdminHoldApproveIn": {
+        "properties": {
+          "ratified_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ratified Date"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "title": "AdminHoldApproveIn",
+        "description": "The date to ratify (omit it to ratify the suggested date) and why (optional \u2014 a default is stored)."
+      },
+      "AdminHoldDecisionOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "ratified_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ratified Date"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "recorded_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Recorded At"
+          },
+          "basis": {
+            "type": "string",
+            "title": "Basis"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "action",
+          "reason",
+          "recorded_at",
+          "basis"
+        ],
+        "title": "AdminHoldDecisionOut",
+        "description": "The standing steward decision on a held row: ``action`` ``approve`` (counted at ``ratified_date``) or\n``dismiss``; ``recorded_at`` = when the steward decided; ``basis`` = its author (``steward:<action>``)."
+      },
+      "AdminHoldDismissIn": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reason"
+        ],
+        "title": "AdminHoldDismissIn",
+        "description": "Why the row is not a trade (required)."
+      },
+      "AdminHoldRevokeIn": {
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "title": "AdminHoldRevokeIn",
+        "description": "Why (optional \u2014 a default is stored)."
+      },
       "AdminInsiderActionOut": {
         "properties": {
           "action": {
@@ -8358,6 +8743,262 @@
         ],
         "title": "AdminInsiderDecisionOut",
         "description": "One operator decision (``apply`` / ``keep`` / ``link`` / ``revoke``); ``standing`` = not undone."
+      },
+      "AdminInsiderHoldOut": {
+        "properties": {
+          "hold_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Hold Id"
+          },
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "company_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Company Name"
+          },
+          "accession": {
+            "type": "string",
+            "title": "Accession"
+          },
+          "txn_seq": {
+            "type": "integer",
+            "title": "Txn Seq"
+          },
+          "form": {
+            "type": "string",
+            "title": "Form"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "reason_words": {
+            "type": "string",
+            "title": "Reason Words"
+          },
+          "row": {
+            "$ref": "#/components/schemas/AdminHeldRowOut"
+          },
+          "date_as_filed": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date As Filed"
+          },
+          "period_of_report_as_filed": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period Of Report As Filed"
+          },
+          "signature_date_as_filed": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signature Date As Filed"
+          },
+          "filed": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filed"
+          },
+          "accepted": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted"
+          },
+          "bucket": {
+            "type": "string",
+            "title": "Bucket"
+          },
+          "why": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Why"
+          },
+          "filing_night": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filing Night"
+          },
+          "suggested_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Date"
+          },
+          "agrees": {
+            "type": "boolean",
+            "title": "Agrees",
+            "default": false
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdminHoldDecisionOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "filing_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filing Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "hold_id",
+          "security_id",
+          "accession",
+          "txn_seq",
+          "form",
+          "reason",
+          "reason_words",
+          "row",
+          "bucket"
+        ],
+        "title": "AdminInsiderHoldOut",
+        "description": "One held insider row and everything the steward needs to decide it.\n\n``reason`` is the rule's code (``year_before_1934`` / ``year_after_filing_year`` / ``after_filing``) and\n``reason_words`` the same in plain words. ``date_as_filed``, ``period_of_report_as_filed`` and\n``signature_date_as_filed`` are the filing's own text, verbatim (any of them can itself be a typo: evidence,\nnever a correction). ``filed`` / ``accepted`` = SEC's filing date and acceptance instant (``None`` when not\nknown). ``bucket`` = where it sits (owed / placed_by_rule / filer_corrected / decided / dismissed /\namendment_row); ``why`` = why the filer's own amendment decides it (``filer_corrected`` only);\n``filing_night`` = the night it counts from when placed by the rule. ``suggested_date`` = the arithmetic\nsuggestion (``None`` = none can be made) and ``agrees`` = it is on or after a readable period of report.\n``decision`` = the standing steward decision (decided / dismissed). ``filing_url`` = the filing on EDGAR."
+      },
+      "AdminInsiderHoldsOut": {
+        "properties": {
+          "owed": {
+            "items": {
+              "$ref": "#/components/schemas/AdminInsiderHoldOut"
+            },
+            "type": "array",
+            "title": "Owed"
+          },
+          "placed_by_rule": {
+            "items": {
+              "$ref": "#/components/schemas/AdminInsiderHoldOut"
+            },
+            "type": "array",
+            "title": "Placed By Rule"
+          },
+          "filer_corrected": {
+            "items": {
+              "$ref": "#/components/schemas/AdminInsiderHoldOut"
+            },
+            "type": "array",
+            "title": "Filer Corrected"
+          },
+          "decided": {
+            "items": {
+              "$ref": "#/components/schemas/AdminInsiderHoldOut"
+            },
+            "type": "array",
+            "title": "Decided"
+          },
+          "dismissed": {
+            "items": {
+              "$ref": "#/components/schemas/AdminInsiderHoldOut"
+            },
+            "type": "array",
+            "title": "Dismissed"
+          },
+          "amendment_row": {
+            "items": {
+              "$ref": "#/components/schemas/AdminInsiderHoldOut"
+            },
+            "type": "array",
+            "title": "Amendment Row"
+          },
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Counts"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "AdminInsiderHoldsOut",
+        "description": "The \"Held insider rows\" panel. ``owed`` is the only LOUD bucket (its count is ``counts.owed``); the rest\nare quiet lists, still visible (WB#2). ``counts`` = how many rows sit in each bucket; ``total`` = all held\nrows. Read live from the tables, judged as today's view reads."
       },
       "AdminInsiderLinkIn": {
         "properties": {
@@ -11150,6 +11791,17 @@
             ],
             "title": "Splits Needs Review"
           },
+          "insider_holds_owed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Insider Holds Owed"
+          },
           "fundamentals_set_aside": {
             "anyOf": [
               {
@@ -11223,7 +11875,7 @@
           "cron"
         ],
         "title": "AdminStatusOut",
-        "description": "The admin page's one-GET summary: record freshness + the newest run + the cron verdict + the\nnewest DB snapshot + the feed-freshness panel. READ-ONLY \u2014 the endpoint owns no tables and writes\nnothing (test-proved; the ``last_backup`` join is a pure directory read, and ``tape`` is read from\nthe run artifacts). ``last_backup`` is ``None`` = the quiet \"no snapshots yet\" state; ``tape`` is\n``None`` until a pass has evaluated feed recency (the quiet \"not looked yet\" state).\n\n``backend_sha`` is this backend's OWN ``Settings.image_sha`` (``null`` = built without ``GIT_SHA``) and\n``cron_sha`` the ``code_sha`` the newest CRON-kind run artifact recorded (``null`` = unknown, or no\ncron pass has recorded its identity yet) \u2014 the pair the identity alarm compares (I1). The latest\nself-audit rides ``last_run.audit``.\n\nM1: ``last_run`` is the newest FINISHED pass (a pre-M1 artifact counts as finished); when the newest\nartifact is a pass that has not finished, ``unfinished_run`` describes it (``null`` otherwise).\n\n``split_defects`` (T4) is the split-basis panel \u2014 ``null`` until a finished live pass has scanned (a\npartial catch-up counts: the scan reads the whole basket union); a defect is a FEED problem (flag\nonly), so it never changes ``cron.status``.\n\n``price_repairs`` (T2 + Q8 + T3 + T7) is the \"Price feed repairs\" panel \u2014 renamed names with their\nsplice-verified successors to Adopt, unpriceable names to Set / Acknowledge / Remove, members whose\ncompany now files under a successor CIK to Adopt, the quiet closed and acknowledged names, and every\nstanding operator repair with its Undo. A feed matter, never the cron verdict.\n\n``splits_needs_review`` (split plan S1) is how many splits on the split list one source could not settle\n(one source only, a disagreement, an extractor abstain) \u2014 the \"Splits\" panel (``GET /admin/splits``) holds\nthem. ``null`` when the count could not be read; never a cron verdict.\n\n``fundamentals_set_aside`` (migration 0062) is how many stored fundamentals versions are set aside \u2014 the\nrevenue rows the data-quality screen would have refused, stored before it existed, which every read skips\n(``python -m pipeline.set_aside_fundamentals``). A quiet line; ``null`` when the count could not be read.\n\n``editions_nightly`` (editions S5) is the Scoreboard editions' nightly page job's one line, from its newest\napplied run artifact; ``null`` until that job has run (a directory read \u2014 no DB). Never a cron verdict.\n\n``missing_closes`` (2026-10-23) is the missing-closing-price flag: the night's quiet count line and, loud,\nany older session's close still missing after a later session's pass; ``null`` until a live pass has run\nthe check (a file read \u2014 no DB). Never paged, never a cron verdict.\n``editions_cut`` (editions S7) is the automatic cut's one line for seven days after it published the\nnewest edition (a DB read of that edition); ``null`` otherwise. Never a cron verdict.\n``master_refresh`` is the weekly company-list refresh's one line, from its newest applied run artifact\n(``data/master_runs``; a directory read \u2014 no DB); ``null`` until it has run. Never a cron verdict.\n\n``data_tenant_theses`` (auth PR 2) is how many ``thesis`` rows sit under the DATA tenant ``...0001``. It\nshould be 0: a card belongs to a workspace (migration 0078 moved the founding operator's cards out), and a\ncard left on the data tenant is read by no workspace. The Admin page shows one loud line when it is not 0.\n\n``oauth_clients`` (migration 0080) counts the registered OAuth clients, static and self-registered; ``null``\nwhen the count could not be read. Read-only, never a cron verdict.\n\nA thesis NAME belongs to its workspace: wherever this status names a thesis outside the caller's own\nworkspace (the feed-freshness panel, the late-only nights) it reads ``workspace <8 hex> \u00b7 thesis <8 hex>``;\ntickers and security ids stay."
+        "description": "The admin page's one-GET summary: record freshness + the newest run + the cron verdict + the\nnewest DB snapshot + the feed-freshness panel. READ-ONLY \u2014 the endpoint owns no tables and writes\nnothing (test-proved; the ``last_backup`` join is a pure directory read, and ``tape`` is read from\nthe run artifacts). ``last_backup`` is ``None`` = the quiet \"no snapshots yet\" state; ``tape`` is\n``None`` until a pass has evaluated feed recency (the quiet \"not looked yet\" state).\n\n``backend_sha`` is this backend's OWN ``Settings.image_sha`` (``null`` = built without ``GIT_SHA``) and\n``cron_sha`` the ``code_sha`` the newest CRON-kind run artifact recorded (``null`` = unknown, or no\ncron pass has recorded its identity yet) \u2014 the pair the identity alarm compares (I1). The latest\nself-audit rides ``last_run.audit``.\n\nM1: ``last_run`` is the newest FINISHED pass (a pre-M1 artifact counts as finished); when the newest\nartifact is a pass that has not finished, ``unfinished_run`` describes it (``null`` otherwise).\n\n``split_defects`` (T4) is the split-basis panel \u2014 ``null`` until a finished live pass has scanned (a\npartial catch-up counts: the scan reads the whole basket union); a defect is a FEED problem (flag\nonly), so it never changes ``cron.status``.\n\n``price_repairs`` (T2 + Q8 + T3 + T7) is the \"Price feed repairs\" panel \u2014 renamed names with their\nsplice-verified successors to Adopt, unpriceable names to Set / Acknowledge / Remove, members whose\ncompany now files under a successor CIK to Adopt, the quiet closed and acknowledged names, and every\nstanding operator repair with its Undo. A feed matter, never the cron verdict.\n\n``splits_needs_review`` (split plan S1) is how many splits on the split list one source could not settle\n(one source only, a disagreement, an extractor abstain) \u2014 the \"Splits\" panel (``GET /admin/splits``) holds\nthem. ``null`` when the count could not be read; never a cron verdict.\n\n``insider_holds_owed`` (bad dates step 3) is how many held insider rows are OWED a steward decision \u2014 the\n\"Held insider rows\" panel (``GET /admin/insider-holds``) holds them; quiet at 0. ``null`` when the count could\nnot be read; never a cron verdict.\n\n``fundamentals_set_aside`` (migration 0062) is how many stored fundamentals versions are set aside \u2014 the\nrevenue rows the data-quality screen would have refused, stored before it existed, which every read skips\n(``python -m pipeline.set_aside_fundamentals``). A quiet line; ``null`` when the count could not be read.\n\n``editions_nightly`` (editions S5) is the Scoreboard editions' nightly page job's one line, from its newest\napplied run artifact; ``null`` until that job has run (a directory read \u2014 no DB). Never a cron verdict.\n\n``missing_closes`` (2026-10-23) is the missing-closing-price flag: the night's quiet count line and, loud,\nany older session's close still missing after a later session's pass; ``null`` until a live pass has run\nthe check (a file read \u2014 no DB). Never paged, never a cron verdict.\n``editions_cut`` (editions S7) is the automatic cut's one line for seven days after it published the\nnewest edition (a DB read of that edition); ``null`` otherwise. Never a cron verdict.\n``master_refresh`` is the weekly company-list refresh's one line, from its newest applied run artifact\n(``data/master_runs``; a directory read \u2014 no DB); ``null`` until it has run. Never a cron verdict.\n\n``data_tenant_theses`` (auth PR 2) is how many ``thesis`` rows sit under the DATA tenant ``...0001``. It\nshould be 0: a card belongs to a workspace (migration 0078 moved the founding operator's cards out), and a\ncard left on the data tenant is read by no workspace. The Admin page shows one loud line when it is not 0.\n\n``oauth_clients`` (migration 0080) counts the registered OAuth clients, static and self-registered; ``null``\nwhen the count could not be read. Read-only, never a cron verdict.\n\nA thesis NAME belongs to its workspace: wherever this status names a thesis outside the caller's own\nworkspace (the feed-freshness panel, the late-only nights) it reads ``workspace <8 hex> \u00b7 thesis <8 hex>``;\ntickers and security ids stay."
       },
       "AdminSuccessorCandidateOut": {
         "properties": {

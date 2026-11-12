@@ -24,6 +24,10 @@ kinds (and the one quiet marker) from the monitors that already exist — it add
   cached submissions index and companyfacts; no request), on the LIVE view only: the cached copy is today's,
   so a history view cannot say when SEC's data caught up (no lookahead, #1). A company still onboarding is
   not judged.
+- ``insider_row_held`` — the held insider rows the READ leaves out because they are owed a steward decision:
+  ``domain.insider_holds.hold_states`` over the read's own inputs (``db.insider_resolution.load_inputs``) on the
+  view's clock, so the flag says exactly what the insider read did (a history view sees only holds public by its
+  night and decisions made by then — no lookahead, #1).
 - the ``short_price_history`` marker — ``domain.data_flags.short_history_note`` over the view's tape.
 
 Nothing here writes, and nothing on the call path imports it (``tests/domain/test_data_flags.py``).
@@ -36,7 +40,7 @@ import math
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -47,6 +51,8 @@ from domain.data_flags import (
     FUNDAMENTALS_LAG,
     IN_DOUBT,
     INSIDER,
+    INSIDER_DAYS,
+    INSIDER_HOLD_OWED,
     KNOWN_WRONG,
     MARKET_CAP,
     MIXED_SCALE,
@@ -67,7 +73,15 @@ from domain.data_flags import (
     short_history_note,
     sort_flags,
 )
+from domain.insider_holds import (
+    BUCKET_OWED,
+    OWED_FLAG_CLEARS,
+    filing_market_date,
+    hold_states,
+    owed_flag_reason,
+)
 from domain.market_time import market_tz
+from domain.settings import get_settings
 from domain.split_hold import COVER_SESSIONS, Hold, hold_for, nearby
 from domain.splits import (
     LIVE_STATUSES,
@@ -751,6 +765,44 @@ def fundamentals_flag(lag: FundamentalsLag | None) -> DataFlag | None:
     )
 
 
+def held_rows_flag(
+    owed: Sequence[Mapping[str, Any]], *, asof: date, issuer_cik: str | None = None
+) -> DataFlag | None:
+    """The company's held insider rows OWED a steward decision (``owed`` = the hold rows): in doubt, reaching
+    each insider cell whose window ``(asof - N, asof]`` holds a held filing's market date — the latest its trade
+    can be, so the trade can sit in that window only then. ``None`` when nothing is owed."""
+    if not owed:
+        return None
+    accessions = sorted({str(h["accession"]) for h in owed})
+    latest = [d for d in (filing_market_date(h) for h in owed) if d is not None]
+    columns = tuple(
+        cell
+        for cell, days in INSIDER_DAYS.items()
+        if any(asof - timedelta(days=days) < d <= asof for d in latest)
+    )
+    base = get_settings().sec_archives_base
+    return DataFlag(
+        kind=INSIDER_HOLD_OWED,
+        level=IN_DOUBT,
+        reason=owed_flag_reason(len(owed), accessions),
+        clears=OWED_FLAG_CLEARS,
+        since=min(latest) if latest else None,
+        affects=(INSIDER,),
+        columns=columns,
+        evidence=tuple(
+            Evidence(
+                label=f"SEC Form 4 {a}",
+                url=(
+                    f"{base}/{int(issuer_cik)}/{a.replace('-', '')}/"
+                    if issuer_cik and issuer_cik.strip().isdigit()
+                    else None
+                ),
+            )
+            for a in accessions
+        ),
+    )
+
+
 def split_labels(
     security_id: UUID,
     split_rows: Sequence[Mapping[str, Any]],
@@ -835,6 +887,8 @@ def member_flags(
     corrections: Mapping[tuple[str, date], Correction] | None = None,
     flaps_settled: bool = False,
     fundamentals_lag: FundamentalsLag | None = None,
+    owed_holds: Sequence[Mapping[str, Any]] = (),
+    issuer_cik: str | None = None,
 ) -> MemberFlags:
     """Every flag and quiet marker on ONE security as of ``asof`` — pure over the view's reads.
 
@@ -845,6 +899,8 @@ def member_flags(
     sees this name's flapping history on two bases (``split_basis.settle_flap``, run by ``read_flags``) — the
     same rule that moves it to Admin's quiet settled line, so a flap Admin calls settled draws no ⚑ here.
     ``fundamentals_lag`` = SEC's data behind a filed report (``pipeline.fundamentals_lag``, today's view only).
+    ``owed_holds`` = the held insider rows the view's insider read leaves out, owed a steward decision
+    (``owed_holds`` below); ``issuer_cik`` names their filings' EDGAR folder.
     """
     bar_dates = _bar_dates(bars)
     flags: list[DataFlag] = []
@@ -914,6 +970,11 @@ def member_flags(
     lagging = fundamentals_flag(fundamentals_lag)
     if lagging is not None:
         flags.append(lagging)
+
+    # 7. held insider rows owed a steward decision (the insider counts leave them out)
+    held = held_rows_flag(owed_holds, asof=asof, issuer_cik=issuer_cik)
+    if held is not None:
+        flags.append(held)
 
     # the quiet marker: information, not a defect (never a row mark)
     note = short_history_note(bar_dates, asof)
@@ -1006,6 +1067,13 @@ def read_flags(
         if live
         else {}
     )
+    owed, ciks = owed_holds(
+        conn,
+        ids,
+        known_at=known_at or datetime.now(timezone.utc),
+        tenant_id=tenant_id,
+        clock=clock,
+    )
     out: dict[UUID, MemberFlags] = {}
     for sid in ids:
         shares_facts = pit.shares_outstanding_facts(sid)
@@ -1024,8 +1092,60 @@ def read_flags(
             corrections=corrections,
             flaps_settled=sid in settled_names,
             fundamentals_lag=lags.get(sid),
+            owed_holds=owed.get(sid, ()),
+            issuer_cik=ciks.get(sid),
         )
     return out
+
+
+def owed_holds(
+    conn: Any,
+    ids: Sequence[UUID],
+    *,
+    known_at: datetime,
+    tenant_id: UUID,
+    clock: str,
+) -> tuple[dict[UUID, list[Mapping[str, Any]]], dict[UUID, str | None]]:
+    """``(security_id -> its held rows OWED a steward decision, security_id -> its CIK)`` as the view's insider
+    read sees them: the read's own inputs (``db.insider_resolution.load_inputs`` — the holds, the steward's
+    decisions and the 4/A tables, gated on the view's clock at ``known_at``) through the read's own ladder
+    (``domain.insider_holds.hold_states``). SELECTs only; a company with nothing owed is absent."""
+    from db.insider_resolution import load_inputs  # lazy: the read's loader
+
+    if not ids:
+        return {}, {}
+    inputs = load_inputs(conn, ids, known_at=known_at, tenant_id=tenant_id, clock=clock)  # type: ignore[arg-type]
+    owed: dict[UUID, list[Mapping[str, Any]]] = {}
+    for sid in ids:
+        key = str(sid)
+        holds = inputs.holds.get(key, ())
+        if not holds:
+            continue
+        states = hold_states(
+            holds,
+            hold_decisions=inputs.hold_decisions.get(key, ()),
+            links=inputs.links.get(key, ()),
+            decisions=inputs.decisions.get(key, ()),
+            amendments=inputs.amendments.get(key, ()),
+            on_time_days=inputs.on_time_days,
+        )
+        mine = [
+            h
+            for h in holds
+            if states[(str(h["accession"]), int(h["txn_seq"]), str(h.get("form") or "4"))].bucket
+            == BUCKET_OWED
+        ]
+        if mine:
+            owed[sid] = mine
+    ciks: dict[UUID, str | None] = {}
+    if owed:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, cik FROM security_master WHERE tenant_id = %s AND id = ANY(%s)",
+                (tenant_id, list(owed)),
+            )
+            ciks = {r["id"]: r["cik"] for r in cur.fetchall()}
+    return owed, ciks
 
 
 # A company still loading its history (X1, ``security_onboarding``) is not judged: MEASURED 2026-10-24, 65 of the

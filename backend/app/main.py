@@ -13,6 +13,7 @@ from app.routers import (
     account,
     admin,
     admin_insider_amendments,
+    admin_insider_holds,
     admin_onboarding,
     admin_price_feed,
     admin_splits,
@@ -95,6 +96,8 @@ app.include_router(admin.router, dependencies=_STEWARD)
 # T2 + Q8 — the operator's price-feed repairs (Adopt / Set / Acknowledge, each with its exact inverse)
 app.include_router(admin_price_feed.router, dependencies=_STEWARD)
 app.include_router(admin_insider_amendments.router, dependencies=_STEWARD)  # R8-A
+# bad dates step 3 — the held insider rows' queue (approve / dismiss, each with its Undo)
+app.include_router(admin_insider_holds.router, dependencies=_STEWARD)
 # split plan S1 — the split list's review panel
 app.include_router(admin_splits.router, dependencies=_STEWARD)
 # X1 — the staged cold-ingest queue

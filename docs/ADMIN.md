@@ -383,6 +383,49 @@ the leg reports success and the series stands still.
   stops, and today very few baskets hold an ETF sleeve at all — the monitor exists so the sleeve can grow
   without re-opening the same silent-end gap the price tape had.
 
+### Held insider rows — "which insider rows owe me a date?"  `[BUILT, API only — bad dates step 3, 2026-11-12]`
+
+The steward's queue for the Form 4 rows the ingest HELD because the filing's transaction date cannot be true
+(`insider_txn_hold`, migration 0082; `docs/FEED_LOOP.md`), and the steward's decisions about them
+(`insider_txn_hold_decision`, 0083). Its own read, `GET /admin/insider-holds`, live from the two tables; the
+writes are `/admin/insider-holds/*`. Steward only, on the DATA tenant. **The API is built; the panel waits for
+its signed-off mockup** (`docs/temp/mockups/held-insider-rows-mockup.html` in the main checkout).
+
+Each held row sits in ONE bucket, judged by the SAME ladder the insider read runs
+(`domain.insider_holds.hold_state`, shared with `resolve_holds`), so the panel can never disagree with what a
+call reads:
+
+- **Owed your decision** (loud — the only loud bucket): no standing decision, not placed by the rule (a late
+  filing, or one whose period of report cannot be read), not covered by the filer. Not counted until you decide.
+- **Placed by rule** (quiet): an on-time filing, counted from its filing night (`filing_night`). You can still
+  ratify a date of your own or dismiss it: a decision outranks the rule.
+- **Corrected by the filer** (quiet, no action): the filer's own Form 4/A withdraws the filing, marks it a
+  duplicate, replaces the row, or carries the same trade (`why` names it). The source outranks the steward.
+- **Decided** / **Dismissed** (quiet): your standing decision, each with its Undo.
+- **Held in a Form 4/A** (quiet, no action): applying a held amendment row is not built.
+
+Each row carries the filing's own words verbatim (the date as filed, the period of report, the signature date),
+SEC's filing date and acceptance, the reason in plain words, the row (person, role, code, shares, price,
+dollars), the EDGAR link, and a **suggested date**: the written month and day in the latest year on or before
+the filing's market date (the acceptance's market date, else the filing date), tried in that year and the one
+before — arithmetic on the filing, never a model. `agrees` says the suggestion is on or after a readable,
+possible period of report. A suggestion changes nothing until you approve it.
+
+The decisions, each ONE append-only row recorded NOW (on the public clock a decision counts from when you made
+it; a past night's view is never rewritten), authored in `basis` the Form 4/A way (`steward:approve` /
+`steward:dismiss` / `steward:revoke` — no person is recorded, as with the Form 4/A decisions), with the
+evidence you saw in `detail`, under a `FOR UPDATE` lock on the held row, moving the company's change stamp so
+dashboards re-read it (no `data_repair` journal row: a decision is not a repair run):
+
+- **Approve** a date (the suggestion when none is sent): it must pass the year rule (not before 1934, not after
+  the accession's filing year) and be on or before the filing's market date.
+- **Dismiss** as not a trade: a reason is required.
+- **Undo** (revoke): the row returns to the state before the decision (the placement rule, or owed).
+
+`GET /admin/status` carries `insider_holds_owed` (quiet at 0), and a company with an owed row carries the
+`insider_row_held` data flag beside its insider cells (display only; `domain/data_flags.py`). The nightly's
+`insider_holds` block counts every bucket and pages only a NEW owed row.
+
 ### Split-basis defects — "is every tape on ONE split basis?"  `[BUILT, T4]`
 
 A tape can be fed every night and still be wrong: the vendor re-bases a name's history on a split, and
@@ -817,6 +860,10 @@ the freeze it is adjacent to: `POSTMORTEM_CRON_FREEZE_2026-07.md`.
 | `POST /admin/insider-amendments/{security_id}/{accession}/add` | `{reason?}` → the amendment | **Add to the original** — every original row stands, the amendment's rows are added (stored as an `apply` with `replaced_rows = []`); partial / consolidation / addition / restatement / field change only; 409 a zero-row or correction amendment / an operator verdict stands |
 | `POST /admin/insider-amendments/{security_id}/{accession}/link` | `{target_accession, reason?}` → the amendment | an ambiguous amendment's candidate only; 409 otherwise / already linked |
 | `POST /admin/insider-amendments/decisions/{decision_id}/revoke` | → the amendment | Undo; 404 unknown / already undone, 409 a verdict stands under the link |
+| `GET /admin/insider-holds` | the held-insider-rows queue: `owed` / `placed_by_rule` / `filer_corrected` / `decided` / `dismissed` / `amendment_row`, plus `counts` and `total`; each item carries the filing's own dates verbatim, `filed` / `accepted`, `reason` + `reason_words`, the row, `bucket`, `why`, `filing_night`, `suggested_date` + `agrees`, the standing `decision`, `filing_url` | read-only, live from the 0082 / 0083 tables |
+| `POST /admin/insider-holds/{hold_id}/approve` | `{ratified_date?, reason?}` → the item | ratify a date (the suggestion when none is sent); 404 unknown, 409 a decision stands / the filer's 4/A decides it / a 4/A row, 422 no date and no suggestion / fails the year rule / after the filing's market date / no market date known |
+| `POST /admin/insider-holds/{hold_id}/dismiss` | `{reason}` → the item | not a trade; 404 unknown, 409 as approve, 422 no reason |
+| `POST /admin/insider-holds/decisions/{decision_id}/revoke` | `{reason?}` → the item | Undo; 404 unknown decision, 409 a revoke / already undone |
 | `GET /admin/onboarding` | the staged onboarding queue (X1): `counts` (queued / in_progress / done / failed / parked), `pending` (failed first), `recent_done`, `last_run`, `window`, `stalled`, `paused`, `history_legs` | read-only (the table + the newest `data/onboard_runs` artifact) |
 | `POST /admin/onboarding/{security_id}/retry` | → the refreshed queue | a FAILED name back to queued (attempts reset, checkpoint kept); 409 not failed, 404 not queued |
 | `GET /admin/runs?limit=` | the run-of-record history, newest first | read-only file parse; skip-unreadable |
