@@ -758,6 +758,10 @@ surfaced to the operator, not silently resolved in code.**
   over-counting is the safe direction. *Enforced by:* `tests/ingest/test_form4_internal_transfers.py` (the
   real-filing table: AMKR, SLSN, Pershing Square, ValueAct, Goldman; FTHM / RDNW / ASTH / FRMM / MGM counted;
   the joint-report cases untouched), `tests/domain/test_insider_internal_transfers.py` (the rule's contract).
+- *Also honored by (0082, held insider rows):* a Form 4 / 4/A row whose transaction date cannot be true is held
+  in `insider_txn_hold`, in the same transaction as the filing's good rows, and told to the operator once. It is
+  not a fact, no read uses it, and no date is invented (#3). The backfill never holds a row of a filing whose
+  good rows are not stored.
 
 ## 10. The LLM recommends; the operator decides — a recommendation is pending until confirmed, never auto-applied
 
