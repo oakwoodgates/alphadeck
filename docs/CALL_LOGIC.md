@@ -875,12 +875,19 @@ date — is HELD at ingest (`insider_txn_hold`), never stored as a fact (`ingest
 the signature test keeps a filer in a time zone ahead of New York, who signs and trades on its own next day,
 counted as filed). The insider READ (the one seam both engines share, `domain.insider_holds.resolve_holds`)
 then decides when such a row counts, after the 4/A resolution and before the joint-report collapse: (1) a stored
-row with a hold is never read at its written date; (2) the filer's own applied 4/A that carries the same
-person, code, shares and price wins — the trade counts once, from the amendment; (3) otherwise the newest
-standing steward decision (`insider_txn_hold_decision`: `approve` at a ratified date, `dismiss`); (4) otherwise,
-when the filing was ON TIME — its acceptance's market date 0..`insider_hold_on_time_days` (5) days after its own
-readable, possible period of report — the row counts from the FILING NIGHT (`edgar_night(accepted)`, the first
-night anyone could read it; `date_basis = 'filing_night'`); (5) otherwise it waits for the steward. No date is
+row with a hold is never read at its written date; (2) a held row whose filing is WITHDRAWN or a DUPLICATE (a
+visible amendment state suppresses the filing and emits nothing for it: a void, applied or still pending, or a
+later copy of a duplicates set), or whose row is REPLACED (its `accession#seq` in a state's `suppress_rows`), is
+not returned — exactly the suppression the filing's stored rows get (`domain.insider_amendments.suppression_of`,
+one reading for both); (3) the filer's own applied 4/A that emits for the filing and carries the same person,
+code, shares and price wins — the trade counts once, from the amendment. A correction that emits for the filing
+WITHOUT such a row leaves the held row to the next steps: the linker does not see held rows yet, so its "whole
+correction" reading can be wrong for a filing with one, and dropping it there could lose a real trade; (4)
+otherwise the newest standing steward decision (`insider_txn_hold_decision`: `approve` at a ratified date,
+`dismiss`); (5) otherwise, when the filing was ON TIME — its acceptance's market date
+0..`insider_hold_on_time_days` (5) days after its own readable, possible period of report — the row counts from
+the FILING NIGHT (`edgar_night(accepted)`, the first night anyone could read it; `date_basis = 'filing_night'`);
+(6) otherwise it waits for the steward. No date is
 invented (#3): a filing night is when the filing was public, never a claimed trade day, so the "below the day's
 low" screens (`insider_conviction`, `insider_sell`, the display flow) skip a filing-night row and keep it
 counted, and each cited filing's provenance carries `date_basis` + `txn_date_as_filed`, the label naming "N

@@ -972,8 +972,9 @@ stored filings). What happens now:
   (`domain.insider_holds.resolve_holds`, both engines) counts a held Form 4 row of an ON-TIME filing (acceptance
   0..`insider_hold_on_time_days` days after its period of report) from its filing night, honors the newest
   standing steward decision (`insider_txn_hold_decision`, migration 0083: `approve` at a ratified date /
-  `dismiss` / `revoke`; the writer is the next step), lets the filer's own applied 4/A win (the trade counts
-  once), and leaves a late filing's row out until a steward decides. A stored row that has a hold is never read
+  `dismiss` / `revoke`; the writer is the next step), drops a held row of a withdrawn or duplicate filing (or a
+  replaced row) exactly as the filing's stored rows are dropped, lets the filer's own applied 4/A win (the trade
+  counts once), and leaves a late filing's row out until a steward decides. A stored row that has a hold is never read
   at its written date. See `docs/CALL_LOGIC.md` §6. The ingest writes holds under the company's write lock, so
   its release moves the change stamp; the backfill stamps each company it writes for.
 - **A held filing is read once.** `existing_accessions` lists an accession that has a Form 4 hold, so the leg

@@ -2071,6 +2071,34 @@ def is_other_issuer(row: Mapping[str, Any], own_ciks: frozenset[str]) -> bool:
     return issuer is not None and issuer not in own_ciks
 
 
+@dataclass(frozen=True)
+class Suppression:
+    """What the visible amendment states take out of a read — THE ONE reading, shared by the stored rows
+    (``resolve_insider_rows``) and the held rows (``domain.insider_holds.resolve_holds``), so a stored row and a
+    held row of the same filing can never disagree.
+
+    ``accessions`` — every accession a state suppresses (a whole replacement, a void — pending or applied —, the
+    later copies of a duplicates set); ``rows`` — the single original rows (``row_key``) an applied matched
+    amendment replaces; ``withdrawn`` — the suppressed accessions NO state emits rows for in their place (a
+    void, a duplicate copy): the filing's trades are gone, not restated."""
+
+    accessions: frozenset[str]
+    rows: frozenset[str]
+    withdrawn: frozenset[str]
+
+
+def suppression_of(states: Iterable[Effective]) -> Suppression:
+    """``Suppression`` over the effective states a read can see (``effective_states``)."""
+    accessions: set[str] = set()
+    rows: set[str] = set()
+    withdrawn: set[str] = set()
+    for st in states:
+        accessions.update(st.suppress)
+        rows.update(st.suppress_rows)
+        withdrawn.update(a for a in st.suppress if a not in st.emit_for)
+    return Suppression(frozenset(accessions), frozenset(rows), frozenset(withdrawn))
+
+
 def resolve_insider_rows(
     rows: Sequence[dict[str, Any]],
     *,
@@ -2112,14 +2140,15 @@ def resolve_insider_rows(
         return rows if isinstance(rows, list) else list(rows)
     states = effective_states(links, decisions)
     by_acc = latest_by_accession(amendments, "accession")
-    suppressed: set[str] = set()
-    suppressed_rows: set[str] = set()  # R8-B — single original rows a matched amendment replaces
+    sup = suppression_of(states)
+    suppressed: set[str] = set(sup.accessions)
+    suppressed_rows: set[str] = set(
+        sup.rows
+    )  # R8-B — single original rows a matched amendment replaces
     # original -> its applied emitting amendments: (order, amendment record, the original rows it replaces —
     # None = the whole original)
     chains: dict[str, list[tuple[tuple[Any, ...], Mapping[str, Any], frozenset[str] | None]]] = {}
     for st in states:
-        suppressed.update(st.suppress)
-        suppressed_rows.update(st.suppress_rows)
         am = by_acc.get(st.accession)
         if am is None or not st.emit_for:
             continue  # nothing to emit (or the record is not visible: never invent rows)

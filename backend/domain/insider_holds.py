@@ -14,16 +14,26 @@ BEFORE the joint-report collapse and the internal-transfer screen, each Form 4 h
 
 1. a stored fact row that has a hold (same security, accession, row number; form '4') is never returned at its
    written date (a row an older ingest stored before the after-filing condition existed);
-2. THE FILER'S CORRECTION WINS: when an amendment applied and public at the read is linked to the hold's filing
-   (it emits for it) and carries a row with the same reporting person, transaction code, shares and price, the
-   held row is not returned — the amendment's row already is, so the trade counts once;
-3. otherwise the newest STANDING steward decision (``insider_txn_hold_decision``, migration 0083) decides:
+2. THE FILING IS WITHDRAWN OR A DUPLICATE, OR THE ROW IS REPLACED: the held row is not returned when a visible
+   amendment state SUPPRESSES its filing and emits nothing for it (a void — applied, or pending, which already
+   suppresses —, a later copy of a duplicates set), or replaces its row (its ``accession#seq`` key in a state's
+   ``suppress_rows``) — exactly the suppression the stored rows of that filing get
+   (``domain.insider_amendments.suppression_of``, one reading for both), so a held row and a stored row of one
+   filing never disagree;
+3. THE FILER'S CORRECTION WINS: when an amendment applied and public at the read EMITS for the hold's filing and
+   carries a row with the same reporting person, transaction code, shares and price, the held row is not
+   returned — the amendment's row already is, so the trade counts once. A correction that emits for the filing
+   but carries no such row does NOT drop the held row: the linker does not see held rows yet, so its "whole
+   correction" reading can be wrong for a filing with a held row (one 4/A restating only the held row was linked
+   as a whole correction of the filing's other, stored row), and dropping an unmatched held row there could lose
+   a real trade;
+4. otherwise the newest STANDING steward decision (``insider_txn_hold_decision``, migration 0083) decides:
    ``approve`` returns the row dated at the ratified date (``date_basis`` 'ratified'), ``dismiss`` does not;
-4. otherwise THE PLACEMENT RULE: a hold with an acceptance and a readable, possible period of report whose
+5. otherwise THE PLACEMENT RULE: a hold with an acceptance and a readable, possible period of report whose
    acceptance market date is 0..N days after it (``CallConfig.insider_hold_on_time_days``) — an ON-TIME
    filing — is returned dated at its filing night, ``domain.market_time.edgar_night(accepted)``
    (``date_basis`` 'filing_night'): the first night anyone could read it;
-5. otherwise it is not returned: a late filing waits for the steward.
+6. otherwise it is not returned: a late filing waits for the steward.
 
 A returned row has the keys a resolved fact row has (``INSIDER_TXN_COLUMNS``, as an emitted 4/A row does) plus
 ``date_basis``, ``txn_date_as_filed`` and ``hold_id``, and obeys the same ``asof`` / floor gates as an emitted
@@ -50,6 +60,8 @@ from domain.insider_amendments import (
     is_other_issuer,
     latest_by_accession,
     norm_cik,
+    row_key,
+    suppression_of,
 )
 from domain.market_time import edgar_night, market_date_of
 
@@ -253,7 +265,7 @@ def resolve_holds(
     on_time_days: int,
 ) -> list[dict[str, Any]]:
     """PURE — ONE security's resolved insider rows (``resolve_insider_rows``'s output) with its Form 4 holds
-    resolved (the module docstring's five steps). ``holds`` / ``hold_decisions`` are every row the read can see
+    resolved (the module docstring's six steps). ``holds`` / ``hold_decisions`` are every row the read can see
     (the caller's gate); ``amendments`` / ``links`` / ``decisions`` the 4/A inputs the read already resolved
     with. No Form 4 hold -> ``rows`` is returned unchanged (the same list)."""
     form4 = [h for h in holds if str(h.get("form") or HOLD_FORM_4) == HOLD_FORM_4]
@@ -267,19 +279,24 @@ def resolve_holds(
         if AMENDS_ACCESSION in r or (str(r.get("accession")), r.get("txn_seq")) not in keys
     ]
     states = effective_states(links, decisions)
+    sup = suppression_of(states)  # the SAME suppression the stored rows got (resolve_insider_rows)
     by_acc = latest_by_accession(amendments, "accession")
     standing = standing_hold_decisions(hold_decisions)
     own = frozenset(c for c in (norm_cik(x) for x in own_ciks) if c)
     emitted: list[dict[str, Any]] = []
     for h in sorted(form4, key=lambda x: (str(x["accession"]), int(x["txn_seq"]))):
-        if filer_corrected(h, states, by_acc):  # 2. the filer's correction wins
+        acc, seq = str(h["accession"]), int(h["txn_seq"])
+        # 2. the filing withdrawn / a duplicate copy, or the row replaced
+        if acc in sup.withdrawn or row_key({"accession": acc, "txn_seq": seq}) in sup.rows:
             continue
-        d = standing.get((str(h["accession"]), int(h["txn_seq"])))
-        if d is not None:  # 3. the steward's decision
+        if filer_corrected(h, states, by_acc):  # 3. the filer's correction carries the same trade
+            continue
+        d = standing.get((acc, seq))
+        if d is not None:  # 4. the steward's decision
             if d["action"] != ACTION_APPROVE:
                 continue
             day, basis = _as_date(d.get("ratified_date")), BASIS_RATIFIED
-        else:  # 4. the placement rule (5: else it waits)
+        else:  # 5. the placement rule (6: else it waits)
             day, basis = placement_night(h, on_time_days), BASIS_FILING_NIGHT
         if day is None or day > asof or (lower is not None and day < lower):
             continue
