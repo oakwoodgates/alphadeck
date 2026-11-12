@@ -26,7 +26,7 @@ THE TWO LEVELS (plan section 9):
 
 (The plan's third level, ``not_final``, belongs to the later intraday numbers and is not built.)
 
-THE KINDS AT LAUNCH (``KINDS``):
+THE KINDS (``KINDS``):
 
 - ``possible_unconfirmed_split`` — the S5 split-night hold is open on this name: the newest bars carry a
   split-shaped step no confirmed split covers. ``call_affected``: its price triggers are held on the card.
@@ -46,6 +46,12 @@ THE KINDS AT LAUNCH (``KINDS``):
   doubt, and it reaches no Cockpit cell (no column reads fundamentals), so it shows in the NamePanel and Admin's
   quiet list only. Today's view only: the cached copy is today's, so a history view cannot say when SEC caught
   up.
+- ``insider_row_held`` (bad dates step 3) — the company has at least one held insider row OWED a steward
+  decision: the filing's transaction date cannot be true, the row is not placed by the rule (a late filing),
+  not covered by the filer's own Form 4/A, and no steward has decided it, so the insider counts leave it out
+  (``domain.insider_holds.hold_state`` — the read's own ladder, over the read's own inputs on the view's clock).
+  In doubt; it reaches the insider cells whose window holds the filing's market date (the latest the trade can
+  be), else none. Absent when nothing is owed.
 
 A QUIET MARKER (``DataNote``) sits one step below a flag: INFORMATION about a name, not a defect in its data. It
 never marks a row, never grays a cell, and is listed apart from the flags. One kind at launch:
@@ -74,7 +80,16 @@ MIXED_SCALE = "mixed_scale_history"
 FEED_STOPPED = "price_feed_stopped"
 MKTCAP_SHARES = "market_cap_share_count"
 FUNDAMENTALS_LAG = "fundamentals_not_current"
-KINDS = (SPLIT_HOLD, SPLIT_REVIEW, MIXED_SCALE, FEED_STOPPED, MKTCAP_SHARES, FUNDAMENTALS_LAG)
+INSIDER_HOLD_OWED = "insider_row_held"
+KINDS = (
+    SPLIT_HOLD,
+    SPLIT_REVIEW,
+    MIXED_SCALE,
+    FEED_STOPPED,
+    MKTCAP_SHARES,
+    FUNDAMENTALS_LAG,
+    INSIDER_HOLD_OWED,
+)
 
 KIND_LABEL = {
     SPLIT_HOLD: "possible unconfirmed split",
@@ -83,6 +98,7 @@ KIND_LABEL = {
     FEED_STOPPED: "price feed stopped",
     MKTCAP_SHARES: "market cap on a pre-split or unreadable share count",
     FUNDAMENTALS_LAG: "fundamentals not current",
+    INSIDER_HOLD_OWED: "insider row held for review",
 }
 
 # --- quiet markers (information, not a defect — never a row mark) -----------------------------------------

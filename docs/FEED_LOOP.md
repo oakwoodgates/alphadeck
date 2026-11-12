@@ -972,7 +972,7 @@ stored filings). What happens now:
   (`domain.insider_holds.resolve_holds`, both engines) counts a held Form 4 row of an ON-TIME filing (acceptance
   0..`insider_hold_on_time_days` days after its period of report) from its filing night, honors the newest
   standing steward decision (`insider_txn_hold_decision`, migration 0083: `approve` at a ratified date /
-  `dismiss` / `revoke`; the writer is the next step), drops a held row of a withdrawn or duplicate filing (or a
+  `dismiss` / `revoke`; written by the steward's queue, `docs/ADMIN.md` "Held insider rows"), drops a held row of a withdrawn or duplicate filing (or a
   replaced row) exactly as the filing's stored rows are dropped, lets the filer's own applied 4/A win (the trade
   counts once), and leaves a late filing's row out until a steward decides. A stored row that has a hold is never read
   at its written date. See `docs/CALL_LOGIC.md` §6. The ingest writes holds under the company's write lock, so
@@ -982,16 +982,27 @@ stored filings). What happens now:
 - **The line prints once.** `HELD insider txn <accession> seq=N <person> (<code>): transactionDate ...` prints
   only when the hold row is written. A re-read writes nothing and prints nothing. The per-thesis summary and
   the CLI report say `N insider txn held (impossible date)`, counting the rows newly held by that run.
-- **The operator is told once.** Each pass counts the whole hold table (`pipeline/insider_hold_scan.py`) and
-  writes the artifact block `insider_holds`: `evaluated`, `total`, `by_reason`, `new` (each with `key`,
-  `ticker`, `accession`, `txn_seq`, `form`, `code`, `shares`, `price`, `date_as_filed`, `reason`), `known`,
-  `error`, `duration_s`, and `keys` (the whole inventory, which the next pass reads as its baseline). A row is
-  new when its key is not in the newest finished live pass's `keys`. The first pass after the deploy has no
-  baseline, so every existing hold is new once. New holds get one health line in the same channel as the Form
-  4/A line, benign-class ("not a cron error"), naming up to 8 rows by ticker, accession, code and shares and
-  counting the rest; the printed report lists them with the date as filed. Known holds are one quiet count
-  line. A night with no held row prints nothing. A failed check is one loud line and never fails the pass; a
-  `--no-live` pass does not check and is never a baseline.
+- **The operator is told once, and only about a row owed a decision.** Each pass counts the whole hold table
+  (`pipeline/insider_hold_scan.py`) and writes the artifact block `insider_holds`: `evaluated`, `total`,
+  `by_reason`, `by_bucket` (where every held row sits in the steward's queue: `owed` / `placed_by_rule` /
+  `filer_corrected` / `decided` / `dismissed` / `amendment_row`, judged by the read's own ladder,
+  `domain.insider_holds.hold_state`), `new` (each with `key`, `ticker`, `accession`, `txn_seq`, `form`, `code`,
+  `shares`, `price`, `date_as_filed`, `reason`, `bucket`), `known`, `error`, `duration_s`, and `keys` (the
+  whole inventory, which the next pass reads as its baseline). A row is new when its key is not in the newest
+  finished live pass's `keys`. The first pass after the deploy has no baseline, so every existing hold is new
+  once. A new row the read does NOT count gets one health line in the same channel as the Form 4/A line,
+  benign-class ("not a cron error"), naming up to 8 rows by ticker, accession, code and shares and counting the
+  rest; the printed report lists them with the date as filed. That is a row OWED a steward decision, and a row
+  held in a Form 4/A: nobody can apply one in the queue yet, so its label says in its own words that it cannot
+  be applied and the amendment's trade is not counted. A new row the read counts or the filer settled (placed
+  by the rule, corrected by the filer) is ONE quiet count line, never paged. Known holds are one
+  quiet count line. A night with no held row prints nothing. A failed check is one loud line and never fails
+  the pass; a `--no-live` pass does not check and is never a baseline. (An artifact written before the buckets
+  carries no `bucket`; the Admin history reads its new rows as owed, the page it emitted then.)
+- **The steward decides the owed rows on Admin** ("Held insider rows", `GET/POST /admin/insider-holds`,
+  `docs/ADMIN.md`): ratify a date (the suggested date by default) or dismiss the row, each with its Undo. A
+  decision counts from when it was made (a past night's view is never rewritten). `/admin/status` carries
+  `insider_holds_owed`, and a company with an owed row carries the `insider_row_held` data flag (display only).
 - **The rows the old ingest dropped** are held by `python -m pipeline.backfill_insider_holds` (dry-run by
   default). It re-reads the cached Form 4 document of every accession stored in `fact_insider_txn` (the EDGAR
   cache on disk, never the network) under the ingest's own rule and plans a hold for each refused row that has

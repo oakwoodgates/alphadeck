@@ -13,10 +13,18 @@ FINISHED, LIVE pass that evaluated it is a complete baseline: a row whose key is
 known, any other is new. ``None`` (no evaluated pass yet — the first pass after this ships) names every held
 row once. A hold row is never updated or deleted, so a known row stays known.
 
-LOUDNESS. The health page names the new rows (ticker, accession, code, shares) up to ``PAGE_NAME_CAP`` and
-counts the rest; it is benign-class ("not a cron error": the run did its job, a filer wrote an impossible
-date). The printed report lists the same rows with the date as filed and the reason, and one quiet line counts
-the known ones. Nothing at all on a night with no held row.
+THE BUCKET (step 3). Each held row carries where it sits in the steward's queue
+(``domain.insider_holds.BUCKETS``), judged by the SAME ladder the insider read runs
+(``repositories.insider_hold_repo.items`` -> ``domain.insider_holds.hold_state``), as of the scan. The block
+counts them (``by_bucket``) and records each new row's bucket.
+
+LOUDNESS. Only a NEW row the read does NOT COUNT is loud (``domain.insider_holds.PAGED_BUCKETS``): one OWED a
+steward decision, and one held in a Form 4/A (nobody can apply it in the queue yet, so its trade is uncounted
+and quiet would mean nobody knows — its label says so in its own words). The health page names those (ticker,
+accession, code, shares) up to ``PAGE_NAME_CAP`` and counts the rest; it is benign-class ("not a cron error":
+the run did its job, a filer wrote an impossible date). A new row placed by the rule or corrected by the filer
+is counted and is ONE quiet count line. The printed report lists the paged rows with the date as filed and the
+reason, and one quiet line counts the known ones. Nothing at all on a night with no held row.
 
 FAIL-OPEN for the pass, LOUD for the operator: a scan that raises returns ``evaluated=False`` / ``error`` and
 the pass goes on; a ``--no-live`` pass does not scan and is never a baseline.
@@ -31,13 +39,20 @@ from typing import Any
 
 import psycopg
 
-from domain.insider_holds import PAGE_NAME_CAP, hold_label
+from domain.insider_holds import (
+    BUCKET_OWED,
+    PAGE_NAME_CAP,
+    PAGED_BUCKETS,
+    hold_label,
+    quiet_new_line,
+)
 
 BLOCK = "insider_holds"
 
 # Every held row with its company's ticker. No time gate: the scan counts what is held now.
 _HOLDS = """
-    SELECT h.security_id, h.accession, h.txn_seq, h.form, h.reason, h."row" AS held_row, sm.ticker
+    SELECT h.id, h.tenant_id, h.security_id, h.accession, h.txn_seq, h.form, h.reason,
+           h."row" AS held_row, sm.ticker
       FROM insider_txn_hold h
       LEFT JOIN security_master sm ON sm.id = h.security_id AND sm.tenant_id = h.tenant_id
      ORDER BY sm.ticker NULLS LAST, h.accession, h.txn_seq, h.form
@@ -64,6 +79,16 @@ class HeldRow:
     price: float | None
     date_as_filed: str | None  # the text of the filing's own transaction date element
     reason: str  # the rule's code (year_before_1934 / year_after_filing_year)
+    bucket: str = BUCKET_OWED  # where it sits in the steward's queue (domain.insider_holds.BUCKETS)
+
+    @property
+    def owed(self) -> bool:
+        return self.bucket == BUCKET_OWED
+
+    @property
+    def paged(self) -> bool:
+        """Told once, loud: owed a decision, or held in a Form 4/A (``PAGED_BUCKETS``)."""
+        return self.bucket in PAGED_BUCKETS
 
     @property
     def label(self) -> str:
@@ -75,6 +100,7 @@ class HeldRow:
             form=self.form,
             code=self.code,
             shares=self.shares,
+            bucket=self.bucket,
         )
 
     @property
@@ -94,6 +120,7 @@ class HeldRow:
             "price": self.price,
             "date_as_filed": self.date_as_filed,
             "reason": self.reason,
+            "bucket": self.bucket,
         }
 
 
@@ -101,7 +128,7 @@ def _num(v: Any) -> float | None:
     return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
 
 
-def _held(r: Mapping[str, Any]) -> HeldRow:
+def _held(r: Mapping[str, Any], bucket: str = BUCKET_OWED) -> HeldRow:
     row = r["held_row"] if isinstance(r["held_row"], Mapping) else {}
     return HeldRow(
         key=hold_key(r["security_id"], r["accession"], r["txn_seq"], r["form"]),
@@ -115,14 +142,24 @@ def _held(r: Mapping[str, Any]) -> HeldRow:
         price=_num(row.get("price")),
         date_as_filed=row.get("txn_date_as_filed"),
         reason=r["reason"],
+        bucket=bucket,
     )
 
 
 def scan_holds(conn: psycopg.Connection) -> tuple[HeldRow, ...]:
-    """Every held row — read-only — by ticker, accession and row number."""
+    """Every held row — read-only — by ticker, accession and row number, each with its bucket as the read sees
+    it now (``insider_hold_repo.items``, per tenant the table holds — the DATA tenant in practice).
+    """
+    from repositories import insider_hold_repo  # lazy: the repo imports the read's loader
+
     with conn.cursor() as cur:
         cur.execute(_HOLDS)
-        return tuple(_held(r) for r in cur.fetchall())
+        rows = cur.fetchall()
+    buckets: dict[Any, str] = {}
+    for tenant in dict.fromkeys(r["tenant_id"] for r in rows):
+        for it in insider_hold_repo.items(conn, tenant_id=tenant):
+            buckets[it.id] = it.bucket
+    return tuple(_held(r, buckets.get(r["id"], BUCKET_OWED)) for r in rows)
 
 
 @dataclass(frozen=True)
@@ -149,14 +186,38 @@ class HoldScan:
         return len(self.holds) - len(self.new)
 
     @property
+    def new_owed(self) -> tuple[HeldRow, ...]:
+        """The NEW held rows OWED a steward decision."""
+        return tuple(h for h in self.new if h.owed)
+
+    @property
+    def new_paged(self) -> tuple[HeldRow, ...]:
+        """The NEW held rows the read does not count — owed, or held in a Form 4/A: the only loud ones."""
+        return tuple(h for h in self.new if h.paged)
+
+    @property
+    def new_by_bucket(self) -> dict[str, int]:
+        out: dict[str, int] = {}
+        for h in self.new:
+            out[h.bucket] = out.get(h.bucket, 0) + 1
+        return out
+
+    @property
+    def by_bucket(self) -> dict[str, int]:
+        out: dict[str, int] = {}
+        for h in self.holds:
+            out[h.bucket] = out.get(h.bucket, 0) + 1
+        return out
+
+    @property
     def new_labels(self) -> tuple[str, ...]:
-        """The NEW held rows the page NAMES — the first ``PAGE_NAME_CAP`` in inventory order."""
-        return tuple(h.label for h in self.new[:PAGE_NAME_CAP])
+        """The NEW paged held rows the page NAMES — the first ``PAGE_NAME_CAP`` in inventory order."""
+        return tuple(h.label for h in self.new_paged[:PAGE_NAME_CAP])
 
     @property
     def new_more(self) -> int:
-        """The NEW held rows the page only COUNTS."""
-        return max(0, len(self.new) - PAGE_NAME_CAP)
+        """The NEW paged held rows the page only COUNTS."""
+        return max(0, len(self.new_paged) - PAGE_NAME_CAP)
 
     def payload(self) -> dict:
         return {
@@ -164,6 +225,8 @@ class HoldScan:
                 "evaluated": self.evaluated,
                 "total": self.total,
                 "by_reason": dict(sorted(self.by_reason.items())),
+                # step 3 — where every held row sits in the steward's queue (owed / placed_by_rule / ...)
+                "by_bucket": dict(sorted(self.by_bucket.items())),
                 "new": [h.to_json() for h in self.new],
                 "known": self.known,
                 "error": self.error,
@@ -243,10 +306,19 @@ def previous_hold_keys(*, base_dir: Path | None = None) -> set[str] | None:
 
 
 def _new_rows(doc: Mapping) -> list[Mapping]:
+    """The NEW rows one artifact PAGED: the owed ones and the held Form 4/A rows (``PAGED_BUCKETS``). An
+    artifact written before step 3 carries no bucket — every new row was paged then, so it reads as owed: the
+    history shows the page the run emitted)."""
     block = doc.get(BLOCK)
     if not isinstance(block, Mapping):
         return []
-    return [r for r in block.get("new") or [] if isinstance(r, Mapping) and r.get("accession")]
+    return [
+        r
+        for r in block.get("new") or []
+        if isinstance(r, Mapping)
+        and r.get("accession")
+        and (r.get("bucket") or BUCKET_OWED) in PAGED_BUCKETS
+    ]
 
 
 def _label_of(r: Mapping) -> str:
@@ -258,6 +330,7 @@ def _label_of(r: Mapping) -> str:
         form=str(r.get("form") or ""),
         code=r.get("code"),
         shares=_num(r.get("shares")),
+        bucket=r.get("bucket"),
     )
 
 
@@ -281,16 +354,21 @@ def report_lines(scan: HoldScan) -> list[str]:
     if not scan.evaluated:
         return []
     lines: list[str] = []
-    if scan.new:
+    paged = scan.new_paged
+    if paged:
         lines.append(
-            f"INSIDER ROWS HELD — {len(scan.new)} NEW (the filing's transaction date cannot be true; each "
-            "row is kept in insider_txn_hold, not stored as a fact, and no date is invented):"
+            f"INSIDER ROWS HELD — {len(paged)} NEW, NOT COUNTED (the filing's transaction date cannot be "
+            "true; each row is kept in insider_txn_hold; a Form 4 row is owed a steward decision on Admin, a "
+            "Form 4/A row cannot be applied yet; no date is invented):"
         )
-        lines.extend(f"  {h.line}" for h in scan.new[:PAGE_NAME_CAP])
+        lines.extend(f"  {h.line}" for h in paged[:PAGE_NAME_CAP])
         if scan.new_more:
             lines.append(
                 f"  +{scan.new_more} more — listed in the run artifact (insider_holds.new)"
             )
+    quiet = quiet_new_line(scan.new_by_bucket)
+    if quiet:
+        lines.append(quiet)
     if scan.known:
         lines.append(
             f"{scan.known} known held insider row(s) — the same rows as the last pass (quiet; kept in "

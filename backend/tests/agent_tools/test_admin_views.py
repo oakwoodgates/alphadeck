@@ -290,6 +290,7 @@ def test_the_default_status_reply_is_the_verdict_and_the_counts():
         "attention": False,
     }
     assert reply["splits_needs_review"] == 3 and reply["data_tenant_theses"] == 0
+    assert reply["insider_holds_owed"] == 2
     assert reply["oauth_clients"] == {"static": 2, "dcr": 1}
 
 

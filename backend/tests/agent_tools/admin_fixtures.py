@@ -306,6 +306,7 @@ def status() -> dict[str, Any]:
             ],
         },
         "splits_needs_review": 3,
+        "insider_holds_owed": 2,
         "fundamentals_set_aside": 0,
         "editions_nightly": {
             "line": "Editions: tonight's pages appended.",

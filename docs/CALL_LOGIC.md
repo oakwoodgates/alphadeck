@@ -884,7 +884,8 @@ code, shares and price wins — the trade counts once, from the amendment. A cor
 WITHOUT such a row leaves the held row to the next steps: the linker does not see held rows yet, so its "whole
 correction" reading can be wrong for a filing with one, and dropping it there could lose a real trade; (4)
 otherwise the newest standing steward decision (`insider_txn_hold_decision`: `approve` at a ratified date,
-`dismiss`); (5) otherwise, when the filing was ON TIME — its acceptance's market date
+`dismiss`; written by the steward's queue, `docs/ADMIN.md` "Held insider rows", whose buckets come from the
+same ladder, `domain.insider_holds.hold_state`); (5) otherwise, when the filing was ON TIME — its acceptance's market date
 0..`insider_hold_on_time_days` (5) days after its own readable, possible period of report — the row counts from
 the FILING NIGHT (`edgar_night(accepted)`, the first night anyone could read it; `date_basis = 'filing_night'`);
 (6) otherwise it waits for the steward. No date is

@@ -2042,6 +2042,97 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/insider-holds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Holds
+         * @description Every held insider row with its evidence, bucketed for the panel: owed your decision (loud); placed by
+         *     rule, corrected by the filer, decided, dismissed and held Form 4/A rows (quiet). Each row carries the date
+         *     the filing wrote, its period of report and signature date, the suggested date and whether it agrees with
+         *     the filing, and its standing decision. Read-only.
+         */
+        get: operations["list_holds_admin_insider_holds_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/insider-holds/{hold_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve Hold
+         * @description RATIFY a date (basis ``steward:approve``): the held row counts from that date, for every read made from
+         *     now on (a past night's view is not rewritten). Omit ``ratified_date`` to ratify the suggested date. Undo
+         *     with ``POST /admin/insider-holds/decisions/{id}/revoke``. **404** unknown held row, **409** a decision
+         *     already stands / the filer's own Form 4/A decides it / a Form 4/A row, **422** no date and no suggestion,
+         *     a date that fails the year rule, or one after the filing's market date (or none is known).
+         */
+        post: operations["approve_hold_admin_insider_holds__hold_id__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/insider-holds/{hold_id}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dismiss Hold
+         * @description DISMISS the held row as not a trade (basis ``steward:dismiss``): it is not counted, for every read made
+         *     from now on. A reason is required. Undo with the revoke route. **404** unknown held row, **409** a decision
+         *     already stands / the filer's own Form 4/A decides it / a Form 4/A row, **422** no reason.
+         */
+        post: operations["dismiss_hold_admin_insider_holds__hold_id__dismiss_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/insider-holds/decisions/{decision_id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revoke Hold Decision
+         * @description UNDO a steward decision (basis ``steward:revoke``): the held row returns to the state before it (the
+         *     placement rule, or owed). **404** unknown decision, **409** the decision is itself an Undo, or was already
+         *     undone.
+         */
+        post: operations["revoke_hold_decision_admin_insider_holds_decisions__decision_id__revoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/splits": {
         parameters: {
             query?: never;
@@ -3843,6 +3934,93 @@ export interface components {
             until: string;
         };
         /**
+         * AdminHeldRowOut
+         * @description The held Table I row as the filing reported it (``txn_date`` is not here: see ``date_as_filed``).
+         */
+        AdminHeldRowOut: {
+            /** Insider Name */
+            insider_name?: string | null;
+            /** Insider Role */
+            insider_role?: string | null;
+            /** Txn Code */
+            txn_code?: string | null;
+            /** Shares */
+            shares?: number | null;
+            /** Price */
+            price?: number | null;
+            /** Usd */
+            usd?: number | null;
+        };
+        /**
+         * AdminHoldApproveIn
+         * @description The date to ratify (omit it to ratify the suggested date) and why (optional — a default is stored).
+         */
+        AdminHoldApproveIn: {
+            /** Ratified Date */
+            ratified_date?: string | null;
+            /** Reason */
+            reason?: string | null;
+        };
+        /**
+         * AdminHoldDeciderOut
+         * @description Who decided: the steward's user id and display name (never an email).
+         */
+        AdminHoldDeciderOut: {
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+            /** Display Name */
+            display_name: string;
+        };
+        /**
+         * AdminHoldDecisionOut
+         * @description One steward decision on a held row: ``action`` ``approve`` (counted at ``ratified_date``), ``dismiss``, or
+         *     ``revoke`` (the Undo of the decision ``revokes`` names); ``recorded_at`` = when; ``reason`` = why;
+         *     ``basis`` = its role (``steward:<action>``); ``decided_by`` = who (``null`` for a decision no signed-in user
+         *     made).
+         */
+        AdminHoldDecisionOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Action */
+            action: string;
+            /** Ratified Date */
+            ratified_date?: string | null;
+            /** Reason */
+            reason: string;
+            /**
+             * Recorded At
+             * Format: date-time
+             */
+            recorded_at: string;
+            /** Basis */
+            basis: string;
+            /** Revokes */
+            revokes?: string | null;
+            decided_by?: components["schemas"]["AdminHoldDeciderOut"] | null;
+        };
+        /**
+         * AdminHoldDismissIn
+         * @description Why the row is not a trade (required).
+         */
+        AdminHoldDismissIn: {
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * AdminHoldRevokeIn
+         * @description Why (optional — a default is stored).
+         */
+        AdminHoldRevokeIn: {
+            /** Reason */
+            reason?: string | null;
+        };
+        /**
          * AdminInsiderActionOut
          * @description One button on the card and what it does to the rows a call reads, relative to the read NOW: ``action`` =
          *     ``apply`` (Use the correction) / ``keep`` (Keep the original) / ``add`` (Add to the original) / ``link`` (pick
@@ -4101,6 +4279,105 @@ export interface components {
              * @default false
              */
             standing: boolean;
+        };
+        /**
+         * AdminInsiderHoldOut
+         * @description One held insider row and everything the steward needs to decide it.
+         *
+         *     ``reason`` is the rule's code (``year_before_1934`` / ``year_after_filing_year`` / ``after_filing``) and
+         *     ``reason_words`` the same in plain words. ``date_as_filed``, ``period_of_report_as_filed`` and
+         *     ``signature_date_as_filed`` are the filing's own text, verbatim (any of them can itself be a typo: evidence,
+         *     never a correction). ``filed`` / ``accepted`` = SEC's filing date and acceptance instant (``None`` when not
+         *     known). ``bucket`` = where it sits (owed / placed_by_rule / filer_corrected / decided / dismissed /
+         *     amendment_row); ``why`` = why the filer's own amendment decides it (``filer_corrected`` only);
+         *     ``filing_night`` = the night it counts from when placed by the rule. ``suggested_date`` = the arithmetic
+         *     suggestion (``None`` = none can be made) and ``agrees`` = it is on or after a readable period of report.
+         *     ``decision`` = the standing steward decision (decided / dismissed); ``history`` = every decision about the
+         *     row, Undos included, oldest first. ``filing_url`` = the filing on EDGAR.
+         */
+        AdminInsiderHoldOut: {
+            /**
+             * Hold Id
+             * Format: uuid
+             */
+            hold_id: string;
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker?: string | null;
+            /** Company Name */
+            company_name?: string | null;
+            /** Accession */
+            accession: string;
+            /** Txn Seq */
+            txn_seq: number;
+            /** Form */
+            form: string;
+            /** Reason */
+            reason: string;
+            /** Reason Words */
+            reason_words: string;
+            row: components["schemas"]["AdminHeldRowOut"];
+            /** Date As Filed */
+            date_as_filed?: string | null;
+            /** Period Of Report As Filed */
+            period_of_report_as_filed?: string | null;
+            /** Signature Date As Filed */
+            signature_date_as_filed?: string | null;
+            /** Filed */
+            filed?: string | null;
+            /** Accepted */
+            accepted?: string | null;
+            /** Bucket */
+            bucket: string;
+            /** Why */
+            why?: string | null;
+            /** Filing Night */
+            filing_night?: string | null;
+            /** Suggested Date */
+            suggested_date?: string | null;
+            /**
+             * Agrees
+             * @default false
+             */
+            agrees: boolean;
+            decision?: components["schemas"]["AdminHoldDecisionOut"] | null;
+            /** History */
+            history?: components["schemas"]["AdminHoldDecisionOut"][];
+            /** Filing Url */
+            filing_url?: string | null;
+        };
+        /**
+         * AdminInsiderHoldsOut
+         * @description The "Held insider rows" panel. ``owed`` is the only LOUD bucket (its count is ``counts.owed``); the rest
+         *     are quiet lists, still visible (WB#2). ``counts`` = how many rows sit in each bucket; ``total`` = all held
+         *     rows. Read live from the tables, judged as today's view reads.
+         */
+        AdminInsiderHoldsOut: {
+            /** Owed */
+            owed?: components["schemas"]["AdminInsiderHoldOut"][];
+            /** Placed By Rule */
+            placed_by_rule?: components["schemas"]["AdminInsiderHoldOut"][];
+            /** Filer Corrected */
+            filer_corrected?: components["schemas"]["AdminInsiderHoldOut"][];
+            /** Decided */
+            decided?: components["schemas"]["AdminInsiderHoldOut"][];
+            /** Dismissed */
+            dismissed?: components["schemas"]["AdminInsiderHoldOut"][];
+            /** Amendment Row */
+            amendment_row?: components["schemas"]["AdminInsiderHoldOut"][];
+            /** Counts */
+            counts?: {
+                [key: string]: number;
+            };
+            /**
+             * Total
+             * @default 0
+             */
+            total: number;
         };
         /**
          * AdminInsiderLinkIn
@@ -5509,6 +5786,10 @@ export interface components {
          *     (one source only, a disagreement, an extractor abstain) — the "Splits" panel (``GET /admin/splits``) holds
          *     them. ``null`` when the count could not be read; never a cron verdict.
          *
+         *     ``insider_holds_owed`` (bad dates step 3) is how many held insider rows are OWED a steward decision — the
+         *     "Held insider rows" panel (``GET /admin/insider-holds``) holds them; quiet at 0. ``null`` when the count could
+         *     not be read; never a cron verdict.
+         *
          *     ``fundamentals_set_aside`` (migration 0062) is how many stored fundamentals versions are set aside — the
          *     revenue rows the data-quality screen would have refused, stored before it existed, which every read skips
          *     (``python -m pipeline.set_aside_fundamentals``). A quiet line; ``null`` when the count could not be read.
@@ -5550,6 +5831,8 @@ export interface components {
             price_repairs?: components["schemas"]["AdminPriceRepairsOut"] | null;
             /** Splits Needs Review */
             splits_needs_review?: number | null;
+            /** Insider Holds Owed */
+            insider_holds_owed?: number | null;
             /** Fundamentals Set Aside */
             fundamentals_set_aside?: number | null;
             editions_nightly?: components["schemas"]["AdminEditionsNightlyOut"] | null;
@@ -21557,6 +21840,131 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdminInsiderAmendmentOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_holds_admin_insider_holds_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminInsiderHoldsOut"];
+                };
+            };
+        };
+    };
+    approve_hold_admin_insider_holds__hold_id__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                hold_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["AdminHoldApproveIn"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminInsiderHoldOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    dismiss_hold_admin_insider_holds__hold_id__dismiss_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                hold_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminHoldDismissIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminInsiderHoldOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_hold_decision_admin_insider_holds_decisions__decision_id__revoke_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                decision_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["AdminHoldRevokeIn"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminInsiderHoldOut"];
                 };
             };
             /** @description Validation Error */

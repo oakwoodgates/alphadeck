@@ -723,3 +723,53 @@ def test_the_split_jump_scan_reads_the_data_tenant(db):
     asof = date(2026, 8, 28)
     assert [j.ticker for j in scan_unlisted_jumps(db, asof=asof, tenant_id=DATA)] == ["GAME"]
     assert scan_unlisted_jumps(db, asof=asof, tenant_id=W) == ()
+
+
+def test_the_held_insider_rows_queue_reads_and_writes_the_data_tenant(db):
+    """Bad dates step 3 — the steward's queue (``repositories.insider_hold_repo``) is DATA. The poison row: a
+    held row stored under a WORKSPACE on the SAME ``security_id`` (a direct-input hold, never a real filing). The
+    queue lists, counts and decides only the data tenant's row; the workspace row is unknown to it (a 404 at the
+    route), and a decision is written under the data tenant."""
+    import pytest
+    from psycopg.types.json import Json
+
+    from repositories import insider_hold_repo
+
+    _workspaces(db)
+    sid = _security(db, ticker="HOLD", cik="0000000201")
+    ids = {}
+    with db.cursor() as cur:
+        for tenant, acc in ((DATA, "0000000201-21-000001"), (W, "0000000201-21-000002")):
+            cur.execute(
+                "INSERT INTO insider_txn_hold (tenant_id, security_id, accession, txn_seq, form, reason, "
+                '"row", filed, period_of_report_as_filed) '
+                "VALUES (%s, %s, %s, 0, '4', 'after_filing', %s, %s, %s) RETURNING id",
+                (
+                    tenant,
+                    sid,
+                    acc,
+                    Json({"txn_code": "P", "shares": 10, "txn_date_as_filed": "2021-11-16"}),
+                    date(2021, 3, 18),
+                    "2020-11-16",
+                ),
+            )
+            ids[tenant] = cur.fetchone()["id"]
+    db.commit()
+
+    assert [it.id for it in insider_hold_repo.items(db)] == [ids[DATA]]
+    assert insider_hold_repo.count_owed(db) == 1
+    assert [it.id for it in insider_hold_repo.items(db, tenant_id=W)] == [ids[W]]  # W's, only
+    with pytest.raises(LookupError):
+        insider_hold_repo.approve(db, ids[W], None, None)
+    db.rollback()
+    row = insider_hold_repo.approve(db, ids[DATA], None, None)
+    db.commit()
+    assert row["tenant_id"] == DATA and row["ratified_date"] == date(2020, 11, 16)
+    assert (
+        row["detail"]["decided_by"] is None
+    )  # a call that names no user records no person, never a guess
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT count(*) AS n FROM insider_txn_hold_decision WHERE tenant_id = %s", (W,)
+        )
+        assert cur.fetchone()["n"] == 0

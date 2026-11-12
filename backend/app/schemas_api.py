@@ -2886,6 +2886,10 @@ class AdminStatusOut(BaseModel):
     (one source only, a disagreement, an extractor abstain) — the "Splits" panel (``GET /admin/splits``) holds
     them. ``null`` when the count could not be read; never a cron verdict.
 
+    ``insider_holds_owed`` (bad dates step 3) is how many held insider rows are OWED a steward decision — the
+    "Held insider rows" panel (``GET /admin/insider-holds``) holds them; quiet at 0. ``null`` when the count could
+    not be read; never a cron verdict.
+
     ``fundamentals_set_aside`` (migration 0062) is how many stored fundamentals versions are set aside — the
     revenue rows the data-quality screen would have refused, stored before it existed, which every read skips
     (``python -m pipeline.set_aside_fundamentals``). A quiet line; ``null`` when the count could not be read.
@@ -2924,6 +2928,7 @@ class AdminStatusOut(BaseModel):
     split_defects: AdminSplitOut | None = None
     price_repairs: AdminPriceRepairsOut | None = None
     splits_needs_review: int | None = None
+    insider_holds_owed: int | None = None
     fundamentals_set_aside: int | None = None
     editions_nightly: AdminEditionsNightlyOut | None = None
     missing_closes: AdminMissingClosesOut | None = None
