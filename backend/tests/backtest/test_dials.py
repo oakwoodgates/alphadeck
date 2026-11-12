@@ -97,7 +97,8 @@ def test_the_both_set_is_exactly_the_three_known_cases():
 def test_the_unused_set_is_workbench_and_ingest_dials():
     """Not dead config -- dials read OUTSIDE the call path entirely (Workbench scoring pips, the DOE
     ingest grade rule, the insider read seam's on-time window) plus one documented convention string.
-    Pinned so a dial falling out of the call path is a review-visible change rather than a silent one."""
+    Pinned so a dial falling out of the call path is a review-visible change rather than a silent one.
+    """
     assert partition().unused == {
         "purity_pip_pct",
         "runway_pip_months",
