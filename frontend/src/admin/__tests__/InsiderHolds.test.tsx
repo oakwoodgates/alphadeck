@@ -24,6 +24,8 @@ const base = {
   filing_night: null as string | null,
   suggested_date: null as string | null,
   agrees: false,
+  market_date: null as string | null,
+  owed_why: null as string | null,
   decision: null as unknown,
   history: [] as unknown[],
   filing_url: null as string | null,
@@ -44,6 +46,8 @@ const KIDS = {
   accepted: "2021-03-18T20:05:00+00:00",
   suggested_date: "2020-11-16",
   agrees: true,
+  market_date: "2021-03-18",
+  owed_why: "the filing was made 122 days after its period of report (2020-11-16), more than the on-time window of 5 days",
   filing_url: "https://www.sec.gov/Archives/edgar/data/1425450/000089924321012557/",
 };
 
@@ -61,6 +65,8 @@ const BBAI = {
   signature_date_as_filed: "2024-03-08",
   suggested_date: "2023-03-23",
   agrees: false,
+  market_date: "2024-03-08",
+  owed_why: "the period of report as filed (0023-03-23) fails the year rule (before 1934, or after the filing's year)",
 };
 
 const ASNS = {
@@ -72,6 +78,7 @@ const ASNS = {
   row: { insider_name: "Barlev, Tuvia", insider_role: "officer", txn_code: "S", shares: 0, price: 0, usd: 0 },
   date_as_filed: "2024-04-01",
   suggested_date: null,
+  owed_why: "no acceptance time is known for the filing",
 };
 
 const TMUS = {
@@ -201,6 +208,15 @@ const EMPTY = {
   dismissed: [],
   amendment_row: [],
   counts: { owed: 0, placed_by_rule: 0, filer_corrected: 0, decided: 0, dismissed: 0, amendment_row: 0 },
+  // the backend's BUCKET_WORDS (domain/insider_holds.py), as GET /admin/insider-holds returns them
+  bucket_words: {
+    owed: "owed your decision",
+    placed_by_rule: "placed by rule (counted from the filing night)",
+    filer_corrected: "corrected by the filer",
+    decided: "decided",
+    dismissed: "dismissed",
+    amendment_row: "held in a Form 4/A (cannot be applied yet)",
+  },
   total: 0,
 };
 
@@ -253,7 +269,7 @@ describe("InsiderHolds", () => {
     expect(screen.getByTestId("adm-holds-dismissed")).toHaveClass("adm-grayed");
     // the Form 4/A rows: no action, the cannot-be-applied words
     const amend = screen.getByTestId("adm-holds-amendment");
-    expect(amend).toHaveTextContent("It cannot be applied yet");
+    expect(amend).toHaveTextContent("Held in a Form 4/A (cannot be applied yet).");
     expect(within(amend).queryAllByRole("button")).toHaveLength(0);
     // the filer-corrected rows: no action, the API's why
     const filer = screen.getByTestId("adm-holds-filer");
@@ -283,7 +299,7 @@ describe("InsiderHolds", () => {
     expect(screen.queryByTestId("adm-holds-owed-count")).toBeNull();
     expect(screen.queryByTestId("adm-holds-owed")).toBeNull();
     expect(screen.getByTestId("adm-holds-none-owed")).toHaveTextContent(
-      "No held row needs a decision. 24 counted from the filing night by rule · 9 corrected by the filer · 1 decided · 1 dismissed · 1 held in a Form 4/A.",
+      "No held row needs a decision. 24 placed by rule (counted from the filing night) · 9 corrected by the filer · 1 decided · 1 dismissed · 1 held in a Form 4/A (cannot be applied yet).",
     );
   });
 
@@ -302,12 +318,18 @@ describe("InsiderHolds", () => {
     expect(within(kids).getByTestId("adm-hold-sugg")).toHaveTextContent(
       "Suggested date 2020-11-16 · on or after the filing's period of report",
     );
-    // a weak suggestion says so, and its button is not the primary one
+    // an agreeing suggestion is offered as the primary button
+    expect(within(kids).getByRole("button", { name: "Use 2020-11-16" })).toHaveClass("primary");
+    // why the rule did not place it, in plain view (the API's words)
+    expect(within(kids).getByTestId("adm-hold-owed-why")).toHaveTextContent(
+      "Why the rule did not place it: the filing was made 122 days after its period of report (2020-11-16), more than the on-time window of 5 days.",
+    );
+    // a weak suggestion is text only: never a one-click button
     const bbai = rowOf("BBAI");
     expect(within(bbai).getByTestId("adm-hold-trade")).toHaveTextContent("award 87,827 @ 0");
-    expect(within(bbai).getByTestId("adm-hold-sugg")).toHaveTextContent("weak");
-    expect(within(bbai).getByRole("button", { name: "Use 2023-03-23" })).not.toHaveClass("primary");
-    expect(within(kids).getByRole("button", { name: "Use 2020-11-16" })).toHaveClass("primary");
+    expect(within(bbai).getByTestId("adm-hold-sugg")).toHaveTextContent("Suggested date 2023-03-23 · weak");
+    expect(within(bbai).queryByRole("button", { name: /^Use / })).toBeNull();
+    expect(within(bbai).getByTestId("adm-hold-owed-why")).toHaveTextContent("fails the year rule");
     // no suggestion: no Use button
     const asns = rowOf("ASNS", screen.getByTestId("adm-holds-owed"));
     expect(within(asns).queryByRole("button", { name: /^Use / })).toBeNull();
@@ -347,11 +369,47 @@ describe("InsiderHolds", () => {
     expect(mutate(h.approve)).not.toHaveBeenCalled();
   });
 
-  it("Set another date prefills the API's suggestion", async () => {
+  it("Set another date prefills an agreeing suggestion, stops at the market date and says so", async () => {
     render(<InsiderHolds />);
     const kids = rowOf("KIDS");
     await userEvent.click(within(kids).getByRole("button", { name: "Set another date" }));
-    expect(within(kids).getByLabelText("Trade date")).toHaveValue("2020-11-16");
+    const input = within(kids).getByLabelText("Trade date");
+    expect(input).toHaveValue("2020-11-16");
+    expect(input).toHaveAttribute("max", "2021-03-18");
+    expect(within(kids).getByTestId("adm-hold-date-hint")).toHaveTextContent(
+      "A date must be on or before 2021-03-18, the day the filing was public.",
+    );
+  });
+
+  it("Set another date never prefills a weak suggestion", async () => {
+    render(<InsiderHolds />);
+    const bbai = rowOf("BBAI");
+    await userEvent.click(within(bbai).getByRole("button", { name: "Set another date" }));
+    expect(within(bbai).getByLabelText("Trade date")).toHaveValue("");
+    expect(within(bbai).getByLabelText("Trade date")).toHaveAttribute("max", "2024-03-08");
+    expect(within(bbai).getByRole("button", { name: "Save date" })).toBeDisabled();
+  });
+
+  it("with no market date there is no max and the hint names no date", async () => {
+    render(<InsiderHolds />);
+    const asns = rowOf("ASNS", screen.getByTestId("adm-holds-owed"));
+    await userEvent.click(within(asns).getByRole("button", { name: "Set another date" }));
+    expect(within(asns).getByLabelText("Trade date")).not.toHaveAttribute("max");
+    expect(within(asns).getByTestId("adm-hold-date-hint")).toHaveTextContent(
+      "A date must be on or before the day the filing was public.",
+    );
+  });
+
+  it("a weak suggestion on a rule-placed row is text only, with no Use button", () => {
+    serve({
+      ...FULL,
+      placed_by_rule: [{ ...TMUS, suggested_date: "2023-05-24", agrees: false }],
+    });
+    render(<InsiderHolds />);
+    const tmus = rowOf("TMUS");
+    expect(within(tmus).queryByRole("button", { name: /^Use / })).toBeNull();
+    expect(within(tmus).getByTestId("adm-hold-sugg")).toHaveTextContent("Suggested date 2023-05-24 · weak");
+    expect(within(tmus).getByRole("button", { name: "Set the trade date" })).toBeInTheDocument();
   });
 
   it("Dismiss is blocked without a reason and sends the reason", async () => {
@@ -375,6 +433,7 @@ describe("InsiderHolds", () => {
     render(<InsiderHolds />);
     const tmus = rowOf("TMUS");
     expect(tmus).toHaveTextContent("counted from 2024-05-28, the night the filing was public");
+    expect(within(tmus).queryByTestId("adm-hold-sugg")).toBeNull(); // an agreeing one rides its button
     await userEvent.click(within(tmus).getByRole("button", { name: "Use 2024-05-24" }));
     expect(mutate(h.approve)).toHaveBeenCalledWith({ holdId: TMUS.hold_id });
     expect(within(tmus).getByRole("button", { name: "Set the trade date" })).toBeInTheDocument();

@@ -169,7 +169,9 @@ type Mode = null | "date" | "dismiss";
 /** The decide controls of an owed or rule-placed row: Use the suggestion, set a date, or dismiss. */
 function Decide({ h, m, busy, owed }: { h: Hold; m: Mutations; busy: boolean; owed: boolean }) {
   const [mode, setMode] = useState<Mode>(null);
-  const [date, setDate] = useState(h.suggested_date ?? "");
+  // only a suggestion that agrees with the filing prefills the date; a weak one is shown as text, never offered
+  const [date, setDate] = useState(h.suggested_date && h.agrees ? h.suggested_date : "");
+  const marketDate = h.market_date ?? undefined;
   const [why, setWhy] = useState("");
   const [dismissWhy, setDismissWhy] = useState("");
 
@@ -182,6 +184,7 @@ function Decide({ h, m, busy, owed }: { h: Hold; m: Mutations; busy: boolean; ow
             className="adm-input adm-input-sm adm-hold-date"
             type="date"
             value={date}
+            max={marketDate}
             onChange={(e) => setDate(e.target.value)}
             aria-label="Trade date"
           />
@@ -208,7 +211,11 @@ function Decide({ h, m, busy, owed }: { h: Hold; m: Mutations; busy: boolean; ow
         <button type="button" className="adm-minibtn" onClick={() => setMode(null)}>
           Cancel
         </button>
-        <div className="adm-sub adm-hold-full">A date must be on or before the day the filing was public.</div>
+        <div className="adm-sub adm-hold-full" data-testid="adm-hold-date-hint">
+          {marketDate
+            ? `A date must be on or before ${marketDate}, the day the filing was public.`
+            : "A date must be on or before the day the filing was public."}
+        </div>
       </div>
     );
   }
@@ -243,10 +250,10 @@ function Decide({ h, m, busy, owed }: { h: Hold; m: Mutations; busy: boolean; ow
   }
   return (
     <div className="adm-hold-acts">
-      {h.suggested_date && (
+      {h.suggested_date && h.agrees && (
         <button
           type="button"
-          className={`adm-minibtn${owed && h.agrees ? " primary" : ""}`}
+          className={`adm-minibtn${owed ? " primary" : ""}`}
           disabled={busy}
           onClick={() => m.approve.mutate({ holdId: h.hold_id })}
         >
@@ -289,6 +296,31 @@ function Err({ m, h }: { m: Mutations; h: Hold }) {
   ) : null;
 }
 
+/** The suggestion line: an agreeing one in green (its "Use" button beside it), a weak one as text only. */
+function Suggestion({ h, showAgreeing = true }: { h: Hold; showAgreeing?: boolean }) {
+  if (!h.suggested_date) {
+    return showAgreeing ? (
+      <div className="adm-hold-sugg" data-testid="adm-hold-sugg">
+        No date can be suggested from the filing.
+      </div>
+    ) : null;
+  }
+  if (h.agrees && !showAgreeing) return null;
+  return (
+    <div className="adm-hold-sugg" data-testid="adm-hold-sugg">
+      Suggested date <b className={h.agrees ? "adm-hold-ok" : "adm-hold-weak"}>{h.suggested_date}</b> ·{" "}
+      {h.agrees ? (
+        "on or after the filing's period of report"
+      ) : (
+        <>
+          <span className="adm-hold-weak">weak</span>: not on or after a readable period of report, so it is not
+          offered
+        </>
+      )}
+    </div>
+  );
+}
+
 /** An owed row: what the filing wrote and why it cannot be true, the facts, the suggestion, the controls. */
 function OwedRow({ h, m, busy }: { h: Hold; m: Mutations; busy: boolean }) {
   return (
@@ -297,23 +329,13 @@ function OwedRow({ h, m, busy }: { h: Hold; m: Mutations; busy: boolean }) {
       <div className="adm-plain">
         The filing says the trade date is <b>{h.date_as_filed ?? "—"}</b>. It cannot be true: {h.reason_words}.
       </div>
-      <div className="adm-sub">Not counted in any call until you decide.</div>
-      <div className="adm-hold-sugg" data-testid="adm-hold-sugg">
-        {h.suggested_date ? (
-          <>
-            Suggested date <b className={h.agrees ? "adm-hold-ok" : "adm-hold-weak"}>{h.suggested_date}</b> ·{" "}
-            {h.agrees ? (
-              "on or after the filing's period of report"
-            ) : (
-              <>
-                <span className="adm-hold-weak">weak</span>: not on or after a readable period of report
-              </>
-            )}
-          </>
-        ) : (
-          "No date can be suggested from the filing."
-        )}
+      <div className="adm-sub">
+        Not counted in any call until you decide.
+        {h.owed_why ? (
+          <span data-testid="adm-hold-owed-why"> Why the rule did not place it: {h.owed_why}.</span>
+        ) : null}
       </div>
+      <Suggestion h={h} />
       <Decide h={h} m={m} busy={busy} owed />
       <Err m={m} h={h} />
       <FilingRef h={h} />
@@ -381,15 +403,11 @@ export function InsiderHolds() {
   const amend = rows(d, "amendment_row");
   const nOwed = count(d, "owed");
 
-  const quietParts = [
-    [count(d, "placed_by_rule"), "counted from the filing night by rule"],
-    [count(d, "filer_corrected"), "corrected by the filer"],
-    [count(d, "decided"), "decided"],
-    [count(d, "dismissed"), "dismissed"],
-    [count(d, "amendment_row"), "held in a Form 4/A"],
-  ]
-    .filter(([n]) => (n as number) > 0)
-    .map(([n, w]) => `${n} ${w}`);
+  // each bucket in the backend's own words (`bucket_words`); the key itself only if an older server omits them
+  const words = (k: BucketKey) => d.bucket_words?.[k] ?? k.replace(/_/g, " ");
+  const quietParts = (["placed_by_rule", "filer_corrected", "decided", "dismissed", "amendment_row"] as const)
+    .filter((k) => count(d, k) > 0)
+    .map((k) => `${count(d, k)} ${words(k)}`);
 
   return (
     <section className="adm-card" data-testid="adm-insider-holds">
@@ -436,6 +454,7 @@ export function InsiderHolds() {
               <div className="adm-sub">
                 {filedAs(h)} · counted from <b>{h.filing_night ?? "—"}</b>, the night the filing was public
               </div>
+              <Suggestion h={h} showAgreeing={false} />
               <Decide h={h} m={m} busy={busy} owed={false} />
               <Err m={m} h={h} />
               <FilingRef h={h} />
@@ -514,7 +533,7 @@ export function InsiderHolds() {
           testid="adm-holds-amendment"
           title="Held in a Form 4/A"
           n={count(d, "amendment_row")}
-          note="It cannot be applied yet, so the amendment's trade is not counted."
+          note={`${words("amendment_row").replace(/^./, (c) => c.toUpperCase())}.`}
         >
           {amend.map((h) => (
             <li key={h.hold_id} data-testid="adm-hold-row">
