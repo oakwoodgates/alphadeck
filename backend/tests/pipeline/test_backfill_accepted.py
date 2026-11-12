@@ -681,3 +681,82 @@ def test_an_error_reply_page_InvalidBody_is_tolerated_and_counted():
 
     assert (read, failed) == (0, 1)
     assert set(amap) == {"acc-recent"}
+
+
+# --- --ticker on the NULL-only fill, and the change stamp ---------------------------------------------------
+
+
+def _rows_of(db, sid) -> int:
+    with db.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM fact_insider_txn WHERE security_id = %s", (sid,))
+        return cur.fetchone()["n"]
+
+
+def _stamps(db, sid) -> int:
+    with db.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM security_change WHERE security_id = %s", (sid,))
+        return cur.fetchone()["n"]
+
+
+def test_ticker_scopes_the_null_only_fill_to_the_named_securities(db, security_id):
+    """``--ticker`` narrows the NULL-only worklist: the named security is filled, a second security that ALSO
+    has NULL rows is not touched (its rows counted before and after) and stays NULL and visible (#9).
+    """
+    other = _security(db, ticker="OTHERCO", cik="0007654321")
+    ingest_form4(db, security_id, _XML, "acc-named")
+    ingest_form4(db, other, _XML, "acc-unnamed")
+    db.commit()
+    client = _FakeClient(
+        {
+            "1234567": _subs([("acc-named", "2026-01-02T18:30:00.000Z")]),
+            "7654321": _subs([("acc-unnamed", "2026-01-03T18:30:00.000Z")]),
+        }
+    )
+    named_before, other_before = _rows_of(db, security_id), _rows_of(db, other)
+
+    dry = run_backfill(db, client=client, execute=False, tickers=["devco"], log=lambda *_: None)
+    assert dry.scopes_targeted == 1 and dry.rows_corrected == 2
+    assert (_rows_of(db, security_id), _rows_of(db, other)) == (named_before, other_before)
+
+    res = run_backfill(db, client=client, execute=True, tickers=["DEVCO"], log=lambda *_: None)
+
+    assert res.scopes_targeted == 1 and res.rows_corrected == 2
+    assert _rows_of(db, security_id) == named_before + 2
+    assert _rows_of(db, other) == other_before  # the unnamed security: not one row appended
+    assert _latest_accepted(db, "acc-named") == {datetime(2026, 1, 2, 18, 30, tzinfo=_UTC)}
+    assert _latest_accepted(db, "acc-unnamed") == {None}
+
+
+def test_an_unknown_ticker_refuses_the_null_only_run(db, security_id):
+    ingest_form4(db, security_id, _XML, "acc-null")
+    db.commit()
+    before = _count(db)
+    client = _FakeClient({"1234567": _subs([("acc-null", "2026-01-02T18:30:00.000Z")])})
+    with pytest.raises(SystemExit, match="unknown ticker"):
+        run_backfill(
+            db, client=client, execute=True, tickers=["DEVCO", "NOSUCH"], log=lambda *_: None
+        )
+    db.rollback()
+    assert _count(db) == before
+
+
+def test_an_execute_run_stamps_each_company_it_filled_and_a_dry_run_stamps_none(db, security_id):
+    """The fill changes the company's insider rows outside the company write lock, so it stamps the company
+    (``db.change_stamp.mark_changed``): dashboards and the held-row queue re-read it. A dry run, and a company
+    whose rows stay unresolved, stamp nothing."""
+    unresolved = _security(db, ticker="UNRESOLVED", cik="0007654321")
+    ingest_form4(db, security_id, _XML, "acc-null")
+    ingest_form4(db, unresolved, _XML, "acc-not-listed")
+    db.commit()
+    client = _FakeClient(
+        {
+            "1234567": _subs([("acc-null", "2026-01-02T18:30:00.000Z")]),
+            "7654321": _subs([]),  # its accession is not listed: left NULL
+        }
+    )
+    run_backfill(db, client=client, execute=False, log=lambda *_: None)
+    assert (_stamps(db, security_id), _stamps(db, unresolved)) == (0, 0)
+    run_backfill(db, client=client, execute=True, log=lambda *_: None)
+    assert (_stamps(db, security_id), _stamps(db, unresolved)) == (1, 0)
+    run_backfill(db, client=client, execute=True, log=lambda *_: None)  # a re-run fills nothing
+    assert (_stamps(db, security_id), _stamps(db, unresolved)) == (1, 0)

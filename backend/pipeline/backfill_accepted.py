@@ -71,6 +71,14 @@ RULES:
     python -m pipeline.backfill_accepted --verify --live       # independent cross-check
     python -m pipeline.backfill_accepted --deep --basket-only --live            # the P2 dry-run
     python -m pipeline.backfill_accepted --deep --basket-only --live --execute  # ...and the write
+    python -m pipeline.backfill_accepted --deep --ticker X --ticker Y          # those securities only
+
+``--ticker`` (repeatable, exact ticker — the ``--drift`` flag's rule) narrows the NULL-only worklist to those
+securities and touches no other; a ticker the security master does not know refuses the run (``SystemExit``)
+rather than running empty. An ``--execute`` run stamps every company it appends to
+(``db.change_stamp.mark_changed``, in the per-security transaction), so dashboards re-read it and a HELD row of
+that filing reads the new acceptance (rule ``2026-11-held-row-reads-its-filings-acceptance``,
+``db.public_clock.hold_accepted_sql``: a hold is never updated, so it reads its filing's stored acceptance).
 
 THE ``--drift`` MODE (2026-10-24) — re-date the stored times that sit on the WRONG NIGHT. SEC's listed
 ``acceptanceDateTime`` became inconsistent per filing from ~2026-10-23 04:00 ET (MEASURED on prod, read-only:
@@ -119,6 +127,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Json
 
 from db.bitemporal import append_fact
+from db.change_stamp import mark_changed
 from db.session import database_url
 from domain.scopes import DATA_TENANT_ID
 from ingest import CacheMiss
@@ -265,7 +274,7 @@ def _coverage(conn: psycopg.Connection) -> tuple[int, int]:
 
 
 def _target_scopes(
-    conn: psycopg.Connection, *, basket_only: bool = False
+    conn: psycopg.Connection, *, basket_only: bool = False, tickers: list[str] | None = None
 ) -> list[tuple[UUID, UUID]]:
     """Distinct (tenant, security) with at least one latest-version-NULL ``accepted`` row — the worklist,
     scoped per security because the source (submissions JSON) is per-CIK.
@@ -282,15 +291,25 @@ def _target_scopes(
     the feed never writes one) never enters it: ``security_master.id`` carries no tenant, so nothing at the
     database layer would stop a bare ``security_id IN (...)`` from pulling it in, and the isolation test is the
     only backstop there is. Proven by ``tests/db/test_tenant_isolation.py``.
+
+    ``tickers`` narrows it to those securities (the (tenant, security) PAIR of each exact ticker, the
+    ``--drift`` flag's rule, ``_drift_scopes``) — a spot run that touches no other security.
     """
-    where = ""
+    clauses: list[str] = []
     params: dict[str, Any] = {}
     if basket_only:
-        where = (
-            "WHERE tenant_id = %(data)s AND security_id IN "
+        clauses.append(
+            "tenant_id = %(data)s AND security_id IN "
             "(SELECT security_id FROM basket_member WHERE security_id IS NOT NULL)"
         )
         params["data"] = DATA_TENANT_ID
+    if tickers:
+        clauses.append(
+            "(tenant_id, security_id) IN "
+            "(SELECT tenant_id, id FROM security_master WHERE upper(ticker) = ANY(%(tickers)s))"
+        )
+        params["tickers"] = [t.upper() for t in tickers]
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
     q = (
         "SELECT DISTINCT tenant_id, security_id FROM (" + _LATEST.format(where=where) + ") latest "
         "WHERE accepted IS NULL ORDER BY tenant_id, security_id"
@@ -312,6 +331,19 @@ def _scope_latest_rows(
     with conn.cursor() as cur:
         cur.execute(q, (tenant_id, security_id))
         return cur.fetchall()
+
+
+def unknown_tickers(conn: psycopg.Connection, tickers: list[str]) -> list[str]:
+    """The asked tickers the security master does not know (exact, case-insensitive) — a spot run on a typo
+    must fail LOUD, never run empty and read as "nothing to fix"."""
+    wanted = list(dict.fromkeys(t.upper() for t in tickers))
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT DISTINCT upper(ticker) AS t FROM security_master WHERE upper(ticker) = ANY(%s)",
+            (wanted,),
+        )
+        known = {r["t"] for r in cur.fetchall()}
+    return [t for t in wanted if t not in known]
 
 
 def _require_security_scoped_natural_key(conn: psycopg.Connection) -> None:
@@ -384,22 +416,32 @@ def run_backfill(
     limit: int | None = None,
     deep: bool = False,
     basket_only: bool = False,
+    tickers: list[str] | None = None,
     log=print,
 ) -> BackfillResult:
     """The repair pass (see the module docstring for the rules). ``execute=False`` performs the full read +
     resolve and reports what WOULD change, appending nothing. ``deep`` paginates ``filings.files[]`` so
     accessions older than the ``recent`` window resolve too; ``basket_only`` narrows the worklist to
-    securities that are placed in a basket (the cost thread — see ``_target_scopes``)."""
+    securities that are placed in a basket (the cost thread — see ``_target_scopes``); ``tickers`` narrows it to
+    those securities (``SystemExit`` naming any ticker the master does not know). An ``execute`` run stamps
+    each company it appended to (``db.change_stamp.mark_changed``, in the same transaction as its rows), so
+    dashboards and the held-row queue re-read it."""
+    if tickers:
+        unknown = unknown_tickers(conn, tickers)
+        if unknown:
+            raise SystemExit(f"unknown ticker(s): {', '.join(unknown)} — refusing an empty run")
     if execute:  # write-path precondition (0037); a dry-run reads fine on any schema
         _require_security_scoped_natural_key(conn)
     res = BackfillResult(executed=execute, deep=deep)
     res.table_rows_before = _count(conn)
     res.coverage_keys_before, res.coverage_nonnull_before = _coverage(conn)
-    scopes = _target_scopes(conn, basket_only=basket_only)
+    scopes = _target_scopes(conn, basket_only=basket_only, tickers=tickers)
     if limit is not None:
         scopes = scopes[:limit]
     res.scopes_targeted = len(scopes)
-    scope_note = " (basket members only)" if basket_only else ""
+    scope_note = (" (basket members only)" if basket_only else "") + (
+        f" (tickers {', '.join(t.upper() for t in tickers)})" if tickers else ""
+    )
     log(f"targets: {len(scopes)} securities with a latest-version NULL accepted{scope_note}")
     if deep:
         log("mode   : DEEP — paginating filings.files[] beyond the recent window")
@@ -429,6 +471,7 @@ def run_backfill(
                 f"  warn: security {security_id} (CIK {cik}) {pages_failed} older submissions "
                 "page(s) unreadable — their accessions stay NULL"
             )
+        appended = 0
         for row in rows:
             dt = amap.get(row["accession"])
             # unresolved by THIS run's enumeration: out of `filings.recent` and (on --deep) absent from
@@ -444,7 +487,12 @@ def run_backfill(
                 values["accepted"] = dt
                 values["supersedes"] = row["id"]  # provenance: which version this corrects
                 append_fact(conn, "fact_insider_txn", values)
+                appended += 1
         if execute:
+            if appended:
+                # the company's insider rows changed outside the company write lock: stamp it (the same
+                # transaction), so dashboards and the held-row queue re-read it
+                mark_changed(conn, [security_id])
             conn.commit()  # per-scope: a crash keeps progress; the re-run resumes at remaining NULLs
         if i % 200 == 0 or i == len(scopes):
             log(f"  ... {i}/{len(scopes)} securities checked")
@@ -831,6 +879,9 @@ def run_drift(
                 _append_copy(conn, table, row, a.at)
         res.items.extend(items.values())
         if execute:
+            if items:
+                # a re-dated acceptance moves the company's rows on the public clock: stamp it (same transaction)
+                mark_changed(conn, [security_id])
             conn.commit()  # per security: a crash keeps progress; a re-run resumes at what is still wrong
         if i % 200 == 0 or i == len(scopes):
             log(f"  ... {i}/{len(scopes)} securities checked")
@@ -1028,11 +1079,14 @@ def main(argv: list[str] | None = None) -> None:
         "--ticker",
         action="append",
         default=None,
-        help="with --drift: only this security (repeatable) — a spot run",
+        help="only the security with this exact ticker (repeatable) — a spot run, with --drift or the "
+        "NULL-only fill (an unknown ticker refuses the NULL-only run)",
     )
     args = p.parse_args(argv)
-    if (args.off_hours or args.ticker) and not args.drift:
-        p.error("--off-hours / --ticker only apply to --drift")
+    if args.off_hours and not args.drift:
+        p.error("--off-hours only applies to --drift")
+    if args.ticker and args.verify:
+        p.error("--ticker does not apply to --verify")
     if args.drift and args.verify:
         p.error("--drift and --verify are separate runs")
 
@@ -1105,6 +1159,7 @@ def main(argv: list[str] | None = None) -> None:
                 limit=args.limit,
                 deep=args.deep,
                 basket_only=args.basket_only,
+                tickers=args.ticker,
             )
             _print_backfill(bres)
             if args.execute:  # S7 — the data-repair journal: one row per --execute, under the lock
@@ -1118,6 +1173,7 @@ def main(argv: list[str] | None = None) -> None:
                     counts={
                         "rows_corrected": bres.rows_corrected,
                         "rows_residual_null": bres.rows_residual_null,
+                        **({"tickers": [t.upper() for t in args.ticker]} if args.ticker else {}),
                     },
                 )
     finally:
