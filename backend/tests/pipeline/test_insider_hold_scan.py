@@ -373,7 +373,7 @@ def test_a_new_row_placed_by_the_rule_is_a_quiet_count_and_a_new_owed_row_pages(
     assert [h.bucket for h in late.new] == ["owed"] * 3 and late.known == 3
     assert len(late.new_labels) == 3
     lines = report_lines(late)
-    assert lines[0].startswith("INSIDER ROWS HELD — 3 NEW, OWED A STEWARD DECISION")
+    assert lines[0].startswith("INSIDER ROWS HELD — 3 NEW, NOT COUNTED")
     assert lines[-1].startswith("3 known held insider row(s)")
     health = daily.assess_health(
         [],
@@ -384,7 +384,7 @@ def test_a_new_row_placed_by_the_rule_is_a_quiet_count_and_a_new_owed_row_pages(
         insider_holds_more=late.new_more,
     )
     assert health is not None and "3 insider row(s) held" in health.label
-    assert "owed a steward decision" in health.label
+    assert "not counted" in health.label and "owed a steward decision" in health.label
 
 
 def test_an_artifact_written_before_the_buckets_still_shows_the_page_it_emitted():
@@ -405,3 +405,57 @@ def test_an_artifact_written_before_the_buckets_still_shows_the_page_it_emitted(
         }
     }
     assert new_labels_of(doc) == ("ABCD 0000000000-24-000001 (P, 10 sh)",)
+
+
+def test_a_new_held_form_4a_row_pages_once_in_its_own_words(db, tmp_path):
+    """A held Form 4/A row cannot be applied in the queue, so its trade is not counted: a NEW one is named on the
+    page like an owed row, with its own words, and is known (quiet) the next night. No held 4/A row exists in the
+    store or in a real fixture, so this is a DIRECT-INPUT contract: the hold row is inserted by hand, never
+    presented as a real filing."""
+    from psycopg.types.json import Json
+
+    from domain.insider_holds import AMENDMENT_ROW_WORDS
+
+    sid = uuid.uuid4()
+    acc = "0000000000-21-000001"
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO security_master (id, tenant_id, ticker, valid_from) VALUES (%s, %s, %s, %s)",
+            (sid, DEFAULT_TENANT_ID, "AMDR", "2020-01-01"),
+        )
+        cur.execute(
+            'INSERT INTO insider_txn_hold (tenant_id, security_id, accession, txn_seq, form, reason, "row", '
+            "filed) VALUES (%s, %s, %s, 0, '4/A', 'after_filing', %s, %s)",
+            (
+                DEFAULT_TENANT_ID,
+                sid,
+                acc,
+                Json({"txn_code": "S", "shares": 100, "txn_date_as_filed": "2021-11-16"}),
+                date(2021, 3, 19),
+            ),
+        )
+    db.commit()
+
+    first = _scan(None)
+    assert first.by_bucket == {"amendment_row": 1}
+    assert [h.bucket for h in first.new_paged] == ["amendment_row"]
+    (label,) = first.new_labels
+    assert label == f"AMDR {acc} 4/A (S, 100 sh) {AMENDMENT_ROW_WORDS}"
+    lines = report_lines(first)
+    assert lines[0].startswith("INSIDER ROWS HELD — 1 NEW, NOT COUNTED") and acc in lines[1]
+    assert not any("need no decision" in line for line in lines)
+    health = daily.assess_health(
+        [],
+        asof=_ASOF,
+        allow_live=True,
+        freeze_check=False,
+        insider_holds_new=first.new_labels,
+        insider_holds_more=first.new_more,
+    )
+    assert health is not None and "cannot be applied yet" in health.label
+    doc = first.payload()
+    assert new_labels_of(doc) == (label,)  # the Admin history shows the same page
+
+    _write(tmp_path, 0, first)
+    second = _scan(previous_hold_keys(base_dir=tmp_path))
+    assert (second.new_labels, second.new_more, second.known) == ((), 0, 1)

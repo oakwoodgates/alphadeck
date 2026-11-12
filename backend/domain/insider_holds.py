@@ -579,13 +579,28 @@ def hold_label(
     form: str,
     code: str | None,
     shares: float | int | None,
+    bucket: str | None = None,
 ) -> str:
     """One held row as the page names it: the ticker (else the security id's first 8 characters), the
     accession, the transaction code and the shares — ``"ABCD 0000000000-24-000001 (A, 22,500 sh)"``; a row of an
-    amendment says so (``"... 4/A (S, 100 sh)"``)."""
+    amendment says so (``"... 4/A (S, 100 sh)"``), and a row in bucket ``amendment_row`` adds its own words
+    (``AMENDMENT_ROW_WORDS``)."""
     who = ticker or security_id[:8]
     amended = " 4/A" if form == "4/A" else ""
-    return f"{who} {accession}{amended} ({code or '?'}, {_shares(shares)})"
+    label = f"{who} {accession}{amended} ({code or '?'}, {_shares(shares)})"
+    if bucket == BUCKET_AMENDMENT_ROW:
+        label += f" {AMENDMENT_ROW_WORDS}"
+    return label
+
+
+# what a held Form 4/A row means for the operator: nobody can act on it in the queue yet, so it is told once
+AMENDMENT_ROW_WORDS = (
+    "[held in a Form 4/A: it cannot be applied yet, so the amendment's trade is not counted]"
+)
+
+# the buckets whose NEW rows page once: a row nothing counts until someone acts (owed), and a row nothing can
+# count yet (a held Form 4/A row); a row placed by the rule or corrected by the filer is counted — quiet
+PAGED_BUCKETS = frozenset({BUCKET_OWED, BUCKET_AMENDMENT_ROW})
 
 
 def page_names(named: Sequence[str], more: int) -> str:
@@ -598,21 +613,22 @@ def page_names(named: Sequence[str], more: int) -> str:
 
 
 def page_bit(named: Sequence[str], more: int) -> str:
-    """The health line for NEW held rows OWED a steward decision (a new row placed by rule, corrected by the
-    filer or held in a Form 4/A is a quiet count, never paged), without its closing note (each surface adds its
-    own: the page says "not a cron error", the Admin run row its benign marker)."""
+    """The health line for NEW held rows that are NOT COUNTED (``PAGED_BUCKETS``: owed a steward decision, or
+    held in a Form 4/A — a held amendment row's label says so itself); a new row placed by rule or corrected by
+    the filer is a quiet count, never paged. Without its closing note (each surface adds its own: the page says
+    "not a cron error", the Admin run row its benign marker)."""
     n = len(named) + more
     return (
-        f"{n} insider row(s) held because the filing's transaction date cannot be true, owed a steward "
-        f"decision: {page_names(named, more)} — not counted until a steward decides on Admin (Held insider "
-        "rows), and no date is invented"
+        f"{n} insider row(s) held because the filing's transaction date cannot be true, not counted: "
+        f"{page_names(named, more)} — a Form 4 row is owed a steward decision on Admin (Held insider rows), "
+        "and no date is invented"
     )
 
 
 def quiet_new_line(by_bucket: Mapping[str, int]) -> str:
     """The printed report's ONE quiet line for NEW held rows that need no decision (placed by rule, corrected
-    by the filer, a Form 4/A row): counted, never paged. ``""`` when there are none."""
-    quiet = {b: n for b, n in by_bucket.items() if n and b != BUCKET_OWED}
+    by the filer, a standing decision): counted, never paged. ``""`` when there are none."""
+    quiet = {b: n for b, n in by_bucket.items() if n and b not in PAGED_BUCKETS}
     if not quiet:
         return ""
     parts = "; ".join(f"{n} {BUCKET_WORDS.get(b, b)}" for b, n in sorted(quiet.items()))

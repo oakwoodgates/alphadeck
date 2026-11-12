@@ -18,11 +18,13 @@ THE BUCKET (step 3). Each held row carries where it sits in the steward's queue
 (``repositories.insider_hold_repo.items`` -> ``domain.insider_holds.hold_state``), as of the scan. The block
 counts them (``by_bucket``) and records each new row's bucket.
 
-LOUDNESS. Only a NEW row OWED a steward decision is loud: the health page names those (ticker, accession, code,
-shares) up to ``PAGE_NAME_CAP`` and counts the rest; it is benign-class ("not a cron error": the run did its
-job, a filer wrote an impossible date). A new row placed by the rule, corrected by the filer, or held in a Form
-4/A needs no decision and is ONE quiet count line. The printed report lists the owed rows with the date as filed
-and the reason, and one quiet line counts the known ones. Nothing at all on a night with no held row.
+LOUDNESS. Only a NEW row the read does NOT COUNT is loud (``domain.insider_holds.PAGED_BUCKETS``): one OWED a
+steward decision, and one held in a Form 4/A (nobody can apply it in the queue yet, so its trade is uncounted
+and quiet would mean nobody knows — its label says so in its own words). The health page names those (ticker,
+accession, code, shares) up to ``PAGE_NAME_CAP`` and counts the rest; it is benign-class ("not a cron error":
+the run did its job, a filer wrote an impossible date). A new row placed by the rule or corrected by the filer
+is counted and is ONE quiet count line. The printed report lists the paged rows with the date as filed and the
+reason, and one quiet line counts the known ones. Nothing at all on a night with no held row.
 
 FAIL-OPEN for the pass, LOUD for the operator: a scan that raises returns ``evaluated=False`` / ``error`` and
 the pass goes on; a ``--no-live`` pass does not scan and is never a baseline.
@@ -37,7 +39,13 @@ from typing import Any
 
 import psycopg
 
-from domain.insider_holds import BUCKET_OWED, PAGE_NAME_CAP, hold_label, quiet_new_line
+from domain.insider_holds import (
+    BUCKET_OWED,
+    PAGE_NAME_CAP,
+    PAGED_BUCKETS,
+    hold_label,
+    quiet_new_line,
+)
 
 BLOCK = "insider_holds"
 
@@ -78,6 +86,11 @@ class HeldRow:
         return self.bucket == BUCKET_OWED
 
     @property
+    def paged(self) -> bool:
+        """Told once, loud: owed a decision, or held in a Form 4/A (``PAGED_BUCKETS``)."""
+        return self.bucket in PAGED_BUCKETS
+
+    @property
     def label(self) -> str:
         """The row as the page names it (ticker, accession, code, shares)."""
         return hold_label(
@@ -87,6 +100,7 @@ class HeldRow:
             form=self.form,
             code=self.code,
             shares=self.shares,
+            bucket=self.bucket,
         )
 
     @property
@@ -173,8 +187,13 @@ class HoldScan:
 
     @property
     def new_owed(self) -> tuple[HeldRow, ...]:
-        """The NEW held rows OWED a steward decision — the only loud ones."""
+        """The NEW held rows OWED a steward decision."""
         return tuple(h for h in self.new if h.owed)
+
+    @property
+    def new_paged(self) -> tuple[HeldRow, ...]:
+        """The NEW held rows the read does not count — owed, or held in a Form 4/A: the only loud ones."""
+        return tuple(h for h in self.new if h.paged)
 
     @property
     def new_by_bucket(self) -> dict[str, int]:
@@ -192,13 +211,13 @@ class HoldScan:
 
     @property
     def new_labels(self) -> tuple[str, ...]:
-        """The NEW OWED held rows the page NAMES — the first ``PAGE_NAME_CAP`` in inventory order."""
-        return tuple(h.label for h in self.new_owed[:PAGE_NAME_CAP])
+        """The NEW paged held rows the page NAMES — the first ``PAGE_NAME_CAP`` in inventory order."""
+        return tuple(h.label for h in self.new_paged[:PAGE_NAME_CAP])
 
     @property
     def new_more(self) -> int:
-        """The NEW OWED held rows the page only COUNTS."""
-        return max(0, len(self.new_owed) - PAGE_NAME_CAP)
+        """The NEW paged held rows the page only COUNTS."""
+        return max(0, len(self.new_paged) - PAGE_NAME_CAP)
 
     def payload(self) -> dict:
         return {
@@ -287,9 +306,9 @@ def previous_hold_keys(*, base_dir: Path | None = None) -> set[str] | None:
 
 
 def _new_rows(doc: Mapping) -> list[Mapping]:
-    """The NEW rows one artifact PAGED: the owed ones (an artifact written before step 3 carries no bucket —
-    every new row was paged then, so it reads as owed: the history shows the page the run emitted).
-    """
+    """The NEW rows one artifact PAGED: the owed ones and the held Form 4/A rows (``PAGED_BUCKETS``). An
+    artifact written before step 3 carries no bucket — every new row was paged then, so it reads as owed: the
+    history shows the page the run emitted)."""
     block = doc.get(BLOCK)
     if not isinstance(block, Mapping):
         return []
@@ -298,7 +317,7 @@ def _new_rows(doc: Mapping) -> list[Mapping]:
         for r in block.get("new") or []
         if isinstance(r, Mapping)
         and r.get("accession")
-        and (r.get("bucket") or BUCKET_OWED) == BUCKET_OWED
+        and (r.get("bucket") or BUCKET_OWED) in PAGED_BUCKETS
     ]
 
 
@@ -311,6 +330,7 @@ def _label_of(r: Mapping) -> str:
         form=str(r.get("form") or ""),
         code=r.get("code"),
         shares=_num(r.get("shares")),
+        bucket=r.get("bucket"),
     )
 
 
@@ -334,14 +354,14 @@ def report_lines(scan: HoldScan) -> list[str]:
     if not scan.evaluated:
         return []
     lines: list[str] = []
-    owed = scan.new_owed
-    if owed:
+    paged = scan.new_paged
+    if paged:
         lines.append(
-            f"INSIDER ROWS HELD — {len(owed)} NEW, OWED A STEWARD DECISION (the filing's transaction date "
-            "cannot be true; each row is kept in insider_txn_hold, not counted until a steward decides on "
-            "Admin, and no date is invented):"
+            f"INSIDER ROWS HELD — {len(paged)} NEW, NOT COUNTED (the filing's transaction date cannot be "
+            "true; each row is kept in insider_txn_hold; a Form 4 row is owed a steward decision on Admin, a "
+            "Form 4/A row cannot be applied yet; no date is invented):"
         )
-        lines.extend(f"  {h.line}" for h in owed[:PAGE_NAME_CAP])
+        lines.extend(f"  {h.line}" for h in paged[:PAGE_NAME_CAP])
         if scan.new_more:
             lines.append(
                 f"  +{scan.new_more} more — listed in the run artifact (insider_holds.new)"

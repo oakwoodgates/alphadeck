@@ -26,10 +26,12 @@ EXACTNESS RULES (the Form 4/A decisions' own):
 2. At most ONE standing decision per held row: a second is refused (``HoldConflict`` — undo the first). A held
    row the filer's own amendment already decides (``filer_corrected``) and a held Form 4/A row (applying one is
    not built) take no decision.
-3. The author is recorded the way the Form 4/A decisions record theirs: in ``basis`` (``<actor>:<action>`` —
-   ``steward:approve`` / ``steward:dismiss`` / ``steward:revoke``), no person. ``detail`` keeps the evidence the
-   steward saw (date as filed, period of report, signature date, acceptance, the suggested date and whether it
-   agrees with the filing).
+3. LABELED — who, when, why. The role is in ``basis`` the way the Form 4/A decisions record theirs
+   (``<actor>:<action>`` — ``steward:approve`` / ``steward:dismiss`` / ``steward:revoke``); the PERSON is in
+   ``detail.decided_by`` (``{"user_id", "display_name"}`` — never an email), ``null`` when the caller names no
+   user (a direct repo call, a CLI: never an invented name); when is ``recorded_at``; why is ``reason``.
+   ``detail`` also keeps the evidence the steward saw (date as filed, period of report, signature date,
+   acceptance, the suggested date and whether it agrees with the filing).
 
 Like the Form 4/A decisions, no ``data_repair`` journal row is written: a steward decision is an operator
 decision, not a repair tool's run.
@@ -269,6 +271,18 @@ def _lock(conn: psycopg.Connection, hold_id: UUID, tenant_id: UUID) -> dict[str,
     return row
 
 
+def decider(user_id: UUID | str, display_name: str) -> dict[str, str]:
+    """The person a decision records (``detail.decided_by``): the user id and the display name — never an email."""
+    return {"user_id": str(user_id), "display_name": str(display_name)}
+
+
+def _person(decided_by: Mapping[str, Any] | None) -> dict[str, str] | None:
+    """Only the two fields a decision may carry, or ``None`` (no user named: never invented)."""
+    if not decided_by:
+        return None
+    return decider(decided_by["user_id"], decided_by.get("display_name") or "")
+
+
 def _evidence(it: HoldItem) -> dict[str, Any]:
     """What the steward saw when deciding (#6) — display only, never read back by the read."""
     h = it.hold
@@ -336,6 +350,7 @@ def approve(
     actor: str = ACTOR_STEWARD,
     *,
     tenant_id: UUID = DATA_TENANT_ID,
+    decided_by: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Count the held row dated at ``ratified_date`` — the suggested date when ``None`` (``ValueError`` when there
     is none). ``ValueError`` when the date fails the year rule or is after the filing's market date (or that is
@@ -363,6 +378,7 @@ def approve(
             "detail": {
                 **_evidence(it),
                 "ratified_from": "suggestion" if ratified_date is None else "steward",
+                "decided_by": _person(decided_by),
             },
         },
     )
@@ -375,6 +391,7 @@ def dismiss(
     actor: str = ACTOR_STEWARD,
     *,
     tenant_id: UUID = DATA_TENANT_ID,
+    decided_by: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Do not count the held row ("not a trade"). ``ValueError`` without a reason; ``HoldConflict`` per
     ``_decidable``; ``LookupError`` for an unknown hold."""
@@ -391,7 +408,7 @@ def dismiss(
             "action": ACTION_DISMISS,
             "reason": why,
             "basis": basis_of(actor, ACTION_DISMISS),
-            "detail": _evidence(it),
+            "detail": {**_evidence(it), "decided_by": _person(decided_by)},
         },
     )
 
@@ -403,6 +420,7 @@ def revoke(
     actor: str = ACTOR_STEWARD,
     *,
     tenant_id: UUID = DATA_TENANT_ID,
+    decided_by: Mapping[str, Any] | None = None,
 ) -> tuple[dict[str, Any], UUID]:
     """Undo one approve / dismiss by appending a ``revoke`` naming it. Returns ``(the revoke row, the hold id)``.
     ``LookupError`` for an unknown decision (or one whose held row is gone); ``HoldConflict`` for a revoke of a
@@ -445,7 +463,7 @@ def revoke(
             "revokes": decision_id,
             "reason": why,
             "basis": basis_of(actor, ACTION_REVOKE),
-            "detail": {"revoked_action": target["action"]},
+            "detail": {"revoked_action": target["action"], "decided_by": _person(decided_by)},
         },
     )
     return row, hold["id"]

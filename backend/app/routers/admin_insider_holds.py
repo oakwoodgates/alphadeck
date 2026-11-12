@@ -19,15 +19,16 @@ or before the filing's market date — never a model), and ``agrees`` says wheth
 period of report. It changes nothing until a steward approves it.
 
 Every write is ONE append-only row, recorded now (on the public clock a steward decision counts from when it was
-made — a past night's view is never rewritten), authored ``steward:<action>`` in ``basis``, with the evidence
-the steward saw in ``detail``. Steward only (mounted with ``require_super_admin``); it acts on the DATA tenant,
+made — a past night's view is never rewritten), authored ``steward:<action>`` in ``basis``, the signed-in steward who
+decided in ``detail.decided_by`` (user id and display name, never an email), and the evidence the steward saw
+in ``detail``. Steward only (mounted with ``require_super_admin``); it acts on the DATA tenant,
 never on the caller's workspace.
 """
 
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import date, datetime
 from typing import Any
 from uuid import UUID
@@ -36,6 +37,7 @@ import psycopg
 from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app.auth import CurrentUser, require_super_admin
 from app.deps import get_conn
 from domain.insider_holds import (
     BUCKET_AMENDMENT_ROW,
@@ -67,10 +69,18 @@ class AdminHeldRowOut(BaseModel):
     usd: float | None = None
 
 
+class AdminHoldDeciderOut(BaseModel):
+    """Who decided: the steward's user id and display name (never an email)."""
+
+    user_id: UUID
+    display_name: str
+
+
 class AdminHoldDecisionOut(BaseModel):
-    """The standing steward decision on a held row: ``action`` ``approve`` (counted at ``ratified_date``) or
-    ``dismiss``; ``recorded_at`` = when the steward decided; ``basis`` = its author (``steward:<action>``).
-    """
+    """One steward decision on a held row: ``action`` ``approve`` (counted at ``ratified_date``), ``dismiss``, or
+    ``revoke`` (the Undo of the decision ``revokes`` names); ``recorded_at`` = when; ``reason`` = why;
+    ``basis`` = its role (``steward:<action>``); ``decided_by`` = who (``null`` for a decision no signed-in user
+    made)."""
 
     id: UUID
     action: str
@@ -78,6 +88,8 @@ class AdminHoldDecisionOut(BaseModel):
     reason: str
     recorded_at: datetime
     basis: str
+    revokes: UUID | None = None
+    decided_by: AdminHoldDeciderOut | None = None
 
 
 class AdminInsiderHoldOut(BaseModel):
@@ -91,7 +103,8 @@ class AdminInsiderHoldOut(BaseModel):
     amendment_row); ``why`` = why the filer's own amendment decides it (``filer_corrected`` only);
     ``filing_night`` = the night it counts from when placed by the rule. ``suggested_date`` = the arithmetic
     suggestion (``None`` = none can be made) and ``agrees`` = it is on or after a readable period of report.
-    ``decision`` = the standing steward decision (decided / dismissed). ``filing_url`` = the filing on EDGAR.
+    ``decision`` = the standing steward decision (decided / dismissed); ``history`` = every decision about the
+    row, Undos included, oldest first. ``filing_url`` = the filing on EDGAR.
     """
 
     hold_id: UUID
@@ -115,6 +128,7 @@ class AdminInsiderHoldOut(BaseModel):
     suggested_date: date | None = None
     agrees: bool = False
     decision: AdminHoldDecisionOut | None = None
+    history: list[AdminHoldDecisionOut] = Field(default_factory=list)
     filing_url: str | None = None
 
 
@@ -165,6 +179,26 @@ def _filing_url(issuer_cik: str | None, accession: str) -> str | None:
     return f"{get_settings().sec_archives_base}/{int(issuer_cik)}/{accession.replace('-', '')}/"
 
 
+def _decider(detail: Any) -> AdminHoldDeciderOut | None:
+    who = detail.get("decided_by") if isinstance(detail, dict) else None
+    if not isinstance(who, dict) or not who.get("user_id"):
+        return None
+    return AdminHoldDeciderOut(user_id=who["user_id"], display_name=who.get("display_name") or "")
+
+
+def _decision(d: Mapping[str, Any]) -> AdminHoldDecisionOut:
+    return AdminHoldDecisionOut(
+        id=d["id"],
+        action=d["action"],
+        ratified_date=d.get("ratified_date"),
+        reason=d["reason"],
+        recorded_at=d["recorded_at"],
+        basis=d["basis"],
+        revokes=d.get("revokes"),
+        decided_by=_decider(d.get("detail")),
+    )
+
+
 def item_out(it: HoldItem) -> AdminInsiderHoldOut:
     """One repository item as the panel renders it."""
     h = it.hold
@@ -203,18 +237,8 @@ def item_out(it: HoldItem) -> AdminInsiderHoldOut:
         filing_night=it.state.day if it.bucket == BUCKET_PLACED else None,
         suggested_date=it.suggested,
         agrees=it.agrees,
-        decision=(
-            AdminHoldDecisionOut(
-                id=d["id"],
-                action=d["action"],
-                ratified_date=d.get("ratified_date"),
-                reason=d["reason"],
-                recorded_at=d["recorded_at"],
-                basis=d["basis"],
-            )
-            if d is not None
-            else None
-        ),
+        decision=_decision(d) if d is not None else None,
+        history=[_decision(x) for x in it.decisions],
         filing_url=_filing_url(it.issuer_cik, h["accession"]),
     )
 
@@ -260,6 +284,11 @@ def _commit(conn: psycopg.Connection, fn: Callable[[], object]) -> object:
         raise
 
 
+def _who(user: CurrentUser) -> dict[str, str]:
+    """The signed-in steward a decision records (``detail.decided_by``) — id and display name, never the email."""
+    return insider_hold_repo.decider(user.id, user.display_name)
+
+
 def _one(conn: psycopg.Connection, hold_id: UUID) -> AdminInsiderHoldOut:
     try:
         return item_out(insider_hold_repo.one(conn, hold_id))
@@ -286,6 +315,7 @@ def approve_hold(
     hold_id: UUID,
     body: AdminHoldApproveIn | None = Body(default=None),
     conn: psycopg.Connection = Depends(get_conn),
+    user: CurrentUser = Depends(require_super_admin),
 ) -> AdminInsiderHoldOut:
     """RATIFY a date (basis ``steward:approve``): the held row counts from that date, for every read made from
     now on (a past night's view is not rewritten). Omit ``ratified_date`` to ratify the suggested date. Undo
@@ -295,7 +325,9 @@ def approve_hold(
     b = body or AdminHoldApproveIn()
     _commit(
         conn,
-        lambda: insider_hold_repo.approve(conn, hold_id, b.ratified_date, b.reason),
+        lambda: insider_hold_repo.approve(
+            conn, hold_id, b.ratified_date, b.reason, decided_by=_who(user)
+        ),
     )
     return _one(conn, hold_id)
 
@@ -305,11 +337,15 @@ def dismiss_hold(
     hold_id: UUID,
     body: AdminHoldDismissIn,
     conn: psycopg.Connection = Depends(get_conn),
+    user: CurrentUser = Depends(require_super_admin),
 ) -> AdminInsiderHoldOut:
     """DISMISS the held row as not a trade (basis ``steward:dismiss``): it is not counted, for every read made
     from now on. A reason is required. Undo with the revoke route. **404** unknown held row, **409** a decision
     already stands / the filer's own Form 4/A decides it / a Form 4/A row, **422** no reason."""
-    _commit(conn, lambda: insider_hold_repo.dismiss(conn, hold_id, body.reason))
+    _commit(
+        conn,
+        lambda: insider_hold_repo.dismiss(conn, hold_id, body.reason, decided_by=_who(user)),
+    )
     return _one(conn, hold_id)
 
 
@@ -318,11 +354,14 @@ def revoke_hold_decision(
     decision_id: UUID,
     body: AdminHoldRevokeIn | None = Body(default=None),
     conn: psycopg.Connection = Depends(get_conn),
+    user: CurrentUser = Depends(require_super_admin),
 ) -> AdminInsiderHoldOut:
     """UNDO a steward decision (basis ``steward:revoke``): the held row returns to the state before it (the
     placement rule, or owed). **404** unknown decision, **409** the decision is itself an Undo, or was already
     undone."""
     reason = body.reason if body else None
-    result = _commit(conn, lambda: insider_hold_repo.revoke(conn, decision_id, reason))
+    result = _commit(
+        conn, lambda: insider_hold_repo.revoke(conn, decision_id, reason, decided_by=_who(user))
+    )
     _, hold_id = result  # type: ignore[misc]
     return _one(conn, hold_id)

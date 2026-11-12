@@ -20,6 +20,7 @@ from ingest.edgar.form4 import ingest_form4
 from signals.base import PointInTimeData
 from tests import held_fixtures as H
 from tests.app.test_auth_gate import _signed_in, anon  # noqa: F401 — the fixture is used below
+from tests.auth_fixtures import TEST_STEWARD
 
 BASE = "/admin/insider-holds"
 BUCKETS = ("owed", "placed_by_rule", "filer_corrected", "decided", "dismissed", "amendment_row")
@@ -48,6 +49,16 @@ def _items(client) -> dict[tuple[str, int], dict]:
             out[(it["accession"], it["txn_seq"])] = it
     assert body["total"] == len(out)
     return out
+
+
+# the signed-in steward of every app test (``tests.auth_fixtures.TEST_STEWARD``) as a decision records it
+STEWARD = {"user_id": str(TEST_STEWARD.id), "display_name": TEST_STEWARD.display_name}
+
+
+def _detail(db, decision_id) -> dict:
+    with db.cursor() as cur:
+        cur.execute("SELECT detail FROM insider_txn_hold_decision WHERE id = %s", (decision_id,))
+        return cur.fetchone()["detail"]
 
 
 def _count(db) -> int:
@@ -185,6 +196,11 @@ def test_approve_counts_the_row_from_the_decision_on_and_revoke_restores_it(clie
     assert row["detail"]["period_of_report_as_filed"] == "2020-11-16"
     assert row["detail"]["suggested_date"] == "2020-11-16" and row["detail"]["agrees"] is True
     assert row["detail"]["ratified_from"] == "suggestion" and row["detail"]["accepted"]
+    # WHO decided: the signed-in steward (id + display name, never an email), stored and returned
+    assert row["detail"]["decided_by"] == STEWARD
+    assert "email" not in row["detail"]["decided_by"]
+    assert it["decision"]["decided_by"] == STEWARD
+    assert [h["decided_by"] for h in it["history"]] == [STEWARD]
     decided = row["recorded_at"]
 
     # on the PUBLIC clock the decision counts from when it was made: a read before it still waits
@@ -205,6 +221,11 @@ def test_approve_counts_the_row_from_the_decision_on_and_revoke_restores_it(clie
     assert r.status_code == 200, r.text
     assert r.json()["bucket"] == "owed" and r.json()["decision"] is None
     assert _count(db) == before + 2
+    # the Undo is labeled too: who undid it rides the row's history (the stored revoke and the returned one)
+    undo = r.json()["history"][-1]
+    assert undo["action"] == "revoke" and undo["revokes"] == it["decision"]["id"]
+    assert undo["decided_by"] == STEWARD and undo["basis"] == "steward:revoke"
+    assert _detail(db, undo["id"])["decided_by"] == STEWARD
     assert _read(db, sid, asof, H.FAR, "public") == []
     # undoing it again, or undoing the Undo: 409
     assert client.post(f"{BASE}/decisions/{it['decision']['id']}/revoke").status_code == 409
@@ -240,10 +261,15 @@ def test_a_steward_date_and_a_dismiss_on_a_placed_row_and_their_undo(client, db)
     r = client.post(f"{BASE}/{hid}/dismiss", json={"reason": "a zero-share notice"})
     assert r.status_code == 200, r.text
     assert r.json()["bucket"] == "dismissed" and r.json()["decision"]["basis"] == "steward:dismiss"
+    assert r.json()["decision"]["decided_by"] == STEWARD
+    assert _detail(db, r.json()["decision"]["id"])["decided_by"] == STEWARD
     assert len(_read(db, sid, asof, H.FAR, "public")) == 2
     d2 = r.json()["decision"]["id"]
     r = client.post(f"{BASE}/decisions/{d2}/revoke", json={"reason": "it was a trade"})
     assert r.status_code == 200 and r.json()["bucket"] == "placed_by_rule"
+    undo = r.json()["history"][-1]
+    assert undo["action"] == "revoke" and undo["decided_by"] == STEWARD
+    assert _detail(db, undo["id"])["decided_by"] == STEWARD
     assert _read(db, sid, asof, H.FAR, "public") == placed
 
 

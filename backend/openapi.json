@@ -8077,6 +8077,26 @@
         "title": "AdminHoldApproveIn",
         "description": "The date to ratify (omit it to ratify the suggested date) and why (optional \u2014 a default is stored)."
       },
+      "AdminHoldDeciderOut": {
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_id",
+          "display_name"
+        ],
+        "title": "AdminHoldDeciderOut",
+        "description": "Who decided: the steward's user id and display name (never an email)."
+      },
       "AdminHoldDecisionOut": {
         "properties": {
           "id": {
@@ -8112,6 +8132,28 @@
           "basis": {
             "type": "string",
             "title": "Basis"
+          },
+          "revokes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revokes"
+          },
+          "decided_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdminHoldDeciderOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -8123,7 +8165,7 @@
           "basis"
         ],
         "title": "AdminHoldDecisionOut",
-        "description": "The standing steward decision on a held row: ``action`` ``approve`` (counted at ``ratified_date``) or\n``dismiss``; ``recorded_at`` = when the steward decided; ``basis`` = its author (``steward:<action>``)."
+        "description": "One steward decision on a held row: ``action`` ``approve`` (counted at ``ratified_date``), ``dismiss``, or\n``revoke`` (the Undo of the decision ``revokes`` names); ``recorded_at`` = when; ``reason`` = why;\n``basis`` = its role (``steward:<action>``); ``decided_by`` = who (``null`` for a decision no signed-in user\nmade)."
       },
       "AdminHoldDismissIn": {
         "properties": {
@@ -8912,6 +8954,13 @@
               }
             ]
           },
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/AdminHoldDecisionOut"
+            },
+            "type": "array",
+            "title": "History"
+          },
           "filing_url": {
             "anyOf": [
               {
@@ -8937,7 +8986,7 @@
           "bucket"
         ],
         "title": "AdminInsiderHoldOut",
-        "description": "One held insider row and everything the steward needs to decide it.\n\n``reason`` is the rule's code (``year_before_1934`` / ``year_after_filing_year`` / ``after_filing``) and\n``reason_words`` the same in plain words. ``date_as_filed``, ``period_of_report_as_filed`` and\n``signature_date_as_filed`` are the filing's own text, verbatim (any of them can itself be a typo: evidence,\nnever a correction). ``filed`` / ``accepted`` = SEC's filing date and acceptance instant (``None`` when not\nknown). ``bucket`` = where it sits (owed / placed_by_rule / filer_corrected / decided / dismissed /\namendment_row); ``why`` = why the filer's own amendment decides it (``filer_corrected`` only);\n``filing_night`` = the night it counts from when placed by the rule. ``suggested_date`` = the arithmetic\nsuggestion (``None`` = none can be made) and ``agrees`` = it is on or after a readable period of report.\n``decision`` = the standing steward decision (decided / dismissed). ``filing_url`` = the filing on EDGAR."
+        "description": "One held insider row and everything the steward needs to decide it.\n\n``reason`` is the rule's code (``year_before_1934`` / ``year_after_filing_year`` / ``after_filing``) and\n``reason_words`` the same in plain words. ``date_as_filed``, ``period_of_report_as_filed`` and\n``signature_date_as_filed`` are the filing's own text, verbatim (any of them can itself be a typo: evidence,\nnever a correction). ``filed`` / ``accepted`` = SEC's filing date and acceptance instant (``None`` when not\nknown). ``bucket`` = where it sits (owed / placed_by_rule / filer_corrected / decided / dismissed /\namendment_row); ``why`` = why the filer's own amendment decides it (``filer_corrected`` only);\n``filing_night`` = the night it counts from when placed by the rule. ``suggested_date`` = the arithmetic\nsuggestion (``None`` = none can be made) and ``agrees`` = it is on or after a readable period of report.\n``decision`` = the standing steward decision (decided / dismissed); ``history`` = every decision about the\nrow, Undos included, oldest first. ``filing_url`` = the filing on EDGAR."
       },
       "AdminInsiderHoldsOut": {
         "properties": {

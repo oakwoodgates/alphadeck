@@ -402,7 +402,8 @@ call reads:
 - **Corrected by the filer** (quiet, no action): the filer's own Form 4/A withdraws the filing, marks it a
   duplicate, replaces the row, or carries the same trade (`why` names it). The source outranks the steward.
 - **Decided** / **Dismissed** (quiet): your standing decision, each with its Undo.
-- **Held in a Form 4/A** (quiet, no action): applying a held amendment row is not built.
+- **Held in a Form 4/A** (quiet on the panel, no action): applying a held amendment row is not built; a NEW one
+  is paged once by the nightly, since its trade is not counted.
 
 Each row carries the filing's own words verbatim (the date as filed, the period of report, the signature date),
 SEC's filing date and acceptance, the reason in plain words, the row (person, role, code, shares, price,
@@ -412,9 +413,11 @@ before — arithmetic on the filing, never a model. `agrees` says the suggestion
 possible period of report. A suggestion changes nothing until you approve it.
 
 The decisions, each ONE append-only row recorded NOW (on the public clock a decision counts from when you made
-it; a past night's view is never rewritten), authored in `basis` the Form 4/A way (`steward:approve` /
-`steward:dismiss` / `steward:revoke` — no person is recorded, as with the Form 4/A decisions), with the
-evidence you saw in `detail`, under a `FOR UPDATE` lock on the held row, moving the company's change stamp so
+it; a past night's view is never rewritten), labeled who / when / why: the role in `basis` the Form 4/A way
+(`steward:approve` / `steward:dismiss` / `steward:revoke`), the person in `detail.decided_by` (the signed-in
+steward's user id and display name, never an email; `null` for a call that names no user, never invented),
+`recorded_at` and `reason` — with the evidence you saw in `detail`, every decision (Undos included) returned
+in the item's `history`, under a `FOR UPDATE` lock on the held row, moving the company's change stamp so
 dashboards re-read it (no `data_repair` journal row: a decision is not a repair run):
 
 - **Approve** a date (the suggestion when none is sent): it must pass the year rule (not before 1934, not after
@@ -424,7 +427,8 @@ dashboards re-read it (no `data_repair` journal row: a decision is not a repair 
 
 `GET /admin/status` carries `insider_holds_owed` (quiet at 0), and a company with an owed row carries the
 `insider_row_held` data flag beside its insider cells (display only; `domain/data_flags.py`). The nightly's
-`insider_holds` block counts every bucket and pages only a NEW owed row.
+`insider_holds` block counts every bucket and pages only a NEW row the read does not count: an owed row, or a
+held Form 4/A row (named with its own words: it cannot be applied yet, so the amendment's trade is not counted).
 
 ### Split-basis defects — "is every tape on ONE split basis?"  `[BUILT, T4]`
 
@@ -860,7 +864,7 @@ the freeze it is adjacent to: `POSTMORTEM_CRON_FREEZE_2026-07.md`.
 | `POST /admin/insider-amendments/{security_id}/{accession}/add` | `{reason?}` → the amendment | **Add to the original** — every original row stands, the amendment's rows are added (stored as an `apply` with `replaced_rows = []`); partial / consolidation / addition / restatement / field change only; 409 a zero-row or correction amendment / an operator verdict stands |
 | `POST /admin/insider-amendments/{security_id}/{accession}/link` | `{target_accession, reason?}` → the amendment | an ambiguous amendment's candidate only; 409 otherwise / already linked |
 | `POST /admin/insider-amendments/decisions/{decision_id}/revoke` | → the amendment | Undo; 404 unknown / already undone, 409 a verdict stands under the link |
-| `GET /admin/insider-holds` | the held-insider-rows queue: `owed` / `placed_by_rule` / `filer_corrected` / `decided` / `dismissed` / `amendment_row`, plus `counts` and `total`; each item carries the filing's own dates verbatim, `filed` / `accepted`, `reason` + `reason_words`, the row, `bucket`, `why`, `filing_night`, `suggested_date` + `agrees`, the standing `decision`, `filing_url` | read-only, live from the 0082 / 0083 tables |
+| `GET /admin/insider-holds` | the held-insider-rows queue: `owed` / `placed_by_rule` / `filer_corrected` / `decided` / `dismissed` / `amendment_row`, plus `counts` and `total`; each item carries the filing's own dates verbatim, `filed` / `accepted`, `reason` + `reason_words`, the row, `bucket`, `why`, `filing_night`, `suggested_date` + `agrees`, the standing `decision` and the whole `history` (each with `decided_by`: user id + display name, or null), `filing_url` | read-only, live from the 0082 / 0083 tables |
 | `POST /admin/insider-holds/{hold_id}/approve` | `{ratified_date?, reason?}` → the item | ratify a date (the suggestion when none is sent); 404 unknown, 409 a decision stands / the filer's 4/A decides it / a 4/A row, 422 no date and no suggestion / fails the year rule / after the filing's market date / no market date known |
 | `POST /admin/insider-holds/{hold_id}/dismiss` | `{reason}` → the item | not a trade; 404 unknown, 409 as approve, 422 no reason |
 | `POST /admin/insider-holds/decisions/{decision_id}/revoke` | `{reason?}` → the item | Undo; 404 unknown decision, 409 a revoke / already undone |

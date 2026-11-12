@@ -11,9 +11,12 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 
 from domain.insider_holds import (
+    AMENDMENT_ROW_WORDS,
+    BUCKET_AMENDMENT_ROW,
     BUCKET_OWED,
     BUCKET_PLACED,
     filing_market_date,
+    hold_label,
     page_bit,
     quiet_new_line,
     ratify_problem,
@@ -102,8 +105,20 @@ def test_the_words():
     assert bit.startswith(
         "1 insider row(s) held because the filing's transaction date cannot be true"
     )
-    assert "owed a steward decision" in bit
+    assert "not counted" in bit and "owed a steward decision" in bit
     assert quiet_new_line({BUCKET_OWED: 3}) == ""
+    assert quiet_new_line({BUCKET_AMENDMENT_ROW: 1}) == ""  # a held 4/A row pages: never quiet
+    label = hold_label(
+        ticker="ABCD",
+        security_id="s",
+        accession="0000000000-24-000001",
+        form="4/A",
+        code="S",
+        shares=100,
+        bucket=BUCKET_AMENDMENT_ROW,
+    )
+    assert label == f"ABCD 0000000000-24-000001 4/A (S, 100 sh) {AMENDMENT_ROW_WORDS}"
+    assert "cannot be applied yet" in label and "not counted" in label
     line = quiet_new_line({BUCKET_OWED: 1, BUCKET_PLACED: 2})
     assert (
         line.startswith("2 new held insider row(s) that need no decision")

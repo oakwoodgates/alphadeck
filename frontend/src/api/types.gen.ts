@@ -3962,9 +3962,24 @@ export interface components {
             reason?: string | null;
         };
         /**
+         * AdminHoldDeciderOut
+         * @description Who decided: the steward's user id and display name (never an email).
+         */
+        AdminHoldDeciderOut: {
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+            /** Display Name */
+            display_name: string;
+        };
+        /**
          * AdminHoldDecisionOut
-         * @description The standing steward decision on a held row: ``action`` ``approve`` (counted at ``ratified_date``) or
-         *     ``dismiss``; ``recorded_at`` = when the steward decided; ``basis`` = its author (``steward:<action>``).
+         * @description One steward decision on a held row: ``action`` ``approve`` (counted at ``ratified_date``), ``dismiss``, or
+         *     ``revoke`` (the Undo of the decision ``revokes`` names); ``recorded_at`` = when; ``reason`` = why;
+         *     ``basis`` = its role (``steward:<action>``); ``decided_by`` = who (``null`` for a decision no signed-in user
+         *     made).
          */
         AdminHoldDecisionOut: {
             /**
@@ -3985,6 +4000,9 @@ export interface components {
             recorded_at: string;
             /** Basis */
             basis: string;
+            /** Revokes */
+            revokes?: string | null;
+            decided_by?: components["schemas"]["AdminHoldDeciderOut"] | null;
         };
         /**
          * AdminHoldDismissIn
@@ -4274,7 +4292,8 @@ export interface components {
          *     amendment_row); ``why`` = why the filer's own amendment decides it (``filer_corrected`` only);
          *     ``filing_night`` = the night it counts from when placed by the rule. ``suggested_date`` = the arithmetic
          *     suggestion (``None`` = none can be made) and ``agrees`` = it is on or after a readable period of report.
-         *     ``decision`` = the standing steward decision (decided / dismissed). ``filing_url`` = the filing on EDGAR.
+         *     ``decision`` = the standing steward decision (decided / dismissed); ``history`` = every decision about the
+         *     row, Undos included, oldest first. ``filing_url`` = the filing on EDGAR.
          */
         AdminInsiderHoldOut: {
             /**
@@ -4326,6 +4345,8 @@ export interface components {
              */
             agrees: boolean;
             decision?: components["schemas"]["AdminHoldDecisionOut"] | null;
+            /** History */
+            history?: components["schemas"]["AdminHoldDecisionOut"][];
             /** Filing Url */
             filing_url?: string | null;
         };

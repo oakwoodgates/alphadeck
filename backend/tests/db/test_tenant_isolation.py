@@ -765,6 +765,9 @@ def test_the_held_insider_rows_queue_reads_and_writes_the_data_tenant(db):
     row = insider_hold_repo.approve(db, ids[DATA], None, None)
     db.commit()
     assert row["tenant_id"] == DATA and row["ratified_date"] == date(2020, 11, 16)
+    assert (
+        row["detail"]["decided_by"] is None
+    )  # a call that names no user records no person, never a guess
     with db.cursor() as cur:
         cur.execute(
             "SELECT count(*) AS n FROM insider_txn_hold_decision WHERE tenant_id = %s", (W,)

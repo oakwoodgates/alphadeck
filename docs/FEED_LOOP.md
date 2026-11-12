@@ -990,10 +990,12 @@ stored filings). What happens now:
   `shares`, `price`, `date_as_filed`, `reason`, `bucket`), `known`, `error`, `duration_s`, and `keys` (the
   whole inventory, which the next pass reads as its baseline). A row is new when its key is not in the newest
   finished live pass's `keys`. The first pass after the deploy has no baseline, so every existing hold is new
-  once. A new row OWED a steward decision gets one health line in the same channel as the Form 4/A line,
+  once. A new row the read does NOT count gets one health line in the same channel as the Form 4/A line,
   benign-class ("not a cron error"), naming up to 8 rows by ticker, accession, code and shares and counting the
-  rest; the printed report lists them with the date as filed. A new row that needs no decision (placed by the
-  rule, corrected by the filer, held in a Form 4/A) is ONE quiet count line, never paged. Known holds are one
+  rest; the printed report lists them with the date as filed. That is a row OWED a steward decision, and a row
+  held in a Form 4/A: nobody can apply one in the queue yet, so its label says in its own words that it cannot
+  be applied and the amendment's trade is not counted. A new row the read counts or the filer settled (placed
+  by the rule, corrected by the filer) is ONE quiet count line, never paged. Known holds are one
   quiet count line. A night with no held row prints nothing. A failed check is one loud line and never fails
   the pass; a `--no-live` pass does not check and is never a baseline. (An artifact written before the buckets
   carries no `bucket`; the Admin history reads its new rows as owed, the page it emitted then.)
