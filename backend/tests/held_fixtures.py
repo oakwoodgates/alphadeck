@@ -350,3 +350,57 @@ def decide(
 
 
 FAR = datetime(2100, 1, 1, tzinfo=timezone.utc)
+
+
+# --- rule 2026-11-held-row-reads-its-filings-acceptance --------------------------------------------------------
+#
+# ONE real Form 4 (``form4_impossible_year_no_stored_acceptance.xml``, the document EDGAR serves, unedited): a
+# sale filing whose period of report is written ``0025-07-25`` and whose row 1 (``txn_seq`` 1) is a sale dated
+# ``0025-07-25`` (the year rule: held); its other sales are dated 2025-07-25. SEC's facts, as the orchestrator
+# read them: filing date 2025-07-25, acceptance 2025-07-25T21:06:35Z (17:06 New York). It is kept OUT of
+# ``FILINGS`` / ``CIKS`` (so the tests that walk every fixture group are unchanged) and ingested the way prod
+# stored it: with NO acceptance and NO filing date on its rows or its hold (stored before the acceptance was
+# captured for them). The issuer lists two securities (two share classes), so the filing is stored under each.
+NO_ACCEPTANCE_ACCESSION = "0001900188-25-000010"
+NO_ACCEPTANCE_FILE = "form4_impossible_year_no_stored_acceptance.xml"
+NO_ACCEPTANCE_CIK = "0000886982"  # the filing's own issuerCik
+NO_ACCEPTANCE_FILED = date(2025, 7, 25)
+NO_ACCEPTANCE_ACCEPTED = datetime(2025, 7, 25, 21, 6, 35, tzinfo=timezone.utc)
+# SEC's submissions listing of that acceptance (its own format, UTC)
+NO_ACCEPTANCE_LISTED = "2025-07-25T21:06:35.000Z"
+NO_ACCEPTANCE_HELD_SEQ = 1
+# WHEN the test stores the filing: a TEST CHOICE (prod's own recording instant is not claimed), a few weeks
+# after the acceptance, so "public from when we held it" and "public from its acceptance" are different nights
+NO_ACCEPTANCE_HELD_AT = datetime(2025, 9, 2, 14, 0, tzinfo=timezone.utc)
+
+
+def make_issuer_security(conn: psycopg.Connection, ticker: str, cik: str) -> uuid.UUID:
+    """One security of an issuer, by its own ticker (a second share class is a second call)."""
+    sid = uuid.uuid4()
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO security_master (id, tenant_id, ticker, cik, name, valid_from) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            (sid, DEFAULT_TENANT_ID, ticker, cik, f"{ticker} (fixture)", "2000-01-01"),
+        )
+    conn.commit()
+    return sid
+
+
+def ingest_without_acceptance(
+    conn: psycopg.Connection, sid: uuid.UUID, *, recorded_at: datetime = NO_ACCEPTANCE_HELD_AT
+) -> None:
+    """Store the no-stored-acceptance filing under ``sid`` the way prod holds it: its good rows in
+    ``fact_insider_txn`` and its held row in ``insider_txn_hold``, every one with ``accepted`` NULL and the hold's
+    ``filed`` NULL, recorded ``recorded_at``."""
+    ingest_form4(
+        conn,
+        sid,
+        (HELD_DIR / NO_ACCEPTANCE_FILE).read_text(encoding="utf-8"),
+        NO_ACCEPTANCE_ACCESSION,
+        accepted=None,
+        recorded_at=recorded_at,
+        member_cik=NO_ACCEPTANCE_CIK,
+        filed=None,
+    )
+    conn.commit()

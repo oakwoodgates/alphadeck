@@ -964,6 +964,19 @@ stored filings). What happens now:
   the rule's code as the reason (`year_before_1934` / `year_after_filing_year` / `after_filing`). One row per
   held row, never updated. A Form 4/A row that fails the rule is held the same way with form `4/A`; the
   amendment record still keeps only its good rows.
+- **A held row reads its filing's acceptance (rule log `2026-11-held-row-reads-its-filings-acceptance`,
+  2026-11-12).** A hold copies the acceptance the leg resolved when it is written, and is never updated, so a
+  hold written while its filing's stored rows had no acceptance kept NULL after
+  `python -m pipeline.backfill_accepted --deep` filled those rows. Every reader now takes the hold's RESOLVED
+  acceptance (`db.public_clock.hold_accepted_sql`): its own, else (a Form 4 hold) the newest acceptance stored on
+  its filing's `fact_insider_txn` rows of the same security, else none. The readers: the insider read's loader
+  (`db.insider_resolution`, both clocks, and the hold's public instant), the steward's queue and its decision
+  verbs (`repositories.insider_hold_repo`), the Form 4/A linker's view (`ingest.edgar.form4a.
+  stored_rows_by_accession`), and the backtest mirror (`replay.export` writes the resolved value and the
+  `public_at` built from it, so `replay.pit` needs no join). The nightly's hold scan, the `insider_row_held` data
+  flag and `/admin/status` read through the queue or the loader. `backfill_accepted --execute` stamps each
+  company it fills (`db.change_stamp.mark_changed`), so dashboards and the queue re-read it; `--ticker`
+  (repeatable) scopes its NULL-only fill to those securities.
 - **Dated after its own filing (rule log `2026-11-insider-rows-dated-after-filing`, 2026-11-12).** When the
   filing's acceptance is known, a row dated after the acceptance's market date AND after the filing's last
   signature date (when it has a readable one) is held too, reason `after_filing` (a filer ahead of New York

@@ -49,10 +49,12 @@ from typing import Any
 from uuid import UUID
 
 import psycopg
+from psycopg import sql
 from psycopg.types.json import Json
 
 from db.change_stamp import mark_changed
 from db.insider_resolution import load_inputs
+from db.public_clock import hold_select_sql
 from domain.config import DEFAULT_CONFIG
 from domain.insider_holds import (
     ACTION_APPROVE,
@@ -123,12 +125,15 @@ class HoldItem:
         return self.state.decision
 
 
-_HOLDS_SQL = """
-    SELECT h.*, sm.ticker, sm.name AS company_name, sm.cik AS issuer_cik
+# ``accepted`` is the RESOLVED acceptance (``db.public_clock.hold_select_sql``, rule
+# 2026-11-held-row-reads-its-filings-acceptance): the hold's own, else its filing's stored one — so the market
+# date, the owed reason, the suggestion and the ratify check all read what the insider read reads
+_HOLDS_SQL = sql.SQL("""
+    SELECT {cols}, sm.ticker, sm.name AS company_name, sm.cik AS issuer_cik
       FROM insider_txn_hold h
       LEFT JOIN security_master sm ON sm.id = h.security_id AND sm.tenant_id = h.tenant_id
      WHERE h.tenant_id = %(t)s {where}
-"""
+""")
 
 
 def _holds(
@@ -147,7 +152,9 @@ def _holds(
         clauses.append("AND h.security_id = ANY(%(sids)s)")
         p["sids"] = list(security_ids)
     with conn.cursor() as cur:
-        cur.execute(_HOLDS_SQL.format(where=" ".join(clauses)), p)
+        cur.execute(
+            _HOLDS_SQL.format(cols=hold_select_sql("h"), where=sql.SQL(" ".join(clauses))), p
+        )
         return cur.fetchall()
 
 
@@ -272,10 +279,15 @@ def owed_by_security(
 
 
 def _lock(conn: psycopg.Connection, hold_id: UUID, tenant_id: UUID) -> dict[str, Any]:
-    """Lock one held row for the caller's transaction; ``LookupError`` if the data tenant has none."""
+    """Lock one held row for the caller's transaction; ``LookupError`` if the data tenant has none. The row
+    carries the RESOLVED acceptance (``hold_select_sql``), so the ratify check reads the same market date the
+    queue shows."""
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT * FROM insider_txn_hold WHERE id = %s AND tenant_id = %s FOR UPDATE",
+            sql.SQL(
+                "SELECT {cols} FROM insider_txn_hold h WHERE h.id = %s AND h.tenant_id = %s "
+                "FOR UPDATE OF h"
+            ).format(cols=hold_select_sql("h")),
             (hold_id, tenant_id),
         )
         row = cur.fetchone()

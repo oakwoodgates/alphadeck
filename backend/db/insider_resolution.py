@@ -25,7 +25,7 @@ from uuid import UUID
 import psycopg
 from psycopg import sql
 
-from db.public_clock import Clock, aux_public_sql, public_params
+from db.public_clock import Clock, aux_public_sql, hold_select_sql, public_params
 from domain.insider_amendments import ResolutionInputs, group_inputs
 from domain.scopes import as_tenants
 
@@ -100,14 +100,15 @@ def load_inputs(
         ciks = [(r["security_id"], r["cik"]) for r in cur.fetchall()]
         # rule 2026-11-insider-rows-dated-after-filing — the Form 4 holds (0082) and the steward's decisions
         # about them (0083): a hold counts from its filing's acceptance on the public clock (else when we held
-        # it), a decision from when the steward made it
+        # it), a decision from when the steward made it. ``accepted`` is the RESOLVED acceptance (rule
+        # 2026-11-held-row-reads-its-filings-acceptance: the hold's own, else its filing's stored one)
         cur.execute(
             sql.SQL(
-                'SELECT id, tenant_id, security_id, accession, txn_seq, form, reason, "row", '
-                "period_of_report_as_filed, signature_date_as_filed, filed, accepted, recorded_at "
-                "FROM insider_txn_hold "
+                "SELECT {cols} FROM insider_txn_hold "
                 "WHERE tenant_id = ANY(%(t)s) AND security_id = ANY(%(ids)s) AND form = '4' AND {gate}"
-            ).format(gate=_gate("insider_txn_hold", clock)),
+            ).format(
+                cols=hold_select_sql("insider_txn_hold"), gate=_gate("insider_txn_hold", clock)
+            ),
             p,
         )
         holds = cur.fetchall()

@@ -120,7 +120,11 @@ acceptance (else its filing date); a SYSTEM decision about it (``basis`` ``syste
 of a public filing under today's rules) counts from that same publication; an OPERATOR decision counts from
 when the operator made it (its ``recorded_at``). A HELD insider row (``insider_txn_hold``) counts from its
 filing's SEC acceptance (else when we held it), and a steward's decision about one
-(``insider_txn_hold_decision``) from when it was made (rule ``2026-11-insider-rows-dated-after-filing``).
+(``insider_txn_hold_decision``) from when it was made (rule ``2026-11-insider-rows-dated-after-filing``). The
+hold's acceptance is RESOLVED (``hold_accepted_sql``, rule ``2026-11-held-row-reads-its-filings-acceptance``):
+its own ``accepted``, else — a Form 4 hold only — the newest acceptance stored on its filing's
+``fact_insider_txn`` rows of the same security (the fact rule: one filing, one publication), else none. A hold
+is never updated (0082), so a hold written before its filing's acceptance was backfilled reads it this way.
 
 **Version picking on the public clock.** The visible version at a past asof is the NEWEST version that was
 public by then: ``ORDER BY public DESC, recorded_at DESC, id DESC`` among versions with ``public <= known_at``
@@ -595,6 +599,71 @@ def _amendment_public_of(alias: str, ceiling: bool = False) -> sql.Composable:
     )
 
 
+# --- a HELD row's acceptance (rule 2026-11-held-row-reads-its-filings-acceptance) --------------------------
+#
+# A hold copies its filing's acceptance when it is written and is never updated (0082's ``no_update``). A hold
+# written while its filing's stored rows carried no acceptance stays NULL even after ``backfill_accepted``
+# appends the acceptance to those rows. So a Form 4 hold with no acceptance of its own READS its filing's: the
+# ``accepted`` on the newest version (``recorded_at DESC, id DESC``) among the ``fact_insider_txn`` rows of the
+# SAME tenant, security and accession that carry one — the fact rule above ("the newest version that carries
+# one; all versions are one filing, so one publication"). Precedence: the hold's own ``accepted``, else that,
+# else NULL. Never another security's rows, never a filing date, never "now". A Form 4/A hold keeps its own:
+# an amendment's rows are not in ``fact_insider_txn`` (they live in ``insider_amendment``).
+
+# Every column of ``insider_txn_hold`` (0082), in table order; ``hold_select_sql`` swaps ``accepted`` for the
+# resolved value so every reader of a hold row sees the one rule.
+HOLD_COLUMNS: tuple[str, ...] = (
+    "id",
+    "tenant_id",
+    "security_id",
+    "accession",
+    "txn_seq",
+    "form",
+    "reason",
+    "row",
+    "period_of_report_as_filed",
+    "signature_date_as_filed",
+    "filed",
+    "accepted",
+    "recorded_at",
+)
+
+
+def hold_accepted_sql(alias: str = "h", *, ceiling: bool = False) -> sql.Composable:
+    """The RESOLVED acceptance of the hold row ``alias`` (``insider_txn_hold AS {alias}``): its own
+    ``accepted``, else (a Form 4 hold only) the newest stored acceptance among its filing's
+    ``fact_insider_txn`` rows of the same tenant and security, else NULL. ``ceiling`` = the fact rows stored
+    by the cut (the freeze ceiling)."""
+    al = sql.Identifier(alias)
+    filing = sql.SQL(
+        "(SELECT f.accepted FROM fact_insider_txn f "
+        "WHERE f.tenant_id = {al}.tenant_id AND f.security_id = {al}.security_id "
+        "AND f.accession = {al}.accession AND f.accepted IS NOT NULL{ceil} "
+        "ORDER BY f.recorded_at DESC, f.id DESC LIMIT 1)"
+    ).format(al=al, ceil=_ceil(sql.Identifier("f", "recorded_at"), ceiling))
+    return sql.SQL("COALESCE({own}, CASE WHEN {form} = '4' THEN {filing} END)").format(
+        own=sql.Identifier(alias, "accepted"),
+        form=sql.Identifier(alias, "form"),
+        filing=filing,
+    )
+
+
+def hold_select_sql(alias: str = "h", *, ceiling: bool = False) -> sql.Composable:
+    """Every ``insider_txn_hold`` column of ``alias``, ``accepted`` RESOLVED (``hold_accepted_sql``) — the
+    select list every reader of a hold row uses (the insider read, the steward's queue and its decision verbs,
+    the amendment linker's view, the backtest mirror)."""
+    return sql.SQL(", ").join(
+        (
+            sql.SQL("{} AS {}").format(
+                hold_accepted_sql(alias, ceiling=ceiling), sql.Identifier("accepted")
+            )
+            if c == "accepted"
+            else sql.Identifier(alias, c)
+        )
+        for c in HOLD_COLUMNS
+    )
+
+
 def aux_public_sql(table: str, alias: str = "x", *, ceiling: bool = False) -> sql.Composable:
     """The public instant of one row of a Form 4/A table (``insider_amendment`` / ``_link`` / ``_decision``)
     over ``{table} AS {alias}``. Never NULL: each falls back to the row's own ``recorded_at``. ``ceiling``
@@ -628,10 +697,11 @@ def aux_public_sql(table: str, alias: str = "x", *, ceiling: bool = False) -> sq
             rec=rec,
         )
     if table == "insider_txn_hold":
-        # a held row is public from its filing's SEC acceptance, else from when we held it (rule
-        # 2026-11-insider-rows-dated-after-filing)
+        # a held row is public from its filing's SEC acceptance (``hold_accepted_sql``: its own, else the one
+        # its filing's stored rows carry), else from when we held it (rules
+        # 2026-11-insider-rows-dated-after-filing + 2026-11-held-row-reads-its-filings-acceptance)
         return sql.SQL("COALESCE({acc}, {rec})").format(
-            acc=sql.Identifier(alias, "accepted"), rec=rec
+            acc=hold_accepted_sql(alias, ceiling=ceiling), rec=rec
         )
     if table == "insider_txn_hold_decision":
         return rec  # a steward's decision counts from when it was made (the operator-decision rule)

@@ -424,6 +424,14 @@ rule; the period of report is after the filing; or the filing was made N days af
 than the on-time window (both numbers stated). The list carries `bucket_words`, each bucket in the backend's
 own words.
 
+The acceptance a row carries (and so its `market_date`, `owed_why`, suggestion and ratify check) is the hold's
+RESOLVED acceptance (rule `2026-11-held-row-reads-its-filings-acceptance`, `db.public_clock.hold_accepted_sql`):
+the hold's own, else the newest acceptance stored on its filing's rows of the same security, else none. A hold
+written before its filing's acceptance was known (rows stored before the capture) shows "no acceptance time is
+known for the filing" and cannot be dated until `python -m pipeline.backfill_accepted --deep [--ticker X]
+--execute` fills its filing's stored rows; after that the same row shows its market date and the reason the
+placement rule did not place it, with no change to the hold itself.
+
 The decisions, each ONE append-only row recorded NOW (on the public clock a decision counts from when you made
 it; a past night's view is never rewritten), labeled who / when / why: the role in `basis` the Form 4/A way
 (`steward:approve` / `steward:dismiss` / `steward:revoke`), the person in `detail.decided_by` (the signed-in

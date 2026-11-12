@@ -204,7 +204,9 @@ def connect_mirror(parquet_dir: str | Path) -> duckdb.DuckDBPyConnection:
         con.execute(f"CREATE TABLE {IDENTITY_TABLE} AS SELECT * FROM read_parquet('{path}')")
     # the held-row pair (rule 2026-11-insider-rows-dated-after-filing): BOTH present (every export since) or
     # NONE (a mirror from before: no holds, what that export held); partial, or missing while the manifest
-    # records it, is a broken export: loud
+    # records it, is a broken export: loud. A hold's ``accepted`` (and its ``public_at``) arrive RESOLVED by the
+    # export (rule 2026-11-held-row-reads-its-filings-acceptance: its own, else its filing's stored one), so
+    # nothing here joins the fact rows
     held_present = [t for t in HOLD_TABLES if (base / f"{t}.parquet").is_file()]
     if held_present and len(held_present) != len(HOLD_TABLES):
         missing = sorted(set(HOLD_TABLES) - set(held_present))

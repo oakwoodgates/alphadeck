@@ -37,6 +37,13 @@ BEFORE the joint-report collapse and the internal-transfer screen, each Form 4 h
    (``date_basis`` 'filing_night'): the first night anyone could read it;
 6. otherwise it is not returned: a late filing waits for the steward.
 
+A hold's ``accepted`` here is always the RESOLVED acceptance (rule ``2026-11-held-row-reads-its-filings-acceptance``,
+defined once in ``db.public_clock.hold_accepted_sql`` and selected by every loader): the hold's own, else — a Form
+4 hold only — the newest acceptance stored on its filing's ``fact_insider_txn`` rows of the same security, else
+none. A hold is never updated, so one written before its filing's acceptance was backfilled reads it this way;
+a Form 4/A hold keeps its own (an amendment's rows are not stored in ``fact_insider_txn``). This module only
+reads the value it is handed.
+
 A returned row has the keys a resolved fact row has (``INSIDER_TXN_COLUMNS``, as an emitted 4/A row does) plus
 ``date_basis``, ``txn_date_as_filed`` and ``hold_id``, and obeys the same ``asof`` / floor gates as an emitted
 amendment row. A security with no Form 4 hold reads exactly as before (the same list is returned). No corrected

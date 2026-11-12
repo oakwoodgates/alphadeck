@@ -21,6 +21,7 @@ from db.public_clock import (
     PUBLIC_COL,
     PUBLIC_TIME,
     aux_public_sql,
+    hold_select_sql,
     partition_cols,
     public_params,
     public_versions_sql,
@@ -302,6 +303,10 @@ AUX_PUBLIC_COL = "public_at"
 # ``public_at`` — a hold at its filing's acceptance, a decision when it was made), but as their OWN all-or-none
 # pair, recorded in the manifest (``hold_tables``): a mirror exported before them opens unchanged and reads no
 # holds (what the system knew then), and one whose manifest records them but lacks a file refuses to open.
+# A hold's ``accepted`` is exported RESOLVED (``_aux_cols``; rule 2026-11-held-row-reads-its-filings-acceptance:
+# the hold's own, else its filing's stored one), and ``public_at`` is computed from it, so ``replay.pit`` reads
+# the same acceptance the Postgres read resolves without a join. A mirror exported before the rule carries the
+# hold's own value only — what the system read then.
 HOLD_TABLES: tuple[str, ...] = ("insider_txn_hold", "insider_txn_hold_decision")
 
 _SECURITY_CIK_SQL = (
@@ -313,6 +318,16 @@ _SECURITY_CIK_SQL = (
     "WHERE tenant_id = %(t)s AND new_cik IS NOT NULL "
     "ORDER BY 1, 2"
 )
+
+
+def _aux_cols(table: str, known_by: datetime | None) -> sql.Composable:
+    """The select list of one aux table over alias ``x``: every column — a HELD row's ``accepted`` RESOLVED
+    (``db.public_clock.hold_select_sql``, rule 2026-11-held-row-reads-its-filings-acceptance: the hold's own,
+    else its filing's stored one, from the fact rows held at the cut under the freeze ceiling), so the mirror's
+    hold carries the acceptance the Postgres read resolves and the DuckDB twin needs no join."""
+    if table == "insider_txn_hold":
+        return hold_select_sql("x", ceiling=known_by is not None)
+    return sql.SQL("x.*")
 
 
 def _read_aux(
@@ -346,9 +361,10 @@ def _read_aux(
         elif clock == "public":
             cur.execute(
                 sql.SQL(
-                    "SELECT x.*, {pub} AS {col} FROM {table} x WHERE x.tenant_id = %(t)s{ceil} "
+                    "SELECT {cols}, {pub} AS {col} FROM {table} x WHERE x.tenant_id = %(t)s{ceil} "
                     "ORDER BY x.recorded_at, x.id"
                 ).format(
+                    cols=_aux_cols(table, known_by),
                     pub=aux_public_sql(table, alias="x", ceiling=known_by is not None),
                     col=sql.Identifier(AUX_PUBLIC_COL),
                     table=sql.Identifier(table),
@@ -359,8 +375,13 @@ def _read_aux(
         else:
             cur.execute(
                 sql.SQL(
-                    "SELECT * FROM {} WHERE tenant_id = %(t)s{} ORDER BY recorded_at, id"
-                ).format(sql.Identifier(table), _ceiling_sql(known_by)),
+                    "SELECT {cols} FROM {table} x WHERE x.tenant_id = %(t)s{ceil} "
+                    "ORDER BY x.recorded_at, x.id"
+                ).format(
+                    cols=_aux_cols(table, known_by),
+                    table=sql.Identifier(table),
+                    ceil=_ceiling_sql(known_by, "x"),
+                ),
                 {"t": tenant_id, CEILING_PARAM: known_by},
             )
         rows = cur.fetchall()

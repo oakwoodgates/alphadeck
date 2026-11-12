@@ -36,8 +36,10 @@ from typing import Any
 from uuid import UUID
 
 import psycopg
+from psycopg import sql
 from psycopg.types.json import Json
 
+from db.public_clock import hold_accepted_sql
 from db.session import DEFAULT_TENANT_ID
 from domain.insider_amendments import (
     BASIS_FILER_CORRECTION,
@@ -486,9 +488,14 @@ def stored_rows_by_accession(
             out.setdefault(r["accession"], []).append(r)
         holds: list[dict[str, Any]] = []
         if with_holds:
+            # ``accepted`` RESOLVED (rule 2026-11-held-row-reads-its-filings-acceptance: the hold's own,
+            # else its filing's stored one — ``db.public_clock.hold_accepted_sql``)
             cur.execute(
-                'SELECT accession, txn_seq, form, "row", accepted FROM insider_txn_hold '
-                "WHERE tenant_id = %s AND security_id = %s AND form = '4'",
+                sql.SQL(
+                    'SELECT h.accession, h.txn_seq, h.form, h."row", {acc} AS accepted '
+                    "FROM insider_txn_hold h "
+                    "WHERE h.tenant_id = %s AND h.security_id = %s AND h.form = '4'"
+                ).format(acc=hold_accepted_sql("h")),
                 (tenant_id, security_id),
             )
             holds = cur.fetchall()

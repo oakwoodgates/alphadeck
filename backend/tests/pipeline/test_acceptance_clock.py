@@ -344,6 +344,28 @@ def test_drift_execute_appends_exactly_the_planned_versions_and_a_rerun_appends_
     assert payload["items"][0]["accession"] == ACC and payload["items"][0]["rows"] == 2
 
 
+def test_drift_execute_stamps_the_company_and_a_dry_run_does_not(db, security_id):
+    """A re-dated acceptance moves the company's rows on the public clock outside the company write lock, so
+    the execute stamps the company (``db.change_stamp.mark_changed``) and dashboards re-read it."""
+
+    def stamps() -> int:
+        with db.cursor() as cur:
+            cur.execute(
+                "SELECT count(*) AS n FROM security_change WHERE security_id = %s", (security_id,)
+            )
+            return cur.fetchone()["n"]
+
+    _plant(db, security_id)
+    run_drift(db, client=_late_client(), execute=False, log=lambda *_: None)
+    assert stamps() == 0
+    run_drift(db, client=_late_client(), execute=True, log=lambda *_: None)
+    assert stamps() == 1
+    run_drift(
+        db, client=_late_client(), execute=True, log=lambda *_: None
+    )  # nothing left to re-date
+    assert stamps() == 1
+
+
 def test_drift_bounds_to_the_filing_date_when_the_header_is_unreadable(db, security_id):
     _plant(db, security_id)
     res = run_drift(db, client=_late_client(header=False), execute=True, log=lambda *_: None)

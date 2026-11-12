@@ -902,6 +902,18 @@ counted, and each cited filing's provenance carries `date_basis` + `txn_date_as_
 row(s) counted from the filing night because the date in the filing cannot be true". So a stored time before
 the trade can no longer reach the clock from such a row: the read has already dated it at its filing night.
 
+**A held row reads its filing's acceptance (rule log `2026-11-held-row-reads-its-filings-acceptance`,
+2026-11-12).** Every step above that needs the filing's acceptance (the public clock's gate on the hold, the
+on-time test of step 5, the filing night, the steward's market date and ratify check) reads the hold's RESOLVED
+acceptance, defined once in `db.public_clock.hold_accepted_sql`: the hold's own `accepted`; else, for a Form 4
+hold, the newest acceptance stored on its filing's `fact_insider_txn` rows of the SAME security (the newest
+version that carries one, `recorded_at DESC, id DESC` — the insider fact's own rule: one filing, one
+publication); else none, and the hold behaves as before (public from when we held it, no market date, owed with
+"no acceptance time is known for the filing"). A hold is never updated, so a hold written before its filing's
+acceptance was backfilled (`pipeline.backfill_accepted`) reads it this way. Never another security's rows, a
+filing date or "now". A Form 4/A hold keeps its own acceptance (an amendment's rows are not stored in
+`fact_insider_txn`). A hold that carries its own acceptance reads exactly as before.
+
 **Which cluster is chosen (the anchor walk).** The detector does **not** pin the anchor to the single
 most-recent kept buy. Every distinct kept-buy date is a *candidate* anchor; each gathers the buys inside
 `[anchor − insider_cluster_window_days, anchor]` (bounded on both sides, so a later buy never leaks into an

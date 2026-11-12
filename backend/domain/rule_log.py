@@ -171,6 +171,17 @@ RULE_LOG: tuple[RuleEntry, ...] = (
             "as a correction of the whole filing, or replace a different trade of the same size."
         ),
     ),
+    RuleEntry(
+        id="2026-11-held-row-reads-its-filings-acceptance",
+        date=date(2026, 11, 12),
+        label="a held insider trade reads its filing's acceptance time",
+        description=(
+            "An insider trade held because its date could not be true, written before its filing's "
+            "acceptance time was known, now reads that acceptance time once the filing's stored trades carry "
+            "it, so it counts from when the filing became public and the steward can date it; before, it "
+            "kept counting from when we held it and could not be dated."
+        ),
+    ),
 )
 
 
