@@ -2129,7 +2129,8 @@ otherwise it stays the operator's. The link keeps every candidate (`candidate_ac
 **The re-link — `python -m pipeline.relink_amendments`** (dry-run by default; `--apply` takes the call-of-record
 lock, appends in one transaction, counts the tables). It re-runs the fixed cascade over every stored link against
 the security's stored rows and its CACHED submissions index (cache-only, no SEC request) and moves a link ONLY when
-one of the two rules explains the difference (`relink_rule`; anything else is reported as drift, never moved) and
+one of the two rules explains the difference (`relink_rule`; a third since 2026-11-12, the held rows — §below;
+anything else is reported as drift, never moved) and
 NOTHING the operator did touches the amendment. Append-only: a new `insider_amendment_link` version, a system
 `revoke` (basis `system:relink`) of the standing system decision computed against the wrong original, and the
 system's decision against the new one when it resolves — all at `recorded_at = now`, so a read pinned before
@@ -2206,6 +2207,40 @@ resolver vs this one, every security with a stored 4/A, full history at asof 202
   decision known at its SEC acceptance) — of the 666 honest rows, the **409** whose roster ever held a re-linked
   or composed security re-assembled **all identical: 0 thesis-level flips, 0 changes of any card field**; the
   other 257 read identical inputs by construction. Every restored row is outside every live signal window.
+
+### The linker sees HELD rows (rule log `2026-11-amendment-linker-sees-held-rows`, 2026-11-12)  `[BUILT]`
+
+**The bug.** The linker found an amendment's originals, and which original rows it replaces, through STORED rows
+only (`ingest.edgar.form4a.stored_rows_by_accession`). A held Form 4 row (`insider_txn_hold`, a date that cannot
+be true) was either never stored (an impossible year) or stored at its wrong written date (after its filing, by
+the ingest before the after-filing rule). So a 4/A correcting only the held row was paired with the wrong thing.
+MEASURED on prod 2026-11-11: five amendments wrong — two read as a whole correction of a two-row filing whose
+other sale is real, one read as replacing both real rows of a three-row filing, and two whose row match replaced a
+real row of the same person, code and size (one of eighteen rows; two gifts of the same size dated three weeks
+apart) instead of the held one. Three more restate every row and were right.
+
+**The fix.** The linker's view of a filing now includes its held Form 4 rows
+(`domain.insider_amendments.with_held_rows`): each is one of the filing's rows, marked `held`, carrying the hold's
+parsed person, role, code, shares, price and owner CIK, the filing's acceptance, the date as filed
+(`txn_date_as_filed`) and NO date (`valid_from` NULL). A stored row that also has a hold is ONE row (the held
+one); a filing whose every row is held is still found as an original (before, a 4/A correcting it linked to
+nothing). The row key stays `accession#seq`. In the row match (`match_rows`) a held row is paired FIRST — same
+owner + code + shares + price, then same owner + code + shares — and never by a rule that needs a date, so its
+written date never disqualifies it or ranks it below a stored row; when a held row and a stored row both fit, the
+held one is replaced and the real stored row stays in the read. The "whole correction" judgement (`classify`)
+counts held rows as rows of the original: one amendment row against one stored row + one held row is a matched
+replacement of the held row (`partial`), not a correction of the filing. The decision names the held row in
+`replaced_rows`, and the read drops a held row named there (`domain.insider_holds`, step 2). Every caller of the
+view gets it: the ingest, the operator's link, the Admin panel, the re-derivation and the re-link.
+
+**The re-link — `python -m pipeline.relink_amendments`, rule `sees-held-rows`.** It plans a re-link when the
+cascade over the stored rows ALONE (`with_holds=False`, the view the link was computed on) says what the stored
+link says, and seeing the held rows changes the link, the system's pick or the rows its decision replaces; each
+line prints the rows the old and the new decision replace (`whole` = the whole original). Same mechanics as the R8
+re-link (a new link version, a `system:relink` revoke, the system's decision; the repair lock, counted,
+idempotent, one `data_repair` journal row; never an amendment the operator touched); each company re-linked gets a
+change stamp. On the eight real filings (`tests/db/test_insider_amendment_linker_held_rows.py`, prod's state
+rebuilt): the five wrong ones are planned and nothing else.
 
 ### The R8 re-derivation — the first night's whole-original system decisions get their row match (2026-10-21)  `[BUILT]`
 

@@ -881,8 +881,15 @@ later copy of a duplicates set), or whose row is REPLACED (its `accession#seq` i
 not returned — exactly the suppression the filing's stored rows get (`domain.insider_amendments.suppression_of`,
 one reading for both); (3) the filer's own applied 4/A that emits for the filing and carries the same person,
 code, shares and price wins — the trade counts once, from the amendment. A correction that emits for the filing
-WITHOUT such a row leaves the held row to the next steps: the linker does not see held rows yet, so its "whole
-correction" reading can be wrong for a filing with one, and dropping it there could lose a real trade; (4)
+WITHOUT such a row leaves the held row to the next steps. Since rule `2026-11-amendment-linker-sees-held-rows`
+(2026-11-12) the Form 4/A linker reads an original's held rows as rows of that filing (marked held, the hold's
+parsed values, no date; a stored row that also has a hold is one row; a filing whose every row is held is still
+found): it pairs a held row FIRST, on the same person + code + shares + price, then person + code + shares, and
+never by date, so a 4/A that corrects only the held row is a matched replacement NAMING it (step 2) and the
+filing's other, real rows stay in the read — before, such a 4/A was read as a whole correction of the filing's
+stored rows, or its match replaced a different stored row of the same size. A whole correction still names no
+row, and a link written before the rule may not have seen the held row (`pipeline.relink_amendments` re-links
+those, rule `sees-held-rows`), so an unmatched held row is kept rather than risk losing a real trade; (4)
 otherwise the newest standing steward decision (`insider_txn_hold_decision`: `approve` at a ratified date,
 `dismiss`; written by the steward's queue, `docs/ADMIN.md` "Held insider rows", whose buckets come from the
 same ladder, `domain.insider_holds.hold_state`); (5) otherwise, when the filing was ON TIME — its acceptance's market date

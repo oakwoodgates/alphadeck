@@ -280,7 +280,10 @@ A sibling card (its own read, `GET /admin/insider-amendments`, live from the ame
 0050; the writes are `/admin/insider-amendments/*`). Every Form 4/A the nightly leg stored, with what it changed
 (the disposition — `CALL_LOGIC.md` §3 insider) and its EVIDENCE: the amendment's remarks and footnotes, a link
 to its EDGAR filing index, and its Table I rows beside each original's (role `original`, `voided` for a
-duplicate, `candidate` for an ambiguous link). Rendered only when an amendment is stored.
+duplicate, `candidate` for an ambiguous link). Rendered only when an amendment is stored. An original's HELD row
+(`insider_txn_hold`, "Held insider rows" below) is listed among its rows with no date — the linker reads it as one
+of the filing's rows, never at its written date (rule `2026-11-amendment-linker-sees-held-rows`,
+`FEED_LOOP.md` §the linker sees held rows).
 
 **R8-B — the filer's own correction is applied by default.** A Form 4/A the linker resolves to the Form 4 it
 amends is the insider's legal correction of their own filing — deterministic data, not a model's recommendation —

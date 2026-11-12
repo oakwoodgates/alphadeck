@@ -161,6 +161,16 @@ RULE_LOG: tuple[RuleEntry, ...] = (
             "written date."
         ),
     ),
+    RuleEntry(
+        id="2026-11-amendment-linker-sees-held-rows",
+        date=date(2026, 11, 12),
+        label="an insider filing's correction replaces only the trade it corrects",
+        description=(
+            "When a filer corrects one trade of a Form 4 whose date could not be true, the correction now "
+            "replaces that trade alone, so the filing's other trades stay counted; before, it could be read "
+            "as a correction of the whole filing, or replace a different trade of the same size."
+        ),
+    ),
 )
 
 

@@ -23,10 +23,12 @@ BEFORE the joint-report collapse and the internal-transfer screen, each Form 4 h
 3. THE FILER'S CORRECTION WINS: when an amendment applied and public at the read EMITS for the hold's filing and
    carries a row with the same reporting person, transaction code, shares and price, the held row is not
    returned — the amendment's row already is, so the trade counts once. A correction that emits for the filing
-   but carries no such row does NOT drop the held row: the linker does not see held rows yet, so its "whole
-   correction" reading can be wrong for a filing with a held row (one 4/A restating only the held row was linked
-   as a whole correction of the filing's other, stored row), and dropping an unmatched held row there could lose
-   a real trade;
+   but carries no such row does NOT drop the held row. Since rule ``2026-11-amendment-linker-sees-held-rows``
+   the linker sees held rows (``ingest.edgar.form4a.stored_rows_by_accession``): a 4/A that corrects only the
+   held row is a matched replacement NAMING it (step 2), and the filing's other rows stand. A whole correction
+   still names no row, and a link written before the rule may not have seen the held row
+   (``pipeline.relink_amendments`` re-links those), so an unmatched held row is kept rather than risk losing a
+   real trade;
 4. otherwise the newest STANDING steward decision (``insider_txn_hold_decision``, migration 0083) decides:
    ``approve`` returns the row dated at the ratified date (``date_basis`` 'ratified'), ``dismiss`` does not;
 5. otherwise THE PLACEMENT RULE: a hold with an acceptance and a readable, possible period of report whose

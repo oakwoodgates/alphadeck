@@ -108,6 +108,7 @@ from domain.insider_amendments import (
     effect_of,
     filer_text,
     in_window_codes,
+    is_held_row,
     is_legacy_whole,
     is_system_basis,
     latest_by_accession,
@@ -1072,8 +1073,10 @@ def relink_plan(
     security's stored Form 4 rows (``stored_rows_by_accession`` — the ingest's own input) and its filing-date
     index (``index(security_id, cik)`` -> ``({accession: filed}, {accession: accepted})`` — the submissions
     index the ingest reads; ``None`` = not available, the security is not judged). A link moves only by
-    ``relink_rule`` (made public after the amendment; the row tie-break) and only when NOTHING the operator did
-    touches the amendment."""
+    ``relink_rule`` (made public after the amendment; the row tie-break; the held rows — rule
+    ``2026-11-amendment-linker-sees-held-rows``: the same cascade over the stored rows ALONE, the view the link
+    was computed on, agrees with the stored link, and seeing the held rows changes the link, the system's pick or
+    the rows its decision replaces) and only when NOTHING the operator did touches the amendment."""
     codes = frozenset(signal_codes) if signal_codes is not None else frozenset(default_horizons())
     sid_filter = list(security_ids) if security_ids is not None else None
     where = "" if sid_filter is None else " WHERE x.security_id = ANY(%(ids)s)"
@@ -1109,22 +1112,35 @@ def relink_plan(
             plan.no_index.append((first.get("ticker"), sid, len(latest)))
             continue
         held = stored_rows_by_accession(conn, sid, tenant_id=first["tenant_id"])
+        # the stored rows alone — the view every link was computed on before the linker saw held rows; read
+        # only for a security with a held Form 4 row (otherwise the two views are the same)
+        blind_rows = (
+            stored_rows_by_accession(conn, sid, tenant_id=first["tenant_id"], with_holds=False)
+            if any(is_held_row(r) for rows in held.values() for r in rows)
+            else None
+        )
         for acc in sorted(latest):
             f = filings.get((sid, acc))
             if f is None:
                 continue  # a link without its filing record cannot be judged honestly
             plan.considered += 1
             link = latest[acc]
-            fresh = link_amendment(facts_from_record(f), held, idx[0], codes, idx[1])
-            rule = relink_rule(link, fresh)
+            facts = facts_from_record(f)
+            fresh = link_amendment(facts, held, idx[0], codes, idx[1])
+            blind = (
+                link_amendment(facts, blind_rows, idx[0], codes, idx[1])
+                if blind_rows is not None
+                else None
+            )
+            own = dec_by.get((sid, acc), [])
+            link_d, verdict = standing_decisions(own).get(acc, (None, None))
+            rule = relink_rule(link, fresh, blind=blind, standing=(link_d, verdict))
             if rule is None:
                 if link_identity(link) != link_identity(fresh):
                     plan.drift.append(
                         (f.get("ticker"), acc, link_identity(link), link_identity(fresh))
                     )
                 continue
-            own = dec_by.get((sid, acc), [])
-            link_d, verdict = standing_decisions(own).get(acc, (None, None))
             item = RelinkItem(
                 security_id=sid,
                 ticker=f.get("ticker"),
@@ -1169,11 +1185,13 @@ def relink(
     the ingest's own write). All stamped ``recorded_at = now()`` (the transaction's), so a read pinned before
     the re-link still sees exactly what the system held then: no rewrite of the past (#1). Idempotent: once
     applied, the stored link IS the fresh one, so a re-plan finds nothing. Never touches an amendment the
-    operator decided or linked."""
+    operator decided or linked. Each company it re-links gets a change stamp (``db.change_stamp.mark_changed``)
+    in the same transaction, so dashboards re-read its insider rows."""
     codes = frozenset(signal_codes) if signal_codes is not None else frozenset(default_horizons())
     n_links = n_rev = n_dec = 0
     applied: list[str] = []
     skipped: list[str] = []
+    moved: set[UUID] = set()
     for it in plan.items:
         key = f"{it.security_id}:{it.accession}"
         links = _lock(conn, it.security_id, it.accession)
@@ -1255,6 +1273,10 @@ def relink(
             )
         n_links += 1
         applied.append(key)
+        moved.add(it.security_id)
+    # every company re-linked changes what its insider read returns: stamp it, so dashboards re-read it (a
+    # revoke already stamps through ``_insert``; a re-link with nothing to revoke would otherwise not)
+    mark_changed(conn, moved)
     return RelinkResult(
         links=n_links,
         revokes=n_rev,
