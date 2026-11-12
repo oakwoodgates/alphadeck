@@ -15,6 +15,8 @@ import pytest
 from psycopg.types.json import Json
 
 from db.session import DEFAULT_TENANT_ID
+from domain.config import DEFAULT_CONFIG
+from domain.insider_holds import BUCKET_WORDS
 from domain.market_time import known_at_for_asof
 from ingest.edgar.form4 import ingest_form4
 from signals.base import PointInTimeData
@@ -107,6 +109,7 @@ def test_each_real_filing_sits_in_the_bucket_the_read_gives_it(client, db):
         it = items[(ON_TIME_A, seq)]
         assert it["bucket"] == "placed_by_rule" and it["filing_night"] == "2015-01-02"
         assert it["date_as_filed"] == "2015-12-31" and it["decision"] is None
+        assert it["market_date"] == "2015-01-02" and it["owed_why"] is None  # owed rows only
     # a late filing: owed, with a suggestion that agrees with the period of report
     late = items[(LATE, 0)]
     assert late["bucket"] == "owed" and late["filing_night"] is None
@@ -119,6 +122,12 @@ def test_each_real_filing_sits_in_the_bucket_the_read_gives_it(client, db):
     assert late["row"]["txn_code"] == "P" and late["row"]["shares"] == 800.0
     assert late["filing_url"].endswith("/1425450/000089924321012557/")
     assert late["ticker"] == H.TICKERS["late"] and late["company_name"] == "late (fixture)"
+    # the filing's market date (the latest a ratified date may be) and why the rule did not place it
+    assert late["market_date"] == "2021-03-18"
+    assert late["owed_why"] == (
+        "the filing was made 122 days after its period of report (2020-11-16), more than the on-time "
+        f"window of {DEFAULT_CONFIG.insider_hold_on_time_days} days"
+    )
     # the impossible year: on time -> placed; its suggestion is the written day in the filing's year
     iy = items[(IMPOSSIBLE, 0)]
     assert iy["bucket"] == "placed_by_rule" and iy["filing_night"] == "2024-05-28"
@@ -132,9 +141,12 @@ def test_each_real_filing_sits_in_the_bucket_the_read_gives_it(client, db):
     for acc, amend in ((AMENDED, AMENDED_4A), (AMENDED_IY, AMENDED_IY_4A)):
         (fc,) = [v for (a, _), v in items.items() if a == acc]
         assert fc["bucket"] == "filer_corrected" and amend in fc["why"]
+        assert fc["owed_why"] is None
     # owed first in the panel
     body = client.get(BASE).json()
     assert [it["accession"] for it in body["owed"]] == [LATE, LATE, LATE]
+    # each bucket in the backend's own words (the panel copies none)
+    assert body["bucket_words"] == {b: BUCKET_WORDS[b] for b in BUCKETS}
 
 
 def test_a_held_amendment_row_is_listed_with_no_action(client, db):
@@ -311,6 +323,52 @@ def test_a_date_the_rule_refuses_is_422(client, db):
         client.post(f"{BASE}/{hid}/approve", json={"ratified_date": "2021-03-18"}).status_code
         == 200
     )
+    assert _count(db) == before + 1
+
+
+def test_a_weak_suggestion_is_never_ratified_by_default(client, db):
+    """One click must never ratify a date the filing contradicts. No real fixture carries a suggestion that
+    disagrees with its period of report, so this is a DIRECT-INPUT contract: a hold inserted by hand (never
+    presented as a real filing), shaped like a prod row the panel showed — a buy written 2015-09-14 on a filing
+    accepted 2015-09-11 with period of report 2015-08-27, whose suggestion 2014-09-14 is before that period.
+    A default approve is 422 and writes nothing (the table counted); the same date SENT is the steward's call.
+    """
+    sid = H.make_security(db, "late")
+    with db.cursor() as cur:
+        cur.execute(
+            'INSERT INTO insider_txn_hold (tenant_id, security_id, accession, txn_seq, form, reason, "row", '
+            "filed, accepted, period_of_report_as_filed) "
+            "VALUES (%s, %s, %s, 0, '4', 'after_filing', %s, %s, %s, %s) RETURNING id",
+            (
+                DEFAULT_TENANT_ID,
+                sid,
+                "0000000000-15-000001",
+                Json({"txn_code": "P", "shares": 10, "txn_date_as_filed": "2015-09-14"}),
+                date(2015, 9, 11),
+                datetime(2015, 9, 11, 20, 0, tzinfo=timezone.utc),
+                "2015-08-27",
+            ),
+        )
+        hid = cur.fetchone()["id"]
+    db.commit()
+    it = _items(client)[("0000000000-15-000001", 0)]
+    assert it["bucket"] == "owed"
+    assert (it["suggested_date"], it["agrees"], it["market_date"]) == (
+        "2014-09-14",
+        False,
+        "2015-09-11",
+    )
+    before = _count(db)
+    for body in (None, {}, {"reason": "looks right"}):
+        r = client.post(f"{BASE}/{hid}/approve", json=body)
+        assert r.status_code == 422, r.text
+        assert "does not agree with the filing's period of report" in r.json()["detail"]
+    assert _count(db) == before
+    assert _items(client)[("0000000000-15-000001", 0)]["bucket"] == "owed"
+    # the steward may still send a date (here the period of report): their decision, not a default
+    r = client.post(f"{BASE}/{hid}/approve", json={"ratified_date": "2015-08-27"})
+    assert r.status_code == 200, r.text
+    assert r.json()["decision"]["ratified_date"] == "2015-08-27"
     assert _count(db) == before + 1
 
 

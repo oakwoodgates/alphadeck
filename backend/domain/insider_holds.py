@@ -161,19 +161,52 @@ def _readable_date(text: object) -> date | None:
         return None
 
 
+def _placement(hold: Mapping[str, Any], on_time_days: int) -> tuple[date | None, str | None]:
+    """THE PLACEMENT RULE's one set of checks: ``(filing night, None)`` for an ON-TIME held row, else
+    ``(None, why)`` — the first check it fails, in plain words. ``placement_night`` and ``placement_problem``
+    both read this, so the night and the reason can never disagree."""
+    at = _aware(hold.get("accepted"))
+    if at is None:
+        return None, "no acceptance time is known for the filing"
+    text = hold.get("period_of_report_as_filed")
+    por = _readable_date(text)
+    if por is None:
+        if text is None or not str(text).strip():
+            return None, "the filing gives no period of report"
+        return None, f"the period of report as filed ({str(text).strip()}) cannot be read"
+    if not year_is_possible(por, str(hold["accession"])):
+        return None, (
+            f"the period of report as filed ({por.isoformat()}) fails the year rule (before "
+            f"{SECTION_16_EPOCH_YEAR}, or after the filing's year)"
+        )
+    filed_on = market_date_of(at)
+    lag = (filed_on - por).days
+    if lag < 0:
+        return None, (
+            f"the period of report ({por.isoformat()}) is after the filing ({filed_on.isoformat()})"
+        )
+    if lag > on_time_days:
+        return None, (
+            f"the filing was made {lag} days after its period of report ({por.isoformat()}), more than "
+            f"the on-time window of {on_time_days} days"
+        )
+    return edgar_night(at), None
+
+
 def placement_night(hold: Mapping[str, Any], on_time_days: int) -> date | None:
     """THE PLACEMENT RULE: the filing night an ON-TIME held row counts from, or ``None`` (a late filing, or one
     the rule cannot judge). On time = the hold has an acceptance and a readable period of report that is
     possible under the year rule, and the acceptance's market date is 0..``on_time_days`` days after it.
     """
-    at = _aware(hold.get("accepted"))
-    por = _readable_date(hold.get("period_of_report_as_filed"))
-    if at is None or por is None or not year_is_possible(por, str(hold["accession"])):
-        return None
-    lag = (market_date_of(at) - por).days
-    if not 0 <= lag <= on_time_days:
-        return None
-    return edgar_night(at)
+    return _placement(hold, on_time_days)[0]
+
+
+def placement_problem(hold: Mapping[str, Any], on_time_days: int) -> str | None:
+    """Why the placement rule does NOT place the held row, in plain words, or ``None`` when it does (exactly when
+    ``placement_night`` is not ``None``): no acceptance time; a period of report that is missing, unreadable or
+    fails the year rule; a period of report after the filing; or a filing made more days after its period of
+    report than the on-time window (both numbers stated)."""
+    return _placement(hold, on_time_days)[1]
 
 
 def _ver(row: Mapping[str, Any]) -> tuple[Any, str]:

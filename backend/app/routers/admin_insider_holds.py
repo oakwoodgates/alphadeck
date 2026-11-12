@@ -46,6 +46,7 @@ from domain.insider_holds import (
     BUCKET_FILER,
     BUCKET_OWED,
     BUCKET_PLACED,
+    BUCKET_WORDS,
     date_as_filed,
     reason_words,
 )
@@ -103,6 +104,8 @@ class AdminInsiderHoldOut(BaseModel):
     amendment_row); ``why`` = why the filer's own amendment decides it (``filer_corrected`` only);
     ``filing_night`` = the night it counts from when placed by the rule. ``suggested_date`` = the arithmetic
     suggestion (``None`` = none can be made) and ``agrees`` = it is on or after a readable period of report.
+    ``market_date`` = the filing's market date, the latest date a ratified date may be (``None`` when unknown);
+    ``owed_why`` = why the placement rule did not place it, in plain words (``owed`` rows only, else ``None``).
     ``decision`` = the standing steward decision (decided / dismissed); ``history`` = every decision about the
     row, Undos included, oldest first. ``filing_url`` = the filing on EDGAR.
     """
@@ -127,6 +130,8 @@ class AdminInsiderHoldOut(BaseModel):
     filing_night: date | None = None
     suggested_date: date | None = None
     agrees: bool = False
+    market_date: date | None = None
+    owed_why: str | None = None
     decision: AdminHoldDecisionOut | None = None
     history: list[AdminHoldDecisionOut] = Field(default_factory=list)
     filing_url: str | None = None
@@ -135,7 +140,8 @@ class AdminInsiderHoldOut(BaseModel):
 class AdminInsiderHoldsOut(BaseModel):
     """The "Held insider rows" panel. ``owed`` is the only LOUD bucket (its count is ``counts.owed``); the rest
     are quiet lists, still visible (WB#2). ``counts`` = how many rows sit in each bucket; ``total`` = all held
-    rows. Read live from the tables, judged as today's view reads."""
+    rows; ``bucket_words`` = each bucket in the backend's own words. Read live from the tables, judged as today's
+    view reads."""
 
     owed: list[AdminInsiderHoldOut] = Field(default_factory=list)
     placed_by_rule: list[AdminInsiderHoldOut] = Field(default_factory=list)
@@ -144,11 +150,13 @@ class AdminInsiderHoldsOut(BaseModel):
     dismissed: list[AdminInsiderHoldOut] = Field(default_factory=list)
     amendment_row: list[AdminInsiderHoldOut] = Field(default_factory=list)
     counts: dict[str, int] = Field(default_factory=dict)
+    bucket_words: dict[str, str] = Field(default_factory=dict)
     total: int = 0
 
 
 class AdminHoldApproveIn(BaseModel):
-    """The date to ratify (omit it to ratify the suggested date) and why (optional — a default is stored)."""
+    """The date to ratify (omit it to ratify the suggested date, only when it agrees with the filing) and why
+    (optional — a default is stored)."""
 
     ratified_date: date | None = None
     reason: str | None = Field(default=None, max_length=500)
@@ -237,6 +245,8 @@ def item_out(it: HoldItem) -> AdminInsiderHoldOut:
         filing_night=it.state.day if it.bucket == BUCKET_PLACED else None,
         suggested_date=it.suggested,
         agrees=it.agrees,
+        market_date=it.market_date,
+        owed_why=it.owed_why,
         decision=_decision(d) if d is not None else None,
         history=[_decision(x) for x in it.decisions],
         filing_url=_filing_url(it.issuer_cik, h["accession"]),
@@ -255,7 +265,11 @@ _LISTS = {
 
 def holds_out(items: list[HoldItem]) -> AdminInsiderHoldsOut:
     """Bucket the items for the panel (``items`` is already ordered owed first, then ticker)."""
-    out = AdminInsiderHoldsOut(total=len(items), counts={b: 0 for b in _LISTS.values()})
+    out = AdminInsiderHoldsOut(
+        total=len(items),
+        counts={b: 0 for b in _LISTS.values()},
+        bucket_words={name: BUCKET_WORDS[b] for b, name in _LISTS.items()},
+    )
     for it in items:
         name = _LISTS[it.bucket]
         getattr(out, name).append(item_out(it))
@@ -303,7 +317,8 @@ def list_holds(conn: psycopg.Connection = Depends(get_conn)) -> AdminInsiderHold
     """Every held insider row with its evidence, bucketed for the panel: owed your decision (loud); placed by
     rule, corrected by the filer, decided, dismissed and held Form 4/A rows (quiet). Each row carries the date
     the filing wrote, its period of report and signature date, the suggested date and whether it agrees with
-    the filing, and its standing decision. Read-only."""
+    the filing, the filing's market date, why the rule did not place an owed row, and its standing decision;
+    the response names each bucket in the backend's words. Read-only."""
     try:
         return holds_out(insider_hold_repo.items(conn))
     finally:
@@ -318,10 +333,12 @@ def approve_hold(
     user: CurrentUser = Depends(require_super_admin),
 ) -> AdminInsiderHoldOut:
     """RATIFY a date (basis ``steward:approve``): the held row counts from that date, for every read made from
-    now on (a past night's view is not rewritten). Omit ``ratified_date`` to ratify the suggested date. Undo
+    now on (a past night's view is not rewritten). Omit ``ratified_date`` to ratify the suggested date — only a
+    suggestion that agrees with the filing's period of report; a weak one must be sent as the date. Undo
     with ``POST /admin/insider-holds/decisions/{id}/revoke``. **404** unknown held row, **409** a decision
     already stands / the filer's own Form 4/A decides it / a Form 4/A row, **422** no date and no suggestion,
-    a date that fails the year rule, or one after the filing's market date (or none is known)."""
+    no date and a suggestion that does not agree with the filing, a date that fails the year rule, or one
+    after the filing's market date (or none is known)."""
     b = body or AdminHoldApproveIn()
     _commit(
         conn,

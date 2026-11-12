@@ -349,6 +349,11 @@ vi.mock("../../api/hooks", () => ({
   useLinkAmendment: () => h.repair,
   useRevokeAmendmentDecision: () => h.repair,
   useUndoSystemPick: () => h.repair,
+  // bad dates step 3 — the Held insider rows panel (its own behavior is in InsiderHolds.test.tsx): empty here
+  useInsiderHolds: () => ({ data: { total: 0 }, isError: false, error: null }),
+  useApproveHold: () => h.repair,
+  useDismissHold: () => h.repair,
+  useRevokeHoldDecision: () => h.repair,
   // split plan S1 — the Splits panel (its own behavior is in SplitList.test.tsx): empty here
   useDataFlags: () => ({ data: undefined, isError: false }),
   useSplitList: () => ({

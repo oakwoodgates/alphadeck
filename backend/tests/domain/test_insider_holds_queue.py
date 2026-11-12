@@ -9,7 +9,11 @@ pinned end to end in ``tests/app/test_admin_insider_holds_api.py``.
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
+from pathlib import Path
 
+import pytest
+
+from domain.config import DEFAULT_CONFIG
 from domain.insider_holds import (
     AMENDMENT_ROW_WORDS,
     BUCKET_AMENDMENT_ROW,
@@ -18,11 +22,15 @@ from domain.insider_holds import (
     filing_market_date,
     hold_label,
     page_bit,
+    placement_night,
+    placement_problem,
     quiet_new_line,
     ratify_problem,
     reason_words,
     suggested_date,
 )
+from ingest.edgar.form4 import hold_evidence
+from tests import held_fixtures as H
 
 
 def _hold(written, *, accepted=None, filed=None, por=None, accession="0000000000-24-000001"):
@@ -124,3 +132,88 @@ def test_the_words():
         line.startswith("2 new held insider row(s) that need no decision")
         and "placed by rule" in line
     )
+
+
+# --- why the rule does not place an owed row (``placement_problem``) --------------------------------------------
+
+_ON_TIME = DEFAULT_CONFIG.insider_hold_on_time_days
+
+
+def test_placement_problem_names_each_check_the_rule_fails():
+    # direct-input contracts: one hold per check, built by hand (never presented as a real filing)
+    assert (
+        placement_problem(_hold("x", por="2024-05-24"), 5)
+        == "no acceptance time is known for the filing"
+    )
+    # a filing date alone is not an acceptance time: the rule needs the acceptance
+    assert placement_problem(_hold("x", filed=date(2024, 5, 28), por="2024-05-24"), 5) == (
+        "no acceptance time is known for the filing"
+    )
+    assert placement_problem(_hold("x", accepted=_ACC), 5) == "the filing gives no period of report"
+    assert placement_problem(_hold("x", accepted=_ACC, por="n/a"), 5) == (
+        "the period of report as filed (n/a) cannot be read"
+    )
+    assert placement_problem(_hold("x", accepted=_ACC, por="0023-03-23"), 5) == (
+        "the period of report as filed (0023-03-23) fails the year rule (before 1934, or after the "
+        "filing's year)"
+    )
+    assert placement_problem(_hold("x", accepted=_ACC, por="2024-05-29"), 5) == (
+        "the period of report (2024-05-29) is after the filing (2024-05-28)"
+    )
+    assert placement_problem(_hold("x", accepted=_ACC, por="2024-05-22"), 5) == (
+        "the filing was made 6 days after its period of report (2024-05-22), more than the on-time "
+        "window of 5 days"
+    )
+    # the window's own edges are on time: no problem, and a night
+    for por in ("2024-05-23", "2024-05-28"):
+        h = _hold("x", accepted=_ACC, por=por)
+        assert placement_problem(h, 5) is None and placement_night(h, 5) is not None
+
+
+def _real_holds() -> list[tuple[str, dict]]:
+    """One hold per REAL Form 4 in ``tests/held_fixtures.py`` (the filing's own period of report and SEC's
+    acceptance, as the ingest stores them), plus the real BBAI and LSCC filings, which carry no acceptance.
+    """
+    out = []
+    for acc, f in H.FILINGS.items():
+        if f.form != "4":
+            continue
+        ev = hold_evidence(H.xml(acc))
+        out.append(
+            (
+                acc,
+                {
+                    "accession": acc,
+                    "accepted": f.accepted,
+                    "filed": f.filed,
+                    "period_of_report_as_filed": ev.period_of_report,
+                },
+            )
+        )
+    fix = Path(__file__).resolve().parents[1] / "fixtures" / "edgar"
+    for acc, name in (
+        ("0001628280-24-010030", "form4_bbai_leading_zero_year.xml"),
+        ("0001437749-24-004874", "form4_lscc_future_year.xml"),
+    ):
+        ev = hold_evidence((fix / name).read_text(encoding="utf-8"))
+        out.append((acc, {"accession": acc, "period_of_report_as_filed": ev.period_of_report}))
+    return out
+
+
+@pytest.mark.parametrize("days", [0, _ON_TIME, 200])
+def test_placement_problem_is_none_exactly_when_the_rule_places_the_row(days):
+    for acc, h in _real_holds():
+        night, problem = placement_night(h, days), placement_problem(h, days)
+        assert (night is None) == (problem is not None), (acc, days, night, problem)
+
+
+def test_the_real_late_filing_says_how_late_it_is():
+    holds = dict(_real_holds())
+    assert placement_problem(holds["0000899243-21-012557"], _ON_TIME) == (
+        "the filing was made 122 days after its period of report (2020-11-16), more than the on-time "
+        f"window of {_ON_TIME} days"
+    )
+    assert placement_problem(holds["0001628280-24-010030"], _ON_TIME) == (
+        "no acceptance time is known for the filing"
+    )
+    assert placement_problem(holds["0001354488-15-000004"], _ON_TIME) is None

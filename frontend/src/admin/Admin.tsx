@@ -22,6 +22,7 @@ import { scoreboardPath } from "../nav";
 import { hoursLate } from "../scoreboard/late";
 import { errText } from "../workbench/format";
 import { InsiderAmendments } from "./InsiderAmendments";
+import { InsiderHolds } from "./InsiderHolds";
 import { Onboarding } from "./Onboarding";
 import { PriceFeedRepairs, repairHandledIds } from "./PriceFeedRepairs";
 import { DataFlagList } from "./DataFlagList";
@@ -724,6 +725,12 @@ export function Admin({ header }: Props) {
               original meanwhile) with the evidence and Ratify / Keep / Link, each with its Undo; the
               auto-applied corrections and the inert ones quiet. Its own read; renders nothing when empty. */}
           <InsiderAmendments />
+
+          {/* 1c' — HELD INSIDER ROWS (bad dates step 3): Form 4 rows whose trade date cannot be true. Loud only for
+              the rows owed a decision (Use the suggestion / Set a date / Dismiss, each with its Undo); the
+              rule-placed, filer-corrected, decided, dismissed and held Form 4/A rows quiet. Its own read; renders
+              nothing when no row is held. */}
+          <InsiderHolds />
 
           {/* 1d — SPLITS (split plan S1): the split list the backfill filled from Massive.com + each company's SEC
               filing. Loud only for the splits one source cannot settle (the SEC passage and Massive.com's row side

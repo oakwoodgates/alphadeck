@@ -386,13 +386,14 @@ the leg reports success and the series stands still.
   stops, and today very few baskets hold an ETF sleeve at all — the monitor exists so the sleeve can grow
   without re-opening the same silent-end gap the price tape had.
 
-### Held insider rows — "which insider rows owe me a date?"  `[BUILT, API only — bad dates step 3, 2026-11-12]`
+### Held insider rows — "which insider rows owe me a date?"  `[BUILT — bad dates step 3, 2026-11-12]`
 
 The steward's queue for the Form 4 rows the ingest HELD because the filing's transaction date cannot be true
 (`insider_txn_hold`, migration 0082; `docs/FEED_LOOP.md`), and the steward's decisions about them
 (`insider_txn_hold_decision`, 0083). Its own read, `GET /admin/insider-holds`, live from the two tables; the
-writes are `/admin/insider-holds/*`. Steward only, on the DATA tenant. **The API is built; the panel waits for
-its signed-off mockup** (`docs/temp/mockups/held-insider-rows-mockup.html` in the main checkout).
+writes are `/admin/insider-holds/*`. Steward only, on the DATA tenant. The Admin page's "Held insider rows"
+card (`frontend/src/admin/InsiderHolds.tsx`, from the mockup signed off 2026-11-12) renders it, under the Form 4/A
+queue.
 
 Each held row sits in ONE bucket, judged by the SAME ladder the insider read runs
 (`domain.insider_holds.hold_state`, shared with `resolve_holds`), so the panel can never disagree with what a
@@ -413,7 +414,15 @@ SEC's filing date and acceptance, the reason in plain words, the row (person, ro
 dollars), the EDGAR link, and a **suggested date**: the written month and day in the latest year on or before
 the filing's market date (the acceptance's market date, else the filing date), tried in that year and the one
 before — arithmetic on the filing, never a model. `agrees` says the suggestion is on or after a readable,
-possible period of report. A suggestion changes nothing until you approve it.
+possible period of report. A suggestion changes nothing until you approve it, and only one that agrees can be
+approved by default: the panel offers "Use <date>" only then, and shows a weak one as text. Each row also
+carries `market_date` (the filing's market date: the latest date a ratified date may be, `null` when unknown;
+the panel's date input stops there) and, on an owed row, `owed_why`: why the placement rule did not place it,
+in plain words from the SAME checks the rule makes (`domain.insider_holds.placement_problem`, beside
+`placement_night`): no acceptance time is known; the period of report is missing, unreadable or fails the year
+rule; the period of report is after the filing; or the filing was made N days after its period of report, more
+than the on-time window (both numbers stated). The list carries `bucket_words`, each bucket in the backend's
+own words.
 
 The decisions, each ONE append-only row recorded NOW (on the public clock a decision counts from when you made
 it; a past night's view is never rewritten), labeled who / when / why: the role in `basis` the Form 4/A way
@@ -423,8 +432,10 @@ steward's user id and display name, never an email; `null` for a call that names
 in the item's `history`, under a `FOR UPDATE` lock on the held row, moving the company's change stamp so
 dashboards re-read it (no `data_repair` journal row: a decision is not a repair run):
 
-- **Approve** a date (the suggestion when none is sent): it must pass the year rule (not before 1934, not after
-  the accession's filing year) and be on or before the filing's market date.
+- **Approve** a date (the suggestion when none is sent, and only a suggestion that AGREES: with a weak one
+  and no date sent the approve is a 422 that writes nothing, so one click never ratifies a date the filing
+  contradicts): it must pass the year rule (not before 1934, not after the accession's filing year) and be on
+  or before the filing's market date.
 - **Dismiss** as not a trade: a reason is required.
 - **Undo** (revoke): the row returns to the state before the decision (the placement rule, or owed).
 

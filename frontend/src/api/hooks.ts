@@ -2054,6 +2054,78 @@ export function useRevokeAmendmentDecision() {
   });
 }
 
+// --- Held insider rows (bad dates step 3): the steward's queue for Form 4 rows whose trade date cannot be true ---
+// Its own read (the hold tables, live) and its WRITES, each fired ONLY by an explicit click with a visible inverse
+// (Use / Set a date / Dismiss ⇄ Undo). retry:false — a decision is never auto-retried. Every write, success OR
+// failure, refreshes this read and the status: a 409 means the server's state moved, so the row is re-read to
+// where the server has it (never an optimistic update the server can contradict).
+export type AdminInsiderHoldsOut = components["schemas"]["AdminInsiderHoldsOut"];
+export type AdminInsiderHoldOut = components["schemas"]["AdminInsiderHoldOut"];
+export type AdminHoldDecisionOut = components["schemas"]["AdminHoldDecisionOut"];
+
+export function useInsiderHolds() {
+  return useQuery({
+    queryKey: ["admin-insider-holds"] as const,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/admin/insider-holds");
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+function useHoldDecision<TVars, TData>(fn: (vars: TVars) => Promise<TData>) {
+  const qc = useQueryClient();
+  return useMutation({
+    retry: false,
+    mutationFn: fn,
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["admin-insider-holds"] });
+      qc.invalidateQueries({ queryKey: ["admin-status"] });
+    },
+    onSuccess: () => invalidateDashboards(qc),
+  });
+}
+
+// RATIFY a date (omit `ratifiedDate` to ratify the API's suggested date).
+export function useApproveHold() {
+  return useHoldDecision(async (vars: { holdId: string; ratifiedDate?: string; reason?: string }) => {
+    const { data, error } = await api.POST("/admin/insider-holds/{hold_id}/approve", {
+      params: { path: { hold_id: vars.holdId } },
+      body: {
+        ...(vars.ratifiedDate ? { ratified_date: vars.ratifiedDate } : {}),
+        ...reasonBody(vars.reason),
+      },
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
+// DISMISS as not a trade (a reason is required — the server 422s an empty one).
+export function useDismissHold() {
+  return useHoldDecision(async (vars: { holdId: string; reason: string }) => {
+    const { data, error } = await api.POST("/admin/insider-holds/{hold_id}/dismiss", {
+      params: { path: { hold_id: vars.holdId } },
+      body: { reason: vars.reason.trim() },
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
+// UNDO a standing decision (`holdId` only routes an error to its row; the route takes the decision id).
+export function useRevokeHoldDecision() {
+  return useHoldDecision(async (vars: { decisionId: string; holdId: string }) => {
+    const { data, error } = await api.POST("/admin/insider-holds/decisions/{decision_id}/revoke", {
+      params: { path: { decision_id: vars.decisionId } },
+      body: {},
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
 // --- Splits (split plan S1): the operator's ratification of the split list ---
 // Its own read (the split list, live) and its WRITES, each fired ONLY by an explicit click with a visible
 // inverse (Confirm ⇄ Revoke, Reject / Revoke ⇄ Restore). Every write names the version it acts on, so a stale
