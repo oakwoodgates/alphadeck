@@ -129,11 +129,21 @@ state.
 | Admin page and every `/admin/*` route (cron status, backups, run-daily, splits, price-feed repairs, insider amendments, onboarding) | 403; the nav entry is hidden; typing `/admin` shows "stewards only" | yes |
 | Backtest page and `/backtest/*` | 403; hidden likewise | yes |
 | The business-type re-tag (`POST /workbench/securities/{id}/business-type`), a write to the SHARED company master | 403; the control is hidden | yes |
+| Surface an ETF (`POST /workbench/securities/resolve-etf`): adds a fund to the SHARED company master or marks an existing row a fund | 403; the Workbench control is hidden | yes |
+| Add a fund to a card's ETFs link (`POST /radar/funds/attach`) | yes, for a fund already in the company list; any other symbol is a 404 ("This fund is not in the company list yet. A steward can add it.") and nothing is written | yes, and may add the fund to the company list (the same lookup-or-create as Surface an ETF) |
 | User and token management | own name, email, password and Slack webhook, and own API tokens on the Agents tab (`/settings`) | the CLI, plus their own on `/settings` |
 | The Agents tab (`/settings/agents`) | yes: the connector URL, their own tokens and their connected apps | yes, plus one sentence on the steward scope |
 | The OAuth consent page (`/oauth/consent/<id>`) | yes: grants `read` only (`steward` shown struck, "not available to your account") | yes: may grant `read` and `steward` |
 
 The backend enforces every row; the frontend only hides what a role cannot use.
+
+**No user-authored writes to the shared company master.** Only the steward adds a row to `security_master` or
+changes one. A ticker typed into either fund route above is stripped, uppercased and held to
+`^[A-Z0-9][A-Z0-9.\-]{0,11}$` (422 otherwise); `securities.figi.map_ticker` applies the same check before a ticker
+becomes an OpenFIGI request or a cache filename. `backend/tests/app/test_shared_master_writes.py` pins it: a
+plain user's attempts change no master row, and a grep guard allows a call to a `securities.master` writer under
+`app/routers/` only at a listed site that is steward-gated or documented as a server-sourced write (today one:
+the automatic OTC price-symbol resolve in `POST /workbench/securities/{id}/ingest-prices`, to be gated next).
 
 ## The CLI (`python -m pipeline.users`)
 
@@ -189,7 +199,8 @@ In a container: `docker exec -it alphadeck-backend-1 python -m pipeline.users â€
 `backend/tests/app/test_auth_gate.py` makes an open route a failing test: the route-gate walk over `app.routes`
 (every route but the two open ones carries `require_user` / `require_super_admin`), the 401 sweep (every operation
 in the schema, no credential â†’ 401; a 422 there would mean the gate ran after validation), the 403 sweep (a plain
-user on every steward route), the system principal, and the login / logout / password / disable / throttle /
+user on every steward route, including the two outside `/admin` and `/backtest`: the business-type re-tag and
+Surface an ETF), the system principal, and the login / logout / password / disable / throttle /
 expiry / revocation / cookie-flag cases, and lists the OAuth authorization server's five routes (open by nature)
 and the two consent routes (`require_user`); `backend/tests/app/test_oauth.py` holds the sign-in to its rules
 (PKCE, single-use codes, refresh rotation and replay, session-only consent, the role cap, a read-only token refused

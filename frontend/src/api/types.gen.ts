@@ -641,8 +641,10 @@ export interface paths {
         put?: never;
         /**
          * Resolve Etf
-         * @description Surface an operator-supplied ETF ticker as a ``fund`` sleeve's master row (ETF Sleeve, Slice 1). The
-         *     operator TYPES a ticker (e.g. LIT); this resolves it to a ``security_master`` row marked
+         * @description Surface an ETF ticker as a ``fund`` sleeve's master row (ETF Sleeve, Slice 1). STEWARD ONLY (403 for a
+         *     plain user): the security master is shared DATA every workspace reads, so only the steward adds to it or
+         *     re-marks a row in it (docs/AUTH.md). The steward TYPES a ticker (e.g. LIT); this resolves it to a
+         *     ``security_master`` row marked
          *     ``instrument_kind='etf'`` — the row the FE then adds to the basket as the sleeve member (the ETF
          *     attaches UNDER a thesis, never free-floating — #2; ``instrument_kind`` is the sleeve's one marker).
          *
@@ -660,6 +662,10 @@ export interface paths {
          *     vetoes, leads a laggard or receives the theme broadcast (``domain.thesis.voting_thesis`` removes it at the
          *     call seam; a fund's own price breakout WOULD vote from any other link, which is why the promote refuses a
          *     fund anywhere but ETFs). NO LLM (#3): a deterministic resolve on a declared ticker.
+         *
+         *     The ticker must be 1 to 12 letters, digits, dots or hyphens, starting with a letter or digit (422 otherwise),
+         *     because it becomes an OpenFIGI request and a cache filename. A plain user adds a fund that is already in the
+         *     company list through ``POST /radar/funds/attach`` or the Add-a-name search.
          */
         post: operations["resolve_etf_workbench_securities_resolve_etf_post"];
         delete?: never;
@@ -2515,11 +2521,15 @@ export interface paths {
         put?: never;
         /**
          * Fund Attach
-         * @description Add a fund to a card's ETFs link — the operator's click (#10). The symbol resolves through the SAME
-         *     function as ``POST /workbench/securities/resolve-etf`` (lookup-or-create, ``instrument_kind='etf'``); the
-         *     member is built like the Workbench's "Surface an ETF" does (role "ETF sleeve", segment ETFs, a model draft,
-         *     signed off, no conviction) and the card is re-written whole from the stored copy, so nothing it carries
-         *     (context roles, catalysts, kill criteria...) is wiped. The write goes through the promote's own rules
+         * @description Add a fund to a card's ETFs link — the operator's click (#10). For a plain user the symbol must already
+         *     be a fund in the shared company list (a master row with ``instrument_kind='etf'``): anything else (an
+         *     unknown symbol, or a row that is not a fund) answers 404 with a fixed message and writes nothing, because
+         *     the security master is shared data only the steward adds to or alters. A steward's attach keeps the
+         *     lookup-or-create of ``POST /workbench/securities/resolve-etf`` (``instrument_kind='etf'``). The symbol must
+         *     be 1 to 12 letters, digits, dots or hyphens, starting with a letter or digit (422 otherwise). The member is
+         *     built like the Workbench's "Surface an ETF" does (role "ETF sleeve", segment ETFs, a model draft, signed
+         *     off, no conviction) and the card is re-written whole from the stored copy, so nothing it carries (context
+         *     roles, catalysts, kill criteria...) is wiped. The write goes through the promote's own rules
          *     (``silent_conflicts`` / ``fund_conflicts``), so a fund can never land outside ETFs. Idempotent: already in
          *     ETFs returns ``already`` and writes nothing. Prices are NOT pulled here (the screen does, as Surface an ETF
          *     does). Reversible via detach (#1).
@@ -11750,7 +11760,8 @@ export interface components {
         };
         /**
          * FundAttachRequest
-         * @description Body for ``POST /radar/funds/attach`` / ``.../detach``: one fund symbol, one card.
+         * @description Body for ``POST /radar/funds/attach`` / ``.../detach``: one fund symbol, one card. The symbol is stripped,
+         *     uppercased and must be 1 to 12 letters, digits, dots or hyphens, starting with a letter or digit (else 422).
          */
         FundAttachRequest: {
             /**
@@ -16329,9 +16340,10 @@ export interface components {
         };
         /**
          * ResolveEtfRequest
-         * @description Body for ``POST /workbench/securities/resolve-etf`` (ETF Sleeve, Slice 1) — the operator-supplied ETF
-         *     ticker to surface as a ``fund`` sleeve. Just the ticker: the server resolves it (lookup-or-create) and
-         *     marks it ``instrument_kind='etf'`` — operator-DECLARED, never auto-detected (#3, no LLM).
+         * @description Body for ``POST /workbench/securities/resolve-etf`` (ETF Sleeve, Slice 1; steward only) — the ETF ticker
+         *     to surface as a ``fund`` sleeve. Just the ticker: the server resolves it (lookup-or-create) and marks it
+         *     ``instrument_kind='etf'`` — operator-DECLARED, never auto-detected (#3, no LLM). The ticker is stripped,
+         *     uppercased and must be 1 to 12 letters, digits, dots or hyphens, starting with a letter or digit (else 422).
          */
         ResolveEtfRequest: {
             /** Ticker */

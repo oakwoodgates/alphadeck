@@ -34,6 +34,9 @@ from tests.auth_fixtures import sign_out
 OPEN = {("GET", "/health"), ("POST", "/auth/login")}
 PASSWORD = "correct horse battery"
 BUSINESS_TYPE = "/workbench/securities/{security_id}/business-type"
+RESOLVE_ETF = "/workbench/securities/resolve-etf"
+# the steward-only routes outside /admin and /backtest: each writes the shared security master (docs/AUTH.md)
+STEWARD_PATHS = {BUSINESS_TYPE, RESOLVE_ETF}
 # Steward routes a super admin is NOT swept through: each one STARTS a real job when it passes the gate (a full
 # nightly pass, a database dump). They carry the same router-level gate as every other /admin route, which the
 # plain-user 403 sweep and the route-gate test already prove.
@@ -149,7 +152,7 @@ def test_steward_routes_carry_require_super_admin():
     for r in app.routes:
         if not isinstance(r, APIRoute):
             continue
-        steward = r.path.startswith(("/admin", "/backtest")) or r.path == BUSINESS_TYPE
+        steward = r.path.startswith(("/admin", "/backtest")) or r.path in STEWARD_PATHS
         assert (require_super_admin in _gates(r.dependant)) == steward, r.path
 
 
@@ -192,7 +195,7 @@ def test_health_stays_open(anon):
 
 def _steward_ops():
     for method, path, op in _operations():
-        if path.startswith(("/admin", "/backtest")) or path == BUSINESS_TYPE:
+        if path.startswith(("/admin", "/backtest")) or path in STEWARD_PATHS:
             yield method, path, op
 
 

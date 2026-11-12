@@ -6,6 +6,7 @@ from pathlib import Path
 
 from domain.settings import get_settings
 from ingest import CacheMiss
+from securities.symbols import normalize_ticker
 
 # Runtime cache lives under the repo's gitignored data/; tests pass a fixtures dir instead.
 _DEFAULT_CACHE = Path(__file__).resolve().parents[2] / "data" / "figi_cache"
@@ -25,8 +26,12 @@ def map_ticker(
     cache_dir: Path | None = None,
     allow_live: bool = False,
 ) -> dict[str, str | None]:
-    """Resolve a ticker to ``{ticker, figi, name}`` via OpenFIGI. Cache-first; live only behind ``allow_live``."""
-    ticker = ticker.upper()
+    """Resolve a ticker to ``{ticker, figi, name}`` via OpenFIGI. Cache-first; live only behind ``allow_live``.
+
+    The ticker is held to ``securities.symbols`` first (``ValueError`` otherwise): it becomes a cache FILENAME and
+    an OpenFIGI request below, so a path, a space or a NUL never gets that far, whoever the caller is.
+    """
+    ticker = normalize_ticker(ticker)
     cache_dir = cache_dir or _DEFAULT_CACHE
     path = cache_dir / f"{ticker}.json"
     if path.exists():

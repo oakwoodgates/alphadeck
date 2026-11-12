@@ -4,8 +4,10 @@ matching launches as of a night, and the reversible add-to-ETFs pair.
 DISPLAY ONLY (Kind B): every GET reads the stored facts (``fact_fund_*``) and derives stages and card matches on
 read — no SEC request, no LLM (#3), and no ``calls/`` import (the radar is structurally outside the call path; a
 fund also sits in the silent ETFs link, so it never votes). The attach / detach pair is the operator's click
-(#10: the radar recommends, the operator decides), reversible (#1), and goes through the SAME resolve and the
-SAME promote validation the Workbench uses, so a fund can never land outside the ETFs link.
+(#10: the radar recommends, the operator decides), reversible (#1), and goes through the SAME promote validation
+the Workbench uses, so a fund can never land outside the ETFs link. Attach never adds to or alters the shared
+security master for a plain user: it attaches a fund that is already in the company list (security hardening
+PR 1a); only a steward's attach may create or re-mark the master row (the Workbench's resolve).
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ from uuid import UUID
 import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from app.auth import CurrentUser, require_user
 from app.deps import get_conn, get_thesis_or_404, get_workspace
 from app.routers.workbench import _fund_ids, resolve_etf
 from app.schemas_api import (
@@ -32,8 +35,9 @@ from app.schemas_api import (
     FundTapeCountsOut,
     RadarFundsOut,
     ResolveEtfRequest,
+    SecurityMatchOut,
 )
-from domain.enums import Authorship
+from domain.enums import Authorship, InstrumentKind
 from domain.market_time import market_today
 from domain.scopes import DATA_TENANT_ID
 from domain.thesis import (
@@ -342,11 +346,24 @@ def read_fund_launches(
     )
 
 
-def _symbol(req: FundAttachRequest) -> str:
-    sym = req.symbol.strip().upper()
-    if not sym:
-        raise HTTPException(status_code=422, detail="a fund symbol is required")
-    return sym
+# The fixed answer when a plain user's attach names no fund in the company list (no symbol echoed back).
+FUND_NOT_IN_MASTER = "This fund is not in the company list yet. A steward can add it."
+
+
+def _listed_fund(conn: psycopg.Connection, symbol: str) -> SecurityMatchOut:
+    """The data tenant's master row for ``symbol`` when it is already a fund, else 404 (a READ only: nothing is
+    created and no row is re-marked; an equity row under that ticker is left exactly as it is)."""
+    sid = master.ids_for_tickers(conn, [symbol], tenant_id=DATA_TENANT_ID).get(symbol)
+    sec = master.get(conn, sid, tenant_id=DATA_TENANT_ID) if sid is not None else None
+    if sec is None or sec.instrument_kind != InstrumentKind.ETF:
+        raise HTTPException(status_code=404, detail=FUND_NOT_IN_MASTER)
+    return SecurityMatchOut(
+        security_id=sec.id,
+        ticker=sec.ticker,
+        name=sec.name,
+        cik=sec.cik,
+        instrument_kind=sec.instrument_kind,
+    )
 
 
 @router.post("/radar/funds/attach", response_model=FundAttachOut)
@@ -354,19 +371,28 @@ def fund_attach(
     req: FundAttachRequest,
     conn: psycopg.Connection = Depends(get_conn),
     workspace: UUID = Depends(get_workspace),
+    user: CurrentUser = Depends(require_user),
 ) -> FundAttachOut:
-    """Add a fund to a card's ETFs link — the operator's click (#10). The symbol resolves through the SAME
-    function as ``POST /workbench/securities/resolve-etf`` (lookup-or-create, ``instrument_kind='etf'``); the
-    member is built like the Workbench's "Surface an ETF" does (role "ETF sleeve", segment ETFs, a model draft,
-    signed off, no conviction) and the card is re-written whole from the stored copy, so nothing it carries
-    (context roles, catalysts, kill criteria...) is wiped. The write goes through the promote's own rules
+    """Add a fund to a card's ETFs link — the operator's click (#10). For a plain user the symbol must already
+    be a fund in the shared company list (a master row with ``instrument_kind='etf'``): anything else (an
+    unknown symbol, or a row that is not a fund) answers 404 with a fixed message and writes nothing, because
+    the security master is shared data only the steward adds to or alters. A steward's attach keeps the
+    lookup-or-create of ``POST /workbench/securities/resolve-etf`` (``instrument_kind='etf'``). The symbol must
+    be 1 to 12 letters, digits, dots or hyphens, starting with a letter or digit (422 otherwise). The member is
+    built like the Workbench's "Surface an ETF" does (role "ETF sleeve", segment ETFs, a model draft, signed
+    off, no conviction) and the card is re-written whole from the stored copy, so nothing it carries (context
+    roles, catalysts, kill criteria...) is wiped. The write goes through the promote's own rules
     (``silent_conflicts`` / ``fund_conflicts``), so a fund can never land outside ETFs. Idempotent: already in
     ETFs returns ``already`` and writes nothing. Prices are NOT pulled here (the screen does, as Surface an ETF
     does). Reversible via detach (#1)."""
     thesis = thesis_repo.get(conn, req.thesis_id, workspace=workspace)
     if thesis is None:
         raise HTTPException(status_code=404, detail="thesis not found")
-    sec = resolve_etf(ResolveEtfRequest(ticker=_symbol(req)), conn)
+    if user.is_super_admin:
+        # the steward may add to the shared master: the Workbench's own lookup-or-create
+        sec = resolve_etf(ResolveEtfRequest(ticker=req.symbol), conn)
+    else:
+        sec = _listed_fund(conn, req.symbol)
     if any(m.security_id == sec.security_id and m.segment == ETFS_LABEL for m in thesis.basket):
         return FundAttachOut(
             thesis_id=thesis.id, security_id=sec.security_id, ticker=sec.ticker, already=True
@@ -415,7 +441,7 @@ def fund_detach(
     thesis = thesis_repo.get(conn, req.thesis_id, workspace=workspace)
     if thesis is None:
         raise HTTPException(status_code=404, detail="thesis not found")
-    sym = _symbol(req)
+    sym = req.symbol  # already stripped, uppercased and held to securities.symbols (else 422)
     sid = master.ids_for_tickers(conn, [sym], tenant_id=DATA_TENANT_ID).get(sym)
     if sid is None:
         return FundAttachOut(thesis_id=thesis.id, ticker=sym, removed=False)
