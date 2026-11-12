@@ -165,6 +165,14 @@ class CallConfig(DomainModel):
     # so it catches only the absurd. Belt-and-suspenders to the below-low check (which misses garbage-HIGH
     # prices and any name with no price bar). Excluded rows are KEPT in history; only conviction skips them.
     insider_max_plausible_txn_usd: float = 2_000_000_000.0  # $2B
+    # A HELD insider row (``insider_txn_hold``: its transaction date cannot be true — an impossible year, or a
+    # date after its own filing) is counted from the night its filing became public when the filing was ON
+    # TIME: its acceptance's market date is 0..N days after its own period of report (rule log
+    # ``2026-11-insider-rows-dated-after-filing``; ``domain.insider_holds.placement_night``). A later filing
+    # waits for a steward's decision (``insider_txn_hold_decision``). Section 16(a) gives two business days, so
+    # 5 calendar days covers a timely filing across a weekend or a holiday and nothing much later. The read
+    # seam takes no config: it reads this default (``db.insider_resolution`` / ``replay.pit``).
+    insider_hold_on_time_days: int = 5
     # Conviction (insider) alpha-liveness window is GRADED by grade — the window over which the edge stays
     # live (a hard liveness window here, NOT an exponential 50%-decay point, so it is the FULL
     # edge-persistence horizon). The insider open-market-purchase literature (Lakonishok-Lee 2001;

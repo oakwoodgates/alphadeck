@@ -150,6 +150,17 @@ RULE_LOG: tuple[RuleEntry, ...] = (
             "still counts from the work period's start."
         ),
     ),
+    RuleEntry(
+        id="2026-11-insider-rows-dated-after-filing",
+        date=date(2026, 11, 12),
+        label="an insider trade dated after its own filing counts from the filing night",
+        description=(
+            "An insider trade whose date in the filing cannot be true (after the filing itself, or an "
+            "impossible year) now counts from the night its filing became public when the filing was on "
+            "time, and a late filing's row waits for a steward's decision instead of counting at the "
+            "written date."
+        ),
+    ),
 )
 
 

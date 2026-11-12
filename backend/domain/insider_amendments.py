@@ -185,6 +185,7 @@ from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
+from domain.config import DEFAULT_CONFIG
 from domain.insider_internal_transfers import screen_internal_transfers
 from domain.insider_joint_reports import collapse_joint_reports
 
@@ -2166,17 +2167,26 @@ class ResolutionInputs:
     links: dict[Any, list[Mapping[str, Any]]] = field(default_factory=dict)
     decisions: dict[Any, list[Mapping[str, Any]]] = field(default_factory=dict)
     own_ciks: dict[Any, set[str]] = field(default_factory=dict)
+    # rule 2026-11-insider-rows-dated-after-filing — the held rows (insider_txn_hold, 0082) and the steward's
+    # decisions about them (insider_txn_hold_decision, 0083) the read can see, and the on-time dial
+    holds: dict[Any, list[Mapping[str, Any]]] = field(default_factory=dict)
+    hold_decisions: dict[Any, list[Mapping[str, Any]]] = field(default_factory=dict)
+    on_time_days: int = DEFAULT_CONFIG.insider_hold_on_time_days
 
     def resolve(
         self, sid: Any, rows: Sequence[dict[str, Any]], *, asof: date, lower: date | None
     ) -> list[dict[str, Any]]:
-        """The 4/A resolution, THEN the joint-report collapse (``domain.insider_joint_reports``) on the resolved
-        rows, THEN the internal-transfer screen (``domain.insider_internal_transfers`` — it TAGS a buy and a sale
-        between linked filers, never drops them; the pre-collapse rows are its evidence) — the one seam every
-        as-of read of ``fact_insider_txn`` passes through (both engines), so a trade several persons reported
-        counts once, and a transfer within a filer group counts for nothing, for every reader. Nothing to
-        resolve, collapse or screen -> unchanged.
+        """The 4/A resolution, THEN the held rows (``domain.insider_holds.resolve_holds``: a held Form 4 row of an
+        on-time filing counts from its filing night, a steward's decision is honored, a trade is never counted
+        twice), THEN the joint-report collapse (``domain.insider_joint_reports``) on the resolved rows, THEN the
+        internal-transfer screen (``domain.insider_internal_transfers`` — it TAGS a buy and a sale between linked
+        filers, never drops them; the pre-collapse rows are its evidence) — the one seam every as-of read of
+        ``fact_insider_txn`` passes through (both engines), so a trade several persons reported counts once, and
+        a transfer within a filer group counts for nothing, for every reader. Nothing to resolve, collapse or
+        screen -> unchanged.
         """
+        from domain.insider_holds import resolve_holds  # it imports this module (no cycle at load)
+
         key = str(sid)
         resolved = resolve_insider_rows(
             rows,
@@ -2186,6 +2196,18 @@ class ResolutionInputs:
             own_ciks=self.own_ciks.get(key, ()),
             asof=asof,
             lower=lower,
+        )
+        resolved = resolve_holds(
+            resolved,
+            holds=self.holds.get(key, ()),
+            hold_decisions=self.hold_decisions.get(key, ()),
+            amendments=self.amendments.get(key, ()),
+            links=self.links.get(key, ()),
+            decisions=self.decisions.get(key, ()),
+            own_ciks=self.own_ciks.get(key, ()),
+            asof=asof,
+            lower=lower,
+            on_time_days=self.on_time_days,
         )
         return screen_internal_transfers(collapse_joint_reports(resolved), resolved)
 
@@ -2287,10 +2309,18 @@ def group_inputs(
     links: Iterable[Mapping[str, Any]],
     decisions: Iterable[Mapping[str, Any]],
     ciks: Iterable[tuple[Any, Any]],
+    holds: Iterable[Mapping[str, Any]] = (),
+    hold_decisions: Iterable[Mapping[str, Any]] = (),
 ) -> ResolutionInputs:
     """Group flat engine rows by ``str(security_id)`` (the one key both engines agree on)."""
     out = ResolutionInputs()
-    for name, src in (("amendments", amendments), ("links", links), ("decisions", decisions)):
+    for name, src in (
+        ("amendments", amendments),
+        ("links", links),
+        ("decisions", decisions),
+        ("holds", holds),
+        ("hold_decisions", hold_decisions),
+    ):
         bucket: dict[Any, list[Mapping[str, Any]]] = getattr(out, name)
         for r in src:
             bucket.setdefault(str(r["security_id"]), []).append(r)

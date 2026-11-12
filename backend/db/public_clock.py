@@ -118,7 +118,9 @@ rounding, SMX / ATRO — across those 29,057 bars).
 The Form 4/A tables (``db.insider_resolution``): an amendment and the system's link count from the 4/A's SEC
 acceptance (else its filing date); a SYSTEM decision about it (``basis`` ``system:*`` — the system's reading
 of a public filing under today's rules) counts from that same publication; an OPERATOR decision counts from
-when the operator made it (its ``recorded_at``).
+when the operator made it (its ``recorded_at``). A HELD insider row (``insider_txn_hold``) counts from its
+filing's SEC acceptance (else when we held it), and a steward's decision about one
+(``insider_txn_hold_decision``) from when it was made (rule ``2026-11-insider-rows-dated-after-filing``).
 
 **Version picking on the public clock.** The visible version at a past asof is the NEWEST version that was
 public by then: ``ORDER BY public DESC, recorded_at DESC, id DESC`` among versions with ``public <= known_at``
@@ -625,4 +627,12 @@ def aux_public_sql(table: str, alias: str = "x", *, ceiling: bool = False) -> sq
             link_acc=link_acc,
             rec=rec,
         )
+    if table == "insider_txn_hold":
+        # a held row is public from its filing's SEC acceptance, else from when we held it (rule
+        # 2026-11-insider-rows-dated-after-filing)
+        return sql.SQL("COALESCE({acc}, {rec})").format(
+            acc=sql.Identifier(alias, "accepted"), rec=rec
+        )
+    if table == "insider_txn_hold_decision":
+        return rec  # a steward's decision counts from when it was made (the operator-decision rule)
     raise ValueError(f"no public clock for aux table {table!r}")

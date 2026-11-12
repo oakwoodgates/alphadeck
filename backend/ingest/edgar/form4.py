@@ -4,7 +4,7 @@ import math
 import re
 import xml.etree.ElementTree as ET
 from collections.abc import Mapping, Sequence
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Any, NamedTuple
 from uuid import UUID
 from xml.etree.ElementTree import Element
@@ -15,6 +15,8 @@ from psycopg.types.json import Json
 from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
 from domain.coerce import to_float
+from domain.insider_holds import SECTION_16_EPOCH_YEAR, accession_filing_year
+from domain.market_time import market_date_of
 
 # A Form 4 transactionDate is a calendar date ('YYYY-MM-DD'). Some filing agents serialize it with a
 # trailing UTC offset (e.g. '2026-05-13-05:00') or time/'Z' suffix, which ``date.fromisoformat`` rejects —
@@ -61,57 +63,81 @@ _ISO_DATE_PREFIX = re.compile(r"\d{4}-\d{2}-\d{2}")
 # UPPER — an EDGAR accession is ``NNNNNNNNNN-YY-NNNNNN`` with the two-digit year assigned at submission, so
 # it names the filing year. A Form 4 reports a transaction that has ALREADY occurred (Section 16(a): filed
 # within two business days AFTER), so the transaction cannot fall in a later calendar year than the filing.
-# Coarse on purpose: the ownership document carries no filing date (only the enumeration knows ``filed``), and
-# the year anchor judges a row from the accession alone, so the ingest and the two repair tools — which hold
-# only the accession — can never disagree. (``filed`` is threaded into ``ingest_form4`` since 0082, but only as
-# evidence on a held row; the rule does not read it. "Dated after its own filing" is the next step.) Its residual is
-# MEASURED and stated rather than guessed: 38 further rows are dated after their own ``accepted`` datetime
-# within the SAME year and are NOT rejected — tightening to that clock would make the bound depend on a
-# column that is NULL for ~47% of raw rows (0.67% of facts on the latest-version grain, ``docs/BACKTEST.md``),
-# so the same filing would be judged differently run to run.
-_EDGAR_ACCESSION = re.compile(r"^\d{10}-(\d{2})-\d{6}$")
-_SECTION_16_EPOCH_YEAR = 1934  # the Securities Exchange Act of 1934 created Section 16 reporting
+# The year anchor judges a row from the accession alone, so it needs nothing threaded and the repair tools —
+# which hold only the accession — apply it unchanged.
+#
+# AFTER ITS OWN FILING (rule log ``2026-11-insider-rows-dated-after-filing``, the third condition): when the
+# filing's SEC acceptance is KNOWN, a transaction dated after the acceptance's market date (New York) cannot be
+# true either — a Form 4 reports a trade that has already happened. One exception, MEASURED on a real filing
+# (accepted 20:27 New York on one day, signed and traded the next): a filer in a time zone ahead of New York
+# signs and trades on its own next calendar day, so the row is held only when it is ALSO dated after the
+# filing's last signature date, when the filing has a readable one. No acceptance -> only the two year
+# conditions, as before: that residual is the one the year anchor always named (MEASURED 2026-09-16: 38 rows
+# dated after their own ``accepted`` within the same year; ``accepted`` is NULL on ~47% of raw rows, 0.67% of
+# facts on the latest-version grain, ``docs/BACKTEST.md``), now closed wherever the acceptance is stored.
+# ``pipeline.repair_impossible_txn_dates`` (which DELETES stored rows) keeps calling
+# the rule without an acceptance, so it never deletes an after-filing row: those are HELD, and the read
+# decides when they count (``domain.insider_holds``).
+#
+# The two YEAR pieces (``accession_filing_year`` and the 1934 epoch) live in ``domain.insider_holds`` since the
+# read judges a held row's period of report with them, and the domain never imports the ingest; they are
+# imported here, so the rule still has one statement (``implausible_txn_date_code`` below).
+_SECTION_16_EPOCH_YEAR = SECTION_16_EPOCH_YEAR  # the 1934 Act created Section 16 reporting
 
 
-def accession_filing_year(accession: str) -> int | None:
-    """The filing YEAR encoded in an EDGAR accession (``0001628280-24-010030`` -> 2024), or ``None`` when
-    ``accession`` is not EDGAR-shaped (a seed/test label like ``"acc-planned"``).
-
-    EDGAR's electronic era starts in 1993, so a two-digit ``93``–``99`` is the 1990s and everything else is
-    2000+ (unambiguous through 2092). ``None`` means "no upper anchor" and the caller ABSTAINS from the
-    upper bound rather than guessing — erring toward keeping a row (#9)."""
-    m = _EDGAR_ACCESSION.match(accession.strip())
-    if m is None:
-        return None
-    yy = int(m.group(1))
-    return (1900 if 93 <= yy <= 99 else 2000) + yy
-
-
-# The rule's two outcomes as CODES — the ``reason`` a held row carries (``insider_txn_hold``, migration 0082,
-# whose CHECK lists them). A third code, ``after_filing`` (a date after the filing's own filing date), is
-# reserved in that CHECK for the next step and is written by nothing here.
+# The rule's three outcomes as CODES — the ``reason`` a held row carries (``insider_txn_hold``, migration 0082,
+# whose CHECK lists them).
 HOLD_YEAR_BEFORE_1934 = "year_before_1934"
 HOLD_YEAR_AFTER_FILING_YEAR = "year_after_filing_year"
+HOLD_AFTER_FILING = "after_filing"
 
 # the ``form`` a held row carries: a Form 4's own row, or a row of a Form 4/A
 HOLD_FORM_4 = "4"
 HOLD_FORM_4A = "4/A"
 
 
-def implausible_txn_date_code(txn_date: date, accession: str) -> str | None:
+def _aware(at: datetime) -> datetime:
+    """A naive acceptance read as UTC (no engine returns one)."""
+    return at if at.tzinfo is not None else at.replace(tzinfo=timezone.utc)
+
+
+def _after_filing(txn_date: date, accepted: datetime | None, signature_date: date | None) -> bool:
+    """The third condition: the acceptance is known, the date is after the acceptance's market date AND (when
+    the filing has a readable signature date) after it."""
+    if accepted is None or txn_date <= market_date_of(_aware(accepted)):
+        return False
+    return signature_date is None or txn_date > signature_date
+
+
+def implausible_txn_date_code(
+    txn_date: date,
+    accession: str,
+    *,
+    accepted: datetime | None = None,
+    signature_date: date | None = None,
+) -> str | None:
     """THE ONE RULE, as a code: why this transaction date cannot be true (``HOLD_YEAR_BEFORE_1934`` /
-    ``HOLD_YEAR_AFTER_FILING_YEAR``), or ``None`` when it is plausible. See the block comment above for the
-    derivation and the measurements. ``implausible_txn_date`` (below) is this rule in words; nothing else
-    states it."""
+    ``HOLD_YEAR_AFTER_FILING_YEAR`` / ``HOLD_AFTER_FILING``), or ``None`` when it is plausible. See the block
+    comment above for the derivation and the measurements. ``accepted`` = the filing's SEC acceptance
+    (``None`` = unknown: only the two year conditions), ``signature_date`` = its last readable signature date.
+    ``implausible_txn_date`` (below) is this rule in words; nothing else states it."""
     if txn_date.year < _SECTION_16_EPOCH_YEAR:
         return HOLD_YEAR_BEFORE_1934
     filing_year = accession_filing_year(accession)
     if filing_year is not None and txn_date.year > filing_year:
         return HOLD_YEAR_AFTER_FILING_YEAR
+    if _after_filing(txn_date, accepted, signature_date):
+        return HOLD_AFTER_FILING
     return None
 
 
-def implausible_txn_date(txn_date: date, accession: str) -> str | None:
+def implausible_txn_date(
+    txn_date: date,
+    accession: str,
+    *,
+    accepted: datetime | None = None,
+    signature_date: date | None = None,
+) -> str | None:
     """Why this transaction date cannot be true, in words, or ``None`` when it is plausible.
 
     The ONE rule (``implausible_txn_date_code``) — imported by the ingest (which HOLDS the row instead of
@@ -119,7 +145,9 @@ def implausible_txn_date(txn_date: date, accession: str) -> str | None:
     ``pipeline.repair_impossible_txn_dates`` (which deletes rows already stored), so the live bound and the
     repairs can never disagree.
     """
-    code = implausible_txn_date_code(txn_date, accession)
+    code = implausible_txn_date_code(
+        txn_date, accession, accepted=accepted, signature_date=signature_date
+    )
     if code == HOLD_YEAR_BEFORE_1934:
         return (
             f"year {txn_date.year:04d} predates the Securities Exchange Act of "
@@ -130,23 +158,63 @@ def implausible_txn_date(txn_date: date, accession: str) -> str | None:
             f"postdates the accession's filing year {accession_filing_year(accession)} — a Form 4 "
             "reports a transaction that has already occurred"
         )
+    if code == HOLD_AFTER_FILING and accepted is not None:
+        signed = f", signed {signature_date.isoformat()}" if signature_date is not None else ""
+        return (
+            f"postdates its own filing (accepted on {market_date_of(_aware(accepted)).isoformat()}"
+            f"{signed}) — a Form 4 reports a transaction that has already occurred"
+        )
     return None
 
 
-def held_rows(rows: Sequence[Mapping[str, Any]], accession: str) -> dict[int, str]:
+def held_rows(
+    rows: Sequence[Mapping[str, Any]],
+    accession: str,
+    *,
+    accepted: datetime | None = None,
+    signature_date: date | None = None,
+) -> dict[int, str]:
     """``{position in the filing: reason code}`` for each parsed row the rule refuses — THE ONE reading of
     "which rows of this filing are held", shared by the Form 4 ingest, the Form 4/A ingest and the backfill
     (``pipeline.backfill_insider_holds``). The position is the ingest's ``txn_seq`` (``parse_form4``'s order).
     A row with no transaction date at all is not in it: the ingest skips such a row as it always has.
+    ``accepted`` / ``signature_date`` feed the after-filing condition (``filing_held_rows`` reads the signature
+    from the document only when it can matter).
     """
     out: dict[int, str] = {}
     for i, t in enumerate(rows):
         if t.get("txn_date") is None:
             continue
-        code = implausible_txn_date_code(t["txn_date"], accession)
+        code = implausible_txn_date_code(
+            t["txn_date"], accession, accepted=accepted, signature_date=signature_date
+        )
         if code is not None:
             out[i] = code
     return out
+
+
+def signature_date_of(xml: str) -> date | None:
+    """The filing's LAST ``<ownerSignature><signatureDate>`` as a date, or ``None`` when it has none or it is
+    not a readable date (the after-filing condition then reads the acceptance alone)."""
+    try:
+        text = hold_evidence(xml).signature_date
+        return _txn_date(text) if text else None
+    except (ET.ParseError, ValueError):
+        return None
+
+
+def filing_held_rows(
+    rows: Sequence[Mapping[str, Any]], accession: str, xml: str, accepted: datetime | None
+) -> dict[int, str]:
+    """``held_rows`` for one filing, as the ingest (Form 4 and 4/A) and the backfill read it: the signature
+    date is read from the document only when a row is dated after the acceptance's market date (the one case
+    it can change)."""
+    sig: date | None = None
+    if accepted is not None:
+        day = market_date_of(_aware(accepted))
+        if any(t.get("txn_date") is not None and t["txn_date"] > day for t in rows):
+            sig = signature_date_of(xml)
+    return held_rows(rows, accession, accepted=accepted, signature_date=sig)
 
 
 def _txn_date(raw: str | None) -> date | None:
@@ -392,9 +460,11 @@ class Form4Ingest(NamedTuple):
 # --- THE HOLD (migration 0082) ------------------------------------------------------------------------
 # A row the rule refuses is written to ``insider_txn_hold`` instead of being dropped: the row as parsed, the
 # filing's own words around it (its transaction date text, its period of report, its signature date) and the
-# filing date + acceptance the ingest resolved. It is NOT a fact and no corrected date is invented (#3);
-# nothing on the call path, no signal and no dashboard reads the table yet, so a hold moves no company change
-# stamp (``db/change_stamp.py``) — a reader added later must add the stamp with it.
+# filing date + acceptance the ingest resolved. It is NOT a fact and no corrected date is invented (#3). Since
+# rule 2026-11-insider-rows-dated-after-filing the insider READ resolves holds (``domain.insider_holds.
+# resolve_holds``): an on-time filing's held Form 4 row counts from its filing night, a late one waits for a
+# steward. The ingest writes a hold under the company's write lock, whose release moves the company's change
+# stamp (``db.write_lock``); the backfill, which writes outside it, stamps each company itself.
 
 
 class HoldEvidence(NamedTuple):
@@ -497,6 +567,15 @@ def write_hold(
         return cur.fetchone() is not None
 
 
+def hold_reason_text(
+    t: Mapping[str, Any], accession: str, code: str, xml: str, accepted: datetime | None
+) -> str:
+    """The rule's words for one held row (``implausible_txn_date``), else its code."""
+    sig = signature_date_of(xml) if code == HOLD_AFTER_FILING else None
+    words = implausible_txn_date(t["txn_date"], accession, accepted=accepted, signature_date=sig)
+    return words or code
+
+
 def hold_line(form: str, accession: str, txn_seq: int, t: Mapping[str, Any], reason: str) -> str:
     """The ONE printed line a new hold gets (the ingest prints it only when ``write_hold`` wrote the row)."""
     kind = "insider txn" if form == HOLD_FORM_4 else f"insider {form} txn"
@@ -581,7 +660,9 @@ def ingest_form4(
     if other_issuer_cik(xml, member_cik) is not None:
         return Form4Ingest(appended=0, rejected=0)
     rows = parse_form4(xml)
-    held = held_rows(rows, accession)  # {txn_seq: reason code} — the rows the sanity bound refuses
+    # {txn_seq: reason code} — the rows the sanity bound refuses (since 2026-11-insider-rows-dated-after-filing
+    # also a row dated after its own filing, judged on ``accepted``)
+    held = filing_held_rows(rows, accession, xml, accepted)
     # the filing's own words around a held row — read only for a filing with a row to hold
     evidence = hold_evidence(xml) if held else HoldEvidence(None, None, ())
     for i, t in enumerate(rows):
@@ -605,8 +686,15 @@ def ingest_form4(
                 recorded_at=recorded_at,
             ):
                 rejected += 1
-                why = implausible_txn_date(t["txn_date"], accession) or held[i]
-                print(hold_line(HOLD_FORM_4, accession, i, t, why))
+                print(
+                    hold_line(
+                        HOLD_FORM_4,
+                        accession,
+                        i,
+                        t,
+                        hold_reason_text(t, accession, held[i], xml, accepted),
+                    )
+                )
             continue
         values = {
             "tenant_id": tenant_id,

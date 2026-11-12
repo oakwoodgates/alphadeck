@@ -49,8 +49,8 @@ def load_inputs(
     clock: Clock = "record",
 ) -> ResolutionInputs:
     """Every 4/A record, link and decision of ``security_ids`` recorded at/before ``known_at`` (public by
-    ``known_at`` on the public clock), plus every CIK each security has been known by. Five small reads (the
-    tables hold ~one row per amendment). Every table read here is DATA (``domain.scopes``): ``tenant_id`` is
+    ``known_at`` on the public clock), plus every CIK each security has been known by, every Form 4 hold and
+    every steward decision about one. Seven small reads (the tables hold ~one row per amendment / held row). Every table read here is DATA (``domain.scopes``): ``tenant_id`` is
     the data tenant (one id, or a list — ``tenant_id = ANY(...)``, the as-of read's shape)."""
     ids = list(dict.fromkeys(security_ids))
     if not ids:
@@ -98,4 +98,26 @@ def load_inputs(
             p,
         )
         ciks = [(r["security_id"], r["cik"]) for r in cur.fetchall()]
-    return group_inputs(amendments, links, decisions, ciks)
+        # rule 2026-11-insider-rows-dated-after-filing — the Form 4 holds (0082) and the steward's decisions
+        # about them (0083): a hold counts from its filing's acceptance on the public clock (else when we held
+        # it), a decision from when the steward made it
+        cur.execute(
+            sql.SQL(
+                'SELECT id, tenant_id, security_id, accession, txn_seq, form, reason, "row", '
+                "period_of_report_as_filed, signature_date_as_filed, filed, accepted, recorded_at "
+                "FROM insider_txn_hold "
+                "WHERE tenant_id = ANY(%(t)s) AND security_id = ANY(%(ids)s) AND form = '4' AND {gate}"
+            ).format(gate=_gate("insider_txn_hold", clock)),
+            p,
+        )
+        holds = cur.fetchall()
+        cur.execute(
+            sql.SQL(
+                "SELECT id, security_id, accession, txn_seq, form, action, ratified_date, revokes, "
+                "recorded_at FROM insider_txn_hold_decision "
+                "WHERE tenant_id = ANY(%(t)s) AND security_id = ANY(%(ids)s) AND form = '4' AND {gate}"
+            ).format(gate=_gate("insider_txn_hold_decision", clock)),
+            p,
+        )
+        hold_decisions = cur.fetchall()
+    return group_inputs(amendments, links, decisions, ciks, holds, hold_decisions)

@@ -323,3 +323,120 @@ def test_an_unstored_filing_with_rows_the_ingest_would_store_is_left_to_the_inge
 def test_the_wrong_cache_dir_is_refused(db, tmp_path):
     with pytest.raises(SystemExit):
         B.main(["--cache-dir", str(tmp_path / "nope")])
+
+
+# --- rule 2026-11-insider-rows-dated-after-filing: STORED rows dated after their own filing ---------------
+
+
+def _store_the_old_way(db, monkeypatch, group: str) -> uuid.UUID:
+    """Ingest a real filing the way the ingest did BEFORE the after-filing condition (the year conditions only,
+    the acceptance stored on the row): the after-filing row lands in ``fact_insider_txn`` as a fact.
+    """
+    from ingest.edgar import form4 as F4
+    from tests import held_fixtures as H
+
+    old = F4.held_rows
+    monkeypatch.setattr(F4, "filing_held_rows", lambda rows, acc, xml, accepted: old(rows, acc))
+    sid = H.make_security(db, group)
+    for acc in H.of_group(group, "4"):
+        H.ingest(db, sid, acc)
+    monkeypatch.undo()
+    return sid
+
+
+def _stamps(db, sid) -> int:
+    with db.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM security_change WHERE security_id = %s", (sid,))
+        n = cur.fetchone()["n"]
+    db.commit()
+    return n
+
+
+def test_a_stored_row_dated_after_its_filing_is_held_beside_the_fact_and_stamped(
+    db, tmp_path, monkeypatch, capsys
+):
+    from domain.market_time import known_at_for_asof
+    from signals.base import PointInTimeData
+    from tests import held_fixtures as H
+
+    late_acc = "0001179110-10-012412"  # one buy dated two months after its own filing
+    tz_acc = (
+        "0001019687-14-002802"  # dated after the acceptance's market date, not after its signature
+    )
+    sid = _store_the_old_way(db, monkeypatch, "on_time_b")
+    tz_sid = _store_the_old_way(db, monkeypatch, "signed_ahead")
+    assert _count(db) == 0 and _count(db, "fact_insider_txn") == 2
+    asof = date(2010, 10, 11)
+
+    def read():
+        return [
+            (r["valid_from"], r.get("date_basis"))
+            for r in PointInTimeData(
+                db,
+                asof=asof,
+                known_at=known_at_for_asof(asof, H.FAR),
+                clock="public",
+                workspace=DEFAULT_TENANT_ID,
+            ).insider_txns(sid)
+        ]
+
+    assert read() == [(date(2010, 10, 9), None)]  # the old reading: the written date
+    cache = _cache(tmp_path, (late_acc, H.xml(late_acc)), (tz_acc, H.xml(tz_acc)))
+    stamps = _stamps(db, sid)
+    capsys.readouterr()
+
+    B.main(["--cache-dir", str(cache)])  # dry-run
+
+    out = capsys.readouterr().out
+    assert _count(db) == 0 and _journal(db) == [] and _stamps(db, sid) == stamps
+    assert "1 row(s) to hold in 1 filing(s)" in out and "  after_filing: 1" in out
+    assert tz_acc not in out.split("SUMMARY")[0]  # the time-zone filing is not planned
+
+    B.main(["--cache-dir", str(cache), "--apply"])
+
+    (held,) = _holds(db)
+    assert (held["security_id"], held["accession"], held["txn_seq"], held["reason"]) == (
+        sid,
+        late_acc,
+        0,
+        "after_filing",
+    )
+    assert held["accepted"] == H.FILINGS[late_acc].accepted
+    assert _count(db, "fact_insider_txn") == 2  # no fact deleted or changed
+    assert (
+        _stamps(db, sid) == stamps + 1 and _stamps(db, tz_sid) == 0
+    )  # only the company written for
+    assert read() == [(date(2010, 8, 10), "filing_night")]  # the read now counts the held version
+
+    B.main(["--cache-dir", str(cache), "--apply"])  # idempotent
+
+    assert _count(db) == 1 and _stamps(db, sid) == stamps + 1
+    assert _journal(db)[-1] == ("backfill_insider_holds", "apply", 0, False)
+
+
+# --- the rule's third condition (pure) ----------------------------------------------------------------
+
+
+def test_the_after_filing_condition_needs_an_acceptance_and_honors_the_signature_date():
+    from ingest.edgar.form4 import (
+        HOLD_AFTER_FILING,
+        filing_held_rows,
+        implausible_txn_date_code,
+        parse_form4,
+    )
+    from tests import held_fixtures as H
+
+    acc = "0001179110-10-012412"
+    accepted = H.FILINGS[acc].accepted
+    d = date(2010, 10, 9)
+    assert implausible_txn_date_code(d, acc) is None  # no acceptance: the two year conditions only
+    assert implausible_txn_date_code(d, acc, accepted=accepted) == HOLD_AFTER_FILING
+    assert (
+        implausible_txn_date_code(d, acc, accepted=accepted, signature_date=date(2010, 10, 9))
+        is None
+    )
+    assert implausible_txn_date_code(date(2010, 8, 10), acc, accepted=accepted) is None
+    tz = "0001019687-14-002802"
+    rows = parse_form4(H.xml(tz))
+    assert filing_held_rows(rows, tz, H.xml(tz), H.FILINGS[tz].accepted) == {}
+    assert filing_held_rows(rows, tz, H.xml(tz), None) == {}

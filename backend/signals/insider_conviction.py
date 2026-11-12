@@ -7,6 +7,7 @@ from uuid import UUID
 
 from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.enums import Grade, Kind, Role
+from domain.insider_holds import filing_night_clause, held_detail, is_filing_night
 from domain.insider_internal_transfers import is_internal_transfer, screened_label
 from domain.insider_joint_reports import (
     JOINT_ACCESSIONS,
@@ -72,6 +73,11 @@ def _is_open_market_buy(
     """
     if float(txn.get("usd") or 0.0) > cfg.insider_max_plausible_txn_usd:
         return False
+    if is_filing_night(txn):
+        # a held row counted from its FILING NIGHT (domain.insider_holds): the day is not its trade day, so
+        # the day-low screen cannot judge it — skipped, the row stays counted (rule
+        # 2026-11-insider-rows-dated-after-filing)
+        return True
     price = txn.get("price")
     low = day_lows.get(txn.get("valid_from"))
     if price is not None and low is not None:
@@ -296,6 +302,7 @@ def _accession_detail(
         if acc in accepted:
             at = accepted[acc]
             d["accepted"] = NO_ACCEPTANCE if at is None else at.astimezone(timezone.utc).isoformat()
+        d.update(held_detail(buys, acc))
         out[acc] = d
     return out
 
@@ -446,6 +453,9 @@ def score(
     joint = joint_labels(best.buys)  # trades several persons reported, counted once (named, #6)
     if joint:
         label += f"; counted once: {'; '.join(joint)}"
+    placed = filing_night_clause(best.buys)  # held rows dated at their filing night (named, #6)
+    if placed:
+        label += f"; {placed}"
     return fired_signal(
         detector=DETECTOR_NAME,
         security_id=security_id,

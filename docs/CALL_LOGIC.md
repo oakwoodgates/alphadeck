@@ -845,8 +845,8 @@ and the arm date the breakdown de-arm compares against — is the night its LATE
 latest SEC acceptance (`fact_insider_txn.accepted`) among the chosen cluster's KEPT buys (a screened buy never
 moves it), read as a night with F6's rule (`domain.market_time.edgar_night`: a time in EDGAR's hours is its
 own date, a stored time past midnight or on a weekend belongs to the night whose history read first holds
-it). Each kept buy contributes its acceptance's night — never before its own trade (a stored time before it
-is bad data) — and a buy whose row carries **no acceptance contributes its TRADE date**, the rule before F8;
+it). Each kept buy contributes its acceptance's night — never before its own trade — and a buy whose row carries
+**no acceptance contributes its TRADE date**, the rule before F8;
 the cluster takes the latest. The clock **never reads `recorded_at`**: when we stored a row is bookkeeping, and
 reading it made the card depend on the ingest (two ingests of one filing wrote different cards, every
 re-version re-recorded it, and a repair's night made a stale buy look fresh — caught by the fetch-ahead
@@ -867,6 +867,25 @@ date) older than the longest graded liveness (180 days) before the as-of is neve
 old cannot fire however late its filing — it keeps the detector's read window (`horizons()`) exact. A
 Form 4/A-corrected buy carries the 4/A's acceptance (`domain.insider_amendments.emitted_row`), so a cluster
 holding one counts from the amendment — a correction counts from its own filing (#1).
+
+**A trade dated after its own filing (rule log `2026-11-insider-rows-dated-after-filing`, 2026-11-12).** A Form 4
+row whose date cannot be true — a year before 1934, a year after the accession's filing year, or (when the
+filing's acceptance is known) a date after the acceptance's market date AND after the filing's last signature
+date — is HELD at ingest (`insider_txn_hold`), never stored as a fact (`ingest.edgar.form4.implausible_txn_date_code`;
+the signature test keeps a filer in a time zone ahead of New York, who signs and trades on its own next day,
+counted as filed). The insider READ (the one seam both engines share, `domain.insider_holds.resolve_holds`)
+then decides when such a row counts, after the 4/A resolution and before the joint-report collapse: (1) a stored
+row with a hold is never read at its written date; (2) the filer's own applied 4/A that carries the same
+person, code, shares and price wins — the trade counts once, from the amendment; (3) otherwise the newest
+standing steward decision (`insider_txn_hold_decision`: `approve` at a ratified date, `dismiss`); (4) otherwise,
+when the filing was ON TIME — its acceptance's market date 0..`insider_hold_on_time_days` (5) days after its own
+readable, possible period of report — the row counts from the FILING NIGHT (`edgar_night(accepted)`, the first
+night anyone could read it; `date_basis = 'filing_night'`); (5) otherwise it waits for the steward. No date is
+invented (#3): a filing night is when the filing was public, never a claimed trade day, so the "below the day's
+low" screens (`insider_conviction`, `insider_sell`, the display flow) skip a filing-night row and keep it
+counted, and each cited filing's provenance carries `date_basis` + `txn_date_as_filed`, the label naming "N
+row(s) counted from the filing night because the date in the filing cannot be true". So a stored time before
+the trade can no longer reach the clock from such a row: the read has already dated it at its filing night.
 
 **Which cluster is chosen (the anchor walk).** The detector does **not** pin the anchor to the single
 most-recent kept buy. Every distinct kept-buy date is a *candidate* anchor; each gathers the buys inside

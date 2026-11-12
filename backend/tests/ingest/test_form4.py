@@ -108,7 +108,9 @@ def test_ingest_form4_stores_the_accepted_datetime(db, security_id):
     """
     from datetime import datetime, timezone
 
-    accepted = datetime(2025, 9, 27, 18, 30, 41, tzinfo=timezone.utc)
+    # after the sample's trade dates (2026-05-15 / 06-01): an acceptance BEFORE them would make each row one
+    # dated after its own filing, held since rule 2026-11-insider-rows-dated-after-filing
+    accepted = datetime(2026, 6, 2, 18, 30, 41, tzinfo=timezone.utc)
     ingest_form4(db, security_id, _XML, "acc-accepted", accepted=accepted)
     ingest_form4(db, security_id, _XML, "acc-noaccept")  # no accepted kwarg -> NULL
     db.commit()
