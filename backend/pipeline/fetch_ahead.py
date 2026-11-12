@@ -372,6 +372,8 @@ class FetchAhead:
                 self._ciks.add(key)
                 cik = sec.cik
                 tenant = self._tenant_id
+                # the leg's own skip set: the stored accessions AND, since migration 0082, the ones with a
+                # held row (a filing whose every row is held is read once) — so neither is fetched ahead
                 seen4 = frozenset(existing_accessions(self._conn, sec.id, tenant_id=tenant))
                 seen4a = frozenset(
                     existing_amendment_accessions(self._conn, sec.id, tenant_id=tenant)

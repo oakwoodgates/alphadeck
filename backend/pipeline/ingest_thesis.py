@@ -60,7 +60,7 @@ from ingest.edgar.acceptance import AcceptanceTally, resolve_filing_acceptance
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.filing_index import FilingIndexResult, ingest_filing_index
 from ingest.edgar.form4 import existing_accessions, ingest_form4, other_issuer_cik
-from ingest.edgar.form4a import form4_leg_filings, ingest_amendments
+from ingest.edgar.form4a import filed_dates, form4_leg_filings, ingest_amendments
 from ingest.edgar.form8k import ingest_form8k
 from ingest.edgar.schedule13 import ingest_schedule13
 from ingest.edgar.submissions import (
@@ -121,12 +121,14 @@ class NameResult:
     price_bars_appended: int
     error: str | None = None
     form4_skipped: int = 0  # filings skipped per-filing (pre-XML era / unfetchable), never appended
-    # P1 — TRANSACTIONS rejected by the sanity bound (`ingest.edgar.form4.implausible_txn_date`): a filer
-    # serialized a date that CANNOT be true (a leading-zero year like `0023-03-23`, or a year after the
-    # accession's own filing year). A DIFFERENT thing from `form4_skipped`: that is a whole filing we could
-    # not read, this is one bad row inside a filing that stored fine. Never clamped, never stored, never
-    # silently absorbed — each one already PRINTED in full at the row level; this tally exists only so the
-    # cron's per-thesis summary can name the aggregate, and it prints ONLY when nonzero (honest loudness).
+    # P1 — TRANSACTIONS the sanity bound refused (`ingest.edgar.form4.implausible_txn_date`) and this pass
+    # NEWLY HELD (`insider_txn_hold`, migration 0082): a filer serialized a date that CANNOT be true (a
+    # leading-zero year like `0023-03-23`, or a year after the accession's own filing year). A DIFFERENT thing
+    # from `form4_skipped`: that is a whole filing we could not read, this is one bad row inside a filing that
+    # was read fine. Never clamped, never stored as a fact, never silently absorbed — each one already PRINTED
+    # in full at the row level, once; this tally exists only so the cron's per-thesis summary can name the
+    # aggregate, and it prints ONLY when nonzero (honest loudness). A row held on an earlier pass counts 0
+    # here (its filing is not re-read); the standing inventory is the nightly's `insider_holds` block.
     # The count ACCOMPANIES the loud report; it must never replace it (the skip-counter lesson).
     form4_txn_rejected: int = 0
     # overlap bars re-stored because the source RESTATED them (a split re-base; source-strategy A) —
@@ -351,10 +353,12 @@ def _form4_leg(
     tolerable still raises exactly as before (never a new swallow-and-count).
 
     ``txn_rejected`` (P1) is a DIFFERENT and much narrower thing than ``skipped``: a per-TRANSACTION
-    rejection by the sanity bound (``ingest.edgar.form4.implausible_txn_date``) inside a filing that
-    otherwise stored fine. It is carried so the cron's per-thesis summary can name it when nonzero; every
-    rejection has already printed in full at the row level (the skip-counter lesson — the tally accompanies
-    the loud report, it never stands in for it)."""
+    refusal by the sanity bound (``ingest.edgar.form4.implausible_txn_date``) inside a filing that was
+    otherwise read fine — the row is HELD (``insider_txn_hold``, migration 0082), never stored as a fact. It
+    counts the rows NEWLY held by this pass and is carried so the cron's per-thesis summary can name it when
+    nonzero; every new hold has already printed in full at the row level (the skip-counter lesson — the tally
+    accompanies the loud report, it never stands in for it). A filing with a hold is listed by
+    ``existing_accessions``, so a filing whose every row is held is read once, not every pass."""
     if not sec.cik:
         return 0, 0, 0, ()
     seen = existing_accessions(conn, sec.id, tenant_id=tenant_id)
@@ -367,6 +371,7 @@ def _form4_leg(
     # pre-fetch with the very same call): every Form 4 + every 4/A, or for a name still onboarding (X1) only
     # the Form 4s filed since ``filed_since`` and no 4/A
     originals, amendments = form4_leg_filings(subs, filed_since=filed_since)
+    filed_by = filed_dates(originals)  # accession -> filing date (evidence on a held row, 0082)
     for f in originals:
         if f["accession"] in seen:
             continue  # already have this filing's txns — skip (no duplicate append)
@@ -396,6 +401,7 @@ def _form4_leg(
                 tenant_id=tenant_id,
                 accepted=resolved.at,
                 member_cik=sec.cik,
+                filed=filed_by.get(f["accession"]),
             )
             if acceptance is not None:
                 acceptance.add(resolved)  # counted once the filing parsed and stored
@@ -1134,10 +1140,11 @@ def _report(results: list[NameResult]) -> int:
             if r.form4_skipped
             else ""
         )
-        # P1 — the per-TRANSACTION rejections, surfaced DISTINCTLY from the per-FILING skips above (they
-        # are different failures) and only when nonzero. Each one already printed in full during the leg.
+        # P1 — the per-TRANSACTION holds (rows whose date cannot be true: held, never stored as a fact),
+        # surfaced DISTINCTLY from the per-FILING skips above (they are different failures) and only when
+        # nonzero. Each one already printed in full during the leg.
         rejects = (
-            f", {r.form4_txn_rejected} insider txn REJECTED (impossible date)"
+            f", {r.form4_txn_rejected} insider txn held (impossible date)"
             if r.form4_txn_rejected
             else ""
         )
@@ -1192,7 +1199,7 @@ def _report(results: list[NameResult]) -> int:
         )
     busy = {r.security_id for r in results if r.lock_busy}
     sk = f", {total_sk} form4 skipped" if total_sk else ""
-    rj = f", {total_rj} insider txn REJECTED (impossible date)" if total_rj else ""
+    rj = f", {total_rj} insider txn held (impossible date)" if total_rj else ""
     fs = f", +{total_fs} fund shares" if total_fs else ""
     e8k = f", +{total_8k} 8-K events" if total_8k else ""
     s13 = f", +{total_s13} 13D/G" if total_s13 else ""

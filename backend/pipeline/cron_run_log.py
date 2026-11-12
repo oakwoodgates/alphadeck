@@ -55,6 +55,7 @@ from ingest.skips import dedup_skips
 from pipeline.edgar_coverage import EdgarCoverage, pass_fresh
 from pipeline.ingest_skips import SkipDiff
 from pipeline.insider_amendment_scan import AmendmentScan
+from pipeline.insider_hold_scan import HoldScan
 from pipeline.missing_closes import MissingCloses
 from pipeline.name_errors import NameIngestError, name_errors_of
 from pipeline.rename_probe import RenameProbe
@@ -327,6 +328,7 @@ def build_run_payload(
     skips: SkipDiff | None = None,
     timings: dict | None = None,
     amendments: AmendmentScan | None = None,
+    holds: HoldScan | None = None,
     edgar_coverage: EdgarCoverage | None = None,
     split_detect: Any = None,
     missing_closes: MissingCloses | None = None,
@@ -452,6 +454,14 @@ def build_run_payload(
     (the pre-loop sweep + tonight's ingest), `swept` / `sweep_error` = the sweep's own outcome.
     `amendments=None` writes the not-evaluated block; readers use `.get`.
 
+    0082 — THE HELD INSIDER ROWS. `insider_holds` (`pipeline/insider_hold_scan.HoldScan.payload`) —
+    `{evaluated, total, by_reason: {reason: n}, new: [{key, ticker, accession, txn_seq, form, code, shares,
+    price, date_as_filed, reason}], known, error, duration_s, keys: [...]}` — the rows the ingest holds because
+    their filing's transaction date cannot be true (`insider_txn_hold`; never a fact, never a call input), read
+    whole from the table. `new` = the rows absent from the previous evaluated pass's `keys` (the page names the
+    first few and counts the rest), `known` = the others (one quiet line), `keys` = the whole inventory, the
+    next pass's baseline. `holds=None` writes the not-evaluated block; readers use `.get`.
+
     Q18 — THE SKIPPED FILINGS (`pipeline/ingest_skips.SkipDiff.payload`): `ingest_skips_evaluated` (a
     LIVE pass — the only kind that is a baseline) and `ingest_skips`, one block per kind
     (`form4_unparseable` / `schedule13_outbound` / `schedule13_identity`) with `total`, `known`, `new`
@@ -523,6 +533,8 @@ def build_run_payload(
         **(skips or SkipDiff()).payload(),
         # R8-A — the Form 4/A inventory owed an operator decision + what paged (pending; never applied)
         **(amendments or AmendmentScan()).payload(),
+        # 0082 — the held insider rows (a filing's impossible transaction date): the count + the NEW ones
+        **(holds or HoldScan()).payload(),
         # S4 — the nightly split detection (``pipeline/detect_splits.SplitDetection``): the new split-list rows,
         # the filings it could not place, the Massive.com source's status; absent = not run (readers use ``.get``)
         **(split_detect.payload() if split_detect is not None else {}),
@@ -814,6 +826,7 @@ def write_cron_run_log(
     skips: SkipDiff | None = None,
     timings: dict | None = None,
     amendments: AmendmentScan | None = None,
+    holds: HoldScan | None = None,
     edgar_coverage: EdgarCoverage | None = None,
     split_detect: Any = None,
     missing_closes: MissingCloses | None = None,
@@ -854,6 +867,7 @@ def write_cron_run_log(
             skips=skips,
             timings=timings,
             amendments=amendments,
+            holds=holds,
             edgar_coverage=edgar_coverage,
             split_detect=split_detect,
             missing_closes=missing_closes,

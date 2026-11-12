@@ -27,6 +27,7 @@ from uuid import UUID
 
 from domain.feed_kinds import StaleFeedLabel, stale_feed_bits
 from domain.insider_amendments import page_text
+from domain.insider_holds import page_bit as insider_holds_bit
 from domain.settings import get_settings
 from notify.policy import LOUD_KINDS, PushKind, classify, grade_direction, names_direction
 
@@ -346,6 +347,14 @@ class HealthEvent:
     # one with no signal effect) never pages.
     insider_amendments_new: tuple[str, ...] = ()
     insider_amendments_more: int = 0
+    # 0082 — insider rows NEWLY held because their filing's transaction date cannot be true
+    # (``pipeline/insider_hold_scan.py``; the ingest holds the row in ``insider_txn_hold`` instead of storing it
+    # as a fact, and no date is invented): ``insider_holds_new`` NAMES the first rows up to the page's cap (a
+    # ``"<ticker> <accession> (<code>, <shares> sh)"`` label each), ``insider_holds_more`` COUNTS the rest.
+    # Benign-class (the run did its job; a filer wrote an impossible date): it pages once, never re-pages a
+    # known row, and never makes the Admin verdict unhealthy.
+    insider_holds_new: tuple[str, ...] = ()
+    insider_holds_more: int = 0
 
     @property
     def withheld(self) -> int:
@@ -446,6 +455,11 @@ class HealthEvent:
                 f"{n} Form 4/A amendment(s) NEW and owed your decision: "
                 f"{page_text(self.insider_amendments_new, self.insider_amendments_more)} — decide on the "
                 "Admin Insider amendments panel, not a cron error"
+            )
+        # 0082 — insider rows newly held (the filing's transaction date cannot be true): told once
+        if self.insider_holds_new or self.insider_holds_more:
+            bits.append(
+                f"{insider_holds_bit(self.insider_holds_new, self.insider_holds_more)}, not a cron error"
             )
         return f"cron {self.asof}: " + " · ".join(bits)
 

@@ -4,7 +4,8 @@ Every table that carries ``tenant_id`` belongs to exactly one scope, named here 
 
 - **DATA** — the single shared data tenant (``DATA_TENANT_ID``, the ``tenant`` row with ``kind='data'``,
   migration 0076): the company master, every ingested fact, the split / ticker / CIK history, the onboarding
-  queue, the price-feed repairs, the Form 4/A tables and their decisions, the set-asides and the repair journal.
+  queue, the price-feed repairs, the Form 4/A tables and their decisions, the held insider rows, the set-asides
+  and the repair journal.
   The feed writes it; everyone reads it.
 - **WORKSPACE** — one per user (a ``tenant`` row with ``kind='workspace'``; migration 0078 moved the founding
   operator's rows out of the data tenant into ``FOUNDING_WORKSPACE_ID``): the thesis and its children, the calls
@@ -68,6 +69,7 @@ SCOPE_OF: dict[str, Scope] = {
     "insider_amendment": Scope.DATA,
     "insider_amendment_link": Scope.DATA,
     "insider_amendment_decision": Scope.DATA,
+    "insider_txn_hold": Scope.DATA,
     "fundamentals_set_aside": Scope.DATA,
     "split_jump_dismissal": Scope.DATA,
     "data_repair": Scope.DATA,

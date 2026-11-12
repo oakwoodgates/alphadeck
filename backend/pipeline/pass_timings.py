@@ -19,7 +19,8 @@ THE MODEL. One ``PassTimer`` per pass, made ACTIVE for the pass (``activate`` â€
   assemble), ``notify`` (a transition push) and ``record`` (``record_if_changed`` + its commit); per pass
   ``benchmarks``, ``baselines`` (the previous-artifact reads), ``digest`` (the Q13 newly-armed digest: its
   re-arm history read + the push, only on a pass with newly armed names), ``split_scan``, ``rename_probe``,
-  ``successor_scan``, ``amendment_sweep`` (R8-B, before the loop), ``amendment_scan`` (R8-A), ``self_audit``,
+  ``successor_scan``, ``amendment_sweep`` (R8-B, before the loop), ``amendment_scan`` (R8-A), ``hold_scan``
+  (0082, the held insider rows), ``self_audit``,
   ``artifact_write``, ``health_page``,
   ``shell_sweep``, ``spac_radar``, ``fund_radar``.
 - ``note(kind, n)`` counts on the innermost open leg: ``sec_live`` / ``sec_cached`` / ``sec_cached_404``
