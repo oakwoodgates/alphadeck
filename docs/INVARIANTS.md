@@ -186,7 +186,12 @@ replay stays honest.
   backtest's operator decision; a DOE award catalyst's `valid_from` is the date the award was recorded in USAspending (its first action date, the field `date_signed`), and its work-period start only when the record carries none); a share count from its filing's acceptance (the earliest filing whose cover row states it —
   F9), else `recorded_at`; revenue mix, cash burn and the fund-shares samples from `recorded_at` (their `valid_from` is a period / as-of date, not a publication date).
   The 4/A tables: the amendment and the system's link from the 4/A's acceptance, a SYSTEM decision from that
-  same publication, an OPERATOR decision from when the operator made it. The version a past view reads is the
+  same publication, an OPERATOR decision from when the operator made it. A Form 4 row whose transaction date
+  cannot be true (a year before 1934, a year after the filing's year, or a date after its own filing and its
+  signature) is held and never counts at the written date. A held row of an on-time filing counts from the
+  night the filing became public. A held row of a late filing counts only from a steward's decision, from when
+  that decision is made. The filer's own Form 4/A, once applied, replaces both. No trade date is invented (#3)
+  (`domain/insider_holds.resolve_holds`; rule log `2026-11-insider-rows-dated-after-filing`). The version a past view reads is the
   NEWEST public by then (`public DESC, recorded_at DESC, id DESC` — a re-parse resolves to our best parse); a
   public-read row carries `recorded_at` = its public instant and our honest ingest instant as `ingested_at`
   (the drawer's "ingested" line). The roster and the position stay as of the same instant on the record axis
@@ -760,7 +765,8 @@ surfaced to the operator, not silently resolved in code.**
   the joint-report cases untouched), `tests/domain/test_insider_internal_transfers.py` (the rule's contract).
 - *Also honored by (0082, held insider rows):* a Form 4 / 4/A row whose transaction date cannot be true is held
   in `insider_txn_hold`, in the same transaction as the filing's good rows, and told to the operator once. It is
-  not a fact, no read uses it, and no date is invented (#3). The backfill never holds a row of a filing whose
+  not a fact and no date is invented (#3); the insider read counts it as invariant 4 states (a held row of an
+  on-time filing from its filing night, a late one from a steward's decision). The backfill never holds a row of a filing whose
   good rows are not stored.
 
 ## 10. The LLM recommends; the operator decides — a recommendation is pending until confirmed, never auto-applied
