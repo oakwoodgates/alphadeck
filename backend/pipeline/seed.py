@@ -121,9 +121,10 @@ def _ingest_form4_once(
     """Ingest each ``(accession, filename)`` Form 4 fixture whose accession is not already stored.
 
     ``existing_accessions`` is read ONCE for the security (accession is the filing identity and the lead
-    column of the insider natural key, so "accession present" ⇔ "its txns stored") — the same guard the
-    per-thesis ingest uses. Returns the count of transaction rows appended. Rows it appends move the company's
-    change stamp in the same transaction (the seed writes outside the company write lock; ``db.change_stamp``).
+    column of the insider natural key, so "accession present" ⇔ "its txns stored"; it also lists a filing
+    with a held row, migration 0082 — still "already handled") — the same guard the per-thesis ingest uses.
+    Returns the count of transaction rows appended. Rows it appends move the company's change stamp in the
+    same transaction (the seed writes outside the company write lock; ``db.change_stamp``).
     """
     seen = existing_accessions(conn, security_id)
     count = 0
@@ -135,7 +136,10 @@ def _ingest_form4_once(
             security_id,
             (_SEED_DATA / "edgar" / fname).read_text(encoding="utf-8"),
             accession,
-        ).appended  # the seed's committed fixtures carry no impossible dates; a rejection would PRINT
+            # the seed's fixtures are bare documents with no enumeration row, so there is no filing date to
+            # thread; it is evidence on a held row only, and these fixtures carry no impossible dates
+            filed=None,
+        ).appended  # a row with an impossible date would be HELD and PRINT, never stored as a fact
     if count:
         mark_changed(conn, [security_id])
     return count

@@ -66,6 +66,7 @@ from app.schemas_api import (
 )
 from domain.feed_kinds import PRICE, StaleFeedLabel, feed_kind, stale_feed_bits
 from domain.insider_amendments import page_text
+from domain.insider_holds import page_bit as insider_holds_bit
 from domain.market_time import market_now, market_tz
 from domain.scopes import DATA_TENANT_ID
 from domain.settings import get_settings
@@ -88,6 +89,8 @@ from pipeline.daily_job import DailyRunInFlight, get_job, start_daily_job
 from pipeline.edgar_coverage import EdgarCoverage
 from pipeline.insider_amendment_scan import new_labels_of as amendment_new_labels
 from pipeline.insider_amendment_scan import new_more_of as amendment_new_more
+from pipeline.insider_hold_scan import new_labels_of as hold_new_labels
+from pipeline.insider_hold_scan import new_more_of as hold_new_more
 from pipeline.missing_closes import loud_lines as missing_close_loud_lines
 from pipeline.missing_closes import quiet_line as missing_close_quiet_line
 from pipeline.night_coverage import NightCoverage, read_night_coverage
@@ -195,6 +198,13 @@ def _problems(health: HealthEvent | None) -> list[str]:
             f"{n} Form 4/A amendment(s) newly owed a decision: "
             f"{page_text(health.insider_amendments_new, health.insider_amendments_more)} — decide on the "
             f"Insider amendments panel, {_BENIGN_MARK} in this run"
+        )
+    # 0082 — insider rows NEWLY held (the filing's transaction date cannot be true; the ingest held the row
+    # instead of storing it as a fact): a filer's typo, not a cron fault, so benign-marked (it paged once)
+    if health.insider_holds_new or health.insider_holds_more:
+        out.append(
+            f"{insider_holds_bit(health.insider_holds_new, health.insider_holds_more)}, "
+            f"{_BENIGN_MARK} in this run"
         )
     return out
 
@@ -317,6 +327,9 @@ def _admin_run_out(payload: dict) -> AdminRunOut:
         # R8-A — re-derive the Form 4/A page, so the history shows the same page the run emitted
         insider_amendments_new=amendment_new_labels(payload),
         insider_amendments_more=amendment_new_more(payload),
+        # 0082 — re-derive the held-insider-rows page, so the history shows the same page the run emitted
+        insider_holds_new=hold_new_labels(payload),
+        insider_holds_more=hold_new_more(payload),
         # the RATIO FLOOR, re-judged with the coverage AND the floor this pass recorded (None on an artifact
         # written before the floor existed — that night keeps the rule it was paged under)
         edgar_coverage=EdgarCoverage.from_payload(payload),

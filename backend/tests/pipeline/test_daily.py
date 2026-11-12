@@ -32,6 +32,7 @@ from pipeline import cron_run_log, daily
 from pipeline.cron_run_log import write_cron_run_log
 from pipeline.ingest_thesis import NameResult
 from pipeline.insider_amendment_scan import AmendmentScan, SweepOutcome
+from pipeline.insider_hold_scan import HoldScan
 from pipeline.missing_closes import MissingCloses
 from pipeline.rename_probe import RenameProbe
 from pipeline.split_basis import SplitScan
@@ -762,6 +763,9 @@ def _prime_pass(monkeypatch, *, bench_raises=False, sweep_raises=False):
     # R8-A — the Form 4/A inventory reads the amendment TABLES — DB-free here; proved on a real DB in
     # tests/pipeline/test_insider_amendment_scan.py
     monkeypatch.setattr(daily, "run_amendment_scan", lambda **k: AmendmentScan(evaluated=True))
+    # 0082 — the held-insider-rows count reads the hold TABLE — DB-free here; proved on a real DB (and end to
+    # end through run_daily_pass) in tests/pipeline/test_insider_hold_scan.py
+    monkeypatch.setattr(daily, "run_hold_scan", lambda **k: HoldScan(evaluated=True))
 
     # R8-B — the Form 4/A sweep writes decisions — DB-free here (recorded in `order`, so a test can prove it
     # runs BEFORE the per-thesis loop); proved on a real DB in tests/pipeline/test_insider_amendment_scan.py
@@ -2041,9 +2045,11 @@ def _name_result(**kw):
 
 
 def test_report_NAMES_the_rejected_insider_txns_when_there_are_any(capsys):
-    """The aggregate a gate can watch. A filer's impossible date is refused at the row level and printed
-    in full during the ingest leg; this line is the summary's roll-up, so an operator scanning the cron's
-    output sees THAT it happened on this thesis and can go find the itemized reason above it."""
+    """The aggregate a gate can watch. A filer's impossible date is refused at the row level — HELD
+    (``insider_txn_hold``, migration 0082), never stored as a fact — and printed in full during the ingest
+    leg; this line is the summary's roll-up, so an operator scanning the cron's output sees THAT it happened
+    on this thesis and can go find the itemized reason above it. (The wording was "REJECTED" while the row
+    was dropped; it is "held" now that the row is kept.)"""
     daily._report(
         [
             daily.ThesisRunResult(
@@ -2055,7 +2061,8 @@ def test_report_NAMES_the_rejected_insider_txns_when_there_are_any(capsys):
         ]
     )
     out = capsys.readouterr().out
-    assert "3 insider txn REJECTED (impossible date)" in out  # summed across the thesis's names
+    assert "3 insider txn held (impossible date)" in out  # summed across the thesis's names
+    assert "REJECTED" not in out
 
 
 def test_report_is_SILENT_about_rejections_on_an_ordinary_night(capsys):
@@ -2071,7 +2078,8 @@ def test_report_is_SILENT_about_rejections_on_an_ordinary_night(capsys):
             )
         ]
     )
-    assert "REJECTED" not in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "insider txn held" not in out and "REJECTED" not in out
 
 
 # --- D2: today's in-progress bars withheld — ONE quiet line, deduped across theses --------------------

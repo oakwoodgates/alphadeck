@@ -3,12 +3,14 @@ from __future__ import annotations
 import math
 import re
 import xml.etree.ElementTree as ET
-from datetime import date
-from typing import NamedTuple
+from collections.abc import Mapping, Sequence
+from datetime import date, datetime
+from typing import Any, NamedTuple
 from uuid import UUID
 from xml.etree.ElementTree import Element
 
 import psycopg
+from psycopg.types.json import Json
 
 from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
@@ -41,7 +43,8 @@ _ISO_DATE_PREFIX = re.compile(r"\d{4}-\d{2}-\d{2}")
 # So this is FILER GARBAGE, not a parser bug, and the disposition follows from #3: we must NOT invent a
 # corrected date (``periodOfReport`` is the EARLIEST reportable transaction date, not this row's, and on the
 # SNEX/BBAI/GS filings it is itself corrupt — the BBAI fixture's periodOfReport is ALSO ``0023-03-23``, and
-# a test pins that too). The row is REJECTED and printed in full; the rest of the filing still stores
+# a test pins that too). The row is HELD (``insider_txn_hold``, migration 0082 — never a fact, see
+# ``write_hold`` below) and printed in full, once; the rest of the filing still stores
 # (#9 — one filer typo never blanks the filing's good transactions: the LSCC document holds six
 # transactions, of which ``parse_form4`` stores the four non-derivative ones, so THREE correctly-dated rows
 # survive the rejection — not the five an earlier draft claimed by counting all six).
@@ -58,8 +61,10 @@ _ISO_DATE_PREFIX = re.compile(r"\d{4}-\d{2}-\d{2}")
 # UPPER — an EDGAR accession is ``NNNNNNNNNN-YY-NNNNNN`` with the two-digit year assigned at submission, so
 # it names the filing year. A Form 4 reports a transaction that has ALREADY occurred (Section 16(a): filed
 # within two business days AFTER), so the transaction cannot fall in a later calendar year than the filing.
-# Coarse on purpose: the exact filing date is not available here (the ownership document carries none, and
-# only the enumeration knows ``filed``), and the year anchor needs nothing threaded. Its residual is
+# Coarse on purpose: the ownership document carries no filing date (only the enumeration knows ``filed``), and
+# the year anchor judges a row from the accession alone, so the ingest and the two repair tools — which hold
+# only the accession — can never disagree. (``filed`` is threaded into ``ingest_form4`` since 0082, but only as
+# evidence on a held row; the rule does not read it. "Dated after its own filing" is the next step.) Its residual is
 # MEASURED and stated rather than guessed: 38 further rows are dated after their own ``accepted`` datetime
 # within the SAME year and are NOT rejected — tightening to that clock would make the bound depend on a
 # column that is NULL for ~47% of raw rows (0.67% of facts on the latest-version grain, ``docs/BACKTEST.md``),
@@ -82,25 +87,66 @@ def accession_filing_year(accession: str) -> int | None:
     return (1900 if 93 <= yy <= 99 else 2000) + yy
 
 
-def implausible_txn_date(txn_date: date, accession: str) -> str | None:
-    """Why this transaction date cannot be true, or ``None`` when it is plausible.
+# The rule's two outcomes as CODES — the ``reason`` a held row carries (``insider_txn_hold``, migration 0082,
+# whose CHECK lists them). A third code, ``after_filing`` (a date after the filing's own filing date), is
+# reserved in that CHECK for the next step and is written by nothing here.
+HOLD_YEAR_BEFORE_1934 = "year_before_1934"
+HOLD_YEAR_AFTER_FILING_YEAR = "year_after_filing_year"
 
-    The ONE rule — imported by both the ingest (which rejects the row) and
-    ``pipeline.repair_impossible_txn_dates`` (which deletes rows already stored), so the live bound and the
-    repair can never disagree. See the block comment above for the derivation and the measurements.
-    """
+# the ``form`` a held row carries: a Form 4's own row, or a row of a Form 4/A
+HOLD_FORM_4 = "4"
+HOLD_FORM_4A = "4/A"
+
+
+def implausible_txn_date_code(txn_date: date, accession: str) -> str | None:
+    """THE ONE RULE, as a code: why this transaction date cannot be true (``HOLD_YEAR_BEFORE_1934`` /
+    ``HOLD_YEAR_AFTER_FILING_YEAR``), or ``None`` when it is plausible. See the block comment above for the
+    derivation and the measurements. ``implausible_txn_date`` (below) is this rule in words; nothing else
+    states it."""
     if txn_date.year < _SECTION_16_EPOCH_YEAR:
+        return HOLD_YEAR_BEFORE_1934
+    filing_year = accession_filing_year(accession)
+    if filing_year is not None and txn_date.year > filing_year:
+        return HOLD_YEAR_AFTER_FILING_YEAR
+    return None
+
+
+def implausible_txn_date(txn_date: date, accession: str) -> str | None:
+    """Why this transaction date cannot be true, in words, or ``None`` when it is plausible.
+
+    The ONE rule (``implausible_txn_date_code``) — imported by the ingest (which HOLDS the row instead of
+    storing it), ``pipeline.backfill_insider_holds`` (which holds the rows an earlier ingest dropped) and
+    ``pipeline.repair_impossible_txn_dates`` (which deletes rows already stored), so the live bound and the
+    repairs can never disagree.
+    """
+    code = implausible_txn_date_code(txn_date, accession)
+    if code == HOLD_YEAR_BEFORE_1934:
         return (
             f"year {txn_date.year:04d} predates the Securities Exchange Act of "
             f"{_SECTION_16_EPOCH_YEAR} — Section 16 reporting did not exist"
         )
-    filing_year = accession_filing_year(accession)
-    if filing_year is not None and txn_date.year > filing_year:
+    if code == HOLD_YEAR_AFTER_FILING_YEAR:
         return (
-            f"postdates the accession's filing year {filing_year} — a Form 4 reports a transaction "
-            "that has already occurred"
+            f"postdates the accession's filing year {accession_filing_year(accession)} — a Form 4 "
+            "reports a transaction that has already occurred"
         )
     return None
+
+
+def held_rows(rows: Sequence[Mapping[str, Any]], accession: str) -> dict[int, str]:
+    """``{position in the filing: reason code}`` for each parsed row the rule refuses — THE ONE reading of
+    "which rows of this filing are held", shared by the Form 4 ingest, the Form 4/A ingest and the backfill
+    (``pipeline.backfill_insider_holds``). The position is the ingest's ``txn_seq`` (``parse_form4``'s order).
+    A row with no transaction date at all is not in it: the ingest skips such a row as it always has.
+    """
+    out: dict[int, str] = {}
+    for i, t in enumerate(rows):
+        if t.get("txn_date") is None:
+            continue
+        code = implausible_txn_date_code(t["txn_date"], accession)
+        if code is not None:
+            out[i] = code
+    return out
 
 
 def _txn_date(raw: str | None) -> date | None:
@@ -331,14 +377,136 @@ def parse_form4(xml: str) -> list[dict]:
 
 
 class Form4Ingest(NamedTuple):
-    """One filing's ingest outcome: rows appended, and transactions REJECTED by the sanity bound.
+    """One filing's ingest outcome: rows appended, and transactions the sanity bound refused that were NEWLY
+    HELD by this call (``insider_txn_hold``; a row already held counts 0 — it was counted and printed when it
+    was first held).
 
-    ``rejected`` exists so a gate can watch the aggregate — it is never the primary report. Every rejection
+    ``rejected`` exists so a gate can watch the aggregate — it is never the primary report. Every new hold
     also PRINTS in full (accession, insider, sequence, raw date, reason); the earlier Form-4 defect hid
     precisely because a counter was rising and a rising counter reads as normal operation."""
 
     appended: int
     rejected: int
+
+
+# --- THE HOLD (migration 0082) ------------------------------------------------------------------------
+# A row the rule refuses is written to ``insider_txn_hold`` instead of being dropped: the row as parsed, the
+# filing's own words around it (its transaction date text, its period of report, its signature date) and the
+# filing date + acceptance the ingest resolved. It is NOT a fact and no corrected date is invented (#3);
+# nothing on the call path, no signal and no dashboard reads the table yet, so a hold moves no company change
+# stamp (``db/change_stamp.py``) — a reader added later must add the stamp with it.
+
+
+class HoldEvidence(NamedTuple):
+    """What the filing itself says around a held row — TEXT, as filed (surrounding whitespace trimmed, an empty
+    element = ``None``), never parsed into a date: each of these can itself be a typo (the BBAI filing's
+    ``periodOfReport`` is ``0023-03-23`` too), so they are evidence for a later decision, never a correction.
+    """
+
+    period_of_report: str | None
+    # the LAST ``<ownerSignature><signatureDate>`` when there are several
+    signature_date: str | None
+    # each non-derivative transaction's date text, in ``parse_form4`` order
+    txn_dates: tuple[str | None, ...]
+
+
+def _as_filed(raw: str | None) -> str | None:
+    s = (raw or "").strip()
+    return s or None
+
+
+def hold_evidence(xml: str) -> HoldEvidence:
+    """Read a filing's hold evidence from its ownership document. A second, separate read on purpose:
+    ``parse_form4``'s rows are exactly what is stored (in ``fact_insider_txn`` and in a 4/A record's ``rows``),
+    so nothing new may ride them — and this runs only for a filing with a row to hold."""
+    root = ET.fromstring(xml)
+    signed = [
+        s for el in root.findall("ownerSignature") if (s := _as_filed(el.findtext("signatureDate")))
+    ]
+    return HoldEvidence(
+        period_of_report=_as_filed(root.findtext("periodOfReport")),
+        signature_date=signed[-1] if signed else None,
+        txn_dates=tuple(
+            _as_filed(t.findtext("transactionDate/value"))
+            for t in root.findall("nonDerivativeTable/nonDerivativeTransaction")
+        ),
+    )
+
+
+def _json_value(v: Any) -> Any:
+    """One parsed value as JSON: a date as ISO text, a non-finite number as its text (JSON has no NaN — a held
+    row must never cost its filing the ingest), everything else verbatim."""
+    if isinstance(v, date):
+        return v.isoformat()
+    if isinstance(v, float) and not math.isfinite(v):
+        return str(v)
+    return v
+
+
+def hold_row(t: Mapping[str, Any], txn_date_as_filed: str | None) -> dict[str, Any]:
+    """The ``row`` a hold stores: the parsed row as ``parse_form4`` returned it (dates as ISO text) plus
+    ``txn_date_as_filed``, the text of the filing's own ``<transactionDate>`` element."""
+    out = {k: _json_value(v) for k, v in t.items()}
+    out["txn_date_as_filed"] = txn_date_as_filed
+    return out
+
+
+def write_hold(
+    conn: psycopg.Connection,
+    *,
+    tenant_id: UUID,
+    security_id: UUID,
+    accession: str,
+    txn_seq: int,
+    form: str,
+    reason: str,
+    row: Mapping[str, Any],
+    evidence: HoldEvidence,
+    filed: date | None,
+    accepted: datetime | None,
+    recorded_at: datetime | None = None,
+) -> bool:
+    """Append ONE held row in the caller's transaction (no commit here). Returns ``True`` when a row was
+    written and ``False`` when this row is already held (``ON CONFLICT DO NOTHING`` on the table's natural key:
+    a re-read never grows the table, and its caller prints nothing). ``recorded_at`` as the fact writers take
+    it (``None`` = the database's ``now()``)."""
+    as_filed = evidence.txn_dates[txn_seq] if 0 <= txn_seq < len(evidence.txn_dates) else None
+    stamp = "%(rec)s" if recorded_at is not None else "now()"
+    with conn.cursor() as cur:
+        cur.execute(
+            'INSERT INTO insider_txn_hold (tenant_id, security_id, accession, txn_seq, form, reason, "row", '
+            "period_of_report_as_filed, signature_date_as_filed, filed, accepted, recorded_at) "
+            "VALUES (%(tenant)s, %(sid)s, %(acc)s, %(seq)s, %(form)s, %(reason)s, %(row)s, %(por)s, "
+            f"%(sig)s, %(filed)s, %(accepted)s, {stamp}) "  # noqa: S608 — stamp is one of two literals
+            "ON CONFLICT (tenant_id, security_id, accession, txn_seq, form) DO NOTHING RETURNING id",
+            {
+                "tenant": tenant_id,
+                "sid": security_id,
+                "acc": accession,
+                "seq": txn_seq,
+                "form": form,
+                "reason": reason,
+                "row": Json(hold_row(row, as_filed)),
+                "por": evidence.period_of_report,
+                "sig": evidence.signature_date,
+                "filed": filed,
+                "accepted": accepted,
+                "rec": recorded_at,
+            },
+        )
+        return cur.fetchone() is not None
+
+
+def hold_line(form: str, accession: str, txn_seq: int, t: Mapping[str, Any], reason: str) -> str:
+    """The ONE printed line a new hold gets (the ingest prints it only when ``write_hold`` wrote the row)."""
+    kind = "insider txn" if form == HOLD_FORM_4 else f"insider {form} txn"
+    return (
+        f"  HELD {kind} {accession} seq={txn_seq} "
+        f"{t.get('insider_name') or '?'} ({t.get('txn_code') or '?'}): "
+        f"transactionDate {t['txn_date'].isoformat()} {reason}. "
+        "The filing says this verbatim — the row is HELD (insider_txn_hold), not stored as a fact, and no "
+        "corrected date is invented (#3)."
+    )
 
 
 def other_issuer_cik(xml: str, member_cik: str | None) -> str | None:
@@ -364,9 +532,14 @@ def ingest_form4(
     recorded_at=None,
     accepted=None,
     member_cik: str | None = None,
+    filed: date | None = None,
 ) -> Form4Ingest:
     """Parse a Form 4 and append its transactions to ``fact_insider_txn`` (append-only); the caller
     owns the transaction (no commit here). Returns ``(appended, rejected)``.
+
+    ``filed`` is the filing date from the enumeration (the ownership XML carries none). It is EVIDENCE on a
+    held row only (``insider_txn_hold.filed``): no stored fact carries it and the sanity bound does not read
+    it. ``None`` (a caller that has no filing date, like the seed's fixtures) leaves the column NULL.
 
     ``accepted`` is the SEC acceptance datetime (the real "disclosed" clock — and, since 2026-10-21, the
     fact's PUBLIC instant on every history view) threaded from the enumeration
@@ -376,13 +549,19 @@ def ingest_form4(
     ``None`` leaves the column NULL (a history view then counts the fact from when we first held it, the
     display falls back to "ingested" — recall-safe #9). It is FILING-level, stamped identically on every row.
 
-    THE SANITY BOUND (P1): a transaction whose date cannot be true (``implausible_txn_date``) is REJECTED —
-    never stored, never clamped to a guessed date (#3: a clamp fabricates a fact). Each rejection PRINTS the
-    accession, the insider, the sequence and the raw date, AND is tallied on the returned ``rejected``.
+    THE SANITY BOUND (P1): a transaction whose date cannot be true (``implausible_txn_date``) is never stored
+    as a fact and never clamped to a guessed date (#3: a clamp fabricates a fact). Since migration 0082 it is
+    HELD instead of dropped: written once to ``insider_txn_hold`` (``write_hold``) in this same transaction,
+    with the filing's own date text, period of report and signature date. A NEW hold PRINTS the accession, the
+    insider, the sequence and the raw date, AND is tallied on the returned ``rejected``; a row already held
+    (a re-read of the same filing) writes nothing, prints nothing and counts 0. Because a held filing is now
+    listed by ``existing_accessions``, the nightly reads a filing whose every row is held ONCE instead of every
+    pass. The operator is told once per held row by the nightly's ``insider_holds`` block
+    (``pipeline/insider_hold_scan.py``).
 
     **The count ACCOMPANIES the per-row print; it never replaces it.** That ordering is the whole lesson of
     the earlier Form-4 bug: a rising skip COUNTER is how a real defect hid in plain sight, because a number
-    going up reads as "working as designed". The print is what makes a rejection investigable; the count is
+    going up reads as "working as designed". The print is what makes a hold investigable; the count is
     only so a gate can watch the aggregate (it rides ``NameResult.form4_txn_rejected`` into the cron's
     per-thesis summary, which prints it ONLY when nonzero — honest loudness).
 
@@ -401,18 +580,33 @@ def ingest_form4(
     rejected = 0
     if other_issuer_cik(xml, member_cik) is not None:
         return Form4Ingest(appended=0, rejected=0)
-    for i, t in enumerate(parse_form4(xml)):
+    rows = parse_form4(xml)
+    held = held_rows(rows, accession)  # {txn_seq: reason code} — the rows the sanity bound refuses
+    # the filing's own words around a held row — read only for a filing with a row to hold
+    evidence = hold_evidence(xml) if held else HoldEvidence(None, None, ())
+    for i, t in enumerate(rows):
         if t["txn_date"] is None:
             continue
-        reason = implausible_txn_date(t["txn_date"], accession)
-        if reason is not None:
-            rejected += 1
-            print(
-                f"  REJECT insider txn {accession} seq={i} "
-                f"{t['insider_name'] or '?'} ({t['txn_code'] or '?'}): "
-                f"transactionDate {t['txn_date'].isoformat()} {reason}. "
-                "The filing says this verbatim — NOT stored, and no corrected date is invented (#3)."
-            )
+        if i in held:
+            # HELD, never stored as a fact (0082). Counted and printed only when the row is NEW to the hold
+            # table, so a re-read of the same filing says nothing twice.
+            if write_hold(
+                conn,
+                tenant_id=tenant_id,
+                security_id=security_id,
+                accession=accession,
+                txn_seq=i,
+                form=HOLD_FORM_4,
+                reason=held[i],
+                row=t,
+                evidence=evidence,
+                filed=filed,
+                accepted=accepted,
+                recorded_at=recorded_at,
+            ):
+                rejected += 1
+                why = implausible_txn_date(t["txn_date"], accession) or held[i]
+                print(hold_line(HOLD_FORM_4, accession, i, t, why))
             continue
         values = {
             "tenant_id": tenant_id,
@@ -466,14 +660,23 @@ def ingest_form4(
 def existing_accessions(
     conn: psycopg.Connection, security_id: UUID, *, tenant_id: UUID = DEFAULT_TENANT_ID
 ) -> set[str]:
-    """The Form-4 accessions already ingested for (tenant, security) — so the per-thesis ingest can SKIP a
+    """The Form-4 accessions already HANDLED for (tenant, security) — so the per-thesis ingest can SKIP a
     filing it already has and re-ingest ONLY new ones. Accession is the right grain: it is the filing
     identity and the lead column of the insider natural key, so "accession present" ⇔ "its txns stored".
     A re-run of an already-ingested name therefore appends NOTHING (the append-only table never silently
-    grows)."""
+    grows).
+
+    Since migration 0082 that includes an accession with a Form 4 HOLD (``insider_txn_hold``, form ``'4'``):
+    a filing whose EVERY row the sanity bound refuses stores no fact, and before the hold existed it was
+    re-read and re-printed on every pass. The ingest writes a filing's holds in the same transaction as its
+    good rows, so "a hold is present" also means "its good rows are stored". A Form 4/A hold is not listed:
+    the 4/A leg has its own skip (``form4a.existing_amendment_accessions``)."""
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT DISTINCT accession FROM fact_insider_txn WHERE tenant_id = %s AND security_id = %s",
-            (tenant_id, security_id),
+            "SELECT accession FROM fact_insider_txn WHERE tenant_id = %(t)s AND security_id = %(s)s "
+            "UNION "
+            "SELECT accession FROM insider_txn_hold "
+            "WHERE tenant_id = %(t)s AND security_id = %(s)s AND form = %(form)s",
+            {"t": tenant_id, "s": security_id, "form": HOLD_FORM_4},
         )
         return {r["accession"] for r in cur.fetchall()}

@@ -865,7 +865,8 @@ make the overlap routine, which is why the guard is per company rather than per 
   `repair_insider_filer_text`, `repair_insider_ownership`, `repair_benchmark_bars`, `relink_amendments`,
   and — new — `dedup_identical_versions`, `backfill_accepted`, `backfill_aff10b5_1`,
   `repair_adr_insider_misattribution`, `repair_activist_misattribution`, `repair_impossible_txn_dates`,
-  `repair_shares_cover_dates`, `repair_catalyst_dates`), so a
+  `repair_shares_cover_dates`, `repair_catalyst_dates`, and `backfill_insider_holds` for its write only: its
+  scan reads files and takes no lock), so a
   repair never runs beside any company writer and none starts under it.
 - **The lock order (the deadlock rule):** call-of-record lock → the fact-writer gate → a company lock, never
   the reverse. The nightly holds call-of-record and takes gate(shared)+company per company; a repair holds
@@ -945,7 +946,54 @@ next baseline), and stdout gets one quiet line
 per kind. The first pass after the deploy has no baseline, so it prints every skip once. **Only the logging
 changed**: what is stored, skipped, counted (`form4_skipped` on each thesis line) or raised is identical, a
 CLI or on-promote ingest (no baseline) prints everything, and no raising path became a swallow-and-count.
-The P1 `REJECT insider txn` lines (impossible transaction dates) are untouched and stay loud.
+The P1 lines for impossible transaction dates were left loud by Q18; since migration 0082 they print once
+(next paragraph).
+
+**An insider row with an impossible date is held, not dropped (migration 0082, 2026-11-11)** `[BUILT]`. The
+Form 4 ingest refuses a transaction whose date cannot be true (`ingest.edgar.form4.implausible_txn_date`: a
+year before 1934, or a year after the accession's own filing year). It used to print a `REJECT insider txn`
+line and store the row nowhere, which had two costs. A filing whose EVERY row was refused stored nothing, so
+nothing marked it handled and the nightly read it and printed it again every pass (MEASURED on prod
+2026-11-11: 7 filings, 20 identical lines a night). And a refused row inside a filing that otherwise stored
+printed once, on the night it was first read, and was visible nowhere afterwards (MEASURED: 22 rows in 20
+stored filings). What happens now:
+
+- **The row is held.** The ingest writes it to `insider_txn_hold` in the same transaction as the filing's good
+  rows: the row as parsed plus `txn_date_as_filed` (the text of the filing's own date element), the filing's
+  period of report and its last signature date as text, the filing date, the acceptance the leg resolved, and
+  the rule's code as the reason (`year_before_1934` / `year_after_filing_year`; `after_filing` is reserved for
+  the next step and written by nothing yet). One row per held row, never updated. A Form 4/A row that fails
+  the rule is held the same way with form `4/A`; the amendment record still keeps only its good rows.
+- **It is still not a fact.** No corrected date is invented (#3). Nothing on the call path, no signal and no
+  dashboard reads the table, so this step changes no call: the rows held are exactly the rows the ingest
+  already refused. What is stored in `fact_insider_txn` is unchanged, row for row.
+- **A held filing is read once.** `existing_accessions` lists an accession that has a Form 4 hold, so the leg
+  and the fetch-ahead skip it like a stored one.
+- **The line prints once.** `HELD insider txn <accession> seq=N <person> (<code>): transactionDate ...` prints
+  only when the hold row is written. A re-read writes nothing and prints nothing. The per-thesis summary and
+  the CLI report say `N insider txn held (impossible date)`, counting the rows newly held by that run.
+- **The operator is told once.** Each pass counts the whole hold table (`pipeline/insider_hold_scan.py`) and
+  writes the artifact block `insider_holds`: `evaluated`, `total`, `by_reason`, `new` (each with `key`,
+  `ticker`, `accession`, `txn_seq`, `form`, `code`, `shares`, `price`, `date_as_filed`, `reason`), `known`,
+  `error`, `duration_s`, and `keys` (the whole inventory, which the next pass reads as its baseline). A row is
+  new when its key is not in the newest finished live pass's `keys`. The first pass after the deploy has no
+  baseline, so every existing hold is new once. New holds get one health line in the same channel as the Form
+  4/A line, benign-class ("not a cron error"), naming up to 8 rows by ticker, accession, code and shares and
+  counting the rest; the printed report lists them with the date as filed. Known holds are one quiet count
+  line. A night with no held row prints nothing. A failed check is one loud line and never fails the pass; a
+  `--no-live` pass does not check and is never a baseline.
+- **The rows the old ingest dropped** are held by `python -m pipeline.backfill_insider_holds` (dry-run by
+  default). It re-reads the cached Form 4 document of every accession stored in `fact_insider_txn` (the EDGAR
+  cache on disk, never the network) under the ingest's own rule and plans a hold for each refused row that has
+  none. An accession with no cached document is listed as not cached, never guessed. `--accessions A,B` limits
+  the run to those filings and also takes one with no stored row (a filing whose every row is refused),
+  placing it on `--ticker`, else on the company whose CIK is the filing's issuer CIK. It skips, and lists, an
+  un-stored filing that still has a row the ingest would store: holding its bad row would mark the filing
+  handled and its good rows would never be stored (#9). The scan takes no lock (it is long: about 424,000
+  stored accessions on prod, progress every 50,000). `--apply` takes the repair lock only for the write
+  (`ON CONFLICT DO NOTHING`, the table counted before and after, a mismatch rolls back and exits non-zero) and
+  writes one `data_repair` journal row. `--report-json PATH` writes every list in full. Idempotent. The
+  operator runs it on prod after a backup.
 
 ### Onboarding new names OUTSIDE the nightly window — the staged cold-ingest job (X1, 2026-10-21)  `[BUILT]`
 

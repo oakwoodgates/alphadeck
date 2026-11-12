@@ -13,7 +13,8 @@ Hooked (each tool's ``main`` journals its ``--apply`` / ``--revoke``; ``--execut
 ``split_history`` (its run journals as ``backfill_splits``), ``repair_filing_dates``,
 ``repair_shares_cover_dates``, ``repair_activist_misattribution`` (deletes),
 ``repair_adr_insider_misattribution``, ``repair_impossible_txn_dates`` (deletes), ``repair_catalyst_dates``
-(deletes), ``backfill_accepted``, ``backfill_aff10b5_1``. Not hooked: what only
+(deletes), ``backfill_accepted``, ``backfill_aff10b5_1``, ``backfill_insider_holds`` (it writes held rows
+to ``insider_txn_hold`` and changes no fact, so the trial it starts should find no change). Not hooked: what only
 touches ``calls`` (``annotate_phantom_arms``, ``annotate_no_session_rows``,
 ``repair_reconstructed_precreation``, ``pipeline.backfill``),
 ordinary nightly data flow (``detect_splits``), and ``split_repair`` (a pure module, no CLI — its writer is

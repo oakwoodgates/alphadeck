@@ -461,7 +461,8 @@ def test_ingest_form4_prints_the_rejection_itemized_never_a_tally(db, security_i
     assert "0001437749-24-004874" in out  # which filing
     assert "2027-06-01" in out  # the raw date, verbatim
     assert "seq=0" in out  # which transaction within it
-    assert "REJECT" in out and "NOT stored" in out
+    # the wording since migration 0082: the row is HELD (insider_txn_hold), no longer dropped
+    assert "HELD" in out and "not stored as a fact" in out and "REJECT" not in out
 
 
 # --- THE REAL SEC DOCUMENTS: parser-vs-filer, settled in the repo rather than in prose ------------------
@@ -612,4 +613,5 @@ def test_a_clean_filing_rejects_nothing_and_prints_nothing(db, security_id, caps
     n = ingest_form4(db, security_id, _XML, "acc-clean")
     db.commit()
     assert n.rejected == 0
-    assert "REJECT" not in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "HELD" not in out and "REJECT" not in out

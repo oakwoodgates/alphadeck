@@ -1,0 +1,136 @@
+{
+ "0001437749-24-004874": [
+  {
+   "accepted": null,
+   "accession": "0001437749-24-004874",
+   "aff_10b5_1": false,
+   "direct_indirect": "D",
+   "filing_natures": [],
+   "insider_name": "Douglass Stephen",
+   "insider_role": "SVP, CTO",
+   "issuer_cik": "855658",
+   "issuer_foreign_symbol": null,
+   "issuer_name": "LATTICE SEMICONDUCTOR CORP",
+   "ownership_nature": null,
+   "price": "0",
+   "rpt_owner_cik": "1752584",
+   "security_title": "Common Stock",
+   "shares": "3438",
+   "shares_owned_after": "159885",
+   "txn_code": "M",
+   "txn_footnotes": [
+    "Restricted Stock Units (RSUs) - no purchase price for this transaction."
+   ],
+   "txn_seq": 0,
+   "usd": "0",
+   "valid_from": "2024-02-17",
+   "valid_to": null
+  },
+  {
+   "accepted": null,
+   "accession": "0001437749-24-004874",
+   "aff_10b5_1": false,
+   "direct_indirect": "D",
+   "filing_natures": [],
+   "insider_name": "Douglass Stephen",
+   "insider_role": "SVP, CTO",
+   "issuer_cik": "855658",
+   "issuer_foreign_symbol": null,
+   "issuer_name": "LATTICE SEMICONDUCTOR CORP",
+   "ownership_nature": null,
+   "price": "0",
+   "rpt_owner_cik": "1752584",
+   "security_title": "Common Stock",
+   "shares": "885",
+   "shares_owned_after": "158922",
+   "txn_code": "M",
+   "txn_footnotes": [
+    "Restricted Stock Units (RSUs) - no purchase price for this transaction."
+   ],
+   "txn_seq": 2,
+   "usd": "0",
+   "valid_from": "2024-02-18",
+   "valid_to": null
+  },
+  {
+   "accepted": null,
+   "accession": "0001437749-24-004874",
+   "aff_10b5_1": false,
+   "direct_indirect": "D",
+   "filing_natures": [],
+   "insider_name": "Douglass Stephen",
+   "insider_role": "SVP, CTO",
+   "issuer_cik": "855658",
+   "issuer_foreign_symbol": null,
+   "issuer_name": "LATTICE SEMICONDUCTOR CORP",
+   "ownership_nature": null,
+   "price": "73.24",
+   "rpt_owner_cik": "1752584",
+   "security_title": "Common Stock",
+   "shares": "476",
+   "shares_owned_after": "158446",
+   "txn_code": "F",
+   "txn_footnotes": [
+    "These shares were retained by the Issuer in order to meet the tax withholding obligations of the Reporting Person in connection with the vesting of an installment of the restricted stock units. The amount retained by the Issuer was not in excess of the amount of the tax liability."
+   ],
+   "txn_seq": 3,
+   "usd": "34862.24",
+   "valid_from": "2024-02-18",
+   "valid_to": null
+  }
+ ],
+ "0001628280-24-010030": [
+  {
+   "accepted": null,
+   "accession": "0001628280-24-010030",
+   "aff_10b5_1": false,
+   "direct_indirect": "D",
+   "filing_natures": [],
+   "insider_name": "Peffer Julie",
+   "insider_role": "Chief Financial Officer",
+   "issuer_cik": "1836981",
+   "issuer_foreign_symbol": null,
+   "issuer_name": "BigBear.ai Holdings, Inc.",
+   "ownership_nature": null,
+   "price": "0",
+   "rpt_owner_cik": "1932370",
+   "security_title": "Common Stock",
+   "shares": "103591",
+   "shares_owned_after": "418009",
+   "txn_code": "A",
+   "txn_footnotes": [
+    "On November 13, 2023, the Reporting Person was granted performance stock units (\"PSUs\") which vested on March 5, 2024."
+   ],
+   "txn_seq": 1,
+   "usd": "0",
+   "valid_from": "2023-11-13",
+   "valid_to": null
+  },
+  {
+   "accepted": null,
+   "accession": "0001628280-24-010030",
+   "aff_10b5_1": false,
+   "direct_indirect": "D",
+   "filing_natures": [],
+   "insider_name": "Peffer Julie",
+   "insider_role": "Chief Financial Officer",
+   "issuer_cik": "1836981",
+   "issuer_foreign_symbol": null,
+   "issuer_name": "BigBear.ai Holdings, Inc.",
+   "ownership_nature": null,
+   "price": "3.75",
+   "rpt_owner_cik": "1932370",
+   "security_title": "Common Stock",
+   "shares": "47737",
+   "shares_owned_after": "370272",
+   "txn_code": "F",
+   "txn_footnotes": [
+    "Represents shares withheld to satisfy tax withholding obligations in connection with the issuance of shares upon the vesting of PSUs."
+   ],
+   "txn_seq": 2,
+   "usd": "179013.75",
+   "valid_from": "2024-03-05",
+   "valid_to": null
+  }
+ ]
+}

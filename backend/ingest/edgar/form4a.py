@@ -16,9 +16,10 @@ Two screens, both deterministic over the filing itself:
   REPORTING OWNER of another company's stock. Not this security's insider flow, never stored; returned as a
   ``form4_other_issuer`` skip (Q18 — known skips are counted, not re-printed). The same screen guards the
   Form 4 leg (``ingest_form4(member_cik=...)``).
-- **The transaction-date sanity bound** (P1) — the Form 4 leg's ``implausible_txn_date``, imported, so an
-  amended row whose date cannot be true is rejected by the SAME rule as an original one (printed in full,
-  never stored, never clamped — #3).
+- **The transaction-date sanity bound** (P1) — the Form 4 leg's rule, imported (``held_rows``), so an
+  amended row whose date cannot be true is refused by the SAME rule as an original one: kept out of the
+  amendment record, never clamped (#3), and — since migration 0082 — HELD in ``insider_txn_hold`` with form
+  ``'4/A'`` and printed in full once. Applying a held 4/A row is not built.
 """
 
 from __future__ import annotations
@@ -50,7 +51,17 @@ from domain.insider_amendments import (
     norm_cik,
 )
 from ingest.edgar.acceptance import AcceptanceTally, resolve_filing_acceptance, trusted_listed
-from ingest.edgar.form4 import _txn_date, implausible_txn_date, parse_form4
+from ingest.edgar.form4 import (
+    HOLD_FORM_4A,
+    HoldEvidence,
+    _txn_date,
+    held_rows,
+    hold_evidence,
+    hold_line,
+    implausible_txn_date,
+    parse_form4,
+    write_hold,
+)
 from ingest.edgar.submissions import (
     filed_on_or_after,
     filings_of,
@@ -534,17 +545,17 @@ def ingest_form4a(
         return AmendmentIngest(accession=accession, other_issuer=True, issuer_cik=parsed.issuer_cik)
     rows: list[dict[str, Any]] = []
     rejected = 0
+    # the rows the sanity bound refuses (``{txn_seq: reason code}`` — the Form 4 leg's own reading). They stay
+    # out of the amendment record exactly as before; since migration 0082 each is also HELD
+    # (``insider_txn_hold``, form '4/A'), written below beside the record so a filing skipped on a tolerated
+    # error leaves no hold behind. Applying a held 4/A row is not built.
+    to_hold = held_rows(parsed.rows, accession)
+    evidence = hold_evidence(xml) if to_hold else HoldEvidence(None, None, ())
     for r in parsed.rows:
         if r.get("txn_date") is None:
             continue
-        reason = implausible_txn_date(r["txn_date"], accession)
-        if reason is not None:
+        if r["txn_seq"] in to_hold:
             rejected += 1
-            print(
-                f"  REJECT insider 4/A txn {accession} seq={r['txn_seq']} "
-                f"{r['insider_name'] or '?'} ({r['txn_code'] or '?'}): transactionDate "
-                f"{r['txn_date'].isoformat()} {reason}. The filing says this verbatim — NOT stored (#3)."
-            )
             continue
         rows.append(r)
     facts = AmendmentFacts(
@@ -601,6 +612,29 @@ def ingest_form4a(
             via="ingest",
             recorded_at=recorded_at,
         )
+    # the held rows, in the same transaction as the record and its link. Printed only when the row is NEW to
+    # the hold table (a 4/A is stored once, so that is its one print). No change stamp: no dashboard or signal
+    # reads the hold table yet.
+    for r in parsed.rows:
+        seq = r["txn_seq"]
+        if r.get("txn_date") is None or seq not in to_hold:
+            continue
+        if write_hold(
+            conn,
+            tenant_id=tenant_id,
+            security_id=security_id,
+            accession=accession,
+            txn_seq=seq,
+            form=HOLD_FORM_4A,
+            reason=to_hold[seq],
+            row=r,
+            evidence=evidence,
+            filed=filed,
+            accepted=accepted,
+            recorded_at=recorded_at,
+        ):
+            why = implausible_txn_date(r["txn_date"], accession) or to_hold[seq]
+            print(hold_line(HOLD_FORM_4A, accession, seq, r, why))
     return AmendmentIngest(
         accession=accession,
         issuer_cik=parsed.issuer_cik,

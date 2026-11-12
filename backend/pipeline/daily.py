@@ -124,6 +124,8 @@ from pipeline.insider_amendment_scan import (
     run_amendment_sweep,
 )
 from pipeline.insider_amendment_scan import report_lines as amendment_report_lines
+from pipeline.insider_hold_scan import HoldScan, previous_hold_keys, run_hold_scan
+from pipeline.insider_hold_scan import report_lines as hold_report_lines
 from pipeline.missing_closes import MissingCloses, run_missing_closes
 from pipeline.missing_closes import report_lines as missing_close_report_lines
 from pipeline.name_errors import NameIngestError, dedup_name_errors, name_errors_of
@@ -926,6 +928,8 @@ def assess_health(
     successor_cik_new: tuple[str, ...] = (),
     insider_amendments_new: tuple[str, ...] = (),
     insider_amendments_more: int = 0,
+    insider_holds_new: tuple[str, ...] = (),
+    insider_holds_more: int = 0,
     edgar_coverage: EdgarCoverage | None = None,
 ) -> HealthEvent | None:
     """R4 — the run's pageable health, or None when the run was clean (loudness marks the exception). Unhealthy
@@ -1014,6 +1018,11 @@ def assess_health(
     ambiguous link the system cannot resolve), ``insider_amendments_more`` the count of the rest
     (``pipeline/insider_amendment_scan.py``). Benign-class the same way: the decision is the operator's, the
     run did its job — it pages once. A system application never reaches here.
+
+    0082 — ``insider_holds_new`` are the labels of insider rows NEWLY held because the filing's transaction
+    date cannot be true (``pipeline/insider_hold_scan.py``: ticker, accession, code, shares — the first rows up
+    to the page's cap), ``insider_holds_more`` the count of the rest. Benign-class the same way: a filer wrote
+    an impossible date and the ingest held the row instead of storing it; the run did its job — it pages once.
     """
     theses = len(results)
     # split withheld by its ACTUAL reason — a --no-live dev run is benign, a total failure is an alarm; a page
@@ -1050,6 +1059,8 @@ def assess_health(
         or successor_cik_new
         or insider_amendments_new
         or insider_amendments_more
+        or insider_holds_new
+        or insider_holds_more
     ):
         return None  # healthy — no page
     return HealthEvent(
@@ -1074,6 +1085,8 @@ def assess_health(
         successor_cik_new=tuple(successor_cik_new),
         insider_amendments_new=tuple(insider_amendments_new),
         insider_amendments_more=insider_amendments_more,
+        insider_holds_new=tuple(insider_holds_new),
+        insider_holds_more=insider_holds_more,
     )
 
 
@@ -1141,6 +1154,10 @@ class DailyPassOutcome:
     # R8-A — the Form 4/A inventory owed an operator decision (``pipeline/insider_amendment_scan.py``),
     # computed ONCE in the pass so the artifact, the printed report and the page agree
     amendments: AmendmentScan = field(default_factory=AmendmentScan)
+    # 0082 — the held insider rows (``pipeline/insider_hold_scan.py``): the count by reason and the rows NEW
+    # since the last evaluated pass, computed ONCE in the pass so the artifact, the printed report and the page
+    # agree
+    holds: HoldScan = field(default_factory=HoldScan)
     # the freeze page's RATIO FLOOR (``pipeline/edgar_coverage.py``): the pass's per-company EDGAR freshness
     # and the floor it was judged under, computed ONCE so the artifact, the Admin poll payload and the page
     # agree. None = not measured (the pass processed no thesis).
@@ -1190,6 +1207,7 @@ class DailyPassOutcome:
             "skips": self.skips,
             "timings": self.timings,
             "amendments": self.amendments,
+            "holds": self.holds,
             "edgar_coverage": self.edgar_coverage,
             "split_detect": self.split_detect,
             "missing_closes": self.missing_closes,
@@ -1679,6 +1697,17 @@ def _run_daily_pass_locked(
         since=started_at,
         sweep=amendment_sweep,
     )
+    # 0082 — THE HELD INSIDER ROWS (`pipeline/insider_hold_scan.py`): every row the ingest holds because its
+    # filing's transaction date cannot be true (`insider_txn_hold`), read whole from the table and diffed
+    # against the last evaluated pass so a NEW one is told once (the page names it; the known ones are one
+    # quiet count). BEFORE the artifact, for the same reason as the diffs above. Fail-open (a fault rides
+    # `error`).
+    holds = timed("hold_scan")(run_hold_scan)(
+        allow_live=allow_live,
+        connect=_pass_connect,
+        previous=previous_hold_keys,
+        clock=perf_counter,
+    )
     # I1/I2 — THE RUN IDENTITY on the artifact: the same sha / cfg hash / run kind `run_daily` stamped on
     # every row it wrote (the identical expressions — `run_daily` holds its cfg local as DEFAULT_CONFIG and
     # reads `image_sha` the same way), plus the non-secret env fingerprint the Admin page alarms on.
@@ -1744,6 +1773,7 @@ def _run_daily_pass_locked(
         # X5 — the timings so far; `run_daily_pass` amends the artifact with the final block (post-legs)
         timings=pass_timings.snapshot(),
         amendments=amendments,
+        holds=holds,
         edgar_coverage=edgar_coverage,
         split_reads_prev=prior_split_reads,
         split_detect=split_detector.result,
@@ -1782,6 +1812,9 @@ def _run_daily_pass_locked(
         # R8-A — the NEW Form 4/A amendments owed a decision page once (benign-class)
         insider_amendments_new=amendments.new_labels,
         insider_amendments_more=amendments.new_more,
+        # 0082 — the NEW held insider rows page once (benign-class: a filer's impossible date, held)
+        insider_holds_new=holds.new_labels,
+        insider_holds_more=holds.new_more,
         # the RATIO FLOOR: too few of the eligible companies got fresh SEC data pages FROZEN too
         edgar_coverage=edgar_coverage,
     )
@@ -1948,6 +1981,7 @@ def _report(
     skips: SkipDiff | None = None,
     amendments: AmendmentScan | None = None,
     split_reads_prev: dict | None = None,
+    holds: HoldScan | None = None,
 ) -> int:
     """Print a per-thesis summary; return the number of theses that ERRORED.
 
@@ -1974,6 +2008,10 @@ def _report(
     excused EXPECTED price 404s collapse to ONE quiet line; a failed probe is one loud line.
 
     T7 — the successor-CIK block (``successor_cik.report_lines``): NEW rows loud, known ones one quiet line.
+
+    0082 — the held insider rows (``insider_hold_scan.report_lines``): each NEW held row loud, once (the
+    filing's transaction date cannot be true; the row is held, never stored as a fact); the known ones one
+    quiet count; a failed check loud; nothing on a night with no held row.
     """
     appended = sum(1 for r in results if r.recorded)
     unchanged = sum(1 for r in results if r.recorded is False)
@@ -1997,12 +2035,13 @@ def _report(
         skipped = sum(x.form4_skipped for x in r.ingested)
         sk = f" · {skipped} form4 skipped" if skipped else ""  # loudness marks the exception
         # P1 — TRANSACTIONS the sanity bound refused (a filer's impossible date: a leading-zero year, or a
-        # year after the accession's own filing year). Loud only when nonzero, like every other exception
-        # count on this line. It is an AGGREGATE for a gate to watch; the per-row detail (accession,
-        # insider, sequence, raw date, reason) already printed in full during the ingest leg above — the
-        # count accompanies that report and must never be read as a substitute for it.
+        # year after the accession's own filing year) and this pass newly HELD (`insider_txn_hold`, 0082 —
+        # never stored as a fact). Loud only when nonzero, like every other exception count on this line. It
+        # is an AGGREGATE for a gate to watch; the per-row detail (accession, insider, sequence, raw date,
+        # reason) already printed in full during the ingest leg above — the count accompanies that report
+        # and must never be read as a substitute for it.
         rejected = sum(x.form4_txn_rejected for x in r.ingested)
-        rj = f" · {rejected} insider txn REJECTED (impossible date)" if rejected else ""
+        rj = f" · {rejected} insider txn held (impossible date)" if rejected else ""
         rv = sum(x.price_bars_reversioned for x in r.ingested)
         rvs = (
             f" · {rv} bars RE-VERSIONED (restated)" if rv else ""
@@ -2121,6 +2160,10 @@ def _report(
     # (system applications this pass + the owed inventory)
     if amendments is not None:
         for line in amendment_report_lines(amendments):
+            print(line)
+    # 0082 — the held insider rows: each NEW one loud (once), the known ones ONE quiet count line
+    if holds is not None:
+        for line in hold_report_lines(holds):
             print(line)
     # T3 — the EXPECTED price 404s (closed / acknowledged names), deduped across theses: ONE quiet line
     expected: dict[UUID, ExpectedPriceMiss] = {}
@@ -2362,6 +2405,7 @@ def main(argv: list[str] | None = None) -> None:
         skips=outcome.skips,
         amendments=outcome.amendments,
         split_reads_prev=outcome.split_reads_prev,
+        holds=outcome.holds,
     )  # the per-thesis summary + the errored count, printed either way
     # S4 — one quiet line (+ Massive.com off / faults)
     for line in outcome.split_detect.report_lines():
