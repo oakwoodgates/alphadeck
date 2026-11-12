@@ -2111,6 +2111,22 @@ tr.adm-row-bad td { background: color-mix(in srgb, var(--warm) 5%, transparent);
 .adm-act .adm-minibtn { flex: none; }
 .adm-act-line { font-size: 11px; color: var(--txt-3); min-width: 0; flex: 1 1 260px; }
 .adm-filing-ref { font-family: var(--mono); font-size: 10px; color: var(--txt-4); margin-top: 2px; overflow-wrap: anywhere; }
+/* bad dates step 3 — the Held insider rows panel: the owed box is the only loud block (armed-tinted, like the
+   mockup); every other bucket is a quiet collapsed list, the dismissed one grayed (WB#2) */
+.adm-hold-owed { border: 1px solid color-mix(in srgb, var(--armed) 55%, transparent); background: color-mix(in srgb, var(--armed) 7%, transparent); border-radius: 8px; padding: 11px 13px; margin-top: 4px; }
+.adm-hold-head { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+.adm-hold-trade { color: var(--txt-2); font-variant-numeric: tabular-nums; }
+.adm-hold-sugg { font-size: 11.5px; color: var(--txt-2); margin: 2px 0; }
+.adm-hold-ok { color: var(--manage); font-family: var(--mono); }
+.adm-hold-weak { color: var(--warm); }
+.adm-hold-acts { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; margin-top: 5px; }
+.adm-hold-edit { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; border: 1px solid var(--line-2); border-radius: 8px; padding: 7px 9px; margin-top: 5px; background: var(--panel-2); font-size: 11px; color: var(--txt-3); }
+.adm-hold-why { flex: 1 1 220px; display: flex; gap: 6px; align-items: center; min-width: 0; }
+.adm-hold-why .adm-input { flex: 1; min-width: 0; }
+.adm-hold-full { flex-basis: 100%; }
+.adm-minibtn.adm-ghost { color: var(--txt-3); }
+.adm-linkbtn { font: inherit; font-size: 10.5px; color: var(--txt-3); background: none; border: none; padding: 0; margin-top: 3px; cursor: pointer; text-decoration: underline; }
+.adm-linkbtn:focus-visible, .adm-quietlist summary:focus-visible { outline: 2px solid var(--leader); outline-offset: 2px; }
 
 /* ================= The BACKTEST (research surface) — a recompute, never the record ====================
    Quiet by construction: this page ranks nothing. The pooled block is the loud one because it is the
