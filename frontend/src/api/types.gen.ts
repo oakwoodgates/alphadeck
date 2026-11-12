@@ -2054,7 +2054,8 @@ export interface paths {
          * @description Every held insider row with its evidence, bucketed for the panel: owed your decision (loud); placed by
          *     rule, corrected by the filer, decided, dismissed and held Form 4/A rows (quiet). Each row carries the date
          *     the filing wrote, its period of report and signature date, the suggested date and whether it agrees with
-         *     the filing, and its standing decision. Read-only.
+         *     the filing, the filing's market date, why the rule did not place an owed row, and its standing decision;
+         *     the response names each bucket in the backend's words. Read-only.
          */
         get: operations["list_holds_admin_insider_holds_get"];
         put?: never;
@@ -2077,10 +2078,12 @@ export interface paths {
         /**
          * Approve Hold
          * @description RATIFY a date (basis ``steward:approve``): the held row counts from that date, for every read made from
-         *     now on (a past night's view is not rewritten). Omit ``ratified_date`` to ratify the suggested date. Undo
+         *     now on (a past night's view is not rewritten). Omit ``ratified_date`` to ratify the suggested date — only a
+         *     suggestion that agrees with the filing's period of report; a weak one must be sent as the date. Undo
          *     with ``POST /admin/insider-holds/decisions/{id}/revoke``. **404** unknown held row, **409** a decision
          *     already stands / the filer's own Form 4/A decides it / a Form 4/A row, **422** no date and no suggestion,
-         *     a date that fails the year rule, or one after the filing's market date (or none is known).
+         *     no date and a suggestion that does not agree with the filing, a date that fails the year rule, or one
+         *     after the filing's market date (or none is known).
          */
         post: operations["approve_hold_admin_insider_holds__hold_id__approve_post"];
         delete?: never;
@@ -3953,7 +3956,8 @@ export interface components {
         };
         /**
          * AdminHoldApproveIn
-         * @description The date to ratify (omit it to ratify the suggested date) and why (optional — a default is stored).
+         * @description The date to ratify (omit it to ratify the suggested date, only when it agrees with the filing) and why
+         *     (optional — a default is stored).
          */
         AdminHoldApproveIn: {
             /** Ratified Date */
@@ -4292,6 +4296,8 @@ export interface components {
          *     amendment_row); ``why`` = why the filer's own amendment decides it (``filer_corrected`` only);
          *     ``filing_night`` = the night it counts from when placed by the rule. ``suggested_date`` = the arithmetic
          *     suggestion (``None`` = none can be made) and ``agrees`` = it is on or after a readable period of report.
+         *     ``market_date`` = the filing's market date, the latest date a ratified date may be (``None`` when unknown);
+         *     ``owed_why`` = why the placement rule did not place it, in plain words (``owed`` rows only, else ``None``).
          *     ``decision`` = the standing steward decision (decided / dismissed); ``history`` = every decision about the
          *     row, Undos included, oldest first. ``filing_url`` = the filing on EDGAR.
          */
@@ -4344,6 +4350,10 @@ export interface components {
              * @default false
              */
             agrees: boolean;
+            /** Market Date */
+            market_date?: string | null;
+            /** Owed Why */
+            owed_why?: string | null;
             decision?: components["schemas"]["AdminHoldDecisionOut"] | null;
             /** History */
             history?: components["schemas"]["AdminHoldDecisionOut"][];
@@ -4354,7 +4364,8 @@ export interface components {
          * AdminInsiderHoldsOut
          * @description The "Held insider rows" panel. ``owed`` is the only LOUD bucket (its count is ``counts.owed``); the rest
          *     are quiet lists, still visible (WB#2). ``counts`` = how many rows sit in each bucket; ``total`` = all held
-         *     rows. Read live from the tables, judged as today's view reads.
+         *     rows; ``bucket_words`` = each bucket in the backend's own words. Read live from the tables, judged as today's
+         *     view reads.
          */
         AdminInsiderHoldsOut: {
             /** Owed */
@@ -4372,6 +4383,10 @@ export interface components {
             /** Counts */
             counts?: {
                 [key: string]: number;
+            };
+            /** Bucket Words */
+            bucket_words?: {
+                [key: string]: string;
             };
             /**
              * Total

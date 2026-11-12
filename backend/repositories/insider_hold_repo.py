@@ -12,7 +12,8 @@ the filing's own fields, never a model) and every decision about the row.
 THE VERBS, each with its visible inverse (WB#1) — every one ONE append-only INSERT, recorded now (never
 back-dated: on the public clock a steward decision counts from when it was made, ``db.public_clock``):
 
-- ``approve`` — count the row, dated at the RATIFIED date (the suggestion when none is sent). The date must pass
+- ``approve`` — count the row, dated at the RATIFIED date (the suggestion when none is sent, only when it agrees
+  with the filing's period of report). The date must pass
   the year rule and sit on or before the filing's market date (``domain.insider_holds.ratify_problem``).
 - ``dismiss`` — do not count the row ("not a trade"); a reason is required.
 - ``revoke`` — the Undo of one approve / dismiss; the state before it comes back.
@@ -66,6 +67,7 @@ from domain.insider_holds import (
     date_as_filed,
     filing_market_date,
     hold_states,
+    placement_problem,
     ratify_problem,
     suggested_date,
 )
@@ -100,6 +102,12 @@ class HoldItem:
     suggested: date | None
     agrees: bool
     decisions: list[dict[str, Any]] = field(default_factory=list)
+    market_date: date | None = (
+        None  # ``filing_market_date``: the latest date its trade can be (None = unknown)
+    )
+    owed_why: str | None = (
+        None  # ``placement_problem``: why the rule did not place it (``owed`` rows only)
+    )
 
     @property
     def id(self) -> UUID:
@@ -202,16 +210,21 @@ def items(
         )
         for h in hs:
             suggestion, agrees = suggested_date(h)
+            state = states[(str(h["accession"]), int(h["txn_seq"]), str(h["form"]))]
             out.append(
                 HoldItem(
                     hold=h,
                     ticker=h.get("ticker"),
                     name=h.get("company_name"),
                     issuer_cik=h.get("issuer_cik"),
-                    state=states[(str(h["accession"]), int(h["txn_seq"]), str(h["form"]))],
+                    state=state,
                     suggested=suggestion,
                     agrees=agrees,
                     decisions=by_key_dec.get(_key(h), []),
+                    market_date=filing_market_date(h),
+                    owed_why=(
+                        placement_problem(h, on_time_days) if state.bucket == BUCKET_OWED else None
+                    ),
                 )
             )
     order = {b: i for i, b in enumerate(BUCKETS)}
@@ -352,12 +365,18 @@ def approve(
     tenant_id: UUID = DATA_TENANT_ID,
     decided_by: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Count the held row dated at ``ratified_date`` — the suggested date when ``None`` (``ValueError`` when there
-    is none). ``ValueError`` when the date fails the year rule or is after the filing's market date (or that is
+    """Count the held row dated at ``ratified_date`` — the suggested date when ``None``, and only a suggestion that
+    AGREES with the filing's period of report (``ValueError`` when there is none, or it does not agree: one click
+    never ratifies a date the filing contradicts). ``ValueError`` when the date fails the year rule or is after the filing's market date (or that is
     unknown); ``HoldConflict`` per ``_decidable``; ``LookupError`` for an unknown hold."""
     hold = _lock(conn, hold_id, tenant_id)
     it = one(conn, hold_id, tenant_id=tenant_id)
     _decidable(it)
+    if ratified_date is None and it.suggested is not None and not it.agrees:
+        raise ValueError(
+            f"the suggested date {it.suggested.isoformat()} does not agree with the filing's period of report "
+            "— send the date to ratify"
+        )
     day = ratified_date if ratified_date is not None else it.suggested
     if day is None:
         raise ValueError(
