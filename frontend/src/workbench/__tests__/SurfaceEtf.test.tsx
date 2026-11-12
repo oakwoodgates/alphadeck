@@ -30,7 +30,16 @@ vi.mock("../../api/hooks", () => ({
   useIngestPrices: () => ({ mutate: h.ingestMutate, isPending: false, isError: false, error: null }),
 }));
 
+import { MeProvider } from "../../auth/me";
 import { SurfaceEtf } from "../SurfaceEtf";
+
+const me = (role: "user" | "super_admin") => ({
+  id: "u-1",
+  email: "someone@example.test",
+  display_name: "Someone Test",
+  role,
+  workspace_id: "00000000-0000-0000-0000-0000000000a1",
+});
 
 describe("SurfaceEtf — the surface-ETF flow", () => {
   beforeEach(() => {
@@ -72,5 +81,25 @@ describe("SurfaceEtf — the surface-ETF flow", () => {
     expect(h.resolveMutate).toHaveBeenCalled(); // it resolves...
     expect(onAdd).not.toHaveBeenCalled(); // ...but never re-adds an existing member
     expect(h.ingestMutate).not.toHaveBeenCalled();
+  });
+
+  // Surfacing an ETF writes the SHARED company master, so it is the steward's (security hardening PR 1a): a
+  // plain user never sees the control (the API answers 403 anyway); a steward does.
+  it("renders nothing for a signed-in plain user", () => {
+    const { container } = render(
+      <MeProvider value={me("user")}>
+        <SurfaceEtf existingKeys={new Set()} onAdd={vi.fn()} />
+      </MeProvider>,
+    );
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("renders the control for a steward", () => {
+    render(
+      <MeProvider value={me("super_admin")}>
+        <SurfaceEtf existingKeys={new Set()} onAdd={vi.fn()} />
+      </MeProvider>,
+    );
+    expect(screen.getByLabelText(/surface ETF ticker/i)).toBeInTheDocument();
   });
 });

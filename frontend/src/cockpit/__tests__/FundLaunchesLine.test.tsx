@@ -157,6 +157,18 @@ describe("FundLaunchesLine", () => {
     expect(h.ingest.mutate).not.toHaveBeenCalled();
   });
 
+  it("shows the not-in-the-company-list answer plainly, as the API words it", () => {
+    const msg = "This fund is not in the company list yet. A steward can add it.";
+    h.attach = { ...h.attach, error: { detail: msg } };
+    try {
+      render(<FundLaunchesLine thesisId="t-1" asof="2026-11-04" />);
+      expect(screen.getByText(msg)).toBeInTheDocument(); // the whole line is the message, no "failed:" prefix
+      expect(screen.queryByText(/add\/remove failed/)).not.toBeInTheDocument();
+    } finally {
+      h.attach = { ...h.attach, error: null };
+    }
+  });
+
   it("the buttons are disabled on a read-only (captured) view", async () => {
     const user = userEvent.setup();
     render(<FundLaunchesLine thesisId="t-1" asof="2026-11-04" readOnly />);

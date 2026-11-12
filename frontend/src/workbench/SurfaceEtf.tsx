@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import type { BasketMember } from "../api/hooks";
 import { useIngestPrices, useResolveEtf } from "../api/hooks";
+import { useIsSteward } from "../auth/me";
 import { errText } from "./format";
 import { ETFS } from "./useChainDraft";
 
@@ -10,15 +11,22 @@ interface Props {
   onAdd: (m: BasketMember, name?: string | null) => void; // name → the display-only security_id→name bridge
 }
 
+/** Surface an ETF — STEWARD ONLY: it adds to (or re-marks a row in) the SHARED company master every workspace
+ *  reads, so a plain user never sees it (the API answers 403 regardless; security hardening PR 1a). A plain user
+ *  adds a fund already in the company list through `AddName`. */
+export function SurfaceEtf(props: Props) {
+  return useIsSteward() ? <SurfaceEtfControl {...props} /> : null;
+}
+
 /** Surface an ETF as a low-torque `fund` sleeve (ETF Sleeve, Slice 1) — sits directly below `AddName`. The
- *  operator types a ticker (e.g. LIT); the server resolves it (lookup-or-create) and marks it
+ *  steward types a ticker (e.g. LIT); the server resolves it (lookup-or-create) and marks it
  *  instrument_kind='etf' — the sleeve's ONE marker (every sleeve surface keys on it; a fund has no SIC) —
  *  and we add it to the basket in the fixed ETFs link (a silent link: a fund never counts toward the call,
  *  and the promote refuses a fund anywhere else), then pull its EOD price so the sleeve shows its price.
  *  Unlike AddName this needs NO prior master match — surfacing an ETF absent from the master is the whole
  *  point (hold the theme, skip picking names). The member + price machinery is reused, not rebuilt.
  *  Reversible like any member (interaction #1): the row's own remove is the inverse. */
-export function SurfaceEtf({ existingKeys, onAdd }: Props) {
+function SurfaceEtfControl({ existingKeys, onAdd }: Props) {
   const [ticker, setTicker] = useState("");
   const resolveEtf = useResolveEtf();
   const ingestPx = useIngestPrices();

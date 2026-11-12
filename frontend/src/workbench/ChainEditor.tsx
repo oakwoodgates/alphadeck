@@ -3154,7 +3154,8 @@ export function ChainEditor({
         }}
       />
       {/* surface an ETF as a `fund` sleeve — directly below add-a-name (ETF Sleeve, Slice 1). Same name
-          bridge; unlike AddName it needs no prior master match (it resolves + marks the ticker itself). */}
+          bridge; unlike AddName it needs no prior master match (it resolves + marks the ticker itself), which
+          writes the shared company master, so it renders for a steward only. */}
       <SurfaceEtf
         existingKeys={keys}
         onAdd={(m, name) => {

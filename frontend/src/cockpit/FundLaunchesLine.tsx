@@ -4,6 +4,10 @@ import { useFundAttach, useFundLaunches, useIngestPrices, type FundLaunchesOut }
 import { MatchLine, StageChips } from "../radar/fundParts";
 import { errText } from "../workbench/format";
 
+// The API's fixed 404 when a plain user's attach names a fund the shared company list does not hold yet (only a
+// steward adds to the list; security hardening PR 1a). It is an answer, not a breakage, so it reads on its own.
+const NOT_IN_LIST = "This fund is not in the company list yet. A steward can add it.";
+
 /** The card's quiet fund-launch line (docs/FUND_RADAR.md), near the basket's silent ETFs link: how many fund
  *  filings fit this card in the window, counted by FILING and by SPONSOR (not by fund, so one batch cannot look
  *  like a wave), split by tier. Collapsed by default; its own query, so it never slows the card; renders NOTHING
@@ -67,9 +71,12 @@ function FundLaunchesBody({
         {d.window_days} days (signal {c.signal_filings} · broad {c.broad_filings} · name{" "}
         {c.name_filings})
       </button>
-      {attach.error != null && (
-        <div className="note err">add/remove failed: {errText(attach.error)}</div>
-      )}
+      {attach.error != null &&
+        (errText(attach.error) === NOT_IN_LIST ? (
+          <div className="note err">{NOT_IN_LIST}</div>
+        ) : (
+          <div className="note err">add/remove failed: {errText(attach.error)}</div>
+        ))}
       {open && (
         <div className="fl-line-list">
           {d.filings.map((f) => (
