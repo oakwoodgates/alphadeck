@@ -5,7 +5,7 @@ import json
 import sys
 import weakref
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -41,6 +41,7 @@ from replay.export import (
     AUX_PUBLIC_COL,
     AUX_TABLES,
     FACT_TABLES,
+    HOLD_TABLES,
     IDENTITY_TABLE,
     SPLIT_TABLE,
     read_mirror_manifest,
@@ -54,6 +55,9 @@ _AUX_JSON_COLS: dict[str, tuple[str, ...]] = {
     "insider_amendment": ("rows", "footnotes"),
     "insider_amendment_link": ("original_accessions", "voided_accessions", "candidate_accessions"),
     "insider_amendment_decision": ("original_accessions", "voided_accessions", "replaced_rows"),
+    # the held insider rows (0082) + the steward's decisions (0083) — rule 2026-11-insider-rows-dated-after-filing
+    "insider_txn_hold": ("row",),
+    "insider_txn_hold_decision": ("detail",),
 }
 
 
@@ -67,6 +71,9 @@ class _AuxRows:
     links: dict[str, list[dict[str, Any]]]
     decisions: dict[str, list[dict[str, Any]]]
     ciks: dict[str, list[str]]
+    # the held-row pair (``replay.export.HOLD_TABLES``) — empty on a mirror exported before it
+    holds: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    hold_decisions: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
 
 
 # R8-A — the aux tables are tiny (about one row per amendment) and IMMUTABLE for a mirror connection's life
@@ -105,11 +112,17 @@ def _aux_of(con: duckdb.DuckDBPyConnection) -> _AuxRows | None:
     ciks: dict[str, list[str]] = {}
     for sid, cik in con.execute("SELECT security_id, cik FROM security_cik").fetchall():
         ciks.setdefault(str(sid), []).append(str(cik))
+    has_holds = con.execute(
+        "SELECT count(*) FROM information_schema.tables WHERE table_name = 'insider_txn_hold'"
+    ).fetchone()
+    held = bool(has_holds and has_holds[0])
     aux = _AuxRows(
         amendments=grouped("insider_amendment"),
         links=grouped("insider_amendment_link"),
         decisions=grouped("insider_amendment_decision"),
         ciks=ciks,
+        holds=grouped("insider_txn_hold") if held else {},
+        hold_decisions=grouped("insider_txn_hold_decision") if held else {},
     )
     _AUX[con] = aux
     return aux
@@ -189,6 +202,20 @@ def connect_mirror(parquet_dir: str | Path) -> duckdb.DuckDBPyConnection:
     if ident_file.is_file():
         path = ident_file.as_posix().replace("'", "''")
         con.execute(f"CREATE TABLE {IDENTITY_TABLE} AS SELECT * FROM read_parquet('{path}')")
+    # the held-row pair (rule 2026-11-insider-rows-dated-after-filing): BOTH present (every export since) or
+    # NONE (a mirror from before: no holds, what that export held); partial, or missing while the manifest
+    # records it, is a broken export: loud
+    held_present = [t for t in HOLD_TABLES if (base / f"{t}.parquet").is_file()]
+    if held_present and len(held_present) != len(HOLD_TABLES):
+        missing = sorted(set(HOLD_TABLES) - set(held_present))
+        raise FileNotFoundError(f"mirror {base} has a partial held-row set (missing {missing})")
+    if manifest is not None and manifest.hold_tables and not held_present:
+        raise FileNotFoundError(
+            f"mirror {base}: its manifest records {list(HOLD_TABLES)}, which are missing"
+        )
+    for table in held_present:
+        path = (base / f"{table}.parquet").as_posix().replace("'", "''")
+        con.execute(f"CREATE TABLE {table} AS SELECT * FROM read_parquet('{path}')")
     _aux_of(con)  # prime the per-connection aux cache now, so no view pays a query for it
     _splits_of(con)
     _identity_of(con)
@@ -467,6 +494,10 @@ class ReplayPointInTimeData:
             visible(aux.links),
             visible(aux.decisions),
             [(s, c) for s in sids for c in aux.ciks.get(s, ())],
+            # rule 2026-11-insider-rows-dated-after-filing — the Form 4 holds + the steward's decisions, under
+            # the same gate (the resolver reads form '4' only, as the Postgres loader selects)
+            visible(aux.holds),
+            visible(aux.hold_decisions),
         )
 
     def _prefetch(self, table: str) -> None:

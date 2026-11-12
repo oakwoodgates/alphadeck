@@ -714,7 +714,11 @@ def test_a_cluster_mixing_filed_and_unfiled_buys_takes_the_latest_of_their_night
 
 def test_the_clock_is_never_before_the_trade_nor_after_the_night_read():
     row = _buy("Jane Doe", "Chief Executive Officer", 200_000, d=date(2026, 5, 22))
-    # a stored time before the trade is bad data: the clock stays the trade date (the pre-F8 rule), never earlier
+    # a stored time before the trade: the clock stays the trade date (the pre-F8 rule), never earlier. Still true
+    # of the DETECTOR since rule 2026-11-insider-rows-dated-after-filing, which changed the READ, not this
+    # function: a row dated after its own filing is now held at ingest and the read returns it dated at its
+    # filing night (domain.insider_holds), so such a row no longer reaches the detector with an acceptance
+    # before its date. This bare row (no hold, no date basis) pins the detector's own guard.
     early = insider_conviction.score([_filed(row, _et(date(2026, 5, 1), 12))], SID, ASOF)
     assert early is not None and early.asof == date(2026, 5, 22)
     # only the live read of a past night can hold a filing public after it: it counts from the night read

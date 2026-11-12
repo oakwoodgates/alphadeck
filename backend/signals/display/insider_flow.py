@@ -23,6 +23,7 @@ from datetime import date, timedelta
 from typing import Any
 from uuid import UUID
 
+from domain.insider_holds import is_filing_night
 from domain.insider_internal_transfers import is_internal_transfer
 from domain.insider_joint_reports import joint_labels
 from domain.market_time import view_day
@@ -116,10 +117,12 @@ def _is_below_day_low(
     price → False (KEEP — we cannot prove it was off-market); a genuine open-market print is within the
     day's [low, high], so this cannot exclude one. ``price_scale`` (``domain.splits.tape_scale``, S2) puts
     the as-traded price on the tape's split scale first — the call's rule, so a genuine buy before a
-    reverse split is no longer read as below its adjusted day low."""
+    reverse split is no longer read as below its adjusted day low. A held row counted from its FILING NIGHT
+    (``domain.insider_holds.is_filing_night``) sits on a day that is not its trade day, so this screen does not
+    judge it (False — it stays counted; rule 2026-11-insider-rows-dated-after-filing)."""
     price = txn.get("price")
     low = day_lows.get(txn.get("valid_from"))
-    if price is None or low is None:
+    if price is None or low is None or is_filing_night(txn):
         return False
     scale = price_scale(txn["valid_from"]) if price_scale is not None else 1.0
     return float(price) * scale < low * (1.0 - OFFMARKET_BELOW_LOW_FRAC)

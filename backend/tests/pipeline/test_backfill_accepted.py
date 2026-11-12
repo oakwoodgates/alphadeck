@@ -106,7 +106,9 @@ def test_backfill_corrects_null_only_and_never_rewrites_a_captured_value(db, sec
     """acc-null (ingested pre-capture -> accepted NULL) is corrected from submissions; acc-captured
     (already carrying an acceptance) is NEVER rewritten, even when submissions says something else (a
     disagreement is --verify's to report)."""
-    captured = datetime(2025, 1, 1, 12, 0, tzinfo=_UTC)
+    # after the sample's trade dates (2026-05-15 / 06-01): an ingest acceptance BEFORE them makes each row one
+    # dated after its own filing, held since rule 2026-11-insider-rows-dated-after-filing
+    captured = datetime(2026, 7, 1, 12, 0, tzinfo=_UTC)
     ingest_form4(db, security_id, _XML, "acc-null")  # accepted NULL
     ingest_form4(db, security_id, _XML, "acc-captured", accepted=captured)  # already captured
     db.commit()
@@ -246,10 +248,12 @@ def test_verify_cross_checks_stored_values_against_submissions(db, security_id):
     """--verify is the independent gate: 0 mismatches on an honest table; a stored value the enumeration
     disagrees with IS a mismatch; a remaining resolvable NULL is counted (0 for it post-backfill).
     """
-    good = datetime(2025, 9, 27, 18, 30, 41, tzinfo=_UTC)
+    # every ingest acceptance after the sample's trade dates (2026-05-15 / 06-01): one before them makes each
+    # row one dated after its own filing, held since rule 2026-11-insider-rows-dated-after-filing
+    good = datetime(2026, 6, 2, 18, 30, 41, tzinfo=_UTC)
     ingest_form4(db, security_id, _XML, "acc-good", accepted=good)  # stored == submissions
     ingest_form4(
-        db, security_id, _XML, "acc-wrong", accepted=datetime(2020, 1, 1, tzinfo=_UTC)
+        db, security_id, _XML, "acc-wrong", accepted=datetime(2026, 7, 1, tzinfo=_UTC)
     )  # stored disagrees with submissions
     ingest_form4(db, security_id, _XML, "acc-null")  # stored NULL, submissions has it
     db.commit()
@@ -257,9 +261,9 @@ def test_verify_cross_checks_stored_values_against_submissions(db, security_id):
         {
             "1234567": _subs(
                 [
-                    ("acc-good", "2025-09-27T18:30:41.000Z"),
-                    ("acc-wrong", "2025-09-27T18:30:41.000Z"),
-                    ("acc-null", "2025-09-27T18:30:41.000Z"),
+                    ("acc-good", "2026-06-02T18:30:41.000Z"),
+                    ("acc-wrong", "2026-06-02T18:30:41.000Z"),
+                    ("acc-null", "2026-06-02T18:30:41.000Z"),
                 ]
             )
         }

@@ -7,8 +7,11 @@ stored its good rows and dropped a bad one left no trace of the bad one. The ing
 
 WHAT IT DOES. For every accession stored in ``fact_insider_txn`` it re-reads the CACHED Form 4 document
 (``forms/<accession>/<doc>`` under the EDGAR cache on disk — never the network) with the ingest's own parser
-and the ingest's own rule (``parse_form4`` + ``held_rows``, behind the same other-issuer screen), and plans a
-hold for each row the rule refuses that has no hold yet. An accession with no cached document is counted and
+and the ingest's own rule (``parse_form4`` + ``filing_held_rows``, behind the same other-issuer screen), and plans
+a hold for each row the rule refuses that has no hold yet. Since rule ``2026-11-insider-rows-dated-after-filing``
+that includes a STORED row dated after its own filing (judged on the acceptance stored on the filing's rows): it
+is planned as a hold beside the stored fact, which is never deleted or changed — the read then counts the held
+version instead (``domain.insider_holds``). An accession with no cached document is counted and
 listed as "not cached", never guessed.
 
 ``--accessions A,B,...`` limits the run to those accessions. It also accepts an accession with NO stored row —
@@ -18,9 +21,10 @@ un-stored filing that still has a row the ingest would STORE: holding its bad ro
 "already handled" (``existing_accessions``) and the nightly would never store its good rows (#9) — the nightly
 reads that filing itself and holds the bad row in the same transaction.
 
-A hold is NOT a fact: nothing on the call path, no signal and no dashboard reads ``insider_txn_hold``, and no
-corrected date is invented (#3). The nightly's ``insider_holds`` block names each new hold once
-(``pipeline/insider_hold_scan.py``).
+A hold is NOT a fact and no corrected date is invented (#3). The insider read resolves it (an on-time filing's
+row counts from its filing night, a late one waits for a steward), so ``--apply`` stamps each company it writes a
+hold for (``db.change_stamp.mark_changed``) and dashboards re-read it. The nightly's ``insider_holds`` block names
+each new hold once (``pipeline/insider_hold_scan.py``).
 
 SAFETY.
 - **Dry-run is the default**: it prints one line per planned hold (ticker, accession, row number, person, code,
@@ -54,13 +58,14 @@ from uuid import UUID
 
 import psycopg
 
+from db.change_stamp import mark_changed
 from db.session import connect, database_url
 from domain.scopes import DATA_TENANT_ID
 from ingest.edgar.form4 import (
     HOLD_FORM_4,
     HoldEvidence,
     _norm_cik,
-    held_rows,
+    filing_held_rows,
     hold_evidence,
     hold_row,
     other_issuer_cik,
@@ -194,6 +199,27 @@ def stored_pairs(
         return [(r["security_id"], r["accession"]) for r in cur.fetchall()]
 
 
+def stored_acceptances(
+    conn: psycopg.Connection, tenant_id: UUID, accessions: Sequence[str] | None
+) -> dict[tuple[UUID, str], datetime]:
+    """``(security, accession) -> accepted``: the acceptance stored on each filing's rows (the newest version),
+    where one is stored. It is what the after-filing condition judges a stored row on; a filing with none is
+    judged on the two year conditions alone, as the ingest would."""
+    scope = "" if accessions is None else "AND accession = ANY(%(accs)s)"
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT DISTINCT ON (security_id, accession) security_id, accession, accepted "  # noqa: S608
+            f"FROM fact_insider_txn WHERE tenant_id = %(t)s {scope} "
+            "ORDER BY security_id, accession, recorded_at DESC, id DESC",
+            {"t": tenant_id, "accs": list(accessions) if accessions is not None else None},
+        )
+        return {
+            (r["security_id"], r["accession"]): r["accepted"]
+            for r in cur.fetchall()
+            if r["accepted"] is not None
+        }
+
+
 def held_keys(conn: psycopg.Connection, tenant_id: UUID) -> set[tuple[UUID, str, int]]:
     """``(security, accession, txn_seq)`` of every Form 4 hold already written."""
     with conn.cursor() as cur:
@@ -271,13 +297,14 @@ def _plan_filing(
     *,
     stored: bool,
     log: Callable[[str], None],
+    accepted: datetime | None = None,
 ) -> None:
-    """Plan one filing's holds under the ingest's own reading: ``parse_form4`` and ``held_rows``, behind the
-    other-issuer screen. The screen is checked only for a filing with a refused row (it changes nothing for
+    """Plan one filing's holds under the ingest's own reading: ``parse_form4`` and ``filing_held_rows`` (judged
+    on ``accepted``, the acceptance stored on the filing's rows), behind the other-issuer screen. The screen is checked only for a filing with a refused row (it changes nothing for
     any other), which spares the long scan one parse per document."""
     try:
         rows = parse_form4(xml)
-        refused = held_rows(rows, accession)
+        refused = filing_held_rows(rows, accession, xml, accepted)
         if not refused:
             return
         if other_issuer_cik(xml, company.cik) is not None:
@@ -323,10 +350,13 @@ def scan(
     cache_dir: Path,
     log: Callable[[str], None] = print,
     progress_every: int = PROGRESS_EVERY,
+    accepted: dict[tuple[UUID, str], datetime] | None = None,
 ) -> Plan:
     """Re-read every stored ``(security, accession)`` pair's cached document, and each ``unstored`` accession
     (a filing with no stored row — placed on ``place_on``, else on the one master row whose CIK is the
-    filing's issuer CIK). Pure file reads: no database, no network."""
+    filing's issuer CIK). ``accepted`` = ``stored_acceptances`` (read up front). Pure file reads: no database,
+    no network."""
+    acceptances = accepted or {}
     if not (cache_dir / "forms").is_dir():
         raise SystemExit(f"no forms/ under cache dir {cache_dir} — wrong --cache-dir? refusing")
     plan = Plan()
@@ -338,7 +368,16 @@ def scan(
         if xml is None:
             continue
         company = master.get(sid) or Company(sid, None, None)
-        _plan_filing(plan, company, accession, xml, held, stored=True, log=log)
+        _plan_filing(
+            plan,
+            company,
+            accession,
+            xml,
+            held,
+            stored=True,
+            log=log,
+            accepted=acceptances.get((sid, accession)),
+        )
     by_cik: dict[str, list[Company]] = {}
     for c in master.values():
         key = _norm_cik(c.cik)
@@ -399,6 +438,10 @@ def apply_plan(conn: psycopg.Connection, tenant_id: UUID, planned: Sequence[Plan
             f"{after - before} ({before} -> {after}) — ROLLED BACK, nothing written"
         )
         raise SystemExit(1)
+    # the insider read resolves holds (domain.insider_holds): each company written for is stamped in the same
+    # transaction, so dashboards re-read it (db.change_stamp)
+    if written:
+        mark_changed(conn, {p.company.security_id for p in planned})
     return written
 
 
@@ -488,6 +531,7 @@ def main(argv: list[str] | None = None) -> None:
     try:
         conn.read_only = True
         pairs = stored_pairs(conn, tenant, wanted)
+        acceptances = stored_acceptances(conn, tenant, wanted)
         master = companies(conn, tenant)
         held = held_keys(conn, tenant)
         conn.rollback()
@@ -512,6 +556,7 @@ def main(argv: list[str] | None = None) -> None:
         master=master,
         held=held,
         cache_dir=args.cache_dir,
+        accepted=acceptances,
     )
 
     if not args.apply:

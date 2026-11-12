@@ -70,6 +70,7 @@ SCOPE_OF: dict[str, Scope] = {
     "insider_amendment_link": Scope.DATA,
     "insider_amendment_decision": Scope.DATA,
     "insider_txn_hold": Scope.DATA,
+    "insider_txn_hold_decision": Scope.DATA,
     "fundamentals_set_aside": Scope.DATA,
     "split_jump_dismissal": Scope.DATA,
     "data_repair": Scope.DATA,

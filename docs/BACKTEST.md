@@ -145,6 +145,14 @@ The Form 4/A aux tables carry every row with its honest `recorded_at` (the order
 `public_at`: the 4/A and its link at the amendment's SEC acceptance (else its filing date), a SYSTEM decision
 at that same publication, an OPERATOR decision when the operator made it.
 
+Since rule `2026-11-insider-rows-dated-after-filing` (2026-11-12) every export also writes the HELD insider rows
+(`insider_txn_hold`, public at the filing's acceptance, else when held) and the steward's decisions about them
+(`insider_txn_hold_decision`, public when made) as their own all-or-none pair (`replay.export.HOLD_TABLES`,
+recorded in the manifest as `hold_tables`), and the mirror resolves them with the same pure step as the live read
+(`domain.insider_holds.resolve_holds`): an on-time filing's held row counts from its filing night. A mirror
+exported before the pair opens unchanged and reads no holds — the stored after-filing rows it holds then read
+at their written date, exactly what that export held; re-export to read under the rule.
+
 **What 2026-10-21 changed in a public mirror** (re-export rather than compare across that line — a mirror's
 manifest does not record which registry built it): (1) a bar's re-version used to collapse onto the bar's date —
 a vendor correction back-dated to the day; it now counts from its own publication, and the first version from

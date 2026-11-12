@@ -961,12 +961,22 @@ stored filings). What happens now:
 - **The row is held.** The ingest writes it to `insider_txn_hold` in the same transaction as the filing's good
   rows: the row as parsed plus `txn_date_as_filed` (the text of the filing's own date element), the filing's
   period of report and its last signature date as text, the filing date, the acceptance the leg resolved, and
-  the rule's code as the reason (`year_before_1934` / `year_after_filing_year`; `after_filing` is reserved for
-  the next step and written by nothing yet). One row per held row, never updated. A Form 4/A row that fails
-  the rule is held the same way with form `4/A`; the amendment record still keeps only its good rows.
-- **It is still not a fact.** No corrected date is invented (#3). Nothing on the call path, no signal and no
-  dashboard reads the table, so this step changes no call: the rows held are exactly the rows the ingest
-  already refused. What is stored in `fact_insider_txn` is unchanged, row for row.
+  the rule's code as the reason (`year_before_1934` / `year_after_filing_year` / `after_filing`). One row per
+  held row, never updated. A Form 4/A row that fails the rule is held the same way with form `4/A`; the
+  amendment record still keeps only its good rows.
+- **Dated after its own filing (rule log `2026-11-insider-rows-dated-after-filing`, 2026-11-12).** When the
+  filing's acceptance is known, a row dated after the acceptance's market date AND after the filing's last
+  signature date (when it has a readable one) is held too, reason `after_filing` (a filer ahead of New York
+  signs and trades on its own next day: not held). No acceptance = the two year conditions only, as before.
+- **It is still not a fact, but the read now counts it.** No corrected date is invented (#3). The insider read
+  (`domain.insider_holds.resolve_holds`, both engines) counts a held Form 4 row of an ON-TIME filing (acceptance
+  0..`insider_hold_on_time_days` days after its period of report) from its filing night, honors the newest
+  standing steward decision (`insider_txn_hold_decision`, migration 0083: `approve` at a ratified date /
+  `dismiss` / `revoke`; the writer is the next step), drops a held row of a withdrawn or duplicate filing (or a
+  replaced row) exactly as the filing's stored rows are dropped, lets the filer's own applied 4/A win (the trade
+  counts once), and leaves a late filing's row out until a steward decides. A stored row that has a hold is never read
+  at its written date. See `docs/CALL_LOGIC.md` §6. The ingest writes holds under the company's write lock, so
+  its release moves the change stamp; the backfill stamps each company it writes for.
 - **A held filing is read once.** `existing_accessions` lists an accession that has a Form 4 hold, so the leg
   and the fetch-ahead skip it like a stored one.
 - **The line prints once.** `HELD insider txn <accession> seq=N <person> (<code>): transactionDate ...` prints
@@ -985,7 +995,9 @@ stored filings). What happens now:
 - **The rows the old ingest dropped** are held by `python -m pipeline.backfill_insider_holds` (dry-run by
   default). It re-reads the cached Form 4 document of every accession stored in `fact_insider_txn` (the EDGAR
   cache on disk, never the network) under the ingest's own rule and plans a hold for each refused row that has
-  none. An accession with no cached document is listed as not cached, never guessed. `--accessions A,B` limits
+  none — since rule `2026-11-insider-rows-dated-after-filing` also a STORED row dated after its own filing
+  (judged on the acceptance stored on the filing's rows); the stored fact is never deleted or changed, the read
+  counts the held version instead, and `--apply` stamps each company it writes for. An accession with no cached document is listed as not cached, never guessed. `--accessions A,B` limits
   the run to those filings and also takes one with no stored row (a filing whose every row is refused),
   placing it on `--ticker`, else on the company whose CIK is the filing's issuer CIK. It skips, and lists, an
   un-stored filing that still has a row the ingest would store: holding its bad row would mark the filing

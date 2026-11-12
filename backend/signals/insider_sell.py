@@ -66,6 +66,7 @@ from uuid import UUID
 
 from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.enums import Kind, Role
+from domain.insider_holds import filing_night_clause, held_detail, is_filing_night
 from domain.insider_internal_transfers import is_internal_transfer, screened_label
 from domain.insider_joint_reports import JOINT_REPORTERS, joint_accessions, joint_labels, roles_of
 from domain.market_time import view_day
@@ -192,7 +193,9 @@ def _screen(
         return _TRANSFER
     price = txn.get("price")
     low = day_lows.get(txn.get("valid_from"))
-    if price is not None and low is not None:
+    # a held row counted from its FILING NIGHT (domain.insider_holds) sits on a day that is not its trade day:
+    # the below-low screen cannot judge it and is skipped (rule 2026-11-insider-rows-dated-after-filing)
+    if price is not None and low is not None and not is_filing_night(txn):
         scale = price_scale(txn["valid_from"]) if price_scale is not None else 1.0
         if float(price) * scale < low * (1.0 - cfg.insider_offmarket_below_low_frac):
             return _BELOW_LOW
@@ -341,6 +344,9 @@ def score(
     joint = joint_labels(cluster)  # trades several persons reported, counted once (named, #6)
     if joint:
         label += f"; counted once: {'; '.join(joint)}"
+    placed = filing_night_clause(cluster)  # held rows dated at their filing night (named, #6)
+    if placed:
+        label += f"; {placed}"
 
     # the work behind the number, stamped on every accession ref (the dilution shared-detail idiom)
     detail = {
@@ -377,7 +383,11 @@ def score(
         score=_score(len(distinct), total_usd, senior, cfg),
         label=label,
         alpha_liveness_days=None,  # matching dilution/breakdown: freshness is enforced ABOVE
-        provenance=[source_provenance("form4", acc, detail=detail) for acc in sorted(by_accession)],
+        # a filing with a held row also names how that row is dated (only then — no churn otherwise)
+        provenance=[
+            source_provenance("form4", acc, detail={**detail, **held_detail(cluster, acc)})
+            for acc in sorted(by_accession)
+        ],
         asof=anchor,
     )
 

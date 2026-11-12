@@ -296,6 +296,14 @@ AUX_TABLES: tuple[str, ...] = (
 # the live public read (``db.insider_resolution``).
 AUX_PUBLIC_COL = "public_at"
 
+# Rule 2026-11-insider-rows-dated-after-filing — the HELD insider rows (``insider_txn_hold``, 0082) and the
+# steward's decisions about them (``insider_txn_hold_decision``, 0083), which the same resolver reads
+# (``domain.insider_holds.resolve_holds``). Exported like the 4/A aux tables (every version; a public mirror adds
+# ``public_at`` — a hold at its filing's acceptance, a decision when it was made), but as their OWN all-or-none
+# pair, recorded in the manifest (``hold_tables``): a mirror exported before them opens unchanged and reads no
+# holds (what the system knew then), and one whose manifest records them but lacks a file refuses to open.
+HOLD_TABLES: tuple[str, ...] = ("insider_txn_hold", "insider_txn_hold_decision")
+
 _SECURITY_CIK_SQL = (
     "SELECT id::text AS security_id, ltrim(cik, '0') AS cik FROM security_master "
     "WHERE tenant_id = %(t)s AND cik IS NOT NULL "
@@ -554,6 +562,13 @@ def export_snapshot(
         coerced = [{k: _coerce(v) for k, v in row.items()} for row in rows]
         pq.write_table(pa.Table.from_pylist(coerced, schema=schema), out / f"{table}.parquet")
         manifest["aux_tables"][table] = {"rows": len(rows), "rows_dropped_null_clock": dropped}
+    # the held insider rows + the steward's decisions (DATA), ALWAYS written as a pair (see HOLD_TABLES)
+    manifest["hold_tables"] = {}
+    for table in HOLD_TABLES:
+        schema, rows, _ = _read_aux(conn, table, data_tenant, clock, known_by=known_by)
+        coerced = [{k: _coerce(v) for k, v in row.items()} for row in rows]
+        pq.write_table(pa.Table.from_pylist(coerced, schema=schema), out / f"{table}.parquet")
+        manifest["hold_tables"][table] = {"rows": len(rows)}
     # S2 — the split list, ALWAYS written (empty or not), so a mirror either has it or is from before it
     schema, rows = _read_splits(conn, data_tenant, clock, known_by=known_by)  # DATA
     coerced = [{k: _coerce(v) for k, v in row.items()} for row in rows]
@@ -598,6 +613,8 @@ class MirrorManifest:
     # the exporter wrote ``security_identity.parquet`` (``identity=True``): REQUIRED at open, like the split
     # file — a lost file must fail loudly, never answer ``None`` where the edition read a name
     identity_table: bool = False
+    # the exporter wrote the held-row pair (``HOLD_TABLES``): REQUIRED at open, like the split file
+    hold_tables: bool = False
 
 
 def read_mirror_manifest(mirror_dir: str | Path) -> MirrorManifest | None:
@@ -637,6 +654,7 @@ def read_mirror_manifest(mirror_dir: str | Path) -> MirrorManifest | None:
         split_table=isinstance(inner.get("split_table"), dict),
         split_rows=(inner.get("split_table") or {}).get("rows"),
         identity_table=isinstance(inner.get("identity_table"), dict),
+        hold_tables=isinstance(inner.get("hold_tables"), dict),
     )
 
 

@@ -185,6 +185,7 @@ from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
+from domain.config import DEFAULT_CONFIG
 from domain.insider_internal_transfers import screen_internal_transfers
 from domain.insider_joint_reports import collapse_joint_reports
 
@@ -2070,6 +2071,34 @@ def is_other_issuer(row: Mapping[str, Any], own_ciks: frozenset[str]) -> bool:
     return issuer is not None and issuer not in own_ciks
 
 
+@dataclass(frozen=True)
+class Suppression:
+    """What the visible amendment states take out of a read — THE ONE reading, shared by the stored rows
+    (``resolve_insider_rows``) and the held rows (``domain.insider_holds.resolve_holds``), so a stored row and a
+    held row of the same filing can never disagree.
+
+    ``accessions`` — every accession a state suppresses (a whole replacement, a void — pending or applied —, the
+    later copies of a duplicates set); ``rows`` — the single original rows (``row_key``) an applied matched
+    amendment replaces; ``withdrawn`` — the suppressed accessions NO state emits rows for in their place (a
+    void, a duplicate copy): the filing's trades are gone, not restated."""
+
+    accessions: frozenset[str]
+    rows: frozenset[str]
+    withdrawn: frozenset[str]
+
+
+def suppression_of(states: Iterable[Effective]) -> Suppression:
+    """``Suppression`` over the effective states a read can see (``effective_states``)."""
+    accessions: set[str] = set()
+    rows: set[str] = set()
+    withdrawn: set[str] = set()
+    for st in states:
+        accessions.update(st.suppress)
+        rows.update(st.suppress_rows)
+        withdrawn.update(a for a in st.suppress if a not in st.emit_for)
+    return Suppression(frozenset(accessions), frozenset(rows), frozenset(withdrawn))
+
+
 def resolve_insider_rows(
     rows: Sequence[dict[str, Any]],
     *,
@@ -2111,14 +2140,15 @@ def resolve_insider_rows(
         return rows if isinstance(rows, list) else list(rows)
     states = effective_states(links, decisions)
     by_acc = latest_by_accession(amendments, "accession")
-    suppressed: set[str] = set()
-    suppressed_rows: set[str] = set()  # R8-B — single original rows a matched amendment replaces
+    sup = suppression_of(states)
+    suppressed: set[str] = set(sup.accessions)
+    suppressed_rows: set[str] = set(
+        sup.rows
+    )  # R8-B — single original rows a matched amendment replaces
     # original -> its applied emitting amendments: (order, amendment record, the original rows it replaces —
     # None = the whole original)
     chains: dict[str, list[tuple[tuple[Any, ...], Mapping[str, Any], frozenset[str] | None]]] = {}
     for st in states:
-        suppressed.update(st.suppress)
-        suppressed_rows.update(st.suppress_rows)
         am = by_acc.get(st.accession)
         if am is None or not st.emit_for:
             continue  # nothing to emit (or the record is not visible: never invent rows)
@@ -2166,17 +2196,26 @@ class ResolutionInputs:
     links: dict[Any, list[Mapping[str, Any]]] = field(default_factory=dict)
     decisions: dict[Any, list[Mapping[str, Any]]] = field(default_factory=dict)
     own_ciks: dict[Any, set[str]] = field(default_factory=dict)
+    # rule 2026-11-insider-rows-dated-after-filing — the held rows (insider_txn_hold, 0082) and the steward's
+    # decisions about them (insider_txn_hold_decision, 0083) the read can see, and the on-time dial
+    holds: dict[Any, list[Mapping[str, Any]]] = field(default_factory=dict)
+    hold_decisions: dict[Any, list[Mapping[str, Any]]] = field(default_factory=dict)
+    on_time_days: int = DEFAULT_CONFIG.insider_hold_on_time_days
 
     def resolve(
         self, sid: Any, rows: Sequence[dict[str, Any]], *, asof: date, lower: date | None
     ) -> list[dict[str, Any]]:
-        """The 4/A resolution, THEN the joint-report collapse (``domain.insider_joint_reports``) on the resolved
-        rows, THEN the internal-transfer screen (``domain.insider_internal_transfers`` — it TAGS a buy and a sale
-        between linked filers, never drops them; the pre-collapse rows are its evidence) — the one seam every
-        as-of read of ``fact_insider_txn`` passes through (both engines), so a trade several persons reported
-        counts once, and a transfer within a filer group counts for nothing, for every reader. Nothing to
-        resolve, collapse or screen -> unchanged.
+        """The 4/A resolution, THEN the held rows (``domain.insider_holds.resolve_holds``: a held Form 4 row of an
+        on-time filing counts from its filing night, a steward's decision is honored, a trade is never counted
+        twice), THEN the joint-report collapse (``domain.insider_joint_reports``) on the resolved rows, THEN the
+        internal-transfer screen (``domain.insider_internal_transfers`` — it TAGS a buy and a sale between linked
+        filers, never drops them; the pre-collapse rows are its evidence) — the one seam every as-of read of
+        ``fact_insider_txn`` passes through (both engines), so a trade several persons reported counts once, and
+        a transfer within a filer group counts for nothing, for every reader. Nothing to resolve, collapse or
+        screen -> unchanged.
         """
+        from domain.insider_holds import resolve_holds  # it imports this module (no cycle at load)
+
         key = str(sid)
         resolved = resolve_insider_rows(
             rows,
@@ -2186,6 +2225,18 @@ class ResolutionInputs:
             own_ciks=self.own_ciks.get(key, ()),
             asof=asof,
             lower=lower,
+        )
+        resolved = resolve_holds(
+            resolved,
+            holds=self.holds.get(key, ()),
+            hold_decisions=self.hold_decisions.get(key, ()),
+            amendments=self.amendments.get(key, ()),
+            links=self.links.get(key, ()),
+            decisions=self.decisions.get(key, ()),
+            own_ciks=self.own_ciks.get(key, ()),
+            asof=asof,
+            lower=lower,
+            on_time_days=self.on_time_days,
         )
         return screen_internal_transfers(collapse_joint_reports(resolved), resolved)
 
@@ -2287,10 +2338,18 @@ def group_inputs(
     links: Iterable[Mapping[str, Any]],
     decisions: Iterable[Mapping[str, Any]],
     ciks: Iterable[tuple[Any, Any]],
+    holds: Iterable[Mapping[str, Any]] = (),
+    hold_decisions: Iterable[Mapping[str, Any]] = (),
 ) -> ResolutionInputs:
     """Group flat engine rows by ``str(security_id)`` (the one key both engines agree on)."""
     out = ResolutionInputs()
-    for name, src in (("amendments", amendments), ("links", links), ("decisions", decisions)):
+    for name, src in (
+        ("amendments", amendments),
+        ("links", links),
+        ("decisions", decisions),
+        ("holds", holds),
+        ("hold_decisions", hold_decisions),
+    ):
         bucket: dict[Any, list[Mapping[str, Any]]] = getattr(out, name)
         for r in src:
             bucket.setdefault(str(r["security_id"]), []).append(r)

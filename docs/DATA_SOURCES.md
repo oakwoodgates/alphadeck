@@ -559,6 +559,19 @@ so any sales-derived signal would be dominated by autopilot and be actively misl
   is **unspecified in `CALL_LOGIC.md`** and is the operator's call — a test asserts a buy scores identically
   whether planned, discretionary, or unknown.
 
+## Form 4 — a transaction date that cannot be true: held, counted from the filing night when on time `[BUILT — 2026-11-12]`
+
+A Form 4 / 4/A row dated before 1934, after its accession's filing year, or — when the acceptance is known —
+after the acceptance's market date and after the filing's last signature date is HELD at ingest
+(`insider_txn_hold`), never stored as a fact. The insider read counts a held Form 4 row of an ON-TIME filing
+(acceptance 0..5 days after its own period of report, `CallConfig.insider_hold_on_time_days`) from the night
+the filing became public, honors a steward's decision (`insider_txn_hold_decision`), lets the filer's own
+applied 4/A win, and leaves a late filing's row out until a steward decides (rule log
+`2026-11-insider-rows-dated-after-filing`; `docs/CALL_LOGIC.md` §6, `docs/FEED_LOOP.md`). The acceptance this
+rule judges on is the stored one below, so a wrong stored time would mis-judge a row: the drift repair keeps it
+right. MEASURED examples behind the signature test and the on-time window are the committed fixtures in
+`backend/tests/fixtures/edgar/held/`.
+
 ## Form 4 / 4/A — the acceptance clock: SEC's listed time vs the filing's own header `[BUILT — 2026-10-24]`
 
 **Why the stored time matters.** `fact_insider_txn.accepted` (and `insider_amendment` / `insider_amendment_link

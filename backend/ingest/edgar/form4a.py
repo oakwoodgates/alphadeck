@@ -16,7 +16,7 @@ Two screens, both deterministic over the filing itself:
   REPORTING OWNER of another company's stock. Not this security's insider flow, never stored; returned as a
   ``form4_other_issuer`` skip (Q18 — known skips are counted, not re-printed). The same screen guards the
   Form 4 leg (``ingest_form4(member_cik=...)``).
-- **The transaction-date sanity bound** (P1) — the Form 4 leg's rule, imported (``held_rows``), so an
+- **The transaction-date sanity bound** (P1) — the Form 4 leg's rule, imported (``filing_held_rows``), so an
   amended row whose date cannot be true is refused by the SAME rule as an original one: kept out of the
   amendment record, never clamped (#3), and — since migration 0082 — HELD in ``insider_txn_hold`` with form
   ``'4/A'`` and printed in full once. Applying a held 4/A row is not built.
@@ -55,10 +55,10 @@ from ingest.edgar.form4 import (
     HOLD_FORM_4A,
     HoldEvidence,
     _txn_date,
-    held_rows,
+    filing_held_rows,
     hold_evidence,
     hold_line,
-    implausible_txn_date,
+    hold_reason_text,
     parse_form4,
     write_hold,
 )
@@ -549,7 +549,8 @@ def ingest_form4a(
     # out of the amendment record exactly as before; since migration 0082 each is also HELD
     # (``insider_txn_hold``, form '4/A'), written below beside the record so a filing skipped on a tolerated
     # error leaves no hold behind. Applying a held 4/A row is not built.
-    to_hold = held_rows(parsed.rows, accession)
+    # (since rule 2026-11-insider-rows-dated-after-filing also a row dated after the 4/A's own filing)
+    to_hold = filing_held_rows(parsed.rows, accession, xml, accepted)
     evidence = hold_evidence(xml) if to_hold else HoldEvidence(None, None, ())
     for r in parsed.rows:
         if r.get("txn_date") is None:
@@ -633,7 +634,7 @@ def ingest_form4a(
             accepted=accepted,
             recorded_at=recorded_at,
         ):
-            why = implausible_txn_date(r["txn_date"], accession) or to_hold[seq]
+            why = hold_reason_text(r, accession, to_hold[seq], xml, accepted)
             print(hold_line(HOLD_FORM_4A, accession, seq, r, why))
     return AmendmentIngest(
         accession=accession,

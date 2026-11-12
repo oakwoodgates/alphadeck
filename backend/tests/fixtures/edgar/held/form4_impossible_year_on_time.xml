@@ -1,0 +1,346 @@
+<?xml version="1.0"?>
+<ownershipDocument>
+
+    <schemaVersion>X0508</schemaVersion>
+
+    <documentType>4</documentType>
+
+    <periodOfReport>2024-05-24</periodOfReport>
+
+    <issuer>
+        <issuerCik>0001283699</issuerCik>
+        <issuerName>T-Mobile US, Inc.</issuerName>
+        <issuerTradingSymbol>TMUS</issuerTradingSymbol>
+    </issuer>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0000946770</rptOwnerCik>
+            <rptOwnerName>DEUTSCHE TELEKOM AG</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>FRIEDRICH-EBERT-ALLEE 140</rptOwnerStreet1>
+            <rptOwnerStreet2></rptOwnerStreet2>
+            <rptOwnerCity>BONN</rptOwnerCity>
+            <rptOwnerState>2M</rptOwnerState>
+            <rptOwnerZipCode>53113</rptOwnerZipCode>
+            <rptOwnerStateDescription>GERMANY</rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>true</isDirector>
+            <isTenPercentOwner>true</isTenPercentOwner>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001576360</rptOwnerCik>
+            <rptOwnerName>T-Mobile Global Holding GmbH</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>LANDGRABENWEG 151</rptOwnerStreet1>
+            <rptOwnerStreet2></rptOwnerStreet2>
+            <rptOwnerCity>BONN</rptOwnerCity>
+            <rptOwnerState>2M</rptOwnerState>
+            <rptOwnerZipCode>53227</rptOwnerZipCode>
+            <rptOwnerStateDescription>GERMANY</rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>true</isDirector>
+            <isTenPercentOwner>true</isTenPercentOwner>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001576359</rptOwnerCik>
+            <rptOwnerName>T-Mobile Global Zwischenholding GmbH</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>FRIEDRICH-EBERT-ALLEE 140</rptOwnerStreet1>
+            <rptOwnerStreet2></rptOwnerStreet2>
+            <rptOwnerCity>BONN</rptOwnerCity>
+            <rptOwnerState>2M</rptOwnerState>
+            <rptOwnerZipCode>53113</rptOwnerZipCode>
+            <rptOwnerStateDescription>GERMANY</rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>true</isDirector>
+            <isTenPercentOwner>true</isTenPercentOwner>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001597213</rptOwnerCik>
+            <rptOwnerName>Deutsche Telekom Holding B.V.</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerStreet1>STATIONSPLEIN 8K</rptOwnerStreet1>
+            <rptOwnerStreet2></rptOwnerStreet2>
+            <rptOwnerCity>MAASTRICHT</rptOwnerCity>
+            <rptOwnerState>P7</rptOwnerState>
+            <rptOwnerZipCode>6221 BT</rptOwnerZipCode>
+            <rptOwnerStateDescription>NETHERLANDS</rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>true</isDirector>
+            <isTenPercentOwner>true</isTenPercentOwner>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <aff10b5One>true</aff10b5One>
+
+    <nonDerivativeTable>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Common Stock</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2028-05-24</value>
+            </transactionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>S</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+                <footnoteId id="F1"/>
+            </transactionCoding>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>140035</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>165.5347</value>
+                    <footnoteId id="F2"/>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>D</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>674363276</value>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Common Stock</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2028-05-24</value>
+            </transactionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>S</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+                <footnoteId id="F1"/>
+            </transactionCoding>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>49635</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>166.0196</value>
+                    <footnoteId id="F3"/>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>D</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>674313641</value>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Common Stock</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2024-05-28</value>
+            </transactionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>S</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+                <footnoteId id="F1"/>
+            </transactionCoding>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>2511</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>165.8235</value>
+                    <footnoteId id="F4"/>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>D</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>674311130</value>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Common Stock</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2024-05-28</value>
+            </transactionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>S</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+                <footnoteId id="F1"/>
+            </transactionCoding>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>162176</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>167.027</value>
+                    <footnoteId id="F5"/>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>D</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>674148954</value>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Common Stock</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2024-05-28</value>
+            </transactionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>S</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+                <footnoteId id="F1"/>
+            </transactionCoding>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>24883</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>167.9361</value>
+                    <footnoteId id="F6"/>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>D</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>674124071</value>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Common Stock</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2024-05-28</value>
+            </transactionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>S</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+                <footnoteId id="F1"/>
+            </transactionCoding>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>100</value>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>168.6</value>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>D</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>674123971</value>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+    </nonDerivativeTable>
+
+    <footnotes>
+        <footnote id="F1">The transactions reported on this Form 4 were effected pursuant to a 10b5-1 trading plan adopted on November 29, 2023.</footnote>
+        <footnote id="F2">The reported price in Column 4 is a weighted average price. These shares were sold in multiple transactions at prices ranging from $164.91 to $165.90 per share. The holder undertakes to provide to the issuer, any security holder of the issuer, or the staff of the Securities and Exchange Commission, upon written request, full information regarding the number of shares sold at each separate price within the range set forth in this footnote.</footnote>
+        <footnote id="F3">The reported price in Column 4 is a weighted average price. These shares were sold in multiple transactions at prices ranging from $165.905 to $166.19 per share. The holder undertakes to provide to the issuer, any security holder of the issuer, or the staff of the Securities and Exchange Commission, upon written request, full information regarding the number of shares sold at each separate price within the range set forth in this footnote.</footnote>
+        <footnote id="F4">The reported price in Column 4 is a weighted average price. These shares were sold in multiple transactions at prices ranging from $165.565 to $166.52 per share. The holder undertakes to provide to the issuer, any security holder of the issuer, or the staff of the Securities and Exchange Commission, upon written request, full information regarding the number of shares sold at each separate price within the range set forth in this footnote.</footnote>
+        <footnote id="F5">The reported price in Column 4 is a weighted average price. These shares were sold in multiple transactions at prices ranging from $166.57 to $167.56 per share. The holder undertakes to provide to the issuer, any security holder of the issuer, or the staff of the Securities and Exchange Commission, upon written request, full information regarding the number of shares sold at each separate price within the range set forth in this footnote.</footnote>
+        <footnote id="F6">The reported price in Column 4 is a weighted average price. These shares were sold in multiple transactions at prices ranging from $167.58 to $168.52 per share. The holder undertakes to provide to the issuer, any security holder of the issuer, or the staff of the Securities and Exchange Commission, upon written request, full information regarding the number of shares sold at each separate price within the range set forth in this footnote.</footnote>
+    </footnotes>
+
+    <remarks>Solely for purposes of Section 16 of the Securities Exchange Act of 1934, as amended, and the rules and regulations promulgated thereunder (&quot;Section 16&quot;), each Reporting Person may be deemed to be a director-by-deputization by virtue of the fact that each of Timotheus Hottges, Chief Executive Officer of DT, Dr. Christian P. Illek, Board Member for Finance of DT, Raphael Kubler, Senior Vice President of the Corporate Operating Office of DT and Managing Director of Deutsche Telekom Holding B.V., Thorsten Langheim, Board Member for USA and Group Development of DT, Dominique Leroy, Board Member for Europe of DT, Andre Almeida, Senior Vice President Investment Management &amp; Tribe Lead US of DT, and Srinivasan Gopalan, Board Member for Germany of DT, serve on the board of directors of the Issuer. Each of T-Mobile Global Zwischenholding GmbH, T-Mobile Global Holding GmbH and Deutsche Telekom Holding B.V. are wholly-owned subsidiaries of DT. Each Reporting Person disclaims beneficial ownership in the securities reported on this Form 4 except to the extent of its pecuniary interest, if any, therein, and this report shall not be deemed to be an admission that such Reporting Person is the beneficial owner of such securities for purposes of Section 16 or for any other purpose. Deutsche Telekom disclaims beneficial ownership in any Common Stock held by Project 6 or Project 9 if such Common Stock is not subject to the Proxy Agreement.</remarks>
+
+    <ownerSignature>
+        <signatureName>/s/ Christoph Appel
+Attorney-in-fact</signatureName>
+        <signatureDate>2024-05-28</signatureDate>
+    </ownerSignature>
+
+    <ownerSignature>
+        <signatureName>/s/ Christoph Appel
+Attorney-in-fact</signatureName>
+        <signatureDate>2024-05-28</signatureDate>
+    </ownerSignature>
+
+    <ownerSignature>
+        <signatureName>/s/ Christoph Appel
+Attorney-in-fact</signatureName>
+        <signatureDate>2024-05-28</signatureDate>
+    </ownerSignature>
+
+    <ownerSignature>
+        <signatureName>/s/ Christoph Appel
+Attorney-in-fact</signatureName>
+        <signatureDate>2024-05-28</signatureDate>
+    </ownerSignature>
+</ownershipDocument>
