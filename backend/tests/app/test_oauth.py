@@ -262,6 +262,7 @@ def ow(db, pinned_today, monkeypatch):
     with db.cursor() as cur:
         cur.execute("TRUNCATE app_user CASCADE")  # cascades to every oauth table but oauth_client
         cur.execute("DELETE FROM oauth_client WHERE registration = 'dcr'")
+        cur.execute("DELETE FROM oauth_client WHERE client_id LIKE 'steward-added-%'")
         cur.execute("UPDATE oauth_client SET disabled_at = NULL")
     auth.reset_throttle()
 
@@ -953,6 +954,38 @@ def test_with_registration_on_a_huge_or_greedy_registration_is_refused(ow):
     assert _count(ow.db, "oauth_client") == clients
     ten = ow.register(redirect_uris=[f"https://claude.ai/cb/{i}" for i in range(10)])
     assert ten.status_code == 201, ten.text
+
+
+def test_a_client_the_steward_added_by_cli_completes_the_flow_with_registration_off(
+    ow, db, monkeypatch
+):
+    """``pipeline.users oauth-client add`` (security PR 5 step 7): a public client and a confidential one, each
+    signs a user in through consent and the token route; the consent page calls it known (D8)."""
+    from pipeline import users as users_cli
+
+    monkeypatch.delenv("ALPHADECK_OAUTH_DYNAMIC_REGISTRATION", raising=False)
+    ow.rebuild()
+    callback = "https://desk.example.test/cb"
+    argv = ["oauth-client", "add", "--client-id", "steward-added-public", "--name", "Desk"]
+    assert users_cli.run([*argv, "--redirect-uri", callback], db, emit=lambda _: None) == 0
+    _, challenge = _pkce()
+    cid = ow.consent_id("steward-added-public", callback, challenge)
+    page = ow.session("a").get(f"/oauth/consent/{cid}").json()
+    assert page["client_name"] == "Desk" and page["client_known"] is True
+    public = ow.connect("a", client_id="steward-added-public", redirect_uri=callback)
+    assert ow.mcp_status(public["access_token"]) == 200
+
+    out: list[str] = []
+    argv = ["oauth-client", "add", "--client-id", "steward-added-secret", "--name", "Vault"]
+    argv += ["--redirect-uri", callback, "--confidential"]
+    assert users_cli.run(argv, db, emit=out.append) == 0
+    secret = next(x for x in out if x.startswith("client secret (shown once): ")).split(": ", 1)[1]
+    with pytest.raises(AssertionError):  # no secret: the token route refuses the client
+        ow.connect("b", client_id="steward-added-secret", redirect_uri=callback)
+    confidential = ow.connect(
+        "b", client_id="steward-added-secret", redirect_uri=callback, secret=secret
+    )
+    assert ow.mcp_status(confidential["access_token"]) == 200
 
 
 # --- 10c. /authorize is bounded (security PR 5 step 6) --------------------------------------------------------

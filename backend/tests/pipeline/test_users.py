@@ -334,3 +334,102 @@ def test_set_role_refuses_an_unknown_email_or_role(conn):
             ["set-role", "--email", "u@example.test", "--role", "admin"], conn, emit=lambda _: None
         )
     assert _role(conn, "u@example.test") == "user"
+
+
+# --- oauth-client add (security PR 5 step 7) ---------------------------------------------------------------------
+
+_CLIENT = "steward-added-test-client"
+
+
+@pytest.fixture
+def clean_clients(conn):
+    def wipe():
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM oauth_client WHERE client_id LIKE %s", ("steward-added-%",))
+        conn.commit()
+
+    wipe()
+    yield conn
+    conn.rollback()
+    wipe()
+
+
+def _client_row(conn, client_id: str) -> dict | None:
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM oauth_client WHERE client_id = %s", (client_id,))
+        return cur.fetchone()
+
+
+def test_oauth_client_add_inserts_one_public_client_and_prints_no_secret(clean_clients):
+    conn = clean_clients
+    before = _count(conn, "oauth_client")
+    out: list[str] = []
+    argv = ["oauth-client", "add", "--client-id", _CLIENT, "--name", "Research Desk"]
+    argv += [
+        "--redirect-uri",
+        "https://desk.example.test/cb",
+        "--redirect-uri",
+        "http://localhost/cb",
+    ]
+    assert users.run(argv, conn, emit=out.append) == 0
+    assert _count(conn, "oauth_client") == before + 1
+    row = _client_row(conn, _CLIENT)
+    assert row["registration"] == "static"  # D8: the steward vetted it ("A known client.")
+    assert row["client_name"] == "Research Desk"
+    assert row["redirect_uris"] == ["https://desk.example.test/cb", "http://localhost/cb"]
+    assert row["token_endpoint_auth_method"] == "none" and row["client_secret_hash"] is None
+    assert row["scope"] == "read steward"
+    assert row["grant_types"] == ["authorization_code", "refresh_token"]
+    assert row["disabled_at"] is None
+    assert not any("secret" in line.lower() for line in out)
+    assert any(_CLIENT in line for line in out)
+
+
+def test_oauth_client_add_confidential_prints_the_secret_once_and_stores_its_hash(clean_clients):
+    from app.oauth import store as oauth_store
+
+    conn = clean_clients
+    out: list[str] = []
+    argv = ["oauth-client", "add", "--client-id", _CLIENT, "--name", "Desk"]
+    argv += ["--redirect-uri", "https://desk.example.test/cb", "--confidential"]
+    assert users.run(argv, conn, emit=out.append) == 0
+    shown = [line for line in out if line.startswith("client secret (shown once): ")]
+    assert len(shown) == 1
+    secret = shown[0].split(": ", 1)[1]
+    assert len(secret) >= 32
+    row = _client_row(conn, _CLIENT)
+    assert row["token_endpoint_auth_method"] == "client_secret_post"
+    assert row["client_secret_hash"] == oauth_store.hash_secret(secret) != secret
+    listed: list[str] = []
+    users.run(["oauth-client", "list"], conn, emit=listed.append)
+    assert not any(secret in line or row["client_secret_hash"] in line for line in listed)
+
+
+def test_oauth_client_add_refuses_a_plain_http_redirect_and_writes_nothing(clean_clients):
+    conn = clean_clients
+    before = _count(conn, "oauth_client")
+    out: list[str] = []
+    argv = ["oauth-client", "add", "--client-id", _CLIENT, "--name", "Desk"]
+    argv += ["--redirect-uri", "http://evil.example.test/cb"]
+    assert users.run(argv, conn, emit=out.append) == 1
+    assert out and out[-1].startswith("refused:")
+    assert _count(conn, "oauth_client") == before
+    assert _client_row(conn, _CLIENT) is None
+
+
+def test_oauth_client_add_refuses_an_id_that_exists(clean_clients):
+    conn = clean_clients
+    argv = ["oauth-client", "add", "--client-id", _CLIENT, "--name", "Desk"]
+    argv += ["--redirect-uri", "https://desk.example.test/cb"]
+    assert users.run(argv, conn, emit=lambda _: None) == 0
+    before = _count(conn, "oauth_client")
+    out: list[str] = []
+    again = ["oauth-client", "add", "--client-id", _CLIENT, "--name", "Other"]
+    again += ["--redirect-uri", "https://other.example.test/cb"]
+    assert users.run(again, conn, emit=out.append) == 1
+    assert "already exists" in out[-1]
+    builtin = ["oauth-client", "add", "--client-id", "alphadeck-claude", "--name", "X"]
+    builtin += ["--redirect-uri", "https://x.example.test/cb"]
+    assert users.run(builtin, conn, emit=out.append) == 1
+    assert _count(conn, "oauth_client") == before
+    assert _client_row(conn, _CLIENT)["client_name"] == "Desk"  # never overwritten
