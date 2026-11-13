@@ -7,6 +7,7 @@ queued job, and the finishing run chains straight into it with the merged scope.
 
 from __future__ import annotations
 
+import re
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
@@ -65,13 +66,34 @@ def test_ingest_error_is_a_visible_failed_message():
     assert got.error == "ingested 1 of 2 new names; 1 failed — X: price: down"
 
 
-def test_unexpected_exception_is_a_generic_failed_job():
+def test_unexpected_exception_is_a_fixed_sentence_with_a_reference():
+    """The error contract (app/errors.py): an unexpected fault stores the fixed sentence, a reference and the
+    steward-only description, never the exception text in ``error``."""
+    from app import errors
+
     def boom(scope):
         raise RuntimeError("kaboom")
 
     job = ingest_jobs.start_ingest_job(uuid4(), {uuid4()}, boom, executor=_inline)
     got = ingest_jobs.get_job(job.job_id)
-    assert got.status == "failed" and "ingest failed" in got.error and "kaboom" in got.error
+    assert got.status == "failed"
+    assert got.error == errors.SENTENCES["fetch"] and "kaboom" not in got.error
+    assert got.error_ref is not None and re.fullmatch(r"[0-9a-f]{8}", got.error_ref)
+    assert got.error_detail == "RuntimeError: kaboom"
+
+
+def test_a_curated_error_with_detail_keeps_the_detail_apart_under_a_reference():
+    """D10: the partial-failure summary is shown as is; the raw per-leg text rides apart (a steward's detail)."""
+
+    def boom(scope):
+        raise ingest_jobs.IngestJobError(
+            "ingested 1 of 2 new names; 1 failed — X: prices.", detail="X: price: down"
+        )
+
+    job = ingest_jobs.start_ingest_job(uuid4(), {uuid4()}, boom, executor=_inline)
+    got = ingest_jobs.get_job(job.job_id)
+    assert got.error == "ingested 1 of 2 new names; 1 failed — X: prices."
+    assert got.error_ref is not None and got.error_detail == "X: price: down"
 
 
 def test_slot_released_on_success_and_failure_allows_a_new_job():

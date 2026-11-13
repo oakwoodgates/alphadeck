@@ -36,6 +36,7 @@ from time import monotonic
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
+from app import errors
 from domain.settings import get_settings
 
 _log = logging.getLogger("alphadeck.workbench")
@@ -62,6 +63,11 @@ class DraftJob:
     status: JobStatus = "running"
     result: Any = None  # set iff status == "done" (a ChainDraftOut)
     error: str | None = None  # set iff status == "failed" — the operator-facing message
+    # An UNEXPECTED fault (the error contract, app/errors.py): ``error`` is the fixed sentence, ``error_ref`` the
+    # reference it was logged under and ``error_detail`` the steward-only description. The poll builds the text
+    # (``errors.message``) once it knows the caller. Both None for a curated failure (DraftError, a timeout).
+    error_ref: str | None = None
+    error_detail: str | None = None
     created_at: float = field(default_factory=monotonic)
     finished_at: float | None = None
     last_polled_at: float | None = None
@@ -200,7 +206,9 @@ def _run_job(job: DraftJob, run: Callable[[], Any]) -> None:
     """
     status: JobStatus = "failed"
     result: Any = None
-    error: str | None = "draft failed"
+    error: str | None = errors.SENTENCES["draft"]
+    ref: str | None = None
+    detail: str | None = None
     try:
         result = run()
         status, error = "done", None
@@ -209,14 +217,18 @@ def _run_job(job: DraftJob, run: Callable[[], Any]) -> None:
     except (
         Exception
     ) as exc:  # noqa: BLE001 — an unexpected fault becomes a visible failed job, never a 500
-        _log.exception("draft job %s failed", job.job_id)
-        error = f"draft failed: {exc}"
+        # the error contract: the fixed sentence + a reference for everyone, the description for a steward only;
+        # the traceback is logged under the reference (logger ``alphadeck.errors``)
+        ref, detail = errors.new_reference(), errors.describe(exc)
+        errors.log_failure(500, errors.SENTENCES["draft"], ref, exc)
     finally:
         with _lock:
-            job.status, job.result, job.error, job.finished_at = (
+            job.status, job.result, job.error, job.error_ref, job.error_detail, job.finished_at = (
                 status,
                 result,
                 error,
+                ref,
+                detail,
                 monotonic(),
             )
             # free the slot ONLY if it still points at THIS job — a reaper-timeout may have already freed it and a

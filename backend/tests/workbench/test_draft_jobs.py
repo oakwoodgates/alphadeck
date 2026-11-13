@@ -5,6 +5,7 @@ assert the state machine: done carries the result, failures are VISIBLE messages
 
 from __future__ import annotations
 
+import re
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -52,12 +53,28 @@ def test_draft_error_is_a_visible_failed_message():
     assert job.error == "term set is empty — produce or seed it first"  # verbatim, operator-facing
 
 
-def test_unexpected_exception_is_a_generic_failed_job():
+def test_unexpected_exception_is_a_fixed_sentence_with_a_reference():
+    """The error contract (app/errors.py): an unexpected fault stores the fixed sentence, a reference and the
+    steward-only description, never the exception text in ``error`` (the poll decides who sees the detail).
+    """
+    from app import errors
+
     def boom():
         raise RuntimeError("kaboom")
 
     job = draft_jobs.get_job(draft_jobs.start_draft_job(uuid4(), boom, executor=_inline))
-    assert job.status == "failed" and "draft failed" in job.error and "kaboom" in job.error
+    assert job.status == "failed"
+    assert job.error == errors.SENTENCES["draft"] and "kaboom" not in job.error
+    assert job.error_ref is not None and re.fullmatch(r"[0-9a-f]{8}", job.error_ref)
+    assert job.error_detail == "RuntimeError: kaboom"
+
+
+def test_a_curated_draft_error_carries_no_reference():
+    def boom():
+        raise draft_jobs.DraftError("term set is empty — produce or seed it first")
+
+    job = draft_jobs.get_job(draft_jobs.start_draft_job(uuid4(), boom, executor=_inline))
+    assert job.error_ref is None and job.error_detail is None
 
 
 def test_slot_released_on_success_allows_a_new_job():

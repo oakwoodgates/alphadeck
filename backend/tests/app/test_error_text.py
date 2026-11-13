@@ -34,6 +34,12 @@ def _check(r, status: int, sentence: str, *, steward: bool) -> None:
         assert "C:/srv/cache" not in detail and "sec.gov" not in detail, detail
 
 
+def _check_text(detail: str, sentence: str, *, steward: bool) -> None:
+    assert detail.startswith(sentence), detail
+    assert REF.search(detail), detail
+    assert ("C:/srv/cache" in detail) is steward, detail
+
+
 CALLERS = [pytest.param(PLAIN, False, id="plain"), pytest.param(TEST_STEWARD, True, id="steward")]
 
 
@@ -210,3 +216,124 @@ def test_run_daily_unreachable_database_is_a_fixed_sentence(client, monkeypatch)
     assert detail.startswith(admin.RUN_LOCK_UNREACHABLE)
     assert REF.search(detail)
     assert "OperationalError" in detail  # a steward still sees it (the route is steward-only)
+
+
+# --- a background job's failure, on its poll (security cleanup Part B item 2; docs/AUTH.md §Errors) ------------------
+
+
+def _draft_failed(thesis_id: uuid.UUID) -> str:
+    from workbench import draft_jobs
+
+    def boom():
+        raise RuntimeError(LEAK)
+
+    return draft_jobs.start_draft_job(
+        thesis_id, boom, executor=lambda job, run: draft_jobs._run_job(job, run)
+    )
+
+
+@pytest.mark.parametrize(("user", "steward"), CALLERS)
+def test_a_failed_draft_job_polls_as_a_fixed_sentence(client, thesis_id, user, steward):
+    from app import errors
+
+    job_id = _draft_failed(thesis_id)
+    as_user(user)
+    r = client.get(f"/workbench/theses/{thesis_id}/draft-chain/jobs/{job_id}")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "failed"
+    _check_text(body["error"], errors.SENTENCES["draft"], steward=steward)
+    if steward:
+        assert f"Detail: RuntimeError: {LEAK}" in body["error"]
+
+
+@pytest.mark.parametrize(("user", "steward"), CALLERS)
+def test_a_failed_ingest_job_polls_as_a_fixed_sentence(client, thesis_id, user, steward):
+    from app import errors
+    from workbench import ingest_jobs
+
+    def boom(scope):
+        raise RuntimeError(LEAK)
+
+    job = ingest_jobs.start_ingest_job(
+        thesis_id, {uuid.uuid4()}, boom, executor=lambda j: ingest_jobs._run_job(j)
+    )
+    as_user(user)
+    r = client.get(f"/workbench/theses/{thesis_id}/ingest/jobs/{job.job_id}")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "failed"
+    _check_text(body["error"], errors.SENTENCES["fetch"], steward=steward)
+    if steward:
+        assert f"Detail: RuntimeError: {LEAK}" in body["error"]
+
+
+@pytest.mark.parametrize(("user", "steward"), CALLERS)
+def test_a_partial_ingest_names_the_tickers_and_legs_but_not_the_raw_text(
+    client, db, monkeypatch, caplog, user, steward
+):
+    """D10: a plain user sees the counts and each failed ticker with its legs in plain words, plus a reference;
+    the raw per-leg text is logged under that reference and shown to a steward only."""
+    from pipeline.ingest_thesis import NameResult
+    from workbench import ingest_jobs
+
+    sid = uuid.uuid4()
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO security_master (id, tenant_id, ticker, name, cik, valid_from) VALUES "
+            "(%s, '00000000-0000-0000-0000-000000000001', 'PART', 'Part Inc', '0000999002', '2026-01-01')",
+            (sid,),
+        )
+    db.commit()
+
+    def fake(conn, thesis_id, *, only_security_ids=None, **kw):
+        return [
+            NameResult(
+                "PART",
+                s,
+                0,
+                0,
+                error=f"form4: {LEAK}; price: {LEAK}",
+                leg_errors=(("form4", LEAK), ("price", LEAK)),
+            )
+            for s in only_security_ids or []
+        ]
+
+    monkeypatch.setattr("pipeline.ingest_thesis.ingest_thesis", fake)
+    monkeypatch.setattr(ingest_jobs, "_DEFAULT_EXECUTOR", lambda j: ingest_jobs._run_job(j))
+    as_user(TEST_STEWARD)
+    with caplog.at_level("WARNING", logger="alphadeck.errors"):
+        r = client.post(
+            "/workbench/theses",
+            json={
+                "name": "Partial card",
+                "narrative": "n",
+                "basket": [{"ticker": "PART", "role": "r", "security_id": str(sid)}],
+                "segments": [],
+            },
+        )
+    assert r.status_code == 200, r.text
+    ingest = r.json()["ingest"]
+    as_user(user)
+    polled = client.get(f"/workbench/theses/{r.json()['id']}/ingest/jobs/{ingest['job_id']}")
+    assert polled.status_code == 200, polled.text
+    error = polled.json()["error"]
+    assert polled.json()["status"] == "failed"
+    assert "PART: insider filings, prices" in error, error
+    ref = REF.search(error)
+    assert ref is not None, error
+    assert (LEAK in error) is steward, error
+    # the log line carries the same reference and the raw leg text
+    logged = [rec.getMessage() for rec in caplog.records if rec.name == "alphadeck.errors"]
+    assert any(ref.group(0) in m and LEAK in m for m in logged), logged
+
+
+def test_a_failed_job_logs_its_reference(client, thesis_id, caplog):
+    """The reference on the poll is the one on the log line (so a quoted reference finds the traceback)."""
+    with caplog.at_level("ERROR", logger="alphadeck.errors"):
+        job_id = _draft_failed(thesis_id)
+    r = client.get(f"/workbench/theses/{thesis_id}/draft-chain/jobs/{job_id}")
+    ref = REF.search(r.json()["error"])
+    assert ref is not None
+    logged = [rec for rec in caplog.records if rec.name == "alphadeck.errors"]
+    assert any(ref.group(0) in rec.getMessage() and rec.exc_info for rec in logged)
