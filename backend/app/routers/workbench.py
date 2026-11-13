@@ -7,7 +7,7 @@ from typing import Literal
 from uuid import UUID, uuid4
 
 import psycopg
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import ValidationError
 
 from app import allowance
@@ -24,6 +24,7 @@ from app.deps import (
     get_tier_rec_client,
     get_workspace,
 )
+from app.errors import fail
 from app.routers.admin_onboarding import readout_out
 from app.schemas_api import (
     AutoConfirmOut,
@@ -61,7 +62,7 @@ from app.schemas_api import (
     TriageSessionPut,
     WorkbenchScored,
 )
-from db.session import connect, name_session
+from db.session import connect_job, name_session
 from db.write_lock import CompanyLockBusy, acquire_company_lock
 from domain.enums import Authorship, InstrumentKind, TermTier
 from domain.extraction import ExtractedFact, ExtractionResult, Tier
@@ -107,7 +108,7 @@ from securities import coherence, figi, fund_tickers, master
 from securities.business_type import resolve_business_type
 from securities.price_history_health import is_thin_history
 from signals.base import PointInTimeData
-from workbench import etf_overlap, ingest_jobs, run_loader, triage_store
+from workbench import draft_jobs, etf_overlap, ingest_jobs, run_loader, triage_store
 from workbench.chain_draft import (
     PlacementStatus,
     proposed_from_decomposition,
@@ -121,7 +122,14 @@ from workbench.discovery import (
     discovery_context,
     run_discovery,
 )
-from workbench.draft_jobs import DraftError, DraftInFlight, DraftJob, get_job, start_draft_job
+from workbench.draft_jobs import (
+    DraftCapReached,
+    DraftError,
+    DraftInFlight,
+    DraftJob,
+    get_job,
+    start_draft_job,
+)
 from workbench.draft_run_log import write_draft_run_log
 from workbench.enrichment import enrich_for_ciks, identities_for_ciks
 from workbench.research_runner import run_research
@@ -131,6 +139,30 @@ from workbench.term_set import produce_term_set, stamp_edited_term_set
 _log = logging.getLogger("alphadeck.workbench")
 
 router = APIRouter(prefix="/workbench", tags=["workbench"])
+
+# The fixed sentences a caught failure answers (security hardening PR 2, docs/AUTH.md §Errors). ``app.errors.fail``
+# adds a reference id and logs the exception under it; a steward also sees the underlying error.
+ETF_RESOLVE_FAILED = "The fund could not be looked up. Try again."
+FUND_FILE_UNREADABLE = "The SEC fund list could not be read. Try again."
+NPORT_UNREADABLE = "The fund's holdings filing could not be read from SEC. Try again."
+CUSIP_UNRESOLVED = "The fund's holdings could not be matched to tickers because OpenFIGI could not be reached. Try again."
+SEC_FILINGS_UNREADABLE = "The company's filings could not be read from SEC. Try again."
+PRICE_SOURCE_UNREACHABLE = "The price source could not be reached. Try again."
+PRICES_NOT_SAVED = "The prices could not be saved. Try again."
+COMPANY_BUSY = (
+    "Another ingest is writing this company's facts right now. Try the pull again in a moment."
+)
+SAVED_RUN_INCOMPATIBLE = (
+    "This saved run no longer matches the current format, so it cannot be loaded."
+)
+# The global background-job caps (security hardening PR 2, Settings.draft_jobs_max_running / ingest_jobs_max_running).
+DRAFTS_AT_CAPACITY = "Too many chain drafts are running right now. Try again in a few minutes."
+INGEST_AT_CAPACITY = "too many data loads are running right now, so their history loads outside the nightly window instead"
+TRIAGE_SESSION_FAILED = {
+    "read": "The saved triage session could not be read. Try again.",
+    "write": "The triage session could not be saved. Try again.",
+    "delete": "The saved triage session could not be deleted. Try again.",
+}
 
 
 @router.get("/theses/{thesis_id}/scored", response_model=WorkbenchScored)
@@ -237,6 +269,7 @@ def search_securities(
 def resolve_etf(
     req: ResolveEtfRequest,
     conn: psycopg.Connection = Depends(get_conn),
+    user: CurrentUser = Depends(require_user),
 ) -> SecurityMatchOut:
     """Surface an ETF ticker as a ``fund`` sleeve's master row (ETF Sleeve, Slice 1). STEWARD ONLY (403 for a
     plain user): the security master is shared DATA every workspace reads, so only the steward adds to it or
@@ -267,6 +300,10 @@ def resolve_etf(
     ticker = req.ticker  # already stripped, uppercased and held to securities.symbols (else 422)
     # the master is DATA (domain.scopes, docs/TENANT_SCOPES.md): looked up + written under the data tenant
     existing_id = master.ids_for_tickers(conn, [ticker], tenant_id=DATA_TENANT_ID).get(ticker)
+    # END THE READ before calling out (security hardening PR 2): only reads ran on this transaction since the gate's
+    # and the allowance's commits, so the rollback loses nothing, and no request sits idle in a transaction across
+    # the network (the request connection's idle-in-transaction timeout, db.session.connect_request).
+    conn.rollback()
     try:
         if existing_id is not None:
             # the HIT case (SPY/GLD already present as equity) — flip it in place, then re-read so the
@@ -283,6 +320,7 @@ def resolve_etf(
                 tenant_id=DATA_TENANT_ID,
                 instrument_kind=InstrumentKind.ETF,
                 allow_live=True,
+                end_read_before_fetch=True,  # its own lookup is the only statement on this transaction
             )
         conn.commit()
     except HTTPException:
@@ -291,7 +329,7 @@ def resolve_etf(
         Exception
     ) as exc:  # noqa: BLE001 — OpenFIGI/SEC unreachable -> a clear 502, never a silent 500
         conn.rollback()
-        raise HTTPException(status_code=502, detail=f"ETF resolve failed: {exc}") from exc
+        raise fail(502, ETF_RESOLVE_FAILED, exc, user=user) from exc
     if (
         sec is None
     ):  # defensive: the hit path re-reads the row it just stamped (should always be present)
@@ -380,6 +418,7 @@ def etf_holdings(
     ),
     conn: psycopg.Connection = Depends(get_conn),
     tenant_id: UUID = Depends(get_workspace),
+    user: CurrentUser = Depends(require_user),
 ) -> EtfHoldingsOut:
     """Pull a ``fund`` sleeve's N-PORT holdings and overlap them against the thesis basket (ETF Sleeve,
     Slice 2a) — the holdings-seed: *"the ETF holds these N names; here are the M you're missing."*
@@ -427,10 +466,14 @@ def etf_holdings(
         if thesis is None:
             raise HTTPException(status_code=404, detail="thesis not found")
         basket_sids = {m.security_id for m in thesis.basket if m.security_id is not None}
+    # END THE READ before calling out (security hardening PR 2): only reads ran on this transaction since the gate's
+    # and the allowance's commits, so the rollback loses nothing, and no request sits idle in a transaction across
+    # the network (the request connection's idle-in-transaction timeout, db.session.connect_request).
+    conn.rollback()
     try:
         ident = fund_tickers.resolve(sec.ticker, allow_live=True)
     except Exception as exc:  # noqa: BLE001 — SEC unreachable / no UA -> a clear 502, never a 500
-        raise HTTPException(status_code=502, detail=f"fund resolution failed: {exc}") from exc
+        raise fail(502, FUND_FILE_UNREADABLE, exc, user=user) from exc
     if ident is None:
         raise HTTPException(
             status_code=404,
@@ -450,7 +493,7 @@ def etf_holdings(
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001 — SEC/parse trouble -> a clear 502, never a silent 500
-        raise HTTPException(status_code=502, detail=f"N-PORT pull failed: {exc}") from exc
+        raise fail(502, NPORT_UNREADABLE, exc, user=user) from exc
     if report.series_id != ident.series_id:
         # the wrong (or unverifiable) series' holdings must never render under this sleeve's name —
         # fail VISIBLY (#6); both real filers stamp the seriesId, so a mismatch is a real wrong-doc
@@ -467,7 +510,7 @@ def etf_holdings(
     except (
         Exception
     ) as exc:  # noqa: BLE001 — OpenFIGI unreachable -> a clear 502, never a silently-empty overlap
-        raise HTTPException(status_code=502, detail=f"CUSIP resolution failed: {exc}") from exc
+        raise fail(502, CUSIP_UNRESOLVED, exc, user=user) from exc
     holding_tickers = [h.ticker for h in report.holdings if h.ticker] + list(cusip_tickers.values())
     master_ids = (
         master.ids_for_tickers(conn, holding_tickers, tenant_id=DATA_TENANT_ID)
@@ -512,6 +555,7 @@ def extract_scoring_facts(
     conn: psycopg.Connection = Depends(get_conn),
     tenant_id: UUID = Depends(get_workspace),
     purity_llm: LLMClient = Depends(get_purity_client),
+    user: CurrentUser = Depends(require_user),
 ) -> ExtractionResult:
     """Auto-EXTRACT candidate scoring facts for a security from its latest SEC filings (Slice hybrid-1 +
     Retrieval Slices 1/A/A-2). A 10-Q/10-K filer gets the three-tier hybrid: AUTO pre-fills the clean
@@ -553,12 +597,16 @@ def extract_scoring_facts(
     cik = master.ciks_for(conn, {security_id}, tenant_id=DATA_TENANT_ID).get(security_id)
     if not cik:
         raise HTTPException(status_code=404, detail="no CIK for this security — resolve it first")
+    # END THE READ before calling out (security hardening PR 2): only reads ran on this transaction since the gate's
+    # and the allowance's commits, so the rollback loses nothing, and no request sits idle in a transaction across
+    # the network (the request connection's idle-in-transaction timeout, db.session.connect_request).
+    conn.rollback()
     try:
         result = extract_with_annual_fallback(EdgarClient(allow_live=True), cik)
     except (
         Exception
     ) as exc:  # noqa: BLE001 — SEC unreachable / no UA / parse hiccup -> a clear 502, not a 500
-        raise HTTPException(status_code=502, detail=f"extraction failed: {exc}") from exc
+        raise fail(502, SEC_FILINGS_UNREADABLE, exc, user=user) from exc
 
     # Thesis-aware purity ESTIMATE — the ONLY thesis-scoped branch (purity's on-thesis segment depends on the
     # narrative; shares/cash are thesis-independent). Fail-open: no thesis / no key / ungrounded -> purity stays
@@ -640,6 +688,7 @@ def ingest_security_prices(
     # plain user's always is), and the backfill sweep (Slice D) + the thin-history flag (Slice F) catch it.
     steward = user.is_super_admin
     if steward and sec.exchange == "OTC" and sec.price_symbol is None:
+        conn.rollback()  # END THE READ before the resolver's live lookups (only the master read ran)
         try:
             proposal = resolve_price_symbol(sec, allow_live=True)
             if proposal.tier == "AUTO" and proposal.proposed_symbol:
@@ -666,12 +715,16 @@ def ingest_security_prices(
     # must never hold the lock across the network. Fetched exactly as `ingest_bars_for_security` would (the
     # effective symbol, live, cache-first) and handed to it below as its source, so the shared function and the
     # nightly's path are unchanged.
+    # END THE READ before calling out (security hardening PR 2): only reads ran on this transaction since the gate's
+    # and the allowance's commits, so the rollback loses nothing, and no request sits idle in a transaction across
+    # the network (the request connection's idle-in-transaction timeout, db.session.connect_request).
+    conn.rollback()
     try:
         fetched = price_leg.YahooPriceSource().get_bars(
             sec.price_symbol or sec.ticker, allow_live=True, force_refresh=False
         )
     except Exception as exc:  # noqa: BLE001 — source unreachable -> a clear 502, never a silent 500
-        raise HTTPException(status_code=502, detail=f"price pull failed: {exc}") from exc
+        raise fail(502, PRICE_SOURCE_UNREACHABLE, exc, user=user) from exc
     # W1 — the per-company write lock (`db/write_lock.py`): the compare-and-append is a read-compare-append on the
     # same `fact_price_eod` rows the nightly pass and the on-promote ingest write, so it runs only while it holds
     # the company. A REQUEST must never hang behind a long writer: it waits at most
@@ -680,11 +733,8 @@ def ingest_security_prices(
     try:
         lock = acquire_company_lock(conn, sec.id, wait_s=get_settings().ingest_lock_request_wait_s)
     except CompanyLockBusy as busy:
-        raise HTTPException(
-            status_code=409,
-            detail=f"another ingest is writing this company's facts right now ({busy}); "
-            "try the pull again in a moment",
-        ) from busy
+        # the holder (pid + session name) is shown to a steward only
+        raise fail(409, COMPANY_BUSY, busy, user=user) from busy
     try:
         with lock:  # released only after the commit below — the commit must happen under the lock
             bars = ingest_bars_for_security(
@@ -695,7 +745,7 @@ def ingest_security_prices(
         raise
     except Exception as exc:  # noqa: BLE001 — a write fault -> a clear 502, never a silent 500
         conn.rollback()
-        raise HTTPException(status_code=502, detail=f"price pull failed: {exc}") from exc
+        raise fail(502, PRICES_NOT_SAVED, exc, user=user) from exc
     return PriceIngestOut(
         security_id=security_id,
         ticker=sec.ticker,
@@ -794,7 +844,7 @@ def _run_member_ingest(
     Returns the summary the poll serves. Raises ``IngestJobError`` (→ a VISIBLE failed job) when any
     name's legs errored — the per-name isolation inside ``ingest_thesis`` means what succeeded is
     already committed; the message says what landed and what failed."""
-    own = connect()
+    own = connect_job()  # the job's own timeouts (Settings.job_*), never the request's idle limit
     # W1 — the per-company write lock: `ingest_thesis` takes each company's lock on THIS connection, so a
     # concurrent nightly (or another job) never interleaves with it on the same company; the name is what
     # such a writer reports as the holder while it waits
@@ -866,6 +916,8 @@ def _kick_member_ingest(
             new_ids,
             lambda ids: _run_member_ingest(thesis_id, ids, tenant_id=tenant_id),
         )
+    except ingest_jobs.IngestCapReached:
+        raise  # the caller sends the names to the onboarding queue
     except Exception:  # noqa: BLE001 — fail the kick, never the committed promote
         _log.exception(
             "promote: could not kick the new-member ingest for thesis %s (%d new members) — "
@@ -1176,6 +1228,11 @@ def promote(
         # the nightly window, still ingest at once in the background (the fast lane — a 3-name promote stays
         # instant). Fail-open toward the pre-X1 kick: a queue fault never costs the promote or its names.
         plan = _plan_lane(conn, thesis.id, DATA_TENANT_ID, new_ids)
+        # THE GLOBAL INGEST CAP (security hardening PR 2): with `Settings.ingest_jobs_max_running` ingests running
+        # across all theses, no new one starts (each holds a connection); the names wait for the staged onboarding
+        # job and the nightly, the same fallback as a spent allowance. Checked before the allowance is spent.
+        if plan.fast and not ingest_jobs.has_room(thesis.id):
+            plan = onboarding.PromotePlan(plan.cold, False, INGEST_AT_CAPACITY)
         # BOUNDED (security hardening PR 1b): a plain user's fast lane pulls prices for every new name, so it
         # spends one price-pull unit per name; when today's allowance cannot cover them all, it takes none and
         # the names wait for the staged onboarding job (cold ones are already queued by the plan) and the
@@ -1185,10 +1242,16 @@ def promote(
         ):
             plan = onboarding.PromotePlan(plan.cold, False, FAST_LANE_ALLOWANCE_SPENT)
         if plan.fast:
-            job = _kick_member_ingest(thesis.id, new_ids, tenant_id=DATA_TENANT_ID)
+            try:
+                job = _kick_member_ingest(thesis.id, new_ids, tenant_id=DATA_TENANT_ID)
+            except (
+                ingest_jobs.IngestCapReached
+            ):  # the last slot went between the check and the kick
+                job = None
+                plan = onboarding.PromotePlan(plan.cold, False, INGEST_AT_CAPACITY)
             if job is not None:
                 ingest_ref = PromoteIngestRef(job_id=job.job_id, new_members=len(new_ids))
-        else:
+        if not plan.fast:
             onboarding_ref = PromoteOnboardingRef(
                 queued=len(plan.cold), new_members=len(new_ids), reason=plan.reason or ""
             )
@@ -1289,6 +1352,10 @@ def produce_terms(
     operator_terms = [
         e for e in thesis.term_set if e.authored_by is not Authorship.SYSTEM_DRAFTED
     ]  # operator_set ∪ operator_edited — preserved verbatim; only system_drafted re-rolls
+    # END THE READ before calling out (security hardening PR 2): only reads ran on this transaction since the gate's
+    # and the allowance's commits, so the rollback loses nothing, and no request sits idle in a transaction across
+    # the network (the request connection's idle-in-transaction timeout, db.session.connect_request).
+    conn.rollback()
     entries = produce_term_set(
         keyword_llm,
         thesis.narrative,
@@ -1333,6 +1400,7 @@ def edit_terms(
 def recommend_tiers_endpoint(
     tier_rec_llm: LLMClient = Depends(get_tier_rec_client),
     thesis: Thesis = Depends(get_thesis_or_404),
+    conn: psycopg.Connection = Depends(get_conn),
 ) -> list[TierRecommendation]:
     """Recommend a tier (signal/broad) + a one-line reason per term in the thesis's term set — the LLM
     RECOMMENDS, the operator DECIDES (INVARIANT #10). DISPLAY-ONLY + RESPONSE-ONLY: no writer is called
@@ -1344,6 +1412,10 @@ def recommend_tiers_endpoint(
     metadata, never a tier the producer applies — recall stays sacred, #9). Fail-open: no key / model trouble ->
     ``[]`` (the chips render with no recommendation). Sources NO number (#3) — a tier label + a reason string.
     """
+    # END THE READ before calling out (security hardening PR 2): only reads ran on this transaction since the gate's
+    # and the allowance's commits, so the rollback loses nothing, and no request sits idle in a transaction across
+    # the network (the request connection's idle-in-transaction timeout, db.session.connect_request).
+    conn.rollback()
     recs = recommend_tiers(tier_rec_llm, thesis.narrative, [e.term for e in thesis.term_set])
     by_key = {r["term"].strip().lower(): r for r in recs}
     out: list[TierRecommendation] = []
@@ -1545,11 +1617,18 @@ def execute_draft(
     )
 
 
+def require_draft_room() -> None:
+    """429 with ``DRAFTS_AT_CAPACITY`` while ``Settings.draft_jobs_max_running`` drafts run across all theses. A
+    route dependency listed BEFORE the allowance charge, so a refused kick-off spends nothing."""
+    if not draft_jobs.has_room():
+        raise HTTPException(status_code=429, detail=DRAFTS_AT_CAPACITY)
+
+
 @router.post(
     "/theses/{thesis_id}/draft-chain",
     status_code=202,
     response_model=DraftJobRef,
-    dependencies=[Depends(allowance.charge("chain_draft"))],
+    dependencies=[Depends(require_draft_room), Depends(allowance.charge("chain_draft"))],
 )
 def start_draft_chain(
     body: DraftChainIn | None = None,
@@ -1587,7 +1666,9 @@ def start_draft_chain(
     steward = user.is_super_admin
 
     def _run() -> ChainDraftOut:
-        own = connect()  # the job outlives the request; the request-scoped conn is already closed
+        # the job outlives the request (the request-scoped conn is already closed); a job connection carries a lock
+        # timeout and a longer statement ceiling (Settings.job_*)
+        own = connect_job()
         try:
             return execute_draft(
                 own, research_llm, decompose_llm, edgar, thesis, scope=scope, steward=steward
@@ -1626,6 +1707,10 @@ def start_draft_chain(
         raise HTTPException(
             status_code=409, detail="a draft is already running for this thesis"
         ) from exc
+    except (
+        DraftCapReached
+    ) as exc:  # another card's draft took the last slot since the dependency checked
+        raise HTTPException(status_code=429, detail=DRAFTS_AT_CAPACITY) from exc
     return DraftJobRef(job_id=job_id, status="running")
 
 
@@ -1665,7 +1750,9 @@ def list_saved_runs(thesis: Thesis = Depends(get_thesis_or_404)) -> list[SavedRu
 
 
 @router.get("/theses/{thesis_id}/runs/{run_id}", response_model=ChainDraftOut)
-def get_saved_run(run_id: str, thesis: Thesis = Depends(get_thesis_or_404)) -> ChainDraftOut:
+def get_saved_run(
+    run_id: str, request: Request, thesis: Thesis = Depends(get_thesis_or_404)
+) -> ChainDraftOut:
     """Load one saved run's inner draft as a ``ChainDraftOut`` — the SAME shape the draft endpoint returns, so
     the FE hands it straight to the editor's ``applyDraft`` (no re-draft, no refetch). **404** when the loader
     is disabled, or for an unknown / traversal ``run_id``; **422** if a stale artifact no longer validates
@@ -1678,10 +1765,7 @@ def get_saved_run(run_id: str, thesis: Thesis = Depends(get_thesis_or_404)) -> C
     try:
         return ChainDraftOut.model_validate(draft)
     except ValidationError as exc:
-        raise HTTPException(
-            status_code=422,
-            detail=f"saved run payload is incompatible with the current schema: {exc}",
-        ) from exc
+        raise fail(422, SAVED_RUN_INCOMPATIBLE, exc, request=request) from exc
 
 
 # --- Triage session: the resumable prune (one MUTABLE opaque blob per thesis; NOT the spine) ---
@@ -1694,7 +1778,9 @@ def get_saved_run(run_id: str, thesis: Thesis = Depends(get_thesis_or_404)) -> C
 
 
 @router.get("/theses/{thesis_id}/triage-session", response_model=TriageSessionGet)
-def get_triage_session(thesis: Thesis = Depends(get_thesis_or_404)) -> TriageSessionGet:
+def get_triage_session(
+    request: Request, thesis: Thesis = Depends(get_thesis_or_404)
+) -> TriageSessionGet:
     """Restore this thesis's saved prune session. ``session`` is the stored envelope, or ``null`` for
     GENUINELY-ABSENT (no prune saved yet → the FE seeds fresh from the thesis). A read FAULT raises **500**, NOT
     a null session — so the FE never mistakes a transient error for "no session" and silently discards a real
@@ -1702,15 +1788,13 @@ def get_triage_session(thesis: Thesis = Depends(get_thesis_or_404)) -> TriageSes
     try:
         env = triage_store.read_session(thesis.id)
     except OSError as exc:
-        raise HTTPException(
-            status_code=500, detail=f"failed to read triage session: {exc}"
-        ) from exc
+        raise fail(500, TRIAGE_SESSION_FAILED["read"], exc, request=request) from exc
     return TriageSessionGet(session=TriageSessionEnvelope(**env) if env is not None else None)
 
 
 @router.put("/theses/{thesis_id}/triage-session", response_model=TriageSessionEnvelope)
 def put_triage_session(
-    body: TriageSessionPut, thesis: Thesis = Depends(get_thesis_or_404)
+    body: TriageSessionPut, request: Request, thesis: Thesis = Depends(get_thesis_or_404)
 ) -> TriageSessionEnvelope:
     """Autosave this thesis's prune session — overwrite the single ``latest.json`` with the FE's opaque working
     state. Returns the stored envelope (server-stamped ``updated_at``). FAIL-LOUD: a write fault raises **500**
@@ -1720,23 +1804,19 @@ def put_triage_session(
     try:
         env = triage_store.write_session(thesis.id, body.schema_version, body.state)
     except OSError as exc:
-        raise HTTPException(
-            status_code=500, detail=f"failed to write triage session: {exc}"
-        ) from exc
+        raise fail(500, TRIAGE_SESSION_FAILED["write"], exc, request=request) from exc
     return TriageSessionEnvelope(**env)
 
 
 @router.delete("/theses/{thesis_id}/triage-session", status_code=204)
-def delete_triage_session(thesis: Thesis = Depends(get_thesis_or_404)) -> None:
+def delete_triage_session(request: Request, thesis: Thesis = Depends(get_thesis_or_404)) -> None:
     """Discard this thesis's saved prune session (the operator's explicit "start over" — the ONLY remove; a
     promote KEEPS the session so the operator can keep pruning the remainder). Idempotent: deleting an absent
     session is a no-op. Returns **204**."""
     try:
         triage_store.delete_session(thesis.id)
     except OSError as exc:
-        raise HTTPException(
-            status_code=500, detail=f"failed to delete triage session: {exc}"
-        ) from exc
+        raise fail(500, TRIAGE_SESSION_FAILED["delete"], exc, request=request) from exc
 
 
 def _vouched(estimate: float | None, value: float) -> str | None:
@@ -1820,13 +1900,17 @@ def auto_confirm_fact(
     cik = master.ciks_for(conn, {req.security_id}, tenant_id=DATA_TENANT_ID).get(req.security_id)
     if not cik:
         raise HTTPException(status_code=404, detail="no CIK for this security — resolve it first")
+    # END THE READ before calling out (security hardening PR 2): only reads ran on this transaction since the gate's
+    # and the allowance's commits, so the rollback loses nothing, and no request sits idle in a transaction across
+    # the network (the request connection's idle-in-transaction timeout, db.session.connect_request).
+    conn.rollback()
     client = EdgarClient(allow_live=True)
     try:
         cands = extract_for_security(client, cik)
     except (
         Exception
     ) as exc:  # noqa: BLE001 — SEC unreachable / no UA / parse hiccup -> 502, not a 500
-        raise HTTPException(status_code=502, detail=f"extraction failed: {exc}") from exc
+        raise fail(502, SEC_FILINGS_UNREADABLE, exc, user=user) from exc
     cand = next((c for c in cands if c.fact_type == "shares_outstanding"), None)
     if cand is None:
         return AutoConfirmOut(applied=False, reason="no_candidate")

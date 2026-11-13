@@ -10,12 +10,14 @@ from collections.abc import Iterator
 
 import psycopg
 
-from db.session import connect
+from db.session import connect_request
 
 
 def get_conn() -> Iterator[psycopg.Connection]:
-    """Request-scoped DB connection. Overridden in tests to share the fixture's connection."""
-    conn = connect()
+    """Request-scoped DB connection, with the request timeouts (``db.session.connect_request``: connect, statement,
+    lock and idle-in-transaction, each a setting). Overridden in tests to share the fixture's connection.
+    """
+    conn = connect_request()
     try:
         yield conn
     finally:

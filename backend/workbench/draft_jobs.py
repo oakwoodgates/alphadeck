@@ -45,6 +45,9 @@ JobStatus = Literal["running", "done", "failed"]
 _lock = threading.Lock()
 _jobs: dict[str, "DraftJob"] = {}  # job_id -> DraftJob
 _active_by_thesis: dict[str, str] = {}  # thesis_id -> the RUNNING job_id (the 409 in-flight guard)
+# job_ids whose worker has not returned yet: what holds a database connection right now. A job the reaper marked
+# failed stays here until its thread really ends (the reaper never stops a thread). The global cap counts this.
+_live: set[str] = set()
 
 
 @dataclass
@@ -70,6 +73,12 @@ class DraftJob:
 class DraftInFlight(RuntimeError):
     """A draft job for this thesis is already running — the kick-off endpoint maps it to HTTP 409. A
     double-click or a stray retry must NEVER launch a parallel (expensive) Opus pass."""
+
+
+class DraftCapReached(RuntimeError):
+    """``Settings.draft_jobs_max_running`` drafts are already running across all theses (security hardening PR 2):
+    each holds a database connection, so a new one waits. The kick-off endpoint maps it to HTTP 429.
+    """
 
 
 class DraftError(Exception):
@@ -128,6 +137,7 @@ def reset_state() -> None:
     with _lock:
         _jobs.clear()
         _active_by_thesis.clear()
+        _live.clear()
 
 
 def _reap_locked() -> None:
@@ -148,6 +158,13 @@ def _reap_locked() -> None:
             del _jobs[jid]
 
 
+def has_room() -> bool:
+    """Fewer than ``Settings.draft_jobs_max_running`` drafts are running across all theses (0 = no cap)."""
+    cap = int(get_settings().draft_jobs_max_running)
+    with _lock:
+        return cap <= 0 or len(_live) < cap
+
+
 def start_draft_job(
     thesis_id: UUID,
     run: Callable[[], Any],
@@ -156,7 +173,8 @@ def start_draft_job(
     on_success: Callable[[DraftJob, Any], None] | None = None,
 ) -> str:
     """Claim the thesis's draft slot ATOMICALLY and start the job; return its ``job_id``. Raises ``DraftInFlight``
-    if a draft for this thesis is already running. ``run`` (the slow pipeline) executes in the executor — a daemon
+    if a draft for this thesis is already running, and ``DraftCapReached`` when ``Settings.draft_jobs_max_running``
+    drafts are running across all theses (0 = no cap). ``run`` (the slow pipeline) executes in the executor — a daemon
     thread in prod, inline under tests — OUTSIDE the lock (the inline executor re-enters ``_run_job`` → ``_lock``,
     so the executor must never be called while holding it). ``on_success`` is the completed-run hook (see
     ``_run_job``): called with ``(job, result)`` on a done job only, fail-open."""
@@ -166,8 +184,12 @@ def start_draft_job(
         _reap_locked()
         if tid in _active_by_thesis:
             raise DraftInFlight(tid)
+        cap = int(get_settings().draft_jobs_max_running)
+        if cap > 0 and len(_live) >= cap:
+            raise DraftCapReached(tid)
         _jobs[job.job_id] = job
         _active_by_thesis[tid] = job.job_id
+        _live.add(job.job_id)
     (executor or _DEFAULT_EXECUTOR)(job, run)
     return job.job_id
 
@@ -201,6 +223,7 @@ def _run_job(job: DraftJob, run: Callable[[], Any]) -> None:
             # newer job claimed the thesis; never delete the newer job's slot.
             if _active_by_thesis.get(job.thesis_id) == job.job_id:
                 del _active_by_thesis[job.thesis_id]
+            _live.discard(job.job_id)  # the worker is done with its connection
     # The completed-run hook (the run-of-record artifact write) fires AFTER the publish above, outside the
     # lock — the job is already visible as done, so nothing the hook does (raise, hang) can fail or delay the
     # draft's delivery: STRUCTURALLY fail-open, with the belt of a logged catch (an accountability record must

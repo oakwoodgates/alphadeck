@@ -187,6 +187,45 @@ because the Workbench is unusable without it. Each fetch is bounded (security ha
 The steward is neither checked nor counted. The screens show the 404 and the 429 as worded, on their own line.
 `backend/tests/app/test_user_fetches.py` pins all of it with a real plain user and a real steward.
 
+## Errors
+
+What a failed request answers (security hardening PR 2, `backend/app/errors.py`). An error the code did not word
+itself never reaches a plain user's screen:
+
+- **A fixed sentence and a reference.** Every failure answers `{"detail": "<a fixed sentence for that failure>
+  Reference 1a2b3c4d."}`. The reference is 8 random hex characters; the exception, with its traceback, is logged
+  under it (logger `alphadeck.errors`: ERROR for a 5xx, WARNING otherwise), so a user who quotes it can be matched to
+  the log line. No SQL, column value, server path or upstream (SEC, vendor, OpenFIGI, LLM) text is in the body.
+- **A steward still sees the underlying error** (operator decision 2026-11-12): for a `super_admin` caller the body
+  continues `Detail: <ExceptionClass>: <message>`. Every gated router carries `errors.note_caller`, which records
+  the caller on the request; an unknown caller (the open `POST /auth/login`, or a failure before the gate ran) is
+  treated as a plain user.
+- **Database errors a route did not handle** (global handlers):
+
+  | Error | Status |
+  |---|---|
+  | `DataError` (a NUL character, a number or date out of range) | 422 |
+  | `UniqueViolation` (any other integrity conflict: 409 too) | 409 |
+  | `CheckViolation`, `ForeignKeyViolation`, `NotNullViolation` | 422 |
+  | `ProgramLimitExceeded` (a value too large for an index row) | 413 |
+  | `QueryCanceled`, `LockNotAvailable` (the request timeouts, docs/DEPLOY.md §Connections) | 503 + `Retry-After: 5` |
+  | any other `OperationalError` (cannot connect, too many clients) | 503 + `Retry-After: 5` |
+  | any other exception | 500 |
+
+- **Failures a route catches** (an upstream fetch, a triage-session file, a saved run that no longer validates, a
+  malformed `ALPHADECK_CRON_AT`, the company write lock held by another writer) answer the same way, through the one
+  helper `errors.fail(status, sentence, exc, user=...)`, with the route's own status (502, 500, 422, 409, 503).
+- **An explicit mapping keeps winning**: a route's own `HTTPException` (the duplicate-email 409 "that email is
+  already in use", the own-cards 404, the daily-allowance 429, every domain 422) is answered as worded.
+- **The request-validation 422** keeps FastAPI's list shape (`loc`, `msg`, `type`, and `ctx` where present) but
+  never echoes the caller's `input` (it can be megabytes) or a documentation `url`.
+- Domain messages the code writes for the operator are kept as worded: the promote's thesis validation and the
+  term-set edit rules (422), the password and email rules (400), the What-Changed `since` rules (422).
+
+`backend/tests/app/test_errors.py` pins the handlers, `test_error_text.py` the route sites (both callers), and
+`test_hostile_input.py` sends hostile values to every route the database-layer sweep ranked (a status below 500 and
+no row written; the cases only request-model bounds can fix are marked expected-fail until security PR 3).
+
 ## The CLI (`python -m pipeline.users`)
 
 No sign-up page and no email delivery: the steward creates every account.

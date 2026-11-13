@@ -32,7 +32,11 @@ def _noop(job):
 
 
 def _settings(running: float = 600.0, finished: float = 1800.0) -> SimpleNamespace:
-    return SimpleNamespace(ingest_job_running_ttl_s=running, ingest_job_finished_ttl_s=finished)
+    return SimpleNamespace(
+        ingest_job_running_ttl_s=running,
+        ingest_job_finished_ttl_s=finished,
+        ingest_jobs_max_running=0,
+    )
 
 
 def test_start_runs_with_the_scope_and_stores_result():

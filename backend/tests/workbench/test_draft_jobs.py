@@ -30,7 +30,9 @@ def _noop(job, run):
 
 
 def _settings(running: float = 600.0, finished: float = 1800.0) -> SimpleNamespace:
-    return SimpleNamespace(draft_job_running_ttl_s=running, draft_job_finished_ttl_s=finished)
+    return SimpleNamespace(
+        draft_job_running_ttl_s=running, draft_job_finished_ttl_s=finished, draft_jobs_max_running=0
+    )
 
 
 def test_start_runs_and_stores_result():

@@ -279,9 +279,9 @@ def mount_oauth(app: Any, settings: Any, connection: Connection | None = None) -
     """Append the authorization server's routes to the API (after the hosted endpoint's) and keep it on
     ``app.state.oauth``."""
     if connection is None:
-        from db.session import connect
+        from db.session import connect_request
 
-        connection = connection_from(connect)
+        connection = connection_from(connect_request)
     provider = AlphaDeckAuthProvider(connection, public_origin=settings.public_origin)
     server = build_oauth_routes(settings.public_origin, provider)
     app.router.routes.extend(server.routes)

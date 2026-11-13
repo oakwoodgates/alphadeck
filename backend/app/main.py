@@ -7,6 +7,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.responses import HTMLResponse, JSONResponse
 
+from app import errors
 from app.auth import require_super_admin, require_user
 from app.health import HealthResponse, compute_health, enforce_boot_visibility
 from app.routers import (
@@ -79,8 +80,12 @@ app = FastAPI(
 # The login door (docs/AUTH.md): EVERY router is mounted behind `require_user` (or `require_super_admin` for the
 # steward routers), on the ROUTER, never inside a handler, so a request with no session answers 401 before any
 # parameter is validated. tests/app/test_auth_gate.py walks app.routes: a router mounted open fails it.
-_USER = [Depends(require_user)]
-_STEWARD = [Depends(require_super_admin)]
+# `note_caller` records the caller on the request so the global error handlers (app/errors.py) show a steward the
+# underlying error and a plain user only the fixed sentence and its reference.
+_USER = [Depends(require_user), Depends(errors.note_caller)]
+_STEWARD = [Depends(require_super_admin), Depends(errors.note_caller)]
+# The error contract (docs/AUTH.md §Errors): a fixed sentence + a reference id per class of failure.
+errors.install(app)
 # /auth decides per route: POST /auth/login is open, the rest carry require_user on their own decorators.
 app.include_router(auth.router)
 # the signed-in user's own settings (the Settings page, docs/AUTH.md)

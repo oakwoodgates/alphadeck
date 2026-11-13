@@ -60,6 +60,10 @@ _active_by_thesis: dict[str, str] = {}  # thesis_id -> the RUNNING job_id (the i
 _queued_by_thesis: dict[str, str] = (
     {}
 )  # thesis_id -> the ONE queued follow-up job_id (merge target)
+# job_ids of the workers that have not returned yet (one per started thread; a queued follow-up runs in its
+# predecessor's thread and is not counted again). What holds a database connection right now; the global cap
+# (``Settings.ingest_jobs_max_running``) counts this. A job the reaper marked failed stays until its thread ends.
+_live: set[str] = set()
 
 
 @dataclass
@@ -79,6 +83,28 @@ class IngestJob:
     created_at: float = field(default_factory=monotonic)
     finished_at: float | None = None
     last_polled_at: float | None = None
+
+
+class IngestCapReached(RuntimeError):
+    """``Settings.ingest_jobs_max_running`` ingest workers are already running across all theses (security
+    hardening PR 2): each holds a database connection, so no new one starts. The promote sends its new names to the
+    onboarding queue instead."""
+
+
+def _cap() -> int:
+    return int(get_settings().ingest_jobs_max_running)
+
+
+def has_room(thesis_id: UUID) -> bool:
+    """Would ``start_ingest_job`` for ``thesis_id`` succeed now? Yes when the thesis already has a running ingest
+    (the new names queue behind it, on its thread), or fewer than the cap are running (0 = no cap).
+    """
+    with _lock:
+        _reap_locked()
+        if str(thesis_id) in _active_by_thesis:
+            return True
+        cap = _cap()
+        return cap <= 0 or len(_live) < cap
 
 
 class IngestJobError(Exception):
@@ -107,6 +133,7 @@ def reset_state() -> None:
         _jobs.clear()
         _active_by_thesis.clear()
         _queued_by_thesis.clear()
+        _live.clear()
 
 
 def _reap_locked() -> None:
@@ -151,7 +178,9 @@ def start_ingest_job(
     instead of launching a parallel one. Returns the job the caller should reference (started or queued);
     it never raises for an in-flight run — a queued job is the answer, not a 409 (the promote must not
     fail, and the new names must not silently wait for the cron). ``runner`` executes in the executor —
-    a daemon thread in prod, inline under tests — OUTSIDE the lock."""
+    a daemon thread in prod, inline under tests — OUTSIDE the lock. Raises ``IngestCapReached`` (and starts
+    nothing) when it would start a new worker while ``Settings.ingest_jobs_max_running`` are running.
+    """
     tid = str(thesis_id)
     with _lock:
         _reap_locked()
@@ -167,9 +196,13 @@ def start_ingest_job(
             _jobs[job.job_id] = job
             _queued_by_thesis[tid] = job.job_id
             return job
+        cap = _cap()
+        if cap > 0 and len(_live) >= cap:
+            raise IngestCapReached(tid)
         job = IngestJob(uuid4().hex, tid, set(security_ids), runner)
         _jobs[job.job_id] = job
         _active_by_thesis[tid] = job.job_id
+        _live.add(job.job_id)
     (executor or _DEFAULT_EXECUTOR)(job)
     return job
 
@@ -179,8 +212,12 @@ def _run_job(job: IngestJob) -> None:
     follow-up this thread inherits, sequentially — so the follow-up needs no second thread and the
     inline test executor drives the whole chain synchronously."""
     current: IngestJob | None = job
-    while current is not None:
-        current = _run_one(current)
+    try:
+        while current is not None:
+            current = _run_one(current)
+    finally:
+        with _lock:
+            _live.discard(job.job_id)  # the worker (and its connection) is done
 
 
 def _run_one(job: IngestJob) -> "IngestJob | None":
