@@ -180,8 +180,12 @@ nulls, the no-leaderboard rule, the cost numbers — lives there, not here.
 
 Two pieces of this harness are now read by that layer and should not be changed casually:
 
-- **`replay/export.py::export_snapshot(clock=...)`** — `"record"` is byte-for-byte what this exporter always
-  wrote and is the mode the original Postgres-vs-Parquet parity gate runs on. `"public"` runs the SAME SQL as
+- **`replay/export.py::export_snapshot(clock=...)`** — `"record"` writes every row and every version with
+  `recorded_at` untouched, and is the mode the original Postgres-vs-Parquet parity gate runs on. Since
+  2026-11-13 every record file is written in `(recorded_at, id)` order (`_EXPORT_ORDER`, a total order: `id` is
+  the primary key), so the same stored rows give the same bytes whatever plan Postgres picks. Before that the
+  fact files came out in plan order, so a fresh record export of unchanged data can quote a different mirror
+  hash from one made before the fix, once (same rows, new order). The public mode is unchanged. `"public"` runs the SAME SQL as
   the live history read (`db/public_clock.public_versions_sql` — ONE per-table definition: a Form 4 at its
   acceptance, a bar's first version at its session settle and a re-version at its own publication, a filing at
   its `filed` date, the ratified / sampled tables at their ratification / sampling), rewrites `recorded_at` to
