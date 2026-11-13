@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from "react-router";
 import { useLogin } from "../api/hooks";
 import { errorDetail } from "./me";
 import { safeNext } from "./next";
+import { LIMITS } from "../api/limits";
 
 // The login page (docs/AUTH.md): email, password, one error line. Success lands on Home, or back on the OAuth
 // consent page that sent the visitor here (`?next=`, honored for that one path shape only: auth/next.ts). There is
@@ -33,6 +34,7 @@ export function LoginPage() {
           <input
             type="email"
             autoComplete="username"
+            maxLength={LIMITS.email}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
@@ -43,6 +45,7 @@ export function LoginPage() {
           <input
             type="password"
             autoComplete="current-password"
+            maxLength={LIMITS.passwordMax}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required

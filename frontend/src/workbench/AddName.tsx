@@ -3,6 +3,7 @@ import { useState } from "react";
 import type { BasketMember, SecurityMatchOut } from "../api/hooks";
 import { useResolveSecurities } from "../api/hooks";
 import { ETFS } from "./useChainDraft";
+import { LIMITS } from "../api/limits";
 
 interface Props {
   existingKeys: Set<string>; // security_ids already in the basket (disable re-adding)
@@ -56,6 +57,7 @@ export function AddName({ existingKeys, onAdd }: Props) {
           className="wb-input"
           placeholder="role in the thesis"
           aria-label="role"
+          maxLength={LIMITS.line}
           value={role}
           onChange={(e) => setRole(e.target.value)}
         />
@@ -75,6 +77,7 @@ export function AddName({ existingKeys, onAdd }: Props) {
         className="wb-input"
         placeholder="＋ add a name — search the security master…"
         aria-label="search securities"
+        maxLength={LIMITS.search}
         value={q}
         onChange={(e) => setQ(e.target.value)}
       />

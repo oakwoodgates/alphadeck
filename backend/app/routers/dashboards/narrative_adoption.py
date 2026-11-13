@@ -44,6 +44,7 @@ from dashboards.narrative_adoption import (
 )
 from domain.market_time import serve_view
 from domain.scopes import DATA_TENANT_ID
+from domain.text_types import AsofDate
 from pipeline.term_mentions import latest_run
 from repositories import thesis_repo
 from signals.base import PointInTimeData
@@ -343,7 +344,7 @@ def _cards(
 
 @router.get("/cards", response_model=AdoptionCardsOut)
 def adoption_cards(
-    asof: date = Query(
+    asof: AsofDate = Query(
         ..., description="as-of date; only the cards that existed by then are listed"
     ),
     conn: psycopg.Connection = Depends(get_conn),
@@ -368,7 +369,7 @@ def adoption_cards(
 @router.get("/{thesis_id}", response_model=AdoptionOut)
 def adoption_for_card(
     thesis_id: UUID,
-    asof: date = Query(..., description="as-of date; nothing published after it is read"),
+    asof: AsofDate = Query(..., description="as-of date; nothing published after it is read"),
     conn: psycopg.Connection = Depends(get_conn),
     workspace: UUID = Depends(get_workspace),
 ) -> AdoptionOut:

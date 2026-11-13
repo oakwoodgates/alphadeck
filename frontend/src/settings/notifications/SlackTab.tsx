@@ -7,6 +7,7 @@ import {
   useTestSlackWebhook,
 } from "../../api/hooks";
 import { errorDetail } from "../../auth/me";
+import { LIMITS } from "../../api/limits";
 
 // /settings/notifications — my own Slack webhook (docs/AUTH.md §Settings page, docs/FEED_LOOP.md step 3). The URL
 // is write-only: the API never returns it, so the field is always empty on load and the status line says only
@@ -49,6 +50,7 @@ export function SlackTab() {
             type="url"
             autoComplete="off"
             placeholder="https://hooks.slack.com/services/…"
+            maxLength={LIMITS.url}
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             required

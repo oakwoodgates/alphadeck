@@ -46,6 +46,7 @@ from dashboards.rotation_quadrant import (
 from dashboards.rotation_quadrant import rotation_quadrant as compute_rotation_quadrant
 from domain.market_time import serve_view
 from domain.scopes import DATA_TENANT_ID
+from domain.text_types import AsofDate
 from securities import master
 from signals.base import PointInTimeData
 from signals.display import trailing_returns
@@ -285,7 +286,7 @@ def _page_dict(page: RotationQuadrant) -> dict[str, Any]:
 
 @router.get("", response_model=RotationQuadrantOut)
 def rotation_quadrant(
-    asof: date = Query(..., description="as-of date; no price published after it is read"),
+    asof: AsofDate = Query(..., description="as-of date; no price published after it is read"),
     group_by: GroupBy = Query(
         "link", description="the groups: link | business_type | sector | card"
     ),

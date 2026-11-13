@@ -59,6 +59,7 @@ from domain.enums import State, TermTier
 from domain.market_time import serve_view
 from domain.scopes import DATA_TENANT_ID
 from domain.splits import listed_from_row
+from domain.text_types import AsofDate
 from domain.thesis import TermSetEntry
 from signals.base import PointInTimeData
 from signals.display import insider_flow, trailing_returns
@@ -417,7 +418,7 @@ def read_board(
 
 @router.get("", response_model=LeaderboardOut)
 def theme_leaderboard(
-    asof: date = Query(
+    asof: AsofDate = Query(
         ..., description="as-of date; only what was recorded and public by then is read"
     ),
     conn: psycopg.Connection = Depends(get_conn),

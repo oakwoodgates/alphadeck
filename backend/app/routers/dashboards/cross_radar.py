@@ -48,6 +48,7 @@ from dashboards.cross_radar import (
 from dashboards.cross_radar import cross_radar as compute_cross_radar
 from domain.market_time import serve_view
 from domain.scopes import DATA_TENANT_ID
+from domain.text_types import AsofDate
 from securities import master
 from signals.base import PointInTimeData
 from signals.display import sma
@@ -346,7 +347,7 @@ def read_inputs(
 
 @router.get("", response_model=CrossRadarOut)
 def cross_radar(
-    asof: date = Query(..., description="as-of date; no price published after it is read"),
+    asof: AsofDate = Query(..., description="as-of date; no price published after it is read"),
     group_by: GroupBy = Query(
         "link", description="the groups: link | business_type | sector | card"
     ),

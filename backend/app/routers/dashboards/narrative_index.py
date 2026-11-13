@@ -40,6 +40,7 @@ from dashboards.narrative_index import (
 from dashboards.narrative_index import narrative_index as compute_narrative_index
 from domain.market_time import market_tz, serve_view
 from domain.scopes import DATA_TENANT_ID
+from domain.text_types import AsofDate
 from repositories import thesis_repo
 from signals.base import PointInTimeData
 from signals.display import trailing_returns
@@ -307,7 +308,7 @@ def _inputs(conn: psycopg.Connection, asof: date, include_silent: bool, *, works
 
 @router.get("", response_model=NarrativeIndexOut)
 def narrative_index(
-    asof: date = Query(..., description="as-of date; no price published after it is read"),
+    asof: AsofDate = Query(..., description="as-of date; no price published after it is read"),
     window: Window = Query("1y", description="the look back in trading sessions: 1y | 90d | 30d"),
     include_silent: bool = Query(False, description="add Context and Bench names to each basket"),
     conn: psycopg.Connection = Depends(get_conn),
@@ -328,7 +329,7 @@ def narrative_index(
 @router.get("/{thesis_id}", response_model=NarrativeCardDetailOut)
 def narrative_index_card(
     thesis_id: UUID,
-    asof: date = Query(..., description="as-of date; no price published after it is read"),
+    asof: AsofDate = Query(..., description="as-of date; no price published after it is read"),
     window: Window = Query("1y", description="the look back in trading sessions: 1y | 90d | 30d"),
     include_silent: bool = Query(False, description="add Context and Bench names to the basket"),
     conn: psycopg.Connection = Depends(get_conn),

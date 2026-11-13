@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import math
 from datetime import date, datetime
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
 import psycopg
@@ -13,6 +13,7 @@ from pydantic import ValidationError
 from app import allowance
 from app.auth import CurrentUser, require_super_admin, require_user
 from app.deps import (
+    body_at_most,
     get_conn,
     get_decompose_client,
     get_edgar_client,
@@ -39,6 +40,7 @@ from app.schemas_api import (
     EditTermsRequest,
     EtfHoldingOut,
     EtfHoldingsOut,
+    ExtractedFactIn,
     FlagExplanationOut,
     IngestJobStatusOut,
     OnboardingReadoutOut,
@@ -65,10 +67,11 @@ from app.schemas_api import (
 from db.session import connect_job, name_session
 from db.write_lock import CompanyLockBusy, acquire_company_lock
 from domain.enums import Authorship, InstrumentKind, TermTier
-from domain.extraction import ExtractedFact, ExtractionResult, Tier
+from domain.extraction import ExtractionResult, Tier
 from domain.market_time import serve_view
 from domain.scopes import DATA_TENANT_ID
 from domain.settings import get_settings
+from domain.text_types import STATE_MAX_BYTES, AsofDate, SearchQuery
 from domain.thesis import (
     ETFS_LABEL,
     Thesis,
@@ -167,7 +170,7 @@ TRIAGE_SESSION_FAILED = {
 
 @router.get("/theses/{thesis_id}/scored", response_model=WorkbenchScored)
 def get_scored(
-    asof: date = Query(..., description="as-of date; the scores use no data knowable after it"),
+    asof: AsofDate = Query(..., description="as-of date; the scores use no data knowable after it"),
     conn: psycopg.Connection = Depends(get_conn),
     thesis: Thesis = Depends(get_thesis_or_404),
 ) -> WorkbenchScored:
@@ -236,7 +239,13 @@ def read_scored(
 
 @router.get("/securities", response_model=list[SecurityMatchOut])
 def search_securities(
-    q: str = Query("", description="ticker or name fragment; a discovery net over the master"),
+    q: Annotated[
+        SearchQuery,
+        Query(
+            description="ticker or name fragment (at most 100 characters, matched literally); a discovery net "
+            "over the master",
+        ),
+    ] = "",
     limit: int = Query(10, ge=1, le=50),
     conn: psycopg.Connection = Depends(get_conn),
     tenant_id: UUID = Depends(get_workspace),
@@ -411,7 +420,7 @@ def etf_holdings(
         description="overlap the holdings against THIS thesis's basket (held vs available); "
         "holdings-only when absent (every match lands 'available')",
     ),
-    asof: date | None = Query(
+    asof: AsofDate | None = Query(
         None,
         description="no-lookahead (#1): use the latest N-PORT FILED on or before this date; "
         "absent = the latest on file. The response labels the holdings' report-period vintage.",
@@ -797,15 +806,24 @@ def set_business_type(
     )
 
 
-@router.post("/facts/explain", response_model=FlagExplanationOut)
+@router.post(
+    "/facts/explain",
+    response_model=FlagExplanationOut,
+    dependencies=[Depends(allowance.charge("extract"))],
+)
 def explain_flag_candidate(
-    candidate: ExtractedFact,
+    candidate: ExtractedFactIn,
     llm: LLMClient = Depends(get_llm_client),
 ) -> FlagExplanationOut:
     """Draft a plain-English explanation of a FLAG candidate, grounded in its located passage — the one LLM
     seam (M4b). A DISPLAY aid shown ALONGSIDE the raw passage; it NEVER becomes a fact.
 
-    Note what is absent: no ``get_conn``, no tenant, no write. The explanation rides a separate rail that
+    The body is the candidate the extract endpoint returned, sent back as is, held to the request limits (at most
+    10 passages of at most 4,000 characters, at most 20 flags; security hardening PR 3). A plain user's call
+    spends one unit of the daily extract allowance (it is an LLM call a click can repeat).
+
+    Note what is absent: no tenant, no fact write (the one write is that allowance count). The explanation rides a
+    separate rail that
     dead-ends at the screen — the ratified number can only ever come from the operator's typed field on
     ``/facts`` (INVARIANT #3). The prompt asks the model not to state the final value; this missing
     connection is what guarantees it can't become one.
@@ -1014,14 +1032,16 @@ def promote(
     # the three fixed ones appended last, and a member naming one in any case is respelled to the canonical
     # label — a hand-typed "context" is the link, never a 422 for case. Discovered and the real links pass
     # untouched.
-    segments = with_silent_links(req.segments)
+    # the request copies (``SegmentIn`` / ``BasketMemberIn``, held to the request limits) become the domain models
+    # here; from this line on the promote works on exactly what any stored card is made of
+    segments = with_silent_links([s.to_domain() for s in req.segments])
     members = [
         (
             m.model_copy(update={"segment": canon})
             if (canon := reserved_label(m.segment)) is not None and canon != m.segment
             else m
         )
-        for m in req.basket
+        for m in (row.to_domain() for row in req.basket)
     ]
     try:
         thesis = Thesis(  # the Slice-1 segment-consistency validator runs here
@@ -1792,14 +1812,20 @@ def get_triage_session(
     return TriageSessionGet(session=TriageSessionEnvelope(**env) if env is not None else None)
 
 
-@router.put("/theses/{thesis_id}/triage-session", response_model=TriageSessionEnvelope)
+@router.put(
+    "/theses/{thesis_id}/triage-session",
+    response_model=TriageSessionEnvelope,
+    dependencies=[Depends(body_at_most(STATE_MAX_BYTES, "saved session"))],
+)
 def put_triage_session(
     body: TriageSessionPut, request: Request, thesis: Thesis = Depends(get_thesis_or_404)
 ) -> TriageSessionEnvelope:
     """Autosave this thesis's prune session — overwrite the single ``latest.json`` with the FE's opaque working
     state. Returns the stored envelope (server-stamped ``updated_at``). FAIL-LOUD: a write fault raises **500**
     so the operator's "Not saved" indicator is honest (the deliberate contrast with the fail-open draft-run
-    log). Writes ZERO spine rows regardless of payload — the blob is bytes to a file, never a fact.
+    log). Writes ZERO spine rows regardless of payload — the blob is bytes to a file, never a fact. The blob stays
+    opaque (its strings are never inspected) but is bounded: a request body over 25 MB is refused (413) and a state
+    nested deeper than 32 levels is a 422 (security hardening PR 3).
     """
     try:
         env = triage_store.write_session(thesis.id, body.schema_version, body.state)

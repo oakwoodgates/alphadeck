@@ -1,6 +1,7 @@
 // Workbench display helpers — turn the wire figures into the chips/labels the operator reads.
 // All values are DATA-DERIVED (the scoring engine, Slice 3); nothing here invents a number.
 
+import { apiErrorText } from "../api/errorText";
 import type { ContextRole, ProvenanceOut, ScoredFigureOut } from "../api/hooks";
 
 // the business-type labels live in the shared util/format (the Cockpit board uses them too); re-exported
@@ -163,10 +164,10 @@ export const memberHasFundamentals = (m: {
   m.market_cap?.value != null ||
   (m.market_cap?.provenance ?? []).some((p) => p.source !== "price" && p.source !== "computed");
 
-/** A human message from a thrown API error (FastAPI `{detail}`); a safe fallback otherwise. */
+/** A human message from a thrown API error (FastAPI `{detail}`: its sentence, or the first message of a validation
+ *  list naming its field); a safe fallback otherwise. */
 export function errText(e: unknown): string {
-  const d = (e as { detail?: unknown } | null)?.detail;
-  return typeof d === "string" ? d : "the request was rejected";
+  return apiErrorText(e) ?? "the request was rejected";
 }
 
 /** The ratified values ON FILE for one fact type, recovered from the scored read (the meters'

@@ -42,6 +42,7 @@ from dashboards.etfs import (
 from dashboards.etfs import etfs as compute_etfs
 from domain.market_time import serve_view
 from domain.scopes import DATA_TENANT_ID
+from domain.text_types import AsofDate
 from securities import master
 from signals.base import PointInTimeData
 from signals.horizons import display_bounds
@@ -344,7 +345,7 @@ def _fund_bundle(pit: PointInTimeData, sid: UUID, asof: date, members) -> FundBu
 
 @router.get("", response_model=EtfsOut)
 def etfs(
-    asof: date = Query(..., description="as-of date; nothing published after it is read"),
+    asof: AsofDate = Query(..., description="as-of date; nothing published after it is read"),
     window: Window = Query(
         "1m", description="panel 1's look back in trading sessions: 1w | 1m | 3m"
     ),

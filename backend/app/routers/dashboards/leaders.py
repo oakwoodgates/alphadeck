@@ -44,6 +44,7 @@ from dashboards.leaders import (
 )
 from dashboards.leaders import leaders as compute_leaders
 from domain.market_time import serve_view
+from domain.text_types import AsofDate
 from securities import master
 
 router = APIRouter(prefix="/leaders")
@@ -237,7 +238,7 @@ def read_inputs(
 
 @router.get("", response_model=LeadersOut)
 def leaders(
-    asof: date = Query(..., description="as-of date; nothing published after it is read"),
+    asof: AsofDate = Query(..., description="as-of date; nothing published after it is read"),
     include_silent: bool = Query(False, description="add Context and Bench memberships"),
     group_by: GroupBy = Query(
         "link",

@@ -48,6 +48,7 @@ from dashboards.read_through import read_through as compute_read_through
 from domain.enums import ContextRole
 from domain.market_time import countdown_origin, market_clock, serve_view
 from domain.scopes import DATA_TENANT_ID
+from domain.text_types import AsofDate
 from repositories import thesis_repo
 from securities import master
 from signals.base import PointInTimeData
@@ -309,7 +310,7 @@ def _payload(obj: Any) -> dict[str, Any]:
 
 @router.get("", response_model=ReadThroughOut)
 def read_through(
-    asof: date = Query(..., description="as-of date; nothing published after it is read"),
+    asof: AsofDate = Query(..., description="as-of date; nothing published after it is read"),
     conn: psycopg.Connection = Depends(get_conn),
     workspace: UUID = Depends(get_workspace),
 ) -> ReadThroughOut:

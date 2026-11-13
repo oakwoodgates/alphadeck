@@ -10,12 +10,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from app.deps import get_conn, get_thesis_or_404, get_workspace
 from app.schemas_api import (
     CallCardResponse,
-    CatalystIn,
+    CatalystList,
     DecisionIn,
     DecisionOut,
     DisplaySignalsResponse,
-    ExclusionIn,
-    KillCriterionIn,
+    ExclusionList,
+    KillCriterionList,
     MemberDisplaySignalsOut,
     MetaIndexIn,
     RecordedCallSummary,
@@ -30,6 +30,7 @@ from domain.market_time import (
     serve_view,
 )
 from domain.scopes import DATA_TENANT_ID
+from domain.text_types import AsofDate
 from domain.thesis import Catalyst, ExcludedName, KillCriterion, Thesis
 from pipeline.call_for_thesis import call_for_thesis
 from repositories import calls_repo, decisions_repo, thesis_repo
@@ -50,7 +51,7 @@ def list_theses(
         False,
         description="attach each thesis's nightly RECORD in effect at `asof` as `call` (requires `asof`)",
     ),
-    asof: date | None = Query(
+    asof: AsofDate | None = Query(
         None,
         description="the night whose record `with_call` reads (required with `with_call=true`)",
     ),
@@ -178,7 +179,7 @@ def read_thesis_detail(conn: psycopg.Connection, thesis: Thesis, *, today: date)
 
 @router.get("/{thesis_id}/call", response_model=CallCardResponse)
 def get_call(
-    asof: date = Query(..., description="as-of date; the call uses no data knowable after it"),
+    asof: AsofDate = Query(..., description="as-of date; the call uses no data knowable after it"),
     conn: psycopg.Connection = Depends(get_conn),
     thesis: Thesis = Depends(get_thesis_or_404),
 ) -> CallCardResponse:
@@ -242,7 +243,7 @@ def read_call(
 
 @router.get("/{thesis_id}/display-signals", response_model=DisplaySignalsResponse)
 def get_display_signals(
-    asof: date = Query(..., description="as-of date; indicators use no data knowable after it"),
+    asof: AsofDate = Query(..., description="as-of date; indicators use no data knowable after it"),
     conn: psycopg.Connection = Depends(get_conn),
     thesis: Thesis = Depends(get_thesis_or_404),
 ) -> DisplaySignalsResponse:
@@ -317,7 +318,7 @@ def read_display_signals(
 
 @router.put("/{thesis_id}/catalysts", response_model=ThesisDetail)
 def put_catalysts(
-    body: list[CatalystIn],
+    body: CatalystList,
     conn: psycopg.Connection = Depends(get_conn),
     thesis: Thesis = Depends(get_thesis_or_404),
 ) -> ThesisDetail:
@@ -339,7 +340,7 @@ def put_catalysts(
 
 @router.put("/{thesis_id}/kill-criteria", response_model=ThesisDetail)
 def put_kill_criteria(
-    body: list[KillCriterionIn],
+    body: KillCriterionList,
     conn: psycopg.Connection = Depends(get_conn),
     thesis: Thesis = Depends(get_thesis_or_404),
 ) -> ThesisDetail:
@@ -354,7 +355,7 @@ def put_kill_criteria(
 
 @router.put("/{thesis_id}/exclusions", response_model=ThesisDetail)
 def put_exclusions(
-    body: list[ExclusionIn],
+    body: ExclusionList,
     conn: psycopg.Connection = Depends(get_conn),
     thesis: Thesis = Depends(get_thesis_or_404),
 ) -> ThesisDetail:

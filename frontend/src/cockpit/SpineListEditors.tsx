@@ -7,6 +7,7 @@ import {
   type KillCriterionOut,
 } from "../api/hooks";
 import { errText } from "../workbench/format";
+import { LIMITS } from "../api/limits";
 
 /** Spine-list authoring (slice A2) — the Cockpit's catalyst calendar + kill criteria become editable.
  *
@@ -72,12 +73,14 @@ export function CatalystEditor({
         <div className="sle-row" key={i}>
           <input
             aria-label={`catalyst label ${i + 1}`}
+            maxLength={LIMITS.line}
             placeholder="e.g. MU FQ4 earnings"
             value={r.label}
             onChange={(e) => setRows(rows.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))}
           />
           <input
             aria-label={`catalyst kind ${i + 1}`}
+            maxLength={LIMITS.line}
             className="sle-kind"
             placeholder="kind"
             value={r.kind}
@@ -93,6 +96,7 @@ export function CatalystEditor({
           />
           <input
             aria-label={`catalyst when label ${i + 1}`}
+            maxLength={LIMITS.line}
             className="sle-kind"
             placeholder='or "~Q3"'
             value={r.when_label}
@@ -160,6 +164,7 @@ export function KillCriteriaEditor({
         <div className="sle-row" key={i}>
           <input
             aria-label={`kill criterion ${i + 1}`}
+            maxLength={LIMITS.prose}
             placeholder="e.g. DRAM contract prices roll over two consecutive quarters"
             value={t}
             onChange={(e) => setRows(rows.map((x, j) => (j === i ? e.target.value : x)))}
