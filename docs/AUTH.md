@@ -215,6 +215,15 @@ itself never reaches a plain user's screen:
 - **Failures a route catches** (an upstream fetch, a triage-session file, a saved run that no longer validates, a
   malformed `ALPHADECK_CRON_AT`, the company write lock held by another writer) answer the same way, through the one
   helper `errors.fail(status, sentence, exc, user=...)`, with the route's own status (502, 500, 422, 409, 503).
+- **Background job failures** follow the same contract on their poll (`GET /workbench/theses/{id}/draft-chain/jobs/{job_id}`
+  and `GET /workbench/theses/{id}/ingest/jobs/{job_id}`): an unexpected fault in a chain draft answers "The draft
+  failed on the server. Try again, and quote the reference if it keeps happening." and one in an on-promote data fetch
+  "The data fetch failed on the server. Try again, and quote the reference if it keeps happening.", each with its
+  reference. The job logs the exception under that reference when it fails and keeps the description; the poll adds
+  `Detail: …` for a steward. A partial data fetch names the counts and each failed ticker with the parts that failed in
+  plain words ("HIMS: insider filings, prices") plus a reference; the raw per-part messages are logged under it and
+  shown to a steward only. A draft's own curated messages (discovery not ready, the counts it reports) and the
+  timeout are shown as worded.
 - **An explicit mapping keeps winning**: a route's own `HTTPException` (the duplicate-email 409 "that email is
   already in use", the own-cards 404, the daily-allowance 429, every domain 422) is answered as worded.
 - **The request-validation 422** keeps FastAPI's list shape (`loc`, `msg`, `type`, and `ctx` where present) but
@@ -301,6 +310,7 @@ python -m pipeline.users create --email bo@example.com --display-name Bo --passw
 python -m pipeline.users create --email cy@example.com --display-name Cy --workspace <uuid>         # attach to an existing workspace
 python -m pipeline.users disable --email bo@example.com      # sign-in refused; live sessions + tokens stop at once
 python -m pipeline.users enable --email bo@example.com       # the inverse
+python -m pipeline.users set-role --email bo@example.com --role super_admin   # or --role user; effective on the next request
 python -m pipeline.users reset-password --email bo@example.com [--password-stdin]   # also signs every session out
 python -m pipeline.users list                                # email, role, workspace, webhook flag, created, disabled, sessions, tokens; never a hash
 python -m pipeline.users token create --email op@example.com --name mcp   # prints the token ONCE
@@ -316,6 +326,11 @@ workspace id and name (and `webhook` when that USER set one on the Settings page
 does not set webhooks: each user sets their own. A workspace's pushes go to every enabled user of it who set a
 webhook; with none set, the env `SLACK_WEBHOOK_URL` serves only a super admin's workspace, and every other workspace
 gets the log (`FEED_LOOP.md`).
+`set-role` and `disable` refuse to leave no enabled super admin ("refused: this would leave no enabled super admin;
+promote another user first"): both lock every super admin row, apply the change, and roll back if none enabled would
+remain. To swap the super admin, promote the new one first, then demote the old one:
+`set-role --email new@example.com --role super_admin`, then `set-role --email old@example.com --role user`. A role
+change takes effect on the user's next request (the gate reads the role every time), for sessions and tokens alike.
 In a container: `docker exec -it alphadeck-backend-1 python -m pipeline.users …`.
 
 ## The first deploy (the operator's go at each step)

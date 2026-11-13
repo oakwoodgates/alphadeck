@@ -1743,7 +1743,7 @@
           "workbench"
         ],
         "summary": "Get Member Ingest Job",
-        "description": "POLL an on-promote new-member ingest job (kicked by ``POST /workbench/theses`` when a promote\nadded members). ``queued`` = waiting behind this thesis's running ingest; ``done`` \u2192 the summary of\nwhat landed; ``failed`` \u2192 an operator-facing ``error`` (VISIBLE, never silent \u2014 the nightly cron\nremains the backstop that ingests everything regardless). **404** if the job is unknown / expired,\nor the registry was wiped by a restart \u2014 the FE shows a visible \"lost from view\" line (never an\ninfinite spinner). The thesis must be the caller's (else 404) and the job_id must belong to it.",
+        "description": "POLL an on-promote new-member ingest job (kicked by ``POST /workbench/theses`` when a promote\nadded members). ``queued`` = waiting behind this thesis's running ingest; ``done`` \u2192 the summary of\nwhat landed; ``failed`` \u2192 an operator-facing ``error`` (VISIBLE, never silent \u2014 the nightly cron\nremains the backstop that ingests everything regardless). An unexpected fault reads as a fixed sentence\nand a reference, and a partial failure names each failed ticker and its legs plus a reference; a steward\nalso sees the underlying error (docs/AUTH.md \u00a7Errors). **404** if the job is unknown / expired,\nor the registry was wiped by a restart \u2014 the FE shows a visible \"lost from view\" line (never an\ninfinite spinner). The thesis must be the caller's (else 404) and the job_id must belong to it.",
         "operationId": "get_member_ingest_job_workbench_theses__thesis_id__ingest_jobs__job_id__get",
         "parameters": [
           {
@@ -2020,7 +2020,7 @@
           "workbench"
         ],
         "summary": "Get Draft Chain Job",
-        "description": "POLL a kicked-off draft job. ``done`` \u2192 the ``result`` (a ChainDraftOut); ``failed`` \u2192 an operator-facing\n``error`` (discovery-not-ready, a timeout, or an unexpected fault \u2014 VISIBLE, #9). **404** if the job is\nunknown / expired, or the registry was wiped by a restart \u2014 the FE shows a visible \"draft was lost\" (never an\ninfinite spinner). The thesis must be the caller's (else 404) and the job_id must belong to it.",
+        "description": "POLL a kicked-off draft job. ``done`` \u2192 the ``result`` (a ChainDraftOut); ``failed`` \u2192 an operator-facing\n``error`` (discovery-not-ready, a timeout, or an unexpected fault \u2014 VISIBLE, #9). An unexpected fault reads as a\nfixed sentence and a reference; a steward also sees the underlying error (docs/AUTH.md \u00a7Errors). **404** if the job is\nunknown / expired, or the registry was wiped by a restart \u2014 the FE shows a visible \"draft was lost\" (never an\ninfinite spinner). The thesis must be the caller's (else 404) and the job_id must belong to it.",
         "operationId": "get_draft_chain_job_workbench_theses__thesis_id__draft_chain_jobs__job_id__get",
         "parameters": [
           {
