@@ -1127,8 +1127,13 @@ def test_the_warm_up_is_the_last_step_of_the_nightly_wake_after_the_editions_pag
     (at,) = calls
     boot_end = code.index('if [ "${CRON_EXIT_AFTER_BOOT:-}" = 1 ]; then')
     assert at > code.index("while :; do", boot_end)  # never in the boot block
-    # after the backup, the editions page and the dashboards' change log prune (2026-11-11)
-    assert code[at - 2 : at] == ['editions_nightly "${target}"', "prune_change_log"]
+    # after the backup, the editions page, the sign-in prune (security PR 5) and the dashboards' change log prune
+    # (2026-11-11), which stays right before the warm-up
+    assert code[at - 3 : at] == [
+        'editions_nightly "${target}"',
+        "prune_expired",
+        "prune_change_log",
+    ]
     assert code[at + 1 : at + 3] == ["fi", "done"]  # and nothing follows it in the wake
     assert [ln for ln in code if "pipeline.warm_dashboards" in ln] == [
         'timeout -k 30 "${WARM_DASHBOARDS_TIMEOUT_S}" python -m pipeline.warm_dashboards --night "$1"'

@@ -562,6 +562,23 @@ prune_change_log() {
   return 0
 }
 
+# prune_expired -> the sign-in tables' nightly prune (`python -m db.housekeeping --prune`, security PR 5): deletes
+# expired OAuth codes and tokens, undecided sign-in requests, unused self-registered clients, long-expired or
+# revoked browser sessions and old daily-allowance counts, each kept ALPHADECK_PRUNE_*_DAYS past its expiry
+# (docs/AUTH.md §Housekeeping); never a grant, an API token or a user. Nothing about it touches the call-of-record,
+# so it sits here, right after `prune_change_log`. Bounded by `timeout` (300 s), FAIL-OPEN and ALWAYS returns 0:
+# the CLI prints its one line of counts; a failure or a timeout is one log line here.
+prune_expired() {
+  timeout -k 10 300 python -m db.housekeeping --prune
+  _pe_rc=$?
+  case "${_pe_rc}" in
+    0) ;;
+    124) echo "daily-cron: sign-in housekeeping TIMED OUT after 300s (continuing; the next night prunes)" ;;
+    *) echo "daily-cron: sign-in housekeeping FAILED (exit ${_pe_rc}) (continuing; the next night prunes)" ;;
+  esac
+  return 0
+}
+
 # onboard_loop -> X1, THE SECOND SCHEDULE: the staged cold-ingest job (`python -m pipeline.onboarding`), fired
 # every ONBOARD_EVERY_S after the previous run ENDS (so two runs never overlap), forever, in the background of
 # this one sidecar. The loop is deliberately dumb — every rule lives in the job and is checked there:
@@ -873,6 +890,8 @@ while :; do
     # Editions S5 — the Scoreboard editions' nightly page, AFTER the backup (so the dump never waits on it and
     # never captures a half-run), in this scheduling layer (never run_daily_pass). Fail-open; see the function.
     editions_nightly "${target}"
+    # The sign-in tables' prune (expired sessions, codes, tokens, stale requests; security PR 5). Fail-open.
+    prune_expired
     # The dashboards' change log prune (rows older than 24 hours), just before the warm-up. Fail-open.
     prune_change_log
     # The dashboards' cache warm-up, LAST: after the pass, the backup and the editions page, so the cache it fills
