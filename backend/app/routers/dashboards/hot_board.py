@@ -60,6 +60,7 @@ from dashboards.hot_board import (
 from dashboards.market_cap import CompanyReads, Gap, cap_cell
 from dashboards.series import session_calendar
 from domain.enums import Grade, Kind, State, Verdict
+from domain.links import HttpUrlOut
 from domain.market_cap import CapTier
 from domain.market_time import countdown_origin, market_clock, serve_view
 from domain.scopes import DATA_TENANT_ID
@@ -103,7 +104,7 @@ class HotSourceOut(_Wire):
 
     source: str
     ref: str
-    url: str | None
+    url: HttpUrlOut
 
 
 class HotTriggerOut(_Wire):

@@ -2,6 +2,7 @@
 // All values are DATA-DERIVED (the scoring engine, Slice 3); nothing here invents a number.
 
 import type { ContextRole, ProvenanceOut, ScoredFigureOut } from "../api/hooks";
+import { safeHttpUrl } from "../components/ExternalLink";
 
 // the business-type labels live in the shared util/format (the Cockpit board uses them too); re-exported
 // here so the Workbench / DDRail call sites import them alongside the other display helpers.
@@ -332,10 +333,6 @@ function sourceLabel(source: string): string {
   return SOURCE_LABEL[source] ?? source;
 }
 
-function isHttpUrl(s: string): boolean {
-  return s.startsWith("http://") || s.startsWith("https://");
-}
-
 /** A provenance chip: a short, sourced pointer "behind the scores". Clickable to its source when
  *  resolvable — the wire's `url` (filing sources with a known issuer CIK) OR a `ref` that is itself a
  *  full EDGAR/award URL (the seed stores full filing URLs in `ref`). Price/computed refs stay plain.
@@ -351,7 +348,7 @@ export function provChip(p: ProvenanceOut): ProvChip {
     const date = p.ref.startsWith("price:") ? p.ref.slice("price:".length) : p.ref;
     return { text: `price · ${date}`, url: p.url ?? null, title: p.ref };
   }
-  const url = p.url ?? (isHttpUrl(p.ref) ? p.ref : null);
+  const url = p.url ?? safeHttpUrl(p.ref);
   return { text: sourceLabel(p.source), url, title: p.ref };
 }
 

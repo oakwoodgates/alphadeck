@@ -40,6 +40,7 @@ import type {
   LookupTrigger,
   TickerLookupOut,
 } from "./useTickerLookup";
+import { ExternalLink, isSecLink } from "../../components/ExternalLink";
 
 // The Ticker Lookup's seven sections (docs/dashboards/ticker-lookup.md), each stating the n it rests on. Display
 // only: every figure arrives computed; these draw it. Loudness marks the exception only (#7 / WB#3): the one accent
@@ -84,9 +85,12 @@ export function IdentitySection({ d }: { d: TickerLookupOut }) {
           <dt>CIK</dt>
           <dd>
             {i.cik && i.edgar_url ? (
-              <a href={i.edgar_url} target="_blank" rel="noopener noreferrer" title="Open the company on EDGAR">
+              <ExternalLink
+                href={i.edgar_url}
+                title={isSecLink(i.edgar_url) ? "Open the company on EDGAR" : "Open the stored source"}
+              >
                 {i.cik} ↗
-              </a>
+              </ExternalLink>
             ) : (
               "—"
             )}
@@ -284,15 +288,9 @@ function TriggerLine({ e, onSelectThesis }: { e: LookupTrigger; onSelectThesis: 
           ? "—"
           : e.sources.map((s, idx) =>
               s.url ? (
-                <a
-                  key={idx}
-                  href={s.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title={s.detail.join("\n") || s.ref}
-                >
+                <ExternalLink key={idx} href={s.url} title={s.detail.join("\n") || s.ref}>
                   {sourceLabel(s)} ↗
-                </a>
+                </ExternalLink>
               ) : (
                 <span key={idx} title={s.detail.join("\n") || s.ref}>
                   {sourceLabel(s)}
@@ -475,7 +473,7 @@ function FilingLine({
   const hint = usdHint(row);
   const ratified = ratifiedWords(row);
   const expandable = row.detail.length > 0;
-  const source = row.url?.includes("sec.gov") ? "EDGAR" : "source";
+  const source = isSecLink(row.url) ? "EDGAR" : "source";
   return (
     <li className={`tl-frow${open ? " open" : ""}`} data-testid="tl-filing" data-kind={row.kind}>
       <div className="tl-fline">
@@ -500,15 +498,13 @@ function FilingLine({
         </span>
         <span className="tl-usd">{hint}</span>
         {row.url ? (
-          <a
+          <ExternalLink
             className="tl-fsrc"
             href={row.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label={`Open ${row.form} on ${source === "EDGAR" ? "EDGAR" : "its source"}`}
+            ariaLabel={`Open ${row.form} on ${source === "EDGAR" ? "EDGAR" : "its source"}`}
           >
             {source} ↗
-          </a>
+          </ExternalLink>
         ) : (
           <span className="tl-fsrc none" />
         )}
@@ -667,9 +663,7 @@ export function CatalystsSection({ d, onSelectThesis }: { d: TickerLookupOut; on
                 <span className="tl-clabel">{f.headline}</span>
                 {ratified && <span className="tl-quiet">{ratified}</span>}
                 {f.url && (
-                  <a href={f.url} target="_blank" rel="noopener noreferrer">
-                    source ↗
-                  </a>
+                  <ExternalLink href={f.url}>source ↗</ExternalLink>
                 )}
               </li>
             );

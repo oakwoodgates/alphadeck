@@ -4,6 +4,7 @@ import { useExplainFlag, useExtract, useRatifyFact, type ExtractedFact } from ".
 import { refusalText } from "../api/refusals";
 import { AutoTextarea } from "./AutoTextarea";
 import { errText, type OnFileFact, type OnFileMap } from "./format";
+import { ExternalLink } from "../components/ExternalLink";
 
 const METER_LABEL: Record<string, string> = {
   revenue_mix: "purity",
@@ -380,15 +381,9 @@ function RatifyRow({
       {showPassages &&
         passages.map((p, i) => (
           <div className="located" key={i}>
-            <a
-              className="chip"
-              href={p.source_ref}
-              target="_blank"
-              rel="noreferrer"
-              title={p.source_ref}
-            >
+            <ExternalLink className="chip" href={p.source_ref} title={p.source_ref}>
               {p.kind} · {p.anchor} ↗
-            </a>
+            </ExternalLink>
             {/* clamp only what's actually long — the fade must never eat a short passage */}
             <div className={`excerpt${!expanded && p.excerpt.length > 420 ? " clamped" : ""}`}>
               {p.excerpt}

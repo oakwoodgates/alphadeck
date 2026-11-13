@@ -3,6 +3,7 @@ import { DisplayHeadlineRow } from "../cockpit/DisplaySignalsSection";
 import { fmtDate } from "../util/format";
 import { type IdentityCell, ledgerRow } from "./ledger";
 import { eventSetAside, type OverlayEvent } from "./overlay";
+import { ExternalLink } from "../components/ExternalLink";
 
 // The per-episode event LEDGER (Slice B) — the tabular companion to the drawer chart. It lists the SAME
 // unified numbered events the chart draws (row #N ↔ chip #N, sharing the ONE `events` array from
@@ -79,15 +80,9 @@ export function EventLedger({
                     {/* the index rides in the key: two sources can resolve to the SAME filing url
                         (one accession, two refs), and a bare url key would collide */}
                     {r.links?.map((l, i) => (
-                      <a
-                        key={`${i}-${l.url}`}
-                        className="evled-link"
-                        href={l.url}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
+                      <ExternalLink key={`${i}-${l.url}`} className="evled-link" href={l.url}>
                         {l.label} ↗
-                      </a>
+                      </ExternalLink>
                     ))}
                   </td>
                 </tr>

@@ -6,6 +6,7 @@ import type {
   TriggerLogRowOut,
   TriggerLogSourceOut,
 } from "./useTriggerLog";
+import { isSecLink } from "../../components/ExternalLink";
 
 // The Trigger Log's pure view logic (docs/dashboards/trigger-log.md): the grouping (by week, kind or card), the
 // filters and their per-chip counts, and the words the page uses. Every row and count is computed server-side;
@@ -302,7 +303,7 @@ export type SourceView = {
  *  text, anything else as its kind; the detail lines on hover. */
 export function sourceView(s: TriggerLogSourceOut): SourceView {
   const title = [`${s.source}${s.ref ? ` · ${s.ref}` : ""}`, ...s.detail].join("\n");
-  if (s.url) return { text: s.url.includes("sec.gov") ? "EDGAR ↗" : "source ↗", href: s.url, title };
+  if (s.url) return { text: isSecLink(s.url) ? "EDGAR ↗" : "source ↗", href: s.url, title };
   if (s.bar_date) return { text: `bar ${fmtDate(s.bar_date)}`, href: null, title };
   return { text: s.source, href: null, title };
 }

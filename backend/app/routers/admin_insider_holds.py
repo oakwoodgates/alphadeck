@@ -50,6 +50,7 @@ from domain.insider_holds import (
     date_as_filed,
     reason_words,
 )
+from domain.links import HttpUrlOut
 from domain.settings import get_settings
 from repositories import insider_hold_repo
 from repositories.insider_hold_repo import HoldConflict, HoldItem
@@ -134,7 +135,7 @@ class AdminInsiderHoldOut(BaseModel):
     owed_why: str | None = None
     decision: AdminHoldDecisionOut | None = None
     history: list[AdminHoldDecisionOut] = Field(default_factory=list)
-    filing_url: str | None = None
+    filing_url: HttpUrlOut = None
 
 
 class AdminInsiderHoldsOut(BaseModel):

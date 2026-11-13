@@ -22,6 +22,7 @@ import {
   provNotes,
   supersectorLabel,
 } from "./format";
+import { ExternalLink } from "../components/ExternalLink";
 
 const METERS: { key: string; figure: (m: ScoredMemberOut) => ScoredFigureOut }[] = [
   { key: "purity", figure: (m) => m.purity },
@@ -44,16 +45,9 @@ function MeterProvenance({ meter, figure }: { meter: string; figure: ScoredFigur
           {figure.provenance.map((p, i) => {
             const chip = provChip(p);
             return chip.url ? (
-              <a
-                key={i}
-                className="chip"
-                href={chip.url}
-                target="_blank"
-                rel="noreferrer"
-                title={chip.title}
-              >
+              <ExternalLink key={i} className="chip" href={chip.url} title={chip.title}>
                 {chip.text} ↗
-              </a>
+              </ExternalLink>
             ) : (
               <span key={i} className="chip" title={chip.title}>
                 {chip.text}

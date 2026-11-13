@@ -46,6 +46,7 @@ from dashboards.read_through import (
 )
 from dashboards.read_through import read_through as compute_read_through
 from domain.enums import ContextRole
+from domain.links import HttpUrlOut
 from domain.market_time import countdown_origin, market_clock, serve_view
 from domain.scopes import DATA_TENANT_ID
 from repositories import thesis_repo
@@ -89,7 +90,7 @@ class ReadThroughFilingOut(_Wire):
     date: date
     days_ago: int
     headline: str
-    url: str | None
+    url: HttpUrlOut
     accession: str | None
 
 

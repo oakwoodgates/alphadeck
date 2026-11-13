@@ -3674,7 +3674,7 @@ export interface components {
             /** Pct Owned */
             pct_owned?: number | null;
             /** Url */
-            url: string;
+            url: string | null;
             /**
              * Ingested
              * Format: date
@@ -8010,7 +8010,7 @@ export interface components {
             /** Items */
             items?: string[] | null;
             /** Url */
-            url: string;
+            url: string | null;
             /**
              * Ingested
              * Format: date
@@ -10497,7 +10497,7 @@ export interface components {
             /** Report Date */
             report_date?: string | null;
             /** Source Ref */
-            source_ref: string;
+            source_ref: string | null;
             /** Holdings Count */
             holdings_count: number;
             /** Net Assets */
@@ -11824,7 +11824,7 @@ export interface components {
              */
             public_date: string;
             /** Url */
-            url: string;
+            url: string | null;
             /**
              * Private To Public
              * @default false
@@ -17719,7 +17719,7 @@ export interface components {
             /** Accession */
             accession: string;
             /** Url */
-            url: string;
+            url: string | null;
             /**
              * Deal State
              * @enum {string}

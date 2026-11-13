@@ -35,6 +35,7 @@ import {
   type TabKey,
 } from "./tableView";
 import { useReadThrough, type ReadThroughRowOut, type ReadThroughSpyOut } from "./useReadThrough";
+import { ExternalLink, isSecLink } from "../../components/ExternalLink";
 
 // Read-Throughs (docs/dashboards/read-through.md): every company the operator tagged with a context role on a
 // card counted at the as-of, one row per company and role, with its cards, business type, newest filing,
@@ -239,7 +240,7 @@ export default function ReadThrough({ asof, onSelectThesis }: DashboardProps) {
                 const first = r.cards[0];
                 const filing = r.last_filing ? filingWords(r.last_filing) : null;
                 const next = r.next_catalyst ? catalystWords(r.next_catalyst, data.clock === "public") : null;
-                const edgar = r.last_filing?.url?.includes("sec.gov");
+                const edgar = isSecLink(r.last_filing?.url);
                 return (
                   <tr key={r.key} data-testid="rt-row">
                     <td className="rt-co">
@@ -289,16 +290,14 @@ export default function ReadThrough({ asof, onSelectThesis }: DashboardProps) {
                             {filing.short}
                           </span>
                           {r.last_filing.url && (
-                            <a
+                            <ExternalLink
                               className="rt-src"
                               href={r.last_filing.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
                               title={edgar ? "Open the filing on EDGAR" : "Open the stored source"}
-                              aria-label={`Open ${r.ticker} ${r.last_filing.form} on ${edgar ? "EDGAR" : "its source"}`}
+                              ariaLabel={`Open ${r.ticker} ${r.last_filing.form} on ${edgar ? "EDGAR" : "its source"}`}
                             >
                               {edgar ? "EDGAR" : "source"} ↗
-                            </a>
+                            </ExternalLink>
                           )}
                         </div>
                       ) : (

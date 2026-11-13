@@ -38,6 +38,7 @@ from dashboards.filing_stream import (
 )
 from dashboards.filings import FilingKind, FoldGroup, read_filing_rows
 from domain.enums import ContextRole
+from domain.links import HttpUrlOut
 from domain.market_time import serve_view
 from repositories import thesis_repo
 
@@ -106,7 +107,7 @@ class FilingStreamRowOut(_Wire):
     date: date
     headline: str
     detail: list[str]
-    url: str | None
+    url: HttpUrlOut
     accession: str | None
     tags: list[str]
     routine: bool

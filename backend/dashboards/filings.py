@@ -91,6 +91,7 @@ from db.clock import db_now
 from domain.insider_amendments import AMENDS_ACCESSION
 from domain.insider_internal_transfers import is_internal_transfer, transfer_with
 from domain.insider_joint_reports import JOINT_REPORTERS
+from domain.links import safe_http_url
 from domain.market_time import market_tz
 from domain.scopes import DATA_TENANT_ID
 from domain.splits import ratio_label
@@ -313,7 +314,6 @@ def _plural(n: int, one: str, many: str) -> str:
 # --- the source URL -----------------------------------------------------------------------------------------
 
 _ACCESSION = re.compile(r"\d{18}")
-_HTTP = re.compile(r"https?://\S+", re.I)
 
 
 def filing_index_url(cik: str | None, accession: str | None) -> str | None:
@@ -330,14 +330,14 @@ def filing_index_url(cik: str | None, accession: str | None) -> str | None:
 
 
 def source_url(source_ref: Any, cik: str | None) -> str | None:
-    """A stored ``source_ref`` as a link: an http(s) URL as is, an accession-shaped reference through the EDGAR
-    index, anything else (an award id, a free-text reference) no link."""
+    """A stored ``source_ref`` as a link: an http(s) URL that passes the one wire rule
+    (``domain.links.safe_http_url``: a host, no credentials, no whitespace, at most 2,000 characters) as is, an
+    accession-shaped reference through the EDGAR index, anything else (an award id, a free-text reference, a
+    URL that fails the rule) no link."""
     if not isinstance(source_ref, str):
         return None
     ref = source_ref.strip()
-    if _HTTP.fullmatch(ref):
-        return ref
-    return filing_index_url(cik, ref)
+    return safe_http_url(ref) or filing_index_url(cik, ref)
 
 
 def _accession_of(source_ref: Any) -> str | None:
@@ -968,7 +968,7 @@ def rows_from_splits(
                 date=published,
                 headline=f"{ratio_label(rf, rt)}" + (f", effective {eff}" if eff else ""),
                 detail=tuple(detail),
-                url=r.get("sec_url") if _HTTP.fullmatch(str(r.get("sec_url") or "")) else None,
+                url=safe_http_url(r.get("sec_url")),
                 accession=str(r["sec_accession"]) if r.get("sec_accession") else None,
                 tags=tags.get(status, ()),
             )

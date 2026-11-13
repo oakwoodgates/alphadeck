@@ -34,6 +34,7 @@ from dashboards.entry_windows import (
 )
 from domain.call import CallCard
 from domain.enums import Grade, Kind
+from domain.links import HttpUrlOut
 from domain.market_time import countdown_origin, market_clock, serve_view
 from domain.scopes import DATA_TENANT_ID
 from securities import master
@@ -69,7 +70,7 @@ class EntryWindowsSourceOut(_Wire):
 
     source: str
     ref: str
-    url: str | None
+    url: HttpUrlOut
 
 
 class EntryWindowsTriggerOut(_Wire):

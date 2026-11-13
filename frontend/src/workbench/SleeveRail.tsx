@@ -5,6 +5,7 @@ import { useDisplaySignals, useEtfHoldings } from "../api/hooks";
 import { refusalText } from "../api/refusals";
 import { GLYPH, fmtMetricValue } from "../cockpit/DisplaySignalsSection";
 import { errText, formatMarketCap, sleevePriceLabel } from "./format";
+import { ExternalLink } from "../components/ExternalLink";
 
 /** One holding line: weight · ticker/name · the filing's identifier (some filers list equity holdings
  *  with no ticker at all — then name+CUSIP/ISIN IS the identity; shown, never dropped, #9). `action` is
@@ -191,14 +192,9 @@ export function SleeveRail({
                 {hd.holdings_count} holdings · {hd.held.length} in basket · {hd.available.length} in
                 master · {hd.unresolved.length} unresolved
               </span>
-              <a
-                href={hd.source_ref}
-                target="_blank"
-                rel="noreferrer"
-                title="the N-PORT filing this list traces to"
-              >
+              <ExternalLink href={hd.source_ref} title="the N-PORT filing this list traces to">
                 N-PORT{hd.report_date ? ` as-of ${hd.report_date}` : ""} ↗
-              </a>
+              </ExternalLink>
             </div>
             {/* the fund internals — AUM + the gross/liabilities composition it nets down from, off the
                 SAME N-PORT the holdings trace to (no extra pull). Display context (#4/#6), never a

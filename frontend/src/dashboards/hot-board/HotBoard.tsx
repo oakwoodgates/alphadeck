@@ -49,6 +49,7 @@ import {
   type TierPick,
 } from "./hotView";
 import { useHotBoard, type HotRowOut } from "./useHotBoard";
+import { ExternalLink } from "../../components/ExternalLink";
 
 // Hot Board (docs/dashboards/hot-board.md): every name the RECORD shows Armed, one row each, ranked by a stated heat
 // formula. A tape, not a document: dense rows, tabular numerals in the mono font, a sticky header, no cards and
@@ -164,9 +165,9 @@ function KeysCell({ r }: { r: HotRowOut }) {
               <span>{triggerLine(t)}</span>
               {t.sources.map((s, j) =>
                 s.url ? (
-                  <a key={j} href={s.url} target="_blank" rel="noreferrer">
+                  <ExternalLink key={j} href={s.url}>
                     {s.source} {s.ref}
-                  </a>
+                  </ExternalLink>
                 ) : (
                   <span key={j} className="hb-src">
                     {s.source} {s.ref}

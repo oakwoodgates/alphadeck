@@ -10,7 +10,6 @@ import type {
   InsiderSellOut,
   MemberDisplaySignalsOut,
   PriceBar,
-  ProvenanceOut,
   ScoreboardEpisodeOut,
   TriggerRefOut,
 } from "../api/hooks";
@@ -18,6 +17,7 @@ import { closeReasonLabel, fmtReturn } from "./rows";
 // overlay → scorecard → rows is acyclic (scorecard imports only ../api/hooks + ./rows — checked); if
 // scorecard ever came to need overlay, move these two guards into rows.ts instead of closing the loop.
 import { fmtPrice, noForwardBar } from "./scorecard";
+import { safeHttpUrl } from "../components/ExternalLink";
 
 // Pure overlay logic for the drawer chart (Slice A, Revision 1): the default visible range, the STABLE
 // chronological 1..N numbering across the recorded event families (insider buy / arm trigger / lifecycle /
@@ -707,14 +707,6 @@ function activistTooltip(e: ActivistChipEvent): TooltipContent {
 // keeps the omission VISIBLE rather than a silent drop (#9, the same discipline as the chip overflow).
 const PROVENANCE_LINES = 2;
 
-/** A provenance ref's clickable target, or null when it has none. The server resolves `url` (the EDGAR
- *  index page) where it can and leaves it null otherwise — an unresolvable ref stays TEXT, never a
- *  fabricated href (#6). A `ref` that is itself an http(s) URL is honored as the fallback; anything
- *  else (an accession, a metric key) is not a link. */
-function provenanceHref(p: ProvenanceOut): string | null {
-  const u = p.url ?? p.ref;
-  return typeof u === "string" && /^https?:\/\//i.test(u) ? u : null;
-}
 
 export interface ProvenanceLink {
   label: string;
@@ -728,7 +720,11 @@ export interface ProvenanceLink {
 export function triggerLinks(t: TriggerRefOut): ProvenanceLink[] {
   const out: ProvenanceLink[] = [];
   for (const p of (t.sources ?? []).slice(0, PROVENANCE_LINES)) {
-    const url = provenanceHref(p);
+    // The server resolves `url` (the EDGAR index page) where it can and leaves it null otherwise — an
+    // unresolvable ref stays TEXT, never a fabricated href (#6). A `ref` that is itself an http(s) URL is
+    // honored as the fallback; anything else (an accession, a metric key) is not a link. One rule decides
+    // (ExternalLink's safeHttpUrl), and the anchor itself is an ExternalLink.
+    const url = safeHttpUrl(p.url ?? p.ref);
     if (url) out.push({ label: p.source, url });
   }
   return out;

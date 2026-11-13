@@ -12,6 +12,7 @@ import {
 } from "../api/hooks";
 import { errText } from "../workbench/format";
 import { confirmLine, polygonSays, rejectLine, secSays, splitSentence } from "./splitWords";
+import { ExternalLink } from "../components/ExternalLink";
 
 type Split = AdminSplitListEntryOut;
 
@@ -49,9 +50,9 @@ function Sides({ s }: { s: Split }) {
             <div>
               {sec.form ?? "filing"}{" "}
               {sec.url ? (
-                <a className="adm-link" href={sec.url} target="_blank" rel="noreferrer">
+                <ExternalLink className="adm-link" href={sec.url}>
                   {sec.accession}
-                </a>
+                </ExternalLink>
               ) : (
                 sec.accession
               )}{" "}
@@ -349,9 +350,9 @@ export function SplitList() {
                 {s.sec?.url ? (
                   <>
                     {" "}
-                    <a className="adm-link" href={s.sec.url} target="_blank" rel="noreferrer">
+                    <ExternalLink className="adm-link" href={s.sec.url}>
                       {s.sec.form ?? "SEC"} {s.sec.accession}
-                    </a>
+                    </ExternalLink>
                   </>
                 ) : null}{" "}
                 <button type="button" className="adm-minibtn" disabled={busy} onClick={() => revoke.mutate(id(s))}>

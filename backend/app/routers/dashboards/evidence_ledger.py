@@ -42,6 +42,7 @@ from dashboards.evidence_ledger import (
 from dashboards.filings import read_filing_rows
 from domain.call import CallCard
 from domain.enums import ContextRole
+from domain.links import HttpUrlOut
 from domain.market_time import serve_view
 from repositories import thesis_repo
 from securities import master
@@ -102,7 +103,7 @@ class EvidenceLedgerSourceOut(_Wire):
 
     source: str
     ref: str | None
-    url: str | None
+    url: HttpUrlOut
     detail: list[str]
 
 

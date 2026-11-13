@@ -41,6 +41,7 @@ import {
   type SortKey,
 } from "./quietView";
 import { useFormingQuietly, type FormingNameOut, type FormingRowOut, type RowState } from "./useFormingQuietly";
+import { ExternalLink } from "../../components/ExternalLink";
 
 // Forming Quietly (docs/dashboards/forming-quietly.md): the cards where a key has turned or signals are gathering but
 // nothing is Armed yet. The quietest page in the app (invariant #7): the tape look at its lowest energy, every figure
@@ -133,9 +134,9 @@ function NameChip({ n, onOpen }: { n: FormingNameOut; onOpen: () => void }) {
             <span>{triggerLine(t)}</span>
             {t.sources.map((s, j) =>
               s.url ? (
-                <a key={j} href={s.url} target="_blank" rel="noreferrer">
+                <ExternalLink key={j} href={s.url}>
                   {s.source} {s.ref}
-                </a>
+                </ExternalLink>
               ) : (
                 <span key={j} className="fq-src">
                   {s.source} {s.ref}

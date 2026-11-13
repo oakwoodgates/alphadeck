@@ -10,6 +10,7 @@ import {
   markTitle,
   rowLevel,
 } from "./dataFlags";
+import { ExternalLink } from "../components/ExternalLink";
 
 /** The row mark's glyph (a small flag; see `DataFlagMark`). */
 export const FLAG_GLYPH = "⚑";
@@ -107,9 +108,9 @@ export function DataFlagsSection({ member }: { member: MemberDataFlagsOut | null
             <div className="np-flag-meta">
               {(f.evidence ?? []).map((e, j) =>
                 e.url ? (
-                  <a key={j} className="np-flag-ev" href={e.url} target="_blank" rel="noreferrer">
+                  <ExternalLink key={j} className="np-flag-ev" href={e.url}>
                     {e.label}
-                  </a>
+                  </ExternalLink>
                 ) : (
                   <span key={j} className="np-flag-ev">
                     {e.label}
@@ -130,9 +131,9 @@ export function DataFlagsSection({ member }: { member: MemberDataFlagsOut | null
             {s.sec_url && (
               <>
                 {" "}
-                <a className="np-flag-ev" href={s.sec_url} target="_blank" rel="noreferrer">
+                <ExternalLink className="np-flag-ev" href={s.sec_url}>
                   SEC {s.sec_form ?? "filing"}
-                </a>
+                </ExternalLink>
               </>
             )}
           </div>

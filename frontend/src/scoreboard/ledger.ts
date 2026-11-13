@@ -88,7 +88,8 @@ export function ledgerRow(e: OverlayEvent, hideIngest = false): LedgerRow {
       ...base,
       type: e.event.form,
       detail: lines.join(" · "),
-      links: [{ label: "filing index", url: e.event.url }],
+      // the server sends null for a stored link that fails the wire rule (security PR 4a): then no jump
+      links: e.event.url ? [{ label: "filing index", url: e.event.url }] : [],
     };
   }
   if (e.family === "activist") {
@@ -100,7 +101,7 @@ export function ledgerRow(e: OverlayEvent, hideIngest = false): LedgerRow {
       ...base,
       type: e.stake.form,
       detail: lines.join(" · "),
-      links: [{ label: "filing index", url: e.stake.url }],
+      links: e.stake.url ? [{ label: "filing index", url: e.stake.url }] : [],
     };
   }
   if (e.family === "trigger") {

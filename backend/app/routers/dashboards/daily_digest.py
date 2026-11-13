@@ -58,6 +58,7 @@ from dashboards.nights import CardNights, Night, Scope
 from dashboards.what_changed import Change, Section, security_ids
 from domain.call import CallCard
 from domain.enums import Kind, State
+from domain.links import HttpUrlOut
 from domain.market_time import countdown_origin, market_clock, serve_view
 from domain.scopes import DATA_TENANT_ID
 from domain.splits import listed_from_row
@@ -129,7 +130,7 @@ class DigestSourceOut(_Wire):
 
     source: str
     ref: str
-    url: str | None
+    url: HttpUrlOut
 
 
 class DigestLineOut(_Wire):
@@ -326,7 +327,7 @@ class DigestBuyRowOut(_Wire):
     ticker: str
     accession: str | None
     form: str
-    url: str | None
+    url: HttpUrlOut
     filed: date
     trade_date: date | None
     filed_days_after: int | None

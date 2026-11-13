@@ -50,6 +50,7 @@ from dashboards.market_cap import CapCell, CompanyReads, cap_cell
 from dashboards.nights import CardNights, Night, Scope
 from dashboards.series import BENCHMARK, SinceStatus
 from domain.call import CallCard
+from domain.links import HttpUrlOut
 from domain.market_time import serve_view
 from domain.scopes import DATA_TENANT_ID
 from domain.splits import listed_from_row
@@ -159,7 +160,7 @@ class InsiderTrackerRowOut(_Wire):
     ticker: str
     accession: str | None
     form: str
-    url: str | None
+    url: HttpUrlOut
     filed: date
     week: date
     trade_date: date | None
