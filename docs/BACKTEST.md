@@ -486,6 +486,28 @@ That writer string is also a rule for any pass: **run every window and every poi
 venv**, or artifacts that are identical row for row will differ byte for byte and the mirror hash with
 them, for no reason anybody can see later. It is stated in the launcher's docstring.
 
+**What the mirror hash promises.** `mirror.hash` is a sha256 over the sorted `(file name, size, sha256)` of
+every `*.parquet` file in the mirror folder (`backtest/manifest.py::mirror_hash`).
+
+- **Same stored rows plus the same pyarrow build give the same hash, whatever plan Postgres picks.** Every
+  export file is written in a total order: record-clock files in `(recorded_at, id)` order since 2026-11-13
+  (`replay/export.py::_EXPORT_ORDER`), public-clock fact files one row per `(identity, public instant)`, sorted
+  on exactly that. "Whatever machine" is NOT promised: the Parquet writer stamps its pyarrow build into every
+  file, and pyarrow is not pinned, so two venvs can write different bytes for the same rows (the one-venv rule
+  above).
+- **Record mirrors exported before 2026-11-13 cannot be reproduced by a re-export.** Their fact files came out
+  in whatever order the plan returned, so a fresh record export of unchanged data quotes a different hash,
+  once. Their stored hashes still verify their stored files, so `rebench`, `slice_nulls` and a sweep resume
+  keep accepting them. Do not re-export, re-hash or rewrite an old mirror for this, and do not read a pre- and
+  a post-2026-11-13 record curve as one tape because the data did not change. Public mirrors (the archive's
+  keeper and every editions mirror) did not change at all.
+- **A self-exported run's hash also covers its results.** When a run exports its own mirror, the mirror folder
+  IS the run folder, and the hash is taken after `episodes.parquet` and `outcomes.parquet` are written there.
+  So two self-exported runs over the same facts with different dials quote different mirror hashes. A shared
+  mirror (a sweep, `--mirror-dir`) has no such files in it, so its hash covers the facts alone. Left as is on
+  purpose: changing what is hashed would make `rebench` and `slice_nulls` refuse every existing self-exported
+  run.
+
 **The dominant term moved.** After the memo a six-week run is replay (76 s at 6 workers) plus a one-time
 export (57 s, paid ONCE per pass under a shared mirror); the nulls are noise. That inverts the reason the
 window split existed — see below.
