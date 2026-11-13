@@ -8,6 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import psycopg
+import pyarrow as pa
 import pyarrow.parquet as pq
 
 from backtest.manifest import mirror_hash
@@ -227,12 +228,25 @@ def _seed_contract(db: psycopg.Connection, sid: uuid.UUID) -> None:
     db.commit()
 
 
+def _rows(path: Path) -> list[dict]:
+    """The file's rows, each timestamp as its integer instant (microseconds since the epoch, which orders
+    exactly as the timestamp does). Not ``to_pylist`` on the timestamps themselves: once ``replay.pit`` has
+    installed its pandas sentinel in this process, pyarrow's timestamp-to-Python conversion raises.
+    """
+    t = pq.read_table(path)
+    cols = [
+        t.column(i).cast(pa.int64()) if pa.types.is_timestamp(f.type) else t.column(i)
+        for i, f in enumerate(t.schema)
+    ]
+    return pa.table(cols, names=t.schema.names).to_pylist()
+
+
 def _strictly_increasing(keys: list[tuple]) -> bool:
     return all(a < b for a, b in zip(keys, keys[1:], strict=False))
 
 
 def _check_record_file(path: Path) -> None:
-    t = pq.read_table(path).to_pylist()
+    t = _rows(path)
     name = path.stem
     if name == "security_cik":
         keys = [(r["security_id"], r["cik"]) for r in t]
@@ -257,7 +271,7 @@ def test_every_record_file_is_sorted_by_recorded_at_then_id(db, security_id, tmp
 
 
 def _check_public_file(path: Path) -> None:
-    t = pq.read_table(path).to_pylist()
+    t = _rows(path)
     name = path.stem
     if name in FACT_TABLES:
         # one tenant here, so ``tenant_id`` stays in the key (``export._read_table_public`` drops it only for
