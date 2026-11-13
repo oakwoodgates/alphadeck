@@ -131,4 +131,29 @@ describe("useSectionData — the per-section prices + extraction runner", () => 
     act(() => result.current.reset());
     expect(result.current.report).toBeNull();
   });
+
+  it("carries the API's own refusal (an allowance 429 / the own-cards 404) so the screen can show it", async () => {
+    const msg =
+      "Daily allowance reached: 5,000 price pulls a day. It resets at midnight America/New_York time.";
+    h.post.mockResolvedValue({ data: null, error: { detail: msg } });
+    const qc = new QueryClient();
+    const { result } = renderHook(() => useSectionData("t1"), { wrapper: wrapperWith(qc) });
+    await act(async () => {
+      await result.current.run([M("s-1", "AAA"), M("s-2", "BBB")]);
+    });
+    expect(result.current.report?.refusal).toBe(msg);
+    expect(result.current.report?.failures).toEqual([
+      { ticker: "AAA", what: "price" },
+      { ticker: "BBB", what: "price" },
+    ]);
+  });
+
+  it("has no refusal when nothing was refused", async () => {
+    const qc = new QueryClient();
+    const { result } = renderHook(() => useSectionData("t1"), { wrapper: wrapperWith(qc) });
+    await act(async () => {
+      await result.current.run([M("s-1", "AAA")]);
+    });
+    expect(result.current.report?.refusal).toBeUndefined();
+  });
 });

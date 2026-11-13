@@ -1118,6 +1118,10 @@ export function Workbench({ header, asof }: Props) {
                         name below
                       </span>
                     )}
+                    {sectionData.report?.refusal && (
+                      // the API's own refusal (security hardening PR 1b), worded as the API words it
+                      <span className="note err">{sectionData.report.refusal}</span>
+                    )}
                     {sectionData.report && sectionData.report.failures.length > 0 && (
                       <span className="flag">
                         ⚑ failed:{" "}

@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { api } from "./client";
 import { MONITOR_STALE_MS } from "./queryClient";
+import { refusalText } from "./refusals";
 import type { components } from "./types.gen";
 
 // Refresh every cross-card dashboard read after a write that can change what one shows. A PREFIX
@@ -1116,6 +1117,9 @@ export interface SectionDataReport {
   // fact the operator didn't type is never written silently (#6)
   sharesAuto: number;
   failures: { ticker: string; what: string }[];
+  // the API's own refusal when a leg was refused (security hardening PR 1b: a name not on your cards, or today's
+  // allowance spent), worded as the API words it, so the screen shows WHY rather than only "failed"; absent else
+  refusal?: string;
 }
 
 // The SECTION runner — gate 2 at value-chain-section granularity: for every member the caller passes
@@ -1165,9 +1169,13 @@ export function useSectionData(thesisId: string) {
       }),
     );
     const failures: SectionDataReport["failures"] = [];
+    let refusal: string | null = null;
     for (const o of outcomes) {
       if (o.px.status === "rejected") failures.push({ ticker: o.ticker, what: "price" });
       if (o.ex.status === "rejected") failures.push({ ticker: o.ticker, what: "extract" });
+      for (const leg of [o.px, o.ex]) {
+        if (leg.status === "rejected") refusal = refusal ?? refusalText(leg.reason);
+      }
     }
     setReport({
       total: members.length,
@@ -1175,6 +1183,7 @@ export function useSectionData(thesisId: string) {
       extractsOk: outcomes.filter((o) => o.ex.status === "fulfilled").length,
       sharesAuto: outcomes.filter((o) => o.sharesAuto).length,
       failures,
+      ...(refusal ? { refusal } : {}),
     });
     setRunning(false);
     // ONE re-derive after the whole section lands (caps compute where shares are already ratified).

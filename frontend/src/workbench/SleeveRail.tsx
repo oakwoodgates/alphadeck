@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 import type { DisplaySignal, EtfHoldingOut, ScoredMemberOut } from "../api/hooks";
 import { useDisplaySignals, useEtfHoldings } from "../api/hooks";
+import { refusalText } from "../api/refusals";
 import { GLYPH, fmtMetricValue } from "../cockpit/DisplaySignalsSection";
 import { errText, formatMarketCap, sleevePriceLabel } from "./format";
 
@@ -278,6 +279,11 @@ export function SleeveRail({
           >
             {etfHoldings.error ? "⚠ retry holdings" : "⌾ pull holdings"}
           </button>
+        )}
+        {/* the API's fixed refusal (security hardening PR 1b: not on your cards, or today's allowance spent) reads
+            plainly; any other failure stays in the retry's hover */}
+        {refusalText(etfHoldings.error) && (
+          <div className="note err">{refusalText(etfHoldings.error)}</div>
         )}
       </div>
     </div>

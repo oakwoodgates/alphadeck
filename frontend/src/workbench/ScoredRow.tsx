@@ -1,5 +1,6 @@
 import type { ContextRole, ScoredMemberOut } from "../api/hooks";
 import { useAutoConfirmShares, useExtract, useIngestPrices } from "../api/hooks";
+import { refusalText } from "../api/refusals";
 import { Meter } from "./Meter";
 import {
   CONTEXT_ROLE_DESCRIPTION,
@@ -69,6 +70,8 @@ export function ScoredRow({ member, selected, onSelect, thesisId, asof, contextR
   // ratifying one fact hid the control while purity/cash were still outstanding — and auto-applying shares
   // would have INDUSTRIALIZED it: every clean name would self-confirm its shares and instantly go quiet with
   // two facts unratified. Counting what's left keeps the name honestly surfaced until it's actually done.
+  // the API's fixed refusal on this name's get data (own cards only / the daily allowance), shown as it is worded
+  const refusal = refusalText(extract.error) ?? refusalText(ingestPx.isError ? ingestPx.error : null);
   const onFile = onFileValues(member);
   const remaining = (facts ?? []).filter((f) => !onFile[f.fact_type]);
   const getData = async () => {
@@ -226,6 +229,9 @@ export function ScoredRow({ member, selected, onSelect, thesisId, asof, contextR
           </span>
         )}
       </div>
+      {/* the API's own refusal on get data (security hardening PR 1b: not on your cards, or today's allowance
+          spent) — an answer, not a breakage, so it reads plainly instead of hiding in a hover */}
+      {refusal && <div className="note err">{refusal}</div>}
       <div className="wb-meters">
         <Meter label="purity" figure={member.purity} />
         <Meter label="runway" figure={member.runway} />

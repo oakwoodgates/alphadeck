@@ -297,3 +297,27 @@ describe("SleeveRail — the fund sleeve's DD-rail holdings", () => {
     expect(screen.getByText("n/a: 3/30 sampled days")).toBeInTheDocument();
   });
 });
+
+// security hardening PR 1b: the API's fixed refusals on the holdings pull read as a visible line
+describe("SleeveRail — the fetch refusals", () => {
+  beforeEach(() => {
+    h.holdings.data = undefined;
+    h.holdings.isFetching = false;
+    h.display.data = undefined;
+  });
+
+  it("shows the daily-allowance 429 plainly beside the retry", () => {
+    const msg =
+      "Daily allowance reached: 1,000 holdings reads a day. It resets at midnight America/New_York time.";
+    h.holdings.error = { detail: msg };
+    renderSleeve();
+    expect(screen.getByText(msg)).toBeInTheDocument();
+    expect(screen.getByText("⚠ retry holdings")).toBeInTheDocument();
+  });
+
+  it("keeps any other failure in the hover only", () => {
+    h.holdings.error = { detail: "N-PORT pull failed: boom" };
+    renderSleeve();
+    expect(screen.queryByText(/N-PORT pull failed/)).not.toBeInTheDocument();
+  });
+});
