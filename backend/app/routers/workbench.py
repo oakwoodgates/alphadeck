@@ -10,7 +10,7 @@ import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import ValidationError
 
-from app import allowance
+from app import allowance, errors
 from app.auth import CurrentUser, require_super_admin, require_user
 from app.deps import (
     body_at_most,
@@ -901,20 +901,43 @@ def _run_member_ingest(
     if errored or busy:
         ok = summary["members"] - len(errored) - len(busy)
         parts = []
+        raw: str | None = None
         if errored:
-            detail = "; ".join(f"{r.ticker or r.security_id}: {r.error}" for r in errored)
-            parts.append(f"{len(errored)} failed — {detail}")
+            # D10 (the error contract): a plain user sees each failed ticker with its legs in plain words; the raw
+            # per-leg exception text is logged under a reference and shown to a steward only (``IngestJobError``)
+            named = "; ".join(f"{r.ticker or r.security_id}: {_failed_legs(r)}" for r in errored)
+            parts.append(f"{len(errored)} failed — {named}")
+            raw = "; ".join(f"{r.ticker or r.security_id}: {r.error}" for r in errored)
         if busy:
             detail = "; ".join(f"{r.ticker or r.security_id}: {r.lock_busy}" for r in busy)
             parts.append(
                 f"{len(busy)} not ingested here because another ingest was writing the same company "
                 f"(it lands from there) — {detail}"
             )
-        raise ingest_jobs.IngestJobError(
+        message = (
             f"ingested {ok} of {summary['members']} new names (+{summary['form4']} insider txns, "
             f"+{summary['price_bars']} price bars); " + "; ".join(parts)
         )
+        # a reference follows the message when there is raw detail, so end the sentence first
+        raise ingest_jobs.IngestJobError(message + "." if raw else message, detail=raw)
     return summary
+
+
+# The plain name of each ingest leg (``NameResult.leg_errors``), for the partial-failure message a plain user sees.
+_LEG_LABELS = {
+    "form4": "insider filings",
+    "form8k": "8-K filings",
+    "schedule13": "13D/G filings",
+    "price": "prices",
+    "fund_shares": "fund shares",
+    "master": "not in the company list",
+}
+
+
+def _failed_legs(result: ingest_thesis_mod.NameResult) -> str:
+    """The legs that failed for one name, in plain words (``insider filings, prices``), never their error text."""
+    legs = list(dict.fromkeys(_LEG_LABELS.get(leg, leg) for leg, _ in result.leg_errors))
+    return ", ".join(legs) if legs else "the fetch"
 
 
 def _kick_member_ingest(
@@ -1323,12 +1346,16 @@ def get_thesis_onboarding(
 
 @router.get("/theses/{thesis_id}/ingest/jobs/{job_id}", response_model=IngestJobStatusOut)
 def get_member_ingest_job(
-    job_id: str, thesis: Thesis = Depends(get_thesis_or_404)
+    job_id: str,
+    thesis: Thesis = Depends(get_thesis_or_404),
+    user: CurrentUser = Depends(require_user),
 ) -> IngestJobStatusOut:
     """POLL an on-promote new-member ingest job (kicked by ``POST /workbench/theses`` when a promote
     added members). ``queued`` = waiting behind this thesis's running ingest; ``done`` → the summary of
     what landed; ``failed`` → an operator-facing ``error`` (VISIBLE, never silent — the nightly cron
-    remains the backstop that ingests everything regardless). **404** if the job is unknown / expired,
+    remains the backstop that ingests everything regardless). An unexpected fault reads as a fixed sentence
+    and a reference, and a partial failure names each failed ticker and its legs plus a reference; a steward
+    also sees the underlying error (docs/AUTH.md §Errors). **404** if the job is unknown / expired,
     or the registry was wiped by a restart — the FE shows a visible "lost from view" line (never an
     infinite spinner). The thesis must be the caller's (else 404) and the job_id must belong to it.
     """
@@ -1339,7 +1366,18 @@ def get_member_ingest_job(
             detail="ingest job not found (it may have expired or the server restarted)",
         )
     return IngestJobStatusOut(
-        job_id=job.job_id, status=job.status, result=job.result, error=job.error
+        job_id=job.job_id, status=job.status, result=job.result, error=_job_error(job, user)
+    )
+
+
+def _job_error(job: ingest_jobs.IngestJob | DraftJob, user: CurrentUser) -> str | None:
+    """The ``error`` a job's poll answers: as stored, or (when the job logged a failure under a reference) the
+    error contract's text for this caller: the sentence and the reference, plus the detail for a steward.
+    """
+    if job.error is None or job.error_ref is None:
+        return job.error
+    return errors.message(
+        job.error, job.error_ref, job.error_detail or "", steward=user.is_super_admin
     )
 
 
@@ -1735,9 +1773,14 @@ def start_draft_chain(
 
 
 @router.get("/theses/{thesis_id}/draft-chain/jobs/{job_id}", response_model=DraftJobStatus)
-def get_draft_chain_job(job_id: str, thesis: Thesis = Depends(get_thesis_or_404)) -> DraftJobStatus:
+def get_draft_chain_job(
+    job_id: str,
+    thesis: Thesis = Depends(get_thesis_or_404),
+    user: CurrentUser = Depends(require_user),
+) -> DraftJobStatus:
     """POLL a kicked-off draft job. ``done`` → the ``result`` (a ChainDraftOut); ``failed`` → an operator-facing
-    ``error`` (discovery-not-ready, a timeout, or an unexpected fault — VISIBLE, #9). **404** if the job is
+    ``error`` (discovery-not-ready, a timeout, or an unexpected fault — VISIBLE, #9). An unexpected fault reads as a
+    fixed sentence and a reference; a steward also sees the underlying error (docs/AUTH.md §Errors). **404** if the job is
     unknown / expired, or the registry was wiped by a restart — the FE shows a visible "draft was lost" (never an
     infinite spinner). The thesis must be the caller's (else 404) and the job_id must belong to it.
     """
@@ -1747,7 +1790,9 @@ def get_draft_chain_job(job_id: str, thesis: Thesis = Depends(get_thesis_or_404)
             status_code=404,
             detail="draft job not found (it may have expired or the server restarted)",
         )
-    return DraftJobStatus(job_id=job.job_id, status=job.status, result=job.result, error=job.error)
+    return DraftJobStatus(
+        job_id=job.job_id, status=job.status, result=job.result, error=_job_error(job, user)
+    )
 
 
 # --- Run loader: seed the editable workbench from a saved draft run (the DISCOVER-stage cost-saver) ---

@@ -44,6 +44,7 @@ from time import monotonic
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
+from app import errors
 from domain.settings import get_settings
 
 _log = logging.getLogger("alphadeck.workbench")
@@ -80,6 +81,12 @@ class IngestJob:
     status: JobStatus = "running"
     result: Any = None  # set iff status == "done" (the summary the poll serves)
     error: str | None = None  # set iff status == "failed" — the operator-facing message
+    # The error contract (app/errors.py): for an UNEXPECTED fault ``error`` is the fixed sentence; for a curated
+    # failure that carries raw detail (the partial-failure summary's per-leg text) it is the curated message. Then
+    # ``error_ref`` is the reference the detail was logged under and ``error_detail`` the steward-only text; the poll
+    # builds the shown text (``errors.message``) once it knows the caller. Both None otherwise.
+    error_ref: str | None = None
+    error_detail: str | None = None
     created_at: float = field(default_factory=monotonic)
     finished_at: float | None = None
     last_polled_at: float | None = None
@@ -110,7 +117,13 @@ def has_room(thesis_id: UUID) -> bool:
 class IngestJobError(Exception):
     """An ingest run failed with an OPERATOR-FACING message (e.g. the per-name partial-failure summary).
     ``str(exc)`` is shown verbatim on the poll — the runner raises it with curated text (never a
-    stack-leak); any OTHER exception becomes a generic failed message + a logged traceback."""
+    stack-leak); any OTHER exception becomes the fixed sentence + a reference + a logged traceback.
+    ``detail`` is raw text a plain user must not see (the per-leg exception messages): it is logged under a
+    reference and shown to a steward only, after the message and the reference."""
+
+    def __init__(self, message: str, *, detail: str | None = None) -> None:
+        super().__init__(message)
+        self.detail = detail
 
 
 # The executor seam (the testability hinge, same as draft_jobs): prod spawns a daemon thread; tests
@@ -226,7 +239,9 @@ def _run_one(job: IngestJob) -> "IngestJob | None":
     for the caller to run next."""
     status: JobStatus = "failed"
     result: Any = None
-    error: str | None = "ingest failed"
+    error: str | None = errors.SENTENCES["fetch"]
+    ref: str | None = None
+    detail: str | None = None
     try:
         result = job.runner(frozenset(job.security_ids))
         status, error = "done", None
@@ -234,13 +249,21 @@ def _run_one(job: IngestJob) -> "IngestJob | None":
         IngestJobError
     ) as exc:  # a curated, operator-facing message (the partial-failure summary)
         error = str(exc)
-        _log.warning("ingest job %s (thesis %s) failed: %s", job.job_id, job.thesis_id, exc)
+        if exc.detail:
+            # the raw per-leg text: logged under a reference, shown to a steward only (the error contract)
+            ref, detail = errors.new_reference(), exc.detail
+            errors.log_failure(500, error, ref, exc, detail=detail)
+        else:
+            _log.warning("ingest job %s (thesis %s) failed: %s", job.job_id, job.thesis_id, exc)
     except Exception as exc:  # noqa: BLE001 — an unexpected fault becomes a visible failed job
-        _log.warning("ingest job %s (thesis %s) failed", job.job_id, job.thesis_id, exc_info=True)
-        error = f"ingest failed: {exc}"
+        # the error contract: the fixed sentence + a reference for everyone, the description for a steward only;
+        # the traceback is logged under the reference (logger ``alphadeck.errors``)
+        ref, detail = errors.new_reference(), errors.describe(exc)
+        errors.log_failure(500, errors.SENTENCES["fetch"], ref, exc)
     next_job: IngestJob | None = None
     with _lock:
         job.status, job.result, job.error, job.finished_at = status, result, error, monotonic()
+        job.error_ref, job.error_detail = ref, detail
         # release the slot ONLY if it still points at THIS job — a reaper timeout may have already freed
         # it and a newer job claimed the thesis; never release (or chain off) the newer job's claim.
         if _active_by_thesis.get(job.thesis_id) == job.job_id:

@@ -982,7 +982,9 @@ export interface paths {
          * @description POLL an on-promote new-member ingest job (kicked by ``POST /workbench/theses`` when a promote
          *     added members). ``queued`` = waiting behind this thesis's running ingest; ``done`` → the summary of
          *     what landed; ``failed`` → an operator-facing ``error`` (VISIBLE, never silent — the nightly cron
-         *     remains the backstop that ingests everything regardless). **404** if the job is unknown / expired,
+         *     remains the backstop that ingests everything regardless). An unexpected fault reads as a fixed sentence
+         *     and a reference, and a partial failure names each failed ticker and its legs plus a reference; a steward
+         *     also sees the underlying error (docs/AUTH.md §Errors). **404** if the job is unknown / expired,
          *     or the registry was wiped by a restart — the FE shows a visible "lost from view" line (never an
          *     infinite spinner). The thesis must be the caller's (else 404) and the job_id must belong to it.
          */
@@ -1138,7 +1140,8 @@ export interface paths {
         /**
          * Get Draft Chain Job
          * @description POLL a kicked-off draft job. ``done`` → the ``result`` (a ChainDraftOut); ``failed`` → an operator-facing
-         *     ``error`` (discovery-not-ready, a timeout, or an unexpected fault — VISIBLE, #9). **404** if the job is
+         *     ``error`` (discovery-not-ready, a timeout, or an unexpected fault — VISIBLE, #9). An unexpected fault reads as a
+         *     fixed sentence and a reference; a steward also sees the underlying error (docs/AUTH.md §Errors). **404** if the job is
          *     unknown / expired, or the registry was wiped by a restart — the FE shows a visible "draft was lost" (never an
          *     infinite spinner). The thesis must be the caller's (else 404) and the job_id must belong to it.
          */

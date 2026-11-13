@@ -7,6 +7,7 @@ There is no sign-up page and no email delivery: the super admin creates every ac
     python -m pipeline.users create --email cy@example.com --display-name Cy --workspace <uuid>
     python -m pipeline.users create --email bo@example.com --display-name Bo --password-stdin < pw.txt
     python -m pipeline.users disable --email bo@example.com        # sign-in refused; live sessions + tokens stop
+    python -m pipeline.users set-role --email bo@example.com --role super_admin   # or --role user
     python -m pipeline.users enable --email bo@example.com         # the inverse
     python -m pipeline.users reset-password --email bo@example.com [--password-stdin]
     python -m pipeline.users list                                  # email, role, workspace, webhook, created, disabled, sessions
@@ -27,6 +28,9 @@ database keeps an argon2id hash (passwords) or a sha256 (tokens). ``list`` never
 
 The functions take a connection and do NOT commit (the caller owns the transaction, the repo's rule); ``main``
 commits once per command. ``create`` of an email that exists (case-insensitively) refuses — it never overwrites.
+``set-role`` and ``disable`` refuse to leave no enabled super admin ("refused: this would leave no enabled super
+admin; promote another user first"). To swap the super admin: ``set-role --email new --role super_admin``, then
+``set-role --email old --role user``.
 """
 
 from __future__ import annotations
@@ -124,8 +128,24 @@ def _require_workspace(conn: psycopg.Connection, workspace_id: UUID) -> None:
 
 
 def set_disabled(conn: psycopg.Connection, email: str, disabled: bool) -> UUID:
+    """Disable or re-enable a user. Refuses to disable the last enabled super admin (the caller rolls back)."""
     row = _require_user(conn, email)
-    auth.set_disabled(conn, row["id"], disabled)
+    try:
+        auth.set_disabled(conn, row["id"], disabled)
+    except auth.LastSuperAdmin as exc:
+        raise UserError(str(exc)) from exc
+    return row["id"]
+
+
+def set_role(conn: psycopg.Connection, email: str, role: str) -> UUID:
+    """Set a user's role (``user`` or ``super_admin``), effective on the user's next request. Refuses a change that
+    would leave no enabled super admin (the caller rolls back): to swap the super admin, promote the new one first,
+    then demote the old one."""
+    row = _require_user(conn, email)
+    try:
+        auth.set_role(conn, row["id"], role)
+    except ValueError as exc:  # an unknown role, or LastSuperAdmin
+        raise UserError(str(exc)) from exc
     return row["id"]
 
 
@@ -196,6 +216,11 @@ def _build_parser() -> argparse.ArgumentParser:
     for name in ("disable", "enable"):
         d = sub.add_parser(name, help=f"{name} a user")
         d.add_argument("--email", required=True)
+    sr = sub.add_parser(
+        "set-role", help="change a user's role (refuses to leave no enabled super admin)"
+    )
+    sr.add_argument("--email", required=True)
+    sr.add_argument("--role", required=True, choices=auth.ROLES)
     r = sub.add_parser("reset-password", help="set a new password and sign every session out")
     r.add_argument("--email", required=True)
     r.add_argument("--password-stdin", action="store_true")
@@ -250,6 +275,10 @@ def run(
             uid = set_disabled(conn, args.email, args.cmd == "disable")
             conn.commit()
             emit(f"{args.cmd}d user {uid}")
+        elif args.cmd == "set-role":
+            uid = set_role(conn, args.email, args.role)
+            conn.commit()
+            emit(f"set role of user {uid} to {args.role}")
         elif args.cmd == "reset-password":
             pw = _read_password(stdin) if args.password_stdin else None
             generated = reset_password(conn, args.email, pw)

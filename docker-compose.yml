@@ -139,6 +139,30 @@ services:
       # when a pass still marked `running` can no longer be alive ("the last pass did not finish"). The
       # fallback mirrors the sidecar's and the code default (Settings.cron_run_timeout_s).
       ALPHADECK_CRON_RUN_TIMEOUT_S: ${ALPHADECK_CRON_RUN_TIMEOUT_S:-5400}
+      # Security hardening (docs/DEPLOY.md §Connections, docs/AUTH.md): the request and job connection timeouts,
+      # the background-job caps, the uvicorn in-flight bound, the login throttle and the daily allowance. Listed
+      # here so a value in `.env` reaches the container (compose passes an explicit list, no env_file). Numeric
+      # fallbacks that MUST EQUAL the Settings defaults (the uvicorn one: the Dockerfile's build-arg default);
+      # tests/domain/test_settings.py pins them. The uvicorn bound is read by the image's boot command (and by the
+      # dev/sig/fork overlays' --reload commands) from this container variable.
+      ALPHADECK_DB_CONNECT_TIMEOUT_S: ${ALPHADECK_DB_CONNECT_TIMEOUT_S:-5}
+      ALPHADECK_DB_STATEMENT_TIMEOUT_S: ${ALPHADECK_DB_STATEMENT_TIMEOUT_S:-300}
+      ALPHADECK_DB_LOCK_TIMEOUT_S: ${ALPHADECK_DB_LOCK_TIMEOUT_S:-5}
+      ALPHADECK_DB_IDLE_IN_TRANSACTION_TIMEOUT_S: ${ALPHADECK_DB_IDLE_IN_TRANSACTION_TIMEOUT_S:-120}
+      ALPHADECK_JOB_STATEMENT_TIMEOUT_S: ${ALPHADECK_JOB_STATEMENT_TIMEOUT_S:-900}
+      ALPHADECK_JOB_LOCK_TIMEOUT_S: ${ALPHADECK_JOB_LOCK_TIMEOUT_S:-30}
+      ALPHADECK_DRAFT_JOBS_MAX_RUNNING: ${ALPHADECK_DRAFT_JOBS_MAX_RUNNING:-4}
+      ALPHADECK_INGEST_JOBS_MAX_RUNNING: ${ALPHADECK_INGEST_JOBS_MAX_RUNNING:-4}
+      ALPHADECK_UVICORN_LIMIT_CONCURRENCY: ${ALPHADECK_UVICORN_LIMIT_CONCURRENCY:-64}
+      ALPHADECK_LOGIN_MAX_FAILURES: ${ALPHADECK_LOGIN_MAX_FAILURES:-5}
+      ALPHADECK_LOGIN_WINDOW_S: ${ALPHADECK_LOGIN_WINDOW_S:-60}
+      ALPHADECK_LOGIN_LOCKOUT_S: ${ALPHADECK_LOGIN_LOCKOUT_S:-60}
+      ALPHADECK_ALLOWANCE_EXTRACT_PER_DAY: ${ALPHADECK_ALLOWANCE_EXTRACT_PER_DAY:-5000}
+      ALPHADECK_ALLOWANCE_PRICE_PULL_PER_DAY: ${ALPHADECK_ALLOWANCE_PRICE_PULL_PER_DAY:-5000}
+      ALPHADECK_ALLOWANCE_AUTO_CONFIRM_PER_DAY: ${ALPHADECK_ALLOWANCE_AUTO_CONFIRM_PER_DAY:-2000}
+      ALPHADECK_ALLOWANCE_HOLDINGS_PER_DAY: ${ALPHADECK_ALLOWANCE_HOLDINGS_PER_DAY:-1000}
+      ALPHADECK_ALLOWANCE_CHAIN_DRAFT_PER_DAY: ${ALPHADECK_ALLOWANCE_CHAIN_DRAFT_PER_DAY:-100}
+      ALPHADECK_ALLOWANCE_TERM_RUN_PER_DAY: ${ALPHADECK_ALLOWANCE_TERM_RUN_PER_DAY:-200}
     depends_on:
       postgres:
         condition: service_healthy

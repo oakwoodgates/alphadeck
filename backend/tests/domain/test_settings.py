@@ -187,6 +187,84 @@ def test_compose_injects_the_fetch_and_budget_dials_into_BOTH_services_at_the_se
         assert all(float(v) == default for v in found), f"{var}: {found} != Settings {default}"
 
 
+# The security-hardening settings the backend container must receive (PR 2's timeouts and job caps, the login
+# throttle, the daily allowance), each mapped to its Settings field. Compose lists the environment explicitly (no
+# ``env_file``), so a variable missing here never reaches the container and its `.env` value is silently ignored.
+_BACKEND_PASSED_THROUGH = {
+    "ALPHADECK_DB_CONNECT_TIMEOUT_S": "db_connect_timeout_s",
+    "ALPHADECK_DB_STATEMENT_TIMEOUT_S": "db_statement_timeout_s",
+    "ALPHADECK_DB_LOCK_TIMEOUT_S": "db_lock_timeout_s",
+    "ALPHADECK_DB_IDLE_IN_TRANSACTION_TIMEOUT_S": "db_idle_in_transaction_timeout_s",
+    "ALPHADECK_JOB_STATEMENT_TIMEOUT_S": "job_statement_timeout_s",
+    "ALPHADECK_JOB_LOCK_TIMEOUT_S": "job_lock_timeout_s",
+    "ALPHADECK_DRAFT_JOBS_MAX_RUNNING": "draft_jobs_max_running",
+    "ALPHADECK_INGEST_JOBS_MAX_RUNNING": "ingest_jobs_max_running",
+    "ALPHADECK_LOGIN_MAX_FAILURES": "login_max_failures",
+    "ALPHADECK_LOGIN_WINDOW_S": "login_window_s",
+    "ALPHADECK_LOGIN_LOCKOUT_S": "login_lockout_s",
+    "ALPHADECK_ALLOWANCE_EXTRACT_PER_DAY": "allowance_extract_per_day",
+    "ALPHADECK_ALLOWANCE_PRICE_PULL_PER_DAY": "allowance_price_pull_per_day",
+    "ALPHADECK_ALLOWANCE_AUTO_CONFIRM_PER_DAY": "allowance_auto_confirm_per_day",
+    "ALPHADECK_ALLOWANCE_HOLDINGS_PER_DAY": "allowance_holdings_per_day",
+    "ALPHADECK_ALLOWANCE_CHAIN_DRAFT_PER_DAY": "allowance_chain_draft_per_day",
+    "ALPHADECK_ALLOWANCE_TERM_RUN_PER_DAY": "allowance_term_run_per_day",
+}
+
+
+def _compose_service_block(compose: str, service: str) -> str:
+    """The text of one top-level service in docker-compose.yml (from ``  <service>:`` to the next service)."""
+    import re
+
+    m = re.search(rf"^  {service}:\n(.*?)(?=^  [a-z_-]+:\n|^[a-z]+:\n|\Z)", compose, re.M | re.S)
+    assert m is not None, f"service {service} not found in docker-compose.yml"
+    return m.group(1)
+
+
+def test_compose_passes_the_hardening_settings_to_the_backend_at_the_settings_defaults(monkeypatch):
+    """Security cleanup (Part B item 1): every timeout, job cap, login-throttle and allowance setting is listed in
+    the backend's ``environment:`` with a numeric fallback EQUAL to its Settings default (compose always injects,
+    so a drifted fallback would silently win; an empty one would fail boot)."""
+    import re
+    from pathlib import Path
+
+    compose = (Path(__file__).resolve().parents[3] / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+    backend = _compose_service_block(compose, "backend")
+    for var in _BACKEND_PASSED_THROUGH:
+        monkeypatch.delenv(var, raising=False)
+    s = Settings()
+    for var, field in _BACKEND_PASSED_THROUGH.items():
+        m = re.search(rf"^\s+{var}: \$\{{{var}:-([0-9.]+)\}}", backend, re.M)
+        assert m is not None, f"{var} is not passed to the backend in docker-compose.yml"
+        default = getattr(s, field)
+        assert (
+            float(m.group(1)) == default
+        ), f"{var}: compose fallback {m.group(1)} != Settings {default}"
+
+
+def test_compose_passes_the_uvicorn_concurrency_limit_to_the_backend_at_the_image_default():
+    """``ALPHADECK_UVICORN_LIMIT_CONCURRENCY`` is a Dockerfile ENV (not a Settings field): its compose fallback must
+    equal the image's build-arg default, or an unset `.env` would change the bound."""
+    import re
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[3]
+    backend = _compose_service_block(
+        (repo / "docker-compose.yml").read_text(encoding="utf-8"), "backend"
+    )
+    dockerfile = (repo / "backend" / "Dockerfile").read_text(encoding="utf-8")
+    image_default = re.search(r"^ARG UVICORN_LIMIT_CONCURRENCY=(\d+)$", dockerfile, re.M)
+    assert image_default is not None
+    m = re.search(
+        r"^\s+ALPHADECK_UVICORN_LIMIT_CONCURRENCY: \$\{ALPHADECK_UVICORN_LIMIT_CONCURRENCY:-(\d+)\}",
+        backend,
+        re.M,
+    )
+    assert m is not None, "ALPHADECK_UVICORN_LIMIT_CONCURRENCY is not passed to the backend"
+    assert m.group(1) == image_default.group(1)
+
+
 # --- the late-read rule (D5): the 3 env-toggled vars, monkeypatched AFTER import ---
 
 

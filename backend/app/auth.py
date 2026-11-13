@@ -33,6 +33,7 @@ import threading
 import time
 import uuid
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
@@ -263,16 +264,62 @@ def set_password(conn: psycopg.Connection, user_id: UUID, password: str) -> None
         )
 
 
+# The refusal when a change would leave nobody able to steward the data (``set_role``, ``set_disabled``).
+LAST_SUPER_ADMIN = "this would leave no enabled super admin; promote another user first"
+
+
+class LastSuperAdmin(ValueError):
+    """A role change or a disable that would leave no enabled ``super_admin``: refused (``LAST_SUPER_ADMIN``)."""
+
+
+def _enabled_super_admins(cur: psycopg.Cursor) -> int:
+    cur.execute(
+        "SELECT count(*) AS n FROM app_user WHERE role = 'super_admin' AND disabled_at IS NULL"
+    )
+    row = cur.fetchone()
+    return int(row["n"]) if row else 0
+
+
+def _keeping_a_super_admin(
+    conn: psycopg.Connection, change: Callable[[psycopg.Cursor], object]
+) -> None:
+    """Run ``change`` with every ``super_admin`` row locked (``FOR UPDATE``, so two concurrent demotions cannot each
+    see the other as the one that remains), then raise ``LastSuperAdmin`` if it took the count of ENABLED super
+    admins from some to none. The caller owns the transaction and rolls back on the refusal."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT id FROM app_user WHERE role = 'super_admin' FOR UPDATE")
+        before = _enabled_super_admins(cur)
+        change(cur)
+        if before > 0 and _enabled_super_admins(cur) == 0:
+            raise LastSuperAdmin(LAST_SUPER_ADMIN)
+
+
+def set_role(conn: psycopg.Connection, user_id: UUID, role: str) -> None:
+    """Set a user's role (``user`` or ``super_admin``). Refuses (``LastSuperAdmin``) a change that would leave no
+    enabled super admin. It takes effect on the user's next request: the gate reads the role on every request, for a
+    session and a token alike. The caller commits (or rolls back on a refusal)."""
+    if role not in ROLES:
+        raise ValueError(f"role must be one of {ROLES}")
+    _keeping_a_super_admin(
+        conn,
+        lambda cur: cur.execute("UPDATE app_user SET role = %s WHERE id = %s", (role, user_id)),
+    )
+
+
 def set_disabled(conn: psycopg.Connection, user_id: UUID, disabled: bool) -> None:
     """Disable (stamp ``disabled_at``) or re-enable (clear it) a user. A disabled user's sessions and tokens stop
-    working at once — the gate checks ``disabled_at`` on every request. The caller commits."""
-    with conn.cursor() as cur:
-        if disabled:
-            cur.execute(
+    working at once — the gate checks ``disabled_at`` on every request. Refuses (``LastSuperAdmin``) to disable the
+    last enabled super admin. The caller commits."""
+    if disabled:
+        _keeping_a_super_admin(
+            conn,
+            lambda cur: cur.execute(
                 "UPDATE app_user SET disabled_at = now() WHERE id = %s AND disabled_at IS NULL",
                 (user_id,),
-            )
-        else:
+            ),
+        )
+    else:
+        with conn.cursor() as cur:
             cur.execute("UPDATE app_user SET disabled_at = NULL WHERE id = %s", (user_id,))
 
 

@@ -49,3 +49,27 @@ def test_the_api_bounds_its_in_flight_requests() -> None:
     cmd = next(ln for ln in text.splitlines() if ln.startswith("CMD ") and "uvicorn" in ln)
     assert "--workers 1" in cmd
     assert "--limit-concurrency ${ALPHADECK_UVICORN_LIMIT_CONCURRENCY:-64}" in cmd
+
+
+def test_every_overlay_that_runs_uvicorn_bounds_its_in_flight_requests() -> None:
+    """The dev, sig and fork overlays replace the image's command (to add ``--reload``); each replacement must keep
+    the same in-flight bound. ``$$`` hands the expansion to the container's shell (Compose's escape), so the value
+    comes from the container's ``ALPHADECK_UVICORN_LIMIT_CONCURRENCY`` exactly as the Dockerfile CMD reads it.
+    """
+    overlays: dict[str, list[str]] = {}
+    for f in sorted(_REPO.glob("docker-compose*.yml")):
+        lines = [
+            ln
+            for ln in f.read_text(encoding="utf-8").splitlines()
+            if "uvicorn app.main:app" in ln and not ln.lstrip().startswith("#")
+        ]
+        if lines:
+            overlays[f.name] = lines
+    assert {"docker-compose.dev.yml", "docker-compose.fork.yml", "docker-compose.sig.yml"} <= set(
+        overlays
+    ), f"overlay commands vanished: {sorted(overlays)}"
+    for name, lines in overlays.items():
+        for ln in lines:
+            assert (
+                "--limit-concurrency $${ALPHADECK_UVICORN_LIMIT_CONCURRENCY:-64}" in ln
+            ), f"{name}: {ln}"

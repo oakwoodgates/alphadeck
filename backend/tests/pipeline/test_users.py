@@ -233,3 +233,104 @@ def test_the_workspace_set_webhook_subcommand_is_gone(conn):
             emit=lambda _line: None,
         )
     assert not hasattr(users, "set_webhook")
+
+
+# --- set-role and the last-super-admin guard (security cleanup Part B item 4, D9) ------------------------------
+
+
+def _role(conn, email: str) -> str:
+    return auth.find_user_by_email(conn, email)["role"]
+
+
+def _make(conn, email: str, *, super_admin: bool = False) -> None:
+    users.create_user(
+        conn,
+        email=email,
+        display_name=email.split("@")[0],
+        super_admin=super_admin,
+        password="a long enough passphrase",
+    )
+    conn.commit()
+
+
+def test_set_role_promote_then_demote_swaps_the_super_admin(conn):
+    _make(conn, "old@example.test", super_admin=True)
+    _make(conn, "new@example.test")
+    out: list[str] = []
+    assert (
+        users.run(
+            ["set-role", "--email", "new@example.test", "--role", "super_admin"],
+            conn,
+            emit=out.append,
+        )
+        == 0
+    )
+    assert (
+        users.run(
+            ["set-role", "--email", "old@example.test", "--role", "user"], conn, emit=out.append
+        )
+        == 0
+    )
+    assert _role(conn, "new@example.test") == "super_admin"
+    assert _role(conn, "old@example.test") == "user"
+    assert out[-1].startswith("set role")
+
+
+def test_demoting_the_only_super_admin_is_refused_and_changes_nothing(conn):
+    _make(conn, "only@example.test", super_admin=True)
+    out: list[str] = []
+    code = users.run(
+        ["set-role", "--email", "only@example.test", "--role", "user"], conn, emit=out.append
+    )
+    assert code == 1
+    assert out == ["refused: this would leave no enabled super admin; promote another user first"]
+    assert _role(conn, "only@example.test") == "super_admin"
+
+
+def test_demoting_one_of_two_super_admins_works(conn):
+    _make(conn, "a@example.test", super_admin=True)
+    _make(conn, "b@example.test", super_admin=True)
+    users.set_role(conn, "a@example.test", "user")
+    conn.commit()
+    assert (
+        _role(conn, "a@example.test") == "user" and _role(conn, "b@example.test") == "super_admin"
+    )
+
+
+def test_a_disabled_super_admin_does_not_count_as_the_one_that_remains(conn):
+    _make(conn, "live@example.test", super_admin=True)
+    _make(conn, "gone@example.test", super_admin=True)
+    users.set_disabled(conn, "gone@example.test", True)
+    conn.commit()
+    with pytest.raises(users.UserError, match="no enabled super admin"):
+        users.set_role(conn, "live@example.test", "user")
+    conn.rollback()
+    assert _role(conn, "live@example.test") == "super_admin"
+
+
+def test_disabling_the_last_enabled_super_admin_is_refused(conn):
+    """D9: ``disable`` carries the same guard as ``set-role``."""
+    _make(conn, "only@example.test", super_admin=True)
+    _make(conn, "plain@example.test")
+    out: list[str] = []
+    code = users.run(["disable", "--email", "only@example.test"], conn, emit=out.append)
+    assert code == 1
+    assert out == ["refused: this would leave no enabled super admin; promote another user first"]
+    assert auth.find_user_by_email(conn, "only@example.test")["disabled_at"] is None
+    # a plain user can still be disabled, and so can one of two super admins
+    assert users.run(["disable", "--email", "plain@example.test"], conn, emit=out.append) == 0
+    _make(conn, "second@example.test", super_admin=True)
+    assert users.run(["disable", "--email", "only@example.test"], conn, emit=out.append) == 0
+
+
+def test_set_role_refuses_an_unknown_email_or_role(conn):
+    _make(conn, "u@example.test")
+    with pytest.raises(users.UserError, match="no user"):
+        users.set_role(conn, "nobody@example.test", "super_admin")
+    with pytest.raises(users.UserError, match="role must be one of"):
+        users.set_role(conn, "u@example.test", "admin")
+    with pytest.raises(SystemExit):  # argparse refuses a role outside the choices
+        users.run(
+            ["set-role", "--email", "u@example.test", "--role", "admin"], conn, emit=lambda _: None
+        )
+    assert _role(conn, "u@example.test") == "user"

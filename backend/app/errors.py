@@ -58,6 +58,9 @@ SENTENCES: dict[str, str] = {
     "busy": "The database took too long to answer. Try again in a moment.",
     "unavailable": "The database cannot be reached right now. Try again in a moment.",
     "server": "Something went wrong on the server. Try again, and quote the reference if it keeps happening.",
+    # A background job's unexpected failure, shown on its poll (workbench/draft_jobs.py, workbench/ingest_jobs.py).
+    "draft": "The draft failed on the server. Try again, and quote the reference if it keeps happening.",
+    "fetch": "The data fetch failed on the server. Try again, and quote the reference if it keeps happening.",
 }
 
 
@@ -92,24 +95,30 @@ def describe(exc: BaseException) -> str:
     return f"{type(exc).__name__}: {text}" if text else type(exc).__name__
 
 
-def message(sentence: str, ref: str, exc: BaseException, *, steward: bool) -> str:
-    """The response text: the fixed sentence, the reference, and (for a steward only) the underlying error."""
+def message(sentence: str, ref: str, exc: BaseException | str, *, steward: bool) -> str:
+    """The response text: the fixed sentence, the reference, and (for a steward only) the underlying error.
+    ``exc`` is the exception, or its description already stored by ``describe`` (a background job keeps the
+    description and builds the text when it is polled, once the caller is known)."""
     out = f"{sentence} Reference {ref}."
     if steward:
-        out += f" Detail: {describe(exc)}"
+        out += f" Detail: {describe(exc) if isinstance(exc, BaseException) else exc}"
     return out
 
 
-def log_failure(status: int, sentence: str, ref: str, exc: BaseException) -> None:
-    """Log ``exc`` with its traceback under ``ref`` (ERROR for a 5xx, WARNING otherwise)."""
+def log_failure(
+    status: int, sentence: str, ref: str, exc: BaseException, *, detail: str | None = None
+) -> None:
+    """Log ``exc`` with its traceback under ``ref`` (ERROR for a 5xx, WARNING otherwise). ``detail``, when given,
+    is logged after it: the steward-only text the exception itself does not carry."""
     level = logging.ERROR if status >= 500 else logging.WARNING
     _log.log(
         level,
-        "%s Reference %s. (%d %s)",
+        "%s Reference %s. (%d %s)%s",
         sentence,
         ref,
         status,
         type(exc).__name__,
+        f" Detail: {detail}" if detail else "",
         exc_info=(type(exc), exc, exc.__traceback__),
     )
 
@@ -208,6 +217,7 @@ __all__ = [
     "describe",
     "fail",
     "install",
+    "log_failure",
     "message",
     "new_reference",
     "note_caller",
