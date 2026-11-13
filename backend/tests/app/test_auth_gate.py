@@ -382,21 +382,108 @@ def test_a_demoted_super_admin_is_a_plain_user_on_the_next_request(anon, db):
     assert anon.get("/theses", headers=bearer).status_code == 200
 
 
-def test_the_login_throttle_locks_out_then_lets_go(anon, db, monkeypatch):
+@pytest.fixture
+def addressed(monkeypatch):
+    """Requests carry ``X-Real-IP`` and the test client's peer counts as the nginx container, so each request's
+    address is the one the test names (the trusted-proxy path, ``app/client_address.py``)."""
+    from app import client_address
+
+    client_address.reset_cache()
+    monkeypatch.setattr(client_address, "_resolve", lambda name: frozenset({"testclient"}))
+
+    def login(client: TestClient, email: str, password: str = PASSWORD, *, ip: str):
+        return client.post(
+            "/auth/login", json={"email": email, "password": password}, headers={"X-Real-IP": ip}
+        )
+
+    yield login
+    client_address.reset_cache()
+
+
+def test_failures_with_different_emails_from_one_address_pause_that_address(anon, db, addressed):
+    """Security PR 5 (D3): the throttle counts failed sign-ins per client ADDRESS, whatever email is typed."""
+    _user(db, "real@test.invalid")
+    codes = [
+        addressed(anon, f"guess{i}@test.invalid", "wrong password!!", ip="203.0.113.9").status_code
+        for i in range(5)
+    ]
+    assert codes == [401] * 5
+    paused = addressed(anon, "real@test.invalid", ip="203.0.113.9")  # even the RIGHT pair
+    assert paused.status_code == 429
+    assert (
+        paused.json()["detail"]
+        == "Too many failed sign-ins from your network. Try again in a minute."
+    )
+    assert "set-cookie" not in paused.headers
+
+
+def test_failures_from_one_address_never_pause_a_real_user_elsewhere(anon, db, addressed):
+    """Nobody can lock a real user out by failing logins on their email from somewhere else."""
+    _user(db, "victim@test.invalid")
+    for _ in range(10):
+        addressed(anon, "victim@test.invalid", "wrong password!!", ip="198.51.100.7")
+    assert addressed(anon, "victim@test.invalid", ip="198.51.100.7").status_code == 429
+    elsewhere = TestClient(app, base_url="https://testserver", raise_server_exceptions=False)
+    assert addressed(elsewhere, "victim@test.invalid", ip="203.0.113.20").status_code == 200
+
+
+def test_a_success_does_not_reset_the_count(anon, db, addressed):
+    """D3: a success leaves the address's count alone, so an attacker with any account cannot sign in after
+    every four guesses and never be paused."""
+    _user(db, "mine@test.invalid")
+    for i in range(4):
+        assert (
+            addressed(anon, f"x{i}@test.invalid", "wrong!!wrong!!", ip="192.0.2.5").status_code
+            == 401
+        )
+    assert addressed(anon, "mine@test.invalid", ip="192.0.2.5").status_code == 200
+    assert addressed(anon, "x9@test.invalid", "wrong!!wrong!!", ip="192.0.2.5").status_code == 401
+    assert addressed(anon, "mine@test.invalid", ip="192.0.2.5").status_code == 429
+
+
+def test_the_pause_ends_after_the_lockout(anon, db, addressed, monkeypatch):
     monkeypatch.setenv("ALPHADECK_LOGIN_MAX_FAILURES", "3")
     get_settings.cache_clear()
     _user(db, "thr@test.invalid")
-    codes = [_login(anon, "thr@test.invalid", "wrong password!!").status_code for _ in range(3)]
+    codes = [
+        addressed(anon, "thr@test.invalid", "wrong password!!", ip="192.0.2.77").status_code
+        for _ in range(3)
+    ]
     assert codes == [401, 401, 401]
-    # locked: even the RIGHT password answers 429 until the lockout ends
-    assert _login(anon, "thr@test.invalid").status_code == 429
-    # another email from the same address is not locked
-    _user(db, "thr2@test.invalid")
-    assert _login(anon, "thr2@test.invalid").status_code == 200
-    key = auth.throttle_key("thr@test.invalid", "testclient")
+    assert addressed(anon, "thr@test.invalid", ip="192.0.2.77").status_code == 429
+    key = auth.throttle_key("192.0.2.77")
     assert auth.is_locked_out(key)
     assert not auth.is_locked_out(key, now=10**12)  # the lockout ends
-    assert _login(anon, "thr@test.invalid").status_code == 200
+    assert addressed(anon, "thr@test.invalid", ip="192.0.2.77").status_code == 200
+
+
+def test_the_login_throttle_forgets_addresses_that_aged_out(anon):
+    s = get_settings()
+    t = 1_000_000.0
+    for i in range(20_000):
+        auth.record_failure(
+            auth.throttle_key(f"10.{i // 65536}.{(i // 256) % 256}.{i % 256}"), now=t
+        )
+        t += 0.01
+    t += s.login_window_s + s.login_lockout_s + 1
+    auth.record_failure(auth.throttle_key("192.0.2.1"), now=t)
+    assert auth.throttle_size() < 10_000
+
+
+def test_without_a_trusted_proxy_the_header_is_ignored(anon, db, monkeypatch):
+    """A direct caller (no nginx in front) cannot pick its own address with the header."""
+    from app import client_address
+
+    client_address.reset_cache()
+    monkeypatch.setattr(client_address, "_resolve", lambda name: frozenset())  # nginx not found
+    _user(db, "direct@test.invalid")
+    for i in range(5):
+        anon.post(
+            "/auth/login",
+            json={"email": f"d{i}@test.invalid", "password": "wrong password!!"},
+            headers={"X-Real-IP": f"203.0.113.{i}"},
+        )
+    assert _login(anon, "direct@test.invalid").status_code == 429
 
 
 def test_an_expired_session_is_401(anon, db):
@@ -499,9 +586,10 @@ AS_OPEN_BY_NATURE = (
 )
 
 
-def test_the_authorization_server_routes_are_reachable_without_a_credential():
+def test_the_authorization_server_routes_are_reachable_without_a_credential(monkeypatch):
     """Each answers with the SDK's own reply (never our gate's 401, never a 404). None of these requests gets as
-    far as the database, so the provider's connection is one that refuses to open."""
+    far as the database, so the provider's connection is one that refuses to open. ``/register`` exists only with
+    self-registration switched on (security PR 5: off by default)."""
     pytest.importorskip("mcp")
     from contextlib import contextmanager
 
@@ -516,8 +604,23 @@ def test_the_authorization_server_routes_are_reachable_without_a_credential():
         yield  # pragma: no cover
 
     origin = "http://127.0.0.1:8000"
-    server = build_oauth_routes(origin, AlphaDeckAuthProvider(no_db, public_origin=origin))
     assert tuple(AS_PATHS) == AS_OPEN_BY_NATURE
+    monkeypatch.delenv("ALPHADECK_OAUTH_DYNAMIC_REGISTRATION", raising=False)
+    get_settings.cache_clear()
+    off = build_oauth_routes(origin, AlphaDeckAuthProvider(no_db, public_origin=origin))
+    assert sorted(r.path for r in off.routes) == sorted(
+        p for p in AS_OPEN_BY_NATURE if p != "/register"
+    )
+    assert (
+        TestClient(Starlette(routes=off.routes), base_url=origin)
+        .post("/register", json={})
+        .status_code
+        == 404
+    )
+    monkeypatch.setenv("ALPHADECK_OAUTH_DYNAMIC_REGISTRATION", "true")
+    get_settings.cache_clear()
+    server = build_oauth_routes(origin, AlphaDeckAuthProvider(no_db, public_origin=origin))
+    get_settings.cache_clear()
     assert sorted(r.path for r in server.routes) == sorted(AS_OPEN_BY_NATURE)
     c = TestClient(Starlette(routes=server.routes), base_url=origin)
     meta = c.get("/.well-known/oauth-authorization-server")

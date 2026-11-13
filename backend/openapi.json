@@ -12,7 +12,7 @@
           "auth"
         ],
         "summary": "Login",
-        "description": "Sign in with email + password: sets the HttpOnly session cookie and returns the user. 401 on a wrong pair\n(the same answer for an unknown email, a wrong password and a disabled account); 429 after too many failures\nfor this email from this address, until the lockout ends.",
+        "description": "Sign in with email + password: sets the HttpOnly session cookie and returns the user. 401 on a wrong pair\n(the same answer for an unknown email, a wrong password and a disabled account); 429 after too many failed\nsign-ins from this network address, whatever email was typed, until the short pause ends; 503 \"Sign-in is\nbusy\" when every password-check slot stays taken (try again in a moment).",
         "operationId": "login_auth_login_post",
         "requestBody": {
           "content": {
@@ -91,7 +91,7 @@
           "auth"
         ],
         "summary": "Change Password",
-        "description": "Change my password: the current one must match and the new one needs at least 12 characters. Every OTHER\nsession of mine is signed out; this one stays signed in.",
+        "description": "Change my password: the current one must match and the new one needs at least 12 characters. Every OTHER\nsession of mine is signed out; this one stays signed in. 503 \"Sign-in is busy\" when every password-check slot\nstays taken.",
         "operationId": "change_password_auth_change_password_post",
         "requestBody": {
           "content": {

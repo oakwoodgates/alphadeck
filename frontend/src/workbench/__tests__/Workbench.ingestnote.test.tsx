@@ -167,6 +167,25 @@ describe("Workbench — the on-promote ingest note (PR-4)", () => {
     expect(line.textContent).toMatch(/nightly cron/);
   });
 
+  it("an error that ends in a period joins the cron backstop with exactly one period", () => {
+    h.promoteData = { ...fx.thesis, ingest: INGEST };
+    h.jobQ = {
+      data: {
+        job_id: "ij1",
+        status: "failed",
+        result: null,
+        error: "The data fetch failed on the server. Reference abc123.",
+      },
+      isError: false,
+      error: null,
+    };
+    renderWb();
+    const line = screen.getByText(/Data fetch for 2 new names failed/);
+    const text = (line.textContent ?? "").replace(/\s+/g, " ");
+    expect(text).toContain("Reference abc123. The nightly cron will retry them.");
+    expect(text).not.toContain("..");
+  });
+
   it("a lost job (poll 404) is a visible line too, naming the cron backstop", () => {
     h.promoteData = { ...fx.thesis, ingest: INGEST };
     h.jobQ = { data: undefined, isError: true, error: { detail: "ingest job not found" } };

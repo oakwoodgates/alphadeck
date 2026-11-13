@@ -9,8 +9,9 @@ from __future__ import annotations
 import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
-from app import auth
+from app import auth, errors
 from app.auth import CurrentUser, require_user
+from app.client_address import client_address
 from app.db_conn import get_conn
 from app.schemas_api import AuthMeOut, ChangePasswordRequest, LoginRequest, MeOut, MeTokenOut
 from domain.settings import get_settings
@@ -18,6 +19,17 @@ from domain.settings import get_settings
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 _BAD_PAIR = "wrong email or password"
+_TOO_MANY = "Too many failed sign-ins from your network. Try again in a minute."
+
+
+def _busy() -> HTTPException:
+    """Every password-check slot is taken (``auth.PasswordCheckBusy``): 503, try again shortly. Not a failed
+    sign-in: it never counts toward the address's pause."""
+    return HTTPException(
+        status_code=503,
+        detail=errors.SENTENCES["signin_busy"],
+        headers={"Retry-After": str(errors.RETRY_AFTER_S)},
+    )
 
 
 def _me(user: CurrentUser) -> MeOut:
@@ -58,23 +70,27 @@ def login(
     conn: psycopg.Connection = Depends(get_conn),
 ) -> MeOut:
     """Sign in with email + password: sets the HttpOnly session cookie and returns the user. 401 on a wrong pair
-    (the same answer for an unknown email, a wrong password and a disabled account); 429 after too many failures
-    for this email from this address, until the lockout ends."""
-    key = auth.throttle_key(req.email, request.client.host if request.client else "unknown")
+    (the same answer for an unknown email, a wrong password and a disabled account); 429 after too many failed
+    sign-ins from this network address, whatever email was typed, until the short pause ends; 503 "Sign-in is
+    busy" when every password-check slot stays taken (try again in a moment)."""
+    key = auth.throttle_key(client_address(request.scope))
     if auth.is_locked_out(key):
-        raise HTTPException(
-            status_code=429, detail="too many failed sign-ins; try again in a minute"
-        )
+        raise HTTPException(status_code=429, detail=_TOO_MANY)
     row = auth.find_user_by_email(conn, req.email)
+    try:
+        if row is None:
+            auth._dummy_verify(req.password)
+        else:
+            ok = auth.verify_password(row["password_hash"], req.password)
+    except auth.PasswordCheckBusy:
+        raise _busy() from None
     if row is None:
-        auth._dummy_verify(req.password)
         auth.record_failure(key)
         raise HTTPException(status_code=401, detail=_BAD_PAIR)
-    ok = auth.verify_password(row["password_hash"], req.password)
     if not ok or row["disabled_at"] is not None:
         auth.record_failure(key)
         raise HTTPException(status_code=401, detail=_BAD_PAIR)
-    auth.clear_failures(key)
+    # a success leaves the address's failure count alone (D3): it ages out on its own
     token = auth.create_session(conn, row["id"])
     conn.commit()
     _set_cookie(response, token)
@@ -116,7 +132,8 @@ def change_password(
     conn: psycopg.Connection = Depends(get_conn),
 ) -> Response:
     """Change my password: the current one must match and the new one needs at least 12 characters. Every OTHER
-    session of mine is signed out; this one stays signed in."""
+    session of mine is signed out; this one stays signed in. 503 "Sign-in is busy" when every password-check slot
+    stays taken."""
     if user.principal == "system":
         raise HTTPException(status_code=403, detail="the system token has no password")
     if (
@@ -124,10 +141,12 @@ def change_password(
     ):  # the gate refuses it first (auth.oauth_may); this is the second line
         raise HTTPException(status_code=403, detail="a connected app cannot manage your account")
     row = auth.find_user_by_email(conn, user.email)
-    if row is None or not auth.verify_password(row["password_hash"], req.current):
-        raise HTTPException(status_code=400, detail="the current password is wrong")
     try:
+        if row is None or not auth.verify_password(row["password_hash"], req.current):
+            raise HTTPException(status_code=400, detail="the current password is wrong")
         auth.set_password(conn, user.id, req.new)
+    except auth.PasswordCheckBusy:
+        raise _busy() from None
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     auth.revoke_other_sessions(conn, user.id, request.cookies.get(auth.SESSION_COOKIE))

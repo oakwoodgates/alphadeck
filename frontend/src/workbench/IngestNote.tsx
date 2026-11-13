@@ -3,6 +3,12 @@ import { useIngestJobStatus } from "../api/hooks";
 import { ErrorToast } from "../components/ErrorToast";
 import { errText } from "./format";
 
+/** The cause, without its own closing period: the sentence around it adds exactly one. A server error that
+ *  follows the error contract already ends in one ("... Reference 1a2b3c4d."), which would read "..". */
+function clause(text: string): string {
+  return text.trimEnd().replace(/\.+$/, "");
+}
+
 /** The on-promote ingest indicator (PR-4): a Save/promote that ADDED members kicked a background data
  *  fetch for exactly those names — this note polls the job and says how it went. HONEST LOUDNESS: the
  *  caller renders it ONLY when the promote response carried an `ingest` ref (a save that added nothing
@@ -16,7 +22,7 @@ export function IngestNote({ thesisId, ingest }: { thesisId: string; ingest: Pro
   if (jobQ.isError) {
     return (
       <ErrorToast>
-        Lost track of the data fetch for {names} — {errText(jobQ.error)}. The nightly cron will pick
+        Lost track of the data fetch for {names} — {clause(errText(jobQ.error))}. The nightly cron will pick
         them up.
       </ErrorToast>
     );
@@ -25,7 +31,7 @@ export function IngestNote({ thesisId, ingest }: { thesisId: string; ingest: Pro
   if (st === "failed") {
     return (
       <ErrorToast>
-        Data fetch for {names} failed — {jobQ.data?.error ?? "unknown error"}. The nightly cron will
+        Data fetch for {names} failed — {clause(jobQ.data?.error ?? "unknown error")}. The nightly cron will
         retry them.
       </ErrorToast>
     );

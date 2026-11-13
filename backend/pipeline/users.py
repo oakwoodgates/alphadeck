@@ -15,6 +15,8 @@ There is no sign-up page and no email delivery: the super admin creates every ac
     python -m pipeline.users token revoke --id <token uuid>
     python -m pipeline.users oauth-client list                     # the OAuth clients (static + self-registered)
     python -m pipeline.users oauth-client disable --client-id <id> # refused everywhere from the next request
+    python -m pipeline.users oauth-client add --client-id desk --name "Research Desk" \
+        --redirect-uri https://desk.example.com/cb [--redirect-uri ...] [--confidential]
 
 Every user has ONE workspace. ``create`` makes a NEW workspace named "<display name>'s workspace" by default;
 ``--workspace <uuid>`` attaches the user to an existing workspace and ``--founding`` to the founding workspace
@@ -31,6 +33,12 @@ commits once per command. ``create`` of an email that exists (case-insensitively
 ``set-role`` and ``disable`` refuse to leave no enabled super admin ("refused: this would leave no enabled super
 admin; promote another user first"). To swap the super admin: ``set-role --email new --role super_admin``, then
 ``set-role --email old --role user``.
+
+``oauth-client add`` registers an app the steward vetted (OAuth self-registration is off by default, docs/CONNECTORS.md):
+stored as a known client (``registration='static'``), scope ``read steward`` (the consent page caps a grant by the
+user's role), public (PKCE, no secret) unless ``--confidential``, which prints a generated client secret ONCE and
+stores only its sha256. Each redirect URI must be https, or http on localhost (at most 10). An id that exists is
+refused, never overwritten.
 """
 
 from __future__ import annotations
@@ -193,6 +201,40 @@ def revoke_token(conn: psycopg.Connection, token_id: UUID) -> None:
         raise UserError(f"no live token with id {token_id}")
 
 
+def add_oauth_client(
+    conn: psycopg.Connection,
+    *,
+    client_id: str,
+    name: str,
+    redirect_uris: list[str],
+    confidential: bool = False,
+) -> str | None:
+    """Add an OAuth client the steward vetted (``registration='static'``). Returns the generated client secret
+    (shown once) for a confidential client, else None. Refuses a bad redirect URI or an id that exists.
+    """
+    from mcp.server.auth.provider import RegistrationError
+
+    from app.oauth.provider import check_redirect_uris
+
+    client_id = client_id.strip()
+    if not client_id or not name.strip():
+        raise UserError("a client id and a name are required")
+    try:
+        check_redirect_uris(redirect_uris)
+    except RegistrationError as exc:
+        raise UserError(exc.error_description or exc.error) from exc
+    secret = oauth_store.new_secret() if confidential else None
+    if not oauth_store.insert_static_client(
+        conn,
+        client_id=client_id,
+        client_name=name,
+        redirect_uris=redirect_uris,
+        client_secret=secret,
+    ):
+        raise UserError(f"an OAuth client {client_id!r} already exists")
+    return secret
+
+
 # --- the CLI ---------------------------------------------------------------------------------------------------
 
 
@@ -239,6 +281,21 @@ def _build_parser() -> argparse.ArgumentParser:
         "disable", help="refuse a client everywhere (its connections stop working)"
     )
     od.add_argument("--client-id", required=True)
+    oa = osub.add_parser(
+        "add", help="add a client the steward vetted (prints a confidential client's secret once)"
+    )
+    oa.add_argument("--client-id", required=True)
+    oa.add_argument("--name", required=True, help="the name the consent page shows")
+    oa.add_argument(
+        "--redirect-uri",
+        action="append",
+        required=True,
+        dest="redirect_uris",
+        help="https, or http on localhost; repeat for more than one",
+    )
+    oa.add_argument(
+        "--confidential", action="store_true", help="mint a client secret (default: public, PKCE)"
+    )
     return p
 
 
@@ -319,6 +376,19 @@ def run(
                 raise UserError(f"no enabled OAuth client {args.client_id!r}")
             conn.commit()
             emit(f"disabled OAuth client {args.client_id}")
+        elif args.cmd == "oauth-client" and args.oauth_cmd == "add":
+            secret = add_oauth_client(
+                conn,
+                client_id=args.client_id,
+                name=args.name,
+                redirect_uris=list(args.redirect_uris),
+                confidential=args.confidential,
+            )
+            conn.commit()
+            kind = "confidential" if secret else "public"
+            emit(f"added OAuth client {args.client_id.strip()} ({kind})")
+            if secret is not None:
+                emit(f"client secret (shown once): {secret}")
     except UserError as exc:
         conn.rollback()
         emit(f"refused: {exc}")

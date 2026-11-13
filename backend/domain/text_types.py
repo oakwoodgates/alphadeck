@@ -52,6 +52,16 @@ SEARCH_Q_MAX = 100  # the security search ``q``
 CIK_MAX_DIGITS = 10
 EXCERPT_MAX = 4_000  # one located passage sent back to the flag explainer
 
+# the OAuth sign-in's unauthenticated routes (security PR 5; app/oauth/provider.py): checked by the provider, since
+# the request models there are the MCP SDK's, not ours
+OAUTH_STATE_MAX = 512  # the `state` an app sends to /authorize (echoed back on the redirect)
+PKCE_CHALLENGE_MIN, PKCE_CHALLENGE_MAX = (
+    43,
+    128,
+)  # RFC 7636: a code challenge is 43 to 128 characters
+OAUTH_SCOPE_MAX = 200  # the space-separated scope string an app asks for
+OAUTH_REDIRECT_URIS_MAX = 10  # redirect URIs on one client (each at most URL_MAX)
+
 # collections, in items
 BASKET_MAX = 3_000  # basket rows per card
 SEGMENTS_MAX = 100  # links per card
@@ -276,8 +286,13 @@ __all__ = [
     "MIX_PCT_MIN",
     "MONEY_ABS_MAX",
     "NARRATIVE_MAX",
+    "OAUTH_REDIRECT_URIS_MAX",
+    "OAUTH_SCOPE_MAX",
+    "OAUTH_STATE_MAX",
     "PASSWORD_MAX",
     "PASSWORD_MIN",
+    "PKCE_CHALLENGE_MAX",
+    "PKCE_CHALLENGE_MIN",
     "PROSE_MAX",
     "REQUEST_DATE_AHEAD_DAYS",
     "REQUEST_DATE_MIN",

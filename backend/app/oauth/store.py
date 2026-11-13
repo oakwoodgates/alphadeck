@@ -122,6 +122,37 @@ def insert_dcr_client(
         )
 
 
+def insert_static_client(
+    conn: psycopg.Connection,
+    *,
+    client_id: str,
+    client_name: str,
+    redirect_uris: list[str],
+    client_secret: str | None,
+) -> bool:
+    """Store a client the steward added (``pipeline.users oauth-client add``) as ``registration='static'`` (a known
+    client, plan D8): scope ``read steward``, the authorization-code and refresh grants, public
+    (``token_endpoint_auth_method='none'``) unless a secret is given (``client_secret_post``, stored as its sha256
+    only). False, writing nothing, when the client id exists already (never overwritten)."""
+    name = client_name.strip()[:MAX_CLIENT_NAME] or None
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO oauth_client (client_id, client_name, redirect_uris, scope, "
+            "token_endpoint_auth_method, client_secret_hash, registration, grant_types) "
+            "VALUES (%s, %s, %s, %s, %s, %s, 'static', %s) ON CONFLICT (client_id) DO NOTHING",
+            (
+                client_id,
+                name,
+                redirect_uris,
+                " ".join(SCOPES),
+                "client_secret_post" if client_secret else "none",
+                hash_secret(client_secret) if client_secret else None,
+                ["authorization_code", "refresh_token"],
+            ),
+        )
+        return cur.rowcount == 1
+
+
 def list_clients(conn: psycopg.Connection) -> list[dict[str, Any]]:
     """Every client (never a secret hash), static first, then newest first; with its live-grant count."""
     with conn.cursor() as cur:
@@ -187,6 +218,18 @@ def create_consent(
             ),
         )
     return cid
+
+
+def count_recent_consents(
+    conn: psycopg.Connection, *, within: timedelta = timedelta(hours=1)
+) -> int:
+    """How many sign-in requests ``/authorize`` stored inside ``within`` (the total cap counts the table, so a
+    restart or a new address cannot reset it)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT count(*) AS n FROM oauth_consent WHERE created_at > now() - %s", (within,)
+        )
+        return int(cur.fetchone()["n"])
 
 
 def get_consent(

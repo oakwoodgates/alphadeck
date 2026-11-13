@@ -32,8 +32,8 @@ import secrets
 import threading
 import time
 import uuid
-from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
@@ -45,6 +45,7 @@ from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatc
 from fastapi import Depends, HTTPException, Request
 
 from app.db_conn import get_conn
+from app.throttle import SlidingWindow
 from domain.settings import get_settings
 
 SESSION_COOKIE = "alphadeck_session"
@@ -127,26 +128,67 @@ SYSTEM_USER = CurrentUser(
 # --- hashing + tokens -------------------------------------------------------------------------------------------
 
 
+class PasswordCheckBusy(Exception):
+    """Every password-check slot stayed taken for ``password_check_wait_s``: the route answers 503."""
+
+
+_slot_lock = threading.Lock()
+_slot_sem: threading.BoundedSemaphore | None = None
+_slot_cap = 0
+
+
+@contextmanager
+def password_check_slot() -> Iterator[None]:
+    """Hold one of the ``password_check_concurrency`` slots for an argon2 hash or verify (security PR 5, D7): each
+    costs ~64 MB and real CPU, so a flood of sign-ins must not run them all at once. Waits at most
+    ``password_check_wait_s``, then raises ``PasswordCheckBusy``. A cap of 0 means no cap."""
+    global _slot_sem, _slot_cap
+    s = get_settings()
+    cap = s.password_check_concurrency
+    if cap <= 0:
+        yield
+        return
+    with _slot_lock:
+        if _slot_sem is None or _slot_cap != cap:
+            _slot_sem, _slot_cap = threading.BoundedSemaphore(cap), cap
+        sem = _slot_sem
+    if not sem.acquire(timeout=max(0.0, s.password_check_wait_s)):
+        raise PasswordCheckBusy()
+    try:
+        yield
+    finally:
+        sem.release()
+
+
 def hash_password(password: str) -> str:
-    """An argon2id PHC string for ``password``."""
-    return _HASHER.hash(password)
+    """An argon2id PHC string for ``password`` (in a password-check slot)."""
+    with password_check_slot():
+        return _HASHER.hash(password)
 
 
-def verify_password(password_hash: str, password: str) -> bool:
-    """True when ``password`` matches ``password_hash``; False on a mismatch or an unreadable hash."""
+def _verify(password_hash: str, password: str) -> bool:
     try:
         return _HASHER.verify(password_hash, password)
     except (VerifyMismatchError, VerificationError, InvalidHashError):
         return False
 
 
+def verify_password(password_hash: str, password: str) -> bool:
+    """True when ``password`` matches ``password_hash``; False on a mismatch or an unreadable hash (in a
+    password-check slot)."""
+    with password_check_slot():
+        return _verify(password_hash, password)
+
+
 def _dummy_verify(password: str) -> None:
     """Spend one real argon2 verify on a throwaway hash, so an unknown email costs the same time as a wrong
-    password and the response time does not reveal whether an account exists."""
+    password and the response time does not reveal whether an account exists (in a password-check slot).
+    """
     global _DUMMY_HASH
-    if _DUMMY_HASH is None:
-        _DUMMY_HASH = _HASHER.hash(secrets.token_urlsafe(16))
-    verify_password(_DUMMY_HASH, password)
+    with password_check_slot():
+        if _DUMMY_HASH is None:
+            _DUMMY_HASH = _HASHER.hash(secrets.token_urlsafe(16))
+        _verify(_DUMMY_HASH, password)
 
 
 def new_token() -> str:
@@ -419,17 +461,24 @@ def revoke_api_token(conn: psycopg.Connection, token_id: UUID) -> bool:
 
 
 # --- the login throttle (in-process, like the draft-job registry) ------------------------------------------------
+# Failed sign-ins are counted per client ADDRESS (``app.client_address``), whatever email is typed (security PR 5,
+# D3): changing the email cannot dodge it, and a failure from one address can never pause a real user signing in
+# from another. ``login_max_failures`` inside ``login_window_s`` pauses that address for ``login_lockout_s`` (a
+# short pause, not a hard lockout). A success does NOT clear the count: otherwise an attacker holding any account
+# could sign in after every four guesses and never be paused; a real user who mistyped is unaffected, because the
+# count simply ages out. Memory is bounded (``app.throttle``): aged-out addresses are forgotten.
 
 _throttle_lock = threading.Lock()
-_failures: dict[tuple[str, str], deque[float]] = {}
-_locked_until: dict[tuple[str, str], float] = {}
+_failures = SlidingWindow(limit=5, window_s=60)
+_locked_until: dict[str, float] = {}
 
 
-def throttle_key(email: str, client_ip: str) -> tuple[str, str]:
-    return (email.strip().lower(), client_ip)
+def throttle_key(client_address: str) -> str:
+    """The login throttle's key: the client address (an IPv6 caller's /64), from ``app.client_address``."""
+    return client_address
 
 
-def is_locked_out(key: tuple[str, str], *, now: float | None = None) -> bool:
+def is_locked_out(key: str, *, now: float | None = None) -> bool:
     now = time.monotonic() if now is None else now
     with _throttle_lock:
         until = _locked_until.get(key)
@@ -441,31 +490,31 @@ def is_locked_out(key: tuple[str, str], *, now: float | None = None) -> bool:
         return True
 
 
-def record_failure(key: tuple[str, str], *, now: float | None = None) -> None:
-    """Count one failed sign-in; ``login_max_failures`` inside ``login_window_s`` locks the key out for
-    ``login_lockout_s``."""
+def record_failure(key: str, *, now: float | None = None) -> None:
+    """Count one failed sign-in from ``key``; ``login_max_failures`` inside ``login_window_s`` pauses the address
+    for ``login_lockout_s``."""
     s = get_settings()
     now = time.monotonic() if now is None else now
+    n = _failures.record(key, window_s=s.login_window_s, now=now)
     with _throttle_lock:
-        q = _failures.setdefault(key, deque())
-        q.append(now)
-        while q and now - q[0] > s.login_window_s:
-            q.popleft()
-        if len(q) >= s.login_max_failures:
+        if len(_locked_until) >= _failures.max_keys:
+            for k in [k for k, until in _locked_until.items() if now >= until]:
+                del _locked_until[k]
+        if n >= s.login_max_failures:
             _locked_until[key] = now + s.login_lockout_s
-            q.clear()
+            _failures.forget(key)
 
 
-def clear_failures(key: tuple[str, str]) -> None:
+def throttle_size() -> int:
+    """How many addresses the login throttle remembers (its memory bound, tests)."""
     with _throttle_lock:
-        _failures.pop(key, None)
-        _locked_until.pop(key, None)
+        return len(_failures) + len(_locked_until)
 
 
 def reset_throttle() -> None:
     """Forget every failure and lockout (tests)."""
+    _failures.reset()
     with _throttle_lock:
-        _failures.clear()
         _locked_until.clear()
 
 

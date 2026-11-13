@@ -682,8 +682,6 @@ class Settings(BaseSettings):
     # The SYSTEM token (ALPHADECK_SYSTEM_TOKEN): the cron's dashboard warm-up sends it as a bearer token. It can
     # only GET /dashboards/*, /clock and /health; unset = no system principal at all. Treat it as a secret.
     system_token: str | None = None
-    # The login throttle, per (lower(email), client ip), in-process: this many failures inside the window locks
-    # the pair out (429) for the lockout.
     # --- Request and job connection timeouts (security hardening PR 2, db.session.connect_request / connect_job,
     # docs/DEPLOY.md §Connections) ---
     # Every API request's connection (app.db_conn.get_conn) and the OAuth provider's open with these as connection
@@ -701,9 +699,35 @@ class Settings(BaseSettings):
     # keep their own settings (cron_statement_timeout_s). ALPHADECK_JOB_STATEMENT_TIMEOUT_S / _LOCK_TIMEOUT_S.
     job_statement_timeout_s: float = 900.0
     job_lock_timeout_s: float = 30.0
+    # The login throttle (app/auth.py), per CLIENT ADDRESS (app/client_address.py; an IPv6 caller by its /64),
+    # whatever email is typed (security PR 5, D3), in-process: this many failed sign-ins inside the window pause that
+    # address (429) for the lockout. A success does not reset the count; it ages out.
     login_max_failures: int = 5
     login_window_s: float = 60
     login_lockout_s: float = 60
+
+    # --- the sign-in surface (security PR 5, docs/AUTH.md, docs/CONNECTORS.md) ---
+    # OAuth dynamic client registration (`POST /register`, RFC 7591). OFF by default: the route does not exist and
+    # the metadata document names no registration endpoint. A steward adds a client with `python -m pipeline.users
+    # oauth-client add`; claude.ai connects with the client ID `alphadeck-claude`. Clients that registered while it
+    # was on keep working. ALPHADECK_OAUTH_DYNAMIC_REGISTRATION.
+    oauth_dynamic_registration: bool = False
+    # `/authorize` writes one pending sign-in request (`oauth_consent`) before anyone signs in, so it is bounded:
+    # new requests one client address may start per hour (in-process), and new requests in total per hour, counted
+    # from the table (a restart or a new address cannot dodge it). 0 = no limit.
+    oauth_authorize_per_address_hour: int = 30
+    oauth_authorize_per_hour: int = 300
+    # Password checks (argon2, ~64 MB each) that may run at once: sign-in and change-password (D7). A check that
+    # finds no slot within the wait answers 503 "Sign-in is busy". 0 = no cap.
+    password_check_concurrency: int = 4
+    password_check_wait_s: float = 10
+    # The nightly prune of expired sign-in rows (`python -m db.housekeeping --prune`, the cron sidecar), in days
+    # past the row's expiry or revocation (D5): browser sessions; OAuth codes, access and refresh tokens and
+    # undecided sign-in requests; unused self-registered clients (by age); daily-allowance counts (by market day).
+    prune_session_days: int = 7
+    prune_oauth_days: int = 1
+    prune_dcr_client_days: int = 7
+    prune_allowance_days: int = 7
 
     # --- the per-user DAILY ALLOWANCE on user-triggered fetches (security hardening PR 1b, app/allowance.py,
     # docs/AUTH.md §User-triggered fetches) ---

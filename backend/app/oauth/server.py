@@ -14,9 +14,14 @@
   ``client_secret`` field to a form that has none: the SDK's revocation request model REQUIRES the key (it is
   typed ``str | None`` with no default), so a public client's RFC 7009 request (``token`` + ``client_id``) would
   otherwise be a 400;
-* ``/register`` runs behind ``_RegistrationThrottle``: at most 20 registrations per client address per hour and
-  200 per day overall (429 beyond; in-process, like the login throttle). The non-https, non-loopback redirect rule
-  is the provider's (``invalid_redirect_uri``).
+* ``/authorize`` runs behind ``_Authorize``: a POST body over 64 KB is refused (413), and the caller's address
+  (``app.client_address``) is put in ``provider.CLIENT_ADDRESS`` for the provider's per-address limit (security PR 5);
+* ``/register`` exists only when ``ALPHADECK_OAUTH_DYNAMIC_REGISTRATION`` is true (OFF by default, security PR 5:
+  the SDK then creates no route and the metadata names no ``registration_endpoint``). When on, it runs behind the
+  same 64 KB body cap and ``_RegistrationThrottle``: at most 20 registrations per client address per hour and 200
+  per day overall (429 beyond; in-process, like the login throttle). The redirect rules (https or loopback, at most
+  10, each at most ``URL_MAX``) are the provider's (``invalid_redirect_uri``). A client that registered while it
+  was on keeps working after it is turned off: nothing checks how a client registered.
 
 The five routes are Starlette routes outside the API's route-gate walk, each authenticating its own way (the
 metadata document is public; ``/token`` and ``/revoke`` authenticate the client; ``/authorize`` hands the decision
@@ -27,9 +32,7 @@ from __future__ import annotations
 
 import base64
 import binascii
-import threading
 import time
-from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -43,11 +46,22 @@ from pydantic import AnyHttpUrl
 from starlette.routing import Route
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from app.client_address import client_address
+from app.throttle import SlidingWindow
+from domain.settings import get_settings
+
 from . import store
-from .provider import PRESENTED_SECRET, AlphaDeckAuthProvider, Connection, connection_from
+from .provider import (
+    CLIENT_ADDRESS,
+    PRESENTED_SECRET,
+    AlphaDeckAuthProvider,
+    Connection,
+    connection_from,
+)
 
 METADATA_PATH = "/.well-known/oauth-authorization-server"
-AS_PATHS = (METADATA_PATH, "/authorize", "/token", "/register", "/revoke")
+REGISTER_PATH = "/register"
+AS_PATHS = (METADATA_PATH, "/authorize", "/token", REGISTER_PATH, "/revoke")
 AUTH_METHODS = ["none", "client_secret_post", "client_secret_basic"]
 MAX_FORM_BYTES = 64 * 1024
 REGISTRATIONS_PER_ADDRESS_HOUR = 20
@@ -55,8 +69,11 @@ REGISTRATIONS_PER_DAY = 200
 
 
 def registration_options() -> ClientRegistrationOptions:
+    """Self-registration (``POST /register``) only when ``oauth_dynamic_registration`` is set (off by default)."""
     return ClientRegistrationOptions(
-        enabled=True, valid_scopes=list(store.SCOPES), default_scopes=[store.READ]
+        enabled=get_settings().oauth_dynamic_registration,
+        valid_scopes=list(store.SCOPES),
+        default_scopes=[store.READ],
     )
 
 
@@ -89,9 +106,74 @@ async def _send_json(send: Send, status: int, body: bytes) -> None:
     await send({"type": "http.response.body", "body": body})
 
 
+async def _read_capped(receive: Receive, send: Send) -> bytes | None:
+    """The whole request body, or None after answering 413 when it passes ``MAX_FORM_BYTES``."""
+    chunks: list[bytes] = []
+    size = 0
+    more = True
+    while more:
+        message = await receive()
+        if message["type"] != "http.request":
+            break
+        chunk = message.get("body", b"")
+        size += len(chunk)
+        if size > MAX_FORM_BYTES:
+            await _send_json(send, 413, b'{"error":"invalid_request"}')
+            return None
+        chunks.append(chunk)
+        more = message.get("more_body", False)
+    return b"".join(chunks)
+
+
+def _replaying(body: bytes, receive: Receive) -> Receive:
+    replayed = False
+
+    async def replay() -> Message:
+        nonlocal replayed
+        if not replayed:
+            replayed = True
+            return {"type": "http.request", "body": body, "more_body": False}
+        return await receive()
+
+    return replay
+
+
+class _BodyCap:
+    """Refuses a POST body over ``MAX_FORM_BYTES`` (413) before the SDK's handler reads it (the SDK's own cap is
+    4 MB); replays the body unchanged otherwise."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or scope["method"] != "POST":
+            await self.app(scope, receive, send)
+            return
+        body = await _read_capped(receive, send)
+        if body is None:
+            return
+        await self.app(scope, _replaying(body, receive), send)
+
+
+class _Authorize:
+    """``/authorize``: the 64 KB body cap on a POST, and the caller's address in ``CLIENT_ADDRESS`` for the
+    provider's per-address limit."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = _BodyCap(app)
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        reset = CLIENT_ADDRESS.set(client_address(scope))
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            CLIENT_ADDRESS.reset(reset)
+
+
 class _PresentedSecret:
     """Reads the client secret a POST presents (``client_secret`` in the form, or a Basic header) into
-    ``PRESENTED_SECRET`` for the request, then replays the body to the SDK's handler unchanged."""
+    ``PRESENTED_SECRET`` for the request, then replays the body to the SDK's handler unchanged. The body is capped
+    at ``MAX_FORM_BYTES`` (``_BodyCap``'s rule)."""
 
     def __init__(self, app: ASGIApp, *, add_empty_secret: bool = False) -> None:
         self.app = app
@@ -101,21 +183,9 @@ class _PresentedSecret:
         if scope["type"] != "http" or scope["method"] != "POST":
             await self.app(scope, receive, send)
             return
-        chunks: list[bytes] = []
-        size = 0
-        more = True
-        while more:
-            message = await receive()
-            if message["type"] != "http.request":
-                break
-            chunk = message.get("body", b"")
-            size += len(chunk)
-            if size > MAX_FORM_BYTES:
-                await _send_json(send, 413, b'{"error":"invalid_request"}')
-                return
-            chunks.append(chunk)
-            more = message.get("more_body", False)
-        body = b"".join(chunks)
+        body = await _read_capped(receive, send)
+        if body is None:
+            return
         secret = _secret_from(scope, body)
         if (
             self.add_empty_secret
@@ -131,18 +201,9 @@ class _PresentedSecret:
                     for k, v in scope.get("headers") or []
                 ],
             }
-        replayed = False
-
-        async def replay() -> Message:
-            nonlocal replayed
-            if not replayed:
-                replayed = True
-                return {"type": "http.request", "body": body, "more_body": False}
-            return await receive()
-
         reset = PRESENTED_SECRET.set(secret)
         try:
-            await self.app(scope, replay, send)
+            await self.app(scope, _replaying(body, receive), send)
         finally:
             PRESENTED_SECRET.reset(reset)
 
@@ -172,48 +233,42 @@ def _secret_from(scope: Scope, body: bytes) -> str | None:
 
 @dataclass
 class RegistrationThrottle:
-    """In-process counters of successful registrations (the login throttle's pattern)."""
+    """In-process counts of successful registrations (``app.throttle.SlidingWindow``, the login throttle's)."""
 
     per_address_hour: int = REGISTRATIONS_PER_ADDRESS_HOUR
     per_day: int = REGISTRATIONS_PER_DAY
     clock: Callable[[], float] = time.monotonic
-    _lock: threading.Lock = field(default_factory=threading.Lock)
-    _by_address: dict[str, deque[float]] = field(default_factory=dict)
-    _all: deque[float] = field(default_factory=deque)
+    _by_address: SlidingWindow = field(init=False)
+    _all: SlidingWindow = field(init=False)
+
+    def __post_init__(self) -> None:
+        self._by_address = SlidingWindow(
+            limit=self.per_address_hour, window_s=3600, clock=self.clock
+        )
+        self._all = SlidingWindow(limit=self.per_day, window_s=86400, clock=self.clock)
 
     def allowed(self, address: str) -> bool:
-        now = self.clock()
-        with self._lock:
-            q = self._by_address.setdefault(address, deque())
-            while q and now - q[0] > 3600:
-                q.popleft()
-            while self._all and now - self._all[0] > 86400:
-                self._all.popleft()
-            return len(q) < self.per_address_hour and len(self._all) < self.per_day
+        return self._by_address.allowed(address) and self._all.allowed("all")
 
     def record(self, address: str) -> None:
-        now = self.clock()
-        with self._lock:
-            self._by_address.setdefault(address, deque()).append(now)
-            self._all.append(now)
+        self._by_address.record(address)
+        self._all.record("all")
 
     def reset(self) -> None:
-        with self._lock:
-            self._by_address.clear()
-            self._all.clear()
+        self._by_address.reset()
+        self._all.reset()
 
 
 class _RegistrationThrottle:
     def __init__(self, app: ASGIApp, throttle: RegistrationThrottle) -> None:
-        self.app = app
+        self.app = _BodyCap(app)
         self.throttle = throttle
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http" or scope["method"] != "POST":
             await self.app(scope, receive, send)
             return
-        client = scope.get("client")
-        address = client[0] if client else "unknown"
+        address = client_address(scope)
         if not self.throttle.allowed(address):
             await _send_json(
                 send,
@@ -247,12 +302,14 @@ def build_oauth_routes(
     *,
     throttle: RegistrationThrottle | None = None,
 ) -> OAuthServer:
-    """The SDK's authorization-server routes over ``provider``, its metadata route replaced by ours."""
+    """The SDK's authorization-server routes over ``provider``, its metadata route replaced by ours. ``/register``
+    is among them only when self-registration is on (read from the settings now, at startup)."""
     throttle = throttle or RegistrationThrottle()
+    registration = registration_options()
     routes = create_auth_routes(
         provider,
         issuer_url=AnyHttpUrl(public_origin),
-        client_registration_options=registration_options(),
+        client_registration_options=registration,
         revocation_options=RevocationOptions(enabled=True),
     )
     metadata = build_oauth_metadata(public_origin)
@@ -268,10 +325,13 @@ def build_oauth_routes(
             route.app = _PresentedSecret(route.app)
         elif route.path == "/revoke":
             route.app = _PresentedSecret(route.app, add_empty_secret=True)
-        elif route.path == "/register":
+        elif route.path == "/authorize":
+            route.app = _Authorize(route.app)
+        elif route.path == REGISTER_PATH:
             route.app = _RegistrationThrottle(route.app, throttle)
         out.append(route)
-    assert sorted(r.path for r in out) == sorted(AS_PATHS), [r.path for r in out]
+    expected = [p for p in AS_PATHS if registration.enabled or p != REGISTER_PATH]
+    assert sorted(r.path for r in out) == sorted(expected), [r.path for r in out]
     return OAuthServer(routes=out, provider=provider, metadata=metadata, throttle=throttle)
 
 
