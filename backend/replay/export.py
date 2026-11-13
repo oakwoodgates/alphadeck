@@ -48,7 +48,8 @@ MANIFEST_NAME = "manifest.json"
 # ``db.public_clock.PUBLIC_TIME``, and this exporter runs the SAME SQL (``public_versions_sql``) the live
 # history read runs, materialized once into the mirror — a public mirror read is row-for-row the Postgres
 # public read (``tests/replay/test_public_clock.py``'s parity test). The LIVE read (asof = today) stays on the
-# record clock, where the two coincide; ``clock="record"`` here stays the parity gate's mode, byte-for-byte.
+# record clock, where the two coincide; ``clock="record"`` here stays the parity gate's mode: every row, every
+# version, ``recorded_at`` untouched, written in ``(recorded_at, id)`` order since 2026-11-13 (``_EXPORT_ORDER``).
 #
 # A table absent from the registry is EXCLUDED WHOLE from a ``clock=public`` mirror and named in the export
 # manifest together with the detectors thereby blind (today every fact table has a public clock). A ROW whose
@@ -111,6 +112,24 @@ def _ceiling_sql(known_by: datetime | None, alias: str | None = None) -> sql.Com
     return sql.SQL(" AND {} <= {}").format(col, sql.Placeholder(CEILING_PARAM))
 
 
+# THE RECORD-MODE ORDER — one owner for every record-clock file the exporter writes from a versioned table (the
+# fact tables, the Form 4/A aux tables, the held rows and their decisions, the split list). ``id`` is the
+# primary key of every one of them, so ``(recorded_at, id)`` is a TOTAL order: the Parquet bytes, and so the
+# run manifest's mirror hash, cannot depend on the plan Postgres picks or on the heap's physical order. Neither
+# column is text, so the database's collation cannot reorder it either. ``recorded_at`` ties are the common case
+# (``now()`` is the transaction start, so every row one ingest transaction writes shares it); ``id`` breaks them.
+# The fact read had no ORDER BY before 2026-11-13, so a record export written before then cannot be reproduced
+# byte for byte by a re-export (its stored hash still verifies its stored files). The PUBLIC path keeps its own
+# order (``_read_table_public``), which is already total and is deliberately not this one.
+_EXPORT_ORDER: tuple[str, ...] = ("recorded_at", "id")
+
+
+def _order_sql(alias: str | None = None) -> sql.Composable:
+    """`` ORDER BY recorded_at, id`` (``_EXPORT_ORDER``), each column ``alias``-qualified when given."""
+    cols = [sql.Identifier(alias, c) if alias else sql.Identifier(c) for c in _EXPORT_ORDER]
+    return sql.SQL(" ORDER BY {}").format(sql.SQL(", ").join(cols))
+
+
 def _read_table(
     conn: psycopg.Connection,
     table: str,
@@ -123,12 +142,18 @@ def _read_table(
     SET-ASIDE version (migration 0062, ``db.set_aside``), which the live read skips too, so the two engines
     read the same versions (the parity gate); every other table is read whole, exactly as before. ``known_by``
     = only the rows recorded by that cut (the freeze ceiling), the set-asides judged as they stood at it.
+
+    The rows come back in ``_EXPORT_ORDER`` (``recorded_at, id``), a total order, so two exports of the same
+    stored rows write the same bytes whatever plan Postgres picks.
     """
     at = sql.Placeholder(CEILING_PARAM) if known_by is not None else None
     with conn.cursor() as cur:
         cur.execute(
-            sql.SQL("SELECT * FROM {} WHERE tenant_id = ANY(%(tenants)s){}{}").format(
-                sql.Identifier(table), exclusion_sql(table, at=at), _ceiling_sql(known_by)
+            sql.SQL("SELECT * FROM {} WHERE tenant_id = ANY(%(tenants)s){}{}{}").format(
+                sql.Identifier(table),
+                exclusion_sql(table, at=at),
+                _ceiling_sql(known_by),
+                _order_sql(),
             ),
             {"tenants": list(as_tenants(tenants)), CEILING_PARAM: known_by},
         )
@@ -231,6 +256,9 @@ def _read_table_public(
         ceiling=known_by is not None,
     )
     pub = sql.Identifier(PUBLIC_COL)
+    # Already a TOTAL order, so deliberately not ``_EXPORT_ORDER``: the ``_rn = 1`` filter below keeps exactly
+    # one row per ``(partition, public instant)``, which is the sort key, so no two written rows tie. Changing
+    # it would move every fresh public export's bytes (the archive's mirrors and every edition) for nothing.
     query = sql.SQL(
         "WITH v AS ({versions}) "
         "SELECT *, ROW_NUMBER() OVER ("
@@ -309,6 +337,8 @@ AUX_PUBLIC_COL = "public_at"
 # hold's own value only — what the system read then.
 HOLD_TABLES: tuple[str, ...] = ("insider_txn_hold", "insider_txn_hold_decision")
 
+# Identity pairs, not versions: no ``recorded_at`` to order on. ``ORDER BY 1, 2`` over a UNION (which is
+# distinct) is already a total order; left as is.
 _SECURITY_CIK_SQL = (
     "SELECT id::text AS security_id, ltrim(cik, '0') AS cik FROM security_master "
     "WHERE tenant_id = %(t)s AND cik IS NOT NULL "
@@ -361,26 +391,26 @@ def _read_aux(
         elif clock == "public":
             cur.execute(
                 sql.SQL(
-                    "SELECT {cols}, {pub} AS {col} FROM {table} x WHERE x.tenant_id = %(t)s{ceil} "
-                    "ORDER BY x.recorded_at, x.id"
+                    "SELECT {cols}, {pub} AS {col} FROM {table} x WHERE x.tenant_id = %(t)s{ceil}{order}"
                 ).format(
                     cols=_aux_cols(table, known_by),
                     pub=aux_public_sql(table, alias="x", ceiling=known_by is not None),
                     col=sql.Identifier(AUX_PUBLIC_COL),
                     table=sql.Identifier(table),
                     ceil=_ceiling_sql(known_by, "x"),
+                    order=_order_sql("x"),
                 ),
                 {"t": tenant_id, **public_params(known_by)},
             )
         else:
             cur.execute(
                 sql.SQL(
-                    "SELECT {cols} FROM {table} x WHERE x.tenant_id = %(t)s{ceil} "
-                    "ORDER BY x.recorded_at, x.id"
+                    "SELECT {cols} FROM {table} x WHERE x.tenant_id = %(t)s{ceil}{order}"
                 ).format(
                     cols=_aux_cols(table, known_by),
                     table=sql.Identifier(table),
                     ceil=_ceiling_sql(known_by, "x"),
+                    order=_order_sql("x"),
                 ),
                 {"t": tenant_id, CEILING_PARAM: known_by},
             )
@@ -410,12 +440,13 @@ def _read_splits(
     pick are unchanged (one row per split). ``known_by`` = the list as it stood at that cut (the freeze
     ceiling).
     """
+    # record: ``_EXPORT_ORDER``; the public branch's DISTINCT ON order is already total
     if clock != "public":
         with conn.cursor() as cur:
             cur.execute(
-                sql.SQL(
-                    "SELECT * FROM security_split WHERE tenant_id = %(t)s{} ORDER BY recorded_at, id"
-                ).format(_ceiling_sql(known_by)),
+                sql.SQL("SELECT * FROM security_split WHERE tenant_id = %(t)s{}{}").format(
+                    _ceiling_sql(known_by), _order_sql()
+                ),
                 {"t": tenant_id, CEILING_PARAM: known_by},
             )
             rows = cur.fetchall()
@@ -449,6 +480,7 @@ IDENTITY_TABLE = "security_identity"
 
 
 def _read_identity(conn: psycopg.Connection, tenant_id: UUID) -> tuple[pa.Schema, list[dict]]:
+    # ``ORDER BY id`` (the master's primary key) is already a total order; left as is.
     with conn.cursor() as cur:
         cur.execute(
             "SELECT id::text AS security_id, name, cik FROM security_master "
@@ -511,8 +543,10 @@ def export_snapshot(
     ``clock`` picks WHICH AXIS the mirror's ``recorded_at`` carries.
 
     ``"record"`` (the default, and the ONLY mode the Postgres-vs-Parquet parity gate runs on) is the
-    system clock, byte-for-byte what this exporter always wrote: every row, every version, ``recorded_at``
-    untouched. Nothing about that path changes.
+    system clock: every row, every version, ``recorded_at`` untouched. Since 2026-11-13 every record file is
+    written in ``(recorded_at, id)`` order (``_EXPORT_ORDER``), a total order, so the same stored rows give the
+    same bytes whatever plan Postgres picks. Before that the fact files came out in plan order, so a record
+    mirror exported earlier cannot be reproduced byte for byte by a re-export (the same rows, reordered).
 
     ``"public"`` rewrites it to each version's public instant from ``db.public_clock`` (the definition the
     live history views share) and resolves the version pile-up that creates (see ``_read_table_public`` —
