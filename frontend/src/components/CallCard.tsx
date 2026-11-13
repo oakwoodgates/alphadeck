@@ -18,7 +18,8 @@ import {
 } from "../util/format";
 import { DecisionActions } from "./DecisionActions";
 import { RailPanel } from "./RailPanel";
-import { ProvenanceSources, safeReferenceUrl } from "./ProvenanceSources";
+import { ExternalLink, safeHttpUrl } from "./ExternalLink";
+import { ProvenanceSources } from "./ProvenanceSources";
 
 type TriggerLike = NonNullable<CallCardResponse["triggers_fired"]>[number];
 
@@ -300,7 +301,7 @@ export function TriggerRow({
   variant: "hit" | "warn";
   showGrade: boolean;
 }) {
-  const url = (item.sources ?? []).find((s) => safeReferenceUrl(s.url))?.url;
+  const url = (item.sources ?? []).find((s) => safeHttpUrl(s.url))?.url;
   return (
     <div className={`trg-item ${variant}`}>
       <span className="ic">{icon}</span>
@@ -315,9 +316,7 @@ export function TriggerRow({
         {url && (
           <>
             {" "}
-            <a href={url} target="_blank" rel="noreferrer">
-              ↗ source
-            </a>
+            <ExternalLink href={url}>↗ source</ExternalLink>
           </>
         )}
         <ProvenanceSources sources={item.sources ?? []} />

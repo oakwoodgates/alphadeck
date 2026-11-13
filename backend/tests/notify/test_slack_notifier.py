@@ -86,7 +86,7 @@ def test_posts_on_armed_transition(monkeypatch):
     assert set(body) == {"text"}
     text = body["text"]
     assert (
-        "AI Memory & Storage Supercycle" in text
+        "AI Memory &amp; Storage Supercycle" in text
     )  # thesis-name identity (operator-chosen; no ticker)
     assert "ARMED" in text
     assert "warming → armed" in text  # the state move is glanceable
@@ -130,7 +130,7 @@ def test_armed_push_renders_compact_company_detail(monkeypatch):
     assert len(calls) == 1
     text = calls[0]["json"]["text"]
     assert text == (
-        "🔴 AI Memory & Storage — ARMED (warming → armed)\n"
+        "🔴 AI Memory &amp; Storage — ARMED (warming → armed)\n"
         "CRDO, MRVL armed\n"
         "CRDO insider buy, breakout · MRVL breakout"
     )
@@ -160,7 +160,7 @@ def test_armed_push_falls_back_to_the_thesis_only_line_only_when_the_enrichment_
     calls = _capture_post(monkeypatch)
     SlackNotifier().notify(_event(to_state="armed"))  # _event leaves armed=()
     assert calls[0]["json"]["text"] == (
-        "🔴 AI Memory & Storage Supercycle — ARMED (warming → armed)"
+        "🔴 AI Memory &amp; Storage Supercycle — ARMED (warming → armed)"
     )
 
     # (b) names that never resolved to a ticker are LISTED, by company name, else by security id
@@ -192,7 +192,7 @@ def test_armed_push_omits_the_tail_line_when_no_member_has_triggers(monkeypatch)
     SlackNotifier().notify(_armed_event(armed=(ArmedName("CRDO", ()), ArmedName("MRVL", ()))))
 
     assert calls[0]["json"]["text"] == (
-        "🔴 AI Memory & Storage — ARMED (warming → armed)\nCRDO, MRVL armed"
+        "🔴 AI Memory &amp; Storage — ARMED (warming → armed)\nCRDO, MRVL armed"
     )
 
 

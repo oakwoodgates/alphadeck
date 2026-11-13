@@ -46,6 +46,7 @@ from app.schemas_api import (
 )
 from domain.settings import get_settings
 from notify import post_text
+from notify.escape import one_line
 from repositories import user_meta_repo
 
 router = APIRouter(prefix="/account", tags=["account"])
@@ -283,7 +284,7 @@ def test_slack_webhook(
         raise HTTPException(status_code=404, detail="no Slack webhook is saved")
     delivered, detail = post_text(
         meta.slack_webhook_url,
-        f"Alpha Deck test message for {user.display_name}",
+        f"Alpha Deck test message for {one_line(user.display_name)}",
         timeout=TEST_TIMEOUT_S,
     )
     return SlackTestOut(delivered=delivered, detail=detail)

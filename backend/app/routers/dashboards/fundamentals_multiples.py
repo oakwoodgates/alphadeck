@@ -39,6 +39,7 @@ from dashboards.fundamentals_multiples import (
     MultiplesInputs,
     fundamentals_multiples,
 )
+from domain.links import HttpUrlOut
 from domain.market_time import serve_view
 from domain.text_types import AsofDate
 from repositories import fundamentals_set_aside_repo, thesis_repo
@@ -91,7 +92,7 @@ class MultiplesBarOut(_Wire):
     fiscal_year: int | None
     filed: date
     accession: str | None
-    url: str | None
+    url: HttpUrlOut
     first_knowable: date | None
     first_knowable_accession: str | None
     yoy: float | None

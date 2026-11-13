@@ -4,6 +4,7 @@ import { useFundAttach, useFundLaunches, useIngestPrices, type FundLaunchesOut }
 import { refusalText } from "../api/refusals";
 import { MatchLine, StageChips } from "../radar/fundParts";
 import { errText } from "../workbench/format";
+import { ExternalLink } from "../components/ExternalLink";
 
 // The API's fixed 404 when a plain user's attach names a fund the shared company list does not hold yet (only a
 // steward adds to the list; security hardening PR 1a). It is an answer, not a breakage, so it reads on its own.
@@ -90,9 +91,9 @@ function FundLaunchesBody({
                 <span className="radar-date">{f.public_date}</span>
                 <span className="fl-trust">{f.trust}</span>
                 <span className="idchip">{f.form}</span>
-                <a className="radar-link" href={f.url} target="_blank" rel="noreferrer">
+                <ExternalLink className="radar-link" href={f.url}>
                   filing ↗
-                </a>
+                </ExternalLink>
               </div>
               {f.funds.map((fund) => {
                 const symbol = fund.stage.ticker ? (fund.symbols ?? [])[0] : undefined;

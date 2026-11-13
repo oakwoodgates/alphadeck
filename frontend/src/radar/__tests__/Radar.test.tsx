@@ -113,6 +113,17 @@ describe("Radar — the tape", () => {
     expect(screen.getByText(/12 shells known/)).toBeInTheDocument();
   });
 
+  it("a stored link that fails the URL rule is plain text, never an anchor (security PR 4a)", () => {
+    h.q = {
+      isLoading: false,
+      error: null,
+      data: { events: [{ ...EVENT, url: "javascript:alert(1)" }], window_days: 90, shells_known: 12 },
+    };
+    renderPage();
+    expect(screen.getByText("filing ↗").closest("a")).toBeNull();
+    expect(screen.queryByRole("link", { name: /filing/ })).toBeNull();
+  });
+
   it("controls render ONLY on matched rows (honest loudness) and attach fires with the pair", async () => {
     const user = userEvent.setup();
     renderPage();

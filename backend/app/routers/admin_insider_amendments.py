@@ -70,6 +70,7 @@ from domain.insider_amendments import (
     REVIEW_QUEUED,
     ReviewLine,
 )
+from domain.links import HttpUrlOut
 from domain.market_time import market_today
 from domain.settings import get_settings
 from repositories import insider_amendment_repo
@@ -214,7 +215,7 @@ class AdminInsiderAmendmentOut(BaseModel):
     security_id: UUID
     ticker: str | None = None
     accession: str
-    filing_url: str | None = None
+    filing_url: HttpUrlOut = None
     filed: date | None = None
     accepted: datetime | None = None
     recorded_at: datetime

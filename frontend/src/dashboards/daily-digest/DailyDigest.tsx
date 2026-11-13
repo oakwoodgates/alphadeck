@@ -59,6 +59,7 @@ import {
   type DigestPositionOut,
   type DigestTapeRowOut,
 } from "./useDailyDigest";
+import { ExternalLink } from "../../components/ExternalLink";
 
 // Daily Digest (docs/dashboards/daily-digest.md): the morning page. Six sections in a fixed order, each a cut of a page
 // that already exists, read by that page's own rules and worded here; the header of each opens the full page with ?asof=.
@@ -147,9 +148,9 @@ function Line({ card, line, onSelect }: { card: DigestCardOut; line: DigestLineO
       </button>
       {src &&
         (src.url ? (
-          <a className="dd-src" href={src.url} target="_blank" rel="noreferrer">
+          <ExternalLink className="dd-src" href={src.url}>
             {src.source} {src.ref}
-          </a>
+          </ExternalLink>
         ) : (
           <span className="dd-src">
             {src.source} {src.ref}
@@ -383,9 +384,9 @@ function BuyRow({ r, onSelect }: { r: DigestBuyRowOut; onSelect: Select }) {
         )}
         <span className={r.triggers.length > 0 ? "dd-word" : "dd-gray"}>{triggerWords(r)}</span>
         {r.url && (
-          <a className="dd-src" href={r.url} target="_blank" rel="noreferrer">
+          <ExternalLink className="dd-src" href={r.url}>
             {r.form} {r.accession}
-          </a>
+          </ExternalLink>
         )}
       </div>
     </li>

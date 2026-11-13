@@ -53,6 +53,7 @@ import {
   type InsiderTrackerNameOut,
   type InsiderTrackerOut,
 } from "./useInsiderTracker";
+import { ExternalLink, isSecLink } from "../../components/ExternalLink";
 
 // Insider Buying (docs/dashboards/insider-tracker.md): every open-market insider purchase (Form 4 code P) across the
 // counted cards' names in a window, one row per Form 4, dated by the day it was FILED, newest first: who bought, how
@@ -153,15 +154,13 @@ function PurchaseRow({
             {open ? "▾" : "▸"}
           </button>
           {row.url ? (
-            <a
+            <ExternalLink
               className="ins-link"
               href={row.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              title={`Open the filing on EDGAR (${row.accession ?? "no accession"})`}
+              title={`${isSecLink(row.url) ? "Open the filing on EDGAR" : "Open the stored source"} (${row.accession ?? "no accession"})`}
             >
               {fmtDate(row.filed)}
-            </a>
+            </ExternalLink>
           ) : (
             <span title={row.filed}>{fmtDate(row.filed)}</span>
           )}

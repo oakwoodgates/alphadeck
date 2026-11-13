@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useRadarFunds, type FundFilingOut } from "../api/hooks";
 import { errText } from "../workbench/format";
 import { MatchLine, StageChips } from "./fundParts";
+import { ExternalLink } from "../components/ExternalLink";
 
 /** The fund launch tape (docs/FUND_RADAR.md): one row per FILING, newest first. Display only, pull-only (#7), every
  *  row links its filing (#6). Defaults keep it quiet: filings with a fund that fits a live card, with the rest one
@@ -114,9 +115,9 @@ function FilingRow({ f }: { f: FundFilingOut }) {
           </span>
         )}
         {!batch && <StageChips stage={single.stage} />}
-        <a className="radar-link" href={f.url} target="_blank" rel="noreferrer">
+        <ExternalLink className="radar-link" href={f.url}>
           filing ↗
-        </a>
+        </ExternalLink>
       </div>
       {!batch && (single.matches ?? []).length > 0 && (
         <div className="radar-matches">

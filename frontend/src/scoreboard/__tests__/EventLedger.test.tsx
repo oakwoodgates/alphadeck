@@ -130,7 +130,7 @@ describe("EventLedger — rows are the shared numbered events (row #N ↔ chip #
     const a = container.querySelector("a.evled-link") as HTMLAnchorElement;
     expect(a).toHaveAttribute("href", "https://sec.gov/a-index.htm");
     expect(a).toHaveAttribute("target", "_blank");
-    expect(a).toHaveAttribute("rel", "noreferrer"); // never leaks the drawer's referrer
+    expect(a).toHaveAttribute("rel", "noopener noreferrer"); // never leaks the drawer's referrer
     expect(a.textContent).toContain("form4");
     // the ref is still legible as TEXT in the same cell — the link only adds the jump (#6)
     expect(a.closest("td")?.textContent).toContain("form4: 0001-a");

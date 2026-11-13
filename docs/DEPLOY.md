@@ -338,6 +338,13 @@ API can hold and what each connection may do:
   Never `docker compose down -v` against prod; never `DROP DATABASE alphadeck`.
 - **`--no-deps`** — rebuild only the named service; leaves postgres + the cron sidecar
   running untouched.
+- **The Content-Security-Policy ships REPORT-ONLY (security PR 4a).** `frontend/nginx.conf` enforces only
+  `frame-ancestors 'none'` (plus `nosniff` and the Referrer-Policy); the full policy rides
+  `Content-Security-Policy-Report-Only`. After the first frontend rebuild that carries it, load the dev stack
+  (`localhost:8081`), walk the main pages (Board, Cockpit, Workbench, a dashboard, Settings, the consent page) with
+  the browser console open, and look for `[Report Only]` CSP violations. None: a one-line follow-up renames the
+  header to `Content-Security-Policy` (and folds `frame-ancestors 'none'` into it). Any: fix the policy first. The
+  rules and the reason: `docs/SECURITY.md`.
 - **Prod keeps `ALPHADECK_PUBLIC_ORIGIN` UNSET until the server move.** Set, the API answers the hosted agent
   tools endpoint at `/mcp` (docs/AGENT_TOOLS.md §Hosted endpoint); the host still binds `:8000` on every interface
   with no TLS, so a bearer token would cross the network in the clear. Unset, `/mcp` and the well-known document

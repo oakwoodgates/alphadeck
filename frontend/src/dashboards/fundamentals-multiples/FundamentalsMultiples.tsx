@@ -45,6 +45,7 @@ import {
   type MultiplesOut,
   type MultiplesRowOut,
 } from "./useFundamentalsMultiples";
+import { ExternalLink, isSecLink } from "../../components/ExternalLink";
 
 // Fundamentals Multiples (docs/dashboards/fundamentals-multiples.md): ONE card's revenue series, name by name and
 // link by link. Each name is a small chart of its last quarterly revenue prints (a bar per print, placed by its
@@ -141,9 +142,9 @@ function Readout({ cell, item, data }: { cell: CellInfo | null; item: number | n
             {bar.url && (
               <>
                 {" · "}
-                <a className="fm-src" href={bar.url} target="_blank" rel="noreferrer">
-                  filing on EDGAR
-                </a>
+                <ExternalLink className="fm-src" href={bar.url}>
+                  {isSecLink(bar.url) ? "filing on EDGAR" : "filing"}
+                </ExternalLink>
               </>
             )}
           </div>

@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field
 
 from app.deps import get_conn, get_thesis_or_404, get_workspace
 from domain.data_flags import DataFlag, MemberFlags, SplitLabel
+from domain.links import HttpUrlOut
 from domain.market_time import serve_view
 from domain.scopes import DATA_TENANT_ID
 from domain.settings import get_settings
@@ -41,7 +42,7 @@ class DataFlagEvidenceOut(BaseModel):
     """One piece of evidence behind a flag: a label, and a link when the source has one (an SEC filing)."""
 
     label: str
-    url: str | None = None
+    url: HttpUrlOut = None
 
 
 class DataFlagOut(BaseModel):
@@ -82,7 +83,7 @@ class DataFlagSplitOut(BaseModel):
     value_source: str | None = None
     sec_form: str | None = None
     sec_filed: date | None = None
-    sec_url: str | None = None
+    sec_url: HttpUrlOut = None
     polygon: bool = Field(default=False, title="Massive.com")
     note: str | None = None
     took_effect: bool = False

@@ -37,6 +37,7 @@ import {
   type FilingStreamRowOut,
   type StreamDays,
 } from "./useFilingStream";
+import { ExternalLink, isSecLink } from "../../components/ExternalLink";
 
 // Filing Stream (docs/dashboards/filing-stream.md): ONE card's names' filing-derived facts as a dated stream,
 // newest day first, as they were readable at the as-of. Display only. Every row and count is computed server-side
@@ -70,7 +71,7 @@ function StreamLine({
   const silent = row.silent ? row.links.find((l): l is string => l != null && SILENT_LABELS.includes(l)) : null;
   const tags = [...row.tags, ...(row.role ? [contextRoleTag(row.role)] : []), ...(silent ? [silent] : [])];
   const expandable = row.detail.length > 0 || row.kind === "form4a";
-  const source = row.url?.includes("sec.gov") ? "EDGAR" : "source";
+  const source = isSecLink(row.url) ? "EDGAR" : "source";
   return (
     <li className={`fs-row${open ? " open" : ""}`} data-testid="fs-row" data-kind={row.kind}>
       <div className="fs-line">
@@ -102,16 +103,14 @@ function StreamLine({
         </span>
         <span className="fs-usd">{hint}</span>
         {row.url ? (
-          <a
+          <ExternalLink
             className="fs-src"
             href={row.url}
-            target="_blank"
-            rel="noopener noreferrer"
             title={source === "EDGAR" ? "Open the filing on EDGAR" : "Open the stored source"}
-            aria-label={`Open ${row.ticker} ${row.form} on ${source === "EDGAR" ? "EDGAR" : "its source"}`}
+            ariaLabel={`Open ${row.ticker} ${row.form} on ${source === "EDGAR" ? "EDGAR" : "its source"}`}
           >
             {source} ↗
-          </a>
+          </ExternalLink>
         ) : (
           <span className="fs-src none" />
         )}

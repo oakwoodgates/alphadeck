@@ -15,6 +15,7 @@ import {
 } from "../api/hooks";
 import { errText } from "../workbench/format";
 import { actionLine, filerSentence, pickSentence } from "./amendmentWords";
+import { ExternalLink } from "../components/ExternalLink";
 
 type Decision = NonNullable<AdminInsiderAmendmentOut["decisions"]>[number];
 type Original = Omit<AdminInsiderOriginalOut, "rows"> & { rows: AdminInsiderTxnOut[] };
@@ -217,9 +218,9 @@ function FilingRef({ a }: { a: Amendment }) {
     <div className="adm-filing-ref" data-testid="adm-amend-ref">
       Form 4/A{" "}
       {a.filing_url ? (
-        <a className="adm-link" href={a.filing_url} target="_blank" rel="noreferrer">
+        <ExternalLink className="adm-link" href={a.filing_url}>
           {a.accession}
-        </a>
+        </ExternalLink>
       ) : (
         a.accession
       )}{" "}

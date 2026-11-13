@@ -22,6 +22,7 @@ from domain.enums import (
     Verdict,
 )
 from domain.extraction import ExtractedFact, LocatedPassage
+from domain.links import HttpUrlOut
 from domain.settings import get_settings
 from domain.signal import Provenance
 from domain.text_types import (
@@ -102,7 +103,8 @@ def edgar_url(source: str, ref: str, cik: str | None) -> str | None:
 class ProvenanceOut(BaseModel):
     source: str
     ref: str
-    url: str | None = None  # resolved clickable link (None when not resolvable)
+    # resolved clickable link (None when not resolvable, or when it is not a safe http(s) URL)
+    url: HttpUrlOut = None
     detail: dict[str, Any] = {}
 
 
@@ -645,7 +647,7 @@ class EtfHoldingsOut(BaseModel):
     """
 
     report_date: date | None = None
-    source_ref: str
+    source_ref: HttpUrlOut  # the N-PORT filing link; None when it is not a safe http(s) URL
     holdings_count: int
     net_assets: float | None = None
     total_assets: float | None = None
@@ -1973,7 +1975,7 @@ class CorporateEventOut(BaseModel):
     d: date
     form: str
     items: list[str] | None = None  # None = not-yet-resolved (honest), never invented
-    url: str
+    url: HttpUrlOut  # None when the stored link is not a safe http(s) URL
     ingested: date
 
 
@@ -1997,7 +1999,7 @@ class ActivistStakeOut(BaseModel):
     filer_name: str | None = None  # None = identity unresolved — kept, never dropped (#9)
     filer_cik: str | None = None
     pct_owned: float | None = None  # structured cover percentOfClass; None = unparsed
-    url: str
+    url: HttpUrlOut  # None when the stored link is not a safe http(s) URL
     ingested: date
     # "control holder" / "insider" = set aside by the call's holder screen (does not fire); None otherwise
     holder: Literal["control holder", "insider"] | None = None
@@ -3109,7 +3111,7 @@ class SpacEventOut(BaseModel):
     items: list[str] | None = None
     filed: date
     accession: str
-    url: str
+    url: HttpUrlOut  # None when the stored link is not a safe http(s) URL
     deal_state: Literal["searching", "announced", "terminated", "completed"]
     in_basket_of: list[UUID] = Field(default_factory=list)
     matches: list[SpacMatchOut] = Field(default_factory=list)
@@ -3206,7 +3208,7 @@ class FundFilingOut(BaseModel):
     form: str
     trust: str
     public_date: date
-    url: str
+    url: HttpUrlOut  # None when the stored link is not a safe http(s) URL
     private_to_public: bool = False
     funds: list[FundOut]
 

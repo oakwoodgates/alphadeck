@@ -1,12 +1,7 @@
 import type { ProvenanceOut } from "../api/hooks";
 import { useState } from "react";
+import { ExternalLink } from "./ExternalLink";
 import "./provenance-sources.css";
-
-export function safeReferenceUrl(value: string | null | undefined): string | null {
-  if (!value) return null;
-  try { return ["http:", "https:"].includes(new URL(value).protocol) ? value : null; }
-  catch { return null; }
-}
 
 /** The stored source references and computation detail, without fetching or interpreting a source. */
 export function ProvenanceSources({ sources, label = "Sources" }: {
@@ -22,7 +17,7 @@ export function ProvenanceSources({ sources, label = "Sources" }: {
       <dl>
         <dt>Source</dt><dd>{source.source}</dd>
         <dt>Reference</dt><dd>{source.ref}</dd>
-        <dt>URL</dt><dd>{safeReferenceUrl(source.url) ? <a href={source.url!} target="_blank" rel="noreferrer">{source.url}</a> : (source.url ?? "—")}</dd>
+        <dt>URL</dt><dd>{source.url ? <ExternalLink href={source.url}>{source.url}</ExternalLink> : "—"}</dd>
         <dt>Detail</dt><dd><pre>{JSON.stringify(source.detail, null, 2)}</pre></dd>
       </dl>
     </section>)}

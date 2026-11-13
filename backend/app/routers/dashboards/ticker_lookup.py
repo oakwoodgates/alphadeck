@@ -54,6 +54,7 @@ from dashboards.ticker_lookup import (
     with_live_entries,
 )
 from domain.call import CallCard
+from domain.links import HttpUrlOut
 from domain.market_time import countdown_origin, market_clock, market_tz, serve_view
 from domain.scopes import DATA_TENANT_ID
 from domain.splits import ListedSplit, listed_from_row
@@ -441,7 +442,7 @@ class TickerLookupIdentityOut(_Wire):
     ticker: str | None
     name: str | None
     cik: str | None
-    edgar_url: str | None
+    edgar_url: HttpUrlOut
     exchange: str | None
     business_type: str | None
     supersector: str | None
@@ -529,7 +530,7 @@ class TickerLookupCardsOut(_Wire):
 class TickerLookupSourceOut(_Wire):
     source: str
     ref: str
-    url: str | None
+    url: HttpUrlOut
     detail: list[str]
 
 
@@ -624,7 +625,7 @@ class TickerLookupFilingOut(_Wire):
     date: date
     headline: str
     detail: list[str]
-    url: str | None
+    url: HttpUrlOut
     accession: str | None
     tags: list[str]
     routine: bool

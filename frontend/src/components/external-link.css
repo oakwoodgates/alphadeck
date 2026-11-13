@@ -1,0 +1,14 @@
+/* ExternalLink (security hardening PR 4a): the host and the external mark on a link that leaves SEC. Quiet by
+   design — the label keeps its own look; the host and mark are smaller and muted, never a call to action. */
+.xl-host {
+  font-size: 0.85em;
+  opacity: 0.75;
+  overflow-wrap: anywhere;
+}
+
+.xl-mark {
+  font-size: 0.7em;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}

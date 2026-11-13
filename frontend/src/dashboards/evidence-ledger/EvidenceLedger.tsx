@@ -39,6 +39,7 @@ import {
   type EvidenceLedgerOut,
   type EvidenceLedgerRowOut,
 } from "./useEvidenceLedger";
+import { ExternalLink, isSecLink } from "../../components/ExternalLink";
 
 // Evidence Ledger (docs/dashboards/evidence-ledger.md): ONE card's provenance as a dated list. Everything the
 // recorded call and the stored facts rest on, each row marked by WHO put it there. Display only. Every row and
@@ -48,7 +49,6 @@ import {
 
 const SLOW = "Reading this card's record — the first load after a run or a basket edit can take a moment.";
 
-const isEdgarUrl = (url: string) => url.includes("sec.gov");
 
 /** One ledger row: a ticker chip (opens the Cockpit on that name), the row's form, its label (opens the detail),
  *  its quiet tags (the class, Context / Bench) and the link to its first source. */
@@ -69,8 +69,8 @@ function LedgerLine({
 }) {
   const byline = byWords(row);
   const expandable = row.detail.length > 0 || row.sources.length > 0 || byline != null;
-  const link = row.sources.find((s) => s.url != null && isEdgarUrl(s.url)) ?? row.sources.find((s) => s.url != null);
-  const edgar = link?.url != null && isEdgarUrl(link.url);
+  const link = row.sources.find((s) => isSecLink(s.url)) ?? row.sources.find((s) => s.url != null);
+  const edgar = isSecLink(link?.url);
   const more = row.sources.filter((s) => s.url != null).length - 1;
   const title = row.role ? CONTEXT_ROLE_DESCRIPTION[row.role] : undefined;
   return (
@@ -112,16 +112,14 @@ function LedgerLine({
           )}
         </span>
         {link?.url ? (
-          <a
+          <ExternalLink
             className="el-src"
             href={link.url}
-            target="_blank"
-            rel="noopener noreferrer"
             title={`${edgar ? "Open the filing on EDGAR" : "Open the stored source"}${more > 0 ? ` (${more} more in the row)` : ""}`}
-            aria-label={`Open ${row.ticker ?? "card"} ${row.form ?? row.kind} on ${edgar ? "EDGAR" : "its source"}`}
+            ariaLabel={`Open ${row.ticker ?? "card"} ${row.form ?? row.kind} on ${edgar ? "EDGAR" : "its source"}`}
           >
             {edgar ? "EDGAR" : "source"} ↗
-          </a>
+          </ExternalLink>
         ) : (
           <span className="el-src none" />
         )}
@@ -146,9 +144,7 @@ function LedgerLine({
                 {s.url && (
                   <>
                     {" "}
-                    <a href={s.url} target="_blank" rel="noopener noreferrer">
-                      {isEdgarUrl(s.url) ? "EDGAR" : "source"} ↗
-                    </a>
+                    <ExternalLink href={s.url}>{isSecLink(s.url) ? "EDGAR" : "source"} ↗</ExternalLink>
                   </>
                 )}
                 {s.detail.length > 0 && (

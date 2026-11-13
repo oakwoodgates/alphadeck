@@ -39,6 +39,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.deps import get_conn
+from domain.links import HttpUrlOut
 from domain.market_time import market_today, market_tz
 from domain.scopes import DATA_TENANT_ID
 from domain.splits import (
@@ -75,7 +76,7 @@ class AdminSplitListSecOut(BaseModel):
     accession: str
     form: str | None = None
     filed: date | None = None
-    url: str | None = None
+    url: HttpUrlOut = None
     passage: str | None = None
     document: str | None = None
     effective_date: date | None = None

@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import type { AdminHoldDecisionOut, AdminInsiderHoldOut, AdminInsiderHoldsOut } from "../api/hooks";
 import { useApproveHold, useDismissHold, useInsiderHolds, useRevokeHoldDecision } from "../api/hooks";
 import { errText } from "../workbench/format";
+import { ExternalLink } from "../components/ExternalLink";
 
 /** One wire row with the server's list default filled in (the generated type marks `history` optional). */
 type Hold = Omit<AdminInsiderHoldOut, "history"> & { history: AdminHoldDecisionOut[] };
@@ -109,9 +110,9 @@ function FilingRef({ h }: { h: Hold }) {
     <div className="adm-filing-ref" data-testid="adm-hold-ref">
       {h.form} ·{" "}
       {h.filing_url ? (
-        <a className="adm-link" href={h.filing_url} target="_blank" rel="noreferrer">
+        <ExternalLink className="adm-link" href={h.filing_url}>
           {h.accession} ↗
-        </a>
+        </ExternalLink>
       ) : (
         h.accession
       )}{" "}

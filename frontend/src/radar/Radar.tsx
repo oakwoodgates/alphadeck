@@ -4,6 +4,7 @@ import { useSearchParams } from "react-router";
 import { useRadarSpac, useSpacAttach, useSpacCatalyst, type SpacEventOut } from "../api/hooks";
 import { errText } from "../workbench/format";
 import { FundLaunches } from "./FundLaunches";
+import { ExternalLink } from "../components/ExternalLink";
 
 interface Props {
   header?: ReactNode;
@@ -137,9 +138,9 @@ function RadarRow({
           {e.items && e.items.length > 0 ? ` · ${e.items.join(" ")}` : ""}
         </span>
         <span className={`radar-state ${e.deal_state}`}>{STATE_LABEL[e.deal_state]}</span>
-        <a className="radar-link" href={e.url} target="_blank" rel="noreferrer">
+        <ExternalLink className="radar-link" href={e.url}>
           filing ↗
-        </a>
+        </ExternalLink>
       </div>
       {/* per-thesis matches — recommendations (#10): visible, act only on a click. Honest loudness:
           rows with no match carry no controls at all. */}

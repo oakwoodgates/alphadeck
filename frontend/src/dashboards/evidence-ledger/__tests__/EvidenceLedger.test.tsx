@@ -309,11 +309,14 @@ describe("EvidenceLedger", () => {
     expect(link).toHaveAttribute("target", "_blank");
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
     expect(within(rowOf("8-day breakout")).queryByRole("link")).toBeNull();
-    // a stored URL that is not an SEC page is a source link, not an EDGAR one
-    expect(within(rowOf("DOE award notice")).getByRole("link", { name: "Open card 8-K on its source" })).toHaveAttribute(
-      "href",
-      "https://doe.test/award",
-    );
+    // a stored URL that is not an SEC page is a source link, not an EDGAR one, and it says where it goes
+    const doe = within(rowOf("DOE award notice")).getByRole("link", {
+      name: "Open card 8-K on its source (external site: doe.test)",
+    });
+    expect(doe).toHaveAttribute("href", "https://doe.test/award");
+    expect(doe).toHaveAttribute("data-destination", "external");
+    expect(doe).toHaveTextContent("source ↗ doe.test");
+    expect(link).not.toHaveTextContent("doe.test");
     expect(within(rowOf("loses the DOE contract")).queryByRole("link")).toBeNull();
   });
 

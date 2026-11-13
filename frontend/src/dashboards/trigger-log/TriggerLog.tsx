@@ -53,6 +53,7 @@ import {
   type TriggerLogOut,
   type TriggerLogRole,
 } from "./useTriggerLog";
+import { ExternalLink } from "../../components/ExternalLink";
 
 // Trigger Log (docs/dashboards/trigger-log.md): every entry trigger and risk signal the RECORDED calls show firing
 // across the cards in a window, one row per trigger (the same trigger on twelve nights is one row, dated the
@@ -197,17 +198,15 @@ function TriggerRow({ row, onSelectThesis }: { row: Row; onSelectThesis: Dashboa
           row.sources.map((s, i) => {
             const v = sourceView(s);
             return v.href ? (
-              <a
+              <ExternalLink
                 key={i}
                 className="tl-link"
                 href={v.href}
-                target="_blank"
-                rel="noopener noreferrer"
                 title={v.title}
-                aria-label={`Open ${row.ticker ?? "the name"} source ${s.ref ?? s.source}`}
+                ariaLabel={`Open ${row.ticker ?? "the name"} source ${s.ref ?? s.source}`}
               >
                 {v.text}
-              </a>
+              </ExternalLink>
             ) : (
               <span key={i} className="tl-bar" title={v.title}>
                 {v.text}

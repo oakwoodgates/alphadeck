@@ -52,6 +52,7 @@ import {
   workLine,
   type SortKey,
 } from "./windowsView";
+import { ExternalLink } from "../../components/ExternalLink";
 
 // Entry Windows (docs/dashboards/entry-windows.md): one row per Armed card, its entry window (to arm_until) and
 // hold horizon (to exit_by) drawn from the arm night on ONE date axis with the as-of through every row, the
@@ -194,9 +195,9 @@ const stop = (e: MouseEvent) => e.stopPropagation();
 function SourceLink({ s }: { s: EntryWindowsSourceOut }) {
   const text = `${s.source} ${s.ref}`;
   return s.url ? (
-    <a className="ew-src" href={s.url} target="_blank" rel="noopener noreferrer" onClick={stop}>
+    <ExternalLink className="ew-src" href={s.url} onClick={stop}>
       {text}
-    </a>
+    </ExternalLink>
   ) : (
     <span className="ew-src">{text}</span>
   );

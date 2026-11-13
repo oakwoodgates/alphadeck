@@ -13,6 +13,7 @@ import type {
   LookupTrigger,
   TickerLookupOut,
 } from "./useTickerLookup";
+import { isSecLink } from "../../components/ExternalLink";
 
 // The Ticker Lookup's pure view helpers (docs/dashboards/ticker-lookup.md): the words and figures of each section,
 // the filings window and the day fold, the sparkline paths and the "show the work" lines. Every number is computed
@@ -218,7 +219,7 @@ export function labelTitle(e: Pick<LookupTrigger, "label" | "label_changes">): s
 /** A source in one piece: a link's label when it has a URL, the bar date for a `price:` reference, else its
  *  reference as stored. */
 export function sourceLabel(s: Pick<LookupSource, "source" | "ref" | "url">): string {
-  if (s.url) return s.url.includes("sec.gov") ? `${s.source} · EDGAR` : s.source;
+  if (s.url) return isSecLink(s.url) ? `${s.source} · EDGAR` : s.source;
   if (s.ref.startsWith("price:")) {
     const day = s.ref.split(":").at(-1) ?? "";
     return /^\d{4}-\d{2}-\d{2}$/.test(day) ? `price · ${day}` : s.ref;

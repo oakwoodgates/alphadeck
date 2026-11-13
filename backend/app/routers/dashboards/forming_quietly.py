@@ -55,6 +55,7 @@ from dashboards.forming_quietly import (
 )
 from domain.call import CallCard
 from domain.enums import Grade, Kind, State, TermTier
+from domain.links import HttpUrlOut
 from domain.market_time import serve_view
 from domain.scopes import DATA_TENANT_ID
 from domain.text_types import AsofDate
@@ -91,7 +92,7 @@ class FormingSourceOut(_Wire):
 
     source: str
     ref: str
-    url: str | None
+    url: HttpUrlOut
 
 
 class FormingTriggerOut(_Wire):

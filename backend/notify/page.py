@@ -40,6 +40,7 @@ from dataclasses import dataclass
 from datetime import date
 
 from notify import HealthEvent, Notifier, get_notifier
+from notify.escape import slack_message
 
 _log = logging.getLogger("alphadeck.notify.page")
 
@@ -99,7 +100,8 @@ def failure_event(asof: date | None, reason: str | None) -> RunFailurePage:
 
 def _fallback_post(text: str) -> None:
     """The last resort when the notify seam itself cannot be built: a stdlib JSON POST to the raw
-    ``SLACK_WEBHOOK_URL``. Never raises; never logs the URL (an incoming-webhook URL is a credential).
+    ``SLACK_WEBHOOK_URL``. Never raises; never logs the URL (an incoming-webhook URL is a credential). The second
+    Slack chokepoint (security PR 4a): the text is made inert exactly as ``notify.post_text`` makes it.
     """
     url = (os.environ.get("SLACK_WEBHOOK_URL") or "").strip()
     if not url:
@@ -108,7 +110,7 @@ def _fallback_post(text: str) -> None:
     try:
         req = urllib.request.Request(
             url,
-            data=json.dumps({"text": text}).encode("utf-8"),
+            data=json.dumps({"text": slack_message(text)}).encode("utf-8"),
             headers={"Content-Type": "application/json"},
             method="POST",
         )

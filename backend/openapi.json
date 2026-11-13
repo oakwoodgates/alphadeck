@@ -7443,7 +7443,14 @@
             "title": "Pct Owned"
           },
           "url": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Url"
           },
           "ingested": {
@@ -16552,7 +16559,14 @@
             "title": "Items"
           },
           "url": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Url"
           },
           "ingested": {
@@ -22641,7 +22655,14 @@
             "title": "Report Date"
           },
           "source_ref": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Source Ref"
           },
           "holdings_count": {
@@ -25850,7 +25871,14 @@
             "title": "Public Date"
           },
           "url": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Url"
           },
           "private_to_public": {
@@ -40638,7 +40666,14 @@
             "title": "Accession"
           },
           "url": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Url"
           },
           "deal_state": {
