@@ -40,6 +40,7 @@ from domain.enums import Grade, Kind, State
 from domain.links import HttpUrlOut
 from domain.market_time import serve_view
 from domain.scopes import DATA_TENANT_ID
+from domain.text_types import AsofDate
 from securities import master
 from signals.base import PointInTimeData
 from signals.horizons import display_bounds
@@ -348,7 +349,7 @@ def read_log(
 
 @router.get("", response_model=TriggerLogOut)
 def trigger_log_page(
-    asof: date = Query(
+    asof: AsofDate = Query(
         ..., description="as-of date; no night recorded after it and no bar public after it is read"
     ),
     days: TriggerLogDays = Query(

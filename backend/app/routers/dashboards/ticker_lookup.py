@@ -58,6 +58,7 @@ from domain.links import HttpUrlOut
 from domain.market_time import countdown_origin, market_clock, market_tz, serve_view
 from domain.scopes import DATA_TENANT_ID
 from domain.splits import ListedSplit, listed_from_row
+from domain.text_types import AsofDate
 from domain.thesis import Thesis
 from pipeline.backfill import thesis_existed_on
 from repositories import thesis_repo
@@ -752,7 +753,7 @@ def ticker_lookup_resolve(
 @router.get("/{security_id}", response_model=TickerLookupOut)
 def ticker_lookup(
     security_id: UUID,
-    asof: date = Query(..., description="as-of date; nothing public after it is read"),
+    asof: AsofDate = Query(..., description="as-of date; nothing public after it is read"),
     conn: psycopg.Connection = Depends(get_conn),
     workspace: UUID = Depends(get_workspace),
 ) -> TickerLookupOut:

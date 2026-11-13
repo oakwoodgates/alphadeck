@@ -38,6 +38,7 @@ from dashboards.landing import (
 )
 from dashboards.landing import landing as compute_landing
 from domain.market_time import serve_view
+from domain.text_types import AsofDate
 from securities import master
 from signals.display import sma
 
@@ -235,7 +236,7 @@ def read_inputs(
 
 @router.get("", response_model=LandingOut)
 def landing(
-    asof: date = Query(..., description="as-of date; no price published after it is read"),
+    asof: AsofDate = Query(..., description="as-of date; no price published after it is read"),
     group_by: GroupBy = Query("link", description="the rows: link | business_type | sector | card"),
     include_silent: bool = Query(
         False, description="add Context and Bench memberships (their own rows in the Link view)"

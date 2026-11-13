@@ -83,6 +83,7 @@ def resolve(
     sec_cache_dir: Path | None = None,
     allow_live: bool = False,
     instrument_kind: InstrumentKind = InstrumentKind.EQUITY,
+    end_read_before_fetch: bool = False,
 ) -> Security:
     """Resolve a ticker to a canonical Security, INSERTING it into the master if new (this path only ever
     inserts — idempotent, never updates).
@@ -102,11 +103,18 @@ def resolve(
     other's rows (resolve dedups by ticker via ``_lookup``; the broadener by ``(cik, ticker)``). NOTE: the
     master is NOT append-only — the broadener UPDATEs a name in place (the id stays stable); see
     ``populate_universe``. Post-broadener the universe is already loaded, so this path rarely inserts.
+
+    ``end_read_before_fetch=True`` rolls back after the lookup, before the OpenFIGI / SEC calls, so the connection
+    is not idle in a transaction across the network. Only a caller whose transaction holds nothing but that lookup
+    may pass it (the API's resolve-etf route, which ends its own read first); the default leaves the transaction
+    alone.
     """
     ticker = ticker.upper()
     existing = _lookup(conn, ticker, tenant_id)
     if existing is not None:
         return existing
+    if end_read_before_fetch:
+        conn.rollback()
 
     mapping = figi.map_ticker(ticker, cache_dir=figi_cache_dir, allow_live=allow_live)
     cik = sec_tickers.cik_for(ticker, cache_dir=sec_cache_dir, allow_live=allow_live)
@@ -750,6 +758,19 @@ def primary_flag_gaps(conn: psycopg.Connection) -> list[dict]:
         ]
 
 
+LIKE_ESCAPE = "\\"
+
+
+def like_literal(text: str) -> str:
+    """``text`` with the LIKE wildcards (``%``, ``_``) and the escape character (a backslash) escaped, for a pattern
+    written with ``ESCAPE '\'``: the result matches ``text`` literally."""
+    return (
+        text.replace(LIKE_ESCAPE, LIKE_ESCAPE * 2)
+        .replace("%", LIKE_ESCAPE + "%")
+        .replace("_", LIKE_ESCAPE + "_")
+    )
+
+
 def search(
     conn: psycopg.Connection,
     query: str,
@@ -770,10 +791,12 @@ def search(
     blank query matches all (capped at ``limit``); no match returns ``[]``. Tenant-scoped like every
     master read.
     """
-    like = f"%{query.strip().upper()}%"
+    # the query is a LITERAL substring: ``%``, ``_`` and the escape character itself are escaped, so a typed
+    # ``%`` or ``_`` matches only itself (never every row) (security hardening PR 3)
+    like = f"%{like_literal(query.strip().upper())}%"
     former = (
         " OR id IN (SELECT h.security_id FROM security_ticker_history h"
-        " WHERE h.tenant_id = %s AND h.old_ticker LIKE %s)"
+        f" WHERE h.tenant_id = %s AND h.old_ticker LIKE %s ESCAPE '{LIKE_ESCAPE}')"
         if include_former and query.strip()
         else ""
     )
@@ -783,7 +806,8 @@ def search(
     with conn.cursor() as cur:
         cur.execute(
             "SELECT DISTINCT ON (ticker) * FROM security_master "
-            "WHERE tenant_id = %s AND ticker IS NOT NULL AND (ticker LIKE %s OR UPPER(name) LIKE %s"
+            "WHERE tenant_id = %s AND ticker IS NOT NULL "
+            f"AND (ticker LIKE %s ESCAPE '{LIKE_ESCAPE}' OR UPPER(name) LIKE %s ESCAPE '{LIKE_ESCAPE}'"
             f"{former}) "
             "ORDER BY ticker, recorded_at DESC LIMIT %s",
             (*args, limit),

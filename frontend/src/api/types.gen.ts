@@ -852,7 +852,12 @@ export interface paths {
          * @description Draft a plain-English explanation of a FLAG candidate, grounded in its located passage — the one LLM
          *     seam (M4b). A DISPLAY aid shown ALONGSIDE the raw passage; it NEVER becomes a fact.
          *
-         *     Note what is absent: no ``get_conn``, no tenant, no write. The explanation rides a separate rail that
+         *     The body is the candidate the extract endpoint returned, sent back as is, held to the request limits (at most
+         *     10 passages of at most 4,000 characters, at most 20 flags; security hardening PR 3). A plain user's call
+         *     spends one unit of the daily extract allowance (it is an LLM call a click can repeat).
+         *
+         *     Note what is absent: no tenant, no fact write (the one write is that allowance count). The explanation rides a
+         *     separate rail that
          *     dead-ends at the screen — the ratified number can only ever come from the operator's typed field on
          *     ``/facts`` (INVARIANT #3). The prompt asks the model not to state the final value; this missing
          *     connection is what guarantees it can't become one.
@@ -1210,7 +1215,9 @@ export interface paths {
          * @description Autosave this thesis's prune session — overwrite the single ``latest.json`` with the FE's opaque working
          *     state. Returns the stored envelope (server-stamped ``updated_at``). FAIL-LOUD: a write fault raises **500**
          *     so the operator's "Not saved" indicator is honest (the deliberate contrast with the fail-open draft-run
-         *     log). Writes ZERO spine rows regardless of payload — the blob is bytes to a file, never a fact.
+         *     log). Writes ZERO spine rows regardless of payload — the blob is bytes to a file, never a fact. The blob stays
+         *     opaque (its strings are never inspected) but is bounded: a request body over 25 MB is refused (413) and a state
+         *     nested deeper than 32 levels is a 422 (security hardening PR 3).
          */
         put: operations["put_triage_session_workbench_theses__thesis_id__triage_session_put"];
         post?: never;
@@ -7027,6 +7034,39 @@ export interface components {
             context_role?: components["schemas"]["ContextRole"] | null;
         };
         /**
+         * BasketMemberIn
+         * @description A basket row as a REQUEST sends it: ``BasketMember`` with the request limits (one-line fields 200 characters,
+         *     ``thesis_fit`` 2,000, at most 200 surfaced terms of 200 characters each). ``ticker`` is a one-line label here,
+         *     not the strict ticker pattern: a name with no ticker is sent under its company name. Stored rows are read as
+         *     ``BasketMember``, which carries none (security hardening PR 3).
+         */
+        BasketMemberIn: {
+            /** Ticker */
+            ticker: string;
+            /** Role */
+            role: string;
+            /** Security Id */
+            security_id?: string | null;
+            /** Detail */
+            detail?: string | null;
+            /** Segment */
+            segment?: string | null;
+            /** Thesis Fit */
+            thesis_fit?: string | null;
+            /** Conviction */
+            conviction?: number | null;
+            /** Surfaced Terms */
+            surfaced_terms?: string[];
+            /** @default system_drafted */
+            authored_by: components["schemas"]["Authorship"];
+            /**
+             * Signed Off
+             * @default false
+             */
+            signed_off: boolean;
+            context_role?: components["schemas"]["ContextRole"] | null;
+        };
+        /**
          * BusinessSupersector
          * @description The business-type SUPER-SECTOR — the coarse watch grouping above the leaf ("are the utilities
          *     moving?"). Pure code map from the leaf (``securities/business_type/supersectors.csv``), zero
@@ -11017,6 +11057,50 @@ export interface components {
             ads_ratio_status?: string | null;
         };
         /**
+         * ExtractedFactIn
+         * @description The body of ``POST /workbench/facts/explain``: the candidate the extract endpoint returned, sent back as is,
+         *     held to the request limits (at most 10 passages, at most 20 flags, the text classes of
+         *     ``domain/text_types.py``, finite numbers). The extract RESPONSE is ``ExtractedFact``, which carries none: a
+         *     server-built value is never refused on its way out (security hardening PR 3).
+         */
+        ExtractedFactIn: {
+            /** Fact Type */
+            fact_type: string;
+            tier: components["schemas"]["Tier"];
+            /** Source */
+            source: string;
+            /** Source Ref */
+            source_ref: string;
+            /**
+             * Event Date
+             * Format: date
+             */
+            event_date: string;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /** Value */
+            value?: number | null;
+            /** Cash Usd */
+            cash_usd?: number | null;
+            /** Quarterly Burn Usd */
+            quarterly_burn_usd?: number | null;
+            /** Statement Currency */
+            statement_currency?: string | null;
+            /** Flags */
+            flags?: string[];
+            /** Located Passages */
+            located_passages?: components["schemas"]["LocatedPassageIn"][];
+            /** Estimate Source */
+            estimate_source?: string | null;
+            /** Ads Ratio */
+            ads_ratio?: number | null;
+            /** Ads Ratio Status */
+            ads_ratio_status?: string | null;
+        };
+        /**
          * ExtractionResult
          * @description The extract endpoint's envelope (Retrieval Slice 1): the candidates plus an HONEST reason when
          *     there are none. The three empty states are DISTINCT (interaction #2 — "we couldn't read it" must
@@ -13837,6 +13921,24 @@ export interface components {
             offset?: number | null;
         };
         /**
+         * LocatedPassageIn
+         * @description A located passage as the explain REQUEST sends it back: ``LocatedPassage`` with the request limits (an excerpt
+         *     of at most 4,000 characters; one-line fields 200; ``source_ref`` 2,000). The extract RESPONSE builds
+         *     ``LocatedPassage`` from SEC text and carries none (security hardening PR 3).
+         */
+        LocatedPassageIn: {
+            /** Kind */
+            kind: string;
+            /** Source Ref */
+            source_ref: string;
+            /** Anchor */
+            anchor: string;
+            /** Excerpt */
+            excerpt: string;
+            /** Offset */
+            offset?: number | null;
+        };
+        /**
          * LoginRequest
          * @description Email + password. The email matches case-insensitively.
          */
@@ -15746,12 +15848,12 @@ export interface components {
              * Basket
              * @default []
              */
-            basket: components["schemas"]["BasketMember"][];
+            basket: components["schemas"]["BasketMemberIn"][];
             /**
              * Segments
              * @default []
              */
-            segments: components["schemas"]["Segment"][];
+            segments: components["schemas"]["SegmentIn"][];
             /**
              * Identity Overrides
              * @default []
@@ -17481,6 +17583,17 @@ export interface components {
          *     The per-segment candidate count is DERIVED on read (``len`` of members in the link), never stored.
          */
         Segment: {
+            /** Label */
+            label: string;
+            /** Descriptor */
+            descriptor?: string | null;
+        };
+        /**
+         * SegmentIn
+         * @description A value-chain link as a REQUEST sends it: ``Segment`` with the request limits (a 200-character label, a
+         *     2,000-character descriptor). Stored links are read as ``Segment``, which carries none (security hardening PR 3).
+         */
+        SegmentIn: {
             /** Label */
             label: string;
             /** Descriptor */
@@ -20338,7 +20451,7 @@ export interface operations {
     search_securities_workbench_securities_get: {
         parameters: {
             query?: {
-                /** @description ticker or name fragment; a discovery net over the master */
+                /** @description ticker or name fragment (at most 100 characters, matched literally); a discovery net over the master */
                 q?: string;
                 limit?: number;
             };
@@ -20546,7 +20659,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ExtractedFact"];
+                "application/json": components["schemas"]["ExtractedFactIn"];
             };
         };
         responses: {

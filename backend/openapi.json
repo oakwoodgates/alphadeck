@@ -935,6 +935,7 @@
                 "items": {
                   "$ref": "#/components/schemas/CatalystIn"
                 },
+                "maxItems": 500,
                 "title": "Body"
               }
             }
@@ -993,6 +994,7 @@
                 "items": {
                   "$ref": "#/components/schemas/KillCriterionIn"
                 },
+                "maxItems": 200,
                 "title": "Body"
               }
             }
@@ -1051,6 +1053,7 @@
                 "items": {
                   "$ref": "#/components/schemas/ExclusionIn"
                 },
+                "maxItems": 5000,
                 "title": "Body"
               }
             }
@@ -1273,11 +1276,12 @@
             "required": false,
             "schema": {
               "type": "string",
-              "description": "ticker or name fragment; a discovery net over the master",
+              "maxLength": 100,
+              "description": "ticker or name fragment (at most 100 characters, matched literally); a discovery net over the master",
               "default": "",
               "title": "Q"
             },
-            "description": "ticker or name fragment; a discovery net over the master"
+            "description": "ticker or name fragment (at most 100 characters, matched literally); a discovery net over the master"
           },
           {
             "name": "limit",
@@ -1611,13 +1615,13 @@
           "workbench"
         ],
         "summary": "Explain Flag Candidate",
-        "description": "Draft a plain-English explanation of a FLAG candidate, grounded in its located passage \u2014 the one LLM\nseam (M4b). A DISPLAY aid shown ALONGSIDE the raw passage; it NEVER becomes a fact.\n\nNote what is absent: no ``get_conn``, no tenant, no write. The explanation rides a separate rail that\ndead-ends at the screen \u2014 the ratified number can only ever come from the operator's typed field on\n``/facts`` (INVARIANT #3). The prompt asks the model not to state the final value; this missing\nconnection is what guarantees it can't become one.\n\nFail-open by contract: any LLM trouble (no ``ANTHROPIC_API_KEY``, timeout, SDK error, or the model\ndeclining to ground it) returns 200 with ``{explanation: \"\", grounded: false}`` \u2014 NEVER a 5xx. The facts\npanel renders identically to today. (FLAG-only: a non-FLAG candidate returns the same empty signal.)",
+        "description": "Draft a plain-English explanation of a FLAG candidate, grounded in its located passage \u2014 the one LLM\nseam (M4b). A DISPLAY aid shown ALONGSIDE the raw passage; it NEVER becomes a fact.\n\nThe body is the candidate the extract endpoint returned, sent back as is, held to the request limits (at most\n10 passages of at most 4,000 characters, at most 20 flags; security hardening PR 3). A plain user's call\nspends one unit of the daily extract allowance (it is an LLM call a click can repeat).\n\nNote what is absent: no tenant, no fact write (the one write is that allowance count). The explanation rides a\nseparate rail that\ndead-ends at the screen \u2014 the ratified number can only ever come from the operator's typed field on\n``/facts`` (INVARIANT #3). The prompt asks the model not to state the final value; this missing\nconnection is what guarantees it can't become one.\n\nFail-open by contract: any LLM trouble (no ``ANTHROPIC_API_KEY``, timeout, SDK error, or the model\ndeclining to ground it) returns 200 with ``{explanation: \"\", grounded: false}`` \u2014 NEVER a 5xx. The facts\npanel renders identically to today. (FLAG-only: a non-FLAG candidate returns the same empty signal.)",
         "operationId": "explain_flag_candidate_workbench_facts_explain_post",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ExtractedFact"
+                "$ref": "#/components/schemas/ExtractedFactIn"
               }
             }
           },
@@ -2212,7 +2216,7 @@
           "workbench"
         ],
         "summary": "Put Triage Session",
-        "description": "Autosave this thesis's prune session \u2014 overwrite the single ``latest.json`` with the FE's opaque working\nstate. Returns the stored envelope (server-stamped ``updated_at``). FAIL-LOUD: a write fault raises **500**\nso the operator's \"Not saved\" indicator is honest (the deliberate contrast with the fail-open draft-run\nlog). Writes ZERO spine rows regardless of payload \u2014 the blob is bytes to a file, never a fact.",
+        "description": "Autosave this thesis's prune session \u2014 overwrite the single ``latest.json`` with the FE's opaque working\nstate. Returns the stored envelope (server-stamped ``updated_at``). FAIL-LOUD: a write fault raises **500**\nso the operator's \"Not saved\" indicator is honest (the deliberate contrast with the fail-open draft-run\nlog). Writes ZERO spine rows regardless of payload \u2014 the blob is bytes to a file, never a fact. The blob stays\nopaque (its strings are never inspected) but is bounded: a request body over 25 MB is refused (413) and a state\nnested deeper than 32 levels is a 422 (security hardening PR 3).",
         "operationId": "put_triage_session_workbench_theses__thesis_id__triage_session_put",
         "parameters": [
           {
@@ -6537,7 +6541,8 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "type": "string",
+                  "maxLength": 200
                 },
                 {
                   "type": "null"
@@ -14198,6 +14203,117 @@
         ],
         "title": "BasketMember"
       },
+      "BasketMemberIn": {
+        "properties": {
+          "ticker": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Ticker"
+          },
+          "role": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Role"
+          },
+          "security_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Security Id"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "segment": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Segment"
+          },
+          "thesis_fit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thesis Fit"
+          },
+          "conviction": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 5.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conviction"
+          },
+          "surfaced_terms": {
+            "items": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "type": "array",
+            "maxItems": 200,
+            "title": "Surfaced Terms"
+          },
+          "authored_by": {
+            "$ref": "#/components/schemas/Authorship",
+            "default": "system_drafted"
+          },
+          "signed_off": {
+            "type": "boolean",
+            "title": "Signed Off",
+            "default": false
+          },
+          "context_role": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContextRole"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ticker",
+          "role"
+        ],
+        "title": "BasketMemberIn",
+        "description": "A basket row as a REQUEST sends it: ``BasketMember`` with the request limits (one-line fields 200 characters,\n``thesis_fit`` 2,000, at most 200 surfaced terms of 200 characters each). ``ticker`` is a one-line label here,\nnot the strict ticker pattern: a name with no ticker is sent under its company name. Stored rows are read as\n``BasketMember``, which carries none (security hardening PR 3)."
+      },
       "BusinessSupersector": {
         "type": "string",
         "enum": [
@@ -14863,12 +14979,14 @@
         "properties": {
           "label": {
             "type": "string",
+            "maxLength": 200,
             "title": "Label"
           },
           "kind": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 200
               },
               {
                 "type": "null"
@@ -14891,7 +15009,8 @@
           "when_label": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 200
               },
               {
                 "type": "null"
@@ -16173,10 +16292,14 @@
         "properties": {
           "current": {
             "type": "string",
+            "maxLength": 1024,
+            "minLength": 12,
             "title": "Current"
           },
           "new": {
             "type": "string",
+            "maxLength": 1024,
+            "minLength": 12,
             "title": "New"
           }
         },
@@ -17788,7 +17911,9 @@
           "shares": {
             "anyOf": [
               {
-                "type": "number"
+                "type": "number",
+                "maximum": 10000000000000.0,
+                "minimum": 0.0
               },
               {
                 "type": "null"
@@ -17799,7 +17924,9 @@
           "price": {
             "anyOf": [
               {
-                "type": "number"
+                "type": "number",
+                "maximum": 10000000000000.0,
+                "minimum": 0.0
               },
               {
                 "type": "null"
@@ -17810,7 +17937,8 @@
           "reason": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 2000
               },
               {
                 "type": "null"
@@ -20408,6 +20536,7 @@
               "$ref": "#/components/schemas/TermEdit"
             },
             "type": "array",
+            "maxItems": 500,
             "title": "Terms",
             "default": []
           }
@@ -23729,7 +23858,8 @@
           "ticker": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 200
               },
               {
                 "type": "null"
@@ -23740,7 +23870,8 @@
           "reason": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 2000
               },
               {
                 "type": "null"
@@ -23886,6 +24017,149 @@
         ],
         "title": "ExtractedFact",
         "description": "One candidate scoring fact for a security, with its tier, raw value(s), located evidence, and flags.\nThe shape mirrors the three ``ingest_*`` writers: shares -> ``value``; cash_burn -> ``cash_usd`` +\n``quarterly_burn_usd``; revenue_mix (purity) -> no value (HUMAN)."
+      },
+      "ExtractedFactIn": {
+        "properties": {
+          "fact_type": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Fact Type"
+          },
+          "tier": {
+            "$ref": "#/components/schemas/Tier"
+          },
+          "source": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Source"
+          },
+          "source_ref": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Source Ref"
+          },
+          "event_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Event Date"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Note",
+            "default": ""
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "cash_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cash Usd"
+          },
+          "quarterly_burn_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quarterly Burn Usd"
+          },
+          "statement_currency": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Statement Currency"
+          },
+          "flags": {
+            "items": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Flags"
+          },
+          "located_passages": {
+            "items": {
+              "$ref": "#/components/schemas/LocatedPassageIn"
+            },
+            "type": "array",
+            "maxItems": 10,
+            "title": "Located Passages"
+          },
+          "estimate_source": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimate Source"
+          },
+          "ads_ratio": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000000.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ads Ratio"
+          },
+          "ads_ratio_status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ads Ratio Status"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "fact_type",
+          "tier",
+          "source",
+          "source_ref",
+          "event_date"
+        ],
+        "title": "ExtractedFactIn",
+        "description": "The body of ``POST /workbench/facts/explain``: the candidate the extract endpoint returned, sent back as is,\nheld to the request limits (at most 10 passages, at most 20 flags, the text classes of\n``domain/text_types.py``, finite numbers). The extract RESPONSE is ``ExtractedFact``, which carries none: a\nserver-built value is never refused on its way out (security hardening PR 3)."
       },
       "ExtractionResult": {
         "properties": {
@@ -28619,6 +28893,7 @@
         "properties": {
           "text": {
             "type": "string",
+            "maxLength": 2000,
             "title": "Text"
           }
         },
@@ -30630,14 +30905,62 @@
         "title": "LocatedPassage",
         "description": "A deterministically-retrieved passage that backs a fact \u2014 the evidence put in front of the operator\n(or, later, S5). Retrieval only: a keyword/section match, never a model's reading."
       },
+      "LocatedPassageIn": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Kind"
+          },
+          "source_ref": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Source Ref"
+          },
+          "anchor": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Anchor"
+          },
+          "excerpt": {
+            "type": "string",
+            "maxLength": 4000,
+            "title": "Excerpt"
+          },
+          "offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Offset"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "source_ref",
+          "anchor",
+          "excerpt"
+        ],
+        "title": "LocatedPassageIn",
+        "description": "A located passage as the explain REQUEST sends it back: ``LocatedPassage`` with the request limits (an excerpt\nof at most 4,000 characters; one-line fields 200; ``source_ref`` 2,000). The extract RESPONSE builds\n``LocatedPassage`` from SEC text and carries none (security hardening PR 3)."
+      },
       "LoginRequest": {
         "properties": {
           "email": {
             "type": "string",
+            "maxLength": 254,
             "title": "Email"
           },
           "password": {
             "type": "string",
+            "maxLength": 1024,
+            "minLength": 12,
             "title": "Password"
           }
         },
@@ -35242,9 +35565,11 @@
         "properties": {
           "seeds": {
             "items": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 200
             },
             "type": "array",
+            "maxItems": 100,
             "title": "Seeds",
             "default": []
           }
@@ -35257,10 +35582,12 @@
         "properties": {
           "display_name": {
             "type": "string",
+            "maxLength": 200,
             "title": "Display Name"
           },
           "email": {
             "type": "string",
+            "maxLength": 254,
             "title": "Email"
           }
         },
@@ -35470,16 +35797,19 @@
           },
           "name": {
             "type": "string",
+            "maxLength": 200,
             "title": "Name"
           },
           "narrative": {
             "type": "string",
+            "maxLength": 20000,
             "title": "Narrative"
           },
           "ticker": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 200
               },
               {
                 "type": "null"
@@ -35489,17 +35819,19 @@
           },
           "basket": {
             "items": {
-              "$ref": "#/components/schemas/BasketMember"
+              "$ref": "#/components/schemas/BasketMemberIn"
             },
             "type": "array",
+            "maxItems": 3000,
             "title": "Basket",
             "default": []
           },
           "segments": {
             "items": {
-              "$ref": "#/components/schemas/Segment"
+              "$ref": "#/components/schemas/SegmentIn"
             },
             "type": "array",
+            "maxItems": 100,
             "title": "Segments",
             "default": []
           },
@@ -35509,6 +35841,7 @@
               "format": "uuid"
             },
             "type": "array",
+            "maxItems": 3000,
             "title": "Identity Overrides",
             "default": []
           }
@@ -35999,10 +36332,12 @@
           },
           "source": {
             "type": "string",
+            "maxLength": 200,
             "title": "Source"
           },
           "source_ref": {
             "type": "string",
+            "maxLength": 2000,
             "title": "Source Ref"
           },
           "event_date": {
@@ -36013,7 +36348,8 @@
           "note": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 2000
               },
               {
                 "type": "null"
@@ -36024,7 +36360,9 @@
           "estimate": {
             "anyOf": [
               {
-                "type": "number"
+                "type": "number",
+                "maximum": 1000000000000000.0,
+                "minimum": -1000000000000000.0
               },
               {
                 "type": "null"
@@ -36039,10 +36377,14 @@
           },
           "cash_usd": {
             "type": "number",
+            "maximum": 1000000000000000.0,
+            "minimum": -1000000000000000.0,
             "title": "Cash Usd"
           },
           "quarterly_burn_usd": {
             "type": "number",
+            "maximum": 1000000000000000.0,
+            "minimum": -1000000000000000.0,
             "title": "Quarterly Burn Usd"
           }
         },
@@ -36067,10 +36409,12 @@
           },
           "source": {
             "type": "string",
+            "maxLength": 200,
             "title": "Source"
           },
           "source_ref": {
             "type": "string",
+            "maxLength": 2000,
             "title": "Source Ref"
           },
           "event_date": {
@@ -36081,7 +36425,8 @@
           "note": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 2000
               },
               {
                 "type": "null"
@@ -36092,7 +36437,9 @@
           "estimate": {
             "anyOf": [
               {
-                "type": "number"
+                "type": "number",
+                "maximum": 1000000000000000.0,
+                "minimum": -1000000000000000.0
               },
               {
                 "type": "null"
@@ -36113,6 +36460,7 @@
           },
           "label": {
             "type": "string",
+            "maxLength": 200,
             "title": "Label"
           },
           "horizon_end": {
@@ -36151,10 +36499,12 @@
           },
           "source": {
             "type": "string",
+            "maxLength": 200,
             "title": "Source"
           },
           "source_ref": {
             "type": "string",
+            "maxLength": 2000,
             "title": "Source Ref"
           },
           "event_date": {
@@ -36165,7 +36515,8 @@
           "note": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 2000
               },
               {
                 "type": "null"
@@ -36176,7 +36527,9 @@
           "estimate": {
             "anyOf": [
               {
-                "type": "number"
+                "type": "number",
+                "maximum": 1000000000000000.0,
+                "minimum": -1000000000000000.0
               },
               {
                 "type": "null"
@@ -36191,10 +36544,13 @@
           },
           "segment_label": {
             "type": "string",
+            "maxLength": 200,
             "title": "Segment Label"
           },
           "mix_pct": {
             "type": "number",
+            "maximum": 100.0,
+            "minimum": 0.0,
             "title": "Mix Pct"
           }
         },
@@ -36219,10 +36575,12 @@
           },
           "source": {
             "type": "string",
+            "maxLength": 200,
             "title": "Source"
           },
           "source_ref": {
             "type": "string",
+            "maxLength": 2000,
             "title": "Source Ref"
           },
           "event_date": {
@@ -36233,7 +36591,8 @@
           "note": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 2000
               },
               {
                 "type": "null"
@@ -36244,7 +36603,9 @@
           "estimate": {
             "anyOf": [
               {
-                "type": "number"
+                "type": "number",
+                "maximum": 1000000000000000.0,
+                "minimum": -1000000000000000.0
               },
               {
                 "type": "null"
@@ -36259,12 +36620,16 @@
           },
           "shares": {
             "type": "number",
+            "maximum": 10000000000000.0,
+            "exclusiveMinimum": 0.0,
             "title": "Shares"
           },
           "ads_ratio": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "integer",
+                "maximum": 1000000.0,
+                "minimum": 1.0
               },
               {
                 "type": "null"
@@ -39791,6 +40156,34 @@
         "title": "Segment",
         "description": "A link in the thesis's value chain (the Workbench decomposition) \u2014 STRUCTURE, not a score.\n\nThe per-segment candidate count is DERIVED on read (``len`` of members in the link), never stored."
       },
+      "SegmentIn": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Label"
+          },
+          "descriptor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Descriptor"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "label"
+        ],
+        "title": "SegmentIn",
+        "description": "A value-chain link as a REQUEST sends it: ``Segment`` with the request limits (a 200-character label, a\n2,000-character descriptor). Stored links are read as ``Segment``, which carries none (security hardening PR 3)."
+      },
       "SetBusinessTypeRequest": {
         "properties": {
           "business_type": {
@@ -40061,6 +40454,7 @@
         "properties": {
           "url": {
             "type": "string",
+            "maxLength": 2000,
             "title": "Url"
           }
         },
@@ -40198,6 +40592,8 @@
           },
           "cik": {
             "type": "string",
+            "maxLength": 10,
+            "minLength": 1,
             "title": "Cik"
           }
         },
@@ -40462,6 +40858,7 @@
         "properties": {
           "term": {
             "type": "string",
+            "maxLength": 200,
             "title": "Term"
           },
           "tier": {
@@ -42535,6 +42932,7 @@
         "properties": {
           "name": {
             "type": "string",
+            "maxLength": 200,
             "title": "Name"
           }
         },

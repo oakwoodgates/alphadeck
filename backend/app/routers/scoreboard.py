@@ -4,9 +4,10 @@ from datetime import date, datetime, time, timedelta, timezone
 from uuid import UUID
 
 import psycopg
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from app.deps import get_conn, get_thesis_or_404, get_workspace
+from app.errors import SCHEDULE_SETTING_MALFORMED, fail
 from app.schemas_api import (
     ActivistStakeOut,
     AnnotatedNightOut,
@@ -33,6 +34,7 @@ from domain.market_time import known_at_for_asof, market_now, serve_view, view_d
 from domain.scopes import DATA_TENANT_ID
 from domain.settings import get_settings
 from domain.splits import tape_scale
+from domain.text_types import AsofDate
 from domain.thesis import Thesis
 from pipeline.schedule import expected_runs_behind, last_expected_asof, parse_run_at
 from repositories import calls_repo, editions_repo, split_repo
@@ -63,22 +65,24 @@ def _now() -> datetime:
     return market_now()
 
 
-def _run_at() -> time:
+def _run_at(request: Request) -> time:
     """The schedule wall time off ``Settings.cron_run_at`` (env ``ALPHADECK_CRON_AT`` — the same var
     the sidecar + admin read), so the Scoreboard's staleness models the SAME schedule. A malformed
-    value is a DEPLOY error → a loud, actionable 500. Copied from ``admin.py``."""
+    value is a DEPLOY error → a loud 500 with a fixed sentence (the value itself: a steward only, and the log).
+    Copied from ``admin.py``."""
     raw = get_settings().cron_run_at
     try:
         return parse_run_at(raw)
     except ValueError as exc:
-        raise HTTPException(
-            status_code=500, detail=f"ALPHADECK_CRON_AT is malformed ({raw!r}): {exc}"
+        raise fail(
+            500, SCHEDULE_SETTING_MALFORMED, ValueError(f"{raw!r}: {exc}"), request=request
         ) from exc
 
 
 @router.get("", response_model=ScoreboardResponse)
 def get_scoreboard(
-    asof: date = Query(..., description="score the record as-of this date (caps both axes)"),
+    request: Request,
+    asof: AsofDate = Query(..., description="score the record as-of this date (caps both axes)"),
     include_archived: bool = Query(
         True,
         description="archived theses ride the record by default (archiving stops accrual, "
@@ -162,7 +166,7 @@ def get_scoreboard(
     # it is identical whether the view is scrubbed to the past or to today; the FE shows it only on the
     # live view (asof >= today). Measured vs the last EXPECTED Mon-Fri+RUN_AT run (never raw
     # today - edge); edge None = the record has never begun (quiet: days_behind None, stale False).
-    run_at = _run_at()
+    run_at = _run_at(request)
     now = _now()
     edge = calls_repo.record_edge(conn)
     expected = last_expected_asof(now, run_at)
@@ -412,18 +416,18 @@ def get_scoreboard_edition_diff(
 @router.get("/price-window", response_model=ScoreboardPriceWindowOut)
 def get_price_window(
     security_id: UUID = Query(..., description="the episode's basket-member security to chart"),
-    start: date = Query(
+    start: AsofDate = Query(
         ...,
         description="ADVISORY window start (the FE's per-episode cache anchor). The server owns the "
         "effective floor = max(thesis.created_at − 365d, first_bar) and loads [floor, end] regardless; "
         "the response echoes that effective floor as ``start``",
     ),
-    end: date = Query(
+    end: AsofDate = Query(
         ...,
         description="window end — the episode's exit_by; the series is still capped at asof "
         "server-side, so a future exit_by never widens it past asof",
     ),
-    asof: date = Query(
+    asof: AsofDate = Query(
         ..., description="score as-of this date — the series is CAPPED here (no-lookahead)"
     ),
     edition: int | None = Query(

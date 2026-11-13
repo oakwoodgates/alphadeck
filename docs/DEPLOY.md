@@ -287,6 +287,49 @@ then re-run step 1 + step 2.
 
 ---
 
+## Connections
+
+Every API request opens one database connection for its run and closes it (there is no pool). Postgres runs with
+its default `max_connections = 100` (3 reserved for superusers, so 97 usable). Security hardening PR 2 bounds what the
+API can hold and what each connection may do:
+
+- **In-flight requests**: the backend's uvicorn runs `--workers 1 --limit-concurrency 64` (`backend/Dockerfile`; the
+  build arg `UVICORN_LIMIT_CONCURRENCY`, overridden at run time by `ALPHADECK_UVICORN_LIMIT_CONCURRENCY`). Past it
+  uvicorn answers 503 at once instead of opening another connection. The hosted `/mcp` endpoint's streams count too.
+  One worker stays deliberate (the in-process job registries). The dev, sig and fork overlays run their own
+  `--reload` command and are not capped.
+- **Background jobs**: at most `ALPHADECK_DRAFT_JOBS_MAX_RUNNING` (4) chain drafts and
+  `ALPHADECK_INGEST_JOBS_MAX_RUNNING` (4) on-promote ingests run at once across every thesis, each on its own
+  connection (0 = no cap). Beyond it a draft answers 429 "Too many chain drafts are running right now. Try again in a
+  few minutes." (checked before the daily allowance is charged) and a promote's new names go to the onboarding queue
+  instead of a fast-lane ingest. A job counts until its thread really ends, even after the reaper marked it failed.
+- **The arithmetic**: 64 requests + 4 drafts + 4 ingests + 1 SEC-budget connection = at most 73 from the API, plus a
+  handful briefly (the boot guard, a steward's run-daily probe and backup). The cron sidecar's nightly and onboarding
+  passes take about 5 to 10 more. That leaves roughly 15 to 20 of the 97 for `psql`, migrations and a dev tool. Raise
+  `max_connections` (a deployment setting, not changed here) before raising any of the three caps.
+- **Timeouts on request connections** (`db.session.connect_request`, used by `app.db_conn.get_conn` and the OAuth
+  provider), set as connection options when the session starts, so nothing is executed or committed and a rollback
+  never undoes them. Each is a setting; 0 = off (the server default):
+
+  | Setting | Default | What it stops |
+  |---|---|---|
+  | `ALPHADECK_DB_CONNECT_TIMEOUT_S` | 5 | a connect that hangs (Postgres down or full); the request answers 503 |
+  | `ALPHADECK_DB_STATEMENT_TIMEOUT_S` | 300 | a statement that would run for ever (the same ceiling nginx puts on every request); 503 |
+  | `ALPHADECK_DB_LOCK_TIMEOUT_S` | 5 | a wait on a row or table lock; 503 |
+  | `ALPHADECK_DB_IDLE_IN_TRANSACTION_TIMEOUT_S` | 120 | a session left idle inside a transaction |
+
+  No request route sits idle in a transaction across the network: extract, holdings, auto-confirm, the price pull,
+  terms, recommend-tiers and resolve-ETF end their read-only transaction before calling SEC, a vendor or an LLM
+  (`backend/tests/app/test_read_then_call.py`).
+- **Timeouts on job connections** (`db.session.connect_job`: the draft job, the on-promote ingest job):
+  `ALPHADECK_JOB_STATEMENT_TIMEOUT_S` (900) and `ALPHADECK_JOB_LOCK_TIMEOUT_S` (30), plus the request connect timeout;
+  no idle timeout (a job reads, calls out, then writes). The nightly and the CLIs keep `db.session.connect` and their
+  own `ALPHADECK_CRON_STATEMENT_TIMEOUT_S`.
+- These settings are read by the backend from its environment. `docker-compose.yml` does not pass them through
+  today, so the defaults above are what runs; to change one, add it to the backend service's `environment:` block.
+
+---
+
 ## Safety
 
 - **Deploy is not read-only to prod data** — rebuilding replaces images, but backend startup applies

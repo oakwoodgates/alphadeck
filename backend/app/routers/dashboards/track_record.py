@@ -53,6 +53,7 @@ from domain.market_time import serve_view, view_day
 from domain.scopes import DATA_TENANT_ID
 from domain.settings import get_settings
 from domain.splits import listed_from_row
+from domain.text_types import AsofDate
 from pipeline import data_flags as flags_reader
 from repositories import editions_repo
 from repositories.editions_repo import Edition
@@ -519,7 +520,7 @@ def _newest_edition(conn: psycopg.Connection, tenant: UUID) -> Edition | None:
 
 @router.get("", response_model=TrackRecordOut)
 def track_record(
-    asof: date = Query(..., description="as-of date; nothing published after it is read"),
+    asof: AsofDate = Query(..., description="as-of date; nothing published after it is read"),
     edition: int = Query(
         0,
         ge=0,

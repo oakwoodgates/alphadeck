@@ -266,7 +266,7 @@ def test_ingest_prices_source_failure_is_a_visible_502(client, security_id, monk
     monkeypatch.setattr(mod, "YahooPriceSource", _Boom)
     r = client.post(f"/workbench/securities/{security_id}/ingest-prices")
     assert r.status_code == 502
-    assert "price pull failed" in r.json()["detail"]
+    assert r.json()["detail"].startswith("The price source could not be reached.")
 
 
 def _insert_otc(db, *, ticker, name, cik):

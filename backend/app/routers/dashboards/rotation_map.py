@@ -40,6 +40,7 @@ from dashboards.rotation_map import (
 from dashboards.rotation_map import rotation_map as compute_rotation_map
 from domain.market_time import serve_view
 from domain.scopes import DATA_TENANT_ID
+from domain.text_types import AsofDate
 from securities import master
 from signals.base import PointInTimeData
 from signals.display import trailing_returns
@@ -241,7 +242,7 @@ def read_inputs(
 
 @router.get("", response_model=RotationMapOut)
 def rotation_map(
-    asof: date = Query(..., description="as-of date; no price published after it is read"),
+    asof: AsofDate = Query(..., description="as-of date; no price published after it is read"),
     group_by: GroupBy = Query("link", description="the rows: link | business_type | sector | card"),
     include_silent: bool = Query(
         False, description="add Context and Bench memberships (their own rows in the Link view)"

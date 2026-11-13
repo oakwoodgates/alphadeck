@@ -40,6 +40,7 @@ from dashboards.filings import FilingKind, FoldGroup, read_filing_rows
 from domain.enums import ContextRole
 from domain.links import HttpUrlOut
 from domain.market_time import serve_view
+from domain.text_types import AsofDate
 from repositories import thesis_repo
 
 router = APIRouter(prefix="/filing-stream")
@@ -274,7 +275,7 @@ def _cards(
 
 @router.get("/cards", response_model=FilingStreamCardsOut)
 def filing_stream_cards(
-    asof: date = Query(
+    asof: AsofDate = Query(
         ..., description="as-of date; only the cards that existed by then are listed"
     ),
     conn: psycopg.Connection = Depends(get_conn),
@@ -299,7 +300,7 @@ def filing_stream_cards(
 @router.get("/{thesis_id}", response_model=FilingStreamOut)
 def filing_stream_for_card(
     thesis_id: UUID,
-    asof: date = Query(..., description="as-of date; no filing public after it is read"),
+    asof: AsofDate = Query(..., description="as-of date; no filing public after it is read"),
     days: FilingStreamDays = Query(
         FilingStreamDays.D90, description="the window: the last 30 | 90 | 365 days"
     ),

@@ -775,3 +775,28 @@ describe("FactsPanel — the fetch refusals", () => {
     expect(screen.getByText(msg)).toBeInTheDocument();
   });
 });
+
+// security hardening PR 3: the explainer now spends the extract allowance, so its 429 reads as the API words it; and a
+// limit 422 on the candidate it sends back names the field
+describe("FactsPanel — the explainer's refusals", () => {
+  it("shows the daily-allowance 429 on its own line, not as an unreachable explainer", () => {
+    const msg = "Daily allowance reached: 5,000 extracts a day. It resets at midnight America/New_York time.";
+    h.explain = { data: undefined, error: { detail: msg }, isError: true, isFetching: false };
+    h.extract.data = env([FLAG_BURN]);
+    render(<FactsPanel securityId={SID} />);
+    expect(screen.getByText(msg)).toBeInTheDocument();
+    expect(screen.queryByText(/Couldn't reach the explainer/)).not.toBeInTheDocument();
+  });
+
+  it("a limit 422 rides the line as its first message, naming the field", () => {
+    const detail = [
+      { loc: ["body", "located_passages", 0, "excerpt"], msg: "String should have at most 4000 characters" },
+    ];
+    h.explain = { data: undefined, error: { detail }, isError: true, isFetching: false };
+    h.extract.data = env([FLAG_BURN]);
+    render(<FactsPanel securityId={SID} />);
+    expect(screen.getByText(/Couldn't reach the explainer/)).toHaveTextContent(
+      "excerpt: String should have at most 4000 characters.",
+    );
+  });
+});

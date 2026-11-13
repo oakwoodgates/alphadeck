@@ -65,6 +65,7 @@ from domain.market_cap import CapTier
 from domain.market_time import countdown_origin, market_clock, serve_view
 from domain.scopes import DATA_TENANT_ID
 from domain.splits import listed_from_row
+from domain.text_types import AsofDate
 from repositories import calls_repo
 from securities import master
 from signals.base import PointInTimeData
@@ -495,7 +496,7 @@ def read_board(
 
 @router.get("", response_model=HotBoardOut)
 def hot_board(
-    asof: date = Query(
+    asof: AsofDate = Query(
         ..., description="as-of date; only what was recorded and public by then is read"
     ),
     rows: RowsRead = Query(

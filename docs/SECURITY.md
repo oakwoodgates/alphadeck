@@ -4,6 +4,8 @@ One rule per output context, and where it lives. Text that came from a user, a f
 written into each context only through that context's rule. Security hardening PR 4a (2026-11-12) added the rules
 below; LLM prompts, agent tool output and error bodies have their own (separate) changes.
 
+What a request may carry (the input side, security hardening PR 3) is in `docs/AUTH.md` § Request limits.
+
 ## The rules
 
 | Context | The rule | Where it lives | The guard |

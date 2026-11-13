@@ -5,7 +5,7 @@ from datetime import date, datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import AfterValidator, BaseModel, Field
+from pydantic import BaseModel, Field
 
 from backtest.manifest import BacktestManifest
 from backtest.pooled import PooledReport
@@ -21,9 +21,41 @@ from domain.enums import (
     TermTier,
     Verdict,
 )
+from domain.extraction import ExtractedFact, LocatedPassage
 from domain.links import HttpUrlOut
 from domain.settings import get_settings
 from domain.signal import Provenance
+from domain.text_types import (
+    BASKET_MAX,
+    CATALYSTS_MAX,
+    EXCLUSIONS_MAX,
+    EXPLAIN_FLAGS_MAX,
+    EXPLAIN_PASSAGES_MAX,
+    IDENTITY_OVERRIDES_MAX,
+    KILL_CRITERIA_MAX,
+    SEEDS_MAX,
+    SEGMENTS_MAX,
+    SURFACED_TERMS_MAX,
+    TERMS_MAX,
+    AdsRatio,
+    CikIn,
+    DecisionAmount,
+    EmailIn,
+    Excerpt,
+    FiniteFloat,
+    Line,
+    MixPct,
+    Money,
+    Narrative,
+    OpaqueState,
+    PasswordIn,
+    Prose,
+    RequestDate,
+    Shares,
+    Term,
+    TickerIn,
+    UrlText,
+)
 from domain.thesis import (
     BasketMember,
     Catalyst,
@@ -37,13 +69,12 @@ from domain.thesis import (
 )
 from domain.workbench import ScoredFigure, ScoredMember
 from scoreboard.schema import EpisodeOperator, OperatorSpan, ScoredEpisode, ThesisRecord
-from securities.symbols import normalize_ticker
 from signals.display.base import DisplaySignal
 from workbench.chain_draft import ResolvedPlacement, ResolvedSegment
 
-# A ticker typed into a request that can reach the shared security master: stripped + uppercased, then held to
-# ``securities.symbols`` (1-12 of A-Z 0-9 . -, starting with a letter or digit), else 422 before the route runs.
-TickerIn = Annotated[str, AfterValidator(normalize_ticker)]
+# The request input limits live in ``domain.text_types`` (security hardening PR 3): every REQUEST model below uses
+# them; no response model and no domain model does (stored data is never held to a request limit). ``TickerIn``
+# (PR 1a) is re-exported from there.
 
 # API response contracts — the WIRE shape, kept distinct from domain/ so the frontend's generated TS
 # types follow the API, not the domain schema. The one real transform vs. the domain CallCard: each
@@ -626,6 +657,36 @@ class EtfHoldingsOut(BaseModel):
     unresolved: list[EtfHoldingOut] = []
 
 
+class SegmentIn(Segment):
+    """A value-chain link as a REQUEST sends it: ``Segment`` with the request limits (a 200-character label, a
+    2,000-character descriptor). Stored links are read as ``Segment``, which carries none (security hardening PR 3).
+    """
+
+    label: Line
+    descriptor: Prose | None = None
+
+    def to_domain(self) -> Segment:
+        return Segment.model_validate(self.model_dump())
+
+
+class BasketMemberIn(BasketMember):
+    """A basket row as a REQUEST sends it: ``BasketMember`` with the request limits (one-line fields 200 characters,
+    ``thesis_fit`` 2,000, at most 200 surfaced terms of 200 characters each). ``ticker`` is a one-line label here,
+    not the strict ticker pattern: a name with no ticker is sent under its company name. Stored rows are read as
+    ``BasketMember``, which carries none (security hardening PR 3).
+    """
+
+    ticker: Line
+    role: Line
+    detail: Line | None = None
+    segment: Line | None = None
+    thesis_fit: Prose | None = None
+    surfaced_terms: list[Term] = Field(default_factory=list, max_length=SURFACED_TERMS_MAX)
+
+    def to_domain(self) -> BasketMember:
+        return BasketMember.model_validate(self.model_dump())
+
+
 class PromoteThesisRequest(BaseModel):
     """The promote/update payload — a thesis-with-chain. The router builds a domain Thesis (the
     segment-consistency validator runs) under the CURRENT tenant (the resolver, not the body), then upserts
@@ -638,17 +699,17 @@ class PromoteThesisRequest(BaseModel):
     """
 
     id: UUID | None = None
-    name: str
-    narrative: str
-    ticker: str | None = None
-    basket: list[BasketMember] = []
-    segments: list[Segment] = []
+    name: Line
+    narrative: Narrative
+    ticker: Line | None = None
+    basket: list[BasketMemberIn] = Field(default=[], max_length=BASKET_MAX)
+    segments: list[SegmentIn] = Field(default=[], max_length=SEGMENTS_MAX)
     # The identity-coherence override (fail-closed with an escape hatch — the gate idiom): promote REJECTS
     # (422) a member whose shown ticker disagrees with its bound master row (cross-company / label-drift,
     # the misbind class) UNLESS that member's security_id is listed here — an explicit, per-member, LOGGED
     # acceptance ("I know the label and the binding disagree; bind it anyway"). Never blanket, never
     # remembered across promotes.
-    identity_overrides: list[UUID] = []
+    identity_overrides: list[UUID] = Field(default=[], max_length=IDENTITY_OVERRIDES_MAX)
 
 
 class PromoteIngestRef(BaseModel):
@@ -771,7 +832,7 @@ class ProduceTermsRequest(BaseModel):
     keyword-gen non-determinism. Omitted / empty seeds -> regenerate preserves the thesis's EXISTING operator
     seeds and just re-rolls the LLM-proposed terms."""
 
-    seeds: list[str] = []
+    seeds: list[Term] = Field(default=[], max_length=SEEDS_MAX)
 
 
 class TermEdit(BaseModel):
@@ -780,7 +841,7 @@ class TermEdit(BaseModel):
     naive client must not be able to mark a term ``operator_edited`` and freeze it against regenerate).
     """
 
-    term: str
+    term: Term
     tier: TermTier
 
 
@@ -791,7 +852,7 @@ class EditTermsRequest(BaseModel):
     ``operator_set`` (added) / ``operator_edited`` (re-tiered). An empty list clears the set (a visible operator
     choice)."""
 
-    terms: list[TermEdit] = []
+    terms: list[TermEdit] = Field(default=[], max_length=TERMS_MAX)
 
 
 class TierRecommendation(BaseModel):
@@ -818,36 +879,36 @@ class _RatifyBase(BaseModel):
     """
 
     security_id: UUID
-    source: str
-    source_ref: str
-    event_date: date
-    note: str | None = None
+    source: Line
+    source_ref: UrlText
+    event_date: RequestDate
+    note: Prose | None = None
     # The system estimate the operator was shown (the fact-type's primary value: mix_pct / shares /
     # quarterly_burn). The server compares the ratified value to it -> stamps `vouched` confirmed/overridden
     # PROVENANCE. None = a manual ratify with no estimate shown (vouched stays NULL). Never a scoring input.
-    estimate: float | None = None
+    estimate: Money | None = None
 
 
 class RatifyRevenueMix(_RatifyBase):
     fact_type: Literal["revenue_mix"]
-    segment_label: str
-    mix_pct: float
+    segment_label: Line
+    mix_pct: MixPct
 
 
 class RatifyShares(_RatifyBase):
     fact_type: Literal["shares_outstanding"]
-    shares: float
+    shares: Shares
     # ADS-ratio derivation metadata, carried through from the annual-cover candidate (spec §10) —
     # None/None for every 10-Q name and any hand-authored fact (the scorer then computes at 1:1).
     # "known" divides the ordinary count by the ratio; "unread" SUPPRESSES the cap (never a 1:1 guess).
-    ads_ratio: int | None = None
+    ads_ratio: AdsRatio | None = None
     ads_ratio_status: Literal["known", "unread"] | None = None
 
 
 class RatifyCashBurn(_RatifyBase):
     fact_type: Literal["cash_burn"]
-    cash_usd: float
-    quarterly_burn_usd: float
+    cash_usd: Money
+    quarterly_burn_usd: Money
 
 
 class RatifyCatalyst(_RatifyBase):
@@ -862,8 +923,8 @@ class RatifyCatalyst(_RatifyBase):
     fact_type: Literal["catalyst"]
     catalyst_type: CatalystType
     grade: Grade
-    label: str
-    horizon_end: date | None = None
+    label: Line
+    horizon_end: RequestDate | None = None
 
 
 # the discriminated body — Pydantic validates the per-type required fields for free (a missing field -> 422)
@@ -917,6 +978,41 @@ class AutoConfirmOut(BaseModel):
 
 
 # --- FLAG-explanation drafter (M4b — the LLM seam) — a DISPLAY aid, NOT a fact ---
+
+
+class LocatedPassageIn(LocatedPassage):
+    """A located passage as the explain REQUEST sends it back: ``LocatedPassage`` with the request limits (an excerpt
+    of at most 4,000 characters; one-line fields 200; ``source_ref`` 2,000). The extract RESPONSE builds
+    ``LocatedPassage`` from SEC text and carries none (security hardening PR 3)."""
+
+    kind: Line
+    source_ref: UrlText
+    anchor: Line
+    excerpt: Excerpt
+
+
+class ExtractedFactIn(ExtractedFact):
+    """The body of ``POST /workbench/facts/explain``: the candidate the extract endpoint returned, sent back as is,
+    held to the request limits (at most 10 passages, at most 20 flags, the text classes of
+    ``domain/text_types.py``, finite numbers). The extract RESPONSE is ``ExtractedFact``, which carries none: a
+    server-built value is never refused on its way out (security hardening PR 3)."""
+
+    fact_type: Line
+    source: Line
+    source_ref: UrlText
+    event_date: RequestDate
+    note: Prose = ""
+    value: FiniteFloat | None = None
+    cash_usd: FiniteFloat | None = None
+    quarterly_burn_usd: FiniteFloat | None = None
+    statement_currency: Line | None = None
+    flags: list[Line] = Field(default_factory=list, max_length=EXPLAIN_FLAGS_MAX)
+    located_passages: list[LocatedPassageIn] = Field(
+        default_factory=list, max_length=EXPLAIN_PASSAGES_MAX
+    )
+    estimate_source: Line | None = None
+    ads_ratio: AdsRatio | None = None
+    ads_ratio_status: Line | None = None
 
 
 class FlagExplanationOut(BaseModel):
@@ -1043,7 +1139,8 @@ class TriageSessionPut(BaseModel):
     rows (``test_session_put_writes_no_spine_rows``)."""
 
     schema_version: int
-    state: dict[str, Any]
+    # opaque: nesting at most ``STATE_MAX_DEPTH`` here; the serialized size is bounded by the route on the raw body
+    state: OpaqueState
 
 
 class TriageSessionEnvelope(BaseModel):
@@ -1072,17 +1169,19 @@ class CatalystIn(BaseModel):
     and exit-by) — display objects, distinct from the conviction FACTS (``RatifyCatalyst``). Server
     generates the id; the list is replaced whole (the operator edits it as a list)."""
 
-    label: str
-    kind: str | None = None  # display kind e.g. "earnings", "regulatory"
-    when_date: date | None = None  # dated -> enters the catalyst_surface filter; None = fuzzy
-    when_label: str | None = None  # display string e.g. "~3wk", "Q3"
+    label: Line
+    kind: Line | None = None  # display kind e.g. "earnings", "regulatory"
+    when_date: RequestDate | None = (
+        None  # dated -> enters the catalyst_surface filter; None = fuzzy
+    )
+    when_label: Line | None = None  # display string e.g. "~3wk", "Q3"
 
 
 class KillCriterionIn(BaseModel):
     """One kill criterion — the operator's documented "what would kill this thesis"; feeds the
     deterministic counter-case (the card stops reading "no documented counter-case")."""
 
-    text: str
+    text: Prose
 
 
 class ExclusionIn(BaseModel):
@@ -1090,8 +1189,14 @@ class ExclusionIn(BaseModel):
     via the sole writer; discovery never filters on it (#9) — the editor grays, visibly."""
 
     security_id: UUID
-    ticker: str | None = None
-    reason: str | None = None
+    ticker: Line | None = None
+    reason: Prose | None = None
+
+
+# The full-list bodies of ``PUT /theses/{id}/catalysts`` / ``kill-criteria`` / ``exclusions``, with their item limits.
+CatalystList = Annotated[list[CatalystIn], Field(max_length=CATALYSTS_MAX)]
+KillCriterionList = Annotated[list[KillCriterionIn], Field(max_length=KILL_CRITERIA_MAX)]
+ExclusionList = Annotated[list[ExclusionIn], Field(max_length=EXCLUSIONS_MAX)]
 
 
 class MetaIndexIn(BaseModel):
@@ -1111,11 +1216,11 @@ class DecisionIn(BaseModel):
     ``void`` points ``voids`` at a mistaken row — the reversibility inverse, never a delete."""
 
     action: Literal["take", "pass", "close", "void"]
-    decision_date: date  # VALID time — the day the fill/decision actually happened
+    decision_date: RequestDate  # VALID time — the day the fill/decision happened (the route: never after today)
     security_id: UUID | None = None  # the name acted on (defaults to thesis-level for a pass)
-    shares: float | None = None
-    price: float | None = None
-    reason: str | None = None
+    shares: DecisionAmount | None = None
+    price: DecisionAmount | None = None
+    reason: Prose | None = None
     voids: UUID | None = None  # required iff action == "void"
 
 
@@ -3028,7 +3133,7 @@ class SpacAttachRequest(BaseModel):
     stored matches (never client-supplied provenance)."""
 
     thesis_id: UUID
-    cik: str
+    cik: CikIn
 
 
 class SpacAttachOut(BaseModel):
@@ -3341,15 +3446,15 @@ class BacktestSweepsResponse(BaseModel):
 class LoginRequest(BaseModel):
     """Email + password. The email matches case-insensitively."""
 
-    email: str
-    password: str
+    email: EmailIn
+    password: PasswordIn
 
 
 class ChangePasswordRequest(BaseModel):
     """The current password and the new one (at least 12 characters)."""
 
-    current: str
-    new: str
+    current: PasswordIn
+    new: PasswordIn
 
 
 class MeOut(BaseModel):
@@ -3389,8 +3494,8 @@ class ProfileUpdate(BaseModel):
     """My display name and email. The name is trimmed and must not be empty; the email needs an `@` and must not
     be another user's (case-insensitively)."""
 
-    display_name: str
-    email: str
+    display_name: Line
+    email: EmailIn
 
 
 class SlackWebhookOut(BaseModel):
@@ -3403,7 +3508,7 @@ class SlackWebhookOut(BaseModel):
 class SlackWebhookIn(BaseModel):
     """A Slack incoming-webhook URL: it must start with `https://hooks.slack.com/`."""
 
-    url: str
+    url: UrlText
 
 
 class SlackTestOut(BaseModel):
@@ -3447,7 +3552,7 @@ class TokenListOut(BaseModel):
 class TokenCreateIn(BaseModel):
     """A name for a new access token (trimmed, 1 to 60 characters), e.g. the machine or client it is for."""
 
-    name: str
+    name: Line
 
 
 class TokenCreatedOut(BaseModel):

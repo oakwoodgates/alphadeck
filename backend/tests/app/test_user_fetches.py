@@ -624,6 +624,10 @@ def test_a_stewards_fast_lane_is_not_counted(people, db, limits, lane):
 
 _CHARGED = {
     ("GET", "/workbench/securities/{security_id}/extract"): "extract",
+    (
+        "POST",
+        "/workbench/facts/explain",
+    ): "extract",  # an LLM call a click can repeat (security hardening PR 3)
     ("POST", "/workbench/securities/{security_id}/ingest-prices"): "price_pull",
     ("POST", "/workbench/facts/auto-confirm"): "auto_confirm",
     ("GET", "/workbench/securities/{security_id}/etf-holdings"): "holdings",
@@ -644,6 +648,31 @@ def test_each_fetch_route_carries_its_allowance_dependency():
                 if action is not None:
                     seen[(method, r.path)] = action
     assert seen == _CHARGED
+
+
+def test_the_flag_explainer_spends_the_extract_allowance(people, db, limits, monkeypatch):
+    """``POST /workbench/facts/explain`` is an LLM call a plain user can fire in a loop: it spends one unit of the
+    extract allowance and answers the fixed 429 once the day's is spent (security hardening PR 3). A steward is
+    never counted."""
+    from app.deps import get_llm_client
+    from tests.app.test_workbench_api import _flag_candidate
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    app.dependency_overrides[get_llm_client] = lambda: _FakeLLM(returns=None)
+    limits(extract=2)
+    p, s = people["p"], people["s"]
+    assert p.post("/workbench/facts/explain", json=_flag_candidate()).status_code == 200
+    assert allowance.used(db, people["p_id"], "extract") == 1
+    assert p.post("/workbench/facts/explain", json=_flag_candidate()).status_code == 200
+    r = p.post("/workbench/facts/explain", json=_flag_candidate())
+    assert r.status_code == 429 and r.json()["detail"].startswith("Daily allowance reached:")
+    assert s.post("/workbench/facts/explain", json=_flag_candidate()).status_code == 200
+    db.rollback()
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT count(*) AS n FROM user_action_count WHERE user_id <> %s", (people["p_id"],)
+        )
+        assert cur.fetchone()["n"] == 0  # the steward spent nothing
 
 
 def test_the_day_is_the_market_day(monkeypatch):

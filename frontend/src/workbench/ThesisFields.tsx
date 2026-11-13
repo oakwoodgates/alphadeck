@@ -1,3 +1,5 @@
+import { LIMITS } from "../api/limits";
+
 interface Props {
   name: string;
   narrative: string;
@@ -20,6 +22,7 @@ export function ThesisFields({ name, narrative, onName, onNarrative }: Props) {
           onChange={(e) => onName(e.target.value)}
           placeholder="e.g. Small modular nuclear"
           aria-label="thesis name"
+          maxLength={LIMITS.line}
         />
       </label>
       <label className="wb-field">
@@ -33,6 +36,7 @@ export function ThesisFields({ name, narrative, onName, onNarrative }: Props) {
           rows={5}
           placeholder="The story, the conviction, the catalyst — why this, why now."
           aria-label="thesis narrative"
+          maxLength={LIMITS.narrative}
         />
       </label>
     </div>

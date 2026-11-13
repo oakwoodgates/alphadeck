@@ -37,6 +37,7 @@ from domain.enums import Grade, Kind
 from domain.links import HttpUrlOut
 from domain.market_time import countdown_origin, market_clock, serve_view
 from domain.scopes import DATA_TENANT_ID
+from domain.text_types import AsofDate
 from securities import master
 from signals.base import PointInTimeData
 from signals.horizons import MARGIN_DAYS
@@ -401,7 +402,7 @@ def read_page(
 
 @router.get("", response_model=EntryWindowsOut)
 def entry_windows_page(
-    asof: date = Query(
+    asof: AsofDate = Query(
         ..., description="as-of date; nothing recorded or published after it is read"
     ),
     conn: psycopg.Connection = Depends(get_conn),

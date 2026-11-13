@@ -75,6 +75,7 @@ import {
   reservedLinkName,
   useChainDraft,
 } from "./useChainDraft";
+import { LIMITS } from "../api/limits";
 
 // Stop polling a draft after this long and show "timed out, try again". A real draft floor is the ~300s Opus
 // tail-sweep + EDGAR discovery over the universe + decompose + narrate, so this is generous; it sits BELOW the
@@ -321,6 +322,7 @@ function LinkLabelInput({
         value={text}
         size={Math.max(text.length, 12)}
         aria-label={ariaLabel}
+        maxLength={LIMITS.line}
         onFocus={() => {
           startLabel.current = label;
           setRefused(null);
@@ -1771,6 +1773,7 @@ export function ChainEditor({
                 <input
                   className="wb-exc-why"
                   aria-label={`why excluded ${m.ticker}`}
+                  maxLength={LIMITS.prose}
                   placeholder="why? (optional)"
                   value={d.reasons.get(k) ?? ""}
                   onChange={(e) => d.editReason(k, e.target.value)}
@@ -1874,6 +1877,7 @@ export function ChainEditor({
             <AutoTextarea
               className="wb-prose"
               ariaLabel={`thesis-fit for ${m.ticker}`}
+              maxLength={LIMITS.prose}
               placeholder="why this name sits in its link — your research note (editing makes it yours)…"
               value={m.thesis_fit ?? ""}
               onChange={(v) => d.editProse(k, v)}
@@ -2149,6 +2153,7 @@ export function ChainEditor({
           <input
             type="text"
             className="wb-seed-input"
+            maxLength={LIMITS.term}
             placeholder="add a seed compound (SIGNAL — a hit places a name)…"
             value={newSeed}
             onChange={(ev) => setNewSeed(ev.target.value)}
@@ -2467,6 +2472,7 @@ export function ChainEditor({
             className="wb-input"
             placeholder="add a link…"
             aria-label="new link label"
+            maxLength={LIMITS.line}
             value={newSeg}
             onChange={(e) => setNewSeg(e.target.value)}
           />

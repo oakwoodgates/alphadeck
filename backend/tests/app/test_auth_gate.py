@@ -326,7 +326,10 @@ def test_change_password_revokes_every_other_session(anon, db):
     assert _login(other, "cp@test.invalid").status_code == 200
     assert _login(anon, "cp@test.invalid").status_code == 200
     short = anon.post("/auth/change-password", json={"current": PASSWORD, "new": "short"})
-    assert short.status_code == 400
+    # the request model's password limit (security hardening PR 3): 12 to 1,024 characters, a 422 naming the field
+    assert short.status_code == 422
+    assert short.json()["detail"][0]["loc"] == ["body", "new"]
+    assert "at least 12 characters" in short.json()["detail"][0]["msg"]
     wrong = anon.post(
         "/auth/change-password", json={"current": "not it at all", "new": "a brand new passphrase"}
     )

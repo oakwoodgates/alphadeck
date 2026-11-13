@@ -356,5 +356,5 @@ def test_openfigi_trouble_is_a_visible_502_never_a_silently_empty_overlap(
     sid = _sleeve(db, "SMH")
     r = client.get(f"/workbench/securities/{sid}/etf-holdings")
     assert r.status_code == 502
-    assert "CUSIP resolution failed" in r.json()["detail"]
+    assert r.json()["detail"].startswith("The fund's holdings could not be matched to tickers")
     assert "OpenFIGI unreachable" in r.json()["detail"]

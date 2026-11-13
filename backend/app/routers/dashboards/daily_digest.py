@@ -62,6 +62,7 @@ from domain.links import HttpUrlOut
 from domain.market_time import countdown_origin, market_clock, serve_view
 from domain.scopes import DATA_TENANT_ID
 from domain.splits import listed_from_row
+from domain.text_types import AsofDate
 from domain.thesis import Thesis
 from repositories import decisions_repo
 from securities import master
@@ -811,7 +812,7 @@ def live_digest_inputs(
 
 @router.get("", response_model=DailyDigestOut)
 def daily_digest_page(
-    asof: date = Query(
+    asof: AsofDate = Query(
         ..., description="as-of date; only what was recorded and public by then is read"
     ),
     conn: psycopg.Connection = Depends(get_conn),

@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { useChangePassword } from "../../api/hooks";
 import { errorDetail } from "../../auth/me";
+import { LIMITS } from "../../api/limits";
 
 const MIN_LEN = 12;
 
@@ -39,6 +40,7 @@ export function PasswordForm() {
         <input
           type="password"
           autoComplete="current-password"
+          maxLength={LIMITS.passwordMax}
           value={current}
           onChange={(e) => setCurrent(e.target.value)}
           required
@@ -49,6 +51,7 @@ export function PasswordForm() {
         <input
           type="password"
           autoComplete="new-password"
+          maxLength={LIMITS.passwordMax}
           value={next}
           onChange={(e) => setNext(e.target.value)}
           required
@@ -59,6 +62,7 @@ export function PasswordForm() {
         <input
           type="password"
           autoComplete="new-password"
+          maxLength={LIMITS.passwordMax}
           value={again}
           onChange={(e) => setAgain(e.target.value)}
           required

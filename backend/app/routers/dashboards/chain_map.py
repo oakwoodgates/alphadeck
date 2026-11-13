@@ -42,6 +42,7 @@ from dashboards.chain_map import (
 from dashboards.filings import read_filing_rows
 from domain.enums import Authorship, ContextRole
 from domain.market_time import serve_view
+from domain.text_types import AsofDate
 from repositories import thesis_repo
 from securities import master
 
@@ -296,7 +297,7 @@ def _cards(
 
 @router.get("/cards", response_model=ChainMapCardsOut)
 def chain_map_cards(
-    asof: date = Query(
+    asof: AsofDate = Query(
         ..., description="as-of date; only the cards that existed by then are listed"
     ),
     conn: psycopg.Connection = Depends(get_conn),
@@ -321,7 +322,7 @@ def chain_map_cards(
 @router.get("/{thesis_id}", response_model=ChainMapOut)
 def chain_map_for_card(
     thesis_id: UUID,
-    asof: date = Query(..., description="as-of date; nothing published after it is read"),
+    asof: AsofDate = Query(..., description="as-of date; nothing published after it is read"),
     conn: psycopg.Connection = Depends(get_conn),
     workspace: UUID = Depends(get_workspace),
 ) -> ChainMapOut:

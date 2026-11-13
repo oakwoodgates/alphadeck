@@ -58,6 +58,7 @@ from domain.enums import Grade, Kind, State, TermTier
 from domain.links import HttpUrlOut
 from domain.market_time import serve_view
 from domain.scopes import DATA_TENANT_ID
+from domain.text_types import AsofDate
 from domain.thesis import Thesis
 from repositories import calls_repo
 from securities import master
@@ -489,7 +490,7 @@ def _shown(card: CallCard) -> set[UUID]:
 
 @router.get("", response_model=FormingQuietlyOut)
 def forming_quietly(
-    asof: date = Query(
+    asof: AsofDate = Query(
         ..., description="as-of date; only what was recorded and public by then is read"
     ),
     conn: psycopg.Connection = Depends(get_conn),

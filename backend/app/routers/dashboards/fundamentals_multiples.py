@@ -41,6 +41,7 @@ from dashboards.fundamentals_multiples import (
 )
 from domain.links import HttpUrlOut
 from domain.market_time import serve_view
+from domain.text_types import AsofDate
 from repositories import fundamentals_set_aside_repo, thesis_repo
 from signals.base import PointInTimeData
 
@@ -295,7 +296,7 @@ def _cards(
 
 @router.get("/cards", response_model=MultiplesCardsOut)
 def multiples_cards(
-    asof: date = Query(
+    asof: AsofDate = Query(
         ..., description="as-of date; only the cards that existed by then are listed"
     ),
     conn: psycopg.Connection = Depends(get_conn),
@@ -320,7 +321,7 @@ def multiples_cards(
 @router.get("/{thesis_id}", response_model=MultiplesOut)
 def multiples_for_card(
     thesis_id: UUID,
-    asof: date = Query(..., description="as-of date; nothing published after it is read"),
+    asof: AsofDate = Query(..., description="as-of date; nothing published after it is read"),
     conn: psycopg.Connection = Depends(get_conn),
     workspace: UUID = Depends(get_workspace),
 ) -> MultiplesOut:

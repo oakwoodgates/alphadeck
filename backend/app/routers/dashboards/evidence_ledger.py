@@ -44,6 +44,7 @@ from domain.call import CallCard
 from domain.enums import ContextRole
 from domain.links import HttpUrlOut
 from domain.market_time import serve_view
+from domain.text_types import AsofDate
 from repositories import thesis_repo
 from securities import master
 
@@ -320,7 +321,7 @@ def _cards(
 
 @router.get("/cards", response_model=EvidenceLedgerCardsOut)
 def evidence_ledger_cards(
-    asof: date = Query(
+    asof: AsofDate = Query(
         ..., description="as-of date; only the cards that existed by then are listed"
     ),
     conn: psycopg.Connection = Depends(get_conn),
@@ -345,7 +346,7 @@ def evidence_ledger_cards(
 @router.get("/{thesis_id}", response_model=EvidenceLedgerOut)
 def evidence_ledger_for_card(
     thesis_id: UUID,
-    asof: date = Query(
+    asof: AsofDate = Query(
         ..., description="as-of date; no call recorded for a later night, no fact public after it"
     ),
     conn: psycopg.Connection = Depends(get_conn),

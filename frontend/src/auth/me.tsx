@@ -1,5 +1,6 @@
 import { createContext, useContext } from "react";
 
+import { apiErrorText } from "../api/errorText";
 import type { MeOut } from "../api/hooks";
 
 // The signed-in user, provided once by App.tsx once GET /auth/me resolves (docs/AUTH.md). Pages and the header
@@ -34,11 +35,8 @@ export function StewardsOnly({ header }: { header?: React.ReactNode }) {
   );
 }
 
-/** The API's `detail` string from an openapi-fetch error body, else a fallback. */
+/** The API's own words from an openapi-fetch error body (its `detail` sentence, or the first message of a
+ *  validation list naming its field), else a fallback. */
 export function errorDetail(error: unknown, fallback: string): string {
-  if (error && typeof error === "object" && "detail" in error) {
-    const d = (error as { detail: unknown }).detail;
-    if (typeof d === "string") return d;
-  }
-  return fallback;
+  return apiErrorText(error) ?? fallback;
 }

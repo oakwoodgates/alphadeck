@@ -44,6 +44,7 @@ from dashboards.chain_wave import chain_wave as compute_chain_wave
 from domain.enums import ContextRole
 from domain.market_time import serve_view
 from domain.scopes import DATA_TENANT_ID
+from domain.text_types import AsofDate
 from repositories import thesis_repo
 from signals.base import PointInTimeData
 from signals.display import trailing_returns
@@ -322,7 +323,7 @@ def _cards(
 
 @router.get("/cards", response_model=ChainWaveCardsOut)
 def chain_wave_cards(
-    asof: date = Query(
+    asof: AsofDate = Query(
         ..., description="as-of date; only the cards that existed by then are listed"
     ),
     conn: psycopg.Connection = Depends(get_conn),
@@ -347,7 +348,7 @@ def chain_wave_cards(
 @router.get("/{thesis_id}", response_model=ChainWaveOut)
 def chain_wave(
     thesis_id: UUID,
-    asof: date = Query(..., description="as-of date; no price published after it is read"),
+    asof: AsofDate = Query(..., description="as-of date; no price published after it is read"),
     weeks: ChainWaveWeeks = Query(ChainWaveWeeks.W26, description="the window: 13 | 26 | 52 weeks"),
     include_silent: bool = Query(
         False, description="add Context and Bench as the last two chain rows"

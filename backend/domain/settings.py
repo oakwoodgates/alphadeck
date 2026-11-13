@@ -142,6 +142,13 @@ class Settings(BaseSettings):
     # summary pollable for half an hour (the facts in Postgres are the durable record regardless).
     ingest_job_running_ttl_s: float = 3600.0
     ingest_job_finished_ttl_s: float = 1800.0
+    # --- The GLOBAL cap on those background jobs (security hardening PR 2, docs/DEPLOY.md §Connections) ---
+    # Each running draft or on-promote ingest holds its own database connection for its whole run, so at most this
+    # many of each run at once ACROSS ALL THESES (the one-per-thesis rules stay). Beyond it a new draft answers 429
+    # with a fixed sentence and a promote's new names go to the onboarding queue instead of a fast-lane ingest.
+    # 0 = no cap. ALPHADECK_DRAFT_JOBS_MAX_RUNNING / ALPHADECK_INGEST_JOBS_MAX_RUNNING.
+    draft_jobs_max_running: int = 4
+    ingest_jobs_max_running: int = 4
 
     # --- W1 — the per-company write lock's bounded waits (db/write_lock.py) ---
     # Every fact writer serializes PER COMPANY (a Postgres advisory lock): the nightly, the Workbench on-promote
@@ -677,6 +684,23 @@ class Settings(BaseSettings):
     system_token: str | None = None
     # The login throttle, per (lower(email), client ip), in-process: this many failures inside the window locks
     # the pair out (429) for the lockout.
+    # --- Request and job connection timeouts (security hardening PR 2, db.session.connect_request / connect_job,
+    # docs/DEPLOY.md §Connections) ---
+    # Every API request's connection (app.db_conn.get_conn) and the OAuth provider's open with these as connection
+    # options (nothing is executed or committed). 0 = off (the server default). The statement ceiling matches the
+    # 300 s nginx already puts on every request, so it cancels nothing that is not already cut off; it only stops a
+    # statement that would hang for ever (a clean 503). The idle-in-transaction timeout ends a session left inside
+    # a transaction; no request route holds one across an outbound call (they end the read first).
+    # ALPHADECK_DB_CONNECT_TIMEOUT_S / _STATEMENT_TIMEOUT_S / _LOCK_TIMEOUT_S / _IDLE_IN_TRANSACTION_TIMEOUT_S.
+    db_connect_timeout_s: float = 5.0
+    db_statement_timeout_s: float = 300.0
+    db_lock_timeout_s: float = 5.0
+    db_idle_in_transaction_timeout_s: float = 120.0
+    # The background jobs' own connections (the chain-draft job, the on-promote ingest job): a lock timeout and a
+    # longer statement ceiling; no idle timeout (a job may read, call SEC, then write). The nightly and the CLIs
+    # keep their own settings (cron_statement_timeout_s). ALPHADECK_JOB_STATEMENT_TIMEOUT_S / _LOCK_TIMEOUT_S.
+    job_statement_timeout_s: float = 900.0
+    job_lock_timeout_s: float = 30.0
     login_max_failures: int = 5
     login_window_s: float = 60
     login_lockout_s: float = 60

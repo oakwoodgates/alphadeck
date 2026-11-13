@@ -9,6 +9,7 @@ import {
 import { useAppClock } from "../clock";
 import { errText } from "../workbench/format";
 import { fmtDate } from "../util/format";
+import { LIMITS } from "../api/limits";
 
 /** Decision capture — the CallCard's action row, wired to the operator-decisions log.
  *
@@ -180,6 +181,7 @@ export function DecisionActions({
             {form === "pass" ? "why (optional, encouraged)" : "note"}
             <input
               aria-label="decision reason"
+              maxLength={LIMITS.prose}
               value={reason}
               placeholder={form === "pass" ? "e.g. verdict is not-yet; agreed" : "optional"}
               onChange={(e) => setReason(e.target.value)}
