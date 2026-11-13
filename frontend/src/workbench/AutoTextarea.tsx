@@ -7,6 +7,7 @@ interface Props {
   ariaLabel?: string;
   className?: string;
   maxRows?: number; // grow to fit, then scroll past this many rows (default 3)
+  maxLength?: number; // the API's input limit for this field (api/limits.ts)
 }
 
 /** A textarea that sizes to its content — one row when empty, growing to `maxRows`, then scrolling. A JS
@@ -19,6 +20,7 @@ export function AutoTextarea({
   ariaLabel,
   className,
   maxRows = 3,
+  maxLength,
 }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null);
 
@@ -45,6 +47,7 @@ export function AutoTextarea({
       rows={1}
       aria-label={ariaLabel}
       placeholder={placeholder}
+      maxLength={maxLength}
       value={value}
       onChange={(e) => onChange(e.target.value)}
     />

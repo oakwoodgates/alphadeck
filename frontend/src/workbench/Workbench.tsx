@@ -46,6 +46,7 @@ import {
   reservedLinkName,
 } from "./useChainDraft";
 import { errText, memberHasFundamentals } from "./format";
+import { LIMITS } from "../api/limits";
 
 interface Props {
   header?: ReactNode;
@@ -865,6 +866,7 @@ export function Workbench({ header, asof }: Props) {
                             className="seg-rename"
                             defaultValue={s.label}
                             aria-label={`rename ${s.label}`}
+                            maxLength={LIMITS.line}
                             disabled={promote.isPending}
                             onFocus={() => setRefusedName(null)}
                             onKeyDown={(e) => {
@@ -941,6 +943,7 @@ export function Workbench({ header, asof }: Props) {
                         value={newLink}
                         placeholder="new link name"
                         aria-label="new link name"
+                        maxLength={LIMITS.line}
                         disabled={promote.isPending}
                         onChange={(e) => setNewLink(e.target.value)}
                         onKeyDown={(e) => {

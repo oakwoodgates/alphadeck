@@ -1,9 +1,11 @@
 import { useState } from "react";
 
+import { apiErrorText } from "../api/errorText";
 import { useExplainFlag, useExtract, useRatifyFact, type ExtractedFact } from "../api/hooks";
 import { refusalText } from "../api/refusals";
 import { AutoTextarea } from "./AutoTextarea";
 import { errText, type OnFileFact, type OnFileMap } from "./format";
+import { LIMITS } from "../api/limits";
 
 const METER_LABEL: Record<string, string> = {
   revenue_mix: "purity",
@@ -41,8 +43,8 @@ function cashSymbol(currency: string | null | undefined): string {
  *  `{detail}` string, else nothing. Deliberately NOT the shared `errText`: its "the request was rejected"
  *  fallback is wrong here — a network/proxy failure was never rejected, it simply never got an answer. */
 function explainErrSuffix(e: unknown): string {
-  const d = (e as { detail?: unknown } | null)?.detail;
-  return typeof d === "string" && d !== "" ? ` — ${d}` : "";
+  const d = apiErrorText(e);
+  return d ? ` — ${d}` : "";
 }
 
 /** The facts panel (hybrid-2b) — extract the scoring facts from the latest filings and RATIFY them, closing
@@ -432,7 +434,9 @@ function RatifyRow({
               `drafted` tag, no value. Hidden while a retry is in flight; the button stays the retry. */}
           {explain.isError && !explain.isFetching && (
             <div className="drafted muted">
-              Couldn't reach the explainer{explainErrSuffix(explain.error)}. Click Explain to try again.
+              {/* the daily-allowance 429 (security hardening PR 3) is an answer, worded by the API */}
+              {refusalText(explain.error) ??
+                `Couldn't reach the explainer${explainErrSuffix(explain.error)}. Click Explain to try again.`}
             </div>
           )}
         </div>
@@ -498,6 +502,7 @@ function RatifyRow({
             segment
             <input
               aria-label="segment"
+              maxLength={LIMITS.line}
               value={segment}
               placeholder="e.g. nuclear"
               onChange={(e) => setSegment(e.target.value)}
@@ -522,6 +527,7 @@ function RatifyRow({
               single truncated line hid what the operator was about to ratify */}
           <AutoTextarea
             ariaLabel="note"
+            maxLength={LIMITS.prose}
             className="rf-note"
             value={note}
             placeholder="the composition / basis"

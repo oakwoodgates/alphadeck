@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useUpdateProfile } from "../../api/hooks";
 import { errorDetail, useCurrentUser } from "../../auth/me";
 import { PasswordForm } from "./PasswordForm";
+import { LIMITS } from "../../api/limits";
 
 // /settings/profile — my display name and email (PUT /account/profile), then the change-password form. On a save
 // the reply is written straight into the /auth/me cache, so the header's name changes at once.
@@ -35,11 +36,11 @@ export function ProfileTab() {
       <form className="login-form" onSubmit={submit} aria-label="Profile">
         <label>
           Display name
-          <input type="text" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} required />
+          <input type="text" autoComplete="name" maxLength={LIMITS.line} value={name} onChange={(e) => setName(e.target.value)} required />
         </label>
         <label>
           Email
-          <input type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          <input type="email" autoComplete="email" maxLength={LIMITS.email} value={email} onChange={(e) => setEmail(e.target.value)} required />
         </label>
         <button type="submit" disabled={update.isPending}>
           Save

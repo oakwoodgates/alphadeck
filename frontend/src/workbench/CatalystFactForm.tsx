@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useRatifyFact } from "../api/hooks";
 import { useAppClock } from "../clock";
 import { errText } from "./format";
+import { LIMITS } from "../api/limits";
 
 const CATALYST_TYPES = [
   "contract",
@@ -88,6 +89,7 @@ export function CatalystFactForm({ securityId }: { securityId: string }) {
         what happened
         <input
           aria-label="catalyst label"
+          maxLength={LIMITS.line}
           placeholder="e.g. 10-year offtake agreement signed with …"
           value={label}
           onChange={(e) => setLabel(e.target.value)}
@@ -97,6 +99,7 @@ export function CatalystFactForm({ securityId }: { securityId: string }) {
         citation (required)
         <input
           aria-label="catalyst citation"
+          maxLength={LIMITS.url}
           placeholder="the press release / 8-K / IR page URL — provenance is the point"
           value={sourceRef}
           onChange={(e) => setSourceRef(e.target.value)}
