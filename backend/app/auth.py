@@ -17,7 +17,7 @@ Three principals reach the API:
 
 ``require_user`` is mounted on every router (``app/main.py``), never inside a handler, so an unauthenticated
 request answers 401 before FastAPI validates a single parameter. ``require_super_admin`` (the data steward: Admin,
-Backtest, the business-type re-tag) is ``require_user`` + the role, else 403.
+Backtest, the shared-master writes) is ``require_user`` + the role, else 403.
 
 Each user has one WORKSPACE (``app_user.workspace_id``, a ``kind='workspace'`` tenant): the caller's workspace is
 where their theses, calls and ratified facts live (docs/TENANT_SCOPES.md). The functions below are the same ones ``pipeline.users`` (the CLI) calls; the caller owns the
@@ -555,7 +555,8 @@ def require_user(request: Request, conn: psycopg.Connection = Depends(get_conn))
 
 
 def require_super_admin(user: CurrentUser = Depends(require_user)) -> CurrentUser:
-    """``require_user`` + the steward role, else 403 (Admin, Backtest, the business-type re-tag)."""
+    """``require_user`` + the steward role, else 403 (Admin, Backtest, the shared-master writes: the business-type
+    re-tag and Surface an ETF)."""
     if not user.is_super_admin:
         raise HTTPException(status_code=403, detail="stewards only")
     return user

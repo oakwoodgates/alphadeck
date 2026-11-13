@@ -162,9 +162,12 @@ request, and never feed a call. Code: `backend/app/routers/fund_radar.py`, `fron
   limit: `in_etfs` reads the card's basket as it stands **now** (a roster as of a night is not reconstructed for this
   flag), and the ticker / listed dates are the nights we first saw the symbol (neither file carries a date), so a fund
   already trading when the radar started reads the night the files were first read.
-- `POST /radar/funds/attach` and `/detach` `{thesis_id, symbol}`: the operator's click (#10), reversible (#1). Attach
-  resolves the symbol through the **same function as `POST /workbench/securities/resolve-etf`** (lookup-or-create,
-  `instrument_kind='etf'`), builds the member as "Surface an ETF" does (role "ETF sleeve", segment ETFs, a model
+- `POST /radar/funds/attach` and `/detach` `{thesis_id, symbol}`: the operator's click (#10), reversible (#1). The
+  symbol must be 1 to 12 letters, digits, dots or hyphens, starting with a letter or digit (422 otherwise). For a
+  plain user, attach only reads the shared company list: the symbol must already be a fund there
+  (`instrument_kind='etf'`), else it is a 404 ("This fund is not in the company list yet. A steward can add it.")
+  and nothing is written. A steward's attach resolves the symbol through the **same function as
+  `POST /workbench/securities/resolve-etf`** (lookup-or-create, `instrument_kind='etf'`; `AUTH.md`). Attach builds the member as "Surface an ETF" does (role "ETF sleeve", segment ETFs, a model
   draft, signed off, no conviction), and re-writes the card whole from its stored copy (nothing it carries is wiped).
   It runs the promote's own rules (`silent_conflicts`, `fund_conflicts`, the silent links last), so a fund can never
   land outside ETFs; a conflict is a 422 and nothing is written. Already in ETFs is `already`, with no write. Detach

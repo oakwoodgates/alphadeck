@@ -5,7 +5,7 @@ from datetime import date, datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field
 
 from backtest.manifest import BacktestManifest
 from backtest.pooled import PooledReport
@@ -36,8 +36,13 @@ from domain.thesis import (
 )
 from domain.workbench import ScoredFigure, ScoredMember
 from scoreboard.schema import EpisodeOperator, OperatorSpan, ScoredEpisode, ThesisRecord
+from securities.symbols import normalize_ticker
 from signals.display.base import DisplaySignal
 from workbench.chain_draft import ResolvedPlacement, ResolvedSegment
+
+# A ticker typed into a request that can reach the shared security master: stripped + uppercased, then held to
+# ``securities.symbols`` (1-12 of A-Z 0-9 . -, starting with a letter or digit), else 422 before the route runs.
+TickerIn = Annotated[str, AfterValidator(normalize_ticker)]
 
 # API response contracts — the WIRE shape, kept distinct from domain/ so the frontend's generated TS
 # types follow the API, not the domain schema. The one real transform vs. the domain CallCard: each
@@ -565,11 +570,13 @@ class SecurityMatchOut(BaseModel):
 
 
 class ResolveEtfRequest(BaseModel):
-    """Body for ``POST /workbench/securities/resolve-etf`` (ETF Sleeve, Slice 1) — the operator-supplied ETF
-    ticker to surface as a ``fund`` sleeve. Just the ticker: the server resolves it (lookup-or-create) and
-    marks it ``instrument_kind='etf'`` — operator-DECLARED, never auto-detected (#3, no LLM)."""
+    """Body for ``POST /workbench/securities/resolve-etf`` (ETF Sleeve, Slice 1; steward only) — the ETF ticker
+    to surface as a ``fund`` sleeve. Just the ticker: the server resolves it (lookup-or-create) and marks it
+    ``instrument_kind='etf'`` — operator-DECLARED, never auto-detected (#3, no LLM). The ticker is stripped,
+    uppercased and must be 1 to 12 letters, digits, dots or hyphens, starting with a letter or digit (else 422).
+    """
 
-    ticker: str
+    ticker: TickerIn
 
 
 class EtfHoldingOut(BaseModel):
@@ -3150,10 +3157,12 @@ class FundLaunchesOut(BaseModel):
 
 
 class FundAttachRequest(BaseModel):
-    """Body for ``POST /radar/funds/attach`` / ``.../detach``: one fund symbol, one card."""
+    """Body for ``POST /radar/funds/attach`` / ``.../detach``: one fund symbol, one card. The symbol is stripped,
+    uppercased and must be 1 to 12 letters, digits, dots or hyphens, starting with a letter or digit (else 422).
+    """
 
     thesis_id: UUID
-    symbol: str
+    symbol: TickerIn
 
 
 class FundAttachOut(BaseModel):

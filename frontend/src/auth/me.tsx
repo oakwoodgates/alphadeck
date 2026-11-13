@@ -16,7 +16,8 @@ export function useCurrentUser(): MeOut | null {
   return useContext(MeContext);
 }
 
-/** False only for a signed-in plain user: the steward surfaces (Admin, Backtest, the business-type re-tag) hide.
+/** False only for a signed-in plain user: the steward surfaces (Admin, Backtest, the shared-master writes: the
+ *  business-type re-tag and Surface an ETF) hide.
  *  True for a super admin, and outside the signed-in shell (see above). */
 export function useIsSteward(): boolean {
   const me = useCurrentUser();

@@ -227,13 +227,19 @@ def search_securities(
     ]
 
 
-@router.post("/securities/resolve-etf", response_model=SecurityMatchOut)
+@router.post(
+    "/securities/resolve-etf",
+    response_model=SecurityMatchOut,
+    dependencies=[Depends(require_super_admin)],
+)
 def resolve_etf(
     req: ResolveEtfRequest,
     conn: psycopg.Connection = Depends(get_conn),
 ) -> SecurityMatchOut:
-    """Surface an operator-supplied ETF ticker as a ``fund`` sleeve's master row (ETF Sleeve, Slice 1). The
-    operator TYPES a ticker (e.g. LIT); this resolves it to a ``security_master`` row marked
+    """Surface an ETF ticker as a ``fund`` sleeve's master row (ETF Sleeve, Slice 1). STEWARD ONLY (403 for a
+    plain user): the security master is shared DATA every workspace reads, so only the steward adds to it or
+    re-marks a row in it (docs/AUTH.md). The steward TYPES a ticker (e.g. LIT); this resolves it to a
+    ``security_master`` row marked
     ``instrument_kind='etf'`` — the row the FE then adds to the basket as the sleeve member (the ETF
     attaches UNDER a thesis, never free-floating — #2; ``instrument_kind`` is the sleeve's one marker).
 
@@ -251,10 +257,12 @@ def resolve_etf(
     vetoes, leads a laggard or receives the theme broadcast (``domain.thesis.voting_thesis`` removes it at the
     call seam; a fund's own price breakout WOULD vote from any other link, which is why the promote refuses a
     fund anywhere but ETFs). NO LLM (#3): a deterministic resolve on a declared ticker.
+
+    The ticker must be 1 to 12 letters, digits, dots or hyphens, starting with a letter or digit (422 otherwise),
+    because it becomes an OpenFIGI request and a cache filename. A plain user adds a fund that is already in the
+    company list through ``POST /radar/funds/attach`` or the Add-a-name search.
     """
-    ticker = req.ticker.strip().upper()
-    if not ticker:
-        raise HTTPException(status_code=422, detail="a ticker is required")
+    ticker = req.ticker  # already stripped, uppercased and held to securities.symbols (else 422)
     # the master is DATA (domain.scopes, docs/TENANT_SCOPES.md): looked up + written under the data tenant
     existing_id = master.ids_for_tickers(conn, [ticker], tenant_id=DATA_TENANT_ID).get(ticker)
     try:
@@ -548,6 +556,8 @@ def ingest_security_prices(
         try:
             proposal = resolve_price_symbol(sec, allow_live=True)
             if proposal.tier == "AUTO" and proposal.proposed_symbol:
+                # a SERVER-SOURCED shared-master write (the symbol comes from the resolver, never the request);
+                # allowlisted in tests/app/test_shared_master_writes.py, gated in security hardening PR 1b
                 master.set_price_symbol(
                     conn,
                     sec.id,
