@@ -21,6 +21,7 @@ operator's promote (which re-checks membership — `app/routers/workbench.py`); 
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from enum import StrEnum
 from typing import Literal
 from uuid import UUID
@@ -31,12 +32,13 @@ from pydantic import ValidationError
 from db.session import DEFAULT_TENANT_ID
 from domain.base import DomainModel
 from domain.enums import BusinessType
-from domain.security import Security
+from domain.security import Security, SecurityIdentity
 from domain.thesis import reserved_label
 from securities import master
 from securities.business_type import resolve_business_type
 from securities.origin import resolve_origin
 from workbench.discovery import DiscoveredUniverse
+from workbench.enrichment import overlay_identity
 
 # WARNINGs propagate to uvicorn's root handler — visible in `docker compose logs` (#9: never strip silently).
 _log = logging.getLogger("alphadeck.workbench")
@@ -207,7 +209,11 @@ def _conflict_candidates(
 
 
 def _carry_identity_and_gate(
-    conn: psycopg.Connection, placements: list[ResolvedPlacement], *, tenant_id: UUID
+    conn: psycopg.Connection,
+    placements: list[ResolvedPlacement],
+    *,
+    tenant_id: UUID,
+    identity: Mapping[UUID, SecurityIdentity] | None = None,
 ) -> None:
     """Carry machine-parsed IDENTITY (name / sector / exchange / listing status / derived origin) from the
     master onto each resolved placement (display-only), and apply the STATUS-GATE: a PLACED name whose
@@ -223,10 +229,19 @@ def _carry_identity_and_gate(
     off-universe ``_resolve_one``), so the shown name is factual (the SEC master row), deterministic, and current
     — never a model token. A name with NO single binding (AMBIGUOUS candidates / ABSENT) has no master row here
     and keeps the proposed name (there is no factual name to use — the operator picks / it's shown-not-placed).
+
+    ``identity`` (a plain user's draft, security hardening PR 1b): submissions-parsed identity per master id, laid
+    over the stored row for THIS response only (``workbench.enrichment.overlay_identity``), so the carry and the
+    status gate read exactly what a stored enrichment would give, and the shared master is never written.
     """
     secs = master.get_many(
         conn, [p.security_id for p in placements if p.security_id is not None], tenant_id=tenant_id
     )
+    if identity:
+        secs = {
+            sid: overlay_identity(s, identity[sid]) if sid in identity else s
+            for sid, s in secs.items()
+        }
     for p in placements:
         s = secs.get(p.security_id) if p.security_id is not None else None
         if s is None:
@@ -387,6 +402,7 @@ def resolve_discovered_chain(
     universe: DiscoveredUniverse,
     *,
     tenant_id: UUID = DEFAULT_TENANT_ID,
+    identity: Mapping[UUID, SecurityIdentity] | None = None,
 ) -> ResolvedChain:
     """Resolve the organizer's layout against the EDGAR-first discovered universe (the chain reconciler, Slice
     4a). The deterministic discovery layer OWNS COMPLETENESS; the organizer (LLM) owns only LAYOUT — so:
@@ -502,7 +518,7 @@ def resolve_discovered_chain(
     # Carry machine-parsed identity onto every placed row + apply the listing-status gate (DB-only; the network
     # enrichment ran before this in execute_draft, so the resolver stays pure). An inactive PLACED name is
     # downgraded to a frictionless AMBIGUOUS pick, never silently dropped (#9).
-    _carry_identity_and_gate(conn, placements, tenant_id=tenant_id)
+    _carry_identity_and_gate(conn, placements, tenant_id=tenant_id, identity=identity)
     return ResolvedChain(segments=out_segments, placements=placements)
 
 

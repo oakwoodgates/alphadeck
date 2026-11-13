@@ -11,7 +11,8 @@ super admin, each on their own workspace, signed in through ``POST /auth/login``
 - a hostile ticker (a path, an oversized string, a NUL, a space) is 422 on both routes, and
   ``securities.figi.map_ticker`` refuses it before it becomes a filename or an OpenFIGI request;
 - the GREP GUARD: under ``app/routers/`` a call to a master WRITER appears only at an allowlisted
-  (file, function) site, each steward-gated or documented as a server-sourced write.
+  (file, function) site, each steward-gated or inside a steward branch; and ONE HOP further, a master writer under
+  ``backend/workbench/`` is reached from a router only behind a steward check (security hardening PR 1b).
 
 DB-backed (the shared ``db`` fixture; skips when Postgres is unreachable), except the guard.
 """
@@ -238,7 +239,7 @@ def test_map_ticker_refuses_a_hostile_ticker_before_the_cache_or_the_network(
     assert not (tmp_path / "figi").exists()
 
 
-# --- the grep guard: master writers under app/routers/ ------------------------------------------------------------
+# --- the grep guard: master writers under app/routers/, and one hop into workbench/ ------------------------------
 
 # Every function in ``securities.master`` that writes the shared master.
 _WRITERS = {
@@ -255,45 +256,73 @@ _WRITERS = {
 }
 # The ONLY (file, function) sites under app/routers/ that may call a master writer.
 #   "steward": the route carries require_super_admin (checked below);
+#   "steward-branch": every such call sits inside an ``if`` whose test names the steward (checked below), so a
+#     plain user's request never reaches it (security hardening PR 1b);
 #   "server-sourced": the value written comes from the server, never the request (each one says why).
 _ALLOWED: dict[tuple[str, str], str] = {
     ("workbench.py", "resolve_etf"): "steward",
     ("workbench.py", "set_business_type"): "steward",
-    # the automatic OTC price-symbol resolve on a finalize pull: the symbol comes from the resolver, never the
-    # request. Reachable by a plain user today; gated in security hardening PR 1b.
-    ("workbench.py", "ingest_security_prices"): "server-sourced",
+    # the automatic OTC price-symbol resolve on a finalize pull: a steward's pull only (PR 1b)
+    ("workbench.py", "ingest_security_prices"): "steward-branch",
 }
+# ONE HOP: the (file, function) sites under backend/workbench/ that call a master writer. A router may reach one
+# of them only from a site in ``_ALLOWED_HOPS`` (steward-gated, or inside a steward branch).
+_WORKBENCH_WRITERS: dict[tuple[str, str], str] = {
+    # the draft's identity enrichment (sector / exchange / status onto the discovered names' rows)
+    ("enrichment.py", "enrich_for_ciks"): "master.enrich",
+}
+_ALLOWED_HOPS: dict[tuple[str, str], str] = {
+    # the draft pipeline: a steward's draft stores the identity; a plain user's computes it for the response only
+    ("workbench.py", "execute_draft"): "steward-branch",
+}
+
+
+def _calls(path: Path, module: str, writers: set[str]) -> list[tuple[str, str, tuple[str, ...]]]:
+    """``(function, writer, guards)`` for each call in ``path`` to a ``writers`` function of the dotted ``module``
+    (``securities.master``), however it was imported. ``guards`` are the tests of the ``if`` statements whose BODY
+    encloses the call (an ``else`` branch adds ``"else"``, never the test), innermost last."""
+    package, _, leaf = module.rpartition(".")
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    modules: set[str] = set()  # local names bound to the module
+    names: dict[str, str] = {}  # local name -> writer, for ``from <module> import x``
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == package:
+            modules |= {a.asname or a.name for a in node.names if a.name == leaf}
+        elif isinstance(node, ast.ImportFrom) and node.module == module:
+            names |= {a.asname or a.name: a.name for a in node.names if a.name in writers}
+        elif isinstance(node, ast.Import):
+            modules |= {a.asname for a in node.names if a.name == module and a.asname}
+    found: list[tuple[str, str, tuple[str, ...]]] = []
+
+    def visit(node: ast.AST, fn: str, guards: tuple[str, ...]) -> None:
+        if isinstance(node, ast.If):
+            visit(node.test, fn, guards)
+            for child in node.body:
+                visit(child, fn, (*guards, ast.unparse(node.test)))
+            for child in node.orelse:
+                visit(child, fn, (*guards, "else"))
+            return
+        here = node.name if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) else fn
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and here != fn:
+            guards = ()  # a nested function's guards start fresh
+        if isinstance(node, ast.Call):
+            f = node.func
+            if isinstance(f, ast.Attribute) and f.attr in writers:
+                owner = ast.unparse(f.value)
+                if owner in modules or owner == module:
+                    found.append((here, f.attr, guards))
+            elif isinstance(f, ast.Name) and f.id in names:
+                found.append((here, names[f.id], guards))
+        for child in ast.iter_child_nodes(node):
+            visit(child, here, guards)
+
+    visit(tree, "<module>", ())
+    return found
 
 
 def _writer_calls(path: Path) -> list[tuple[str, str]]:
     """``(function, writer)`` for each call to a ``securities.master`` writer in ``path``."""
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    modules: set[str] = set()  # local names bound to securities.master
-    names: dict[str, str] = {}  # local name -> writer, for ``from securities.master import x``
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module == "securities":
-            modules |= {a.asname or a.name for a in node.names if a.name == "master"}
-        elif isinstance(node, ast.ImportFrom) and node.module == "securities.master":
-            names |= {a.asname or a.name: a.name for a in node.names if a.name in _WRITERS}
-        elif isinstance(node, ast.Import):
-            modules |= {a.asname for a in node.names if a.name == "securities.master" and a.asname}
-    found: list[tuple[str, str]] = []
-
-    def visit(node: ast.AST, fn: str) -> None:
-        for child in ast.iter_child_nodes(node):
-            here = child.name if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) else fn
-            if isinstance(child, ast.Call):
-                f = child.func
-                if isinstance(f, ast.Attribute) and f.attr in _WRITERS:
-                    owner = ast.unparse(f.value)
-                    if owner in modules or owner == "securities.master":
-                        found.append((here, f.attr))
-                elif isinstance(f, ast.Name) and f.id in names:
-                    found.append((here, names[f.id]))
-            visit(child, here)
-
-    visit(tree, "<module>")
-    return found
+    return [(fn, w) for fn, w, _ in _calls(path, "securities.master", _WRITERS)]
 
 
 def _steward_gated(path: Path, fn: str) -> bool:
@@ -306,23 +335,60 @@ def _steward_gated(path: Path, fn: str) -> bool:
     return False
 
 
+def _in_steward_branch(guards: tuple[str, ...]) -> bool:
+    """The call sits inside the body of an ``if`` whose test names the steward."""
+    return any("steward" in g for g in guards if g != "else")
+
+
+def _check_sites(
+    found: dict[tuple[str, str], list[tuple[str, ...]]],
+    allowed: dict[tuple[str, str], str],
+    base: Path,
+) -> None:
+    offenders = [f"{rel}:{fn}" for (rel, fn) in found if (rel, fn) not in allowed]
+    assert offenders == []
+    assert set(found) == set(
+        allowed
+    )  # a stale allowlist entry is removed, not left to cover a future call
+    for (rel, fn), why in allowed.items():
+        if why == "steward":
+            assert _steward_gated(base / rel, fn), f"{rel}:{fn} is not steward-gated"
+        elif why == "steward-branch":
+            for guards in found[(rel, fn)]:
+                assert _in_steward_branch(guards), f"{rel}:{fn} writes outside a steward branch"
+
+
 def test_master_writers_are_called_only_at_allowlisted_router_sites():
     routers = _BACKEND / "app" / "routers"
-    seen: set[tuple[str, str]] = set()
-    offenders = []
+    found: dict[tuple[str, str], list[tuple[str, ...]]] = {}
     for p in sorted(routers.rglob("*.py")):
         rel = p.relative_to(routers).as_posix()
-        for fn, writer in _writer_calls(p):
-            seen.add((rel, fn))
-            if (rel, fn) not in _ALLOWED:
-                offenders.append(f"{rel}:{fn} calls master.{writer}")
-    assert offenders == []
-    assert seen == set(
-        _ALLOWED
-    )  # a stale allowlist entry is removed, not left to cover a future call
-    for (rel, fn), why in _ALLOWED.items():
-        if why == "steward":
-            assert _steward_gated(routers / rel, fn), f"{rel}:{fn} is not steward-gated"
+        for fn, _writer, guards in _calls(p, "securities.master", _WRITERS):
+            found.setdefault((rel, fn), []).append(guards)
+    _check_sites(found, _ALLOWED, routers)
+
+
+def test_master_writers_under_workbench_are_listed():
+    """Every master-writer call under backend/workbench/ is a listed one-hop writer."""
+    wb = _BACKEND / "workbench"
+    seen = {
+        (p.relative_to(wb).as_posix(), fn)
+        for p in sorted(wb.rglob("*.py"))
+        for fn, _w, _g in _calls(p, "securities.master", _WRITERS)
+    }
+    assert seen == set(_WORKBENCH_WRITERS)
+
+
+def test_a_router_reaches_a_workbench_master_writer_only_behind_a_steward_check():
+    routers = _BACKEND / "app" / "routers"
+    found: dict[tuple[str, str], list[tuple[str, ...]]] = {}
+    for p in sorted(routers.rglob("*.py")):
+        rel = p.relative_to(routers).as_posix()
+        for wfile, wfn in _WORKBENCH_WRITERS:
+            module = "workbench." + wfile.removesuffix(".py").replace("/", ".")
+            for fn, _w, guards in _calls(p, module, {wfn}):
+                found.setdefault((rel, fn), []).append(guards)
+    _check_sites(found, _ALLOWED_HOPS, routers)
 
 
 def test_the_guard_sees_a_new_writer_call(tmp_path):
@@ -346,3 +412,21 @@ def test_the_guard_sees_a_new_writer_call(tmp_path):
         ("c", "set_name"),
         ("d", "set_cik"),
     ]
+
+
+def test_the_guard_reads_a_steward_branch(tmp_path):
+    """A call in the body of ``if steward:`` is guarded; one in its ``else``, or under another test, is not."""
+    p = tmp_path / "y.py"
+    p.write_text(
+        "from workbench.enrichment import enrich_for_ciks\n"
+        "def a(conn, steward):\n    if steward:\n        enrich_for_ciks(conn)\n"
+        "def b(conn, steward):\n    if steward:\n        pass\n    else:\n        enrich_for_ciks(conn)\n"
+        "def c(conn, x):\n    if x:\n        enrich_for_ciks(conn)\n"
+        "def d(conn, user):\n    if user.is_steward and x:\n        if y:\n            enrich_for_ciks(conn)\n",
+        encoding="utf-8",
+    )
+    got = {
+        fn: _in_steward_branch(g)
+        for fn, _w, g in _calls(p, "workbench.enrichment", {"enrich_for_ciks"})
+    }
+    assert got == {"a": True, "b": False, "c": False, "d": True}

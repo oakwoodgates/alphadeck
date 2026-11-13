@@ -64,6 +64,12 @@ FAIL-VISIBLE** (#9): a fetch/parse/write fault logs and skips that name (its row
 `cik`) — so a bad fetch can never harden into a false `inactive`. The identity then rides onto every
 `ResolvedPlacement` (`_carry_identity_and_gate` in `chain_draft.py`), carried by `security_id` onto the FE placed
 row as quiet chips. Migrations: `0013_master_identity`, `0016_master_category`, `0028_master_origin`.
+**Only a steward's draft stores it** (security hardening PR 1b, `docs/AUTH.md` §User-triggered fetches): the master
+is shared data every workspace reads, so a plain user's draft reads the same submissions through
+`identities_for_ciks` (no database write) and `_carry_identity_and_gate` lays each parsed identity over its master
+row for that response only (`overlay_identity`, the same columns and the same exchange fill-if-null rule as
+`master.enrich`). The draft reads the same either way; the stored row waits for a steward's draft or
+`pipeline.enrich_identity`.
 
 **Write, on demand (the standing backfill).** `python -m pipeline.enrich_identity` (bare = `--baskets`; also
 `--thesis <id>` and `--universe`; `--live` opt-in, cache-first default) resolves a scope to per-tenant

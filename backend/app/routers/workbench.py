@@ -10,6 +10,7 @@ import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import ValidationError
 
+from app import allowance
 from app.auth import CurrentUser, require_super_admin, require_user
 from app.deps import (
     get_conn,
@@ -83,6 +84,7 @@ from ingest.edgar import nport
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.extract import extract_for_security, extract_with_annual_fallback
 from ingest.edgar.fulltext import DiscoveryUnavailable
+from ingest.prices import ingest_security as price_leg
 from ingest.prices.eod_loader import latest_bar_date, recent_distinct_bar_counts
 from ingest.prices.ingest_security import ingest_bars_for_security
 from ingest.prices.resolve_symbol import resolve_price_symbol
@@ -121,7 +123,7 @@ from workbench.discovery import (
 )
 from workbench.draft_jobs import DraftError, DraftInFlight, DraftJob, get_job, start_draft_job
 from workbench.draft_run_log import write_draft_run_log
-from workbench.enrichment import enrich_for_ciks
+from workbench.enrichment import enrich_for_ciks, identities_for_ciks
 from workbench.research_runner import run_research
 from workbench.scoring import score_thesis, scored_bounds
 from workbench.term_set import produce_term_set, stamp_edited_term_set
@@ -303,6 +305,45 @@ def resolve_etf(
     )
 
 
+# The fixed 404 a plain user's fetch answers for a company on none of their cards (security hardening PR 1b).
+NOT_ON_YOUR_CARDS = "This company is not on any of your cards. Add it to a card first."
+
+
+def _on_a_card(conn: psycopg.Connection, workspace: UUID, security_id: UUID) -> bool:
+    """Is ``security_id`` a member of any thesis in ``workspace`` (one of the caller's own cards)?"""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT EXISTS (SELECT 1 FROM basket_member WHERE tenant_id = %s AND security_id = %s) AS on_card",
+            (workspace, security_id),
+        )
+        return bool(cur.fetchone()["on_card"])
+
+
+def _require_own_security(
+    conn: psycopg.Connection, user: CurrentUser, workspace: UUID, security_id: UUID
+) -> None:
+    """OWN CARDS ONLY (security hardening PR 1b): a plain user's fetch names a company on one of their own cards,
+    else 404 with ``NOT_ON_YOUR_CARDS`` before any fetch or count. A steward may fetch any company. Every Workbench
+    screen that fetches (the scored rows, the facts panel, the section runner, the sleeve rail, the fund-launch
+    attach) works on a SAVED card's members, so the stored basket is the whole check; the triage session's saved
+    draft is not consulted (the user writes it, so it would prove nothing)."""
+    if user.is_super_admin:
+        return
+    if not _on_a_card(conn, workspace, security_id):
+        raise HTTPException(status_code=404, detail=NOT_ON_YOUR_CARDS)
+
+
+def require_own_security(
+    security_id: UUID,
+    user: CurrentUser = Depends(require_user),
+    conn: psycopg.Connection = Depends(get_conn),
+    workspace: UUID = Depends(get_workspace),
+) -> None:
+    """The route dependency form of ``_require_own_security`` for a ``/securities/{security_id}/...`` route. It is
+    listed BEFORE the allowance charge, so a refused request spends nothing."""
+    _require_own_security(conn, user, workspace, security_id)
+
+
 def _holding_out(
     h: nport.Holding, security_id: UUID | None = None, resolved_ticker: str | None = None
 ) -> EtfHoldingOut:
@@ -320,7 +361,11 @@ def _holding_out(
     )
 
 
-@router.get("/securities/{security_id}/etf-holdings", response_model=EtfHoldingsOut)
+@router.get(
+    "/securities/{security_id}/etf-holdings",
+    response_model=EtfHoldingsOut,
+    dependencies=[Depends(require_own_security), Depends(allowance.charge("holdings"))],
+)
 def etf_holdings(
     security_id: UUID,
     thesis_id: UUID | None = Query(
@@ -363,6 +408,11 @@ def etf_holdings(
     CUSIP, or a CUSIP OpenFIGI can't place on a US line: foreign locals, cash/repo lines) is shown,
     never dropped. An explicit operator click (the drawer toggle — the cost thread), live SEC/OpenFIGI
     behind the cache seams; requires ``ALPHADECK_USER_AGENT``.
+
+    BOUNDED (security hardening PR 1b): a plain user may pull holdings only for a fund on one of their own cards
+    (else 404, "This company is not on any of your cards. Add it to a card first.") and within their daily
+    holdings allowance (``Settings.allowance_holdings_per_day``, else 429 naming the reset); a steward is neither
+    checked nor counted.
     """
     sec = master.get(conn, security_id, tenant_id=DATA_TENANT_ID)
     if sec is None:
@@ -448,7 +498,11 @@ def etf_holdings(
     )
 
 
-@router.get("/securities/{security_id}/extract", response_model=ExtractionResult)
+@router.get(
+    "/securities/{security_id}/extract",
+    response_model=ExtractionResult,
+    dependencies=[Depends(require_own_security), Depends(allowance.charge("extract"))],
+)
 def extract_scoring_facts(
     security_id: UUID,
     thesis_id: UUID | None = Query(
@@ -484,6 +538,11 @@ def extract_scoring_facts(
     narrative selecting the segment. It attaches ``value`` + ``estimate_source="llm_proposed"`` (the passage
     stays on the candidate), never a fact until the operator ratifies. PURITY-ONLY: ``thesis_id`` touches no
     other candidate, and its absence (or a fail-open decline) leaves purity as today's HUMAN (located, no value).
+
+    BOUNDED (security hardening PR 1b): a plain user may extract only a company on one of their own cards (else
+    404, "This company is not on any of your cards. Add it to a card first.") and within their daily extract
+    allowance (``Settings.allowance_extract_per_day``, else 429 naming the reset); a steward is neither checked nor
+    counted.
     """
     # the optional thesis is the CALLER's (another workspace's id is "not found"), resolved before any SEC work
     thesis = (
@@ -520,11 +579,30 @@ def extract_scoring_facts(
     return result
 
 
-@router.post("/securities/{security_id}/ingest-prices", response_model=PriceIngestOut)
+class _Fetched:
+    """A ``PriceSource`` over bars already fetched (the ingest-prices route fetches before it takes the lock): it
+    returns them whatever it is asked, so ``ingest_bars_for_security`` runs exactly as with the live source.
+    """
+
+    def __init__(self, bars: list[dict]) -> None:
+        self._bars = bars
+
+    def get_bars(
+        self, ticker: str, *, allow_live: bool = False, force_refresh: bool = False
+    ) -> list[dict]:
+        return self._bars
+
+
+@router.post(
+    "/securities/{security_id}/ingest-prices",
+    response_model=PriceIngestOut,
+    dependencies=[Depends(require_own_security), Depends(allowance.charge("price_pull"))],
+)
 def ingest_security_prices(
     security_id: UUID,
     conn: psycopg.Connection = Depends(get_conn),
     tenant_id: UUID = Depends(get_workspace),
+    user: CurrentUser = Depends(require_user),
 ) -> PriceIngestOut:
     """Pull EOD price bars for ONE security — the price leg DECOUPLED from the back-half ingest, so the
     finalize screen can complete a name (a real market cap) BEFORE the operator promotes. This endpoint
@@ -537,7 +615,15 @@ def ingest_security_prices(
     stored one append — a re-click adds zero rows); CACHE-FIRST (``force_refresh=False``: a first pull on
     a fresh name is a cache miss and fetches live; a same-day re-click serves from the cache — the daily
     cron, not this endpoint, owns force-refresh). No-lookahead: ``recorded_at`` = now, never backdated.
-    Shares ONE implementation with ``pipeline.ingest_thesis`` (``ingest_bars_for_security``)."""
+    Shares ONE implementation with ``pipeline.ingest_thesis`` (``ingest_bars_for_security``).
+
+    BOUNDED (security hardening PR 1b): a plain user may pull prices only for a company on one of their own cards
+    (else 404, "This company is not on any of your cards. Add it to a card first.") and within their daily
+    price-pull allowance (``Settings.allowance_price_pull_per_day``, else 429 naming the reset). The bars are
+    FETCHED before the company write lock is taken, and the lock is held only for the compare-and-append, so a slow
+    vendor never holds up the nightly. The automatic OTC price-symbol resolve (a write to the SHARED master) runs on
+    a steward's pull only; a plain user's OTC pull is priced under the canonical ticker, and the name is left for
+    the steward's price-feed panel or the backfill sweep."""
     # the master + the price tape are DATA (domain.scopes): read + written under the data tenant
     sec = master.get(conn, security_id, tenant_id=DATA_TENANT_ID)
     if sec is None:
@@ -546,18 +632,19 @@ def ingest_security_prices(
         raise HTTPException(
             status_code=422, detail="no listed ticker — there is no price line to pull"
         )
-    # #2 SELF-HEAL — resolve the OTC vendor price symbol at ADD-TIME, on the operator's own finalize pull
-    # (never the cron — resolution is operator-triggered, cost is the operator's to spend). Only an OTC name
-    # whose symbol is still unresolved (``price_symbol IS NULL``) triggers it; on an AUTO the resolver writes
-    # the symbol, so THIS very pull fetches the fuller history. FAIL-OPEN: any miss/error NEVER blocks the
-    # add — the member enters priced under its canonical ticker, and the backfill sweep (Slice D) + the
-    # thin-history flag (Slice F) catch what a live resolution missed.
-    if sec.exchange == "OTC" and sec.price_symbol is None:
+    # #2 SELF-HEAL — resolve the OTC vendor price symbol at ADD-TIME, on a STEWARD's finalize pull (never the
+    # cron, and never a plain user's pull: the symbol is written to the SHARED master every workspace reads —
+    # security hardening PR 1b). Only an OTC name whose symbol is still unresolved (``price_symbol IS NULL``)
+    # triggers it; on an AUTO the resolver writes the symbol, so THIS very pull fetches the fuller history.
+    # FAIL-OPEN: any miss/error NEVER blocks the add — the member enters priced under its canonical ticker (as a
+    # plain user's always is), and the backfill sweep (Slice D) + the thin-history flag (Slice F) catch it.
+    steward = user.is_super_admin
+    if steward and sec.exchange == "OTC" and sec.price_symbol is None:
         try:
             proposal = resolve_price_symbol(sec, allow_live=True)
             if proposal.tier == "AUTO" and proposal.proposed_symbol:
-                # a SERVER-SOURCED shared-master write (the symbol comes from the resolver, never the request);
-                # allowlisted in tests/app/test_shared_master_writes.py, gated in security hardening PR 1b
+                # a SERVER-SOURCED shared-master write (the symbol comes from the resolver, never the request), in
+                # a steward branch: tests/app/test_shared_master_writes.py checks it stays there
                 master.set_price_symbol(
                     conn,
                     sec.id,
@@ -574,8 +661,19 @@ def ingest_security_prices(
         ) as exc:  # noqa: BLE001 — fail-open: a resolution failure never blocks the pull
             conn.rollback()
             _log.warning("price-symbol resolve failed for %s (fail-open): %s", sec.ticker, exc)
-    # W1 — the per-company write lock (`db/write_lock.py`): this pull is a read-compare-append on the same
-    # `fact_price_eod` rows the nightly pass and the on-promote ingest write, so it runs only while it holds
+    # FETCH FIRST, with the company FREE (security hardening PR 1b): the vendor round trip is the slow part, and
+    # the nightly waits at most `Settings.ingest_lock_wait_s` for a company before it skips it, so a user's click
+    # must never hold the lock across the network. Fetched exactly as `ingest_bars_for_security` would (the
+    # effective symbol, live, cache-first) and handed to it below as its source, so the shared function and the
+    # nightly's path are unchanged.
+    try:
+        fetched = price_leg.YahooPriceSource().get_bars(
+            sec.price_symbol or sec.ticker, allow_live=True, force_refresh=False
+        )
+    except Exception as exc:  # noqa: BLE001 — source unreachable -> a clear 502, never a silent 500
+        raise HTTPException(status_code=502, detail=f"price pull failed: {exc}") from exc
+    # W1 — the per-company write lock (`db/write_lock.py`): the compare-and-append is a read-compare-append on the
+    # same `fact_price_eod` rows the nightly pass and the on-promote ingest write, so it runs only while it holds
     # the company. A REQUEST must never hang behind a long writer: it waits at most
     # `Settings.ingest_lock_request_wait_s`, then answers 409 naming the holder (the holder is writing these
     # very bars — a re-click a moment later is a cheap incremental no-op or the remaining tail).
@@ -589,11 +687,13 @@ def ingest_security_prices(
         ) from busy
     try:
         with lock:  # released only after the commit below — the commit must happen under the lock
-            bars = ingest_bars_for_security(conn, sec, tenant_id=DATA_TENANT_ID)
+            bars = ingest_bars_for_security(
+                conn, sec, tenant_id=DATA_TENANT_ID, source=_Fetched(fetched)
+            )
             conn.commit()
     except HTTPException:
         raise
-    except Exception as exc:  # noqa: BLE001 — source unreachable -> a clear 502, never a silent 500
+    except Exception as exc:  # noqa: BLE001 — a write fault -> a clear 502, never a silent 500
         conn.rollback()
         raise HTTPException(status_code=502, detail=f"price pull failed: {exc}") from exc
     return PriceIngestOut(
@@ -789,11 +889,19 @@ def _fund_ids(conn: psycopg.Connection, thesis: Thesis) -> set[UUID]:
     }
 
 
+# Why a plain user's fast lane went to the queue: their price-pull allowance for today could not cover its new names.
+FAST_LANE_ALLOWANCE_SPENT = (
+    "today's price pull allowance cannot cover these new names — their history loads outside the nightly "
+    "window instead"
+)
+
+
 @router.post("/theses", response_model=PromoteOut)
 def promote(
     req: PromoteThesisRequest,
     conn: psycopg.Connection = Depends(get_conn),
     tenant_id: UUID = Depends(get_workspace),
+    user: CurrentUser = Depends(require_user),
 ) -> PromoteOut:
     """Promote a structured thesis to the Board (Incubating) — the app's FIRST mutation. Create (``id``
     null) or update (``id`` set); the value-chain structure (segments + placements + authorship) persists
@@ -843,7 +951,12 @@ def promote(
     ``ingest`` field on the response names the job. Deliberately scoped to the genuinely-new members
     (the cost thread: every editor Save promotes, so a whole-basket ingest per Save would be ambient
     cost); a brand-new thesis is all-new (the full starter-basket ingest); no new members → no job and
-    ``ingest`` null. The job never blocks or fails the promote."""
+    ``ingest`` null. The job never blocks or fails the promote.
+
+    For a plain user that fast-lane ingest spends one unit of the daily price-pull allowance per new name
+    (``Settings.allowance_price_pull_per_day``, security hardening PR 1b); when today's allowance cannot cover them
+    all, no job is kicked and ``onboarding`` says the names load outside the nightly window instead (the staged
+    onboarding job, then the nightly). A steward is not counted."""
     # THE FIXED LINKS, normalized BEFORE the Thesis is built (so the validator sees the final chain): the
     # payload's own Context / ETFs / Bench segments (any case, any position, any descriptor) are replaced by
     # the three fixed ones appended last, and a member naming one in any case is respelled to the canonical
@@ -1063,6 +1176,14 @@ def promote(
         # the nightly window, still ingest at once in the background (the fast lane — a 3-name promote stays
         # instant). Fail-open toward the pre-X1 kick: a queue fault never costs the promote or its names.
         plan = _plan_lane(conn, thesis.id, DATA_TENANT_ID, new_ids)
+        # BOUNDED (security hardening PR 1b): a plain user's fast lane pulls prices for every new name, so it
+        # spends one price-pull unit per name; when today's allowance cannot cover them all, it takes none and
+        # the names wait for the staged onboarding job (cold ones are already queued by the plan) and the
+        # nightly. The promote itself never fails over the allowance. A steward is not counted.
+        if plan.fast and not (
+            allowance.exempt(user) or allowance.consume(conn, user.id, "price_pull", n=len(new_ids))
+        ):
+            plan = onboarding.PromotePlan(plan.cold, False, FAST_LANE_ALLOWANCE_SPENT)
         if plan.fast:
             job = _kick_member_ingest(thesis.id, new_ids, tenant_id=DATA_TENANT_ID)
             if job is not None:
@@ -1139,7 +1260,11 @@ def get_member_ingest_job(
     )
 
 
-@router.post("/theses/{thesis_id}/terms", response_model=ThesisDetail)
+@router.post(
+    "/theses/{thesis_id}/terms",
+    response_model=ThesisDetail,
+    dependencies=[Depends(allowance.charge("term_run"))],
+)
 def produce_terms(
     req: ProduceTermsRequest | None = None,
     conn: psycopg.Connection = Depends(get_conn),
@@ -1200,7 +1325,11 @@ def edit_terms(
     return ThesisDetail.from_thesis(thesis.model_copy(update={"term_set": entries}))
 
 
-@router.post("/theses/{thesis_id}/recommend-tiers", response_model=list[TierRecommendation])
+@router.post(
+    "/theses/{thesis_id}/recommend-tiers",
+    response_model=list[TierRecommendation],
+    dependencies=[Depends(allowance.charge("term_run"))],
+)
 def recommend_tiers_endpoint(
     tier_rec_llm: LLMClient = Depends(get_tier_rec_client),
     thesis: Thesis = Depends(get_thesis_or_404),
@@ -1241,6 +1370,7 @@ def execute_draft(
     thesis: Thesis,
     *,
     scope: Literal["full", "seeds_only"] = "full",
+    steward: bool = False,
 ) -> ChainDraftOut:
     """The narrative→chain draft PIPELINE — the SECOND LLM seam (S5), EDGAR-FIRST. Unchanged by the async-job
     move; it runs inside a background job now (``start_draft_chain`` → ``workbench.draft_jobs``), not held open.
@@ -1268,10 +1398,14 @@ def execute_draft(
     ``start_draft_chain``; ``run_research``'s own guard is harmless defense-in-depth and owns the TTL cache.)
 
     RESPONSE-ONLY for the THESIS SPINE: it returns a draft and persists no basket member / fact / number — the
-    operator's promote is the only spine writer (INVARIANT #2/#3). It DOES enrich the discovered names' MASTER
-    identity columns (sector / exchange / status, machine-parsed from submissions with an enrichment basis,
-    Slice 2) — an operational universe write that touches no spine, no fact, and no number, and lets the chain
-    reconciler's status-gate read a fresh listing status. DISCOVERY IS COMPLETENESS-OR-FAIL: every not-ready /
+    operator's promote is the only spine writer (INVARIANT #2/#3). For a STEWARD's draft (``steward=True``) it
+    DOES enrich the discovered names' MASTER identity columns (sector / exchange / status, machine-parsed from
+    submissions with an enrichment basis, Slice 2) — an operational universe write that touches no spine, no
+    fact, and no number, and lets the chain reconciler's status-gate read a fresh listing status. A plain user's
+    draft (the default, ``steward=False``) reads the SAME submissions and lays the parsed identity over the master
+    rows for this response only (``identities_for_ciks`` -> ``resolve_discovered_chain(identity=...)``), so its
+    placements and status gate read exactly as an enriched draft's would while the shared master is untouched
+    (security hardening PR 1b). DISCOVERY IS COMPLETENESS-OR-FAIL: every not-ready /
     can't-enumerate state
     RAISES (``DiscoveryNoTerms`` / the ``DiscoveryUnavailable`` base = Degraded/Empty) — the JOB RUNNER maps these
     to a VISIBLE failed job (never a silent recall draft, #9). The tail-sweep still fails-open to None (an
@@ -1293,12 +1427,18 @@ def execute_draft(
             # EFTS fetches), with the verbatim operator-facing message (never the generic wrapper).
             raise DiscoveryNoSeeds()
     universe = run_discovery(conn, edgar, term_set, tenant_id=DATA_TENANT_ID)
-    # Lazy IDENTITY enrichment (Slice 2): fill sector / exchange / status onto the discovered names' master rows
-    # from their submissions, BEFORE resolution — so the chain reconciler's status-gate reads a fresh listing
-    # status. Per-CIK fail-visible (a miss leaves a row un-enriched → abstains); the network stays OUT of the
-    # pure resolver. Writes only the master's identity columns (machine-parsed, an enrichment basis) — no thesis
-    # spine, no fact, no number (#1/#3); the operator's promote remains the only spine writer.
-    enrich_for_ciks(conn, edgar, {**universe.placed, **universe.verify}, tenant_id=DATA_TENANT_ID)
+    # Lazy IDENTITY enrichment (Slice 2): sector / exchange / status for the discovered names from their
+    # submissions, BEFORE resolution — so the chain reconciler's status-gate reads a fresh listing status.
+    # Per-CIK fail-visible (a miss leaves a row un-enriched → abstains); the network stays OUT of the pure
+    # resolver. A STEWARD's draft stores it on the master's identity columns (machine-parsed, an enrichment basis
+    # — no thesis spine, no fact, no number, #1/#3). A plain user's draft never writes the SHARED master (security
+    # hardening PR 1b): the same identity rides this response only, laid over the master rows at resolution.
+    discovered = {**universe.placed, **universe.verify}
+    identity = None
+    if steward:
+        enrich_for_ciks(conn, edgar, discovered, tenant_id=DATA_TENANT_ID)
+    else:
+        identity = identities_for_ciks(edgar, discovered)
     # The sweep's OUTCOME rides the draft report (the tri-state — a lost foreign/ADR tail is no longer
     # indistinguishable from "no foreign names exist"). run_research's Callable contract stays str|None (its
     # cache-only-non-None property is load-bearing), so the status travels via a cell the thunk writes; a TTL
@@ -1328,7 +1468,9 @@ def execute_draft(
     segments = proposed_from_decomposition(
         decompose_narrative(decompose_llm, thesis.narrative, research_context=context)
     )
-    chain = resolve_discovered_chain(conn, segments, universe, tenant_id=DATA_TENANT_ID)
+    chain = resolve_discovered_chain(
+        conn, segments, universe, tenant_id=DATA_TENANT_ID, identity=identity
+    )
 
     # Fill thesis-fit prose for every empty-prose PLACED + VERIFY name — since the prose reroute that is ALL of
     # them: the organizer emits structure + assignment only (no per-name prose — it scaled the organize output
@@ -1403,13 +1545,19 @@ def execute_draft(
     )
 
 
-@router.post("/theses/{thesis_id}/draft-chain", status_code=202, response_model=DraftJobRef)
+@router.post(
+    "/theses/{thesis_id}/draft-chain",
+    status_code=202,
+    response_model=DraftJobRef,
+    dependencies=[Depends(allowance.charge("chain_draft"))],
+)
 def start_draft_chain(
     body: DraftChainIn | None = None,
     research_llm: LLMClient = Depends(get_research_client),
     decompose_llm: LLMClient = Depends(get_decompose_client),
     edgar: EdgarClient = Depends(get_edgar_client),
     thesis: Thesis = Depends(get_thesis_or_404),
+    user: CurrentUser = Depends(require_user),
 ) -> DraftJobRef:
     """KICK OFF the narrative→chain draft as a background JOB and return immediately (**202** + ``job_id``); the
     FE polls ``GET .../draft-chain/jobs/{job_id}`` for the result. The draft takes minutes (EDGAR discovery + the
@@ -1429,13 +1577,21 @@ def start_draft_chain(
     The OPTIONAL body carries the draft SCOPE (``DraftChainIn``): absent body (the FE today) or absent field
     = ``full`` — byte-identical to the pre-scope draft; ``seeds_only`` is the fast lane (SIGNAL-seeds-only
     discovery, no tail-sweep — see ``execute_draft``). The report + the run-of-record name which scope ran.
+
+    BOUNDED (security hardening PR 1b): a plain user's kick-off counts against their daily chain-draft allowance
+    (``Settings.allowance_chain_draft_per_day``, else 429 naming the reset), and their draft never writes the shared
+    security master (``execute_draft(steward=False)``: the identity is computed for the response only). A steward
+    is not counted, and a steward's draft still stores the identity.
     """
     scope: Literal["full", "seeds_only"] = body.scope if body is not None else "full"
+    steward = user.is_super_admin
 
     def _run() -> ChainDraftOut:
         own = connect()  # the job outlives the request; the request-scoped conn is already closed
         try:
-            return execute_draft(own, research_llm, decompose_llm, edgar, thesis, scope=scope)
+            return execute_draft(
+                own, research_llm, decompose_llm, edgar, thesis, scope=scope, steward=steward
+            )
         except DiscoveryNoSeeds as exc:  # the seeds-only pre-flight — the message travels VERBATIM
             raise DraftError(str(exc)) from exc
         except DiscoveryNoTerms as exc:  # SPECIFIC first (it subclasses DiscoveryUnavailable)
@@ -1611,11 +1767,16 @@ def _has_shares_fact(conn: psycopg.Connection, security_id: UUID, tenant_id: UUI
         return cur.fetchone() is not None
 
 
-@router.post("/facts/auto-confirm", response_model=AutoConfirmOut)
+@router.post(
+    "/facts/auto-confirm",
+    response_model=AutoConfirmOut,
+    dependencies=[Depends(allowance.charge("auto_confirm"))],
+)
 def auto_confirm_fact(
     req: AutoConfirmRequest,
     conn: psycopg.Connection = Depends(get_conn),
     tenant_id: UUID = Depends(get_workspace),
+    user: CurrentUser = Depends(require_user),
 ) -> AutoConfirmOut:
     """Auto-apply a security's AUTO-tier shares count on get-data — REMOVING a ceremonial confirm, not a real one.
 
@@ -1642,7 +1803,14 @@ def auto_confirm_fact(
     - ``not_auto`` — a FLAGged candidate is the operator's to ratify; the machine never resolves a dual-class
       sum or a stale cover;
     - ``no_candidate`` / ``no_value`` — nothing to apply.
+
+    BOUNDED (security hardening PR 1b): a plain user may auto-confirm only a company on one of their own cards
+    (else 404, "This company is not on any of your cards. Add it to a card first.") and within their daily
+    auto-confirm allowance (``Settings.allowance_auto_confirm_per_day``, else 429 naming the reset; the security
+    rides in the body, so this route counts the request before the card check). A steward is neither checked nor
+    counted.
     """
+    _require_own_security(conn, user, tenant_id, req.security_id)
     # the master is DATA (domain.scopes); the fact below is written under the caller's tenant
     if not master.exists(conn, req.security_id, tenant_id=DATA_TENANT_ID):
         raise HTTPException(status_code=404, detail="security not in this tenant's master")
