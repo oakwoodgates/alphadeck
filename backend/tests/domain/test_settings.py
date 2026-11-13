@@ -208,7 +208,78 @@ _BACKEND_PASSED_THROUGH = {
     "ALPHADECK_ALLOWANCE_HOLDINGS_PER_DAY": "allowance_holdings_per_day",
     "ALPHADECK_ALLOWANCE_CHAIN_DRAFT_PER_DAY": "allowance_chain_draft_per_day",
     "ALPHADECK_ALLOWANCE_TERM_RUN_PER_DAY": "allowance_term_run_per_day",
+    # security PR 5: the sign-in surface
+    "ALPHADECK_OAUTH_AUTHORIZE_PER_ADDRESS_HOUR": "oauth_authorize_per_address_hour",
+    "ALPHADECK_OAUTH_AUTHORIZE_PER_HOUR": "oauth_authorize_per_hour",
+    "ALPHADECK_PASSWORD_CHECK_CONCURRENCY": "password_check_concurrency",
+    "ALPHADECK_PASSWORD_CHECK_WAIT_S": "password_check_wait_s",
 }
+# The nightly prune (security PR 5, ``db.housekeeping``) runs in the CRON sidecar, so its retention days are passed
+# to the cron service (the backend never reads them).
+_CRON_PASSED_THROUGH = {
+    "ALPHADECK_PRUNE_SESSION_DAYS": "prune_session_days",
+    "ALPHADECK_PRUNE_OAUTH_DAYS": "prune_oauth_days",
+    "ALPHADECK_PRUNE_DCR_CLIENT_DAYS": "prune_dcr_client_days",
+    "ALPHADECK_PRUNE_ALLOWANCE_DAYS": "prune_allowance_days",
+}
+
+
+def test_compose_passes_the_prune_days_to_the_cron_at_the_settings_defaults(monkeypatch):
+    import re
+    from pathlib import Path
+
+    compose = (Path(__file__).resolve().parents[3] / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+    cron = _compose_service_block(compose, "cron")
+    for var in _CRON_PASSED_THROUGH:
+        monkeypatch.delenv(var, raising=False)
+    s = Settings()
+    for var, field in _CRON_PASSED_THROUGH.items():
+        m = re.search(rf"^\s+{var}: \$\{{{var}:-([0-9.]+)\}}", cron, re.M)
+        assert m is not None, f"{var} is not passed to the cron in docker-compose.yml"
+        assert float(m.group(1)) == getattr(s, field), f"{var}: {m.group(1)}"
+
+
+def test_the_sign_in_surface_defaults(monkeypatch):
+    """Security PR 5: self-registration is OFF unless the operator turns it on; the /authorize limits, the
+    password-check cap and the prune's retention days (plan D4, D5, D7)."""
+    for var in (
+        *_BACKEND_PASSED_THROUGH,
+        *_CRON_PASSED_THROUGH,
+        "ALPHADECK_OAUTH_DYNAMIC_REGISTRATION",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    s = Settings()
+    assert s.oauth_dynamic_registration is False
+    assert (s.oauth_authorize_per_address_hour, s.oauth_authorize_per_hour) == (30, 300)
+    assert (s.password_check_concurrency, s.password_check_wait_s) == (4, 10)
+    assert (
+        s.prune_session_days,
+        s.prune_oauth_days,
+        s.prune_dcr_client_days,
+        s.prune_allowance_days,
+    ) == (7, 1, 7, 7)
+    assert (s.login_max_failures, s.login_window_s, s.login_lockout_s) == (5, 60, 60)
+    monkeypatch.setenv("ALPHADECK_OAUTH_DYNAMIC_REGISTRATION", "true")
+    assert Settings().oauth_dynamic_registration is True
+
+
+def test_compose_passes_dynamic_registration_off_by_default():
+    import re
+    from pathlib import Path
+
+    compose = (Path(__file__).resolve().parents[3] / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+    backend = _compose_service_block(compose, "backend")
+    m = re.search(
+        r"^\s+ALPHADECK_OAUTH_DYNAMIC_REGISTRATION: \$\{ALPHADECK_OAUTH_DYNAMIC_REGISTRATION:-(\w+)\}",
+        backend,
+        re.M,
+    )
+    assert m is not None, "ALPHADECK_OAUTH_DYNAMIC_REGISTRATION is not passed to the backend"
+    assert m.group(1) == "false"
 
 
 def _compose_service_block(compose: str, service: str) -> str:

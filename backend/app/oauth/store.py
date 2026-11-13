@@ -189,6 +189,18 @@ def create_consent(
     return cid
 
 
+def count_recent_consents(
+    conn: psycopg.Connection, *, within: timedelta = timedelta(hours=1)
+) -> int:
+    """How many sign-in requests ``/authorize`` stored inside ``within`` (the total cap counts the table, so a
+    restart or a new address cannot reset it)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT count(*) AS n FROM oauth_consent WHERE created_at > now() - %s", (within,)
+        )
+        return int(cur.fetchone()["n"])
+
+
 def get_consent(
     conn: psycopg.Connection, consent_id: UUID, *, for_update: bool = False
 ) -> dict[str, Any] | None:

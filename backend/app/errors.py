@@ -61,6 +61,9 @@ SENTENCES: dict[str, str] = {
     # A background job's unexpected failure, shown on its poll (workbench/draft_jobs.py, workbench/ingest_jobs.py).
     "draft": "The draft failed on the server. Try again, and quote the reference if it keeps happening.",
     "fetch": "The data fetch failed on the server. Try again, and quote the reference if it keeps happening.",
+    # Every password-check slot stayed taken (app.auth.password_check_slot, security PR 5): sign-in and
+    # change-password answer 503 with Retry-After. No reference: nothing failed, the server is busy.
+    "signin_busy": "Sign-in is busy. Try again in a moment.",
 }
 
 

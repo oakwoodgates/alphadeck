@@ -112,6 +112,23 @@ class World:
         )
         self.sessions: dict[str, TestClient] = {}
 
+    def rebuild(self) -> None:
+        """Build the authorization server again from the CURRENT settings (registration on or off), as a restart
+        with a changed `.env` would."""
+        get_settings.cache_clear()
+
+        @contextmanager
+        def same_conn():
+            yield self.db
+
+        self.server = build_oauth_routes(
+            ORIGIN, AlphaDeckAuthProvider(same_conn, public_origin=ORIGIN)
+        )
+        app.state.oauth = self.server
+        self.asx = TestClient(
+            Starlette(routes=self.server.routes), base_url=ORIGIN, raise_server_exceptions=False
+        )
+
     # --- the API, as a browser or a bearer -------------------------------------------------------------------
 
     def session(self, who: str) -> TestClient:
@@ -239,6 +256,8 @@ def ow(db, pinned_today, monkeypatch):
     monkeypatch.setattr(ingest_jobs, "_DEFAULT_EXECUTOR", lambda job: None)
     monkeypatch.delenv("ALPHADECK_SYSTEM_TOKEN", raising=False)
     monkeypatch.setenv("ALPHADECK_PUBLIC_ORIGIN", ORIGIN)
+    # the suite's self-registration tests run with it ON; section 10b turns it off
+    monkeypatch.setenv("ALPHADECK_OAUTH_DYNAMIC_REGISTRATION", "true")
     get_settings.cache_clear()
     with db.cursor() as cur:
         cur.execute("TRUNCATE app_user CASCADE")  # cascades to every oauth table but oauth_client
@@ -848,6 +867,190 @@ def test_admin_status_counts_the_clients(ow):
     status = ow.session("s").get("/admin/status")
     assert status.status_code == 200
     assert status.json()["oauth_clients"] == {"static": 2, "dcr": 1}
+
+
+# --- 10b. self-registration is off by default (security PR 5 step 5) ---------------------------------------------
+
+
+def test_with_registration_off_register_is_404_and_the_metadata_names_no_endpoint(ow, monkeypatch):
+    monkeypatch.delenv("ALPHADECK_OAUTH_DYNAMIC_REGISTRATION", raising=False)
+    ow.rebuild()
+    assert get_settings().oauth_dynamic_registration is False
+    clients = _count(ow.db, "oauth_client")
+    r = ow.register()
+    assert r.status_code == 404
+    assert _count(ow.db, "oauth_client") == clients
+    doc = ow.asx.get("/.well-known/oauth-authorization-server").json()
+    assert "registration_endpoint" not in doc
+    assert doc["authorization_endpoint"] == f"{ORIGIN}/authorize"
+    assert doc["revocation_endpoint"] == f"{ORIGIN}/revoke"
+    assert sorted(r.path for r in ow.server.routes) == sorted(
+        ("/.well-known/oauth-authorization-server", "/authorize", "/token", "/revoke")
+    )
+
+
+def test_with_registration_off_both_built_in_clients_still_connect(ow, monkeypatch):
+    monkeypatch.delenv("ALPHADECK_OAUTH_DYNAMIC_REGISTRATION", raising=False)
+    ow.rebuild()
+    code = ow.connect("a")  # Claude Code: a loopback redirect, no secret
+    assert ow.mcp_status(code["access_token"]) == 200
+    claude = ow.connect(
+        "b", client_id=CLAUDE, redirect_uri=CLAUDE_CALLBACK
+    )  # the claude.ai fallback
+    assert ow.mcp_status(claude["access_token"]) == 200
+    refreshed = ow.token(
+        grant_type="refresh_token", refresh_token=code["refresh_token"], client_id=CLAUDE_CODE
+    )
+    assert refreshed.status_code == 200, refreshed.text
+
+
+def test_a_client_registered_while_on_keeps_working_after_registration_is_turned_off(
+    ow, monkeypatch
+):
+    reg = ow.register()
+    assert reg.status_code == 201
+    client = reg.json()
+    before = ow.connect(
+        "a",
+        client_id=client["client_id"],
+        redirect_uri=CLAUDE_CALLBACK,
+        secret=client["client_secret"],
+    )
+    monkeypatch.setenv("ALPHADECK_OAUTH_DYNAMIC_REGISTRATION", "false")
+    ow.rebuild()
+    assert ow.register().status_code == 404
+    assert ow.mcp_status(before["access_token"]) == 200  # its live connection
+    after = ow.connect(  # and a brand new sign-in through it
+        "b",
+        client_id=client["client_id"],
+        redirect_uri=CLAUDE_CALLBACK,
+        secret=client["client_secret"],
+    )
+    assert ow.mcp_status(after["access_token"]) == 200
+    r = ow.token(
+        grant_type="refresh_token",
+        refresh_token=before["refresh_token"],
+        client_id=client["client_id"],
+        client_secret=client["client_secret"],
+    )
+    assert r.status_code == 200, r.text
+
+
+def test_with_registration_on_a_huge_or_greedy_registration_is_refused(ow):
+    clients = _count(ow.db, "oauth_client")
+    huge = ow.asx.post(
+        "/register",
+        content=json.dumps(
+            {"redirect_uris": [CLAUDE_CALLBACK], "client_name": "x" * (65 * 1024)}
+        ).encode(),
+        headers={"content-type": "application/json"},
+    )
+    assert huge.status_code == 413
+    many = ow.register(redirect_uris=[f"https://claude.ai/cb/{i}" for i in range(11)])
+    assert many.status_code == 400 and many.json()["error"] == "invalid_redirect_uri"
+    long_uri = ow.register(redirect_uris=["https://claude.ai/" + "a" * 2_000])
+    assert long_uri.status_code == 400 and long_uri.json()["error"] == "invalid_redirect_uri"
+    assert _count(ow.db, "oauth_client") == clients
+    ten = ow.register(redirect_uris=[f"https://claude.ai/cb/{i}" for i in range(10)])
+    assert ten.status_code == 201, ten.text
+
+
+# --- 10c. /authorize is bounded (security PR 5 step 6) --------------------------------------------------------
+
+
+def _authorize_query(ow, *, challenge=None, state="st-1", scope=None, headers=None):
+    params = {
+        "response_type": "code",
+        "client_id": CLAUDE_CODE,
+        "redirect_uri": "http://localhost:6000/callback",
+        "code_challenge": challenge or _pkce()[1],
+        "code_challenge_method": "S256",
+        "state": state,
+        "resource": MCP_URL,
+    }
+    if scope is not None:
+        params["scope"] = scope
+    return ow.asx.get("/authorize", params=params, headers=headers or {}, follow_redirects=False)
+
+
+def _error(r) -> str | None:
+    if r.status_code == 302:
+        q = parse_qs(urlsplit(r.headers["location"]).query)
+        return q.get("error", [None])[0]
+    return r.json().get("error")
+
+
+def test_a_long_state_writes_no_row(ow):
+    before = _count(ow.db, "oauth_consent")
+    r = _authorize_query(ow, state="s" * 600)
+    assert _error(r) == "invalid_request"
+    assert "/oauth/consent/" not in r.headers.get("location", "")
+    assert _count(ow.db, "oauth_consent") == before
+    ok = _authorize_query(ow, state="s" * 512)
+    assert "/oauth/consent/" in ok.headers["location"]
+
+
+def test_a_code_challenge_outside_43_to_128_writes_no_row(ow):
+    before = _count(ow.db, "oauth_consent")
+    for bad in ("c" * 42, "c" * 129):
+        assert _error(_authorize_query(ow, challenge=bad)) == "invalid_request"
+    assert _count(ow.db, "oauth_consent") == before
+    for good in ("c" * 43, "c" * 128):
+        assert "/oauth/consent/" in _authorize_query(ow, challenge=good).headers["location"]
+
+
+def test_a_long_scope_writes_no_row(ow):
+    before = _count(ow.db, "oauth_consent")
+    r = _authorize_query(ow, scope=" ".join(["read"] * 60))
+    assert _error(r) == "invalid_request"
+    assert _count(ow.db, "oauth_consent") == before
+
+
+def test_the_31st_request_from_one_address_in_an_hour_writes_no_row(ow):
+    for _ in range(30):
+        assert "/oauth/consent/" in _authorize_query(ow).headers["location"]
+    before = _count(ow.db, "oauth_consent")
+    over = _authorize_query(ow, state="over")
+    assert over.status_code == 302 and _error(over) == "temporarily_unavailable"
+    assert parse_qs(urlsplit(over.headers["location"]).query)["state"] == ["over"]
+    assert _count(ow.db, "oauth_consent") == before
+
+
+def test_the_total_per_hour_is_counted_from_the_table(ow, monkeypatch):
+    from app import client_address
+
+    client_address.reset_cache()
+    monkeypatch.setattr(client_address, "_resolve", lambda name: frozenset({"testclient"}))
+    monkeypatch.setenv("ALPHADECK_OAUTH_AUTHORIZE_PER_HOUR", "3")
+    get_settings.cache_clear()
+    for i in range(3):
+        r = _authorize_query(ow, headers={"X-Real-IP": f"203.0.113.{i}"})
+        assert "/oauth/consent/" in r.headers["location"]
+    before = _count(ow.db, "oauth_consent")
+    fresh = _authorize_query(ow, headers={"X-Real-IP": "198.51.100.200"})  # a NEW address
+    assert _error(fresh) == "temporarily_unavailable"
+    assert _count(ow.db, "oauth_consent") == before
+    ow.rebuild()  # a restart forgets the in-process counts, not the table
+    again = _authorize_query(ow, headers={"X-Real-IP": "198.51.100.201"})
+    assert _error(again) == "temporarily_unavailable"
+    assert _count(ow.db, "oauth_consent") == before
+    client_address.reset_cache()
+
+
+def test_a_huge_authorize_post_is_413(ow):
+    before = _count(ow.db, "oauth_consent")
+    body = {
+        "response_type": "code",
+        "client_id": CLAUDE_CODE,
+        "redirect_uri": "http://localhost:6000/callback",
+        "code_challenge": _pkce()[1],
+        "state": "x" * (65 * 1024),
+    }
+    r = ow.asx.post("/authorize", data=body, follow_redirects=False)
+    assert r.status_code == 413
+    assert _count(ow.db, "oauth_consent") == before
+    small = ow.asx.post("/authorize", data={**body, "state": "ok"}, follow_redirects=False)
+    assert small.status_code == 302 and "/oauth/consent/" in small.headers["location"]
 
 
 # --- 11. the gate: tests/app/test_auth_gate.py lists the five AS routes and the two consent routes ------------

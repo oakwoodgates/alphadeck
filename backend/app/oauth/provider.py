@@ -18,7 +18,9 @@ injected ``connection`` context manager (prod: a fresh connection closed after; 
   document and the consent page caps a grant by the user's role, so a registration's scope never gates an
   authorization request.
 * ``authorize`` never decides: it stores a pending consent and sends the browser to the consent page
-  (``/oauth/consent/<id>``), where the signed-in user allows or denies (``app/routers/oauth_consent.py``).
+  (``/oauth/consent/<id>``), where the signed-in user allows or denies (``app/routers/oauth_consent.py``). It is
+  bounded, because it writes a row before anyone signs in (security PR 5): field lengths, a per-address hourly
+  limit and an hourly total counted from the table.
 
 Logs carry client ids and user-id prefixes only, never a token, a code or a secret.
 """
@@ -48,6 +50,17 @@ from mcp.server.auth.provider import (
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 from pydantic import AnyUrl
 
+from app.throttle import SlidingWindow
+from domain.settings import get_settings
+from domain.text_types import (
+    OAUTH_REDIRECT_URIS_MAX,
+    OAUTH_SCOPE_MAX,
+    OAUTH_STATE_MAX,
+    PKCE_CHALLENGE_MAX,
+    PKCE_CHALLENGE_MIN,
+    URL_MAX,
+)
+
 from . import store
 
 log = logging.getLogger("app.oauth")
@@ -57,6 +70,9 @@ LOOPBACK_HOSTS = ("localhost", "127.0.0.1", "[::1]", "::1")
 PRESENTED_SECRET: ContextVar[str | None] = ContextVar(
     "alphadeck_oauth_presented_secret", default=None
 )
+# The caller's address on /authorize (``server._Authorize`` sets it from ``app.client_address``).
+CLIENT_ADDRESS: ContextVar[str] = ContextVar("alphadeck_oauth_client_address", default="unknown")
+_BUSY = "temporarily_unavailable"
 
 Connection = Callable[[], AbstractContextManager[psycopg.Connection]]
 T = TypeVar("T")
@@ -99,8 +115,17 @@ class _Refresh(RefreshToken):
 
 
 def check_redirect_uris(uris: list[str]) -> None:
-    """Registration hygiene: every redirect URI is https, or http on a loopback host. Raises ``RegistrationError``."""
+    """Registration hygiene: at most ``OAUTH_REDIRECT_URIS_MAX`` redirect URIs, each at most ``URL_MAX``
+    characters, and every one https, or http on a loopback host. Raises ``RegistrationError``."""
+    if len(uris) > OAUTH_REDIRECT_URIS_MAX:
+        raise RegistrationError(
+            "invalid_redirect_uri", f"at most {OAUTH_REDIRECT_URIS_MAX} redirect URIs"
+        )
     for uri in uris:
+        if len(uri) > URL_MAX:
+            raise RegistrationError(
+                "invalid_redirect_uri", f"a redirect URI has at most {URL_MAX} characters"
+            )
         parts = urlsplit(uri)
         if parts.scheme == "https" and parts.hostname:
             continue
@@ -118,6 +143,8 @@ class AlphaDeckAuthProvider:
         self.connection = connection
         self.public_origin = public_origin
         self.resource = store.connector_url(public_origin)
+        # new sign-in requests per client address per hour (the limit is read from the settings per call)
+        self.authorize_limit = SlidingWindow(limit=0, window_s=3600)
 
     async def _db(self, fn: Callable[[psycopg.Connection], T]) -> T:
         def run() -> T:
@@ -182,13 +209,42 @@ class AlphaDeckAuthProvider:
     async def authorize(
         self, client: OAuthClientInformationFull, params: AuthorizationParams
     ) -> str:
+        """Store a pending sign-in request and send the browser to the consent page. Bounded, because it writes a
+        row before anyone signs in (security PR 5, D4): the field lengths (``domain/text_types.py``); then the
+        caller's address may start ``oauth_authorize_per_address_hour`` new requests an hour (in-process, checked
+        before any write); then at most ``oauth_authorize_per_hour`` new requests an hour in total, counted from
+        the table in the insert's own transaction. Each refusal is the SDK's error redirect (``state`` kept).
+        """
+        if params.state is not None and len(params.state) > OAUTH_STATE_MAX:
+            raise AuthorizeError(
+                "invalid_request", f"state has at most {OAUTH_STATE_MAX} characters"
+            )
+        if not PKCE_CHALLENGE_MIN <= len(params.code_challenge) <= PKCE_CHALLENGE_MAX:
+            raise AuthorizeError(
+                "invalid_request",
+                f"code_challenge has {PKCE_CHALLENGE_MIN} to {PKCE_CHALLENGE_MAX} characters",
+            )
+        if len(" ".join(params.scopes or [])) > OAUTH_SCOPE_MAX:
+            raise AuthorizeError(
+                "invalid_request", f"scope has at most {OAUTH_SCOPE_MAX} characters"
+            )
         resource = params.resource
-        if resource is not None and resource.rstrip("/") != self.resource:
+        if resource is not None and (
+            len(resource) > URL_MAX or resource.rstrip("/") != self.resource
+        ):
             raise AuthorizeError(
                 "invalid_target", "this server issues tokens only for its /mcp endpoint"
             )
-        consent_id = await self._db(
-            lambda c: store.create_consent(
+        s = get_settings()
+        address = CLIENT_ADDRESS.get()
+        if not self.authorize_limit.allowed(address, limit=s.oauth_authorize_per_address_hour):
+            raise AuthorizeError(_BUSY, "too many sign-in requests from your network; try later")
+        per_hour = s.oauth_authorize_per_hour
+
+        def run(c: psycopg.Connection) -> UUID | None:
+            if per_hour > 0 and store.count_recent_consents(c) >= per_hour:
+                return None
+            return store.create_consent(
                 c,
                 client_id=client.client_id,
                 redirect_uri=str(params.redirect_uri),
@@ -198,7 +254,12 @@ class AlphaDeckAuthProvider:
                 state=params.state,
                 resource=self.resource,
             )
-        )
+
+        consent_id = await self._db(run)
+        if consent_id is None:
+            log.warning("oauth: the hourly cap on new sign-in requests is reached (%s)", per_hour)
+            raise AuthorizeError(_BUSY, "too many sign-in requests right now; try later")
+        self.authorize_limit.record(address)
         return f"{self.public_origin}/oauth/consent/{consent_id}"
 
     # --- codes ----------------------------------------------------------------------------------------------

@@ -12,7 +12,9 @@ range: security hardening PR 3) are marked expected-fail (strict) with the reaso
 deleting their entry in ``NEEDS_BOUNDS``.
 
 Not covered here: the OAuth ``/authorize`` and ``/register`` routes (mounted only with ALPHADECK_PUBLIC_ORIGIN, and
-the SDK's handler is not ours); the steward routes.
+the SDK's handler is not ours): their bounds (field lengths, the 64 KB body cap, the per-address and hourly limits on
+``/authorize``, the redirect-URI limits on ``/register``) are tested in ``tests/app/test_oauth.py`` sections 10b and
+10c, counting ``oauth_consent`` / ``oauth_client`` before and after. The steward routes are not covered.
 """
 
 from __future__ import annotations
