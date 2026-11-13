@@ -59,7 +59,7 @@ def test_the_price_pull_answers_409_while_another_writer_holds_the_company(
         assert time.monotonic() - t0 < 5  # bounded: the request never hangs behind the writer
         assert r.status_code == 409
         detail = r.json()["detail"]
-        assert "another ingest is writing this company's facts right now" in detail
+        assert "Another ingest is writing this company's facts right now" in detail
         assert "alphadeck-writer:daily-pass" in detail  # names who holds it
         assert _bars_stored(db, security_id) == 0  # nothing written
 

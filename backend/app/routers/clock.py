@@ -14,9 +14,10 @@ from __future__ import annotations
 
 from datetime import date
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
+from app.errors import SCHEDULE_SETTING_MALFORMED, fail
 from domain.market_time import market_clock, market_tz
 
 router = APIRouter(tags=["meta"])
@@ -37,15 +38,15 @@ class ClockOut(BaseModel):
 
 
 @router.get("/clock", response_model=ClockOut)
-def get_clock() -> ClockOut:
+def get_clock(request: Request) -> ClockOut:
     """The server's current night, action day and today in the market's zone. The app's default as-of is the
     current night, never the browser's date. Reads no data."""
     try:
         c = market_clock()
-    except ValueError as exc:  # a malformed ALPHADECK_CRON_AT: a deploy error, loud
-        raise HTTPException(
-            status_code=500, detail=f"ALPHADECK_CRON_AT is malformed: {exc}"
-        ) from exc
+    except (
+        ValueError
+    ) as exc:  # a malformed ALPHADECK_CRON_AT: a deploy error, loud (the value: steward only)
+        raise fail(500, SCHEDULE_SETTING_MALFORMED, exc, request=request) from exc
     return ClockOut(
         current_night=c.night,
         action_day=c.action_day,

@@ -61,4 +61,10 @@ def test_a_malformed_pass_time_is_a_loud_500(monkeypatch):
     monkeypatch.setenv("ALPHADECK_CRON_AT", "half past ten")
     get_settings.cache_clear()
     r = TestClient(app).get("/clock")
-    assert r.status_code == 500 and "ALPHADECK_CRON_AT" in r.json()["detail"]
+    detail = r.json()["detail"]
+    # the fixed sentence; the suite signs in as a steward, who also sees the bad value (security hardening PR 2)
+    assert (
+        r.status_code == 500
+        and "schedule setting is malformed" in detail
+        and "half past ten" in detail
+    )

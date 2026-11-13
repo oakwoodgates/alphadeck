@@ -25,10 +25,11 @@ from datetime import date, datetime, time, timedelta, timezone, tzinfo
 from uuid import UUID
 
 import psycopg
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from app.auth import CurrentUser, require_super_admin
 from app.deps import get_conn
+from app.errors import RETRY_AFTER_S, fail
 from app.oauth import store as oauth_store
 from app.routers.admin_price_feed import price_repairs_out
 from app.routers.admin_splits import count_needs_review as splits_needs_review_count
@@ -1407,8 +1408,12 @@ def get_admin_runs(
     return AdminRunsOut(runs=runs)
 
 
+# The fixed 503 when the run lock cannot be probed (security hardening PR 2: never the connection text alone).
+RUN_LOCK_UNREACHABLE = "The daily-run lock could not be checked because the database cannot be reached. Try again in a moment."
+
+
 @router.post("/run-daily", status_code=202, response_model=AdminRunJobRef)
-def start_run_daily() -> AdminRunJobRef:
+def start_run_daily(request: Request) -> AdminRunJobRef:
     """KICK OFF the full daily pass as a background JOB and return immediately (**202** + ``job_id``);
     poll ``GET /admin/run-daily/jobs/{job_id}``. Fires ONLY on this explicit request — never on a page
     load, mount, or poll (cost is the operator's to spend; the pass does a LIVE EDGAR pull and can run
@@ -1428,9 +1433,12 @@ def start_run_daily() -> AdminRunJobRef:
     try:
         holder = probe_pass_lock()
     except Exception as exc:  # noqa: BLE001 — an unreachable DB is a visible 503, never a 500
-        raise HTTPException(
-            status_code=503,
-            detail=f"cannot check the daily-run lock — the database is unreachable: {exc}",
+        raise fail(
+            503,
+            RUN_LOCK_UNREACHABLE,
+            exc,
+            request=request,
+            headers={"Retry-After": str(RETRY_AFTER_S)},
         ) from exc
     if holder is not None:
         raise HTTPException(

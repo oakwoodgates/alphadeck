@@ -37,3 +37,15 @@ def test_boot_command_waits_before_migrate() -> None:
     for rel, lines in found.items():
         for ln in lines:
             assert "python -m db.wait && python -m db.migrate" in ln, f"{rel}: {ln}"
+
+
+def test_the_api_bounds_its_in_flight_requests() -> None:
+    """Security hardening PR 2 (docs/DEPLOY.md §Connections): the API's uvicorn runs ONE worker (the in-process job
+    registries) with ``--limit-concurrency`` from ``ALPHADECK_UVICORN_LIMIT_CONCURRENCY`` (default 64), so in-flight
+    requests, and with them request connections, stay below Postgres's connection limit."""
+    text = (_REPO / "backend" / "Dockerfile").read_text(encoding="utf-8")
+    assert "ENV ALPHADECK_UVICORN_LIMIT_CONCURRENCY=$UVICORN_LIMIT_CONCURRENCY" in text
+    assert "ARG UVICORN_LIMIT_CONCURRENCY=64" in text
+    cmd = next(ln for ln in text.splitlines() if ln.startswith("CMD ") and "uvicorn" in ln)
+    assert "--workers 1" in cmd
+    assert "--limit-concurrency ${ALPHADECK_UVICORN_LIMIT_CONCURRENCY:-64}" in cmd

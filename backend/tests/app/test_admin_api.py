@@ -1432,7 +1432,7 @@ def test_run_daily_503_when_the_lock_cannot_be_checked(client, monkeypatch):
 
     monkeypatch.setattr(admin, "probe_pass_lock", _down)
     r = client.post("/admin/run-daily")
-    assert r.status_code == 503 and "unreachable" in r.json()["detail"]
+    assert r.status_code == 503 and "cannot be reached" in r.json()["detail"]
 
 
 def test_status_counts_the_cards_left_on_the_data_tenant(client, db, cron_runs_dir):

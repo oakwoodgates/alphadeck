@@ -4,9 +4,10 @@ from datetime import date, datetime, time, timedelta, timezone
 from uuid import UUID
 
 import psycopg
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from app.deps import get_conn, get_thesis_or_404, get_workspace
+from app.errors import SCHEDULE_SETTING_MALFORMED, fail
 from app.schemas_api import (
     ActivistStakeOut,
     AnnotatedNightOut,
@@ -63,21 +64,23 @@ def _now() -> datetime:
     return market_now()
 
 
-def _run_at() -> time:
+def _run_at(request: Request) -> time:
     """The schedule wall time off ``Settings.cron_run_at`` (env ``ALPHADECK_CRON_AT`` — the same var
     the sidecar + admin read), so the Scoreboard's staleness models the SAME schedule. A malformed
-    value is a DEPLOY error → a loud, actionable 500. Copied from ``admin.py``."""
+    value is a DEPLOY error → a loud 500 with a fixed sentence (the value itself: a steward only, and the log).
+    Copied from ``admin.py``."""
     raw = get_settings().cron_run_at
     try:
         return parse_run_at(raw)
     except ValueError as exc:
-        raise HTTPException(
-            status_code=500, detail=f"ALPHADECK_CRON_AT is malformed ({raw!r}): {exc}"
+        raise fail(
+            500, SCHEDULE_SETTING_MALFORMED, ValueError(f"{raw!r}: {exc}"), request=request
         ) from exc
 
 
 @router.get("", response_model=ScoreboardResponse)
 def get_scoreboard(
+    request: Request,
     asof: date = Query(..., description="score the record as-of this date (caps both axes)"),
     include_archived: bool = Query(
         True,
@@ -162,7 +165,7 @@ def get_scoreboard(
     # it is identical whether the view is scrubbed to the past or to today; the FE shows it only on the
     # live view (asof >= today). Measured vs the last EXPECTED Mon-Fri+RUN_AT run (never raw
     # today - edge); edge None = the record has never begun (quiet: days_behind None, stale False).
-    run_at = _run_at()
+    run_at = _run_at(request)
     now = _now()
     edge = calls_repo.record_edge(conn)
     expected = last_expected_asof(now, run_at)

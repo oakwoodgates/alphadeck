@@ -63,6 +63,14 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
+# Security hardening PR 2 (docs/DEPLOY.md §Connections) — the cap on IN-FLIGHT requests. Every request holds one
+# database connection while it runs (there is no pool), so this bound, plus the background-job caps
+# (ALPHADECK_DRAFT_JOBS_MAX_RUNNING / ALPHADECK_INGEST_JOBS_MAX_RUNNING), keeps the API's connections below
+# Postgres's limit: past it uvicorn answers 503 at once instead of opening one more connection. A build arg for the
+# image's default; the env var overrides it at run time.
+ARG UVICORN_LIMIT_CONCURRENCY=64
+ENV ALPHADECK_UVICORN_LIMIT_CONCURRENCY=$UVICORN_LIMIT_CONCURRENCY
+
 # Wait for Postgres (db.wait: at most 300 s; after a VM restart every container starts at once and Postgres
 # needs ~30 s) -> apply migrations (idempotent) -> seed the HIMS demo (idempotent) -> serve. `exec` hands signals
 # (docker compose down / Ctrl-C) straight to uvicorn for a clean shutdown.
@@ -70,4 +78,5 @@ EXPOSE 8000
 # (workbench/draft_jobs, workbench/research_runner) are per-process — >1 worker silently breaks the 409
 # in-flight guard and job polls. The app lifespan also refuses env-driven scaling (assert_single_worker);
 # do NOT raise this without building the DB-backed job store first.
-CMD ["sh", "-c", "python -m db.wait && python -m db.migrate && python -m pipeline.seed && exec python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1"]
+# `--limit-concurrency` bounds in-flight requests (see ALPHADECK_UVICORN_LIMIT_CONCURRENCY above).
+CMD ["sh", "-c", "python -m db.wait && python -m db.migrate && python -m pipeline.seed && exec python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1 --limit-concurrency ${ALPHADECK_UVICORN_LIMIT_CONCURRENCY:-64}"]
