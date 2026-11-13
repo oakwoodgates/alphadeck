@@ -297,7 +297,8 @@ API can hold and what each connection may do:
   build arg `UVICORN_LIMIT_CONCURRENCY`, overridden at run time by `ALPHADECK_UVICORN_LIMIT_CONCURRENCY`). Past it
   uvicorn answers 503 at once instead of opening another connection. The hosted `/mcp` endpoint's streams count too.
   One worker stays deliberate (the in-process job registries). The dev, sig and fork overlays run their own
-  `--reload` command and are not capped.
+  `--reload` command with the same `--limit-concurrency`, read from the same variable, so they answer 503 past 64
+  in flight like prod (`backend/tests/ops/test_boot_command.py`).
 - **Background jobs**: at most `ALPHADECK_DRAFT_JOBS_MAX_RUNNING` (4) chain drafts and
   `ALPHADECK_INGEST_JOBS_MAX_RUNNING` (4) on-promote ingests run at once across every thesis, each on its own
   connection (0 = no cap). Beyond it a draft answers 429 "Too many chain drafts are running right now. Try again in a
@@ -325,8 +326,10 @@ API can hold and what each connection may do:
   `ALPHADECK_JOB_STATEMENT_TIMEOUT_S` (900) and `ALPHADECK_JOB_LOCK_TIMEOUT_S` (30), plus the request connect timeout;
   no idle timeout (a job reads, calls out, then writes). The nightly and the CLIs keep `db.session.connect` and their
   own `ALPHADECK_CRON_STATEMENT_TIMEOUT_S`.
-- These settings are read by the backend from its environment. `docker-compose.yml` does not pass them through
-  today, so the defaults above are what runs; to change one, add it to the backend service's `environment:` block.
+- These settings, `ALPHADECK_UVICORN_LIMIT_CONCURRENCY`, the login throttle (`ALPHADECK_LOGIN_*`) and the daily
+  allowance (`ALPHADECK_ALLOWANCE_*_PER_DAY`) are passed to the backend by `docker-compose.yml`, each with a
+  fallback equal to its default (`backend/tests/domain/test_settings.py` pins them). Set one in `.env` and redeploy
+  the backend to change it; a value that does not parse as a number fails the boot loudly.
 
 ---
 
