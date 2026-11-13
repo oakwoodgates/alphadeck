@@ -304,53 +304,10 @@ def _values(kind: str) -> dict[str, object]:
     raise AssertionError(kind)
 
 
-# Cases only request-model bounds (security hardening PR 3) can make pass: the value is a well-formed string,
-# number or date the database accepts, so it is stored. PR 3 deletes each entry as its bound lands.
-_UNBOUNDED_TEXT = (
-    "stored as sent: needs a length limit and a control-character rule on the request model (PR 3)"
-)
-_NON_FINITE = (
-    "stored as sent: needs finite numbers only (allow_inf_nan=False) on the request model (PR 3)"
-)
-_DATE_RANGE = "stored as sent: needs a date range on the request model (PR 3)"
-NEEDS_BOUNDS: dict[str, str] = {
-    "facts.source_ref-control": _UNBOUNDED_TEXT,
-    "facts.note-control": _UNBOUNDED_TEXT,
-    "facts.note-1mb": _UNBOUNDED_TEXT,
-    "facts.shares-nan": _NON_FINITE,
-    "facts.shares-infinity": _NON_FINITE,
-    "facts.shares-1e400": _NON_FINITE,
-    "facts.event_date-year_0001": _DATE_RANGE,
-    "facts.event_date-year_9999": _DATE_RANGE,
-    "profile.display_name-control": _UNBOUNDED_TEXT,
-    "profile.display_name-1mb": _UNBOUNDED_TEXT,
-    "slack_webhook.url-control": _UNBOUNDED_TEXT,
-    "slack_webhook.url-1mb": _UNBOUNDED_TEXT,
-    "tokens.name-control": _UNBOUNDED_TEXT,
-    "promote.name-control": _UNBOUNDED_TEXT,
-    "promote.name-1mb": _UNBOUNDED_TEXT,
-    "promote.narrative-control": _UNBOUNDED_TEXT,
-    "promote.narrative-1mb": _UNBOUNDED_TEXT,
-    "catalysts.label-control": _UNBOUNDED_TEXT,
-    "catalysts.label-1mb": _UNBOUNDED_TEXT,
-    "catalysts.when_date-year_0001": _DATE_RANGE,
-    "catalysts.when_date-year_9999": _DATE_RANGE,
-    "kill_criteria.text-control": _UNBOUNDED_TEXT,
-    "kill_criteria.text-1mb": _UNBOUNDED_TEXT,
-    "exclusions.reason-control": _UNBOUNDED_TEXT,
-    "exclusions.reason-1mb": _UNBOUNDED_TEXT,
-    "decisions.reason-control": _UNBOUNDED_TEXT,
-    "decisions.reason-1mb": _UNBOUNDED_TEXT,
-    "decisions.shares-nan": _NON_FINITE,
-    "decisions.shares-infinity": _NON_FINITE,
-    "decisions.shares-1e400": _NON_FINITE,
-    "decisions.price-nan": _NON_FINITE,
-    "decisions.price-infinity": _NON_FINITE,
-    "decisions.price-1e400": _NON_FINITE,
-    "decisions.decision_date-year_0001": _DATE_RANGE,
-    "terms_edit.term-control": _UNBOUNDED_TEXT,
-    "terms_edit.term-1mb": _UNBOUNDED_TEXT,
-}
+# Cases only request-model bounds could make pass were marked expected-fail here until security hardening PR 3 put
+# those bounds on the request models (``domain/text_types.py``); every case now passes. A case that cannot pass yet
+# goes back in this map with its reason (strict: it fails the run the moment it starts passing).
+NEEDS_BOUNDS: dict[str, str] = {}
 
 
 def _cases():

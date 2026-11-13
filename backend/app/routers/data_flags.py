@@ -29,6 +29,7 @@ from domain.data_flags import DataFlag, MemberFlags, SplitLabel
 from domain.market_time import serve_view
 from domain.scopes import DATA_TENANT_ID
 from domain.settings import get_settings
+from domain.text_types import AsofDate
 from domain.thesis import Thesis
 from pipeline import data_flags as flags_reader
 from securities import master
@@ -212,7 +213,7 @@ def _read(
 
 @router.get("/theses/{thesis_id}/data-flags", response_model=DataFlagsResponse)
 def get_thesis_data_flags(
-    asof: date = Query(..., description="as-of date; the flags use no data public after it"),
+    asof: AsofDate = Query(..., description="as-of date; the flags use no data public after it"),
     conn: psycopg.Connection = Depends(get_conn),
     thesis: Thesis = Depends(get_thesis_or_404),
 ) -> DataFlagsResponse:
@@ -247,7 +248,7 @@ def read_thesis_data_flags(
 
 @router.get("/data-flags", response_model=DataFlagsResponse)
 def get_data_flags(
-    asof: date = Query(..., description="as-of date; the flags use no data public after it"),
+    asof: AsofDate = Query(..., description="as-of date; the flags use no data public after it"),
     conn: psycopg.Connection = Depends(get_conn),
     tenant_id: UUID = Depends(get_workspace),
 ) -> DataFlagsResponse:

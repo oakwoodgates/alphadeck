@@ -64,25 +64,35 @@ def _raise_in_search(monkeypatch, exc: BaseException) -> None:
     monkeypatch.setattr("securities.master.search", boom)
 
 
-# --- the NUL character (a client-side psycopg DataError) -------------------------------------------------------------
+# --- the NUL character -----------------------------------------------------------------------------------------------
+# Before security hardening PR 3 a NUL reached psycopg (a client-side ``DataError``) and the handler answered 422 with
+# the "data" sentence. Since PR 3 the request model refuses it first: a 422 in the validation list shape, naming the
+# field, with the database never asked. The handler's ``DataError`` mapping is still pinned below (an injected
+# ``NumericValueOutOfRange``, a ``DataError`` subclass).
 
 
-def test_nul_in_a_query_param_is_422_not_500_for_a_plain_user(plain):
+def _search_must_not_run(monkeypatch) -> None:
+    def boom(*a, **kw):
+        raise AssertionError("the database was asked")
+
+    monkeypatch.setattr("securities.master.search", boom)
+
+
+def test_nul_in_a_query_param_is_422_not_500_for_a_plain_user(plain, monkeypatch):
+    _search_must_not_run(monkeypatch)
     r = plain.get("/workbench/securities", params={"q": "a\x00b"})
     assert r.status_code == 422, r.text
-    detail = r.json()["detail"]
-    assert isinstance(detail, str)
-    assert detail.startswith(errors.SENTENCES["data"])
-    assert REF.search(detail)
-    assert "NUL" not in detail and "DataError" not in detail
+    (err,) = r.json()["detail"]
+    assert err["loc"] == ["query", "q"]
+    assert "control character" in err["msg"]
+    assert "input" not in err  # the caller's value is never echoed (PR 2)
 
 
-def test_nul_in_a_query_param_shows_the_steward_the_error(steward):
+def test_nul_in_a_query_param_is_the_same_422_for_a_steward(steward, monkeypatch):
+    _search_must_not_run(monkeypatch)
     r = steward.get("/workbench/securities", params={"q": "a\x00b"})
     assert r.status_code == 422, r.text
-    detail = r.json()["detail"]
-    assert detail.startswith(errors.SENTENCES["data"])
-    assert "DataError" in detail
+    assert r.json()["detail"][0]["loc"] == ["query", "q"]
 
 
 def test_nul_in_the_login_email_is_422_and_signs_nobody_in(db):
@@ -94,8 +104,8 @@ def test_nul_in_the_login_email_is_422_and_signs_nobody_in(db):
     finally:
         app.dependency_overrides.clear()
     assert r.status_code == 422, r.text
-    assert r.json()["detail"].startswith(errors.SENTENCES["data"])
-    assert "DataError" not in r.json()["detail"]
+    (err,) = r.json()["detail"]
+    assert err["loc"] == ["body", "email"] and "control character" in err["msg"]
     assert "set-cookie" not in {k.lower() for k in r.headers}
 
 

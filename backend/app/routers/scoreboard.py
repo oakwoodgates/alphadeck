@@ -34,6 +34,7 @@ from domain.market_time import known_at_for_asof, market_now, serve_view, view_d
 from domain.scopes import DATA_TENANT_ID
 from domain.settings import get_settings
 from domain.splits import tape_scale
+from domain.text_types import AsofDate
 from domain.thesis import Thesis
 from pipeline.schedule import expected_runs_behind, last_expected_asof, parse_run_at
 from repositories import calls_repo, editions_repo, split_repo
@@ -81,7 +82,7 @@ def _run_at(request: Request) -> time:
 @router.get("", response_model=ScoreboardResponse)
 def get_scoreboard(
     request: Request,
-    asof: date = Query(..., description="score the record as-of this date (caps both axes)"),
+    asof: AsofDate = Query(..., description="score the record as-of this date (caps both axes)"),
     include_archived: bool = Query(
         True,
         description="archived theses ride the record by default (archiving stops accrual, "
@@ -415,18 +416,18 @@ def get_scoreboard_edition_diff(
 @router.get("/price-window", response_model=ScoreboardPriceWindowOut)
 def get_price_window(
     security_id: UUID = Query(..., description="the episode's basket-member security to chart"),
-    start: date = Query(
+    start: AsofDate = Query(
         ...,
         description="ADVISORY window start (the FE's per-episode cache anchor). The server owns the "
         "effective floor = max(thesis.created_at − 365d, first_bar) and loads [floor, end] regardless; "
         "the response echoes that effective floor as ``start``",
     ),
-    end: date = Query(
+    end: AsofDate = Query(
         ...,
         description="window end — the episode's exit_by; the series is still capped at asof "
         "server-side, so a future exit_by never widens it past asof",
     ),
-    asof: date = Query(
+    asof: AsofDate = Query(
         ..., description="score as-of this date — the series is CAPPED here (no-lookahead)"
     ),
     edition: int | None = Query(

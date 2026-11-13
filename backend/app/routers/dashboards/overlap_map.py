@@ -23,6 +23,7 @@ from dashboards.cache import cached
 from dashboards.overlap_map import OverlapMapResult
 from dashboards.overlap_map import overlap_map as compute_overlap_map
 from domain.market_time import serve_view
+from domain.text_types import AsofDate
 from securities import master
 
 router = APIRouter(prefix="/overlap-map")
@@ -145,7 +146,7 @@ def read_overlap(
 
 @router.get("", response_model=OverlapMapOut)
 def overlap_map(
-    asof: date = Query(
+    asof: AsofDate = Query(
         ..., description="as-of date; only the cards that existed by then, with their rosters then"
     ),
     include_silent: bool = Query(

@@ -758,6 +758,19 @@ def primary_flag_gaps(conn: psycopg.Connection) -> list[dict]:
         ]
 
 
+LIKE_ESCAPE = "\\"
+
+
+def like_literal(text: str) -> str:
+    """``text`` with the LIKE wildcards (``%``, ``_``) and the escape character (a backslash) escaped, for a pattern
+    written with ``ESCAPE '\'``: the result matches ``text`` literally."""
+    return (
+        text.replace(LIKE_ESCAPE, LIKE_ESCAPE * 2)
+        .replace("%", LIKE_ESCAPE + "%")
+        .replace("_", LIKE_ESCAPE + "_")
+    )
+
+
 def search(
     conn: psycopg.Connection,
     query: str,
@@ -778,10 +791,12 @@ def search(
     blank query matches all (capped at ``limit``); no match returns ``[]``. Tenant-scoped like every
     master read.
     """
-    like = f"%{query.strip().upper()}%"
+    # the query is a LITERAL substring: ``%``, ``_`` and the escape character itself are escaped, so a typed
+    # ``%`` or ``_`` matches only itself (never every row) (security hardening PR 3)
+    like = f"%{like_literal(query.strip().upper())}%"
     former = (
         " OR id IN (SELECT h.security_id FROM security_ticker_history h"
-        " WHERE h.tenant_id = %s AND h.old_ticker LIKE %s)"
+        f" WHERE h.tenant_id = %s AND h.old_ticker LIKE %s ESCAPE '{LIKE_ESCAPE}')"
         if include_former and query.strip()
         else ""
     )
@@ -791,7 +806,8 @@ def search(
     with conn.cursor() as cur:
         cur.execute(
             "SELECT DISTINCT ON (ticker) * FROM security_master "
-            "WHERE tenant_id = %s AND ticker IS NOT NULL AND (ticker LIKE %s OR UPPER(name) LIKE %s"
+            "WHERE tenant_id = %s AND ticker IS NOT NULL "
+            f"AND (ticker LIKE %s ESCAPE '{LIKE_ESCAPE}' OR UPPER(name) LIKE %s ESCAPE '{LIKE_ESCAPE}'"
             f"{former}) "
             "ORDER BY ticker, recorded_at DESC LIMIT %s",
             (*args, limit),

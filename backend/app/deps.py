@@ -141,3 +141,22 @@ def get_purity_client() -> LLMClient:
         max_tokens=_s.llm_purity_max_tokens,
         timeout_s=_s.llm_purity_timeout_s,
     )
+
+
+def body_at_most(max_bytes: int, what: str):  # noqa: ANN201 — returns a FastAPI dependency
+    """A route dependency: refuse (413) a request whose body is larger than ``max_bytes``. Reads the size cheaply,
+    never re-serializing anything: the declared ``Content-Length`` first, then the length of the raw body bytes the
+    framework already holds (``Request.body()`` is cached, so this is no second copy)."""
+
+    async def _check(request: Request) -> None:
+        declared = request.headers.get("content-length", "")
+        too_large = declared.isdigit() and int(declared) > max_bytes
+        if not too_large:
+            too_large = len(await request.body()) > max_bytes
+        if too_large:
+            raise HTTPException(
+                status_code=413,
+                detail=f"The {what} is larger than {max_bytes // (1024 * 1024)} MB, so it was not saved.",
+            )
+
+    return _check

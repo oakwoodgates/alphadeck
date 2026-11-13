@@ -42,6 +42,7 @@ from dashboards.market_map import market_map as compute_market_map
 from domain.market_time import serve_view
 from domain.scopes import DATA_TENANT_ID
 from domain.splits import listed_from_row
+from domain.text_types import AsofDate
 from securities import master
 from signals.base import PointInTimeData
 from signals.display.base import DisplayMember
@@ -249,7 +250,7 @@ def read_inputs(
 
 @router.get("", response_model=MarketMapOut)
 def market_map(
-    asof: date = Query(
+    asof: AsofDate = Query(
         ..., description="as-of date; no price or share count published after it is read"
     ),
     conn: psycopg.Connection = Depends(get_conn),

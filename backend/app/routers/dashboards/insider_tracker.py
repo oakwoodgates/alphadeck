@@ -53,6 +53,7 @@ from domain.call import CallCard
 from domain.market_time import serve_view
 from domain.scopes import DATA_TENANT_ID
 from domain.splits import listed_from_row
+from domain.text_types import AsofDate
 from signals.base import PointInTimeData
 from signals.horizons import display_bounds
 
@@ -394,7 +395,7 @@ def read_tracker(
 
 @router.get("", response_model=InsiderTrackerOut)
 def insider_tracker_page(
-    asof: date = Query(
+    asof: AsofDate = Query(
         ..., description="as-of date; no filing, night or bar public after it is read"
     ),
     days: InsiderTrackerDays = Query(

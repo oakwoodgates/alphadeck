@@ -40,6 +40,7 @@ from app.schemas_api import (
 from domain.enums import Authorship, InstrumentKind
 from domain.market_time import market_today
 from domain.scopes import DATA_TENANT_ID
+from domain.text_types import AsofDate
 from domain.thesis import (
     ETFS_LABEL,
     BasketMember,
@@ -272,7 +273,7 @@ def _etfs_symbols(conn: psycopg.Connection, thesis: Thesis) -> set[str]:
 
 @router.get("/theses/{thesis_id}/fund-launches", response_model=FundLaunchesOut)
 def fund_launches(
-    asof: date | None = Query(None, description="the night to read as of (default: today)"),
+    asof: AsofDate | None = Query(None, description="the night to read as of (default: today)"),
     days: int = Query(90, ge=1, le=730),
     thesis: Thesis = Depends(get_thesis_or_404),
     conn: psycopg.Connection = Depends(get_conn),

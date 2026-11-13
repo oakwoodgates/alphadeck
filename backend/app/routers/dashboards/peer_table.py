@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from dataclasses import fields
 from datetime import date, datetime
-from typing import Any, Literal, NamedTuple
+from typing import Annotated, Any, Literal, NamedTuple
 from uuid import UUID
 
 import psycopg
@@ -54,6 +54,7 @@ from domain.market_cap import CapTier
 from domain.market_time import serve_view
 from domain.scopes import DATA_TENANT_ID
 from domain.splits import listed_from_row
+from domain.text_types import AsofDate, Line
 from securities import master
 from signals.base import PointInTimeData
 from signals.display import insider_flow, range52w, rvol, sma, trailing_returns, volume_regime
@@ -576,7 +577,7 @@ def _scopes_cached(
 
 @router.get("/scopes", response_model=PeerScopesOut)
 def peer_table_scopes(
-    asof: date = Query(
+    asof: AsofDate = Query(
         ..., description="as-of date; only the cards that existed by then, with their rosters then"
     ),
     conn: psycopg.Connection = Depends(get_conn),
@@ -599,13 +600,15 @@ def peer_table_scopes(
 
 @router.get("", response_model=PeerTableOut)
 def peer_table(
-    asof: date = Query(..., description="as-of date; nothing published after it is read"),
+    asof: AsofDate = Query(..., description="as-of date; nothing published after it is read"),
     scope: ScopeKind = Query(..., description="business_type | supersector | card | all"),
-    key: str | None = Query(
-        None,
-        description="the scope's pick: a business-type leaf, a supersector, or a card id "
-        "(``unclassified`` = none); ignored for ``all``",
-    ),
+    key: Annotated[
+        Line | None,
+        Query(
+            description="the scope's pick: a business-type leaf, a supersector, or a card id "
+            "(``unclassified`` = none); ignored for ``all``",
+        ),
+    ] = None,
     conn: psycopg.Connection = Depends(get_conn),
     workspace: UUID = Depends(get_workspace),
 ) -> PeerTableOut:
