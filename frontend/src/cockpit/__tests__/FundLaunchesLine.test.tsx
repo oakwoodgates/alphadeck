@@ -169,6 +169,19 @@ describe("FundLaunchesLine", () => {
     }
   });
 
+  it("shows a refused price pull (the daily allowance) plainly, as the API words it", () => {
+    const msg =
+      "Daily allowance reached: 5,000 price pulls a day. It resets at midnight America/New_York time.";
+    const saved = h.ingest;
+    h.ingest = { ...h.ingest, error: { detail: msg } } as typeof h.ingest;
+    try {
+      render(<FundLaunchesLine thesisId="t-1" asof="2026-11-04" />);
+      expect(screen.getByText(msg)).toBeInTheDocument();
+    } finally {
+      h.ingest = saved;
+    }
+  });
+
   it("the buttons are disabled on a read-only (captured) view", async () => {
     const user = userEvent.setup();
     render(<FundLaunchesLine thesisId="t-1" asof="2026-11-04" readOnly />);

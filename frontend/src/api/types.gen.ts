@@ -710,6 +710,11 @@ export interface paths {
          *     CUSIP, or a CUSIP OpenFIGI can't place on a US line: foreign locals, cash/repo lines) is shown,
          *     never dropped. An explicit operator click (the drawer toggle — the cost thread), live SEC/OpenFIGI
          *     behind the cache seams; requires ``ALPHADECK_USER_AGENT``.
+         *
+         *     BOUNDED (security hardening PR 1b): a plain user may pull holdings only for a fund on one of their own cards
+         *     (else 404, "This company is not on any of your cards. Add it to a card first.") and within their daily
+         *     holdings allowance (``Settings.allowance_holdings_per_day``, else 429 naming the reset); a steward is neither
+         *     checked nor counted.
          */
         get: operations["etf_holdings_workbench_securities__security_id__etf_holdings_get"];
         put?: never;
@@ -754,6 +759,11 @@ export interface paths {
          *     narrative selecting the segment. It attaches ``value`` + ``estimate_source="llm_proposed"`` (the passage
          *     stays on the candidate), never a fact until the operator ratifies. PURITY-ONLY: ``thesis_id`` touches no
          *     other candidate, and its absence (or a fail-open decline) leaves purity as today's HUMAN (located, no value).
+         *
+         *     BOUNDED (security hardening PR 1b): a plain user may extract only a company on one of their own cards (else
+         *     404, "This company is not on any of your cards. Add it to a card first.") and within their daily extract
+         *     allowance (``Settings.allowance_extract_per_day``, else 429 naming the reset); a steward is neither checked nor
+         *     counted.
          */
         get: operations["extract_scoring_facts_workbench_securities__security_id__extract_get"];
         put?: never;
@@ -787,6 +797,14 @@ export interface paths {
          *     a fresh name is a cache miss and fetches live; a same-day re-click serves from the cache — the daily
          *     cron, not this endpoint, owns force-refresh). No-lookahead: ``recorded_at`` = now, never backdated.
          *     Shares ONE implementation with ``pipeline.ingest_thesis`` (``ingest_bars_for_security``).
+         *
+         *     BOUNDED (security hardening PR 1b): a plain user may pull prices only for a company on one of their own cards
+         *     (else 404, "This company is not on any of your cards. Add it to a card first.") and within their daily
+         *     price-pull allowance (``Settings.allowance_price_pull_per_day``, else 429 naming the reset). The bars are
+         *     FETCHED before the company write lock is taken, and the lock is held only for the compare-and-append, so a slow
+         *     vendor never holds up the nightly. The automatic OTC price-symbol resolve (a write to the SHARED master) runs on
+         *     a steward's pull only; a plain user's OTC pull is priced under the canonical ticker, and the name is left for
+         *     the steward's price-feed panel or the backfill sweep.
          */
         post: operations["ingest_security_prices_workbench_securities__security_id__ingest_prices_post"];
         delete?: never;
@@ -910,6 +928,11 @@ export interface paths {
          *     (the cost thread: every editor Save promotes, so a whole-basket ingest per Save would be ambient
          *     cost); a brand-new thesis is all-new (the full starter-basket ingest); no new members → no job and
          *     ``ingest`` null. The job never blocks or fails the promote.
+         *
+         *     For a plain user that fast-lane ingest spends one unit of the daily price-pull allowance per new name
+         *     (``Settings.allowance_price_pull_per_day``, security hardening PR 1b); when today's allowance cannot cover them
+         *     all, no job is kicked and ``onboarding`` says the names load outside the nightly window instead (the staged
+         *     onboarding job, then the nightly). A steward is not counted.
          */
         post: operations["promote_workbench_theses_post"];
         delete?: never;
@@ -1087,6 +1110,11 @@ export interface paths {
          *     The OPTIONAL body carries the draft SCOPE (``DraftChainIn``): absent body (the FE today) or absent field
          *     = ``full`` — byte-identical to the pre-scope draft; ``seeds_only`` is the fast lane (SIGNAL-seeds-only
          *     discovery, no tail-sweep — see ``execute_draft``). The report + the run-of-record name which scope ran.
+         *
+         *     BOUNDED (security hardening PR 1b): a plain user's kick-off counts against their daily chain-draft allowance
+         *     (``Settings.allowance_chain_draft_per_day``, else 429 naming the reset), and their draft never writes the shared
+         *     security master (``execute_draft(steward=False)``: the identity is computed for the response only). A steward
+         *     is not counted, and a steward's draft still stores the identity.
          */
         post: operations["start_draft_chain_workbench_theses__thesis_id__draft_chain_post"];
         delete?: never;
@@ -1234,6 +1262,12 @@ export interface paths {
          *     - ``not_auto`` — a FLAGged candidate is the operator's to ratify; the machine never resolves a dual-class
          *       sum or a stale cover;
          *     - ``no_candidate`` / ``no_value`` — nothing to apply.
+         *
+         *     BOUNDED (security hardening PR 1b): a plain user may auto-confirm only a company on one of their own cards
+         *     (else 404, "This company is not on any of your cards. Add it to a card first.") and within their daily
+         *     auto-confirm allowance (``Settings.allowance_auto_confirm_per_day``, else 429 naming the reset; the security
+         *     rides in the body, so this route counts the request before the card check). A steward is neither checked nor
+         *     counted.
          */
         post: operations["auto_confirm_fact_workbench_facts_auto_confirm_post"];
         delete?: never;

@@ -1,8 +1,9 @@
 """W1 — the Workbench's per-name price pull takes the per-company write lock (``db/write_lock.py``).
 
-It is a REQUEST, so a long writer must never hang it: while another writer (the nightly pass, the on-promote
-job) holds the company, the pull waits at most ``Settings.ingest_lock_request_wait_s`` and answers 409 naming the
-holder — and writes nothing. The moment the company is free, the same click lands its bars (count the table).
+It FETCHES the bars first, with the company free, and takes the lock only for the compare-and-append (security
+hardening PR 1b), so a slow vendor never holds up the nightly. It is a REQUEST, so a long writer must never hang
+it: while another writer (the nightly pass, the on-promote job) holds the company, the pull waits at most
+``Settings.ingest_lock_request_wait_s`` and answers 409 naming the holder — and writes nothing. The moment the company is free, the same click lands its bars (count the table).
 """
 
 from __future__ import annotations
@@ -70,27 +71,60 @@ def test_the_price_pull_answers_409_while_another_writer_holds_the_company(
         nightly.close()
 
 
-def test_the_price_pull_holds_the_company_through_its_commit(client, db, security_id, monkeypatch):
-    """While the pull is mid-write, another writer is refused the company — and once it returns, the lock is
-    gone (released only after the commit, never before)."""
+def test_the_price_pull_does_not_hold_the_company_during_the_vendor_fetch(
+    client, db, security_id, monkeypatch
+):
+    """Fetch, then lock (security hardening PR 1b): a SLOW vendor fetch runs with the company FREE, so the nightly
+    (which waits up to 180 s for the lock, then skips the company) is never held up by a user's click.
+    """
     from ingest.prices import ingest_security as mod
 
     other = connect()
     seen: list[bool] = []
 
-    class _Probe(_FakeSource):
+    class _SlowProbe(_FakeSource):
         def get_bars(self, ticker, *, allow_live=True, force_refresh=False):
+            time.sleep(0.3)  # a slow vendor
             try:
                 acquire_company_lock(other, security_id, wait_s=0).release()
-                seen.append(False)  # free mid-pull = the pull did NOT hold it
-            except Exception:  # noqa: BLE001 — CompanyLockBusy: held, as it must be
+                seen.append(False)  # free mid-fetch: the pull did NOT hold it
+            except Exception:  # noqa: BLE001 — CompanyLockBusy: held, which it must not be
                 seen.append(True)
             return super().get_bars(ticker, allow_live=allow_live, force_refresh=force_refresh)
 
-    monkeypatch.setattr(mod, "YahooPriceSource", _Probe)
+    monkeypatch.setattr(mod, "YahooPriceSource", _SlowProbe)
+    try:
+        r = client.post(f"/workbench/securities/{security_id}/ingest-prices")
+        assert r.status_code == 200 and r.json()["bars_appended"] == 2
+        assert seen == [False]  # fetched exactly once, with the company free
+    finally:
+        other.close()
+
+
+def test_the_price_pull_holds_the_company_through_its_compare_and_append(
+    client, db, security_id, monkeypatch
+):
+    """The compare-and-append still runs under the lock, and the lock is gone once the request returns (released
+    only after the commit, never before)."""
+    from ingest.prices import ingest_security as mod
+
+    other = connect()
+    seen: list[bool] = []
+    real_append = mod.ingest_prices
+
+    def _probe_append(*a, **kw):
+        try:
+            acquire_company_lock(other, security_id, wait_s=0).release()
+            seen.append(False)
+        except Exception:  # noqa: BLE001 — CompanyLockBusy: held, as it must be
+            seen.append(True)
+        return real_append(*a, **kw)
+
+    monkeypatch.setattr(mod, "YahooPriceSource", _FakeSource)
+    monkeypatch.setattr(mod, "ingest_prices", _probe_append)
     try:
         assert client.post(f"/workbench/securities/{security_id}/ingest-prices").status_code == 200
-        assert seen == [True]
+        assert seen and all(seen)  # every append ran under the lock
         acquire_company_lock(other, security_id, wait_s=0).release()  # released after the request
     finally:
         other.close()

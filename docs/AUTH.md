@@ -130,6 +130,7 @@ state.
 | Backtest page and `/backtest/*` | 403; hidden likewise | yes |
 | The business-type re-tag (`POST /workbench/securities/{id}/business-type`), a write to the SHARED company master | 403; the control is hidden | yes |
 | Surface an ETF (`POST /workbench/securities/resolve-etf`): adds a fund to the SHARED company master or marks an existing row a fund | 403; the Workbench control is hidden | yes |
+| Live fetches on a click: extract, auto-confirm, holdings, the price pull, the chain draft, terms and tier runs (see "User-triggered fetches" below) | yes, for a company on one of their own cards (else 404) and within a daily allowance per action (else 429) | yes, for any company, unlimited |
 | Add a fund to a card's ETFs link (`POST /radar/funds/attach`) | yes, for a fund already in the company list; any other symbol is a 404 ("This fund is not in the company list yet. A steward can add it.") and nothing is written | yes, and may add the fund to the company list (the same lookup-or-create as Surface an ETF) |
 | User and token management | own name, email, password and Slack webhook, and own API tokens on the Agents tab (`/settings`) | the CLI, plus their own on `/settings` |
 | The Agents tab (`/settings/agents`) | yes: the connector URL, their own tokens and their connected apps | yes, plus one sentence on the steward scope |
@@ -142,8 +143,49 @@ changes one. A ticker typed into either fund route above is stripped, uppercased
 `^[A-Z0-9][A-Z0-9.\-]{0,11}$` (422 otherwise); `securities.figi.map_ticker` applies the same check before a ticker
 becomes an OpenFIGI request or a cache filename. `backend/tests/app/test_shared_master_writes.py` pins it: a
 plain user's attempts change no master row, and a grep guard allows a call to a `securities.master` writer under
-`app/routers/` only at a listed site that is steward-gated or documented as a server-sourced write (today one:
-the automatic OTC price-symbol resolve in `POST /workbench/securities/{id}/ingest-prices`, to be gated next).
+`app/routers/` only at a listed site that is steward-gated or inside a steward branch (the automatic OTC
+price-symbol resolve in `POST /workbench/securities/{id}/ingest-prices`), and follows one hop into
+`backend/workbench/`: a master writer there (the draft's identity enrichment, `workbench.enrichment.enrich_for_ciks`)
+is reached from a router only inside a steward branch (`execute_draft(steward=...)`).
+
+## User-triggered fetches
+
+A plain user's click may still start a live fetch of server-sourced data (SEC, the price vendor, the LLM seams),
+because the Workbench is unusable without it. Each fetch is bounded (security hardening PR 1b):
+
+- **Own cards only.** Extract (`GET /workbench/securities/{id}/extract`), auto-confirm
+  (`POST /workbench/facts/auto-confirm`), holdings (`GET /workbench/securities/{id}/etf-holdings`) and the price
+  pull (`POST /workbench/securities/{id}/ingest-prices`) answer **404** "This company is not on any of your cards.
+  Add it to a card first." for a company that is not a member of one of the caller's own cards. Every screen that
+  fetches works on a saved card's members (the scored rows, the facts panel, the section runner, the sleeve rail,
+  the fund-launch attach); the triage session's saved draft is not consulted, because the user writes it. The
+  three path-routed checks run before anything is counted; auto-confirm names its company in the body, so it is
+  counted first.
+- **A daily allowance per user.** Each fetch path counts one unit for the caller in `user_action_count` (migration
+  0084; keyed on the user, no tenant scope), per market day (midnight to midnight in `ALPHADECK_MARKET_TZ`). Over
+  the day's allowance the route answers **429** "Daily allowance reached: N <actions> a day. It resets at midnight
+  <zone> time." The count is one upsert statement, so racing requests never pass the limit. The settings, set high
+  on purpose (a ceiling against a runaway loop, not a rationing tool; 0 = no limit on that action):
+
+  | Setting | Default | Counts |
+  |---|---|---|
+  | `ALPHADECK_ALLOWANCE_EXTRACT_PER_DAY` | 5000 | extract |
+  | `ALPHADECK_ALLOWANCE_PRICE_PULL_PER_DAY` | 5000 | the price pull, plus one per new name a promote's fast lane ingests (when today's units cannot cover them, the names go to the onboarding queue instead and the promote says so) |
+  | `ALPHADECK_ALLOWANCE_AUTO_CONFIRM_PER_DAY` | 2000 | auto-confirm |
+  | `ALPHADECK_ALLOWANCE_HOLDINGS_PER_DAY` | 1000 | holdings |
+  | `ALPHADECK_ALLOWANCE_CHAIN_DRAFT_PER_DAY` | 100 | `POST /workbench/theses/{id}/draft-chain` |
+  | `ALPHADECK_ALLOWANCE_TERM_RUN_PER_DAY` | 200 | `POST .../terms` and `POST .../recommend-tiers`, one shared count |
+
+- **No shared-master write.** The automatic OTC price-symbol resolve runs on a steward's pull only (a plain user's
+  OTC pull is priced under the canonical ticker; the steward's price-feed panel or the backfill sweep resolves it).
+  A plain user's draft reads each discovered name's submissions and lays the parsed identity (sector, exchange,
+  listing status) over the master rows for that response only; a steward's draft stores it.
+- **No shared lock across the network.** The price pull fetches the bars first and takes the company write lock
+  only for the compare-and-append, so a slow vendor never holds up the nightly (which waits for a company at most
+  `ALPHADECK_INGEST_LOCK_WAIT_S`, then skips it).
+
+The steward is neither checked nor counted. The screens show the 404 and the 429 as worded, on their own line.
+`backend/tests/app/test_user_fetches.py` pins all of it with a real plain user and a real steward.
 
 ## The CLI (`python -m pipeline.users`)
 

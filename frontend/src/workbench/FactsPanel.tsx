@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { useExplainFlag, useExtract, useRatifyFact, type ExtractedFact } from "../api/hooks";
+import { refusalText } from "../api/refusals";
 import { AutoTextarea } from "./AutoTextarea";
 import { errText, type OnFileFact, type OnFileMap } from "./format";
 
@@ -94,12 +95,17 @@ export function FactsPanel({
         20-F/40-F cover (shares only, always FLAG) — you confirm each (AUTO as-is, FLAG the composition,
         purity you author). An explicit call (cache-first); the operator ratifies, the model never does.
       </div>
-      {extract.error && (
-        <div className="note err">
-          Couldn't extract — {errText(extract.error)}. (The security needs a CIK, and the stack needs
-          ALPHADECK_USER_AGENT.)
-        </div>
-      )}
+      {extract.error &&
+        // the API's fixed refusal (security hardening PR 1b: not on your cards, or today's allowance spent) is an
+        // answer, so it reads on its own line as worded; anything else keeps the couldn't-extract note
+        (refusalText(extract.error) ? (
+          <div className="note err">{refusalText(extract.error)}</div>
+        ) : (
+          <div className="note err">
+            Couldn't extract — {errText(extract.error)}. (The security needs a CIK, and the stack needs
+            ALPHADECK_USER_AGENT.)
+          </div>
+        ))}
       {facts.map((f) => (
         // Key by securityId TOO (not fact_type alone): RatifyRow seeds its editable inputs from `candidate`
         // via useState (once, on mount). The rail stays mounted when the operator clicks name→name (only

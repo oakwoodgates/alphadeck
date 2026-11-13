@@ -1059,6 +1059,9 @@ the nightly itself, inside the window.
   for the job). More than 5, or a promote inside the window, **queues** them instead: the response carries
   `onboarding: {queued, new_members, reason}` in place of the `ingest` job ref, and the Workbench polls
   `GET /workbench/theses/{id}/onboarding` for progress (quiet while loading, loud only for a failed name).
+  A plain user's fast lane also spends one unit of their daily price-pull allowance per new name
+  (`ALPHADECK_ALLOWANCE_PRICE_PULL_PER_DAY`, `docs/AUTH.md` §User-triggered fetches); when today's units cannot
+  cover them, the promote queues them the same way, with a reason that says so.
   Why 5: the worst MEASURED cold name below took ~600 s (a heavy filer's whole Form 4 history), so 5 is the
   most whose worst case (5 × ~600 s ≈ 50 min) stays inside the on-promote job's 3,600 s reaper TTL and the
   window's 60-min lead; at the prod-measured ~110 s average it is ~9 min, and a 3-name promote stays exactly

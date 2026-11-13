@@ -15,6 +15,7 @@ import type {
   ThesisDetail,
   TriageSessionPut,
 } from "../api/hooks";
+import { refusalText } from "../api/refusals";
 import {
   useDraftJobStatus,
   useEditTerms,
@@ -2128,13 +2129,19 @@ export function ChainEditor({
           </span>
         </div>
         {produceTerms.isError && (
-          <ErrorToast>Couldn't produce terms — {errText(produceTerms.error)}.</ErrorToast>
+          <ErrorToast>
+            {refusalText(produceTerms.error) ??
+              `Couldn't produce terms — ${errText(produceTerms.error)}.`}
+          </ErrorToast>
         )}
         {editTerms.isError && (
           <ErrorToast>Couldn't save the term edit — {errText(editTerms.error)}.</ErrorToast>
         )}
         {recommendTiers.isError && (
-          <ErrorToast>Couldn't recommend tiers — {errText(recommendTiers.error)}.</ErrorToast>
+          <ErrorToast>
+            {refusalText(recommendTiers.error) ??
+              `Couldn't recommend tiers — ${errText(recommendTiers.error)}.`}
+          </ErrorToast>
         )}
 
         {/* Add a seed — works on an empty set (how a NEW thesis gets seeded). Lands SIGNAL / operator_set. */}
@@ -2325,7 +2332,10 @@ export function ChainEditor({
           applyDraft(run, effectivePick(run.report?.scope === "seeds_only" ? "quick" : "full"));
         }}
       />
-      {draftError && <ErrorToast>Couldn't draft — {draftError}.</ErrorToast>}
+      {draftError && (
+        // the API's own refusal (security hardening PR 1b: today's chain-draft allowance) reads as it is worded
+        <ErrorToast>{refusalText({ detail: draftError }) ?? `Couldn't draft — ${draftError}.`}</ErrorToast>
+      )}
       {draftEmpty && (
         <div className="note">
           The drafter returned nothing — no <code>ANTHROPIC_API_KEY</code> in the stack, or the model

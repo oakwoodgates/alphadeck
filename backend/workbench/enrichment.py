@@ -6,6 +6,11 @@ reconciler's status-gate reads a fresh listing status. Machine-parsed identity, 
 only the master's descriptive columns (with an enrichment basis), never a fact_* row, never a number on a call
 card. FAIL-VISIBLE per CIK — a fetch / parse / write fault logs and skips that name (its row stays un-enriched
 → abstains, the honest fallback), NEVER aborting the draft (#9). The network stays OUT of the pure resolver.
+
+STORE OR NOT (security hardening PR 1b): the master is SHARED data every workspace reads, so only a steward's draft
+stores the identity (``enrich_for_ciks``). A plain user's draft reads the same submissions through
+``identities_for_ciks`` (no database write) and the resolver lays each identity over its master row for that one
+response (``overlay_identity``), exactly as ``master.enrich`` would have written it.
 """
 
 from __future__ import annotations
@@ -17,6 +22,7 @@ from uuid import UUID
 import psycopg
 
 from db.session import DEFAULT_TENANT_ID
+from domain.security import Security, SecurityIdentity
 from ingest.edgar.submissions import fetch_submissions, parse_identity
 from securities import master
 
@@ -76,3 +82,42 @@ def enrich_for_ciks(
             )
             skipped += 1
     return {"enriched": enriched, "skipped": skipped}
+
+
+def identities_for_ciks(edgar, cik_to_sid: Mapping[str, UUID]) -> dict[UUID, SecurityIdentity]:
+    """The identity ``enrich_for_ciks`` would store, per master id, WITHOUT storing it: a plain user's draft
+    (security hardening PR 1b). The same fetch and the same genuine-document rule (a response with no top-level
+    ``cik`` is skipped, never read as 'inactive'); a fetch or parse fault logs and leaves that name out (its row
+    abstains, as an un-enriched row does). Touches no database."""
+    out: dict[UUID, SecurityIdentity] = {}
+    for cik, sid in cik_to_sid.items():
+        try:
+            subs = fetch_submissions(edgar, cik)
+            if not subs.get("cik"):
+                continue
+            out[sid] = parse_identity(subs)
+        except Exception:
+            _log.warning(
+                "identity: submissions read failed for CIK %s; left un-enriched", cik, exc_info=True
+            )
+    return out
+
+
+def overlay_identity(sec: Security, identity: SecurityIdentity) -> Security:
+    """``sec`` as ``master.enrich`` would leave it after storing ``identity`` (same columns, same rule: every
+    company-level field overwrites, ``exchange`` only fills a NULL). Pure; for a response, never stored.
+    """
+    return sec.model_copy(
+        update={
+            "sector": identity.sector,
+            "exchange": sec.exchange if sec.exchange is not None else identity.exchange,
+            "status": identity.status,
+            "category": identity.category,
+            "incorporation": identity.incorporation,
+            "business_city": identity.business_city,
+            "business_country": identity.business_country,
+            "files_foreign_forms": identity.files_foreign_forms,
+            "files_domestic_forms": identity.files_domestic_forms,
+            "recent_foreign_form": identity.recent_foreign_form,
+        }
+    )

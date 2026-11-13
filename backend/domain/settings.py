@@ -681,6 +681,21 @@ class Settings(BaseSettings):
     login_window_s: float = 60
     login_lockout_s: float = 60
 
+    # --- the per-user DAILY ALLOWANCE on user-triggered fetches (security hardening PR 1b, app/allowance.py,
+    # docs/AUTH.md §User-triggered fetches) ---
+    # How many of each action ONE plain user may trigger per market day (midnight to midnight in market_tz); over it
+    # the route answers 429 naming the reset. A ceiling against a runaway loop, set high on purpose, not a rationing
+    # tool. 0 = no limit on that action. A steward is never limited. ALPHADECK_ALLOWANCE_<ACTION>_PER_DAY.
+    allowance_extract_per_day: int = 5000  # GET /workbench/securities/{id}/extract
+    # POST /workbench/securities/{id}/ingest-prices, plus each new name a promote's fast lane pulls (when spent,
+    # the promote's new names go to the onboarding queue instead)
+    allowance_price_pull_per_day: int = 5000
+    allowance_auto_confirm_per_day: int = 2000  # POST /workbench/facts/auto-confirm
+    allowance_holdings_per_day: int = 1000  # GET /workbench/securities/{id}/etf-holdings
+    allowance_chain_draft_per_day: int = 100  # POST /workbench/theses/{id}/draft-chain
+    # POST /workbench/theses/{id}/terms and .../recommend-tiers, one shared count
+    allowance_term_run_per_day: int = 200
+
     # The app's PUBLIC origin (ALPHADECK_PUBLIC_ORIGIN), e.g. https://deck.example.com. Set = the agent tools server
     # is mounted in this API at /mcp and the connector URL is advertised; UNSET (the default) = no /mcp, no
     # well-known document, nothing changes. https is required unless the host is loopback (dev:

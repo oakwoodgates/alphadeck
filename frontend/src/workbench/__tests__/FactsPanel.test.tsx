@@ -757,3 +757,21 @@ describe("FactsPanel — the grounded purity estimate (SURFACE 1b)", () => {
     expect(h.mutate.mock.calls[0][0]).toMatchObject({ mix_pct: 100, estimate: 26.7 });
   });
 });
+
+// security hardening PR 1b: the API's fixed refusals on a fetch read on their own line, as the API words them
+describe("FactsPanel — the fetch refusals", () => {
+  it("shows the own-cards 404 without the couldn't-extract wrapper", () => {
+    const msg = "This company is not on any of your cards. Add it to a card first.";
+    h.extract = { data: undefined, error: { detail: msg }, isFetching: false };
+    render(<FactsPanel securityId={SID} />);
+    expect(screen.getByText(msg)).toBeInTheDocument();
+    expect(screen.queryByText(/Couldn't extract/)).not.toBeInTheDocument();
+  });
+
+  it("shows the daily-allowance 429 the same way", () => {
+    const msg = "Daily allowance reached: 5,000 extracts a day. It resets at midnight America/New_York time.";
+    h.extract = { data: undefined, error: { detail: msg }, isFetching: false };
+    render(<FactsPanel securityId={SID} />);
+    expect(screen.getByText(msg)).toBeInTheDocument();
+  });
+});

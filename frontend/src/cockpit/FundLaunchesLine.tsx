@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { useFundAttach, useFundLaunches, useIngestPrices, type FundLaunchesOut } from "../api/hooks";
+import { refusalText } from "../api/refusals";
 import { MatchLine, StageChips } from "../radar/fundParts";
 import { errText } from "../workbench/format";
 
@@ -77,6 +78,10 @@ function FundLaunchesBody({
         ) : (
           <div className="note err">add/remove failed: {errText(attach.error)}</div>
         ))}
+      {refusalText(ingestPx.error) && (
+        // the fund's price pull was refused (security hardening PR 1b: today's price-pull allowance) — as worded
+        <div className="note err">{refusalText(ingestPx.error)}</div>
+      )}
       {open && (
         <div className="fl-line-list">
           {d.filings.map((f) => (
