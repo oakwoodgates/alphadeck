@@ -363,6 +363,25 @@ def test_a_disabled_user_cannot_sign_in_and_loses_live_sessions_and_tokens(anon,
     assert _login(fresh, "dis@test.invalid").status_code == 200
 
 
+def test_a_demoted_super_admin_is_a_plain_user_on_the_next_request(anon, db):
+    """``set_role`` takes effect at once: the gate reads the role from ``app_user`` on every request, for a session
+    and for a personal token alike (security cleanup Part B item 4)."""
+    uid = _user(db, "demo@test.invalid", role="super_admin")
+    _user(db, "keeper@test.invalid", role="super_admin")  # the guard keeps one enabled super admin
+    assert _login(anon, "demo@test.invalid").status_code == 200
+    _, token = auth.create_api_token(db, uid, "mcp")
+    db.commit()
+    bearer = {"Authorization": f"Bearer {token}"}
+    assert anon.get("/auth/me").json()["role"] == "super_admin"
+    assert anon.get("/admin/status").status_code == 200
+    auth.set_role(db, uid, "user")
+    db.commit()
+    assert anon.get("/auth/me").json()["role"] == "user"
+    assert anon.get("/admin/status").status_code == 403
+    assert anon.get("/admin/status", headers=bearer).status_code == 403
+    assert anon.get("/theses", headers=bearer).status_code == 200
+
+
 def test_the_login_throttle_locks_out_then_lets_go(anon, db, monkeypatch):
     monkeypatch.setenv("ALPHADECK_LOGIN_MAX_FAILURES", "3")
     get_settings.cache_clear()
