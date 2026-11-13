@@ -224,7 +224,72 @@ itself never reaches a plain user's screen:
 
 `backend/tests/app/test_errors.py` pins the handlers, `test_error_text.py` the route sites (both callers), and
 `test_hostile_input.py` sends hostile values to every route the database-layer sweep ranked (a status below 500 and
-no row written; the cases only request-model bounds can fix are marked expected-fail until security PR 3).
+no row written; since security PR 3 every case passes, the ones only request-model bounds could fix included).
+
+## Request limits
+
+What a request may carry (security hardening PR 3). This section stands in for `docs/SECURITY.md`, which security
+PR 4a creates; when both have merged, the table moves there and this section points to it.
+
+**The one rule: limits apply to what comes IN on a request, never to stored data being read.** The domain models
+(`Thesis`, `BasketMember`, `Segment`, `ExtractedFact`, ...) are built from database rows and server-side extraction on
+every load (the nightly, the replay harness, the backtest, every route), so none of them carries a limit: a stored
+value over a limit can never make a card unloadable. The limits live in one place, `backend/domain/text_types.py`
+(each a named constant, so raising one is a one-line change), and are used only by the request models in
+`app/schemas_api.py`: request-side copies of the nested models (`BasketMemberIn`, `SegmentIn`, `ExtractedFactIn`,
+`LocatedPassageIn`, each a subclass of its domain model with bounded fields, turned back into the domain model by the
+route) and query parameters.
+
+| Field class | Limit |
+|---|---|
+| One-line label: thesis name, segment label, catalyst label, `kind`, `when_label`, `role`, `detail`, a basket row's or exclusion's displayed `ticker`, the card `ticker`, token name, display name, ratify `source`, `segment_label` | 200 characters |
+| Short prose: segment descriptor, `thesis_fit`, kill criterion, exclusion or decision `reason`, ratify `note` | 2,000 characters |
+| Narrative | 20,000 characters |
+| Search term, seed, `surfaced_terms` item | 200 characters |
+| Ticker that can reach the shared master (Surface an ETF, fund attach) | 12 characters, the `securities/symbols.py` pattern (PR 1a) |
+| CIK (SPAC attach) | digits only, at most 10 |
+| URL or `source_ref` (ratify, Slack webhook) | 2,000 characters |
+| Email | 254 characters |
+| Password (sign-in, change) | 12 to 1,024 characters, never trimmed |
+| Security search `q` | 100 characters, matched literally (`%`, `_` and `\` escaped in the `LIKE`) |
+| Basket rows per card · segments · identity overrides | 3,000 · 100 · 3,000 |
+| Terms per card · seeds per term run · `surfaced_terms` per row | 500 · 100 · 200 |
+| Catalysts · kill criteria · exclusions per card | 500 · 200 · 5,000 |
+| The flag explainer (`POST /workbench/facts/explain`) | at most 10 passages, each excerpt at most 4,000 characters (prose rules), at most 20 flags; the rest per the classes above |
+| Numbers | finite only (no NaN, no Infinity); `mix_pct` 0 to 100; ratify `shares` above 0 and at most 1e13; `ads_ratio` 1 to 1,000,000; `cash_usd`, `quarterly_burn_usd` and `estimate` within ±1e15; a decision's `shares` and `price` 0 to 1e13 |
+| Dates on a request body | 1990-01-01 to 366 days after today's market date (`decision_date` also keeps "not after today") |
+| `asof` (and the price window's `start` / `end`) on every read | 2000-01-01 to 7 days after today's market date |
+| The triage-session autosave | `state` stays opaque (its strings are never inspected); the request body at most 25 MB (**413**), nesting at most 32 levels |
+
+Text rules, every text class: leading and trailing whitespace is trimmed and nothing else is altered; a NUL or any
+other control character (U+0000 to U+001F, U+007F to U+009F) is refused, except tab, newline and carriage return in
+the prose classes (short prose, narrative, an explainer excerpt). A value over a limit is a **422** in FastAPI's list
+shape, naming the field in `loc` and the limit in `msg` (for example `["body", "name"]`, "String should have at most
+200 characters"); the screens show its first message, with the field, on their usual error line, and the forms carry
+the same limits as `maxLength` (`frontend/src/api/limits.ts`). Nothing is ever cut short silently.
+
+- **Sign-in** checks the email and password limits in the request model, so an over-long password is refused before
+  any hash is computed, on the unknown-email branch too.
+- **The flag explainer** also spends one unit of the extract allowance (it is an LLM call a click can repeat).
+- **Resending old data.** A promote is a full replace: the editor resends the whole card. If a stored card ever holds
+  a value over a limit, its next save is refused with a 422 naming the field, and the stored card is left exactly as
+  it was; there is no bypass. On the data measured on 2026-11-12 no stored value is over any limit.
+- **Request bodies in nginx** (`frontend/nginx.conf`): 1 MB by default; 25 MB only on the exact promote location
+  (`= /api/workbench/theses`) and the triage-session location. Neither sets its own `add_header`, so both inherit the
+  server's headers.
+- **Unknown fields.** The request models that are plain `BaseModel`s still ignore a field they do not know (an older
+  autosaved payload the promote accepts may carry one); the nested domain copies refuse one, as before.
+- **Steward-only bodies** keep their own limits (`reason` at most 500 characters, symbol and CIK lengths) and are not
+  held to the text rules above.
+
+`backend/tests/app/test_request_bounds_guard.py` walks every request body model and query parameter reachable from a
+route and fails on a `str`, `float`, `date`, list or mapping with no limit (a short, commented exemption list holds
+the steward-only exceptions); it also fails if any domain model carries a request limit, and if the frontend's
+`limits.ts` drifts from the backend. `test_request_limits.py` checks every class and collection at and past its limit
+through the routes, `test_stored_over_limit.py` loads a card stored over every limit through the repository, the
+nightly's read path and the API (and refuses its unchanged resend without touching it),
+`backend/tests/domain/test_text_types.py` pins the types, and `backend/tests/ops/test_nginx_body_limits.py` reads the
+nginx configuration.
 
 ## The CLI (`python -m pipeline.users`)
 
