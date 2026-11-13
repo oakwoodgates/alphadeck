@@ -331,6 +331,36 @@ API can hold and what each connection may do:
   fallback equal to its default (`backend/tests/domain/test_settings.py` pins them). Set one in `.env` and redeploy
   the backend to change it; a value that does not parse as a number fails the boot loudly.
 
+## The caller's address and the sign-in settings
+
+The login throttle and the OAuth limits count per client ADDRESS (security PR 5), so the app must see the real
+caller behind nginx:
+
+- **nginx** sets `proxy_set_header X-Real-IP $remote_addr` on every location that proxies to the backend
+  (`frontend/nginx.conf`; `backend/tests/ops/test_nginx_real_ip.py`). `$remote_addr` overwrites whatever the caller
+  sent.
+- **The backend** (`backend/app/client_address.py`, the only module that reads the address) believes `X-Real-IP`
+  only when the request comes straight from the nginx container, found by resolving the compose service name
+  `frontend` (cached a minute, looked up only when the header is present). A request to the published port 8000 is
+  keyed on its own address and cannot fake one. If the lookup fails (another service name, a stack without nginx),
+  every request through nginx shares nginx's address again: one shared failure budget (too strict, never spoofable).
+- **A TLS proxy in front of nginx later (Phase 0):** nginx must then read the real address from that proxy
+  (`set_real_ip_from <proxy address>;` and `real_ip_header X-Forwarded-For;` in `frontend/nginx.conf`), or every
+  caller will again share one address (the proxy's) and five failed sign-ins anywhere pause everyone for a minute.
+
+The sign-in settings (backend unless noted; each passed by `docker-compose.yml` with a fallback equal to its
+default, pinned by `backend/tests/domain/test_settings.py`):
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `ALPHADECK_LOGIN_MAX_FAILURES` / `_WINDOW_S` / `_LOCKOUT_S` | 5 / 60 / 60 | failed sign-ins per client address inside the window before a pause of that length |
+| `ALPHADECK_PASSWORD_CHECK_CONCURRENCY` | 4 | argon2 checks at once (sign-in, change-password); 0 = no cap |
+| `ALPHADECK_PASSWORD_CHECK_WAIT_S` | 10 | how long a check waits for a slot before a 503 "Sign-in is busy" |
+| `ALPHADECK_OAUTH_DYNAMIC_REGISTRATION` | false | `POST /register` exists only when true (`docs/CONNECTORS.md`) |
+| `ALPHADECK_OAUTH_AUTHORIZE_PER_ADDRESS_HOUR` | 30 | new `/authorize` requests per client address an hour; 0 = no limit |
+| `ALPHADECK_OAUTH_AUTHORIZE_PER_HOUR` | 300 | new `/authorize` requests in total an hour, counted from the table; 0 = no limit |
+| `ALPHADECK_PRUNE_SESSION_DAYS` / `_OAUTH_DAYS` / `_DCR_CLIENT_DAYS` / `_ALLOWANCE_DAYS` (cron) | 7 / 1 / 7 / 7 | the nightly prune's retention (`docs/AUTH.md` § Housekeeping) |
+
 ---
 
 ## Safety

@@ -38,9 +38,9 @@ provider underneath (the tables) and ONE replaced route, the metadata document. 
 | Route | Who answers | Notes |
 |---|---|---|
 | `GET /.well-known/oauth-authorization-server` | ours (RFC 8414) | the SDK's document plus `none` among `token_endpoint_auth_methods_supported` and `revocation_endpoint_auth_methods_supported`, and `authorization_response_iss_parameter_supported: true`; `issuer` is the SAME string the protected-resource document names in `authorization_servers` (the origin with a trailing slash, pydantic's spelling) |
-| `GET /authorize` | the SDK → `provider.authorize` | stores a pending consent (ten minutes) and redirects the browser to `/oauth/consent/<id>`; a `resource` other than `<origin>/mcp` is an `invalid_target` redirect; a missing one is bound to `<origin>/mcp` |
+| `GET /authorize` | the SDK → `provider.authorize` | stores a pending consent (ten minutes) and redirects the browser to `/oauth/consent/<id>`; a `resource` other than `<origin>/mcp` is an `invalid_target` redirect; a missing one is bound to `<origin>/mcp`; bounded (§ Limits on `/authorize` below) |
 | `POST /token` | the SDK → the provider | form-encoded only; the code grant and the refresh grant |
-| `POST /register` | the SDK → `provider.register_client` | dynamic client registration (RFC 7591), with the hygiene below |
+| `POST /register` | the SDK → `provider.register_client` | dynamic client registration (RFC 7591): OFF by default (a 404), with the limits below when on |
 | `POST /revoke` | the SDK → `provider.revoke_token` | RFC 7009; an access token revokes itself, a refresh token revokes the whole grant |
 | `GET` / `POST /oauth/consent/{id}` | ours, behind `require_user` | the consent page's read and decision; the browser SESSION only (403 for any bearer, so no app can approve its own request) |
 | `GET /account/connections`, `DELETE /account/connections/{grant_id}` | ours | the Connected apps section |
@@ -89,9 +89,12 @@ expired or was already answered." The page never shows a token.
 ## Per-client steps
 
 - **claude.ai:** Customize → Connectors → Add custom connector; paste `<origin>/mcp`; under Authentication choose
-  **Sign in now** and leave the client identity on its default (Claude registers itself through `/register`); sign in
-  on the page that opens, then Allow. If Claude asks for a client ID instead, enter `alphadeck-claude` and leave the
-  secret blank (the static fallback below). Free plan: one custom connector; Team: the Owner adds it under
+  **Sign in now**. Self-registration is OFF by default (`ALPHADECK_OAUTH_DYNAMIC_REGISTRATION`, below), so when
+  Claude asks for a client ID enter `alphadeck-claude` and leave the secret blank (the static client below); sign in
+  on the page that opens, then Allow. With registration switched on, Claude can instead register itself through
+  `/register` (leave the client identity on its default). A connection made earlier through registration keeps
+  working with it off. Not verified: whether claude.ai later tries to re-register such a connection; if it does,
+  redo that connection with `alphadeck-claude`. Free plan: one custom connector; Team: the Owner adds it under
   Organization settings → Connectors and each member signs in individually.
 - **Claude Code:** `claude mcp add --transport http alphadeck <origin>/mcp` (no header), then in a new session run
   `/mcp` and authenticate: the browser opens the consent page. Claude Code's client id
@@ -111,8 +114,9 @@ expired or was already answered." The page never shows a token.
 | `resource` (RFC 8707) | sent on authorize and token, no trailing slash | not confirmed | sent | not confirmed |
 | Token endpoint | form-encoded; a refresh failure is `invalid_grant`; rotating refresh tokens | same | RFC 9207 `iss`, exact issuer match | — |
 
-We do not advertise CIMD (`client_id_metadata_document_supported` is unset: the SDK has no server-side CIMD), so
-claude.ai takes DCR.
+We do not advertise CIMD (`client_id_metadata_document_supported` is unset: the SDK has no server-side CIMD). With
+registration off (the default) the metadata names no `registration_endpoint`, so claude.ai asks for a client ID;
+with it on, claude.ai takes DCR.
 
 ## The static clients
 
@@ -121,17 +125,41 @@ Seeded by migration 0080, public (`token_endpoint_auth_method` `none`, no secret
 | Client id | Name | Redirect URIs |
 |---|---|---|
 | `https://claude.ai/oauth/claude-code-client-metadata` | Claude Code | `http://localhost/callback`, `http://127.0.0.1/callback`: a registered LOOPBACK URI matches the same scheme, host and path on ANY port (`LoopbackTolerantClient`); everything else is the SDK's exact match |
-| `alphadeck-claude` | Claude | `https://claude.ai/api/mcp/auth_callback` (the "use your own OAuth client" fallback) |
+| `alphadeck-claude` | Claude | `https://claude.ai/api/mcp/auth_callback` (the client ID claude.ai uses while self-registration is off) |
 
-## Dynamic registration hygiene
+A steward adds another vetted app with `python -m pipeline.users oauth-client add --client-id ID --name NAME
+--redirect-uri URI [--redirect-uri URI ...] [--confidential]` (`docs/AUTH.md` § The CLI). It is stored the same way
+(`registration='static'`, a known client), public unless `--confidential` (a generated secret, printed once, stored
+as its sha256).
 
-`POST /register` is open to the internet once hosted (a client is only an identifier; consent is per user). Its
-limits: a `redirect_uris` entry that is not https and not http on a loopback host is refused
-(`invalid_redirect_uri`); at most 20 registrations per client address per hour and 200 a day overall (429 beyond;
-in-process, like the login throttle; behind the nginx proxy the client address is the proxy's, so in practice the
-hourly cap is shared); a missing `scope` registers `read`; a secret the SDK issues is returned once and stored as its
-sha256 (`/token` and `/revoke` compare the presented secret's hash). `/admin/status` counts the clients
-(`oauth_clients: {static, dcr}`).
+## Dynamic registration (off by default)
+
+`POST /register` exists only when `ALPHADECK_OAUTH_DYNAMIC_REGISTRATION=true` (default `false`; security PR 5). Off,
+the SDK creates no route (a 404, nginx's `location = /register` stays and the backend answers it) and the metadata
+document names no `registration_endpoint`. Off is also safer: nobody can create a client whose redirect sends a code
+to their own server, so a phishing link to a consent page can only hand a code to a known client. A client that
+registered while it was on keeps working: nothing checks how a client registered. Turn it on by setting the
+variable in `.env` and redeploying the backend.
+
+When on, `/register` is open to the internet (a client is only an identifier; consent is per user). Its limits: a
+body over 64 KB is refused (413); at most 10 `redirect_uris`, each at most 2,000 characters, and each https or http
+on a loopback host (`invalid_redirect_uri`); at most 20 registrations per client address per hour and 200 a day
+overall (429 beyond; in-process, like the login throttle; the address is `app/client_address.py`'s); a missing
+`scope` registers `read`; a secret the SDK issues is returned once and stored as its sha256 (`/token` and `/revoke`
+compare the presented secret's hash). `/admin/status` counts the clients (`oauth_clients: {static, dcr}`). The
+nightly prune deletes a self-registered client older than 7 days that was never used (no grant, no pending request;
+`docs/AUTH.md` § Housekeeping).
+
+## Limits on `/authorize`
+
+`/authorize` stores a pending sign-in request (`oauth_consent`, ten minutes) before anyone signs in, for any known
+client, so it is bounded (security PR 5): `state` at most 512 characters, `code_challenge` 43 to 128 (RFC 7636), the
+scope string at most 200, a POST body at most 64 KB (413); at most `ALPHADECK_OAUTH_AUTHORIZE_PER_ADDRESS_HOUR` (30)
+new requests per client address an hour (in-process) and at most `ALPHADECK_OAUTH_AUTHORIZE_PER_HOUR` (300) in total
+an hour, counted from the table (a restart or a new address does not reset it); 0 = no limit. A refusal is the
+SDK's error redirect back to the app (`invalid_request`, or `temporarily_unavailable` for the two limits, with the
+app's `state`). During a flood nobody can START a new app connection for up to an hour; existing connections, web
+sign-in and personal tokens are unaffected. The nightly prune deletes undecided requests a day after they expire.
 
 ## Revocation
 
@@ -151,7 +179,9 @@ sha256 (`/token` and `/revoke` compare the presented secret's hash). `/admin/sta
   trailing slash), and the consent redirect's `iss` is that same string; a test asserts it.
 - **nginx** (`frontend/nginx.conf`): exact locations `= /authorize`, `= /token`, `= /register`, `= /revoke`,
   `= /.well-known/oauth-authorization-server`, each to the backend at the same path; `location =` beats the SPA's
-  `location /`, so `/authorize` is never served `index.html`. The consent page itself is the SPA's.
+  `location /`, so `/authorize` is never served `index.html`. The consent page itself is the SPA's. Every proxied
+  location sets `X-Real-IP $remote_addr`, the address the throttles and the `/authorize` limit count by
+  (`docs/DEPLOY.md` § The caller's address).
 - **The SDK quirk on `/revoke`:** its request model requires a `client_secret` key even for a public client, so the
   wrapper in `server.py` adds an empty one when a form has none (an RFC 7009 request from a public client is
   `token` + `client_id`).

@@ -72,7 +72,7 @@ session, and `/mcp` requires a valid user bearer token. See [`CONNECTORS.md`](CO
 
 | Route | What it does |
 |---|---|
-| `POST /auth/login` | `{email, password}` → sets the session cookie, returns the user. 401 on a wrong pair (the same answer for an unknown email, a wrong password and a disabled account, and an unknown email still spends one argon2 verify, so timing does not reveal who has an account). 429 after `ALPHADECK_LOGIN_MAX_FAILURES` (5) failures for one (email, client address) inside `ALPHADECK_LOGIN_WINDOW_S` (60 s), for `ALPHADECK_LOGIN_LOCKOUT_S` (60 s). In-process, like the draft-job registry (one worker). Behind the nginx proxy the client address is the proxy's, so in practice the throttle is per email. |
+| `POST /auth/login` | `{email, password}` → sets the session cookie, returns the user. 401 on a wrong pair (the same answer for an unknown email, a wrong password and a disabled account, and an unknown email still spends one argon2 verify, so timing does not reveal who has an account). 429 "Too many failed sign-ins from your network. Try again in a minute." after `ALPHADECK_LOGIN_MAX_FAILURES` (5) failed sign-ins from one client ADDRESS inside `ALPHADECK_LOGIN_WINDOW_S` (60 s), whatever email was typed, for `ALPHADECK_LOGIN_LOCKOUT_S` (60 s): a short pause, not a lockout, and failures from another address never pause a real user. A success does not reset the count (it ages out), so an attacker holding one account cannot keep guessing between sign-ins. The address is `app/client_address.py`'s: nginx's `X-Real-IP`, believed only from the nginx container; an IPv6 caller counts by its /64. 503 "Sign-in is busy. Try again in a moment." (with `Retry-After`) when every password-check slot stays taken for `ALPHADECK_PASSWORD_CHECK_WAIT_S` (10 s): at most `ALPHADECK_PASSWORD_CHECK_CONCURRENCY` (4) argon2 checks run at once (each costs about 64 MB), for sign-in and change-password alike; a 503 never counts as a failed sign-in. In-process, like the draft-job registry (one worker). |
 | `POST /auth/logout` | revokes this browser's session, clears the cookie |
 | `GET /auth/me` | `{id, email, display_name, role, workspace_id}`, plus, for a bearer only, `token: {principal, client_id, scopes}` (`principal` `token` or `oauth`; `client_id` is the connected app's). The hosted `/mcp` endpoint reads it to know what the caller may do |
 | `POST /auth/change-password` | `{current, new}`; `new` needs at least 12 characters; every OTHER session of the user is signed out |
@@ -317,7 +317,14 @@ python -m pipeline.users token create --email op@example.com --name mcp   # prin
 python -m pipeline.users token revoke --id <token uuid>
 python -m pipeline.users oauth-client list                       # the OAuth clients, static + self-registered; never a secret
 python -m pipeline.users oauth-client disable --client-id <id>   # refused everywhere; its connections stop at once
+python -m pipeline.users oauth-client add --client-id desk --name "Research Desk" --redirect-uri https://desk.example.com/cb [--redirect-uri ...] [--confidential]
 ```
+
+`oauth-client add` registers an app the steward vetted (self-registration is off by default, `docs/CONNECTORS.md`):
+stored as a known client (`registration='static'`, so the consent page does not warn), scope `read steward` (the
+consent page still caps a grant by the user's role), public with PKCE unless `--confidential`, which prints a
+generated client secret ONCE and stores only its sha256. Each redirect URI must be https, or http on localhost (at
+most 10). An id that exists is refused, never overwritten.
 
 `create` makes a NEW workspace named "<display name>'s workspace" for each user unless `--workspace <uuid>` names an
 existing workspace or `--founding` attaches to the founding workspace `…0002` (the two flags exclude each other). A
@@ -332,6 +339,25 @@ remain. To swap the super admin, promote the new one first, then demote the old 
 `set-role --email new@example.com --role super_admin`, then `set-role --email old@example.com --role user`. A role
 change takes effect on the user's next request (the gate reads the role every time), for sessions and tokens alike.
 In a container: `docker exec -it alphadeck-backend-1 python -m pipeline.users …`.
+
+## Housekeeping (the nightly prune)
+
+`python -m db.housekeeping --prune [--dry-run]` deletes the sign-in rows nobody needs any more, in one transaction,
+and prints one line of counts per table (security PR 5). Each kind waits a number of days past its expiry or
+revocation (`ALPHADECK_PRUNE_*_DAYS`, passed to the cron sidecar):
+
+| Table | Deleted | Default |
+|---|---|---|
+| `oauth_code`, `oauth_access_token`, `oauth_refresh_token` | expired more than N days ago (a reused code or refresh token after that is simply invalid) | `PRUNE_OAUTH_DAYS` 1 |
+| `oauth_consent` | UNDECIDED requests expired more than N days ago; a decided one is kept at any age (it records who allowed what) | `PRUNE_OAUTH_DAYS` 1 |
+| `oauth_client` | self-registered (`dcr`) clients older than N days with no grant (live or revoked) and no remaining request; a built-in or steward-added client is never deleted | `PRUNE_DCR_CLIENT_DAYS` 7 |
+| `user_session` | expired, or signed out, more than N days ago | `PRUNE_SESSION_DAYS` 7 |
+| `user_action_count` | daily-allowance counts for market days more than N days ago | `PRUNE_ALLOWANCE_DAYS` 7 |
+
+Never deleted: `oauth_grant` and `api_token` (Settings shows revoked ones grayed), and users. `--dry-run` runs the same
+deletes and rolls them back, so its counts are exact. The cron sidecar runs it in each nightly wake, right before the
+change-log prune (`prune_expired` in `backend/scripts/daily_cron.sh`: `timeout` 300 s, fail-open); it runs only where
+the cron runs (prod) and only on nights the nightly runs.
 
 ## The first deploy (the operator's go at each step)
 

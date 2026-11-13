@@ -16,8 +16,9 @@ export interface paths {
         /**
          * Login
          * @description Sign in with email + password: sets the HttpOnly session cookie and returns the user. 401 on a wrong pair
-         *     (the same answer for an unknown email, a wrong password and a disabled account); 429 after too many failures
-         *     for this email from this address, until the lockout ends.
+         *     (the same answer for an unknown email, a wrong password and a disabled account); 429 after too many failed
+         *     sign-ins from this network address, whatever email was typed, until the short pause ends; 503 "Sign-in is
+         *     busy" when every password-check slot stays taken (try again in a moment).
          */
         post: operations["login_auth_login_post"];
         delete?: never;
@@ -80,7 +81,8 @@ export interface paths {
         /**
          * Change Password
          * @description Change my password: the current one must match and the new one needs at least 12 characters. Every OTHER
-         *     session of mine is signed out; this one stays signed in.
+         *     session of mine is signed out; this one stays signed in. 503 "Sign-in is busy" when every password-check slot
+         *     stays taken.
          */
         post: operations["change_password_auth_change_password_post"];
         delete?: never;
