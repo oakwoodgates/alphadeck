@@ -229,6 +229,19 @@ def test_the_test_message_posts_one_plain_line_to_my_url(anon, monkeypatch):
     ]
 
 
+def test_the_test_message_carries_a_hostile_display_name_inert(anon, monkeypatch):
+    """Security PR 4a: the display name is user-authored, so Slack markup in it arrives escaped and a newline in
+    it cannot start a line of its own."""
+    calls = _capture_post(monkeypatch)
+    c = _client(anon, "hx@example.test", "<!channel> <https://evil.example|click> & co\nFORGED")
+    c.put(WEBHOOK, json={"url": SLACK_URL})
+    assert c.post(WEBHOOK + "/test").status_code == 200
+    assert [call["json"]["text"] for call in calls] == [
+        "Alpha Deck test message for "
+        "&lt;!channel&gt; &lt;https://evil.example|click&gt; &amp; co FORGED"
+    ]
+
+
 def test_a_5xx_is_not_delivered(anon, monkeypatch):
     _capture_post(monkeypatch, status=500)
     c = _client(anon, "ned@example.test")

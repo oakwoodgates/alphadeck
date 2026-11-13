@@ -29,6 +29,7 @@ from domain.feed_kinds import StaleFeedLabel, stale_feed_bits
 from domain.insider_amendments import page_text
 from domain.insider_holds import page_bit as insider_holds_bit
 from domain.settings import get_settings
+from notify.escape import one_line, slack_message
 from notify.policy import LOUD_KINDS, PushKind, classify, grade_direction, names_direction
 
 _log = logging.getLogger(__name__)
@@ -489,23 +490,26 @@ class LogNotifier:
         # Q13 — an armed -> armed move's record names its push class (the rest read as before)
         kind = event.push_kind
         tag = f" [{kind}]" if event.from_state == event.to_state == "armed" else ""
-        _log.warning("TRANSITION %s%s (asof %s%s)", event.label, tag, event.asof, late)
+        # a value's newline never starts a log line of its own (log injection, security PR 4a)
+        _log.warning(
+            "TRANSITION %s%s (asof %s%s)", one_line(event.label, limit=None), tag, event.asof, late
+        )
 
     def notify_health(self, event: HealthEvent) -> None:
         # a run-health page is a RECORD (a bad cron night, logged loud); delivery is the Slack adapter's job
-        _log.error("CRON HEALTH %s", event.label)
+        _log.error("CRON HEALTH %s", one_line(event.label, limit=None))
 
     def notify_spac_status(self, event: SpacStatusEvent) -> None:
         # a SPAC → announced page is a RECORD (logged loud); delivery is the Slack adapter's job
-        _log.warning("SPAC ANNOUNCED %s (filed %s)", event.label, event.filed)
+        _log.warning("SPAC ANNOUNCED %s (filed %s)", one_line(event.label, limit=None), event.filed)
 
     def notify_digest(self, event: DigestEvent) -> None:
         # O4 — the pass's newly-armed-names digest is a RECORD too (an empty one is never emitted)
-        _log.warning("DIGEST %s", event.label)
+        _log.warning("DIGEST %s", one_line(event.label, limit=None))
 
     def notify_edition(self, event: EditionCutEvent) -> None:
         # editions S7 — a new Scoreboard edition is a RECORD (logged); delivery is the Slack adapter's job
-        _log.warning("EDITION %s", event.label)
+        _log.warning("EDITION %s", one_line(event.label, limit=None))
 
 
 _KIND_LABELS = {
@@ -528,10 +532,11 @@ def _kind_label(kind: str) -> str:
 def _name_tail(a: ArmedName, mark: str = "") -> str:
     """``"TICK insider buy, breakout"`` — a name (``display``: ticker, else company name) + an optional mark +
     its friendly trigger kinds, if any."""
-    who = f"{a.display} {mark}" if mark else a.display
+    display = one_line(a.display)
+    who = f"{display} {mark}" if mark else display
     if not a.trigger_kinds:
         return who
-    return f"{who} {', '.join(_kind_label(k) for k in a.trigger_kinds)}"
+    return f"{who} {', '.join(one_line(_kind_label(k)) for k in a.trigger_kinds)}"
 
 
 def _improved(event: TransitionEvent) -> str:
@@ -549,13 +554,18 @@ def post_text(url: str, text: str, *, timeout: float | None = None) -> tuple[boo
     """ONE incoming-webhook POST of ``{"text": text}`` — the Slack POST path every push and the Settings page's
     test message share. Returns ``(delivered, detail)``: delivered when Slack answered 2xx; the detail is a short
     plain line ("Slack answered 404", "could not reach Slack (ConnectError)") that never carries the URL (a
-    webhook URL is a credential). NEVER raises. ``timeout`` defaults to ``http_timeout_s``."""
+    webhook URL is a credential). NEVER raises. ``timeout`` defaults to ``http_timeout_s``.
+
+    THE CHOKEPOINT (security PR 4a): ``text`` is made inert here (``notify.escape.slack_message``: ``&``, ``<``,
+    ``>`` escaped, other control characters a space, the line breaks kept, the length capped), so no template
+    can post Slack markup it did not mean to. A template still flattens each value it interpolates
+    (``one_line``) so a value cannot forge a line."""
     try:
         import httpx  # lazy (repo convention) — the package imports without a live HTTP client
 
         if timeout is None:
             timeout = get_settings().http_timeout_s
-        resp = httpx.post(url, json={"text": text}, timeout=timeout)
+        resp = httpx.post(url, json={"text": slack_message(text)}, timeout=timeout)
         resp.raise_for_status()
         return True, f"Slack answered {getattr(resp, 'status_code', '2xx')}"
     except Exception as exc:  # noqa: BLE001 — best-effort delivery, never raises
@@ -641,7 +651,7 @@ class SlackNotifier:
         others. An unexplained change pages through ``notify_health`` and never comes here."""
         self._log_sink.notify_edition(event)
         try:
-            text = event.label
+            text = one_line(event.label, limit=None)
         except Exception:  # noqa: BLE001 — a formatting fault never breaks the editions job
             _log.warning(
                 "slack edition line could not format (fail-open, logged only)", exc_info=True
@@ -679,7 +689,7 @@ class SlackNotifier:
         """
         self._log_sink.notify_health(event)  # (1) record — always, before any push
         try:
-            text = f"🚨 {event.label}"
+            text = f"🚨 {one_line(event.label, limit=None)}"
         except Exception:  # noqa: BLE001 — a formatting fault never breaks the cron
             _log.warning("slack health page could not format (fail-open, logged only)")
             return
@@ -719,18 +729,21 @@ class SlackNotifier:
         kind = event.push_kind
         if kind not in LOUD_KINDS:
             return SlackNotifier._format_quiet(event)
+        thesis = one_line(event.thesis_name)
         if kind == "upgrade":
             head = (
-                f"🔴 {event.thesis_name} — ARMED ↑ {_improved(event)} "
-                f"({event.from_verdict} → {event.to_verdict})"
+                f"🔴 {thesis} — ARMED ↑ {_improved(event)} "
+                f"({one_line(event.from_verdict)} → {one_line(event.to_verdict)})"
             )
         else:  # entering Armed — exactly the pre-Q13 header
-            head = f"🔴 {event.thesis_name} — ARMED ({event.from_state} → {event.to_state})"
+            head = (
+                f"🔴 {thesis} — ARMED ({one_line(event.from_state)} → {one_line(event.to_state)})"
+            )
         if event.timing_note:
             head += f" {event.timing_note}"
         if not event.armed:
             return head  # thesis-only fallback (the enrichment failed open)
-        lines = [head, f"{', '.join(a.display for a in event.armed)} armed"]
+        lines = [head, f"{', '.join(one_line(a.display) for a in event.armed)} armed"]
         tails = [_name_tail(a) for a in event.armed if a.trigger_kinds]
         if tails:
             lines.append(" · ".join(tails))
@@ -752,15 +765,15 @@ class SlackNotifier:
         if names_direction(event.from_armed, event.to_armed):
             parts.append(f"{event.from_armed} → {event.to_armed} names")
         word = {"downgrade": "weaker", "mixed": "mixed"}.get(kind, "changed")
-        head = f"{event.thesis_name} — still armed, {word}"
+        head = f"{one_line(event.thesis_name)} — still armed, {word}"
         if parts:
-            head += ": " + "; ".join(parts)
-        head += f" ({event.from_verdict} → {event.to_verdict})"
+            head += ": " + "; ".join(one_line(p) for p in parts)
+        head += f" ({one_line(event.from_verdict)} → {one_line(event.to_verdict)})"
         if event.timing_note:
             head += f" {event.timing_note}"
         if not event.reasons:
             return head
-        return head + "\n" + "; ".join(event.reasons)
+        return head + "\n" + "; ".join(one_line(r) for r in event.reasons)
 
     @staticmethod
     def _format_digest(event: DigestEvent) -> str:
@@ -774,7 +787,7 @@ class SlackNotifier:
         lines = [head]
         for t in event.theses:
             items = [_name_tail(n) for n in t.names] + [_name_tail(n, REARM) for n in t.rearms]
-            lines.append(f"{t.thesis_name}: " + " · ".join(items))
+            lines.append(f"{one_line(t.thesis_name)}: " + " · ".join(items))
         return "\n".join(lines)
 
     @staticmethod
@@ -784,18 +797,22 @@ class SlackNotifier:
         match, #6), line 3 the DA filing link. Several matched theses: line 1 names them all, then one
         "<thesis> matched: ..." line each, then every distinct DA link the matches cite. American English.
         """
-        who = f"{event.ticker} ({event.company_name})" if event.ticker else event.company_name
-        lines = [f"🟢 {who} — SPAC deal ANNOUNCED · matches {', '.join(event.thesis_names)}"]
+        company = one_line(event.company_name)
+        who = f"{one_line(event.ticker)} ({company})" if event.ticker else company
+        names = ", ".join(one_line(n) for n in event.thesis_names)
+        lines = [f"🟢 {who} — SPAC deal ANNOUNCED · matches {names}"]
         single = len(event.matches) == 1
         for m in event.matches:
-            terms = [*m.signal_terms, *m.broad_terms]
+            terms = [one_line(t) for t in (*m.signal_terms, *m.broad_terms)]
             if terms:
                 lines.append(
-                    ("" if single else f"{m.thesis_name} ") + "matched: " + ", ".join(terms)
+                    ("" if single else f"{one_line(m.thesis_name)} ")
+                    + "matched: "
+                    + ", ".join(terms)
                 )
         urls = [event.url] if event.url else []
         urls += sorted({m.url for m in event.matches if m.url and m.url != event.url})
-        lines.extend(urls)
+        lines.extend(one_line(u, limit=None) for u in urls)
         return "\n".join(lines)
 
 
