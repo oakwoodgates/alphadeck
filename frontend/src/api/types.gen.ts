@@ -15811,7 +15811,8 @@ export interface components {
         /**
          * PlatformAppliedValueOut
          * @description One stored fact version: ``valid_from`` the filing's date, ``ratified_by`` who set it (``auto``, an email,
-         *     or ``operator`` for a carried V1 row), ``vouched`` confirm/override provenance.
+         *     or ``operator`` for a carried V1 row), ``vouched`` confirm/override provenance. ``source_ref`` is ``None`` on
+         *     the wire unless it is a plain http(s) URL (``domain.links``).
          */
         PlatformAppliedValueOut: {
             /**

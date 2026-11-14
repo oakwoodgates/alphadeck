@@ -37,6 +37,7 @@ from app.errors import PLATFORM_VALUE_NOT_FOUND, PLATFORM_VALUE_SENTENCES, fail
 from app.routers.workbench import COMPANY_BUSY
 from db.write_lock import CompanyLockBusy
 from domain.extraction import LocatedPassage
+from domain.links import HttpUrlOut
 from domain.platform_values import DerivedState
 from domain.text_types import AdsRatio, Money, Prose, RequestDate, Shares, UrlText
 from platform_values import state, steward
@@ -88,7 +89,7 @@ class PlatformCandidateOut(BaseModel):
     reason: str | None = None
     flags: list[str] = Field(default_factory=list)
     source: str | None = None
-    source_ref: str | None = None
+    source_ref: HttpUrlOut = None
     event_date: date | None = None
     shares: float | None = None
     cash_usd: float | None = None
@@ -107,11 +108,12 @@ class PlatformCandidateOut(BaseModel):
 
 class PlatformAppliedValueOut(BaseModel):
     """One stored fact version: ``valid_from`` the filing's date, ``ratified_by`` who set it (``auto``, an email,
-    or ``operator`` for a carried V1 row), ``vouched`` confirm/override provenance."""
+    or ``operator`` for a carried V1 row), ``vouched`` confirm/override provenance. ``source_ref`` is ``None`` on
+    the wire unless it is a plain http(s) URL (``domain.links``)."""
 
     id: UUID
     source: str | None = None
-    source_ref: str | None = None
+    source_ref: HttpUrlOut = None
     valid_from: date
     recorded_at: datetime
     ratified_by: str | None = None
