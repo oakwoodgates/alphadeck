@@ -270,3 +270,14 @@ def owner_of(table: str) -> str:
 
 
 # --- end V2 W0a block ---------------------------------------------------------------------------------------
+
+
+# --- V2 W1b: the new tables' owners (migrations 0200-0202) ---------------------------------------------------
+# Additive block (V2 PR 4), kept apart from the entries above so V2 PR 3's rewrite of the map never touches it.
+# ``extraction_candidate`` (an extractor result awaiting the steward; never a fact) and ``steward_pin`` (the
+# steward's pin / unpin events) carry the data tenant's id; ``value_flag`` (a user's flag on a platform value)
+# carries no tenant and is keyed by its user, like ``user_action_count``.
+SCOPE_OF["extraction_candidate"] = Scope.DATA
+SCOPE_OF["steward_pin"] = Scope.DATA
+UNSCOPED_TABLES["value_flag"] = "user-keyed"
+# --- end V2 W1b block ----------------------------------------------------------------------------------------
