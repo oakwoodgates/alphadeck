@@ -9,6 +9,7 @@ from app.main import app
 from app.routers import workbench as workbench_router
 from db.session import DEFAULT_TENANT_ID
 from domain.enums import TermTier
+from domain.extraction import ExtractionResult
 from domain.market_time import known_at_for_asof, market_today
 from domain.scopes import WORKSPACE_ANY
 from domain.thesis import BasketMember, Segment, TermSetEntry, Thesis
@@ -1707,7 +1708,11 @@ def test_auto_confirm_applies_the_auto_shares_with_auto_provenance(client, db, m
     from app.routers import workbench as wb
 
     sid = _insert_security(db, "NNE", name="Nano Nuclear Energy", cik="0001923891")
-    monkeypatch.setattr(wb, "extract_for_security", lambda c, cik: [_auto_shares_candidate()])
+    monkeypatch.setattr(
+        wb,
+        "extract_with_annual_fallback",
+        lambda c, cik: ExtractionResult(facts=[_auto_shares_candidate()]),
+    )
 
     r = _auto_confirm(client, sid)
     assert r.status_code == 200
@@ -1733,15 +1738,34 @@ def test_auto_confirm_is_idempotent_a_rerun_appends_zero_rows(client, db, monkey
     from app.routers import workbench as wb
 
     sid = _insert_security(db, "NNE", name="Nano Nuclear Energy", cik="0001923891")
-    monkeypatch.setattr(wb, "extract_for_security", lambda c, cik: [_auto_shares_candidate()])
+    monkeypatch.setattr(
+        wb,
+        "extract_with_annual_fallback",
+        lambda c, cik: ExtractionResult(facts=[_auto_shares_candidate()]),
+    )
 
     assert _auto_confirm(client, sid).json()["applied"] is True
     after_first = _count(db, "fact_shares_outstanding", sid)
     assert after_first == 1
 
+    candidates_after_first = _count(db, "extraction_candidate", sid)  # cash/burn: "nothing found"
     second = _auto_confirm(client, sid)
-    assert second.json() == {"applied": False, "reason": "already_on_file", "fact_id": None}
+    assert second.json() == {
+        "applied": False,
+        "reason": "already_on_file",
+        "fact_id": None,
+        "candidate_id": None,
+        "cash_burn": {
+            "applied": False,
+            "reason": "nothing_found",
+            "fact_id": None,
+            "candidate_id": second.json()["cash_burn"]["candidate_id"],
+        },
+    }
     assert _count(db, "fact_shares_outstanding", sid) == after_first  # ZERO new rows
+    assert (
+        _count(db, "extraction_candidate", sid) == candidates_after_first
+    )  # the same "nothing": not again
 
 
 def test_auto_confirm_declines_a_flagged_candidate(client, db, monkeypatch):
@@ -1761,7 +1785,9 @@ def test_auto_confirm_declines_a_flagged_candidate(client, db, monkeypatch):
         value=19_672_794.0,  # a best-effort A+B sum — offered to the operator, NEVER auto-applied
         flags=["dual-class"],
     )
-    monkeypatch.setattr(wb, "extract_for_security", lambda c, cik: [flagged])
+    monkeypatch.setattr(
+        wb, "extract_with_annual_fallback", lambda c, cik: ExtractionResult(facts=[flagged])
+    )
 
     r = _auto_confirm(client, sid)
     assert r.json()["applied"] is False and r.json()["reason"] == "not_auto"
@@ -1769,8 +1795,10 @@ def test_auto_confirm_declines_a_flagged_candidate(client, db, monkeypatch):
 
 
 def test_auto_confirm_never_clobbers_an_operator_override(client, db, monkeypatch):
-    """Reversibility (#1): once the operator OVERRIDES an auto-applied count, a later get-data must not
-    re-apply the machine value over their decision. The no-clobber guarantee is the same on-file gate.
+    """Once the steward has set a count from a filing, a later get-data on the SAME filing must not re-apply the
+    machine value over their decision (V2 W2b: any stored version of the filing means "already on file"). A
+    strictly NEWER filing is applied over it unless the company is pinned (approved D3 (a);
+    ``tests/platform_values/test_machine.py``).
     """
     from app.routers import workbench as wb
 
@@ -1790,7 +1818,11 @@ def test_auto_confirm_never_clobbers_an_operator_override(client, db, monkeypatc
         ).status_code
         == 200
     )
-    monkeypatch.setattr(wb, "extract_for_security", lambda c, cik: [_auto_shares_candidate()])
+    monkeypatch.setattr(
+        wb,
+        "extract_with_annual_fallback",
+        lambda c, cik: ExtractionResult(facts=[_auto_shares_candidate()]),
+    )
 
     assert _auto_confirm(client, sid).json()["reason"] == "already_on_file"
     with db.cursor() as cur:
@@ -1810,7 +1842,11 @@ def test_auto_confirm_ignores_any_client_supplied_value(client, db, monkeypatch)
     from app.routers import workbench as wb
 
     sid = _insert_security(db, "NNE", name="Nano Nuclear Energy", cik="0001923891")
-    monkeypatch.setattr(wb, "extract_for_security", lambda c, cik: [_auto_shares_candidate()])
+    monkeypatch.setattr(
+        wb,
+        "extract_with_annual_fallback",
+        lambda c, cik: ExtractionResult(facts=[_auto_shares_candidate()]),
+    )
 
     assert _auto_confirm(client, sid, shares=1, value=1).json()["applied"] is True
     with db.cursor() as cur:
@@ -1819,15 +1855,17 @@ def test_auto_confirm_ignores_any_client_supplied_value(client, db, monkeypatch)
 
 
 def test_auto_confirm_with_no_shares_candidate_writes_nothing(client, db, monkeypatch):
-    """A foreign 20-F/6-K filer extracts to nothing the extractor covers — an honest decline, not an error."""
+    """An extraction with no value is an honest decline, not an error: no FACT is written; the "nothing found" is
+    recorded as a candidate for the steward (V2 W2b), never read by a meter."""
     from app.routers import workbench as wb
 
     sid = _insert_security(db, "SIMO", name="Silicon Motion", cik="0001novel")
-    monkeypatch.setattr(wb, "extract_for_security", lambda c, cik: [])
+    monkeypatch.setattr(wb, "extract_with_annual_fallback", lambda c, cik: ExtractionResult())
 
     r = _auto_confirm(client, sid)
-    assert r.json()["applied"] is False and r.json()["reason"] == "no_candidate"
+    assert r.json()["applied"] is False and r.json()["reason"] == "nothing_found"
     assert _count(db, "fact_shares_outstanding", sid) == 0
+    assert _count(db, "fact_cash_burn", sid) == 0
 
 
 def test_auto_confirm_rejects_security_not_in_tenant(client):
@@ -4041,7 +4079,11 @@ def test_ratify_and_auto_confirm_and_the_retag_each_move_the_companys_change_sta
 
     sid = _insert_security(db, "NNE", name="Nano Nuclear Energy", cik="0001923891")
     assert _stamp(db, sid) is None
-    monkeypatch.setattr(wb, "extract_for_security", lambda c, cik: [_auto_shares_candidate()])
+    monkeypatch.setattr(
+        wb,
+        "extract_with_annual_fallback",
+        lambda c, cik: ExtractionResult(facts=[_auto_shares_candidate()]),
+    )
     assert _auto_confirm(client, sid).json()["applied"] is True
     seen = [_stamp(db, sid)]
     r = client.post(
