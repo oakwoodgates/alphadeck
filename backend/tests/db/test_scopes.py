@@ -451,7 +451,8 @@ def test_every_table_has_one_owner():
     from domain.scopes import UNSCOPED_TABLES
 
     tables = _every_created_table()
-    assert len(tables) >= 66  # the parse found the schema (66 tables at 0084, plus schema_migrations)
+    # the parse found the schema (66 tables at 0084, plus schema_migrations)
+    assert len(tables) >= 67
     assert set(SCOPE_OF) & set(UNSCOPED_TABLES) == set(), "a table has two owners"
     named = set(SCOPE_OF) | set(UNSCOPED_TABLES)
     assert tables - named == set(), "name these in domain.scopes (SCOPE_OF or UNSCOPED_TABLES)"
