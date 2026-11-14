@@ -22,6 +22,7 @@ import psycopg
 from db.bitemporal import append_fact
 from db.change_stamp import mark_changed
 from db.session import DEFAULT_TENANT_ID
+from domain.scopes import require_write_tenant
 from ingest.edgar.acceptance import cached_listings, filing_date_bound, resolve_listed_filing
 
 # ``https://www.sec.gov/Archives/edgar/data/<cik>/...`` — the CIK a cover citation names
@@ -144,6 +145,8 @@ def ingest_shares_outstanding(
     its acceptance (``shares_publication``) — the version's public instant on history views (``db.public_clock``).
     None/None = the count matches no cover row: the ratification instant stands, as before.
     """
+    # platform data (V2, domain.scopes): the data tenant only, refused before any write
+    require_write_tenant("fact_shares_outstanding", tenant_id)
     values = {
         "tenant_id": tenant_id,
         "security_id": security_id,

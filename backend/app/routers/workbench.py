@@ -25,7 +25,7 @@ from app.deps import (
     get_tier_rec_client,
     get_workspace,
 )
-from app.errors import fail
+from app.errors import CATALYST_FORM_RETIRED, STEWARD_SETS_PLATFORM_VALUE, fail
 from app.routers.admin_onboarding import readout_out
 from app.schemas_api import (
     AutoConfirmOut,
@@ -83,7 +83,6 @@ from domain.thesis import (
     with_silent_links,
 )
 from ingest.cash_burn import ingest_cash_burn
-from ingest.catalyst import ingest_catalyst
 from ingest.edgar import nport
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.extract import extract_for_security, extract_with_annual_fallback
@@ -1902,18 +1901,20 @@ def _vouched(estimate: float | None, value: float) -> str | None:
     )
 
 
-def _has_shares_fact(conn: psycopg.Connection, security_id: UUID, tenant_id: UUID) -> bool:
-    """Does ANY shares fact exist for this security? The auto-confirm's idempotency + no-clobber gate.
+def _has_shares_fact(conn: psycopg.Connection, security_id: UUID) -> bool:
+    """Does ANY shares fact exist for this security in the data tenant? The auto-confirm's idempotency +
+    no-clobber gate.
 
-    Deliberately existence-of-ANY-row, not "the latest is auto": once the operator has OVERRIDDEN an
-    auto-applied count, a later get-data must not re-apply the machine value over their decision. Cheap
-    (append-only table, indexed by tenant+security); the read never needs the value.
+    Deliberately existence-of-ANY-row, not "the latest is auto": once a steward has OVERRIDDEN an auto-applied
+    count, a later get-data must not re-apply the machine value over their decision. A share count is platform
+    data (V2, ``domain.scopes``): the data tenant only, never a workspace. Cheap (append-only table, indexed by
+    tenant+security); the read never needs the value.
     """
     with conn.cursor() as cur:
         cur.execute(
             "SELECT 1 FROM fact_shares_outstanding "
-            "WHERE tenant_id = ANY(%s) AND security_id = %s LIMIT 1",
-            ([DATA_TENANT_ID, tenant_id], security_id),
+            "WHERE tenant_id = %s AND security_id = %s LIMIT 1",
+            (DATA_TENANT_ID, security_id),
         )
         return cur.fetchone() is not None
 
@@ -1960,13 +1961,16 @@ def auto_confirm_fact(
     auto-confirm allowance (``Settings.allowance_auto_confirm_per_day``, else 429 naming the reset; the security
     rides in the body, so this route counts the request before the card check). A steward is neither checked nor
     counted.
+
+    PLATFORM DATA (V2): the count is written under the DATA tenant — one value per company, read by every
+    workspace — never under the caller's workspace.
     """
     _require_own_security(conn, user, tenant_id, req.security_id)
-    # the master is DATA (domain.scopes); the fact below is written under the caller's tenant
+    # the master is DATA (domain.scopes), and so is the share count written below (V2)
     if not master.exists(conn, req.security_id, tenant_id=DATA_TENANT_ID):
         raise HTTPException(status_code=404, detail="security not in this tenant's master")
     # the idempotency + no-clobber gate FIRST: cheapest, and it short-circuits before any SEC traffic
-    if _has_shares_fact(conn, req.security_id, tenant_id):
+    if _has_shares_fact(conn, req.security_id):
         return AutoConfirmOut(applied=False, reason="already_on_file")
     cik = master.ciks_for(conn, {req.security_id}, tenant_id=DATA_TENANT_ID).get(req.security_id)
     if not cik:
@@ -2003,7 +2007,7 @@ def auto_confirm_fact(
         note=cand.note,
         ratified_by="auto",  # honest provenance: applied by the machine, NOT confirmed by a human
         vouched=None,  # no estimate was shown to anyone -> no confirm/override to record
-        tenant_id=tenant_id,
+        tenant_id=DATA_TENANT_ID,  # platform data (V2): one count for every workspace
         filing_accession=accession,
         filing_accepted=accepted,
     )
@@ -2025,14 +2029,23 @@ def ratify_fact(
     WRITE-SIDE TENANT DISCIPLINE: the security must be in the CURRENT tenant's master (fail-closed) — the
     tenant is the deployment resolver's, but the ``security_id`` is caller-supplied, so a foreign/unknown id
     must not write a junk fact. ``source`` is preserved (the candidate's basis, e.g. ``10-k-segment``);
-    ``ratified_by`` is stamped with the signed-in user's email; the fact lands in the caller's WORKSPACE (a
-    ratified fact is private research, docs/TENANT_SCOPES.md) and is append-only (a re-ratify is a new row,
-    latest-wins).
+    ``ratified_by`` is stamped with the signed-in user's email; the write is append-only (a re-ratify is a new
+    row, latest-wins).
+
+    THE TWO SCOPES (V2, docs/TENANT_SCOPES.md): **purity** (``revenue_mix``) is the caller's own judgment — any
+    signed-in user may write it, and it lands in the caller's WORKSPACE. A **share count** or **cash/burn** value
+    is platform data — it lands in the DATA tenant, read by every workspace — so only a STEWARD may set one by
+    hand: a plain user gets **403** and nothing is written. A **company catalyst** answers **409**: the form is
+    retired on the v2 branch (company catalysts move to the thesis's catalyst list).
 
     ``vouched`` records whether the operator confirmed the shown ``estimate`` as-is or overrode it — PROVENANCE
     for the drift-cron + the agree/disagree signal, NEVER a scoring input (all vouched states score identically).
     """
-    # the master is DATA (domain.scopes); the ratified fact is written under the caller's tenant (``common``)
+    if req.fact_type == "catalyst":  # V2: retired on this branch, before any read or write
+        raise HTTPException(status_code=409, detail=CATALYST_FORM_RETIRED)
+    if req.fact_type in ("shares_outstanding", "cash_burn") and not user.is_super_admin:
+        # the steward rule (``app.auth.require_super_admin``), checked here because the route also serves purity
+        raise HTTPException(status_code=403, detail=STEWARD_SETS_PLATFORM_VALUE)
     if not master.exists(conn, req.security_id, tenant_id=DATA_TENANT_ID):
         raise HTTPException(status_code=404, detail="security not in this tenant's master")
     common = dict(
@@ -2041,7 +2054,6 @@ def ratify_fact(
         event_date=req.event_date,
         note=req.note,
         ratified_by=user.email,  # the human ratify path — the signed-in user, never taken from the body
-        tenant_id=tenant_id,
     )
     if req.fact_type == "revenue_mix":
         fid = ingest_revenue_mix(
@@ -2050,6 +2062,7 @@ def ratify_fact(
             segment_label=req.segment_label,
             mix_pct=req.mix_pct,
             vouched=_vouched(req.estimate, req.mix_pct),
+            tenant_id=tenant_id,  # purity: the caller's workspace
             **common,
         )
     elif req.fact_type == "shares_outstanding":
@@ -2074,29 +2087,8 @@ def ratify_fact(
             # every 10-Q / hand-authored ratify, so the scorer's 1:1 path is byte-identical for them.
             ads_ratio=req.ads_ratio,
             ads_ratio_status=req.ads_ratio_status,
+            tenant_id=DATA_TENANT_ID,  # platform data (V2): one count for every workspace
             **common,
-        )
-    elif req.fact_type == "catalyst":
-        # a hand-authored conviction fact (the Key-1 arming path) — no extractor candidate exists,
-        # so the CITATION is the provenance (#6): an empty source_ref would be a bare operator claim
-        if not req.source_ref.strip():
-            raise HTTPException(
-                status_code=422,
-                detail="a catalyst fact needs its citation (source_ref) — the press release / "
-                "8-K / IR page it traces to",
-            )
-        fid = ingest_catalyst(
-            conn,
-            req.security_id,
-            catalyst_type=req.catalyst_type,
-            grade=req.grade,
-            label=req.label,
-            source=req.source,
-            source_ref=req.source_ref,
-            event_date=req.event_date,
-            horizon_end=req.horizon_end,
-            ratified_by=user.email,
-            tenant_id=tenant_id,
         )
     else:  # cash_burn
         fid = ingest_cash_burn(
@@ -2105,6 +2097,7 @@ def ratify_fact(
             cash_usd=req.cash_usd,
             quarterly_burn_usd=req.quarterly_burn_usd,
             vouched=_vouched(req.estimate, req.quarterly_burn_usd),
+            tenant_id=DATA_TENANT_ID,  # platform data (V2): one value for every workspace
             **common,
         )
     conn.commit()

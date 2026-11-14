@@ -182,6 +182,16 @@ RULE_LOG: tuple[RuleEntry, ...] = (
             "kept counting from when we held it and could not be dated."
         ),
     ),
+    RuleEntry(
+        id="2026-11-v2-company-catalysts-from-the-platform-only",
+        date=date(2026, 11, 14),
+        label="company catalysts are read from the platform only",
+        description=(
+            "V2: company catalysts are read from the platform only; a catalyst stored under a workspace no "
+            "longer arms. A card that a workspace's own company catalyst used to arm or strengthen now reads "
+            "only the platform's catalysts for that company."
+        ),
+    ),
 )
 
 

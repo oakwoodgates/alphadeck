@@ -136,7 +136,7 @@ def load_call_inputs(
     # THE TWO TENANT SCOPES (docs/TENANT_SCOPES.md): a thesis lives in exactly one WORKSPACE (its tenant_id),
     # and the facts it calls on live in the shared DATA tenant. The pit reads each table through the one map
     # (``domain.scopes.tenants_for``): a DATA table from ``DATA_TENANT_ID``, a WORKSPACE table from the thesis's
-    # workspace, a MIXED table (the ratified scoring facts) from both. The call-of-record write stays the
+    # workspace (one tenant per table since V2: no union). The call-of-record write stays the
     # thesis's workspace (``call_for_thesis`` above). Pass the workspace explicitly: the column is NOT NULL, so a
     # loaded thesis's tenant_id is non-None; never `or DEFAULT` here, so a None surfaces as a bug.
     # The resolved basket is the PIT's PREFETCH scope (one query per fact table for the whole thesis)

@@ -67,6 +67,15 @@ SENTENCES: dict[str, str] = {
 }
 
 
+# V2 W1a (docs/TENANT_SCOPES.md): the Workbench's company-catalyst form is retired on the v2 branch (409; company
+# catalysts are platform data and move to the thesis's catalyst list), and only a steward sets a share count or a
+# cash/burn value by hand (403; the value is the platform's, for every workspace). Complete sentences: shown as is.
+CATALYST_FORM_RETIRED = "Company catalysts move to the thesis's catalyst list in V2; this form is retired on this branch."
+STEWARD_SETS_PLATFORM_VALUE = (
+    "Only a steward can set a share count or cash/burn value. It is shared by every workspace."
+)
+
+
 # A malformed ALPHADECK_CRON_AT, wherever a route reads the schedule (the value itself: a steward only, and the log).
 SCHEDULE_SETTING_MALFORMED = "The server's nightly schedule setting is malformed, so the schedule cannot be read. A steward needs to fix it."
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
+from uuid import UUID
 
 from domain.enums import State, Verdict
 from domain.scopes import WORKSPACE_ANY
@@ -31,3 +32,30 @@ def test_seed_is_idempotent(db):
     assert thesis is not None
     assert len(thesis.basket) == 1
     assert len(thesis.evidence) == 1
+
+
+def test_the_boot_seed_writes_platform_facts_to_the_data_tenant(db, monkeypatch):
+    """V2: with the demo cards in a workspace that is not the data tenant, the seeded share counts, cash/burn and
+    company catalysts are platform data (the data tenant), while purity and the cards stay in the workspace.
+    """
+    from domain.scopes import DATA_TENANT_ID
+    from pipeline import seed as seed_mod
+    from tests.workspaces import new_workspace
+
+    w = new_workspace(
+        db, "seed workspace", workspace_id=UUID("00000000-0000-0000-0000-0000000000c1")
+    )
+    db.commit()
+    monkeypatch.setenv(seed_mod.SEED_ON_BOOT_ENV, "1")
+    seed_mod.main(workspace=w)
+    db.rollback()  # read what main committed on its own connection
+    with db.cursor() as cur:
+        for table, want in (
+            ("fact_shares_outstanding", {DATA_TENANT_ID}),
+            ("fact_cash_burn", {DATA_TENANT_ID}),
+            ("fact_catalyst", {DATA_TENANT_ID}),
+            ("fact_revenue_mix", {w}),
+            ("thesis", {w}),
+        ):
+            cur.execute(f"SELECT DISTINCT tenant_id FROM {table}")  # noqa: S608 — a fixed list
+            assert {r["tenant_id"] for r in cur.fetchall()} == want, table

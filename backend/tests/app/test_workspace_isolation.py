@@ -421,16 +421,136 @@ def test_b_own_thesis_reads_the_shared_data_and_none_of_a_ratified_fact(world, d
         )
         row = cur.fetchone()
         assert row["tenant_id"] == w_b and row["ratified_by"] == "b@iso.test"
-        # no fact_* table holds a row under a user workspace, except a MIXED table's RATIFIED rows
+        # no row of any DATA-scope table sits under a user workspace (the platform tables included: V2)
         for table, scope in SCOPE_OF.items():
-            if not table.startswith("fact_"):
+            if scope is not Scope.DATA:
                 continue
             cur.execute(
-                f"SELECT count(*) AS n FROM {table} WHERE tenant_id = ANY(%s)"  # noqa: S608
-                + (" AND ratified_by IS NULL" if scope is Scope.MIXED else ""),
+                f"SELECT count(*) AS n FROM {table} WHERE tenant_id = ANY(%s)",  # noqa: S608
                 ([w_a, w_b],),
             )
-            assert cur.fetchone()["n"] == 0, f"{table}: a non-ratified row under a user workspace"
+            assert cur.fetchone()["n"] == 0, f"{table}: a DATA-scope row under a user workspace"
+
+
+# --- V2: share counts and cash/burn are platform data the steward sets; the company-catalyst form is retired ----
+
+
+def _platform_value(c: TestClient, sid, asof: date, fact_type: str):
+    common = {
+        "security_id": str(sid),
+        "source": "10-q-cover",
+        "event_date": (asof - timedelta(days=30)).isoformat(),
+    }
+    if fact_type == "shares_outstanding":
+        body = {"source_ref": "https://example.test/10q.htm#cover", "shares": 50_000_000}
+    else:
+        body = {
+            "source_ref": "https://example.test/10q.htm#cash",
+            "cash_usd": 30_000_000,
+            "quarterly_burn_usd": 3_000_000,
+        }
+    return c.post("/workbench/facts", json={**common, **body, "fact_type": fact_type})
+
+
+def _all_rows(db, table: str) -> int:
+    db.rollback()
+    with db.cursor() as cur:
+        cur.execute(f"SELECT count(*) AS n FROM {table}")  # noqa: S608 — a fixed pair
+        return cur.fetchone()["n"]
+
+
+def test_a_plain_users_share_count_or_cash_confirm_is_refused(world, db):
+    """V2 (operator change to D1): only the steward sets a share count or a cash/burn value by hand. A plain
+    user's confirm answers 403 with a fixed sentence and writes NO row in ANY tenant."""
+    from app.errors import STEWARD_SETS_PLATFORM_VALUE
+
+    for fact_type, table in (
+        ("shares_outstanding", "fact_shares_outstanding"),
+        ("cash_burn", "fact_cash_burn"),
+    ):
+        before = _all_rows(db, table)
+        r = _platform_value(world["b"], world["sid"], world["asof"], fact_type)
+        assert r.status_code == 403, r.text
+        assert r.json()["detail"] == STEWARD_SETS_PLATFORM_VALUE
+        assert _all_rows(db, table) == before, table
+
+
+def test_the_stewards_confirm_lands_in_the_data_tenant_and_every_workspace_reads_it(world, db):
+    """The steward (S, on W_S — not the data tenant) confirms a share count and a cash/burn figure: each row
+    lands under the DATA tenant with S's email as the ratifier, and A (on W_A) reads both on A's own card.
+    """
+    s, sid, asof = world["s"], world["sid"], world["asof"]
+    for fact_type in ("shares_outstanding", "cash_burn"):
+        r = _platform_value(s, sid, asof, fact_type)
+        assert r.status_code == 200, r.text
+    db.rollback()
+    with db.cursor() as cur:
+        for table in ("fact_shares_outstanding", "fact_cash_burn"):
+            cur.execute(
+                f"SELECT tenant_id, ratified_by FROM {table} WHERE security_id = %s",  # noqa: S608
+                (sid,),
+            )
+            rows = cur.fetchall()
+            assert [(x["tenant_id"], x["ratified_by"]) for x in rows] == [
+                (DATA_TENANT_ID, "s@iso.test")
+            ], table
+    (a_m,) = (
+        world["a"]
+        .get(f"/workbench/theses/{world['a_id']}/scored", params={"asof": asof.isoformat()})
+        .json()["members"]
+    )
+    assert a_m["market_cap"]["value"] is not None  # A reads the steward's count (x A's price)
+    assert any(
+        p["detail"].get("ratified_by") == "s@iso.test" for p in a_m["market_cap"]["provenance"]
+    )
+    assert a_m["runway"]["value"] == 30.0  # 30M cash / (3M a quarter / 3) = 30 months
+
+
+def test_a_plain_users_purity_confirm_works_and_stays_private(world, db):
+    """Purity is unchanged by V2's steward rule: B's confirm is a 200, lands in W_B, and A never reads it."""
+    b, sid = world["b"], world["sid"]
+    assert _ratify_mix(b, sid, "https://example.test/b-only-10k.htm").status_code == 200
+    db.rollback()
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT tenant_id FROM fact_revenue_mix WHERE source_ref = %s",
+            ("https://example.test/b-only-10k.htm",),
+        )
+        assert [r["tenant_id"] for r in cur.fetchall()] == [world["w_b"]]
+    (a_m,) = (
+        world["a"]
+        .get(
+            f"/workbench/theses/{world['a_id']}/scored",
+            params={"asof": world["asof"].isoformat()},
+        )
+        .json()["members"]
+    )
+    assert [p["ref"] for p in a_m["purity"]["provenance"]] == ["https://example.test/a-10k.htm"]
+
+
+def test_the_company_catalyst_form_is_refused(world, db):
+    """V2: a company catalyst is no longer written from the Workbench form. The route answers 409 with a fixed
+    sentence and writes nothing (no row under any tenant)."""
+    from app.errors import CATALYST_FORM_RETIRED
+
+    r = world["b"].post(
+        "/workbench/facts",
+        json={
+            "fact_type": "catalyst",
+            "security_id": str(world["sid"]),
+            "catalyst_type": "contract",
+            "grade": "core",
+            "label": "a signed offtake",
+            "source": "ratified",
+            "source_ref": "https://example.test/pr/offtake",
+            "event_date": world["asof"].isoformat(),
+        },
+    )
+    assert r.status_code == 409, r.text
+    assert r.json()["detail"] == CATALYST_FORM_RETIRED
+    with db.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM fact_catalyst")
+        assert cur.fetchone()["n"] == 0
 
 
 def _has_column(cur, table: str, column: str) -> bool:
