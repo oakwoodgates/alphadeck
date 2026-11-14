@@ -366,3 +366,26 @@ def test_the_dry_run_writes_nothing(db, monkeypatch, capsys, tmp_path):
     doc = json.loads((tmp_path / "plan.json").read_text(encoding="utf-8"))
     assert doc["database"].startswith("alphadeck_test") and doc["exit_code"] == code
     assert {t["name"] for t in doc["tables"]} >= set(SCOPE_OF) | set(UNSCOPED_TABLES)
+
+
+# --- V2 W1b: the new tables (migrations 0200-0202) -----------------------------------------------------------
+
+
+def test_the_v2_w1b_tables_are_owned_and_kept(db, capsys, tmp_path):
+    """The dry run names the three W1b tables with their owner and the plan ``keep`` (new and empty: nothing
+    to move or reset)."""
+    new = ("extraction_candidate", "steward_pin", "value_flag")
+    assert {t: C.CUTOVER_ACTION[t] for t in new} == {t: "keep" for t in new}
+    code = C.main(["plan", "--json", str(tmp_path / "plan.json")])
+    capsys.readouterr()
+    assert code in (0, 1)  # never a fatal (2): every W1b table is named in domain.scopes
+    doc = json.loads((tmp_path / "plan.json").read_text(encoding="utf-8"))
+    rows = {t["name"]: t for t in doc["tables"]}
+    assert {t: (rows[t]["owner"], rows[t]["plan"]) for t in new} == {
+        "extraction_candidate": ("platform", "keep"),
+        "steward_pin": ("platform", "keep"),
+        "value_flag": ("user-keyed", "keep"),
+    }
+
+
+# --- end V2 W1b block ----------------------------------------------------------------------------------------
