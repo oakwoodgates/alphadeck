@@ -55,6 +55,11 @@ CUTOVER_ACTION: dict[str, str] = {
     "user_action_count": "prune",
     "security_change": "prune",
 }
+# --- V2 W1b: the new tables (migrations 0200-0202) are new and empty: kept, named explicitly -----------------
+CUTOVER_ACTION["extraction_candidate"] = "keep"
+CUTOVER_ACTION["steward_pin"] = "keep"
+CUTOVER_ACTION["value_flag"] = "keep"
+# --- end V2 W1b block ----------------------------------------------------------------------------------------
 
 # The tables with a DEDICATED rule (5-9 below): the generic owner rules (3, 4) skip them, so each finding is
 # reported once, by its most specific sentence, before and after V2 PR 3 changes their scope.

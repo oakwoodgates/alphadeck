@@ -472,3 +472,23 @@ def test_owner_of_names_the_file_to_edit():
 
 
 # --- end V2 W0a block ------------------------------------------------------------------------------------
+
+
+# --- V2 W1b: the new tables' owners (migrations 0200-0202) ---------------------------------------------------
+# Additive block (V2 PR 4). The two platform tables carry the data tenant's id; the flag table is user-keyed.
+
+
+def test_the_v2_w1b_tables_have_their_owners():
+    from domain.scopes import UNSCOPED_TABLES, owner_of
+
+    assert SCOPE_OF["extraction_candidate"] is Scope.DATA
+    assert SCOPE_OF["steward_pin"] is Scope.DATA
+    assert UNSCOPED_TABLES["value_flag"] == "user-keyed"
+    assert [owner_of(t) for t in ("extraction_candidate", "steward_pin", "value_flag")] == [
+        "platform",
+        "platform",
+        "user-keyed",
+    ]
+
+
+# --- end V2 W1b block ------------------------------------------------------------------------------------
