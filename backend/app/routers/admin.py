@@ -1269,6 +1269,23 @@ def get_admin_status(
             "data-tenant thesis count failed (fail-open — the status read is unaffected)"
         )
 
+    # V2 W0b — share counts and cash/burn under any workspace (should be 0 once the V2 move has run: V2 reads
+    # both from the data tenant only). Both tables are small. Fail-open like its neighbors.
+    platform_rows_in_workspaces = 0
+    try:
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT (SELECT count(*) FROM fact_shares_outstanding WHERE tenant_id <> %s) "
+                    "+ (SELECT count(*) FROM fact_cash_burn WHERE tenant_id <> %s) AS n",
+                    (DATA_TENANT_ID, DATA_TENANT_ID),
+                )
+                platform_rows_in_workspaces = int(cur.fetchone()["n"])
+    except Exception:  # noqa: BLE001 — the count is a passenger on the status read
+        _log.exception(
+            "platform-rows-in-workspaces count failed (fail-open — the status read is unaffected)"
+        )
+
     # 0080 — the registered OAuth clients, static and self-registered (a count only). Fail-open.
     oauth_clients = None
     try:
@@ -1360,6 +1377,7 @@ def get_admin_status(
         editions_cut=editions_cut,
         master_refresh=master_refresh,
         data_tenant_theses=data_tenant_theses,
+        platform_rows_in_workspaces=platform_rows_in_workspaces,
         oauth_clients=oauth_clients,
     )
 

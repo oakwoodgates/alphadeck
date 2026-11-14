@@ -5880,6 +5880,11 @@ export interface components {
          *     should be 0: a card belongs to a workspace (migration 0078 moved the founding operator's cards out), and a
          *     card left on the data tenant is read by no workspace. The Admin page shows one loud line when it is not 0.
          *
+         *     ``platform_rows_in_workspaces`` (V2 W0b) is how many ``fact_shares_outstanding`` plus ``fact_cash_burn`` rows
+         *     sit under any tenant but the data tenant. V2 reads both from the data tenant only, so it should be 0 once
+         *     ``python -m pipeline.v2_cutover move-platform-facts --apply`` has run; the Admin page shows one loud line
+         *     naming that command when it is not. Fail-open (0 when the count could not be read).
+         *
          *     ``oauth_clients`` (migration 0080) counts the registered OAuth clients, static and self-registered; ``null``
          *     when the count could not be read. Read-only, never a cron verdict.
          *
@@ -5915,6 +5920,11 @@ export interface components {
              * @default 0
              */
             data_tenant_theses: number;
+            /**
+             * Platform Rows In Workspaces
+             * @default 0
+             */
+            platform_rows_in_workspaces: number;
             oauth_clients?: components["schemas"]["AdminOAuthClientsOut"] | null;
         };
         /**
