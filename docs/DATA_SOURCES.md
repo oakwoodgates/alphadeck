@@ -629,8 +629,8 @@ date (`ingest.shares.count_publication` — the cited filing when the citation i
 cited under an earlier one gets the later filing's, so it is never early; a cover row dated after its own
 filing never dates a count), its trusted acceptance else the end of its filing date in ET. A count no cover row
 states keeps its ratification instant. The public clock takes the running max over the fact's versions, so a
-version never counts before the one it replaced. The Workbench writers (auto-confirm, ratify) and
-`pipeline.ratify_shares` stamp it from the cache at write time.
+version never counts before the one it replaced. The Workbench auto-confirm and the steward's write
+(`platform_values.steward`: approve, correct) stamp it from the cache at write time.
 
 **The repair** — `python -m pipeline.repair_filing_dates` (dry-run by default, read-only, cache only;
 `--apply` under the REPAIR lock, one counted transaction, provenance under `data/repairs/`, a `data_repair`
