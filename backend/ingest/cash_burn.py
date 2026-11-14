@@ -19,6 +19,7 @@ import psycopg
 from db.bitemporal import append_fact
 from db.change_stamp import mark_changed
 from db.session import DEFAULT_TENANT_ID
+from domain.scopes import require_write_tenant
 
 
 def ingest_cash_burn(
@@ -43,6 +44,8 @@ def ingest_cash_burn(
     a NEW row with a later ``recorded_at`` (latest-version-wins on the as-of read). ``vouched`` is confirm/
     override PROVENANCE ('confirmed' | 'overridden' | None) — never a scoring input. Returns the new fact id.
     """
+    # platform data (V2, domain.scopes): the data tenant only, refused before any write
+    require_write_tenant("fact_cash_burn", tenant_id)
     values = {
         "tenant_id": tenant_id,
         "security_id": security_id,

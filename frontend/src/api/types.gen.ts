@@ -1280,6 +1280,9 @@ export interface paths {
          *     auto-confirm allowance (``Settings.allowance_auto_confirm_per_day``, else 429 naming the reset; the security
          *     rides in the body, so this route counts the request before the card check). A steward is neither checked nor
          *     counted.
+         *
+         *     PLATFORM DATA (V2): the count is written under the DATA tenant — one value per company, read by every
+         *     workspace — never under the caller's workspace.
          */
         post: operations["auto_confirm_fact_workbench_facts_auto_confirm_post"];
         delete?: never;
@@ -1306,9 +1309,14 @@ export interface paths {
          *     WRITE-SIDE TENANT DISCIPLINE: the security must be in the CURRENT tenant's master (fail-closed) — the
          *     tenant is the deployment resolver's, but the ``security_id`` is caller-supplied, so a foreign/unknown id
          *     must not write a junk fact. ``source`` is preserved (the candidate's basis, e.g. ``10-k-segment``);
-         *     ``ratified_by`` is stamped with the signed-in user's email; the fact lands in the caller's WORKSPACE (a
-         *     ratified fact is private research, docs/TENANT_SCOPES.md) and is append-only (a re-ratify is a new row,
-         *     latest-wins).
+         *     ``ratified_by`` is stamped with the signed-in user's email; the write is append-only (a re-ratify is a new
+         *     row, latest-wins).
+         *
+         *     THE TWO SCOPES (V2, docs/TENANT_SCOPES.md): **purity** (``revenue_mix``) is the caller's own judgment — any
+         *     signed-in user may write it, and it lands in the caller's WORKSPACE. A **share count** or **cash/burn** value
+         *     is platform data — it lands in the DATA tenant, read by every workspace — so only a STEWARD may set one by
+         *     hand: a plain user gets **403** and nothing is written. A **company catalyst** answers **409**: the form is
+         *     retired on the v2 branch (company catalysts move to the thesis's catalyst list).
          *
          *     ``vouched`` records whether the operator confirmed the shown ``estimate`` as-is or overrode it — PROVENANCE
          *     for the drift-cron + the agree/disagree signal, NEVER a scoring input (all vouched states score identically).

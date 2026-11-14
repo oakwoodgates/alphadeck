@@ -116,50 +116,33 @@ def test_put_replaces_the_whole_list_and_empty_clears(client, db):
     assert r.json()["catalysts"] == []  # the operator's own explicit clear is allowed
 
 
-def test_ratify_catalyst_writes_the_conviction_fact_that_turns_key_one(
+def test_the_company_catalyst_form_is_refused_and_arms_nothing(
     client, db, security_id, pinned_today
 ):
-    """The arming path: a hand-authored, CITED catalyst fact is a Key-1 conviction the call engine
-    consumes — the thesis leaves Incubating on the next read (no extractor, no LLM: the operator
-    authored a verifiable event with its citation; the platform times it)."""
+    """V2 (W1a): a company catalyst is platform data, so the Workbench form no longer writes one. The route
+    answers 409 with a fixed sentence — cited or not — writes no row, and the card stays Incubating.
+    """
+    from app.errors import CATALYST_FORM_RETIRED
+
     t = _thesis(db, security_id=security_id)
+    for ref in ("https://example.com/pr/offtake", "   "):
+        r = client.post(
+            "/workbench/facts",
+            json={
+                "fact_type": "catalyst",
+                "security_id": str(security_id),
+                "catalyst_type": "contract",
+                "grade": "core",
+                "label": "10-year offtake agreement signed",
+                "source": "ratified",
+                "source_ref": ref,
+                "event_date": str(pinned_today - timedelta(days=2)),
+            },
+        )
+        assert r.status_code == 409, r.text
+        assert r.json()["detail"] == CATALYST_FORM_RETIRED
+    with db.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM fact_catalyst")
+        assert cur.fetchone()["n"] == 0
     card = client.get(f"/theses/{t.id}/call", params={"asof": str(pinned_today)}).json()
     assert card["state"] == "incubating" and card["key_conviction"]["turned"] is False
-
-    r = client.post(
-        "/workbench/facts",
-        json={
-            "fact_type": "catalyst",
-            "security_id": str(security_id),
-            "catalyst_type": "contract",
-            "grade": "core",
-            "label": "10-year offtake agreement signed",
-            "source": "ratified",
-            "source_ref": "https://example.com/pr/offtake",
-            "event_date": str(pinned_today - timedelta(days=2)),
-        },
-    )
-    assert r.status_code == 200 and r.json()["fact_type"] == "catalyst"
-
-    card = client.get(f"/theses/{t.id}/call", params={"asof": str(pinned_today)}).json()
-    assert card["key_conviction"]["turned"] is True  # the authored catalyst IS the conviction key
-    assert card["state"] != "incubating"
-    assert any("offtake" in (tr.get("label") or "") for tr in card["triggers_fired"])
-
-
-def test_ratify_catalyst_requires_its_citation(client, db, security_id, pinned_today):
-    r = client.post(
-        "/workbench/facts",
-        json={
-            "fact_type": "catalyst",
-            "security_id": str(security_id),
-            "catalyst_type": "earnings",
-            "grade": "flip",
-            "label": "uncited claim",
-            "source": "ratified",
-            "source_ref": "   ",
-            "event_date": str(pinned_today),
-        },
-    )
-    assert r.status_code == 422
-    assert "citation" in r.json()["detail"]

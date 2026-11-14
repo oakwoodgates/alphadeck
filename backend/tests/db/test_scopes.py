@@ -5,7 +5,8 @@ The rules, each proven against REAL rows with two workspaces that are NOT the da
 data tenant equal to a user's workspace a missed scope filter would read the right rows by accident, so no
 workspace here is ``…0001``.
 
-- a MIXED-table read with ``(DATA, W)`` returns the data-scope row AND W's row, latest-wins across them;
+- a platform table (share counts, cash/burn, company catalysts: DATA since V2) reads the data tenant only, never
+  a row stored under a workspace; purity (``fact_revenue_mix``: WORKSPACE since V2) reads the workspace only;
 - a DATA-table read ignores a row stored under a workspace;
 - a WORKSPACE-table read ignores a row stored under the data tenant;
 - workspace V sees none of W's rows;
@@ -24,7 +25,7 @@ from pathlib import Path
 
 import pytest
 
-from db.bitemporal import append_fact, as_of, as_of_many, fact_exists
+from db.bitemporal import append_fact, as_of_many, fact_exists
 from db.session import DEFAULT_TENANT_ID
 from domain.enums import CatalystType, Grade
 from domain.scopes import (
@@ -38,7 +39,6 @@ from domain.scopes import (
     tenants_for,
 )
 from domain.thesis import BasketMember, Thesis
-from ingest.catalyst import ingest_catalyst
 from ingest.revenue_mix import ingest_revenue_mix
 from repositories import thesis_repo
 from signals.base import PointInTimeData
@@ -93,16 +93,14 @@ def test_every_tenant_bearing_table_has_a_scope():
     assert set(SCOPE_OF) - tables == set(), "SCOPE_OF names tables no migration creates"
 
 
-def test_the_map_assignment():
-    """The plan's assignment (auth-multiuser plan §3.1): the four scoring-fact tables are MIXED; the thesis spine
-    and the record are WORKSPACE; the master and the ingested facts are DATA."""
-    mixed = {t for t, s in SCOPE_OF.items() if s is Scope.MIXED}
-    assert mixed == {
-        "fact_revenue_mix",
-        "fact_cash_burn",
-        "fact_shares_outstanding",
-        "fact_catalyst",
-    }
+def test_the_v2_assignment():
+    """V2 (W1a): two scopes, no MIXED. Share counts, cash/burn and company catalysts are platform data (DATA);
+    purity is the workspace's own (WORKSPACE); the thesis spine and the record are WORKSPACE; the master and the
+    ingested facts are DATA."""
+    assert {s.name for s in Scope} == {"DATA", "WORKSPACE"}
+    for t in ("fact_shares_outstanding", "fact_cash_burn", "fact_catalyst"):
+        assert SCOPE_OF[t] is Scope.DATA, t
+    assert SCOPE_OF["fact_revenue_mix"] is Scope.WORKSPACE
     for t in (
         "thesis",
         "basket_member",
@@ -119,9 +117,8 @@ def test_the_map_assignment():
 def test_tenants_for_and_the_normalizer():
     assert tenants_for("fact_price_eod", data=DATA_TENANT_ID, workspace=W) == (DATA_TENANT_ID,)
     assert tenants_for("fact_theme_conviction", data=DATA_TENANT_ID, workspace=W) == (W,)
-    assert tenants_for("fact_revenue_mix", data=DATA_TENANT_ID, workspace=W) == (DATA_TENANT_ID, W)
-    # equal scopes (today's state, before PR 2) -> ONE id, so the read is byte-identical
-    assert tenants_for("fact_revenue_mix", data=DATA_TENANT_ID, workspace=DATA_TENANT_ID) == (
+    assert tenants_for("fact_revenue_mix", data=DATA_TENANT_ID, workspace=W) == (W,)
+    assert tenants_for("fact_shares_outstanding", data=DATA_TENANT_ID, workspace=W) == (
         DATA_TENANT_ID,
     )
     with pytest.raises(KeyError):
@@ -137,6 +134,15 @@ def test_tenants_for_and_the_normalizer():
         resolve_scopes(data_tenant=None, workspace=None)  # type: ignore[arg-type]
     with pytest.raises(TypeError):
         resolve_scopes(data_tenant=None, workspace=W, tenant_id=V)  # type: ignore[call-arg]
+
+
+def test_tenants_for_names_one_tenant():
+    """Every mapped table, read for a workspace that is not the data tenant, names exactly ONE tenant: no read
+    unions two tenants any more (V2: MIXED is gone)."""
+    for table in SCOPE_OF:
+        got = tenants_for(table, data=DATA_TENANT_ID, workspace=W)
+        assert len(got) == 1, (table, got)
+        assert got == ((DATA_TENANT_ID,) if SCOPE_OF[table] is Scope.DATA else (W,)), table
 
 
 def test_the_demo_default_is_the_data_tenant():
@@ -224,18 +230,60 @@ def _mix(db, sid, tenant, ref, pct, day):
 
 
 def _cat(db, sid, tenant, ref, label, day):
-    ingest_catalyst(
+    """A company catalyst row. Raw ``append_fact``: a row under a workspace is a POISON row (no V2 writer puts
+    one there; ``ingest_catalyst`` refuses it), planted to prove no read reaches it."""
+    append_fact(
         db,
-        sid,
-        catalyst_type=CatalystType.CONTRACT,
-        grade=Grade.CORE,
-        label=label,
-        source="ratified" if tenant != DATA_TENANT_ID else "8-k",
-        source_ref=ref,
-        event_date=date(2026, 5, 1),
-        ratified_by="operator" if tenant != DATA_TENANT_ID else None,
-        tenant_id=tenant,
-        recorded_at=_t(day),
+        "fact_catalyst",
+        {
+            "tenant_id": tenant,
+            "security_id": sid,
+            "catalyst_type": CatalystType.CONTRACT.value,
+            "grade": Grade.CORE.value,
+            "label": label,
+            "source": "ratified" if tenant != DATA_TENANT_ID else "8-k",
+            "source_ref": ref,
+            "ratified_by": "operator" if tenant != DATA_TENANT_ID else None,
+            "valid_from": date(2026, 5, 1),
+            "recorded_at": _t(day),
+        },
+    )
+
+
+def _shares(db, sid, tenant, ref, shares, day):
+    """A share-count row (raw ``append_fact``; under a workspace it is a poison row, as ``_cat``)."""
+    append_fact(
+        db,
+        "fact_shares_outstanding",
+        {
+            "tenant_id": tenant,
+            "security_id": sid,
+            "shares": shares,
+            "source": "10-q-cover",
+            "source_ref": ref,
+            "ratified_by": "operator" if tenant != DATA_TENANT_ID else "auto",
+            "valid_from": date(2026, 5, 1),
+            "recorded_at": _t(day),
+        },
+    )
+
+
+def _cash(db, sid, tenant, ref, cash, day):
+    """A cash/burn row (raw ``append_fact``; under a workspace it is a poison row, as ``_cat``)."""
+    append_fact(
+        db,
+        "fact_cash_burn",
+        {
+            "tenant_id": tenant,
+            "security_id": sid,
+            "cash_usd": cash,
+            "quarterly_burn_usd": 1_000_000,
+            "source": "10-q",
+            "source_ref": ref,
+            "ratified_by": "operator",
+            "valid_from": date(2026, 3, 31),
+            "recorded_at": _t(day),
+        },
     )
 
 
@@ -253,52 +301,76 @@ def _mix_by_ref(rows):
     return {r["source_ref"]: float(r["mix_pct"]) for r in rows}
 
 
-def test_a_mixed_read_unions_data_and_the_workspace_latest_wins(db, two_workspaces):
+_PLATFORM = (
+    ("fact_shares_outstanding", "shares_outstanding_facts", "shares"),
+    ("fact_cash_burn", "cash_burn_facts", "cash_usd"),
+    ("fact_catalyst", "catalyst_facts", "label"),
+)
+
+
+def _platform_rows(db, sid):
+    """The SAME fact (one ``source_ref``) under the data tenant AND, later, under W (a poison row a V1 ratify
+    would have written), plus a fact only W holds. Returns what the data tenant's read must give."""
+    _shares(db, sid, DATA_TENANT_ID, "SH-1", 100, 1)
+    _shares(db, sid, W, "SH-1", 999, 2)
+    _shares(db, sid, W, "SH-W", 7, 3)
+    _cash(db, sid, DATA_TENANT_ID, "CB-1", 500, 1)
+    _cash(db, sid, W, "CB-1", 999, 2)
+    _cash(db, sid, W, "CB-W", 7, 3)
+    _cat(db, sid, DATA_TENANT_ID, "CAT-1", "as the platform holds it", 1)
+    _cat(db, sid, W, "CAT-1", "as W once ratified it", 2)
+    _cat(db, sid, W, "CAT-W", "W only", 3)
+    return {
+        "fact_shares_outstanding": {"SH-1": 100.0},
+        "fact_cash_burn": {"CB-1": 500.0},
+        "fact_catalyst": {"CAT-1": "as the platform holds it"},
+    }
+
+
+def _by_ref(rows, col):
+    return {r["source_ref"]: (r[col] if col == "label" else float(r[col])) for r in rows}
+
+
+def test_platform_facts_read_only_the_data_tenant(db, two_workspaces):
+    """Share counts, cash/burn and company catalysts are platform data: every workspace reads the data tenant's
+    rows and NOTHING stored under a workspace, not even its own (no fallback, no union) — on the per-security
+    read, the basket prefetch, the public clock and ``as_of_many`` over the map's tenants."""
     sid, _ = two_workspaces
-    _mix(db, sid, DATA_TENANT_ID, "FEED-1", 40, 1)  # a feed row (DATA)
-    _mix(db, sid, W, "FEED-1", 60, 2)  # W ratifies the SAME fact later: overrides it for W only
-    _mix(db, sid, W, "W-ONLY", 10, 3)  # a fact only W ratified
-    for basket in (None, [sid]):  # the per-security read and the basket prefetch
-        assert _mix_by_ref(_pit(db, W, basket=basket).revenue_mix_facts(sid)) == {
-            "FEED-1": 60.0,
-            "W-ONLY": 10.0,
-        }
-        # V reads the data row as the feed wrote it, and none of W's
-        assert _mix_by_ref(_pit(db, V, basket=basket).revenue_mix_facts(sid)) == {"FEED-1": 40.0}
-    # the accessor itself, one tenant or a list
-    rows = as_of(
-        db,
-        "fact_revenue_mix",
-        security_id=sid,
-        asof=_ASOF,
-        known_at=_KNOWN,
-        tenant_id=[DATA_TENANT_ID, W],
-    )
-    assert _mix_by_ref(rows) == {"FEED-1": 60.0, "W-ONLY": 10.0}
-    assert _mix_by_ref(
-        as_of(
-            db,
-            "fact_revenue_mix",
-            security_id=sid,
-            asof=_ASOF,
-            known_at=_KNOWN,
-            tenant_id=DATA_TENANT_ID,
-        )
-    ) == {"FEED-1": 40.0}
+    want = _platform_rows(db, sid)
+    for ws in (W, V):
+        for table, accessor, col in _PLATFORM:
+            for kw in ({}, {"basket": [sid]}, {"clock": "public"}):
+                got = _by_ref(getattr(_pit(db, ws, **kw), accessor)(sid), col)
+                assert got == want[table], (ws, table, kw)
+            many = as_of_many(
+                db,
+                table,
+                security_ids=[sid],
+                asof=_ASOF,
+                known_at=_KNOWN,
+                tenant_id=tenants_for(table, data=DATA_TENANT_ID, workspace=ws),
+            )
+            assert _by_ref(many[sid], col) == want[table], (ws, table)
+
+
+def test_purity_reads_only_the_workspace(db, two_workspaces):
+    """Purity is the workspace's own: a purity row under the data tenant is invisible to every workspace, and
+    W's purity is W's only."""
+    sid, _ = two_workspaces
+    _mix(db, sid, DATA_TENANT_ID, "FEED-1", 40, 1)  # a data-tenant purity row (a V1 CLI default)
+    _mix(db, sid, W, "W-ONLY", 10, 3)
+    for kw in ({}, {"basket": [sid]}, {"clock": "public"}):
+        assert _mix_by_ref(_pit(db, W, **kw).revenue_mix_facts(sid)) == {"W-ONLY": 10.0}
+        assert _mix_by_ref(_pit(db, V, **kw).revenue_mix_facts(sid)) == {}
     many = as_of_many(
         db,
         "fact_revenue_mix",
         security_ids=[sid],
         asof=_ASOF,
         known_at=_KNOWN,
-        tenant_id=[DATA_TENANT_ID, V],
+        tenant_id=tenants_for("fact_revenue_mix", data=DATA_TENANT_ID, workspace=V),
     )
-    assert _mix_by_ref(many[sid]) == {"FEED-1": 40.0}
-    # the public clock (a history view) resolves the union the same way
-    assert _mix_by_ref(_pit(db, W, clock="public").revenue_mix_facts(sid)) == {
-        "FEED-1": 60.0,
-        "W-ONLY": 10.0,
-    }
+    assert _mix_by_ref(many.get(sid, [])) == {}
 
 
 def test_a_data_read_ignores_a_row_stored_under_a_workspace(db, two_workspaces):
@@ -358,28 +430,29 @@ def test_fact_exists_honors_the_same_lists(db, two_workspaces):
 
 
 def test_the_memo_never_crosses_a_scope(db, two_workspaces):
-    """One PIT reads a MIXED table for (DATA, W); the memo key carries that tenant tuple, so a later read of
-    the SAME security on another table (DATA only) is its own entry — never a reuse of the union."""
+    """One PIT reads a WORKSPACE table for ``(W,)``; the memo key carries that one-tenant tuple, so a later read
+    of the SAME security on a DATA table is its own entry under ``(DATA,)`` — never a reuse."""
     sid, _ = two_workspaces
     _mix(db, sid, W, "W-ONLY", 10, 3)
     pit = _pit(db, W)
     assert _mix_by_ref(pit.revenue_mix_facts(sid)) == {"W-ONLY": 10.0}
     keys = set(pit._memo)
-    assert ("fact_revenue_mix", (DATA_TENANT_ID, W), sid) in keys
+    assert ("fact_revenue_mix", (W,), sid) in keys
     pit.insider_txns(sid)
     assert ("fact_insider_txn", (DATA_TENANT_ID,), sid) in set(pit._memo)
 
 
 def test_the_replay_mirror_applies_the_same_map(db, two_workspaces, tmp_path):
     """The export writes each table for ``tenants_for(table, …)`` and the mirror reader picks per table — so
-    W's mirror reads exactly what W's live PIT reads, and V's mirror carries none of W's ratified rows.
+    W's mirror reads exactly what W's live PIT reads: a company catalyst stored under W reaches NO mirror (not
+    even W's), and the data tenant's catalyst reaches both, on the record and the public clock.
     """
     pytest.importorskip("duckdb")
     from replay.export import export_snapshot
     from replay.pit import ReplayPointInTimeData, connect_mirror
 
     sid, _ = two_workspaces
-    # fact_catalyst is the MIXED table the mirror reader carries an accessor for (the call path reads it)
+    # fact_catalyst is the platform table the call path reads; W's rows are poison rows (no V2 writer)
     _cat(db, sid, DATA_TENANT_ID, "CAT-FEED", "as the feed wrote it", 1)
     _cat(db, sid, W, "CAT-FEED", "as W ratified it", 2)
     _cat(db, sid, W, "CAT-W", "W only", 3)
@@ -396,10 +469,9 @@ def test_the_replay_mirror_applies_the_same_map(db, two_workspaces, tmp_path):
         },
     )
     db.commit()
-    want_w = {"CAT-FEED": "as W ratified it", "CAT-W": "W only"}
-    want_v = {"CAT-FEED": "as the feed wrote it"}
-    for ws, want in ((W, want_w), (V, want_v)):
-        # the live PIT reads the same union the mirror must reproduce
+    want = {"CAT-FEED": "as the feed wrote it"}
+    for ws in (W, V):
+        # the live PIT reads what the mirror must reproduce
         assert _cat_by_ref(_pit(db, ws).catalyst_facts(sid)) == want
         for clock in ("record", "public"):
             out = tmp_path / f"{ws}-{clock}"
