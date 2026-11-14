@@ -19,6 +19,7 @@ vi.mock("../../api/hooks", () => ({
   useExplainFlag: () => ({ ...h.explain, refetch: h.explainRefetch }),
 }));
 
+import { MeProvider } from "../../auth/me";
 import { FactsPanel } from "../FactsPanel";
 
 const AUTO_SHARES = {
@@ -798,5 +799,40 @@ describe("FactsPanel — the explainer's refusals", () => {
     expect(screen.getByText(/Couldn't reach the explainer/)).toHaveTextContent(
       "excerpt: String should have at most 4000 characters.",
     );
+  });
+});
+
+// V2: a share count or cash/burn value is the platform's (every workspace reads it), so only a steward sets one by
+// hand — the API answers 403 to a plain user. The panel offers a plain user no Confirm it would refuse; purity
+// stays every user's own.
+describe("FactsPanel — who may confirm a platform value (V2)", () => {
+  const me = (role: "user" | "super_admin") => ({
+    id: "u-1",
+    email: "someone@example.test",
+    display_name: "Someone Test",
+    role,
+    workspace_id: "00000000-0000-0000-0000-0000000000a1",
+  });
+
+  it("a plain user sees 'Set by the steward' for shares and cash/burn, and a Confirm for purity only", () => {
+    h.extract.data = env([AUTO_SHARES, FLAG_BURN, HUMAN_PURITY]);
+    render(
+      <MeProvider value={me("user")}>
+        <FactsPanel securityId={SID} />
+      </MeProvider>,
+    );
+    expect(screen.getAllByText("Set by the steward.")).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: "Confirm" })).toHaveLength(1); // the purity row
+  });
+
+  it("a steward keeps every Confirm", () => {
+    h.extract.data = env([AUTO_SHARES, FLAG_BURN, HUMAN_PURITY]);
+    render(
+      <MeProvider value={me("super_admin")}>
+        <FactsPanel securityId={SID} />
+      </MeProvider>,
+    );
+    expect(screen.queryByText("Set by the steward.")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Confirm" })).toHaveLength(3);
   });
 });
