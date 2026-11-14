@@ -202,6 +202,7 @@ def test_the_one_reader_of_the_stored_cash_fact_is_the_runway_meter():
         r for r in paths if r.startswith(("dashboards/", "app/routers/dashboards/"))
     ]  # a dashboard's compute and its router are both leaves (test_isolation.py)
     assert [r for r in paths if r not in display_only] == [
+        "platform_values/state.py",  # V2 W2a: the state read, through the meters' own accessor
         "signals/base.py",  # the accessor's own definition on the concrete point-in-time view
         "workbench/scoring.py",  # _runway — the runway meter
     ]

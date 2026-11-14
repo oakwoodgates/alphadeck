@@ -28,6 +28,7 @@ from typing import Any, Literal, NamedTuple
 
 from domain.market_cap import CapTier, cap_tier
 from domain.market_time import EDGAR_OPEN, edgar_night, market_tz
+from domain.platform_values import pick_current
 from domain.splits import ListedSplit, scale_after
 from signals.display.base import DisplayMetric, DisplaySignal
 
@@ -234,7 +235,7 @@ def pick_shares(
     Board's pick), else the filing cover's (``cover_shares``, judged against ``asof``), else none.
     """
     if workbench_facts:
-        best = max(workbench_facts, key=lambda f: f["valid_from"])
+        best = pick_current(workbench_facts)  # THE one pick (domain.platform_values, D1 a)
         shares = {k: best.get(k) for k in ("shares", "valid_from", "ads_ratio", "ads_ratio_status")}
         return SharesPick(shares, "workbench")
     cover = cover_shares(fundamentals_rows, asof)
@@ -306,7 +307,7 @@ def shares_at_event(
         and edgar_night(public) < event_date
     ]
     if known:
-        newest = max(known, key=lambda f: f["valid_from"])
+        newest = pick_current(known)  # THE one pick over the counts public before the event
         shares = {
             k: newest.get(k) for k in ("shares", "valid_from", "ads_ratio", "ads_ratio_status")
         }

@@ -81,6 +81,7 @@ from domain.insider_holds import (
     owed_flag_reason,
 )
 from domain.market_time import market_tz
+from domain.platform_values import pick_current
 from domain.settings import get_settings
 from domain.split_hold import COVER_SESSIONS, Hold, hold_for, nearby
 from domain.splits import (
@@ -1077,7 +1078,7 @@ def read_flags(
     out: dict[UUID, MemberFlags] = {}
     for sid in ids:
         shares_facts = pit.shares_outstanding_facts(sid)
-        shares = max(shares_facts, key=lambda f: f["valid_from"]) if shares_facts else None
+        shares = pick_current(shares_facts)  # THE one pick (domain.platform_values)
         reading = (readings or {}).get(sid) if live else None
         out[sid] = member_flags(
             sid,

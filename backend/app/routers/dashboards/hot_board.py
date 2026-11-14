@@ -63,6 +63,7 @@ from domain.enums import Grade, Kind, State, Verdict
 from domain.links import HttpUrlOut
 from domain.market_cap import CapTier
 from domain.market_time import countdown_origin, market_clock, serve_view
+from domain.platform_values import pick_current
 from domain.scopes import DATA_TENANT_ID
 from domain.splits import listed_from_row
 from domain.text_types import AsofDate
@@ -376,7 +377,7 @@ def read_tape(
     shares_facts = pit.shares_outstanding_facts(sid)
     shares = None
     if shares_facts:
-        best = max(shares_facts, key=lambda f: f["valid_from"])
+        best = pick_current(shares_facts)  # THE one pick (domain.platform_values)
         shares = {k: best.get(k) for k in ("shares", "valid_from", "ads_ratio", "ads_ratio_status")}
     cap = cap_cell(
         CompanyReads(

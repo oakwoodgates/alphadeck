@@ -69,7 +69,9 @@ router = APIRouter(prefix="/track-record")
 READ_CHUNK = 40
 
 # The share-fact columns the cap reads; the rest of the row is dropped as the view is read.
-# F9: ``filing_accepted`` / ``recorded_at`` say when a count was PUBLIC (``dashboards.market_cap.share_public_at``)
+# F9: ``filing_accepted`` / ``recorded_at`` say when a count was PUBLIC (``dashboards.market_cap.share_public_at``);
+# ``id`` / ``ingested_at`` (the store write on a history read) break a same-date tie in the one pick (V2 W2a,
+# ``domain.platform_values.pick_current``: the newest write wins)
 SHARE_COLUMNS = (
     "shares",
     "valid_from",
@@ -77,6 +79,8 @@ SHARE_COLUMNS = (
     "ads_ratio_status",
     "filing_accepted",
     "recorded_at",
+    "ingested_at",
+    "id",
 )
 # The filing-cover columns the cap's fallback reads (``dashboards.market_cap.shares_at_event``): ``accepted`` /
 # ``valid_from`` say when a cover row was PUBLIC (``cover_public_at``); the rest is ``cover_shares``' input.

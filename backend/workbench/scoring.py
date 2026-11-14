@@ -15,6 +15,7 @@ from typing import Any
 
 from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.enums import Grade
+from domain.platform_values import pick_current
 from domain.signal import Provenance
 from domain.splits import applicable, listed_from_row, scale_after
 from domain.thesis import BasketMember, Thesis
@@ -102,7 +103,7 @@ def _runway(pit: PointInTimeData, sid, cfg: CallConfig) -> ScoredFigure:
     facts = pit.cash_burn_facts(sid)
     if not facts:
         return ScoredFigure()  # "—": no cash/burn data
-    best = max(facts, key=lambda f: f["valid_from"])
+    best = pick_current(facts)  # THE one pick (domain.platform_values, D1 a)
     cash, burn = float(best["cash_usd"]), float(best["quarterly_burn_usd"])
     prov = _prov(best, cash_usd=cash, quarterly_burn_usd=burn)
     if burn <= 0:  # cash-generative: no burn-funding risk -> the top pip, no finite months figure
@@ -186,7 +187,7 @@ def _market_cap(pit: PointInTimeData, sid) -> ScoredFigure:
     if not shares_facts and not prices:
         return ScoredFigure()  # "—": nothing on file
     if not prices:
-        sh = max(shares_facts, key=lambda f: f["valid_from"])
+        sh = pick_current(shares_facts)  # THE one pick (domain.platform_values, D1 a)
         awaiting = Provenance(
             source="computed",
             ref="market-cap:awaiting-price",
@@ -208,7 +209,7 @@ def _market_cap(pit: PointInTimeData, sid) -> ScoredFigure:
             },
         )
         return ScoredFigure(pips=None, value=None, provenance=[awaiting])
-    sh = max(shares_facts, key=lambda f: f["valid_from"])
+    sh = pick_current(shares_facts)  # THE one pick (domain.platform_values, D1 a)
     latest = prices[-1]  # price_history is sorted ascending by date
     price_prov = Provenance(
         source="price", ref=f"price:{latest['d']}", detail={"close": float(latest["close"])}

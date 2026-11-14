@@ -1,4 +1,15 @@
-"""SET-ASIDE VERSIONS (migration 0062) — the stored fact versions every read skips, defined ONCE.
+"""SET-ASIDE VERSIONS (migrations 0062 and 0205) — the stored fact versions every read skips, defined ONCE.
+
+TWO SOURCES feed the one registry below:
+
+1. ``fundamentals_set_aside`` (0062) for ``fact_fundamentals`` — the data-quality screen's judgments (below).
+2. ``platform_value_decision`` (0205, V2 W2a) for ``fact_shares_outstanding`` and ``fact_cash_burn`` — the fact
+   version a steward approve or correct wrote, once a later ``undo`` names that decision. The read then falls
+   back to the version the steward's replaced (the earlier version of the same filing, or the next pick across
+   filings). A dismiss or an undo writes no fact: their NULL ``fact_id`` is filtered out, or ``NOT IN`` would blank
+   every read.
+
+Every reader (below) already branches on ``has_set_aside``, so registering a table here is the whole change.
 
 A stored ``fact_fundamentals`` version the data-quality screen would have refused at ingest (#417's screen,
 ``ingest.fundamentals._label_series``), written by the OLD ingest before the screen existed, is named in the
@@ -37,10 +48,36 @@ ACTIVE_SQL = (
     "AND NOT EXISTS (SELECT 1 FROM fundamentals_set_aside r WHERE r.revokes = s.id)"
 )
 
-# The fact tables a set-aside can name -> the ids of their ACTIVE set-aside versions. Only fundamentals today.
+# The fact tables a set-aside can name -> the ids of their ACTIVE set-aside versions: fundamentals (0062), and the
+# two platform value tables (0205, ``_undone_steward_writes``).
 _SET_ASIDE_IDS: dict[str, str] = {
     "fact_fundamentals": f"SELECT s.fact_id FROM fundamentals_set_aside s WHERE {ACTIVE_SQL}",
 }
+
+
+def _undone_steward_writes(fact_type: str, *, at: bool = False) -> str:
+    """THE SECOND SOURCE (V2 W2a, migration 0205): the fact versions written by a steward approve or correct that a
+    later ``undo`` names. Only non-NULL ``fact_id`` s are selected: a dismiss or an undo wrote no fact (NULL), and a
+    NULL inside ``NOT IN`` makes the test never true, which would blank EVERY read of the table. ``at`` = the cut
+    form (``{at}``, the caller's bound placeholder): the decision AND its undo were both recorded by the cut.
+    """
+    cut_d = " AND d.recorded_at <= {at}" if at else ""
+    cut_u = " AND u.recorded_at <= {at}" if at else ""
+    return (
+        "SELECT d.fact_id FROM platform_value_decision d "
+        f"WHERE d.fact_type = '{fact_type}' AND d.action IN ('approve', 'correct') "
+        f"AND d.fact_id IS NOT NULL{cut_d} "
+        "AND EXISTS (SELECT 1 FROM platform_value_decision u "
+        f"WHERE u.revokes = d.id AND u.action = 'undo'{cut_u})"
+    )
+
+
+# The two platform value tables (``domain.platform_values.TABLE_OF``): their set-asides are undone steward writes.
+_PLATFORM_VALUE_TYPES: dict[str, str] = {
+    "fact_shares_outstanding": "shares_outstanding",
+    "fact_cash_burn": "cash_burn",
+}
+_SET_ASIDE_IDS.update({t: _undone_steward_writes(ft) for t, ft in _PLATFORM_VALUE_TYPES.items()})
 
 
 def has_set_aside(table: str) -> bool:
@@ -64,6 +101,9 @@ _SET_ASIDE_IDS_AT: dict[str, str] = {
         "WHERE r.revokes = s.id AND r.recorded_at <= {at})"
     ),
 }
+_SET_ASIDE_IDS_AT.update(
+    {t: _undone_steward_writes(ft, at=True) for t, ft in _PLATFORM_VALUE_TYPES.items()}
+)
 
 
 def active_ids(table: str, *, at: sql.Composable | None = None) -> sql.Composable:
@@ -80,7 +120,8 @@ def exclusion_sql(
 ) -> sql.Composable:
     """`` AND <id> NOT IN (<active set-aside ids>)`` for ``table`` (``<id>`` qualified by ``alias`` when the read
     aliases the table), else the empty SQL — appended to a read's WHERE, so a table with no set-aside reads
-    byte-for-byte as before. ``fact_id`` is NOT NULL, so ``NOT IN`` is exact (no NULL trap). ``at`` (a bound
+    byte-for-byte as before. Every registered list selects only non-NULL ids (``fundamentals_set_aside.fact_id``
+    is NOT NULL; the steward source filters ``fact_id IS NOT NULL``), so ``NOT IN`` is exact (no NULL trap). ``at`` (a bound
     placeholder, the freeze ceiling's) judges the set-asides as they stood at that cut (``active_ids``); with
     ``at`` = None the SQL is byte-for-byte what it was before the ceiling existed."""
     if table not in _SET_ASIDE_IDS:

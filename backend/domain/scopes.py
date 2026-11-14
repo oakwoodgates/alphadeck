@@ -290,3 +290,10 @@ SCOPE_OF["extraction_candidate"] = Scope.DATA
 SCOPE_OF["steward_pin"] = Scope.DATA
 UNSCOPED_TABLES["value_flag"] = "user-keyed"
 # --- end V2 W1b block ----------------------------------------------------------------------------------------
+
+
+# --- V2 W2a: the steward's decisions on platform values (migration 0205) -------------------------------------
+# Additive block. ``platform_value_decision`` (approve / correct / dismiss / undo of a share count or cash/burn)
+# carries the data tenant's id, like the candidates and pins it decides on.
+SCOPE_OF["platform_value_decision"] = Scope.DATA
+# --- end V2 W2a block ----------------------------------------------------------------------------------------
