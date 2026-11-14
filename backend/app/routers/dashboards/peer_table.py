@@ -52,6 +52,7 @@ from dashboards.peer_table import peer_table as compute_peer_table
 from domain.enums import ContextRole
 from domain.market_cap import CapTier
 from domain.market_time import serve_view
+from domain.platform_values import pick_current
 from domain.scopes import DATA_TENANT_ID
 from domain.splits import listed_from_row
 from domain.text_types import AsofDate, Line
@@ -441,7 +442,7 @@ def read_company(
     shares_facts = pit.shares_outstanding_facts(sid)
     shares = None
     if shares_facts:
-        best = max(shares_facts, key=lambda f: f["valid_from"])
+        best = pick_current(shares_facts)  # THE one pick (domain.platform_values)
         shares = {k: best.get(k) for k in ("shares", "valid_from", "ads_ratio", "ads_ratio_status")}
     cash_facts = pit.cash_burn_facts(sid)
     price = flag is None
@@ -468,7 +469,7 @@ def read_company(
             for r in pit.fundamentals_facts(sid)
             if r["metric_key"] == "revenue"
         ),
-        cash_burn=max(cash_facts, key=lambda f: f["valid_from"]) if cash_facts else None,
+        cash_burn=pick_current(cash_facts),  # THE one pick (domain.platform_values)
         dilution=tuple(pit.dilution_facts(sid)),
         mix=tuple(pit.revenue_mix_facts(sid)),
         range_52w=read(range52w.MEMBER_NAME) if price else None,
