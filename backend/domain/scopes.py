@@ -223,3 +223,50 @@ def assert_data_tenant(conn: Any) -> None:
             f"tenant {DATA_TENANT_ID} is kind={kind!r}, not 'data' — migration 0076 marks it; "
             "refusing to run with no data tenant"
         )
+
+
+# --- V2 W0a: one owner per table (the ownership registry) ---------------------------------------------------
+# Additive block (V2 PR 1). ``SCOPE_OF`` names every table that carries ``tenant_id``; ``UNSCOPED_TABLES`` names
+# every table that does not, so together they name EVERY table the schema has (``tests/db/test_scopes.py`` parses
+# the migrations and fails on a table named in neither or in both). The cutover dry run
+# (``python -m pipeline.v2_cutover plan``) reads the live table list and refuses (exit 2) on any table not named
+# here. ``"platform"`` = one row set for the whole platform; ``"user-keyed"`` = rows keyed by a user (``app_user``).
+UNSCOPED_TABLES: dict[str, str] = {
+    # --- platform ----------------------------------------------------------------------------------------
+    "tenant": "platform",
+    "sec_request_budget": "platform",
+    "schema_migrations": "platform",  # created by db/migrate.py, not by a migration
+    # --- user-keyed --------------------------------------------------------------------------------------
+    "app_user": "user-keyed",
+    "user_session": "user-keyed",
+    "api_token": "user-keyed",
+    "user_meta": "user-keyed",
+    "oauth_client": "user-keyed",
+    "oauth_consent": "user-keyed",
+    "oauth_grant": "user-keyed",
+    "oauth_code": "user-keyed",
+    "oauth_access_token": "user-keyed",
+    "oauth_refresh_token": "user-keyed",
+    "user_action_count": "user-keyed",
+}
+
+# The owner a scope means: DATA rows belong to the platform, WORKSPACE rows to a user's workspace.
+_OWNER_OF_SCOPE: dict[Scope, str] = {Scope.DATA: "platform", Scope.WORKSPACE: "user"}
+
+
+def owner_of(table: str) -> str:
+    """Who owns ``table``'s rows: ``"platform"`` (a DATA table, or an unscoped platform table), ``"user"`` (a
+    WORKSPACE table), ``"user-keyed"`` (an unscoped table keyed by a user), or the scope's own name for any other
+    scope. A table named nowhere raises ``KeyError`` naming the file to edit."""
+    scope = SCOPE_OF.get(table)
+    if scope is not None:
+        return _OWNER_OF_SCOPE.get(scope, scope.value)
+    if table in UNSCOPED_TABLES:
+        return UNSCOPED_TABLES[table]
+    raise KeyError(
+        f"table {table!r} has no owner - name it in domain.scopes (SCOPE_OF if it carries tenant_id, "
+        "else UNSCOPED_TABLES)"
+    )
+
+
+# --- end V2 W0a block ---------------------------------------------------------------------------------------

@@ -424,3 +424,51 @@ def test_the_replay_mirror_applies_the_same_map(db, two_workspaces, tmp_path):
                     assert pit.insider_txns(sid) == []
             finally:
                 con.close()
+
+
+# --- V2 W0a: one owner per table (domain.scopes.UNSCOPED_TABLES + owner_of) ---------------------------------
+# Additive block (V2 PR 1). The cutover dry run (pipeline.v2_cutover) fails closed on any table this map does not
+# name, so the map must name EVERY table, not only the tenant-bearing ones.
+
+
+def _every_created_table() -> set[str]:
+    """Every table a migration creates (temporary tables aside), plus ``schema_migrations`` (``db/migrate.py``
+    creates it, not a migration)."""
+    out = {"schema_migrations"}
+    for path in sorted(_MIGRATIONS.glob("*.sql")):
+        sql = re.sub(r"--[^\n]*", "", path.read_text(encoding="utf-8"))
+        for m in re.finditer(
+            r"CREATE\s+(TEMP\s+|TEMPORARY\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)", sql, re.I
+        ):
+            if not m.group(1):
+                out.add(m.group(2).lower())
+    return out
+
+
+def test_every_table_has_one_owner():
+    """Each table is in exactly one of ``SCOPE_OF`` (it carries ``tenant_id``) or ``UNSCOPED_TABLES`` (it does
+    not), and together they name every table the schema has."""
+    from domain.scopes import UNSCOPED_TABLES
+
+    tables = _every_created_table()
+    # the parse found the schema (66 tables at 0084, plus schema_migrations)
+    assert len(tables) >= 67
+    assert set(SCOPE_OF) & set(UNSCOPED_TABLES) == set(), "a table has two owners"
+    named = set(SCOPE_OF) | set(UNSCOPED_TABLES)
+    assert tables - named == set(), "name these in domain.scopes (SCOPE_OF or UNSCOPED_TABLES)"
+    assert named - tables == set(), "domain.scopes names tables no migration creates"
+    assert set(UNSCOPED_TABLES.values()) <= {"platform", "user-keyed"}
+
+
+def test_owner_of_names_the_file_to_edit():
+    from domain.scopes import owner_of
+
+    with pytest.raises(KeyError, match=r"domain\.scopes"):
+        owner_of("no_such")
+    assert owner_of("fact_price_eod") == "platform"
+    assert owner_of("thesis") == "user"
+    assert owner_of("tenant") == "platform"
+    assert owner_of("app_user") == "user-keyed"
+
+
+# --- end V2 W0a block ------------------------------------------------------------------------------------
