@@ -597,6 +597,15 @@ export function Admin({ header }: Props) {
                 user can open them; move or archive them
               </div>
             )}
+            {/* V2 W0b — share counts and cash/burn left in a workspace. V2 reads both from the data tenant only,
+                so the count should be 0 once the V2 move has run; LOUD only when it is not. Rendered only then;
+                an older backend omits the field. */}
+            {(status.platform_rows_in_workspaces ?? 0) > 0 && (
+              <div className="adm-line adm-loud" data-testid="adm-platform-rows-in-workspaces">
+                {status.platform_rows_in_workspaces} share-count or cash/burn row(s) sit in a workspace; V2
+                reads none of them. Run <code>python -m pipeline.v2_cutover move-platform-facts --apply</code>.
+              </div>
+            )}
             {/* editions S5 — the Scoreboard editions' nightly page job, as the backend's one line (which
                 edition, which night, held theses, the self-check). QUIET — the normal night is not news —
                 and louder only when the self-check found a real mismatch or the job crashed (attention).
