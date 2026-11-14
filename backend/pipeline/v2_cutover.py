@@ -60,6 +60,9 @@ CUTOVER_ACTION["extraction_candidate"] = "keep"
 CUTOVER_ACTION["steward_pin"] = "keep"
 CUTOVER_ACTION["value_flag"] = "keep"
 # --- end V2 W1b block ----------------------------------------------------------------------------------------
+# --- V2 W2a: the steward decision table (migration 0205) is new and empty at cutover: kept, named explicitly ---
+CUTOVER_ACTION["platform_value_decision"] = "keep"
+# --- end V2 W2a block ----------------------------------------------------------------------------------------
 
 # The tables with a DEDICATED rule (5-9 below): the generic owner rules (3, 4) skip them, so each finding is
 # reported once, by its most specific sentence, before and after V2 PR 3 changes their scope.

@@ -389,3 +389,21 @@ def test_the_v2_w1b_tables_are_owned_and_kept(db, capsys, tmp_path):
 
 
 # --- end V2 W1b block ----------------------------------------------------------------------------------------
+
+
+# --- V2 W2a: the steward decision table (migration 0205) -----------------------------------------------------
+
+
+def test_the_v2_w2a_decision_table_is_owned_and_kept(db, capsys, tmp_path):
+    """The dry run names ``platform_value_decision`` (new and empty at cutover) as platform data, kept."""
+    assert C.CUTOVER_ACTION["platform_value_decision"] == "keep"
+    code = C.main(["plan", "--json", str(tmp_path / "plan.json")])
+    capsys.readouterr()
+    assert code in (0, 1)  # never a fatal (2): the table is named in domain.scopes
+    doc = json.loads((tmp_path / "plan.json").read_text(encoding="utf-8"))
+    rows = {t["name"]: t for t in doc["tables"]}
+    row = rows["platform_value_decision"]
+    assert (row["owner"], row["plan"]) == ("platform", "keep")
+
+
+# --- end V2 W2a block ----------------------------------------------------------------------------------------

@@ -564,3 +564,16 @@ def test_the_v2_w1b_tables_have_their_owners():
 
 
 # --- end V2 W1b block ------------------------------------------------------------------------------------
+
+
+# --- V2 W2a: the steward decision table (migration 0205) -----------------------------------------------------
+
+
+def test_the_v2_w2a_decision_table_is_platform_data():
+    from domain.scopes import owner_of
+
+    assert SCOPE_OF["platform_value_decision"] is Scope.DATA
+    assert owner_of("platform_value_decision") == "platform"
+
+
+# --- end V2 W2a block ----------------------------------------------------------------------------------------
