@@ -6,7 +6,11 @@
 > `backend/domain/scopes.py` (the map), migration `0076_tenant_kind.sql` (the `tenant.kind` marker), migration
 > `0078_founding_workspace.sql` (the founding workspace and the move out of the data tenant).
 >
-> **The trust claim is isolation PROVEN, not a tenant row.** A workspace's ratified judgment must never appear in
+> **V2 (the `v2` branch, W1a):** two scopes, no MIXED. Share counts, cash/burn and company catalysts are platform
+> data (DATA): one value per company, read by every workspace, set by hand by a steward only. Purity is the
+> workspace's own (WORKSPACE). Every read names ONE tenant per table.
+>
+> **The trust claim is isolation PROVEN, not a tenant row.** A workspace's own judgment must never appear in
 > another workspace's read, and a stray row under a workspace must never enter a shared DATA read; that is
 > certified structurally by `tests/db/test_scopes.py` and the poison-row test `tests/db/test_tenant_isolation.py`.
 
@@ -19,9 +23,8 @@ scopes**, chosen PER TABLE by one map, `domain.scopes.SCOPE_OF`:
 
 | Scope | What lives there | Who writes | Who reads |
 |---|---|---|---|
-| **DATA** (one shared tenant) | `security_master`, every ingested fact (`fact_insider_txn`, `fact_price_eod`, `fact_dilution`, `fact_fundamentals`, `fact_corporate_event`, `fact_activist_stake`, `fact_fund_shares`, `fact_spac_event`, `fact_filing_index`, `fact_fund_filing` / `_series` / `_symbol`), the split / ticker / CIK history, `security_onboarding`, the price-feed repairs, the Form 4/A tables and their decisions, `insider_txn_hold` (the insider rows held for an impossible date) and `insider_txn_hold_decision` (a steward's decision about one), `fundamentals_set_aside`, `split_jump_dismissal`, `data_repair`, `security_change` (the dashboards' per-company change stamp) | the nightly, the on-promote ingest, the onboarding job, the weekly jobs, the repair CLIs, the Admin panels, the steward's Workbench writes to the master (the business-type re-tag, Surface an ETF); never a plain user's request (`AUTH.md`) | every workspace |
-| **WORKSPACE** (one per user) | `thesis` and its children (`basket_member`, `evidence`, `catalyst`, `kill_criterion`, `thesis_exclusion`, `basket_snapshot`), `calls`, `call_annotation`, `operator_decision`, the six `edition*` tables, `fact_theme_conviction`, `fact_term_mentions`, `fact_spac_match` | the owner (the app), and the nightly on the owner's behalf | the owner |
-| **MIXED** | `fact_revenue_mix`, `fact_cash_burn`, `fact_shares_outstanding`, `fact_catalyst` | a FEED row (`ratified_by IS NULL` — the DOE feed, the 8-K catalysts) → DATA; a RATIFIED row (the Workbench ratify) → the caller's workspace | a read unions DATA + the caller's workspace |
+| **DATA** (one shared tenant) | `security_master`, the platform values (`fact_shares_outstanding`, `fact_cash_burn`, `fact_catalyst`; V2), every ingested fact (`fact_insider_txn`, `fact_price_eod`, `fact_dilution`, `fact_fundamentals`, `fact_corporate_event`, `fact_activist_stake`, `fact_fund_shares`, `fact_spac_event`, `fact_filing_index`, `fact_fund_filing` / `_series` / `_symbol`), the split / ticker / CIK history, `security_onboarding`, the price-feed repairs, the Form 4/A tables and their decisions, `insider_txn_hold` (the insider rows held for an impossible date) and `insider_txn_hold_decision` (a steward's decision about one), `fundamentals_set_aside`, `split_jump_dismissal`, `data_repair`, `security_change` (the dashboards' per-company change stamp) | the nightly, the on-promote ingest, the onboarding job, the weekly jobs, the repair CLIs, the Admin panels, the steward's Workbench writes to the master (the business-type re-tag, Surface an ETF) and the steward's share-count and cash/burn confirm (V2), the machine auto-confirm (the server's own parse of a filing); never a plain user's typed value (`AUTH.md`) | every workspace |
+| **WORKSPACE** (one per user) | `thesis` and its children (`basket_member`, `evidence`, `catalyst`, `kill_criterion`, `thesis_exclusion`, `basket_snapshot`), `calls`, `call_annotation`, `operator_decision`, the six `edition*` tables, `fact_theme_conviction`, `fact_term_mentions`, `fact_spac_match`, `fact_revenue_mix` (purity; V2) | the owner (the app), and the nightly on the owner's behalf | the owner |
 
 The data tenant is `DATA_TENANT_ID = 00000000-…-0001` — the row 0001_init seeded, which migration 0076 marks
 `kind='data'` (renamed `platform`; a partial unique index allows exactly one). Every other `tenant` row is
@@ -30,12 +33,15 @@ makes one for a test). 0076 also added `tenant.notify_webhook`, a per-workspace 
 dropped it: the destination is now per USER, `user_meta.slack_webhook_url` (keyed on the user, no `tenant_id`; set
 on the Settings page; the nightly's notify reads every enabled user's of a workspace, `FEED_LOOP.md`).
 
-**Why a ratified fact is private (the MIXED rule).** A purity split, a cash-burn figure, a catalyst ratified from
-a filing, a hand-confirmed share count: these are a user's JUDGMENTS about a company. Two users may ratify
-different numbers; neither may feed the other's call (#4, #6), and a plain user must not poison the shared layer.
-So a ratify writes the caller's workspace, a feed writes DATA, and a read unions the two. The as-of read's
-latest-version pick (`DISTINCT ON (natural key) … ORDER BY recorded_at DESC, id DESC` — the natural key carries
-no tenant) resolves the union: a workspace's later ratification overrides the feed row for that workspace only.
+**Which value is whose (V2).** A share count, a cash/burn figure and a company catalyst are facts about a company
+that every workspace should read the same: they are platform data (DATA), read from the data tenant only, with no
+fallback to any workspace and no union. Only a steward sets a share count or a cash/burn value by hand
+(`POST /workbench/facts` answers 403 to a plain user); the machine auto-confirm (the server applying its own parse
+of a filing) and the ratify CLIs write the data tenant too. The Workbench company-catalyst form is retired on the
+branch (409); company catalysts move to the thesis's catalyst list (W6). A purity split is a user's JUDGMENT: two
+users may ratify different numbers, and neither may feed the other's view (#4, #6), so purity is WORKSPACE: written
+and read in the caller's workspace only. (Before V2 the four tables were MIXED: a ratify wrote the caller's
+workspace and a read unioned it with the data tenant.)
 
 **Today's state (after PR 2's move).** Every user has a private workspace. Migration 0078 created the **founding
 workspace** (`FOUNDING_WORKSPACE_ID = 00000000-…-0002`, `kind='workspace'`, a fixed id so the migration runs
@@ -55,8 +61,11 @@ cards into the founding workspace and their DATA facts into the data tenant.
 
 ## The seam — how a read names its scope
 
-- **`domain.scopes.tenants_for(table, *, data, workspace)`** — DATA → `(data,)`, WORKSPACE → `(workspace,)`,
-  MIXED → `(data, workspace)` (one id when the two are equal). The ONE place a table's scope is decided.
+- **`domain.scopes.tenants_for(table, *, data, workspace)`** — DATA → `(data,)`, WORKSPACE → `(workspace,)`:
+  always one id. The ONE place a table's scope is decided.
+- **`domain.scopes.require_write_tenant(table, tenant_id)`** — a writer of a DATA table refuses (`ValueError`) any
+  tenant but the data tenant, before it writes (`ingest_shares_outstanding`, `ingest_cash_burn`, `ingest_catalyst`
+  call it first): a row no read would ever see is refused, not written.
 - **The accessors take one tenant or several** (`db.bitemporal.as_of` / `as_of_many` / `as_of_thesis` /
   `fact_exists`, and the 4/A resolution in `db.insider_resolution`): `tenant_id = ANY(...)`. A single UUID works
   exactly as before.
@@ -77,11 +86,12 @@ cards into the founding workspace and their DATA facts into the data tenant.
   `DATA_TENANT_ID`, never `thesis.tenant_id`. A job that walks "every live basket" walks every workspace's baskets
   (a basket is a workspace's; the company it names is shared). `term_mentions` writes a WORKSPACE table: it runs once
   per workspace and writes each card's rows under that card's own workspace (`--workspace` scopes a hand run).
-- **The ratify path keeps the caller's tenant** (`POST /workbench/facts`, `/facts/auto-confirm`,
-  `pipeline.ratify_catalyst`, `pipeline.ratify_shares`): only their master lookups name the data tenant. The two
-  CLIs take a REQUIRED `--workspace <uuid>` (there is no deployment-wide default tenant: `ALPHADECK_TENANT_ID` and
-  `db.session.current_tenant_id` are retired); the data-layer CLIs (`populate_master`, `spac_sweep`,
-  `enrich_identity`) default to the data tenant.
+- **The ratify path (V2):** `POST /workbench/facts` writes purity under the caller's workspace and a share count or
+  cash/burn value (steward only) under the data tenant; `/facts/auto-confirm` writes the data tenant.
+  `pipeline.ratify_shares` and `pipeline.ratify_cash_burn` take no tenant and write the data tenant;
+  `pipeline.ratify_revenue_mix` takes a REQUIRED `--workspace <uuid>` (there is no deployment-wide default tenant:
+  `ALPHADECK_TENANT_ID` and `db.session.current_tenant_id` are retired). `pipeline.ratify_catalyst` is deleted. The
+  data-layer CLIs (`populate_master`, `spac_sweep`, `enrich_identity`) default to the data tenant.
 - **The boot assert** — `scopes.assert_data_tenant(conn)` raises `DataTenantMissing` when the `DATA_TENANT_ID` row
   is missing or not `kind='data'`. The API lifespan and every nightly pass call it; nothing defaults silently.
 
@@ -105,8 +115,9 @@ cards into the founding workspace and their DATA facts into the data tenant.
   the job is that thesis's.
 - **The foreign-id guard.** `thesis_repo.upsert` refuses (`ThesisNotInWorkspace`) a thesis id that already exists
   under another tenant; the promote answers 404 "thesis not found", and the other workspace's row is untouched.
-- **The ratify is the caller's.** `POST /workbench/facts` writes the caller's workspace and stamps `ratified_by`
-  with the signed-in user's email (the auto-confirm keeps its honest `"auto"`).
+- **The ratify stamps the caller.** `POST /workbench/facts` stamps `ratified_by` with the signed-in user's email (the
+  auto-confirm keeps its honest `"auto"`); purity lands in the caller's workspace, a steward's share count or
+  cash/burn value in the data tenant (V2).
 - **The dashboard cache key carries the workspace**: `(workspace, slug, params, asof)`, required in
   `dashboards.cache.cached`, so a page computed for one workspace's cards is never served to another. The card
   loaders (`dashboards.baskets.picker_cards` / `cards_as_of` / `live_card_ids` / `price_flags` / `per_company`,
@@ -150,26 +161,31 @@ it): a read there names `DATA_TENANT_ID` or the caller's workspace.
 ## The isolation proof
 
 - `tests/db/test_scopes.py` — the map's completeness; the migration and the boot assert; with workspaces W and V
-  (neither is `…0001`): a MIXED read with `(DATA, W)` returns the data row AND W's row, latest-wins across them; a
-  DATA read ignores a row stored under W; a WORKSPACE read ignores a row stored under DATA; V sees none of W's rows;
+  (neither is `…0001`): every table names one tenant; share counts, cash/burn and company catalysts read the data
+  tenant only (a row under W reaches neither W nor V, on the per-security read, the prefetch, the public clock and
+  `as_of_many`); purity reads the workspace only; a DATA read ignores a row stored under W; a WORKSPACE read ignores a row stored under DATA; V sees none of W's rows;
   `fact_exists` honors the same lists; the memo keys on the scope; the replay mirror applies the same map.
 - `tests/db/test_0078_founding_workspace.py` — the move on old-shape rows (a thesis, its members, a snapshot, a
   call, a decision, a ratified row, a feed row, a user): every workspace row and the ratified row land in `…0002`,
   the feed row stays DATA, the user moves; a second run changes nothing; the `app_user` trigger refuses the data
-  tenant; the SQL's table and trigger lists equal `SCOPE_OF` and the live catalog.
+  tenant; the SQL's table lists equal the 19 + 4 tables 0078 moved (pinned as literals since V2) and its trigger
+  list the live catalog.
 - `tests/app/test_workspace_isolation.py` — the two-user proof with REAL users and session cookies (no gate
   override) on three workspaces, none of them `…0001`: B lists no theses; EVERY `{thesis_id}` operation in the
   schema answers 404 for A's id; every list / dashboard GET answers 200 and carries neither A's id nor A's name; a
   cached dashboard page is never served across workspaces; B's promote carrying A's id is a 404; B's own card on the
-  same company reads the shared bars and none of A's ratified fact; every row B writes carries B's workspace; the
+  same company reads the shared bars and none of A's ratified fact; every row B writes carries B's workspace, and no
+  DATA-scope row sits under a user workspace; a plain user's share-count or cash/burn confirm is a 403 that writes no
+  row, the steward's lands in the data tenant and A reads it, a plain user's purity stays private, and the
+  company-catalyst form answers 409; the
   super admin sees no other workspace's card and the Admin readouts name it as ids only; the system principal's
   header; a steward who sits on a workspace (not the data tenant) lists and confirms a data-tenant split and reads the
   data tenant's onboarding queue; and the grep guards (`WORKSPACE_ANY` never appears under `app/`, `dashboards/` or
   the route-facing radar modules; `DEFAULT_TENANT_ID` nowhere under `app/`, `dashboards/`, `radar/`; `get_workspace`
   in no admin router; `get_current_tenant` nowhere).
 - `tests/db/test_tenant_isolation.py` — (a) read isolation on both axes; (b) an empty workspace re-derives to an
-  honest Incubating from DATA facts alone, never another workspace's ratified rows; (c) a workspace thesis arms off
-  DATA facts + its own ratified rows and cites only what it can see; (d) the call of record lands in the thesis's
+  honest Incubating from DATA facts alone, and a company catalyst stored under a workspace reaches no card; (c) a
+  workspace thesis arms off DATA facts and cites only what it can see; (d) the call of record lands in the thesis's
   workspace; the smoke runs the whole cut on the identical path; and every DATA read surface (the master, the 8-K /
   13D tapes, the prefetch, the split list, the onboarding queue, the worklists) reads the data tenant and never a
   stray workspace row.

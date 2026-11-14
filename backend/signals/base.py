@@ -98,8 +98,8 @@ class PointInTimeData:
         clock: Clock = "record",
     ) -> None:
         """``data_tenant`` (default ``DATA_TENANT_ID``) is the shared DATA scope — the master, every ingested
-        fact, the split list; ``workspace`` is the caller's WORKSPACE — the thesis-scoped facts and the
-        workspace's own ratified rows of a MIXED table. Each fact read names its tenants through
+        fact, the split list, and (V2) the share counts, cash/burn and company catalysts; ``workspace`` is the
+        caller's WORKSPACE — the thesis-scoped facts and purity. Each fact read names ONE tenant through
         ``domain.scopes.tenants_for`` (docs/TENANT_SCOPES.md).
 
         ``workspace`` is REQUIRED (auth PR 2 removed the ``tenant_id=`` transition alias): a request names the
@@ -143,7 +143,7 @@ class PointInTimeData:
 
     def _tenants(self, table: str) -> tuple[UUID, ...]:
         """The tenants a read of ``table`` covers — the ONE map (``domain.scopes.tenants_for``): the data
-        tenant for a DATA table, the workspace for a WORKSPACE table, both for a MIXED one."""
+        tenant for a DATA table, the workspace for a WORKSPACE table (one tenant per table, V2)."""
         return tenants_for(table, data=self.data_tenant, workspace=self.workspace)
 
     def _rows(self, table: str, security_id: UUID) -> list[dict[str, Any]]:
@@ -343,15 +343,15 @@ class PointInTimeData:
         return self._rows("fact_activist_stake", security_id)
 
     def revenue_mix_facts(self, security_id: UUID) -> list[dict[str, Any]]:
-        """Workbench purity basis — operator-ratified revenue-mix facts (10-K segments), as-of."""
+        """Workbench purity basis — revenue-mix facts (10-K segments) the workspace ratified, as-of (WORKSPACE)."""
         return self._rows("fact_revenue_mix", security_id)
 
     def shares_outstanding_facts(self, security_id: UUID) -> list[dict[str, Any]]:
-        """Workbench market-cap basis — operator-ratified shares-outstanding facts (10-Q), as-of."""
+        """Workbench market-cap basis — the platform's shares-outstanding facts (10-Q), as-of (DATA)."""
         return self._rows("fact_shares_outstanding", security_id)
 
     def cash_burn_facts(self, security_id: UUID) -> list[dict[str, Any]]:
-        """Workbench runway basis — operator-ratified cash + quarterly-burn facts (10-Q), as-of."""
+        """Workbench runway basis — the platform's cash + quarterly-burn facts (10-Q), as-of (DATA)."""
         return self._rows("fact_cash_burn", security_id)
 
     def fund_shares(self, security_id: UUID) -> list[dict[str, Any]]:

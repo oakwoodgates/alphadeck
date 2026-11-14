@@ -6,15 +6,16 @@ Every table that carries ``tenant_id`` belongs to exactly one scope, named here 
   migration 0076): the company master, every ingested fact, the split / ticker / CIK history, the onboarding
   queue, the price-feed repairs, the Form 4/A tables and their decisions, the held insider rows, the set-asides
   and the repair journal.
+  Since V2 it also holds the platform's share counts, cash/burn and company catalysts (``fact_shares_outstanding``
+  / ``fact_cash_burn`` / ``fact_catalyst``): one value per company for everyone, never a per-workspace copy.
   The feed writes it; everyone reads it.
 - **WORKSPACE** — one per user (a ``tenant`` row with ``kind='workspace'``; migration 0078 moved the founding
   operator's rows out of the data tenant into ``FOUNDING_WORKSPACE_ID``): the thesis and its children, the calls
-  of record, the annotations, the operator's decisions, the editions store, and the thesis-scoped facts.
-- **MIXED** — the four Workbench scoring-fact tables (``fact_revenue_mix`` / ``fact_cash_burn`` /
-  ``fact_shares_outstanding`` / ``fact_catalyst``): a FEED row lives in DATA, a RATIFIED row in the caller's
-  workspace, and a read unions the two. The as-of read's latest-version rule (``DISTINCT ON (natural key) ...
-  ORDER BY recorded_at DESC``) resolves the union: a workspace's later ratification overrides the feed row for
-  that workspace only.
+  of record, the annotations, the operator's decisions, the editions store, the thesis-scoped facts, and (since
+  V2) purity (``fact_revenue_mix``): a workspace's own judgment, read and written in that workspace only.
+
+V2 removed the third scope (MIXED, a read that unioned the data tenant and the workspace): every read names ONE
+tenant, and a writer of a DATA table writes the data tenant only (``require_write_tenant``).
 
 The map must grow with the schema: ``tests/db/test_scopes.py`` parses every migration and fails when a table
 with a ``tenant_id`` column is missing here. Nothing else may hard-code which tenant a table lives in — a read
@@ -40,7 +41,6 @@ FOUNDING_WORKSPACE_ID = UUID("00000000-0000-0000-0000-000000000002")
 class Scope(Enum):
     DATA = "data"
     WORKSPACE = "workspace"
-    MIXED = "mixed"
 
 
 SCOPE_OF: dict[str, Scope] = {
@@ -95,11 +95,11 @@ SCOPE_OF: dict[str, Scope] = {
     "fact_theme_conviction": Scope.WORKSPACE,
     "fact_term_mentions": Scope.WORKSPACE,
     "fact_spac_match": Scope.WORKSPACE,
-    # --- MIXED: a feed row in DATA, a ratified row in the workspace; a read unions the two ---------------
-    "fact_revenue_mix": Scope.MIXED,
-    "fact_cash_burn": Scope.MIXED,
-    "fact_shares_outstanding": Scope.MIXED,
-    "fact_catalyst": Scope.MIXED,
+    # --- V2 W1a: the four formerly-MIXED tables, one scope each (no read unions two tenants) ---------------
+    "fact_revenue_mix": Scope.WORKSPACE,  # purity: the workspace's own judgment
+    "fact_cash_burn": Scope.DATA,  # platform values: one per company, for everyone
+    "fact_shares_outstanding": Scope.DATA,
+    "fact_catalyst": Scope.DATA,
 }
 
 
@@ -114,15 +114,24 @@ def scope_of(table: str) -> Scope:
 
 
 def tenants_for(table: str, *, data: UUID, workspace: UUID) -> tuple[UUID, ...]:
-    """The tenant ids a read of ``table`` covers: DATA -> ``(data,)``, WORKSPACE -> ``(workspace,)``, MIXED ->
-    ``(data, workspace)`` — one id when the two are equal (today, before PR 2 moves the founding workspace).
+    """The tenant ids a read of ``table`` covers — always ONE: DATA -> ``(data,)``, WORKSPACE -> ``(workspace,)``.
+    A tuple (not a bare id) so the memo keys, ``as_tenants`` and the mirror export take it unchanged.
     """
-    scope = scope_of(table)
-    if scope is Scope.DATA:
+    if scope_of(table) is Scope.DATA:
         return (data,)
-    if scope is Scope.WORKSPACE:
-        return (workspace,)
-    return (data,) if data == workspace else (data, workspace)
+    return (workspace,)
+
+
+def require_write_tenant(table: str, tenant_id: UUID) -> None:
+    """Refuse a write of a DATA table under any tenant other than ``DATA_TENANT_ID`` (``ValueError``): every read
+    of a DATA table names the data tenant only, so such a row would be read by nobody. Called first by each
+    writer of a platform value. A WORKSPACE table is not checked (the test suite uses the data tenant as a
+    workspace). An unmapped table raises ``KeyError`` (``scope_of``)."""
+    if scope_of(table) is Scope.DATA and tenant_id != DATA_TENANT_ID:
+        raise ValueError(
+            f"{table} is platform data: it is written under the data tenant {DATA_TENANT_ID} only, "
+            f"not {tenant_id}"
+        )
 
 
 def as_tenants(tenants: UUID | Sequence[UUID]) -> tuple[UUID, ...]:
@@ -186,7 +195,7 @@ def resolve_scopes(*, data_tenant: UUID | None, workspace: UUID) -> tuple[UUID, 
     """``(data_tenant, workspace)`` for a point-in-time view (the live PIT and the replay mirror share it).
 
     ``workspace`` is REQUIRED and must be a tenant id: a view always names whose workspace rows (the thesis-scoped
-    facts, the ratified MIXED rows) it reads; ``None`` raises ``TypeError`` (auth PR 2 removed the PR 1
+    facts, purity) it reads; ``None`` raises ``TypeError`` (auth PR 2 removed the PR 1
     ``tenant_id=`` transition alias and the silent default). ``data_tenant`` unset is ``DATA_TENANT_ID``, the one
     shared data tenant."""
     if not isinstance(workspace, UUID):

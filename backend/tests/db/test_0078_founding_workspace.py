@@ -9,8 +9,9 @@ members, a roster snapshot, a call of record, an operator decision, a RATIFIED `
 - the user sits on ``...0002``;
 - a second execution changes nothing and its post-conditions still pass;
 - the ``app_user`` trigger refuses a user on ``...0001``;
-- the SQL's table list equals ``SCOPE_OF``'s WORKSPACE + MIXED tables, and every append-only trigger on those
-  tables is disabled and re-enabled by name.
+- the SQL's table list equals the 19 workspace tables and 4 then-MIXED tables 0078 moved (pinned as literals:
+  V2 changed the scope map since), and every append-only trigger on those tables is disabled and re-enabled by
+  name.
 
 DB-backed (the shared ``db`` fixture; skips when Postgres is unreachable). The test's transaction is rolled back.
 """
@@ -25,15 +26,41 @@ from pathlib import Path
 import psycopg
 import pytest
 
-from domain.scopes import DATA_TENANT_ID, FOUNDING_WORKSPACE_ID, SCOPE_OF, Scope
+from domain.scopes import DATA_TENANT_ID, FOUNDING_WORKSPACE_ID
 
 _SQL_PATH = (
     Path(__file__).resolve().parents[2] / "db" / "migrations" / "0078_founding_workspace.sql"
 )
 _SQL = _SQL_PATH.read_text(encoding="utf-8")
 
-_WORKSPACE_TABLES = sorted(t for t, s in SCOPE_OF.items() if s is Scope.WORKSPACE)
-_MIXED_TABLES = sorted(t for t, s in SCOPE_OF.items() if s is Scope.MIXED)
+# 0078 is history: the lists it moved are pinned as literals (V2 changed the scope map after it — the four
+# then-MIXED tables became DATA or WORKSPACE — so deriving them from SCOPE_OF would test today's map, not 0078).
+_WORKSPACE_TABLES = sorted(
+    (
+        "thesis",
+        "basket_member",
+        "evidence",
+        "catalyst",
+        "kill_criterion",
+        "thesis_exclusion",
+        "basket_snapshot",
+        "calls",
+        "call_annotation",
+        "operator_decision",
+        "edition",
+        "edition_event",
+        "edition_entry",
+        "edition_call",
+        "edition_outcome",
+        "edition_cause",
+        "fact_theme_conviction",
+        "fact_term_mentions",
+        "fact_spac_match",
+    )
+)
+_MIXED_TABLES = sorted(
+    ("fact_revenue_mix", "fact_cash_burn", "fact_shares_outstanding", "fact_catalyst")
+)
 _EDITION_TABLES = (
     "edition",
     "edition_event",

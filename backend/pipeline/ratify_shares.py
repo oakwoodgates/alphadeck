@@ -1,17 +1,17 @@
 """Operator-ratify a shares-outstanding fact — a CLI until the Workbench exists.
 
 The Workbench's market-cap figure = close × shares; the shares number is a SOURCED fact (the 10-Q cover /
-XBRL), never a typed guess.
+XBRL), never a typed guess. A share count is platform data (V2, docs/TENANT_SCOPES.md): the fact is written
+under the DATA tenant, read by every workspace, so the CLI takes no workspace.
 
     python -m pipeline.ratify_shares --ticker OKLO --shares 141000000 \
-        --source-url "https://www.sec.gov/...10-Q...cover" --date 2026-05-01 --workspace <uuid>
+        --source-url "https://www.sec.gov/...10-Q...cover" --date 2026-05-01
 """
 
 from __future__ import annotations
 
 import argparse
 from datetime import date
-from uuid import UUID
 
 from db.session import connect
 from domain.scopes import DATA_TENANT_ID
@@ -34,20 +34,11 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument(
         "--note", default=None, help="free-text provenance note (share-class composition / caveat)"
     )
-    p.add_argument(
-        "--workspace",
-        required=True,
-        help="the workspace the fact is written under (a ratified fact is that workspace's own; the company "
-        "resolves in the shared DATA master) -- the workspace id from `pipeline.users list`",
-    )
     a = p.parse_args(argv)
 
-    tenant_id = UUID(a.workspace)
     conn = connect()
     try:
-        sid = resolve_security(
-            conn, a.ticker, DATA_TENANT_ID
-        )  # the master is DATA; the fact: --workspace
+        sid = resolve_security(conn, a.ticker, DATA_TENANT_ID)  # the master and the fact are DATA
         event_date = date.fromisoformat(a.date)
         # F9: the filing whose cover carries this count (cache only; none = the ratification instant stands)
         accession, accepted = shares_publication(
@@ -65,7 +56,7 @@ def main(argv: list[str] | None = None) -> None:
             event_date=event_date,
             note=a.note,
             ratified_by=a.by,
-            tenant_id=tenant_id,
+            tenant_id=DATA_TENANT_ID,
             filing_accession=accession,
             filing_accepted=accepted,
         )

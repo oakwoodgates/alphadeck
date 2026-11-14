@@ -4,7 +4,6 @@ import type {
   ScoredFigureOut,
   ScoredMemberOut,
 } from "../api/hooks";
-import { CatalystFactForm } from "./CatalystFactForm";
 import { FactsPanel } from "./FactsPanel";
 import { SleeveRail } from "./SleeveRail";
 import { silentLinkOptions, toggleMemberLink } from "./chainOps";
@@ -427,9 +426,9 @@ export function DDRail({
           <MeterProvenance key={key} meter={key} figure={figure(member)} />
         ))}
 
-        {/* the hand-authored conviction fact (Key-1) — the one meter input that has no extractor:
-            the operator logs a CITED verifiable event; the catalysts meter + the call consume it */}
-        <CatalystFactForm securityId={member.security_id} />
+        {/* V2: the company-catalyst form is retired on this branch (the route answers 409) — company catalysts
+            move to the thesis's catalyst list (W6). An honest line instead of a control that would be refused. */}
+        <div className="note">Company catalysts move to the thesis&apos;s catalyst list in V2.</div>
 
         <div className="dd-sub">Extract &amp; ratify the facts</div>
         <FactsPanel

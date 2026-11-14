@@ -5,7 +5,9 @@
 > model); read that first.
 >
 > **Status: BUILT** (was a design pass; now shipped). Two sources of catalyst facts exist: the
-> **operator-ratified bridge** (`ingest/catalyst.py`, `pipeline/ratify_catalyst.py`) and the **automated
+> **operator-ratified bridge** (`ingest/catalyst.py`; its CLI `pipeline/ratify_catalyst.py` and the Workbench form
+> are retired on the `v2` branch, where company catalysts are platform data and move to the thesis's catalyst
+> list) and the **automated
 > DOE/USASpending feed** (`ingest/doe/`, merged #37). The design sections (§1–§11) below are kept as the
 > rationale of record; the **Sign-off** block is the source of truth for what's built vs deferred.
 >
@@ -16,9 +18,10 @@
 ## Sign-off — what's built vs deferred
 
 **Built `[BUILT]`:**
-- **Operator-ratified bridge** — `ingest/catalyst.py` + `pipeline/ratify_catalyst.py`: a human ratifies a
-  specific event once (source URL + date + grade + horizon) → a `fact_catalyst` row. Still the path for
-  catalysts no automated feed covers.
+- **Operator-ratified bridge** — `ingest/catalyst.py` (+ `pipeline/ratify_catalyst.py` before V2): a human
+  ratifies a specific event once (source URL + date + grade + horizon) → a `fact_catalyst` row. On the `v2`
+  branch `fact_catalyst` is platform data (the data tenant only; a row under a workspace arms nothing), the CLI is
+  deleted and the Workbench form answers 409; hand-entered catalysts move to the thesis's catalyst list (W6).
 - **Automated DOE/USASpending feed** (#37) — `ingest/doe/`: the first automated catalyst source. Discovers
   DOE awards for a hand-curated entity allowlist, resolves them **exactly by `recipient_id`** (never fuzzy),
   fetches award detail, and derives grade + horizon deterministically. The broadened spike (§9) chose DOE

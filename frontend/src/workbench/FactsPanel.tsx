@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { apiErrorText } from "../api/errorText";
+import { useIsSteward } from "../auth/me";
 import { useExplainFlag, useExtract, useRatifyFact, type ExtractedFact } from "../api/hooks";
 import { refusalText } from "../api/refusals";
 import { AutoTextarea } from "./AutoTextarea";
@@ -201,6 +202,10 @@ function RatifyRow({
 }) {
   const ratify = useRatifyFact();
   const explain = useExplainFlag(candidate); // the LLM seam — FLAG only, an aid to the ratify (below)
+  // V2: a share count or cash/burn value is the platform's, shared by every workspace — only a steward sets it
+  // by hand (the server answers 403 to anyone else). Purity stays every user's own.
+  const steward = useIsSteward();
+  const stewardSets = candidate.fact_type !== "revenue_mix" && !steward;
   const auto = candidate.tier === "auto";
   const isFlag = candidate.tier === "flag";
   // The value was APPLIED by the machine (get-data auto-confirm) and no human vouched for it. This flips the
@@ -533,9 +538,13 @@ function RatifyRow({
       )}
 
       {ratify.isError && <div className="note err">Couldn't ratify — {errText(ratify.error)}.</div>}
-      <button type="button" className="wb-mini" onClick={onConfirm} disabled={confirmDisabled}>
-        {ratify.isPending ? "Saving…" : "Confirm"}
-      </button>
+      {stewardSets ? (
+        <div className="note">Set by the steward.</div>
+      ) : (
+        <button type="button" className="wb-mini" onClick={onConfirm} disabled={confirmDisabled}>
+          {ratify.isPending ? "Saving…" : "Confirm"}
+        </button>
+      )}
     </div>
   );
 }
