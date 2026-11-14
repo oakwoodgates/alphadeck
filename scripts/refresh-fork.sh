@@ -156,6 +156,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
   echo "  step (create) : docker exec <fork pg> psql -U $PGUSER -d postgres -c 'CREATE DATABASE $FORK_DB'"
   echo "  step (restore): docker exec -i <fork pg> psql -U $PGUSER -d $FORK_DB -f - < <dump>"
   echo "  step (migrate): docker exec <fork backend> python -m db.migrate   (the fork branch may be ahead of the dump)"
+  echo "  step (v2 move): docker exec <fork backend> python -m pipeline.v2_cutover move-platform-facts --apply   (V2: fails the refresh if it refuses)"
   if [ "$WITH_CACHE" -eq 1 ]; then
     echo "  step (cache)  : copy volume $PROD_APPDATA_VOL -> $FORK_APPDATA_VOL (read-only from prod) [DEFAULT ON]"
   else
@@ -218,6 +219,14 @@ docker exec -i "$FORK_PG" psql -U "$PGUSER" -d "$FORK_DB" -v ON_ERROR_STOP=1 -f 
 # Migrate forward: the fork branch may carry newer migrations than the prod dump. Idempotent.
 say "applying migrations forward (db.migrate) in the fork backend"
 docker exec "$FORK_BACKEND" python -m db.migrate || fail "db.migrate failed"
+
+# V2 (branch v2 only): move the founding workspace's share counts and cash/burn to the data tenant (and data-tenant
+# ratified purity to the founding workspace), the same relabel the V2 cutover runs on prod, so every re-seed
+# rehearses it. It refuses any database that is not a fork or test database, and fails this refresh when it
+# refuses. A stale fork image without the module fails here too: rebuild with `fork.sh up`. Remove in W10.
+say "V2: moving share counts and cash/burn to the data tenant (pipeline.v2_cutover move-platform-facts --apply)"
+docker exec "$FORK_BACKEND" python -m pipeline.v2_cutover move-platform-facts --apply \
+  || fail "the V2 move refused - this fork is NOT usable for V2 work until it runs clean (read its output above)"
 
 # Optional: copy prod's appdata cache (EDGAR/price/draft_runs) into the fork. Read-only mount of prod's
 # volume. DEFAULT ON (the caches are what a UA-less fork reads instead of the live SEC); --no-cache skips.
