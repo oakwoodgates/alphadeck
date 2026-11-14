@@ -1249,39 +1249,35 @@ export interface paths {
         put?: never;
         /**
          * Auto Confirm Fact
-         * @description Auto-apply a security's AUTO-tier shares count on get-data — REMOVING a ceremonial confirm, not a real one.
+         * @description Get-data's platform values (V2 W2b, approved D2 (a)): re-extract the company's filings and hand the result
+         *     to the MACHINE WRITER (``platform_values.machine.record_extraction``) for BOTH the share count and cash/burn.
          *
-         *     The AUTO shares confirm was never a human verification: the operator has no independent knowledge of a
-         *     share count and does not look one up, so clicking "Confirm" on a machine-reproduced cover figure rubber-
-         *     stamped it while recording ``ratified_by="operator"`` — provenance claiming a check that never happened.
-         *     This applies the value directly and stamps it ``ratified_by="auto"``, which is what actually occurred. The
-         *     REAL human check is downstream and unchanged: the operator reads the resulting MARKET CAP, a figure they do
-         *     have intuition for, and overrides the shares if it looks wrong.
+         *     Per value: a clean AUTO value is applied as a fact stamped ``ratified_by="auto"`` when its filing is strictly
+         *     newer than the value shown (D3 (a): even over a steward's value, unless the steward pinned the company, which
+         *     turns it into a candidate); a FLAGged value and a "nothing found" are recorded as CANDIDATES for the steward,
+         *     never as facts (no meter reads them); a value dated after today is never written (D1). Annual filers
+         *     (20-F/40-F) are read too (``extract_with_annual_fallback``, the extract route's own entry): their values are
+         *     always FLAG, so they become candidates. The top-level fields answer for the share count, ``cash_burn`` for
+         *     cash/burn; ``applied=False`` with its ``reason`` is a normal answer, never an error.
          *
-         *     WHY THIS IS NOT A #1/#3 VIOLATION: the written number is the extractor's deterministic reproduction of
-         *     filed companyfacts (the market-cap trust class) — never a model output, never a computed/``llm_proposed``
-         *     estimate. Estimates remain computed-on-read and MUST NOT become ``fact_*`` rows (see WORKBENCH_EXTRACTION.md);
-         *     nothing here touches that. The AUTO tier is exactly the unambiguous single-class, current-cover case —
-         *     anything ambiguous trips a FLAG and is excluded below.
+         *     WHY THIS IS NOT A #1/#3 VIOLATION: the written number is the extractor's deterministic reproduction of the
+         *     filing — never a model output, never an estimate. THE STRUCTURAL BOUND: the request carries NO value; the
+         *     server re-extracts (cache-first — get-data just warmed it) and writes its OWN parse.
          *
-         *     THE STRUCTURAL BOUND: the request carries NO value. The server re-extracts (cache-first — get-data just
-         *     warmed it) and writes its OWN parse, so no caller can inject a figure under the ``auto`` provenance.
+         *     THE LOCK: the extraction runs with the company FREE (no lock is ever held across an SEC call); the writer then
+         *     takes the company write lock, waiting at most ``Settings.ingest_lock_request_wait_s``, RE-READS what is on file
+         *     under it, writes both values in one transaction with the company's change stamp, and commits. Two clicks at
+         *     once write one value. While another writer holds the company: **409** naming the holder, nothing written. An
+         *     extraction failure (SEC unreachable, companyfacts missing) is a **502** and writes nothing — it is never
+         *     recorded as "nothing found".
          *
-         *     Four gates, each an honest ``applied=False`` rather than an error:
-         *     - the security must be in this tenant's master (fail-closed, like ``/facts``);
-         *     - ``already_on_file`` — ANY existing shares fact (auto or an operator override) -> no-op. This is the
-         *       idempotency guarantee (a re-run appends ZERO rows) AND the no-clobber guarantee;
-         *     - ``not_auto`` — a FLAGged candidate is the operator's to ratify; the machine never resolves a dual-class
-         *       sum or a stale cover;
-         *     - ``no_candidate`` / ``no_value`` — nothing to apply.
+         *     BOUNDED (security hardening PR 1b, unchanged in V2 until W3/W7): a plain user may run it only for a company on
+         *     one of their own cards (else 404, "This company is not on any of your cards. Add it to a card first.") and
+         *     within their daily auto-confirm allowance (``Settings.allowance_auto_confirm_per_day``, else 429 naming the
+         *     reset; the security rides in the body, so this route counts the request before the card check). A steward is
+         *     neither checked nor counted.
          *
-         *     BOUNDED (security hardening PR 1b): a plain user may auto-confirm only a company on one of their own cards
-         *     (else 404, "This company is not on any of your cards. Add it to a card first.") and within their daily
-         *     auto-confirm allowance (``Settings.allowance_auto_confirm_per_day``, else 429 naming the reset; the security
-         *     rides in the body, so this route counts the request before the card check). A steward is neither checked nor
-         *     counted.
-         *
-         *     PLATFORM DATA (V2): the count is written under the DATA tenant — one value per company, read by every
+         *     PLATFORM DATA (V2): every row is written under the DATA tenant — one value per company, read by every
          *     workspace — never under the caller's workspace.
          */
         post: operations["auto_confirm_fact_workbench_facts_auto_confirm_post"];
@@ -6548,11 +6544,10 @@ export interface components {
         Authorship: "system_drafted" | "operator_set" | "operator_edited";
         /**
          * AutoConfirmOut
-         * @description The outcome of an auto-confirm — honest about WHY nothing was written.
+         * @description The outcome of a get-data auto-confirm: the SHARE COUNT's result at the top level (the fields every caller
+         *     already reads) and the CASH/BURN result in ``cash_burn``.
          *
-         *     ``applied=False`` is a normal, expected result (a FLAGged name, a name already on file), never an error:
-         *     the caller fires this optimistically after get-data and the server decides. ``reason`` names which gate
-         *     stopped it so the UI (and a test) can tell "we declined to auto-apply" from "it failed".
+         *     A flagged or empty result is recorded as a CANDIDATE for the steward, never as a fact: it moves no meter.
          */
         AutoConfirmOut: {
             /** Applied */
@@ -6561,22 +6556,45 @@ export interface components {
              * Reason
              * @enum {string}
              */
-            reason: "applied" | "already_on_file" | "not_auto" | "no_candidate" | "no_value";
+            reason: "applied" | "already_on_file" | "older_than_on_file" | "after_today" | "pinned" | "not_auto" | "nothing_found";
             /** Fact Id */
             fact_id?: string | null;
+            /** Candidate Id */
+            candidate_id?: string | null;
+            cash_burn?: components["schemas"]["AutoConfirmPartOut"] | null;
+        };
+        /**
+         * AutoConfirmPartOut
+         * @description What get-data did with ONE platform value. ``applied=False`` is a normal, expected result, never an error;
+         *     ``reason`` says which rule decided. ``fact_id`` is set when a fact was written; ``candidate_id`` names the
+         *     candidate that stands for this result (``pinned`` / ``not_auto`` / ``nothing_found``; a repeat of the newest
+         *     candidate is not written again, and its id is returned).
+         */
+        AutoConfirmPartOut: {
+            /** Applied */
+            applied: boolean;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "applied" | "already_on_file" | "older_than_on_file" | "after_today" | "pinned" | "not_auto" | "nothing_found";
+            /** Fact Id */
+            fact_id?: string | null;
+            /** Candidate Id */
+            candidate_id?: string | null;
         };
         /**
          * AutoConfirmRequest
-         * @description Ask the server to auto-apply a security's AUTO-tier shares count (the get-data path).
+         * @description Ask the server to record a company's platform values from its filings (the get-data path, V2 W2b).
          *
-         *     NOTE WHAT IS **NOT** HERE: a value. The client cannot supply the number — it names a security and a
-         *     fact type, and the SERVER re-extracts and writes its OWN deterministic parse. That is the structural
-         *     bound (INVARIANT #3): an auto-applied fact can only ever be the extractor's reproduction of filed
-         *     companyfacts, so no client bug or caller can inject a figure under the ``auto`` provenance.
+         *     NOTE WHAT IS **NOT** HERE: a value. The client cannot supply a number — it names a security, and the SERVER
+         *     re-extracts and hands its OWN deterministic parse to the machine writer (``platform_values.machine``). That is
+         *     the structural bound (INVARIANT #3): an auto-applied fact can only ever be the extractor's reproduction of the
+         *     filing, so no client bug or caller can inject a figure under the ``auto`` provenance.
          *
-         *     ``fact_type`` is deliberately a ONE-value Literal: only the AUTO shares count is eligible. Purity is the
-         *     operator's edge (HUMAN, never auto-valued) and cash_burn stays a manual ratify — extending this is a
-         *     decision, not a parameter.
+         *     One call covers BOTH platform values, the share count and cash/burn (approved D2 (a)); ``fact_type`` stays the
+         *     one-value Literal it always was, so existing callers keep working. Purity is never touched (the operator's
+         *     edge: HUMAN, never auto-valued).
          */
         AutoConfirmRequest: {
             /**
