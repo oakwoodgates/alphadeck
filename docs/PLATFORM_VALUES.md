@@ -62,6 +62,35 @@ Then `domain.platform_values.derive_state` gives the state:
 `read_company` adds every stored version (with `set_aside`), the newest 20 candidates and the newest 50 decisions;
 `awaiting` lists the open flags the state says still wait, newest first.
 
+## The machine writer (W2b)
+
+`platform_values/machine.py`, `record_extraction(conn, security_id, result, *, wait_s, cache_dir=None, cik=None,
+today=None) -> {fact_type: MachineOutcome}`, is the only code that turns the deterministic extractor's parse into a
+platform value. It takes an `ExtractionResult` already fetched (no network inside) and, for each type:
+
+| Extractor result | What is written |
+|---|---|
+| AUTO with its number(s) | `machine_action` decides: a fact stamped `auto` (applied), a `flag` candidate with flag `pinned` (the company is pinned), or nothing: `already_on_file` (any stored version of the filing, set-aside ones too, so an undone approve is never re-applied), `older_than_on_file` (dated on or before the value shown), `after_today` (never shown, so never written) |
+| FLAG, or AUTO with no number | a `flag` candidate: raw values, flags, filing, date, located passages, ADS fields / statement currency |
+| no value of that type | a `nothing` candidate with the extractor's reason: cash/burn takes the runway reason first (`cash-generative`, `financials-in-exhibit`, `exhibit-ambiguous`, `statements-not-located`), then the result's (`no-annual-filing`, `cover-not-located`), else `no-candidate` |
+| an exception (SEC down, companyfacts 404) | nothing: the caller never gets a result to record |
+
+A strictly newer filing is applied over a verified value unless the company is pinned (D3 (a)). A candidate that
+repeats the newest candidate for that company and type (same outcome, reason, filing, date, flags and values) is
+not written again. Only the extractor's own parse is read: a fact carrying an `estimate_source` (a model's
+proposal) is ignored, and the module imports nothing from `llm`.
+
+**Lock and stamp.** The caller fetches with the company free. The writer then takes the company write lock
+(`acquire_company_lock`, waiting at most `wait_s`; `CompanyLockBusy` with nothing written), re-reads the state, the
+pin and every stored filing under it, writes both types in one transaction with the company's change stamp,
+commits, and releases. Two simultaneous get-data clicks write one value.
+
+**Callers.** `POST /workbench/facts/auto-confirm` (get-data; D2 (a)): same gates as before (own cards, the daily
+`auto_confirm` allowance; a steward neither), extraction by `extract_with_annual_fallback` (annual filers too), the
+lock wait `ingest_lock_request_wait_s` (busy is 409), an extraction failure 502. The answer's top level is the share
+count's outcome, `cash_burn` the cash/burn one; the reasons are the writer's, with `flagged` spelled `not_auto`.
+W3's nightly leg will call the writer with `ingest_lock_wait_s`.
+
 ## The steward's decisions and undo
 
 `platform_value_decision` (migration 0205, data tenant, append-only) holds one row per steward action:
