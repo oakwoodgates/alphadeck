@@ -55,6 +55,11 @@ CUTOVER_ACTION: dict[str, str] = {
     "user_action_count": "prune",
     "security_change": "prune",
 }
+# --- V2 W1b: the new tables (migrations 0200-0202) are new and empty: kept, named explicitly -----------------
+CUTOVER_ACTION["extraction_candidate"] = "keep"
+CUTOVER_ACTION["steward_pin"] = "keep"
+CUTOVER_ACTION["value_flag"] = "keep"
+# --- end V2 W1b block ----------------------------------------------------------------------------------------
 
 # The tables with a DEDICATED rule (5-9 below): the generic owner rules (3, 4) skip them, so each finding is
 # reported once, by its most specific sentence, before and after V2 PR 3 changes their scope.
@@ -556,9 +561,21 @@ def main(argv: list[str] | None = None) -> int:
     sub = p.add_subparsers(dest="command", required=True)
     plan = sub.add_parser("plan", help="the read-only dry run (writes nothing to the database)")
     plan.add_argument("--json", metavar="PATH", help="also write the same data as JSON to PATH")
+    # --- V2 W0b: the platform-facts move (pipeline/v2_move.py) ---
+    move = sub.add_parser(
+        "move-platform-facts",
+        help="relabel the founding workspace's share counts and cash/burn to the data tenant, and data-tenant "
+        "ratified purity to the founding workspace; dry run unless --apply; a fork or test database only",
+    )
+    move.add_argument("--apply", action="store_true", help="write the move (default: dry run)")
+    # --- end V2 W0b ---
     args = p.parse_args(argv)
     if args.command == "plan":
         return _plan(args.json)
+    if args.command == "move-platform-facts":  # V2 W0b
+        from pipeline import v2_move  # V2 W0b
+
+        return v2_move.run(apply=args.apply)  # V2 W0b
     return 2  # pragma: no cover - argparse refuses an unknown command first
 
 

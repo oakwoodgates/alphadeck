@@ -1186,6 +1186,28 @@ describe("Admin — the fundamentals set-aside count (migration 0062)", () => {
   });
 });
 
+describe("Admin — share counts and cash/burn left in a workspace (V2 W0b)", () => {
+  it("is one loud line naming the move only when such rows exist", () => {
+    h.status = { ...h.status, data: { ...STATUS_CURRENT, platform_rows_in_workspaces: 2 } };
+    renderAdmin();
+    const line = screen.getByTestId("adm-platform-rows-in-workspaces");
+    expect(line.textContent).toContain(
+      "2 share-count or cash/burn row(s) sit in a workspace; V2 reads none of them.",
+    );
+    expect(line.textContent).toContain("python -m pipeline.v2_cutover move-platform-facts --apply");
+    expect(line.className).toContain("adm-loud");
+  });
+
+  it("renders nothing at zero, or from an older backend without the field", () => {
+    h.status = { ...h.status, data: { ...STATUS_CURRENT, platform_rows_in_workspaces: 0 } };
+    renderAdmin();
+    expect(screen.queryByTestId("adm-platform-rows-in-workspaces")).toBeNull();
+    h.status = { ...h.status, data: { ...STATUS_CURRENT } };
+    renderAdmin();
+    expect(screen.queryByTestId("adm-platform-rows-in-workspaces")).toBeNull();
+  });
+});
+
 describe("Admin — cards left on the data tenant (auth PR 2)", () => {
   it("is one loud line only when a card sits on the data tenant", () => {
     h.status = { ...h.status, data: { ...STATUS_CURRENT, data_tenant_theses: 2 } };
