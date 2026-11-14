@@ -21,12 +21,14 @@ from pathlib import Path
 
 import pytest
 
-from db.bitemporal import as_of
+from db.bitemporal import append_fact, as_of
 from db.session import DEFAULT_TENANT_ID
+from domain.scopes import FOUNDING_WORKSPACE_ID
 from ingest.edgar import client as edgar_client
 from ingest.shares import ingest_shares_outstanding
 from pipeline import repair_shares_cover_dates as R
 from pipeline.run_lock import EXIT_ALREADY_RUNNING, acquire_pass_lock
+from repositories import platform_value_repo
 
 _FX = Path(__file__).resolve().parents[1] / "fixtures" / "edgar" / "cover_dates"
 _BASE = "https://www.sec.gov/Archives/edgar/data/1754170"
@@ -59,7 +61,7 @@ def _asle(db) -> uuid.UUID:
     return sid
 
 
-def _store(db, sid, *, shares, asof, ref=_Q2, by="auto") -> uuid.UUID:
+def _store(db, sid, *, shares, asof, ref=_Q2, by="auto", recorded_at=_RECORDED) -> uuid.UUID:
     fid = ingest_shares_outstanding(
         db,
         sid,
@@ -69,7 +71,7 @@ def _store(db, sid, *, shares, asof, ref=_Q2, by="auto") -> uuid.UUID:
         event_date=asof,
         note=f"Cover-page shares outstanding as of {asof.isoformat()} (single class).",
         ratified_by=by,
-        recorded_at=_RECORDED,
+        recorded_at=recorded_at,
     )
     db.commit()
     return fid
@@ -184,6 +186,108 @@ def test_an_uncached_filing_is_listed_not_judged(db, tmp_path):
     res = R.scan(db, cache_dir=tmp_path / "empty", today=_TODAY)
     [f] = res.facts
     assert f.status == R.NOT_JUDGED and "not in the submissions index" in f.why
+
+
+# --- V2 W2d: the platform value guards (data tenant only, the steward's decisions, the change stamp) ----------
+
+_STEWARD = "steward@v2.test"
+
+
+def _stamps(db, sid) -> int:
+    with db.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM security_change WHERE security_id = %s", (sid,))
+        n = cur.fetchone()["n"]
+    db.commit()
+    return n
+
+
+def _steward_correct(db, sid, *, undo: bool) -> uuid.UUID:
+    """The steward corrects the typo fact (a version stamped with their email, the decision naming it), and
+    with ``undo`` takes it back: that version is then set aside and the read falls back to the typo.
+    """
+    fid = _store(db, sid, shares=47_726_763, asof=date(2026, 8, 3), by=_STEWARD, recorded_at=None)
+    did = platform_value_repo.append_decision(
+        db,
+        security_id=sid,
+        fact_type="shares_outstanding",
+        action="correct",
+        decided_by=_STEWARD,
+        fact_id=fid,
+    )
+    if undo:
+        platform_value_repo.append_decision(
+            db,
+            security_id=sid,
+            fact_type="shares_outstanding",
+            action="undo",
+            decided_by=_STEWARD,
+            revokes=did,
+        )
+    db.commit()
+    return fid
+
+
+@pytest.mark.parametrize("undo", [True, False], ids=["undone", "standing"])
+def test_a_fact_the_steward_decided_is_listed_never_written(db, tmp_path, undo):
+    """A fact one of whose versions a steward decision names is the steward's: listed with that status, never
+    judged by the date rule and never written — an undone value stays undone."""
+    sid = _asle(db)
+    _store_the_typo(db, sid)
+    _steward_correct(db, sid, undo=undo)
+    res = R.scan(db, cache_dir=_cache(tmp_path), today=_TODAY)
+    n = _count(db)
+    R.apply(db, res)
+    assert _count(db) == n  # counted at the table
+    [f] = res.facts
+    assert f.status == "steward_decision" == R.STEWARD and "the steward's decision" in f.why
+
+
+def test_a_row_outside_the_data_tenant_is_listed_never_written(db, tmp_path):
+    """A stray share row under a workspace is read by nobody (V2: platform values live in the data tenant): the
+    repair lists it, never judges it and never writes under that workspace."""
+    sid = _asle(db)
+    append_fact(
+        db,
+        "fact_shares_outstanding",
+        {
+            "tenant_id": FOUNDING_WORKSPACE_ID,
+            "security_id": sid,
+            "shares": 52_990_947,
+            "source": "10-q-cover",
+            "source_ref": _Q2,
+            "ratified_by": "auto",
+            "valid_from": date(2034, 3, 5),
+        },
+    )
+    db.commit()
+    res = R.scan(db, cache_dir=_cache(tmp_path), today=_TODAY)
+    n = _count(db)
+    R.apply(db, res)
+    assert _count(db) == n  # nothing written under the workspace
+    [f] = res.facts
+    assert f.status == "outside_data_tenant" == R.OUTSIDE and "outside the data tenant" in f.why
+
+
+def test_an_applied_correction_stamps_the_company_changed(db, tmp_path):
+    sid = _asle(db)
+    _store_the_typo(db, sid)
+    res = R.scan(db, cache_dir=_cache(tmp_path), today=_TODAY)
+    before = _stamps(db, sid)
+    R.apply(db, res)
+    assert _stamps(db, sid) == before + 1  # in the repair's own transaction
+
+
+def test_a_steward_set_typo_is_named_as_the_stewards(db, tmp_path):
+    """A typo stamped with a steward's email (no decision row: a V1-path confirm) is listed as the steward's
+    value, never written."""
+    sid = _asle(db)
+    _store(db, sid, shares=52_990_947, asof=date(2034, 3, 5), by=_STEWARD)
+    res = R.scan(db, cache_dir=_cache(tmp_path), today=_TODAY)
+    [f] = res.facts
+    assert f.status == R.OPERATOR and "a steward's value" in f.why
+    n = _count(db)
+    R.apply(db, res)
+    assert _count(db) == n
 
 
 def test_parse_source_ref():

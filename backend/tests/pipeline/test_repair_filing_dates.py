@@ -22,8 +22,9 @@ from pathlib import Path
 
 import pytest
 
-from db.bitemporal import as_of
+from db.bitemporal import append_fact, as_of
 from db.session import DEFAULT_TENANT_ID
+from domain.scopes import FOUNDING_WORKSPACE_ID
 from ingest.edgar import client as edgar_client
 from ingest.edgar.form8k import ingest_form8k
 from ingest.edgar.schedule13 import ingest_schedule13
@@ -32,6 +33,7 @@ from ingest.shares import ingest_shares_outstanding
 from pipeline import repair_filing_dates as R
 from pipeline.run_lock import EXIT_ALREADY_RUNNING, acquire_pass_lock
 from repositories import fundamentals_set_aside_repo as set_aside_repo
+from repositories import platform_value_repo
 
 UTC = timezone.utc
 T = DEFAULT_TENANT_ID
@@ -351,6 +353,146 @@ def test_a_count_no_cover_row_carries_keeps_its_ratification(db, tmp_path):
     result = R.scan(db, cache_dir=_asle_cache(tmp_path), groups=(R.SHARES,))
     assert [r.status for r in result.rows if r.group == R.SHARES] == [R.NO_COVER]
     assert result.planned(R.SHARES) == []
+
+
+# --- V2 W2d: the platform value guards (data tenant only, the steward's decisions, the change stamp) ----------
+
+_STEWARD = "steward@v2.test"
+_AUG3 = date(2026, 8, 3)
+
+
+def _stamps(db, sid) -> int:
+    with db.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM security_change WHERE security_id = %s", (sid,))
+        n = cur.fetchone()["n"]
+    db.commit()
+    return n
+
+
+def _share(db, sid, *, shares, by, source="10-q-cover", published=False, recorded_at=None):
+    fid = ingest_shares_outstanding(
+        db,
+        sid,
+        shares=shares,
+        source=source,
+        source_ref=_ASLE_Q2,
+        event_date=_AUG3,
+        ratified_by=by,
+        recorded_at=recorded_at,
+        filing_accession="0001104659-26-092710" if published else None,
+        filing_accepted=datetime(2026, 8, 7, 20, 12, 46, tzinfo=UTC) if published else None,
+    )
+    db.commit()
+    return fid
+
+
+def _shown(db, sid) -> float:
+    (row,) = _read(db, "fact_shares_outstanding", sid, date(2026, 10, 29))
+    return float(row["shares"])
+
+
+@pytest.mark.parametrize("undo", [True, False], ids=["undone", "standing"])
+def test_a_fact_the_steward_decided_is_never_restated(db, tmp_path, undo):
+    """The machine's count (already dated) under the 10-Q; the steward corrects it to the 10-Q's own cover count
+    (a version stamped with their email, no publication), and — ``undone`` — takes it back. An undone version is
+    set aside: restating it would bring the undone value back. A fact any steward decision names is the steward's:
+    listed, never written."""
+    sid = _asle(db)
+    _share(
+        db,
+        sid,
+        shares=50_000_000,
+        by="auto",
+        published=True,
+        recorded_at=datetime(2026, 9, 1, tzinfo=UTC),
+    )
+    fid = _share(db, sid, shares=47_726_763, by=_STEWARD, source="ratified")
+    did = platform_value_repo.append_decision(
+        db,
+        security_id=sid,
+        fact_type="shares_outstanding",
+        action="correct",
+        decided_by=_STEWARD,
+        fact_id=fid,
+    )
+    if undo:
+        platform_value_repo.append_decision(
+            db,
+            security_id=sid,
+            fact_type="shares_outstanding",
+            action="undo",
+            decided_by=_STEWARD,
+            revokes=did,
+        )
+    db.commit()
+    shown = _shown(db, sid)
+    assert shown == (50_000_000 if undo else 47_726_763)
+
+    result = R.scan(db, cache_dir=_asle_cache(tmp_path), groups=(R.SHARES,))
+    n = _count(db, "fact_shares_outstanding")
+    R.apply(db, result)
+    assert _count(db, "fact_shares_outstanding") == n  # counted at the table
+    assert _shown(db, sid) == shown  # the undone value stays undone
+    (row,) = [r for r in result.rows if r.group == R.SHARES]
+    assert row.status == "steward_decision" == R.STEWARD
+    assert result.planned(R.SHARES) == []
+
+
+def test_a_share_row_outside_the_data_tenant_is_listed_never_written(db, tmp_path):
+    sid = _asle(db)
+    append_fact(
+        db,
+        "fact_shares_outstanding",
+        {
+            "tenant_id": FOUNDING_WORKSPACE_ID,
+            "security_id": sid,
+            "shares": 47_726_763,
+            "source": "10-q-cover",
+            "source_ref": _ASLE_Q2,
+            "ratified_by": "auto",
+            "valid_from": _AUG3,
+        },
+    )
+    db.commit()
+    result = R.scan(db, cache_dir=_asle_cache(tmp_path), groups=(R.SHARES,))
+    n = _count(db, "fact_shares_outstanding")
+    R.apply(db, result)
+    assert _count(db, "fact_shares_outstanding") == n  # nothing written under the workspace
+    (row,) = [r for r in result.rows if r.group == R.SHARES]
+    assert row.status == "outside_data_tenant" == R.OUTSIDE
+
+
+def test_an_applied_restatement_stamps_the_company_changed(db, tmp_path):
+    sid = _asle(db)
+    _share(db, sid, shares=47_726_763, by="auto")
+    result = R.scan(db, cache_dir=_asle_cache(tmp_path), groups=(R.SHARES,))
+    before = _stamps(db, sid)
+    R.apply(db, result)
+    assert _count(db, "fact_shares_outstanding") == 2
+    assert _stamps(db, sid) == before + 1  # in the repair's own transaction
+
+
+def test_an_applied_8k_re_dating_stamps_the_company_changed(db, security_id, tmp_path):
+    ingest_form8k(db, security_id, CIK, [_8k("ACC-EVE")])
+    db.commit()
+    result = R.scan(
+        db, cache_dir=_cache(tmp_path, [("ACC-EVE", "2026-10-27", EVENING)]), groups=(R.EIGHT_K,)
+    )
+    before = _stamps(db, security_id)
+    R.apply(db, result)
+    assert _stamps(db, security_id) == before + 1
+
+
+def test_the_dry_run_says_when_it_restates_a_stewards_value(db, tmp_path, monkeypatch, capsys):
+    """A steward-set count (their email, no decision row: a V1-path confirm) that a cover row carries is restated
+    with its filing's acceptance — same count, same date — and the dry run says so by name."""
+    sid = _asle(db)
+    _share(db, sid, shares=47_726_763, by=_STEWARD, source="ratified")
+    monkeypatch.setattr(edgar_client, "_DEFAULT_CACHE", _asle_cache(tmp_path))
+    R.main(["--tables", "shares"])
+    out = capsys.readouterr().out
+    assert "DRY-RUN" in out
+    assert f"restates a steward's value (ratified_by={_STEWARD})" in out
 
 
 # --- the CLI ---------------------------------------------------------------------------------------------------
