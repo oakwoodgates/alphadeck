@@ -76,6 +76,36 @@ STEWARD_SETS_PLATFORM_VALUE = (
 )
 
 
+# V2 W2c (docs/PLATFORM_VALUES.md): the steward's platform-value actions (``platform_values.steward``). One fixed
+# sentence per refusal ``kind``; the status comes from the exception's class (``PlatformValueConflict`` 409,
+# ``PlatformValueInvalid`` 422). The detail a steward sees after the sentence names the dates and the filing (a
+# correction's refusal names the date that blocks it). Complete sentences: shown as is.
+PLATFORM_VALUE_NOT_FOUND = "There is no such company, candidate or decision."
+PLATFORM_VALUE_SENTENCES: dict[str, str] = {
+    # 422: the request cannot be stored
+    "after_today": "The value is dated after today, so it would never be shown. Nothing was saved.",
+    "nothing": "This candidate records that no value was found, so there is nothing to approve.",
+    "no_value": "This candidate does not carry a complete value. Correct the value instead.",
+    "bad_ads": (
+        "The ADS ratio and its status do not match: a ratio needs the status known, and unread carries no "
+        "ratio. Nothing was saved."
+    ),
+    "bad_values": "The value is incomplete, so nothing was saved. Check it and try again.",
+    "blank_reason": "A dismissal needs a reason. Nothing was saved.",
+    # 409: the value's state refuses it
+    "older_than_shown": (
+        "A value with a later date is shown, so this one would not be. Nothing was saved."
+    ),
+    "not_shown": "This value would not be shown, so nothing was saved.",
+    "already_decided": "This candidate already has a decision. Undo that decision first.",
+    "wrong_candidate": "That candidate belongs to another company or value type. Nothing was saved.",
+    "undo_of_undo": "An undo cannot be undone. Make a new decision instead.",
+    "already_undone": "That decision is already undone.",
+    "already_pinned": "This value is already pinned.",
+    "not_pinned": "This value is not pinned.",
+}
+
+
 # A malformed ALPHADECK_CRON_AT, wherever a route reads the schedule (the value itself: a steward only, and the log).
 SCHEDULE_SETTING_MALFORMED = "The server's nightly schedule setting is malformed, so the schedule cannot be read. A steward needs to fix it."
 
@@ -221,6 +251,8 @@ def install(app: FastAPI) -> None:
 
 
 __all__ = [
+    "PLATFORM_VALUE_NOT_FOUND",
+    "PLATFORM_VALUE_SENTENCES",
     "RETRY_AFTER_S",
     "SCHEDULE_SETTING_MALFORMED",
     "SENTENCES",
