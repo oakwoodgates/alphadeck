@@ -102,7 +102,84 @@ commits, and releases. Two simultaneous get-data clicks write one value.
 `auto_confirm` allowance; a steward neither), extraction by `extract_with_annual_fallback` (annual filers too), the
 lock wait `ingest_lock_request_wait_s` (busy is 409), an extraction failure 502. The answer's top level is the share
 count's outcome, `cash_burn` the cash/burn one; the reasons are the writer's, with `flagged` spelled `not_auto`.
-W3's nightly leg will call the writer with `ingest_lock_wait_s`.
+Background extraction (below) calls it with the request wait `ingest_lock_request_wait_s`, not the batch wait, so
+one busy company cannot spend a run's budget (the W3 plan, Q5).
+
+## Background extraction (W3a)
+
+`platform_values/extraction.py` keeps the two values current without a click. It has no caller yet: the nightly
+leg, the backfill CLI (`python -m pipeline.extract_values`) and the onboarding step are later PRs, each calling the
+pieces below. Nothing here is a call input; no module of the call, replay or editions engine names it
+(`tests/platform_values/test_extraction_run.py`).
+
+**The attempt record.** `platform_extraction_attempt` (migration 0207, data tenant, append-only) holds one row per
+attempt, whatever its outcome (approved B3 (a)):
+
+| `status` | Meaning | Also stored |
+|---|---|---|
+| `done` | the machine writer ran | `shares_reason`, `cash_reason`: its `MachineOutcome.reason` per value type |
+| `error` | the fetch or the write failed; nothing else was written | `error`: one line, at most 200 characters, built from the exception's class, never its text (no URL, no secret) |
+| `busy` | another writer held the company for the whole wait; nothing was written; not a failure | `detail` |
+| `skipped` | nothing could be read (no CIK); nothing was fetched | `detail` |
+
+Every row carries `run_kind` (`nightly`, `onboarding`, `backfill`, `steward`, `get_data`), `inputs_key` and
+`live_fetches` (the SEC requests the attempt made). A failure is never a candidate, so it never hides a value
+awaiting the steward.
+
+**The inputs key** names exactly what the extractor reads: the company's CIK plus the accession of its newest 10-Q,
+10-K, 20-F and 40-F (exact form match: an amendment, an 8-K or a 6-K never changes it), for example
+`1234567|10-Q:0001-26-000002|10-K:0001-26-000001|20-F:|40-F:`. The attempt's key comes from the submissions index
+the extraction read; the gate's from the stored filing index (`fact_filing_index`).
+
+**When a company is due** (`due`, pure; `work_list` reads it for every company on a live card):
+
+| Reason | Rule |
+|---|---|
+| `never` | no attempt exists |
+| `new_filing` | the stored index has a 10-Q, 10-K, 20-F or 40-F newer than the one of that form the last attempt read, public for at least `platform_extraction_hold_h` hours (companyfacts lags acceptance by about 5-6 hours); or the CIK changed |
+| `retry` | the last attempt was `busy`; or it failed and fewer than `platform_extraction_retry_max` attempts in a row failed on the same key |
+
+Otherwise it is not due: `up to date`, `held` (a new filing not yet public for the hold) or `waiting` (failed
+`retry_max` times; it waits for a new filing or the steward). "Public" is the SEC acceptance, else the end of the
+filing date in ET; a filing not public at `now` never makes a company due. An attempt that read a filing the stored
+index does not have yet read a newer one, never an older one. **The backstop:** a company with nothing to find (no
+periodic filing) has an empty key, so after one attempt it is not fetched again until a periodic filing appears in
+its filing index; a company that keeps failing stops after `retry_max` attempts on the same filings.
+
+**The order** (`work_list`): `new_filing`, then `retry`, then `never`; within each, pen-only companies last, then
+most cards first (the card count from `platform_values/cards.py`, reused, never rebuilt), then ticker. ETFs are left
+out (`extractable`, one line to flip; a decision that can wait).
+
+**Before the first backfill** (approved B4 (a)): `work_list` with `include_never=None` (the nightly's and
+onboarding's default) holds back every never-extracted company until a `backfill` attempt exists
+(`backfill_applied`), and counts them in `withheld_never`. The backfill passes `include_never=True`.
+
+**One company** (`extract_one(conn, company, *, client, wait_s, run_kind)`): rolls back any open transaction,
+fetches with the company free through the caller's client (the submissions index, then
+`extract_with_annual_fallback(..., values_only=True)`), only then calls `record_extraction` (which takes the company
+lock and commits), then appends exactly one attempt row and commits. It never raises for a company; only a failure
+to write the attempt row itself (the database gone) propagates. Running it twice on the same filings writes no
+second fact and no second candidate, and the company is then not due.
+
+**A run** (`run_extraction(connect, work, *, client, run_kind, should_stop, max_names, budget_s, wait_s, clock)`):
+walks the list on one connection, fail-open per company, checking between companies: `should_stop()`, the count
+cap, and the time budget (it never starts a company when the slowest one so far would end past the budget). It
+returns an `ExtractionRun` (counts per outcome, failures named, `deferred`, `live_fetches`, `to_json()`,
+`admin_line()`, `attention` when anything failed). `pipeline/extraction_run_log.py` writes and reads the run files
+in `data/extraction_runs/`.
+
+**Settings** (`domain/settings.py`; each passed to the backend and cron containers in `docker-compose.yml`):
+
+| `ALPHADECK_…` | Default | Meaning |
+|---|---|---|
+| `PLATFORM_EXTRACTION_MAX_NAMES` | 300 | companies per nightly run. **0 = the kill switch:** a `nightly` or `onboarding` run is `off` (nothing fetched, nothing written); a backfill or steward run still runs by hand |
+| `PLATFORM_EXTRACTION_BUDGET_S` | 900 | a nightly run's wall-time budget, seconds |
+| `PLATFORM_EXTRACTION_ONBOARD_MAX_NAMES` | 25 | companies per onboarding run |
+| `PLATFORM_EXTRACTION_HOLD_H` | 24 | hours a new filing must be public before it makes its company due |
+| `PLATFORM_EXTRACTION_RETRY_MAX` | 3 | failures in a row on the same filings before a company waits |
+
+To turn background extraction off on prod: set `ALPHADECK_PLATFORM_EXTRACTION_MAX_NAMES=0` in `.env`, then
+`scripts/deploy.sh --env-only cron` (the nightly) and the same for the backend (the onboarding job).
 
 ## The steward's decisions and undo
 
