@@ -84,6 +84,7 @@ platform value. It takes an `ExtractionResult` already fetched (no network insid
 | Extractor result | What is written |
 |---|---|
 | AUTO with its number(s) | `machine_action` decides: a fact stamped `auto` (applied), a `flag` candidate with flag `pinned` (the company is pinned), or nothing: `already_on_file` (any stored version of the filing, set-aside ones too, so an undone approve is never re-applied), `older_than_on_file` (dated on or before the value shown), `after_today` (never shown, so never written) |
+| an annual share count (`source='annual-cover'`, a 20-F / 40-F cover) whose only flags are `annual-cover` / `stale-cover`, ADS ratio `known` or not applicable, at most `annual_shares_auto_max_age_days` (400) old | treated as AUTO (the annual share-count rule, below): the same `machine_action` |
 | FLAG, or AUTO with no number | a `flag` candidate: raw values, flags, filing, date, located passages, ADS fields / statement currency |
 | no value of that type | a `nothing` candidate with the extractor's reason: cash/burn takes the runway reason first (`cash-generative`, `financials-in-exhibit`, `exhibit-ambiguous`, `statements-not-located`), then the result's (`no-annual-filing`, `cover-not-located`), else `no-candidate` |
 | an exception (SEC down, companyfacts 404) | nothing: the caller never gets a result to record |
@@ -92,6 +93,31 @@ A strictly newer filing is applied over a verified value unless the company is p
 repeats the newest candidate for that company and type (same outcome, reason, filing, date, flags and values) is
 not written again. Only the extractor's own parse is read: a fact carrying an `estimate_source` (a model's
 proposal) is ignored, and the module imports nothing from `llm`.
+
+**The annual share-count rule** (the extractor correctness plan's PR 5, operator-approved 2026-11-15). Every share
+count from an annual foreign filer is a FLAG by design (`annual-cover`, plus `stale-cover`, which on an annual filer
+only means older than 183 days), and an audit found 30 of 30 such counts right with every ADS ratio right. So the
+machine applies one when `domain.platform_values.annual_shares_auto_eligible(fact, today, max_age_days)` holds:
+
+- a share count with a finite number and `source = 'annual-cover'`;
+- its flags are a subset of `ANNUAL_ONLY_FLAGS = {annual-cover, stale-cover}`: any other flag
+  (`multi-value-cover`, `dual-class`, `ads-ratio-unread`, `source-disagreement`, `implausible-count`,
+  `cover-after-filing`) or a flag not named yet still queues;
+- `ads_ratio_status` is `known` (with a ratio of 1 or more) or None (no ADR evidence);
+- its own as-of date (`event_date`, the period of report or a fresher companyfacts date) is 0 to
+  `ExtractorConfig.annual_shares_auto_max_age_days` (400, a domain dial) days before today's market date. A count
+  dated after today, or older than the cap, queues with its age in the note.
+
+`plan()` maps an eligible FLAG to `auto`; `machine_action` then applies the pin (a pinned company gets a candidate
+with flag `pinned`), `already_on_file`, `older_than_on_file` and `after_today` rules unchanged. The applied fact is
+`ratified_by='auto'`, `source='annual-cover'`, `valid_from` = the count's real as-of date, the ADS fields, and the
+filing's accession and acceptance; its state is `from_filing`. Facts carry no flag column, so the stored note keeps
+the extractor's note (the form, the as-of date, the age, the ADS ratio) and adds one sentence: "Applied automatically
+as an annual figure (the annual share-count rule): a 20-F/40-F cover count as of <date>, <N> days old on <today>,
+flags annual-cover, stale-cover; ...". The steward's company page says "annual figure from the 20-F or 40-F cover,
+as of <date>" in the value's status line, quietly. **Share counts only:** annual cash and burn always waits for
+the steward. A candidate recorded for the same filing before the rule stops waiting (the value shown has its date),
+and stays in History. Tests: `tests/domain/test_platform_values.py`, `tests/platform_values/test_machine.py`.
 
 **Lock and stamp.** The caller fetches with the company free. The writer then takes the company write lock
 (`acquire_company_lock`, waiting at most `wait_s`; `CompanyLockBusy` with nothing written), re-reads the state, the

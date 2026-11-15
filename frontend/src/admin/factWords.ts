@@ -57,6 +57,19 @@ export function valueWords(
   return parts.length ? parts.join(", ") : "no cash or burn value";
 }
 
+/** The source an annual foreign filer's cover count carries (a 20-F or 40-F; the machine applies one whose only
+ *  flags are the annual ones, up to 400 days old). */
+export const ANNUAL_COVER_SOURCE = "annual-cover";
+
+/** An annual count's words: "annual figure from the 20-F or 40-F cover, as of 2025-12-31". A cover is dated at
+ *  the fiscal year end, so the value can be most of a year old; this says so plainly (quiet, never a badge).
+ *  `null` for any other source. */
+export function annualWords(source: string | null | undefined, validFrom: string): string | null {
+  return source === ANNUAL_COVER_SOURCE
+    ? `annual figure from the 20-F or 40-F cover, as of ${day(validFrom)}`
+    : null;
+}
+
 /** Why a value is missing, in words (the Q7 table). `null` reason reads as not extracted. */
 const NO_VALUE_WORDS: Record<string, string> = {
   "not-extracted": "No value yet: not extracted",

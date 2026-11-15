@@ -246,6 +246,31 @@ describe("CompanyFacts: the status words of every state", () => {
     expect(link.getAttribute("rel")).toContain("noopener");
   });
 
+  it("an annual count from the filing says it is an annual figure and its as-of date, quietly", () => {
+    const annual = val({
+      source: "annual-cover",
+      valid_from: "2025-12-31",
+      shares: 25932524521,
+      ads_ratio: 5,
+      ads_ratio_status: "known",
+    });
+    serve(company({ state: "from_filing", reason: null, ratifier: "machine", value: annual }));
+    renderPage();
+    const s = status(sharesBlock());
+    expect(s).toHaveTextContent("From the filing");
+    expect(s).toHaveTextContent("25,932,524,521 shares, ADS ratio 5");
+    expect(within(s).getByTestId("cf-annual")).toHaveTextContent(
+      "annual figure from the 20-F or 40-F cover, as of 2025-12-31",
+    );
+    expect(s.className).not.toContain("cf-loud");
+  });
+
+  it("a quarterly count from the filing carries no annual words", () => {
+    serve(company({ state: "from_filing", reason: null, ratifier: "machine", value: val() }));
+    renderPage();
+    expect(within(status(sharesBlock())).queryByTestId("cf-annual")).toBeNull();
+  });
+
   it("verified by the steward: the email and the time", () => {
     serve(
       company({

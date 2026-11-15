@@ -31,6 +31,7 @@ import {
   PINNED_FLAG,
   PINNED_HELD_WORDS,
   UNDO_OF_UNDO_WORDS,
+  annualWords,
   attemptWords,
   day,
   decisionWords,
@@ -251,6 +252,7 @@ function ValueBlock({
 
   const status = statusWords(v);
   const value = v.value ?? null;
+  const annual = value ? annualWords(value.source, value.valid_from) : null;
   const waiting = v.awaiting ?? v.pending ?? null;
   const pending = v.awaiting == null && v.pending != null;
   const decisions = v.decisions ?? [];
@@ -290,6 +292,12 @@ function ValueBlock({
           <>
             {" · "}
             {valueWords(v.fact_type, value)}
+            {annual && (
+              <>
+                {" · "}
+                <span data-testid="cf-annual">{annual}</span>
+              </>
+            )}
             {" · "}
             <FilingLink href={value.source_ref} /> dated {day(value.valid_from)}
             {" · "}

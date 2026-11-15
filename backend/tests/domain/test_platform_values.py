@@ -8,6 +8,8 @@
 - ``derive_state`` — the four states (the plan's Q1 table), with the newer pending candidate beside a value.
 - ``correction_wins`` — would a steward's correction be the value shown (Q4).
 - ``machine_action`` — what the machine does with a clean AUTO value (Q6, D3 (a)).
+- ``annual_shares_auto_eligible`` — the annual share-count rule (the extractor plan's PR 5): an annual-only FLAG
+  share count within the age cap is applied like an AUTO value.
 """
 
 from __future__ import annotations
@@ -17,10 +19,14 @@ from uuid import UUID
 
 import pytest
 
+from domain.config import DEFAULT_EXTRACTOR_CONFIG
+from domain.extraction import ExtractedFact, Tier
 from domain.platform_values import (
+    ANNUAL_ONLY_FLAGS,
     FACT_TYPES,
     TABLE_OF,
     ValueState,
+    annual_shares_auto_eligible,
     correction_wins,
     derive_state,
     machine_action,
@@ -385,3 +391,124 @@ def test_machine_writes_a_pinned_candidate_instead():
 
 def test_machine_never_writes_a_value_dated_after_today():
     assert tuple(auto(B, date(2026, 12, 31))) == ("skip", "after_today", ())
+
+
+# --- the annual share-count rule (PR 5; the extractor plan's Q7) ---------------------------------------------
+#
+# An annual foreign filer's share count (20-F / 40-F cover) is always a FLAG from the extractor (``annual-cover``,
+# plus ``stale-cover`` once older than ~6 months). The machine applies it anyway when those are its ONLY flags and
+# it is no older than the age cap; anything else still waits for the steward. The truth table below is the rule.
+
+CAP = 400
+
+
+def annual(
+    age_days: int = 300,
+    *,
+    flags=("annual-cover", "stale-cover"),
+    source: str = "annual-cover",
+    fact_type: str = "shares_outstanding",
+    ads: tuple[int | None, str | None] = (5, "known"),
+    value: float | None = 25_932_524_521.0,
+) -> ExtractedFact:
+    ratio, status = ads
+    return ExtractedFact(
+        fact_type=fact_type,
+        tier=Tier.FLAG,
+        source=source,
+        source_ref=A,
+        event_date=TODAY - timedelta(days=age_days),
+        value=value,
+        flags=list(flags),
+        ads_ratio=ratio,
+        ads_ratio_status=status,
+    )
+
+
+def test_the_annual_only_flag_set_is_exactly_the_two_annual_flags():
+    assert ANNUAL_ONLY_FLAGS == frozenset({"annual-cover", "stale-cover"})
+
+
+def test_the_age_cap_is_a_named_dial_defaulting_to_400_days():
+    assert DEFAULT_EXTRACTOR_CONFIG.annual_shares_auto_max_age_days == 400
+
+
+@pytest.mark.parametrize(
+    "flags",
+    [("annual-cover",), ("annual-cover", "stale-cover"), ("stale-cover", "annual-cover")],
+)
+def test_an_annual_only_count_within_the_cap_is_eligible(flags):
+    assert annual_shares_auto_eligible(annual(flags=flags), TODAY, CAP)
+
+
+@pytest.mark.parametrize(
+    "age, ok", [(0, True), (300, True), (400, True), (401, False), (1415, False)]
+)
+def test_the_age_is_measured_from_the_counts_own_as_of_date(age, ok):
+    assert annual_shares_auto_eligible(annual(age), TODAY, CAP) is ok
+
+
+def test_a_count_dated_after_today_is_not_eligible():
+    """No lookahead and no negative ages: a cover dated after today stays a candidate, as today."""
+    assert not annual_shares_auto_eligible(annual(-1), TODAY, CAP)
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        "multi-value-cover",
+        "dual-class",
+        "ads-ratio-unread",
+        "source-disagreement",
+        "implausible-count",
+        "cover-after-filing",
+        "pinned",
+        "a-flag-nobody-has-named-yet",  # an unknown flag queues; it never applies
+    ],
+)
+def test_any_other_flag_beside_the_annual_ones_queues(extra):
+    assert not annual_shares_auto_eligible(
+        annual(flags=("annual-cover", "stale-cover", extra)), TODAY, CAP
+    )
+    assert not annual_shares_auto_eligible(annual(flags=("annual-cover", extra)), TODAY, CAP)
+
+
+@pytest.mark.parametrize(
+    "ads, ok",
+    [
+        ((5, "known"), True),
+        ((1, "known"), True),
+        ((None, None), True),
+        ((None, "unread"), False),
+        ((None, "known"), False),
+        ((5, "guessed"), False),
+    ],
+)
+def test_the_ads_ratio_must_be_read_or_not_applicable(ads, ok):
+    assert annual_shares_auto_eligible(annual(ads=ads), TODAY, CAP) is ok
+
+
+def test_stale_cover_on_a_quarterly_cover_is_never_eligible():
+    """On a 10-Q cover ``stale-cover`` means the count predates the quarter's end: a different condition."""
+    assert not annual_shares_auto_eligible(
+        annual(source="10-q-cover", flags=("stale-cover",), ads=(None, None)), TODAY, CAP
+    )
+    assert not annual_shares_auto_eligible(annual(source="10-q-cover"), TODAY, CAP)
+
+
+def test_annual_cash_and_burn_is_never_eligible():
+    """The rule is for share counts only: annual cash and burn stays flagged (operator decision)."""
+    cash = annual(fact_type="cash_burn", source="annual-statements", value=None, ads=(None, None))
+    assert not annual_shares_auto_eligible(cash, TODAY, CAP)
+    as_cover = annual(fact_type="cash_burn", value=None, ads=(None, None))
+    assert not annual_shares_auto_eligible(as_cover, TODAY, CAP)
+
+
+@pytest.mark.parametrize("value", [None, float("nan"), float("inf")])
+def test_a_count_with_no_finite_number_is_not_eligible(value):
+    assert not annual_shares_auto_eligible(annual(value=value), TODAY, CAP)
+
+
+def test_the_cap_is_the_callers_dial():
+    assert annual_shares_auto_eligible(annual(450), TODAY, 500)
+    assert not annual_shares_auto_eligible(annual(300), TODAY, 200)

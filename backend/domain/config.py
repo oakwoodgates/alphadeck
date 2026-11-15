@@ -1049,6 +1049,12 @@ class ExtractorConfig(DomainModel):
     # can genuinely reach several hundred (a 400:1 was measured mid-conflict), so the ceiling sits an
     # order above the observed range rather than hugging it.
     annual_ads_ratio_max: int = 1000
+    # The annual share-count rule (the extractor plan's PR 5, ``domain.platform_values.annual_shares_auto_eligible``):
+    # the machine writer APPLIES an annual-cover count whose only flags are the annual ones (`annual-cover`,
+    # `stale-cover`) when its own as-of date is at most this many days before today (market clock); an older one
+    # still waits for the steward. 400 ≈ one annual cycle plus the 20-F filing lag (an audit of 30 such counts
+    # found all 30 right; measured ages: median 319 days, 125 of 130 at 400 or less). Operator-approved "about 400".
+    annual_shares_auto_max_age_days: int = 400
 
     # --- annual-statements runway (Retrieval Slice A — ingest/edgar/annual_runway.py) ---
     # Stale-runway threshold: an annual filer's burn reading is inherently up to ~a year old between
