@@ -4493,6 +4493,79 @@
         }
       }
     },
+    "/admin/platform-values/queue": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "List Queue",
+        "description": "THE STEWARD'S QUEUE: one row per company with a share count or cash/burn waiting for you (the same open\nflags as ``/awaiting``), with how many live cards hold it across every workspace (a number only). Order:\ncompanies only in a Discovered pen last, then most cards first, then the longest wait first. ``pen``:\n``after`` (default) lists the pen-only companies after the rest, ``only`` lists only them, ``exclude`` leaves\nthem out. ``offset`` / ``limit`` cut the page (``limit`` 1-200, ``offset`` 0-100,000); ``total`` and\n``pen_only_total`` count every company waiting, whatever the page. **422** a parameter out of bounds.\nRead-only.",
+        "operationId": "list_queue_admin_platform_values_queue_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100000,
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "pen",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "after",
+                "only",
+                "exclude"
+              ],
+              "type": "string",
+              "default": "after",
+              "title": "Pen"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformQueueOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/admin/platform-values/{security_id}": {
       "get": {
         "tags": [
@@ -36604,6 +36677,42 @@
         "title": "PlatformDismissIn",
         "description": "Why the candidate is dismissed (required, not blank)."
       },
+      "PlatformPinEventOut": {
+        "properties": {
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "decided_by": {
+            "type": "string",
+            "title": "Decided By"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "recorded_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Recorded At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "action",
+          "decided_by",
+          "recorded_at"
+        ],
+        "title": "PlatformPinEventOut",
+        "description": "The newest pin event of a value: ``action`` ``pin`` or ``unpin``, ``decided_by`` the steward's email,\n``note`` why (optional), ``recorded_at`` when."
+      },
       "PlatformPinIn": {
         "properties": {
           "fact_type": {
@@ -36633,6 +36742,131 @@
         ],
         "title": "PlatformPinIn",
         "description": "Which value (``fact_type``) and why (optional)."
+      },
+      "PlatformQueueItemOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "cards": {
+            "type": "integer",
+            "title": "Cards",
+            "default": 0
+          },
+          "pen_only": {
+            "type": "boolean",
+            "title": "Pen Only",
+            "default": false
+          },
+          "waiting_since": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Waiting Since"
+          },
+          "shares": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlatformQueueValueOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cash_burn": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlatformQueueValueOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "waiting_since"
+        ],
+        "title": "PlatformQueueItemOut",
+        "description": "One company with anything waiting (one row per company): ``cards`` how many live cards hold it, across every\nworkspace (a number only, never whose); ``pen_only`` every row it sits in is a Discovered pen; ``waiting_since``\nthe older of its waiting candidates; ``shares`` / ``cash_burn`` what waits (None = nothing for that value)."
+      },
+      "PlatformQueueOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PlatformQueueItemOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "default": 0
+          },
+          "pen_only_total": {
+            "type": "integer",
+            "title": "Pen Only Total",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "PlatformQueueOut",
+        "description": "The steward's queue page: ``items`` in queue order (pen-only last, then most cards, then the longest wait,\nthen the id); ``total`` every company waiting and ``pen_only_total`` the pen-only ones, whatever the page and\n``pen``."
+      },
+      "PlatformQueueValueOut": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "title": "State"
+          },
+          "candidate": {
+            "$ref": "#/components/schemas/PlatformCandidateOut"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlatformAppliedValueOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "state",
+          "candidate"
+        ],
+        "title": "PlatformQueueValueOut",
+        "description": "One value of a queue row that waits for the steward: ``state`` (``awaiting_steward``, or the state of the\nvalue shown when a newer flag is pending beside it), the flagged ``candidate``, and ``value`` the value shown\n(set only when the candidate is pending beside it)."
       },
       "PlatformUndoIn": {
         "properties": {
@@ -36740,6 +36974,16 @@
             },
             "type": "array",
             "title": "Decisions"
+          },
+          "pin": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlatformPinEventOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -36748,7 +36992,7 @@
           "state"
         ],
         "title": "PlatformValueOut",
-        "description": "One value of a company. ``state``: ``no_value`` (``reason`` says why) / ``from_filing`` / ``awaiting_steward``\n/ ``verified``; ``ratifier`` ``machine`` / ``carried`` / ``steward``; ``value`` the value the meters show;\n``awaiting`` the flag waiting when there is no value; ``pending`` a newer flag beside a shown value; ``pinned``\nthe steward reviews every future filing value by hand. ``candidates`` (newest 20) and ``decisions`` (newest 50)\nare newest first."
+        "description": "One value of a company. ``state``: ``no_value`` (``reason`` says why) / ``from_filing`` / ``awaiting_steward``\n/ ``verified``; ``ratifier`` ``machine`` / ``carried`` / ``steward``; ``value`` the value the meters show;\n``awaiting`` the flag waiting when there is no value; ``pending`` a newer flag beside a shown value; ``pinned``\nthe steward reviews every future filing value by hand; ``pin`` the newest pin event (who pinned or unpinned,\nwhen and why; None = never pinned). ``candidates`` (newest 20) and ``decisions`` (newest 50) are newest first."
       },
       "PlatformVersionOut": {
         "properties": {
