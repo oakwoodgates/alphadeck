@@ -15,6 +15,10 @@ _BACKEND = Path(__file__).resolve().parents[2]
 _DEFINED_IN = "platform_values/cards.py"
 ALLOWED: dict[str, str] = {
     "app/routers/admin_platform_values.py": "the steward's queue (require_super_admin)",
+    # V2 W3a: the background extraction's work order (most cards first, pen-only last). Pipeline-side: it runs in
+    # the nightly, the onboarding job and the backfill CLI, never behind a user's request, and keeps only the two
+    # numbers per company for sorting (nothing of another workspace is served or logged).
+    "platform_values/extraction.py": "the background extraction's order (pipeline-side, never served)",
 }
 _NAME = re.compile(r"\bcard_counts\b")
 

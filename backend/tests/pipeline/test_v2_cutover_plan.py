@@ -407,3 +407,21 @@ def test_the_v2_w2a_decision_table_is_owned_and_kept(db, capsys, tmp_path):
 
 
 # --- end V2 W2a block ----------------------------------------------------------------------------------------
+
+
+# --- V2 W3a: the extraction attempt record (migration 0207) --------------------------------------------------
+
+
+def test_the_v2_w3a_attempt_table_is_owned_and_kept(db, capsys, tmp_path):
+    """The dry run names ``platform_extraction_attempt`` (new and empty at cutover) as platform data, kept."""
+    assert C.CUTOVER_ACTION["platform_extraction_attempt"] == "keep"
+    code = C.main(["plan", "--json", str(tmp_path / "plan.json")])
+    capsys.readouterr()
+    assert code in (0, 1)  # never a fatal (2): the table is named in domain.scopes
+    doc = json.loads((tmp_path / "plan.json").read_text(encoding="utf-8"))
+    rows = {t["name"]: t for t in doc["tables"]}
+    row = rows["platform_extraction_attempt"]
+    assert (row["owner"], row["plan"]) == ("platform", "keep")
+
+
+# --- end V2 W3a block ----------------------------------------------------------------------------------------

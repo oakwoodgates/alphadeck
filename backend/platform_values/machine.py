@@ -35,7 +35,8 @@ so two clicks at once could both append; under the lock the second re-reads and 
 whole transaction back (neither type is half-written) and re-raises.
 
 Callers: the Workbench get-data auto-confirm (``POST /workbench/facts/auto-confirm``, D2 (a)) with
-``Settings.ingest_lock_request_wait_s``; W3's nightly leg will call it with ``Settings.ingest_lock_wait_s``.
+``Settings.ingest_lock_request_wait_s``; background extraction (``platform_values.extraction``) calls it with the
+same request wait, so one busy company cannot spend a run's budget.
 """
 
 from __future__ import annotations
