@@ -47,6 +47,11 @@ THE SHAPE — four parts, one state table (``security_onboarding``, migration 00
    ``ingest_fresh=false`` and the name is listed as onboarding on the artifact and the report — visible, never
    dropped (#9).
 
+NEW COMPANIES' PLATFORM VALUES (V2 W3e, ``_extraction_step``). AFTER the queue's batch, under the job's lock with
+every company lock released, the job extracts the share count and cash/burn of each NEVER-extracted company on a
+live card (fast-laned promotes and companies from another card included). Fail-open; it never changes the batch's
+own result or the queue. ``docs/PLATFORM_VALUES.md`` ("The onboarding job's step").
+
 THE SEC BUDGET. Every EDGAR read the job makes goes through ONE client built by ``_edgar_client``: the
 recurring dial, which also places it in the global SEC budget's ``recurring`` lane (X2) — a bulk background
 consumer, so the Workbench's interactive lane keeps its fair share against it. The job walks its names SERIALLY
@@ -810,6 +815,10 @@ class BatchOutcome:
     # the split-history fill this run made for joining companies (``pipeline/split_history.py``), or None
     split_history: dict | None = None
     split_history_line: str | None = None
+    # the new-company extraction step that ran AFTER the batch (V2 W3e, ``_extraction_step``), or None (it did not
+    # get that far: a refusal before the queue). Its own record, never part of the batch's artifact or counts.
+    platform_extraction: dict | None = None
+    platform_extraction_line: str | None = None
 
     def counts(self) -> dict[str, int]:
         out: dict[str, int] = {}
@@ -891,6 +900,111 @@ def _split_history_step(
         outcome.split_history = {"status": "error", "detail": msg}
         outcome.split_history_line = f"split history: FAILED — {msg} (the batch continues)"
         _log.exception("onboarding: the split-history fill failed (fail-open)")
+
+
+# the step's line names what it is beside the batch's own line (the Admin line's head is "Shared facts")
+_STEP_HEAD = "Shared facts, new companies"
+
+
+def _extraction_step(
+    conn: psycopg.Connection,
+    outcome: BatchOutcome,
+    *,
+    client: EdgarClient,
+    connect_fn: Callable[[], psycopg.Connection],
+    should_stop: Callable[[], str | None],
+    budget_left: Callable[[], float | None],
+    now: Callable[[], datetime],
+    clock: Callable[[], float],
+) -> None:
+    """THE NEW-COMPANY EXTRACTION STEP (V2 W3e, approved B5 (a); ``docs/PLATFORM_VALUES.md``, "The
+    onboarding job's step"): AFTER the queue's batch has finished and released every company lock, extract the platform
+    values of the companies on a live card that were NEVER extracted, wherever they came from: a cold name this
+    batch (or an earlier one) loaded, a FAST-LANED promote (marked done without the job running a leg for it), or
+    a company that joined from another card. A company already extracted (a new filing, a retry) is the nightly's:
+    this step takes only ``never``.
+
+    The job's rules: it runs under the job's lock (the caller holds it), stops between companies on the nightly
+    window or a running pass (``should_stop``), gets only what is left of the batch's time budget
+    (``budget_left``), takes at most ``platform_extraction_onboard_max_names`` companies, is off under the kill
+    switch, and obeys B4 (until a backfill attempt exists, never-extracted companies are counted, not fetched).
+    It fetches through the batch's ONE recurring client (the SEC budget's recurring lane) on its own connection,
+    with the company free (``extract_one``: fetch, then the machine writer takes the lock).
+
+    FAIL-OPEN: its outcome rides ``outcome.platform_extraction`` (+ one line); a fault is captured there, rolled
+    back and logged. It never changes the batch's names, counts, stop reason or artifact, the onboarding queue, or
+    a thesis. A run that attempted a company (or failed) writes ``data/extraction_runs/`` (``extraction_run_log``).
+    """
+    try:
+        from pipeline import extraction_run_log
+        from platform_values import extraction as px
+
+        stop = should_stop()
+        if stop is not None:
+            outcome.platform_extraction = {"status": "skipped", "detail": stop}
+            outcome.platform_extraction_line = f"{_STEP_HEAD}: not run ({stop})"
+            return
+        left = budget_left()
+        if left is not None and left <= 0:
+            outcome.platform_extraction = {"status": "skipped", "detail": "no time left"}
+            outcome.platform_extraction_line = (
+                f"{_STEP_HEAD}: not run (the batch's time budget is spent)"
+            )
+            return
+        wl = px.work_list(conn, now=now())  # include_never=None: the B4 rule
+        conn.rollback()
+        never = [i for i in wl.items if i.reason == "never"]
+        others = len(wl.items) - len(never)  # a new filing or a retry: the nightly's
+
+        def step_connect() -> psycopg.Connection:
+            c = connect_fn()
+            name_session(c, "alphadeck-writer:onboard-extract")
+            set_statement_timeout(c, get_settings().cron_statement_timeout_s)
+            return c
+
+        run = px.run_extraction(
+            step_connect,
+            never,
+            client=client,
+            run_kind="onboarding",
+            should_stop=lambda: should_stop() is not None,
+            budget_s=left,
+            clock=clock,
+        )
+        payload = run.to_json()
+        payload["withheld_never"] = wl.withheld_never
+        payload["left_for_nightly"] = others
+        payload["admin_line"] = _extraction_line(run, wl.withheld_never)
+        outcome.platform_extraction = payload
+        outcome.platform_extraction_line = payload["admin_line"]
+        if run.attempted or run.status == "error":
+            extraction_run_log.write_extraction_run(payload)
+    except Exception as e:  # noqa: BLE001 — fail-open: the batch's own work is done and recorded
+        if not conn.closed:
+            try:
+                conn.rollback()
+            except Exception:  # noqa: BLE001
+                pass
+        msg = _clip(f"{type(e).__name__}: {e}", 400)
+        outcome.platform_extraction = {"status": "error", "detail": msg}
+        outcome.platform_extraction_line = f"{_STEP_HEAD}: FAILED ({msg}); the batch is unaffected"
+        _log.exception("onboarding: the new-company extraction step failed (fail-open)")
+
+
+def _extraction_line(run: Any, withheld_never: int) -> str:
+    """The step's one line: the run's Admin line under the step's own head, or a quiet idle line, plus the
+    never-extracted companies B4 holds back until the first backfill."""
+    held = (
+        f" · {withheld_never} held back until the first backfill (decision B4)"
+        if withheld_never
+        else ""
+    )
+    if run.status == "ran" and run.due_total == 0:
+        return f"{_STEP_HEAD}: none to extract{held}"
+    line = run.admin_line()
+    if line.startswith("Shared facts"):
+        line = _STEP_HEAD + line[len("Shared facts") :]
+    return line + held
 
 
 def run_split_history_now(conn: psycopg.Connection, *, allow_live: bool = True) -> Any:
@@ -997,8 +1111,14 @@ def run_batch(
     Before the queue, every run fills the SPLIT HISTORY of any company that joined a live basket without one
     (``pipeline/split_history.py`` — fast-lane promotes included, so it runs when nothing is queued too);
     ``split_source`` is its Massive.com split reference (default: ``default_split_source()``, ``None`` = off).
+
+    AFTER the queue's batch (whatever it did, ``nothing_queued`` and ``daily_cap`` included), still under the job's
+    lock, the NEW-COMPANY EXTRACTION step (``_extraction_step``, V2 W3e) runs with what is left of ``budget_s``.
+    It is fail-open and never changes the returned batch's own fields; a refusal before the queue (the window,
+    another batch, a running pass) skips it too.
     """
     s = get_settings()
+    t_start = clock()
     max_names = s.onboard_batch_max_names if max_names is None else max_names
     budget_s = s.onboard_batch_budget_s if budget_s is None else budget_s
     daily_max = s.onboard_daily_max_names if daily_max is None else daily_max
@@ -1051,37 +1171,91 @@ def run_batch(
             _split_history_step(
                 conn, outcome, client=client, source=split_source, should_stop=fill_should_stop
             )
-            work = work_list(conn)
-            conn.rollback()
-            outcome.queued_at_start = len(work)
-            if not work:
-                return refuse("nothing_queued", "no name is waiting to be onboarded")
-            midnight = datetime.combine(now().date(), time(0, 0), tzinfo=now().tzinfo)
-            done_today = attempted_since(conn, midnight) if daily_max > 0 else 0
-            conn.rollback()
-            if daily_max > 0 and done_today >= daily_max:
-                return refuse(
-                    "daily_cap",
-                    f"{done_today} name(s) already attempted today (cap {daily_max}/day)",
-                )
-            return _run_work(
+            result = _queue_batch(
                 conn,
-                work,
                 outcome,
-                max_names=max_names,
-                budget_s=budget_s,
-                room_today=(daily_max - done_today) if daily_max > 0 else None,
+                now=now,
                 window_now=window_now,
                 clock=clock,
                 client=client,
-                source=price_source or YahooPriceSource(),
+                price_source=price_source,
                 runs_dir=runs_dir,
+                max_names=max_names,
+                budget_s=budget_s,
+                daily_max=daily_max,
                 max_attempts=s.onboard_max_attempts,
             )
+
+            def budget_left() -> float | None:
+                return None if budget_s <= 0 else budget_s - (clock() - t_start)
+
+            # AFTER the batch: its names are finished and every company lock released (V2 W3e)
+            _extraction_step(
+                conn,
+                result,
+                client=client,
+                connect_fn=connect_fn,
+                should_stop=fill_should_stop,
+                budget_left=budget_left,
+                now=now,
+                clock=clock,
+            )
+            return result
         finally:
             _release_job_lock(conn)
     finally:
         conn.close()
+
+
+def _queue_batch(
+    conn: psycopg.Connection,
+    outcome: BatchOutcome,
+    *,
+    now: Callable[[], datetime],
+    window_now: Callable[[], tuple[datetime, datetime] | None],
+    clock: Callable[[], float],
+    client: EdgarClient,
+    price_source: PriceSource | None,
+    runs_dir: Path,
+    max_names: int,
+    budget_s: float,
+    daily_max: int,
+    max_attempts: int,
+) -> BatchOutcome:
+    """The queue's batch: read the work list, honor the daily cap, run the names (``_run_work``)."""
+
+    def refuse(stopped: str, detail: str) -> BatchOutcome:
+        outcome.refused, outcome.stopped, outcome.detail = True, stopped, detail
+        outcome.finished_at = _now_utc()
+        return outcome
+
+    work = work_list(conn)
+    conn.rollback()
+    outcome.queued_at_start = len(work)
+    if not work:
+        return refuse("nothing_queued", "no name is waiting to be onboarded")
+    midnight = datetime.combine(now().date(), time(0, 0), tzinfo=now().tzinfo)
+    done_today = attempted_since(conn, midnight) if daily_max > 0 else 0
+    conn.rollback()
+    if daily_max > 0 and done_today >= daily_max:
+        return refuse(
+            "daily_cap",
+            f"{done_today} name(s) already attempted today (cap {daily_max}/day)",
+        )
+    return _run_work(
+        conn,
+        work,
+        outcome,
+        max_names=max_names,
+        budget_s=budget_s,
+        room_today=(daily_max - done_today) if daily_max > 0 else None,
+        window_now=window_now,
+        clock=clock,
+        client=client,
+        source=price_source or YahooPriceSource(),
+        runs_dir=runs_dir,
+        max_attempts=max_attempts,
+    )
 
 
 def _run_work(
@@ -1303,6 +1477,12 @@ def describe_counts(counts: Mapping[str, int]) -> str:
 def _print_outcome(o: BatchOutcome) -> None:
     if o.split_history_line and (o.split_history or {}).get("status") != "idle":
         print(o.split_history_line)
+    _print_batch(o)
+    if o.platform_extraction_line:
+        print(o.platform_extraction_line)  # the new-company extraction step (V2 W3e): one line
+
+
+def _print_batch(o: BatchOutcome) -> None:
     if o.refused:
         print(f"onboarding: not started — {o.detail}")
         return
@@ -1336,6 +1516,21 @@ def _print_status(conn: psycopg.Connection) -> None:
         )
     if len(r.pending) > 50:
         print(f"  … and {len(r.pending) - 50} more")
+    print(_extraction_status_line())
+
+
+def _extraction_status_line() -> str:
+    """``--status``'s one line for the new-company extraction step: the newest onboarding extraction run's line
+    (``data/extraction_runs/``, read-only, fail-open)."""
+    try:
+        from pipeline.extraction_run_log import latest_extraction_run
+
+        doc = latest_extraction_run(run_kind="onboarding")
+    except Exception:  # noqa: BLE001 — a status read never fails the command
+        doc = None
+    if not doc:
+        return f"{_STEP_HEAD}: no extraction run yet"
+    return f"{doc.get('admin_line') or _STEP_HEAD + ': (no line)'} · ran {doc.get('started_at')}"
 
 
 def main(argv: list[str] | None = None) -> None:

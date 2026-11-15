@@ -107,9 +107,10 @@ one busy company cannot spend a run's budget (the W3 plan, Q5).
 
 ## Background extraction (W3a)
 
-`platform_values/extraction.py` keeps the two values current without a click. Its callers: the nightly step (below,
-built), the backfill CLI (`python -m pipeline.extract_values`) and the onboarding step (later PRs), each calling the
-pieces below. Nothing here is a call input; no module of the call, replay or editions engine names it
+`platform_values/extraction.py` keeps the two values current without a click. Its callers: the nightly step,
+the onboarding job's step for new companies, the backfill CLI (`python -m pipeline.extract_values`) and the
+steward's Extract now, each described below and each calling the pieces below. Nothing here is a call input; no
+module of the call, replay or editions engine names it
 (`tests/platform_values/test_extraction_run.py`).
 
 **The attempt record.** `platform_extraction_attempt` (migration 0207, data tenant, append-only) holds one row per
@@ -167,6 +168,22 @@ cap, and the time budget (it never starts a company when the slowest one so far 
 returns an `ExtractionRun` (counts per outcome, failures named, `deferred`, `live_fetches`, `to_json()`,
 `admin_line()`, `attention` when anything failed). `pipeline/extraction_run_log.py` writes and reads the run files
 in `data/extraction_runs/`.
+
+**The onboarding job's step (W3e, approved B5 (a)).** New companies get their values from a step of the onboarding
+job (`pipeline/onboarding.py`, `_extraction_step`), not from a leg: a promote of five or fewer new names is
+fast-laned and a company already on another card is never queued, so a leg would miss both (the W3 plan,
+correction 5), and a leg would fetch under the company lock. The step runs AFTER the queue's batch, on every batch
+that got past its refusals (also when nothing is queued or the daily cap is reached), under the job's lock, when the
+batch's names are finished and every company lock is released. It takes only `never` companies from `work_list`
+(B4: before the first backfill they are counted as `withheld_never`, never fetched), at most
+`platform_extraction_onboard_max_names` (25), through the batch's one recurring client, with what is left of the
+batch's `onboard_batch_budget_s`; it stops between companies on the nightly window or a running pass, and is `off`
+under the kill switch. A company already extracted (a new filing, a retry) is the nightly's (`left_for_nightly`).
+Fail-open: a fault is one `FAILED` line; the batch's names, counts, stop reason, artifact and exit status, the
+onboarding queue and every thesis stay exactly as without it (`tests/pipeline/test_onboarding.py`, section 9). A
+run that attempted a company writes `data/extraction_runs/` (run kind `onboarding`); the job prints its one line
+(`Shared facts, new companies · …`) and `python -m pipeline.onboarding --status` shows the newest one. So a new
+company gets its values within about 30 minutes of a promote outside the nightly window, or from the nightly.
 
 **Settings** (`domain/settings.py`; each passed to the backend and cron containers in `docker-compose.yml`):
 
