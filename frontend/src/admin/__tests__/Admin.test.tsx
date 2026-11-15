@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Admin } from "../Admin";
@@ -315,6 +316,7 @@ const h = vi.hoisted(() => ({
   createBackup: {} as Record<string, unknown>,
   backupJob: {} as Record<string, unknown>,
   repair: {} as Record<string, unknown>,
+  queue: {} as Record<string, unknown>,
 }));
 
 vi.mock("../../api/hooks", () => ({
@@ -382,6 +384,9 @@ vi.mock("../../api/hooks", () => ({
     error: null,
   }),
   useRetryOnboarding: () => h.repair,
+  // V2 W4c — the Shared facts card (its own behavior is in SharedFacts.test.tsx): an empty queue here
+  usePlatformQueue: () => h.queue,
+  useResolveSecurities: () => ({ data: undefined, isFetching: false, isError: false, error: null }),
 }));
 
 beforeEach(() => {
@@ -408,10 +413,20 @@ beforeEach(() => {
   h.createBackup = { mutate: vi.fn(), isPending: false, isError: false, error: null };
   h.backupJob = { data: undefined, isError: false };
   h.repair = { mutate: vi.fn(), isPending: false, isError: false, error: null };
+  h.queue = {
+    data: { items: [], total: 0, pen_only_total: 0 },
+    isLoading: false,
+    isError: false,
+    error: null,
+  };
 });
 
 function renderAdmin() {
-  render(<Admin />);
+  render(
+    <MemoryRouter>
+      <Admin />
+    </MemoryRouter>,
+  );
 }
 
 describe("Admin — loading + guards", () => {
@@ -1455,5 +1470,55 @@ describe("Admin — the automatic cut's line (editions S7)", () => {
     };
     renderAdmin();
     expect(screen.getByTestId("adm-editions-cut").className).toContain("adm-loud");
+  });
+});
+
+describe("Admin — the Shared facts card (V2 W4c)", () => {
+  it("mounts, quiet, with the queue empty", () => {
+    renderAdmin();
+    const card = screen.getByTestId("adm-shared-facts");
+    expect(card).toHaveTextContent("Nothing awaits you");
+    expect(screen.getByLabelText("Find a company (ticker or name)")).toBeInTheDocument();
+    expect(screen.queryByTestId("sf-queue")).toBeNull();
+    // it follows the record-freshness card
+    const fresh = screen.getByTestId("adm-fresh");
+    expect(fresh.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("names a waiting company loudly and links the other work with a count", () => {
+    h.queue = {
+      data: {
+        items: [
+          {
+            security_id: "00000000-0000-4000-8000-000000000001",
+            ticker: "ACME",
+            name: "Acme Corp",
+            cards: 2,
+            pen_only: false,
+            waiting_since: "2026-07-10T00:00:00Z",
+            shares: null,
+            cash_burn: null,
+          },
+        ],
+        total: 1,
+        pen_only_total: 0,
+      },
+      isLoading: false,
+      isError: false,
+      error: null,
+    };
+    h.status = {
+      ...(h.status as Record<string, unknown>),
+      data: { ...STATUS_CURRENT, splits_needs_review: 2 },
+    };
+    renderAdmin();
+    expect(screen.getByTestId("sf-count")).toHaveTextContent("1 company awaits you");
+    expect(screen.getByTestId("sf-other")).toHaveTextContent("2 splits to review");
+  });
+
+  it("is not shown while the status is unavailable", () => {
+    h.status = { data: undefined, isLoading: false, error: new Error("boom"), refetch: vi.fn() };
+    renderAdmin();
+    expect(screen.queryByTestId("adm-shared-facts")).toBeNull();
   });
 });
