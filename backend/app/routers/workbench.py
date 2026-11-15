@@ -67,7 +67,7 @@ from app.schemas_api import (
 from db.session import connect_job, name_session
 from db.write_lock import CompanyLockBusy, acquire_company_lock
 from domain.enums import Authorship, InstrumentKind, TermTier
-from domain.extraction import ExtractionResult, Tier
+from domain.extraction import ExtractionResult
 from domain.market_time import serve_view
 from domain.scopes import DATA_TENANT_ID
 from domain.settings import get_settings
@@ -85,7 +85,7 @@ from domain.thesis import (
 from ingest.cash_burn import ingest_cash_burn
 from ingest.edgar import nport
 from ingest.edgar.client import EdgarClient
-from ingest.edgar.extract import extract_for_security, extract_with_annual_fallback
+from ingest.edgar.extract import extract_with_annual_fallback
 from ingest.edgar.fulltext import DiscoveryUnavailable
 from ingest.prices import ingest_security as price_leg
 from ingest.prices.eod_loader import latest_bar_date, recent_distinct_bar_counts
@@ -1901,24 +1901,6 @@ def _vouched(estimate: float | None, value: float) -> str | None:
     )
 
 
-def _has_shares_fact(conn: psycopg.Connection, security_id: UUID) -> bool:
-    """Does ANY shares fact exist for this security in the data tenant? The auto-confirm's idempotency +
-    no-clobber gate.
-
-    Deliberately existence-of-ANY-row, not "the latest is auto": once a steward has OVERRIDDEN an auto-applied
-    count, a later get-data must not re-apply the machine value over their decision. A share count is platform
-    data (V2, ``domain.scopes``): the data tenant only, never a workspace. Cheap (append-only table, indexed by
-    tenant+security); the read never needs the value.
-    """
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT 1 FROM fact_shares_outstanding "
-            "WHERE tenant_id = %s AND security_id = %s LIMIT 1",
-            (DATA_TENANT_ID, security_id),
-        )
-        return cur.fetchone() is not None
-
-
 @router.post(
     "/facts/auto-confirm",
     response_model=AutoConfirmOut,
@@ -1930,48 +1912,44 @@ def auto_confirm_fact(
     tenant_id: UUID = Depends(get_workspace),
     user: CurrentUser = Depends(require_user),
 ) -> AutoConfirmOut:
-    """Auto-apply a security's AUTO-tier shares count on get-data — REMOVING a ceremonial confirm, not a real one.
+    """Get-data's platform values (V2 W2b, approved D2 (a)): re-extract the company's filings and hand the result
+    to the MACHINE WRITER (``platform_values.machine.record_extraction``) for BOTH the share count and cash/burn.
 
-    The AUTO shares confirm was never a human verification: the operator has no independent knowledge of a
-    share count and does not look one up, so clicking "Confirm" on a machine-reproduced cover figure rubber-
-    stamped it while recording ``ratified_by="operator"`` — provenance claiming a check that never happened.
-    This applies the value directly and stamps it ``ratified_by="auto"``, which is what actually occurred. The
-    REAL human check is downstream and unchanged: the operator reads the resulting MARKET CAP, a figure they do
-    have intuition for, and overrides the shares if it looks wrong.
+    Per value: a clean AUTO value is applied as a fact stamped ``ratified_by="auto"`` when its filing is strictly
+    newer than the value shown (D3 (a): even over a steward's value, unless the steward pinned the company, which
+    turns it into a candidate); a FLAGged value and a "nothing found" are recorded as CANDIDATES for the steward,
+    never as facts (no meter reads them); a value dated after today is never written (D1). Annual filers
+    (20-F/40-F) are read too (``extract_with_annual_fallback``, the extract route's own entry): their values are
+    always FLAG, so they become candidates. The top-level fields answer for the share count, ``cash_burn`` for
+    cash/burn; ``applied=False`` with its ``reason`` is a normal answer, never an error.
 
-    WHY THIS IS NOT A #1/#3 VIOLATION: the written number is the extractor's deterministic reproduction of
-    filed companyfacts (the market-cap trust class) — never a model output, never a computed/``llm_proposed``
-    estimate. Estimates remain computed-on-read and MUST NOT become ``fact_*`` rows (see WORKBENCH_EXTRACTION.md);
-    nothing here touches that. The AUTO tier is exactly the unambiguous single-class, current-cover case —
-    anything ambiguous trips a FLAG and is excluded below.
+    WHY THIS IS NOT A #1/#3 VIOLATION: the written number is the extractor's deterministic reproduction of the
+    filing — never a model output, never an estimate. THE STRUCTURAL BOUND: the request carries NO value; the
+    server re-extracts (cache-first — get-data just warmed it) and writes its OWN parse.
 
-    THE STRUCTURAL BOUND: the request carries NO value. The server re-extracts (cache-first — get-data just
-    warmed it) and writes its OWN parse, so no caller can inject a figure under the ``auto`` provenance.
+    THE LOCK: the extraction runs with the company FREE (no lock is ever held across an SEC call); the writer then
+    takes the company write lock, waiting at most ``Settings.ingest_lock_request_wait_s``, RE-READS what is on file
+    under it, writes both values in one transaction with the company's change stamp, and commits. Two clicks at
+    once write one value. While another writer holds the company: **409** naming the holder, nothing written. An
+    extraction failure (SEC unreachable, companyfacts missing) is a **502** and writes nothing — it is never
+    recorded as "nothing found".
 
-    Four gates, each an honest ``applied=False`` rather than an error:
-    - the security must be in this tenant's master (fail-closed, like ``/facts``);
-    - ``already_on_file`` — ANY existing shares fact (auto or an operator override) -> no-op. This is the
-      idempotency guarantee (a re-run appends ZERO rows) AND the no-clobber guarantee;
-    - ``not_auto`` — a FLAGged candidate is the operator's to ratify; the machine never resolves a dual-class
-      sum or a stale cover;
-    - ``no_candidate`` / ``no_value`` — nothing to apply.
+    BOUNDED (security hardening PR 1b, unchanged in V2 until W3/W7): a plain user may run it only for a company on
+    one of their own cards (else 404, "This company is not on any of your cards. Add it to a card first.") and
+    within their daily auto-confirm allowance (``Settings.allowance_auto_confirm_per_day``, else 429 naming the
+    reset; the security rides in the body, so this route counts the request before the card check). A steward is
+    neither checked nor counted.
 
-    BOUNDED (security hardening PR 1b): a plain user may auto-confirm only a company on one of their own cards
-    (else 404, "This company is not on any of your cards. Add it to a card first.") and within their daily
-    auto-confirm allowance (``Settings.allowance_auto_confirm_per_day``, else 429 naming the reset; the security
-    rides in the body, so this route counts the request before the card check). A steward is neither checked nor
-    counted.
-
-    PLATFORM DATA (V2): the count is written under the DATA tenant — one value per company, read by every
+    PLATFORM DATA (V2): every row is written under the DATA tenant — one value per company, read by every
     workspace — never under the caller's workspace.
     """
+    from app.schemas_api import AutoConfirmPartOut
+    from platform_values.machine import record_extraction
+
     _require_own_security(conn, user, tenant_id, req.security_id)
-    # the master is DATA (domain.scopes), and so is the share count written below (V2)
+    # the master is DATA (domain.scopes), and so is every value written below (V2)
     if not master.exists(conn, req.security_id, tenant_id=DATA_TENANT_ID):
         raise HTTPException(status_code=404, detail="security not in this tenant's master")
-    # the idempotency + no-clobber gate FIRST: cheapest, and it short-circuits before any SEC traffic
-    if _has_shares_fact(conn, req.security_id):
-        return AutoConfirmOut(applied=False, reason="already_on_file")
     cik = master.ciks_for(conn, {req.security_id}, tenant_id=DATA_TENANT_ID).get(req.security_id)
     if not cik:
         raise HTTPException(status_code=404, detail="no CIK for this security — resolve it first")
@@ -1981,38 +1959,38 @@ def auto_confirm_fact(
     conn.rollback()
     client = EdgarClient(allow_live=True)
     try:
-        cands = extract_for_security(client, cik)
+        result = extract_with_annual_fallback(client, cik)
     except (
         Exception
-    ) as exc:  # noqa: BLE001 — SEC unreachable / no UA / parse hiccup -> 502, not a 500
+    ) as exc:  # noqa: BLE001 — SEC unreachable / no UA / parse hiccup -> 502, not a 500; nothing written
         raise fail(502, SEC_FILINGS_UNREADABLE, exc, user=user) from exc
-    cand = next((c for c in cands if c.fact_type == "shares_outstanding"), None)
-    if cand is None:
-        return AutoConfirmOut(applied=False, reason="no_candidate")
-    if cand.tier != Tier.AUTO:
-        return AutoConfirmOut(applied=False, reason="not_auto")
-    if cand.value is None:
-        return AutoConfirmOut(applied=False, reason="no_value")
-    # F9: the filing whose cover carries this count, and its acceptance — the count's public instant (cache only)
-    accession, accepted = shares_publication(
-        getattr(client, "cache_dir", None), cik, cand.value, cand.event_date
+    try:
+        outcomes = record_extraction(
+            conn,
+            req.security_id,
+            result,
+            wait_s=get_settings().ingest_lock_request_wait_s,
+            cache_dir=getattr(client, "cache_dir", None),
+            cik=cik,
+        )
+    except CompanyLockBusy as busy:
+        # the holder (pid + session name) is shown to a steward only
+        raise fail(409, COMPANY_BUSY, busy, user=user) from busy
+    # the writer's "flagged" is this route's long-standing "not_auto"; every other reason is the same word
+    reasons = {"flagged": "not_auto"}
+    shares, cash = outcomes["shares_outstanding"], outcomes["cash_burn"]
+    return AutoConfirmOut(
+        applied=shares.applied,
+        reason=reasons.get(shares.reason, shares.reason),
+        fact_id=shares.fact_id,
+        candidate_id=shares.candidate_id,
+        cash_burn=AutoConfirmPartOut(
+            applied=cash.applied,
+            reason=reasons.get(cash.reason, cash.reason),
+            fact_id=cash.fact_id,
+            candidate_id=cash.candidate_id,
+        ),
     )
-    fid = ingest_shares_outstanding(
-        conn,
-        req.security_id,
-        shares=cand.value,  # the SERVER's parse — never a client-supplied figure
-        source=cand.source,
-        source_ref=cand.source_ref,
-        event_date=cand.event_date,
-        note=cand.note,
-        ratified_by="auto",  # honest provenance: applied by the machine, NOT confirmed by a human
-        vouched=None,  # no estimate was shown to anyone -> no confirm/override to record
-        tenant_id=DATA_TENANT_ID,  # platform data (V2): one count for every workspace
-        filing_accession=accession,
-        filing_accepted=accepted,
-    )
-    conn.commit()
-    return AutoConfirmOut(applied=True, reason="applied", fact_id=fid)
 
 
 @router.post("/facts", response_model=RatifiedFactOut)

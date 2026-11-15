@@ -241,6 +241,21 @@ describe("a write that can change a dashboard marks dashboard queries stale", ()
     expect(stale(DASH_KEY)).toBe(false);
   });
 
+  it("useAutoConfirmShares: a cash/burn value applied alone still refreshes (the runway moved)", async () => {
+    h.post.mockResolvedValue({
+      data: { applied: false, reason: "already_on_file", cash_burn: { applied: true, reason: "applied" } },
+      error: null,
+    });
+    const { qc, wrapper } = harness();
+    const stale = seeded(qc);
+    const { result } = renderHook(() => useAutoConfirmShares(), { wrapper });
+    await act(async () => {
+      await result.current.mutateAsync("sec-1");
+    });
+    expect(stale(DASH_KEY)).toBe(true);
+    expect(stale(OTHER_KEY)).toBe(false);
+  });
+
   it("useSectionData: the post-run re-derive marks dashboards stale", async () => {
     const { qc, wrapper } = harness();
     const stale = seeded(qc);

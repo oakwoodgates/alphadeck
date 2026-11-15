@@ -1481,25 +1481,26 @@ export function useRatifyFact() {
   });
 }
 
-// Auto-apply a name's AUTO (unflagged) shares count — fired after get-data, for ONE name. It REMOVES a
-// ceremonial confirm: nobody independently knows a share count, so clicking "Confirm" on the extractor's
-// single-class cover figure only rubber-stamped it (while recording `ratified_by="operator"`). The server
-// re-extracts, gates on tier===AUTO, writes its OWN parse as `ratified_by="auto"`, and no-ops if any shares
-// fact is already on file (idempotent + never clobbers an operator override). We send NO value — the client
-// cannot inject a number under the auto provenance. A FLAGged name declines (`applied:false`) and stays the
-// operator's to ratify. `retry:false` + non-throwing at the call sites: a failed auto-apply is a missing
-// convenience, never a blocked get-data.
+// Record a name's platform values from its filings — fired after get-data, for ONE name (V2 W2b). The server
+// re-extracts and hands its OWN parse to the machine writer: a clean AUTO share count AND cash/burn value are
+// applied as `ratified_by="auto"` when the filing is newer than the value shown (a re-click of the same filing
+// writes nothing); a FLAGged or empty result becomes a candidate for the steward, never a fact. It REMOVES a
+// ceremonial confirm: nobody independently knows a share count. We send NO value — the client cannot inject a
+// number under the auto provenance. The top-level fields answer for the share count, `cash_burn` for cash/burn.
+// `retry:false` + non-throwing at the call sites: a failed auto-apply is a missing convenience, never a blocked
+// get-data.
 export function useAutoConfirmShares() {
   const qc = useQueryClient();
   return useMutation({
     retry: false,
     mutationFn: postAutoConfirmShares,
     onSuccess: (d) => {
-      if (!d?.applied) return; // declined (flagged / already on file) — nothing moved, nothing to refresh
-      qc.invalidateQueries({ queryKey: ["workbench-scored"] }); // the cap + funnel re-derive
+      // nothing applied (flagged / already on file / a candidate recorded) — no meter moved, nothing to refresh
+      if (!d?.applied && !d?.cash_burn?.applied) return;
+      qc.invalidateQueries({ queryKey: ["workbench-scored"] }); // the cap, the runway + funnel re-derive
       qc.invalidateQueries({ queryKey: ["call"] }); // a shares fact can complete a cap -> the call
-      // NOT display-signals — same reason as useRatifyFact: `fact_shares_outstanding` feeds no
-      // display member (`etf_flow` reads the separate `fact_fund_shares` table).
+      // NOT display-signals — same reason as useRatifyFact: neither `fact_shares_outstanding` nor
+      // `fact_cash_burn` feeds a display member (`etf_flow` reads the separate `fact_fund_shares` table).
       invalidateDashboards(qc);
     },
   });
