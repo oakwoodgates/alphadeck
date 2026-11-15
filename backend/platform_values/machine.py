@@ -11,6 +11,11 @@ returns; already fetched — no network here) and, for EACH value type, does exa
   set-aside ones included, so an undone approve is never re-applied; ``older_than_on_file`` — a date on or before
   the value shown; ``after_today`` — a value dated after today could never be shown, D1). A strictly newer filing
   is applied over a verified value unless the company is pinned (D3 (a)).
+- an annual foreign filer's **FLAG share count whose only flags are the annual ones** (``annual-cover``,
+  ``stale-cover``), no older than ``ExtractorConfig.annual_shares_auto_max_age_days`` (400) on today's market date
+  → treated as AUTO (``domain.platform_values.annual_shares_auto_eligible``, the extractor plan's PR 5): the same
+  ``machine_action`` above, and an applied one's note adds that it is an annual figure, its as-of date, age and
+  flags. Share counts only: annual cash and burn always waits for the steward.
 - a **FLAG** value (or an AUTO value with no parsed number) → a ``flag`` candidate carrying the raw values, the
   flags, the filing and the located passages. Never a fact.
 - **nothing** → a ``nothing`` candidate with the extractor's reason (``no-annual-filing``, ``cover-not-located``,
@@ -53,9 +58,16 @@ import psycopg
 
 from db.change_stamp import mark_changed
 from db.write_lock import acquire_company_lock
+from domain.config import DEFAULT_EXTRACTOR_CONFIG, ExtractorConfig
 from domain.extraction import ExtractedFact, ExtractionResult, Tier
 from domain.market_time import market_today
-from domain.platform_values import FACT_TYPES, MACHINE, FactType, machine_action
+from domain.platform_values import (
+    FACT_TYPES,
+    MACHINE,
+    FactType,
+    annual_shares_auto_eligible,
+    machine_action,
+)
 from domain.scopes import DATA_TENANT_ID
 from ingest.cash_burn import ingest_cash_burn
 from ingest.shares import cik_of_source_ref, ingest_shares_outstanding, shares_publication
@@ -103,6 +115,8 @@ class _Planned:
     reason: str | None = None
     filing_accession: str | None = None
     filing_accepted: datetime | None = None
+    # set when the annual share-count rule made a FLAG count appliable: the note the fact will carry if applied
+    annual_note: str | None = None
 
 
 def _finite(x: float | None) -> bool:
@@ -124,15 +138,33 @@ def _nothing_reason(result: ExtractionResult, fact_type: FactType) -> str:
     return result.empty_reason or NO_CANDIDATE
 
 
+def _annual_note(fact: ExtractedFact, today: date, max_age_days: int) -> str:
+    """The sentence an annual count applied by the annual share-count rule adds to its stored note: that it is an
+    annual figure, its as-of date and age, the flags it carried and the cap (the extractor's note before it already
+    names the form, the as-of date and the ADS ratio)."""
+    age = (today - fact.event_date).days
+    return (
+        f" Applied automatically as an annual figure (the annual share-count rule): a 20-F/40-F cover count as of "
+        f"{fact.event_date.isoformat()}, {age} days old on {today.isoformat()}, flags {', '.join(fact.flags)}; "
+        f"an annual count is applied up to {max_age_days} days old and waits for the steward after that."
+    )
+
+
 def plan(
     result: ExtractionResult,
     fact_type: FactType,
     *,
     cache_dir: Path | None = None,
     cik: str | int | None = None,
+    today: date | None = None,
+    cfg: ExtractorConfig = DEFAULT_EXTRACTOR_CONFIG,
 ) -> _Planned:
     """Map one value type of ``result`` to auto / flag / nothing (the W2 plan's Q6). No database. A share count's
     filing and acceptance (F9, its public instant) are read from the EDGAR cache on disk, never a request.
+
+    A FLAG share count the annual share-count rule accepts (``annual_shares_auto_eligible``: an annual cover count
+    whose only flags are the annual ones, at most ``cfg.annual_shares_auto_max_age_days`` old on ``today``, the
+    market date by default) plans as ``auto`` and then meets ``machine_action`` like any AUTO value.
     """
     fact = next(
         (
@@ -148,12 +180,18 @@ def plan(
     kind: Literal["auto", "flag"] = (
         "auto" if fact.tier == Tier.AUTO and _has_value(fact) else "flag"
     )
+    annual_note = None
+    if kind == "flag":
+        day = today or market_today()
+        cap = cfg.annual_shares_auto_max_age_days
+        if annual_shares_auto_eligible(fact, day, cap):
+            kind, annual_note = "auto", _annual_note(fact, day, cap)
     accession = accepted = None
     if fact_type == "shares_outstanding" and _finite(fact.value):
         accession, accepted = shares_publication(
             cache_dir, cik or cik_of_source_ref(fact.source_ref), fact.value, fact.event_date
         )
-    return _Planned(fact_type, kind, fact, None, accession, accepted)
+    return _Planned(fact_type, kind, fact, None, accession, accepted, annual_note)
 
 
 def _candidate_columns(p: _Planned, outcome: str, extra_flags: tuple[str, ...] = ()) -> dict:
@@ -235,7 +273,7 @@ def _apply(conn: psycopg.Connection, security_id: UUID, p: _Planned) -> UUID:
         source=f.source,
         source_ref=f.source_ref,
         event_date=f.event_date,
-        note=f.note,
+        note=f"{f.note}{p.annual_note or ''}",
         ratified_by=MACHINE,  # applied by the machine, never confirmed by a human
         vouched=None,  # no estimate was shown to anyone
         tenant_id=DATA_TENANT_ID,  # platform data (V2): one value for every workspace
@@ -312,7 +350,9 @@ def record_extraction(
     ``cik`` defaults to the one in the filing URL). ``today`` defaults to today's market date.
     """
     day = today or market_today()
-    planned = [plan(result, ft, cache_dir=cache_dir, cik=cik) for ft in FACT_TYPES]  # no database
+    planned = [
+        plan(result, ft, cache_dir=cache_dir, cik=cik, today=day) for ft in FACT_TYPES
+    ]  # no database
     lock = acquire_company_lock(conn, security_id, wait_s=wait_s)
     with lock:  # released only after the commit below
         try:

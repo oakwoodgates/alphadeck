@@ -260,6 +260,14 @@ annual filer through it would pre-fill a year-old share count at the *lowest-fri
 therefore lives in its own module and emits **FLAG only** — enforced by both a behavioral test and a
 source-scan asserting the token `AUTO` never appears in it.
 
+**The platform still applies a clean annual count (V2, the annual share-count rule).** The extractor's tier stays
+FLAG; the decision to apply is the machine writer's, not the extractor's. A count whose only flags are
+`annual-cover` / `stale-cover`, with its ADS ratio read or not applicable, no older than
+`ExtractorConfig.annual_shares_auto_max_age_days` (400) on the market date, is applied as a platform value stamped
+`auto` with its real as-of date, `source='annual-cover'` and its ADS ratio, and the note says it is an annual figure
+(`docs/PLATFORM_VALUES.md`, "The annual share-count rule"). Every other flag, an older count and a pinned company
+still wait for the steward. Annual cash and burn (the annual-statements path below) is never applied.
+
 **Locating the cover = matching the SEC form instruction, not a keyword.** Three arms, each load-bearing:
 
 - **`issuer` OR `registrant`** — the 40-F cover says *"of the Registrant's classes"* where the 20-F says
