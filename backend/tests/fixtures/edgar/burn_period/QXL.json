@@ -1,0 +1,75 @@
+{
+ "cik": "",
+ "entityName": "QXL (reconstructed from the 2026-11-15 quarterly cash audit)",
+ "facts": {
+  "us-gaap": {
+   "CashAndCashEquivalentsAtCarryingValue": {
+    "units": {
+     "USD": [
+      {
+       "end": "2026-06-30",
+       "val": 2435000,
+       "accn": "reconstructed",
+       "fy": 2026,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-08-14"
+      }
+     ]
+    }
+   },
+   "NetCashProvidedByUsedInOperatingActivities": {
+    "units": {
+     "USD": [
+      {
+       "start": "2025-01-01",
+       "end": "2025-06-30",
+       "val": -3000000,
+       "accn": "reconstructed",
+       "fy": 2025,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2025-08-14"
+      },
+      {
+       "start": "2025-01-01",
+       "end": "2025-09-30",
+       "val": -4715000,
+       "accn": "reconstructed",
+       "fy": 2025,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2025-11-14"
+      }
+     ]
+    }
+   },
+   "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations": {
+    "units": {
+     "USD": [
+      {
+       "start": "2026-01-01",
+       "end": "2026-03-31",
+       "val": -604000,
+       "accn": "reconstructed",
+       "fy": 2026,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2026-05-15"
+      },
+      {
+       "start": "2026-01-01",
+       "end": "2026-06-30",
+       "val": -1666000,
+       "accn": "reconstructed",
+       "fy": 2026,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-08-14"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

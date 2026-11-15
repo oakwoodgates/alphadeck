@@ -1,0 +1,32 @@
+{
+ "cik": "",
+ "name": "CURR (reconstructed from the 2026-11-15 quarterly cash audit)",
+ "filings": {
+  "recent": {
+   "form": [
+    "20-F",
+    "10-Q"
+   ],
+   "accessionNumber": [
+    "0000000000-26-000011",
+    "0000000000-25-000012"
+   ],
+   "primaryDocument": [
+    "0000000000-26-000011.htm",
+    "0000000000-25-000012.htm"
+   ],
+   "filingDate": [
+    "2026-04-28",
+    "2025-05-15"
+   ],
+   "reportDate": [
+    "2025-12-31",
+    "2025-03-31"
+   ],
+   "acceptanceDateTime": [
+    "2026-04-28T21:30:00.000Z",
+    "2025-05-15T20:10:00.000Z"
+   ]
+  }
+ }
+}
