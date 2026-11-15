@@ -99,6 +99,11 @@ class ExtractedFact(DomainModel):
     #             ``CashCashEquivalentsAndShortTermInvestments`` beyond the tolerance)
     #           | "investments-off-date" (an investment tag sits on a NEWER balance sheet than the cash and
     #             not on the cash date: the composition at one date is not established)
+    #           | "burn-span" (the burn covers fewer than quarterly_span_min_days or more than
+    #             quarterly_span_max_days, native or derived: not established as one quarter; offered as found)
+    #           | "burn-off-period" (the burn does not end on the cited filing's period of report)
+    #           | "cash-after-period" (the cash is dated after the cited filing's period of report; an older
+    #             cash date is "stale-cash")
     #           | "no-companyfacts" | "no-cashflow-column" | "no-cash-instant"  (missing-data: value None)
     flags: list[str] = Field(default_factory=list)
     located_passages: list[LocatedPassage] = Field(default_factory=list)

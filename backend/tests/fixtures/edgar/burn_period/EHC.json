@@ -1,0 +1,75 @@
+{
+ "cik": "",
+ "entityName": "EHC (reconstructed from the 2026-11-15 quarterly cash audit)",
+ "facts": {
+  "us-gaap": {
+   "CashAndCashEquivalentsAtCarryingValue": {
+    "units": {
+     "USD": [
+      {
+       "end": "2026-09-30",
+       "val": 95000000,
+       "accn": "reconstructed",
+       "fy": 2026,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2026-10-28"
+      }
+     ]
+    }
+   },
+   "NetCashProvidedByUsedInOperatingActivities": {
+    "units": {
+     "USD": [
+      {
+       "start": "2023-01-01",
+       "end": "2023-03-31",
+       "val": 200000000,
+       "accn": "reconstructed",
+       "fy": 2023,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2023-04-27"
+      },
+      {
+       "start": "2023-01-01",
+       "end": "2023-06-30",
+       "val": 450000000,
+       "accn": "reconstructed",
+       "fy": 2023,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2023-07-27"
+      }
+     ]
+    }
+   },
+   "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations": {
+    "units": {
+     "USD": [
+      {
+       "start": "2026-01-01",
+       "end": "2026-06-30",
+       "val": 600000000,
+       "accn": "reconstructed",
+       "fy": 2026,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-07-29"
+      },
+      {
+       "start": "2026-01-01",
+       "end": "2026-09-30",
+       "val": 957700000,
+       "accn": "reconstructed",
+       "fy": 2026,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2026-10-28"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

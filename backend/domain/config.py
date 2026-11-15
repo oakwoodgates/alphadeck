@@ -1013,6 +1013,11 @@ class ExtractorConfig(DomainModel):
     # YTD detector: a cash-flow period whose span exceeds this is a year-to-date column, not a quarter, so
     # the quarter must be DERIVED (YTD - prior period). A clean fiscal quarter is ~89-92 days. (NNE.)
     quarterly_span_max_days: int = 100
+    # the quarter's lower bound (V2 extractor correctness PR 2, plan condition 4): a burn is AUTO only when it
+    # spans quarterly_span_min_days..quarterly_span_max_days (inclusive), native or derived; outside it the value
+    # is offered flagged ``burn-span``. The 2026-11-15 audit's short spans were 54 and 61 days (AIAI, ZEOX), its
+    # long ones 183-275 (a missing prior year to date). A proposed dial (decision D5 can tune it), not measured.
+    quarterly_span_min_days: int = 80
     # one-time detector: a NON-ROUTINE operating line (accrued/settlement — NOT routine working capital like
     # inventory/AR/trade-AP, and NOT a non-cash add-back) whose magnitude is at least this fraction of
     # |operating cash use| is anomalous -> flag for ratification (the operator decides whether to back it
