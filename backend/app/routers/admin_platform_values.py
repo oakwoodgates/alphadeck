@@ -2,6 +2,7 @@
 one value per company for everyone, read and decided by the steward.
 
 - ``GET  /admin/platform-values/awaiting`` — the flagged candidates waiting for the steward, newest first;
+- ``GET  /admin/platform-values/queue`` — the same, one row per company, with its card count, in queue order;
 - ``GET  /admin/platform-values/{security_id}`` — the company's two values: state, versions, candidates, decisions;
 - ``POST /admin/platform-values/candidates/{candidate_id}/approve`` — apply a flagged candidate's own value;
 - ``POST /admin/platform-values/{security_id}/correct`` — set the value by hand, citing the filing;
@@ -41,6 +42,7 @@ from domain.links import HttpUrlOut
 from domain.platform_values import DerivedState
 from domain.text_types import AdsRatio, Money, Prose, RequestDate, Shares, UrlText
 from platform_values import state, steward
+from platform_values.cards import CardCount, card_counts
 from platform_values.steward import (
     PlatformValueConflict,
     PlatformValueInvalid,
@@ -54,6 +56,10 @@ router = APIRouter(prefix="/admin/platform-values", tags=["admin"])
 
 FactTypeIn = Literal["shares_outstanding", "cash_burn"]
 AWAITING_LIMIT_MAX = 500
+QUEUE_LIMIT_DEFAULT = 50
+QUEUE_LIMIT_MAX = 200
+QUEUE_OFFSET_MAX = 100_000
+NO_CARDS = CardCount(cards=0, pen_only=False)
 
 
 # --- response models (no limits: built from stored rows) ---------------------------------------------------------
@@ -135,12 +141,23 @@ class PlatformVersionOut(PlatformAppliedValueOut):
     set_aside: bool = False
 
 
+class PlatformPinEventOut(BaseModel):
+    """The newest pin event of a value: ``action`` ``pin`` or ``unpin``, ``decided_by`` the steward's email,
+    ``note`` why (optional), ``recorded_at`` when."""
+
+    action: str
+    decided_by: str
+    note: str | None = None
+    recorded_at: datetime
+
+
 class PlatformValueOut(BaseModel):
     """One value of a company. ``state``: ``no_value`` (``reason`` says why) / ``from_filing`` / ``awaiting_steward``
     / ``verified``; ``ratifier`` ``machine`` / ``carried`` / ``steward``; ``value`` the value the meters show;
     ``awaiting`` the flag waiting when there is no value; ``pending`` a newer flag beside a shown value; ``pinned``
-    the steward reviews every future filing value by hand. ``candidates`` (newest 20) and ``decisions`` (newest 50)
-    are newest first."""
+    the steward reviews every future filing value by hand; ``pin`` the newest pin event (who pinned or unpinned,
+    when and why; None = never pinned). ``candidates`` (newest 20) and ``decisions`` (newest 50) are newest first.
+    """
 
     fact_type: str
     state: str
@@ -153,6 +170,7 @@ class PlatformValueOut(BaseModel):
     versions: list[PlatformVersionOut] = Field(default_factory=list)
     candidates: list[PlatformCandidateOut] = Field(default_factory=list)
     decisions: list[PlatformDecisionOut] = Field(default_factory=list)
+    pin: PlatformPinEventOut | None = None
 
 
 class CompanyValuesOut(BaseModel):
@@ -183,6 +201,42 @@ class PlatformAwaitingOut(BaseModel):
 
     items: list[PlatformAwaitingItemOut] = Field(default_factory=list)
     total: int = 0
+
+
+class PlatformQueueValueOut(BaseModel):
+    """One value of a queue row that waits for the steward: ``state`` (``awaiting_steward``, or the state of the
+    value shown when a newer flag is pending beside it), the flagged ``candidate``, and ``value`` the value shown
+    (set only when the candidate is pending beside it)."""
+
+    state: str
+    candidate: PlatformCandidateOut
+    value: PlatformAppliedValueOut | None = None
+
+
+class PlatformQueueItemOut(BaseModel):
+    """One company with anything waiting (one row per company): ``cards`` how many live cards hold it, across every
+    workspace (a number only, never whose); ``pen_only`` every row it sits in is a Discovered pen; ``waiting_since``
+    the older of its waiting candidates; ``shares`` / ``cash_burn`` what waits (None = nothing for that value).
+    """
+
+    security_id: UUID
+    ticker: str | None = None
+    name: str | None = None
+    cards: int = 0
+    pen_only: bool = False
+    waiting_since: datetime
+    shares: PlatformQueueValueOut | None = None
+    cash_burn: PlatformQueueValueOut | None = None
+
+
+class PlatformQueueOut(BaseModel):
+    """The steward's queue page: ``items`` in queue order (pen-only last, then most cards, then the longest wait,
+    then the id); ``total`` every company waiting and ``pen_only_total`` the pen-only ones, whatever the page and
+    ``pen``."""
+
+    items: list[PlatformQueueItemOut] = Field(default_factory=list)
+    total: int = 0
+    pen_only_total: int = 0
 
 
 # --- request models (bounded: domain/text_types.py) --------------------------------------------------------------
@@ -363,6 +417,16 @@ def _type_out(tv: state.TypeValues, conn: psycopg.Connection) -> PlatformValueOu
         ],
         candidates=[_candidate(c, standing) for c in tv.candidates],
         decisions=[_decision(d) for d in tv.decisions],
+        pin=(
+            PlatformPinEventOut(
+                action=tv.pin["action"],
+                decided_by=tv.pin["decided_by"],
+                note=tv.pin.get("note"),
+                recorded_at=tv.pin["recorded_at"],
+            )
+            if tv.pin is not None
+            else None
+        ),
     )
 
 
@@ -418,7 +482,7 @@ def list_awaiting(
     Decided candidates and flags older than the value shown are not listed. ``total`` counts all. Read-only.
     """
     try:
-        items = state.awaiting(conn, limit=10**9)
+        items = state.awaiting(conn, limit=None)
         return PlatformAwaitingOut(
             items=[
                 PlatformAwaitingItemOut(
@@ -437,6 +501,71 @@ def list_awaiting(
                 for i in items[:limit]
             ],
             total=len(items),
+        )
+    finally:
+        conn.rollback()
+
+
+def _queue_value(item: state.AwaitingItem | None) -> PlatformQueueValueOut | None:
+    if item is None:
+        return None
+    value = item.state.value
+    return PlatformQueueValueOut(
+        state=item.state.state.value,
+        candidate=_candidate(item.candidate),
+        value=PlatformAppliedValueOut(**_value_fields(value)) if value is not None else None,
+    )
+
+
+def _queue_order(
+    companies: list[state.AwaitingCompany], counts: Mapping[UUID, CardCount]
+) -> list[tuple[state.AwaitingCompany, CardCount]]:
+    """The queue's order (approved B3 (a), B5 (a)): pen-only companies last; then most cards first; then the
+    longest wait first; then the id, so the order is total. A company on no live card counts 0 cards, not
+    pen-only: it sorts just before the pen-only block."""
+    rows = [(c, counts.get(c.security_id, NO_CARDS)) for c in companies]
+    rows.sort(key=lambda r: (r[1].pen_only, -r[1].cards, r[0].waiting_since, str(r[0].security_id)))
+    return rows
+
+
+@router.get("/queue", response_model=PlatformQueueOut)
+def list_queue(
+    limit: int = Query(QUEUE_LIMIT_DEFAULT, ge=1, le=QUEUE_LIMIT_MAX),
+    offset: int = Query(0, ge=0, le=QUEUE_OFFSET_MAX),
+    pen: Literal["after", "only", "exclude"] = Query("after"),
+    conn: psycopg.Connection = Depends(get_conn),
+) -> PlatformQueueOut:
+    """THE STEWARD'S QUEUE: one row per company with a share count or cash/burn waiting for you (the same open
+    flags as ``/awaiting``), with how many live cards hold it across every workspace (a number only). Order:
+    companies only in a Discovered pen last, then most cards first, then the longest wait first. ``pen``:
+    ``after`` (default) lists the pen-only companies after the rest, ``only`` lists only them, ``exclude`` leaves
+    them out. ``offset`` / ``limit`` cut the page (``limit`` 1-200, ``offset`` 0-100,000); ``total`` and
+    ``pen_only_total`` count every company waiting, whatever the page. **422** a parameter out of bounds.
+    Read-only."""
+    try:
+        companies = state.awaiting_companies(conn)
+        ordered = _queue_order(companies, card_counts(conn, [c.security_id for c in companies]))
+        pen_only_total = sum(1 for _, n in ordered if n.pen_only)
+        if pen == "only":
+            ordered = [r for r in ordered if r[1].pen_only]
+        elif pen == "exclude":
+            ordered = [r for r in ordered if not r[1].pen_only]
+        return PlatformQueueOut(
+            items=[
+                PlatformQueueItemOut(
+                    security_id=c.security_id,
+                    ticker=c.ticker,
+                    name=c.name,
+                    cards=n.cards,
+                    pen_only=n.pen_only,
+                    waiting_since=c.waiting_since,
+                    shares=_queue_value(c.shares),
+                    cash_burn=_queue_value(c.cash_burn),
+                )
+                for c, n in ordered[offset : offset + limit]
+            ],
+            total=len(companies),
+            pen_only_total=pen_only_total,
         )
     finally:
         conn.rollback()

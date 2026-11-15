@@ -98,6 +98,21 @@ def latest_candidate(
     )
 
 
+def latest_candidates(
+    conn: psycopg.Connection, security_ids: Iterable[UUID], fact_type: FactType
+) -> dict[UUID, dict]:
+    """The BATCH twin of ``latest_candidate``: ``{security_id: its newest candidate}`` for every id that has one,
+    in ONE query (the same order: ``recorded_at``, then ``id``)."""
+    rows = _all(
+        conn,
+        "SELECT DISTINCT ON (security_id) * FROM extraction_candidate "
+        "WHERE tenant_id = %s AND fact_type = %s AND security_id = ANY(%s) "
+        "ORDER BY security_id, recorded_at DESC, id DESC",
+        (DATA_TENANT_ID, fact_type, list(dict.fromkeys(security_ids))),
+    )
+    return {r["security_id"]: r for r in rows}
+
+
 def candidates_for(
     conn: psycopg.Connection, security_id: UUID, fact_type: FactType, *, limit: int = 20
 ) -> list[dict]:
@@ -205,6 +220,24 @@ def standing_decision_for_candidate(conn: psycopg.Connection, candidate_id: UUID
     )
 
 
+def standing_decisions_for_candidates(
+    conn: psycopg.Connection, candidate_ids: Iterable[UUID]
+) -> dict[UUID, dict]:
+    """The BATCH twin of ``standing_decision_for_candidate``: ``{candidate_id: its standing decision}`` for every
+    candidate a standing decision closes, in ONE query (the same rule and order). An open candidate is absent.
+    """
+    rows = _all(
+        conn,
+        "SELECT DISTINCT ON (d.candidate_id) d.*, "
+        "EXISTS (SELECT 1 FROM platform_value_decision u WHERE u.revokes = d.id) AS undone "
+        "FROM platform_value_decision d WHERE d.candidate_id = ANY(%s) AND d.action = ANY(%s) "
+        "AND NOT EXISTS (SELECT 1 FROM platform_value_decision u WHERE u.revokes = d.id) "
+        "ORDER BY d.candidate_id, d.recorded_at DESC, d.id DESC",
+        (list(dict.fromkeys(candidate_ids)), sorted(CLOSING_ACTIONS)),
+    )
+    return {r["candidate_id"]: r for r in rows}
+
+
 def append_decision(
     conn: psycopg.Connection,
     *,
@@ -255,6 +288,21 @@ def latest_pin(conn: psycopg.Connection, security_id: UUID, fact_type: FactType)
         "ORDER BY recorded_at DESC, id DESC LIMIT 1",
         (DATA_TENANT_ID, security_id, fact_type),
     )
+
+
+def latest_pins(
+    conn: psycopg.Connection, security_ids: Iterable[UUID], fact_type: FactType
+) -> dict[UUID, dict]:
+    """The BATCH twin of ``latest_pin``: ``{security_id: its newest pin event}`` for every id ever pinned, in ONE
+    query (the same order)."""
+    rows = _all(
+        conn,
+        "SELECT DISTINCT ON (security_id) * FROM steward_pin "
+        "WHERE tenant_id = %s AND value_type = %s AND security_id = ANY(%s) "
+        "ORDER BY security_id, recorded_at DESC, id DESC",
+        (DATA_TENANT_ID, fact_type, list(dict.fromkeys(security_ids))),
+    )
+    return {r["security_id"]: r for r in rows}
 
 
 def is_pinned(conn: psycopg.Connection, security_id: UUID, fact_type: FactType) -> bool:
@@ -331,14 +379,17 @@ __all__ = [
     "CANDIDATE_COLUMNS",
     "candidate",
     "latest_candidate",
+    "latest_candidates",
     "candidates_for",
     "append_candidate",
     "awaiting",
     "decision",
     "decisions_for",
     "standing_decision_for_candidate",
+    "standing_decisions_for_candidates",
     "append_decision",
     "latest_pin",
+    "latest_pins",
     "is_pinned",
     "append_pin",
     "versions",

@@ -201,6 +201,7 @@ def test_a_plain_user_gets_403_on_every_route_and_writes_nothing(world, db):
     db.commit()
     calls = [
         ("get", f"{BASE}/awaiting", None),
+        ("get", f"{BASE}/queue", None),
         ("get", f"{BASE}/{sid}", None),
         ("post", f"{BASE}/candidates/{cid}/approve", {}),
         ("post", f"{BASE}/{sid}/correct", _correct_body(asof)),
@@ -366,6 +367,25 @@ def test_pin_and_unpin(world, db):
     assert r.status_code == 409 and r.json()["detail"].startswith(
         PLATFORM_VALUE_SENTENCES["not_pinned"]
     )
+
+
+def test_the_company_read_says_who_pinned_when_and_why(world, db):
+    """The company read carries the newest pin event (W4a): who, when and the note; after an unpin, the unpin."""
+    s, sid = world["s"], world["sid"]
+    got = s.get(f"{BASE}/{sid}").json()
+    assert (got["shares"]["pin"], got["cash_burn"]["pin"]) == (None, None)  # never pinned
+    note = "an annual filer: review each filing"
+    r = s.post(f"{BASE}/{sid}/pin", json={"fact_type": "cash_burn", "note": note})
+    assert r.status_code == 200, r.text
+    pin = r.json()["cash_burn"]["pin"]
+    assert (pin["action"], pin["decided_by"], pin["note"]) == ("pin", "s@pv.test", note)
+    assert pin["recorded_at"]
+    assert r.json()["shares"]["pin"] is None
+    assert s.get(f"{BASE}/{sid}").json()["cash_burn"]["pin"] == pin  # the read says the same
+    r = s.post(f"{BASE}/{sid}/unpin", json={"fact_type": "cash_burn"})
+    unpin = r.json()["cash_burn"]["pin"]
+    assert (unpin["action"], unpin["decided_by"], unpin["note"]) == ("unpin", "s@pv.test", None)
+    assert unpin["recorded_at"] >= pin["recorded_at"]
 
 
 def test_the_company_read_and_unknown_ids(world, db):
