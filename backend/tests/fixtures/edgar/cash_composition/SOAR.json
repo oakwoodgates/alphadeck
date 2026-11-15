@@ -1,0 +1,84 @@
+{
+ "cik": "",
+ "entityName": "SOAR (reconstructed from the 2026-11-15 quarterly cash audit)",
+ "facts": {
+  "us-gaap": {
+   "CashAndCashEquivalentsAtCarryingValue": {
+    "units": {
+     "USD": [
+      {
+       "end": "2026-06-30",
+       "val": 0,
+       "accn": "reconstructed",
+       "fy": 2026,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-08-14"
+      }
+     ]
+    }
+   },
+   "Cash": {
+    "units": {
+     "USD": [
+      {
+       "end": "2026-06-30",
+       "val": 8440000,
+       "accn": "reconstructed",
+       "fy": 2026,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-08-14"
+      }
+     ]
+    }
+   },
+   "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents": {
+    "units": {
+     "USD": [
+      {
+       "end": "2026-06-30",
+       "val": 8440000,
+       "accn": "reconstructed",
+       "fy": 2026,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-08-14"
+      }
+     ]
+    }
+   },
+   "LongTermInvestments": {
+    "units": {
+     "USD": [
+      {
+       "end": "2026-06-30",
+       "val": 1908000,
+       "accn": "reconstructed",
+       "fy": 2026,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-08-14"
+      }
+     ]
+    }
+   },
+   "NetCashProvidedByUsedInOperatingActivities": {
+    "units": {
+     "USD": [
+      {
+       "start": "2026-04-01",
+       "end": "2026-06-30",
+       "val": -3000000,
+       "accn": "reconstructed",
+       "fy": 2026,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-08-14"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

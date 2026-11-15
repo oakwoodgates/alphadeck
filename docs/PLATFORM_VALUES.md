@@ -11,6 +11,12 @@ A platform value is one value per company for everyone. It lives in the data ten
 | `shares_outstanding` | `fact_shares_outstanding` | the market cap (Workbench, Hot Board, Insider Tracker, Peer Table, Theme Leaderboard, Ticker Lookup, Market Map, Track Record, the data flags) |
 | `cash_burn` | `fact_cash_burn` | the runway meter (Workbench), the Peer Table |
 
+`cash_usd` is one "cash and short-term investments" number (cash + equivalents + short-term investments +
+long-term marketable securities; never the generic long-term investments line: `docs/WORKBENCH_EXTRACTION.md`).
+The quarterly extractor also carries the investment part on its own (`ExtractedFact.investments_usd`) and names
+every component in the note. Neither `fact_cash_burn` nor `extraction_candidate` stores that part yet: the machine
+writer keeps the note, which states it, and a column is the follow-up migration (the plan's PR 1b).
+
 ## The one pick
 
 The as-of read returns one row per filing (`source_ref`; the newest version of each, set-aside versions skipped).

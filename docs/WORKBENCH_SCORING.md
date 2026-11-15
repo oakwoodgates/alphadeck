@@ -137,6 +137,13 @@ ratified. Every future cash ratification follows the one stated rule. *(Origin: 
 one name's figure included noncurrent marketable securities, another's was current-only — so the rule was
 made uniform + documented.)*
 
+**Which lines count (operator decisions D1 + D2, 2026-11-15).** "Marketable securities" means short-term
+investments (Treasury bills, deposits and bonds due within a year, under any of the tags the extractor
+reads) plus long-term MARKETABLE debt securities. The generic **long-term investments** line is **never**
+cash: it is often stakes in other companies. The machine's candidate carries the investment part on its own
+(`investments_usd`) so a screen can later show the split. Tag lists and the reconcile rule:
+`WORKBENCH_EXTRACTION.md` (Cash includes short-term investments…).
+
 ### The recurring-vs-one-time burn provenance pattern (the ENTRA1 lesson)
 **A cash-burn provenance note MUST separate one-time outflows from recurring burn** — the runway meter is
 only honest on the *recurring* figure. The worked example: **NuScale (SMR)** seeds a recurring burn of

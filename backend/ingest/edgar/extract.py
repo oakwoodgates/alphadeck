@@ -11,10 +11,12 @@ Given a company's SEC ``companyfacts`` + its latest 10-Q/10-K text, produce cand
   ``no-companyfacts`` (nothing observed — located-only). One condition, one label; never a catch-all.
   A cover row dated after its own filing is refused first (``cover_after_filing``) and named by the
   ``cover-after-filing`` flag + the note.
-- **cash_burn** (runway): cash = cash+equiv (+ same-dated marketable securities), each read under its most
-  current label (the restricted-cash total says so in the note); a clean ~quarter of operating cash
-  flow -> ``AUTO``; a year-to-date column -> ``FLAG`` (derive the quarter); a large one-time reconciliation
-  line, or marketable-securities present (filer-specific tag basis) -> ``FLAG`` (raw + locate).
+- **cash_burn** (runway): cash = cash+equiv + the same-dated short-term investments + long-term MARKETABLE
+  securities (never the generic long-term investments line), the cash read under its most current label (the
+  restricted-cash total says so in the note) and every component named in the note; a clean ~quarter of
+  operating cash flow -> ``AUTO``; an underivable year-to-date column, a large one-time reconciliation line,
+  or a composition that cannot be established (cash tags that disagree, a combined line that does not
+  reconcile, investments only on a later balance sheet) -> ``FLAG`` (raw + locate).
 - **revenue_mix** (purity): ALWAYS ``HUMAN`` — locate the segment footnote (revenue names) or Item-1
   (pre-revenue); NEVER auto-valued (purity is the operator's exposure-concentration edge).
 
@@ -394,16 +396,57 @@ _CASH = [
 ]
 # The cash concept whose value INCLUDES restricted cash — stated in the note whenever it is the source.
 _RESTRICTED = "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents"
+# THE CASH COMPOSITION (V2 extractor correctness PR 1, operator decisions D1 + D2, 2026-11-15). The written rule
+# (``docs/WORKBENCH_SCORING.md``, the uniform cash rule) is cash + equivalents + ALL marketable securities, current
+# and noncurrent. The investment lists below are NOT read through ``_pick_instant``: every tag is read AT the cash
+# date (a balance sheet is one date), and among the tags present there the LARGEST value is taken, never the sum,
+# because they often restate one another (an AFS tag can equal ``ShortTermInvestments``). Every tag seen is named.
+# Short-term investments (current). The first three are the old list; the rest held 1.3bn at RBRK and 362M at
+# LMAT that the old reader left out while its note claimed "marketable securities ($0.0M)" (the 2026-11-15 audit:
+# 37 companies with more than half their cash in uncounted investments).
 _STI = [
     ("us-gaap", "ShortTermInvestments"),
     ("us-gaap", "MarketableSecuritiesCurrent"),
     ("us-gaap", "AvailableForSaleSecuritiesCurrent"),
+    ("us-gaap", "AvailableForSaleSecuritiesDebtSecuritiesCurrent"),
+    ("us-gaap", "DebtSecuritiesAvailableForSaleExcludingAccruedInterestCurrent"),
+    ("us-gaap", "HeldToMaturitySecuritiesCurrent"),
+    ("us-gaap", "OtherShortTermInvestments"),
+    ("us-gaap", "CertificatesOfDepositAtCarryingValue"),
+    ("us-gaap", "TimeDepositsAtCarryingValue"),
 ]
-_LTI = [
-    ("us-gaap", "LongTermInvestments"),
+# Long-term MARKETABLE securities: noncurrent lines that are explicitly debt securities, which the written rule
+# counts (D2 keeps them: CRSP's long-dated Treasuries).
+_LT_MARKETABLE = [
     ("us-gaap", "MarketableSecuritiesNoncurrent"),
     ("us-gaap", "AvailableForSaleSecuritiesNoncurrent"),
+    ("us-gaap", "AvailableForSaleSecuritiesDebtSecuritiesNoncurrent"),
+    ("us-gaap", "HeldToMaturitySecuritiesNoncurrent"),
 ]
+# NEVER cash (D2): the generic long-term investments line and its kin, often stakes in other companies (DIS stored
+# 12.8bn against 5.2bn of cash, KMI 8.8bn against 0.9bn). Read only to NAME a same-dated one in the note as not
+# counted. Equity securities and restricted investments are never read at all.
+_NOT_CASH = [
+    ("us-gaap", "LongTermInvestments"),
+    ("us-gaap", "EquityMethodInvestments"),
+    ("us-gaap", "OtherLongTermInvestments"),
+    ("us-gaap", "LongTermInvestmentsAndReceivablesNet"),
+]
+# The combined line: never an addend, only the check that cash + short-term investments reconcile to it.
+_COMBINED = "CashCashEquivalentsAndShortTermInvestments"
+# Balance-sheet nesting (narrower, wider): on one date the narrower line can never exceed the wider one. ``Cash``
+# below cash-and-equivalents is its cash part (OKLO: 15.6M beside 1,594.1M), consistent; ``Cash`` ABOVE it is a
+# contradiction (SOAR: cash-and-equivalents 0 beside ``Cash`` 8.4M) -> ``cash-tags-disagree``.
+_CASH_NESTING = (
+    ("Cash", "CashAndCashEquivalentsAtCarryingValue"),
+    ("Cash", "CashAndCashEquivalentsAtCarryingValueIncludingDiscontinuedOperations"),
+    ("Cash", _RESTRICTED),
+    (
+        "CashAndCashEquivalentsAtCarryingValue",
+        "CashAndCashEquivalentsAtCarryingValueIncludingDiscontinuedOperations",
+    ),
+    ("CashAndCashEquivalentsAtCarryingValue", _RESTRICTED),
+)
 _OCF = "NetCashProvidedByUsedInOperatingActivities"
 # routine working-capital changes — NORMAL operations, never a one-time item (inventory swings, trade
 # receivables/payables, deferred revenue, prepaids, leases). These can be LARGE relative to a small burn
@@ -501,8 +544,157 @@ def _detect_one_time(
     )
 
 
+def _at(facts: dict, concept: str, end: str) -> float | None:
+    """A us-gaap USD balance (instant) dated exactly ``end``: the latest-filed row, else None (never 0)."""
+    at = [
+        r for r in _rows(facts, "us-gaap", concept, "USD") if r["end"] == end and not r.get("start")
+    ]
+    return None if not at else float(max(at, key=lambda r: r.get("filed", ""))["val"])
+
+
+def _m(v: float) -> str:
+    return f"${v / 1e6:.1f}M"
+
+
+@dataclass(frozen=True)
+class _Composition:
+    """What the cash date's balance sheet says, every part named (the note is built from this)."""
+
+    cash: float
+    sti: list[tuple[str, float]]  # every short-term investment tag on the cash date, list order
+    lt_marketable: list[tuple[str, float]]  # every long-term marketable tag on the cash date
+    not_counted: list[tuple[str, float]]  # same-dated never-cash lines, named only
+    older: list[
+        tuple[str, str]
+    ]  # (tag, its newest date) — an investment tag that stopped before the cash date
+    newer: list[
+        tuple[str, str]
+    ]  # (tag, its newest date) — an investment tag only on a later balance sheet
+    cash_tags: list[
+        tuple[str, float]
+    ]  # every balance-sheet cash tag on the cash date (for a disagreement)
+    disagree: bool
+    combined: float | None
+    reconciled: bool
+
+    @staticmethod
+    def _largest(seen: list[tuple[str, float]]) -> tuple[str, float] | None:
+        return max(seen, key=lambda x: x[1]) if seen else None  # a tie keeps the first listed
+
+    @property
+    def sti_value(self) -> float | None:
+        best = self._largest(self.sti)
+        return None if best is None else best[1]
+
+    @property
+    def lt_value(self) -> float | None:
+        best = self._largest(self.lt_marketable)
+        return None if best is None else best[1]
+
+    @property
+    def investments(self) -> float | None:
+        if not self.sti and not self.lt_marketable:
+            return None  # nothing tagged on the cash date — None, never a fake 0
+        return (self.sti_value or 0.0) + (self.lt_value or 0.0)
+
+
+def _compose(facts: dict, cash: float, end: str, cfg: ExtractorConfig) -> _Composition:
+    """The cash composition on ONE balance-sheet date (``end``, the cash instant's): the investments read AT that
+    date (the largest per role, never a sum of overlapping tags), the never-cash lines named, the cash tags'
+    nesting checked, and the combined line used only as a reconciliation."""
+
+    def seen(lst: list[tuple[str, str]]) -> list[tuple[str, float]]:
+        out = [(c, _at(facts, c, end)) for _, c in lst]
+        return [(c, v) for c, v in out if v is not None]
+
+    older: list[tuple[str, str]] = []
+    newer: list[tuple[str, str]] = []
+    for _, c in _STI + _LT_MARKETABLE:
+        rows = _rows(facts, "us-gaap", c, "USD")
+        if rows and _at(facts, c, end) is None:
+            newest = max(r["end"] for r in rows)
+            (newer if newest > end else older).append((c, newest))
+    cash_tags = seen(_CASH)
+    vals = dict(cash_tags)
+    disagree = any(n in vals and w in vals and vals[n] > vals[w] for n, w in _CASH_NESTING)
+    sti = seen(_STI)
+    combined = _at(facts, _COMBINED, end)
+    reconciled = True
+    if combined is not None:
+        parts = cash + (max(v for _, v in sti) if sti else 0.0)
+        bound = cfg.investments_reconcile_tolerance * max(abs(combined), abs(parts))
+        reconciled = abs(parts - combined) <= bound
+    return _Composition(
+        cash=cash,
+        sti=sti,
+        lt_marketable=seen(_LT_MARKETABLE),
+        not_counted=seen(_NOT_CASH),
+        older=older,
+        newer=newer,
+        cash_tags=cash_tags,
+        disagree=disagree,
+        combined=combined,
+        reconciled=reconciled,
+    )
+
+
+def _composition_note(c: _Composition, cash_label: str) -> str:
+    """The note's cash part: every component with its amount, a missing one SAID missing (the old note printed
+    "marketable securities ($0.0M)" for tags it never read), the never-cash lines named as not counted.
+    """
+
+    def tags(seen: list[tuple[str, float]]) -> str:
+        best = _Composition._largest(seen)
+        assert best is not None
+        if len(seen) == 1:
+            return best[0]
+        listed = ", ".join(f"{t} {_m(v)}" for t, v in seen)
+        return f"{best[0]}, the largest of {listed}; overlapping tags are never summed"
+
+    total = c.cash + (c.investments or 0.0)
+    parts = [f"{cash_label} {_m(c.cash)}"]
+    missing: list[str] = []
+    if c.sti:
+        parts.append(f"short-term investments {_m(c.sti_value or 0.0)} ({tags(c.sti)})")
+    else:
+        missing.append("no short-term investments tagged on the cash date")
+    if c.lt_marketable:
+        parts.append(
+            f"long-term marketable securities {_m(c.lt_value or 0.0)} ({tags(c.lt_marketable)})"
+        )
+    else:
+        missing.append("no long-term marketable securities tagged on the cash date")
+    out = f"cash_usd {_m(total)} = " + " + ".join(parts)
+    if missing:
+        out += "; " + "; ".join(missing)
+    if c.not_counted:
+        out += (
+            "; not counted as cash: "
+            + ", ".join(f"{t} {_m(v)}" for t, v in c.not_counted)
+            + " (a long-term investments line, often stakes in other companies, never cash)"
+        )
+    if c.combined is not None:
+        parts_sum = c.cash + (c.sti_value or 0.0)
+        out += (
+            f"; cash + short-term investments reconciles to {_COMBINED} {_m(c.combined)}"
+            if c.reconciled
+            else f"; {_COMBINED} {_m(c.combined)} ≠ cash + short-term investments {_m(parts_sum)}"
+            " (investments may sit under a tag not read)"
+        )
+    if c.disagree:
+        out += "; cash tags disagree on the cash date: " + ", ".join(
+            f"{t} {_m(v)}" for t, v in c.cash_tags
+        )
+    return out
+
+
 def _cash_burn(
-    facts: dict, tenq_text: str, ref: str, period_end: date, cfg: ExtractorConfig
+    facts: dict,
+    tenq_text: str,
+    ref: str,
+    period_end: date,
+    cfg: ExtractorConfig,
+    source: str = "10-q",
 ) -> ExtractedFact:
     """Cash + quarterly burn. A FLAG marks an EXCEPTION needing judgment (the re-tier — honest loudness:
     ``ytd-derived`` fired on ~3 of 4 filings [GAAP 10-Q cash-flow statements are YTD] and
@@ -512,18 +704,20 @@ def _cash_burn(
     a missing input is its own flag with a **None** value — never a fake $0 cash or a fake $0 burn (which
     ratified into a fake "cash-generative"). COMPOSITION is provenance, not an alarm: a cleanly-derived
     quarter (YTD − prior YTD — reproducible arithmetic on two filed columns, the market-cap trust class)
-    and the marketable-securities basis (same-dated included / off-date excluded, which errs CONSERVATIVE —
+    and the investment basis (same-dated included / an older off-date tag excluded, which errs CONSERVATIVE —
     understated cash reads runway shorter) ride the NOTE and stay AUTO. Every input's as-of rides the note.
+    A composition the extractor cannot establish is a FLAG (``_compose``: ``cash-tags-disagree``,
+    ``investments-unreconciled``, ``investments-off-date``), never a silent AUTO.
 
-    Each input reads its most CURRENT label (``_pick_instant``), so a filer that moved its cash to plain
-    ``Cash`` or the restricted-cash total, or its securities to a newer tag, is read where it reports today;
-    the note names a non-default cash tag and says when the value includes restricted cash.
+    The cash reads its most CURRENT label (``_pick_instant``), so a filer that moved its cash to plain
+    ``Cash`` or the restricted-cash total is read where it reports today; the note names a non-default cash
+    tag and says when the value includes restricted cash. The investments are read AT the cash date, every
+    known tag (``_STI``, ``_LT_MARKETABLE``), the largest per role; ``investments_usd`` carries their part.
+    ``source`` is the cited form's provenance kind (``10-q``, or ``10-k`` when the values filing is a 10-K).
     """
     cash_pick = _pick_instant(facts, _CASH)
     cash_at = None if cash_pick is None else (cash_pick[0], cash_pick[1])
     restricted = cash_pick is not None and cash_pick[2] == _RESTRICTED
-    sti_at = _latest_instant(facts, _STI)
-    lti_at = _latest_instant(facts, _LTI)
     q = _quarter(facts, cfg)
 
     # nothing observed anywhere -> a located-only FLAG (the shares no-companyfacts treatment). The old
@@ -544,7 +738,7 @@ def _cash_burn(
             tier=Tier.FLAG,
             cash_usd=None,
             quarterly_burn_usd=None,
-            source="10-q",
+            source=source,
             source_ref=ref,
             event_date=period_end,
             flags=["no-companyfacts"],
@@ -555,28 +749,32 @@ def _cash_burn(
 
     flags: list[str] = []
     passages: list[LocatedPassage] = []
-    # A balance sheet is ONE date: marketable instants join the sum ONLY when they carry the SAME as-of
-    # as cash. An off-date instant is not "stale, confirm it" — it's a DIFFERENT balance sheet (usually a
-    # discontinued tag: MU's AvailableForSaleSecurities* last reported 2018 — the old bare-value composer
-    # silently added those eight-year-old balances into current cash). Excluded + named, never summed.
-    mk_included = [x for x in (sti_at, lti_at) if x and cash_at and x[1] == cash_at[1]]
-    mk_offdate = [x for x in (sti_at, lti_at) if x and (not cash_at or x[1] != cash_at[1])]
-    marketable = sum(x[0] for x in mk_included)
-    cash_usd = (cash_at[0] + marketable) if cash_at else None
+    # A balance sheet is ONE date: investments join the sum ONLY when tagged on the SAME date as cash. An
+    # off-date instant is not "stale, confirm it" — it's a DIFFERENT balance sheet (usually a discontinued tag:
+    # MU's AvailableForSaleSecurities* last reported 2018 — the old bare-value composer silently added those
+    # eight-year-old balances into current cash). An OLDER one is excluded + named, never summed (conservative:
+    # runway reads shorter); one only on a NEWER balance sheet means the composition at one date is not
+    # established — ``investments-off-date``.
+    comp = _compose(facts, cash_at[0], cash_at[1], cfg) if cash_at else None
+    investments = comp.investments if comp else None
+    cash_usd = (cash_at[0] + (investments or 0.0)) if cash_at else None
     asofs: list[str] = []
     if cash_pick is not None:
         # the label is named whenever it is not the plain balance-sheet cash line (show the work: which tag
         # the number came from — the reader now follows a filer that switched labels)
         tag = "" if cash_pick[2] == _CASH[0][1] else f" (tagged {cash_pick[2]})"
         asofs.append(f"cash as of {cash_pick[1]}{tag}")
-    if mk_included:
-        asofs.append(f"marketable as of {mk_included[0][1]}")
-    if mk_offdate:
+    if cash_at and investments is not None:
+        asofs.append(f"investments as of {cash_at[1]}")
+    if comp and comp.older:
         asofs.append(
-            "marketable tags dated "
-            + ", ".join(sorted({x[1] for x in mk_offdate}))
-            + " ≠ the cash date — EXCLUDED from the sum (likely discontinued tags; verify where "
-            "current investments live)"
+            "investment tags not on the cash date — EXCLUDED from the sum (likely discontinued tags): "
+            + ", ".join(f"{t} ({d})" for t, d in comp.older)
+        )
+    if comp and comp.newer:
+        asofs.append(
+            "investment tags dated AFTER the cash date and not on it: "
+            + ", ".join(f"{t} ({d})" for t, d in comp.newer)
         )
 
     burn: float | None = None
@@ -626,9 +824,18 @@ def _cash_burn(
     # cash — included marketable share cash's date by construction)
     if cash_at and date.fromisoformat(cash_at[1]) < period_end:
         flags.append("stale-cash")
-    # NO marketable-securities flag (the re-tier): same-dated inclusion is the textbook liquidity
-    # composition and off-date exclusion errs conservative (cash understated -> runway reads SHORTER) —
-    # both are stated in the note's as-ofs above; the alarm, when it matters, is the meter reading short.
+    # NO flag for the ordinary composition (the re-tier): same-dated inclusion is the textbook liquidity
+    # composition and an older off-date exclusion errs conservative (cash understated -> runway reads SHORTER)
+    # — both are stated in the note. A composition the extractor CANNOT establish is a flag, never a silent
+    # AUTO: cash tags of one date that contradict each other, cash + short-term investments that miss the
+    # same-dated combined line, investments only on a later balance sheet.
+    if comp is not None:
+        if comp.disagree:
+            flags.append("cash-tags-disagree")
+        if not comp.reconciled:
+            flags.append("investments-unreconciled")
+        if comp.newer:
+            flags.append("investments-off-date")
 
     if not flags:
         # show-the-work on AUTO: attach the same deterministic locates the FLAG paths carry, so the
@@ -643,11 +850,10 @@ def _cash_burn(
                 passages.append(p)
 
     tier = Tier.FLAG if flags else Tier.AUTO
-    cash_label = "cash+equivalents, includes restricted cash" if restricted else "cash+equivalents"
+    cash_label = "cash+equivalents (includes restricted cash)" if restricted else "cash+equivalents"
     cash_part = (
-        f"cash_usd = {cash_label} (${cash_at[0] / 1e6:.1f}M) + marketable securities "
-        f"(${marketable / 1e6:.1f}M)"
-        if cash_at
+        _composition_note(comp, cash_label)
+        if comp
         else "cash: NOT FOUND in companyfacts (author it from the located balance sheet)"
     )
     burn_part = (
@@ -676,7 +882,8 @@ def _cash_burn(
         tier=tier,
         cash_usd=cash_usd,
         quarterly_burn_usd=burn,
-        source="10-q",
+        investments_usd=investments,
+        source=source,
         source_ref=ref,
         event_date=evt,
         flags=flags,
@@ -786,14 +993,20 @@ def extract_facts(
     tenq_date: date,
     tenk_date: date,
     cfg: ExtractorConfig = DEFAULT_EXTRACTOR_CONFIG,
+    values_form: str = "10-Q",
 ) -> list[ExtractedFact]:
     """Pure, deterministic: (companyfacts + the two filing texts) -> the three candidate facts. Testable
-    offline against cached fixtures (the form4-parser precedent — the caller owns fetching)."""
+    offline against cached fixtures (the form4-parser precedent — the caller owns fetching).
+
+    ``values_form`` is the form of the VALUES filing (the ``tenq_*`` arguments, which since B1 can be a 10-K):
+    the cash candidate's stored provenance kind names it (``10-k`` for a 10-K; it said ``10-q`` for every
+    value, the 18 audited 10-K citations included)."""
     facts = companyfacts["facts"]
+    cash_source = "10-k" if values_form == "10-K" else "10-q"
     return [
         _purity(facts, tenk_text, tenk_ref, tenk_date),
         _shares(facts, tenq_text, tenq_ref, tenq_date),
-        _cash_burn(facts, tenq_text, tenq_ref, tenq_date, cfg),
+        _cash_burn(facts, tenq_text, tenq_ref, tenq_date, cfg, source=cash_source),
     ]
 
 
@@ -911,6 +1124,7 @@ def extract_for_security(
         tenq_date=v[2],
         tenk_date=p[2],
         cfg=cfg,
+        values_form="10-K" if values_row is tenk else "10-Q",
     )
 
 

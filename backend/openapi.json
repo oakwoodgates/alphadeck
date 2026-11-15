@@ -24691,6 +24691,17 @@
             ],
             "title": "Statement Currency"
           },
+          "investments_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Investments Usd"
+          },
           "flags": {
             "items": {
               "type": "string"
@@ -24826,6 +24837,17 @@
               }
             ],
             "title": "Statement Currency"
+          },
+          "investments_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Investments Usd"
           },
           "flags": {
             "items": {

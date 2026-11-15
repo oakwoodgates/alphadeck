@@ -314,8 +314,10 @@ def test_cash_samedate_marketable_sums_quietly_into_the_composition():
     )
     cb = _cb(f)
     assert cb.cash_usd == 150e6
+    assert cb.investments_usd == 50e6  # the investment part, carried on its own (D1)
     assert cb.tier is Tier.AUTO and cb.flags == []
-    assert "marketable as of 2026-05-28" in cb.note  # the composition stated where ratified
+    assert "investments as of 2026-05-28" in cb.note  # the composition stated where ratified
+    assert "short-term investments $50.0M (ShortTermInvestments)" in cb.note
 
 
 def test_cash_clean_native_quarter_is_auto_with_asofs_in_the_note():
@@ -353,17 +355,32 @@ def test_cash_auto_when_no_marketable_securities():
 
 def test_cash_marketable_composition_is_a_note_never_an_alarm():
     """THE RE-TIER on the seed fixtures. SMR still FLAGs — via the one-time detector (the real
-    exception), never verify-marketable. OKLO goes AUTO; its companyfacts tag sum UNDERCOUNTS the true
-    balance-sheet cash — the deliberate trade of retiring the flag: the error direction is CONSERVATIVE
-    (understated cash -> runway reads SHORTER; a funding-risk gauge that over-warns, never under-warns),
-    and the note states the exact composition where the operator ratifies."""
+    exception), never verify-marketable. OKLO goes AUTO with cash and equivalents only: this fixture's
+    companyfacts carries OKLO's marketable securities only to 2024-06-30, so on the 2026-03-31 balance sheet
+    there is no investment tag to count (the seed's 2,536.9M includes securities the fixture does not tag).
+    The value is not under-read by the reader: the note says no investments are tagged on the cash date and
+    names the 2024 tags as excluded, so the steward sees the gap (the old docstring called this undercount a
+    deliberate "conservative" trade; the 2026-11-15 composition work reads every investment tag on the cash
+    date instead)."""
     smr = _extract("SMR")["cash_burn"]
     assert "verify-marketable-securities" not in smr.flags
     assert smr.flags == ["possible-one-time"]  # the surviving flag marks the exception
+    # D2's cost, pinned (2026-11-15): SMR's 118.6M ``LongTermInvestments`` (Treasuries here) is no longer
+    # counted, so the candidate reads 341.1M + 549.0M against the seed's hand-ratified 1,008.8M — the
+    # conservative direction, and the note says why.
+    assert smr.cash_usd == 341_129_000 + 549_000_000
+    assert "not counted as cash: LongTermInvestments $118.6M" in smr.note
     oklo = _extract("OKLO")["cash_burn"]
     assert oklo.tier is Tier.AUTO and oklo.flags == []
-    assert oklo.cash_usd != SEED["OKLO"]["cash"]  # the undercount — conservative by direction
-    assert "marketable" in oklo.note  # the composition stated where the operator ratifies
+    assert (
+        oklo.cash_usd == 1_594_103_000
+    )  # cash and equivalents alone: nothing tagged on 2026-03-31
+    assert oklo.cash_usd != SEED["OKLO"]["cash"]
+    assert oklo.investments_usd is None
+    assert "no short-term investments tagged on the cash date" in oklo.note
+    assert (
+        "MarketableSecuritiesCurrent (2024-06-30)" in oklo.note
+    )  # the stopped tag, named as excluded
 
 
 # ---------------------------------------------------------------------------------------------------------
