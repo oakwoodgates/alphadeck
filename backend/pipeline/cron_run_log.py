@@ -261,6 +261,40 @@ def amend_run_timings(
         return None
 
 
+def amend_run_block(path: Path, *, started_at: datetime, key: str, block: dict) -> Path | None:
+    """V2 W3c — add (or replace) ONE top-level ``key`` on THIS pass's FINISHED artifact at ``path``, touching
+    nothing else: the block of a leg that runs after the artifact is written (the platform-extraction step, the
+    last thing in the pass). The ``amend_run_timings`` rules: only a file that reads ``finished`` AND carries this
+    pass's ``started_at`` is rewritten (never a running, crashed or other pass's file), atomically; fail-open (a
+    logged exception and ``None``, never a failed pass). A reader of ``status`` or of its own keys (the catch-up
+    guard, the baselines, the Admin run row) sees the same file it saw before.
+    """
+    try:
+        if not path.exists():
+            return None
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(doc, dict) or run_status(doc) != RUN_STATUS_FINISHED:
+            return None
+        if doc.get("started_at") != started_at.isoformat():
+            return None  # not THIS pass's artifact
+        doc[key] = block
+        _write_atomic(path, doc)
+        return path
+    except Exception:  # noqa: BLE001 — fail-open: a passenger's record never fails the cron
+        _log.exception("cron run block write failed (fail-open — the pass is unaffected)")
+        return None
+
+
+def latest_run_block(key: str, *, base_dir: Path | None = None, limit: int = 20) -> dict | None:
+    """The newest FINISHED artifact's ``key`` block (a dict), among the newest ``limit`` artifacts, or ``None``.
+    A pure file read (``list_run_logs``); fail-open per artifact."""
+    for doc in list_run_logs(base_dir=base_dir, limit=limit):
+        block = doc.get(key)
+        if is_finished(doc) and isinstance(block, dict):
+            return block
+    return None
+
+
 def _split_reads(results) -> dict[str, dict]:
     """The pass's per-name split reads (S2) — ``ingest_thesis.split_reads_of`` over every thesis's names
     (imported lazily: this module is the artifact writer, kept free of the ingest leg's import graph).
