@@ -4963,6 +4963,50 @@
         }
       }
     },
+    "/admin/platform-values/{security_id}/extract": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Extract Now",
+        "description": "EXTRACT NOW: read this company's latest SEC filings and hand the result to the machine writer, through\nbackground extraction's own per-company step (``platform_values.extraction.extract_one``, ``run_kind``\n``steward``). No body. The step fetches FIRST with the company free (the submissions index, then the\nextraction, cache first, on the recurring client), only then takes the company lock to write, and appends\nexactly one attempt row (``platform_extraction_attempt``), whatever the outcome.\n\nPer value type, the machine writer's usual rule: a clean value from a filing newer than the value shown is\napplied (even over a verified value, unless the company is pinned: then it waits for you); a flagged value and\na \"nothing found\" are recorded as candidates; a value already on file writes nothing. ``attempt`` says what\nhappened per type; ``company`` is the company's values after it, with the new attempt first in ``attempts``.\n\n**An extraction failure is not an error status**: SEC unreachable, a document missing, no SEC User-Agent set:\nthe answer is 200 with ``attempt.status`` ``error`` and its one-line reason (the attempt row is the record;\nnothing else is written, so a value awaiting you still waits). **404** unknown company, or a company with no\nCIK (nothing fetched); **409** another writer held the company for the whole wait (one ``busy`` attempt row,\nno value written); **422** a fund (its share count is not extracted). Steward only.",
+        "operationId": "extract_now_admin_platform_values__security_id__extract_post",
+        "parameters": [
+          {
+            "name": "security_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Security Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformExtractOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/theses/{thesis_id}/data-flags": {
       "get": {
         "tags": [
@@ -16978,6 +17022,13 @@
           },
           "cash_burn": {
             "$ref": "#/components/schemas/PlatformValueOut"
+          },
+          "attempts": {
+            "items": {
+              "$ref": "#/components/schemas/PlatformExtractionAttemptOut"
+            },
+            "type": "array",
+            "title": "Attempts"
           }
         },
         "type": "object",
@@ -16987,7 +17038,7 @@
           "cash_burn"
         ],
         "title": "CompanyValuesOut",
-        "description": "A company's two platform values (the steward's company page)."
+        "description": "A company's two platform values (the steward's company page). ``attempts``: the company's newest\nbackground-extraction attempts (at most 10, newest first; W4d), whoever ran them."
       },
       "ConnectionListOut": {
         "properties": {
@@ -36676,6 +36727,235 @@
         ],
         "title": "PlatformDismissIn",
         "description": "Why the candidate is dismissed (required, not blank)."
+      },
+      "PlatformExtractAttemptOut": {
+        "properties": {
+          "attempt_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attempt Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "done",
+              "error",
+              "skipped"
+            ],
+            "title": "Status"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "live_fetches": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Live Fetches"
+          },
+          "shares": {
+            "$ref": "#/components/schemas/PlatformExtractValueOut"
+          },
+          "cash_burn": {
+            "$ref": "#/components/schemas/PlatformExtractValueOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "shares",
+          "cash_burn"
+        ],
+        "title": "PlatformExtractAttemptOut",
+        "description": "The attempt one \"Extract now\" recorded (one ``platform_extraction_attempt`` row, ``run_kind`` ``steward``):\n``status`` ``done`` / ``error`` / ``skipped`` (a busy company answers 409 instead), ``error`` its one line,\n``live_fetches`` the SEC requests it made, and the outcome per value type."
+      },
+      "PlatformExtractOut": {
+        "properties": {
+          "attempt": {
+            "$ref": "#/components/schemas/PlatformExtractAttemptOut"
+          },
+          "company": {
+            "$ref": "#/components/schemas/CompanyValuesOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "attempt",
+          "company"
+        ],
+        "title": "PlatformExtractOut",
+        "description": "The answer of \"Extract now\": what the attempt did (``attempt``) and the company's values after it\n(``company``, the same shape every steward write answers)."
+      },
+      "PlatformExtractValueOut": {
+        "properties": {
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "applied",
+              "flagged",
+              "pinned",
+              "nothing_found",
+              "already_on_file",
+              "older_than_on_file",
+              "after_today",
+              "failed",
+              "skipped"
+            ],
+            "title": "Outcome"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "written": {
+            "type": "boolean",
+            "title": "Written",
+            "default": false
+          },
+          "fact_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fact Id"
+          },
+          "candidate_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "title": "PlatformExtractValueOut",
+        "description": "What one \"Extract now\" did for ONE value type. ``outcome`` (above); ``reason`` the extractor's reason for a\n``nothing_found``, the attempt's one-line error for ``failed``, the detail for ``skipped``; ``written`` = a row\nwas appended for this type now; ``fact_id`` / ``candidate_id`` the fact or candidate that stands for it."
+      },
+      "PlatformExtractionAttemptOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "recorded_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Recorded At"
+          },
+          "run_kind": {
+            "type": "string",
+            "title": "Run Kind"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "shares_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shares Reason"
+          },
+          "cash_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cash Reason"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "recorded_at",
+          "run_kind",
+          "status"
+        ],
+        "title": "PlatformExtractionAttemptOut",
+        "description": "One background-extraction attempt of the company (``platform_extraction_attempt``): ``run_kind`` who ran it\n(``nightly``, ``onboarding``, ``backfill``, ``steward``, ``get_data``); ``status`` ``done`` (the machine writer\nran: ``shares_reason`` / ``cash_reason`` its reason per value type), ``error`` (``error``: one line, why),\n``busy`` (another writer held the company; nothing written) or ``skipped`` (``detail``, e.g. no CIK)."
       },
       "PlatformPinEventOut": {
         "properties": {
