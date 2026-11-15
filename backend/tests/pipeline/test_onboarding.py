@@ -1369,7 +1369,12 @@ def test_the_step_RAISING_leaves_the_batch_its_exit_and_its_queue_exactly_as_wit
     assert "the step blew up" in out_raising.platform_extraction["detail"]
 
     def lines(text: str) -> list[str]:
-        return [re.sub(r"\d+(\.\d+)?", "N", ln) for ln in text.splitlines()]  # durations vary
+        # durations vary, and the timings line also ORDERS its legs by duration, so its text differs run to run
+        return [
+            re.sub(r"\d+(\.\d+)?", "N", ln)
+            for ln in text.splitlines()
+            if not ln.startswith("timings:")
+        ]
 
     extra = [ln for ln in lines(printed_raising) if ln not in lines(printed_absent)]
     assert len(extra) == 1 and extra[0].startswith("Shared facts, new companies: FAILED")
