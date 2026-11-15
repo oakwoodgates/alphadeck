@@ -239,6 +239,7 @@ Each kind has one fixed sentence in `app/errors.py` (`PLATFORM_VALUE_SENTENCES`)
 | `POST /admin/platform-values/candidates/{candidate_id}/dismiss` | `PlatformDismissIn { reason }` | `CompanyValuesOut` |
 | `POST /admin/platform-values/decisions/{decision_id}/undo` | `PlatformUndoIn { reason? }` | `CompanyValuesOut` |
 | `POST /admin/platform-values/{security_id}/pin` and `/unpin` | `PlatformPinIn { fact_type, note? }` | `CompanyValuesOut` |
+| `POST /admin/platform-values/{security_id}/extract` | none | `PlatformExtractOut { attempt, company }` (below) |
 
 Every write answers the company's new state. The model names carry a `Platform` prefix where a bare name
 (`DecisionOut`, ...) already exists in the contract. A plain user gets 403 on every route
@@ -305,3 +306,33 @@ undo cannot be undone, so the page offers the decision again (Approve on the reo
 prefilled from the set-aside version). A refusal shows the server's sentence inside the block that made the call.
 Nothing disappears: dismissed candidates, undone decisions and set-aside versions stay in the collapsed History, gray.
 Who pinned a value, when and why shows beside the Pinned chip, from the company read's newest pin event (`pin`).
+
+### Extract now (W4d)
+
+`POST /admin/platform-values/{security_id}/extract` (steward only, no body) runs background extraction's own
+per-company step, `extract_one(..., run_kind="steward")`, on the RECURRING SEC client (`app.deps.get_platform_sec_client`,
+the five-minute dial: companyfacts is re-read from the cache unless the company filed since; its requests ride the
+recurring lane of the global SEC budget). The step fetches with the company free, then the machine writer takes the
+lock and writes, then exactly one attempt row is appended. The route never holds the lock itself and holds no
+transaction across the SEC call. There is no daily allowance to charge: a steward is never counted.
+
+| Answer | When | Written |
+|---|---|---|
+| 200, `attempt.status` `done` | the writer ran | its usual rows, plus the attempt |
+| 200, `attempt.status` `error` | SEC unreachable, a document missing, no SEC User-Agent set, ... | the attempt only (`error`, one line); a value awaiting the steward still waits |
+| 404 (`PLATFORM_VALUE_NOT_FOUND`) | no such company in the data tenant | nothing; nothing fetched |
+| 404 (`PLATFORM_VALUE_NO_CIK`) | the company has no CIK | nothing; nothing fetched |
+| 409 (`COMPANY_BUSY`) | another writer held the company for the whole wait (`ingest_lock_request_wait_s`) | the `busy` attempt only |
+| 422 (`PLATFORM_VALUE_FUND`) | an ETF (`extraction.extractable` is false) | nothing; nothing fetched |
+
+`PlatformExtractOut { attempt: PlatformExtractAttemptOut, company: CompanyValuesOut }`;
+`PlatformExtractAttemptOut { attempt_id, status, error, detail, live_fetches, shares, cash_burn }`, each value a
+`PlatformExtractValueOut { outcome, reason, written, fact_id, candidate_id }` with `outcome` the writer's reason
+(`applied`, `flagged`, `pinned`, `nothing_found`, `already_on_file`, `older_than_on_file`, `after_today`) or
+`failed` / `skipped` (`reason` then the attempt's error line or detail); `reason` on `nothing_found` is the
+extractor's own (`cash-generative`, ...); `written` False on `flagged` means the same flag was already waiting.
+
+**The recent attempts on the company read.** `CompanyValuesOut.attempts` (additive): the company's newest 10
+`platform_extraction_attempt` rows, newest first, whoever ran them:
+`PlatformExtractionAttemptOut { id, recorded_at, run_kind, status, shares_reason, cash_reason, error, detail }`.
+The company page lists them in each value's History.

@@ -126,7 +126,7 @@ state.
 | | `user` | `super_admin` (the data steward) |
 |---|---|---|
 | Board, Cockpit, Workbench, Scoreboard, dashboards, radar, decisions | yes | yes |
-| Admin page and every `/admin/*` route (cron status, backups, run-daily, splits, price-feed repairs, insider amendments, onboarding, the shared share counts and cash/burn under `/admin/platform-values`: the queue, a company's values, the six steward actions) | 403; the nav entry is hidden; typing `/admin` shows "stewards only" | yes |
+| Admin page and every `/admin/*` route (cron status, backups, run-daily, splits, price-feed repairs, insider amendments, onboarding, the shared share counts and cash/burn under `/admin/platform-values`: the queue, a company's values, the six steward actions, Extract now) | 403; the nav entry is hidden; typing `/admin` shows "stewards only" | yes |
 | Backtest page and `/backtest/*` | 403; hidden likewise | yes |
 | The business-type re-tag (`POST /workbench/securities/{id}/business-type`), a write to the SHARED company master | 403; the control is hidden | yes |
 | Surface an ETF (`POST /workbench/securities/resolve-etf`): adds a fund to the SHARED company master or marks an existing row a fund | 403; the Workbench control is hidden | yes |
