@@ -59,8 +59,21 @@ Then `domain.platform_values.derive_state` gives the state:
 **Awaiting the steward never reaches a meter.** A candidate is not a fact: it is in no as-of read and no mirror
 (`tests/db/test_v2_schema.py`), and `DerivedState.meter_value` returns only `P`.
 
-`read_company` adds every stored version (with `set_aside`), the newest 20 candidates and the newest 50 decisions;
-`awaiting` lists the open flags the state says still wait, newest first.
+`read_states(conn, security_ids, fact_type)` is the same read for a set of companies, in a fixed number of queries
+whatever the set's size (one point-in-time view prefetched over the set, the newest candidate per company, their
+standing decisions, the newest pin per company), then `pick_current` and `derive_state` per company. `read_state`
+is `read_states` for one company, so there is one way to read a state; `tests/platform_values/test_state_batched.py`
+pins that the batch equals the per-company reads in every state above and in the edge cases (a workspace row, a
+value dated after today, an undone approve or dismiss, a reopened older candidate, a pin then an unpin).
+
+`read_company` adds every stored version (with `set_aside`), the newest 20 candidates, the newest 50 decisions and
+the newest pin event; `awaiting` lists the open flags the state says still wait, newest first (one `read_states`
+batch per value type); `awaiting_companies` groups them one row per company.
+
+**A reopened older candidate waits nowhere.** The state reads only the newest candidate per company and type. If
+the steward undoes the dismiss of an older candidate while a newer one stands, the older one is open again but is
+not `awaiting`, not `pending`, and not in either queue; it shows only in the company read's `candidates` (its
+`decision` is None).
 
 ## The machine writer (W2b)
 
@@ -142,7 +155,8 @@ Each kind has one fixed sentence in `app/errors.py` (`PLATFORM_VALUE_SENTENCES`)
 | Route | Body | Answer |
 |---|---|---|
 | `GET /admin/platform-values/awaiting?limit=` (1-500, default 200) | | `PlatformAwaitingOut { items, total }`, newest first |
-| `GET /admin/platform-values/{security_id}` | | `CompanyValuesOut` |
+| `GET /admin/platform-values/queue?limit=&offset=&pen=` (limit 1-200, default 50; offset 0-100,000; pen `after` / `only` / `exclude`, default `after`) | | `PlatformQueueOut { items, total, pen_only_total }`, in queue order (below) |
+| `GET /admin/platform-values/{security_id}` | | `CompanyValuesOut` (each value's `pin`: the newest pin event, below) |
 | `POST /admin/platform-values/candidates/{candidate_id}/approve` | `PlatformApproveIn { note? }` | `CompanyValuesOut` |
 | `POST /admin/platform-values/{security_id}/correct` | `PlatformCorrectSharesIn` or `PlatformCorrectCashBurnIn` (by `fact_type`), with `source_ref`, `event_date`, `note?`, `candidate_id?` | `CompanyValuesOut` |
 | `POST /admin/platform-values/candidates/{candidate_id}/dismiss` | `PlatformDismissIn { reason }` | `CompanyValuesOut` |
@@ -154,3 +168,51 @@ Every write answers the company's new state. The model names carry a `Platform` 
 (`tests/app/test_admin_platform_values_api.py`, with real sign-ins). `POST /workbench/facts` keeps the steward's
 share-count and cash/burn confirm, through `correct` with no candidate (approved decision D4 (a)); a plain user still
 gets 403. The two ratify CLIs (`pipeline.ratify_shares`, `pipeline.ratify_cash_burn`) are deleted.
+
+**The pin event on the company read (W4a).** Each value in `CompanyValuesOut` carries `pin`
+(`PlatformPinEventOut { action, decided_by, note, recorded_at }`): the newest `steward_pin` event, `pin` or `unpin`,
+who, when and why; None when the value was never pinned. `pinned` (bool) stays; it is `pin.action == "pin"`.
+
+## The steward's queue (W4a)
+
+`GET /admin/platform-values/queue` lists every company with a share count or cash/burn waiting for the steward, one
+row per company (approved B2 (a): these two values only; B3 (a)). It reads the same open flags as `/awaiting`
+(`state.awaiting_companies`, so a flag older than the value shown is not listed) and adds each company's card count
+(below).
+
+`PlatformQueueItemOut { security_id, ticker, name, cards, pen_only, waiting_since, shares, cash_burn }`: `shares` and
+`cash_burn` are `PlatformQueueValueOut { state, candidate, value }` or None (that value waits for nothing); `value`
+is the value shown when the candidate is pending beside it. `waiting_since` is the older of the waiting candidates'
+`recorded_at`.
+
+**The order** (approved B3 (a), B5 (a)), total:
+
+1. pen-only companies last (every live row it sits in is the Discovered link);
+2. then most cards first;
+3. then the longest wait first (`waiting_since` ascending);
+4. then the company id.
+
+A company on no live card (removed from every card after its candidate was written) shows `cards = 0`,
+`pen_only = false`, so it sorts just before the pen-only block. `pen=after` (default) keeps that order, `pen=only`
+lists only the pen-only companies, `pen=exclude` leaves them out; `offset` / `limit` cut the page. `total` counts
+every company waiting and `pen_only_total` the pen-only ones, whatever the page and `pen`.
+
+**Its cost is fixed.** The awaiting list (one query), one `read_states` batch per value type and one card count:
+the number of statements does not grow with the queue (`tests/app/test_admin_platform_values_queue_api.py`).
+
+## The card count
+
+`platform_values/cards.py`, `card_counts(conn, security_ids) -> dict[UUID, CardCount]` with
+`CardCount(cards: int, pen_only: bool)`. One statement for any number of ids:
+
+- `cards`: how many live (non-archived) cards hold the company, in ANY workspace, in any basket row: every link,
+  the Discovered pen and the silent links (Context, ETFs, Bench) included (approved D5 (a)). One card holding the
+  company in two rows counts once.
+- `pen_only`: every one of those rows is the `Discovered` link (approved B5 (a)). A row with no link counts as not
+  Discovered.
+- A company on no live card is absent from the answer; the caller decides what that means.
+
+It is the only W4 read that crosses workspaces, so it returns two numbers per company and nothing else: no thesis
+id or name, no workspace, no user, no link label; it logs nothing. It is steward-side only:
+`tests/app/test_card_count_guard.py` fails when a product file other than the steward router names it. W3's
+backfill may reuse it for its order: add the caller to that guard's `ALLOWED` in the same change.
