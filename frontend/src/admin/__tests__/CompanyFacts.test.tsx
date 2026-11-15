@@ -24,6 +24,7 @@ const h = vi.hoisted(() => ({
   undo: {} as Record<string, any>,
   pin: {} as Record<string, any>,
   unpin: {} as Record<string, any>,
+  extract: {} as Record<string, any>,
   explain: {} as Record<string, any>,
   explainRefetch: vi.fn(),
   explainArgs: [] as any[],
@@ -37,6 +38,7 @@ vi.mock("../../api/hooks", () => ({
   useUndoDecision: () => h.undo,
   usePinValue: () => h.pin,
   useUnpinValue: () => h.unpin,
+  useExtractNow: () => h.extract,
   useExplainFlag: (c: unknown) => {
     h.explainArgs.push(c);
     return { ...h.explain, refetch: h.explainRefetch };
@@ -158,6 +160,7 @@ beforeEach(() => {
   h.undo = m();
   h.pin = m();
   h.unpin = m();
+  h.extract = { ...m(), data: undefined };
   h.explain = { data: undefined, error: null, isError: false, isFetching: false };
   h.explainRefetch = vi.fn();
   h.explainArgs = [];
@@ -713,5 +716,156 @@ describe("CompanyFacts: refusals", () => {
     renderPage();
     expect(within(sharesBlock()).getByRole("alert").textContent).toBe("An undo cannot be undone. Make a new decision instead.");
     expect(within(cashBlock()).getByRole("alert").textContent).toBe("This company is busy. Try again in a moment.");
+  });
+});
+
+// --- Extract now (W4d) -----------------------------------------------------------------------------------------------
+
+const outcome = (o: Record<string, any> = {}) => ({
+  outcome: "applied",
+  reason: null,
+  written: true,
+  fact_id: null,
+  candidate_id: null,
+  ...o,
+});
+
+const attempted = (o: Record<string, any> = {}) => ({
+  attempt_id: "a0000000-0000-4000-8000-000000000001",
+  status: "done",
+  error: null,
+  detail: null,
+  live_fetches: 3,
+  shares: outcome(),
+  cash_burn: outcome(),
+  ...o,
+});
+
+const attemptRow = (o: Record<string, any> = {}) => ({
+  id: "a0000000-0000-4000-8000-000000000001",
+  recorded_at: "2026-11-15T14:03:00+00:00",
+  run_kind: "steward",
+  status: "done",
+  shares_reason: "applied",
+  cash_reason: "nothing_found",
+  error: null,
+  detail: null,
+  ...o,
+});
+
+const extractArea = () => screen.getByTestId("cf-extract");
+
+describe("CompanyFacts: Extract now", () => {
+  it("is offered quietly, fires only on a click, and says honestly what a click can change", async () => {
+    renderPage();
+    const button = within(extractArea()).getByRole("button", { name: "Extract now" });
+    expect(mutate(h.extract)).not.toHaveBeenCalled();
+    expect(extractArea()).toHaveTextContent("Reads this company's latest SEC filings");
+    expect(extractArea()).toHaveTextContent(
+      "A clean value from a newer filing replaces the one shown, unless that value is pinned",
+    );
+    expect(button.className).not.toContain("primary");
+    await userEvent.click(button);
+    expect(mutate(h.extract)).toHaveBeenCalledTimes(1);
+    expect(mutate(h.extract).mock.calls[0][0]).toEqual({ securityId: SEC });
+  });
+
+  it("is disabled and says so while it runs, and holds the other actions too", () => {
+    h.extract = { ...m(), isPending: true, data: undefined };
+    serve(company({ state: "awaiting_steward", reason: null, awaiting: cand() }));
+    renderPage();
+    const button = within(extractArea()).getByRole("button", { name: /Extracting/ });
+    expect(button).toBeDisabled();
+    expect(within(sharesBlock()).getByRole("button", { name: "Approve" })).toBeDisabled();
+  });
+
+  it("after a click, says what happened to each value in one plain sentence", () => {
+    h.extract = {
+      ...m(),
+      isSuccess: true,
+      data: {
+        attempt: attempted({
+          shares: outcome({ outcome: "flagged", written: true }),
+          cash_burn: outcome({ outcome: "nothing_found", reason: "cash-generative", written: true }),
+        }),
+        company: company(),
+      },
+    };
+    renderPage();
+    const lines = within(extractArea()).getAllByTestId("cf-extract-line").map((x) => x.textContent);
+    expect(lines).toEqual([
+      "Share count: a flagged value from the filing now awaits you",
+      "Cash and burn: the filings gave no value (cash-generative)",
+    ]);
+  });
+
+  it.each([
+    [{ outcome: "applied" }, "Share count: a newer value from the filing was applied"],
+    [{ outcome: "flagged", written: false }, "Share count: the same flagged value already awaits you"],
+    [{ outcome: "pinned", written: true }, "Share count: a clean value now awaits you because this value is pinned"],
+    [{ outcome: "already_on_file", written: false }, "Share count: already on file, nothing changed"],
+    [{ outcome: "older_than_on_file", written: false }, "Share count: the filing is not newer than the value shown, nothing changed"],
+    [{ outcome: "after_today", written: false }, "Share count: the filing is dated after today, nothing written"],
+  ])("words the outcome %o", (o, words) => {
+    h.extract = { ...m(), isSuccess: true, data: { attempt: attempted({ shares: outcome(o) }), company: company() } };
+    renderPage();
+    expect(within(extractArea()).getAllByTestId("cf-extract-line")[0].textContent).toBe(words);
+  });
+
+  it("a failed extraction shows the server's reason as given, with no period added", () => {
+    const failed = outcome({ outcome: "failed", reason: "no SEC User-Agent set", written: false });
+    h.extract = {
+      ...m(),
+      isSuccess: true,
+      data: {
+        attempt: attempted({ status: "error", error: "no SEC User-Agent set", shares: failed, cash_burn: failed }),
+        company: company(),
+      },
+    };
+    renderPage();
+    const alert = within(extractArea()).getByRole("alert");
+    expect(alert.textContent).toBe("The extraction failed: no SEC User-Agent set");
+    expect(within(extractArea()).queryAllByTestId("cf-extract-line")).toEqual([]);
+  });
+
+  it("a refusal (a busy company) shows the server's sentence in place, and only there", () => {
+    const sentence = "Another writer is updating this company. Try again in a moment. Reference 1a2b3c4d.";
+    h.extract = { ...m(), isError: true, error: { detail: sentence }, variables: { securityId: SEC }, data: undefined };
+    renderPage();
+    expect(within(extractArea()).getByRole("alert").textContent).toBe(sentence);
+    expect(within(sharesBlock()).queryByRole("alert")).toBeNull();
+    expect(within(cashBlock()).queryByRole("alert")).toBeNull();
+  });
+
+  it("lists the recent extraction attempts in each value's collapsed history", async () => {
+    serve({
+      ...company(),
+      attempts: [
+        attemptRow({ id: "a2", status: "error", shares_reason: null, cash_reason: null, error: "SEC timed out", run_kind: "nightly" }),
+        attemptRow({ id: "a1" }),
+        attemptRow({ id: "a0", status: "busy", shares_reason: null, cash_reason: null, detail: "company busy" }),
+      ],
+    });
+    renderPage();
+    expect(within(sharesBlock()).queryByTestId("cf-attempts")).toBeNull();
+    await userEvent.click(within(sharesBlock()).getByRole("button", { name: /History/ }));
+    const rows = within(within(sharesBlock()).getByTestId("cf-attempts"))
+      .getAllByTestId("cf-attempt-row")
+      .map((x) => x.textContent);
+    expect(rows).toEqual([
+      "2026-11-15 · nightly run · failed: SEC timed out",
+      "2026-11-15 · Extract now · a newer value from the filing was applied",
+      "2026-11-15 · Extract now · busy: another writer held the company, nothing written",
+    ]);
+    await userEvent.click(within(cashBlock()).getByRole("button", { name: /History/ }));
+    const cashRows = within(within(cashBlock()).getByTestId("cf-attempts")).getAllByTestId("cf-attempt-row");
+    expect(cashRows[1].textContent).toBe("2026-11-15 · Extract now · the filings gave no value");
+  });
+
+  it("says so when no extraction was ever attempted", async () => {
+    serve({ ...company(), attempts: [] });
+    renderPage();
+    fireEvent.click(within(sharesBlock()).getByRole("button", { name: /History/ }));
+    expect(within(sharesBlock()).getByTestId("cf-attempts")).toHaveTextContent("No extraction attempts yet.");
   });
 });
