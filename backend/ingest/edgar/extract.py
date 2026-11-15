@@ -14,7 +14,9 @@ Given a company's SEC ``companyfacts`` + its latest 10-Q/10-K text, produce cand
 - **cash_burn** (runway): cash = cash+equiv + the same-dated short-term investments + long-term MARKETABLE
   securities (never the generic long-term investments line), the cash read under its most current label (the
   restricted-cash total says so in the note) and every component named in the note; a clean ~quarter of
-  operating cash flow -> ``AUTO``; an underivable year-to-date column, a large one-time reconciliation line,
+  operating cash flow (read under its most current label, plain or continuing operations) ending on the cited
+  filing's period, with cash of that date -> ``AUTO``; a burn spanning more or less than about a quarter, a burn
+  or cash dated off the cited period, an underivable year-to-date column, a large one-time reconciliation line,
   or a composition that cannot be established (cash tags that disagree, a combined line that does not
   reconcile, investments only on a later balance sheet) -> ``FLAG`` (raw + locate).
 - **revenue_mix** (purity): ALWAYS ``HUMAN`` — locate the segment footnote (revenue names) or Item-1
@@ -447,7 +449,14 @@ _CASH_NESTING = (
     ),
     ("CashAndCashEquivalentsAtCarryingValue", _RESTRICTED),
 )
+# Operating cash flow, read like cash under its most CURRENT label (``_newest``; V2 extractor correctness PR 2,
+# 2026-11-15). The 2026-11-15 audit found 8 of 460 auto-applied burns stale (EHC's from 2023; QXL's and T's from
+# 2025): those filers moved their operating total to the continuing-operations tag, which the reader did not
+# know, so it kept the plain tag's last period. When both tags reach the same newest period, the plain tag (the
+# statement's total, continuing plus discontinued) is listed first and wins the tie. The note names the tag.
 _OCF = "NetCashProvidedByUsedInOperatingActivities"
+_OCF_CONTINUING = "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations"
+_OCF_TAGS = [("us-gaap", _OCF), ("us-gaap", _OCF_CONTINUING)]
 # routine working-capital changes — NORMAL operations, never a one-time item (inventory swings, trade
 # receivables/payables, deferred revenue, prepaids, leases). These can be LARGE relative to a small burn
 # (LEU's inventory swing is 139% of its op-cash-use) yet are not one-time — excluded by CATEGORY, not size.
@@ -478,17 +487,47 @@ def _is_one_time_candidate(concept: str) -> bool:
     return concept.startswith("IncreaseDecreaseIn") and not _is_routine_wc(concept)
 
 
-def _quarter(facts: dict, cfg: ExtractorConfig) -> tuple[float, tuple[str, str], str] | None:
-    """The latest ~quarter of operating cash flow: (value, (start, end), basis). ``basis`` names what the
-    value IS — one condition, one label (the runway audit: the old bool lumped "derived" together with
-    "couldn't derive", so a RAW year-to-date figure went out wearing the ytd-derived label and a passage
-    claiming a derivation that never happened — runway would read ~3-4x too short):
+@dataclass(frozen=True)
+class _Quarter:
+    """The latest ~quarter of operating cash flow, with what it covers and where it came from.
+
+    ``start`` is the native column's start, or the subtracted prior year to date's END for a derived quarter (what
+    the note prints, ``burn over start → end``); ``days`` is the span between the two, the figure the
+    ``quarterly_span_*_days`` window judges (a calendar quarter reads 90 native, 91 or 92 derived).
+    """
+
+    value: float
+    start: str
+    end: str
+    basis: str
+    concept: str
+
+    @property
+    def days(self) -> int:
+        return (date.fromisoformat(self.end) - date.fromisoformat(self.start)).days
+
+
+def _quarter(facts: dict, cfg: ExtractorConfig) -> _Quarter | None:
+    """The latest ~quarter of operating cash flow, read under the most current operating-cash-flow label
+    (``_OCF_TAGS``). ``basis`` names what the value IS — one condition, one label (the runway audit: the old
+    bool lumped "derived" together with "couldn't derive", so a RAW year-to-date figure went out wearing the
+    ytd-derived label and a passage claiming a derivation that never happened — runway would read ~3-4x too
+    short):
 
     - ``"quarter"`` — a native quarterly column (span <= quarterly_span_max_days).
     - ``"derived"`` — the quarter computed as YTD − the prior same-start YTD.
     - ``"ytd-raw"`` — a long-span column with NO prior to subtract: the value IS the raw YTD, not a quarter.
+
+    The derivation subtracts within ONE tag: a total minus a continuing-operations part is not a quarter of
+    anything. Whether the result covers about one quarter is judged by the caller (``burn-span``): when the
+    prior same-start YTD is missing, the latest earlier one is subtracted (URI: nine months minus the first
+    quarter, 183 days), and that value is offered flagged, never AUTO.
     """
-    durations = [r for r in _rows(facts, "us-gaap", _OCF, "USD") if r.get("start")]
+    picked = _newest(facts, _OCF_TAGS, "USD")
+    if picked is None:
+        return None
+    concept, rows = picked
+    durations = [r for r in rows if r.get("start")]
     if not durations:
         return None
     latest_end = max(r["end"] for r in durations)
@@ -496,15 +535,17 @@ def _quarter(facts: dict, cfg: ExtractorConfig) -> tuple[float, tuple[str, str],
         (r for r in durations if r["end"] == latest_end), key=_days
     )  # shortest span at latest end
     if _days(row) <= cfg.quarterly_span_max_days:
-        return float(row["val"]), (row["start"], row["end"]), "quarter"
+        return _Quarter(float(row["val"]), row["start"], row["end"], "quarter", concept)
     prior = max(
         (r for r in durations if r["start"] == row["start"] and r["end"] < row["end"]),
         key=lambda r: r["end"],
         default=None,
     )
     if prior is None:
-        return float(row["val"]), (row["start"], row["end"]), "ytd-raw"
-    return float(row["val"]) - float(prior["val"]), (prior["end"], row["end"]), "derived"
+        return _Quarter(float(row["val"]), row["start"], row["end"], "ytd-raw", concept)
+    return _Quarter(
+        float(row["val"]) - float(prior["val"]), prior["end"], row["end"], "derived", concept
+    )
 
 
 def _detect_one_time(
@@ -714,6 +755,13 @@ def _cash_burn(
     tag and says when the value includes restricted cash. The investments are read AT the cash date, every
     known tag (``_STI``, ``_LT_MARKETABLE``), the largest per role; ``investments_usd`` carries their part.
     ``source`` is the cited form's provenance kind (``10-q``, or ``10-k`` when the values filing is a 10-K).
+
+    THE PERIOD AND CITATION RULE (V2 extractor correctness PR 2, 2026-11-15): operating cash flow is read under
+    its most current label (``_OCF_TAGS``: plain or continuing operations), and the burn is AUTO only when it
+    spans ``quarterly_span_min_days``-``quarterly_span_max_days`` (``burn-span``), ends on the cited filing's
+    period of report (``burn-off-period``), and the cash is dated that period (older: ``stale-cash``; newer:
+    ``cash-after-period``). A failure offers the value as found with its flag; it never turns a flag into AUTO.
+    The note states the burn's start, end, days and tag, and the filing it is cited to.
     """
     cash_pick = _pick_instant(facts, _CASH)
     cash_at = None if cash_pick is None else (cash_pick[0], cash_pick[1])
@@ -778,6 +826,7 @@ def _cash_burn(
         )
 
     burn: float | None = None
+    checks: list[str] = []  # each period/citation flag's own sentence, stated in the note
     basis_suffix = (
         ""  # the derivation basis, stated in the note (composition = provenance, not a flag)
     )
@@ -789,9 +838,10 @@ def _cash_burn(
         if cf:
             passages.append(cf)
     else:
-        qval, (start, end), basis = q
+        qval, start, end, basis = q.value, q.start, q.end, q.basis
         burn = -qval  # quarterly_burn_usd is POSITIVE when burning (op-cash-use is negative)
-        asofs.append(f"burn over {start} → {end}")
+        # the burn's period, its length and its tag, always (show the work: which column, over which days)
+        asofs.append(f"burn over {start} → {end} ({q.days} days, tagged {q.concept})")
         if basis == "derived":
             # a clean derivation (both YTD columns on file, quarter = YTD − prior YTD) is reproducible
             # arithmetic, not a judgment fork — stated, never alarmed. As a FLAG it fired on ~3 of 4
@@ -810,6 +860,25 @@ def _cash_burn(
                     "quarter. Derive the quarter manually (or enter the YTD basis deliberately) …",
                 )
             )
+        # THE PERIOD RULE (V2 extractor correctness PR 2): AUTO only when the burn covers about one quarter
+        # (``quarterly_span_min_days``-``quarterly_span_max_days``, native or derived) AND ends on the cited
+        # filing's period of report. The audit's 460: 7 "quarters" spanned 6-9 months (a missing prior year to
+        # date: URI stored two quarters as one), 2 under 80 days, 14 ended off the cited period (a stale tag or a
+        # 20-F's numbers under an old 10-Q). The value is still offered, as found, with the flag and its span.
+        # A raw year to date already says it is not a quarter (``ytd-raw``): one condition, one label.
+        if basis != "ytd-raw" and not (
+            cfg.quarterly_span_min_days <= q.days <= cfg.quarterly_span_max_days
+        ):
+            flags.append("burn-span")
+            checks.append(
+                f"the burn spans {q.days} days, outside the {cfg.quarterly_span_min_days}-"
+                f"{cfg.quarterly_span_max_days}-day quarter window, so it is not established as one quarter"
+            )
+        if end != period_end.isoformat():
+            flags.append("burn-off-period")
+            checks.append(
+                f"the burn ends {end}, not on the cited filing's period of report {period_end.isoformat()}"
+            )
         ot = _detect_one_time(facts, tenq_text, ref, start, end, qval, cfg)
         if ot:
             flags.append("possible-one-time")
@@ -824,6 +893,15 @@ def _cash_burn(
     # cash — included marketable share cash's date by construction)
     if cash_at and date.fromisoformat(cash_at[1]) < period_end:
         flags.append("stale-cash")
+    # ... and the other direction (V2 extractor correctness PR 2): cash dated AFTER the cited filing's period
+    # is a later balance sheet than the filing cited (the audit: RMIX +31 days, EXYN the filing day, and every
+    # 20-F number read under an old 10-Q) — the old check passed it silently.
+    if cash_at and date.fromisoformat(cash_at[1]) > period_end:
+        flags.append("cash-after-period")
+        checks.append(
+            f"cash is dated {cash_at[1]}, after the cited filing's period of report "
+            f"{period_end.isoformat()}"
+        )
     # NO flag for the ordinary composition (the re-tier): same-dated inclusion is the textbook liquidity
     # composition and an older off-date exclusion errs conservative (cash understated -> runway reads SHORTER)
     # — both are stated in the note. A composition the extractor CANNOT establish is a flag, never a silent
@@ -836,6 +914,20 @@ def _cash_burn(
             flags.append("investments-unreconciled")
         if comp.newer:
             flags.append("investments-off-date")
+
+    # a period or citation flag points at the statement it concerns (located, never interpreted)
+    for kind, keys, raised in (
+        (
+            "cash-flow",
+            ["operating activities", "cash flows"],
+            {"burn-span", "burn-off-period"} & set(flags),
+        ),
+        ("balance-sheet", ["cash and cash equivalents"], {"cash-after-period"} & set(flags)),
+    ):
+        if raised and not any(p.kind == kind for p in passages):
+            p = _locate(tenq_text, ref, kind, keys)
+            if p:
+                passages.append(p)
 
     if not flags:
         # show-the-work on AUTO: attach the same deterministic locates the FLAG paths carry, so the
@@ -861,9 +953,14 @@ def _cash_burn(
         if burn is not None
         else "burn: NOT FOUND (no operating-cash-flow column)"
     )
+    # the filing the value is cited to, then each period/citation flag's sentence (V2 extractor correctness PR 2)
+    cited = (
+        f"cited filing: the {source.upper()} for the period ending {period_end.isoformat()} ({ref})"
+    )
+    stated = [*asofs, cited, *checks]
     note = (
         f"{cash_part}; {burn_part}"
-        + (f" [{'; '.join(asofs)}]" if asofs else "")
+        + f" [{'; '.join(stated)}]"
         + ". "
         + (
             "FLAGS: " + ", ".join(flags) + " — confirm against the filing."
@@ -873,7 +970,7 @@ def _cash_burn(
     )
     # the value's OWN as-of (the #132 event-date rule): the burn period end, else the cash instant's end
     evt = (
-        date.fromisoformat(q[1][1])
+        date.fromisoformat(q.end)
         if q is not None
         else (date.fromisoformat(cash_at[1]) if cash_at else period_end)
     )
@@ -1041,9 +1138,10 @@ def _latest_filing(client: EdgarClient, cik: int, form: str) -> tuple[str, str, 
 
 
 def _public_at(f: dict[str, str]) -> datetime:
-    """When a 10-Q / 10-K became PUBLIC (CLAUDE.md invariant #1; the F7 rule for forms whose filing date rolls):
-    its listed acceptance when ``resolve_public_acceptance`` trusts it, else the END of its filing date in ET —
-    late, never early. Request-free (no header read). Orders the latest 10-Q against the latest 10-K.
+    """When a 10-Q / 10-K / 20-F / 40-F became PUBLIC (CLAUDE.md invariant #1; the F7 rule for forms whose
+    filing date rolls): its listed acceptance when ``resolve_public_acceptance`` trusts it, else the END of its
+    filing date in ET — late, never early. Request-free (no header read). Orders the latest 10-Q against the latest 10-K (``_newer``) and
+    the four periodic forms against one another (``_takes_annual_path``).
     """
     accepted = resolve_public_acceptance(f.get("accepted"), f.get("filed")).at
     if accepted is not None:
@@ -1053,6 +1151,33 @@ def _public_at(f: dict[str, str]) -> datetime:
     return (
         filing_date_bound(filed) if filed is not None else datetime.min.replace(tzinfo=timezone.utc)
     )
+
+
+# The forms the router weighs (V2 extractor correctness PR 2): the periodic path's and the annual path's. Exact
+# match, as everywhere: an amendment or a current report (8-K, 6-K) never decides the path.
+_PERIODIC_FORMS = ("10-Q", "10-K")
+_ANNUAL_FORMS = ("20-F", "40-F")
+
+
+def _takes_annual_path(subs: dict[str, Any]) -> bool:
+    """Whether a company goes down the annual (20-F/40-F) path: its NEWEST periodic filing — the latest 10-Q,
+    10-K, 20-F and 40-F compared by when each became public (``_public_at``; no lookahead, never by period of
+    report) — is a 20-F or 40-F, or it has no 10-Q/10-K at all (unchanged).
+
+    Before 2026-11-15 any company that had EVER filed a 10-Q or 10-K took the quarterly path. The audit's five
+    form switchers (EUDA, CURR, SCNI, CHR, BTCT) now file 20-F/6-K: the quarterly path read the 20-F's numbers
+    from companyfacts and cited the old 10-Q, AUTO. A company that filed a 20-F years ago and files 10-Qs now
+    stays quarterly. A tie on public time keeps the quarterly path (the earlier-listed form; the quarterly path's
+    own period checks still flag numbers that are not the cited filing's)."""
+    newest: tuple[datetime, str] | None = None
+    for form in _PERIODIC_FORMS + _ANNUAL_FORMS:
+        row = next(iter(filings_of(subs, form)), None)
+        if row is None:
+            continue
+        at = _public_at(row)
+        if newest is None or at > newest[0]:  # strictly newer: a tie keeps the earlier-listed form
+            newest = (at, form)
+    return newest is None or newest[1] in _ANNUAL_FORMS
 
 
 def _newer(tenq: dict[str, str] | None, tenk: dict[str, str] | None) -> dict[str, str] | None:
@@ -1135,14 +1260,14 @@ def extract_with_annual_fallback(
     cfg: ExtractorConfig = DEFAULT_EXTRACTOR_CONFIG,
     values_only: bool = False,
 ) -> ExtractionResult:
-    """The extract ROUTE's entry (Retrieval Slices 1 + A): the existing 10-Q/10-K path whenever a
-    domestic periodic filing exists — UNCHANGED — else the annual path (20-F/40-F, FLAG-only): the
-    cover SHARES candidate (Slice 1) plus the statements CASH/RUNWAY candidate or its honest
-    ``runway_empty_reason`` (Slice A), with the DISTINCT empty reasons on ``ExtractionResult``.
+    """The extract ROUTE's entry (Retrieval Slices 1 + A): the 10-Q/10-K path when the company's newest
+    periodic filing is a 10-Q or 10-K, else the annual path (20-F/40-F, FLAG-only): the cover SHARES candidate
+    (Slice 1) plus the statements CASH/RUNWAY candidate or its honest ``runway_empty_reason`` (Slice A), with
+    the DISTINCT empty reasons on ``ExtractionResult``. The decision is ``_takes_annual_path`` (V2 extractor
+    correctness PR 2): a company that moved from 10-Q to 20-F goes annual even though it once filed 10-Qs.
 
-    The dark-name trigger is the SAME condition the periodic path bails on (no 10-Q AND no 10-K), but
-    it is checked FIRST from submissions because the periodic path fetches companyfacts up front and
-    fails loudly for the no-companyfacts names (GLAS/CRLBF/TRSG — data.sec.gov serves 404 there) that
+    The dark-name trigger (no 10-Q AND no 10-K, or a newer 20-F/40-F) is checked FIRST from submissions because
+    the periodic path fetches companyfacts up front and fails loudly for the no-companyfacts names (GLAS/CRLBF/TRSG — data.sec.gov serves 404 there) that
     the annual path must still serve cover-only.
 
     ``values_only`` is handed to the periodic path (``extract_for_security``: no second document for purity).
@@ -1150,7 +1275,7 @@ def extract_with_annual_fallback(
     """
     cik = int(cik)
     subs = fetch_submissions(client, cik)
-    if filings_of(subs, "10-Q") or filings_of(subs, "10-K"):
+    if not _takes_annual_path(subs):
         return ExtractionResult(
             facts=extract_for_security(client, cik, cfg=cfg, values_only=values_only)
         )
