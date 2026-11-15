@@ -46,6 +46,7 @@ from pipeline import pass_timings
 from pipeline.call_for_thesis import call_for_thesis
 from repositories.calls_repo import _canonical
 from tests import form4a_fixtures as F4A
+from tests.thread_support import BARRIER_TIMEOUT_S, join_all
 
 _SAMPLE = (
     Path(__file__).resolve().parents[1] / "fixtures" / "edgar" / "form4_sample.xml"
@@ -669,7 +670,7 @@ def test_the_EDGAR_clients_counters_are_exact_under_threads(tmp_path):
 
     client = EdgarClient(cache_dir=tmp_path, allow_live=True, user_agent="ua", budget=_NoBudget())
     client._fetch = _fetch  # type: ignore[method-assign]
-    barrier = threading.Barrier(16)
+    barrier = threading.Barrier(16, timeout=BARRIER_TIMEOUT_S)
 
     def worker(w: int) -> None:
         barrier.wait()
@@ -682,8 +683,7 @@ def test_the_EDGAR_clients_counters_are_exact_under_threads(tmp_path):
     threads = [threading.Thread(target=worker, args=(w,)) for w in range(16)]
     for t in threads:
         t.start()
-    for t in threads:
-        t.join()
+    join_all(threads)
     failed = sum(1 for n in range(1, 961) if n % 7 == 0)
     assert client.live_fetches == 960 == calls["n"]
     assert client.live_completed == 960 - failed

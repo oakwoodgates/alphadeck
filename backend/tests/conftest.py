@@ -21,9 +21,10 @@ def pytest_configure(config):
     fixture AND the app-under-test read late) and creates the per-worktree DB if absent. A Postgres-down
     ``OperationalError`` is swallowed so the existing ``_migrated`` SKIP still fires (suite runs offline).
     """
-    from db.testdb import ensure_test_db, test_db_url
+    from db.testdb import ensure_test_db, test_db_url, with_connect_timeout
 
-    url = test_db_url()  # resolves + HARD GUARD; a bad name raises HERE, before os.environ
+    # resolves + HARD GUARD (a bad name raises HERE, before os.environ), then bounds every test connect
+    url = with_connect_timeout(test_db_url())
     os.environ["DATABASE_URL"] = url  # both the db fixture and the app-under-test read this late
     # X1 — the staged onboarding job's NIGHTLY WINDOW (21:30-23:30 ET by default) is a wall-clock rule: a
     # promote inside it queues instead of taking the fast lane. Off for the suite by default, so no test's
