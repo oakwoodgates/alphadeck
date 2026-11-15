@@ -1,0 +1,9 @@
+Condensed consolidating schedule. The following tables present the financial information of the parent company, the VIE, the WFOE and the other subsidiaries. Selected Condensed Consolidating Balance Sheets As of December 31, 2025 Parent Company VIE WFOE Other subsidiaries Eliminations Consolidated totals Cash and cash equivalents 137 2,013 6,105 48,791 — 57,046 Total assets 420,000 61,000 190,000 260,000 ( 520,000 ) 411,000
+
+[… trimmed …]
+
+The accompanying notes are an integral part of these consolidated financial statements. F-3 ZEPP HEALTH CORPORATION CONSOLIDATED BALANCE SHEETS (Amounts in thousands of U.S. dollars (“US$”), except for share and per share data) As of December 31, 2024 2025 Note US$ US$ ASSETS Current assets: Cash and cash equivalents 4 79,000 57,046 Accounts receivable, net 5 40,000 38,000 Total current assets 260,000 230,000
+
+[… trimmed …]
+
+The accompanying notes are an integral part of these consolidated financial statements. F-7 ZEPP HEALTH CORPORATION CONSOLIDATED STATEMENTS OF CASH FLOWS (Amounts in thousands of U.S. dollars (“US$”)) For the years ended December 31, 2023 2024 2025 US$ US$ US$ Cash flows from operating activities: Net loss ( 60,000 ) ( 50,000 ) ( 41,000 ) Depreciation and amortization 9,000 8,000 7,000 Net cash used in operating activities ( 30,000 ) ( 28,000 ) ( 25,692 ) Cash flows from investing activities: Purchase of property and equipment ( 2,000 ) ( 1,500 ) ( 1,200 )

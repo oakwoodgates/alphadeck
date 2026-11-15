@@ -1,0 +1,54 @@
+{
+ "_fixture": "RECONSTRUCTED from the 2026-11-15 annual audit and plan, not copied from EDGAR. ifrs-full, ILS. Recorded by the audit: cash 21,604,000 and operating cash flow -32,876,000 shekels, both agreeing with companyfacts; short-term deposits of 47.5M. Reconstructed: the deposits concept and its value 47,500,000 (the audit gives 47.5M), the accession and filed date.",
+ "entityName": "PLSM",
+ "facts": {
+  "ifrs-full": {
+   "CashAndCashEquivalents": {
+    "units": {
+     "ILS": [
+      {
+       "end": "2025-12-31",
+       "val": 21604000,
+       "accn": "0001493152-26-013485",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-03-31"
+      }
+     ]
+    }
+   },
+   "CashFlowsFromUsedInOperatingActivities": {
+    "units": {
+     "ILS": [
+      {
+       "start": "2025-01-01",
+       "end": "2025-12-31",
+       "val": -32876000,
+       "accn": "0001493152-26-013485",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-03-31"
+      }
+     ]
+    }
+   },
+   "ShorttermDepositsNotClassifiedAsCashEquivalents": {
+    "units": {
+     "ILS": [
+      {
+       "end": "2025-12-31",
+       "val": 47500000,
+       "accn": "0001493152-26-013485",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-03-31"
+      }
+     ]
+    }
+   }
+  }
+ }
+}
