@@ -25,7 +25,13 @@ from app.deps import (
     get_tier_rec_client,
     get_workspace,
 )
-from app.errors import CATALYST_FORM_RETIRED, STEWARD_SETS_PLATFORM_VALUE, fail
+from app.errors import (
+    CATALYST_FORM_RETIRED,
+    PLATFORM_VALUE_NOT_FOUND,
+    PLATFORM_VALUE_SENTENCES,
+    STEWARD_SETS_PLATFORM_VALUE,
+    fail,
+)
 from app.routers.admin_onboarding import readout_out
 from app.schemas_api import (
     AutoConfirmOut,
@@ -82,7 +88,6 @@ from domain.thesis import (
     with_inherited_context_roles,
     with_silent_links,
 )
-from ingest.cash_burn import ingest_cash_burn
 from ingest.edgar import nport
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.extract import extract_with_annual_fallback
@@ -92,7 +97,6 @@ from ingest.prices.eod_loader import latest_bar_date, recent_distinct_bar_counts
 from ingest.prices.ingest_security import ingest_bars_for_security
 from ingest.prices.resolve_symbol import resolve_price_symbol
 from ingest.revenue_mix import ingest_revenue_mix
-from ingest.shares import cik_of_source_ref, ingest_shares_outstanding, shares_publication
 from llm.chain_decomposition import (
     TailSweepStatus,
     decompose_narrative,
@@ -105,6 +109,8 @@ from llm.purity_estimate import propose_purity
 from llm.tier_recommendation import recommend_tiers
 from pipeline import ingest_thesis as ingest_thesis_mod
 from pipeline import onboarding
+from platform_values import steward
+from platform_values.steward import PlatformValueConflict, PlatformValueInvalid
 from repositories import price_feed_repo, thesis_repo
 from securities import coherence, figi, fund_tickers, master
 from securities.business_type import resolve_business_type
@@ -2018,6 +2024,13 @@ def ratify_fact(
 
     ``vouched`` records whether the operator confirmed the shown ``estimate`` as-is or overrode it — PROVENANCE
     for the drift-cron + the agree/disagree signal, NEVER a scoring input (all vouched states score identically).
+
+    THE STEWARD'S CONFIRM (V2 W2c, approved decision D4 (a)): a share count or cash/burn value goes through the
+    steward's ``correct`` write (``platform_values.steward``): the company write lock, the correction rule, and a
+    ``correct`` decision beside the fact (so ``/admin/platform-values`` can undo it). A value that would not be
+    shown is refused with the date that blocks it: **409** dated before the value shown (or the company is busy),
+    **422** dated after today or an ADS ratio without the status ``known``. The candidate's basis (``source``) is
+    kept.
     """
     if req.fact_type == "catalyst":  # V2: retired on this branch, before any read or write
         raise HTTPException(status_code=409, detail=CATALYST_FORM_RETIRED)
@@ -2026,13 +2039,6 @@ def ratify_fact(
         raise HTTPException(status_code=403, detail=STEWARD_SETS_PLATFORM_VALUE)
     if not master.exists(conn, req.security_id, tenant_id=DATA_TENANT_ID):
         raise HTTPException(status_code=404, detail="security not in this tenant's master")
-    common = dict(
-        source=req.source,
-        source_ref=req.source_ref,
-        event_date=req.event_date,
-        note=req.note,
-        ratified_by=user.email,  # the human ratify path — the signed-in user, never taken from the body
-    )
     if req.fact_type == "revenue_mix":
         fid = ingest_revenue_mix(
             conn,
@@ -2041,42 +2047,49 @@ def ratify_fact(
             mix_pct=req.mix_pct,
             vouched=_vouched(req.estimate, req.mix_pct),
             tenant_id=tenant_id,  # purity: the caller's workspace
-            **common,
+            source=req.source,
+            source_ref=req.source_ref,
+            event_date=req.event_date,
+            note=req.note,
+            ratified_by=user.email,  # the human ratify path — the signed-in user, never taken from the body
         )
-    elif req.fact_type == "shares_outstanding":
-        # F9: the filing whose cover carries the ratified count (cache only; none = the ratification stands)
-        cik = master.ciks_for(conn, {req.security_id}, tenant_id=DATA_TENANT_ID).get(
-            req.security_id
-        )
-        accession, accepted = shares_publication(
-            EdgarClient(allow_live=False).cache_dir,
-            cik or cik_of_source_ref(req.source_ref),
-            req.shares,
-            req.event_date,
-        )
-        fid = ingest_shares_outstanding(
-            conn,
-            req.security_id,
-            shares=req.shares,
-            vouched=_vouched(req.estimate, req.shares),
-            filing_accession=accession,
-            filing_accepted=accepted,
-            # ADS-ratio derivation metadata from the annual-cover candidate (spec §10) — None/None on
-            # every 10-Q / hand-authored ratify, so the scorer's 1:1 path is byte-identical for them.
-            ads_ratio=req.ads_ratio,
-            ads_ratio_status=req.ads_ratio_status,
-            tenant_id=DATA_TENANT_ID,  # platform data (V2): one count for every workspace
-            **common,
-        )
+        conn.commit()
+        return RatifiedFactOut(fact_id=fid, fact_type=req.fact_type)
+    if req.fact_type == "shares_outstanding":
+        values: dict = {
+            "shares": req.shares,
+            # ADS-ratio derivation metadata from the annual-cover candidate (spec §10) — None/None on every 10-Q /
+            # hand-authored confirm, so the scorer's 1:1 path is byte-identical for them.
+            "ads_ratio": req.ads_ratio,
+            "ads_ratio_status": req.ads_ratio_status,
+        }
+        vouched = _vouched(req.estimate, req.shares)
     else:  # cash_burn
-        fid = ingest_cash_burn(
+        values = {"cash_usd": req.cash_usd, "quarterly_burn_usd": req.quarterly_burn_usd}
+        vouched = _vouched(req.estimate, req.quarterly_burn_usd)
+    # END THE READ: the steward write owns its transaction and starts it after the company lock (only the master
+    # read above ran on this one)
+    conn.commit()
+    try:
+        out = steward.correct(
             conn,
             req.security_id,
-            cash_usd=req.cash_usd,
-            quarterly_burn_usd=req.quarterly_burn_usd,
-            vouched=_vouched(req.estimate, req.quarterly_burn_usd),
-            tenant_id=DATA_TENANT_ID,  # platform data (V2): one value for every workspace
-            **common,
+            req.fact_type,
+            values,
+            source_ref=req.source_ref,
+            event_date=req.event_date,
+            note=req.note,
+            source=req.source,  # the candidate's basis, preserved
+            vouched=vouched,
+            by=user.email,  # the signed-in steward, never taken from the body
         )
-    conn.commit()
-    return RatifiedFactOut(fact_id=fid, fact_type=req.fact_type)
+    except LookupError as exc:
+        raise fail(404, PLATFORM_VALUE_NOT_FOUND, exc, user=user) from exc
+    except PlatformValueConflict as exc:
+        raise fail(409, PLATFORM_VALUE_SENTENCES[exc.kind], exc, user=user) from exc
+    except PlatformValueInvalid as exc:
+        raise fail(422, PLATFORM_VALUE_SENTENCES[exc.kind], exc, user=user) from exc
+    except CompanyLockBusy as exc:
+        raise fail(409, COMPANY_BUSY, exc, user=user) from exc
+    assert out.fact_id is not None  # a correct always writes its fact
+    return RatifiedFactOut(fact_id=out.fact_id, fact_type=req.fact_type)

@@ -16,6 +16,7 @@ from app.routers import (
     admin_insider_amendments,
     admin_insider_holds,
     admin_onboarding,
+    admin_platform_values,
     admin_price_feed,
     admin_splits,
     auth,
@@ -107,6 +108,8 @@ app.include_router(admin_insider_holds.router, dependencies=_STEWARD)
 app.include_router(admin_splits.router, dependencies=_STEWARD)
 # X1 — the staged cold-ingest queue
 app.include_router(admin_onboarding.router, dependencies=_STEWARD)
+# V2 W2c — the platform values (share count, cash/burn): the steward's queue, company read and six actions
+app.include_router(admin_platform_values.router, dependencies=_STEWARD)
 # split plan S3 — the shared "is this real?" data flags (compute-on-read, display-only)
 app.include_router(data_flags.router, dependencies=_USER)
 app.include_router(radar.router, dependencies=_USER)
