@@ -403,19 +403,57 @@ matched against the column-year headers located above the row. An ambiguous mapp
 report-year header) withholds the value with flag `column-ambiguous`; when every column shares one
 sign, the generative/burning **state** still reads (a state is sign-only).
 
-**Currency discipline.** IFRS filers report in native currency. Runway is a ratio — months are
-currency-independent **if** cash and burn share a currency — so companyfacts is consulted only in the
-unit matching the statement's own detected currency (a mixed-currency ratio is unrepresentable). The
-stored `*_usd` fields carry statement-currency values for a native-currency filer; the note names the
-currency, and the meter's months stay honest. (A cross-currency absolute-$ display is a known,
-documented limitation.)
+**Currency is established, never guessed** (the extractor correctness plan's PR 4, 2026-11-15). Foreign
+filers report in their own currency (CNY, JPY, TWD, EUR, CAD, SGD, ...), often with a translated US$
+convenience column beside it. Runway is a ratio — months are currency-independent **if** cash and burn
+share a currency — so the currency is settled in this order: (1) **companyfacts reproduces the
+figures**: a same-date row in us-gaap **or** ifrs-full, in **any** unit, equal to the statement's
+figure at its printed precision; that unit **is** the currency, and a header naming another one is
+flagged `currency-mismatch` (both stated). (2) **The header's explicit markers** above the row: US$,
+NT$, HK$, S$, C$/CDN$/CAD, A$, R$, RMB/Renminbi/yuan, ¥/yen, ₩, €, ₹, CHF, NIS/₪, £, ZAR (one marker →
+it; a home currency beside US$ on a row with more value columns than fiscal years → the home currency,
+and when companyfacts did not confirm it, `convenience-column`). **A bare `$` (or "dollars") names no
+currency** — a Canadian filer prints `$` too. (3) Otherwise **`currency-unread`**: the fact carries no
+currency (never a blank-as-USD), and the front end renders `?`, never `$`. When the two statements'
+headers name different currencies and companyfacts does not settle it, that is `currency-unread` too.
+A fresher companyfacts reading is used only in the established currency (a mixed-currency ratio is
+unrepresentable). The stored `*_usd` fields carry statement-currency values; the note names the
+currency and how it was determined. (A cross-currency absolute display, and storing the currency on
+approval, are later work: PR 6.)
+
+**The consolidated statement, not a breakdown** (PR 4). A 20-F often prints a parent-only, condensed
+consolidating (VIE / subsidiaries / eliminations) or segment balance sheet BEFORE the consolidated
+statements (EH, ZEPP, TM in the 2026-11-15 audit). Every cash-row site is collected and picked in this
+order: the one whose current-column figure companyfacts reproduces on the statement date; else the first
+whose heading window (a little before the heading and its first ~400 characters) carries no breakdown
+cue ("parent", "condensed", "consolidating", "Schedule I", "VIE", "subsidiaries" — not "XYZ Ltd. and
+its subsidiaries" —, "eliminations", "segment", "financial services businesses"); else the first site,
+flagged `table-unverified`. The operating cash flow takes the same order and comes from the **same
+statement set**: the first qualifying cash-flow total after the chosen balance sheet, else the last. A
+**notes line is never the total**: an operating-activities label whose own row carries "included in",
+"paid for" or "operating leases" (QGEN's "Cash paid for operating leases included in cash flows from
+operating activities $ 31,741") is rejected. A cash row that is located but unreadable is flagged
+`cash-unread` (it used to add nothing, silently). The note names each table and what was passed over.
+
+**Cash is cash plus short-term deposits and investments** (operator decision D1; PR 4). A "short-term
+(bank) deposits", "short-term investments" or "time deposits" row on the SAME balance sheet as the cash
+row (near it, no "Total current assets" between them, not restricted or long-term, not a combined
+"cash ... and short-term ..." line) is added; each part is named in the note, rides as its own passage,
+is carried on `investments_usd`, and is cross-checked against companyfacts' short-term deposit and
+investment concepts. Marketable securities and the generic long-term investments line are not read here
+(D2). When companyfacts carries same-date short-term investments that no row was located for, the note
+says so and they are not counted.
 
 **Later-as-of-wins per quantity** (the shares rule): companyfacts usually **lags** the filing by up to
 a year (annual XBRL ingests slowly — the reason the filing is read at all) and is sometimes
 **fresher** (a 6-K interim landing after the last annual — the interim then wins and is normalized by
-its own exact span). `source-disagreement` fires only on a **same-date** value contradiction —
-deliberately quieter than the shares flag, because cross-date lag is the *rule* for annual filers and
-a flag true of every name carries no information. The cross-date lag is stated in the note instead.
+its own exact span). **The cross-check** (PR 4) reads us-gaap and ifrs-full in every unit on the
+statement's own date and requires an **exact** match at the printed precision (a 1% tolerance passed
+EH's wrong column, 0.4% off): an agreement is named with its concept and unit; a same-date row that
+reproduces nothing is `figures-disagree` with both numbers (this replaced `source-disagreement` on this
+path); **no same-date row is a stated condition ("not cross-checked"), never a pass**. A cross-date lag
+is stated in the note, not flagged — lag is the *rule* for annual filers and a flag true of every name
+carries no information. Every annual cash and burn candidate stays a FLAG whatever the cross-check says.
 
 **The statement-source seam — WHERE the statements come from is an ordered chain, not a nested if**
 (Retrieval Slice A-2; `backend/ingest/edgar/statement_sources.py`). The runway extractor consumes

@@ -28,10 +28,34 @@ const CURRENCY_SYMBOL: Record<string, string> = {
   CHF: "CHF",
   GBP: "£",
   INR: "₹",
+  // PR 4 (annual statements): the currencies the annual path now reads. Currencies that share the "$" glyph
+  // carry their prefix (S$, HK$, A$, R$) — never a bare "$" for a non-USD value.
+  CNY: "CN¥",
+  JPY: "¥",
+  SGD: "S$",
+  HKD: "HK$",
+  KRW: "₩",
+  AUD: "A$",
+  ZAR: "R",
+  BRL: "R$",
+  ILS: "₪",
 };
 
+/** The annual path's flag for a currency it could NOT determine (a bare "$", or headers that disagree). */
+export const CURRENCY_UNREAD_FLAG = "currency-unread";
+
+/** The currency a candidate's figures are labeled in: its own ISO code, or "?" when the extractor flagged the
+ *  currency unread — an unread currency never renders as "$" (PR 4). Null otherwise (a domestic 10-Q/10-K name). */
+export function labelCurrency(
+  currency: string | null | undefined,
+  flags: readonly string[] | null | undefined,
+): string | null {
+  if (currency) return currency;
+  return (flags ?? []).includes(CURRENCY_UNREAD_FLAG) ? "?" : null;
+}
+
 /** `$` for a domestic/us-gaap filer (statement_currency null or "USD" — the periodic path never sets it);
- *  the native symbol (or raw ISO fallback) for an IFRS annual filer. */
+ *  the native symbol (or raw ISO fallback) for an annual filer; "?" passed through for an unread currency. */
 export function cashSymbol(currency: string | null | undefined): string {
   if (!currency || currency === "USD") return "$";
   return CURRENCY_SYMBOL[currency] ?? currency;

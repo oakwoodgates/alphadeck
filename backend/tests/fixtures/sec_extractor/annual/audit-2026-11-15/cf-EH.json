@@ -1,0 +1,39 @@
+{
+ "_fixture": "RECONSTRUCTED from the 2026-11-15 annual audit and plan, not copied from EDGAR. us-gaap, CNY unit. Recorded by the plan (finding 7) and audit: consolidated cash RMB 256,400,000 (the audit says 'RMB 256.4M') and operating cash flow -179,506,000 yuan. Reconstructed: 256,400,000 is exact only to the precision recorded; the accession and filed date.",
+ "entityName": "EH",
+ "facts": {
+  "us-gaap": {
+   "CashAndCashEquivalentsAtCarryingValue": {
+    "units": {
+     "CNY": [
+      {
+       "end": "2025-12-31",
+       "val": 256400000,
+       "accn": "0001193125-26-226608",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-04-28"
+      }
+     ]
+    }
+   },
+   "NetCashProvidedByUsedInOperatingActivities": {
+    "units": {
+     "CNY": [
+      {
+       "start": "2025-01-01",
+       "end": "2025-12-31",
+       "val": -179506000,
+       "accn": "0001193125-26-226608",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-04-28"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

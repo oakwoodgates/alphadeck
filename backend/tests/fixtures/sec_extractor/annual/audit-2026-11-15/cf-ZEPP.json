@@ -1,0 +1,39 @@
+{
+ "_fixture": "RECONSTRUCTED from the 2026-11-15 annual audit and plan, not copied from EDGAR. us-gaap, USD unit. Recorded by the plan (finding 7) and audit: consolidated cash 57,046,000 and operating cash flow -25,692,000. Reconstructed: the accession and filed date.",
+ "entityName": "ZEPP",
+ "facts": {
+  "us-gaap": {
+   "CashAndCashEquivalentsAtCarryingValue": {
+    "units": {
+     "USD": [
+      {
+       "end": "2025-12-31",
+       "val": 57046000,
+       "accn": "0001104659-26-048127",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-04-29"
+      }
+     ]
+    }
+   },
+   "NetCashProvidedByUsedInOperatingActivities": {
+    "units": {
+     "USD": [
+      {
+       "start": "2025-01-01",
+       "end": "2025-12-31",
+       "val": -25692000,
+       "accn": "0001104659-26-048127",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-04-29"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

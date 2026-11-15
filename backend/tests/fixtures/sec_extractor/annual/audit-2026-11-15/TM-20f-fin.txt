@@ -1,0 +1,9 @@
+The following table presents Toyota's financial position separating non-financial services businesses and financial services businesses. Statements of financial position Yen in millions March 31, 2025 2026 Non-Financial Services Businesses Assets Current assets Cash and cash equivalents 7,100,000 9,885,097 Trade accounts and other receivables 3,400,000 3,600,000 Inventories 4,600,000 4,900,000 Total current assets 20,000,000 23,000,000 Total assets 40,000,000 44,000,000 Liabilities Current liabilities Trade accounts and other payables 5,200,000 5,400,000 Total liabilities 18,000,000 19,000,000 Total equity 22,000,000 25,000,000 Total liabilities and equity 40,000,000 44,000,000
+
+[… trimmed …]
+
+The accompanying notes are an integral part of these consolidated financial statements. F-3 TOYOTA MOTOR CORPORATION Consolidated statement of financial position Yen in millions March 31, 2025 2026 Assets Current assets Cash and cash equivalents 8,982,404 12,659,622 Trade accounts and other receivables 3,900,000 4,100,000 Total current assets 39,000,000 42,000,000
+
+[… trimmed …]
+
+The accompanying notes are an integral part of these consolidated financial statements. F-7 TOYOTA MOTOR CORPORATION Consolidated statement of cash flows Yen in millions For the years ended March 31, 2025 2026 Cash flows from operating activities Net income 4,900,000 4,300,000 Depreciation and amortization 2,100,000 2,250,000 Net cash provided by operating activities 3,696,934 5,472,920 Cash flows from investing activities Additions to fixed assets excluding equipment leased to others ( 2,100,000 ) ( 2,300,000 )

@@ -1,0 +1,51 @@
+{
+ "_fixture": "RECONSTRUCTED from the 2026-11-15 annual audit and plan, not copied from EDGAR. ifrs-full, CAD plus a stale USD unit. Recorded by the plan (A3): the CAD unit reproduces cash 465,918,000 and operating cash flow -68,148,000; the audit's stored note records the USD unit's 12,380,000 for 2017. Reconstructed: the accessions and filed dates.",
+ "entityName": "DNN",
+ "facts": {
+  "ifrs-full": {
+   "CashAndCashEquivalents": {
+    "units": {
+     "CAD": [
+      {
+       "end": "2025-12-31",
+       "val": 465918000,
+       "accn": "0001104659-26-036912",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "40-F",
+       "filed": "2026-03-27"
+      }
+     ]
+    }
+   },
+   "CashFlowsFromUsedInOperatingActivities": {
+    "units": {
+     "CAD": [
+      {
+       "start": "2025-01-01",
+       "end": "2025-12-31",
+       "val": -68148000,
+       "accn": "0001104659-26-036912",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "40-F",
+       "filed": "2026-03-27"
+      }
+     ],
+     "USD": [
+      {
+       "start": "2017-01-01",
+       "end": "2017-12-31",
+       "val": 12380000,
+       "accn": "0001062993-18-001234",
+       "fy": 2017,
+       "fp": "FY",
+       "form": "40-F",
+       "filed": "2018-03-29"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

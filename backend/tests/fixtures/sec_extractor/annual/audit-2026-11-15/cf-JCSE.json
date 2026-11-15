@@ -1,0 +1,39 @@
+{
+ "_fixture": "RECONSTRUCTED from the 2026-11-15 annual audit and plan, not copied from EDGAR. us-gaap, SGD unit. Recorded by the audit and plan: cash 9,931,000 and operating cash flow 2,686,000 Singapore dollars; the plan measured that the SGD unit matches. Reconstructed: the accession and filed date.",
+ "entityName": "JCSE",
+ "facts": {
+  "us-gaap": {
+   "CashAndCashEquivalentsAtCarryingValue": {
+    "units": {
+     "SGD": [
+      {
+       "end": "2025-12-31",
+       "val": 9931000,
+       "accn": "0001493152-26-021923",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-05-01"
+      }
+     ]
+    }
+   },
+   "NetCashProvidedByUsedInOperatingActivities": {
+    "units": {
+     "SGD": [
+      {
+       "start": "2025-01-01",
+       "end": "2025-12-31",
+       "val": 2686000,
+       "accn": "0001493152-26-021923",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-05-01"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

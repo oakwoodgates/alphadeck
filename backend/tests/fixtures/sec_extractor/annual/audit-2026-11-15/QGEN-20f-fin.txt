@@ -1,0 +1,13 @@
+Liquidity and Capital Resources. To date, we have funded our business primarily through internally generated funds, debt and the issuance of shares, as presented in our consolidated balance sheets. The following table summarizes our cash flows (in thousands): Years ended December 31, 2025 2024 Net cash provided by operating activities $ 654,326 $ 640,000 Net cash used in investing activities ( 290,000 ) ( 310,000 ) Net cash used in financing activities ( 180,000 ) ( 260,000 ) Effect of exchange rate changes on cash and cash equivalents ( 4,321 ) 8,765 Net increase in cash and cash equivalents 175,358 78,765
+
+[… trimmed …]
+
+The accompanying notes are an integral part of these consolidated financial statements. F-3 QIAGEN N.V. AND SUBSIDIARIES CONSOLIDATED BALANCE SHEETS (in thousands, except par value) December 31, 2025 2024 Assets Current assets: Cash and cash equivalents $ 839,005 $ 663,647 Accounts receivable, net 390,000 380,000 Total current assets 2,100,000 2,000,000
+
+[… trimmed …]
+
+The accompanying notes are an integral part of these consolidated financial statements. F-7 QIAGEN N.V. AND SUBSIDIARIES CONSOLIDATED STATEMENTS OF CASH FLOWS (in thousands) Years ended December 31, 2025 2024 2023 Cash flows from operating activities: Net income $ 420,000 $ 83,000 $ 341,000 Depreciation and amortization 210,000 200,000 190,000 Net cash provided by operating activities 654,326 640,000 711,000 Cash flows from investing activities: Purchases of property, plant and equipment ( 190,000 ) ( 160,000 ) ( 180,000 )
+
+[… trimmed …]
+
+21. Leases. The following table presents supplemental information related to leases for amounts included in the consolidated statements of cash flows (in thousands; most of our leases are denominated in euros) for the years ended December 31: 2025 2024 Cash paid for operating leases included in cash flows from operating activities $ 31,741 $ 30,900 Right-of-use assets obtained in exchange for new operating lease liabilities 25,000 21,000

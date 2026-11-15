@@ -7,6 +7,7 @@ import {
   type PlatformQueueValueOut,
   type PlatformQueuePen,
 } from "../api/hooks";
+import { labelCurrency } from "../components/LocatedPassages";
 import { ASOF, companyFactsPath, validAsof } from "../nav";
 import { errText } from "../workbench/format";
 import { FactSearch } from "./FactSearch";
@@ -51,7 +52,7 @@ export function waitingWords(factType: "shares_outstanding" | "cash_burn", w: Pl
   if (w.value != null) {
     return `${title}: a newer filing${c.event_date ? ` (${day(c.event_date)})` : ""} waits beside the value shown`;
   }
-  let out = `${title}: ${valueWords(factType, c, c.statement_currency)}`;
+  let out = `${title}: ${valueWords(factType, c, labelCurrency(c.statement_currency, c.flags))}`;
   if (c.event_date) out += `, dated ${day(c.event_date)}`;
   const flags = (c.flags ?? []).map(flagWords);
   if (flags.length) out += `, flagged ${flags.join(", ")}`;
