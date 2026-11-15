@@ -30,6 +30,7 @@ from ingest.edgar import client as client_mod
 from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
 from ingest.http import polite_get
 from ingest.sec_budget import BudgetStore, SecBudget
+from tests.thread_support import BARRIER_TIMEOUT_S, join_all
 
 _BACKEND = Path(__file__).resolve().parents[2]
 
@@ -70,7 +71,7 @@ def test_the_cap_holds_across_two_CONNECTIONS_hammered_by_threads(budget_row):
     ]
     slots: list[datetime] = []
     lock = threading.Lock()
-    barrier = threading.Barrier(8)
+    barrier = threading.Barrier(8, timeout=BARRIER_TIMEOUT_S)
 
     def hammer(b: SecBudget) -> None:
         barrier.wait()
@@ -82,8 +83,7 @@ def test_the_cap_holds_across_two_CONNECTIONS_hammered_by_threads(budget_row):
     threads = [threading.Thread(target=hammer, args=(budgets[i % 2],)) for i in range(8)]
     for t in threads:
         t.start()
-    for t in threads:
-        t.join()
+    join_all(threads)
     for s in stores:
         s.close()
 
@@ -147,7 +147,7 @@ def _contend(depth: int, rate: float = 40.0, total: int = 60) -> tuple[int, int]
     b = SecBudget("recurring", rate_per_sec=rate, store=stores[1], depth=depth)
     counts = {"a": 0, "b": 0}
     lock = threading.Lock()
-    start = threading.Barrier(10)
+    start = threading.Barrier(10, timeout=BARRIER_TIMEOUT_S)
     done = threading.Event()
 
     def run(budget: SecBudget, key: str) -> None:
@@ -165,8 +165,7 @@ def _contend(depth: int, rate: float = 40.0, total: int = 60) -> tuple[int, int]
     threads += [threading.Thread(target=run, args=(b, "b")) for _ in range(2)]
     for t in threads:
         t.start()
-    for t in threads:
-        t.join()
+    join_all(threads)
     for s in stores:
         s.close()
     return counts["a"], counts["b"]
@@ -204,8 +203,7 @@ def test_a_lane_ALONE_gets_the_whole_budget(budget_row):
     threads = [threading.Thread(target=run) for _ in range(4)]
     for t in threads:
         t.start()
-    for t in threads:
-        t.join()
+    join_all(threads)
     assert len(got) >= 0.8 * rate  # ~ the full rate over the second, from one lane
     assert min(_gaps(got)) >= 1 / rate - 1e-6
 

@@ -43,6 +43,7 @@ from tests.app.test_workbench_api import (
     _subs,
 )
 from tests.auth_fixtures import sign_out
+from tests.thread_support import BARRIER_TIMEOUT_S, join_all
 
 PASSWORD = "correct horse battery"
 NOT_ON_YOUR_CARDS = "This company is not on any of your cards. Add it to a card first."
@@ -493,23 +494,29 @@ def test_the_count_is_atomic_under_concurrent_requests(people, limits):
     uid = people["p_id"]
     results: list[bool] = []
     lock = threading.Lock()
-    barrier = threading.Barrier(20)
+    barrier = threading.Barrier(20, timeout=BARRIER_TIMEOUT_S)
+    errors: list[str] = []
 
     def worker():
-        conn = connect()
         try:
-            barrier.wait()
-            ok = allowance.consume(conn, uid, "price_pull")
+            conn = connect()
+            try:
+                barrier.wait()
+                ok = allowance.consume(conn, uid, "price_pull")
+                with lock:
+                    results.append(ok)
+            finally:
+                conn.close()
+        except Exception as exc:  # a dropped connection or a broken barrier: report it, never hang
+            barrier.abort()  # release the others at once instead of making them wait out the timeout
             with lock:
-                results.append(ok)
-        finally:
-            conn.close()
+                errors.append(f"{type(exc).__name__}: {exc}")
 
     threads = [threading.Thread(target=worker) for _ in range(20)]
     for t in threads:
         t.start()
-    for t in threads:
-        t.join()
+    join_all(threads, what="racing consumers")
+    assert not errors, f"{len(errors)} of 20 racing consumers failed: {sorted(set(errors))}"
     assert results.count(True) == 5
     conn = connect()
     try:

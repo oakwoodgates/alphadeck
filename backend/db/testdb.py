@@ -21,7 +21,7 @@ import hashlib
 import os
 import subprocess
 from pathlib import Path
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import parse_qs, urlsplit, urlunsplit
 
 import psycopg
 from psycopg import sql
@@ -29,6 +29,9 @@ from psycopg import sql
 from db.session import DEFAULT_DATABASE_URL
 
 _TEST_DB_PREFIX = "alphadeck_test"  # the ONLY prefix the hard guard permits
+TEST_CONNECT_TIMEOUT_S = (
+    15  # bounds a TEST connection when the Docker loopback stalls (a healthy connect: ms)
+)
 
 
 def _worktree_root() -> str:
@@ -94,6 +97,20 @@ def test_db_url() -> str:
     return _with_dbname(
         os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL), resolve_test_db_name()
     )
+
+
+def with_connect_timeout(url: str, seconds: int = TEST_CONNECT_TIMEOUT_S) -> str:
+    """``url`` with libpq's ``connect_timeout`` set, unless the URL already names one.
+
+    Applied ONLY by the test configuration (``tests/conftest.py``) to the URL it exports as ``DATABASE_URL``, so
+    every connection the suite opens (and every child process a test spawns, which inherits that variable)
+    fails in ``seconds`` instead of blocking for minutes. Production never calls this.
+    """
+    p = urlsplit(url)
+    if "connect_timeout" in parse_qs(p.query):
+        return url
+    query = f"{p.query}&" if p.query else ""
+    return urlunsplit((p.scheme, p.netloc, p.path, f"{query}connect_timeout={seconds}", p.fragment))
 
 
 def ensure_test_db(url: str) -> None:

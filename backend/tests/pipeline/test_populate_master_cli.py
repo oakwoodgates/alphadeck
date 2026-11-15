@@ -8,7 +8,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import shutil
 import subprocess
 import uuid
 from datetime import date, datetime, timedelta, timezone
@@ -21,6 +20,7 @@ from domain.settings import get_settings
 from pipeline import populate_master
 from pipeline.run_lock import LOCK_ID_MASTER_REFRESH, acquire_job_lock, acquire_pass_lock
 from securities import sec_tickers
+from tests.shell_support import NO_SHELL_REASON, find_shell, path_with
 
 _BACKEND = Path(__file__).resolve().parents[2]
 _CIK = "0001234567"
@@ -242,10 +242,10 @@ def test_the_SIDECAR_runs_the_refresh_weekly_bounded_after_the_boot_block():
         assert c and s and c.group(1) == s.group(1) == default
 
 
-_BASH = shutil.which("bash")
+_BASH = find_shell("bash")
 
 
-@pytest.mark.skipif(_BASH is None, reason="needs bash + GNU date")
+@pytest.mark.skipif(_BASH is None, reason=NO_SHELL_REASON)
 @pytest.mark.parametrize(
     "now, expected",
     [
@@ -270,7 +270,7 @@ def test_next_weekly_epoch_is_the_next_saturday_0900(now, expected):
         capture_output=True,
         text=True,
         timeout=30,
-        env={**os.environ, "TZ": "America/New_York"},
+        env={**os.environ, "PATH": path_with(), "TZ": "America/New_York"},
     )
     assert out.returncode == 0, out.stderr
     assert out.stdout.strip() == expected
@@ -320,7 +320,7 @@ def test_the_SIDECAR_runs_the_term_mentions_count_weekly_after_the_company_list(
     assert 9 * 3600 + int(refresh_bound.group(1)) + 60 <= 10 * 3600  # + its `timeout -k 60`
 
 
-@pytest.mark.skipif(_BASH is None, reason="needs bash + GNU date")
+@pytest.mark.skipif(_BASH is None, reason=NO_SHELL_REASON)
 @pytest.mark.parametrize(
     "now, dow, at, expected",
     [
@@ -372,7 +372,7 @@ def test_next_weekly_epoch_takes_its_own_day_and_time(now, dow, at, expected):
         capture_output=True,
         text=True,
         timeout=30,
-        env={**os.environ, "TZ": "America/New_York"},
+        env={**os.environ, "PATH": path_with(), "TZ": "America/New_York"},
     )
     assert out.returncode == 0, out.stderr
     assert out.stdout.strip() == expected

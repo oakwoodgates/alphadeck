@@ -9,6 +9,7 @@ from backtest import manifest as mf
 from backtest import store
 from backtest.windows import DEFAULT_WINDOW_DAYS, default_concurrency, tile
 from domain.config import DEFAULT_CONFIG
+from tests.thread_support import BARRIER_TIMEOUT_S, join_all
 
 # S1 -- THE WINDOW IS THE UNIT OF WORK.
 #
@@ -137,7 +138,7 @@ def test_concurrent_registrations_do_not_drop_each_others_rows(tmp_path):
     Threads rather than processes on purpose -- the lock is an exclusive-create file lock, so it serializes
     threads and processes alike, and a thread test is fast enough to run on every commit."""
     n = 16
-    ready = threading.Barrier(n)
+    ready = threading.Barrier(n, timeout=BARRIER_TIMEOUT_S)
 
     def register(i: int) -> None:
         ready.wait()  # maximize the overlap rather than hoping for it
@@ -146,8 +147,7 @@ def test_concurrent_registrations_do_not_drop_each_others_rows(tmp_path):
     threads = [threading.Thread(target=register, args=(i,)) for i in range(n)]
     for t in threads:
         t.start()
-    for t in threads:
-        t.join()
+    join_all(threads)
 
     rows = store.list_runs(tmp_path)
     assert len(rows) == n, f"lost {n - len(rows)} row(s) to the race"
