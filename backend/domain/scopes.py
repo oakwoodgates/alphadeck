@@ -297,3 +297,10 @@ UNSCOPED_TABLES["value_flag"] = "user-keyed"
 # carries the data tenant's id, like the candidates and pins it decides on.
 SCOPE_OF["platform_value_decision"] = Scope.DATA
 # --- end V2 W2a block ----------------------------------------------------------------------------------------
+
+
+# --- V2 W3a: the extraction attempt record (migration 0207) --------------------------------------------------
+# Additive block. ``platform_extraction_attempt`` (one append-only row per background extraction attempt of a
+# company's share count and cash/burn, the gate's "since its last attempt") carries the data tenant's id.
+SCOPE_OF["platform_extraction_attempt"] = Scope.DATA
+# --- end V2 W3a block ----------------------------------------------------------------------------------------

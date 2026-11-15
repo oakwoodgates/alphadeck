@@ -577,3 +577,16 @@ def test_the_v2_w2a_decision_table_is_platform_data():
 
 
 # --- end V2 W2a block ----------------------------------------------------------------------------------------
+
+
+# --- V2 W3a: the extraction attempt record (migration 0207) --------------------------------------------------
+
+
+def test_the_v2_w3a_attempt_table_is_platform_data():
+    from domain.scopes import owner_of
+
+    assert SCOPE_OF["platform_extraction_attempt"] is Scope.DATA
+    assert owner_of("platform_extraction_attempt") == "platform"
+
+
+# --- end V2 W3a block ----------------------------------------------------------------------------------------
