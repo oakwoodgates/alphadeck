@@ -506,6 +506,33 @@ def test_the_stewards_confirm_lands_in_the_data_tenant_and_every_workspace_reads
     assert a_m["runway"]["value"] == 30.0  # 30M cash / (3M a quarter / 3) = 30 months
 
 
+def test_the_stewards_confirm_dated_before_the_shown_value_is_refused(world, db):
+    """V2 W2c (D4 (a)): the steward's Workbench confirm goes through the steward's correct write. A share count
+    dated BEFORE the value shown would never be shown, so it is refused (409) with the date that blocks it, and no
+    row is written in any table (before W2c it was stored and silently ignored by every meter)."""
+    from app.errors import PLATFORM_VALUE_SENTENCES
+
+    s, sid, asof = world["s"], world["sid"], world["asof"]
+    assert _platform_value(s, sid, asof, "shares_outstanding").status_code == 200
+    shown = (asof - timedelta(days=30)).isoformat()
+    before = {t: _all_rows(db, t) for t in ("fact_shares_outstanding", "platform_value_decision")}
+    r = s.post(
+        "/workbench/facts",
+        json={
+            "fact_type": "shares_outstanding",
+            "security_id": str(sid),
+            "source": "10-q-cover",
+            "source_ref": "https://example.test/an-older-10q.htm#cover",
+            "event_date": (asof - timedelta(days=60)).isoformat(),
+            "shares": 40_000_000,
+        },
+    )
+    assert r.status_code == 409, r.text
+    assert r.json()["detail"].startswith(PLATFORM_VALUE_SENTENCES["older_than_shown"])
+    assert shown in r.json()["detail"]  # the steward sees the date that blocks it
+    assert {t: _all_rows(db, t) for t in before} == before
+
+
 def test_a_plain_users_purity_confirm_works_and_stays_private(world, db):
     """Purity is unchanged by V2's steward rule: B's confirm is a 200, lands in W_B, and A never reads it."""
     b, sid = world["b"], world["sid"]
@@ -665,7 +692,12 @@ def test_steward_routes_never_act_on_the_callers_workspace():
     """A steward route acts on the DATA tenant or on every workspace by id, never on "the caller's workspace":
     ``get_workspace`` appears in none of the admin routers, and the retired ``get_current_tenant`` nowhere.
     """
-    for name in ("admin.py", "admin_splits.py", "admin_onboarding.py"):
+    for name in (
+        "admin.py",
+        "admin_splits.py",
+        "admin_onboarding.py",
+        "admin_platform_values.py",
+    ):
         text = (_BACKEND / "app" / "routers" / name).read_text(encoding="utf-8")
         assert "get_workspace" not in text, name
     offenders = [

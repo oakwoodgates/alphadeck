@@ -1249,39 +1249,35 @@ export interface paths {
         put?: never;
         /**
          * Auto Confirm Fact
-         * @description Auto-apply a security's AUTO-tier shares count on get-data — REMOVING a ceremonial confirm, not a real one.
+         * @description Get-data's platform values (V2 W2b, approved D2 (a)): re-extract the company's filings and hand the result
+         *     to the MACHINE WRITER (``platform_values.machine.record_extraction``) for BOTH the share count and cash/burn.
          *
-         *     The AUTO shares confirm was never a human verification: the operator has no independent knowledge of a
-         *     share count and does not look one up, so clicking "Confirm" on a machine-reproduced cover figure rubber-
-         *     stamped it while recording ``ratified_by="operator"`` — provenance claiming a check that never happened.
-         *     This applies the value directly and stamps it ``ratified_by="auto"``, which is what actually occurred. The
-         *     REAL human check is downstream and unchanged: the operator reads the resulting MARKET CAP, a figure they do
-         *     have intuition for, and overrides the shares if it looks wrong.
+         *     Per value: a clean AUTO value is applied as a fact stamped ``ratified_by="auto"`` when its filing is strictly
+         *     newer than the value shown (D3 (a): even over a steward's value, unless the steward pinned the company, which
+         *     turns it into a candidate); a FLAGged value and a "nothing found" are recorded as CANDIDATES for the steward,
+         *     never as facts (no meter reads them); a value dated after today is never written (D1). Annual filers
+         *     (20-F/40-F) are read too (``extract_with_annual_fallback``, the extract route's own entry): their values are
+         *     always FLAG, so they become candidates. The top-level fields answer for the share count, ``cash_burn`` for
+         *     cash/burn; ``applied=False`` with its ``reason`` is a normal answer, never an error.
          *
-         *     WHY THIS IS NOT A #1/#3 VIOLATION: the written number is the extractor's deterministic reproduction of
-         *     filed companyfacts (the market-cap trust class) — never a model output, never a computed/``llm_proposed``
-         *     estimate. Estimates remain computed-on-read and MUST NOT become ``fact_*`` rows (see WORKBENCH_EXTRACTION.md);
-         *     nothing here touches that. The AUTO tier is exactly the unambiguous single-class, current-cover case —
-         *     anything ambiguous trips a FLAG and is excluded below.
+         *     WHY THIS IS NOT A #1/#3 VIOLATION: the written number is the extractor's deterministic reproduction of the
+         *     filing — never a model output, never an estimate. THE STRUCTURAL BOUND: the request carries NO value; the
+         *     server re-extracts (cache-first — get-data just warmed it) and writes its OWN parse.
          *
-         *     THE STRUCTURAL BOUND: the request carries NO value. The server re-extracts (cache-first — get-data just
-         *     warmed it) and writes its OWN parse, so no caller can inject a figure under the ``auto`` provenance.
+         *     THE LOCK: the extraction runs with the company FREE (no lock is ever held across an SEC call); the writer then
+         *     takes the company write lock, waiting at most ``Settings.ingest_lock_request_wait_s``, RE-READS what is on file
+         *     under it, writes both values in one transaction with the company's change stamp, and commits. Two clicks at
+         *     once write one value. While another writer holds the company: **409** naming the holder, nothing written. An
+         *     extraction failure (SEC unreachable, companyfacts missing) is a **502** and writes nothing — it is never
+         *     recorded as "nothing found".
          *
-         *     Four gates, each an honest ``applied=False`` rather than an error:
-         *     - the security must be in this tenant's master (fail-closed, like ``/facts``);
-         *     - ``already_on_file`` — ANY existing shares fact (auto or an operator override) -> no-op. This is the
-         *       idempotency guarantee (a re-run appends ZERO rows) AND the no-clobber guarantee;
-         *     - ``not_auto`` — a FLAGged candidate is the operator's to ratify; the machine never resolves a dual-class
-         *       sum or a stale cover;
-         *     - ``no_candidate`` / ``no_value`` — nothing to apply.
+         *     BOUNDED (security hardening PR 1b, unchanged in V2 until W3/W7): a plain user may run it only for a company on
+         *     one of their own cards (else 404, "This company is not on any of your cards. Add it to a card first.") and
+         *     within their daily auto-confirm allowance (``Settings.allowance_auto_confirm_per_day``, else 429 naming the
+         *     reset; the security rides in the body, so this route counts the request before the card check). A steward is
+         *     neither checked nor counted.
          *
-         *     BOUNDED (security hardening PR 1b): a plain user may auto-confirm only a company on one of their own cards
-         *     (else 404, "This company is not on any of your cards. Add it to a card first.") and within their daily
-         *     auto-confirm allowance (``Settings.allowance_auto_confirm_per_day``, else 429 naming the reset; the security
-         *     rides in the body, so this route counts the request before the card check). A steward is neither checked nor
-         *     counted.
-         *
-         *     PLATFORM DATA (V2): the count is written under the DATA tenant — one value per company, read by every
+         *     PLATFORM DATA (V2): every row is written under the DATA tenant — one value per company, read by every
          *     workspace — never under the caller's workspace.
          */
         post: operations["auto_confirm_fact_workbench_facts_auto_confirm_post"];
@@ -1320,6 +1316,13 @@ export interface paths {
          *
          *     ``vouched`` records whether the operator confirmed the shown ``estimate`` as-is or overrode it — PROVENANCE
          *     for the drift-cron + the agree/disagree signal, NEVER a scoring input (all vouched states score identically).
+         *
+         *     THE STEWARD'S CONFIRM (V2 W2c, approved decision D4 (a)): a share count or cash/burn value goes through the
+         *     steward's ``correct`` write (``platform_values.steward``): the company write lock, the correction rule, and a
+         *     ``correct`` decision beside the fact (so ``/admin/platform-values`` can undo it). A value that would not be
+         *     shown is refused with the date that blocks it: **409** dated before the value shown (or the company is busy),
+         *     **422** dated after today or an ADS ratio without the status ``known``. The candidate's basis (``source``) is
+         *     kept.
          */
         post: operations["ratify_fact_workbench_facts_post"];
         delete?: never;
@@ -2392,6 +2395,183 @@ export interface paths {
          *     in the queue. Returns the refreshed queue.
          */
         post: operations["retry_onboarding_admin_onboarding__security_id__retry_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/platform-values/awaiting": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Awaiting
+         * @description The flagged candidates waiting for the steward, newest first: a company-and-type whose newest candidate is
+         *     an undecided flag, with no value shown (``awaiting_steward``) or dated after the value shown (``value``).
+         *     Decided candidates and flags older than the value shown are not listed. ``total`` counts all. Read-only.
+         */
+        get: operations["list_awaiting_admin_platform_values_awaiting_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/platform-values/{security_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Company Values
+         * @description The company's share count and cash/burn: each value's state, every stored version (with ``set_aside``),
+         *     the newest candidates and decisions, the pin. **404** unknown company. Read-only.
+         */
+        get: operations["get_company_values_admin_platform_values__security_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/platform-values/candidates/{candidate_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve Candidate
+         * @description APPROVE a flagged candidate: its own value (filing, date, ADS fields) becomes the company's value, stamped
+         *     with your email, and the candidate is closed. Undo with ``POST .../decisions/{id}/undo``. **404** unknown
+         *     candidate; **409** already decided, a value with a later date is shown (the detail names it), or the company
+         *     is busy; **422** a "nothing" candidate, a flag without a complete value, or a date after today.
+         */
+        post: operations["approve_candidate_admin_platform_values_candidates__candidate_id__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/platform-values/{security_id}/correct": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Correct Value
+         * @description CORRECT the company's value by hand, citing the filing (``source_ref``) and its date (``event_date``),
+         *     stamped with your email (``source`` ``ratified``). It is written only when it will be shown: dated on or after
+         *     the value shown and not after today (approved decision D1 (a)). With ``candidate_id`` it also closes that
+         *     candidate. Undo with ``POST .../decisions/{id}/undo``. **404** unknown company or candidate; **409** a value
+         *     with a later date is shown (the detail names its date and filing), the candidate is decided or not this
+         *     company's, or the company is busy; **422** a date after today or an ADS ratio without the status ``known``.
+         */
+        post: operations["correct_value_admin_platform_values__security_id__correct_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/platform-values/candidates/{candidate_id}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dismiss Candidate
+         * @description DISMISS a candidate with a reason (required): it is closed; the value is unchanged. Undo with
+         *     ``POST .../decisions/{id}/undo``. **404** unknown candidate; **409** already decided, or the company is busy;
+         *     **422** a blank reason.
+         */
+        post: operations["dismiss_candidate_admin_platform_values_candidates__candidate_id__dismiss_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/platform-values/decisions/{decision_id}/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Undo Decision
+         * @description UNDO an approve, correct or dismiss: the value it wrote is set aside (every read falls back to the value
+         *     before) and its candidate is open again. Nothing is deleted. **404** unknown decision; **409** the decision is
+         *     itself an undo (make a new decision), it is already undone, or the company is busy.
+         */
+        post: operations["undo_decision_admin_platform_values_decisions__decision_id__undo_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/platform-values/{security_id}/pin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pin Value
+         * @description PIN a value: from now on a newer clean filing value waits for you as a flagged candidate instead of being
+         *     applied. Undo with ``/unpin``. **404** unknown company; **409** already pinned, or the company is busy.
+         */
+        post: operations["pin_value_admin_platform_values__security_id__pin_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/platform-values/{security_id}/unpin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unpin Value
+         * @description UNPIN a value (the pin's inverse): a newer clean filing value is applied again. **404** unknown company;
+         *     **409** not pinned, or the company is busy.
+         */
+        post: operations["unpin_value_admin_platform_values__security_id__unpin_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6548,11 +6728,10 @@ export interface components {
         Authorship: "system_drafted" | "operator_set" | "operator_edited";
         /**
          * AutoConfirmOut
-         * @description The outcome of an auto-confirm — honest about WHY nothing was written.
+         * @description The outcome of a get-data auto-confirm: the SHARE COUNT's result at the top level (the fields every caller
+         *     already reads) and the CASH/BURN result in ``cash_burn``.
          *
-         *     ``applied=False`` is a normal, expected result (a FLAGged name, a name already on file), never an error:
-         *     the caller fires this optimistically after get-data and the server decides. ``reason`` names which gate
-         *     stopped it so the UI (and a test) can tell "we declined to auto-apply" from "it failed".
+         *     A flagged or empty result is recorded as a CANDIDATE for the steward, never as a fact: it moves no meter.
          */
         AutoConfirmOut: {
             /** Applied */
@@ -6561,22 +6740,45 @@ export interface components {
              * Reason
              * @enum {string}
              */
-            reason: "applied" | "already_on_file" | "not_auto" | "no_candidate" | "no_value";
+            reason: "applied" | "already_on_file" | "older_than_on_file" | "after_today" | "pinned" | "not_auto" | "nothing_found";
             /** Fact Id */
             fact_id?: string | null;
+            /** Candidate Id */
+            candidate_id?: string | null;
+            cash_burn?: components["schemas"]["AutoConfirmPartOut"] | null;
+        };
+        /**
+         * AutoConfirmPartOut
+         * @description What get-data did with ONE platform value. ``applied=False`` is a normal, expected result, never an error;
+         *     ``reason`` says which rule decided. ``fact_id`` is set when a fact was written; ``candidate_id`` names the
+         *     candidate that stands for this result (``pinned`` / ``not_auto`` / ``nothing_found``; a repeat of the newest
+         *     candidate is not written again, and its id is returned).
+         */
+        AutoConfirmPartOut: {
+            /** Applied */
+            applied: boolean;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "applied" | "already_on_file" | "older_than_on_file" | "after_today" | "pinned" | "not_auto" | "nothing_found";
+            /** Fact Id */
+            fact_id?: string | null;
+            /** Candidate Id */
+            candidate_id?: string | null;
         };
         /**
          * AutoConfirmRequest
-         * @description Ask the server to auto-apply a security's AUTO-tier shares count (the get-data path).
+         * @description Ask the server to record a company's platform values from its filings (the get-data path, V2 W2b).
          *
-         *     NOTE WHAT IS **NOT** HERE: a value. The client cannot supply the number — it names a security and a
-         *     fact type, and the SERVER re-extracts and writes its OWN deterministic parse. That is the structural
-         *     bound (INVARIANT #3): an auto-applied fact can only ever be the extractor's reproduction of filed
-         *     companyfacts, so no client bug or caller can inject a figure under the ``auto`` provenance.
+         *     NOTE WHAT IS **NOT** HERE: a value. The client cannot supply a number — it names a security, and the SERVER
+         *     re-extracts and hands its OWN deterministic parse to the machine writer (``platform_values.machine``). That is
+         *     the structural bound (INVARIANT #3): an auto-applied fact can only ever be the extractor's reproduction of the
+         *     filing, so no client bug or caller can inject a figure under the ``auto`` provenance.
          *
-         *     ``fact_type`` is deliberately a ONE-value Literal: only the AUTO shares count is eligible. Purity is the
-         *     operator's edge (HUMAN, never auto-valued) and cash_burn stays a manual ratify — extending this is a
-         *     decision, not a parameter.
+         *     One call covers BOTH platform values, the share count and cash/burn (approved D2 (a)); ``fact_type`` stays the
+         *     one-value Literal it always was, so existing callers keep working. Purity is never touched (the operator's
+         *     edge: HUMAN, never auto-valued).
          */
         AutoConfirmRequest: {
             /**
@@ -7951,6 +8153,23 @@ export interface components {
              * @description the market's zone, e.g. America/New_York
              */
             market_tz: string;
+        };
+        /**
+         * CompanyValuesOut
+         * @description A company's two platform values (the steward's company page).
+         */
+        CompanyValuesOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker?: string | null;
+            /** Name */
+            name?: string | null;
+            shares: components["schemas"]["PlatformValueOut"];
+            cash_burn: components["schemas"]["PlatformValueOut"];
         };
         /**
          * ConnectionListOut
@@ -15608,6 +15827,362 @@ export interface components {
          */
         PlacementStatus: "placed" | "verify" | "ambiguous" | "absent";
         /**
+         * PlatformAppliedValueOut
+         * @description One stored fact version: ``valid_from`` the filing's date, ``ratified_by`` who set it (``auto``, an email,
+         *     or ``operator`` for a carried V1 row), ``vouched`` confirm/override provenance. ``source_ref`` is ``None`` on
+         *     the wire unless it is a plain http(s) URL (``domain.links``).
+         */
+        PlatformAppliedValueOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Source */
+            source?: string | null;
+            /** Source Ref */
+            source_ref?: string | null;
+            /**
+             * Valid From
+             * Format: date
+             */
+            valid_from: string;
+            /**
+             * Recorded At
+             * Format: date-time
+             */
+            recorded_at: string;
+            /** Ratified By */
+            ratified_by?: string | null;
+            /** Vouched */
+            vouched?: string | null;
+            /** Note */
+            note?: string | null;
+            /** Shares */
+            shares?: number | null;
+            /** Ads Ratio */
+            ads_ratio?: number | null;
+            /** Ads Ratio Status */
+            ads_ratio_status?: string | null;
+            /** Filing Accession */
+            filing_accession?: string | null;
+            /** Filing Accepted */
+            filing_accepted?: string | null;
+            /** Cash Usd */
+            cash_usd?: number | null;
+            /** Quarterly Burn Usd */
+            quarterly_burn_usd?: number | null;
+        };
+        /**
+         * PlatformApproveIn
+         * @description Optional ``note`` (stored on the fact and the decision; else the candidate's own note is kept).
+         */
+        PlatformApproveIn: {
+            /** Note */
+            note?: string | null;
+        };
+        /**
+         * PlatformAwaitingItemOut
+         * @description One company-and-type with a flagged candidate waiting for the steward: no value shown (``state``
+         *     ``awaiting_steward``), or the candidate is newer than the value shown (``value``).
+         */
+        PlatformAwaitingItemOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker?: string | null;
+            /** Name */
+            name?: string | null;
+            /** Fact Type */
+            fact_type: string;
+            /** State */
+            state: string;
+            candidate: components["schemas"]["PlatformCandidateOut"];
+            value?: components["schemas"]["PlatformAppliedValueOut"] | null;
+        };
+        /**
+         * PlatformAwaitingOut
+         * @description The steward's queue, newest candidate first: ``items`` (at most ``limit``) and ``total`` (all waiting).
+         */
+        PlatformAwaitingOut: {
+            /** Items */
+            items?: components["schemas"]["PlatformAwaitingItemOut"][];
+            /**
+             * Total
+             * @default 0
+             */
+            total: number;
+        };
+        /**
+         * PlatformCandidateOut
+         * @description One extractor candidate (``extraction_candidate``): ``outcome`` ``flag`` (a value awaiting the steward,
+         *     with its ``flags``) or ``nothing`` (no value found; ``reason`` says why). ``decision`` = the standing decision
+         *     that closes it, or None (open). ``located_passages`` = the filing excerpts behind it; a stored passage that
+         *     does not read as one is counted in ``passages_unreadable``, never dropped silently.
+         */
+        PlatformCandidateOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Fact Type */
+            fact_type: string;
+            /** Outcome */
+            outcome: string;
+            /** Reason */
+            reason?: string | null;
+            /** Flags */
+            flags?: string[];
+            /** Source */
+            source?: string | null;
+            /** Source Ref */
+            source_ref?: string | null;
+            /** Event Date */
+            event_date?: string | null;
+            /** Shares */
+            shares?: number | null;
+            /** Cash Usd */
+            cash_usd?: number | null;
+            /** Quarterly Burn Usd */
+            quarterly_burn_usd?: number | null;
+            /** Statement Currency */
+            statement_currency?: string | null;
+            /** Ads Ratio */
+            ads_ratio?: number | null;
+            /** Ads Ratio Status */
+            ads_ratio_status?: string | null;
+            /** Filing Accession */
+            filing_accession?: string | null;
+            /** Filing Accepted */
+            filing_accepted?: string | null;
+            /** Note */
+            note?: string | null;
+            /** Located Passages */
+            located_passages?: components["schemas"]["LocatedPassage"][];
+            /**
+             * Passages Unreadable
+             * @default 0
+             */
+            passages_unreadable: number;
+            /**
+             * Recorded At
+             * Format: date-time
+             */
+            recorded_at: string;
+            decision?: components["schemas"]["PlatformDecisionOut"] | null;
+        };
+        /**
+         * PlatformCorrectCashBurnIn
+         * @description Cash on hand and the quarterly burn (positive = cash used; zero or negative = cash-generative).
+         */
+        PlatformCorrectCashBurnIn: {
+            /** Source Ref */
+            source_ref: string;
+            /**
+             * Event Date
+             * Format: date
+             */
+            event_date: string;
+            /** Note */
+            note?: string | null;
+            /** Candidate Id */
+            candidate_id?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            fact_type: "cash_burn";
+            /** Cash Usd */
+            cash_usd: number;
+            /** Quarterly Burn Usd */
+            quarterly_burn_usd: number;
+        };
+        /**
+         * PlatformCorrectSharesIn
+         * @description A share count: the ordinary count from the cover, and for an ADS name the ratio (``known``) or ``unread``.
+         */
+        PlatformCorrectSharesIn: {
+            /** Source Ref */
+            source_ref: string;
+            /**
+             * Event Date
+             * Format: date
+             */
+            event_date: string;
+            /** Note */
+            note?: string | null;
+            /** Candidate Id */
+            candidate_id?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            fact_type: "shares_outstanding";
+            /** Shares */
+            shares: number;
+            /** Ads Ratio */
+            ads_ratio?: number | null;
+            /** Ads Ratio Status */
+            ads_ratio_status?: ("known" | "unread") | null;
+        };
+        /**
+         * PlatformDecisionOut
+         * @description One steward decision: ``action`` ``approve`` / ``correct`` / ``dismiss`` / ``undo``; ``candidate_id`` the
+         *     candidate it closes (approve, dismiss; a correct may name one); ``fact_id`` the fact version it wrote (approve,
+         *     correct); ``revokes`` the decision an undo undoes; ``decided_by`` the steward's email; ``undone`` = a later undo
+         *     names it.
+         */
+        PlatformDecisionOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Action */
+            action: string;
+            /** Candidate Id */
+            candidate_id?: string | null;
+            /** Fact Id */
+            fact_id?: string | null;
+            /** Revokes */
+            revokes?: string | null;
+            /** Reason */
+            reason?: string | null;
+            /** Decided By */
+            decided_by: string;
+            /**
+             * Recorded At
+             * Format: date-time
+             */
+            recorded_at: string;
+            /**
+             * Undone
+             * @default false
+             */
+            undone: boolean;
+        };
+        /**
+         * PlatformDismissIn
+         * @description Why the candidate is dismissed (required, not blank).
+         */
+        PlatformDismissIn: {
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * PlatformPinIn
+         * @description Which value (``fact_type``) and why (optional).
+         */
+        PlatformPinIn: {
+            /**
+             * Fact Type
+             * @enum {string}
+             */
+            fact_type: "shares_outstanding" | "cash_burn";
+            /** Note */
+            note?: string | null;
+        };
+        /**
+         * PlatformUndoIn
+         * @description Why (optional).
+         */
+        PlatformUndoIn: {
+            /** Reason */
+            reason?: string | null;
+        };
+        /**
+         * PlatformValueOut
+         * @description One value of a company. ``state``: ``no_value`` (``reason`` says why) / ``from_filing`` / ``awaiting_steward``
+         *     / ``verified``; ``ratifier`` ``machine`` / ``carried`` / ``steward``; ``value`` the value the meters show;
+         *     ``awaiting`` the flag waiting when there is no value; ``pending`` a newer flag beside a shown value; ``pinned``
+         *     the steward reviews every future filing value by hand. ``candidates`` (newest 20) and ``decisions`` (newest 50)
+         *     are newest first.
+         */
+        PlatformValueOut: {
+            /** Fact Type */
+            fact_type: string;
+            /** State */
+            state: string;
+            /** Reason */
+            reason?: string | null;
+            /** Ratifier */
+            ratifier?: string | null;
+            /**
+             * Pinned
+             * @default false
+             */
+            pinned: boolean;
+            value?: components["schemas"]["PlatformAppliedValueOut"] | null;
+            awaiting?: components["schemas"]["PlatformCandidateOut"] | null;
+            pending?: components["schemas"]["PlatformCandidateOut"] | null;
+            /** Versions */
+            versions?: components["schemas"]["PlatformVersionOut"][];
+            /** Candidates */
+            candidates?: components["schemas"]["PlatformCandidateOut"][];
+            /** Decisions */
+            decisions?: components["schemas"]["PlatformDecisionOut"][];
+        };
+        /**
+         * PlatformVersionOut
+         * @description Every stored version, oldest first; ``set_aside`` = an undone approve or correct wrote it, so every read
+         *     skips it.
+         */
+        PlatformVersionOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Source */
+            source?: string | null;
+            /** Source Ref */
+            source_ref?: string | null;
+            /**
+             * Valid From
+             * Format: date
+             */
+            valid_from: string;
+            /**
+             * Recorded At
+             * Format: date-time
+             */
+            recorded_at: string;
+            /** Ratified By */
+            ratified_by?: string | null;
+            /** Vouched */
+            vouched?: string | null;
+            /** Note */
+            note?: string | null;
+            /** Shares */
+            shares?: number | null;
+            /** Ads Ratio */
+            ads_ratio?: number | null;
+            /** Ads Ratio Status */
+            ads_ratio_status?: string | null;
+            /** Filing Accession */
+            filing_accession?: string | null;
+            /** Filing Accepted */
+            filing_accepted?: string | null;
+            /** Cash Usd */
+            cash_usd?: number | null;
+            /** Quarterly Burn Usd */
+            quarterly_burn_usd?: number | null;
+            /**
+             * Set Aside
+             * @default false
+             */
+            set_aside: boolean;
+        };
+        /**
          * PooledReport
          * @description The whole pooled view. Deliberately carries NO thesis identifier of any kind — see the module
          *     docstring; a test walks this payload to keep it that way.
@@ -22432,6 +23007,278 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OnboardingReadoutOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_awaiting_admin_platform_values_awaiting_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformAwaitingOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_company_values_admin_platform_values__security_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                security_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyValuesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_candidate_admin_platform_values_candidates__candidate_id__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                candidate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PlatformApproveIn"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyValuesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    correct_value_admin_platform_values__security_id__correct_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                security_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlatformCorrectSharesIn"] | components["schemas"]["PlatformCorrectCashBurnIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyValuesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    dismiss_candidate_admin_platform_values_candidates__candidate_id__dismiss_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                candidate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlatformDismissIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyValuesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    undo_decision_admin_platform_values_decisions__decision_id__undo_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                decision_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PlatformUndoIn"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyValuesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    pin_value_admin_platform_values__security_id__pin_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                security_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlatformPinIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyValuesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unpin_value_admin_platform_values__security_id__unpin_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                security_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlatformPinIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyValuesOut"];
                 };
             };
             /** @description Validation Error */

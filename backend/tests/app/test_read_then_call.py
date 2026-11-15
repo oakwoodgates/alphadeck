@@ -101,15 +101,15 @@ def test_auto_confirm_ends_the_read_before_sec(client, db, seen, monkeypatch):
 
     def fake(client_, cik):
         seen.mark()
-        return []
+        return ExtractionResult(facts=[])
 
-    monkeypatch.setattr(wb, "extract_for_security", fake)
+    monkeypatch.setattr(wb, "extract_with_annual_fallback", fake)
     r = client.post(
         "/workbench/facts/auto-confirm",
         json={"security_id": str(sid), "fact_type": "shares_outstanding"},
     )
     assert r.status_code == 200, r.text
-    assert r.json()["reason"] == "no_candidate"
+    assert r.json()["reason"] == "nothing_found"
     assert seen.statuses == [IDLE]
 
 

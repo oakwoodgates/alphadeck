@@ -1,17 +1,19 @@
-"""The ratify CLIs and the two scopes (V2 W1a, docs/TENANT_SCOPES.md).
+"""The ratify CLIs and the two scopes (V2 W1a and W2c, docs/TENANT_SCOPES.md).
 
-Share counts and cash/burn are platform data: ``pipeline.ratify_shares`` and ``pipeline.ratify_cash_burn`` take no
-workspace and write the data tenant. Purity is the workspace's own: ``pipeline.ratify_revenue_mix`` takes
-``--workspace``, required, and refuses before any database connection is opened when it is missing.
-(``pipeline.ratify_catalyst`` is deleted: company catalysts move to the thesis's catalyst list in V2.)
+Purity is the workspace's own: ``pipeline.ratify_revenue_mix`` takes ``--workspace``, required, and refuses before
+any database connection is opened when it is missing. Share counts and cash/burn are platform values set only by the
+steward's write (``platform_values.steward``, V2 W2c): ``pipeline.ratify_shares`` and ``pipeline.ratify_cash_burn``
+are deleted (approved decision D4 (a)), and so is ``pipeline.ratify_catalyst`` (company catalysts move to the
+thesis's catalyst list in V2).
 """
 
 from __future__ import annotations
 
+import importlib.util
+
 import pytest
 
-from domain.scopes import DATA_TENANT_ID
-from pipeline import ratify_cash_burn, ratify_revenue_mix, ratify_shares
+from pipeline import ratify_revenue_mix
 
 
 def test_ratify_revenue_mix_requires_a_workspace(capsys):
@@ -33,55 +35,9 @@ def test_ratify_revenue_mix_requires_a_workspace(capsys):
     assert exc.value.code == 2 and "--workspace" in capsys.readouterr().err
 
 
-def _rows(db, table: str, security_id):
-    db.rollback()  # see the CLI's own committed write, not this connection's old snapshot
-    with db.cursor() as cur:
-        cur.execute(
-            f"SELECT tenant_id, ratified_by FROM {table} WHERE security_id = %s",  # noqa: S608
-            (security_id,),
-        )
-        return [(r["tenant_id"], r["ratified_by"]) for r in cur.fetchall()]
-
-
-def test_ratify_shares_writes_the_data_tenant(db, security_id):
-    ratify_shares.main(
-        [
-            "--ticker",
-            "DEVCO",
-            "--shares",
-            "1000",
-            "--source-url",
-            "https://x.test/10q",
-            "--date",
-            "2026-05-01",
-        ]
-    )
-    assert _rows(db, "fact_shares_outstanding", security_id) == [(DATA_TENANT_ID, "operator")]
-
-
-def test_ratify_cash_burn_writes_the_data_tenant(db, security_id):
-    ratify_cash_burn.main(
-        [
-            "--ticker",
-            "DEVCO",
-            "--cash",
-            "1000",
-            "--quarterly-burn",
-            "10",
-            "--source-url",
-            "https://x.test/10q",
-            "--date",
-            "2026-05-01",
-        ]
-    )
-    assert _rows(db, "fact_cash_burn", security_id) == [(DATA_TENANT_ID, "operator")]
-
-
-@pytest.mark.parametrize("module", [ratify_shares, ratify_cash_burn])
-def test_the_platform_ratify_clis_take_no_tenant(module, capsys):
-    """A platform fact has one home; neither CLI offers a flag that could aim it elsewhere."""
-    with pytest.raises(SystemExit) as exc:
-        module.main(["--help"])
-    assert exc.value.code == 0
-    out = capsys.readouterr().out
-    assert "--workspace" not in out and "--tenant-id" not in out
+@pytest.mark.parametrize(
+    "module", ["pipeline.ratify_shares", "pipeline.ratify_cash_burn", "pipeline.ratify_catalyst"]
+)
+def test_the_platform_value_ratify_clis_are_gone(module):
+    """No shell path writes a share count, cash/burn or a company catalyst: the steward's write is the one way."""
+    assert importlib.util.find_spec(module) is None
