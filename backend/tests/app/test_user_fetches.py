@@ -36,7 +36,6 @@ from domain.market_time import market_now
 from domain.settings import get_settings
 from repositories import thesis_repo
 from tests.app.test_workbench_api import (
-    _auto_shares_candidate,
     _decomp,
     _efts_page,
     _FakeEfts,
@@ -129,7 +128,7 @@ def fakes(monkeypatch):
     from app.routers import workbench as wb
     from ingest.prices import ingest_security as price_leg
 
-    calls: dict[str, list] = {"extract": [], "auto": [], "resolve": [], "fund": []}
+    calls: dict[str, list] = {"extract": [], "resolve": [], "fund": []}
 
     def boom(*a, **kw):
         raise AssertionError("a vendor was called")
@@ -141,16 +140,11 @@ def fakes(monkeypatch):
         calls["extract"].append(cik)
         return ExtractionResult(facts=[])
 
-    def fake_auto(client, cik):
-        calls["auto"].append(cik)
-        return [_auto_shares_candidate()]
-
     def fake_fund(ticker, **kw):
         calls["fund"].append(ticker)
         return None  # "not in the SEC fund file": a 404 after the checks, with no SEC traffic
 
     monkeypatch.setattr(wb, "extract_with_annual_fallback", fake_extract)
-    monkeypatch.setattr(wb, "extract_for_security", fake_auto)
     monkeypatch.setattr(wb.fund_tickers, "resolve", fake_fund)
     _FakeSource.requested = []
     monkeypatch.setattr(price_leg, "YahooPriceSource", _FakeSource)
@@ -257,7 +251,7 @@ def test_a_plain_users_fetch_of_a_security_on_none_of_their_cards_is_404(people,
     r = FETCHES[action](people["p"], people["other"])
     assert r.status_code == 404, r.text
     assert r.json()["detail"] == NOT_ON_YOUR_CARDS
-    assert people["calls"] == {"extract": [], "auto": [], "resolve": [], "fund": []}
+    assert people["calls"] == {"extract": [], "resolve": [], "fund": []}
     assert _FakeSource.requested == []  # nothing fetched
     assert _master_rows(db) == before
     # a refused request spends nothing; auto-confirm names its security in the BODY, so it is counted before the

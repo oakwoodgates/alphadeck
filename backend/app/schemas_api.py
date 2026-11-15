@@ -943,38 +943,61 @@ class RatifiedFactOut(BaseModel):
 
 
 class AutoConfirmRequest(BaseModel):
-    """Ask the server to auto-apply a security's AUTO-tier shares count (the get-data path).
+    """Ask the server to record a company's platform values from its filings (the get-data path, V2 W2b).
 
-    NOTE WHAT IS **NOT** HERE: a value. The client cannot supply the number — it names a security and a
-    fact type, and the SERVER re-extracts and writes its OWN deterministic parse. That is the structural
-    bound (INVARIANT #3): an auto-applied fact can only ever be the extractor's reproduction of filed
-    companyfacts, so no client bug or caller can inject a figure under the ``auto`` provenance.
+    NOTE WHAT IS **NOT** HERE: a value. The client cannot supply a number — it names a security, and the SERVER
+    re-extracts and hands its OWN deterministic parse to the machine writer (``platform_values.machine``). That is
+    the structural bound (INVARIANT #3): an auto-applied fact can only ever be the extractor's reproduction of the
+    filing, so no client bug or caller can inject a figure under the ``auto`` provenance.
 
-    ``fact_type`` is deliberately a ONE-value Literal: only the AUTO shares count is eligible. Purity is the
-    operator's edge (HUMAN, never auto-valued) and cash_burn stays a manual ratify — extending this is a
-    decision, not a parameter.
+    One call covers BOTH platform values, the share count and cash/burn (approved D2 (a)); ``fact_type`` stays the
+    one-value Literal it always was, so existing callers keep working. Purity is never touched (the operator's
+    edge: HUMAN, never auto-valued).
     """
 
     security_id: UUID
     fact_type: Literal["shares_outstanding"]
 
 
-class AutoConfirmOut(BaseModel):
-    """The outcome of an auto-confirm — honest about WHY nothing was written.
+# What the machine writer did with one value type (``platform_values.machine.MachineOutcome``):
+# applied            — the extractor's clean AUTO value was written (ratified_by="auto", the data tenant)
+# already_on_file    — a version of this filing is already stored (any, including one the steward undid): nothing
+# older_than_on_file — the filing is dated on or before the value shown: nothing written
+# after_today        — the filing's date is after today's market date: never written
+# pinned             — the steward pinned this company's value: a candidate for the steward instead of a fact
+# not_auto           — the extractor FLAGged the value: a candidate for the steward (never a fact)
+# nothing_found      — the extractor found no value: a "nothing" candidate with its reason (never a fact)
+AutoConfirmReason = Literal[
+    "applied",
+    "already_on_file",
+    "older_than_on_file",
+    "after_today",
+    "pinned",
+    "not_auto",
+    "nothing_found",
+]
 
-    ``applied=False`` is a normal, expected result (a FLAGged name, a name already on file), never an error:
-    the caller fires this optimistically after get-data and the server decides. ``reason`` names which gate
-    stopped it so the UI (and a test) can tell "we declined to auto-apply" from "it failed".
-    """
+
+class AutoConfirmPartOut(BaseModel):
+    """What get-data did with ONE platform value. ``applied=False`` is a normal, expected result, never an error;
+    ``reason`` says which rule decided. ``fact_id`` is set when a fact was written; ``candidate_id`` names the
+    candidate that stands for this result (``pinned`` / ``not_auto`` / ``nothing_found``; a repeat of the newest
+    candidate is not written again, and its id is returned)."""
 
     applied: bool
-    # applied        — the AUTO parse was written (ratified_by="auto")
-    # already_on_file — a shares fact exists (auto OR an operator override); never re-stamped, never clobbered
-    # not_auto       — the candidate FLAGged (dual-class / stale-cover / no-companyfacts) -> the operator ratifies
-    # no_candidate   — no shares candidate (e.g. a foreign 20-F/6-K filer)
-    # no_value       — AUTO with no parsed figure (defensive; a FLAG never anchors a wrong number)
-    reason: Literal["applied", "already_on_file", "not_auto", "no_candidate", "no_value"]
+    reason: AutoConfirmReason
     fact_id: UUID | None = None
+    candidate_id: UUID | None = None
+
+
+class AutoConfirmOut(AutoConfirmPartOut):
+    """The outcome of a get-data auto-confirm: the SHARE COUNT's result at the top level (the fields every caller
+    already reads) and the CASH/BURN result in ``cash_burn``.
+
+    A flagged or empty result is recorded as a CANDIDATE for the steward, never as a fact: it moves no meter.
+    """
+
+    cash_burn: AutoConfirmPartOut | None = None
 
 
 # --- FLAG-explanation drafter (M4b — the LLM seam) — a DISPLAY aid, NOT a fact ---
