@@ -31,6 +31,7 @@ import pytest
 from db.session import connect
 from db.write_lock import CompanyLockBusy, acquire_company_lock
 from domain.extraction import ExtractedFact, ExtractionResult, Tier
+from domain.market_time import market_now, market_today
 from domain.platform_values import ValueState
 from domain.scopes import DATA_TENANT_ID
 from domain.settings import get_settings
@@ -43,12 +44,22 @@ from repositories import platform_value_repo as pv_repo
 from tests.workspaces import new_workspace
 
 TABLES = ("fact_shares_outstanding", "fact_cash_burn", "extraction_candidate")
-NOW = datetime.now(timezone.utc)
-OLD = NOW - timedelta(days=60)
-PERIOD = date.today() - timedelta(days=75)
 NO_CACHE = (
     Path(__file__).resolve().parent / "no-such-edgar-cache"
 )  # the writer reads no cached filing
+
+
+def _now() -> datetime:
+    """The clock, read INSIDE a test (never at import): the same market clock the production path reads."""
+    return market_now().astimezone(timezone.utc)
+
+
+def _old() -> datetime:
+    return _now() - timedelta(days=60)
+
+
+def _period() -> date:
+    return market_today() - timedelta(days=75)
 
 
 # --- the world ---------------------------------------------------------------------------------------------------
@@ -137,25 +148,25 @@ class FakeClient:
         raise AssertionError(f"unexpected document read {cache_key}")
 
 
-def _shares(ref: str, d: date = PERIOD, tier=Tier.AUTO) -> ExtractedFact:
+def _shares(ref: str, d: date | None = None, tier=Tier.AUTO) -> ExtractedFact:
     return ExtractedFact(
         fact_type="shares_outstanding",
         tier=tier,
         source="10-q-cover",
         source_ref=ref,
-        event_date=d,
+        event_date=d or _period(),
         value=30_000_000.0,
         note="Cover-page shares outstanding (single class).",
     )
 
 
-def _cash(ref: str, d: date = PERIOD) -> ExtractedFact:
+def _cash(ref: str, d: date | None = None) -> ExtractedFact:
     return ExtractedFact(
         fact_type="cash_burn",
         tier=Tier.AUTO,
         source="10-q",
         source_ref=ref,
-        event_date=d,
+        event_date=d or _period(),
         cash_usd=30_000_000.0,
         quarterly_burn_usd=3_000_000.0,
         note="Cash; operating cash flow.",
@@ -236,9 +247,9 @@ def _one_company(db, ticker: str = "ACME", cik: str = "1001") -> tuple[UUID, str
     sid = _company(db, ticker, cik)
     _card(db, w, [(sid, "Reactors")])
     acc = f"000{cik}-26-000001"
-    _filing(db, sid, "10-Q", acc, OLD)
+    _filing(db, sid, "10-Q", acc, _old())
     db.commit()
-    return sid, acc, FakeClient(NO_CACHE, {int(cik): _subs([("10-Q", acc, OLD)])})
+    return sid, acc, FakeClient(NO_CACHE, {int(cik): _subs([("10-Q", acc, _old())])})
 
 
 # --- the work list -----------------------------------------------------------------------------------------------
@@ -302,16 +313,16 @@ def test_due_reasons_order_new_filing_then_retry_then_never(db, fake_extract):
     _card(db, new_workspace(db, "W2"), [(never, "Fuel"), (newf, "Fuel"), (retry, "Fuel")])
     _card(db, new_workspace(db, "W3"), [(never, "Fuel")])
     for sid, cik in ((newf, 11), (retry, 12)):
-        _filing(db, sid, "10-Q", f"{cik}-q1", OLD)
+        _filing(db, sid, "10-Q", f"{cik}-q1", _old())
     db.commit()
     client = FakeClient(
         NO_CACHE,
-        {11: _subs([("10-Q", "11-q1", OLD)]), 12: _subs([("10-Q", "12-q1", OLD)])},
+        {11: _subs([("10-Q", "11-q1", _old())]), 12: _subs([("10-Q", "12-q1", _old())])},
     )
     fake_extract({11: ExtractionResult(facts=[]), 12: CacheMiss("forms/x not cached")})
     for sid in (newf, retry):
         ex.extract_one(db, _item(db, sid), client=client, wait_s=0, run_kind="backfill")
-    _filing(db, newf, "10-K", "11-k1", NOW - timedelta(hours=30))  # public 30 h: due
+    _filing(db, newf, "10-K", "11-k1", _now() - timedelta(hours=30))  # public 30 h: due
     db.commit()
 
     wl = ex.work_list(db, include_never=True)
@@ -428,7 +439,7 @@ def test_a_failure_never_hides_a_value_awaiting_the_steward(db, fake_extract):
         outcome="flag",
         flags=["dual-class"],
         source_ref="https://www.sec.gov/Archives/edgar/data/1001/q.htm",
-        event_date=PERIOD,
+        event_date=_period(),
         shares=1.0,
     )
     db.commit()
@@ -527,9 +538,11 @@ def _three(db) -> tuple[list[UUID], FakeClient]:
     sids = [_company(db, t, c) for t, c in (("AAA", "21"), ("BBB", "22"), ("CCC", "23"))]
     _card(db, w, [(s, "Fuel") for s in sids])
     for s, c in zip(sids, (21, 22, 23), strict=True):
-        _filing(db, s, "10-Q", f"{c}-q", OLD)
+        _filing(db, s, "10-Q", f"{c}-q", _old())
     db.commit()
-    return sids, FakeClient(NO_CACHE, {c: _subs([("10-Q", f"{c}-q", OLD)]) for c in (21, 22, 23)})
+    return sids, FakeClient(
+        NO_CACHE, {c: _subs([("10-Q", f"{c}-q", _old())]) for c in (21, 22, 23)}
+    )
 
 
 def test_the_run_is_fail_open_per_company_and_counts_every_outcome(db, fake_extract):
