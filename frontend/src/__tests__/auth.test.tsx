@@ -55,6 +55,7 @@ const USER = {
   workspace_id: "00000000-0000-0000-0000-000000000001",
 };
 const STEWARD = { ...USER, id: "u-1", email: "steward@example.test", display_name: "The Steward", role: "super_admin" };
+const COMPANY_ID = "00000000-0000-4000-8000-0000000000aa";
 const CLOCK = {
   current_night: "2026-10-26",
   action_day: "2026-10-27",
@@ -177,6 +178,34 @@ describe("the login door", () => {
     const nav = screen.getByRole("navigation");
     expect(nav).toHaveTextContent("Admin");
     expect(nav).toHaveTextContent("Backtest");
+  });
+
+  it("a plain user at a company's facts page sees stewards only, and no platform-values request is made", async () => {
+    routes["GET /auth/me"] = { status: 200, body: USER };
+    renderAt(`/admin/facts/${COMPANY_ID}`);
+    expect(await screen.findByText("This page is for stewards only.")).toBeInTheDocument();
+    expect(screen.queryByText("ACME")).not.toBeInTheDocument();
+    expect(calls.filter((c) => c.includes("/admin/platform-values"))).toEqual([]);
+  });
+
+  it("a steward at a company's facts page reads that company's two values", async () => {
+    routes["GET /auth/me"] = { status: 200, body: STEWARD };
+    routes[`GET /admin/platform-values/${COMPANY_ID}`] = {
+      status: 200,
+      body: {
+        security_id: COMPANY_ID,
+        ticker: "ACME",
+        name: "Acme Corp",
+        shares: { fact_type: "shares_outstanding", state: "no_value", reason: "not-extracted", pinned: false },
+        cash_burn: { fact_type: "cash_burn", state: "no_value", reason: "not-extracted", pinned: false },
+      },
+    };
+    renderAt(`/admin/facts/${COMPANY_ID}`);
+    expect(await screen.findByText("Acme Corp")).toBeInTheDocument();
+    expect(screen.queryByText("This page is for stewards only.")).not.toBeInTheDocument();
+    expect(calls).toContain(`GET /admin/platform-values/${COMPANY_ID}`);
+    // reading is all it did: no write fired on mount
+    expect(calls.filter((c) => c.startsWith("POST /admin/platform-values"))).toEqual([]);
   });
 
   it("Sign out revokes the session, clears the cache and lands on /login", async () => {

@@ -216,3 +216,15 @@ It is the only W4 read that crosses workspaces, so it returns two numbers per co
 id or name, no workspace, no user, no link label; it logs nothing. It is steward-side only:
 `tests/app/test_card_count_guard.py` fails when a product file other than the steward router names it. W3's
 backfill may reuse it for its order: add the caller to that guard's `ALLOWED` in the same change.
+
+### The steward's company page (W4b)
+
+`/admin/facts/<security_id>` (steward-only in the UI like Admin; a plain user sees one line and no request is made;
+reached by the company search box on the page, and from the queue card once W4c lands). One block per value
+(`frontend/src/admin/CompanyFacts.tsx`, words in `factWords.ts`): the state line (who set it, when, the filing link
+and date), a waiting candidate with its located passages, flags and Explain (the Workbench's explain route; a draft,
+never a value), then Approve, Correct, Dismiss, Undo, Pin and Unpin, each answered by the company's new values. An
+undo cannot be undone, so the page offers the decision again (Approve on the reopened candidate, "Correct again"
+prefilled from the set-aside version). A refusal shows the server's sentence inside the block that made the call.
+Nothing disappears: dismissed candidates, undone decisions and set-aside versions stay in the collapsed History, gray.
+Who pinned a value, when and why shows beside the Pinned chip, from the company read's newest pin event (`pin`).
