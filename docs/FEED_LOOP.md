@@ -1102,6 +1102,11 @@ the nightly itself, inside the window.
   legs one at a time — not through `ingest_thesis`, so #432's fetch-ahead and its `ingest_fetch_concurrency`
   workers do not apply; a background load has no deadline to buy down. (The FAST LANE is `ingest_thesis`, so it
   DOES get the fetch-ahead — up to 8 workers on its ≤5 cold names, inside the backend's interactive lane.)
+- **New companies' platform values (V2 W3e).** After the queue's batch (and when nothing is queued), still under
+  the job's lock, `_extraction_step` extracts the share count and cash/burn of every NEVER-extracted company on a
+  live card: a fast-laned promote and a company that joined from another card included, which no leg of the job
+  ever sees. Fail-open, through the same recurring client, with what is left of the batch's time budget. Rules:
+  `docs/PLATFORM_VALUES.md` ("The onboarding job's step").
 
 **The nightly's treatment of a not-yet-warm name.** `run_daily` reads the pending rows ONCE
 (`onboarding.pending_status`; FAIL-OPEN toward the full walk — a read that fails prints a WARNING and every
