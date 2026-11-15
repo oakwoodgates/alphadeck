@@ -119,15 +119,49 @@ most needs to make:
   passage saying it is NOT a quarter (the runway audit: the old single label claimed a derivation that never
   happened — runway would have read ~3–4× too short, believed). The one-time detector runs on the derived
   quarter too — a clean basis never bypasses the anomaly check.
-- **Cash includes marketable securities — same balance sheet only; the composition is a note, not an alarm.**
-  `cash_usd = cash + equivalents + marketable securities` (the uniform cash rule, `WORKBENCH_SCORING.md`) —
-  but **a balance sheet is ONE date**: a marketable instant dated differently from cash is a *different*
+- **Cash includes short-term investments and long-term marketable securities — same balance sheet only;
+  the composition is a note, and a composition that cannot be established is a flag** (operator decisions D1
+  and D2, 2026-11-15). `cash_usd` = cash + equivalents + short-term investments + long-term MARKETABLE
+  securities: ONE "cash and short-term investments" number (the uniform cash rule, `WORKBENCH_SCORING.md`),
+  with the investment part also carried on its own on the candidate (`investments_usd`; None = no investment
+  tagged on the cash date, never a fake 0). It is not yet a stored column: the plan's migration for it is a
+  follow-up (PR 1b). The tag lists (`ingest/edgar/extract.py`):
+  - **cash** — `CashAndCashEquivalentsAtCarryingValue`, `…IncludingDiscontinuedOperations`, `Cash`, then the
+    restricted-cash total (the newest label wins, the order breaks a tie; the note says when it includes
+    restricted cash).
+  - **short-term investments** — `ShortTermInvestments`, `MarketableSecuritiesCurrent`,
+    `AvailableForSaleSecuritiesCurrent`, `AvailableForSaleSecuritiesDebtSecuritiesCurrent`,
+    `DebtSecuritiesAvailableForSaleExcludingAccruedInterestCurrent`, `HeldToMaturitySecuritiesCurrent`,
+    `OtherShortTermInvestments`, `CertificatesOfDepositAtCarryingValue`, `TimeDepositsAtCarryingValue`.
+  - **long-term marketable securities** — `MarketableSecuritiesNoncurrent`,
+    `AvailableForSaleSecuritiesNoncurrent`, `AvailableForSaleSecuritiesDebtSecuritiesNoncurrent`,
+    `HeldToMaturitySecuritiesNoncurrent`.
+  - **never cash** — `LongTermInvestments`, `EquityMethodInvestments`, `OtherLongTermInvestments`,
+    `LongTermInvestmentsAndReceivablesNet` (the generic long-term investments line is often stakes in other
+    companies: Disney stored 12.8bn against 5.2bn of cash, Kinder Morgan 8.8bn against 0.9bn). A same-dated
+    one is NAMED in the note as not counted. Equity securities and restricted investments are never read.
+    The cost: a Treasury holder that uses the generic line (SMR's 118.6M) reads lower, the conservative
+    direction, and the note says why.
+
+  Each investment tag is read **at the cash date**, and per role the **largest** same-dated value is taken,
+  never the sum (the tags often restate one another); every tag seen is named with its amount. A missing
+  component is said missing ("no short-term investments tagged on the cash date"), never "$0.0M".
+  **A balance sheet is ONE date**: an investment tag that stopped before the cash date is a *different*
   balance sheet (usually a discontinued tag — MU's `AvailableForSaleSecurities*` last reported **2018**, and
   the old composer silently added those balances into current cash) and is **EXCLUDED from the sum**, named
-  in the note ("verify where current investments live"). Included-or-excluded, the basis rides the note's
-  as-ofs; **no flag** — same-dated inclusion is the textbook liquidity composition, and the off-date
-  exclusion errs CONSERVATIVE (understated cash → runway reads *shorter*; a funding-risk gauge that
-  over-warns, never under-warns). The alarm, when it matters, is the runway meter reading short.
+  in the note with its date — no flag (it errs CONSERVATIVE: understated cash → runway reads *shorter*).
+  **What the extractor cannot establish is a FLAG, never a silent AUTO:**
+  - `cash-tags-disagree` — two balance-sheet cash tags of the cash date contradict their nesting (`Cash` ≤
+    cash and equivalents ≤ the restricted-cash total): SOAR's cash and equivalents read 0 beside `Cash` 8.4M.
+    Both are stated. `Cash` BELOW cash and equivalents is its cash part (OKLO), consistent, no flag.
+  - `investments-unreconciled` — the filer also reports the combined `CashCashEquivalentsAndShortTermInvestments`
+    on the cash date and cash + the short-term investments read miss it by more than
+    `investments_reconcile_tolerance` (0.5%). The combined line is a check, never an addend, and the gap is
+    never filled by subtraction (the extractor locates, it never invents). Cash read from the restricted-cash
+    total overshoots the combined line, so it flags too: never a silent double count.
+  - `investments-off-date` — an investment tag sits only on a NEWER balance sheet than the cash.
+- **The cash candidate's `source` names the cited form:** `10-q`, or `10-k` when the values filing is a 10-K
+  (since B1 the newer of the two by public time; before 2026-11-15 every value said `10-q`).
 - **Missing inputs are their own labels with None values — never a fake $0.** No cash instant *and* no
   OCF column → `no-companyfacts` (located-only; the old `or 0.0` coercions sent such filers out AUTO / $0 /
   $0 / "Clean quarter" — a confirmable fake zero). Cash without an OCF column → `no-cashflow-column` (burn
