@@ -8,6 +8,7 @@ import pytest
 
 from ingest import http as http_mod
 from ingest.http import RateLimiter, polite_get
+from tests.thread_support import BARRIER_TIMEOUT_S, join_all
 
 
 class _FakeResp:
@@ -147,7 +148,7 @@ def test_rate_limiter_is_the_shared_throttle_under_threads():
     n, rate = 12, 50.0  # interval 20ms
     interval = 1.0 / rate
     rl = RateLimiter(max_per_sec=rate)
-    barrier = threading.Barrier(n)
+    barrier = threading.Barrier(n, timeout=BARRIER_TIMEOUT_S)
 
     def worker() -> None:
         barrier.wait()  # release all threads to contend simultaneously
@@ -157,8 +158,7 @@ def test_rate_limiter_is_the_shared_throttle_under_threads():
     t0 = time.monotonic()
     for t in threads:
         t.start()
-    for t in threads:
-        t.join()
+    join_all(threads)
     elapsed = time.monotonic() - t0
     # n requests took >= (n-1)*interval -> the global rate never exceeded max_per_sec (concurrency didn't
     # collapse the slots). 0.8 leaves margin for sleep granularity; it can only run LONGER, never shorter.

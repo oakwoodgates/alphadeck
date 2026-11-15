@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import os
 import re
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -19,14 +18,10 @@ from pathlib import Path
 import pytest
 
 from pipeline import schedule
+from tests.shell_support import needs_sh, path_with, sh_path
 
 BACKEND = Path(__file__).resolve().parents[2]
 SCRIPT = (BACKEND / "scripts" / "daily_cron.sh").read_text(encoding="utf-8")
-
-needs_sh = pytest.mark.skipif(
-    not (shutil.which("sh") and shutil.which("timeout")), reason="needs sh + timeout"
-)
-
 
 # --- the CLI ---------------------------------------------------------------------------------------------
 
@@ -114,10 +109,9 @@ def _run_is_session(
     )
     script = tmp_path / "check.sh"
     script.write_text("set -u\n" + _function("is_session") + calls, encoding="utf-8")
-    sep = ";" if sys.platform == "win32" else ":"
-    env = {**os.environ, "PATH": f"{stub}{sep}{os.environ['PATH']}"}
+    env = {**os.environ, "PATH": path_with(stub)}
     return subprocess.run(
-        ["sh", str(script)], capture_output=True, text=True, timeout=120, env=env, cwd=BACKEND
+        [sh_path(), str(script)], capture_output=True, text=True, timeout=120, env=env, cwd=BACKEND
     )
 
 

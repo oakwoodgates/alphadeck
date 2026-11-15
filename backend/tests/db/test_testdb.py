@@ -111,6 +111,33 @@ def test_test_db_url_keeps_host_swaps_name(monkeypatch):
     assert testdb.test_db_url() == f"postgresql://u:p@h:5544/alphadeck_test_{h}"
 
 
+# ---- with_connect_timeout: the test URL's bound on a stalled connect ----
+
+
+def test_with_connect_timeout_adds_the_bound():
+    url = "postgresql://u:***@h:5544/alphadeck_test_ab12cd34"
+    assert (
+        testdb.with_connect_timeout(url) == f"{url}?connect_timeout={testdb.TEST_CONNECT_TIMEOUT_S}"
+    )
+    assert testdb.with_connect_timeout(url, 7).endswith("?connect_timeout=7")
+
+
+def test_with_connect_timeout_keeps_an_existing_query_and_never_overrides_one():
+    base = "postgresql://u:***@h:5544/alphadeck_test_x"
+    assert testdb.with_connect_timeout(base + "?sslmode=disable", 9) == (
+        base + "?sslmode=disable&connect_timeout=9"
+    )
+    pinned = base + "?connect_timeout=3"
+    assert testdb.with_connect_timeout(pinned, 9) == pinned
+
+
+def test_the_live_suite_url_carries_the_connect_timeout():
+    """The conftest hook exported it: every ``connect()`` in this session is bounded (no Postgres needed)."""
+    import os
+
+    assert f"connect_timeout={testdb.TEST_CONNECT_TIMEOUT_S}" in os.environ["DATABASE_URL"]
+
+
 # ---- Postgres-gated smoke (uses the db/_migrated fixtures -> skips if Postgres is unreachable) ----
 
 
