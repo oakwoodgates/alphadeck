@@ -72,19 +72,21 @@ class ExtractedFact(DomainModel):
     quarterly_burn_usd: float | None = (
         None  # cash_burn; sign: see QUARTERLY_BURN_SIGN (positive = cash consumed)
     )
-    # The statement's own ISO currency (Retrieval Slice A follow-up), set ONLY by the IFRS annual-
-    # statements runway path — an IFRS filer reports in its native currency (TWD/EUR/CAD/…) and the
-    # ``*_usd`` fields then carry native-currency values (the runway RATIO stays currency-correct). This
-    # rides through DISPLAY-ONLY so the FE can label cash/burn honestly (``cash NT$`` — never a misread
-    # ``$2.77T``); it is NEVER converted to USD and NEVER a scoring input. None for every domestic/us-gaap
-    # filer (the periodic ``_cash_burn`` path leaves it unset) → the FE defaults the label to ``$``.
+    # The statement's own ISO currency, set ONLY by the annual-statements runway path — a foreign filer
+    # reports in its own currency (CNY/JPY/TWD/EUR/CAD/…) and the ``*_usd`` fields then carry those values
+    # (the runway RATIO stays currency-correct). Since PR 4 (2026-11-15) it is ESTABLISHED, never guessed:
+    # the companyfacts unit that reproduces the statement's figures exactly, else the header's explicit
+    # markers (a bare "$" is not USD); None = UNREAD and flagged ``currency-unread`` (the FE renders "?",
+    # never "$"). It rides through DISPLAY-ONLY; it is NEVER converted to USD and NEVER a scoring input. None
+    # for every domestic/us-gaap 10-Q/10-K filer (the periodic ``_cash_burn`` path leaves it unset) → "$".
     statement_currency: str | None = None  # cash_burn (annual-statements path only)
     # The INVESTMENT part already inside ``cash_usd`` (operator decision D1, 2026-11-15: one "cash and
     # short-term investments" number, the investment part carried on its own so a screen can show the split):
     # the short-term investments plus the long-term MARKETABLE securities counted, on the cash date. None =
-    # no investment tag on the cash date (never a fake 0), and on every path that does not compose it (the
-    # annual-statements path). Carried on the candidate and stated in the note; not yet a stored column.
-    investments_usd: float | None = None  # cash_burn (quarterly path only)
+    # no investment tag on the cash date (never a fake 0). The annual-statements path sets it to the
+    # short-term deposits/investments rows it added (PR 4). Carried on the candidate and stated in the note;
+    # not yet a stored column.
+    investments_usd: float | None = None  # cash_burn
     # One OBSERVED condition, one label (a flag is evidence, #6 — never a catch-all). A flag marks an
     # EXCEPTION needing judgment; COMPOSITION (a cleanly-derived quarter, the marketable-securities
     # basis) rides the note as provenance, never a flag — a flag true of ~every filer carries no
@@ -100,6 +102,20 @@ class ExtractedFact(DomainModel):
     #           | "investments-off-date" (an investment tag sits on a NEWER balance sheet than the cash and
     #             not on the cash date: the composition at one date is not established)
     #           | "no-companyfacts" | "no-cashflow-column" | "no-cash-instant"  (missing-data: value None)
+    # annual cash (``annual-statements``, always FLAG; PR 4 adds the last six):
+    #           "annual-statements" | "unit-scale-unread" | "column-ambiguous" | "stale-runway"
+    #           | "currency-unread" (the currency could not be established: a bare "$", headers that
+    #             disagree, and no companyfacts unit reproducing the figures; statement_currency None)
+    #           | "currency-mismatch" (companyfacts reproduces the figures in one currency, the header names
+    #             another; the reproducing unit is used and both are stated)
+    #           | "convenience-column" (a translated US$ column is printed beside the figure and
+    #             companyfacts did not confirm which column was read)
+    #           | "figures-disagree" (companyfacts has a row on the statement's date and none reproduces the
+    #             statement figure at its printed precision; both numbers in the note. Was
+    #             ``source-disagreement`` on this path, which compared only the guessed currency at 1%)
+    #           | "table-unverified" (every candidate table looked like a parent-only, subsidiary or
+    #             segment breakdown and companyfacts reproduced none)
+    #           | "cash-unread" (the balance-sheet cash row was located but its value could not be read)
     flags: list[str] = Field(default_factory=list)
     located_passages: list[LocatedPassage] = Field(default_factory=list)
     # How an UNVERIFIED value estimate was produced, when one is present (SURFACE 1b): "llm_proposed" (the

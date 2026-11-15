@@ -83,12 +83,15 @@ def _passage(f, kind: str) -> str:
 def test_ntes_yuan_with_a_usd_convenience_column_is_cny():
     """NTES prints RMB columns plus a convenience USD column. Before: USD, 47,167,904,000 (the yuan figure
     labeled dollars: the bare list order let "USD" win). After: CNY, settled by companyfacts' us-gaap CNY unit
-    reproducing both figures exactly; the USD unit's 6,744,921,000 is the convenience column, never the value."""
+    reproducing both figures exactly; the USD unit's 6,744,921,000 is the convenience column, never the value.
+    """
     f = _run("NTES")
     assert f.statement_currency == "CNY"
     assert f.cash_usd == 47_167_904_000.0
     assert _ocf(f) == pytest.approx(50_739_800_000.0)
-    assert f.flags == ["annual-statements"]  # companyfacts settled the currency: nothing left to judge
+    assert f.flags == [
+        "annual-statements"
+    ]  # companyfacts settled the currency: nothing left to judge
     assert "CNY" in f.note and "convenience" in f.note
     assert "companyfacts agrees with the statement's cash balance" in f.note
 
@@ -159,7 +162,8 @@ def test_eh_breakdown_table_is_passed_over_for_the_consolidated_statement():
 
 def test_zepp_parent_column_is_passed_over():
     """ZEPP's condensed consolidating schedule comes first and its first column is the parent company's.
-    Before: cash 137,000 (a 0.1-month runway). After: 57,046,000 from the consolidated balance sheet."""
+    Before: cash 137,000 (a 0.1-month runway). After: 57,046,000 from the consolidated balance sheet.
+    """
     f = _run("ZEPP")
     assert f.statement_currency == "USD"
     assert f.cash_usd == 57_046_000.0
@@ -188,7 +192,12 @@ def test_only_a_breakdown_table_is_table_unverified():
     text = _text("TM")
     seg, _, rest = text.partition("[… trimmed …]")
     cash_flows = rest.split("[… trimmed …]")[-1]
-    f = _run("TM", text=seg + "\n\n[… trimmed …]\n\n" + cash_flows, cf=None, report_date=date(2026, 3, 31))
+    f = _run(
+        "TM",
+        text=seg + "\n\n[… trimmed …]\n\n" + cash_flows,
+        cf=None,
+        report_date=date(2026, 3, 31),
+    )
     assert f.cash_usd == 9_885_097_000_000.0
     assert "table-unverified" in f.flags
 
@@ -196,7 +205,8 @@ def test_only_a_breakdown_table_is_table_unverified():
 def test_a_figure_off_by_less_than_one_percent_is_not_a_match():
     """The match is EXACT at the printed precision: EH's breakdown column (257,338 thousand) is within 0.4% of
     companyfacts' 256,400,000, which a 1% tolerance passed. With the consolidated statement cut away, the
-    breakdown is all there is: ``table-unverified`` and ``figures-disagree``, both numbers stated."""
+    breakdown is all there is: ``table-unverified`` and ``figures-disagree``, both numbers stated.
+    """
     text = _text("EH")
     parts = text.split("[… trimmed …]")
     f = _run("EH", text=parts[0] + "[… trimmed …]" + parts[2])
@@ -209,7 +219,9 @@ def test_a_same_date_mismatch_is_figures_disagree_with_both_numbers():
     """companyfacts has a row on the cash date but no site reproduces it: ``figures-disagree``, both numbers in
     the note (synthetic: EH's companyfacts cash moved by one thousand)."""
     cf = _cf("EH")
-    cf["facts"]["us-gaap"]["CashAndCashEquivalentsAtCarryingValue"]["units"]["CNY"][0]["val"] = 256_401_000
+    cf["facts"]["us-gaap"]["CashAndCashEquivalentsAtCarryingValue"]["units"]["CNY"][0][
+        "val"
+    ] = 256_401_000
     f = _run("EH", cf=cf)
     assert f.cash_usd == 256_400_000.0  # the consolidated statement, chosen by heading
     assert "figures-disagree" in f.flags
@@ -224,7 +236,8 @@ def test_a_same_date_mismatch_is_figures_disagree_with_both_numbers():
 def test_qgen_lease_line_is_never_the_operating_cash_flow():
     """QGEN's notes print "Cash paid for operating leases included in cash flows from operating activities
     $ 31,741". Before: EUR, operating cash flow +31,741,000 (the last region's line) and cash empty with no
-    flag. After: USD (companyfacts), operating cash flow 654,326,000 from the statement, cash 839,005,000."""
+    flag. After: USD (companyfacts), operating cash flow 654,326,000 from the statement, cash 839,005,000.
+    """
     f = _run("QGEN")
     assert f.statement_currency == "USD"
     assert f.cash_usd == 839_005_000.0
@@ -263,7 +276,10 @@ def test_blrx_short_term_bank_deposits_are_counted_and_stated():
     assert f.investments_usd == 17_600_000.0
     assert f.flags == ["annual-statements"]
     assert "3,250,000" in f.note and "17,600,000" in f.note
-    assert any(p.kind == "balance-sheet" and "Short-term bank deposits" in p.anchor for p in f.located_passages)
+    assert any(
+        p.kind == "balance-sheet" and "Short-term bank deposits" in p.anchor
+        for p in f.located_passages
+    )
 
 
 def test_blrx_without_companyfacts_states_that_nothing_was_cross_checked():

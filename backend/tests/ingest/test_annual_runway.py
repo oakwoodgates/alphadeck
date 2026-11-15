@@ -159,13 +159,19 @@ def test_pbm_newer_annual_supersedes_the_interim_live():
 def test_prtc_reads_current_column_not_prior():
     """F2+F3 — PRTC's statements show 2-3 fiscal years side by side (`252,470 280,641`;
     `(85,131) (134,369) (105,917)`) while companyfacts still serves FY2024 (280,641K / −134,369K — a
-    full-year lag). The CURRENT column wins BOTH quantities → ~2.9-3.0y, not the ~2.1y the lagged
-    inputs give. The prior-column values must appear nowhere in the chosen figures."""
+    full-year lag). The CURRENT column wins BOTH quantities, never the prior-year values.
+    MOVED (PR 4, operator decision D1: cash means cash plus short-term investments): the same balance
+    sheet's "Short-term investments 24 24,829 86,666" row is now counted — cash 252,470,000 +
+    24,829,000 = 277,299,000 (was 252,470,000), ≈39 months (was ≈35.6), the investment part carried on
+    its own. PRTC's header prints only "$000s", so its currency is now ``currency-unread`` (a bare "$"
+    is no longer USD) with companyfacts a year behind to settle it."""
     f, reason = _one("PRTC-20f-fin.txt", cf=_cf("PRTC"), report_date=date(2025, 12, 31))
     assert reason is None and f is not None
-    assert f.cash_usd == 252_470_000.0  # NEVER 280,641,000 (the prior column / lagged companyfacts)
+    assert f.cash_usd == 277_299_000.0  # NEVER 280,641,000 (the prior column / lagged companyfacts)
+    assert f.investments_usd == 24_829_000.0  # the current column of the deposits row, not 86,666
     assert f.quarterly_burn_usd == pytest.approx(85_131_000 / 365 * (365.25 / 4))
-    assert 34.5 < _months(f) < 36.5  # ≈ 35.6 months ≈ 2.96y
+    assert 38.5 < _months(f) < 39.5  # ≈ 39.1 months ≈ 3.3y
+    assert f.statement_currency is None and "currency-unread" in f.flags
     assert (
         "-134,369,000" in f.note and "behind the filing" in f.note
     )  # the lag is named, not silent
@@ -376,7 +382,9 @@ def test_runway_path_never_returns_auto():
 def test_every_fact_carries_both_statement_passages():
     """The passage contract (no passage → no fact, per row): every emitted fact carries BOTH the
     balance-sheet cash row and the cash-flow OCF row as located passages, each with its offset
-    recorded (audit, never filtered on)."""
+    recorded (audit, never filtered on). MOVED (PR 4): a counted short-term deposits/investments row
+    rides as one more balance-sheet passage (PRTC), so the check is "both kinds, one cash-flow row"
+    rather than exactly two passages."""
     for fname, cf, rd in (
         ("GHRS-20f-fin.txt", _cf("GHRS"), date(2025, 12, 31)),
         ("PRTC-20f-fin.txt", _cf("PRTC"), date(2025, 12, 31)),
@@ -387,7 +395,8 @@ def test_every_fact_carries_both_statement_passages():
         f, _ = _one(fname, cf=cf, report_date=rd)
         assert f is not None, fname
         kinds = [p.kind for p in f.located_passages]
-        assert sorted(kinds) == ["balance-sheet", "cash-flow"], fname
+        assert set(kinds) == {"balance-sheet", "cash-flow"}, fname
+        assert kinds.count("cash-flow") == 1, fname
         assert all(p.offset is not None for p in f.located_passages), fname
 
 
