@@ -7,12 +7,13 @@ from __future__ import annotations
 import ast
 import os
 import re
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+
+from tests.shell_support import needs_sh, path_with, sh_path
 
 BACKEND = Path(__file__).resolve().parents[2]
 SCRIPT = (BACKEND / "scripts" / "daily_cron.sh").read_text(encoding="utf-8")
@@ -98,9 +99,7 @@ def _function(name: str) -> str:
     return m.group(0)
 
 
-@pytest.mark.skipif(
-    not (shutil.which("sh") and shutil.which("timeout")), reason="needs sh + timeout"
-)
+@needs_sh
 @pytest.mark.parametrize("rc, says", [(0, None), (75, "REFUSED"), (1, "FAILED (exit 1)")])
 def test_the_hook_is_fail_open(tmp_path, rc, says):
     """Whatever the job exits with, the hook returns 0 (the loop goes on) and says what happened."""
@@ -115,9 +114,13 @@ def test_the_hook_is_fail_open(tmp_path, rc, says):
     )
     script = tmp_path / "hook.sh"
     script.write_text(body, encoding="utf-8")
-    env = {"PATH": f"{stub}{':' if sys.platform != 'win32' else ';'}" + os.environ["PATH"]}
+    env = {"PATH": path_with(stub)}
     r = subprocess.run(
-        ["sh", str(script)], capture_output=True, text=True, timeout=60, env={**os.environ, **env}
+        [sh_path(), str(script)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env={**os.environ, **env},
     )
     assert "stub -m editions.run nightly --apply" in r.stdout, r.stdout + r.stderr
     assert "hook-rc=0" in r.stdout

@@ -30,9 +30,7 @@ import ast
 import json
 import os
 import re
-import shutil
 import subprocess
-import sys
 import threading
 import time
 import uuid
@@ -66,6 +64,7 @@ from pipeline.warm_dashboards import (
 )
 from repositories import thesis_repo
 from tests.auth_fixtures import sign_in_as_steward
+from tests.shell_support import needs_sh, path_with, sh_path
 
 _WS_A = uuid.UUID("00000000-0000-0000-0000-0000000000a1")
 _WS_B = uuid.UUID("00000000-0000-0000-0000-0000000000b2")
@@ -1147,11 +1146,6 @@ def _function(name: str) -> str:
     return m.group(0)
 
 
-needs_sh = pytest.mark.skipif(
-    not (shutil.which("sh") and shutil.which("timeout")), reason="needs sh + timeout"
-)
-
-
 def _run_hook(tmp_path: Path, rc: int, env_extra: dict[str, str]) -> subprocess.CompletedProcess:
     stub = tmp_path / "bin"
     stub.mkdir()
@@ -1168,11 +1162,15 @@ def _run_hook(tmp_path: Path, rc: int, env_extra: dict[str, str]) -> subprocess.
     script = tmp_path / "hook.sh"
     script.write_text(body, encoding="utf-8")
     env = {
-        "PATH": f"{stub}{':' if sys.platform != 'win32' else ';'}" + os.environ["PATH"],
+        "PATH": path_with(stub),
         **env_extra,
     }
     return subprocess.run(
-        ["sh", str(script)], capture_output=True, text=True, timeout=60, env={**os.environ, **env}
+        [sh_path(), str(script)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env={**os.environ, **env},
     )
 
 
@@ -1234,9 +1232,9 @@ def test_the_prune_hook_is_fail_open_and_always_returns_zero(tmp_path, rc, says)
     script.write_text(
         _function("prune_change_log") + 'prune_change_log\necho "hook-rc=$?"\n', encoding="utf-8"
     )
-    path = f"{stub}{':' if sys.platform != 'win32' else ';'}" + os.environ["PATH"]
+    path = path_with(stub)
     r = subprocess.run(
-        ["sh", str(script)],
+        [sh_path(), str(script)],
         capture_output=True,
         text=True,
         timeout=60,

@@ -23,6 +23,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.shell_support import NO_SHELL_REASON, find_shell
+
 _REPO = Path(__file__).resolve().parents[3]
 _SCRIPT = _REPO / "scripts" / "deploy.sh"
 
@@ -37,25 +39,8 @@ PROXY_V6 = "http://[::1]:8080/api/health"
 PROXY_V4 = "http://127.0.0.1:8080/api/health"
 
 
-def _find_bash() -> str | None:
-    if os.name != "nt":
-        return shutil.which("bash")
-    # Windows: Git Bash ONLY. System32\bash.exe (and the WindowsApps alias) is WSL, another filesystem and
-    # PATH world in which these Windows paths do not exist.
-    roots: list[Path] = []
-    git = shutil.which("git")
-    if git:
-        roots += list(Path(git).resolve().parents)
-    roots.append(Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Git")
-    for root in roots:
-        for rel in ("usr/bin/bash.exe", "bin/bash.exe"):
-            if (root / rel).is_file():
-                return str(root / rel)
-    return None
-
-
-_BASH = _find_bash()
-pytestmark = pytest.mark.skipif(_BASH is None, reason="needs bash (Git Bash on Windows)")
+_BASH = find_shell("bash")
+pytestmark = pytest.mark.skipif(_BASH is None, reason=NO_SHELL_REASON)
 
 # --- the fakes ----------------------------------------------------------------------------------------
 
