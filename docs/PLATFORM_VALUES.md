@@ -138,7 +138,7 @@ the extraction read; the gate's from the stored filing index (`fact_filing_index
 |---|---|
 | `never` | no attempt exists |
 | `new_filing` | the stored index has a 10-Q, 10-K, 20-F or 40-F newer than the one of that form the last attempt read, public for at least `platform_extraction_hold_h` hours (companyfacts lags acceptance by about 5-6 hours); or the CIK changed |
-| `retry` | the last attempt was `busy`; or it failed and fewer than `platform_extraction_retry_max` attempts in a row failed on the same key |
+| `retry` | the last attempt was `busy`; or it failed and fewer than `platform_extraction_retry_max` attempts in a row failed on the same key (a steward's failed Extract now click is not counted) |
 
 Otherwise it is not due: `up to date`, `held` (a new filing not yet public for the hold) or `waiting` (failed
 `retry_max` times; it waits for a new filing or the steward). "Public" is the SEC acceptance, else the end of the
@@ -146,6 +146,11 @@ filing date in ET; a filing not public at `now` never makes a company due. An at
 index does not have yet read a newer one, never an older one. **The backstop:** a company with nothing to find (no
 periodic filing) has an empty key, so after one attempt it is not fetched again until a periodic filing appears in
 its filing index; a company that keeps failing stops after `retry_max` attempts on the same filings.
+**Steward clicks and the cap** (operator decision 2026-11-15): a failed `steward` attempt (Extract now) never counts
+toward `retry_max`, so failed clicks (on a stack with no SEC User-Agent, say) cannot leave a company waiting for a
+new filing. `due` skips them when it counts the failures in a row (as it skips `busy`); `work_list` hands it each
+attempt's `run_kind`. A steward attempt counts for everything else: a `done` one on the current filings makes the
+company not due, and the company page lists every attempt.
 
 **The order** (`work_list`): `new_filing`, then `retry`, then `never`; within each, pen-only companies last, then
 most cards first (the card count from `platform_values/cards.py`, reused, never rebuilt), then ticker. ETFs are left
@@ -193,7 +198,7 @@ company gets its values within about 30 minutes of a promote outside the nightly
 | `PLATFORM_EXTRACTION_BUDGET_S` | 900 | a nightly run's wall-time budget, seconds |
 | `PLATFORM_EXTRACTION_ONBOARD_MAX_NAMES` | 25 | companies per onboarding run |
 | `PLATFORM_EXTRACTION_HOLD_H` | 24 | hours a new filing must be public before it makes its company due |
-| `PLATFORM_EXTRACTION_RETRY_MAX` | 3 | failures in a row on the same filings before a company waits |
+| `PLATFORM_EXTRACTION_RETRY_MAX` | 3 | failures in a row on the same filings before a company waits (a steward's failed click is not counted) |
 
 To turn background extraction off on prod: set `ALPHADECK_PLATFORM_EXTRACTION_MAX_NAMES=0` in `.env`, then
 `scripts/deploy.sh --env-only cron` (the nightly) and the same for the backend (the onboarding job).

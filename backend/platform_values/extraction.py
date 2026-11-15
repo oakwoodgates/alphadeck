@@ -8,7 +8,9 @@ CLI and the onboarding step are later PRs):
   ``due`` decides from a company's attempts and its stored filing index whether it is due: ``never`` (no attempt),
   ``new_filing`` (a periodic filing newer than the ones its last attempt read, public for ``hold_h`` hours, so
   companyfacts has caught up), or ``retry`` (the last attempt failed fewer than ``retry_max`` times in a row on the
-  same key, or another writer held the company). Otherwise it is not due: ``up to date``, ``held`` or ``waiting``.
+  same key, or another writer held the company). A steward's failed Extract now click (``run_kind`` ``steward``)
+  never counts toward ``retry_max`` (operator decision 2026-11-15), though a steward attempt counts for everything
+  else. Otherwise it is not due: ``up to date``, ``held`` or ``waiting``.
   "Public" is the SEC acceptance, else the end of the filing date in ET (late, never early); a filing not public
   at ``now`` never makes a company due (CLAUDE.md invariant #1).
 - **The per-company step.** ``extract_one`` rolls back any open transaction, FETCHES with the company free
@@ -77,11 +79,12 @@ class PeriodicFiling:
 
 @dataclass(frozen=True)
 class AttemptRow:
-    """The part of a stored attempt the gate reads."""
+    """The part of a stored attempt the gate reads. ``run_kind`` None = unknown (counted like any other run)."""
 
     status: str
     inputs_key: str
     recorded_at: datetime
+    run_kind: str | None = None
 
 
 class Due(NamedTuple):
@@ -157,7 +160,9 @@ def due(
     retry_max: int,
 ) -> Due:
     """Is the company due for extraction? ``attempts`` newest first; ``filings`` its stored periodic filings
-    (any order). Pure. The rules are the module docstring's."""
+    (any order). Pure. The rules are the module docstring's. The failure streak skips ``busy`` attempts and a
+    steward's ``error`` attempts (``AttemptRow.run_kind``), so only unattended failures reach ``retry_max``.
+    """
     if not attempts:
         return Due("never", "never attempted")
     if attempts[0].status == "busy":
@@ -178,6 +183,8 @@ def due(
         for a in attempts:
             if a.status == "busy":
                 continue
+            if a.run_kind == "steward" and a.status == "error":
+                continue  # a failed steward click never counts toward the cap (2026-11-15)
             if a.status != "error" or a.inputs_key != ref.inputs_key:
                 break
             streak += 1
@@ -291,7 +298,7 @@ def work_list(
         if count is None:  # archived between the two reads: on no live card now
             continue
         rows = [
-            AttemptRow(a["status"], a["inputs_key"], a["recorded_at"])
+            AttemptRow(a["status"], a["inputs_key"], a["recorded_at"], a["run_kind"])
             for a in attempts.get(sid, [])
         ]
         fs = filings_from_rows(filings.get(sid, []))

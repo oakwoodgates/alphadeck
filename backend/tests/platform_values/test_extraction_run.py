@@ -417,6 +417,26 @@ def test_a_raised_extraction_writes_one_error_attempt_and_nothing_else(db, fake_
     assert "http" not in row["error"] and "\n" not in row["error"]
 
 
+def test_failed_steward_clicks_leave_the_company_due_for_the_nightly(db, fake_extract):
+    """Operator decision 2026-11-15: the work list hands the gate each attempt's run kind, so three failed Extract
+    now clicks on the same filings leave the company due (``retry``), where three failed nightly attempts stop it.
+    """
+    sid, acc, client = _one_company(db)
+    fake_extract({1001: RuntimeError("no network")})
+    for _ in range(3):
+        ex.extract_one(db, _item(db, sid), client=client, wait_s=0, run_kind="steward")
+    assert [a["run_kind"] for a in _attempts(db, sid)] == ["steward"] * 3
+    (item,) = ex.work_list(db).items
+    assert (item.security_id, item.reason, item.note) == (sid, "retry", "failed")
+    db.rollback()
+
+    for _ in range(3):
+        ex.extract_one(db, _item(db, sid), client=client, wait_s=0, run_kind="nightly")
+    wl = ex.work_list(db)
+    db.rollback()
+    assert wl.items == [] and wl.waiting == 1
+
+
 @pytest.mark.parametrize(
     ("exc", "reason"),
     [
