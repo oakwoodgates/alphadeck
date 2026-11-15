@@ -1316,6 +1316,45 @@ describe("Admin — the company-list line (the weekly master refresh)", () => {
   });
 });
 
+describe("Admin — the shared-facts line (V2 W3c background extraction)", () => {
+  const LINE =
+    "Shared facts · Nov 13: 3 extracted: 2 applied, 1 to the steward, 0 nothing found · 9 SEC requests · 41s";
+
+  it("renders the backend's line quietly, loud only on attention, nothing before a run", () => {
+    h.status = {
+      ...h.status,
+      data: {
+        ...STATUS_CURRENT,
+        platform_extraction: { line: LINE, ran_at: "2026-11-14T03:43:12Z", run_kind: "nightly", attention: false },
+      },
+    };
+    renderAdmin();
+    const line = screen.getByTestId("adm-platform-extraction");
+    expect(line.textContent).toBe(LINE);
+    expect(line.className).toContain("adm-quiet");
+    h.status = {
+      ...h.status,
+      data: {
+        ...STATUS_CURRENT,
+        platform_extraction: {
+          line: "Shared facts · Nov 13: 0 extracted · 1 failed (ACME: SEC unreachable)",
+          ran_at: "2026-11-14T03:43:12Z",
+          run_kind: "nightly",
+          attention: true,
+        },
+      },
+    };
+    renderAdmin();
+    expect(screen.getAllByTestId("adm-platform-extraction").at(-1)?.className).toContain("adm-loud");
+  });
+
+  it("renders nothing before a run, or from an older backend", () => {
+    h.status = { ...h.status, data: { ...STATUS_CURRENT, platform_extraction: null } };
+    renderAdmin();
+    expect(screen.queryByTestId("adm-platform-extraction")).toBeNull();
+  });
+});
+
 describe("Admin — missing closing prices (2026-10-23)", () => {
   // synthetic companies; the line is the backend's own (the FE renders, never composes)
   const QUIET_LINE =

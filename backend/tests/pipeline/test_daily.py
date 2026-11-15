@@ -2589,8 +2589,9 @@ def test_EVERY_connection_the_pass_opens_gets_the_ceiling(monkeypatch):
     monkeypatch.setattr(daily, "set_statement_timeout", lambda conn, s: bound.append((conn, s)))
     daily.run_daily_pass(asof=_ASOF, allow_live=True, notifier=_Silent())
     # benchmarks, the per-thesis loop (which now also carries the fundamentals refresh), shell sweep,
-    # SPAC radar, fund launch radar
-    assert len(opened) == 5
+    # SPAC radar, fund launch radar, the platform-extraction step's work-list read (V2 W3c; on this fake
+    # connection the read fails and the step reports an error block, fail-open, so it opens no second one)
+    assert len(opened) == 6
     assert [c for c, _ in bound] == opened
     assert {s for _, s in bound} == {get_settings().cron_statement_timeout_s}
 

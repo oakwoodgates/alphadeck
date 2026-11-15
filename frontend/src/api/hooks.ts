@@ -2196,15 +2196,16 @@ export function usePlatformQueue(offset: number, pen: PlatformQueuePen, enabled 
   });
 }
 
-function usePlatformAction<TVars extends { securityId: string }>(
-  fn: (vars: TVars) => Promise<CompanyValuesOut | undefined>,
+function usePlatformAction<TVars extends { securityId: string }, TOut = CompanyValuesOut>(
+  fn: (vars: TVars) => Promise<TOut | undefined>,
+  companyOf: (out: TOut) => CompanyValuesOut = (out) => out as unknown as CompanyValuesOut,
 ) {
   const qc = useQueryClient();
   return useMutation({
     retry: false,
     mutationFn: fn,
     onSuccess: (data, vars) => {
-      if (data) qc.setQueryData(companyValuesKey(vars.securityId), data);
+      if (data) qc.setQueryData(companyValuesKey(vars.securityId), companyOf(data));
       qc.invalidateQueries({ queryKey: ["admin-platform-queue"] });
       qc.invalidateQueries({ queryKey: ["admin-status"] });
       qc.invalidateQueries({ queryKey: ["workbench-scored"] });
@@ -2289,6 +2290,30 @@ export function useUnpinValue() {
     if (error) throw error;
     return data;
   });
+}
+
+// EXTRACT NOW (W4d): read the company's latest SEC filings through background extraction's own per-company step
+// (the server records one attempt). Fired ONLY by a click, retry:false (each click costs SEC requests). It is not a
+// steward decision, so it has no Undo: a value it applies is the machine's, the same one the nightly would apply, and
+// the way back is Correct (Pin keeps later filings waiting); a flagged value waits for Approve / Dismiss. The answer
+// carries what happened per value type (`attempt`) and the company's new values (`company`), which replace the
+// cached read; the same refreshes as every steward write.
+export type PlatformExtractOut = components["schemas"]["PlatformExtractOut"];
+export type PlatformExtractAttemptOut = components["schemas"]["PlatformExtractAttemptOut"];
+export type PlatformExtractValueOut = components["schemas"]["PlatformExtractValueOut"];
+export type PlatformExtractionAttemptOut = components["schemas"]["PlatformExtractionAttemptOut"];
+
+export function useExtractNow() {
+  return usePlatformAction(
+    async (vars: { securityId: string }) => {
+      const { data, error } = await api.POST("/admin/platform-values/{security_id}/extract", {
+        params: { path: { security_id: vars.securityId } },
+      });
+      if (error) throw error;
+      return data;
+    },
+    (out: PlatformExtractOut) => out.company,
+  );
 }
 
 // --- Splits (split plan S1): the operator's ratification of the split list ---

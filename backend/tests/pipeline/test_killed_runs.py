@@ -500,7 +500,9 @@ def test_the_RUN_TIMEOUT_the_Admin_ages_a_pass_by_is_the_one_the_sidecar_enforce
 
     compose = (_BACKEND.parent / "docker-compose.yml").read_text(encoding="utf-8")
     fallbacks = re.findall(r"\$\{ALPHADECK_CRON_RUN_TIMEOUT_S:-(\d+)\}", compose)
-    assert len(fallbacks) == 2  # the backend's mirror and the sidecar's RUN_TIMEOUT_S
+    # the backend's mirror, the sidecar's RUN_TIMEOUT_S, and the sidecar's own mirror under the Settings name (the
+    # nightly's platform-extraction step budgets against what is left of it, V2 W3c)
+    assert len(fallbacks) == 3
     assert "ALPHADECK_CRON_RUN_TIMEOUT_S: ${ALPHADECK_CRON_RUN_TIMEOUT_S:-" in compose  # backend
     shell = re.search(r'RUN_TIMEOUT_S="\$\{RUN_TIMEOUT_S:-(\d+)\}"', _script())
     assert shell is not None

@@ -283,6 +283,9 @@ services:
       # a hung pass cannot freeze the loop; a timeout is a failed run like any other (the retry, then a
       # page). Default 90 min, ~1.4x the worst measured cold pass. Numeric fallback, same reason as above.
       RUN_TIMEOUT_S: ${ALPHADECK_CRON_RUN_TIMEOUT_S:-5400}
+      # V2 W3c — the SAME limit, under the name Settings reads (cron_run_timeout_s): the nightly's platform-
+      # extraction step budgets against what is left of it. Fallback = the Settings default (pinned by test).
+      ALPHADECK_CRON_RUN_TIMEOUT_S: ${ALPHADECK_CRON_RUN_TIMEOUT_S:-5400}
       # Security PR 5: the nightly prune of expired sign-in rows (`python -m db.housekeeping --prune`, run by this
       # sidecar after the change-log prune) keeps each kind this many days past its expiry or revocation
       # (docs/AUTH.md §Housekeeping). Fallbacks equal the Settings defaults (pinned by test).
