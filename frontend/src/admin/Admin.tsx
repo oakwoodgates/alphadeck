@@ -668,6 +668,17 @@ export function Admin({ header }: Props) {
                 {status.master_refresh.line}
               </div>
             )}
+            {/* V2 W3c — background extraction of the shared share counts and cash/burn, as the backend's one line
+                (the nightly step or the newest backfill). Quiet; louder only when a company failed or a backlog is
+                held back until the first backfill. Rendered once a run exists; an older backend omits the field. */}
+            {status.platform_extraction && (
+              <div
+                className={`adm-line ${status.platform_extraction.attention ? "adm-loud" : "adm-quiet"}`}
+                data-testid="adm-platform-extraction"
+              >
+                {status.platform_extraction.line}
+              </div>
+            )}
             <div className="adm-sub">
               {status.record.reason} · today {status.record.today} · last expected as-of{" "}
               {status.record.expected_asof}
