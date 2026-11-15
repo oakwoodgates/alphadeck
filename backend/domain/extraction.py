@@ -79,6 +79,12 @@ class ExtractedFact(DomainModel):
     # ``$2.77T``); it is NEVER converted to USD and NEVER a scoring input. None for every domestic/us-gaap
     # filer (the periodic ``_cash_burn`` path leaves it unset) → the FE defaults the label to ``$``.
     statement_currency: str | None = None  # cash_burn (annual-statements path only)
+    # The INVESTMENT part already inside ``cash_usd`` (operator decision D1, 2026-11-15: one "cash and
+    # short-term investments" number, the investment part carried on its own so a screen can show the split):
+    # the short-term investments plus the long-term MARKETABLE securities counted, on the cash date. None =
+    # no investment tag on the cash date (never a fake 0), and on every path that does not compose it (the
+    # annual-statements path). Carried on the candidate and stated in the note; not yet a stored column.
+    investments_usd: float | None = None  # cash_burn (quarterly path only)
     # One OBSERVED condition, one label (a flag is evidence, #6 — never a catch-all). A flag marks an
     # EXCEPTION needing judgment; COMPOSITION (a cleanly-derived quarter, the marketable-securities
     # basis) rides the note as provenance, never a flag — a flag true of ~every filer carries no
@@ -87,6 +93,12 @@ class ExtractedFact(DomainModel):
     #           | "cover-after-filing" (a companyfacts cover row dated after its own filing was refused;
     #             it rides beside the condition label, on any tier — the note names the row)
     # cash   -> "ytd-raw" | "possible-one-time" | "stale-cash"
+    #           | "cash-tags-disagree" (two balance-sheet cash tags of one date contradict each other: a
+    #             narrower line exceeds a wider one, SOAR's zero cash-and-equivalents beside 8.4M of cash)
+    #           | "investments-unreconciled" (cash + short-term investments miss the same-dated combined
+    #             ``CashCashEquivalentsAndShortTermInvestments`` beyond the tolerance)
+    #           | "investments-off-date" (an investment tag sits on a NEWER balance sheet than the cash and
+    #             not on the cash date: the composition at one date is not established)
     #           | "no-companyfacts" | "no-cashflow-column" | "no-cash-instant"  (missing-data: value None)
     flags: list[str] = Field(default_factory=list)
     located_passages: list[LocatedPassage] = Field(default_factory=list)

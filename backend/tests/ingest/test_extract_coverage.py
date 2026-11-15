@@ -53,8 +53,11 @@ class _PeriodicClient:
 def _capture_extract_facts(monkeypatch):
     calls: dict = {}
 
-    def fake(cf, tenq_text, tenk_text, *, tenq_ref, tenk_ref, tenq_date, tenk_date, cfg):
+    def fake(
+        cf, tenq_text, tenk_text, *, tenq_ref, tenk_ref, tenq_date, tenk_date, cfg, values_form
+    ):
         calls.update(
+            values_form=values_form,
             tenq_text=tenq_text,
             tenk_text=tenk_text,
             tenq_ref=tenq_ref,
@@ -78,6 +81,9 @@ def test_both_forms_present_is_unchanged(monkeypatch):
     assert out == ["shares", "burn", "purity"]
     assert calls["tenq_text"] == "Q1-TEXT" and calls["tenk_text"] == "K1-TEXT"
     assert calls["tenq_date"] == date(2026, 3, 31) and calls["tenk_date"] == date(2025, 12, 31)
+    assert (
+        calls["values_form"] == "10-Q"
+    )  # the cash candidate's provenance kind follows the cited form
 
 
 def test_only_10k_falls_back_to_it_for_all_roles(monkeypatch):
@@ -87,6 +93,7 @@ def test_only_10k_falls_back_to_it_for_all_roles(monkeypatch):
     out = ex.extract_for_security(client, 222)
     assert out == ["shares", "burn", "purity"]  # NOT [] — the 10-K alone is enough now
     assert calls["tenq_text"] == "K1-TEXT"  # shares/burn role fell back to the 10-K
+    assert calls["values_form"] == "10-K"
     assert calls["tenk_text"] == "K1-TEXT"
     assert client.docs == ["forms/K1/K1.htm"]  # one document, read once
 

@@ -1030,6 +1030,11 @@ class ExtractorConfig(DomainModel):
         "one-time",
         "contribution",
     )
+    # cash composition (V2 extractor correctness PR 1): when a filer also reports the combined
+    # ``CashCashEquivalentsAndShortTermInvestments`` on the cash date, cash + the short-term investments read
+    # must equal it within this fraction, else the value is flagged ``investments-unreconciled``. Two tags of
+    # ONE balance sheet differ only by rounding; 0.5% is the plan's proposed bound, not a measured one.
+    investments_reconcile_tolerance: float = 0.005
 
     # --- annual-cover shares (the dark names, Retrieval Slice 1 — ingest/edgar/annual_shares.py) ---
     # The window AFTER the located cover instruction searched for the count. The instruction sentence

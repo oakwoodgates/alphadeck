@@ -1,0 +1,64 @@
+{
+ "cik": "",
+ "entityName": "RBRK (reconstructed from the 2026-11-15 quarterly cash audit)",
+ "facts": {
+  "us-gaap": {
+   "CashAndCashEquivalentsAtCarryingValue": {
+    "units": {
+     "USD": [
+      {
+       "end": "2026-07-31",
+       "val": 416166000,
+       "accn": "reconstructed",
+       "fy": 2027,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-09-09"
+      }
+     ]
+    }
+   },
+   "AvailableForSaleSecuritiesDebtSecuritiesCurrent": {
+    "units": {
+     "USD": [
+      {
+       "end": "2026-07-31",
+       "val": 1331483000,
+       "accn": "reconstructed",
+       "fy": 2027,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-09-09"
+      }
+     ]
+    }
+   },
+   "NetCashProvidedByUsedInOperatingActivities": {
+    "units": {
+     "USD": [
+      {
+       "start": "2026-02-01",
+       "end": "2026-04-30",
+       "val": 81689000,
+       "accn": "reconstructed",
+       "fy": 2027,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2026-06-10"
+      },
+      {
+       "start": "2026-02-01",
+       "end": "2026-07-31",
+       "val": 158535000,
+       "accn": "reconstructed",
+       "fy": 2027,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-09-09"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

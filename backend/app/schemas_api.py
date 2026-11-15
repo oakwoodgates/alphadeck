@@ -1029,6 +1029,7 @@ class ExtractedFactIn(ExtractedFact):
     cash_usd: FiniteFloat | None = None
     quarterly_burn_usd: FiniteFloat | None = None
     statement_currency: Line | None = None
+    investments_usd: FiniteFloat | None = None
     flags: list[Line] = Field(default_factory=list, max_length=EXPLAIN_FLAGS_MAX)
     located_passages: list[LocatedPassageIn] = Field(
         default_factory=list, max_length=EXPLAIN_PASSAGES_MAX

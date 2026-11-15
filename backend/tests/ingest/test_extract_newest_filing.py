@@ -168,6 +168,8 @@ def test_a_newer_10k_is_the_cited_filing_for_cash_and_burn():
     assert "derived (YTD − prior YTD)" in cb.note
     assert cb.event_date == date(2025, 12, 31)
     assert cb.tier is Tier.AUTO and cb.flags == []
+    # the stored provenance kind names the cited form (it said '10-q' for every value, a 10-K's included)
+    assert cb.source == "10-k"
     # the 10-K fixture is the document's head (no statements), so nothing may be located; whatever is
     # located must be the 10-K's own text (``_cites`` checks every passage's link)
     assert _passages_from(cb, _text(OKLO["tenk_text"]))
@@ -237,6 +239,7 @@ def test_a_newer_10q_stays_the_cited_filing():
     assert sh.tier is Tier.AUTO and sh.value == 173_990_987 and sh.event_date == date(2026, 5, 7)
     assert cb.tier is Tier.AUTO and cb.quarterly_burn_usd == 17_867_000
     assert cb.event_date == date(2026, 3, 31)
+    assert cb.source == "10-q"
     assert _passages_from(sh, _text(OKLO["new_tenq_text"]))
     assert _cites(pu, OKLO["tenk"])  # purity keeps its source
     # both documents read (values + purity), the submissions index once

@@ -1,0 +1,79 @@
+{
+ "cik": "",
+ "entityName": "CRSP (reconstructed from the 2026-11-15 quarterly cash audit)",
+ "facts": {
+  "us-gaap": {
+   "CashAndCashEquivalentsAtCarryingValue": {
+    "units": {
+     "USD": [
+      {
+       "end": "2026-09-30",
+       "val": 192027000,
+       "accn": "reconstructed",
+       "fy": 2026,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2026-11-04"
+      }
+     ]
+    }
+   },
+   "MarketableSecuritiesCurrent": {
+    "units": {
+     "USD": [
+      {
+       "end": "2026-09-30",
+       "val": 2080521000,
+       "accn": "reconstructed",
+       "fy": 2026,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2026-11-04"
+      }
+     ]
+    }
+   },
+   "MarketableSecuritiesNoncurrent": {
+    "units": {
+     "USD": [
+      {
+       "end": "2026-09-30",
+       "val": 4021000,
+       "accn": "reconstructed",
+       "fy": 2026,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2026-11-04"
+      }
+     ]
+    }
+   },
+   "NetCashProvidedByUsedInOperatingActivities": {
+    "units": {
+     "USD": [
+      {
+       "start": "2026-01-01",
+       "end": "2026-06-30",
+       "val": -192395000,
+       "accn": "reconstructed",
+       "fy": 2026,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-08-04"
+      },
+      {
+       "start": "2026-01-01",
+       "end": "2026-09-30",
+       "val": -282079000,
+       "accn": "reconstructed",
+       "fy": 2026,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2026-11-04"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

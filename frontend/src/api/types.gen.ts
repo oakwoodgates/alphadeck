@@ -11381,6 +11381,8 @@ export interface components {
             quarterly_burn_usd?: number | null;
             /** Statement Currency */
             statement_currency?: string | null;
+            /** Investments Usd */
+            investments_usd?: number | null;
             /** Flags */
             flags?: string[];
             /** Located Passages */
@@ -11425,6 +11427,8 @@ export interface components {
             quarterly_burn_usd?: number | null;
             /** Statement Currency */
             statement_currency?: string | null;
+            /** Investments Usd */
+            investments_usd?: number | null;
             /** Flags */
             flags?: string[];
             /** Located Passages */
