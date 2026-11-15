@@ -29,12 +29,17 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Any
 
 from domain.config import DEFAULT_EXTRACTOR_CONFIG, ExtractorConfig
 from domain.extraction import ExtractedFact, ExtractionResult, LocatedPassage, Tier
 from domain.settings import get_settings
+from ingest.edgar.acceptance import (
+    filing_date_bound,
+    parse_filing_date,
+    resolve_public_acceptance,
+)
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.converts import clean_filing_text
 from ingest.edgar.submissions import fetch_submissions, filings_of
@@ -802,12 +807,9 @@ def companyfacts_url(cik: str | int) -> str:
     return f"{get_settings().sec_data_base}/api/xbrl/companyfacts/CIK{int(cik):010d}.json"
 
 
-def _latest_filing(client: EdgarClient, cik: int, form: str) -> tuple[str, str, date] | None:
-    subs = fetch_submissions(client, cik)
-    hits = filings_of(subs, form)
-    if not hits:
-        return None
-    f = hits[0]
+def _read_filing(client: EdgarClient, cik: int, f: dict[str, str]) -> tuple[str, str, date]:
+    """One submissions row (``filings_of``'s shape) -> (document URL, cleaned text, period of report). The ONE
+    document request of a filing (cache-first, ``forms/`` = cached forever)."""
     url = _doc_url(cik, f["accession"], f["primary_doc"])
     text = clean_filing_text(
         client.get_text(url, f"forms/{f['accession']}/{f['primary_doc'].rsplit('/', 1)[-1]}")
@@ -820,11 +822,41 @@ def _latest_filing(client: EdgarClient, cik: int, form: str) -> tuple[str, str, 
     return url, text, date.fromisoformat(f.get("report_date") or f["filed"])
 
 
+def _latest_filing(client: EdgarClient, cik: int, form: str) -> tuple[str, str, date] | None:
+    hits = filings_of(fetch_submissions(client, cik), form)
+    return _read_filing(client, cik, hits[0]) if hits else None
+
+
+def _public_at(f: dict[str, str]) -> datetime:
+    """When a 10-Q / 10-K became PUBLIC (CLAUDE.md invariant #1; the F7 rule for forms whose filing date rolls):
+    its listed acceptance when ``resolve_public_acceptance`` trusts it, else the END of its filing date in ET —
+    late, never early. Request-free (no header read). Orders the latest 10-Q against the latest 10-K.
+    """
+    accepted = resolve_public_acceptance(f.get("accepted"), f.get("filed")).at
+    if accepted is not None:
+        return accepted
+    filed = parse_filing_date(f.get("filed"))
+    # no readable filing date (never seen on EDGAR): order it oldest rather than guess a public time
+    return (
+        filing_date_bound(filed) if filed is not None else datetime.min.replace(tzinfo=timezone.utc)
+    )
+
+
+def _newer(tenq: dict[str, str] | None, tenk: dict[str, str] | None) -> dict[str, str] | None:
+    """The values filing (operator decision B1, 2026-11-14): the NEWER of the latest 10-Q and the latest 10-K by
+    when each became public — never by period of report. A tie keeps the 10-Q (the old preference).
+    """
+    if tenq is None or tenk is None:
+        return tenq or tenk
+    return tenk if _public_at(tenk) > _public_at(tenq) else tenq
+
+
 def extract_for_security(
     client: EdgarClient,
     cik: str | int,
     *,
     cfg: ExtractorConfig = DEFAULT_EXTRACTOR_CONFIG,
+    values_only: bool = False,
 ) -> list[ExtractedFact]:
     """Live (cache-first) wrapper: CIK -> companyfacts + the latest 10-Q and/or 10-K -> candidates.
     An EXPLICIT operator action (the extract endpoint), never auto-fired on a render.
@@ -835,33 +867,49 @@ def extract_for_security(
     with an honest, distinct empty reason when even that has nothing to read. THIS function stays
     10-Q/10-K-only (the auto-confirm path keys off it — annual candidates are FLAG, never applied).
 
-    BOTH-FORMS RELAXATION: it no longer requires BOTH forms. Each role falls back to whichever exists —
-    a 10-K carries a cover-share count (shares) + a cash-flow statement (burn); a 10-Q carries interim
-    segment notes (purity) — so a domestic filer with only one recent form still yields candidates. The
-    both-present case is UNCHANGED (q=10-Q, k=10-K). A fallen-back annual cash-flow column stays honest:
-    a derivable YTD is stated as derived in the note (reproducible arithmetic — AUTO, the re-tier); an
-    underivable one FLAGs ``ytd-raw`` rather than mislabel a clean quarter."""
+    WHICH FILING EACH ROLE CITES (operator decision B1, 2026-11-14). The share count and cash/burn cite the
+    NEWER of the latest 10-Q and the latest 10-K, by when each became PUBLIC (``_newer``): their numbers are
+    companyfacts' newest rows, which after a 10-K are the 10-K's, so the link, the period of report and the
+    located passages must be the 10-K's too (before B1 they cited the older 10-Q: a 10-K's number under a
+    10-Q's link, and the machine writer skipped it as already on file). Purity keeps preferring the 10-K
+    (the segment note), falling back to the 10-Q. Each role falls back to whichever form exists. An annual
+    cash-flow column stays honest: a derivable quarter is stated as derived in the note (reproducible
+    arithmetic — AUTO, the re-tier); an underivable one FLAGs ``ytd-raw`` rather than mislabel a clean quarter.
+
+    FETCHES. Each document is read at most once, and only when a role needs it: the values filing, plus the
+    purity filing when it is a different one. ``values_only=True`` (the platform-value runs, whose machine
+    writer ignores purity) never reads a second document: the purity candidate is then built from the values
+    filing."""
     cik = int(cik)
     cf = client.get_json(
         companyfacts_url(cik),
         f"companyfacts/CIK{cik:010d}.json",
     )
-    tenq = _latest_filing(client, cik, "10-Q")
-    tenk = _latest_filing(client, cik, "10-K")
-    if tenq is None and tenk is None:
+    subs = fetch_submissions(client, cik)
+    tenq = next(iter(filings_of(subs, "10-Q")), None)
+    tenk = next(iter(filings_of(subs, "10-K")), None)
+    values_row = _newer(tenq, tenk)
+    if values_row is None:
         return (
             []
         )  # no domestic periodic filing (foreign 20-F/6-K issuer) — nothing the extractor covers
-    q = tenq or tenk  # shares + cash_burn source (prefer the 10-Q; fall back to the 10-K)
-    k = tenk or tenq  # purity / segment source (prefer the 10-K; fall back to the 10-Q)
+    purity_row = tenk or tenq  # purity / segment source (prefer the 10-K; fall back to the 10-Q)
+    if values_only:
+        purity_row = values_row
+    v = _read_filing(client, cik, values_row)
+    p = (
+        v
+        if purity_row["accession"] == values_row["accession"]
+        else _read_filing(client, cik, purity_row)
+    )
     return extract_facts(
         cf,
-        q[1],
-        k[1],
-        tenq_ref=q[0],
-        tenk_ref=k[0],
-        tenq_date=q[2],
-        tenk_date=k[2],
+        v[1],
+        p[1],
+        tenq_ref=v[0],
+        tenk_ref=p[0],
+        tenq_date=v[2],
+        tenk_date=p[2],
         cfg=cfg,
     )
 
@@ -871,6 +919,7 @@ def extract_with_annual_fallback(
     cik: str | int,
     *,
     cfg: ExtractorConfig = DEFAULT_EXTRACTOR_CONFIG,
+    values_only: bool = False,
 ) -> ExtractionResult:
     """The extract ROUTE's entry (Retrieval Slices 1 + A): the existing 10-Q/10-K path whenever a
     domestic periodic filing exists — UNCHANGED — else the annual path (20-F/40-F, FLAG-only): the
@@ -881,11 +930,16 @@ def extract_with_annual_fallback(
     it is checked FIRST from submissions because the periodic path fetches companyfacts up front and
     fails loudly for the no-companyfacts names (GLAS/CRLBF/TRSG — data.sec.gov serves 404 there) that
     the annual path must still serve cover-only.
+
+    ``values_only`` is handed to the periodic path (``extract_for_security``: no second document for purity).
+    The annual path already reads one document for both value types, so it has nothing to skip.
     """
     cik = int(cik)
     subs = fetch_submissions(client, cik)
     if filings_of(subs, "10-Q") or filings_of(subs, "10-K"):
-        return ExtractionResult(facts=extract_for_security(client, cik, cfg=cfg))
+        return ExtractionResult(
+            facts=extract_for_security(client, cik, cfg=cfg, values_only=values_only)
+        )
     # Lazy import keeps the module DAG acyclic: the annual modules import this module's URL helpers.
     # annual_facts_for_security fetches the annual document ONCE and feeds BOTH the cover-shares and
     # the statements-runway extractors from that one text (never a second multi-MB pull).

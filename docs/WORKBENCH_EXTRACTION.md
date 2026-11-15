@@ -25,6 +25,12 @@ that — how the facts get into the store. The loop is **extract → ratify → 
 
 1. **Extract** `[BUILT #55]` — from the name's latest 10-Q/10-K + companyfacts, produce *candidate* facts
    (`domain.extraction.ExtractedFact`). Cache-first; an EXPLICIT operator action (never fired on a render).
+   **Which filing each fact cites (V2 decision B1, 2026-11-14):** the share count and cash/burn cite the NEWER
+   of the latest 10-Q and the latest 10-K, by when each became public (its trusted SEC acceptance, else its filing
+   date — never its period of report), so the link, period and located passages are that filing's; purity keeps
+   preferring the 10-K. Each document is read once, only when a role needs it (`values_only` skips the purity
+   document). Before B1 the values always cited the 10-Q, so after a 10-K they showed the 10-K's companyfacts
+   number under the older 10-Q's link.
 2. **Ratify** `[BUILT #56/#57]` — the operator confirms or edits each candidate; their value is written via
    the existing `ingest_*` bridges. The DD-rail facts panel is the surface.
 3. **Score** — the meters re-derive on the next read (`WORKBENCH_SCORING.md`, Option B).
