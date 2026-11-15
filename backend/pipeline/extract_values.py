@@ -77,7 +77,7 @@ from ingest.edgar.client import (
     EdgarClient,
 )
 from ingest.edgar.companyfacts_gate import companyfacts_due
-from ingest.edgar.extract import _newer
+from ingest.edgar.extract import _newer, _takes_annual_path
 from ingest.edgar.submissions import filings_of
 from pipeline.extraction_run_log import write_extraction_run
 from pipeline.onboarding import window_bounds
@@ -319,7 +319,8 @@ def plan_company(item: WorkItem, *, cache_dir: Path, now: datetime) -> CompanyPl
     ]
     tenq = next(iter(filings_of(subs, "10-Q")), None)
     tenk = next(iter(filings_of(subs, "10-K")), None)
-    values_row = _newer(tenq, tenk)
+    # the router's own decision (a company whose newest periodic filing is a 20-F/40-F goes annual)
+    values_row = None if _takes_annual_path(dict(subs)) else _newer(tenq, tenk)
     if values_row is not None:
         form = "10-K" if values_row is tenk else "10-Q"
         base.path = "periodic"

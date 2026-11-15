@@ -295,7 +295,7 @@ live and what it would read from the cache, by the client's own rules:
 |---|---|
 | the submissions index | missing, or older than the recurring 5 minutes (so most companies cost one request) |
 | companyfacts | missing, or due by the filing gate (judged on the cached index); a cached 404 costs nothing (the extraction then fails on it) |
-| the one values document | missing (`forms/` is cached forever): the newer of the latest 10-Q and 10-K (B1, values only), else the newest 20-F / 40-F |
+| the one values document | missing (`forms/` is cached forever): the newer of the latest 10-Q and 10-K (B1, values only), else the newest 20-F / 40-F, which is also read when it is newer by public time than the 10-Q and 10-K (the router's `_takes_annual_path`) |
 | an annual filer's exhibit search | a bound of up to 8 more (the index headers, the filing index, up to `exhibit_scan_max` EX-99 documents) |
 | a company whose index is not cached | one known request, the rest a range (up to 10 more) |
 

@@ -337,6 +337,46 @@ def _item(ticker: str, cik: str | None, cards: int = 1) -> ex.WorkItem:
     )
 
 
+def test_the_plan_follows_the_router_for_a_company_now_filing_20f(tmp_path):
+    """A company whose newest periodic filing is a 20-F takes the annual path although it once filed 10-Qs (V2
+    extractor correctness PR 2: the router's ``_takes_annual_path``); the plan mirrors that, never the old 10-Q.
+    One that filed a 20-F years ago and files 10-Qs now stays periodic."""
+    cache = tmp_path / "edgar_cache"
+    old = _old()
+    _put(
+        cache,
+        "submissions/CIK0000000201.json",
+        json.dumps(
+            _subs(
+                [
+                    ("10-Q", "q-201", "q.htm", old - timedelta(days=900), 60_000),
+                    ("20-F", "f-201", "f.htm", old, 3_000_000),
+                ]
+            )
+        ),
+    )
+    _put(
+        cache,
+        "submissions/CIK0000000202.json",
+        json.dumps(
+            _subs(
+                [
+                    ("20-F", "f-202", "f.htm", old - timedelta(days=900), 3_000_000),
+                    ("10-Q", "q-202", "q.htm", old, 60_000),
+                ]
+            )
+        ),
+    )
+    plans = {
+        p.ticker: p
+        for p in xv.plan_work(
+            [_item("SWITCHED", "201"), _item("RETURNED", "202")], cache_dir=cache, now=_now()
+        )
+    }
+    assert (plans["SWITCHED"].path, plans["SWITCHED"].filing) == ("annual", "20-F f-201")
+    assert (plans["RETURNED"].path, plans["RETURNED"].filing) == ("periodic", "10-Q q-202")
+
+
 def test_the_plan_is_read_from_disk_alone_and_a_cache_only_plan_names_who_would_fail(tmp_path):
     """No database: the estimate is a pure read of the cache on disk."""
     cache = _dry_cache(tmp_path)

@@ -1,0 +1,68 @@
+{
+ "cik": "",
+ "entityName": "EUDA (reconstructed from the 2026-11-15 quarterly cash audit)",
+ "facts": {
+  "us-gaap": {
+   "Cash": {
+    "units": {
+     "USD": [
+      {
+       "end": "2023-03-31",
+       "val": 837292,
+       "accn": "reconstructed",
+       "fy": 2023,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2023-05-15"
+      },
+      {
+       "end": "2025-12-31",
+       "val": 345145,
+       "accn": "reconstructed",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-04-30"
+      }
+     ]
+    }
+   },
+   "NetCashProvidedByUsedInOperatingActivities": {
+    "units": {
+     "USD": [
+      {
+       "start": "2023-01-01",
+       "end": "2023-03-31",
+       "val": -469908,
+       "accn": "reconstructed",
+       "fy": 2023,
+       "fp": "Q1",
+       "form": "10-Q",
+       "filed": "2023-05-15"
+      },
+      {
+       "start": "2025-01-01",
+       "end": "2025-06-30",
+       "val": -788888,
+       "accn": "reconstructed",
+       "fy": 2025,
+       "fp": "H1",
+       "form": "6-K",
+       "filed": "2025-09-30"
+      },
+      {
+       "start": "2025-01-01",
+       "end": "2025-12-31",
+       "val": -2000000,
+       "accn": "reconstructed",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-04-30"
+      }
+     ]
+    }
+   }
+  }
+ }
+}
