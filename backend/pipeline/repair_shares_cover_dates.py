@@ -21,10 +21,19 @@ things, told apart by the companyfacts cover row it came from (same count, same 
   The count and its date are that filing's own and were public when stored; only the citation is wrong. NOTHING
   is written: a correction from the cited filing would replace a current count with an older one.
 
-Also listed, never written: a typo the OPERATOR ratified (``operator`` — their decision, re-ratified in the
-Workbench); a typo whose cited filing has no single cover row of its own (``no_correction``); a version whose count
-matches no companyfacts cover row (``origin_unknown``); a fact whose cited filing is not in the documents read
-(``not_judged``, #9).
+Also listed, never written: a typo the OPERATOR or a steward ratified (``operator`` — ``ratified_by`` is not
+``auto``: a carried-over ``operator`` row or a steward's email; the dry run names a steward's value as such); a typo
+whose cited filing has no single cover row of its own (``no_correction``); a version whose count matches no
+companyfacts cover row (``origin_unknown``); a fact whose cited filing is not in the documents read (``not_judged``,
+#9).
+
+V2 PLATFORM VALUES (W2d, ``pipeline.platform_repair_guard``). The table is platform data: one value per company, in
+the data tenant. So the repair judges the DATA TENANT's rows only (a row under any other tenant is listed as
+``outside_data_tenant``, never judged, never written), and a fact any of whose versions a steward decision names
+(``platform_value_decision``, standing or undone), or whose versions include a set-aside one, is the steward's:
+listed as ``steward_decision``, never judged, never written — so a value the steward undid never comes back.
+Each append calls ``require_write_tenant`` first, and ``--apply`` stamps every company it corrects changed
+(``mark_changed``) in the same transaction, before the commit.
 
 WHAT IT WRITES — one corrected version per ``correct`` fact, appended, never an UPDATE (the table carries the
 ``no_update`` trigger): the value and as-of date of the CITED filing's own cover row in companyfacts (its ``accn``
@@ -76,13 +85,17 @@ from uuid import UUID
 import psycopg
 
 from db.bitemporal import append_fact
+from db.change_stamp import mark_changed
 from db.session import connect
 from domain.market_time import market_today
+from domain.platform_values import is_steward_email
+from domain.scopes import require_write_tenant
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.converts import clean_filing_text
 from ingest.edgar.extract import companyfacts_url, cover_after_filing, screen_cover_rows
 from ingest.edgar.submissions import fetch_submissions, listings
 from ingest.shares import count_publication
+from pipeline import platform_repair_guard as guard
 from pipeline.run_lock import repair_lock_or_exit
 from repositories import data_repair_repo
 
@@ -108,7 +121,23 @@ ORIGIN_UNKNOWN = "origin_unknown"  # the count matches no companyfacts cover row
 NOT_JUDGED = (
     "not_judged"  # the cited filing is not in the documents read (or the URL names no accession)
 )
-STATUSES = (CORRECT, CORRECTED, OPERATOR, NO_CORRECTION, LATER_FILING, ORIGIN_UNKNOWN, NOT_JUDGED)
+# V2: a steward decision names a version of the fact (or one is set aside): listed, never written
+STEWARD = guard.STEWARD
+# V2: the row is outside the data tenant: listed, never judged, never written
+OUTSIDE = guard.OUTSIDE
+STATUSES = (
+    CORRECT,
+    CORRECTED,
+    OPERATOR,
+    NO_CORRECTION,
+    LATER_FILING,
+    ORIGIN_UNKNOWN,
+    NOT_JUDGED,
+    STEWARD,
+    OUTSIDE,
+)
+# the statuses that count as "a version dated after the filing it cites" in the summary
+_DATED_AFTER = (CORRECT, CORRECTED, OPERATOR, NO_CORRECTION, LATER_FILING, ORIGIN_UNKNOWN)
 
 # ``https://www.sec.gov/Archives/edgar/data/<cik>/<18-digit accession>/<document>``
 _REF_RE = re.compile(r"/edgar/data/(\d+)/(\d{18})/([^/?#]+)")
@@ -348,9 +377,11 @@ def _classify(fact: Fact, docs: Docs, cik: int, today: date) -> None:
             )
     elif latest.get("ratified_by") != "auto":
         fact.status = OPERATOR
+        by = latest.get("ratified_by")
         fact.why = (
-            f"ratified_by={latest.get('ratified_by')!r}, not machine-applied — the operator's decision; "
-            "re-ratify in the Workbench"
+            f"ratified_by={by!r}, not machine-applied — a steward's value: the steward corrects it, never this tool"
+            if is_steward_email(by)
+            else f"ratified_by={by!r}, not machine-applied — the operator's decision; re-ratify in the Workbench"
         )
     else:
         got = _correction(docs, cik, fact.accession or "")
@@ -378,17 +409,36 @@ def scan(
 ) -> RepairResult:
     """Read every stored version and judge each logical fact by the rule. Reads only; the caller owns the
     connection (a dry run hands in a READ ONLY one). ``client`` = ``--live`` (fetch uncached documents).
+
+    V2: a fact outside the data tenant is listed ``outside_data_tenant``; a fact a steward decision names is
+    listed ``steward_decision`` when it would have been listed (never judged by the rule either way).
     """
     docs = Docs(cache_dir or EdgarClient(allow_live=False).cache_dir, client)
     today = today or market_today()
     versions = _versions(conn)
+    named = guard.steward_named_ids(conn, TABLE)
     by_key: dict[tuple[UUID, str], list[dict[str, Any]]] = {}
     for v in versions:
         by_key.setdefault((v["tenant_id"], v["source_ref"]), []).append(v)
     n = len(versions)
     result = RepairResult(versions_scanned=n, rows_before=n, rows_after=n)
-    for (_tenant, ref), vs in by_key.items():
+    for (tenant, ref), vs in by_key.items():
         latest = vs[-1]  # ordered by recorded_at, id — the version the as-of read picks today
+        if guard.outside_data_tenant(tenant):  # read by nobody: listed, never judged, never written
+            result.facts.append(
+                Fact(
+                    security_id=latest["security_id"],
+                    ticker=latest.get("ticker"),
+                    source_ref=ref,
+                    accession=(parse_source_ref(ref) or (None, None, None))[1],
+                    status=OUTSIDE,
+                    bad=[],
+                    latest=latest,
+                    why=guard.OUTSIDE_WHY.format(tenant=tenant),
+                )
+            )
+            continue
+        stewards = guard.is_stewards(vs, named)
         parsed = parse_source_ref(ref)
         filing = docs.filing(parsed[0], parsed[1]) if parsed else None
         fact = Fact(
@@ -401,6 +451,10 @@ def scan(
             latest=latest,
             filing=filing,
         )
+        if filing is None and stewards:
+            fact.status, fact.why = STEWARD, guard.STEWARD_WHY
+            result.facts.append(fact)
+            continue
         if filing is None:  # cannot be judged: listed, never skipped silently (#9)
             fact.why = (
                 "the source_ref names no EDGAR accession"
@@ -414,6 +468,10 @@ def scan(
         if not fact.bad:
             continue
         fact.cover_line = docs.cover_line(accession, document)
+        if stewards:  # the steward's: never judged, never written (an undone value stays undone)
+            fact.status, fact.why = STEWARD, guard.STEWARD_WHY
+            result.facts.append(fact)
+            continue
         if not cover_after_filing(latest["valid_from"], filing.filed):
             fact.status = CORRECTED
         else:
@@ -439,11 +497,15 @@ def _note(fact: Fact) -> str:
 def apply(conn: psycopg.Connection, result: RepairResult) -> None:
     """Append one corrected version per ``correct`` fact in ONE transaction, counting the table before and after;
     commit only when the difference equals the plan, else roll back and raise. The caller holds the lock.
+
+    V2: each append is refused outside the data tenant (``require_write_tenant``), and every company corrected is
+    stamped changed (``mark_changed``) in this transaction, before the commit.
     """
     plan = result.with_status(CORRECT)
     before = _count_rows(conn)
     for f in plan:
         old = f.latest
+        require_write_tenant(TABLE, old["tenant_id"])  # platform data: the data tenant only
         f.appended_id = append_fact(
             conn,
             TABLE,
@@ -464,6 +526,8 @@ def apply(conn: psycopg.Connection, result: RepairResult) -> None:
                 "filing_accepted": f.publication[1],
             },
         )
+    # the repair holds the repair lock, not the company write lock (whose release stamps): stamp here
+    mark_changed(conn, [f.security_id for f in plan])
     after = _count_rows(conn)
     if after - before != len(plan):
         conn.rollback()
@@ -569,7 +633,7 @@ def report(result: RepairResult) -> None:
         else:
             print(f"      -> {f.why}")
     c = {s: len(result.with_status(s)) for s in STATUSES}
-    dated_after = sum(c[s] for s in STATUSES if s != NOT_JUDGED)
+    dated_after = sum(c[s] for s in _DATED_AFTER)
     verb = "appended" if result.applied else "would append"
     n = sum(1 for f in result.facts if f.appended_id) if result.applied else c[CORRECT]
     print(
@@ -577,7 +641,8 @@ def report(result: RepairResult) -> None:
         f"dated after the filing it cites: {c[CORRECT]} date typo(s) to correct, {c[CORRECTED]} already corrected, "
         f"{c[OPERATOR]} operator-ratified typo(s) (left), {c[NO_CORRECTION]} typo(s) without a correction, "
         f"{c[LATER_FILING]} later filing's count (left), {c[ORIGIN_UNKNOWN]} origin unknown (left) · "
-        f"{c[NOT_JUDGED]} not judged · {verb} {n} · {result.fetched} document(s) fetched · "
+        f"{c[NOT_JUDGED]} not judged · {c[STEWARD]} the steward's decision (left) · "
+        f"{c[OUTSIDE]} outside the data tenant (left) · {verb} {n} · {result.fetched} document(s) fetched · "
         f"{TABLE} rows {result.rows_before} -> {result.rows_after}"
     )
 

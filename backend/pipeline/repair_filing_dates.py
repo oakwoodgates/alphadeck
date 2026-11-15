@@ -34,6 +34,16 @@ WHAT IT WRITES (``--apply``) — appended VERSIONS, never an UPDATE (every table
   ratification; ``filing_accession`` / ``filing_accepted`` set; ``supersedes`` = the version it restates). The
   public clock then counts the fact from that filing (the running max over the fact's versions).
 
+V2 PLATFORM VALUES (W2d, ``pipeline.platform_repair_guard``). Share counts are platform data: one value per company,
+in the data tenant. So the share-count scan judges the DATA TENANT's rows only (a row under any other tenant is
+listed as ``outside_data_tenant``, never judged, never written); a fact any of whose versions a steward decision
+names (``platform_value_decision``, standing or undone), or whose versions include a set-aside one, is the
+steward's: listed as ``steward_decision``, never restated — so a value the steward undid never comes back. A
+restatement of a steward-set count (``ratified_by`` an email, no decision: a V1-path confirm) keeps its count, date
+and email and only adds the filing's acceptance; the dry run names every such row. Each share-count append calls
+``require_write_tenant`` first, and ``--apply`` stamps every company it appends to (any table) changed
+(``mark_changed``) in the same transaction, before the commit.
+
 SAFETY (the ``repair_shares_cover_dates`` / ``backfill_accepted`` shape):
 
 - **Dry-run is the DEFAULT.** Its connection is READ ONLY; it prints a summary by table, form and year (``--verbose``
@@ -69,8 +79,11 @@ from uuid import UUID
 import psycopg
 
 from db.bitemporal import append_fact
+from db.change_stamp import mark_changed
 from db.session import connect
 from db.set_aside import active_ids_sql
+from domain.platform_values import is_steward_email
+from domain.scopes import require_write_tenant
 from domain.settings import get_settings
 from ingest.edgar.acceptance import (
     EDGAR_TZ,
@@ -85,6 +98,7 @@ from ingest.edgar.acceptance import (
 from ingest.edgar.client import EdgarClient
 from ingest.fundamentals import REVENUE_METRIC
 from ingest.shares import cik_of_source_ref, count_publication, cover_rows
+from pipeline import platform_repair_guard as guard
 from pipeline.run_lock import repair_lock_or_exit
 from repositories import data_repair_repo
 from repositories import fundamentals_set_aside_repo as set_aside_repo
@@ -132,7 +146,13 @@ NO_COVER = (
 NOT_JUDGED = (
     "not_judged"  # shares: the company's companyfacts is not cached (or no CIK) — listed, unchanged
 )
+# shares (V2): a steward decision names a version of the fact (or one is set aside): listed, never written
+STEWARD = guard.STEWARD
+# shares (V2): the row is outside the data tenant: listed, never judged, never written
+OUTSIDE = guard.OUTSIDE
 WRITES = (MOVE, PUBLISH)
+# listed by the dry run even without --verbose: what a repair leaves to the steward, or cannot see
+_ALWAYS_SHOWN = (STEWARD, OUTSIDE)
 
 
 @dataclass
@@ -157,6 +177,8 @@ class Row:
     publication_accession: str | None = None  # shares
     multi_version: bool = False  # shares: the fact has more than one version
     evening: bool = False  # the acceptance is 17:30-22:00 ET (the roll window)
+    # shares: the restated version's ratified_by when it is a steward's email (the dry run names it)
+    steward_value: str | None = None
     appended_id: UUID | None = None
     set_aside_ids: list[UUID] = field(default_factory=list)
 
@@ -374,7 +396,10 @@ def scan_revenue(conn: psycopg.Connection, cache: Cache, result: RepairResult) -
 
 
 def scan_shares(conn: psycopg.Connection, cache: Cache, result: RepairResult) -> None:
-    """Share counts (F9): the latest version of every fact, judged against its company's cover rows."""
+    """Share counts (F9): the latest version of every fact, judged against its company's cover rows. V2: a fact
+    outside the data tenant is listed ``outside_data_tenant``, a fact a steward decision names ``steward_decision``
+    — neither judged nor written."""
+    named = guard.steward_named_ids(conn, TABLE_OF[SHARES])
     versions = _fetch(
         conn,
         "SELECT f.*, sm.ticker AS _ticker, sm.cik AS _cik FROM fact_shares_outstanding f "
@@ -400,6 +425,16 @@ def scan_shares(conn: psycopg.Connection, cache: Cache, result: RepairResult) ->
             multi_version=len(vs) > 1,
         )
         result.rows.append(row)
+        # read by nobody: never judged, never written
+        if guard.outside_data_tenant(latest["tenant_id"]):
+            row.status = OUTSIDE
+            continue
+        # the steward's: never restated (an undone value stays undone)
+        if guard.is_stewards(vs, named):
+            row.status = STEWARD
+            continue
+        if is_steward_email(latest.get("ratified_by")):
+            row.steward_value = latest["ratified_by"]
         if latest.get("filing_accepted") is not None:
             row.accepted = latest["filing_accepted"]
             row.publication_accession = latest.get("filing_accession")
@@ -460,7 +495,10 @@ def _count(conn: psycopg.Connection, table: str) -> int:
 def apply(conn: psycopg.Connection, result: RepairResult) -> None:
     """Append every planned version (and, for revenue, the set-asides) in ONE transaction, counting each table
     before and after; commit only when every difference equals the plan, else roll back and raise. The caller
-    holds the lock."""
+    holds the lock.
+
+    V2: a share-count append is refused outside the data tenant (``require_write_tenant``), and every company
+    appended to is stamped changed (``mark_changed``) in this transaction, before the commit."""
     tables = {TABLE_OF[g] for g in result.groups} | (
         {"fundamentals_set_aside"} if REVENUE in result.groups else set()
     )
@@ -474,6 +512,8 @@ def apply(conn: psycopg.Connection, result: RepairResult) -> None:
                 assert r.latest is not None
                 values = _copy(r.latest)
                 if g == SHARES:
+                    # platform data: the data tenant only
+                    require_write_tenant(table, values["tenant_id"])
                     values["filing_accession"] = r.publication_accession
                     values["filing_accepted"] = r.accepted
                     values["supersedes"] = r.latest["id"]
@@ -510,6 +550,8 @@ def apply(conn: psycopg.Connection, result: RepairResult) -> None:
                             )
                         )
                         expect["fundamentals_set_aside"] += 1
+        # the repair holds the repair lock, not the company write lock (whose release stamps): stamp here
+        mark_changed(conn, [r.security_id for r in result.rows if r.appended_id is not None])
         after = {t: _count(conn, t) for t in before}
         bad = {
             t: (before[t], after[t], expect[t]) for t in before if after[t] - before[t] != expect[t]
@@ -550,6 +592,7 @@ def _row_out(r: Row) -> dict[str, Any]:
         "publication_accession": r.publication_accession,
         "evening": r.evening,
         "multi_version": r.multi_version or None,
+        "steward_value": r.steward_value,
         "replaces": str(r.latest["id"]) if r.latest and r.status in WRITES + (SAME_DAY,) else None,
         "old_versions": [str(i) for i in r.old_versions] or None,
         "appended_id": str(r.appended_id) if r.appended_id else None,
@@ -615,7 +658,18 @@ def report(result: RepairResult, *, verbose: bool = False, examples: int = 10) -
     s = summary(result)
     for g in result.groups:
         rows = [r for r in result.rows if r.group == g and r.status != DATED]
-        shown = rows if verbose else [r for r in rows if r.status in WRITES][:examples]
+        # a write over a steward's value, and a row left to the steward or outside the data tenant, is ALWAYS named
+        loud = [
+            r
+            for r in rows
+            if r.status in _ALWAYS_SHOWN or (r.status in WRITES and r.steward_value is not None)
+        ]
+        loud_ids = {id(r) for r in loud}
+        shown = (
+            rows
+            if verbose
+            else [r for r in rows if r.status in WRITES and id(r) not in loud_ids][:examples] + loud
+        )
         print(f"\n--- {g} ({TABLE_OF[g]}) ---")
         for r in shown:
             tail = (
@@ -624,12 +678,20 @@ def report(result: RepairResult, *, verbose: bool = False, examples: int = 10) -
                 else f"count as of {_iso(r.stored_from)} public {_iso(r.accepted)} via {r.publication_accession}"
                 + (" [multi-version fact]" if r.multi_version else "")
             )
+            if r.status == STEWARD:
+                tail = guard.STEWARD_WHY
+            elif r.status == OUTSIDE:
+                tail = guard.OUTSIDE_WHY.format(tenant=r.tenant_id)
+            elif r.steward_value is not None and r.status in WRITES:
+                tail += (
+                    f" — restates a steward's value (ratified_by={r.steward_value}): same count, date and "
+                    "ratifier; adds the filing's acceptance"
+                )
             mark = f" [row {r.appended_id}]" if r.appended_id else ""
             print(f"  [{r.status}] {r.ticker or r.security_id} · {r.form} · {r.key} · {tail}{mark}")
-        if not verbose and len([r for r in rows if r.status in WRITES]) > examples:
-            print(
-                f"  ... ({len([r for r in rows if r.status in WRITES]) - examples} more; --verbose lists all)"
-            )
+        quiet = [r for r in rows if r.status in WRITES and id(r) not in loud_ids]
+        if not verbose and len(quiet) > examples:
+            print(f"  ... ({len(quiet) - examples} more; --verbose lists all)")
         print(f"  status: {s['by_status'][g]}")
         if s["writes_by_form"][g]:
             print(f"  to write by form: {s['writes_by_form'][g]}")
