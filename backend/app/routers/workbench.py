@@ -97,7 +97,6 @@ from ingest.prices.eod_loader import latest_bar_date, recent_distinct_bar_counts
 from ingest.prices.ingest_security import ingest_bars_for_security
 from ingest.prices.resolve_symbol import resolve_price_symbol
 from ingest.revenue_mix import ingest_revenue_mix
-from ingest.shares import ingest_shares_outstanding, shares_publication
 from llm.chain_decomposition import (
     TailSweepStatus,
     decompose_narrative,
