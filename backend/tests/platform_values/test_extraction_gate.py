@@ -35,14 +35,16 @@ def _f(form: str, acc: str, filed: date, accepted: datetime | None = None) -> Pe
     return PeriodicFiling(form=form, accession=acc, filed=filed, accepted=accepted)
 
 
-Q2 = _f("10-Q", "0001-26-000002", date(2026, 8, 10), datetime(2026, 8, 10, 20, 5, tzinfo=timezone.utc))
-K1 = _f("10-K", "0001-26-000001", date(2026, 3, 1), datetime(2026, 3, 1, 21, 0, tzinfo=timezone.utc))
+Q2 = _f(
+    "10-Q", "0001-26-000002", date(2026, 8, 10), datetime(2026, 8, 10, 20, 5, tzinfo=timezone.utc)
+)
+K1 = _f(
+    "10-K", "0001-26-000001", date(2026, 3, 1), datetime(2026, 3, 1, 21, 0, tzinfo=timezone.utc)
+)
 BASE = [Q2, K1]
 
 
-def _attempt(
-    status: str, key: str, hours_ago: float = 48.0, *, at: datetime = NOW
-) -> AttemptRow:
+def _attempt(status: str, key: str, hours_ago: float = 48.0, *, at: datetime = NOW) -> AttemptRow:
     return AttemptRow(status=status, inputs_key=key, recorded_at=at - timedelta(hours=hours_ago))
 
 
