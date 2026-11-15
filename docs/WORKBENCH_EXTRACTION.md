@@ -31,6 +31,13 @@ that — how the facts get into the store. The loop is **extract → ratify → 
    preferring the 10-K. Each document is read once, only when a role needs it (`values_only` skips the purity
    document). Before B1 the values always cited the 10-Q, so after a 10-K they showed the 10-K's companyfacts
    number under the older 10-Q's link.
+   **Which path a company takes (V2 extractor correctness PR 2, 2026-11-15):** the 10-Q/10-K path when the
+   company's NEWEST periodic filing — the latest 10-Q, 10-K, 20-F and 40-F compared by when each became public —
+   is a 10-Q or 10-K; the annual path (below) when it is a 20-F or 40-F, or when there is no 10-Q/10-K at all
+   (`_takes_annual_path`). A tie on public time keeps the 10-Q/10-K path. Before, any company that had EVER filed a
+   10-Q took the quarterly path: the audit's five form switchers (EUDA, CURR, SCNI, CHR, BTCT) had the 20-F's
+   companyfacts numbers applied AUTO under a 2020-2025 10-Q's link. A company that filed a 20-F years ago and files
+   10-Qs now stays quarterly.
 2. **Ratify** `[BUILT #56/#57]` — the operator confirms or edits each candidate; their value is written via
    the existing `ingest_*` bridges. The DD-rail facts panel is the surface.
 3. **Score** — the meters re-derive on the next read (`WORKBENCH_SCORING.md`, Option B).
@@ -111,10 +118,17 @@ most needs to make:
   **generic — it never branches on a named item** ("ENTRA1" appears only in a clarifying comment in
   `extract.py`, never in the logic); it locates the flagged AMOUNT (or a corroborating one-time keyword) in
   the cash-flow statement and lets the operator decide whether to back it out. → flag `possible-one-time`.
+- **Operating cash flow is read under its most current label** (V2 extractor correctness PR 2):
+  `NetCashProvidedByUsedInOperatingActivities` or `…ContinuingOperations`, the one whose newest column ends
+  latest; when both reach the same period the plain tag (the statement's total, continuing plus discontinued)
+  wins. The 2026-11-15 audit found 8 of 460 burns stale because the filer had moved to the continuing-operations
+  tag (EHC's burn was from 2023, QXL's and T's from 2025). A derivation subtracts within one tag only: a total
+  minus a continuing-operations part is not a quarter (it goes out `ytd-raw` instead).
 - **YTD derivation — a clean derivation is AUTO; only the raw-YTD case flags.** companyfacts' cash-flow
   column is often year-to-date. When the latest span exceeds `quarterly_span_max_days` (100) and a same-start
   prior exists, the extractor DERIVES the quarter (YTD − prior YTD) — **reproducible arithmetic on two filed
-  columns (the market-cap trust class), stated in the note (`derived (YTD − prior YTD)`), never a flag.**
+  columns (the market-cap trust class), stated in the note (`derived (YTD − prior YTD)`), never a flag** — as
+  long as the result covers about one quarter (the period rule below).
   When there is **no prior to subtract**, the value goes out as the **raw YTD → flag `ytd-raw`** with a
   passage saying it is NOT a quarter (the runway audit: the old single label claimed a derivation that never
   happened — runway would have read ~3–4× too short, believed). The one-time detector runs on the derived
@@ -169,8 +183,18 @@ most needs to make:
   instant → `no-cash-instant`. The ratify UI gates Confirm on blank fields (`Number("")` is 0) and renders
   the missing-data labels **gray (∅), not warm (⚠)** — a data gap is an authoring state, not an alarm; the
   warm glyph is reserved for the judgment exceptions (one-time / stale / raw-YTD / dual-class).
-- **Every input's as-of date rides the note** ("cash as of … · burn over … → …"), and a cash balance sheet
-  older than the filing's period end flags `stale-cash` (the shares `stale-cover` rule, applied here).
+- **The period and citation rule — AUTO only for one quarter of the cited filing** (V2 extractor correctness
+  PR 2, 2026-11-15). The burn must span `quarterly_span_min_days`–`quarterly_span_max_days` (80–100, inclusive;
+  native, or derived as the prior year to date's end → the period end), else `burn-span`: with the prior
+  same-start year to date missing, the latest earlier one is subtracted (URI: nine months minus the first
+  quarter, 183 days, stored AUTO at 2× before), and a native column under 80 days is short (AIAI, 54). The burn
+  must end on the cited filing's period of report, else `burn-off-period`. The cash must be dated that period:
+  older is `stale-cash`, newer is `cash-after-period` (RMIX's cash was 31 days after the period). Each failure
+  offers the value as found, with its flag and a sentence in the note saying what was observed; nothing here
+  ever turns a flag into AUTO. A raw year to date keeps its own `ytd-raw` (one condition, one label).
+- **Every input's as-of date rides the note** ("cash as of … · burn over S → E (N days, tagged <tag>) · cited
+  filing: the 10-Q for the period ending P (<link>)"), and a cash balance sheet older than the filing's period
+  end flags `stale-cash` (the shares `stale-cover` rule, applied here).
   `event_date` = the burn period's own end (else the cash as-of) — the value's own valid-time, never the
   filing date.
 - **Shares (market cap): three honest FLAG labels, one per OBSERVED condition.** A single-class, **current**
@@ -245,6 +269,9 @@ industrialized on every clean name. It now tracks unratified candidates, using t
 FactsPanel does.
 
 ## The annual-cover path — shares for a filer with NO 10-K/10-Q `[BUILT]`
+
+(Also for a filer whose newest periodic filing is a 20-F or 40-F although it once filed 10-Qs: the routing rule
+in "Where the scored facts come from".)
 
 A **foreign private issuer** files a **20-F** (or **40-F** under the Canadian MJDS) instead of a 10-K/10-Q,
 so `extract_for_security` had nothing to read and returned `[]` — no shares, therefore no market cap, for
