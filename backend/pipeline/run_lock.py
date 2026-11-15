@@ -67,9 +67,13 @@ LOCK_ID_CALL_OF_RECORD = 1
 # refresh (``pipeline.populate_master --apply``; holder ``master-refresh``), which likewise only PROBES id 1.
 # 6 = the weekly EDGAR term-mentions count (``pipeline.term_mentions --apply``; holder ``term-mentions``), which
 # likewise only PROBES id 1 and never takes the fact-writer gate (id 2): it writes display data only.
+# 7 = the platform-value extraction backfill (``pipeline.extract_values --apply``; holder ``extract-values``): one
+# backfill at a time; it only PROBES id 1 and never takes the gate (each company's write takes its own company
+# lock inside the machine writer).
 LOCK_ID_EDITIONS = 4
 LOCK_ID_MASTER_REFRESH = 5
 LOCK_ID_TERM_MENTIONS = 6
+LOCK_ID_EXTRACTION = 7
 
 # The exit code a CLI uses when another process holds the lock (EX_TEMPFAIL, sysexits.h: "a temporary
 # failure; the user is invited to retry"). DISTINCT from 1 ("this night has no record") on purpose: this
