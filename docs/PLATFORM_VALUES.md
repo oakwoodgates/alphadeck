@@ -154,3 +154,15 @@ Every write answers the company's new state. The model names carry a `Platform` 
 (`tests/app/test_admin_platform_values_api.py`, with real sign-ins). `POST /workbench/facts` keeps the steward's
 share-count and cash/burn confirm, through `correct` with no candidate (approved decision D4 (a)); a plain user still
 gets 403. The two ratify CLIs (`pipeline.ratify_shares`, `pipeline.ratify_cash_burn`) are deleted.
+
+### The steward's company page (W4b)
+
+`/admin/facts/<security_id>` (steward-only in the UI like Admin; a plain user sees one line and no request is made;
+reached by the company search box on the page, and from the queue card once W4c lands). One block per value
+(`frontend/src/admin/CompanyFacts.tsx`, words in `factWords.ts`): the state line (who set it, when, the filing link
+and date), a waiting candidate with its located passages, flags and Explain (the Workbench's explain route; a draft,
+never a value), then Approve, Correct, Dismiss, Undo, Pin and Unpin, each answered by the company's new values. An
+undo cannot be undone, so the page offers the decision again (Approve on the reopened candidate, "Correct again"
+prefilled from the set-aside version). A refusal shows the server's sentence inside the block that made the call.
+Nothing disappears: dismissed candidates, undone decisions and set-aside versions stay in the collapsed History, gray.
+Who pinned a value, and why, shows once the company read carries the newest pin event (`pin`, W4a).
