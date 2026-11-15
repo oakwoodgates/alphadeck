@@ -8,12 +8,14 @@ import {
   useCorrectValue,
   useDismissCandidate,
   useExplainFlag,
+  useExtractNow,
   usePinValue,
   useUndoDecision,
   useUnpinValue,
   type ExtractedFact,
   type PlatformCandidateOut,
   type PlatformDecisionOut,
+  type PlatformExtractionAttemptOut,
   type PlatformFactType,
   type PlatformValueOut,
 } from "../api/hooks";
@@ -24,13 +26,16 @@ import { adminPath } from "../nav";
 import { CorrectForm, blankInit, initFromCandidate, initFromValue, type CorrectInit } from "./CorrectForm";
 import { FactSearch } from "./FactSearch";
 import {
+  EXTRACT_NOTE,
   FACT_TITLE,
   PINNED_FLAG,
   PINNED_HELD_WORDS,
   UNDO_OF_UNDO_WORDS,
+  attemptWords,
   day,
   decisionWords,
   explainBody,
+  extractLine,
   isOpen,
   isStanding,
   lowerFirst,
@@ -162,16 +167,70 @@ function CandidateEvidence({ c }: { c: PlatformCandidateOut }) {
   );
 }
 
+/** Extract now (W4d): a quiet button that reads the company's latest SEC filings on a click, the honest note of what
+ *  it can change, and, after a click, one line per value type (or the failure's reason, or the server's refusal,
+ *  exactly as sent). It is not a steward decision, so there is no Undo here: the way back is Correct or Pin. */
+function ExtractNow({
+  securityId,
+  extract,
+  busy,
+}: {
+  securityId: string;
+  extract: ReturnType<typeof useExtractNow>;
+  busy: boolean;
+}) {
+  const out = extract.data && extract.data.company.security_id === securityId ? extract.data : undefined;
+  const attempt = !extract.isPending ? out?.attempt : undefined;
+  const refusal = extract.isError && !extract.isPending ? (apiErrorText(extract.error) ?? "The request was refused.") : null;
+  return (
+    <div className="cf-extract" data-testid="cf-extract">
+      <div className="cf-row">
+        <button
+          type="button"
+          className="adm-minibtn adm-ghost"
+          disabled={busy}
+          onClick={() => extract.mutate({ securityId })}
+        >
+          {extract.isPending ? "Extracting…" : "Extract now"}
+        </button>
+        <span className="cf-quiet">{EXTRACT_NOTE}</span>
+      </div>
+      {attempt && attempt.status === "error" && (
+        <div className="adm-err" role="alert">
+          The extraction failed: {attempt.error ?? "no reason recorded"}
+        </div>
+      )}
+      {attempt && attempt.status !== "error" && (
+        <ul className="cf-extract-result">
+          <li className="cf-quiet" data-testid="cf-extract-line">
+            {extractLine("shares_outstanding", attempt.shares)}
+          </li>
+          <li className="cf-quiet" data-testid="cf-extract-line">
+            {extractLine("cash_burn", attempt.cash_burn)}
+          </li>
+        </ul>
+      )}
+      {refusal && (
+        <div className="adm-err" role="alert">
+          {refusal}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ValueBlock({
   securityId,
   v,
   m,
   busy,
+  attempts,
 }: {
   securityId: string;
   v: PlatformValueOut;
   m: Mutations;
   busy: boolean;
+  attempts: PlatformExtractionAttemptOut[];
 }) {
   const factType = v.fact_type as PlatformFactType;
   const [form, setForm] = useState<CorrectInit | null>(null);
@@ -479,6 +538,16 @@ function ValueBlock({
               );
             })}
           </ul>
+
+          <h3 className="cf-h3">Recent extraction attempts</h3>
+          <ul data-testid="cf-attempts">
+            {attempts.length === 0 && <li className="cf-quiet">No extraction attempts yet.</li>}
+            {attempts.map((a) => (
+              <li key={a.id} data-testid="cf-attempt-row" className="cf-quiet">
+                {attemptWords(a, factType)}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
     </section>
@@ -503,9 +572,11 @@ export function CompanyFacts({
     pin: usePinValue(),
     unpin: useUnpinValue(),
   };
-  // a company's writes hold its lock, so one at a time
-  const busy = (Object.values(m) as AnyMutation[]).some((x) => x.isPending);
+  const extract = useExtractNow();
+  // a company's writes hold its lock, so one at a time (an extraction writes too)
+  const busy = (Object.values(m) as AnyMutation[]).some((x) => x.isPending) || extract.isPending;
   const d = q.data;
+  const attempts = d?.attempts ?? [];
   return (
     <div className="cf-page">
       {header}
@@ -534,8 +605,9 @@ export function CompanyFacts({
         )}
         {d && (
           <>
-            <ValueBlock securityId={securityId} v={d.shares} m={m} busy={busy} />
-            <ValueBlock securityId={securityId} v={d.cash_burn} m={m} busy={busy} />
+            <ExtractNow securityId={securityId} extract={extract} busy={busy} />
+            <ValueBlock securityId={securityId} v={d.shares} m={m} busy={busy} attempts={attempts} />
+            <ValueBlock securityId={securityId} v={d.cash_burn} m={m} busy={busy} attempts={attempts} />
           </>
         )}
       </div>

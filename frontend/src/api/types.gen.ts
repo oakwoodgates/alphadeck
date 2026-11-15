@@ -2604,6 +2604,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/platform-values/{security_id}/extract": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Extract Now
+         * @description EXTRACT NOW: read this company's latest SEC filings and hand the result to the machine writer, through
+         *     background extraction's own per-company step (``platform_values.extraction.extract_one``, ``run_kind``
+         *     ``steward``). No body. The step fetches FIRST with the company free (the submissions index, then the
+         *     extraction, cache first, on the recurring client), only then takes the company lock to write, and appends
+         *     exactly one attempt row (``platform_extraction_attempt``), whatever the outcome.
+         *
+         *     Per value type, the machine writer's usual rule: a clean value from a filing newer than the value shown is
+         *     applied (even over a verified value, unless the company is pinned: then it waits for you); a flagged value and
+         *     a "nothing found" are recorded as candidates; a value already on file writes nothing. ``attempt`` says what
+         *     happened per type; ``company`` is the company's values after it, with the new attempt first in ``attempts``.
+         *
+         *     **An extraction failure is not an error status**: SEC unreachable, a document missing, no SEC User-Agent set:
+         *     the answer is 200 with ``attempt.status`` ``error`` and its one-line reason (the attempt row is the record;
+         *     nothing else is written, so a value awaiting you still waits). **404** unknown company, or a company with no
+         *     CIK (nothing fetched); **409** another writer held the company for the whole wait (one ``busy`` attempt row,
+         *     no value written); **422** a fund (its share count is not extracted). Steward only.
+         */
+        post: operations["extract_now_admin_platform_values__security_id__extract_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/theses/{thesis_id}/data-flags": {
         parameters: {
             query?: never;
@@ -8212,7 +8247,8 @@ export interface components {
         };
         /**
          * CompanyValuesOut
-         * @description A company's two platform values (the steward's company page).
+         * @description A company's two platform values (the steward's company page). ``attempts``: the company's newest
+         *     background-extraction attempts (at most 10, newest first; W4d), whoever ran them.
          */
         CompanyValuesOut: {
             /**
@@ -8226,6 +8262,8 @@ export interface components {
             name?: string | null;
             shares: components["schemas"]["PlatformValueOut"];
             cash_burn: components["schemas"]["PlatformValueOut"];
+            /** Attempts */
+            attempts?: components["schemas"]["PlatformExtractionAttemptOut"][];
         };
         /**
          * ConnectionListOut
@@ -16135,6 +16173,93 @@ export interface components {
             reason: string;
         };
         /**
+         * PlatformExtractAttemptOut
+         * @description The attempt one "Extract now" recorded (one ``platform_extraction_attempt`` row, ``run_kind`` ``steward``):
+         *     ``status`` ``done`` / ``error`` / ``skipped`` (a busy company answers 409 instead), ``error`` its one line,
+         *     ``live_fetches`` the SEC requests it made, and the outcome per value type.
+         */
+        PlatformExtractAttemptOut: {
+            /** Attempt Id */
+            attempt_id?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "done" | "error" | "skipped";
+            /** Error */
+            error?: string | null;
+            /** Detail */
+            detail?: string | null;
+            /** Live Fetches */
+            live_fetches?: number | null;
+            shares: components["schemas"]["PlatformExtractValueOut"];
+            cash_burn: components["schemas"]["PlatformExtractValueOut"];
+        };
+        /**
+         * PlatformExtractOut
+         * @description The answer of "Extract now": what the attempt did (``attempt``) and the company's values after it
+         *     (``company``, the same shape every steward write answers).
+         */
+        PlatformExtractOut: {
+            attempt: components["schemas"]["PlatformExtractAttemptOut"];
+            company: components["schemas"]["CompanyValuesOut"];
+        };
+        /**
+         * PlatformExtractValueOut
+         * @description What one "Extract now" did for ONE value type. ``outcome`` (above); ``reason`` the extractor's reason for a
+         *     ``nothing_found``, the attempt's one-line error for ``failed``, the detail for ``skipped``; ``written`` = a row
+         *     was appended for this type now; ``fact_id`` / ``candidate_id`` the fact or candidate that stands for it.
+         */
+        PlatformExtractValueOut: {
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "applied" | "flagged" | "pinned" | "nothing_found" | "already_on_file" | "older_than_on_file" | "after_today" | "failed" | "skipped";
+            /** Reason */
+            reason?: string | null;
+            /**
+             * Written
+             * @default false
+             */
+            written: boolean;
+            /** Fact Id */
+            fact_id?: string | null;
+            /** Candidate Id */
+            candidate_id?: string | null;
+        };
+        /**
+         * PlatformExtractionAttemptOut
+         * @description One background-extraction attempt of the company (``platform_extraction_attempt``): ``run_kind`` who ran it
+         *     (``nightly``, ``onboarding``, ``backfill``, ``steward``, ``get_data``); ``status`` ``done`` (the machine writer
+         *     ran: ``shares_reason`` / ``cash_reason`` its reason per value type), ``error`` (``error``: one line, why),
+         *     ``busy`` (another writer held the company; nothing written) or ``skipped`` (``detail``, e.g. no CIK).
+         */
+        PlatformExtractionAttemptOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Recorded At
+             * Format: date-time
+             */
+            recorded_at: string;
+            /** Run Kind */
+            run_kind: string;
+            /** Status */
+            status: string;
+            /** Shares Reason */
+            shares_reason?: string | null;
+            /** Cash Reason */
+            cash_reason?: string | null;
+            /** Error */
+            error?: string | null;
+            /** Detail */
+            detail?: string | null;
+        };
+        /**
          * PlatformPinEventOut
          * @description The newest pin event of a value: ``action`` ``pin`` or ``unpin``, ``decided_by`` the steward's email,
          *     ``note`` why (optional), ``recorded_at`` when.
@@ -23453,6 +23578,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CompanyValuesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    extract_now_admin_platform_values__security_id__extract_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                security_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformExtractOut"];
                 };
             };
             /** @description Validation Error */
