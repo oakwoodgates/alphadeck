@@ -117,19 +117,11 @@ export const PINNED_HELD_WORDS =
   "Held because you pinned this company: a clean value from the filing";
 
 // ---------------------------------------------------------------------------------------------------------------
-// SEAM: who pinned a value, when and why. The company read carries only `pinned: boolean` today; W4a (PR 1) adds
-// `pin: { action, decided_by, note, recorded_at } | null` (the newest pin event) to PlatformValueOut. Until the
-// generated types carry it, the page reads it here, off the value as the server sends it, and shows who and when only
-// when the field is there. When the generated type has `pin`, delete the cast and keep the rest.
-export interface PlatformPinEvent {
-  action: string;
-  decided_by: string;
-  note?: string | null;
-  recorded_at: string;
-}
+// Who pinned a value, when and why: the company read's newest pin event (`pin`).
+export type PlatformPinEvent = NonNullable<PlatformValueOut["pin"]>;
 
 export function pinEventOf(v: PlatformValueOut): PlatformPinEvent | null {
-  const pin = (v as PlatformValueOut & { pin?: PlatformPinEvent | null }).pin;
+  const pin = v.pin;
   return pin && pin.action === "pin" ? pin : null;
 }
 
