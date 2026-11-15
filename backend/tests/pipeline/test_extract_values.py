@@ -554,6 +554,7 @@ def test_apply_is_ordered_bounded_and_resumable_and_a_rerun_writes_nothing(
     db.rollback()
 
     # the second run does only what is still due
+    time.sleep(1.1)  # artifact names are per second
     assert _apply(tmp_path, client) == 0
     assert fake.calls == [301, 302, 303]
     second = _counts(db)
