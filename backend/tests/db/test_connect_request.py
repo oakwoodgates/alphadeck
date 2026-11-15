@@ -10,6 +10,8 @@ their own settings.
 
 from __future__ import annotations
 
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
 import pytest
 from psycopg.pq import TransactionStatus
 
@@ -54,6 +56,11 @@ def test_a_zero_setting_turns_that_timeout_off(_migrated, opened, monkeypatch):
     monkeypatch.setattr(s, "db_lock_timeout_s", 0)
     monkeypatch.setattr(s, "db_idle_in_transaction_timeout_s", 0)
     monkeypatch.setattr(s, "db_connect_timeout_s", 0)
+    # the suite's own bound on test connections (``with_connect_timeout``) lives in the URL: take it out, so
+    # this proves the setting alone leaves ``connect_timeout`` off
+    url = urlsplit(session.database_url())
+    query = urlencode([(k, v) for k, v in parse_qsl(url.query) if k != "connect_timeout"])
+    monkeypatch.setenv("DATABASE_URL", urlunsplit(url._replace(query=query)))
     conn = opened(session.connect_request)
     assert _show(conn, "statement_timeout") == "0"
     assert _show(conn, "lock_timeout") == "0"
