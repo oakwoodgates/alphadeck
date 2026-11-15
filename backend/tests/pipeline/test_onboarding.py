@@ -1053,7 +1053,7 @@ def extraction(monkeypatch):
 
 
 def _backfill_applied(db) -> uuid.UUID:
-    """Approved B4 (a): the steps take never-extracted companies only once a backfill attempt exists."""
+    """Approved B4 (a): the steps take never-extracted companies only once a ``done`` backfill attempt exists."""
     from repositories import platform_extraction_repo as repo
 
     decoy = _add_master(db, ticker="BKFL", cik="0009999999")
@@ -1224,8 +1224,8 @@ def test_a_company_already_on_ANOTHER_card(db, extraction):
 
 
 def test_before_any_BACKFILL_the_step_counts_new_companies_and_fetches_nothing(db, extraction):
-    """Approved B4 (a): until one backfill attempt exists, never-extracted companies are held back: counted, not
-    fetched, no attempt written, nothing in data/extraction_runs/."""
+    """Approved B4 (a): until one ``done`` backfill attempt exists, never-extracted companies are held back:
+    counted, not fetched, no attempt written, nothing in data/extraction_runs/."""
     from pipeline import extraction_run_log
 
     a = _add_master(db, ticker="FAST1", cik="0001000001")
@@ -1239,7 +1239,7 @@ def test_before_any_BACKFILL_the_step_counts_new_companies_and_fetches_nothing(d
     assert fake.calls == [] and client.json_reads == [] and _all_attempts(db) == 0
     pe = out.platform_extraction
     assert pe["status"] == "ran" and pe["attempted"] == 0 and pe["withheld_never"] == 2
-    assert "2 held back until the first backfill" in out.platform_extraction_line
+    assert "2 held back until a backfill extracts a company" in out.platform_extraction_line
     assert extraction_run_log.latest_extraction_run() is None  # an idle step writes no artifact
 
 

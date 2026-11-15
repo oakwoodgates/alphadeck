@@ -138,7 +138,7 @@ the extraction read; the gate's from the stored filing index (`fact_filing_index
 |---|---|
 | `never` | no attempt exists |
 | `new_filing` | the stored index has a 10-Q, 10-K, 20-F or 40-F newer than the one of that form the last attempt read, public for at least `platform_extraction_hold_h` hours (companyfacts lags acceptance by about 5-6 hours); or the CIK changed |
-| `retry` | the last attempt was `busy`; or it failed and fewer than `platform_extraction_retry_max` attempts in a row failed on the same key |
+| `retry` | the last attempt was `busy`; or it failed and fewer than `platform_extraction_retry_max` attempts in a row failed on the same key (a steward's failed Extract now click is not counted) |
 
 Otherwise it is not due: `up to date`, `held` (a new filing not yet public for the hold) or `waiting` (failed
 `retry_max` times; it waits for a new filing or the steward). "Public" is the SEC acceptance, else the end of the
@@ -146,14 +146,22 @@ filing date in ET; a filing not public at `now` never makes a company due. An at
 index does not have yet read a newer one, never an older one. **The backstop:** a company with nothing to find (no
 periodic filing) has an empty key, so after one attempt it is not fetched again until a periodic filing appears in
 its filing index; a company that keeps failing stops after `retry_max` attempts on the same filings.
+**Steward clicks and the cap** (operator decision 2026-11-15): a failed `steward` attempt (Extract now) never counts
+toward `retry_max`, so failed clicks (on a stack with no SEC User-Agent, say) cannot leave a company waiting for a
+new filing. `due` skips them when it counts the failures in a row (as it skips `busy`); `work_list` hands it each
+attempt's `run_kind`. A steward attempt counts for everything else: a `done` one on the current filings makes the
+company not due, and the company page lists every attempt.
 
 **The order** (`work_list`): `new_filing`, then `retry`, then `never`; within each, pen-only companies last, then
 most cards first (the card count from `platform_values/cards.py`, reused, never rebuilt), then ticker. ETFs are left
 out (`extractable`, one line to flip; a decision that can wait).
 
-**Before the first backfill** (approved B4 (a)): `work_list` with `include_never=None` (the nightly's and
-onboarding's default) holds back every never-extracted company until a `backfill` attempt exists
-(`backfill_applied`), and counts them in `withheld_never`. The backfill passes `include_never=True`.
+**Before a backfill extracts a company** (approved B4 (a), tightened 2026-11-15): `work_list` with
+`include_never=None` (the nightly's and onboarding's default) holds back every never-extracted company until a
+`backfill` attempt with status `done` exists (`backfill_applied`: a backfill extracted at least one company, whether
+applied, a candidate recorded or nothing found), and counts them in `withheld_never`. A backfill whose every attempt
+failed (`error`, `not cached` included), was `busy` or was `skipped` unlocks nothing; neither does a `done` attempt
+of another run kind (steward, nightly, onboarding). The backfill passes `include_never=True`.
 
 **One company** (`extract_one(conn, company, *, client, wait_s, run_kind)`): rolls back any open transaction,
 fetches with the company free through the caller's client (the submissions index, then
@@ -175,7 +183,7 @@ fast-laned and a company already on another card is never queued, so a leg would
 correction 5), and a leg would fetch under the company lock. The step runs AFTER the queue's batch, on every batch
 that got past its refusals (also when nothing is queued or the daily cap is reached), under the job's lock, when the
 batch's names are finished and every company lock is released. It takes only `never` companies from `work_list`
-(B4: before the first backfill they are counted as `withheld_never`, never fetched), at most
+(B4: until a backfill extracts a company they are counted as `withheld_never`, never fetched), at most
 `platform_extraction_onboard_max_names` (25), through the batch's one recurring client, with what is left of the
 batch's `onboard_batch_budget_s`; it stops between companies on the nightly window or a running pass, and is `off`
 under the kill switch. A company already extracted (a new filing, a retry) is the nightly's (`left_for_nightly`).
@@ -193,10 +201,14 @@ company gets its values within about 30 minutes of a promote outside the nightly
 | `PLATFORM_EXTRACTION_BUDGET_S` | 900 | a nightly run's wall-time budget, seconds |
 | `PLATFORM_EXTRACTION_ONBOARD_MAX_NAMES` | 25 | companies per onboarding run |
 | `PLATFORM_EXTRACTION_HOLD_H` | 24 | hours a new filing must be public before it makes its company due |
-| `PLATFORM_EXTRACTION_RETRY_MAX` | 3 | failures in a row on the same filings before a company waits |
+| `PLATFORM_EXTRACTION_RETRY_MAX` | 3 | failures in a row on the same filings before a company waits (a steward's failed click is not counted) |
 
 To turn background extraction off on prod: set `ALPHADECK_PLATFORM_EXTRACTION_MAX_NAMES=0` in `.env`, then
-`scripts/deploy.sh --env-only cron` (the nightly) and the same for the backend (the onboarding job).
+`scripts/deploy.sh --env-only cron`. That one recreate covers both steps the switch stops: the nightly step and the
+onboarding job both run in the cron sidecar (`backend/scripts/daily_cron.sh`: the nightly pass, and `onboard_loop`
+firing `python -m pipeline.onboarding`). The backend container needs no deploy for it: there the settings serve only
+the steward's Extract now (a `steward` run, which the kill switch never stops; it reads the hold and the retry cap
+for its due note), and the Admin line reads the run files.
 
 **The nightly step** (`pipeline/nightly_extraction.py`, V2 W3c; approved B2 (a)): the LAST thing in the nightly
 pass, after every thesis's call of record is written and committed and the run artifact is finished. Live passes
@@ -215,9 +227,9 @@ a fault is a `status: error` block. Its summary (`ExtractionRun.to_json()` plus 
 | `skipped: no-live` | `Shared facts · Nov 14: skipped (a --no-live pass fetches nothing)` |
 | `error` | `Shared facts · Nov 14: did not run (the step failed (RuntimeError))` |
 
-Any line gains `· N waiting after repeated failures` and `· N never extracted, held until the first backfill` when
-they are not 0. **Loud** (`attention`) when a company failed, the run itself failed, a company is waiting after
-repeated failures, or never-extracted companies are held back (the backfill is owed); quiet otherwise.
+Any line gains `· N waiting after repeated failures` and `· N never extracted, held until a backfill extracts a
+company` when they are not 0. **Loud** (`attention`) when a company failed, the run itself failed, a company is
+waiting after repeated failures, or never-extracted companies are held back (the backfill is owed); quiet otherwise.
 
 **On Admin:** `AdminStatusOut.platform_extraction` (`line`, `ran_at`, `run_kind`, `attention`) is the newer of the
 newest finished pass's block and the newest file in `data/extraction_runs/` (the backfill, the onboarding step, a
@@ -272,10 +284,11 @@ nothing (not even an artifact). `--max-names` (alias `--limit`) and `--budget-s`
 it takes companies in the work list's order (a new filing, a retry, then never extracted; pen-only last; most cards
 first). `--ticker` scopes it; a ticker that is not a company on a live card (or is an ETF) refuses the run.
 
-It writes `data/extraction_runs/<started>.json` (`pipeline/extraction_run_log.py`: `ExtractionRun.to_json()` plus
-`mode`, `tickers`, `errors_by_reason`, `stop_detail`, `backfill_applied_before` / `_after`) and prints a summary:
-applied, candidates (flagged to the steward, nothing found), unchanged, skipped, busy, failed with their reasons,
-deferred and why, and the live SEC fetches.
+It writes `data/extraction_runs/<started>Z-backfill-<token>.json` (`pipeline/extraction_run_log.py`: the start to
+the microsecond, the run kind and a short random token, so two runs never share a name and the name sort is the time
+sort; `ExtractionRun.to_json()` plus `mode`, `tickers`, `errors_by_reason`, `stop_detail`,
+`backfill_applied_before` / `_after`) and prints a summary: applied, candidates (flagged to the steward, nothing
+found), unchanged, skipped, busy, failed with their reasons, deferred and why, and the live SEC fetches.
 
 | Exit | Meaning |
 |---|---|
@@ -288,9 +301,12 @@ deferred and why, and the live SEC fetches.
 not all cached gets an `error` attempt with the reason `not cached` and is counted; nothing is fetched. It stays due
 (`retry`) until `platform_extraction_retry_max` such attempts on the same filings, then waits for a new filing.
 
-**Decision B4.** The nightly leg and the onboarding step take no never-extracted company until a `backfill` attempt
-exists (`backfill_applied`). The first attempt this CLI records is what unlocks them, whatever its outcome: a
-`not cached` error and a `skipped` (no CIK) attempt count too. The CLI says so before (dry run) and after (`--apply`).
+**Decision B4** (tightened 2026-11-15). The nightly leg and the onboarding step take no never-extracted company
+until this CLI has EXTRACTED at least one company: a `backfill` attempt with status `done` (`backfill_applied`).
+Failed attempts (a `not cached` error included), `busy` and `skipped` (no CIK) attempts unlock nothing, so a first
+backfill in which every company fails leaves them held. The CLI says where B4 stands before (dry run) and after
+(`--apply`); after a run that extracted nothing it says `B4: nothing was extracted (...), so the nightly is still
+holding never-extracted companies, and so is the onboarding job, ...`.
 
 ### Rehearsing on the fork (cache only)
 
@@ -312,7 +328,8 @@ its `attempted`, which sets the nightly cap and budget); `platform_extraction_at
 filing". The live dry run on the fork measures prod's request count from the copied cache, except for anything
 filed after the copy.
 
-**What the rehearsal changes on the fork.** It records `backfill` attempts, so it flips the B4 marker on the fork:
+**What the rehearsal changes on the fork.** It records `backfill` attempts; once one company extracts from the
+cache (a `done` attempt), it flips the B4 marker on the fork:
 from then on the fork's nightly and onboarding steps would take never-extracted companies. That is acceptable there:
 the fork's cron service rides the `donotstart` profile (`docker-compose.fork.yml`, `docs/FORKS.md`), and that
 sidecar is what fires both the nightly and the onboarding job, so nothing on the fork acts on the marker. A re-seed resets it: `scripts/fork.sh

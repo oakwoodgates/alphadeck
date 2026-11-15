@@ -44,8 +44,20 @@ K1 = _f(
 BASE = [Q2, K1]
 
 
-def _attempt(status: str, key: str, hours_ago: float = 48.0, *, at: datetime = NOW) -> AttemptRow:
-    return AttemptRow(status=status, inputs_key=key, recorded_at=at - timedelta(hours=hours_ago))
+def _attempt(
+    status: str,
+    key: str,
+    hours_ago: float = 48.0,
+    *,
+    at: datetime = NOW,
+    run_kind: str | None = "nightly",
+) -> AttemptRow:
+    return AttemptRow(
+        status=status,
+        inputs_key=key,
+        recorded_at=at - timedelta(hours=hours_ago),
+        run_kind=run_kind,
+    )
 
 
 def _due(attempts, filings, *, now: datetime = NOW, cik: str | None = CIK) -> Due:
@@ -163,6 +175,41 @@ def test_three_errors_then_a_new_filing_is_due_again():
     three = [_attempt("error", key, 30), _attempt("error", key, 54), _attempt("error", key, 78)]
     new_q = _f("10-Q", "0001-26-000003", date(2026, 11, 10))
     assert _due(three, [*BASE, new_q]).reason == "new_filing"
+
+
+def _steward(status: str, key: str, hours_ago: float) -> AttemptRow:
+    return _attempt(status, key, hours_ago, run_kind="steward")
+
+
+def test_failed_steward_clicks_never_count_toward_the_retry_cap():
+    """Operator decision 2026-11-15: three failed Extract now clicks (say, a stack with no SEC User-Agent) must not
+    leave the company waiting for a new filing; the nightly still retries it."""
+    key = inputs_key(CIK, BASE)
+    three_clicks = [_steward("error", key, 1), _steward("error", key, 2), _steward("error", key, 3)]
+    assert _due(three_clicks, BASE) == Due("retry", "failed")
+
+
+def test_three_failed_nightly_attempts_still_stop():
+    key = inputs_key(CIK, BASE)
+    three = [_attempt("error", key, 24), _attempt("error", key, 48), _attempt("error", key, 72)]
+    assert _due(three, BASE) == Due(None, "waiting")
+
+
+def test_steward_failures_after_two_nightly_failures_need_one_more_nightly_failure_to_stop():
+    key = inputs_key(CIK, BASE)
+    two_nightly = [_attempt("error", key, 48), _attempt("error", key, 72)]
+    clicks = [_steward("error", key, 1), _steward("error", key, 2), _steward("error", key, 3)]
+    assert _due([*clicks, *two_nightly], BASE) == Due("retry", "failed")
+    third = _attempt("error", key, 0.5)
+    assert _due([third, *clicks, *two_nightly], BASE) == Due(None, "waiting")
+
+
+def test_a_done_steward_attempt_on_the_same_filings_is_not_due():
+    """A steward attempt still counts as an attempt for everything but the cap."""
+    key = inputs_key(CIK, BASE)
+    assert _due([_steward("done", key, 1)], BASE) == Due(None, "up to date")
+    earlier_failures = [_attempt("error", key, 24), _attempt("error", key, 48)]
+    assert _due([_steward("done", key, 1), *earlier_failures], BASE) == Due(None, "up to date")
 
 
 def test_busy_is_retried_and_never_counts_as_a_failure():

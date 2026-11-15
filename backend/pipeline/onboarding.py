@@ -927,7 +927,8 @@ def _extraction_step(
     The job's rules: it runs under the job's lock (the caller holds it), stops between companies on the nightly
     window or a running pass (``should_stop``), gets only what is left of the batch's time budget
     (``budget_left``), takes at most ``platform_extraction_onboard_max_names`` companies, is off under the kill
-    switch, and obeys B4 (until a backfill attempt exists, never-extracted companies are counted, not fetched).
+    switch, and obeys B4 (until a backfill has extracted a company, never-extracted companies are counted, not
+    fetched).
     It fetches through the batch's ONE recurring client (the SEC budget's recurring lane) on its own connection,
     with the company free (``extract_one``: fetch, then the machine writer takes the lock).
 
@@ -993,9 +994,9 @@ def _extraction_step(
 
 def _extraction_line(run: Any, withheld_never: int) -> str:
     """The step's one line: the run's Admin line under the step's own head, or a quiet idle line, plus the
-    never-extracted companies B4 holds back until the first backfill."""
+    never-extracted companies B4 holds back until a backfill extracts a company."""
     held = (
-        f" · {withheld_never} held back until the first backfill (decision B4)"
+        f" · {withheld_never} held back until a backfill extracts a company (decision B4)"
         if withheld_never
         else ""
     )

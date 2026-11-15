@@ -121,9 +121,9 @@ def _block(
     live_completed: int | None = None,
 ) -> dict[str, Any]:
     """``run.to_json()`` plus what the nightly adds: the budget arithmetic, the companies the gate left out (held
-    back until the first backfill, held for a too-new filing, waiting after repeated failures) and the client's
-    completed requests. ``attention`` (loud on Admin) = a failure tonight, the run itself failing, a company waiting
-    after repeated failures, or a held-back backlog (the backfill is owed)."""
+    back until a backfill extracts a company (B4), held for a too-new filing, waiting after repeated failures) and
+    the client's completed requests. ``attention`` (loud on Admin) = a failure tonight, the run itself failing, a
+    company waiting after repeated failures, or a held-back backlog (the backfill is owed)."""
     doc = run.to_json()
     withheld = wl.withheld_never if wl is not None else 0
     waiting = wl.waiting if wl is not None else 0
@@ -137,7 +137,7 @@ def _block(
     if waiting:
         extra.append(f"{waiting} waiting after repeated failures")
     if withheld:
-        extra.append(f"{withheld} never extracted, held until the first backfill")
+        extra.append(f"{withheld} never extracted, held until a backfill extracts a company")
     doc["admin_line"] = " · ".join([text, *extra])
     doc["attention"] = bool(run.attention or waiting or withheld)
     return doc
@@ -178,8 +178,9 @@ def run_nightly_extraction(
 
     In order: the kill switch (``platform_extraction_max_names = 0``: ``off``, nothing read or written); the budget
     (``leg_budget`` from ``pass_started_at``); the work list (``work_list``, B4: never-extracted companies held back
-    until a backfill exists, and counted); ``no time left`` when the budget is zero (the due count kept); otherwise
-    ``run_extraction`` on a recurring client (built only when a company is due) under the budget and the cap.
+    until a backfill has extracted a company, and counted); ``no time left`` when the budget is zero (the due count
+    kept); otherwise ``run_extraction`` on a recurring client (built only when a company is due) under the budget
+    and the cap.
     """
     clock_now = now or _now
     started = clock_now()
@@ -292,7 +293,7 @@ def main(argv: list[str] | None = None) -> None:
     reasons = ", ".join(f"{k} {v}" for k, v in sorted(Counter(i.reason for i in wl.items).items()))
     print(
         f"platform extraction: {len(wl.items)} due ({reasons or 'none'}) · "
-        f"{wl.withheld_never} never extracted, held until the first backfill · {wl.held} held · "
+        f"{wl.withheld_never} never extracted, held until a backfill extracts a company · {wl.held} held · "
         f"{wl.waiting} waiting · cap {s.platform_extraction_max_names} · budget {budget.budget_s:.0f}s"
     )
     if not args.apply:

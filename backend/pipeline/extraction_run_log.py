@@ -11,6 +11,10 @@ so no nightly-pass reader (the catch-up guard, the baselines, the Admin run hist
 The artifact's keys: ``kind`` = ``platform_extraction``, ``run_kind`` (``backfill`` / ``onboarding`` / ...),
 ``status``, ``started_at`` / ``finished_at``, ``seconds``, the due counts, the outcome counts, ``failed`` and its
 labels, ``busy``, ``skipped``, ``deferred``, ``stopped_by``, ``live_fetches``, ``attention`` and ``admin_line``.
+
+The file name (``artifact_path``) is the start instant to the microsecond, then the run kind and a short random
+token: two runs that start in the same second are two files, and the name sort is still the time sort. (An older
+``<YYYYmmddTHHMMSS>Z.json`` sorts after a newer name only within its own second.)
 """
 
 from __future__ import annotations
@@ -18,6 +22,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
+import secrets
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -30,10 +36,16 @@ EXTRACTION_RUNS_DIR = Path(__file__).resolve().parents[2] / "data" / "extraction
 KIND = "platform_extraction"
 
 
-def artifact_path(base_dir: Path, started_at: datetime) -> Path:
-    # %H%M%S, no colons (legal on Windows too); the started-at instant names the run, so the name sort is the time
-    # sort
-    return base_dir / f"{started_at.strftime('%Y%m%dT%H%M%SZ')}.json"
+def artifact_path(
+    base_dir: Path, started_at: datetime, *, run_kind: str | None = None, token: str | None = None
+) -> Path:
+    """``<YYYYmmddTHHMMSS.ffffff>Z-<run kind>-<token>.json``. The start instant (to the microsecond, no colons:
+    legal on Windows too) leads, fixed-width, so the name sort is the time sort; the run kind and a short random
+    token (``secrets.token_hex(3)`` unless given) make two runs that start in the same instant two files, never
+    one overwriting the other."""
+    kind = re.sub(r"[^a-z_]", "", (run_kind or "run").lower()) or "run"
+    tag = token if token is not None else secrets.token_hex(3)
+    return base_dir / f"{started_at.strftime('%Y%m%dT%H%M%S.%fZ')}-{kind}-{tag}.json"
 
 
 def write_extraction_run(payload: dict[str, Any], *, base_dir: Path | None = None) -> Path | None:
@@ -41,7 +53,9 @@ def write_extraction_run(payload: dict[str, Any], *, base_dir: Path | None = Non
     run_dir = base_dir or EXTRACTION_RUNS_DIR
     try:
         run_dir.mkdir(parents=True, exist_ok=True)
-        path = artifact_path(run_dir, datetime.fromisoformat(payload["started_at"]))
+        path = artifact_path(
+            run_dir, datetime.fromisoformat(payload["started_at"]), run_kind=payload.get("run_kind")
+        )
         tmp = path.with_name(f".{path.name}.tmp")
         tmp.write_text(json.dumps(payload, indent=1, default=str), encoding="utf-8")
         os.replace(tmp, path)

@@ -91,13 +91,14 @@ def latest_attempts(
     return out
 
 
-def any_attempt(conn: psycopg.Connection, run_kind: str) -> bool:
-    """Does any attempt of ``run_kind`` exist (in the data tenant)?"""
+def any_attempt(conn: psycopg.Connection, run_kind: str, *, status: str | None = None) -> bool:
+    """Does any attempt of ``run_kind`` (and of ``status``, when given) exist (in the data tenant)? One query."""
     with conn.cursor() as cur:
         cur.execute(
             "SELECT EXISTS (SELECT 1 FROM platform_extraction_attempt "
-            "               WHERE tenant_id = %s AND run_kind = %s) AS hit",
-            (DATA_TENANT_ID, run_kind),
+            "               WHERE tenant_id = %s AND run_kind = %s "
+            "               AND (%s::text IS NULL OR status = %s::text)) AS hit",
+            (DATA_TENANT_ID, run_kind, status, status),
         )
         return bool(cur.fetchone()["hit"])
 
