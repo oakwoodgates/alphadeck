@@ -554,7 +554,6 @@ def test_apply_is_ordered_bounded_and_resumable_and_a_rerun_writes_nothing(
     db.rollback()
 
     # the second run does only what is still due
-    time.sleep(1.1)  # artifact names are per second
     assert _apply(tmp_path, client) == 0
     assert fake.calls == [301, 302, 303]
     second = _counts(db)
@@ -562,7 +561,6 @@ def test_apply_is_ordered_bounded_and_resumable_and_a_rerun_writes_nothing(
     assert "already unlocked before this run" in capsys.readouterr().out
 
     # a third run: nothing due, NOTHING written (count the tables), no artifact
-    time.sleep(1.1)  # artifact names are per second: a third file would be visible
     assert _apply(tmp_path, client) == 0
     assert _counts(db) == second and fake.calls == [301, 302, 303]
     assert len(_artifacts(tmp_path)) == 2
@@ -672,7 +670,6 @@ def test_apply_stops_between_companies_when_a_pass_starts_and_the_rest_stays_due
     assert "call-of-record" in doc["stop_detail"]
     assert "STOPPED" in capsys.readouterr().out
     # resumable: the next run takes the two left
-    time.sleep(1.1)
     assert _apply(tmp_path, client) == 0
     assert [a["ticker"] for a in _attempts(db)] == ["AAA", "BBB", "CCC"]
     assert ids

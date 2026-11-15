@@ -280,10 +280,11 @@ nothing (not even an artifact). `--max-names` (alias `--limit`) and `--budget-s`
 it takes companies in the work list's order (a new filing, a retry, then never extracted; pen-only last; most cards
 first). `--ticker` scopes it; a ticker that is not a company on a live card (or is an ETF) refuses the run.
 
-It writes `data/extraction_runs/<started>.json` (`pipeline/extraction_run_log.py`: `ExtractionRun.to_json()` plus
-`mode`, `tickers`, `errors_by_reason`, `stop_detail`, `backfill_applied_before` / `_after`) and prints a summary:
-applied, candidates (flagged to the steward, nothing found), unchanged, skipped, busy, failed with their reasons,
-deferred and why, and the live SEC fetches.
+It writes `data/extraction_runs/<started>Z-backfill-<token>.json` (`pipeline/extraction_run_log.py`: the start to
+the microsecond, the run kind and a short random token, so two runs never share a name and the name sort is the time
+sort; `ExtractionRun.to_json()` plus `mode`, `tickers`, `errors_by_reason`, `stop_detail`,
+`backfill_applied_before` / `_after`) and prints a summary: applied, candidates (flagged to the steward, nothing
+found), unchanged, skipped, busy, failed with their reasons, deferred and why, and the live SEC fetches.
 
 | Exit | Meaning |
 |---|---|

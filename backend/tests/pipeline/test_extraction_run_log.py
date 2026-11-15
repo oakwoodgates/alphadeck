@@ -8,6 +8,7 @@ wins, an unreadable one is skipped. Files only (redirected to tmp), no database,
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 
 from pipeline import extraction_run_log as log
@@ -25,9 +26,23 @@ def test_a_written_run_is_the_latest(tmp_path):
         _payload("2026-11-15T03:00:00+00:00", "second"), base_dir=tmp_path
     )
     assert first is not None and second is not None and first != second
-    assert second.name == "20261115T030000Z.json"
+    # the start instant to the microsecond, the run kind and a short random token: sortable by time, never shared
+    assert re.fullmatch(r"20261115T030000\.000000Z-backfill-[0-9a-f]{6}\.json", second.name)
+    assert sorted(p.name for p in tmp_path.glob("*.json")) == [first.name, second.name]
     assert log.latest_extraction_run(base_dir=tmp_path)["admin_line"] == "second"
     assert list(tmp_path.glob(".*.tmp")) == []  # atomic: no temp file left behind
+
+
+def test_two_runs_that_start_in_the_same_second_leave_two_files(tmp_path):
+    """A builder found two runs starting in the same second overwrote each other (the name was the second)."""
+    same = "2026-11-15T03:00:00+00:00"
+    a = log.write_extraction_run(_payload(same, "a"), base_dir=tmp_path)
+    b = log.write_extraction_run(_payload(same, "b"), base_dir=tmp_path)
+    assert a is not None and b is not None and a != b
+    lines = {
+        json.loads(p.read_text(encoding="utf-8"))["admin_line"] for p in tmp_path.glob("*.json")
+    }
+    assert lines == {"a", "b"}
 
 
 def test_an_unreadable_or_foreign_file_is_skipped(tmp_path):
