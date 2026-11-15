@@ -129,7 +129,8 @@ def world(db, monkeypatch, tmp_path):
 
 
 def _seed_backfill(db, w) -> None:
-    """One failed backfill attempt: B4 is satisfied and the company is due (``retry``)."""
+    """One failed backfill attempt: the company is due (``retry``). It does NOT satisfy B4 (no ``done`` backfill
+    attempt), which this world never needs: its one company is already attempted."""
     attempts_repo.append_attempt(
         db,
         security_id=w["sid"],
@@ -346,8 +347,8 @@ def test_no_time_left_counts_the_due_companies_and_fetches_nothing(world, monkey
 
 
 def test_a_held_back_backlog_is_loud(db, world):
-    """Approved B4: before the first backfill a nightly takes no never-extracted company; the block counts them and
-    the line says so loudly (the backfill is owed)."""
+    """Approved B4: before a backfill extracts a company, a nightly takes no never-extracted company; the block
+    counts them and the line says so loudly (the backfill is owed)."""
     db.rollback()
     with db.cursor() as cur:
         cur.execute("TRUNCATE platform_extraction_attempt")
@@ -356,7 +357,7 @@ def test_a_held_back_backlog_is_loud(db, world):
     block = _artifact(world["runs"])["platform_extraction"]
     assert (block["status"], block["attempted"], block["withheld_never"]) == ("ran", 0, 1)
     assert block["attention"] is True
-    assert "1 never extracted, held until the first backfill" in block["admin_line"]
+    assert "1 never extracted, held until a backfill extracts a company" in block["admin_line"]
     assert world["fake"].calls == []
 
 

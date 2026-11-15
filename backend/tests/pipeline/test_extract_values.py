@@ -549,7 +549,7 @@ def test_apply_is_ordered_bounded_and_resumable_and_a_rerun_writes_nothing(
     assert doc["mode"] == "live" and doc["backfill_applied_after"] is True
     assert "applied 1" in out and "candidates 1 (0 flagged to the steward, 1 nothing found)" in out
     assert "deferred 1 (cap)" in out and "live SEC fetches" in out
-    assert "B4: this run recorded the FIRST backfill attempts" in out
+    assert "B4: this run extracted the FIRST companies of any backfill" in out
     assert ex.backfill_applied(db) is True
     db.rollback()
 
@@ -567,6 +567,34 @@ def test_apply_is_ordered_bounded_and_resumable_and_a_rerun_writes_nothing(
     assert _counts(db) == second and fake.calls == [301, 302, 303]
     assert len(_artifacts(tmp_path)) == 2
     assert "nothing due" in capsys.readouterr().out
+    assert ids
+
+
+def test_a_backfill_in_which_every_company_fails_leaves_the_nightly_holding(
+    db, tmp_path, monkeypatch, capsys
+):
+    """B4 tightened (operator decision 2026-11-15): a backfill run that extracted nothing (every company failed)
+    does not unlock the never-extracted companies; the B4 line after the run says so plainly."""
+    from ingest import CacheMiss
+
+    ids, client, fake = _three(db, tmp_path, monkeypatch)
+    fake.results[301] = CacheMiss("forms/x not cached (live pulls disabled)")
+
+    assert _apply(tmp_path, client, tickers=["AAA"]) == 0
+    out = capsys.readouterr().out
+    assert [(a["ticker"], a["status"], a["error"]) for a in _attempts(db)] == [
+        ("AAA", "error", "not cached")
+    ]
+    assert ex.backfill_applied(db) is False
+    wl = ex.work_list(db)
+    db.rollback()
+    # AAA (failed) is the nightly's retry; BBB and CCC, never extracted, are still held back and counted
+    assert [(i.ticker, i.reason) for i in wl.items] == [("AAA", "retry")]
+    assert wl.withheld_never == 2
+    (doc,) = _artifacts(tmp_path)
+    assert doc["backfill_applied_before"] is False and doc["backfill_applied_after"] is False
+    assert "B4: nothing was extracted" in out
+    assert "the nightly is still holding never-extracted companies" in out
     assert ids
 
 

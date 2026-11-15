@@ -243,8 +243,9 @@ class WorkItem:
 
 @dataclass(frozen=True)
 class WorkList:
-    """The due companies in run order, and what was left out: never-extracted companies withheld until the first
-    backfill (B4), companies held (a filing too new) and companies waiting (failed ``retry_max`` times).
+    """The due companies in run order, and what was left out: never-extracted companies withheld until a
+    backfill extracts a company (B4), companies held (a filing too new) and companies waiting (failed
+    ``retry_max`` times).
     """
 
     items: list[WorkItem]
@@ -261,9 +262,13 @@ def extractable(company: Mapping[str, Any]) -> bool:
 
 
 def backfill_applied(conn: psycopg.Connection) -> bool:
-    """THE B4 MARKER (approved B4 (a)): has a backfill run been applied at least once (any ``backfill`` attempt)?
-    Until it has, the nightly and onboarding steps take no never-extracted company."""
-    return repo.any_attempt(conn, "backfill")
+    """THE B4 MARKER (approved B4 (a), tightened 2026-11-15): has a backfill actually EXTRACTED at least one
+    company, that is, does a ``backfill`` attempt with status ``done`` exist (applied, a candidate recorded, or
+    nothing found)? A backfill whose every attempt failed (``error``, e.g. ``not cached``), was ``busy`` or
+    ``skipped`` unlocks nothing. Until one exists, the nightly and onboarding steps take no never-extracted
+    company. One query.
+    """
+    return repo.any_attempt(conn, "backfill", status="done")
 
 
 def work_list(

@@ -7,7 +7,7 @@ is counted, never assumed. Each test COUNTS THE TABLES (facts, candidates, attem
 What is pinned:
 - the work list: one entry per company on any live card (two workspaces = one entry with a card count of 2), an
   archived card does not count, a pen-only company sorts last, an ETF is left out, and never-extracted companies
-  wait until a backfill attempt exists (approved B4 (a));
+  wait until a ``done`` backfill attempt exists (approved B4 (a), tightened 2026-11-15);
 - the per-company step FETCHES with the company free, then calls the machine writer, then leaves EXACTLY ONE
   attempt row per outcome (done, error, busy, skipped); a failure writes nothing else and never hides a value
   awaiting the steward; its reason is one bounded line with no URL;
@@ -300,6 +300,71 @@ def test_never_extracted_companies_wait_until_a_backfill_attempt_exists(db, fake
     ex.extract_one(db, item, client=client, wait_s=0, run_kind="backfill")
     assert ex.backfill_applied(db) is True
     assert [i.ticker for i in ex.work_list(db).items] == ["OTHER"]
+
+
+def test_a_backfill_in_which_every_company_fails_does_not_unlock_the_nightly(db, fake_extract):
+    """B4 tightened (operator decision 2026-11-15): only a backfill attempt that EXTRACTED (``done``) unlocks the
+    never-extracted companies; a backfill whose every company failed (``error``), was held (``busy``) or had no CIK
+    (``skipped``) leaves them withheld from the nightly and onboarding lists, and counted."""
+    sid, acc, client = _one_company(db)
+    other = _company(db, "OTHER", "1002")
+    nocik = _company(db, "NOCIK", None)
+    _card(db, new_workspace(db, "W2"), [(other, "Fuel"), (nocik, "Fuel")])
+    db.commit()
+    fake_extract({1001: CacheMiss("not cached"), 1002: CacheMiss("not cached")})
+    work = ex.work_list(db, include_never=True).items
+    db.rollback()
+
+    run = ex.run_extraction(connect, work, client=client, run_kind="backfill")
+
+    assert (run.failed, run.skipped, run.extracted) == (2, 1, 0)
+    assert ex.backfill_applied(db) is False
+    wl = ex.work_list(db)
+    db.rollback()
+    # the two failed companies are the nightly's retries; the one with no CIK is up to date
+    assert [i.reason for i in wl.items] == ["retry", "retry"] and wl.withheld_never == 0
+    # a never-extracted newcomer stays withheld (and counted) after that failed backfill
+    newcomer = _company(db, "NEWB", "1003")
+    _card(db, new_workspace(db, "W3"), [(newcomer, "Fuel")])
+    db.commit()
+    wl = ex.work_list(db)
+    db.rollback()
+    assert newcomer not in {i.security_id for i in wl.items} and wl.withheld_never == 1
+
+    # a busy backfill attempt does not unlock it either
+    repo.append_attempt(
+        db,
+        security_id=sid,
+        run_kind="backfill",
+        inputs_key=_item(db, sid).inputs_key,
+        status="busy",
+    )
+    db.commit()
+    assert ex.backfill_applied(db) is False
+    db.rollback()
+
+
+@pytest.mark.parametrize("run_kind", ["steward", "nightly", "onboarding"])
+def test_a_done_attempt_of_another_run_kind_does_not_unlock_the_nightly(db, fake_extract, run_kind):
+    sid, acc, client = _one_company(db)
+    fake_extract({1001: ExtractionResult(facts=[])})
+    got = ex.extract_one(db, _item(db, sid), client=client, wait_s=0, run_kind=run_kind)
+    assert got.status == "done"
+    assert ex.backfill_applied(db) is False
+    db.rollback()
+
+
+def test_one_done_backfill_attempt_unlocks_the_nightly(db, fake_extract):
+    sid, acc, client = _one_company(db)
+    newcomer = _company(db, "NEWB", "1003")
+    _card(db, new_workspace(db, "W2"), [(newcomer, "Fuel")])
+    db.commit()
+    fake_extract({1001: ExtractionResult(facts=[])})
+    ex.extract_one(db, _item(db, sid), client=client, wait_s=0, run_kind="backfill")
+    assert ex.backfill_applied(db) is True
+    wl = ex.work_list(db)
+    db.rollback()
+    assert [i.security_id for i in wl.items] == [newcomer] and wl.withheld_never == 0
 
 
 def test_due_reasons_order_new_filing_then_retry_then_never(db, fake_extract):

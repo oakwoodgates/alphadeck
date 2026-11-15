@@ -42,9 +42,10 @@ only what is left. ``--max-names`` and ``--budget-s`` bound it (checked between 
 in the global SEC budget's recurring lane (X2). It writes a run artifact (``data/extraction_runs/``, through
 ``pipeline.extraction_run_log``) and prints a summary.
 
-DECISION B4. The nightly leg and the onboarding step take no never-extracted company until a backfill attempt
-exists (``backfill_applied``). The FIRST attempt this CLI records (any status, a cache-only ``not cached`` error
-included) is what unlocks them; the output says so.
+DECISION B4 (tightened 2026-11-15). The nightly leg and the onboarding step take no never-extracted company until
+a backfill has EXTRACTED at least one company: a ``backfill`` attempt with status ``done`` (applied, a candidate
+recorded, or nothing found; ``backfill_applied``). Failed (a cache-only ``not cached`` error included), busy and
+skipped attempts unlock nothing. The output says where B4 stands before (the dry run) and after (``--apply``).
 
 Exit codes: 0 ran (failed companies are listed, not fatal) or the dry run; 1 the run could not run (no SEC
 User-Agent for a live run, no database); 2 a bad argument (an unknown ``--ticker``); 75 refused or stopped (the
@@ -451,13 +452,14 @@ def _print_plan(
 def _b4_before(applied: bool) -> str:
     if applied:
         return (
-            f"{NAME}: B4: a backfill has already been applied (a backfill attempt exists): the nightly and the "
-            "onboarding job already take never-extracted companies."
+            f"{NAME}: B4: a backfill has already extracted at least one company (a 'done' backfill attempt exists): "
+            "the nightly and the onboarding job already take never-extracted companies."
         )
     return (
-        f"{NAME}: B4: no backfill attempt exists yet, so the nightly and the onboarding job take NO never-extracted "
-        "company. The first --apply that records an attempt (any outcome, a cache-only 'not cached' error included) "
-        "unlocks them, for good."
+        f"{NAME}: B4: no backfill has extracted a company yet (no 'done' backfill attempt), so the nightly and the "
+        "onboarding job take NO never-extracted company. The first --apply that extracts at least one company "
+        "(applied, a candidate recorded, or nothing found) unlocks them, for good; failed, busy and skipped attempts "
+        "do not."
     )
 
 
@@ -469,14 +471,15 @@ def _b4_after(before: bool, after: bool, *, live: bool) -> str:
             else " (a cache-only run counts: on a fork this is expected, and a re-seed resets it)"
         )
         return (
-            f"{NAME}: B4: this run recorded the FIRST backfill attempts{mode}: from now on the nightly and the "
-            "onboarding job also take never-extracted companies."
+            f"{NAME}: B4: this run extracted the FIRST companies of any backfill{mode}: from now on the nightly and "
+            "the onboarding job also take never-extracted companies."
         )
     if after:
         return f"{NAME}: B4: already unlocked before this run (never-extracted companies were already open)."
     return (
-        f"{NAME}: B4: no attempt was recorded, so never-extracted companies stay withheld from the nightly and "
-        "the onboarding job."
+        f"{NAME}: B4: nothing was extracted (no backfill attempt is 'done': every one failed, was busy or was "
+        "skipped), so the nightly is still holding never-extracted companies, and so is the onboarding job, until "
+        "a backfill extracts at least one company."
     )
 
 
