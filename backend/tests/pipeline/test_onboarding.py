@@ -1015,7 +1015,10 @@ class _FakeExtract:
         probe = connect()
         try:
             n = probe.execute(
-                "SELECT count(*) AS n FROM pg_locks WHERE locktype = 'advisory' AND classid = %s",
+                # pg_locks is SERVER-wide: count THIS database's locks only, or another xdist worker's
+                # company lock (its own database, the same server) is counted as ours.
+                "SELECT count(*) AS n FROM pg_locks WHERE locktype = 'advisory' AND classid = %s "
+                "AND database = (SELECT oid FROM pg_database WHERE datname = current_database())",
                 (COMPANY_LOCK_NAMESPACE,),
             ).fetchone()["n"]
         finally:
