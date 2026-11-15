@@ -6,7 +6,7 @@ import { useExplainFlag, useExtract, useRatifyFact, type ExtractedFact } from ".
 import { refusalText } from "../api/refusals";
 import { AutoTextarea } from "./AutoTextarea";
 import { errText, type OnFileFact, type OnFileMap } from "./format";
-import { cashSymbol, LocatedPassages, MISSING_FLAGS } from "../components/LocatedPassages";
+import { cashSymbol, labelCurrency, LocatedPassages, MISSING_FLAGS } from "../components/LocatedPassages";
 import { LIMITS } from "../api/limits";
 
 const METER_LABEL: Record<string, string> = {
@@ -241,7 +241,7 @@ function RatifyRow({
 
   const label = METER_LABEL[candidate.fact_type] ?? candidate.fact_type;
   // the cash/burn label currency (Slice A) — native for an IFRS annual filer, `$` for a domestic name
-  const cashSym = cashSymbol(candidate.statement_currency);
+  const cashSym = cashSymbol(labelCurrency(candidate.statement_currency, candidate.flags));
   const common = {
     security_id: securityId,
     source: candidate.source, // the candidate's BASIS, carried through (not retyped)

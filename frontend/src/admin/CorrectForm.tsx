@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import type { PlatformCandidateOut, PlatformCorrectIn, PlatformFactType } from "../api/hooks";
-import { cashSymbol } from "../components/LocatedPassages";
+import { cashSymbol, labelCurrency } from "../components/LocatedPassages";
 
 // The steward's "Correct" form: the value they type, the filing it comes from, and its date. It starts from the
 // candidate (when one waits), the value shown, or an undone correction's set-aside version ("Correct again"), and
@@ -48,7 +48,7 @@ export function initFromCandidate(c: PlatformCandidateOut): CorrectInit {
     eventDate: c.event_date ?? "",
     note: "",
     candidateId: c.id,
-    currency: c.statement_currency,
+    currency: labelCurrency(c.statement_currency, c.flags),
   };
 }
 

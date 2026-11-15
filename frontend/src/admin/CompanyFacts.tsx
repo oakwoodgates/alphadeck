@@ -21,7 +21,7 @@ import {
 } from "../api/hooks";
 import { refusalText } from "../api/refusals";
 import { ExternalLink, safeHttpUrl } from "../components/ExternalLink";
-import { LocatedPassages, MISSING_FLAGS } from "../components/LocatedPassages";
+import { labelCurrency, LocatedPassages, MISSING_FLAGS } from "../components/LocatedPassages";
 import { adminPath } from "../nav";
 import { CorrectForm, blankInit, initFromCandidate, initFromValue, type CorrectInit } from "./CorrectForm";
 import { FactSearch } from "./FactSearch";
@@ -148,7 +148,7 @@ function CandidateEvidence({ c }: { c: PlatformCandidateOut }) {
   return (
     <div className="cf-evidence" data-testid="cf-candidate-evidence">
       <div>
-        <b>{valueWords(c.fact_type, c, c.statement_currency)}</b> <Flags flags={c.flags ?? []} />
+        <b>{valueWords(c.fact_type, c, labelCurrency(c.statement_currency, c.flags))}</b> <Flags flags={c.flags ?? []} />
       </div>
       {(c.flags ?? []).includes(PINNED_FLAG) && <div className="cf-quiet">{PINNED_HELD_WORDS}</div>}
       <div className="cf-quiet">
@@ -526,7 +526,7 @@ function ValueBlock({
               return (
                 <li key={c.id} data-testid="cf-candidate-row" className={gray ? "cf-undone" : undefined}>
                   {c.outcome === "flag"
-                    ? `${valueWords(c.fact_type, c, c.statement_currency)} · dated ${c.event_date ?? "unknown"} · `
+                    ? `${valueWords(c.fact_type, c, labelCurrency(c.statement_currency, c.flags))} · dated ${c.event_date ?? "unknown"} · `
                     : `Nothing found${c.reason ? `: ${c.reason}` : ""} · ${day(c.recorded_at)}`}
                   {c.outcome === "flag" && <FilingLink href={c.source_ref} />}
                   {c.outcome === "flag" &&

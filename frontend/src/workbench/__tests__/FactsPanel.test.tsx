@@ -231,6 +231,32 @@ describe("FactsPanel — extract → ratify", () => {
     expect(screen.queryByText(/NT\$/)).not.toBeInTheDocument();
   });
 
+  it("an UNREAD annual currency labels '?' (never '$'), and the yuan reads CN¥ (PR 4)", () => {
+    // The annual path leaves statement_currency null and flags `currency-unread` when it cannot establish the
+    // currency (a bare "$", no companyfacts to settle it). A null there must never print as dollars.
+    const UNREAD = {
+      ...FLAG_BURN,
+      source: "annual-statements",
+      flags: ["annual-statements", "currency-unread"],
+      statement_currency: null,
+      located_passages: [],
+    };
+    h.extract.data = env([UNREAD]);
+    const { unmount } = render(<FactsPanel securityId={SID} />);
+    expect(screen.getByText(/cash \?/)).toBeInTheDocument();
+    expect(screen.getByText(/burn \?\/qtr/)).toBeInTheDocument();
+    expect(screen.queryByText(/cash \$/)).not.toBeInTheDocument();
+    unmount();
+
+    h.extract = {
+      data: env([{ ...UNREAD, flags: ["annual-statements"], statement_currency: "CNY" }]),
+      error: null,
+      isFetching: false,
+    };
+    render(<FactsPanel securityId={SID} />);
+    expect(screen.getByText(/cash CN¥/)).toBeInTheDocument();
+  });
+
   it("the runway leg's non-fact states render DISTINCT honest notes (Slices A + A-2)", () => {
     // "cash-generative" is a STATE (no runway applies), "financials-in-exhibit" a DEFERRAL (the
     // exhibit hunt too came back empty), "exhibit-ambiguous" its own DEFERRAL (more than one
