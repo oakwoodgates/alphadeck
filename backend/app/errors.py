@@ -104,6 +104,9 @@ PLATFORM_VALUE_SENTENCES: dict[str, str] = {
     "already_pinned": "This value is already pinned.",
     "not_pinned": "This value is not pinned.",
 }
+# V2 W4d: "Extract now" refusals, before anything is fetched or written.
+PLATFORM_VALUE_NO_CIK = "This company has no CIK, so its SEC filings cannot be read. Resolve its CIK first. Nothing was fetched."
+PLATFORM_VALUE_FUND = "This is a fund: its share count comes from the fund's own filings, not this extraction. Nothing was fetched."
 
 
 # A malformed ALPHADECK_CRON_AT, wherever a route reads the schedule (the value itself: a steward only, and the log).

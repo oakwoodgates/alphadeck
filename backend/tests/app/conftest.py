@@ -109,6 +109,19 @@ def edition_runs_dir(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def extraction_runs_dir(tmp_path, monkeypatch):
+    """V2 W3c — redirect background extraction's run artifacts (``pipeline/extraction_run_log``) to a per-test tmp
+    dir for EVERY app test: ``/admin/status`` reads the newest one for its shared-facts line, so a dev machine's real
+    ``data/extraction_runs`` must never leak into an assertion. Request it by name to seed one.
+    """
+    from pipeline import extraction_run_log
+
+    d = tmp_path / "extraction_runs"
+    monkeypatch.setattr(extraction_run_log, "EXTRACTION_RUNS_DIR", d)
+    return d
+
+
+@pytest.fixture(autouse=True)
 def backups_dir(tmp_path, monkeypatch):
     """Redirect the DB-snapshot home (``pipeline/backup``) to a per-test tmp dir for EVERY app test — the
     admin surface READS it (``/admin/status`` last_backup, ``/admin/backups``) and the create job WRITES

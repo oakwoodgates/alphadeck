@@ -8,7 +8,8 @@ one value per company for everyone, read and decided by the steward.
 - ``POST /admin/platform-values/{security_id}/correct`` — set the value by hand, citing the filing;
 - ``POST /admin/platform-values/candidates/{candidate_id}/dismiss`` — close a candidate with a reason;
 - ``POST /admin/platform-values/decisions/{decision_id}/undo`` — undo an approve, correct or dismiss;
-- ``POST /admin/platform-values/{security_id}/pin`` and ``/unpin`` — review every future filing value by hand.
+- ``POST /admin/platform-values/{security_id}/pin`` and ``/unpin`` — review every future filing value by hand;
+- ``POST /admin/platform-values/{security_id}/extract`` — extract now: read the company's latest filings (W4d).
 
 Every write answers the company's new state. The writes are ``platform_values.steward``'s (the company write lock,
 the correction rule, append-only rows, the steward's email); this router only maps its errors to the error
@@ -24,7 +25,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Mapping
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
@@ -33,22 +34,35 @@ from fastapi import APIRouter, Body, Depends, Query
 from pydantic import BaseModel, Field, ValidationError
 
 from app.auth import CurrentUser, require_super_admin
-from app.deps import get_conn
-from app.errors import PLATFORM_VALUE_NOT_FOUND, PLATFORM_VALUE_SENTENCES, fail
+from app.deps import get_conn, get_platform_sec_client
+from app.errors import (
+    PLATFORM_VALUE_FUND,
+    PLATFORM_VALUE_NO_CIK,
+    PLATFORM_VALUE_NOT_FOUND,
+    PLATFORM_VALUE_SENTENCES,
+    fail,
+)
 from app.routers.workbench import COMPANY_BUSY
 from db.write_lock import CompanyLockBusy
 from domain.extraction import LocatedPassage
 from domain.links import HttpUrlOut
 from domain.platform_values import DerivedState
+from domain.scopes import DATA_TENANT_ID
+from domain.security import Security
+from domain.settings import get_settings
 from domain.text_types import AdsRatio, Money, Prose, RequestDate, Shares, UrlText
-from platform_values import state, steward
+from ingest.edgar.client import EdgarClient
+from platform_values import extraction, state, steward
 from platform_values.cards import CardCount, card_counts
+from platform_values.machine import MachineOutcome
 from platform_values.steward import (
     PlatformValueConflict,
     PlatformValueInvalid,
     StewardOutcome,
 )
+from repositories import platform_extraction_repo as extraction_repo
 from repositories import platform_value_repo as repo
+from securities import master
 
 _log = logging.getLogger("alphadeck.platform_values")
 
@@ -60,6 +74,7 @@ QUEUE_LIMIT_DEFAULT = 50
 QUEUE_LIMIT_MAX = 200
 QUEUE_OFFSET_MAX = 100_000
 NO_CARDS = CardCount(cards=0, pen_only=False)
+ATTEMPTS_SHOWN = 10  # the company read's recent extraction attempts
 
 
 # --- response models (no limits: built from stored rows) ---------------------------------------------------------
@@ -173,14 +188,33 @@ class PlatformValueOut(BaseModel):
     pin: PlatformPinEventOut | None = None
 
 
+class PlatformExtractionAttemptOut(BaseModel):
+    """One background-extraction attempt of the company (``platform_extraction_attempt``): ``run_kind`` who ran it
+    (``nightly``, ``onboarding``, ``backfill``, ``steward``, ``get_data``); ``status`` ``done`` (the machine writer
+    ran: ``shares_reason`` / ``cash_reason`` its reason per value type), ``error`` (``error``: one line, why),
+    ``busy`` (another writer held the company; nothing written) or ``skipped`` (``detail``, e.g. no CIK).
+    """
+
+    id: UUID
+    recorded_at: datetime
+    run_kind: str
+    status: str
+    shares_reason: str | None = None
+    cash_reason: str | None = None
+    error: str | None = None
+    detail: str | None = None
+
+
 class CompanyValuesOut(BaseModel):
-    """A company's two platform values (the steward's company page)."""
+    """A company's two platform values (the steward's company page). ``attempts``: the company's newest
+    background-extraction attempts (at most 10, newest first; W4d), whoever ran them."""
 
     security_id: UUID
     ticker: str | None = None
     name: str | None = None
     shares: PlatformValueOut
     cash_burn: PlatformValueOut
+    attempts: list[PlatformExtractionAttemptOut] = Field(default_factory=list)
 
 
 class PlatformAwaitingItemOut(BaseModel):
@@ -237,6 +271,54 @@ class PlatformQueueOut(BaseModel):
     items: list[PlatformQueueItemOut] = Field(default_factory=list)
     total: int = 0
     pen_only_total: int = 0
+
+
+ExtractValueOutcome = Literal[
+    "applied",  # a newer clean filing value was written (``fact_id``)
+    "flagged",  # a flagged value awaits the steward (``candidate_id``; ``written`` False = the same one already did)
+    "pinned",  # the company is pinned: a clean value awaits the steward instead of being applied
+    "nothing_found",  # the filings gave no value of this type (``reason`` the extractor's)
+    "already_on_file",  # this filing's value is already stored: nothing written
+    "older_than_on_file",  # dated on or before the value shown: nothing written
+    "after_today",  # dated after today, so never shown: nothing written
+    "failed",  # the fetch or the write failed (``reason`` the attempt's one line): nothing written
+    "skipped",  # nothing could be read (``reason``, e.g. no CIK): nothing fetched
+]
+
+
+class PlatformExtractValueOut(BaseModel):
+    """What one "Extract now" did for ONE value type. ``outcome`` (above); ``reason`` the extractor's reason for a
+    ``nothing_found``, the attempt's one-line error for ``failed``, the detail for ``skipped``; ``written`` = a row
+    was appended for this type now; ``fact_id`` / ``candidate_id`` the fact or candidate that stands for it.
+    """
+
+    outcome: ExtractValueOutcome
+    reason: str | None = None
+    written: bool = False
+    fact_id: UUID | None = None
+    candidate_id: UUID | None = None
+
+
+class PlatformExtractAttemptOut(BaseModel):
+    """The attempt one "Extract now" recorded (one ``platform_extraction_attempt`` row, ``run_kind`` ``steward``):
+    ``status`` ``done`` / ``error`` / ``skipped`` (a busy company answers 409 instead), ``error`` its one line,
+    ``live_fetches`` the SEC requests it made, and the outcome per value type."""
+
+    attempt_id: UUID | None = None
+    status: Literal["done", "error", "skipped"]
+    error: str | None = None
+    detail: str | None = None
+    live_fetches: int | None = None
+    shares: PlatformExtractValueOut
+    cash_burn: PlatformExtractValueOut
+
+
+class PlatformExtractOut(BaseModel):
+    """The answer of "Extract now": what the attempt did (``attempt``) and the company's values after it
+    (``company``, the same shape every steward write answers)."""
+
+    attempt: PlatformExtractAttemptOut
+    company: CompanyValuesOut
 
 
 # --- request models (bounded: domain/text_types.py) --------------------------------------------------------------
@@ -430,14 +512,29 @@ def _type_out(tv: state.TypeValues, conn: psycopg.Connection) -> PlatformValueOu
     )
 
 
+def _attempt(a: Mapping[str, Any]) -> PlatformExtractionAttemptOut:
+    return PlatformExtractionAttemptOut(
+        id=a["id"],
+        recorded_at=a["recorded_at"],
+        run_kind=a["run_kind"],
+        status=a["status"],
+        shares_reason=a.get("shares_reason"),
+        cash_reason=a.get("cash_reason"),
+        error=a.get("error"),
+        detail=a.get("detail"),
+    )
+
+
 def _company_out(conn: psycopg.Connection, security_id: UUID) -> CompanyValuesOut:
     cv = state.read_company(conn, security_id)
+    attempts = extraction_repo.latest_attempts(conn, [security_id], per_company=ATTEMPTS_SHOWN)
     return CompanyValuesOut(
         security_id=cv.security_id,
         ticker=cv.ticker,
         name=cv.name,
         shares=_type_out(cv.shares, conn),
         cash_burn=_type_out(cv.cash_burn, conn),
+        attempts=[_attempt(a) for a in attempts.get(security_id, [])],
     )
 
 
@@ -699,3 +796,127 @@ def unpin_value(
         user,
         lambda: steward.unpin(conn, security_id, body.fact_type, by=user.email, note=body.note),
     )
+
+
+# --- extract now (W4d) -------------------------------------------------------------------------------------------
+
+# Attempts the gate reads to say why the company is (or is not) due: enough for any retry streak.
+_GATE_ATTEMPTS = 20
+
+
+def _work_item(conn: psycopg.Connection, sec: Security, cik: str, kind: str) -> extraction.WorkItem:
+    """The company as ``extract_one`` takes it. ``reason`` / ``note`` are the gate's own answer (``extract_one``
+    reads neither: a steward's click runs whether or not the company is due); a company the gate says is not due
+    carries ``retry`` with the note ``steward click (<the gate's note>)``, since ``WorkItem`` has no steward
+    reason. The inputs key is the stored filing index's, as the work list builds it; ``extract_one`` replaces it
+    with the one the submissions index gives once it has read that."""
+    security_id = sec.id
+    now = datetime.now(timezone.utc)
+    s = get_settings()
+    filings = extraction.filings_from_rows(
+        extraction_repo.periodic_filings(conn, [security_id]).get(security_id, [])
+    )
+    attempts = [
+        extraction.AttemptRow(a["status"], a["inputs_key"], a["recorded_at"])
+        for a in extraction_repo.latest_attempts(
+            conn, [security_id], per_company=_GATE_ATTEMPTS
+        ).get(security_id, [])
+    ]
+    due = extraction.due(
+        attempts,
+        filings,
+        cik=cik,
+        now=now,
+        hold_h=s.platform_extraction_hold_h,
+        retry_max=s.platform_extraction_retry_max,
+    )
+    count = card_counts(conn, [security_id]).get(security_id, NO_CARDS)
+    return extraction.WorkItem(
+        security_id=security_id,
+        ticker=sec.ticker,
+        cik=cik,
+        instrument_kind=kind,
+        cards=count.cards,
+        pen_only=count.pen_only,
+        reason=due.reason or "retry",
+        note=due.note if due.reason else f"steward click ({due.note})",
+        inputs_key=extraction.inputs_key(cik, [f for f in filings if f.public_at <= now]),
+    )
+
+
+def _extract_value(
+    conn: psycopg.Connection, result: extraction.AttemptResult, fact_type: str
+) -> PlatformExtractValueOut:
+    """One value type's outcome of the attempt, in the summary's words."""
+    if result.status == "error":
+        return PlatformExtractValueOut(outcome="failed", reason=result.error)
+    if result.status == "skipped":
+        return PlatformExtractValueOut(outcome="skipped", reason=result.detail)
+    o: MachineOutcome | None = result.outcomes.get(fact_type)
+    if o is None:  # pragma: no cover - the writer answers both types on every done attempt
+        return PlatformExtractValueOut(outcome="failed", reason="no outcome recorded")
+    reason = None
+    if o.reason == "nothing_found" and o.candidate_id is not None:
+        cand = repo.candidate(conn, o.candidate_id)
+        reason = cand.get("reason") if cand is not None else None
+    return PlatformExtractValueOut(
+        outcome=o.reason,
+        reason=reason,
+        written=o.written,
+        fact_id=o.fact_id,
+        candidate_id=o.candidate_id,
+    )
+
+
+@router.post("/{security_id}/extract", response_model=PlatformExtractOut)
+def extract_now(
+    security_id: UUID,
+    conn: psycopg.Connection = Depends(get_conn),
+    user: CurrentUser = Depends(require_super_admin),
+    client: EdgarClient = Depends(get_platform_sec_client),
+) -> PlatformExtractOut:
+    """EXTRACT NOW: read this company's latest SEC filings and hand the result to the machine writer, through
+    background extraction's own per-company step (``platform_values.extraction.extract_one``, ``run_kind``
+    ``steward``). No body. The step fetches FIRST with the company free (the submissions index, then the
+    extraction, cache first, on the recurring client), only then takes the company lock to write, and appends
+    exactly one attempt row (``platform_extraction_attempt``), whatever the outcome.
+
+    Per value type, the machine writer's usual rule: a clean value from a filing newer than the value shown is
+    applied (even over a verified value, unless the company is pinned: then it waits for you); a flagged value and
+    a "nothing found" are recorded as candidates; a value already on file writes nothing. ``attempt`` says what
+    happened per type; ``company`` is the company's values after it, with the new attempt first in ``attempts``.
+
+    **An extraction failure is not an error status**: SEC unreachable, a document missing, no SEC User-Agent set:
+    the answer is 200 with ``attempt.status`` ``error`` and its one-line reason (the attempt row is the record;
+    nothing else is written, so a value awaiting you still waits). **404** unknown company, or a company with no
+    CIK (nothing fetched); **409** another writer held the company for the whole wait (one ``busy`` attempt row,
+    no value written); **422** a fund (its share count is not extracted). Steward only.
+    """
+    try:
+        sec = master.get(conn, security_id, tenant_id=DATA_TENANT_ID)
+        if sec is None:
+            raise fail(
+                404, PLATFORM_VALUE_NOT_FOUND, LookupError(f"no company {security_id}"), user=user
+            )
+        if not sec.cik:
+            raise fail(404, PLATFORM_VALUE_NO_CIK, LookupError("no CIK"), user=user)
+        kind = sec.instrument_kind or "equity"
+        if not extraction.extractable({"instrument_kind": kind}):
+            raise fail(422, PLATFORM_VALUE_FUND, ValueError(f"instrument_kind={kind}"), user=user)
+        item = _work_item(conn, sec, sec.cik, kind)
+    finally:
+        conn.rollback()  # end the read: no transaction stays open across the SEC call
+    wait_s = get_settings().ingest_lock_request_wait_s
+    result = extraction.extract_one(conn, item, client=client, wait_s=wait_s, run_kind="steward")
+    if result.status == "busy":
+        raise fail(409, COMPANY_BUSY, CompanyLockBusy(security_id, None, wait_s), user=user)
+    attempt = PlatformExtractAttemptOut(
+        attempt_id=result.attempt_id,
+        status=result.status,  # done, error or skipped: busy answered 409 above
+        error=result.error,
+        detail=result.detail,
+        live_fetches=result.live_fetches,
+        shares=_extract_value(conn, result, "shares_outstanding"),
+        cash_burn=_extract_value(conn, result, "cash_burn"),
+    )
+    return PlatformExtractOut(attempt=attempt, company=_read(conn, security_id, user))

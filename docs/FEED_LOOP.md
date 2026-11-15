@@ -1102,6 +1102,11 @@ the nightly itself, inside the window.
   legs one at a time — not through `ingest_thesis`, so #432's fetch-ahead and its `ingest_fetch_concurrency`
   workers do not apply; a background load has no deadline to buy down. (The FAST LANE is `ingest_thesis`, so it
   DOES get the fetch-ahead — up to 8 workers on its ≤5 cold names, inside the backend's interactive lane.)
+- **New companies' platform values (V2 W3e).** After the queue's batch (and when nothing is queued), still under
+  the job's lock, `_extraction_step` extracts the share count and cash/burn of every NEVER-extracted company on a
+  live card: a fast-laned promote and a company that joined from another card included, which no leg of the job
+  ever sees. Fail-open, through the same recurring client, with what is left of the batch's time budget. Rules:
+  `docs/PLATFORM_VALUES.md` ("The onboarding job's step").
 
 **The nightly's treatment of a not-yet-warm name.** `run_daily` reads the pending rows ONCE
 (`onboarding.pending_status`; FAIL-OPEN toward the full walk — a read that fails prints a WARNING and every
@@ -1199,6 +1204,21 @@ filings, reads each header, and records the fund series and symbols; **it feeds 
 imports `calls/`). Cost: about 20-45 SEC requests a night, all through `EdgarClient` and the global budget. The
 full description (dates, stages, the two reads, the CLI) is `docs/FUND_RADAR.md`.
 
+### The platform-extraction step — the LAST thing in the pass (V2 W3c, 2026-11)  `[BUILT]`
+
+Approved B2 (a): after the fund radar, `run_daily_pass` runs `pipeline/nightly_extraction.py`, which keeps the shared
+share counts and cash/burn current (`docs/PLATFORM_VALUES.md`, "Background extraction"). By then every thesis's
+call of record is written and committed, the artifact is finished, the health page sent. Its own connections, its
+own recurring `EdgarClient` (the recurring lane of the global SEC budget; built only when a company is due),
+`timed("platform_extraction")`, live passes only (a `--no-live` pass records `skipped: no-live`), and fail-open (a
+fault is a `status: error` block, never a failed pass or a different exit status). **Its budget** is the smaller of
+`ALPHADECK_PLATFORM_EXTRACTION_BUDGET_S` (900 s) and the pass's limit (`cron_run_timeout_s`, the sidecar's
+`RUN_TIMEOUT_S`) minus the time the pass has spent minus a 600 s margin; at zero it records `no time left` with the
+due count. It checks between companies and never starts one the slowest so far says it cannot finish; the rest stays
+due for the next night. Its summary is added to the finished artifact as the `platform_extraction` block
+(`cron_run_log.amend_run_block`) and shown as one Admin line. It feeds no call. It delays the backup and the
+editions page by its own running time (at most the budget).
+
 ### Where a pass spends its time — the `timings` block (X5, 2026-10-17)  `[BUILT]`
 
 **Measurement only.** Before the cron grows (more names, more theses) and moves off the laptop, two questions
@@ -1224,7 +1244,7 @@ suite): `per_thesis(...)` wraps the loop's iterable (each thesis is a scope), `t
   newly-armed digest after the loop: its re-arm history read + the push; absent on a pass with no newly
   armed name), `split_scan`,
   `rename_probe`, `successor_scan`, `self_audit`, `artifact_write`, `health_page`, `shell_sweep`,
-  `spac_radar`, `fund_radar`; the gaps between them are the pass's `other`. **Not in the process:** the nightly backup is a
+  `spac_radar`, `fund_radar`, `platform_extraction`; the gaps between them are the pass's `other`. **Not in the process:** the nightly backup is a
   separate `python -m pipeline.backup` the sidecar runs after the pass, so it is not measured here. The
   printed report runs in `main` after the artifact is final; it is stdout formatting only and is not timed.
 - **Counts:** `sec_live` / `sec_cached` / `sec_cached_404` (the EDGAR client's network decision for each

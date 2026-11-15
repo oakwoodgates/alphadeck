@@ -107,10 +107,10 @@ one busy company cannot spend a run's budget (the W3 plan, Q5).
 
 ## Background extraction (W3a)
 
-`platform_values/extraction.py` keeps the two values current without a click. Its callers: the backfill CLI
-(`python -m pipeline.extract_values`, below: "The backfill (W3d)"); the nightly leg and the onboarding step are
-later PRs, each calling the
-pieces below. Nothing here is a call input; no module of the call, replay or editions engine names it
+`platform_values/extraction.py` keeps the two values current without a click. Its callers: the nightly step,
+the onboarding job's step for new companies, the backfill CLI (`python -m pipeline.extract_values`) and the
+steward's Extract now, each described below and each calling the pieces below. Nothing here is a call input; no
+module of the call, replay or editions engine names it
 (`tests/platform_values/test_extraction_run.py`).
 
 **The attempt record.** `platform_extraction_attempt` (migration 0207, data tenant, append-only) holds one row per
@@ -169,6 +169,22 @@ returns an `ExtractionRun` (counts per outcome, failures named, `deferred`, `liv
 `admin_line()`, `attention` when anything failed). `pipeline/extraction_run_log.py` writes and reads the run files
 in `data/extraction_runs/`.
 
+**The onboarding job's step (W3e, approved B5 (a)).** New companies get their values from a step of the onboarding
+job (`pipeline/onboarding.py`, `_extraction_step`), not from a leg: a promote of five or fewer new names is
+fast-laned and a company already on another card is never queued, so a leg would miss both (the W3 plan,
+correction 5), and a leg would fetch under the company lock. The step runs AFTER the queue's batch, on every batch
+that got past its refusals (also when nothing is queued or the daily cap is reached), under the job's lock, when the
+batch's names are finished and every company lock is released. It takes only `never` companies from `work_list`
+(B4: before the first backfill they are counted as `withheld_never`, never fetched), at most
+`platform_extraction_onboard_max_names` (25), through the batch's one recurring client, with what is left of the
+batch's `onboard_batch_budget_s`; it stops between companies on the nightly window or a running pass, and is `off`
+under the kill switch. A company already extracted (a new filing, a retry) is the nightly's (`left_for_nightly`).
+Fail-open: a fault is one `FAILED` line; the batch's names, counts, stop reason, artifact and exit status, the
+onboarding queue and every thesis stay exactly as without it (`tests/pipeline/test_onboarding.py`, section 9). A
+run that attempted a company writes `data/extraction_runs/` (run kind `onboarding`); the job prints its one line
+(`Shared facts, new companies · …`) and `python -m pipeline.onboarding --status` shows the newest one. So a new
+company gets its values within about 30 minutes of a promote outside the nightly window, or from the nightly.
+
 **Settings** (`domain/settings.py`; each passed to the backend and cron containers in `docker-compose.yml`):
 
 | `ALPHADECK_…` | Default | Meaning |
@@ -181,6 +197,37 @@ in `data/extraction_runs/`.
 
 To turn background extraction off on prod: set `ALPHADECK_PLATFORM_EXTRACTION_MAX_NAMES=0` in `.env`, then
 `scripts/deploy.sh --env-only cron` (the nightly) and the same for the backend (the onboarding job).
+
+**The nightly step** (`pipeline/nightly_extraction.py`, V2 W3c; approved B2 (a)): the LAST thing in the nightly
+pass, after every thesis's call of record is written and committed and the run artifact is finished. Live passes
+only (a `--no-live` pass records `skipped: no-live`). Its time budget is the smaller of
+`PLATFORM_EXTRACTION_BUDGET_S` and the pass's limit (`ALPHADECK_CRON_RUN_TIMEOUT_S`, 5,400 s) minus the time the
+pass has spent minus 600 s; at zero it is `no time left` (the due companies counted, taken the next night). It uses
+the recurring SEC client (the recurring lane of the global SEC budget) and `work_list`'s B4 rule. It never raises:
+a fault is a `status: error` block. Its summary (`ExtractionRun.to_json()` plus `budget`, `withheld_never`, `held`,
+`waiting`, `live_completed`) is added to the finished pass artifact as the `platform_extraction` block.
+
+| `status` | Admin line |
+|---|---|
+| `ran` | `Shared facts · Nov 14: 42 extracted: 31 applied, 6 to the steward, 5 nothing found · 2 failed (ACME: SEC unreachable) · 118 still due · 84 SEC requests · 3m 12s` |
+| `off` | `Shared facts · Nov 14: off (the kill switch, ALPHADECK_PLATFORM_EXTRACTION_MAX_NAMES=0)` |
+| `no time left` | `Shared facts · Nov 14: no time left in the pass · 12 due, taken next night` |
+| `skipped: no-live` | `Shared facts · Nov 14: skipped (a --no-live pass fetches nothing)` |
+| `error` | `Shared facts · Nov 14: did not run (the step failed (RuntimeError))` |
+
+Any line gains `· N waiting after repeated failures` and `· N never extracted, held until the first backfill` when
+they are not 0. **Loud** (`attention`) when a company failed, the run itself failed, a company is waiting after
+repeated failures, or never-extracted companies are held back (the backfill is owed); quiet otherwise.
+
+**On Admin:** `AdminStatusOut.platform_extraction` (`line`, `ran_at`, `run_kind`, `attention`) is the newer of the
+newest finished pass's block and the newest file in `data/extraction_runs/` (the backfill, the onboarding step, a
+hand run): two directory reads, no database, fail-open.
+
+**By hand** (`python -m pipeline.nightly_extraction`): the same step outside a pass. A dry run by default (the
+work list, the budget; reads only); `--apply` runs it (attempts are `nightly`), `--no-live` makes the client
+cache-only (no SEC request, no User-Agent needed: a missing document is an `error` attempt, `not cached`, and stays
+due). It refuses (exit 75) inside the nightly window or while a pass holds the call-of-record lock, stops between
+companies if either begins, and writes its summary to `data/extraction_runs/`.
 
 ## The backfill (W3d)
 
@@ -331,6 +378,7 @@ Each kind has one fixed sentence in `app/errors.py` (`PLATFORM_VALUE_SENTENCES`)
 | `POST /admin/platform-values/candidates/{candidate_id}/dismiss` | `PlatformDismissIn { reason }` | `CompanyValuesOut` |
 | `POST /admin/platform-values/decisions/{decision_id}/undo` | `PlatformUndoIn { reason? }` | `CompanyValuesOut` |
 | `POST /admin/platform-values/{security_id}/pin` and `/unpin` | `PlatformPinIn { fact_type, note? }` | `CompanyValuesOut` |
+| `POST /admin/platform-values/{security_id}/extract` | none | `PlatformExtractOut { attempt, company }` (below) |
 
 Every write answers the company's new state. The model names carry a `Platform` prefix where a bare name
 (`DecisionOut`, ...) already exists in the contract. A plain user gets 403 on every route
@@ -397,3 +445,33 @@ undo cannot be undone, so the page offers the decision again (Approve on the reo
 prefilled from the set-aside version). A refusal shows the server's sentence inside the block that made the call.
 Nothing disappears: dismissed candidates, undone decisions and set-aside versions stay in the collapsed History, gray.
 Who pinned a value, when and why shows beside the Pinned chip, from the company read's newest pin event (`pin`).
+
+### Extract now (W4d)
+
+`POST /admin/platform-values/{security_id}/extract` (steward only, no body) runs background extraction's own
+per-company step, `extract_one(..., run_kind="steward")`, on the RECURRING SEC client (`app.deps.get_platform_sec_client`,
+the five-minute dial: companyfacts is re-read from the cache unless the company filed since; its requests ride the
+recurring lane of the global SEC budget). The step fetches with the company free, then the machine writer takes the
+lock and writes, then exactly one attempt row is appended. The route never holds the lock itself and holds no
+transaction across the SEC call. There is no daily allowance to charge: a steward is never counted.
+
+| Answer | When | Written |
+|---|---|---|
+| 200, `attempt.status` `done` | the writer ran | its usual rows, plus the attempt |
+| 200, `attempt.status` `error` | SEC unreachable, a document missing, no SEC User-Agent set, ... | the attempt only (`error`, one line); a value awaiting the steward still waits |
+| 404 (`PLATFORM_VALUE_NOT_FOUND`) | no such company in the data tenant | nothing; nothing fetched |
+| 404 (`PLATFORM_VALUE_NO_CIK`) | the company has no CIK | nothing; nothing fetched |
+| 409 (`COMPANY_BUSY`) | another writer held the company for the whole wait (`ingest_lock_request_wait_s`) | the `busy` attempt only |
+| 422 (`PLATFORM_VALUE_FUND`) | an ETF (`extraction.extractable` is false) | nothing; nothing fetched |
+
+`PlatformExtractOut { attempt: PlatformExtractAttemptOut, company: CompanyValuesOut }`;
+`PlatformExtractAttemptOut { attempt_id, status, error, detail, live_fetches, shares, cash_burn }`, each value a
+`PlatformExtractValueOut { outcome, reason, written, fact_id, candidate_id }` with `outcome` the writer's reason
+(`applied`, `flagged`, `pinned`, `nothing_found`, `already_on_file`, `older_than_on_file`, `after_today`) or
+`failed` / `skipped` (`reason` then the attempt's error line or detail); `reason` on `nothing_found` is the
+extractor's own (`cash-generative`, ...); `written` False on `flagged` means the same flag was already waiting.
+
+**The recent attempts on the company read.** `CompanyValuesOut.attempts` (additive): the company's newest 10
+`platform_extraction_attempt` rows, newest first, whoever ran them:
+`PlatformExtractionAttemptOut { id, recorded_at, run_kind, status, shares_reason, cash_reason, error, detail }`.
+The company page lists them in each value's History.

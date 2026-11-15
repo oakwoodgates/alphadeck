@@ -6,6 +6,8 @@ import type {
   PlatformAppliedValueOut,
   PlatformCandidateOut,
   PlatformDecisionOut,
+  PlatformExtractValueOut,
+  PlatformExtractionAttemptOut,
   PlatformFactType,
   PlatformValueOut,
 } from "../api/hooks";
@@ -179,4 +181,69 @@ export function explainBody(c: PlatformCandidateOut) {
     ads_ratio: c.ads_ratio ?? null,
     ads_ratio_status: c.ads_ratio_status ?? null,
   };
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Extract now (W4d) and the recent extraction attempts.
+
+/** The honest note beside the button: what a click reads and what it can change. */
+export const EXTRACT_NOTE =
+  "Reads this company's latest SEC filings. A clean value from a newer filing replaces the one shown, unless that " +
+  "value is pinned; a flagged value waits for you; anything else changes nothing.";
+
+/** What the machine writer did with one value type, in words (no closing period: a status line). Shared by the
+ *  answer of a click (`outcome`, `written`, `reason`) and an attempt row (its stored reason only). */
+export function machineWords(outcome: string, written = true, reason?: string | null): string {
+  switch (outcome) {
+    case "applied":
+      return "a newer value from the filing was applied";
+    case "flagged":
+      return written ? "a flagged value from the filing now awaits you" : "the same flagged value already awaits you";
+    case "pinned":
+      return written
+        ? "a clean value now awaits you because this value is pinned"
+        : "the same held value already awaits you because this value is pinned";
+    case "nothing_found":
+      return reason ? `the filings gave no value (${reason})` : "the filings gave no value";
+    case "already_on_file":
+      return "already on file, nothing changed";
+    case "older_than_on_file":
+      return "the filing is not newer than the value shown, nothing changed";
+    case "after_today":
+      return "the filing is dated after today, nothing written";
+    case "failed":
+      return reason ? `failed: ${reason}` : "failed";
+    case "skipped":
+      return reason ? `skipped: ${reason}` : "skipped";
+    default:
+      return outcome;
+  }
+}
+
+/** One value's line after a click: "Share count: a newer value from the filing was applied". */
+export function extractLine(factType: PlatformFactType, v: PlatformExtractValueOut): string {
+  return `${FACT_TITLE[factType]}: ${machineWords(v.outcome, v.written ?? true, v.reason)}`;
+}
+
+const RUN_KIND_WORDS: Record<string, string> = {
+  nightly: "nightly run",
+  onboarding: "onboarding",
+  backfill: "backfill",
+  steward: "Extract now",
+  get_data: "get-data",
+};
+
+/** One attempt row for ONE value type: "2026-11-15 · nightly run · failed: SEC timed out". The server's error
+ *  line is shown as given. */
+export function attemptWords(a: PlatformExtractionAttemptOut, factType: PlatformFactType): string {
+  const head = `${day(a.recorded_at)} · ${RUN_KIND_WORDS[a.run_kind] ?? a.run_kind}`;
+  let what: string;
+  if (a.status === "error") what = `failed: ${a.error ?? "no reason recorded"}`;
+  else if (a.status === "busy") what = "busy: another writer held the company, nothing written";
+  else if (a.status === "skipped") what = `skipped: ${a.detail ?? "nothing could be read"}`;
+  else {
+    const reason = factType === "shares_outstanding" ? a.shares_reason : a.cash_reason;
+    what = reason ? machineWords(reason) : "no outcome recorded";
+  }
+  return `${head} · ${what}`;
 }

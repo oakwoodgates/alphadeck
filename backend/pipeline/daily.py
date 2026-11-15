@@ -90,6 +90,7 @@ from pipeline.call_for_thesis import call_for_thesis
 from pipeline.cron_run_log import (
     RUN_STATUS_RUNNING,
     already_ran_live,
+    amend_run_block,
     amend_run_timings,
     list_run_logs,
     mark_run_crashed,
@@ -1176,6 +1177,10 @@ class DailyPassOutcome:
     # session after their price leg, the older sessions' closes still missing (loud), and the late ones that
     # arrived — computed ONCE in the pass, so the artifact, the printed report and the Admin poll agree
     missing_closes: MissingCloses = field(default_factory=MissingCloses)
+    # V2 W3c — the platform-extraction step's block (``pipeline/nightly_extraction.py``): the LAST thing in the pass,
+    # added to the FINISHED artifact afterwards (``cron_run_log.amend_run_block``). Not a ``payload_kwargs`` field:
+    # it does not exist yet when the artifact is written. None = the step did not report (a direct caller).
+    platform_extraction: dict | None = None
 
     def payload_kwargs(self) -> dict:
         """Every run-level field ``cron_run_log.build_run_payload`` / ``write_cron_run_log`` take, from this
@@ -1900,7 +1905,38 @@ def _run_daily_pass_locked(
                 print(f"  fund radar ERROR: {err}")
         except Exception as e:  # noqa: BLE001 — the radar is a passenger, never the driver
             print(f"WARNING: fund radar leg failed: {e}")
+    # V2 W3c — THE PLATFORM-EXTRACTION STEP, LAST (approved B2 (a)): every thesis's call of record was written and
+    # committed in `run_daily` above, the artifact is finished, the health page sent, the passenger legs done.
+    # Nothing it writes is read by the call path; it never raises; its block is added to the finished artifact.
+    _platform_extraction_leg(outcome=outcome, allow_live=allow_live)
     return outcome
+
+
+def _platform_extraction_leg(*, outcome: DailyPassOutcome, allow_live: bool) -> None:
+    """V2 W3c — keep the shared share counts and cash/burn current (``pipeline/nightly_extraction.py``): its own
+    connections (``_pass_connect``), its own recurring SEC client, a budget clipped to what is left of the pass's
+    limit, FAIL-OPEN against every ``Exception`` (a fault is a ``status: error`` block, never a failed pass or a
+    different exit status). A ``--no-live`` pass skips it (``skipped: no-live``). The block rides the outcome and
+    is added to THIS pass's finished artifact (``amend_run_block``); one quiet line is printed (loud on attention).
+    """
+    try:
+        from pipeline import nightly_extraction as leg
+
+        if allow_live:
+            block = timed("platform_extraction")(leg.run_nightly_extraction)(
+                pass_started_at=outcome.started_at, live=True, connect=_pass_connect
+            )
+        else:
+            block = leg.skipped_no_live_block()
+        outcome.platform_extraction = block
+        if outcome.log_path is not None:
+            amend_run_block(
+                outcome.log_path, started_at=outcome.started_at, key=leg.BLOCK_KEY, block=block
+            )
+        line = str(block.get("admin_line", ""))
+        print(f"WARNING: {line}" if block.get("attention") else line)
+    except Exception as e:  # noqa: BLE001 — the step is a passenger, never the driver
+        print(f"WARNING: platform extraction step failed: {e}")
 
 
 def print_lock_waits(results: list[ThesisRunResult]) -> None:

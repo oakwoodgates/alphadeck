@@ -2923,6 +2923,22 @@ class AdminMasterRefreshOut(BaseModel):
     attention: bool = False
 
 
+class AdminPlatformExtractionOut(BaseModel):
+    """Background extraction of the shared share counts and cash/burn (V2 W3), as ONE plain-English line: the
+    newer of the nightly pass's ``platform_extraction`` block (``data/cron_runs``) and the newest backfill,
+    onboarding or by-hand run (``data/extraction_runs``) — e.g. "Shared facts · Nov 14: 42 extracted: 31 applied,
+    6 to the steward, 5 nothing found · 2 failed (ACME: SEC unreachable) · 118 still due · 84 SEC requests ·
+    3m 12s". Backend-authored copy (the FE renders, never composes). ``attention`` is true only when a company
+    failed, the run itself failed, a company waits after repeated failures, or never-extracted companies are held
+    back until the first backfill: the cases worth a louder line. ``run_kind`` says which run it is.
+    """
+
+    line: str
+    ran_at: datetime
+    run_kind: str
+    attention: bool = False
+
+
 class AdminMissingCloseOut(BaseModel):
     """One company with no stored close for ``session`` (``pipeline/missing_closes.py``) — on the night's quiet
     list, or (``loud``) an older session's close still missing after a later session's pass. ``edge`` is its
@@ -3041,6 +3057,9 @@ class AdminStatusOut(BaseModel):
     newest edition (a DB read of that edition); ``null`` otherwise. Never a cron verdict.
     ``master_refresh`` is the weekly company-list refresh's one line, from its newest applied run artifact
     (``data/master_runs``; a directory read — no DB); ``null`` until it has run. Never a cron verdict.
+    ``platform_extraction`` (V2 W3c) is background extraction's one line: the newer of the nightly pass's block
+    and the newest backfill / onboarding / by-hand run (directory reads — no DB); ``null`` until one has run.
+    Never a cron verdict.
 
     ``data_tenant_theses`` (auth PR 2) is how many ``thesis`` rows sit under the DATA tenant ``...0001``. It
     should be 0: a card belongs to a workspace (migration 0078 moved the founding operator's cards out), and a
@@ -3076,6 +3095,7 @@ class AdminStatusOut(BaseModel):
     missing_closes: AdminMissingClosesOut | None = None
     editions_cut: AdminEditionsCutOut | None = None
     master_refresh: AdminMasterRefreshOut | None = None
+    platform_extraction: AdminPlatformExtractionOut | None = None
     data_tenant_theses: int = 0
     platform_rows_in_workspaces: int = 0
     oauth_clients: AdminOAuthClientsOut | None = None
