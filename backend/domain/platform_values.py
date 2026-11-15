@@ -13,6 +13,9 @@ reader of ``fact_shares_outstanding`` / ``fact_cash_burn`` that shows "the value
 (``tests/dashboards/test_one_pick.py`` fails on a reader with its own rule). Before V2 each reader kept the first
 row on a date tie, and rows arrive sorted by ``source_ref``, so the alphabetically first URL won.
 
+THE ANNUAL SHARE-COUNT RULE (``annual_shares_auto_eligible``, the extractor plan's PR 5): an annual foreign filer's
+cover count whose only flags are the annual ones, within the age cap, is applied by the machine like an AUTO value.
+
 THE STATE (``derive_state``): no value yet (with the reason) / from the filing / awaiting the steward / verified,
 plus a newer candidate awaiting the steward beside a shown value (``pending``). A candidate is NEVER the value:
 ``DerivedState.meter_value`` is the picked fact or None, so "awaiting the steward" can never reach a meter.
@@ -23,12 +26,16 @@ for them), so nothing here can move a call, a verdict or a grade.
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date
 from enum import StrEnum
-from typing import Any, Literal, NamedTuple
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple
+
+if TYPE_CHECKING:
+    from domain.extraction import ExtractedFact
 
 FactType = Literal["shares_outstanding", "cash_burn"]
 
@@ -268,6 +275,44 @@ def machine_action(
     return MachineDecision("apply", None, ())
 
 
+# --- THE ANNUAL SHARE-COUNT RULE (the extractor plan's PR 5, Q7) ---------------------------------------------------
+
+# The source an annual foreign filer's cover count carries (``ingest.edgar.annual_shares``: a 20-F or 40-F cover).
+ANNUAL_COVER_SOURCE = "annual-cover"
+# The flags EVERY annual cover count carries by design: ``annual-cover`` always, ``stale-cover`` once its as-of date
+# is more than ~6 months old (on an annual filer that is only its age). A count whose flags are all in this set
+# carries no detected risk; any other flag (multi-value-cover, dual-class, ads-ratio-unread, source-disagreement,
+# implausible-count, cover-after-filing, pinned, or one not named yet) still queues.
+ANNUAL_ONLY_FLAGS: frozenset[str] = frozenset({"annual-cover", "stale-cover"})
+# The ADS-ratio states an applied count may carry: read from the filing, or no ADR evidence (1:1).
+_APPLIABLE_ADS_STATUS: frozenset[str | None] = frozenset({"known", None})
+
+
+def annual_shares_auto_eligible(fact: ExtractedFact, today: date, max_age_days: int) -> bool:
+    """Does the machine apply this FLAG share count as if it were AUTO? (the annual share-count rule)
+
+    True only for an annual foreign filer's cover count (``source`` ``annual-cover``, a share count with a finite
+    number) whose flags are all annual ones (``ANNUAL_ONLY_FLAGS``), whose ADS ratio was read (or there is no ADR
+    evidence), and whose OWN as-of date (``event_date``, the period of report or a fresher companyfacts date) is
+    between 0 and ``max_age_days`` days before ``today`` (the market date; the caller's
+    ``ExtractorConfig.annual_shares_auto_max_age_days``). A count dated after today is not eligible. Cash and burn,
+    a quarterly cover's ``stale-cover`` and every other flag are never eligible: they wait for the steward. An
+    eligible count then meets ``machine_action`` like any AUTO value (pin, already on file, older than shown).
+    """
+    if fact.fact_type != "shares_outstanding" or fact.source != ANNUAL_COVER_SOURCE:
+        return False
+    if fact.value is None or not math.isfinite(fact.value):
+        return False
+    if not set(fact.flags) <= ANNUAL_ONLY_FLAGS:
+        return False
+    if fact.ads_ratio_status not in _APPLIABLE_ADS_STATUS:
+        return False
+    if fact.ads_ratio_status == "known" and (fact.ads_ratio is None or fact.ads_ratio < 1):
+        return False
+    age_days = (today - fact.event_date).days
+    return 0 <= age_days <= max_age_days
+
+
 __all__ = [
     "FactType",
     "FACT_TYPES",
@@ -290,4 +335,7 @@ __all__ = [
     "correction_wins",
     "MachineDecision",
     "machine_action",
+    "ANNUAL_COVER_SOURCE",
+    "ANNUAL_ONLY_FLAGS",
+    "annual_shares_auto_eligible",
 ]

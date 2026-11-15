@@ -22,6 +22,7 @@ from domain.extraction import ExtractedFact, ExtractionResult, LocatedPassage, T
 from domain.market_time import market_today
 from domain.platform_values import ValueState
 from domain.scopes import DATA_TENANT_ID
+from ingest.edgar.annual_shares import extract_annual_shares
 from ingest.shares import ingest_shares_outstanding
 from platform_values import machine, state
 from repositories import platform_value_repo as repo
@@ -512,3 +513,245 @@ def test_a_failed_write_leaves_nothing_behind(db, monkeypatch):
     with pytest.raises(RuntimeError):
         _record(db, sid, ExtractionResult(facts=[_shares(), _cash()]))
     assert _counts(db, sid) == dict.fromkeys(TABLES, 0)
+
+
+# --- the annual share-count rule (PR 5): an annual-only count within the cap is applied ---------------------------
+#
+# A 20-F / 40-F cover count is always a FLAG from the extractor. When its ONLY flags are the annual ones
+# (``annual-cover``, ``stale-cover``) and it is no older than ``annual_shares_auto_max_age_days`` (400), the machine
+# applies it like an AUTO value: stamped ``auto``, state "from the filing", its real as-of date and ADS ratio kept,
+# and the same pin / already-on-file / older-than-on-file / after-today rules. Anything else still queues. The
+# counts come from the real cover fixtures (TSM: ratio 5; ARM: ratio 1) read by the real annual extractor.
+
+ANNUAL_FX = Path(__file__).resolve().parent.parent / "fixtures" / "sec_extractor" / "annual"
+TSM_REF = "https://www.sec.gov/Archives/edgar/data/1046179/tsm-20f.htm"
+ARM_REF = "https://www.sec.gov/Archives/edgar/data/1973239/arm-20f.htm"
+
+
+def _annual(fname: str, ref: str, age_days: int, today: date, *, has_f6: bool) -> ExtractedFact:
+    """The real annual cover extractor over a fixture cover, its period of report ``age_days`` before ``today``
+    (no companyfacts: the cover alone, so the only flags are the annual ones)."""
+    (fact,) = extract_annual_shares(
+        None,
+        (ANNUAL_FX / fname).read_text(encoding="utf-8"),
+        annual_ref=ref,
+        annual_form="20-F",
+        report_date=today - timedelta(days=age_days),
+        today=today,
+        has_f6_filing=has_f6,
+    )
+    return fact
+
+
+def _tsm(age_days: int, today: date) -> ExtractedFact:
+    return _annual("TSM-20f.txt", TSM_REF, age_days, today, has_f6=False)
+
+
+def test_an_annual_only_count_within_the_cap_is_applied_from_the_filing(db):
+    today = market_today()
+    fact = _tsm(300, today)
+    assert (fact.tier, fact.source, sorted(fact.flags)) == (  # the premise: before PR 5 it queued
+        Tier.FLAG,
+        "annual-cover",
+        ["annual-cover", "stale-cover"],
+    )
+    sid = _company(db, "TSMA")
+    out = _record(db, sid, ExtractionResult(facts=[fact]), today=today)
+    o = out["shares_outstanding"]
+    assert (o.applied, o.reason, o.written) == (True, "applied", True)
+    (row,) = _facts(db, "fact_shares_outstanding", sid)
+    assert (row["id"], row["tenant_id"], row["ratified_by"], row["vouched"]) == (
+        o.fact_id,
+        DATA_TENANT_ID,
+        "auto",
+        None,
+    )
+    assert (row["source"], row["source_ref"], row["valid_from"], float(row["shares"])) == (
+        "annual-cover",
+        TSM_REF,
+        today - timedelta(days=300),  # the count's own as-of date, never moved
+        25_932_524_521.0,
+    )
+    assert (row["ads_ratio"], row["ads_ratio_status"]) == (5, "known")
+    # the stored note says it is an annual figure, its as-of date, its ADS ratio and the flags it carried
+    asof = (today - timedelta(days=300)).isoformat()
+    assert f"20-F cover count 25,932,524,521 as of {asof}" in row["note"]
+    assert "ADS ratio 5:1" in row["note"]
+    assert "annual figure" in row["note"]
+    assert "flags annual-cover, stale-cover" in row["note"]
+    assert _candidates(db, sid, "shares_outstanding") == []
+    st = state.read_state(db, sid, "shares_outstanding", asof=today)
+    assert (st.state, st.ratifier, st.value["source"]) == (
+        ValueState.FROM_FILING,
+        "machine",
+        "annual-cover",
+    )
+
+
+def test_an_annual_count_applied_twice_writes_one_fact(db):
+    today = market_today()
+    sid = _company(db, "TSMB")
+    result = ExtractionResult(facts=[_tsm(300, today)], runway_empty_reason="cash-generative")
+    _record(db, sid, result, today=today)
+    before = _counts(db, sid)
+    assert before["fact_shares_outstanding"] == 1
+    out = _record(db, sid, result, today=today)
+    assert _counts(db, sid) == before  # COUNT THE TABLE: one fact, no new candidate
+    assert (out["shares_outstanding"].reason, out["shares_outstanding"].written) == (
+        "already_on_file",
+        False,
+    )
+
+
+def test_an_annual_one_to_one_count_is_applied_with_its_ratio(db):
+    today = market_today()
+    sid = _company(db, "ARMA")
+    fact = _annual("ARM-20f.txt", ARM_REF, 200, today, has_f6=True)
+    out = _record(db, sid, ExtractionResult(facts=[fact]), today=today)
+    assert out["shares_outstanding"].applied
+    (row,) = _facts(db, "fact_shares_outstanding", sid)
+    assert (row["source"], row["ads_ratio"], row["ads_ratio_status"]) == (
+        "annual-cover",
+        1,
+        "known",
+    )
+
+
+@pytest.mark.parametrize("age", [401, 1_415], ids=["401-days", "years-old"])
+def test_an_annual_count_older_than_the_cap_waits_for_the_steward(db, age):
+    today = market_today()
+    sid = _company(db, "TSMC")
+    out = _record(db, sid, ExtractionResult(facts=[_tsm(age, today)]), today=today)
+    assert (out["shares_outstanding"].applied, out["shares_outstanding"].reason) == (
+        False,
+        "flagged",
+    )
+    assert _counts(db, sid)["fact_shares_outstanding"] == 0
+    (cand,) = _candidates(db, sid, "shares_outstanding")
+    assert (cand["outcome"], sorted(cand["flags"])) == ("flag", ["annual-cover", "stale-cover"])
+    assert f"({age} days old)" in cand["note"]  # its age rides the note the steward reads
+    st = state.read_state(db, sid, "shares_outstanding", asof=today)
+    assert st.state == ValueState.AWAITING_STEWARD
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        "multi-value-cover",
+        "dual-class",
+        "ads-ratio-unread",
+        "source-disagreement",
+        "implausible-count",
+        "cover-after-filing",
+        "a-flag-nobody-has-named-yet",
+    ],
+)
+def test_an_annual_count_with_any_other_flag_waits_for_the_steward(db, extra):
+    today = market_today()
+    sid = _company(db, "TSMD")
+    fact = _tsm(300, today)
+    fact = fact.model_copy(update={"flags": [*fact.flags, extra]})
+    out = _record(db, sid, ExtractionResult(facts=[fact]), today=today)
+    assert out["shares_outstanding"].reason == "flagged"
+    assert _counts(db, sid)["fact_shares_outstanding"] == 0
+    (cand,) = _candidates(db, sid, "shares_outstanding")
+    assert extra in cand["flags"]
+
+
+def test_an_annual_count_with_an_unread_ads_ratio_waits_for_the_steward(db):
+    today = market_today()
+    sid = _company(db, "TSME")
+    fact = _tsm(300, today).model_copy(update={"ads_ratio": None, "ads_ratio_status": "unread"})
+    out = _record(db, sid, ExtractionResult(facts=[fact]), today=today)
+    assert out["shares_outstanding"].reason == "flagged"
+    assert _counts(db, sid)["fact_shares_outstanding"] == 0
+
+
+def test_a_pinned_companys_annual_count_waits_for_the_steward(db):
+    today = market_today()
+    sid = _company(db, "TSMF")
+    repo.append_pin(
+        db, security_id=sid, fact_type="shares_outstanding", action="pin", decided_by=STEWARD
+    )
+    db.commit()
+    out = _record(db, sid, ExtractionResult(facts=[_tsm(300, today)]), today=today)
+    o = out["shares_outstanding"]
+    assert (o.applied, o.reason) == (False, "pinned")
+    assert _counts(db, sid)["fact_shares_outstanding"] == 0
+    (cand,) = _candidates(db, sid, "shares_outstanding")
+    assert cand["flags"] == ["annual-cover", "stale-cover", "pinned"]
+
+
+def test_an_annual_count_older_than_the_value_shown_is_skipped(db):
+    today = market_today()
+    sid = _company(db, "TSMG")
+    ingest_shares_outstanding(
+        db,
+        sid,
+        shares=26_000_000_000,
+        source="ratified",
+        source_ref=Q2_REF,
+        event_date=today - timedelta(days=100),
+        ratified_by=STEWARD,
+        tenant_id=DATA_TENANT_ID,
+    )
+    db.commit()
+    before = _counts(db, sid)
+    out = _record(db, sid, ExtractionResult(facts=[_tsm(300, today)]), today=today)
+    assert out["shares_outstanding"].reason == "older_than_on_file"
+    assert _counts(db, sid)["fact_shares_outstanding"] == before["fact_shares_outstanding"]
+
+
+def test_stale_cover_on_a_quarterly_cover_still_waits_for_the_steward(db):
+    """On a 10-Q cover ``stale-cover`` means the count predates the quarter's end: never the annual rule."""
+    today = market_today()
+    sid = _company(db, "QSTL")
+    fact = _shares(d=today - timedelta(days=30), tier=Tier.FLAG, flags=["stale-cover"])
+    out = _record(db, sid, ExtractionResult(facts=[fact]), today=today)
+    assert out["shares_outstanding"].reason == "flagged"
+    assert _counts(db, sid)["fact_shares_outstanding"] == 0
+
+
+@pytest.mark.parametrize(
+    "flags", [["annual-statements"], ["annual-cover", "stale-cover"]], ids=["real", "adversarial"]
+)
+def test_annual_cash_and_burn_still_waits_for_the_steward(db, flags):
+    """The rule is for share counts only (operator decision): an annual cash and burn value stays queued."""
+    today = market_today()
+    sid = _company(db, "ACSH")
+    cash = _cash(d=today - timedelta(days=100), tier=Tier.FLAG, flags=flags).model_copy(
+        update={"source": "annual-statements", "statement_currency": "EUR"}
+    )
+    out = _record(db, sid, ExtractionResult(facts=[_tsm(300, today), cash]), today=today)
+    assert out["shares_outstanding"].applied  # the share count beside it is applied
+    assert (out["cash_burn"].applied, out["cash_burn"].reason) == (False, "flagged")
+    assert _counts(db, sid)["fact_cash_burn"] == 0
+
+
+def test_an_annual_count_queued_before_the_rule_leaves_the_queue_once_applied(db):
+    """A candidate the machine recorded for the same filing before this rule existed stops waiting: the applied
+    value has the same date, so the state drops the older-or-equal flag (no row is deleted; History keeps it).
+    """
+    today = market_today()
+    sid = _company(db, "TSMH")
+    fact = _tsm(300, today)
+    repo.append_candidate(
+        db,
+        security_id=sid,
+        fact_type="shares_outstanding",
+        outcome="flag",
+        flags=list(fact.flags),
+        source=fact.source,
+        source_ref=fact.source_ref,
+        event_date=fact.event_date,
+        shares=fact.value,
+        ads_ratio=fact.ads_ratio,
+        ads_ratio_status=fact.ads_ratio_status,
+    )
+    db.commit()
+    assert sid in {a.security_id for a in state.awaiting(db, limit=None, asof=today)}
+    assert _record(db, sid, ExtractionResult(facts=[fact]), today=today)[
+        "shares_outstanding"
+    ].applied
+    assert sid not in {a.security_id for a in state.awaiting(db, limit=None, asof=today)}
+    assert len(_candidates(db, sid, "shares_outstanding")) == 1  # kept, never deleted
