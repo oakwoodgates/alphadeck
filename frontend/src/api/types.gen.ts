@@ -2423,6 +2423,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/platform-values/queue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Queue
+         * @description THE STEWARD'S QUEUE: one row per company with a share count or cash/burn waiting for you (the same open
+         *     flags as ``/awaiting``), with how many live cards hold it across every workspace (a number only). Order:
+         *     companies only in a Discovered pen last, then most cards first, then the longest wait first. ``pen``:
+         *     ``after`` (default) lists the pen-only companies after the rest, ``only`` lists only them, ``exclude`` leaves
+         *     them out. ``offset`` / ``limit`` cut the page (``limit`` 1-200, ``offset`` 0-100,000); ``total`` and
+         *     ``pen_only_total`` count every company waiting, whatever the page. **422** a parameter out of bounds.
+         *     Read-only.
+         */
+        get: operations["list_queue_admin_platform_values_queue_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/platform-values/{security_id}": {
         parameters: {
             query?: never;
@@ -16079,6 +16105,24 @@ export interface components {
             reason: string;
         };
         /**
+         * PlatformPinEventOut
+         * @description The newest pin event of a value: ``action`` ``pin`` or ``unpin``, ``decided_by`` the steward's email,
+         *     ``note`` why (optional), ``recorded_at`` when.
+         */
+        PlatformPinEventOut: {
+            /** Action */
+            action: string;
+            /** Decided By */
+            decided_by: string;
+            /** Note */
+            note?: string | null;
+            /**
+             * Recorded At
+             * Format: date-time
+             */
+            recorded_at: string;
+        };
+        /**
          * PlatformPinIn
          * @description Which value (``fact_type``) and why (optional).
          */
@@ -16090,6 +16134,72 @@ export interface components {
             fact_type: "shares_outstanding" | "cash_burn";
             /** Note */
             note?: string | null;
+        };
+        /**
+         * PlatformQueueItemOut
+         * @description One company with anything waiting (one row per company): ``cards`` how many live cards hold it, across every
+         *     workspace (a number only, never whose); ``pen_only`` every row it sits in is a Discovered pen; ``waiting_since``
+         *     the older of its waiting candidates; ``shares`` / ``cash_burn`` what waits (None = nothing for that value).
+         */
+        PlatformQueueItemOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker?: string | null;
+            /** Name */
+            name?: string | null;
+            /**
+             * Cards
+             * @default 0
+             */
+            cards: number;
+            /**
+             * Pen Only
+             * @default false
+             */
+            pen_only: boolean;
+            /**
+             * Waiting Since
+             * Format: date-time
+             */
+            waiting_since: string;
+            shares?: components["schemas"]["PlatformQueueValueOut"] | null;
+            cash_burn?: components["schemas"]["PlatformQueueValueOut"] | null;
+        };
+        /**
+         * PlatformQueueOut
+         * @description The steward's queue page: ``items`` in queue order (pen-only last, then most cards, then the longest wait,
+         *     then the id); ``total`` every company waiting and ``pen_only_total`` the pen-only ones, whatever the page and
+         *     ``pen``.
+         */
+        PlatformQueueOut: {
+            /** Items */
+            items?: components["schemas"]["PlatformQueueItemOut"][];
+            /**
+             * Total
+             * @default 0
+             */
+            total: number;
+            /**
+             * Pen Only Total
+             * @default 0
+             */
+            pen_only_total: number;
+        };
+        /**
+         * PlatformQueueValueOut
+         * @description One value of a queue row that waits for the steward: ``state`` (``awaiting_steward``, or the state of the
+         *     value shown when a newer flag is pending beside it), the flagged ``candidate``, and ``value`` the value shown
+         *     (set only when the candidate is pending beside it).
+         */
+        PlatformQueueValueOut: {
+            /** State */
+            state: string;
+            candidate: components["schemas"]["PlatformCandidateOut"];
+            value?: components["schemas"]["PlatformAppliedValueOut"] | null;
         };
         /**
          * PlatformUndoIn
@@ -16104,8 +16214,8 @@ export interface components {
          * @description One value of a company. ``state``: ``no_value`` (``reason`` says why) / ``from_filing`` / ``awaiting_steward``
          *     / ``verified``; ``ratifier`` ``machine`` / ``carried`` / ``steward``; ``value`` the value the meters show;
          *     ``awaiting`` the flag waiting when there is no value; ``pending`` a newer flag beside a shown value; ``pinned``
-         *     the steward reviews every future filing value by hand. ``candidates`` (newest 20) and ``decisions`` (newest 50)
-         *     are newest first.
+         *     the steward reviews every future filing value by hand; ``pin`` the newest pin event (who pinned or unpinned,
+         *     when and why; None = never pinned). ``candidates`` (newest 20) and ``decisions`` (newest 50) are newest first.
          */
         PlatformValueOut: {
             /** Fact Type */
@@ -16130,6 +16240,7 @@ export interface components {
             candidates?: components["schemas"]["PlatformCandidateOut"][];
             /** Decisions */
             decisions?: components["schemas"]["PlatformDecisionOut"][];
+            pin?: components["schemas"]["PlatformPinEventOut"] | null;
         };
         /**
          * PlatformVersionOut
@@ -23038,6 +23149,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PlatformAwaitingOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_queue_admin_platform_values_queue_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+                pen?: "after" | "only" | "exclude";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformQueueOut"];
                 };
             };
             /** @description Validation Error */
