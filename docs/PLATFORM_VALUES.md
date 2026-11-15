@@ -204,7 +204,11 @@ company gets its values within about 30 minutes of a promote outside the nightly
 | `PLATFORM_EXTRACTION_RETRY_MAX` | 3 | failures in a row on the same filings before a company waits (a steward's failed click is not counted) |
 
 To turn background extraction off on prod: set `ALPHADECK_PLATFORM_EXTRACTION_MAX_NAMES=0` in `.env`, then
-`scripts/deploy.sh --env-only cron` (the nightly) and the same for the backend (the onboarding job).
+`scripts/deploy.sh --env-only cron`. That one recreate covers both steps the switch stops: the nightly step and the
+onboarding job both run in the cron sidecar (`backend/scripts/daily_cron.sh`: the nightly pass, and `onboard_loop`
+firing `python -m pipeline.onboarding`). The backend container needs no deploy for it: there the settings serve only
+the steward's Extract now (a `steward` run, which the kill switch never stops; it reads the hold and the retry cap
+for its due note), and the Admin line reads the run files.
 
 **The nightly step** (`pipeline/nightly_extraction.py`, V2 W3c; approved B2 (a)): the LAST thing in the nightly
 pass, after every thesis's call of record is written and committed and the run artifact is finished. Live passes
