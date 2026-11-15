@@ -229,6 +229,97 @@ cache-only (no SEC request, no User-Agent needed: a missing document is an `erro
 due). It refuses (exit 75) inside the nightly window or while a pass holds the call-of-record lock, stops between
 companies if either begins, and writes its summary to `data/extraction_runs/`.
 
+## The backfill (W3d)
+
+`python -m pipeline.extract_values` extracts every due company by hand, through the pieces above
+(`work_list(include_never=True)`, then `run_extraction(..., run_kind="backfill")`). It is never scheduled. Nothing
+it writes is a call input.
+
+```bash
+python -m pipeline.extract_values                    # DRY RUN (the default): the SEC cost plan; no request, no write
+python -m pipeline.extract_values --no-live          # DRY RUN of a cache-only run: who would extract, who would fail
+python -m pipeline.extract_values --apply            # extract every due company (live, the recurring SEC lane)
+python -m pipeline.extract_values --apply --no-live  # cache only: never reaches SEC (the fork rehearsal)
+python -m pipeline.extract_values --apply --max-names 200 --budget-s 1800 --ticker OKLO --ticker LEU
+```
+
+**The dry run** reads the work list (a read-only database session) and the EDGAR cache on disk. It builds no client,
+makes no SEC request and writes no row and no file. Per company and in total it prints what a real run would fetch
+live and what it would read from the cache, by the client's own rules:
+
+| Read | Counted as live when |
+|---|---|
+| the submissions index | missing, or older than the recurring 5 minutes (so most companies cost one request) |
+| companyfacts | missing, or due by the filing gate (judged on the cached index); a cached 404 costs nothing (the extraction then fails on it) |
+| the one values document | missing (`forms/` is cached forever): the newer of the latest 10-Q and 10-K (B1, values only), else the newest 20-F / 40-F |
+| an annual filer's exhibit search | a bound of up to 8 more (the index headers, the filing index, up to `exhibit_scan_max` EX-99 documents) |
+| a company whose index is not cached | one known request, the rest a range (up to 10 more) |
+
+Bytes: a missing document is bounded by the index's `size` column (the whole filing's size, so an upper bound); an
+index or companyfacts refresh is estimated by its cached copy's size; anything else is counted "of unknown size".
+The time shown is a floor: the requests at `ALPHADECK_SEC_GLOBAL_RATE_PER_SEC` (8.5 a second). **What the dry run
+cannot know without fetching** (printed with every plan): whether the refreshed index lists a newer filing (another
+document, and companyfacts may become due); exact bytes; whether an annual filer's statements sit in an exhibit;
+which documents a company with no cached index needs; SEC throttling and the Workbench's share of the one global
+budget; the CPU time per company.
+
+**`--apply`** takes advisory lock 7 (`LOCK_ID_EXTRACTION`, one backfill at a time); refuses inside the nightly window
+(the onboarding job's window, `ALPHADECK_ONBOARD_WINDOW_BEFORE_MIN` / `_AFTER_MIN`) and while a pass holds the
+call-of-record lock (a probe, never a take); and re-checks both between companies, stopping cleanly when either
+begins. It uses one recurring-dial `EdgarClient`: the global SEC budget's recurring lane. It is **resumable**: a
+finished company is no longer due, so a second run does only what is left, and a run with nothing due writes
+nothing (not even an artifact). `--max-names` (alias `--limit`) and `--budget-s` bound it, checked between companies;
+it takes companies in the work list's order (a new filing, a retry, then never extracted; pen-only last; most cards
+first). `--ticker` scopes it; a ticker that is not a company on a live card (or is an ETF) refuses the run.
+
+It writes `data/extraction_runs/<started>.json` (`pipeline/extraction_run_log.py`: `ExtractionRun.to_json()` plus
+`mode`, `tickers`, `errors_by_reason`, `stop_detail`, `backfill_applied_before` / `_after`) and prints a summary:
+applied, candidates (flagged to the steward, nothing found), unchanged, skipped, busy, failed with their reasons,
+deferred and why, and the live SEC fetches.
+
+| Exit | Meaning |
+|---|---|
+| 0 | ran (failed companies are listed, not fatal), nothing due, or the dry run |
+| 1 | could not run: a live run with no `ALPHADECK_USER_AGENT`, or no database |
+| 2 | a bad argument: an unknown `--ticker`, `--max-names` below 1, a non-positive `--budget-s` |
+| 75 | refused (the nightly window, another backfill, a running pass) or stopped between companies by the window or a pass; nothing more written, the rest stays due |
+
+**`--no-live`** (cache only): the client never reaches SEC; a stale copy is served. A company whose documents are
+not all cached gets an `error` attempt with the reason `not cached` and is counted; nothing is fetched. It stays due
+(`retry`) until `platform_extraction_retry_max` such attempts on the same filings, then waits for a new filing.
+
+**Decision B4.** The nightly leg and the onboarding step take no never-extracted company until a `backfill` attempt
+exists (`backfill_applied`). The first attempt this CLI records is what unlocks them, whatever its outcome: a
+`not cached` error and a `skipped` (no CIK) attempt count too. The CLI says so before (dry run) and after (`--apply`).
+
+### Rehearsing on the fork (cache only)
+
+A fork has prod's EDGAR cache (copied by `scripts/refresh-fork.sh`) but no SEC User-Agent, so a live run there fails
+every company. Rehearse cache-only, inside the fork's backend container, from the fork worktree root (`<name>` = the
+fork's `FORK_NAME`):
+
+```bash
+F="-f docker-compose.yml -f docker-compose.fork.yml -p alphadeck_<name> --env-file .env.fork"
+docker compose $F exec backend python -m pipeline.extract_values --no-live            # who would extract, who fails
+docker compose $F exec backend python -m pipeline.extract_values                      # prod's live cost, from the copied cache
+docker compose $F exec backend python -m pipeline.extract_values --apply --no-live --max-names 50   # a first slice
+docker compose $F exec backend python -m pipeline.extract_values --apply --no-live    # the rest (resumable)
+```
+
+Afterwards, look at: the summary and `data/extraction_runs/` (the per-company CPU time is the run's `seconds` over
+its `attempted`, which sets the nightly cap and budget); `platform_extraction_attempt` grouped by `status` and
+`error` (how many are `not cached`); the steward's queue (the flagged companies) and the values now "from the
+filing". The live dry run on the fork measures prod's request count from the copied cache, except for anything
+filed after the copy.
+
+**What the rehearsal changes on the fork.** It records `backfill` attempts, so it flips the B4 marker on the fork:
+from then on the fork's nightly and onboarding steps would take never-extracted companies. That is acceptable there:
+the fork's cron service rides the `donotstart` profile (`docker-compose.fork.yml`, `docs/FORKS.md`), and that
+sidecar is what fires both the nightly and the onboarding job, so nothing on the fork acts on the marker. A re-seed resets it: `scripts/fork.sh
+refresh --reset` drops the fork database and restores prod's dump, which has no attempt rows (prod is not on V2 yet),
+then the migrations create an empty `platform_extraction_attempt`. On prod, run the dry run first, then `--apply`
+before the V2 cron starts (cutover order, W10).
+
 ## The steward's decisions and undo
 
 `platform_value_decision` (migration 0205, data tenant, append-only) holds one row per steward action:
