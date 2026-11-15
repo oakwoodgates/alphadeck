@@ -80,6 +80,15 @@ services:
       ALPHADECK_INGEST_FETCH_CONCURRENCY: ${ALPHADECK_INGEST_FETCH_CONCURRENCY:-8}
       ALPHADECK_SEC_GLOBAL_RATE_PER_SEC: ${ALPHADECK_SEC_GLOBAL_RATE_PER_SEC:-8.5}
       ALPHADECK_YAHOO_RATE_PER_SEC: ${ALPHADECK_YAHOO_RATE_PER_SEC:-4.0}
+      # V2 W3a — BACKGROUND EXTRACTION of platform values (docs/PLATFORM_VALUES.md), the SAME five on the cron
+      # sidecar below (the nightly leg runs there; the onboarding step runs here). Numeric fallbacks that MUST
+      # EQUAL the Settings defaults (tests/domain/test_settings.py pins them).
+      # ALPHADECK_PLATFORM_EXTRACTION_MAX_NAMES=0 is the KILL SWITCH: the nightly leg and the onboarding step off.
+      ALPHADECK_PLATFORM_EXTRACTION_MAX_NAMES: ${ALPHADECK_PLATFORM_EXTRACTION_MAX_NAMES:-300}
+      ALPHADECK_PLATFORM_EXTRACTION_BUDGET_S: ${ALPHADECK_PLATFORM_EXTRACTION_BUDGET_S:-900.0}
+      ALPHADECK_PLATFORM_EXTRACTION_ONBOARD_MAX_NAMES: ${ALPHADECK_PLATFORM_EXTRACTION_ONBOARD_MAX_NAMES:-25}
+      ALPHADECK_PLATFORM_EXTRACTION_HOLD_H: ${ALPHADECK_PLATFORM_EXTRACTION_HOLD_H:-24.0}
+      ALPHADECK_PLATFORM_EXTRACTION_RETRY_MAX: ${ALPHADECK_PLATFORM_EXTRACTION_RETRY_MAX:-3}
       # The run-loader off-switch (a dev/test cost-saver: load a saved draft run instead of paying for a fresh
       # one). Unset -> False (the Settings default; the feature + its /runs endpoints are absent). Set
       # ALPHADECK_RUN_LOADER_ENABLED=true in `.env` to turn it on for the operator; the FE picker follows.
@@ -236,6 +245,14 @@ services:
       ALPHADECK_INGEST_FETCH_CONCURRENCY: ${ALPHADECK_INGEST_FETCH_CONCURRENCY:-8}
       ALPHADECK_SEC_GLOBAL_RATE_PER_SEC: ${ALPHADECK_SEC_GLOBAL_RATE_PER_SEC:-8.5}
       ALPHADECK_YAHOO_RATE_PER_SEC: ${ALPHADECK_YAHOO_RATE_PER_SEC:-4.0}
+      # V2 W3a — the background extraction's five dials, the SAME as the backend's (see there): a `.env` change
+      # reaches the nightly through `scripts/deploy.sh --env-only cron`. ALPHADECK_PLATFORM_EXTRACTION_MAX_NAMES=0
+      # = the kill switch. Numeric fallbacks equal to the Settings defaults (pinned by test).
+      ALPHADECK_PLATFORM_EXTRACTION_MAX_NAMES: ${ALPHADECK_PLATFORM_EXTRACTION_MAX_NAMES:-300}
+      ALPHADECK_PLATFORM_EXTRACTION_BUDGET_S: ${ALPHADECK_PLATFORM_EXTRACTION_BUDGET_S:-900.0}
+      ALPHADECK_PLATFORM_EXTRACTION_ONBOARD_MAX_NAMES: ${ALPHADECK_PLATFORM_EXTRACTION_ONBOARD_MAX_NAMES:-25}
+      ALPHADECK_PLATFORM_EXTRACTION_HOLD_H: ${ALPHADECK_PLATFORM_EXTRACTION_HOLD_H:-24.0}
+      ALPHADECK_PLATFORM_EXTRACTION_RETRY_MAX: ${ALPHADECK_PLATFORM_EXTRACTION_RETRY_MAX:-3}
       # The nightly fund-shares sample rides this ingest — the cron needs the SAME Massive.com key as the
       # backend (a deterministic DATA api, #3 — not an LLM seam) or its sample falls back to scrapers.
       MASSIVE_API_KEY: ${MASSIVE_API_KEY:-}

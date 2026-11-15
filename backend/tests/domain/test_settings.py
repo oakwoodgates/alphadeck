@@ -525,3 +525,50 @@ def test_public_origin_refuses_anything_but_a_bare_origin(monkeypatch, raw):
     monkeypatch.setenv("ALPHADECK_PUBLIC_ORIGIN", raw)
     with pytest.raises(ValidationError, match="ALPHADECK_PUBLIC_ORIGIN"):
         Settings(_env_file=None)
+
+
+# --- V2 W3a: the background extraction's dials -------------------------------------------------------------------
+
+_EXTRACTION_DIALS = {
+    "ALPHADECK_PLATFORM_EXTRACTION_MAX_NAMES": "platform_extraction_max_names",
+    "ALPHADECK_PLATFORM_EXTRACTION_BUDGET_S": "platform_extraction_budget_s",
+    "ALPHADECK_PLATFORM_EXTRACTION_ONBOARD_MAX_NAMES": "platform_extraction_onboard_max_names",
+    "ALPHADECK_PLATFORM_EXTRACTION_HOLD_H": "platform_extraction_hold_h",
+    "ALPHADECK_PLATFORM_EXTRACTION_RETRY_MAX": "platform_extraction_retry_max",
+}
+
+
+def test_the_extraction_dials_have_the_planned_defaults(monkeypatch):
+    for var in _EXTRACTION_DIALS:
+        monkeypatch.delenv(var, raising=False)
+    s = Settings()
+    assert {f: getattr(s, f) for f in _EXTRACTION_DIALS.values()} == {
+        "platform_extraction_max_names": 300,
+        "platform_extraction_budget_s": 900.0,
+        "platform_extraction_onboard_max_names": 25,
+        "platform_extraction_hold_h": 24.0,
+        "platform_extraction_retry_max": 3,
+    }
+    monkeypatch.setenv("ALPHADECK_PLATFORM_EXTRACTION_MAX_NAMES", "0")  # the kill switch
+    assert Settings().platform_extraction_max_names == 0
+
+
+def test_compose_injects_the_extraction_dials_into_BOTH_services_at_the_settings_defaults(
+    monkeypatch,
+):
+    """Compose lists the environment explicitly (no ``env_file``): the kill switch
+    ``ALPHADECK_PLATFORM_EXTRACTION_MAX_NAMES=0`` reaches the nightly (cron) and the onboarding job (backend) only
+    if each dial is listed for both, with a fallback equal to the Settings default."""
+    import re
+    from pathlib import Path
+
+    compose = (Path(__file__).resolve().parents[3] / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+    for var in _EXTRACTION_DIALS:
+        monkeypatch.delenv(var, raising=False)
+    s = Settings()
+    for var, field in _EXTRACTION_DIALS.items():
+        found = re.findall(rf"{var}: \$\{{{var}:-([0-9.]+)\}}", compose)
+        assert len(found) == 2, f"{var} must be injected into backend AND cron, found {len(found)}"
+        assert all(float(v) == getattr(s, field) for v in found), f"{var}: {found}"

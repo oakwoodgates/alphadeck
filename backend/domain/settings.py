@@ -606,6 +606,24 @@ class Settings(BaseSettings):
     # ALPHADECK_INGEST_FETCH_CONCURRENCY.
     ingest_fetch_concurrency: int = 8
 
+    # --- V2 W3a — BACKGROUND EXTRACTION of platform values (``platform_values/extraction.py``; docs/PLATFORM_VALUES.md)
+    # THE KILL SWITCH: ``platform_extraction_max_names = 0`` turns the nightly leg AND the onboarding step off (no
+    # company is fetched, no attempt is written); the backfill CLI still runs by hand. Otherwise it is how many
+    # companies one nightly leg may extract. ALPHADECK_PLATFORM_EXTRACTION_MAX_NAMES.
+    platform_extraction_max_names: int = 300
+    # The nightly leg's wall-time budget (seconds); the leg also stops before the pass's own timeout. It checks
+    # between companies and never starts one it cannot afford. ALPHADECK_PLATFORM_EXTRACTION_BUDGET_S.
+    platform_extraction_budget_s: float = 900.0
+    # Never-extracted companies per onboarding batch. ALPHADECK_PLATFORM_EXTRACTION_ONBOARD_MAX_NAMES.
+    platform_extraction_onboard_max_names: int = 25
+    # Hours after a new periodic filing's SEC acceptance before it makes its company due: companyfacts lags
+    # acceptance by ~5-6 h and is reliably re-pulled the following night, so extracting the same night risks a
+    # spurious stale FLAG. ALPHADECK_PLATFORM_EXTRACTION_HOLD_H.
+    platform_extraction_hold_h: float = 24.0
+    # Failed attempts in a row on the same filings before a company waits for a new filing (or the steward).
+    # ALPHADECK_PLATFORM_EXTRACTION_RETRY_MAX.
+    platform_extraction_retry_max: int = 3
+
     # --- Secrets / deploy values: DECLARED here as the typed inventory; READ LATE at the edge (D5) ---
     # These two are toggled by the test suite AFTER import (the `db` fixture sets DATABASE_URL; an LLM
     # test delenv's ANTHROPIC_API_KEY), so their RUNTIME read stays a fresh,
