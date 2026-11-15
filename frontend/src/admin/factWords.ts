@@ -1,0 +1,190 @@
+// The steward's company page: its words and small pure helpers (the splitWords.ts idiom). Every sentence a person
+// reads here is American English. Quiet unless a function says `loud`: loudness marks what the steward owes a
+// decision on, never the rule.
+
+import type {
+  PlatformAppliedValueOut,
+  PlatformCandidateOut,
+  PlatformDecisionOut,
+  PlatformFactType,
+  PlatformValueOut,
+} from "../api/hooks";
+import { cashSymbol } from "../components/LocatedPassages";
+
+export const FACT_TITLE: Record<PlatformFactType, string> = {
+  shares_outstanding: "Share count",
+  cash_burn: "Cash and burn",
+};
+
+/** A UTC instant or date as the day it falls on: "2026-08-04". */
+export const day = (iso: string | null | undefined): string => (iso ? iso.slice(0, 10) : "");
+
+export const fmtInt = (n: number): string => n.toLocaleString("en-US", { maximumFractionDigits: 0 });
+
+/** Money in the statement's own currency symbol, never converted. */
+export function fmtMoney(n: number, currency?: string | null): string {
+  const sym = cashSymbol(currency);
+  return n < 0 ? `-${sym}${fmtInt(-n)}` : `${sym}${fmtInt(n)}`;
+}
+
+type Valued = Pick<
+  PlatformAppliedValueOut,
+  "shares" | "ads_ratio" | "ads_ratio_status" | "cash_usd" | "quarterly_burn_usd"
+>;
+
+/** The value in words: "52,113,000 shares", "ADS ratio 2", "$890,000,000 cash, quarterly burn $314,678,000". */
+export function valueWords(
+  factType: string,
+  v: Valued,
+  currency?: string | null,
+): string {
+  if (factType === "shares_outstanding") {
+    if (v.shares == null) return "no share count";
+    let out = `${fmtInt(v.shares)} shares`;
+    if (v.ads_ratio_status === "known" && v.ads_ratio != null) out += `, ADS ratio ${v.ads_ratio}`;
+    else if (v.ads_ratio_status === "unread") out += ", ADS ratio unread";
+    return out;
+  }
+  const parts: string[] = [];
+  if (v.cash_usd != null) parts.push(`${fmtMoney(v.cash_usd, currency)} cash`);
+  if (v.quarterly_burn_usd != null) {
+    parts.push(
+      `quarterly burn ${fmtMoney(v.quarterly_burn_usd, currency)}${v.quarterly_burn_usd <= 0 ? " (cash-generative)" : ""}`,
+    );
+  }
+  return parts.length ? parts.join(", ") : "no cash or burn value";
+}
+
+/** Why a value is missing, in words (the Q7 table). `null` reason reads as not extracted. */
+const NO_VALUE_WORDS: Record<string, string> = {
+  "not-extracted": "No value yet: not extracted",
+  "no-annual-filing": "No value yet: no 10-K, 10-Q, 20-F or 40-F on EDGAR",
+  "cover-not-located": "No value yet: the cover count could not be read",
+  "no-candidate": "No value yet: the latest filing gave no value of this kind",
+  dismissed: "No value yet: you dismissed the last candidate",
+  "cash-generative": "Runway does not apply: the company is cash-generative",
+  "financials-in-exhibit": "No value yet: the statements were in an exhibit we did not read",
+  "exhibit-ambiguous": "No value yet: the statements were in more than one exhibit",
+  "statements-not-located": "No value yet: the statements were not found",
+  "not-shown": "No value shown, though a decision stands. Report this.",
+};
+
+export interface StatusWords {
+  /** The status line's first words. */
+  label: string;
+  /** True only where the steward owes a decision or something is wrong. */
+  loud: boolean;
+}
+
+/** The status line of a value: its state in words. Loud: awaiting the steward, and the defensive not-shown. */
+export function statusWords(v: PlatformValueOut): StatusWords {
+  switch (v.state) {
+    case "awaiting_steward":
+      return { label: "Awaiting you", loud: true };
+    case "from_filing":
+      return { label: "From the filing", loud: false };
+    case "verified":
+      return {
+        label: v.ratifier === "carried" ? "Verified (carried over from V1)" : "Verified",
+        loud: false,
+      };
+    default: {
+      const reason = v.reason ?? "not-extracted";
+      return {
+        label: NO_VALUE_WORDS[reason] ?? `No value yet: ${reason}`,
+        loud: reason === "not-shown",
+      };
+    }
+  }
+}
+
+/** Who set a stored value: the machine, a V1 carry-over, or a steward's email. */
+export function whoWords(ratifiedBy: string | null | undefined): string {
+  if (!ratifiedBy || ratifiedBy === "auto") return "applied by the machine";
+  if (ratifiedBy === "operator") return "marked operator before V2";
+  return `by ${ratifiedBy}`;
+}
+
+/** "applied by the machine on 2026-08-04" / "by steward@x on 2026-11-14" / "marked operator before V2". */
+export function setWords(ratifiedBy: string | null | undefined, recordedAt: string): string {
+  if (ratifiedBy === "operator") return "marked operator before V2";
+  return `${whoWords(ratifiedBy)} on ${day(recordedAt)}`;
+}
+
+/** The flag that says a clean value was held back because the company is pinned. */
+export const PINNED_FLAG = "pinned";
+export const PINNED_HELD_WORDS =
+  "Held because you pinned this company: a clean value from the filing";
+
+// ---------------------------------------------------------------------------------------------------------------
+// SEAM: who pinned a value, when and why. The company read carries only `pinned: boolean` today; W4a (PR 1) adds
+// `pin: { action, decided_by, note, recorded_at } | null` (the newest pin event) to PlatformValueOut. Until the
+// generated types carry it, the page reads it here, off the value as the server sends it, and shows who and when only
+// when the field is there. When the generated type has `pin`, delete the cast and keep the rest.
+export interface PlatformPinEvent {
+  action: string;
+  decided_by: string;
+  note?: string | null;
+  recorded_at: string;
+}
+
+export function pinEventOf(v: PlatformValueOut): PlatformPinEvent | null {
+  const pin = (v as PlatformValueOut & { pin?: PlatformPinEvent | null }).pin;
+  return pin && pin.action === "pin" ? pin : null;
+}
+
+/** "by steward@x on 2026-11-12: restated twice" */
+export function pinWords(p: PlatformPinEvent): string {
+  return `by ${p.decided_by} on ${day(p.recorded_at)}${p.note?.trim() ? `: ${p.note.trim()}` : ""}`;
+}
+// ---------------------------------------------------------------------------------------------------------------
+
+/** A standing decision is one no later undo names, and an undo itself never stands as something to undo. */
+export const isStanding = (d: PlatformDecisionOut): boolean => d.action !== "undo" && !d.undone;
+
+/** The undo that undid `d` (the one whose `revokes` names it), if the list carries it. */
+export function undoOf(d: PlatformDecisionOut, all: PlatformDecisionOut[]): PlatformDecisionOut | undefined {
+  return all.find((x) => x.action === "undo" && x.revokes === d.id);
+}
+
+const ACTION_PAST: Record<string, string> = {
+  approve: "Approved",
+  correct: "Corrected",
+  dismiss: "Dismissed",
+  undo: "Undid",
+};
+
+/** "Approved by steward@x on 2026-11-14" (+ ": reason"). */
+export function decisionWords(d: PlatformDecisionOut): string {
+  const what = d.action === "undo" ? "Undid a decision" : (ACTION_PAST[d.action] ?? d.action);
+  const head = `${what} by ${d.decided_by} on ${day(d.recorded_at)}`;
+  return d.reason?.trim() ? `${head}: ${d.reason.trim()}` : head;
+}
+
+export const lowerFirst = (s: string): string => s.charAt(0).toLowerCase() + s.slice(1);
+
+export const UNDO_OF_UNDO_WORDS = "An undo cannot be undone. Make the decision again instead.";
+
+/** A candidate is open when no decision closes it. */
+export const isOpen = (c: PlatformCandidateOut): boolean => c.decision == null;
+
+/** The candidate in the extractor's shape, for the explain route (which explains only a FLAG). `value` is the
+ *  share count; the stored candidate's own basis rides as `source` ("extractor" when none was stored). */
+export function explainBody(c: PlatformCandidateOut) {
+  return {
+    fact_type: c.fact_type,
+    tier: "flag" as const,
+    source: c.source ?? "extractor",
+    source_ref: c.source_ref ?? "",
+    event_date: c.event_date ?? "",
+    note: c.note ?? "",
+    value: c.shares ?? null,
+    cash_usd: c.cash_usd ?? null,
+    quarterly_burn_usd: c.quarterly_burn_usd ?? null,
+    statement_currency: c.statement_currency ?? null,
+    flags: c.flags ?? [],
+    located_passages: c.located_passages ?? [],
+    ads_ratio: c.ads_ratio ?? null,
+    ads_ratio_status: c.ads_ratio_status ?? null,
+  };
+}

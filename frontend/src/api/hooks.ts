@@ -2136,6 +2136,135 @@ export function useRevokeHoldDecision() {
   });
 }
 
+// --- Shared facts (V2 W4b): the steward's company page — a company's share count and cash/burn ---
+// One read per company (the two values, their evidence, versions, candidates and decisions) and the six writes. Each
+// write is fired ONLY by an explicit click with a visible way back on the page (Approve / Correct / Dismiss ⇄ Undo,
+// Pin ⇄ Unpin), retry:false — a decision is never auto-retried. Every write answers the company's NEW values, which
+// replace the cached read at once; a refusal (404 / 409 / 422) re-reads the company instead, so the page shows where
+// the server has it, never an optimistic guess. A write can change every meter, so the scored reads and the
+// dashboards refresh too, and so does the queue (PR 3) and the status card.
+export type CompanyValuesOut = components["schemas"]["CompanyValuesOut"];
+export type PlatformValueOut = components["schemas"]["PlatformValueOut"];
+export type PlatformCandidateOut = components["schemas"]["PlatformCandidateOut"];
+export type PlatformDecisionOut = components["schemas"]["PlatformDecisionOut"];
+export type PlatformVersionOut = components["schemas"]["PlatformVersionOut"];
+export type PlatformAppliedValueOut = components["schemas"]["PlatformAppliedValueOut"];
+export type PlatformCorrectIn =
+  | components["schemas"]["PlatformCorrectSharesIn"]
+  | components["schemas"]["PlatformCorrectCashBurnIn"];
+export type PlatformFactType = "shares_outstanding" | "cash_burn";
+
+const companyValuesKey = (securityId: string) => ["admin-platform-values", securityId] as const;
+
+export function useCompanyValues(securityId: string | undefined) {
+  return useQuery({
+    queryKey: companyValuesKey(securityId ?? "") as readonly unknown[],
+    enabled: !!securityId,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/admin/platform-values/{security_id}", {
+        params: { path: { security_id: securityId as string } },
+      });
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+function usePlatformAction<TVars extends { securityId: string }>(
+  fn: (vars: TVars) => Promise<CompanyValuesOut | undefined>,
+) {
+  const qc = useQueryClient();
+  return useMutation({
+    retry: false,
+    mutationFn: fn,
+    onSuccess: (data, vars) => {
+      if (data) qc.setQueryData(companyValuesKey(vars.securityId), data);
+      qc.invalidateQueries({ queryKey: ["admin-platform-queue"] });
+      qc.invalidateQueries({ queryKey: ["admin-status"] });
+      qc.invalidateQueries({ queryKey: ["workbench-scored"] });
+      invalidateDashboards(qc);
+    },
+    // a 409 means the server's state moved: re-read the company to where the server has it
+    onError: (_e, vars) => {
+      qc.invalidateQueries({ queryKey: companyValuesKey(vars.securityId) });
+    },
+  });
+}
+
+type ActionVars = { securityId: string; factType: PlatformFactType };
+const noteBody = (note?: string) => (note?.trim() ? { note: note.trim() } : {});
+
+// APPROVE a flagged candidate: its own stored value becomes the company's value (the optional note rides along).
+export function useApproveCandidate() {
+  return usePlatformAction(async (vars: ActionVars & { candidateId: string; note?: string }) => {
+    const { data, error } = await api.POST("/admin/platform-values/candidates/{candidate_id}/approve", {
+      params: { path: { candidate_id: vars.candidateId } },
+      body: noteBody(vars.note),
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
+// CORRECT: the steward's own value, typed (the body's `fact_type` picks the shares or the cash/burn shape).
+export function useCorrectValue() {
+  return usePlatformAction(async (vars: { securityId: string; body: PlatformCorrectIn }) => {
+    const { data, error } = await api.POST("/admin/platform-values/{security_id}/correct", {
+      params: { path: { security_id: vars.securityId } },
+      body: vars.body,
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
+// DISMISS a candidate (a reason is required — the server 422s a blank one).
+export function useDismissCandidate() {
+  return usePlatformAction(async (vars: ActionVars & { candidateId: string; reason: string }) => {
+    const { data, error } = await api.POST("/admin/platform-values/candidates/{candidate_id}/dismiss", {
+      params: { path: { candidate_id: vars.candidateId } },
+      body: { reason: vars.reason.trim() },
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
+// UNDO a standing decision. An undo cannot itself be undone (the server says so); the way back is to decide again.
+export function useUndoDecision() {
+  return usePlatformAction(async (vars: ActionVars & { decisionId: string; reason?: string }) => {
+    const { data, error } = await api.POST("/admin/platform-values/decisions/{decision_id}/undo", {
+      params: { path: { decision_id: vars.decisionId } },
+      body: reasonBody(vars.reason),
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
+// PIN: new filings for this value wait for the steward instead of being applied. UNPIN is its way back.
+export function usePinValue() {
+  return usePlatformAction(async (vars: ActionVars & { note?: string }) => {
+    const { data, error } = await api.POST("/admin/platform-values/{security_id}/pin", {
+      params: { path: { security_id: vars.securityId } },
+      body: { fact_type: vars.factType, ...noteBody(vars.note) },
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
+export function useUnpinValue() {
+  return usePlatformAction(async (vars: ActionVars & { note?: string }) => {
+    const { data, error } = await api.POST("/admin/platform-values/{security_id}/unpin", {
+      params: { path: { security_id: vars.securityId } },
+      body: { fact_type: vars.factType, ...noteBody(vars.note) },
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
 // --- Splits (split plan S1): the operator's ratification of the split list ---
 // Its own read (the split list, live) and its WRITES, each fired ONLY by an explicit click with a visible
 // inverse (Confirm ⇄ Revoke, Reject / Revoke ⇄ Restore). Every write names the version it acts on, so a stale

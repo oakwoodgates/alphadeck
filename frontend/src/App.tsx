@@ -11,6 +11,7 @@ import {
 } from "react-router";
 
 import { Admin } from "./admin/Admin";
+import { CompanyFacts } from "./admin/CompanyFacts";
 import { AppHeader } from "./AppHeader";
 import { onUnauthorized } from "./api/authEvents";
 import { useClock, useMe, useTheses } from "./api/hooks";
@@ -160,6 +161,24 @@ function AdminRoute() {
   const steward = useIsSteward();
   if (!steward) return <StewardsOnly header={<AppHeader current="admin" />} />;
   return <Admin header={<AppHeader current="admin" />} />;
+}
+
+/** /admin/facts/:securityId — the steward's company page (V2 W4b): a company's share count and cash/burn and the six
+ *  actions. A "now" ops surface like Admin (no as-of dial; ?asof= rides along). Steward-only: the API answers 403 to a
+ *  plain user, who sees one line and fires no request (the page never mounts). */
+function CompanyFactsRoute() {
+  const { securityId } = useParams();
+  const [searchParams] = useSearchParams();
+  const steward = useIsSteward();
+  if (!steward) return <StewardsOnly header={<AppHeader current="admin" />} />;
+  return (
+    <CompanyFacts
+      key={securityId}
+      securityId={securityId ?? ""}
+      asof={validAsof(searchParams.get(ASOF))}
+      header={<AppHeader current="admin" />}
+    />
+  );
 }
 
 /** /settings/:tab — the signed-in user's Settings page (docs/AUTH.md §Settings page). The tab is validated against
@@ -345,6 +364,7 @@ function AppRoutes() {
       <Route path="/scoreboard" element={<ScoreboardRoute />} />
       <Route path="/backtest" element={<BacktestRoute />} />
       <Route path="/admin" element={<AdminRoute />} />
+      <Route path="/admin/facts/:securityId" element={<CompanyFactsRoute />} />
       <Route path="/settings/:tab?" element={<SettingsRoute />} />
       {/* the old change-password page: its links keep working */}
       <Route path="/account" element={<Navigate to="/settings/profile" replace />} />

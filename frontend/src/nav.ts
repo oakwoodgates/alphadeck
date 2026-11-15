@@ -5,6 +5,7 @@
 //   /scoreboard          the Scoreboard (the API's own /scoreboard lives behind /api — see api/client.ts)
 //   /workbench           the Workbench
 //   /admin               the Operator Admin (ops: record freshness, cron health, run-now)
+//   /admin/facts/:securityId  the steward's company page: its share count and cash/burn, evidence, actions
 //   /radar               the SPAC Radar (the blank-check transition tape)
 //   /dashboards          the Dashboards index (cross-card views, the Board first; docs/DASHBOARDS.md)
 //   /dashboards/:slug    one dashboard (its dashboards/<slug>/entry.ts, collected by dashboards/registry.ts);
@@ -88,6 +89,11 @@ export const backtestPath = (asof: string | null) => withParams("/backtest", { [
 // The Admin page itself has no as-of dial (it is a "now" ops surface), but the param rides along so
 // tabbing away and back to a scrubbed view keeps the operator's as-of.
 export const adminPath = (asof: string | null) => withParams("/admin", { [ASOF]: asof });
+
+// The steward's company page (a company's two platform values and the six actions): its own address, so a company
+// can be bookmarked and Back works. Steward-only like Admin; the param rides along like Admin's.
+export const companyFactsPath = (securityId: string, asof: string | null) =>
+  withParams(`/admin/facts/${encodeURIComponent(securityId)}`, { [ASOF]: asof });
 
 // The SPAC Radar — a "now" watch surface like Admin (no as-of dial; the param rides along).
 export const radarPath = (asof: string | null) => withParams("/radar", { [ASOF]: asof });
