@@ -2170,6 +2170,32 @@ export function useCompanyValues(securityId: string | undefined) {
   });
 }
 
+export type PlatformQueueOut = components["schemas"]["PlatformQueueOut"];
+export type PlatformQueueItemOut = components["schemas"]["PlatformQueueItemOut"];
+export type PlatformQueueValueOut = components["schemas"]["PlatformQueueValueOut"];
+export type PlatformQueuePen = "after" | "only" | "exclude";
+const PLATFORM_QUEUE_PAGE = 50;
+
+// The steward's queue (the Shared facts card on Admin): the companies with a share count or cash/burn awaiting a
+// decision, in the server's order, fifty to a page. A READ only, steward-only (the card is mounted for a steward
+// alone, so a plain user fires no request). `pen`: "exclude" the companies that sit only in a Discovered pen, "only"
+// those, "after" all with the pen-only ones last. `enabled` lets the quiet pen-only list wait until it is opened.
+// The company page's writes invalidate ["admin-platform-queue"], so every page and pen setting refreshes together.
+export function usePlatformQueue(offset: number, pen: PlatformQueuePen, enabled = true) {
+  return useQuery({
+    queryKey: ["admin-platform-queue", offset, pen] as const,
+    enabled,
+    placeholderData: keepPreviousData,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/admin/platform-values/queue", {
+        params: { query: { limit: PLATFORM_QUEUE_PAGE, offset, pen } },
+      });
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
 function usePlatformAction<TVars extends { securityId: string }>(
   fn: (vars: TVars) => Promise<CompanyValuesOut | undefined>,
 ) {

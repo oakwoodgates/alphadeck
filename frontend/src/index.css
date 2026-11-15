@@ -2327,3 +2327,16 @@ tr.adm-row-bad td { background: color-mix(in srgb, var(--warm) 5%, transparent);
 .cf-search { display: flex; flex-direction: column; gap: 5px; max-width: 420px; }
 .cf-matches { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .cf-fund { color: var(--txt-3); font-size: 10px; }
+
+/* Shared facts card (V2 W4c): the steward's queue rows; a pen-only row is quieter than the rest */
+.sf-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.sf-link { display: grid; grid-template-columns: minmax(140px, 1.2fr) 70px 3fr 130px; gap: 10px; align-items: baseline; padding: 5px 6px; border-radius: 6px; font-size: 12.5px; color: var(--txt); text-decoration: none; }
+.sf-link:hover { background: var(--panel-2); }
+.sf-link:focus-visible { outline: 2px solid var(--leader); outline-offset: 2px; }
+.sf-cards, .sf-wait { font-size: 11px; color: var(--txt-3); }
+.sf-what { font-size: 11.5px; color: var(--txt-2); }
+.sf-pen .sf-link { color: var(--txt-3); }
+.sf-pen .sf-what { color: var(--txt-3); }
+.sf-pager { display: flex; align-items: center; gap: 10px; }
+.sf-pen-block { display: flex; flex-direction: column; gap: 4px; }
+@media (max-width: 720px) { .sf-link { grid-template-columns: 1fr; gap: 2px; } }

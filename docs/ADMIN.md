@@ -617,6 +617,17 @@ carries its **one line**, `master_refresh` — the newest APPLIED run's own word
   (`Company list · refresh FAILED Oct 25 — …`; nothing was written, one transaction). The artifact (and the cron
   log) names each conflict with both companies; the repair is by hand.
 
+## Shared facts — "does a share count or cash/burn await me?" (V2)
+
+The card right after Record freshness. A company's share count and cash/burn are shared by every user and approved by the steward; this card is the steward's way in. It reads `GET /admin/platform-values/queue` and writes nothing (the six actions live on the company page, `/admin/facts/<company>`, and refresh this card).
+
+- **The line.** "N companies await you" in the loud style when N is above zero; otherwise one gray line, "Nothing awaits you", and no list.
+- **The search box.** "Find a company (ticker or name)": up to ten matches, a click opens that company's page. It is always there, queue or no queue.
+- **The queue.** One row per company, in the server's order (never re-sorted here): ticker and name, "on N cards" (a number, never whose), what waits (a flagged share count or cash/burn with its date and flags, or "a newer filing (date) waits beside the value shown"), and how long it has waited. A row opens the company page. Fifty to a page, Previous and Next.
+- **Discovered-pen-only companies.** Companies whose every card row is a Discovered pen are not counted as waiting. A gray "N more are only in a Discovered pen: show" opens them below the rest, quieter; "hide" folds them back. They are not requested until opened.
+- **One gray line of other work.** "Other work below: 2 splits to review · 1 held insider row · ...", each count a button that scrolls to its panel. Only the counts this page already reads (splits needing review, held insider rows owed, insider amendments owed), only those above zero.
+- **States.** Loading says "Reading the queue…"; a failed read shows the server's sentence in place and the search stays.
+
 ## Cron health — "did last night's run work?"
 
 The one-word `cron.status` verdict, plus the last run's counts and any problems:
