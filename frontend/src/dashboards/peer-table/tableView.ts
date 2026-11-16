@@ -1,3 +1,4 @@
+import { cashSymbol, storedCurrency } from "../../components/currency";
 import { businessTypeLabel, supersectorLabel } from "../../util/format";
 import { formatMarketCap } from "../../workbench/format";
 import type {
@@ -42,16 +43,17 @@ export function fmtSigned(v: number | null | undefined): string {
 export const fmtPct = (v: number | null | undefined) => (v == null ? "—" : `${fmtSigned(v)}%`);
 export const fmtPp = (v: number | null | undefined) => (v == null ? "—" : `${fmtSigned(v)} pp`);
 
-/** A dollar amount, compact: "$13.5M", "$1.20B", "$412K", "$950". A blank is "—". */
-export function fmtUsd(v: number | null | undefined): string {
+/** A dollar amount, compact: "$13.5M", "$1.20B", "$412K", "$950". A blank is "—". `sym` labels a cash/burn
+ *  figure in its own currency ("CN¥1.20B"; `components/currency.ts`), never converted. */
+export function fmtUsd(v: number | null | undefined, sym = "$"): string {
   if (v == null) return "—";
   const sign = v < 0 ? "-" : "";
   const a = Math.abs(v);
-  if (a >= 1e12) return `${sign}$${(a / 1e12).toFixed(2)}T`;
-  if (a >= 1e9) return `${sign}$${(a / 1e9).toFixed(2)}B`;
-  if (a >= 1e6) return `${sign}$${(a / 1e6).toFixed(1)}M`;
-  if (a >= 1e3) return `${sign}$${Math.round(a / 1e3).toLocaleString("en-US")}K`;
-  return `${sign}$${Math.round(a)}`;
+  if (a >= 1e12) return `${sign}${sym}${(a / 1e12).toFixed(2)}T`;
+  if (a >= 1e9) return `${sign}${sym}${(a / 1e9).toFixed(2)}B`;
+  if (a >= 1e6) return `${sign}${sym}${(a / 1e6).toFixed(1)}M`;
+  if (a >= 1e3) return `${sign}${sym}${Math.round(a / 1e3).toLocaleString("en-US")}K`;
+  return `${sign}${sym}${Math.round(a)}`;
 }
 
 /** A share count, compact: "10.0M", "1.20B". */
@@ -238,7 +240,9 @@ export function yoyCell(y: {
 
 /** The runway cell: months of cash at LAST QUARTER'S pace (V2 extractor correctness PR 3). The hover adds the
  *  year-to-date pace and the runway it implies when the fact carries one; a quiet asterisk marks ONLY a row whose
- *  pace caveat applies (honest loudness), the caveat sentence in the hover. The months and the sort never change. */
+ *  pace caveat applies (honest loudness), the caveat sentence in the hover. The months and the sort never change.
+ *  The figures read in the fact's own currency and the hover names the short-term investment part when one is
+ *  stored (GAP 3; `components/currency.ts`); the months are a ratio and need none. */
 export function runwayCell(r: {
   months: number | null;
   cash_positive: boolean;
@@ -249,16 +253,22 @@ export function runwayCell(r: {
   ytd_quarterly_burn_usd?: number | null;
   ytd_months?: number | null;
   pace_caveat?: string | null;
+  currency?: string | null;
+  source?: string | null;
+  investments_usd?: number | null;
 }): Cell {
   if (r.gap) return blank(r.gap, null);
-  const fact = `cash ${fmtUsd(r.cash_usd)}, burn ${fmtUsd(r.burn_usd)} per quarter, from the fact dated ${fmtDay(r.as_of)}`;
+  const sym = cashSymbol(storedCurrency(r));
+  const split =
+    r.investments_usd != null ? ` (of which short-term investments ${fmtUsd(r.investments_usd, sym)})` : "";
+  const fact = `cash ${fmtUsd(r.cash_usd, sym)}${split}, burn ${fmtUsd(r.burn_usd, sym)} per quarter, from the fact dated ${fmtDay(r.as_of)}`;
   const ytd = r.ytd_quarterly_burn_usd;
   const pace =
     ytd == null
       ? ""
       : ytd > 0
-        ? `. Year-to-date pace: burn ${fmtUsd(ytd)} per quarter${r.ytd_months != null ? `, ${r.ytd_months.toFixed(1)} months of runway` : ""}.`
-        : `. Year-to-date pace: cash-generative, ${fmtUsd(-ytd)} per quarter.`;
+        ? `. Year-to-date pace: burn ${fmtUsd(ytd, sym)} per quarter${r.ytd_months != null ? `, ${r.ytd_months.toFixed(1)} months of runway` : ""}.`
+        : `. Year-to-date pace: cash-generative, ${fmtUsd(-ytd, sym)} per quarter.`;
   const caveat = r.pace_caveat ? ` ${r.pace_caveat}` : "";
   const mark = r.pace_caveat ? "*" : "";
   if (r.cash_positive)

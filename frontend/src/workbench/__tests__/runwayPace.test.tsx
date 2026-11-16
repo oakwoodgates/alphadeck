@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { ScoredFigureOut, ScoredMemberOut } from "../../api/hooks";
 import { DDRail } from "../DDRail";
-import { meterValueLabel, runwayPaceWords } from "../format";
+import { meterValueLabel, runwayCashWords, runwayPaceWords } from "../format";
 
 // V2 extractor correctness PR 3 (operator decision D3): the runway reads AT LAST QUARTER'S PACE; the year-to-date
 // pace and the runway it implies ride beside it when the stored note carries one (the scored read threads them
@@ -31,6 +31,50 @@ const UP = runway({
 const STEADY = runway({ quarterly_burn_usd: 77_406_000, ytd_quarterly_burn_usd: 88_779_250, ytd_runway_months: 18.6 }, 21.3);
 const GENERATOR = runway({ quarterly_burn_usd: -357_700_000, ytd_quarterly_burn_usd: -321_507_284 }, null);
 const OLD = runway({ quarterly_burn_usd: 17_085_000 });
+
+// GAP 3: a yuan annual value, stored with its currency and investment split (0208)
+const YUAN: ScoredFigureOut = {
+  pips: 4,
+  value: 72,
+  provenance: [
+    {
+      source: "annual-statements",
+      ref: "https://www.sec.gov/y.htm",
+      detail: {
+        cash_usd: 1_200_000_000,
+        quarterly_burn_usd: 50_000_000,
+        currency: "CNY",
+        investments_usd: 300_000_000,
+        ytd_quarterly_burn_usd: 40_000_000,
+        ytd_runway_months: 90,
+      },
+    },
+  ],
+};
+
+describe("the runway's figures in their own currency", () => {
+  it("prints a yuan value in CN¥ with its split, and a quarterly one in $", () => {
+    expect(runwayCashWords(YUAN)).toBe(
+      "Cash CN¥1.2B, of which short-term investments CN¥300.0M; burn CN¥50.0M last quarter",
+    );
+    expect(runwayPaceWords(YUAN)?.ytd).toBe("Year-to-date pace: CN¥40.0M burn a quarter, 90 mo of runway");
+    expect(runwayCashWords(UP)).toBe("Cash $51.8M; burn $17.1M last quarter");
+  });
+
+  it("reads '?' for an annual value with no currency, never '$'", () => {
+    const d = { ...YUAN.provenance[0].detail, currency: undefined };
+    const unread = { ...YUAN, provenance: [{ ...YUAN.provenance[0], detail: d }] };
+    expect(runwayCashWords(unread)).toBe("Cash ?1.2B, of which short-term investments ?300.0M; burn ?50.0M last quarter");
+  });
+
+  it("shows the cash line quietly on the rail", () => {
+    render(<DDRail member={member(YUAN)} />);
+    expect(screen.getByTestId("dd-runway-cash")).toHaveTextContent(
+      "Cash CN¥1.2B, of which short-term investments CN¥300.0M; burn CN¥50.0M last quarter",
+    );
+    expect(screen.getByTestId("dd-runway-pace")).toHaveTextContent("CN¥40.0M");
+  });
+});
 
 describe("the runway label and its pace words", () => {
   it("labels the runway at last quarter's pace", () => {

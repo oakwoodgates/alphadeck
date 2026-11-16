@@ -6,7 +6,8 @@ import { useExplainFlag, useExtract, useRatifyFact, type ExtractedFact } from ".
 import { refusalText } from "../api/refusals";
 import { AutoTextarea } from "./AutoTextarea";
 import { errText, type OnFileFact, type OnFileMap } from "./format";
-import { cashSymbol, labelCurrency, LocatedPassages, MISSING_FLAGS } from "../components/LocatedPassages";
+import { cashSymbol, labelCurrency } from "../components/currency";
+import { LocatedPassages, MISSING_FLAGS } from "../components/LocatedPassages";
 import { LIMITS } from "../api/limits";
 
 const METER_LABEL: Record<string, string> = {

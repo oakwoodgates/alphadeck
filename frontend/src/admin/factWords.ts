@@ -11,7 +11,7 @@ import type {
   PlatformFactType,
   PlatformValueOut,
 } from "../api/hooks";
-import { cashSymbol, CURRENCY_UNREAD_FLAG, labelCurrency } from "../components/LocatedPassages";
+import { cashSymbol } from "../components/currency";
 
 export const FACT_TITLE: Record<PlatformFactType, string> = {
   shares_outstanding: "Share count",
@@ -33,17 +33,6 @@ type Valued = Pick<
   PlatformAppliedValueOut,
   "shares" | "ads_ratio" | "ads_ratio_status" | "cash_usd" | "quarterly_burn_usd" | "investments_usd"
 >;
-
-/** The source the annual-statements path stamps on a cash/burn value (a 20-F / 40-F's statements). */
-export const ANNUAL_STATEMENTS_SOURCE = "annual-statements";
-
-/** The currency a STORED cash/burn value's figures are labeled in (migration 0208): its stored ISO code; "?" for an
- *  annual-statements value stored without one (its currency was never established, so never "$"); null (= "$")
- *  for a value from the periodic 10-Q/10-K path or a V1 row, which read the USD unit. Through `labelCurrency`, the
- *  candidate's own rule, so a value and its candidate read alike. */
-export function storedCurrency(v: { currency?: string | null; source?: string | null }): string | null {
-  return labelCurrency(v.currency, v.source === ANNUAL_STATEMENTS_SOURCE ? [CURRENCY_UNREAD_FLAG] : []);
-}
 
 /** The value in words: "52,113,000 shares", "ADS ratio 2", "$890,000,000 cash, quarterly burn $314,678,000"; a
  *  stored investment part adds "(of which short-term investments $X)" after the cash (none recorded: no split). */

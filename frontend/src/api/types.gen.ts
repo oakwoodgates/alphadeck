@@ -15755,6 +15755,12 @@ export interface components {
             ytd_months: number | null;
             /** Pace Caveat */
             pace_caveat: string | null;
+            /** Currency */
+            currency?: string | null;
+            /** Source */
+            source?: string | null;
+            /** Investments Usd */
+            investments_usd?: number | null;
         };
         /**
          * PeerScopesOut

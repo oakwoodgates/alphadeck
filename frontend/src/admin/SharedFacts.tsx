@@ -7,7 +7,7 @@ import {
   type PlatformQueueValueOut,
   type PlatformQueuePen,
 } from "../api/hooks";
-import { labelCurrency } from "../components/LocatedPassages";
+import { labelCurrency } from "../components/currency";
 import { ASOF, companyFactsPath, validAsof } from "../nav";
 import { errText } from "../workbench/format";
 import { FactSearch } from "./FactSearch";

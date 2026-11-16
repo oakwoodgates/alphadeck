@@ -80,6 +80,43 @@ describe("NamePanel — the runway at last quarter's pace", () => {
     expect(screen.getByTestId("np-runway-caveat")).toHaveTextContent(CAVEAT);
   });
 
+  it("speaks a yuan value's own currency and its split (GAP 3)", () => {
+    render(
+      <NamePanel
+        row={rowFor(
+          scored({
+            pips: 4,
+            value: 72,
+            provenance: [
+              {
+                source: "annual-statements",
+                ref: "https://www.sec.gov/y.htm",
+                detail: {
+                  cash_usd: 1_200_000_000,
+                  quarterly_burn_usd: 50_000_000,
+                  currency: "CNY",
+                  investments_usd: 300_000_000,
+                  ytd_quarterly_burn_usd: 40_000_000,
+                },
+              },
+            ],
+          }),
+        )}
+        def={bucketDef("quiet")}
+        card={undefined}
+        thesisId="t1"
+        position={null}
+        display={null}
+        asof="2026-11-15"
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("np-runway-cash")).toHaveTextContent(
+      "Cash CN¥1.2B, of which short-term investments CN¥300.0M; burn CN¥50.0M last quarter",
+    );
+    expect(screen.getByTestId("np-runway-pace")).toHaveTextContent("Year-to-date pace: CN¥40.0M burn a quarter");
+  });
+
   it("shows no caveat for a steady quarter and nothing more without a pace", () => {
     const { unmount } = renderPanel(runway({ ytd_quarterly_burn_usd: 88_779_250, ytd_runway_months: 18.6 }));
     expect(screen.getByTestId("np-runway-pace")).toBeInTheDocument();

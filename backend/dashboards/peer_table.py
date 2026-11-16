@@ -75,6 +75,7 @@ from dashboards.market_cap import (
     metric_of,
 )
 from domain.burn_pace import stored_pace
+from domain.cash_currency import currency_symbol
 from domain.enums import ContextRole
 from domain.thesis import SILENT_LABELS
 from signals.dilution_clock import overhang_pct
@@ -219,6 +220,12 @@ class RunwayCell:
     ytd_quarterly_burn_usd: float | None = None
     ytd_months: float | None = None
     pace_caveat: str | None = None
+    # the figures' own currency (D4, 0208; never converted): the stored ISO code (None = not recorded) and the
+    # fact's source, which decide the label (``domain.cash_currency``: "?" only for an annual-statements value with
+    # none), and the investment part inside the cash (None = no split recorded)
+    currency: str | None = None
+    source: str | None = None
+    investments_usd: float | None = None
 
 
 @dataclass(frozen=True)
@@ -300,8 +307,17 @@ def runway_cell(fact: Mapping[str, Any] | None) -> RunwayCell:
     if fact is None:
         return RunwayCell(gap="no_burn")
     cash, burn = float(fact["cash_usd"]), float(fact["quarterly_burn_usd"])
-    pace = stored_pace(fact)
-    base: dict[str, Any] = dict(cash_usd=cash, burn_usd=burn, as_of=day_of(fact.get("valid_from")))
+    currency, source = fact.get("currency"), fact.get("source")
+    pace = stored_pace(fact, symbol=currency_symbol(currency, source=source))
+    part = fact.get("investments_usd")
+    base: dict[str, Any] = dict(
+        cash_usd=cash,
+        burn_usd=burn,
+        as_of=day_of(fact.get("valid_from")),
+        currency=currency,
+        source=source,
+        investments_usd=None if part is None else float(part),
+    )
     if pace is not None:
         base.update(
             ytd_quarterly_burn_usd=pace.ytd_quarterly_burn_usd,

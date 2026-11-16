@@ -45,6 +45,7 @@ from app.errors import (
 from app.routers.workbench import COMPANY_BUSY
 from db.write_lock import CompanyLockBusy
 from domain.burn_pace import stored_pace
+from domain.cash_currency import currency_symbol
 from domain.extraction import LocatedPassage
 from domain.links import HttpUrlOut
 from domain.platform_values import DerivedState
@@ -492,7 +493,14 @@ def _candidate(
 
 def _pace(row: Mapping[str, Any]) -> PlatformPaceOut | None:
     """The year-to-date pace of a cash-and-burn row (a candidate or a stored version), or None."""
-    pace = stored_pace(row)
+    # the caveat in the value's own currency: a version's stored ``currency``, a candidate's ``statement_currency``
+    # and flags (``domain.cash_currency``)
+    symbol = currency_symbol(
+        row.get("currency") or row.get("statement_currency"),
+        source=row.get("source"),
+        flags=row.get("flags"),
+    )
+    pace = stored_pace(row, symbol=symbol)
     if pace is None:
         return None
     return PlatformPaceOut(

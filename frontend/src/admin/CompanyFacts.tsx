@@ -21,7 +21,8 @@ import {
 } from "../api/hooks";
 import { refusalText } from "../api/refusals";
 import { ExternalLink, safeHttpUrl } from "../components/ExternalLink";
-import { labelCurrency, LocatedPassages, MISSING_FLAGS } from "../components/LocatedPassages";
+import { labelCurrency, storedCurrency } from "../components/currency";
+import { LocatedPassages, MISSING_FLAGS } from "../components/LocatedPassages";
 import { adminPath } from "../nav";
 import { CorrectForm, blankInit, initFromCandidate, initFromValue, type CorrectInit } from "./CorrectForm";
 import { FactSearch } from "./FactSearch";
@@ -46,7 +47,6 @@ import {
   setWords,
   statusWords,
   undoOf,
-  storedCurrency,
   valueWords,
 } from "./factWords";
 

@@ -25,9 +25,14 @@ periodic value applied before the PR 6 follow-up, an annual value whose currency
 correction that stated none), never an invented `USD` or 0. They are set on the INSERT of a new version only, on
 every write path: the machine's apply and its candidate, the steward's approve (the candidate's own) and correct
 (the steward states them: an ISO code, a part never negative and never above the cash, else 422), and an undo
-falls back to the earlier version with its own. The steward's screens label the figures in the stored currency
-(`?` for an annual-statements value stored without one, `$` for the periodic path and V1 rows) and add "of which
-short-term investments X" when a part is stored. Display only: nothing under `calls/` or `signals/` reads them.
+falls back to the earlier version with its own. Every screen that prints a cash or burn figure labels it in
+the stored currency through ONE rule (`?` for an annual-statements value stored without one, `$` for a quarterly
+value or a V1 row without one; never a conversion): `backend/domain/cash_currency.py` `currency_symbol` for every
+backend printer (the Filing Stream row, the pace caveat on the scored meter, the Peer Table cell and the steward
+page) and its twin `frontend/src/components/currency.ts` (`labelCurrency` / `storedCurrency` / `cashSymbol`) for
+every screen (the steward pages, the Workbench facts panel and rail, the scored row, the Cockpit name panel, the
+Peer Table). Where there is room (a hover, a detail line) they add "of which short-term investments X" when a part
+is stored. The runway in months is a ratio and unchanged. Display only: nothing under `calls/` or `signals/` reads them.
 The periodic 10-Q/10-K path reads companyfacts' USD unit only, so a value it read records `USD` explicitly
 (`statement_currency='USD'` on the extraction, `currency='USD'` once applied); a result that read nothing records
 none. Rows applied before that stay NULL (no backfill) and still read `$`.

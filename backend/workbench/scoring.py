@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Any
 
 from domain.burn_pace import stored_pace
+from domain.cash_currency import currency_symbol
 from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.enums import Grade
 from domain.platform_values import pick_current
@@ -111,11 +112,18 @@ def _runway(pit: PointInTimeData, sid, cfg: CallConfig) -> ScoredFigure:
         return ScoredFigure()  # "—": no cash/burn data
     best = pick_current(facts)  # THE one pick (domain.platform_values, D1 a)
     cash, burn = float(best["cash_usd"]), float(best["quarterly_burn_usd"])
-    pace = stored_pace(best)
+    # the figures' own currency (D4): the caveat sentence speaks it; the detail carries the stored code and the
+    # investment split so every screen labels the cash (``domain.cash_currency``; the front end's twin)
+    pace = stored_pace(
+        best, symbol=currency_symbol(best.get("currency"), source=best.get("source"))
+    )
+    part = best.get("investments_usd")
     prov = _prov(
         best,
         cash_usd=cash,
         quarterly_burn_usd=burn,
+        currency=best.get("currency"),  # None = not recorded: _prov drops it
+        investments_usd=None if part is None else float(part),
         ytd_quarterly_burn_usd=None if pace is None else pace.ytd_quarterly_burn_usd,
         ytd_burn_days=None if pace is None else pace.ytd_days,
         ytd_runway_months=None if pace is None else pace.ytd_runway_months,
