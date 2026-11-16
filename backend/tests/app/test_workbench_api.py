@@ -1557,6 +1557,47 @@ def test_ratify_cash_burn_writes_and_rederives_runway(client, db, security_id):
     )  # stamped + basis preserved
 
 
+def _ratify_cash(client, security_id, **over):
+    return client.post(
+        "/workbench/facts",
+        json={
+            "fact_type": "cash_burn",
+            "security_id": str(security_id),
+            "source": "20-f",
+            "source_ref": "https://www.sec.gov/foreign-20f.htm",
+            "event_date": "2025-12-31",
+            "cash_usd": 1_000_000_000,
+            "quarterly_burn_usd": 50_000_000,
+            **over,
+        },
+    )
+
+
+def test_ratify_cash_burn_stores_the_currency_and_investment_part(client, db, security_id):
+    """The steward's Workbench confirm (``steward.correct``) carries the statement currency and the investment
+    part into the stored version (0208); without them it records none."""
+    r = _ratify_cash(client, security_id, currency="CNY", investments_usd=300_000_000)
+    assert r.status_code == 200, r.text
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT currency, investments_usd FROM fact_cash_burn WHERE id = %s",
+            (r.json()["fact_id"],),
+        )
+        row = cur.fetchone()
+    assert (row["currency"], float(row["investments_usd"])) == ("CNY", 300_000_000)
+
+
+def test_ratify_cash_burn_refuses_a_bad_currency_or_part(client, db, security_id):
+    for over in ({"currency": "yen"}, {"investments_usd": 1_000_000_001}):
+        r = _ratify_cash(client, security_id, **over)
+        assert r.status_code == 422, r.text
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT count(*) AS n FROM fact_cash_burn WHERE security_id = %s", (security_id,)
+        )
+        assert cur.fetchone()["n"] == 0
+
+
 def test_ratify_revenue_mix_preserves_the_basis_source(client, db, security_id):
     """`source` is the candidate's BASIS (10-k-segment), NOT flattened to 'ratified' — the DD-rail basis
     provenance (the chip) stays honest."""

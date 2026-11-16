@@ -30,6 +30,7 @@ FACT_KEYS = (
     "cash_usd",
     "quarterly_burn_usd",
     "statement_currency",
+    "investments_usd",
     "flags",
     "located_passages",
     "estimate_source",
@@ -45,7 +46,13 @@ ANCHOR_CUT = 80
 EXCERPT_CUT = 300
 PASSAGES_SHOWN = 2
 # present only when the extractor set them
-OPTIONAL = ("statement_currency", "estimate_source", "ads_ratio", "ads_ratio_status")
+OPTIONAL = (
+    "statement_currency",
+    "investments_usd",
+    "estimate_source",
+    "ads_ratio",
+    "ads_ratio_status",
+)
 
 
 def _passage(p: dict[str, Any], *, full: bool) -> dict[str, Any]:

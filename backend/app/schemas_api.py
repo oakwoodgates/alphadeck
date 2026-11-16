@@ -39,6 +39,7 @@ from domain.text_types import (
     TERMS_MAX,
     AdsRatio,
     CikIn,
+    CurrencyCode,
     DecisionAmount,
     EmailIn,
     Excerpt,
@@ -46,6 +47,7 @@ from domain.text_types import (
     Line,
     MixPct,
     Money,
+    MoneyPart,
     Narrative,
     OpaqueState,
     PasswordIn,
@@ -909,6 +911,11 @@ class RatifyCashBurn(_RatifyBase):
     fact_type: Literal["cash_burn"]
     cash_usd: Money
     quarterly_burn_usd: Money
+    # the statement's ISO currency (the extractor's ``statement_currency``) and the short-term-investment part
+    # inside ``cash_usd`` (0208); omitted = not recorded (never assumed "USD" or 0). The steward checks the part
+    # is not above the cash (422).
+    currency: CurrencyCode | None = None
+    investments_usd: MoneyPart | None = None
 
 
 class RatifyCatalyst(_RatifyBase):

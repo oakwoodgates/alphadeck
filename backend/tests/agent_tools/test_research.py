@@ -635,6 +635,16 @@ def test_extract_default_has_no_thesis_so_no_llm_call_and_cuts_every_excerpt_at_
             assert len(p["excerpt"]) <= 300
 
 
+def test_extract_carries_the_investment_part_only_when_the_extractor_set_it():
+    """D1 (d): the cash figure's short-term-investment part rides the view beside the statement currency, and
+    is left out (never a fake 0) when the extractor read none."""
+    base = {"fact_type": "cash_burn", "tier": "flag", "cash_usd": 9.0, "quarterly_burn_usd": 1.0}
+    with_part = extract_view._fact({**base, "investments_usd": 4.0, "statement_currency": "CNY"})
+    assert (with_part["investments_usd"], with_part["statement_currency"]) == (4.0, "CNY")
+    without = extract_view._fact({**base, "investments_usd": None})
+    assert "investments_usd" not in without and "statement_currency" not in without
+
+
 def test_extract_with_a_thesis_passes_its_id_once_and_says_so():
     api = FakeApi()
 
