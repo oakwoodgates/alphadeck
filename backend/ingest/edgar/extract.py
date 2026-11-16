@@ -36,6 +36,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from typing import Any
 
+from domain.burn_pace import YtdPace, pace_caveat, pace_segment
 from domain.config import DEFAULT_EXTRACTOR_CONFIG, ExtractorConfig
 from domain.extraction import ExtractedFact, ExtractionResult, LocatedPassage, Tier
 from domain.settings import get_settings
@@ -548,6 +549,35 @@ def _quarter(facts: dict, cfg: ExtractorConfig) -> _Quarter | None:
     )
 
 
+def _ytd_pace(facts: dict, q: _Quarter, cfg: ExtractorConfig) -> YtdPace | None:
+    """The year to date behind a quarter's burn, for the PACE CHECK (V2 extractor correctness PR 3, plan Q5): the
+    operating-cash-flow row of the quarter's own tag that ends on the quarter's end and has the LONGEST span, when
+    that span covers more than one quarter (above ``quarterly_span_max_days``: a first fiscal quarter has no separate
+    pace) and no more than a fiscal year (``pace_ytd_max_days``: never an inception-to-date column). Only a burn
+    that passed the quarter window gets a pace (a ``burn-span`` or ``ytd-raw`` value is not a quarter to compare).
+
+    No lookahead: among rows for that one period, the EARLIEST filed is read, the figure as first published; a later
+    filing's restated comparative column was not public on the cited filing."""
+    if q.basis == "ytd-raw" or not (
+        cfg.quarterly_span_min_days <= q.days <= cfg.quarterly_span_max_days
+    ):
+        return None
+    rows = [
+        r
+        for r in _rows(facts, "us-gaap", q.concept, "USD")
+        if r.get("start")
+        and r["end"] == q.end
+        and cfg.quarterly_span_max_days < _days(r) <= cfg.pace_ytd_max_days
+    ]
+    if not rows:
+        return None
+    longest = max(_days(r) for r in rows)
+    first = min(
+        (r for r in rows if _days(r) == longest), key=lambda r: r.get("filed", "")
+    )  # the original publication
+    return YtdPace(burn_usd=-float(first["val"]), start=first["start"], end=first["end"])
+
+
 def _detect_one_time(
     facts: dict, text: str, ref: str, start: str, end: str, op_cash_use: float, cfg: ExtractorConfig
 ) -> LocatedPassage | None:
@@ -826,6 +856,10 @@ def _cash_burn(
         )
 
     burn: float | None = None
+    ytd: YtdPace | None = (
+        None  # the year-to-date pace behind the burn (PR 3); None = no separate year to date
+    )
+    caveat: str | None = None  # the pace caveat, only when the quarter is far off that pace (D3)
     checks: list[str] = []  # each period/citation flag's own sentence, stated in the note
     basis_suffix = (
         ""  # the derivation basis, stated in the note (composition = provenance, not a flag)
@@ -883,6 +917,12 @@ def _cash_burn(
         if ot:
             flags.append("possible-one-time")
             passages.append(ot)
+        # THE PACE CHECK (V2 extractor correctness PR 3, operator decision D3): the year-to-date quarterly pace
+        # rides the fact and the note, and a quarter far off it carries a CAVEAT. Never a flag, never the tier.
+        ytd = _ytd_pace(facts, q, cfg)
+        if ytd is not None:
+            asofs.append(pace_segment(ytd))
+            caveat = pace_caveat(cash_usd, burn, ytd.quarterly_burn_usd, cfg)
     if cash_at is None:
         # a burn column but NO cash instant — runway can't compute; offer the burn, name the miss
         flags.append("no-cash-instant")
@@ -957,7 +997,7 @@ def _cash_burn(
     cited = (
         f"cited filing: the {source.upper()} for the period ending {period_end.isoformat()} ({ref})"
     )
-    stated = [*asofs, cited, *checks]
+    stated = [*asofs, cited, *checks, *([f"pace caveat: {caveat}"] if caveat else [])]
     note = (
         f"{cash_part}; {burn_part}"
         + f" [{'; '.join(stated)}]"
@@ -980,6 +1020,9 @@ def _cash_burn(
         cash_usd=cash_usd,
         quarterly_burn_usd=burn,
         investments_usd=investments,
+        ytd_quarterly_burn_usd=None if ytd is None else round(ytd.quarterly_burn_usd),
+        ytd_burn_days=None if ytd is None else ytd.days,
+        pace_caveat=caveat,
         source=source,
         source_ref=ref,
         event_date=evt,

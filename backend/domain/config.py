@@ -1040,6 +1040,16 @@ class ExtractorConfig(DomainModel):
     # must equal it within this fraction, else the value is flagged ``investments-unreconciled``. Two tags of
     # ONE balance sheet differ only by rounding; 0.5% is the plan's proposed bound, not a measured one.
     investments_reconcile_tolerance: float = 0.005
+    # the burn PACE CHECK (V2 extractor correctness PR 3, ``domain.burn_pace.pace_divergence``; operator decision D3:
+    # a visible caveat on the applied value, never a flag, never a tier change). The latest quarter's burn is
+    # "divergent" from the year-to-date quarterly pace when it is under pace_ratio_low or over pace_ratio_high times
+    # the pace's (the plan's 0.5x-2x; the 2026-11-15 audit: 39 of 200 burners outside it, UP's 17.1M quarter against a
+    # 69.9M-a-quarter nine months). Opposite signs are their own reading. Proposed dials (decision D5 can tune them).
+    pace_ratio_low: float = 0.5
+    pace_ratio_high: float = 2.0
+    # the longest span a year to date can have and still be a FISCAL year to date (52-53-week years run to 371
+    # days): a longer row (a development-stage company's inception-to-date column) is never read as a pace.
+    pace_ytd_max_days: int = 371
 
     # --- annual-cover shares (the dark names, Retrieval Slice 1 — ingest/edgar/annual_shares.py) ---
     # The window AFTER the located cover instruction searched for the count. The instruction sentence
