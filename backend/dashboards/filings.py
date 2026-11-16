@@ -88,6 +88,7 @@ from psycopg import sql
 
 from dashboards.baskets import per_company
 from db.clock import db_now
+from domain.burn_pace import runway_pace
 from domain.insider_amendments import AMENDS_ACCESSION
 from domain.insider_internal_transfers import is_internal_transfer, transfer_with
 from domain.insider_joint_reports import JOINT_REPORTERS
@@ -1142,7 +1143,12 @@ def _share_count_public(f: Mapping[str, Any]) -> datetime | None:
 
 
 def _ratified_row(
-    f: Mapping[str, Any], who: Who, headline: str, *, published: bool = False
+    f: Mapping[str, Any],
+    who: Who,
+    headline: str,
+    *,
+    published: bool = False,
+    extra: Sequence[str] = (),
 ) -> FilingRow | None:
     """One Workbench fact (cash and burn, shares outstanding, revenue mix), in one of two kinds of row:
 
@@ -1171,6 +1177,7 @@ def _ratified_row(
         detail = []
         if _day(f.get("valid_from")):
             detail.append(f"Period or cover date: {_day(f.get('valid_from'))}")
+        detail.extend(extra)  # what the fact states beyond its headline (the burn pace)
         detail.append(_source_line(f))
         return FilingRow(
             security_id=who.security_id,
@@ -1206,6 +1213,7 @@ def _ratified_row(
         detail.append(note)
     if by_store:
         detail.append("No cover or filing date stated, so it is dated by the day it was stored")
+    detail.extend(extra)  # what the fact states beyond its headline (the burn pace)
     detail.append(_source_line(f))
     detail.append(_not_ratified_line(f))
     source = str(f["source"]).strip() if f.get("source") else ""
@@ -1237,7 +1245,18 @@ def rows_from_ratified(
         if cash is None or burn is None:
             continue
         tail = f"burn {fmt_compact(burn)}/qtr" if burn > 0 else "cash-positive quarter"
-        out.append(_ratified_row(f, who, f"cash {fmt_compact(cash)} · {tail}"))
+        # the year-to-date pace beside last quarter's burn, and its caveat, when the note carries one (V2 extractor
+        # correctness PR 3, ``domain.burn_pace``); a value without one reads exactly as before
+        pace = runway_pace(cash, burn, f.get("note"))
+        extra: list[str] = []
+        if pace is not None:
+            ytd = pace.ytd_quarterly_burn_usd
+            tail += " last quarter · year-to-date pace " + (
+                f"burn {fmt_compact(ytd)}/qtr" if ytd > 0 else "cash-positive"
+            )
+            if pace.caveat:
+                extra.append(pace.caveat)
+        out.append(_ratified_row(f, who, f"cash {fmt_compact(cash)} · {tail}", extra=extra))
     for f in shares:
         n = _f(f.get("shares"))
         if n is not None:

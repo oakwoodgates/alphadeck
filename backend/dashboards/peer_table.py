@@ -74,6 +74,7 @@ from dashboards.market_cap import (
     float_of,
     metric_of,
 )
+from domain.burn_pace import runway_pace
 from domain.enums import ContextRole
 from domain.thesis import SILENT_LABELS
 from signals.dilution_clock import overhang_pct
@@ -212,6 +213,12 @@ class RunwayCell:
     burn_usd: float | None = None  # the quarterly burn
     as_of: date | None = None  # the fact's date
     gap: Gap | None = None
+    # the year-to-date pace (V2 extractor correctness PR 3, ``domain.burn_pace``), read from the fact's note: the
+    # pace per quarter (burn sign), the months of runway it implies (None when that pace generates cash), and the
+    # caveat sentence when last quarter is far off that pace. All None when the note carries no pace.
+    ytd_quarterly_burn_usd: float | None = None
+    ytd_months: float | None = None
+    pace_caveat: str | None = None
 
 
 @dataclass(frozen=True)
@@ -286,12 +293,21 @@ def revenue_cells(rows: Sequence[Mapping[str, Any]]) -> tuple[RevenueCell, YoyCe
 
 
 def runway_cell(fact: Mapping[str, Any] | None) -> RunwayCell:
-    """Months of cash at the current burn from the latest cash/burn fact (``_runway``'s figure, not its pips):
-    cash / (quarterly burn / 3); ``cash_positive`` when the burn is zero or negative."""
+    """Months of cash at LAST QUARTER'S burn from the latest cash/burn fact (``_runway``'s figure, not its pips):
+    cash / (quarterly burn / 3); ``cash_positive`` when the burn is zero or negative. The year-to-date pace and its
+    caveat ride beside it when the fact's note carries one (``domain.burn_pace.runway_pace``); they never move the
+    months or the sort."""
     if fact is None:
         return RunwayCell(gap="no_burn")
     cash, burn = float(fact["cash_usd"]), float(fact["quarterly_burn_usd"])
-    base = dict(cash_usd=cash, burn_usd=burn, as_of=day_of(fact.get("valid_from")))
+    pace = runway_pace(cash, burn, fact.get("note"))
+    base: dict[str, Any] = dict(cash_usd=cash, burn_usd=burn, as_of=day_of(fact.get("valid_from")))
+    if pace is not None:
+        base.update(
+            ytd_quarterly_burn_usd=pace.ytd_quarterly_burn_usd,
+            ytd_months=pace.ytd_runway_months,
+            pace_caveat=pace.caveat,
+        )
     if burn <= 0:
         return RunwayCell(cash_positive=True, **base)
     return RunwayCell(months=round(cash / (burn / 3.0), 1), **base)

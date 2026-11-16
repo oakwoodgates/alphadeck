@@ -90,13 +90,13 @@ def _months(cash: float | None, quarterly_burn: float) -> float | None:
 
 
 def money(v: float) -> str:
-    """A dollar amount in short words, sign dropped: "$17.1M", "$1.5B"."""
+    """A dollar amount in short words, sign dropped: "$17.1M", "$1.5B", "$710.0K"; a figure that rounds up to the
+    next unit moves to it ("$1.0M", never "$1000.0K")."""
     a = abs(v)
-    if a >= 1e9:
-        return f"${a / 1e9:.1f}B"
-    if a >= 1e6:
-        return f"${a / 1e6:.1f}M"
-    return f"${a / 1e3:.1f}K"
+    for size, suffix in ((1e9, "B"), (1e6, "M"), (1e3, "K")):
+        if round(a / size, 1) >= 1:
+            return f"${a / size:,.1f}{suffix}"
+    return f"${a:,.0f}"
 
 
 def pace_caveat(

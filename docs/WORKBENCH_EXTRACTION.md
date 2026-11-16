@@ -192,6 +192,18 @@ most needs to make:
   older is `stale-cash`, newer is `cash-after-period` (RMIX's cash was 31 days after the period). Each failure
   offers the value as found, with its flag and a sentence in the note saying what was observed; nothing here
   ever turns a flag into AUTO. A raw year to date keeps its own `ytd-raw` (one condition, one label).
+- **The pace check — a caveat, never a flag** (V2 extractor correctness PR 3; operator decision D3, 2026-11-15;
+  `domain/burn_pace.py`). For a burn that passed the quarter window, the year to date of the same tag ending on
+  the burn's end (the longest span above `quarterly_span_max_days` and at most `pace_ytd_max_days` = 371; the
+  earliest-filed row, so never a later restatement) gives the year-to-date quarterly pace = value ÷ (days ÷
+  91.3125). A first fiscal quarter has none. `pace_divergence`: **opposite** when the quarter and the pace have
+  opposite signs, **divergent** when the quarter's burn is under `pace_ratio_low` (0.5) or over
+  `pace_ratio_high` (2.0) times the pace's, and nothing when neither burns (no runway, no runway caveat). The
+  pace rides `ExtractedFact.ytd_quarterly_burn_usd`/`ytd_burn_days` and the note's segment "year-to-date pace:
+  burn N over S → E (D days) = Q a quarter"; a firing rule adds `pace_caveat` and "pace caveat: <sentence>" to
+  the note. **It never adds a flag and never changes the tier** (the audit: the arithmetic was right on every
+  one of the 39 burners; the steward could only approve). No column stores the pace yet: the note is its
+  storage, and every runway reader recovers it with `runway_pace` (see `docs/WORKBENCH_SCORING.md`).
 - **Every input's as-of date rides the note** ("cash as of … · burn over S → E (N days, tagged <tag>) · cited
   filing: the 10-Q for the period ending P (<link>)"), and a cash balance sheet older than the filing's period
   end flags `stale-cash` (the shares `stale-cover` rule, applied here).

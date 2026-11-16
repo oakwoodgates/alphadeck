@@ -183,8 +183,11 @@ class PeerYoyOut(_Wire):
 
 
 class PeerRunwayOut(_Wire):
-    """Months of cash at the current burn (cash / (quarterly burn / 3)); ``cash_positive`` when the burn is zero or
-    negative (no finite figure). ``as_of`` = the fact's date."""
+    """Months of cash at LAST QUARTER'S burn (cash / (quarterly burn / 3)); ``cash_positive`` when the burn is zero
+    or negative (no finite figure). ``as_of`` = the fact's date. The year-to-date pace beside it (V2 extractor
+    correctness PR 3): ``ytd_quarterly_burn_usd`` (burn sign), ``ytd_months`` (None when that pace generates cash)
+    and ``pace_caveat`` (only when last quarter is far off that pace); all None when the fact's note has no pace.
+    """
 
     months: float | None
     cash_positive: bool
@@ -192,6 +195,9 @@ class PeerRunwayOut(_Wire):
     burn_usd: float | None
     as_of: date | None
     gap: Gap | None
+    ytd_quarterly_burn_usd: float | None
+    ytd_months: float | None
+    pace_caveat: str | None
 
 
 class PeerPurityOut(_Wire):
