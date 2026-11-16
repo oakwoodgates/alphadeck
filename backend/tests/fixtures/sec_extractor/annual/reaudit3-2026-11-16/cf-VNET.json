@@ -1,0 +1,54 @@
+{
+ "_fixture": "RECONSTRUCTED from the 2026-11-16 third annual re-audit (reaudit3-annual-cash-2026-11-16.md), not copied from EDGAR. Recorded: cash 5,523,571 and short-term investment 379,198 (RMB thousands), the stored investment part 54,225 (the US$ convenience column), operating cash flow 1,918,550 over 364 days, and the stored note's acceptance of a USD companyfacts match for the CNY investment part (here us-gaap ShortTermInvestments 54,225,000 USD). The CNY cash and operating-cash-flow rows are INFERRED from the stored candidate (no convenience-column flag means companyfacts confirmed CNY; the 364-day span means an exact companyfacts duration row). The accession is the re-audit's filing URL's; the filed date is a placeholder.",
+ "entityName": "VNET",
+ "facts": {
+  "us-gaap": {
+   "CashAndCashEquivalentsAtCarryingValue": {
+    "units": {
+     "CNY": [
+      {
+       "end": "2025-12-31",
+       "val": 5523571000,
+       "accn": "0001104659-26-044361",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-04-24"
+      }
+     ]
+    }
+   },
+   "ShortTermInvestments": {
+    "units": {
+     "USD": [
+      {
+       "end": "2025-12-31",
+       "val": 54225000,
+       "accn": "0001104659-26-044361",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-04-24"
+      }
+     ]
+    }
+   },
+   "NetCashProvidedByUsedInOperatingActivities": {
+    "units": {
+     "CNY": [
+      {
+       "end": "2025-12-31",
+       "val": 1918550000,
+       "accn": "0001104659-26-044361",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-04-24",
+       "start": "2025-01-01"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

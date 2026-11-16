@@ -164,12 +164,20 @@ most needs to make:
       them → `investments-unreconciled` (the parts are offered as read); **larger**, the excess is named and
       NOT counted (it may be cash equivalents, already in cash: the conservative direction);
     - beside **other** investment tags (no part of its own) it is named as not counted (it may restate them);
-    - **alone** (no current or noncurrent investment tag on the cash date) it is **counted** (the largest if
-      both are tagged, never the sum) and the note says it is a total not split into current and noncurrent.
-      Tags alone cannot tell it apart from securities already inside cash equivalents (Biomarin's same-shaped
-      tag is not an addable amount), so it is a FLAG, `investments-unreconciled`, unless the same-dated
-      combined `CashCashEquivalentsAndShortTermInvestments` equals cash + the total (then it is established
-      as the short-term investments: AUTO).
+    - **alone** (no current or noncurrent investment tag on the cash date) it is **counted only when the
+      same-dated combined `CashCashEquivalentsAndShortTermInvestments` equals cash + the total** (the largest
+      if both are tagged, never the sum): it is then established as the short-term investments, AUTO, and the
+      note says it is a total not split into current and noncurrent. **Otherwise it is quoted, NOT added**
+      (operator decision after the third re-audit, 2026-11-16: of 17 such offers 10 were overstated — Nvidia's
+      46.9bn total already includes cash equivalents, a 12.8bn double count; Encompass Health's, National
+      HealthCare's and Tutor Perini's securities are restricted — and 6 were right, Glaukos's 174.4M among
+      them). Tags alone cannot tell it apart from securities already inside cash equivalents (Biomarin's
+      same-shaped tag is not an addable amount), and a steward's approve stores the offered number, so the
+      offer is the conservative one: cash and equivalents (plus any parts established by suffixed tags),
+      `investments_usd` without the total, a FLAG, `investments-unreconciled`, and the note names the tag and
+      amount, says it was not counted because tags cannot tell whether it is already inside cash equivalents
+      or restricted, and asks the steward to add the eligible part from the balance sheet (Glaukos reads
+      162.3M with the 174.4M quoted; Nvidia 22,443M with the 46,900M quoted).
     - `DepositsAssetsCurrent` is not read: the concept also carries security, utility and vendor deposits paid
       to others, so a short-term bank deposit cannot be told apart from tags (ODYS's 333k is left out, the
       conservative direction).
@@ -196,8 +204,8 @@ most needs to make:
     `investments_reconcile_tolerance` (0.5%). The combined line is a check, never an addend, and the gap is
     never filled by subtraction (the extractor locates, it never invents). Cash read from the restricted-cash
     total overshoots the combined line, so it flags too: never a silent double count. The same flag marks an
-    unsplit debt-securities total that is smaller than its own current + noncurrent parts, and one counted
-    alone that no combined line confirms (see the tag lists above).
+    unsplit debt-securities total that is smaller than its own current + noncurrent parts, and one standing
+    alone that no combined line confirms (quoted, not counted; see the tag lists above).
   - `investments-off-date` — an investment tag sits only on a NEWER balance sheet than the cash.
 - **The cash candidate's `source` names the cited form:** `10-q`, or `10-k` when the values filing is a 10-K
   (since B1 the newer of the two by public time; before 2026-11-15 every value said `10-q`).
@@ -518,11 +526,23 @@ total or summary ("of which", "including", "comprising", "consisting of", "Total
 cash); (3) it reads the same column headers as the cash row; (4) its report-year cell holds a value: a
 **dash** is an empty cell (nothing added, the note says so — WAVE's "note 5, 2025 a dash, 2024 1,254"
 added 5,000 from the note number before), and a **blank** cell beside a note reference (a table with a
-Note column whose row prints only "5 1,254") is never the note number. A row that fails (1)–(3), is blank
+Note column whose row prints only "5 1,254") is never the note number. A row that prints its note reference
+and then **one figure per column of the cash row** is read in the cash value's own column (the third
+re-audit, 2026-11-16: ALC's "Time deposits 17 80 153" under "at December 31, 2025 and 2024 … Note 2025 2024"
+was called blank because its three figures were compared with the header's four year tokens; the cash row's
+figure count is the table's real column grid, and "17 — 153" there is still an empty cell). A row that fails (1)–(3), is blank
 beside its note reference, or cannot be read is **seen and not counted**: nothing is added, the row is
 quoted in the note with the reason, and the candidate carries **`investments-unconfirmed`**. In a table
 whose header prints a Note column, a bare parenthesized "(3)" right after a label is that note reference,
 never a negative first column.
+
+**The part comes from the cash value's own currency column, never the convenience translation** (the
+third re-audit, 2026-11-16: VNET's statements are in RMB thousands with a US$ convenience column; its
+short-term investments row printed 379,198 and 54,225 with the 2024 cell blank, the two figures were mapped
+onto the two year headers, and the US$ 54,225 was stored as CNY). When the cash row prints more figures than
+year headers (a convenience-translation column), a deposits row must print as many figures as the cash row
+(after a note reference) to be read in the cash row's column; one that prints fewer cannot be placed on that
+grid and is seen, quoted and NOT counted (`investments-unconfirmed`), never mapped onto the year headers.
 
 **Later-as-of-wins per quantity** (the shares rule): companyfacts usually **lags** the filing by up to
 a year (annual XBRL ingests slowly — the reason the filing is read at all) and is sometimes
@@ -532,6 +552,9 @@ statement's own date and requires an **exact** match at the printed precision (a
 EH's wrong column, 0.4% off): an agreement is named with its concept and unit; a same-date row that
 reproduces nothing is `figures-disagree` with both numbers (this replaced `source-disagreement` on this
 path); **no same-date row is a stated condition ("not cross-checked"), never a pass**. A deposits or
+investments figure is agreed only by a row in the **statement's own currency unit**: a row that reproduces
+it only in another unit (VNET's USD 54,225,000 against a CNY candidate) is `figures-disagree`, the note giving
+both numbers and both units (a translated figure is not the statement's). A deposits or
 investments row is compared only within its concept family (a "deposits" row never meets a
 marketable-securities concept, an "investments" row never meets a time-deposit concept) and never with a
 concept that reproduces ANOTHER counted row of the same balance sheet (NTES: "Short-term investments"

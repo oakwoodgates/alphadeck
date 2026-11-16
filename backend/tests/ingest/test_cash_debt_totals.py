@@ -13,9 +13,12 @@ would double count), and the same filers often tag securities classed as CASH EQ
 paper under 90 days: GM's and NTSK's totals hold amounts already inside cash), or restricted holdings (NHC). The
 rule: beside its own current/noncurrent parts the total is only a CHECK (parts above the total contradict it ->
 ``investments-unreconciled``; a total above the parts leaves the excess uncounted and named); beside other
-investment tags it is named and not counted; ALONE it is counted, said to be an unsplit total, and is a FLAG
-(``investments-unreconciled``) unless the same-dated combined cash-and-short-term-investments line confirms it,
-because tags alone cannot tell it apart from securities already inside cash.
+investment tags it is named and not counted; ALONE it is counted (AUTO) only when the same-dated combined
+cash-and-short-term-investments line confirms cash + it. Otherwise (the third re-audit, operator decision) it is
+QUOTED, NOT ADDED: of 17 such offers 10 were overstated (NVDA's 46.9bn total already includes cash equivalents;
+EHC's, NHC's and TPC's securities are restricted), and a steward's approve stores the offered number, so the
+offer is the conservative one: cash and equivalents (plus any suffixed parts), a FLAG
+(``investments-unreconciled``), and the note asks the steward to add the eligible part from the balance sheet.
 
 ``GKOS.json`` and ``CRUS.json`` in ``tests/fixtures/edgar/cash_composition/`` are RECONSTRUCTED from the re-audit
 (``docs/temp/v2-extractor-audits-2026-11-15/reaudit-quarterly-cash-2026-11-16.md``): GKOS's cash, its two
@@ -24,7 +27,14 @@ operating cash flow (40,867,000 less 2,297,000) are the re-audit's; CRUS's 324,3
 stored 752,047,000 is put on the cash tag alone because the real cash/short-term split was not recorded. What is
 not recorded is synthetic and marked ``"accn": "reconstructed"``: every accession, filed date and fiscal label;
 CRUS's balance-sheet date and operating cash flow. Fed through the old reader each reproduces the stored value
-(GKOS 162,327,000; CRUS 752,047,000).
+(GKOS 162,327,000; CRUS 752,047,000). The rule of the second re-audit offered GKOS 336,699,000.
+
+``NVDA.json`` is RECONSTRUCTED from the third re-audit
+(``docs/temp/v2-extractor-audits-2026-11-15/reaudit3-quarterly-cash-2026-11-16.md``): cash and equivalents
+22,443,000,000 and the 46,900,000,000 debt total on the balance sheet of the cited 10-Q (nvda-20260726) are the
+re-audit's; the total's tag name (the re-audit says only "debt-total tag"), the operating cash flow, accession,
+filed date and fiscal label are synthetic (``"accn": "reconstructed"``). The second re-audit's rule offered
+69,343,000,000 (a 12,757,000,000 double count).
 
 Display-only: the cash reading feeds the runway meter and the platform value, never a call.
 """
@@ -55,20 +65,34 @@ def _cb(ticker: str, period: date):
 # ---------------------------------------------------------------------------------------------------------
 
 
-def test_gkos_counts_its_unsplit_debt_total_and_flags_that_it_is_unconfirmed():
-    """GKOS: only the unsplit total is tagged on the cash date. It is counted (162.3M + 174.4M), the note says
-    it is a total not split into current and noncurrent, and it is a FLAG: tags alone cannot rule out that it
-    holds securities already inside cash equivalents (BMRN's same-shaped tag is not an addable amount).
+def test_gkos_quotes_its_lone_unsplit_debt_total_and_offers_cash_only():
+    """GKOS: only the unsplit total is tagged on the cash date and no combined line confirms it. It is QUOTED,
+    not added: the offer is cash and equivalents (the conservative number a steward's approve would store), a
+    FLAG, and the note names the total and asks the steward to add the eligible part (here the re-audit found
+    all 174.4M eligible: the steward corrects to 336,699,000).
     """
     cb = _cb("GKOS", date(2026, 9, 30))
-    assert cb.cash_usd == 336_699_000  # old reading: 162,327,000
-    assert cb.investments_usd == 174_372_000  # exactly what was added
+    assert cb.cash_usd == 162_327_000  # was 336,699,000 (162,327,000 + 174,372,000)
+    assert cb.investments_usd is None  # was 174,372,000: nothing counted
     assert cb.tier is Tier.FLAG and cb.flags == ["investments-unreconciled"]
     assert cb.quarterly_burn_usd == -(40_867_000 - 2_297_000)  # the burn is untouched
-    assert f"debt securities $174.4M ({_AFS})" in cb.note
+    assert f"a debt-securities total of $174.4M ({_AFS}) was reported" in cb.note
     assert "a total not split into current and noncurrent" in cb.note
-    assert "cash equivalents" in cb.note
+    assert "not counted" in cb.note
+    assert "already inside cash equivalents or restricted" in cb.note
+    assert "add the eligible part from the balance sheet" in cb.note
     assert "no short-term investments tagged on the cash date" not in cb.note
+
+
+def test_nvda_does_not_double_count_a_debt_total_that_holds_cash_equivalents():
+    """NVDA: the 46.9bn total already includes cash equivalents; the old offer (69,343,000,000) double counted
+    12,757,000,000. Now the offer is cash and equivalents only, the total quoted."""
+    cb = _cb("NVDA", date(2026, 7, 26))
+    assert cb.cash_usd == 22_443_000_000  # was 69,343,000,000
+    assert cb.investments_usd is None  # was 46,900,000,000
+    assert cb.tier is Tier.FLAG and cb.flags == ["investments-unreconciled"]
+    assert f"a debt-securities total of $46900.0M ({_AFS}) was reported" in cb.note
+    assert "add the eligible part from the balance sheet" in cb.note
 
 
 def test_crus_counts_long_term_marketable_securities_under_the_ex_accrued_interest_noncurrent_tag():
@@ -173,21 +197,26 @@ def test_an_unsplit_total_confirmed_by_the_combined_line_is_auto():
     assert f"reconciles to {_COMBINED} $150.0M" in cb.note
 
 
-def test_an_unsplit_total_the_combined_line_contradicts_is_a_flag():
+def test_an_unsplit_total_the_combined_line_contradicts_is_quoted_not_added():
+    """The combined line (120M) does not confirm cash + the total (150M): not established, so not added."""
     cb = _run(
         CashAndCashEquivalentsAtCarryingValue=[_inst(_D, 100e6)],
         **{_AFS: [_inst(_D, 50e6)], _COMBINED: [_inst(_D, 120e6)]},
     )
     assert cb.tier is Tier.FLAG and cb.flags == ["investments-unreconciled"]
-    assert cb.cash_usd == 150e6 and cb.investments_usd == 50e6
+    assert cb.cash_usd == 100e6 and cb.investments_usd is None  # was 150e6 and 50e6
+    assert f"a debt-securities total of $50.0M ({_AFS}) was reported" in cb.note
+    assert f"{_COMBINED} $120.0M ≠ cash + the debt-securities total $150.0M" in cb.note
 
 
-def test_two_unsplit_totals_alone_take_the_largest_never_the_sum():
+def test_two_unsplit_totals_alone_are_quoted_the_largest_never_the_sum():
     cb = _run(
         CashAndCashEquivalentsAtCarryingValue=[_inst(_D, 100e6)],
         **{_AFS: [_inst(_D, 50e6)], _AFS_EX: [_inst(_D, 49.8e6)]},
     )
-    assert cb.cash_usd == 150e6 and cb.investments_usd == 50e6
+    assert cb.cash_usd == 100e6 and cb.investments_usd is None  # was 150e6 and 50e6
+    assert cb.tier is Tier.FLAG and cb.flags == ["investments-unreconciled"]
+    assert "a debt-securities total of $50.0M" in cb.note
     assert "overlapping tags are never summed" in cb.note
 
 
