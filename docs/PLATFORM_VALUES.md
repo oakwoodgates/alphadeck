@@ -20,14 +20,17 @@ component in the note.
 `fact_cash_burn.currency` is the statement's ISO code (three capital letters; the `*_usd` columns then hold that
 currency's figures, never converted) and `fact_cash_burn.investments_usd` the investment part already inside
 `cash_usd`; `extraction_candidate.investments_usd` is the same on the candidate (whose currency is its
-`statement_currency`). Both are nullable with no default and no backfill: NULL means **not recorded** (a V1 row, the
-periodic path, which sets no currency, an annual value whose currency the extractor could not establish, a
+`statement_currency`). Both are nullable with no default and no backfill: NULL means **not recorded** (a V1 row, a
+periodic value applied before the PR 6 follow-up, an annual value whose currency the extractor could not establish, a
 correction that stated none), never an invented `USD` or 0. They are set on the INSERT of a new version only, on
 every write path: the machine's apply and its candidate, the steward's approve (the candidate's own) and correct
 (the steward states them: an ISO code, a part never negative and never above the cash, else 422), and an undo
 falls back to the earlier version with its own. The steward's screens label the figures in the stored currency
 (`?` for an annual-statements value stored without one, `$` for the periodic path and V1 rows) and add "of which
 short-term investments X" when a part is stored. Display only: nothing under `calls/` or `signals/` reads them.
+The periodic 10-Q/10-K path reads companyfacts' USD unit only, so a value it read records `USD` explicitly
+(`statement_currency='USD'` on the extraction, `currency='USD'` once applied); a result that read nothing records
+none. Rows applied before that stay NULL (no backfill) and still read `$`.
 
 **The stored year-to-date pace** (migration 0209; operator decision D3's sub-decision, a column). `fact_cash_burn`
 and `extraction_candidate` carry `ytd_quarterly_burn_usd` (the year to date ending on the burn's end, scaled to one

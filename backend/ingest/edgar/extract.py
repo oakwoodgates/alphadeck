@@ -1019,6 +1019,10 @@ def _cash_burn(
         tier=tier,
         cash_usd=cash_usd,
         quarterly_burn_usd=burn,
+        # every figure on this value was read from companyfacts' USD unit (``_pick_instant``, ``_compose``,
+        # ``_quarter`` and ``_ytd_pace`` read no other unit), so the value says so explicitly (D4); the
+        # nothing-read return above claims no currency
+        statement_currency="USD",
         investments_usd=investments,
         ytd_quarterly_burn_usd=None if ytd is None else round(ytd.quarterly_burn_usd),
         ytd_burn_days=None if ytd is None else ytd.days,
