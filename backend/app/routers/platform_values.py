@@ -11,7 +11,7 @@ the user's words (``platform_values.words``), who set it as a kind (never an ema
 
 No ``asof``: this is the CURRENT state. The static ``theses`` path is declared before ``{security_id}``. Read-only.
 Mounted with the plain user gate (``_USER`` in ``app/main.py``). Response models carry no limits (built from stored
-rows); every URL field is ``HttpUrlOut``, built through ``dashboards.filings.source_url``.
+rows); every URL field is ``HttpUrlOut``, built through ``domain.links.source_url``.
 """
 
 from __future__ import annotations
@@ -28,9 +28,8 @@ from pydantic import BaseModel, Field, ValidationError
 from app.auth import CurrentUser, require_user
 from app.deps import get_conn, get_thesis_or_404
 from app.errors import fail
-from dashboards.filings import source_url
 from domain.extraction import LocatedPassage
-from domain.links import HttpUrlOut
+from domain.links import HttpUrlOut, source_url
 from domain.thesis import Thesis
 from platform_values import user_view
 from platform_values.user_view import AppliedValue, FilingRef, UserCompanyValues, UserValue

@@ -48,3 +48,44 @@ HTTP_URL_RULE = BeforeValidator(safe_http_url)
 
 HttpUrlOut = Annotated[str | None, HTTP_URL_RULE]
 """A response field that carries a URL: ``None`` on the wire unless ``safe_http_url`` accepts it."""
+
+
+# --- a stored source reference as a link (one resolver for every surface) ---
+
+_ACCESSION = re.compile(r"\d{18}")
+
+
+def filing_index_url(cik: str | None, accession: str | None) -> str | None:
+    """The EDGAR filing-index URL ``https://www.sec.gov/Archives/edgar/data/<cik as int>/<accession without
+    dashes>/``, or ``None`` when the CIK or the accession is missing or malformed (never a guessed link).
+    """
+    if not cik or not accession:
+        return None
+    digits = re.sub(r"\D", "", str(cik))
+    acc = str(accession).strip().replace("-", "")
+    if not digits or not _ACCESSION.fullmatch(acc):
+        return None
+    return f"https://www.sec.gov/Archives/edgar/data/{int(digits)}/{acc}/"
+
+
+def source_url(source_ref: Any, cik: str | None) -> str | None:
+    """A stored ``source_ref`` as a link: an http(s) URL that passes the one wire rule
+    (``domain.links.safe_http_url``: a host, no credentials, no whitespace, at most 2,000 characters) as is, an
+    accession-shaped reference through the EDGAR index, anything else (an award id, a free-text reference, a
+    URL that fails the rule) no link."""
+    if not isinstance(source_ref, str):
+        return None
+    ref = source_ref.strip()
+    return safe_http_url(ref) or filing_index_url(cik, ref)
+
+
+def _accession_of(source_ref: Any) -> str | None:
+    """The accession a ``source_ref`` names when it is accession-shaped, else ``None``."""
+    if not isinstance(source_ref, str):
+        return None
+    ref = source_ref.strip()
+    return ref if _ACCESSION.fullmatch(ref.replace("-", "")) else None
+
+
+# the public name for a page that classifies a reference (the Evidence Ledger's "traces to an EDGAR accession")
+accession_of = _accession_of
