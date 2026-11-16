@@ -122,6 +122,10 @@ class ExtractedFact(DomainModel):
     #           | "table-unverified" (every candidate table looked like a parent-only, subsidiary or
     #             segment breakdown and companyfacts reproduced none)
     #           | "cash-unread" (the balance-sheet cash row was located but its value could not be read)
+    #           | "investments-unconfirmed" (a short-term deposits/investments row was seen beside the cash
+    #             row but NOT counted: the cash row is not on the balance-sheet statement, or the row is a
+    #             component/total/summary line, reads other column headers, or its current cell is blank
+    #             beside a note reference; the row is quoted in the note)
     flags: list[str] = Field(default_factory=list)
     located_passages: list[LocatedPassage] = Field(default_factory=list)
     # How an UNVERIFIED value estimate was produced, when one is present (SURFACE 1b): "llm_proposed" (the

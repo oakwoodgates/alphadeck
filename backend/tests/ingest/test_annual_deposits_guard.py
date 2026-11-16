@@ -95,7 +95,7 @@ def test_qgen_balance_sheet_wins_over_the_cash_note_and_its_own_investments_row_
     assert f.investments_usd == 259_913_000.0
     assert _ocf(f) == pytest.approx(654_326_000.0)
     assert f.flags == ["annual-statements"]
-    assert "CONSOLIDATED BALANCE SHEETS" in f.note.split("Table: ")[1]
+    assert f.note.split("Table: ")[1].startswith("cash from “BALANCE SHEETS (in thousands")
     assert "short-term investments 259,913,000" in f.note
     assert "54,653" not in f.note
     assert any("Short-term investments" in a for a in _anchors(f))
@@ -157,7 +157,9 @@ def test_wave_note_reference_is_not_a_value_and_the_newest_column_is_read():
 def test_a_blank_current_cell_beside_a_note_reference_is_not_counted():
     """The same row with the dash missing ("5 1,254") cannot tell the note reference from a value: the 5 is
     never read as 5,000; the row is quoted and NOT counted, flagged."""
-    text = _text("WAVE").replace("Short-term bank deposits 5 \u2014 1,254", "Short-term bank deposits 5 1,254")
+    text = _text("WAVE").replace(
+        "Short-term bank deposits 5 \u2014 1,254", "Short-term bank deposits 5 1,254"
+    )
     assert "Short-term bank deposits 5 1,254" in text
     f = _run("WAVE", text=text)
     assert f.cash_usd == 6_022_000.0
@@ -236,7 +238,9 @@ def test_arqq_closing_balance_not_the_net_increase_and_currency_from_the_filing(
 def test_a_flow_line_is_never_the_cash_balance():
     """With ARQQ's closing row cut away only flow lines are left (net increase, opening balance): the cash is
     never valued from them — ``cash-unread``, never 18,264,000."""
-    text = _text("ARQQ").replace(" Cash and cash equivalents at end of period 36,978 18,705 44,455", "")
+    text = _text("ARQQ").replace(
+        " Cash and cash equivalents at end of period 36,978 18,705 44,455", ""
+    )
     f = _run("ARQQ", text=text, report_date=date(2025, 9, 30))
     assert f.cash_usd is None
     assert "cash-unread" in f.flags
@@ -282,7 +286,11 @@ def test_cash_deposits_and_operating_cash_flow_share_the_newest_column(years, ca
         ("($'000)", "The financial statements are presented in United States Dollars.", "USD"),
         ("($'000)", "These financial statements are expressed in U.S. dollars.", "USD"),
         ("($'000)", "All values are rounded to the nearest thousand (USD 000).", "USD"),
-        ("($'000)", "Amounts are shown (in thousands of US dollars) unless stated otherwise.", "USD"),
+        (
+            "($'000)",
+            "Amounts are shown (in thousands of US dollars) unless stated otherwise.",
+            "USD",
+        ),
         ("(Figures in million - SA rand)", "", "ZAR"),
         ("($000s)", "", None),
         (
@@ -291,7 +299,15 @@ def test_cash_deposits_and_operating_cash_flow_share_the_newest_column(years, ca
             None,
         ),
     ],
-    ids=["presented-in", "expressed-in", "usd-000", "thousands-of-us-dollars", "sa-rand", "bare", "conflict"],
+    ids=[
+        "presented-in",
+        "expressed-in",
+        "usd-000",
+        "thousands-of-us-dollars",
+        "sa-rand",
+        "bare",
+        "conflict",
+    ],
 )
 def test_explicit_currency_statements_are_read_and_a_bare_dollar_is_not(header, notes, currency):
     """An explicit statement ("presented in United States Dollars", "expressed in U.S. dollars", "USD 000",
@@ -331,7 +347,8 @@ def test_ntes_time_deposits_are_not_compared_with_the_investments_line():
 
 def test_ntes_a_real_same_concept_mismatch_still_flags():
     """A real mismatch still flags: companyfacts' ShortTermInvestments moved by one thousand reproduces no row,
-    so ``figures-disagree`` fires with both numbers (EH's cash mismatch is the 2026-11-15 suite's own test)."""
+    so ``figures-disagree`` fires with both numbers (EH's cash mismatch is the 2026-11-15 suite's own test).
+    """
     cf = _cf("NTES")
     cf["facts"]["us-gaap"]["ShortTermInvestments"]["units"]["CNY"][0]["val"] = 22_803_504_000
     f = _run("NTES", cf=cf)

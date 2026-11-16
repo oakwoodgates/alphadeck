@@ -57,6 +57,15 @@ and a flag true of every name carries no information).
 CASH MEANS CASH PLUS SHORT-TERM DEPOSITS AND INVESTMENTS (operator decision D1): a short-term
 deposits/investments row of the same balance sheet is added to the cash row, each part named in the
 note and carried on ``investments_usd``; the generic long-term investments line is never cash (D2).
+THE ADDITION IS ONLY EVER FROM THE SAME STATEMENT (the 2026-11-16 re-audit's guard): the cash row must be
+a balance-sheet STATEMENT row (a title heading, no breakdown cue — never a note, MD&A table or summary),
+and the deposits row its own line in the same year column with a value in it (a dash is an empty cell;
+a blank cell beside a note reference is never the note number). A row seen and not counted is quoted in
+the note and flagged ``investments-unconfirmed``. Cash is a BALANCE: a flow line (net increase or
+decrease, an exchange-rate effect, an opening balance) is never valued; the cash-flow statement's
+closing balance is a fallback when no balance-sheet row is readable. The column years come from the
+table's own header; an explicit presentation-currency statement ("presented in United States Dollars",
+"USD 000") settles the currency when the headers name none.
 
 FAIL CLOSED: no located statement rows -> NO fact (no passage -> no fact), with an honest, distinct
 ``runway_empty_reason``: ``cash-generative`` (positive operating cash flow — a state, not a gap) ·
@@ -129,6 +138,20 @@ _CASH_LABEL_RE = re.compile(
 _CASH_BARE_LABEL_RE = re.compile(r"(?<![A-Za-z\d])Cash(?=[\s:]{1,4}(?:\(?\s?Note\s*\d|\d))")
 _CASH_PRECEDING_VETO_RE = re.compile(
     r"(?:increase|decrease|movement|change)\s+in\s*$", re.IGNORECASE
+)
+# A FLOW line is never a balance (the 2026-11-16 re-audit: ARQQ's "Net increase/(decrease) in cash and cash
+# equivalents" slipped past the veto above as its cash). Its own row (the text after the previous row's
+# figures) naming a movement, an exchange-rate effect or an opening balance marks the site a flow: still a
+# located site (the statement-source signature and ``cash-unread`` keep their meaning), never a value.
+_CASH_FLOW_ROW_RE = re.compile(
+    r"increase|decrease|movement|change|effect|beginning|opening", re.IGNORECASE
+)
+# The cash-flow statement's CLOSING balance ("Cash and cash equivalents at end of period") is a balance: a
+# fallback cash site when no balance-sheet cash row is readable (ARQQ's real shape).
+_CASH_CLOSING_RE = re.compile(
+    r"cash\s+and\s+cash\s+equivalents[\s,]*(?:at|as\s+(?:at|of))?\s*(?:the\s+)?end\s+of\s+(?:the\s+)?"
+    r"(?:financial\s+|fiscal\s+|reporting\s+)?(?:year|period)",
+    re.IGNORECASE,
 )
 
 # The operating-cash-flow TOTAL row — the label wording varies widely in the wild ("Net cash used in",
@@ -218,7 +241,7 @@ _CURRENCY_MARKERS: tuple[tuple[str | None, str], ...] = (
     ("CHF", r"\bCHF\b|swiss\s+francs?"),
     ("ILS", r"\bNIS\b|₪|israeli\s+(?:new\s+)?shekels?|\bILS\b"),
     ("GBP", r"£|pounds?\s+sterling|\bGBP\b"),
-    ("ZAR", r"south\s+african\s+rand\b|\bZAR\b"),
+    ("ZAR", r"south\s+african\s+rand\b|\bSA\s+rand\b|\bZAR\b"),
     (None, r"\$|\bdollars?\b"),  # ambiguous: names no currency on its own
 )
 _CURRENCY_RE = re.compile(
@@ -263,6 +286,42 @@ _STI_BOUNDARY_RE = re.compile(
     r"total\s+(?:current\s+)?assets|statements?\s+of\s+cash\s+flows?", re.IGNORECASE
 )
 _STI_SPAN = 1_500  # how far from the cash row a same-balance-sheet deposits row may sit
+# A deposits/investments row whose own row names a composition, a total or cash itself is a component of cash,
+# a summary or a reconciliation line — never its own current asset (the 2026-11-16 re-audit: QGEN's "deposits"
+# inside cash, CGNT's prior-year "Total cash, ..., time deposits" summary). Seen, quoted, NOT counted.
+_STI_COMPONENT_RE = re.compile(
+    r"of\s+which|includ(?:ing|es|ed)|compris(?:ing|es|ed)|consist(?:ing|s|ed)\s+of|\btotal\b|\bcash\b",
+    re.IGNORECASE,
+)
+_STI_OWN_ROW_CHARS = (
+    80  # how far back a row's own label may start (after the previous row's figures)
+)
+# A real balance-sheet STATEMENT heading is printed as a title ("CONSOLIDATED BALANCE SHEETS", "Statement of
+# Financial Position"); a prose mention ("recognized on the balance sheet at fair value", "off-balance sheet
+# arrangements", "as presented in our consolidated balance sheets") opens a note or MD&A region instead.
+_PROSE_BEFORE_HEADING_RE = re.compile(
+    r"(?:\b(?:our|the|in|on|see|to|within|of|its|their|and|from)\s+(?:[Cc]onsolidated\s+|[Cc]ombined\s+)?|-)$"
+)
+_SUMMARY_AFTER_HEADING_RE = re.compile(r"\s*(?:data|information|highlights)\b", re.IGNORECASE)
+# The data that ends a table's column header: the first comma-grouped figure after the first year token.
+_DATA_TOKEN_RE = re.compile(r"\d{1,3}(?:,\d{3})+")
+_NOTE_COLUMN_RE = re.compile(r"\bNotes?\b")
+# A dash cell: a standalone dash in the value area (an empty column, not a sign).
+_CELL_RE = re.compile(
+    r"(?P<num>\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d{1,6}(?:\.\d+)?)|(?P<dash>(?:(?<=\s)|^)[-–—](?=\s|$))"
+)
+# The filing's own presentation-currency statement ("presented in United States Dollars", "expressed in U.S.
+# dollars", "USD 000", "(in thousands of US dollars)", "Figures in million - SA rand"): read anywhere in the
+# document, used only when the statement headers name no currency. "denominated in" is deliberately NOT read
+# (QGEN: "most of our leases are denominated in euros").
+_PRESENTATION_LEAD_RE = re.compile(
+    r"(?:presented|expressed)\s+in\s+(?:the\s+)?(?:(?:thousands?|millions?)\s+of\s+)?"
+    r"|presentation\s+currency\s+(?:of\s+the\s+[\w\s]{1,30}?\s+)?is\s+(?:the\s+)?"
+    r"|\bin\s+(?:thousands?|millions?)\s+of\s+"
+    r"|figures\s+in\s+(?:thousands?|millions?)\s*[-–—:]?\s*",
+    re.IGNORECASE,
+)
+_CODE_THOUSANDS_RE = re.compile(r"\b(?P<code>USD|EUR|GBP|CAD|CHF|ZAR)\s*[’']?\s*000\b")
 # the statement's own period phrase — the span source when no companyfacts row matches the value
 _PERIOD_PHRASE_RE = re.compile(
     r"(?:(?P<months>three|six|nine|twelve)\s+months?|years?)\s+(?:then\s+)?ended",
@@ -288,13 +347,20 @@ _CASH_CONCEPT = "CashAndCashEquivalents"
 _NOTE_REF_PREFIX_RE = re.compile(r"^[\s:$]{0,4}\(\s*Note\s*\d{1,3}\s*\)", re.IGNORECASE)
 
 
-def _value_window(text: str, label_end: int) -> str:
+_PAREN_NOTE_REF_PREFIX_RE = re.compile(r"^[\s:]{0,4}\(\s*\d{1,2}(?:\s*[,&]\s*\d{1,2})*\s*\)")
+
+
+def _value_window(text: str, label_end: int, note_col: bool = False) -> str:
     """The row's VALUE AREA: from the label to the next row's label word (or the window cap). Cutting at
     the first >=3-letter non-currency word keeps the next row's numbers out — a fixed-width window read
     neighboring rows into the columns on tightly-packed statements. A leading "(Note N)" reference is
-    stripped first (it would otherwise BE the cut word and empty the window)."""
+    stripped first (it would otherwise BE the cut word and empty the window); in a table whose header
+    prints a Note column, a bare parenthesized "(3)" right after the label is that note reference too
+    (QGEN's shape — read as a figure it was a negative first column)."""
     raw = text[label_end : label_end + _ROW_VALUE_CHARS]
     raw = _NOTE_REF_PREFIX_RE.sub(" ", raw, count=1)
+    if note_col:
+        raw = _PAREN_NOTE_REF_PREFIX_RE.sub(" ", raw, count=1)
     for m in _CUT_WORD_RE.finditer(raw):
         if m.group(0).lower() not in _CURRENCY_CUT_ALLOW:
             return raw[: m.start()]
@@ -338,6 +404,24 @@ def _sign_of(vals: list[float]) -> bool | None:
     return None
 
 
+def _cells(window: str) -> list[float | None]:
+    """The row's cells in order: each value token, and None for a standalone dash (an empty column). Used
+    where an empty current-year cell must not shift the columns (a deposits row: "5 — 1,254" is note 5, an
+    empty 2025 cell and 1,254 for 2024 — never 5 for 2025)."""
+    out: list[float | None] = []
+    for m in _CELL_RE.finditer(window):
+        if m.group("dash"):
+            out.append(None)
+            continue
+        tok = m.group("num")
+        if "," not in tok and "." not in tok and len(tok) == 4 and _YEAR_RE.fullmatch(tok):
+            continue
+        pre = window[max(0, m.start() - 4) : m.start()]
+        sign = -1.0 if ("(" in pre or re.search(r"(?<![-–—])-\s*$", pre)) else 1.0
+        out.append(sign * float(tok.replace(",", "")))
+    return out
+
+
 def _read_row_values(
     window: str, years: list[int], report_year: int
 ) -> tuple[float | None, str | None, list[float]]:
@@ -358,6 +442,34 @@ def _read_row_values(
     plain = _comma_tokens(window)
     picked, flag = _map_columns(plain, years, report_year)
     return picked, flag, (plain or grouped)
+
+
+def _collapse_tail(years: list[int]) -> list[int]:
+    years = list(years)
+    while len(years) >= 2 and years[-1] == years[-2]:
+        years.pop()
+    return years
+
+
+def _header_block(text: str, region_start: int, row_start: int) -> tuple[int, int]:
+    """The table's COLUMN HEADER above the row: from the backscan start to the first comma-grouped figure
+    after the first year token (the first row's data). Year tokens printed later, inside row labels
+    ("Share-based payment (2024 and 2025 plans)", a second summary table's header), are not the row's
+    column headers (the 2026-11-16 re-audit: WAVE's operating cash flow came from the 2023 column).
+    """
+    lo = max(region_start, row_start - _HEADER_BACKSCAN)
+    first_year = _YEAR_RE.search(text, lo, row_start)
+    if first_year is None:
+        return lo, lo
+    data = _DATA_TOKEN_RE.search(text, first_year.end(), row_start)
+    return lo, (data.start() if data else row_start)
+
+
+def _header_years(text: str, region_start: int, row_start: int) -> list[int]:
+    """The column-year headers read from the table's own header block (``_header_block``), with a trailing
+    duplicate run collapsed (a convenience second-currency column repeats the last fiscal year)."""
+    lo, hi = _header_block(text, region_start, row_start)
+    return _collapse_tail([int(m.group(0)) for m in _YEAR_RE.finditer(text, lo, hi)])
 
 
 def _column_years(text: str, region_start: int, row_start: int) -> list[int]:
@@ -472,6 +584,25 @@ def _header_currency(
     )
 
 
+def _presentation_currency(text: str) -> _CurrencyRead | None:
+    """The filing's own presentation-currency statement, read anywhere in the document (D, the 2026-11-16
+    guard: ARQQ says it is "presented in United States Dollars (USD 000)" outside its statement headers).
+    Only an EXPLICIT marker right after the phrase counts (a bare "$" or "dollars" never does); several
+    statements naming different currencies settle nothing."""
+    found: dict[str, str] = {}
+    for lead in _PRESENTATION_LEAD_RE.finditer(text):
+        m = _CURRENCY_RE.match(text, lead.end())
+        code = _CURRENCY_OF_GROUP[m.lastgroup or ""] if m else None
+        if m is not None and code is not None:
+            found.setdefault(code, re.sub(r"\s+", " ", text[lead.start() : m.end()]).strip())
+    for m in _CODE_THOUSANDS_RE.finditer(text):
+        found.setdefault(m.group("code").upper(), re.sub(r"\s+", " ", m.group(0)))
+    if len(found) != 1:
+        return None
+    code, phrase = next(iter(found.items()))
+    return _CurrencyRead(code, f"the filing states “{phrase}”")
+
+
 def _breakdown_cue(text: str, region_start: int, row_start: int) -> str | None:
     """The first breakdown cue (parent-only, consolidating, VIE, subsidiaries, segment...) in the
     table's heading window, or None for a table that reads as the consolidated statement."""
@@ -520,12 +651,48 @@ class _Row:
     marker: str | None
     cue: str | None
     extra_columns: bool
+    # the 2026-11-16 guard: what KIND of cash site this is ("balance" — a balance-sheet or note row,
+    # "closing" — the cash-flow statement's end-of-period balance, "flow" — a movement line, never valued),
+    # whether its table is a balance-sheet STATEMENT (a title heading, not a prose mention), whether the
+    # header prints a Note column, and the row's cells with dashes kept as empty columns
+    kind: str = "balance"
+    statement: bool = False
+    note_col: bool = False
+    cells: tuple[float | None, ...] = ()
 
 
-def _read_row(text: str, start: int, label_end: int, region: int, report_year: int) -> _Row:
-    window = _value_window(text, label_end)
-    years = _column_years(text, region, start)
+def _is_statement_heading(text: str, region: int) -> bool:
+    """True when the balance-sheet heading at ``region`` is a STATEMENT title ("CONSOLIDATED BALANCE
+    SHEETS", "Statement of Financial Position"), False for a prose mention that opens a note or MD&A
+    region ("recognized on the balance sheet at fair value", "off-balance sheet arrangements", "as
+    presented in our consolidated balance sheets") or a selected-data summary ("Balance Sheet Data").
+    """
+    m = _BS_HEADING_RE.match(text, region)
+    if m is None:
+        return False
+    if any(w[0].islower() for w in re.findall(r"[A-Za-z]+", m.group(0)) if len(w) > 2):
+        return False
+    if _PROSE_BEFORE_HEADING_RE.search(text[max(0, region - 30) : region]):
+        return False
+    return _SUMMARY_AFTER_HEADING_RE.match(text, m.end()) is None
+
+
+def _read_row(
+    text: str, start: int, label_end: int, region: int, report_year: int, kind: str = "balance"
+) -> _Row:
+    lo, hi = _header_block(text, region, start)
+    note_col = _NOTE_COLUMN_RE.search(text, lo, hi) is not None
+    window = _value_window(text, label_end, note_col)
+    # The column years come from the table's OWN header (C, the 2026-11-16 guard); the older read (every
+    # year token above the row) is the fallback only when the header alone cannot map the current column.
+    years = _header_years(text, region, start)
     raw, col_flag, vals = _read_row_values(window, years, report_year)
+    if raw is None:
+        old_years = _column_years(text, region, start)
+        if old_years != years:
+            o_raw, o_flag, o_vals = _read_row_values(window, old_years, report_year)
+            if o_raw is not None or not years:
+                years, raw, col_flag, vals = old_years, o_raw, o_flag, o_vals
     count = len(vals)
     if count > len(years) >= 1 and 0 < vals[0] < 100 and float(vals[0]).is_integer():
         count -= 1  # the leading note reference
@@ -546,6 +713,10 @@ def _read_row(text: str, start: int, label_end: int, region: int, report_year: i
         marker=marker,
         cue=_breakdown_cue(text, region, start),
         extra_columns=repeated_last or count > len(years) >= 1,
+        kind=kind,
+        statement=_is_statement_heading(text, region),
+        note_col=note_col,
+        cells=tuple(_cells(window)),
     )
 
 
@@ -573,39 +744,60 @@ def _period_span_days(text: str, region_start: int, row_start: int) -> int | Non
 # ---------------------------------------------------------------------------------------------------------
 
 
-def _cash_sites(text: str) -> list[tuple[int, int, int]]:
-    """Every (row_start, label_end, region_start) balance-sheet cash-row site, in document order: a
-    cash-label site that (a) sits within a statement region after a balance-sheet heading, (b) is not
-    an increase/decrease total, and (c) is immediately followed by a value. When the full label
-    matches nowhere in any region, the bare capitalized "Cash" row label is tried (HYFT's real shape) —
-    a fallback, so the full-label names are untouched. PR 4 collects them ALL (a parent-only or segment
-    table often comes first); ``_choose_cash`` picks."""
+def _own_row(text: str, label_start: int, chars: int = _STI_OWN_ROW_CHARS) -> str:
+    """The label's OWN row text before it: what follows the previous row's last figure."""
+    pre = text[max(0, label_start - chars) : label_start]
+    return re.split(r"\d", pre)[-1]
+
+
+def _cash_sites(text: str) -> list[tuple[int, int, int, str]]:
+    """Every (row_start, label_end, region_start, kind) cash-row site, in document order: a cash-label
+    site that (a) sits within a statement region after a balance-sheet heading, (b) is not an
+    increase/decrease total, and (c) is immediately followed by a value. When the full label matches
+    nowhere in any region, the bare capitalized "Cash" row label is tried (HYFT's real shape) — a
+    fallback, so the full-label names are untouched. PR 4 collects them ALL (a parent-only or segment
+    table often comes first); ``_choose_cash`` picks. KIND (the 2026-11-16 guard): a site whose own row
+    names a movement, an exchange-rate effect or an opening balance is a ``flow`` (located, never
+    valued); the cash-flow statement's end-of-period rows are added as ``closing`` balances (a fallback
+    when no balance-sheet row is readable)."""
     headings = [m.start() for m in _BS_HEADING_RE.finditer(text)]
-    if not headings:
-        return []
-    for label_re in (_CASH_LABEL_RE, _CASH_BARE_LABEL_RE):
-        sites: list[tuple[int, int, int]] = []
-        for m in label_re.finditer(text):
-            region = next(
-                (h for h in reversed(headings) if h < m.start() <= h + _REGION_SPAN), None
-            )
-            if region is None:
-                continue
-            if _CASH_PRECEDING_VETO_RE.search(text[max(0, m.start() - 16) : m.start()]):
-                continue
-            if not _VALUE_GATE_RE.search(text[m.end() : m.end() + 18]):
-                continue
-            sites.append((m.start(), m.end(), region))
-        if sites:
-            return sites
-    return []
+    sites: list[tuple[int, int, int, str]] = []
+    if headings:
+        for label_re in (_CASH_LABEL_RE, _CASH_BARE_LABEL_RE):
+            for m in label_re.finditer(text):
+                region = next(
+                    (h for h in reversed(headings) if h < m.start() <= h + _REGION_SPAN), None
+                )
+                if region is None:
+                    continue
+                if _CASH_PRECEDING_VETO_RE.search(text[max(0, m.start() - 16) : m.start()]):
+                    continue
+                if not _VALUE_GATE_RE.search(text[m.end() : m.end() + 18]):
+                    continue
+                own = _own_row(text, m.start(), 60)
+                kind = "flow" if _CASH_FLOW_ROW_RE.search(own) else "balance"
+                sites.append((m.start(), m.end(), region, kind))
+            if sites:
+                break
+    any_headings = sorted(headings + [m.start() for m in _CF_HEADING_RE.finditer(text)])
+    for m in _CASH_CLOSING_RE.finditer(text):
+        region = next(
+            (h for h in reversed(any_headings) if h < m.start() <= h + _REGION_SPAN), None
+        )
+        if region is None or not _VALUE_GATE_RE.search(text[m.end() : m.end() + 18]):
+            continue
+        if _CASH_FLOW_ROW_RE.search(_own_row(text, m.start(), 60)):
+            continue
+        sites.append((m.start(), m.end(), region, "closing"))
+    return sorted(sites)
 
 
 def _locate_cash_row(text: str) -> tuple[int, int, int] | None:
     """(row_start, label_end, region_start) of the FIRST balance-sheet cash-row site — the content
-    signature the statement-source seam tests for (a document carries a balance-sheet cash row)."""
-    sites = _cash_sites(text)
-    return sites[0] if sites else None
+    signature the statement-source seam tests for (a document carries a balance-sheet cash row). The
+    cash-flow statement's closing rows are not part of the signature (it is unchanged by them)."""
+    sites = [s for s in _cash_sites(text) if s[3] != "closing"]
+    return sites[0][:3] if sites else None
 
 
 def _is_notes_line(text: str, label_start: int) -> bool:
@@ -710,6 +902,24 @@ _CF_OCF_PRIMARY = (
 )
 _CF_OCF_CONCEPTS = _CF_OCF_PRIMARY + (
     ("us-gaap", "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations"),
+)
+# A DEPOSITS row is compared only with deposit and generic short-term-investment concepts, never with a
+# securities concept (E, the 2026-11-16 guard: a mismatch counts only within the same concept family).
+_CF_SECURITY_CONCEPTS = frozenset(
+    {
+        "MarketableSecuritiesCurrent",
+        "AvailableForSaleSecuritiesCurrent",
+        "AvailableForSaleSecuritiesDebtSecuritiesCurrent",
+        "DebtSecuritiesAvailableForSaleExcludingAccruedInterestCurrent",
+        "HeldToMaturitySecuritiesCurrent",
+    }
+)
+_CF_DEPOSIT_CONCEPTS = frozenset(
+    {
+        "ShorttermDepositsNotClassifiedAsCashEquivalents",
+        "TimeDepositsAtCarryingValue",
+        "CertificatesOfDepositAtCarryingValue",
+    }
 )
 _CF_STI_CONCEPTS = (
     ("ifrs-full", "ShorttermDepositsNotClassifiedAsCashEquivalents"),
@@ -847,6 +1057,14 @@ def _cross_check(
     return _Check(quantity, "agrees" if matched else "disagrees", figure, matched, rows)
 
 
+def _sti_family(label: str, rows: list[_CfRow]) -> list[_CfRow]:
+    """The companyfacts rows a deposits/investments row may be compared with: a "deposits" label never
+    meets a securities concept; an "investments" label never meets a deposit concept."""
+    if re.search(r"deposit", label, re.IGNORECASE):
+        return [r for r in rows if r.concept not in _CF_SECURITY_CONCEPTS]
+    return [r for r in rows if r.concept not in _CF_DEPOSIT_CONCEPTS]
+
+
 def _check_sentence(check: _Check, asof: date) -> str:
     if check.status == "agrees":
         where = "; ".join(dict.fromkeys(r.where for r in check.matched))
@@ -881,23 +1099,43 @@ _CHOSEN_BECAUSE = {
 
 
 def _readable_cash(row: _Row) -> bool:
-    return row.raw is not None and row.raw >= 0  # a negative "cash" is a note's subtraction line
+    # a negative "cash" is a note's subtraction line; a flow line is never a balance
+    return row.kind != "flow" and row.raw is not None and row.raw >= 0
+
+
+def _on_statement(row: _Row) -> bool:
+    """A balance-sheet STATEMENT row: a balance row in a table with a title heading and no breakdown cue."""
+    return row.kind == "balance" and row.statement and row.cue is None
 
 
 def _choose_cash(rows: list[_Row], cf_rows: list[_CfRow]) -> tuple[_Row, str]:
-    """The balance-sheet cash row: (1) the first whose current-column figure companyfacts reproduces
-    on the statement's date (any concept, taxonomy or unit); else (2) the first in a table whose
-    heading window carries no breakdown cue (a readable one first); else (3) the first site at all,
-    which the caller flags ``table-unverified``."""
-    for row in rows:
-        if _readable_cash(row) and _matching_rows(
-            row.raw, row.decimals, _candidate_scales(row, None), cf_rows
-        ):
-            return row, "companyfacts"
+    """The cash row: (1) among the rows whose current-column figure companyfacts reproduces on the
+    statement's date (any concept, taxonomy or unit), a balance-sheet STATEMENT row first, then any
+    balance row, then a closing balance; else (2) among the tables whose heading window carries no
+    breakdown cue, a readable balance-sheet statement row, then any readable balance row, then a
+    readable closing balance (the cash-flow statement's end-of-period line), then the first located
+    site (unreadable: ``cash-unread``); else (3) the first site at all, which the caller flags
+    ``table-unverified``. A flow line is never valued (the 2026-11-16 guard)."""
+    matched = [
+        r
+        for r in rows
+        if _readable_cash(r)
+        and _matching_rows(r.raw, r.decimals, _candidate_scales(r, None), cf_rows)
+    ]
+    if matched:
+        for want in (_on_statement, lambda r: r.kind == "balance", lambda r: True):
+            hit = next((r for r in matched if want(r)), None)
+            if hit is not None:
+                return hit, "companyfacts"
     clean = [r for r in rows if r.cue is None]
     if clean:
-        return next((r for r in clean if _readable_cash(r)), clean[0]), "heading"
-    return rows[0], "unverified"
+        readable = [r for r in clean if _readable_cash(r)]
+        for want in (_on_statement, lambda r: r.kind == "balance", lambda r: r.kind == "closing"):
+            hit = next((r for r in readable if want(r)), None)
+            if hit is not None:
+                return hit, "heading"
+        return next((r for r in clean if r.kind != "closing"), clean[0]), "heading"
+    return next((r for r in rows if r.kind != "closing"), rows[0]), "unverified"
 
 
 def _choose_ocf(rows: list[_Row], cf_rows: list[_CfRow], *, after: int) -> tuple[_Row, str]:
@@ -924,10 +1162,10 @@ def _choose_ocf(rows: list[_Row], cf_rows: list[_CfRow], *, after: int) -> tuple
 
 
 def _sti_rows(text: str, cash: _Row, report_year: int) -> list[_Row]:
-    """Short-term deposits / investments rows on the SAME balance sheet as the chosen cash row (D1):
-    within ``_STI_SPAN`` of it, in its region, with no "Total current assets" / statement boundary
-    between them, not restricted, long-term or a combined "cash ... and short-term ..." line, and
-    immediately followed by a value."""
+    """Short-term deposits / investments rows NEAR the chosen cash row (D1): within ``_STI_SPAN`` of it,
+    in its region, with no "Total current assets" / statement boundary between them, not restricted,
+    long-term or a combined "cash ... and short-term ..." line, and immediately followed by a value.
+    Whether such a row may be COUNTED is ``_sti_judgement``'s call (the 2026-11-16 guard)."""
     lo = max(cash.region, cash.start - _STI_SPAN)
     hi = min(cash.region + _REGION_SPAN, cash.start + _STI_SPAN)
     out: list[_Row] = []
@@ -941,6 +1179,70 @@ def _sti_rows(text: str, cash: _Row, report_year: int) -> list[_Row]:
             continue
         out.append(_read_row(text, m.start(), m.end(), cash.region, report_year))
     return out
+
+
+@dataclass(frozen=True)
+class _StiJudgement:
+    """Whether one deposits/investments row is counted: its current-year value (None = not counted), why
+    not (None = counted, or a dash: nothing to count), and whether the current cell is a printed dash.
+    """
+
+    value: float | None
+    reason: str | None
+    dash: bool = False
+
+
+def _sti_judgement(text: str, cash: _Row, row: _Row, report_year: int) -> _StiJudgement:
+    """THE DEPOSITS / INVESTMENTS ADDITION IS ONLY EVER FROM THE SAME STATEMENT (the 2026-11-16 re-audit:
+    QGEN, CGNT, WAVE). A row is counted only when (1) the cash row is a balance-sheet STATEMENT row (a
+    title heading, no breakdown cue — never a note, an MD&A table or a summary, whose deposits may be a
+    component already inside cash, a total or another year); (2) the row is its own line (not "of
+    which", "including", "comprising", "consisting of", a total, or a line naming cash); (3) it reads
+    the same column headers as the cash row; (4) its current-year cell holds a value — a dash is an
+    empty cell (nothing to add), and a blank cell beside a note reference is never the note number.
+    """
+    if not _on_statement(cash):
+        where = "a note or summary" if cash.kind == "balance" else "the cash-flow statement"
+        if cash.cue is not None:
+            where = "a table that looks like a breakdown"
+        return _StiJudgement(
+            None,
+            f"the cash row was read from {where} (“{_heading_snippet(text, cash.region)}”), not the "
+            "balance-sheet statement, so a deposits or investments row beside it may be a component "
+            "already inside cash, a total or another year",
+        )
+    own = re.sub(r"\s+", " ", _own_row(text, row.start)).strip()
+    if _STI_COMPONENT_RE.search(own):
+        return _StiJudgement(
+            None,
+            f"it reads as a component, total or summary line (“{own} …”), not its own asset line",
+        )
+    if row.years != cash.years:
+        return _StiJudgement(
+            None,
+            f"its column headers ({', '.join(map(str, row.years)) or 'none'}) do not match the cash "
+            f"row's ({', '.join(map(str, cash.years))})",
+        )
+    cells = list(row.cells)
+    years = row.years
+    lead_ref = bool(cells) and cells[0] is not None and 0 < cells[0] < 100 and cells[0].is_integer()
+    if lead_ref and len(cells) > len(years) >= 1:
+        cells = cells[1:]  # the leading small integer is the row's note reference
+    elif lead_ref and row.note_col and len(cells) <= len(years):
+        return _StiJudgement(
+            None,
+            f"its current-year cell is blank: the leading “{_fmt(cells[0] or 0.0)}” is the row's note "
+            "reference, not a value",
+        )
+    if years.count(report_year) == 1 and len(cells) == len(years):
+        cell = cells[years.index(report_year)]
+        if cell is None:
+            return _StiJudgement(None, None, dash=True)
+        if cell >= 0:
+            return _StiJudgement(cell, None)
+    if row.raw is None or row.raw < 0:
+        return _StiJudgement(None, "its current value could not be read")
+    return _StiJudgement(row.raw, None)
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -982,7 +1284,8 @@ def extract_annual_runway(
     report_year = report_date.year
 
     ocf_site = _locate_ocf_row(text)
-    cash_site = _locate_cash_row(text)
+    all_cash_sites = _cash_sites(text)
+    cash_site = all_cash_sites[0] if all_cash_sites else None
 
     # ---- the fact needs BOTH statement rows (its passages are the cash row AND the OCF row) --------
     if ocf_site is None or cash_site is None:
@@ -1022,10 +1325,14 @@ def extract_annual_runway(
     # ---- every located row, read; then the table choice (PR 4) ---------------------------------------
     cf_cash_rows = _cf_rows(companyfacts, _CF_CASH_CONCEPTS, duration=False, end=report_date)
     cf_ocf_rows = _cf_rows(companyfacts, _CF_OCF_CONCEPTS, duration=True, end=report_date)
-    cash_rows = [_read_row(text, s, e, r, report_year) for s, e, r in _cash_sites(text)]
+    cash_rows = [_read_row(text, s, e, r, report_year, k) for s, e, r, k in all_cash_sites]
     ocf_rows = [_read_row(text, s, e, r, report_year) for s, e, r in _ocf_sites(text)]
     cash, cash_how = _choose_cash(cash_rows, cf_cash_rows)
-    ocf, ocf_how = _choose_ocf(ocf_rows, cf_ocf_rows, after=cash.start)
+    # a closing balance sits AFTER its own statement's operating total: the statement set starts at its
+    # heading
+    ocf, ocf_how = _choose_ocf(
+        ocf_rows, cf_ocf_rows, after=cash.start if cash.kind != "closing" else cash.region - 1
+    )
     if "unverified" in (cash_how, ocf_how):
         flag("table-unverified")
     passed_over = [r for r in cash_rows + ocf_rows if r.cue and r is not cash and r is not ocf]
@@ -1109,6 +1416,12 @@ def extract_annual_runway(
         elif side.code is None:
             side = ocf_cur
         text_code, text_basis = side.code, side.basis
+        if text_code is None:
+            # D (the 2026-11-16 guard): the filing's own presentation-currency statement, when the
+            # headers name none — "presented in United States Dollars", "USD 000"; never a bare "$"
+            stated = _presentation_currency(text)
+            if stated is not None:
+                text_code, text_basis = stated.code, f"{stated.basis}; {text_basis}"
     convenience = ocf_cur.convenience or cash_cur.convenience
     u_ocf, u_cash = ocf_check.units(), cash_check.units()
     cf_code: str | None = None
@@ -1244,21 +1557,59 @@ def extract_annual_runway(
         cash_value, cash_asof, cash_src = cash_component, report_date, "statement"
         if c_marker and c_marker != scale_marker:
             notes.append(f"balance-sheet scale marker: “{c_marker}”")
+        if cash.kind == "closing":
+            closing_label = re.sub(r"\s+", " ", cash.label)
+            notes.append(
+                f"cash is the cash-flow statement's closing balance (“{closing_label}”): no readable "
+                "balance-sheet cash row was located"
+            )
         parts_sti: list[float] = []
+        counted: list[tuple[_Row, str, float, float]] = (
+            []
+        )  # (row, label, printed value, scaled part)
         for row in _sti_rows(text, cash, report_year):
             label = re.sub(r"\s+", " ", row.label)
-            if row.raw is None or row.raw < 0:
+            verdict = _sti_judgement(text, cash, row, report_year)
+            if verdict.dash:
                 notes.append(
-                    f"a “{label}” row was located on the balance sheet but its current value could not "
-                    "be read; it is NOT counted — author it from the passage"
+                    f"a “{label}” row reads a dash in the {report_year} column: nothing is added for it"
                 )
                 continue
-            part = row.raw * (c_scale or 1.0)
+            if verdict.value is None:
+                flag("investments-unconfirmed")
+                quote = re.sub(r"\s+", " ", text[row.start : row.label_end + 40]).strip()
+                notes.append(
+                    f"INVESTMENTS UNCONFIRMED: a “{label}” row was seen (“{quote} …”) but NOT counted — "
+                    f"{verdict.reason}; author it from the filing if it is a separate current asset"
+                )
+                continue
+            part = verdict.value * (c_scale or 1.0)
             parts_sti.append(part)
-            composition.append(f"{label.lower()} {_fmt(part)}")
+            composition.append(
+                f"{label.lower()} {_fmt(part)} (from the balance sheet's “{label}” row)"
+            )
             sti_passages.append(_passage(text, "balance-sheet", annual_ref, row.start, row.label))
+            counted.append((row, label, verdict.value, part))
+        for row, label, printed, part in counted:
+            # E (the 2026-11-16 guard): compare within the row's concept family, and never with a concept
+            # that reproduces ANOTHER counted row of the same statement (NTES: its "Short-term
+            # investments" row owns ShortTermInvestments; the time deposits are not that line)
+            claimed: dict[tuple[str, str], str] = {
+                (r.taxonomy, r.concept): o_label
+                for other, o_label, o_printed, _ in counted
+                if other is not row
+                for r in _matching_rows(o_printed, other.decimals, [c_scale or 1.0], cf_sti_rows)
+            }
+            rows_for = [
+                r for r in _sti_family(label, cf_sti_rows) if (r.taxonomy, r.concept) not in claimed
+            ]
+            for (taxonomy, concept), o_label in claimed.items():
+                notes.append(
+                    f"companyfacts' {taxonomy} {concept} reproduces the statement's “{o_label}” row, so "
+                    f"it was not compared with “{label}”"
+                )
             sti_checks.append(
-                _cross_check(f"“{label}”", row.raw, row.decimals, c_scale or 1.0, part, cf_sti_rows)
+                _cross_check(f"“{label}”", printed, row.decimals, c_scale or 1.0, part, rows_for)
             )
         if parts_sti:
             investments = sum(parts_sti)
@@ -1298,10 +1649,17 @@ def extract_annual_runway(
         passages.extend(sti_passages)  # each counted deposits row rides as its own passage
     if cash_value is None and not cash.col_flag:
         flag("cash-unread")
-        notes.append(
-            "CASH UNREAD: the balance-sheet cash row was located but its current-column value could "
-            "not be read (missing or negative); author the cash from the passage"
-        )
+        if cash.kind == "flow":
+            flow_row = re.sub(r"\s+", " ", _own_row(text, cash.start, 60) + cash.label).strip()
+            notes.append(
+                f"CASH UNREAD: the only cash row located is a flow line (“{flow_row}”), never a "
+                "balance; author the cash from the balance sheet"
+            )
+        else:
+            notes.append(
+                "CASH UNREAD: the balance-sheet cash row was located but its current-column value could "
+                "not be read (missing or negative); author the cash from the passage"
+            )
 
     checks = [ocf_check, cash_check, *sti_checks]
     if any(c.status == "disagrees" for c in checks):
@@ -1342,7 +1700,8 @@ def extract_annual_runway(
             cash_sentence += (
                 f" = cash and cash equivalents {_fmt(base)} + "
                 + " + ".join(composition)
-                + " (short-term deposits and investments count as cash)"
+                + " (short-term deposits and investments on the same balance sheet, in the same year "
+                "column, count as cash)"
             )
         parts.append(cash_sentence + ".")
     if generative:
