@@ -997,6 +997,21 @@ describe("CompanyFacts: the burn's year-to-date pace (V2 extractor correctness P
     expect(status(cashBlock())).not.toHaveTextContent("year-to-date pace");
   });
 
+  it("speaks a yuan value's pace in yuan (GAP 3)", () => {
+    const yuan = val({
+      source: "annual-statements",
+      shares: null,
+      cash_usd: 1200000000,
+      quarterly_burn_usd: 50000000,
+      currency: "CNY",
+      pace: { ytd_quarterly_burn_usd: 40000000, ytd_days: 272, ytd_runway_months: 90, caveat: null },
+    });
+    serve(company({}, { state: "verified", reason: null, ratifier: "steward", value: yuan }));
+    renderPage();
+    expect(status(cashBlock())).toHaveTextContent("year-to-date pace: quarterly burn CN¥40,000,000 (90 months of runway)");
+    expect(status(cashBlock())).not.toHaveTextContent("$");
+  });
+
   it("says a cash-generating year to date in words", () => {
     serve(company({}, { state: "from_filing", reason: null, ratifier: "machine", value: upValue({ ytd_quarterly_burn_usd: -1524448759, ytd_days: 272, ytd_runway_months: null, caveat: CAVEAT }) }));
     renderPage();

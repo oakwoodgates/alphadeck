@@ -160,7 +160,7 @@ function CandidateEvidence({ c }: { c: PlatformCandidateOut }) {
       </div>
       {paceWords(c.pace) && (
         <div className="cf-quiet" data-testid="cf-candidate-pace">
-          {paceWords(c.pace)}
+          {paceWords(c.pace, labelCurrency(c.statement_currency, c.flags))}
           {c.pace?.caveat ? `. ${c.pace.caveat}` : ""}
         </div>
       )}
@@ -303,7 +303,7 @@ function ValueBlock({
             {paceWords(value.pace) && (
               <>
                 {" · "}
-                <span data-testid="cf-pace">{paceWords(value.pace)}</span>
+                <span data-testid="cf-pace">{paceWords(value.pace, storedCurrency(value))}</span>
               </>
             )}
             {annual && (
