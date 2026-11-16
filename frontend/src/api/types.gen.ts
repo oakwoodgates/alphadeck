@@ -2640,6 +2640,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/platform-values/theses/{thesis_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Thesis Values
+         * @description The share count and cash/burn of every company on one of your cards, in basket order, each with its state
+         *     and your own flag. Current: no as-of. Another workspace's card is 404.
+         */
+        get: operations["get_thesis_values_platform_values_theses__thesis_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform-values/{security_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Company Values
+         * @description A company's share count and cash/burn with their state, shared by every user, and your own flag on each.
+         *     Current: no as-of. A value awaiting the steward carries its filing and passages, never its number.
+         */
+        get: operations["get_company_values_platform_values__security_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/value-flags": {
         parameters: {
             query?: never;
@@ -14994,6 +15036,31 @@ export interface components {
             median: components["schemas"]["MultiplesMedianOut"] | null;
         };
         /**
+         * MyFlagOut
+         * @description The caller's own flag on this value: their open flag, else their newest closed one. ``outcome`` ``fixed`` /
+         *     ``kept`` / ``withdrawn`` once closed, with the steward's ``outcome_note``.
+         */
+        MyFlagOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Note */
+            note?: string | null;
+            /**
+             * Opened At
+             * Format: date-time
+             */
+            opened_at: string;
+            /** Closed At */
+            closed_at?: string | null;
+            /** Outcome */
+            outcome?: string | null;
+            /** Outcome Note */
+            outcome_note?: string | null;
+        };
+        /**
          * NarrativeBenchmarkOut
          * @description A benchmark over the window's sessions, rebased to 100 at the window start. ``available`` false = no
          *     line, and ``reason`` says why. ``sessions_flat`` = window sessions it had no bar for (carried flat).
@@ -20410,6 +20477,177 @@ export interface components {
              */
             sources: components["schemas"]["ProvenanceOut"][];
         };
+        /**
+         * UserAppliedValueOut
+         * @description The value the meters show. ``source_url`` the filing (None unless a safe http(s) URL); ``valid_from`` its
+         *     date; ``set_at`` when it was set. A share count: ``shares`` (and the ADS ratio). Cash and burn: ``cash_usd``
+         *     (of which ``investments_usd`` short-term investments), ``quarterly_burn_usd`` (positive = burning), in the
+         *     stored ``currency`` (an ISO code; None = not recorded), labeled ``currency_symbol`` by the one rule, and the
+         *     stored ``pace``. The ``*_usd`` names are historical: the figures are in ``currency``, never converted.
+         */
+        UserAppliedValueOut: {
+            /** Source */
+            source?: string | null;
+            /** Source Url */
+            source_url?: string | null;
+            /**
+             * Valid From
+             * Format: date
+             */
+            valid_from: string;
+            /** Filing Accepted */
+            filing_accepted?: string | null;
+            /** Set At */
+            set_at?: string | null;
+            /** Shares */
+            shares?: number | null;
+            /** Ads Ratio */
+            ads_ratio?: number | null;
+            /** Ads Ratio Status */
+            ads_ratio_status?: string | null;
+            /** Cash Usd */
+            cash_usd?: number | null;
+            /** Quarterly Burn Usd */
+            quarterly_burn_usd?: number | null;
+            /** Investments Usd */
+            investments_usd?: number | null;
+            /** Currency */
+            currency?: string | null;
+            /** Currency Symbol */
+            currency_symbol?: string | null;
+            pace?: components["schemas"]["UserPaceOut"] | null;
+        };
+        /**
+         * UserAwaitingOut
+         * @description A value awaiting the steward, with nothing shown (approved B1 (b)): the filing's date, acceptance and link,
+         *     the line to show and the located passages; no figure. ``passages_unreadable`` counts stored passages that do
+         *     not read as one (never dropped silently).
+         */
+        UserAwaitingOut: {
+            /** Event Date */
+            event_date?: string | null;
+            /** Filing Accepted */
+            filing_accepted?: string | null;
+            /** Source Url */
+            source_url?: string | null;
+            /** Line */
+            line: string;
+            /** Located Passages */
+            located_passages?: components["schemas"]["UserPassageOut"][];
+            /**
+             * Passages Unreadable
+             * @default 0
+             */
+            passages_unreadable: number;
+        };
+        /**
+         * UserCompanyValuesOut
+         * @description A company's two platform values, current (no as-of).
+         */
+        UserCompanyValuesOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker?: string | null;
+            /** Name */
+            name?: string | null;
+            shares: components["schemas"]["UserValueOut"];
+            cash_burn: components["schemas"]["UserValueOut"];
+        };
+        /**
+         * UserPaceOut
+         * @description A cash-and-burn value's year-to-date pace: per quarter (burn sign: positive = burning), its span in days, the
+         *     months of runway it implies (None when it generates cash or no cash is on file), and the caveat sentence when
+         *     last quarter is far off that pace. Display only.
+         */
+        UserPaceOut: {
+            /** Ytd Quarterly Burn Usd */
+            ytd_quarterly_burn_usd: number;
+            /** Ytd Days */
+            ytd_days: number;
+            /** Ytd Runway Months */
+            ytd_runway_months?: number | null;
+            /** Caveat */
+            caveat?: string | null;
+        };
+        /**
+         * UserPassageOut
+         * @description A located passage: the filing's own words around the match (``excerpt``), what matched (``anchor``), the
+         *     section kind and the filing's link.
+         */
+        UserPassageOut: {
+            /** Kind */
+            kind: string;
+            /** Anchor */
+            anchor: string;
+            /** Excerpt */
+            excerpt: string;
+            /** Url */
+            url?: string | null;
+        };
+        /**
+         * UserPendingOut
+         * @description A newer filing's value awaits the steward beside the value shown: that filing's date, acceptance and link,
+         *     and the line to show. Never its figures.
+         */
+        UserPendingOut: {
+            /** Event Date */
+            event_date?: string | null;
+            /** Filing Accepted */
+            filing_accepted?: string | null;
+            /** Source Url */
+            source_url?: string | null;
+            /** Line */
+            line: string;
+        };
+        /**
+         * UserThesisValuesOut
+         * @description Both values of every company on the card, in basket order (each company once).
+         */
+        UserThesisValuesOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Members */
+            members?: components["schemas"]["UserCompanyValuesOut"][];
+        };
+        /**
+         * UserValueOut
+         * @description One value of a company as a user reads it. ``state``: ``no_value`` (``reason`` says why) / ``from_filing`` /
+         *     ``awaiting_steward`` / ``verified``; ``label`` its words; ``set_by`` who set the value shown (``machine`` /
+         *     ``steward`` / ``carried``; None with no value); ``value`` the value shown; ``annual_line`` for an annual cover
+         *     count; ``pending`` a newer filing awaiting the steward beside the value shown; ``awaiting`` the filing awaiting
+         *     the steward when nothing is shown; ``my_flag`` the caller's own flag.
+         */
+        UserValueOut: {
+            /**
+             * Fact Type
+             * @enum {string}
+             */
+            fact_type: "shares_outstanding" | "cash_burn";
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "no_value" | "from_filing" | "awaiting_steward" | "verified";
+            /** Reason */
+            reason?: string | null;
+            /** Label */
+            label: string;
+            /** Set By */
+            set_by?: ("machine" | "steward" | "carried") | null;
+            value?: components["schemas"]["UserAppliedValueOut"] | null;
+            /** Annual Line */
+            annual_line?: string | null;
+            pending?: components["schemas"]["UserPendingOut"] | null;
+            awaiting?: components["schemas"]["UserAwaitingOut"] | null;
+            my_flag?: components["schemas"]["MyFlagOut"] | null;
+        };
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -23820,6 +24058,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PlatformExtractOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_thesis_values_platform_values_theses__thesis_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                thesis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserThesisValuesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_company_values_platform_values__security_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                security_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserCompanyValuesOut"];
                 };
             };
             /** @description Validation Error */

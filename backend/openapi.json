@@ -5007,6 +5007,94 @@
         }
       }
     },
+    "/platform-values/theses/{thesis_id}": {
+      "get": {
+        "tags": [
+          "platform-values"
+        ],
+        "summary": "Get Thesis Values",
+        "description": "The share count and cash/burn of every company on one of your cards, in basket order, each with its state\nand your own flag. Current: no as-of. Another workspace's card is 404.",
+        "operationId": "get_thesis_values_platform_values_theses__thesis_id__get",
+        "parameters": [
+          {
+            "name": "thesis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thesis Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserThesisValuesOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/platform-values/{security_id}": {
+      "get": {
+        "tags": [
+          "platform-values"
+        ],
+        "summary": "Get Company Values",
+        "description": "A company's share count and cash/burn with their state, shared by every user, and your own flag on each.\nCurrent: no as-of. A value awaiting the steward carries its filing and passages, never its number.",
+        "operationId": "get_company_values_platform_values__security_id__get",
+        "parameters": [
+          {
+            "name": "security_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Security Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserCompanyValuesOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/value-flags": {
       "post": {
         "tags": [
@@ -33410,6 +33498,72 @@
         "title": "MultiplesRowOut",
         "description": "A row of names. ``kind``: ``link`` (a real link today, chain order), ``old_link`` (a roster link that is not\non the card today), ``no_link``, or ``silent`` (the Context or Bench names; ``label`` says which; no median).\n``companies`` = company keys in roster order; ``descriptor`` = the link's descriptor when set."
       },
+      "MyFlagOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "opened_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Opened At"
+          },
+          "closed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed At"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome"
+          },
+          "outcome_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "opened_at"
+        ],
+        "title": "MyFlagOut",
+        "description": "The caller's own flag on this value: their open flag, else their newest closed one. ``outcome`` ``fixed`` /\n``kept`` / ``withdrawn`` once closed, with the steward's ``outcome_note``."
+      },
       "NarrativeBenchmarkOut": {
         "properties": {
           "symbol": {
@@ -47438,6 +47592,530 @@
           "kind"
         ],
         "title": "TriggerRefOut"
+      },
+      "UserAppliedValueOut": {
+        "properties": {
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          },
+          "valid_from": {
+            "type": "string",
+            "format": "date",
+            "title": "Valid From"
+          },
+          "filing_accepted": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filing Accepted"
+          },
+          "set_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Set At"
+          },
+          "shares": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shares"
+          },
+          "ads_ratio": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ads Ratio"
+          },
+          "ads_ratio_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ads Ratio Status"
+          },
+          "cash_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cash Usd"
+          },
+          "quarterly_burn_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quarterly Burn Usd"
+          },
+          "investments_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Investments Usd"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "currency_symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency Symbol"
+          },
+          "pace": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserPaceOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "valid_from"
+        ],
+        "title": "UserAppliedValueOut",
+        "description": "The value the meters show. ``source_url`` the filing (None unless a safe http(s) URL); ``valid_from`` its\ndate; ``set_at`` when it was set. A share count: ``shares`` (and the ADS ratio). Cash and burn: ``cash_usd``\n(of which ``investments_usd`` short-term investments), ``quarterly_burn_usd`` (positive = burning), in the\nstored ``currency`` (an ISO code; None = not recorded), labeled ``currency_symbol`` by the one rule, and the\nstored ``pace``. The ``*_usd`` names are historical: the figures are in ``currency``, never converted."
+      },
+      "UserAwaitingOut": {
+        "properties": {
+          "event_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Date"
+          },
+          "filing_accepted": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filing Accepted"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          },
+          "line": {
+            "type": "string",
+            "title": "Line"
+          },
+          "located_passages": {
+            "items": {
+              "$ref": "#/components/schemas/UserPassageOut"
+            },
+            "type": "array",
+            "title": "Located Passages"
+          },
+          "passages_unreadable": {
+            "type": "integer",
+            "title": "Passages Unreadable",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "line"
+        ],
+        "title": "UserAwaitingOut",
+        "description": "A value awaiting the steward, with nothing shown (approved B1 (b)): the filing's date, acceptance and link,\nthe line to show and the located passages; no figure. ``passages_unreadable`` counts stored passages that do\nnot read as one (never dropped silently)."
+      },
+      "UserCompanyValuesOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "shares": {
+            "$ref": "#/components/schemas/UserValueOut"
+          },
+          "cash_burn": {
+            "$ref": "#/components/schemas/UserValueOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "shares",
+          "cash_burn"
+        ],
+        "title": "UserCompanyValuesOut",
+        "description": "A company's two platform values, current (no as-of)."
+      },
+      "UserPaceOut": {
+        "properties": {
+          "ytd_quarterly_burn_usd": {
+            "type": "number",
+            "title": "Ytd Quarterly Burn Usd"
+          },
+          "ytd_days": {
+            "type": "integer",
+            "title": "Ytd Days"
+          },
+          "ytd_runway_months": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ytd Runway Months"
+          },
+          "caveat": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Caveat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ytd_quarterly_burn_usd",
+          "ytd_days"
+        ],
+        "title": "UserPaceOut",
+        "description": "A cash-and-burn value's year-to-date pace: per quarter (burn sign: positive = burning), its span in days, the\nmonths of runway it implies (None when it generates cash or no cash is on file), and the caveat sentence when\nlast quarter is far off that pace. Display only."
+      },
+      "UserPassageOut": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "anchor": {
+            "type": "string",
+            "title": "Anchor"
+          },
+          "excerpt": {
+            "type": "string",
+            "title": "Excerpt"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "anchor",
+          "excerpt"
+        ],
+        "title": "UserPassageOut",
+        "description": "A located passage: the filing's own words around the match (``excerpt``), what matched (``anchor``), the\nsection kind and the filing's link."
+      },
+      "UserPendingOut": {
+        "properties": {
+          "event_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Date"
+          },
+          "filing_accepted": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filing Accepted"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          },
+          "line": {
+            "type": "string",
+            "title": "Line"
+          }
+        },
+        "type": "object",
+        "required": [
+          "line"
+        ],
+        "title": "UserPendingOut",
+        "description": "A newer filing's value awaits the steward beside the value shown: that filing's date, acceptance and link,\nand the line to show. Never its figures."
+      },
+      "UserThesisValuesOut": {
+        "properties": {
+          "thesis_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thesis Id"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/UserCompanyValuesOut"
+            },
+            "type": "array",
+            "title": "Members"
+          }
+        },
+        "type": "object",
+        "required": [
+          "thesis_id"
+        ],
+        "title": "UserThesisValuesOut",
+        "description": "Both values of every company on the card, in basket order (each company once)."
+      },
+      "UserValueOut": {
+        "properties": {
+          "fact_type": {
+            "type": "string",
+            "enum": [
+              "shares_outstanding",
+              "cash_burn"
+            ],
+            "title": "Fact Type"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "no_value",
+              "from_filing",
+              "awaiting_steward",
+              "verified"
+            ],
+            "title": "State"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "set_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "machine",
+                  "steward",
+                  "carried"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Set By"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserAppliedValueOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "annual_line": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Annual Line"
+          },
+          "pending": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserPendingOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "awaiting": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserAwaitingOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "my_flag": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MyFlagOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "fact_type",
+          "state",
+          "label"
+        ],
+        "title": "UserValueOut",
+        "description": "One value of a company as a user reads it. ``state``: ``no_value`` (``reason`` says why) / ``from_filing`` /\n``awaiting_steward`` / ``verified``; ``label`` its words; ``set_by`` who set the value shown (``machine`` /\n``steward`` / ``carried``; None with no value); ``value`` the value shown; ``annual_line`` for an annual cover\ncount; ``pending`` a newer filing awaiting the steward beside the value shown; ``awaiting`` the filing awaiting\nthe steward when nothing is shown; ``my_flag`` the caller's own flag."
       },
       "ValidationError": {
         "properties": {
