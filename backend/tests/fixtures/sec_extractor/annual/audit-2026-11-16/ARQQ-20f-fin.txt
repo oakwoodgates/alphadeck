@@ -1,0 +1,9 @@
+The accompanying notes form part of these financial statements. F-3 Arqit Quantum Inc. Consolidated Statement of Financial Position As at 30 September 2025 30 September 2024 Note $'000 $'000 Non-current assets Property, plant and equipment 9 2,100 3,300 Current assets Trade and other receivables 12 3,100 4,200 Cash at bank 13 36,978 18,705 Total current assets 40,078 22,905
+
+[… trimmed …]
+
+F-5 Arqit Quantum Inc. Consolidated Statement of Cash Flows For the year ended 30 September 2025 2024 2023 Note $'000 $'000 $'000 Cash flows from operating activities Loss for the year ( 40,000 ) ( 30,000 ) ( 70,000 ) Adjustments for non-cash items 10,447 ( 8,000 ) 25,000 Net cash used in operating activities ( 29,553 ) ( 38,000 ) ( 45,000 ) Net cash from financing activities 47,817 12,250 52,000 Net increase/(decrease) in cash and cash equivalents 18,264 ( 25,750 ) 7,000 Cash and cash equivalents at beginning of period 18,705 44,455 37,455 Effect of foreign exchange rate changes 9 — — Cash and cash equivalents at end of period 36,978 18,705 44,455
+
+[… trimmed …]
+
+2. Material accounting policies. (a) Basis of preparation. The consolidated financial statements are presented in United States Dollars (USD), and all values are rounded to the nearest thousand (USD 000), except when otherwise indicated.

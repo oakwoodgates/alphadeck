@@ -1,0 +1,24 @@
+{
+ "_fixture": "RECONSTRUCTED from the 2026-11-16 re-audit, not copied from EDGAR. ifrs-full, USD. Recorded: no cash or operating-cash-flow row on 2025-09-30, and the lagging -12,476,000 (USD) for 2024-10-01 to 2025-03-31 (the stored note's 'still serves' row). Reconstructed: the taxonomy (ifrs-full), the accession and filed date.",
+ "entityName": "ARQQ",
+ "facts": {
+  "ifrs-full": {
+   "CashFlowsFromUsedInOperatingActivities": {
+    "units": {
+     "USD": [
+      {
+       "start": "2024-10-01",
+       "end": "2025-03-31",
+       "val": -12476000,
+       "accn": "0001104659-25-060000",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "6-K",
+       "filed": "2025-06-20"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

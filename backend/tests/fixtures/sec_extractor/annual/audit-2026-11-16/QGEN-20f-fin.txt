@@ -1,0 +1,9 @@
+The accompanying notes are an integral part of these consolidated financial statements. F-3 QIAGEN N.V. AND SUBSIDIARIES CONSOLIDATED BALANCE SHEETS (in thousands, except par value) December 31, Note 2025 2024 Assets Current assets: Cash and cash equivalents (3) $ 839,005 $ 663,647 Short-term investments (4) 259,913 220,000 Accounts receivable, net 390,000 380,000 Inventories, net 270,000 260,000 Total current assets 1,890,000 1,640,000
+
+[… trimmed …]
+
+The accompanying notes are an integral part of these consolidated financial statements. F-7 QIAGEN N.V. AND SUBSIDIARIES CONSOLIDATED STATEMENTS OF CASH FLOWS (in thousands) Years ended December 31, 2025 2024 2023 Cash flows from operating activities: Net income $ 420,000 $ 83,000 $ 341,000 Depreciation and amortization 210,000 200,000 190,000 Net cash provided by operating activities 654,326 640,000 711,000 Cash flows from investing activities: Purchases of property, plant and equipment ( 190,000 ) ( 160,000 ) ( 180,000 )
+
+[… trimmed …]
+
+Derivative Instruments. All derivatives are recognized on the balance sheet at fair value. Changes in fair values of derivatives are recognized in earnings or in other comprehensive income, depending on the designation. 3. Cash and Cash Equivalents. Cash and cash equivalents at December 31, 2025 and 2024 consisted of the following (in thousands): 2025 2024 Cash at bank and on hand $ 784,352 $ 600,000 Short-term bank deposits 54,653 63,647 Cash and cash equivalents $ 839,005 $ 663,647 Bank deposits included above have original maturities of three months or less.
