@@ -1036,6 +1036,10 @@ class _Check:
     figure: float | None
     matched: list[_CfRow]
     rows: list[_CfRow]
+    # set when the only reproducing rows are in another unit than the statement currency (the third
+    # re-audit: VNET's CNY investment part was "agreed" by a USD row): the statement currency, and the
+    # check is ``disagrees``
+    foreign_of: str | None = None
 
     def units(self) -> set[str]:
         return {r.unit for r in self.matched}
@@ -1057,6 +1061,20 @@ def _cross_check(
     return _Check(quantity, "agrees" if matched else "disagrees", figure, matched, rows)
 
 
+def _in_statement_currency(check: _Check, currency: str | None) -> _Check:
+    """A deposits/investments figure is AGREED only by a companyfacts row in the statement's own currency
+    unit. A match only in another unit (VNET: a USD row reproducing the US$ convenience column's 54,225
+    inside a CNY candidate) is a mismatch: ``disagrees``, both numbers and units stated."""
+    if check.status != "agrees" or currency is None:
+        return check
+    same = [r for r in check.matched if r.unit == currency]
+    if same:
+        return _Check(check.quantity, "agrees", check.figure, same, check.rows)
+    return _Check(
+        check.quantity, "disagrees", check.figure, check.matched, check.rows, foreign_of=currency
+    )
+
+
 def _sti_family(label: str, rows: list[_CfRow]) -> list[_CfRow]:
     """The companyfacts rows a deposits/investments row may be compared with: a "deposits" label never
     meets a securities concept; an "investments" label never meets a deposit concept."""
@@ -1071,6 +1089,15 @@ def _check_sentence(check: _Check, asof: date) -> str:
         return (
             f"companyfacts agrees with the statement's {check.quantity} ({where}; exact at the "
             "printed precision)"
+        )
+    if check.status == "disagrees" and check.foreign_of is not None:
+        seen = "; ".join(dict.fromkeys(f"{_fmt(r.val)} ({r.where})" for r in check.matched))
+        units = ", ".join(sorted(check.units()))
+        return (
+            f"FIGURES DISAGREE on {check.quantity}: statement {_fmt(check.figure or 0.0)} "
+            f"{check.foreign_of} vs companyfacts {seen} on {asof} — the only companyfacts row that "
+            f"reproduces the printed figure is in {units}, not the statement's {check.foreign_of} (a "
+            "translated or other-currency figure is not agreement); ratify against the passage"
         )
     if check.status == "disagrees":
         seen = "; ".join(dict.fromkeys(f"{_fmt(r.val)} ({r.where})" for r in check.rows[:4]))
@@ -1233,6 +1260,28 @@ def _sti_judgement(text: str, cash: _Row, row: _Row, report_year: int) -> _StiJu
             None,
             f"its current-year cell is blank: the leading “{_fmt(cells[0] or 0.0)}” is the row's note "
             "reference, not a value",
+        )
+    # the SAME currency column as the cash value (the third re-audit: VNET's row printed 379,198 and 54,225
+    # under a header of two RMB years and a US$ convenience column, and the two figures were mapped onto
+    # the two years, so the US$ 54,225 was counted as CNY). When the cash row prints more figures than
+    # year headers (a convenience-translation column), a row that prints fewer than the cash row cannot be
+    # placed on that grid: never counted.
+    cash_cells = list(cash.cells)
+    if (
+        cash_cells
+        and cash_cells[0] is not None
+        and 0 < cash_cells[0] < 100
+        and cash_cells[0].is_integer()
+        and len(cash_cells) > len(years) >= 1
+    ):
+        cash_cells = cash_cells[1:]  # the cash row's own note reference
+    if len(cash_cells) > len(years) >= 1 and len(cells) < len(cash_cells):
+        return _StiJudgement(
+            None,
+            f"it prints {len(cells)} figure(s) where the cash row prints {len(cash_cells)} (the "
+            f"{', '.join(map(str, years))} columns and a convenience-translation column), so which figure "
+            f"is the {report_year} column in the cash row's currency cannot be told; a convenience "
+            "translation is never counted",
         )
     if years.count(report_year) == 1 and len(cells) == len(years):
         cell = cells[years.index(report_year)]
@@ -1564,6 +1613,7 @@ def extract_annual_runway(
                 "balance-sheet cash row was located"
             )
         parts_sti: list[float] = []
+        quoted_sti = False  # a deposits/investments row was seen and quoted, not counted
         counted: list[tuple[_Row, str, float, float]] = (
             []
         )  # (row, label, printed value, scaled part)
@@ -1576,6 +1626,7 @@ def extract_annual_runway(
                 )
                 continue
             if verdict.value is None:
+                quoted_sti = True
                 flag("investments-unconfirmed")
                 quote = re.sub(r"\s+", " ", text[row.start : row.label_end + 40]).strip()
                 notes.append(
@@ -1609,17 +1660,26 @@ def extract_annual_runway(
                     f"it was not compared with “{label}”"
                 )
             sti_checks.append(
-                _cross_check(f"“{label}”", printed, row.decimals, c_scale or 1.0, part, rows_for)
+                _in_statement_currency(
+                    _cross_check(
+                        f"“{label}”", printed, row.decimals, c_scale or 1.0, part, rows_for
+                    ),
+                    currency,
+                )
             )
         if parts_sti:
             investments = sum(parts_sti)
             cash_value = cash_component + investments
         elif cf_sti_rows:
             seen = "; ".join(dict.fromkeys(f"{_fmt(r.val)} ({r.where})" for r in cf_sti_rows[:3]))
+            where = (
+                "the balance-sheet row quoted above was not counted"
+                if quoted_sti
+                else "no balance-sheet row for them was located"
+            )
             notes.append(
                 f"companyfacts carries short-term deposits or investments on {report_date} ({seen}) "
-                "but no balance-sheet row for them was located; they are NOT counted — check the "
-                "balance sheet"
+                f"but {where}; they are NOT counted — check the balance sheet"
             )
     cf_cash = (
         _latest_instant(_cf_rows(companyfacts, _CF_CASH_PRIMARY, duration=False, unit=currency))

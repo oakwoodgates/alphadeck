@@ -532,6 +532,14 @@ quoted in the note with the reason, and the candidate carries **`investments-unc
 whose header prints a Note column, a bare parenthesized "(3)" right after a label is that note reference,
 never a negative first column.
 
+**The part comes from the cash value's own currency column, never the convenience translation** (the
+third re-audit, 2026-11-16: VNET's statements are in RMB thousands with a US$ convenience column; its
+short-term investments row printed 379,198 and 54,225 with the 2024 cell blank, the two figures were mapped
+onto the two year headers, and the US$ 54,225 was stored as CNY). When the cash row prints more figures than
+year headers (a convenience-translation column), a deposits row must print as many figures as the cash row
+(after a note reference) to be read in the cash row's column; one that prints fewer cannot be placed on that
+grid and is seen, quoted and NOT counted (`investments-unconfirmed`), never mapped onto the year headers.
+
 **Later-as-of-wins per quantity** (the shares rule): companyfacts usually **lags** the filing by up to
 a year (annual XBRL ingests slowly — the reason the filing is read at all) and is sometimes
 **fresher** (a 6-K interim landing after the last annual — the interim then wins and is normalized by
@@ -540,6 +548,9 @@ statement's own date and requires an **exact** match at the printed precision (a
 EH's wrong column, 0.4% off): an agreement is named with its concept and unit; a same-date row that
 reproduces nothing is `figures-disagree` with both numbers (this replaced `source-disagreement` on this
 path); **no same-date row is a stated condition ("not cross-checked"), never a pass**. A deposits or
+investments figure is agreed only by a row in the **statement's own currency unit**: a row that reproduces
+it only in another unit (VNET's USD 54,225,000 against a CNY candidate) is `figures-disagree`, the note giving
+both numbers and both units (a translated figure is not the statement's). A deposits or
 investments row is compared only within its concept family (a "deposits" row never meets a
 marketable-securities concept, an "investments" row never meets a time-deposit concept) and never with a
 concept that reproduces ANOTHER counted row of the same balance sheet (NTES: "Short-term investments"
