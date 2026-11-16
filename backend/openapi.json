@@ -5007,6 +5007,148 @@
         }
       }
     },
+    "/value-flags": {
+      "post": {
+        "tags": [
+          "value-flags"
+        ],
+        "summary": "Raise Flag",
+        "description": "Tell the steward that one of a company's shared values (its share count, or its cash and burn) looks wrong\nor is missing. It never changes the value. The company must be on one of your own cards. The server records\nwhat was current: the value shown, a value awaiting the steward, or no value yet. One open flag per value;\neach flag spends one unit of your daily flag allowance (a withdrawal does not give it back). **403** for the\nsteward; **404** a company that is not on any of your cards (or no such company); **409** you already have an\nopen flag on this value; **422** a value type other than a share count or cash/burn, or a note over 2,000\ncharacters; **429** the day's flags are spent. Answers the new flag (201).",
+        "operationId": "raise_flag_value_flags_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ValueFlagIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValueFlagOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "value-flags"
+        ],
+        "summary": "List My Flags",
+        "description": "Your own flags on shared values: the open ones first (newest first), then the closed ones (newest closed\nfirst), with the steward's outcome and note. Nobody else's flags are ever listed or counted. ``offset`` /\n``limit`` cut the page (``limit`` 1-100, ``offset`` 0-100,000); ``total`` counts all of yours. **422** a\nparameter out of bounds. Read-only.",
+        "operationId": "list_my_flags_value_flags_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100000,
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValueFlagListOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/value-flags/{flag_id}/withdraw": {
+      "post": {
+        "tags": [
+          "value-flags"
+        ],
+        "summary": "Withdraw Flag",
+        "description": "Withdraw your own open flag. The allowance unit it spent is not given back; you may flag the value again\n(one more unit). **403** for the steward; **404** no flag of yours has this id; **409** it is already closed.\nAnswers the withdrawn flag.",
+        "operationId": "withdraw_flag_value_flags__flag_id__withdraw_post",
+        "parameters": [
+          {
+            "name": "flag_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Flag Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValueFlagOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/theses/{thesis_id}/data-flags": {
       "get": {
         "tags": [
@@ -47336,6 +47478,192 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "ValueFlagIn": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "value_type": {
+            "type": "string",
+            "enum": [
+              "shares_outstanding",
+              "cash_burn"
+            ],
+            "title": "Value Type"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id",
+          "value_type"
+        ],
+        "title": "ValueFlagIn",
+        "description": "Raise a flag. Only these three fields are read: the user, what was current and the state of the flag are\nthe server's (any other field in the body is ignored)."
+      },
+      "ValueFlagListOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ValueFlagOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "ValueFlagListOut",
+        "description": "One page of the caller's own flags; ``total`` counts all of them."
+      },
+      "ValueFlagOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "value_type": {
+            "type": "string",
+            "title": "Value Type"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "opened_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Opened At"
+          },
+          "closed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed At"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome"
+          },
+          "outcome_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome Note"
+          },
+          "current_when_flagged": {
+            "type": "string",
+            "enum": [
+              "value",
+              "awaiting",
+              "none"
+            ],
+            "title": "Current When Flagged"
+          },
+          "reopens": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reopens"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "security_id",
+          "ticker",
+          "name",
+          "value_type",
+          "note",
+          "opened_at",
+          "closed_at",
+          "outcome",
+          "outcome_note",
+          "current_when_flagged",
+          "reopens"
+        ],
+        "title": "ValueFlagOut",
+        "description": "One of the caller's flags, from the stored row. ``current_when_flagged``: what the server recorded as current\nwhen it was raised (``value`` = the value shown, ``awaiting`` = a value awaiting the steward, ``none`` = no value\nyet). ``outcome``: ``fixed`` / ``kept`` (the steward, with ``outcome_note`` for the user) or ``withdrawn``\n(the user); null while open. ``reopens``: the closed flag of yours the steward reopened as this one. Never who\nclosed it. ``note`` and ``outcome_note`` are plain text, exactly as stored."
       },
       "Verdict": {
         "type": "string",

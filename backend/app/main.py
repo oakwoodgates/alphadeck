@@ -29,6 +29,7 @@ from app.routers import (
     radar,
     scoreboard,
     theses,
+    value_flags,
     workbench,
 )
 from domain.settings import get_settings
@@ -110,6 +111,8 @@ app.include_router(admin_splits.router, dependencies=_STEWARD)
 app.include_router(admin_onboarding.router, dependencies=_STEWARD)
 # V2 W2c — the platform values (share count, cash/burn): the steward's queue, company read and six actions
 app.include_router(admin_platform_values.router, dependencies=_STEWARD)
+# V2 W5b — a user's flag on a platform value (/value-flags: raise, list your own, withdraw); plain users
+app.include_router(value_flags.router, dependencies=_USER)
 # split plan S3 — the shared "is this real?" data flags (compute-on-read, display-only)
 app.include_router(data_flags.router, dependencies=_USER)
 app.include_router(radar.router, dependencies=_USER)

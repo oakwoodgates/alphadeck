@@ -556,3 +556,103 @@ extractor's own (`cash-generative`, ...); `written` False on `flagged` means the
 `platform_extraction_attempt` rows, newest first, whoever ran them:
 `PlatformExtractionAttemptOut { id, recorded_at, run_kind, status, shares_reason, cash_reason, error, detail }`.
 The company page lists them in each value's History.
+
+## Flags (W5b)
+
+A plain user who thinks a shared value is wrong, or missing, **flags** it: the flag tells the steward and never
+changes the value. Only the flagging user and the steward ever see it. (The word is the user's; the extractor's
+FLAG tier and a candidate's `outcome='flag'` are different things.)
+
+**What may be flagged** (decision B5 (a)): a company's share count or cash/burn in any state: a value shown (from
+the filing or verified), a value awaiting the steward, and "no value yet" (a request to look at it). Catalysts are
+W6 (`value_type='catalyst'` is refused, 422). The request carries only the company, the value type and an optional
+note; the SERVER records what was current when the flag was raised (`platform_values.state.read_state`): the shown
+fact's id (`seen_fact_id`), the candidate awaiting the steward (`seen_candidate_id`), or neither. When a value is
+shown and a newer candidate is pending, the flag targets the value shown. The screens say "current when flagged".
+
+**The table** (`value_flag`, migration 0202, extended by 0210; user-keyed, no tenant, `UNSCOPED_TABLES`; `keep` in
+the cutover): one OPEN flag per user and value (a partial unique index); closed once as `fixed` / `kept` (the
+steward) or `withdrawn` (the user, `closed_by` the literal `user`); a closed row is never edited (a trigger). 0210
+adds three nullable columns, each set only on the INSERT or the one close: `seen_candidate_id` (a flag sees a value
+OR a candidate, never both: a CHECK), `fixed_decision_id` (allowed only when `outcome IS NOT DISTINCT FROM 'fixed'`,
+so an open row with a link is refused: a plain `outcome = 'fixed'` would be UNKNOWN on an open row and pass) and
+`reopens` (at most one row reopens a flag: a unique index; a trigger refuses a reopen of an open or user-withdrawn
+flag, or one that changes the user, company or value). Every query of the table lives in
+`repositories/value_flag_repo.py`; each user-side read filters by the user's id in SQL
+(`tests/app/test_value_flag_guard.py`).
+
+**The module** `platform_values/flags.py` (no commit inside; the route commits):
+
+- `raise_flag`: the per-user-and-value **advisory transaction lock** (`lock_value`, namespace `0x414446`), then the
+  duplicate check, then the allowance charge (`app.allowance.take`, in the same transaction), then the state read,
+  then the insert. The route commits the row and its unit together; a refusal rolls both back. So two simultaneous
+  identical requests give ONE row, ONE unit and ONE Slack message, and the loser answers 409 having spent nothing
+  (`tests/app/test_value_flag_api.py`, two real threads on two connections). The partial unique index still guards
+  the row (a `UniqueViolation` is the same 409).
+- `withdraw`: the user's own open flag only; never refunds. `mine`: the user's own flags, open first (newest opened
+  first) then closed (newest closed first), paged.
+- For W5c's steward routes (written and tested now, no routes yet): `close` (`fixed` needs a STANDING approve or
+  correct of the SAME company and value type, checked in the close transaction after the flag row is locked;
+  `kept` needs a note that is not blank after trimming and names no decision), `reopen` (the inverse of the
+  steward's close, decision B3 (a): a NEW open row copying the original's user, company, value, what it saw and
+  the user's note; refuses an open flag, one already reopened, one the user withdrew, and a value the user has
+  flagged again since; sends no Slack), `for_company` (open flags oldest first plus a page of closed ones, each with
+  the user's email, decision B4 (a): steward routes only) and `open_by_company` (one grouped statement: count, per
+  value, the oldest open).
+
+### The routes (plain users, `/value-flags`)
+
+Mounted with `_USER`; no `asof` (a flag is about the value now). Request models carry the bounded types of
+`domain/text_types.py`; response models carry none.
+
+| Route | Request | Answer |
+|---|---|---|
+| `POST /value-flags` | `ValueFlagIn { security_id, value_type: "shares_outstanding" \| "cash_burn", note: Prose \| null }` (any other field is ignored) | 201 `ValueFlagOut` |
+| `GET /value-flags?limit=1..100 (50)&offset=0..100000 (0)` | | `ValueFlagListOut { items: ValueFlagOut[], total }` (the caller's own only) |
+| `POST /value-flags/{flag_id}/withdraw` | no body | 200 `ValueFlagOut` |
+
+`ValueFlagOut { id, security_id, ticker, name, value_type, note, opened_at, closed_at, outcome, outcome_note,
+current_when_flagged: "value" | "awaiting" | "none", reopens }`: never who closed it, never another user. `note`
+and `outcome_note` are plain strings, exactly as stored (no HTML or markdown anywhere; screens render them as text).
+
+Refusals, in this order on a raise:
+
+| Status | When | Body (`detail`) |
+|---|---|---|
+| 401 | not signed in | the gate's |
+| 403 | the steward (raise and withdraw) | "The steward corrects values on the company page. A flag is for users." |
+| 422 | a value type other than the two, a note over 2,000 characters, a malformed id (FastAPI, before anything is read) | the validation list |
+| 404 | a company unknown OR not on any of the caller's own cards: ONE body for both, read in the caller's workspace only and before any flag or allowance read | "This company is not on any of your cards. Add it to a card first." |
+| 409 | an open flag by this user on this value (nothing spent) | "You already have an open flag on this value. The steward will look at it." |
+| 429 | the day's flag allowance spent | "Daily allowance reached: 50 flags a day. It resets at midnight America/New_York time." |
+
+On a withdraw: 404 "There is no such flag." for an id that is not the caller's or does not exist (the same bytes);
+409 "This flag is already closed." A withdrawal never refunds the unit; flagging the value again spends one.
+
+**The allowance**: action `flag`, `ALPHADECK_ALLOWANCE_FLAG_PER_DAY` (default 50 per user per market day; 0 = no
+limit; `docs/AUTH.md`). It bounds the Slack messages a user can cause: withdraw then flag again spends a unit each
+time.
+
+### The Slack message
+
+One per raised flag (none on a withdrawal, close or reopen), built from what the raise transaction read and sent by
+a FastAPI background task AFTER the commit and after the answer (`notify/flags.py`): to
+`ALPHADECK_STEWARD_SLACK_WEBHOOK_URL` (decision W-c), else `SLACK_WEBHOOK_URL`, else one log line; through
+`notify.post_text` (the escaping chokepoint) with a 5-second timeout. A failure or an exception is logged without
+the URL and never changes the answer or the stored row.
+
+```
+Flag from a user: ACME (Acme Corp), share count
+Current when flagged: 52,113,000 shares, from the filing, dated 2026-09-30
+Note: the cover lists two classes
+Open: https://<ALPHADECK_PUBLIC_ORIGIN>/admin/facts/<security_id>
+```
+
+"Current when flagged" reads `<count> shares, from the filing | verified by the steward | verified (carried over
+from V1), dated <valid_from>` (cash/burn: no figure; the currency rule lives on the steward's page), plus `; a newer
+filing dated <date> awaits the steward` when one is pending; `awaiting the steward (a filing dated <date>)` (no
+number, decision B1 (b)); or `no value yet (<reason>)`. No note: no Note line. No public origin: `Open: Admin >
+Shared facts > <ticker>`. Each value is flattened with `one_line` (the note is cut at its 300-character default; the
+steward reads the whole note on the company page) and `& < >` are escaped at the chokepoint, so a note with
+`<!channel>`, a link or a newline posts as one inert line. It says "a user": never an email, a user id, a
+workspace, a card count or a queue rank. The channel carries users' notes, so every reader of it must be a steward.

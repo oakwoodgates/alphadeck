@@ -127,6 +127,7 @@ state.
 |---|---|---|
 | Board, Cockpit, Workbench, Scoreboard, dashboards, radar, decisions | yes | yes |
 | Admin page and every `/admin/*` route (cron status, backups, run-daily, splits, price-feed repairs, insider amendments, onboarding, the shared share counts and cash/burn under `/admin/platform-values`: the queue, a company's values, the six steward actions, Extract now) | 403; the nav entry is hidden; typing `/admin` shows "stewards only" | yes |
+| A flag on a shared share count or cash/burn (`/value-flags`: raise, list your own, withdraw) | yes, for a company on one of their own cards (else 404), one open flag per value (409), within the daily flag allowance (429); they see only their own flags | 403 on raise and withdraw ("The steward corrects values on the company page. A flag is for users."); reads every user's flags on the steward's company page (W5c) |
 | Backtest page and `/backtest/*` | 403; hidden likewise | yes |
 | The business-type re-tag (`POST /workbench/securities/{id}/business-type`), a write to the SHARED company master | 403; the control is hidden | yes |
 | Surface an ETF (`POST /workbench/securities/resolve-etf`): adds a fund to the SHARED company master or marks an existing row a fund | 403; the Workbench control is hidden | yes |
@@ -175,6 +176,7 @@ because the Workbench is unusable without it. Each fetch is bounded (security ha
   | `ALPHADECK_ALLOWANCE_HOLDINGS_PER_DAY` | 1000 | holdings |
   | `ALPHADECK_ALLOWANCE_CHAIN_DRAFT_PER_DAY` | 100 | `POST /workbench/theses/{id}/draft-chain` |
   | `ALPHADECK_ALLOWANCE_TERM_RUN_PER_DAY` | 200 | `POST .../terms` and `POST .../recommend-tiers`, one shared count |
+  | `ALPHADECK_ALLOWANCE_FLAG_PER_DAY` | 50 | a user's flag on a shared value (`POST /value-flags`, V2 W5b): not a fetch, it bounds the steward's Slack messages. Counted in the flag's own transaction after the own-card check (404) and the open-flag check (409), so a refused flag spends nothing; a withdrawal never refunds (`docs/PLATFORM_VALUES.md` §Flags) |
 
 - **No shared-master write.** The automatic OTC price-symbol resolve runs on a steward's pull only (a plain user's
   OTC pull is priced under the canonical ticker; the steward's price-feed panel or the backfill sweep resolves it).
