@@ -526,7 +526,11 @@ total or summary ("of which", "including", "comprising", "consisting of", "Total
 cash); (3) it reads the same column headers as the cash row; (4) its report-year cell holds a value: a
 **dash** is an empty cell (nothing added, the note says so — WAVE's "note 5, 2025 a dash, 2024 1,254"
 added 5,000 from the note number before), and a **blank** cell beside a note reference (a table with a
-Note column whose row prints only "5 1,254") is never the note number. A row that fails (1)–(3), is blank
+Note column whose row prints only "5 1,254") is never the note number. A row that prints its note reference
+and then **one figure per column of the cash row** is read in the cash value's own column (the third
+re-audit, 2026-11-16: ALC's "Time deposits 17 80 153" under "at December 31, 2025 and 2024 … Note 2025 2024"
+was called blank because its three figures were compared with the header's four year tokens; the cash row's
+figure count is the table's real column grid, and "17 — 153" there is still an empty cell). A row that fails (1)–(3), is blank
 beside its note reference, or cannot be read is **seen and not counted**: nothing is added, the row is
 quoted in the note with the reason, and the candidate carries **`investments-unconfirmed`**. In a table
 whose header prints a Note column, a bare parenthesized "(3)" right after a label is that note reference,

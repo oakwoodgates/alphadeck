@@ -5,6 +5,10 @@ reaudit3-annual-cash-2026-11-16.md).
   row whose RMB value is 379,198. The stored investment part 54,225,000 is the CONVENIENCE column's number
   labeled CNY (5,577,796,000 = 5,523,571,000 + 54,225,000), and the note accepted a USD companyfacts match for
   that CNY component, so the row lost its last numerical warning (WRONG AND UNFLAGGED).
+- ALC: USD millions; cash 1,527 and a separate "Time deposits" row printing its note reference 17 and then 80
+  (2025) and 153 (2024). The deposits guard dropped the 80 claiming the current-year cell was blank (right total
+  1,607,000,000): its blank-cell test compared the row's three figures with the count of YEAR TOKENS in the
+  header, which the heading's own dates inflate ("at December 31, 2025 and 2024 ... Note 2025 2024").
 
 The rules (docs/WORKBENCH_EXTRACTION.md, "The annual-statements runway path"): the deposits/investments part is
 read from the SAME currency column as the cash value, never the convenience translation; a deposits row that
@@ -21,6 +25,8 @@ from __future__ import annotations
 import json
 from datetime import date
 from pathlib import Path
+
+import pytest
 
 from domain.extraction import Tier
 from ingest.edgar.annual_runway import extract_annual_runway
@@ -149,3 +155,45 @@ def test_a_match_in_the_statement_currency_still_agrees():
     f = _run("SYN", text=_cny_statements("Short-term investments 40,000 54,225"), cf=cf)
     assert "figures-disagree" not in f.flags
     assert "companyfacts agrees with the statement's “Short-term investments”" in f.note
+
+
+# ---------------------------------------------------------------------------------------------------------
+# ALC: a note reference followed by one figure per column is read; WAVE's dash and a blank stay empty
+# ---------------------------------------------------------------------------------------------------------
+
+_ALC_TD = "Time deposits 17 80 153"
+
+
+def test_alc_note_reference_then_two_values_reads_the_current_year():
+    """ALC. Before: cash 1,527,000,000, the time deposits dropped with a false "current-year cell is blank"
+    reason and ``investments-unconfirmed``. After: the row prints its note reference and then one figure per
+    column of the cash row, so 80 is read in the cash value's column: 1,607,000,000, the audit's total.
+    """
+    f = _run("ALC")
+    assert f.statement_currency == "USD"
+    assert f.cash_usd == 1_607_000_000.0  # was 1,527,000,000
+    assert f.investments_usd == 80_000_000.0  # was None
+    assert f.flags == ["annual-statements"]  # was ["annual-statements", "investments-unconfirmed"]
+    assert "time deposits 80,000,000 (from the balance sheet's “Time deposits” row)" in f.note
+    assert "blank" not in f.note
+
+
+@pytest.mark.parametrize(
+    "row,cash,investments,unconfirmed,said",
+    [
+        (_ALC_TD, 1_607_000_000.0, 80_000_000.0, False, "time deposits 80,000,000"),
+        ("Time deposits 17 \u2014 153", 1_527_000_000.0, None, False, "dash"),
+        ("Time deposits 17 153", 1_527_000_000.0, None, True, "note reference"),
+    ],
+    ids=["note-value-value", "note-dash-value (WAVE's shape)", "note-value (blank)"],
+)
+def test_note_reference_shapes_side_by_side(row, cash, investments, unconfirmed, said):
+    """In the same note-column table: "17 80 153" reads 80; "17 — 153" (WAVE's shape) is an empty current
+    cell, nothing added and no flag; "17 153" cannot tell a blank cell from a value, so it is quoted and NOT
+    counted (the 17 is never a value)."""
+    f = _run("ALC", text=_text("ALC").replace(_ALC_TD, row))
+    assert f.cash_usd == cash
+    assert f.investments_usd == investments
+    assert (_UNCONFIRMED in f.flags) is unconfirmed
+    assert said in f.note
+    assert "17,000,000" not in f.note

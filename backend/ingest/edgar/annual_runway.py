@@ -1252,9 +1252,35 @@ def _sti_judgement(text: str, cash: _Row, row: _Row, report_year: int) -> _StiJu
         )
     cells = list(row.cells)
     years = row.years
+    # the cash row's own figures (after its note reference): the table's real column grid, which the year
+    # tokens may over-count (a heading's dates: ALC's "at December 31, 2025 and 2024 ... Note 2025 2024")
+    cash_cells = list(cash.cells)
+    if (
+        cash_cells
+        and cash_cells[0] is not None
+        and 0 < cash_cells[0] < 100
+        and cash_cells[0].is_integer()
+        and len(cash_cells) > len(years) >= 1
+    ):
+        cash_cells = cash_cells[1:]  # the cash row's own note reference
     lead_ref = bool(cells) and cells[0] is not None and 0 < cells[0] < 100 and cells[0].is_integer()
     if lead_ref and len(cells) > len(years) >= 1:
         cells = cells[1:]  # the leading small integer is the row's note reference
+    elif (
+        lead_ref
+        and row.note_col
+        and len(cells) == len(cash_cells) + 1
+        and cash.raw is not None
+        and cash_cells.count(cash.raw) == 1
+    ):
+        # the third re-audit (ALC: "Time deposits 17 80 153"): the note reference, then one figure per
+        # column of the cash row — read in the cash value's own column (a dash there is an empty cell)
+        cell = cells[1:][cash_cells.index(cash.raw)]
+        if cell is None:
+            return _StiJudgement(None, None, dash=True)
+        if cell >= 0:
+            return _StiJudgement(cell, None)
+        return _StiJudgement(None, "its current value could not be read")
     elif lead_ref and row.note_col and len(cells) <= len(years):
         return _StiJudgement(
             None,
@@ -1266,15 +1292,6 @@ def _sti_judgement(text: str, cash: _Row, row: _Row, report_year: int) -> _StiJu
     # the two years, so the US$ 54,225 was counted as CNY). When the cash row prints more figures than
     # year headers (a convenience-translation column), a row that prints fewer than the cash row cannot be
     # placed on that grid: never counted.
-    cash_cells = list(cash.cells)
-    if (
-        cash_cells
-        and cash_cells[0] is not None
-        and 0 < cash_cells[0] < 100
-        and cash_cells[0].is_integer()
-        and len(cash_cells) > len(years) >= 1
-    ):
-        cash_cells = cash_cells[1:]  # the cash row's own note reference
     if len(cash_cells) > len(years) >= 1 and len(cells) < len(cash_cells):
         return _StiJudgement(
             None,
