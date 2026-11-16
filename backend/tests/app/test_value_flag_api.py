@@ -303,6 +303,17 @@ def test_a_note_at_the_limit_is_stored_whole(world, db):
     assert r.status_code == 201 and r.json()["note"] == note
 
 
+def test_a_note_is_returned_as_the_plain_string_it_was(world, db):
+    """No HTML or markdown processing anywhere: tags, entities and link-like text come back exactly as typed (the
+    screens render them as text)."""
+    note = '<b>bold</b> <script>x()</script> [click](https://evil.example) &amp; "q" <!channel>'
+    r = world["a"].post(BASE, json=_body(world["x"], note=note))
+    assert r.status_code == 201 and r.json()["note"] == note
+    assert world["a"].get(BASE).json()["items"][0]["note"] == note
+    (row,) = _rows(db)
+    assert row["note"] == note
+
+
 # --- raising: the server decides what was current -----------------------------------------------------------------
 
 
@@ -412,6 +423,10 @@ def test_bs_flag_on_the_same_value_is_independent_of_as(world, db, slack):
     ra = a.post(BASE, json=_body(x, note="A's private words"))
     rb = b.post(BASE, json=_body(x, note="B's own words"))
     assert (ra.status_code, rb.status_code) == (201, 201)
+    assert (_used(db, world["a_id"]), _used(db, world["b_id"])) == (
+        1,
+        1,
+    )  # one unit each, never shared
     assert rb.json()["current_when_flagged"] == ra.json()["current_when_flagged"]
     b_list = b.get(BASE)
     assert [f["id"] for f in b_list.json()["items"]] == [rb.json()["id"]]
