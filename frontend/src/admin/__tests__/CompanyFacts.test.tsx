@@ -318,6 +318,31 @@ describe("CompanyFacts: the status words of every state", () => {
     expect(status(cashBlock())).toHaveTextContent("quarterly burn $314,678,000");
   });
 
+  it("a stored foreign value shows its own currency and the short-term investment part", () => {
+    const value = val({
+      source: "annual-statements",
+      shares: null,
+      cash_usd: 7000000000,
+      quarterly_burn_usd: -400000000,
+      currency: "CNY",
+      investments_usd: 2500000000,
+    });
+    serve(company({}, { state: "verified", reason: null, ratifier: "steward", value, versions: [value] }));
+    renderPage();
+    expect(status(cashBlock())).toHaveTextContent(
+      "CN¥7,000,000,000 cash (of which short-term investments CN¥2,500,000,000), quarterly burn -CN¥400,000,000",
+    );
+  });
+
+  it("an annual value stored without a currency shows '?', never '$', and no split", () => {
+    const value = val({ source: "annual-statements", shares: null, cash_usd: 5000000, quarterly_burn_usd: 100000, currency: null });
+    serve(company({}, { state: "verified", reason: null, ratifier: "steward", value }));
+    renderPage();
+    expect(status(cashBlock())).toHaveTextContent("?5,000,000 cash, quarterly burn ?100,000");
+    expect(status(cashBlock())).not.toHaveTextContent("$");
+    expect(status(cashBlock())).not.toHaveTextContent("of which");
+  });
+
   it("a newer filing beside a value shown: the value's own line stays quiet, the pending one is loud", () => {
     const pending = cand({ event_date: "2026-09-30" });
     serve(
@@ -593,6 +618,55 @@ describe("CompanyFacts: the actions and their way back", () => {
       source_ref: FILING,
       event_date: "2026-06-30",
     });
+  });
+
+  it("Correct for cash/burn prefills the candidate's currency and investment part and sends them", async () => {
+    const c = cand({
+      fact_type: "cash_burn",
+      source: "annual-statements",
+      shares: null,
+      cash_usd: 9000000,
+      quarterly_burn_usd: 1500000,
+      statement_currency: "JPY",
+      investments_usd: 2000000,
+      flags: ["annual-statements"],
+    });
+    serve(company({}, { state: "awaiting_steward", reason: null, awaiting: c, candidates: [c] }));
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(within(cashBlock()).getByRole("button", { name: "Correct…" }));
+    const b = cashBlock();
+    expect(within(b).getByLabelText("Currency (ISO code)")).toHaveValue("JPY");
+    expect(within(b).getByLabelText(/^Of which short-term investments/)).toHaveValue(2000000);
+    expect(within(b).getByLabelText(/^Cash/)).toBeInTheDocument();
+    expect(b).toHaveTextContent("Cash (¥)");
+    await user.click(within(b).getByRole("button", { name: "Save correction" }));
+    expect(mutate(h.correct).mock.calls[0][0].body).toEqual({
+      fact_type: "cash_burn",
+      cash_usd: 9000000,
+      quarterly_burn_usd: 1500000,
+      currency: "JPY",
+      investments_usd: 2000000,
+      source_ref: FILING,
+      event_date: "2026-09-30",
+      candidate_id: c.id,
+    });
+  });
+
+  it("Correct for cash/burn takes a typed currency in capitals and refuses a part above the cash", async () => {
+    serve(company({}, { state: "from_filing", reason: null, ratifier: "machine", value: val({ shares: null, cash_usd: 1000, quarterly_burn_usd: 10 }) }));
+    renderPage();
+    const user = userEvent.setup();
+    const b = cashBlock();
+    await user.click(within(b).getByRole("button", { name: "Correct…" }));
+    expect(within(b).getByLabelText("Currency (ISO code)")).toHaveValue("");
+    await user.type(within(b).getByLabelText("Currency (ISO code)"), "cad");
+    expect(within(b).getByLabelText("Currency (ISO code)")).toHaveValue("CAD");
+    fireEvent.change(within(b).getByLabelText(/^Of which short-term investments/), { target: { value: "1001" } });
+    expect(within(b).getByRole("button", { name: "Save correction" })).toBeDisabled();
+    fireEvent.change(within(b).getByLabelText(/^Of which short-term investments/), { target: { value: "1000" } });
+    await user.click(within(b).getByRole("button", { name: "Save correction" }));
+    expect(mutate(h.correct).mock.calls[0][0].body).toMatchObject({ currency: "CAD", investments_usd: 1000 });
   });
 
   it("the newest standing decision shows right away with its Undo, and Undo sends the decision id", async () => {

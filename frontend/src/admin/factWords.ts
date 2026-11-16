@@ -11,7 +11,7 @@ import type {
   PlatformFactType,
   PlatformValueOut,
 } from "../api/hooks";
-import { cashSymbol } from "../components/LocatedPassages";
+import { cashSymbol, CURRENCY_UNREAD_FLAG, labelCurrency } from "../components/LocatedPassages";
 
 export const FACT_TITLE: Record<PlatformFactType, string> = {
   shares_outstanding: "Share count",
@@ -31,10 +31,22 @@ export function fmtMoney(n: number, currency?: string | null): string {
 
 type Valued = Pick<
   PlatformAppliedValueOut,
-  "shares" | "ads_ratio" | "ads_ratio_status" | "cash_usd" | "quarterly_burn_usd"
+  "shares" | "ads_ratio" | "ads_ratio_status" | "cash_usd" | "quarterly_burn_usd" | "investments_usd"
 >;
 
-/** The value in words: "52,113,000 shares", "ADS ratio 2", "$890,000,000 cash, quarterly burn $314,678,000". */
+/** The source the annual-statements path stamps on a cash/burn value (a 20-F / 40-F's statements). */
+export const ANNUAL_STATEMENTS_SOURCE = "annual-statements";
+
+/** The currency a STORED cash/burn value's figures are labeled in (migration 0208): its stored ISO code; "?" for an
+ *  annual-statements value stored without one (its currency was never established, so never "$"); null (= "$")
+ *  for a value from the periodic 10-Q/10-K path or a V1 row, which read the USD unit. Through `labelCurrency`, the
+ *  candidate's own rule, so a value and its candidate read alike. */
+export function storedCurrency(v: { currency?: string | null; source?: string | null }): string | null {
+  return labelCurrency(v.currency, v.source === ANNUAL_STATEMENTS_SOURCE ? [CURRENCY_UNREAD_FLAG] : []);
+}
+
+/** The value in words: "52,113,000 shares", "ADS ratio 2", "$890,000,000 cash, quarterly burn $314,678,000"; a
+ *  stored investment part adds "(of which short-term investments $X)" after the cash (none recorded: no split). */
 export function valueWords(
   factType: string,
   v: Valued,
@@ -48,7 +60,11 @@ export function valueWords(
     return out;
   }
   const parts: string[] = [];
-  if (v.cash_usd != null) parts.push(`${fmtMoney(v.cash_usd, currency)} cash`);
+  if (v.cash_usd != null) {
+    const split =
+      v.investments_usd != null ? ` (of which short-term investments ${fmtMoney(v.investments_usd, currency)})` : "";
+    parts.push(`${fmtMoney(v.cash_usd, currency)} cash${split}`);
+  }
   if (v.quarterly_burn_usd != null) {
     parts.push(
       `quarterly burn ${fmtMoney(v.quarterly_burn_usd, currency)}${v.quarterly_burn_usd <= 0 ? " (cash-generative)" : ""}`,
