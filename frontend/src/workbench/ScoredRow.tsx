@@ -9,6 +9,8 @@ import {
   formatMarketCap,
   memberHasFundamentals,
   onFileValues,
+  runwayPaceWords,
+  runwayTitle,
   sharesAsof,
   sleevePriceLabel,
   staleSharesMonths,
@@ -73,6 +75,7 @@ export function ScoredRow({ member, selected, onSelect, thesisId, asof, contextR
   // the API's fixed refusal on this name's get data (own cards only / the daily allowance), shown as it is worded
   const refusal = refusalText(extract.error) ?? refusalText(ingestPx.isError ? ingestPx.error : null);
   const onFile = onFileValues(member);
+  const runwayPace = runwayPaceWords(member.runway);
   const remaining = (facts ?? []).filter((f) => !onFile[f.fact_type]);
   const getData = async () => {
     ingestPx.mutate(member.security_id);
@@ -234,7 +237,13 @@ export function ScoredRow({ member, selected, onSelect, thesisId, asof, contextR
       {refusal && <div className="note err">{refusal}</div>}
       <div className="wb-meters">
         <Meter label="purity" figure={member.purity} />
-        <Meter label="runway" figure={member.runway} />
+        <Meter label="runway" figure={member.runway} title={runwayTitle(member.runway)} />
+        {runwayPace?.caveat && (
+          // a quiet mark ONLY where last quarter is far off the year-to-date pace (honest loudness), the caveat on hover
+          <span className="wb-pace" data-testid="wb-runway-pace" title={runwayPace.caveat}>
+            uneven quarter
+          </span>
+        )}
         <Meter label="catalysts" figure={member.catalysts} />
         <span className="wb-meter-sep" aria-hidden="true" />
         <Meter label="dilution" figure={member.dilution} risk />

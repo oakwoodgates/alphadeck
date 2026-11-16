@@ -289,7 +289,8 @@ export function meterValueLabel(meter: string, figure: ScoredFigureOut): string 
     case "purity":
       return v == null ? "—" : `${v}%`;
     case "runway":
-      return v == null ? "cash-generative" : `${v} mo`;
+      // the runway is cash over LAST QUARTER'S burn (V2 extractor correctness PR 3): said on the label
+      return v == null ? "cash-generative last quarter" : `${v} mo at last quarter's pace`;
     case "catalysts":
       return `${v ?? 0} live`;
     case "dilution":
@@ -362,4 +363,43 @@ export function provNotes(provenance: ProvenanceOut[]): string[] {
     if (typeof note === "string" && note && !notes.includes(note)) notes.push(note);
   }
   return notes;
+}
+
+/** Dollars in short words, sign dropped: "$17.1M", "$1.5B", "$710.0K" (the backend's ``domain.burn_pace.money``
+ *  rule: a figure that rounds up to the next unit moves to it). */
+export function shortUsd(n: number): string {
+  const a = Math.abs(n);
+  for (const [size, suffix] of [
+    [1e9, "B"],
+    [1e6, "M"],
+    [1e3, "K"],
+  ] as const) {
+    if (Math.round((a / size) * 10) / 10 >= 1) return `$${(a / size).toFixed(1)}${suffix}`;
+  }
+  return `$${Math.round(a)}`;
+}
+
+/** The runway's year-to-date pace in words (V2 extractor correctness PR 3; operator decision D3), read off the runway
+ *  provenance's detail (the scored read derives it from the stored note): the pace line, always quiet, and the caveat
+ *  sentence ONLY when last quarter is far off that pace (honest loudness: the minority). `null` when the value carries
+ *  no year-to-date pace (a first fiscal quarter, an annual or hand-entered value): the runway then stands alone. */
+export function runwayPaceWords(figure: ScoredFigureOut): { ytd: string; caveat: string | null } | null {
+  const d = figure.provenance[0]?.detail;
+  const pace = dnum(d, "ytd_quarterly_burn_usd");
+  if (pace == null) return null;
+  const months = dnum(d, "ytd_runway_months");
+  const ytd =
+    pace > 0
+      ? `Year-to-date pace: ${shortUsd(pace)} burn a quarter${months != null ? `, ${months} mo of runway` : ""}`
+      : `Year-to-date pace: cash-generative, ${shortUsd(pace)} a quarter`;
+  return { ytd, caveat: dstr(d, "pace_caveat") ?? null };
+}
+
+/** The runway meter's hover on the scored row: the runway at last quarter's pace, then the year-to-date pace when
+ *  the value carries one. Undefined when there is no runway reading (the "—" meter keeps its own "no data"). */
+export function runwayTitle(figure: ScoredFigureOut): string | undefined {
+  if (figure.pips == null) return undefined;
+  const head = `Runway ${meterValueLabel("runway", figure)}`;
+  const pace = runwayPaceWords(figure);
+  return pace ? `${head}. ${pace.ytd}` : head;
 }

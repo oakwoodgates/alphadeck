@@ -236,6 +236,9 @@ export function yoyCell(y: {
   );
 }
 
+/** The runway cell: months of cash at LAST QUARTER'S pace (V2 extractor correctness PR 3). The hover adds the
+ *  year-to-date pace and the runway it implies when the fact carries one; a quiet asterisk marks ONLY a row whose
+ *  pace caveat applies (honest loudness), the caveat sentence in the hover. The months and the sort never change. */
 export function runwayCell(r: {
   months: number | null;
   cash_positive: boolean;
@@ -243,11 +246,24 @@ export function runwayCell(r: {
   burn_usd: number | null;
   as_of: string | null;
   gap: Gap | null;
+  ytd_quarterly_burn_usd?: number | null;
+  ytd_months?: number | null;
+  pace_caveat?: string | null;
 }): Cell {
   if (r.gap) return blank(r.gap, null);
   const fact = `cash ${fmtUsd(r.cash_usd)}, burn ${fmtUsd(r.burn_usd)} per quarter, from the fact dated ${fmtDay(r.as_of)}`;
-  if (r.cash_positive) return plain("cash-positive", `The burn is zero or negative: no finite runway (${fact})`);
-  return plain(`${(r.months ?? 0).toFixed(1)} mo`, `Months of cash at the current burn: ${fact}`);
+  const ytd = r.ytd_quarterly_burn_usd;
+  const pace =
+    ytd == null
+      ? ""
+      : ytd > 0
+        ? `. Year-to-date pace: burn ${fmtUsd(ytd)} per quarter${r.ytd_months != null ? `, ${r.ytd_months.toFixed(1)} months of runway` : ""}.`
+        : `. Year-to-date pace: cash-generative, ${fmtUsd(-ytd)} per quarter.`;
+  const caveat = r.pace_caveat ? ` ${r.pace_caveat}` : "";
+  const mark = r.pace_caveat ? "*" : "";
+  if (r.cash_positive)
+    return plain(`cash-positive${mark}`, `The burn last quarter is zero or negative: no finite runway (${fact})${pace}${caveat}`);
+  return plain(`${(r.months ?? 0).toFixed(1)} mo${mark}`, `Months of cash at last quarter's pace: ${fact}${pace}${caveat}`);
 }
 
 export function numberCell(
@@ -378,7 +394,7 @@ export const COLUMNS: readonly ColumnDef[] = [
   {
     key: "runway",
     label: "Runway",
-    title: "Months of cash at the current burn from the latest cash and burn fact; cash-positive when the burn is zero or negative. Sorts shortest first.",
+    title: "Months of cash at last quarter's pace from the latest cash and burn fact; the year-to-date pace is on hover, and * marks a quarter far off it; cash-positive when the burn is zero or negative. Sorts shortest first.",
     coverage: "runway",
     num: true,
     first: "asc",

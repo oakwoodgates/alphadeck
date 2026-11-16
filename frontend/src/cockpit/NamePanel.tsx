@@ -14,7 +14,7 @@ import { DataFlagsSection, FlagWrap } from "./DataFlagMark";
 import { cellFlag } from "./dataFlags";
 import { DisplayHeadlineRow, DisplaySignalsSection } from "./DisplaySignalsSection";
 import { Meter } from "../workbench/Meter";
-import { formatMarketCap, meterValueLabel, originWithFiler } from "../workbench/format";
+import { formatMarketCap, meterValueLabel, originWithFiler, runwayPaceWords } from "../workbench/format";
 import {
   businessTypeLabel,
   byEventDateDesc,
@@ -372,14 +372,29 @@ export function NamePanel({
                 ["Catalysts", "catalysts", false],
                 ["Dilution", "dilution", true],
               ] as const
-            ).map(([label, key, risk]) => (
+            ).map(([label, key, risk]) => {
+              // the runway's year-to-date pace beside last quarter's (V2 extractor correctness PR 3): quiet, the
+              // caveat only when last quarter is far off that pace
+              const pace = key === "runway" ? runwayPaceWords(scored[key]) : null;
+              return (
               <Fragment key={key}><div className="np-meter-row">
                 <Meter label={label} figure={scored[key]} risk={risk} />
                 <span className="val">{meterValueLabel(key, scored[key])}</span>
               </div>
+                {pace && (
+                  <div className="np-pace" data-testid="np-runway-pace">
+                    {pace.ytd}
+                  </div>
+                )}
+                {pace?.caveat && (
+                  <div className="np-pace" data-testid="np-runway-caveat">
+                    {pace.caveat}
+                  </div>
+                )}
                 <ProvenanceSources sources={scored[key].provenance ?? []} label={`${label} provenance`} />
               </Fragment>
-            ))}
+              );
+            })}
             {scored.unconfirmed_estimates > 0 && (
               <div className="np-unconf">{scored.unconfirmed_estimates} unconfirmed estimate(s)</div>
             )}
