@@ -184,11 +184,6 @@ export interface OnFileFact {
   shares?: number;
   cash_usd?: number;
   quarterly_burn_usd?: number;
-  // the stored cash/burn value's currency (ISO code; absent = not recorded), its source and the short-term investment
-  // part inside the cash (0208), so the panel labels an on-file value in its own currency
-  currency?: string;
-  source?: string;
-  investments_usd?: number;
   note?: string;
   // WHO put it on file. Read for ONE branch: `"auto"` -> the machine applied an AUTO parse and no human
   // vouched for it, so the panel says "auto-applied — confirm or override". Anything else (incl. the legacy
@@ -233,9 +228,6 @@ export function onFileValues(m: {
     map.cash_burn = {
       cash_usd: dnum(cb.detail, "cash_usd"),
       quarterly_burn_usd: dnum(cb.detail, "quarterly_burn_usd"),
-      currency: dstr(cb.detail, "currency"),
-      source: cb.source,
-      investments_usd: dnum(cb.detail, "investments_usd"),
       note: dstr(cb.detail, "note"),
     };
   }
