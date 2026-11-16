@@ -556,3 +556,60 @@ extractor's own (`cash-generative`, ...); `written` False on `flagged` means the
 `platform_extraction_attempt` rows, newest first, whoever ran them:
 `PlatformExtractionAttemptOut { id, recorded_at, run_kind, status, shares_reason, cash_reason, error, detail }`.
 The company page lists them in each value's History.
+
+## The user's read (W5a)
+
+A plain user reads both values of a company, or of every company on one of their cards, with the state in words,
+who set the value as a kind, and their own flag on it. They never write a value. This is the one read every user
+screen and agent tool uses (the Workbench's Shared values block and the Cockpit's lines, W5e; `get_triage`, W5d).
+It is CURRENT: there is no `asof`, so a dated view must not use it to explain an old meter.
+
+| Route | Answer |
+|---|---|
+| `GET /platform-values/theses/{thesis_id}` | `UserThesisValuesOut { thesis_id, members }`: the card's resolved members in basket order, each company once; another workspace's thesis is 404 (`get_thesis_or_404`, like every thesis route) |
+| `GET /platform-values/{security_id}` | `UserCompanyValuesOut { security_id, ticker, name, shares, cash_burn }`: any company in the master (shared data, no card check); an unknown id is 404 ("There is no such company.") |
+
+The static `theses` path is declared before `{security_id}`; nothing else lives under the prefix (a user's flag
+routes live under `/value-flags`, W5b). Both routes are on the plain user gate; the steward may read them too.
+
+`UserValueOut { fact_type, state, reason, label, set_by, value, annual_line, pending, awaiting, my_flag }`:
+
+| Field | Meaning |
+|---|---|
+| `state`, `reason` | the state from `read_states` (the one reader): `no_value` (with the reason), `from_filing`, `awaiting_steward`, `verified` |
+| `label` | the state in words (`platform_values/words.py`, below) |
+| `set_by` | who set the value shown: `machine` / `steward` / `carried`; None with no value. Never the steward's email |
+| `value` | the value the meters show (`UserAppliedValueOut`): `source`, `source_url`, `valid_from`, `filing_accepted`, `set_at`; a share count's `shares` and ADS fields; cash and burn's `cash_usd`, `investments_usd`, `quarterly_burn_usd`, the stored `currency` (None = not recorded), `currency_symbol` (the one rule, `domain.cash_currency`) and `pace` (`domain.burn_pace.stored_pace`) |
+| `annual_line` | an annual cover count (`source='annual-cover'`): "annual figure from the 20-F or 40-F cover, as of Mar 31, 2026" |
+| `pending` | a newer flagged candidate beside the value shown: `event_date`, `filing_accepted`, `source_url`, `line` ("A newer filing (dated ...) is awaiting the steward"). No figure. The value shown is kept |
+| `awaiting` | nothing shown and a flagged candidate waits: `event_date`, `filing_accepted`, `source_url`, `line`, `located_passages` (`kind`, `anchor`, `excerpt`, `url`) and `passages_unreadable`. **No figure** |
+| `my_flag` | the caller's own flag on the value (`id`, `note`, `opened_at`, `closed_at`, `outcome`, `outcome_note`): their open flag, else their newest closed one; None if they never flagged it |
+
+**No parked number reaches a user** (approved B1 (b), 2026-11-16): for a share count or cash awaiting the steward
+the answer carries the state, the filing's link and date and its located passages, and no candidate figure, flag
+name or note; the pending line likewise names only the newer filing. The passages are the filing's own words, so
+an excerpt can print the number the filing prints. (An API or agent caller can still reach the live extract route's
+raw parse until W7 narrows it.)
+
+**`my_flag`** reads `value_flag` (migration 0202) with ONLY its original columns, in one statement whose WHERE
+names the caller's id (`user_id = %s`), never a read of every user's flags filtered afterward:
+
+```sql
+SELECT DISTINCT ON (security_id, value_type)
+       id, security_id, value_type, note, opened_at, closed_at, outcome, outcome_note
+FROM value_flag
+WHERE user_id = %s AND security_id = ANY(%s) AND value_type = ANY(%s) AND value_ref = ''
+ORDER BY security_id, value_type, (closed_at IS NULL) DESC, closed_at DESC NULLS FIRST, opened_at DESC, id DESC
+```
+
+**Its cost is fixed:** the master (one statement), one `read_states` batch per value type and the flag query, for
+one company or thirty (`tests/platform_values/test_user_view.py` counts the statements on its own connection).
+Links: every URL field is `HttpUrlOut`, built by `dashboards.filings.source_url` (a stored URL that passes the one
+rule, an accession through the EDGAR index, anything else None).
+
+**The words** live in ONE module, `platform_values/words.py` (not under `domain/`, so the editions fingerprint does
+not move): `state_label`, the no-value reasons (`NO_VALUE_WORDS`), `set_by` / `set_by_words`, `annual_line`,
+`pending_line`, `awaiting_line`, `day_words`. The user read uses it now; the server-written lines (the Filing Stream,
+the Evidence Ledger, the scored read's notes) move to it in W5d. Tests: `tests/platform_values/test_words.py`,
+`test_user_view.py`, `tests/app/test_platform_values_user_api.py` (real sign-ins: two plain users in two workspaces
+and the steward).
