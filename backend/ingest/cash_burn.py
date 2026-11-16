@@ -34,6 +34,8 @@ def ingest_cash_burn(
     note: str | None = None,
     currency: str | None = None,
     investments_usd: float | None = None,
+    ytd_quarterly_burn_usd: float | None = None,
+    ytd_burn_days: int | None = None,
     ratified_by: str | None = None,
     vouched: str | None = None,
     tenant_id: UUID = DEFAULT_TENANT_ID,
@@ -50,6 +52,10 @@ def ingest_cash_burn(
     recorded, never assumed USD. ``investments_usd`` is the investment part already INSIDE ``cash_usd`` (operator
     decision D1 (d)); None = no split recorded. Both are set on this new version only (migration 0208), display
     only, never a scoring input.
+
+    ``ytd_quarterly_burn_usd`` / ``ytd_burn_days`` are the burn's year-to-date pace (scaled to one quarter, burn
+    sign) and its span (migration 0209, ``domain.burn_pace``); both or neither, None = not recorded. Set on this new
+    version only, display only.
     """
     # platform data (V2, domain.scopes): the data tenant only, refused before any write
     require_write_tenant("fact_cash_burn", tenant_id)
@@ -60,6 +66,8 @@ def ingest_cash_burn(
         "quarterly_burn_usd": quarterly_burn_usd,
         "currency": currency,
         "investments_usd": investments_usd,
+        "ytd_quarterly_burn_usd": ytd_quarterly_burn_usd,
+        "ytd_burn_days": ytd_burn_days,
         "source": source,
         "source_ref": source_ref,
         "note": note,

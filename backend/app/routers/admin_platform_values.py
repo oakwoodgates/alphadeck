@@ -44,7 +44,7 @@ from app.errors import (
 )
 from app.routers.workbench import COMPANY_BUSY
 from db.write_lock import CompanyLockBusy
-from domain.burn_pace import runway_pace
+from domain.burn_pace import stored_pace
 from domain.extraction import LocatedPassage
 from domain.links import HttpUrlOut
 from domain.platform_values import DerivedState
@@ -53,6 +53,7 @@ from domain.security import Security
 from domain.settings import get_settings
 from domain.text_types import (
     AdsRatio,
+    BurnDays,
     CurrencyCode,
     Money,
     MoneyPart,
@@ -109,7 +110,7 @@ class PlatformDecisionOut(BaseModel):
 
 class PlatformPaceOut(BaseModel):
     """A cash-and-burn value's year-to-date pace (V2 extractor correctness PR 3, ``domain.burn_pace``), read from its
-    note: the pace per quarter (burn sign: positive = burning), its span in days, the months of runway that pace
+    pace columns (0209; else, before 0209, its note): the pace per quarter (burn sign: positive = burning), its span in days, the months of runway that pace
     implies (None when it generates cash or no cash is on file), and the caveat sentence when last quarter is far off
     that pace (None on a steady reading). Display only."""
 
@@ -145,7 +146,9 @@ class PlatformCandidateOut(BaseModel):
     filing_accession: str | None = None
     filing_accepted: datetime | None = None
     note: str | None = None
-    pace: PlatformPaceOut | None = None  # the burn's year-to-date pace, read from the note (PR 3)
+    pace: PlatformPaceOut | None = (
+        None  # the burn's year-to-date pace (0209 columns, else the note)
+    )
     located_passages: list[LocatedPassage] = Field(default_factory=list)
     passages_unreadable: int = 0
     recorded_at: datetime
@@ -167,7 +170,9 @@ class PlatformAppliedValueOut(BaseModel):
     ratified_by: str | None = None
     vouched: str | None = None
     note: str | None = None
-    pace: PlatformPaceOut | None = None  # the burn's year-to-date pace, read from the note (PR 3)
+    pace: PlatformPaceOut | None = (
+        None  # the burn's year-to-date pace (0209 columns, else the note)
+    )
     shares: float | None = None
     ads_ratio: int | None = None
     ads_ratio_status: str | None = None
@@ -390,6 +395,10 @@ class PlatformCorrectCashBurnIn(_CorrectBase):
     quarterly_burn_usd: Money
     currency: CurrencyCode | None = None
     investments_usd: MoneyPart | None = None
+    # the year-to-date pace (scaled to a quarter, burn sign) and its span, both or neither (0209); omitted = the
+    # correction states no pace, and none is stored (an old pace in the note is dropped too)
+    ytd_quarterly_burn_usd: Money | None = None
+    ytd_burn_days: BurnDays | None = None
 
 
 PlatformCorrectIn = Annotated[
@@ -483,7 +492,7 @@ def _candidate(
 
 def _pace(row: Mapping[str, Any]) -> PlatformPaceOut | None:
     """The year-to-date pace of a cash-and-burn row (a candidate or a stored version), or None."""
-    pace = runway_pace(_f(row.get("cash_usd")), _f(row.get("quarterly_burn_usd")), row.get("note"))
+    pace = stored_pace(row)
     if pace is None:
         return None
     return PlatformPaceOut(
@@ -774,6 +783,8 @@ def correct_value(
             "quarterly_burn_usd": body.quarterly_burn_usd,
             "currency": body.currency,
             "investments_usd": body.investments_usd,
+            "ytd_quarterly_burn_usd": body.ytd_quarterly_burn_usd,
+            "ytd_burn_days": body.ytd_burn_days,
         }
     return _act(
         conn,

@@ -2070,6 +2070,9 @@ def ratify_fact(
             "quarterly_burn_usd": req.quarterly_burn_usd,
             "currency": req.currency,  # the statement's ISO code (0208); None = not recorded
             "investments_usd": req.investments_usd,
+            # the candidate's year-to-date pace (0209); None = not recorded
+            "ytd_quarterly_burn_usd": req.ytd_quarterly_burn_usd,
+            "ytd_burn_days": req.ytd_burn_days,
         }
         vouched = _vouched(req.estimate, req.quarterly_burn_usd)
     # END THE READ: the steward write owns its transaction and starts it after the company lock (only the master

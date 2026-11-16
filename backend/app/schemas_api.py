@@ -38,6 +38,7 @@ from domain.text_types import (
     SURFACED_TERMS_MAX,
     TERMS_MAX,
     AdsRatio,
+    BurnDays,
     CikIn,
     CurrencyCode,
     DecisionAmount,
@@ -916,6 +917,10 @@ class RatifyCashBurn(_RatifyBase):
     # is not above the cash (422).
     currency: CurrencyCode | None = None
     investments_usd: MoneyPart | None = None
+    # the burn's year-to-date pace scaled to a quarter (burn sign) and its span, as the candidate carried them (0209);
+    # both or neither (else 422), omitted = not recorded: a confirm that does not send them stores none
+    ytd_quarterly_burn_usd: Money | None = None
+    ytd_burn_days: BurnDays | None = None
 
 
 class RatifyCatalyst(_RatifyBase):

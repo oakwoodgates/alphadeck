@@ -645,6 +645,15 @@ def test_extract_carries_the_investment_part_only_when_the_extractor_set_it():
     assert "investments_usd" not in without and "statement_currency" not in without
 
 
+def test_extract_carries_the_year_to_date_pace_only_when_the_extractor_set_it():
+    """0209: the burn's year-to-date pace (the figures the machine now stores) rides the view; left out when absent."""
+    base = {"fact_type": "cash_burn", "tier": "auto", "cash_usd": 9.0, "quarterly_burn_usd": 1.0}
+    paced = extract_view._fact({**base, "ytd_quarterly_burn_usd": 3.0, "ytd_burn_days": 272})
+    assert (paced["ytd_quarterly_burn_usd"], paced["ytd_burn_days"]) == (3.0, 272)
+    plain = extract_view._fact(base)
+    assert "ytd_quarterly_burn_usd" not in plain and "ytd_burn_days" not in plain
+
+
 def test_extract_with_a_thesis_passes_its_id_once_and_says_so():
     api = FakeApi()
 

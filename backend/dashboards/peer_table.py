@@ -74,7 +74,7 @@ from dashboards.market_cap import (
     float_of,
     metric_of,
 )
-from domain.burn_pace import runway_pace
+from domain.burn_pace import stored_pace
 from domain.enums import ContextRole
 from domain.thesis import SILENT_LABELS
 from signals.dilution_clock import overhang_pct
@@ -295,12 +295,12 @@ def revenue_cells(rows: Sequence[Mapping[str, Any]]) -> tuple[RevenueCell, YoyCe
 def runway_cell(fact: Mapping[str, Any] | None) -> RunwayCell:
     """Months of cash at LAST QUARTER'S burn from the latest cash/burn fact (``_runway``'s figure, not its pips):
     cash / (quarterly burn / 3); ``cash_positive`` when the burn is zero or negative. The year-to-date pace and its
-    caveat ride beside it when the fact's note carries one (``domain.burn_pace.runway_pace``); they never move the
+    caveat ride beside it when the fact carries one (``domain.burn_pace.stored_pace``); they never move the
     months or the sort."""
     if fact is None:
         return RunwayCell(gap="no_burn")
     cash, burn = float(fact["cash_usd"]), float(fact["quarterly_burn_usd"])
-    pace = runway_pace(cash, burn, fact.get("note"))
+    pace = stored_pace(fact)
     base: dict[str, Any] = dict(cash_usd=cash, burn_usd=burn, as_of=day_of(fact.get("valid_from")))
     if pace is not None:
         base.update(

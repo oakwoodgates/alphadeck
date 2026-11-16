@@ -16140,6 +16140,10 @@ export interface components {
             currency?: string | null;
             /** Investments Usd */
             investments_usd?: number | null;
+            /** Ytd Quarterly Burn Usd */
+            ytd_quarterly_burn_usd?: number | null;
+            /** Ytd Burn Days */
+            ytd_burn_days?: number | null;
         };
         /**
          * PlatformCorrectSharesIn
@@ -16303,7 +16307,7 @@ export interface components {
         /**
          * PlatformPaceOut
          * @description A cash-and-burn value's year-to-date pace (V2 extractor correctness PR 3, ``domain.burn_pace``), read from its
-         *     note: the pace per quarter (burn sign: positive = burning), its span in days, the months of runway that pace
+         *     pace columns (0209; else, before 0209, its note): the pace per quarter (burn sign: positive = burning), its span in days, the months of runway that pace
          *     implies (None when it generates cash or no cash is on file), and the caveat sentence when last quarter is far off
          *     that pace (None on a steady reading). Display only.
          */
@@ -16991,6 +16995,10 @@ export interface components {
             currency?: string | null;
             /** Investments Usd */
             investments_usd?: number | null;
+            /** Ytd Quarterly Burn Usd */
+            ytd_quarterly_burn_usd?: number | null;
+            /** Ytd Burn Days */
+            ytd_burn_days?: number | null;
         };
         /**
          * RatifyCatalyst

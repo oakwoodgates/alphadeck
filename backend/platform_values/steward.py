@@ -55,6 +55,7 @@ from psycopg.pq import TransactionStatus
 from db.change_stamp import mark_changed
 from db.write_lock import acquire_company_lock
 from domain import market_time
+from domain.burn_pace import drop_pace
 from domain.platform_values import (
     TABLE_OF,
     FactType,
@@ -76,10 +77,14 @@ CORRECTED_SOURCE = "ratified"
 CANDIDATE_SOURCE_FALLBACK = "extractor"
 
 # The values each type takes (``correct``'s ``values``). A cash/burn value's ``currency`` (the statement's ISO
-# code) and ``investments_usd`` (the investment part inside the cash) are optional: None = not recorded (0208).
+# code) and ``investments_usd`` (the investment part inside the cash) are optional: None = not recorded (0208);
+# so is its year-to-date pace, ``ytd_quarterly_burn_usd`` with its span ``ytd_burn_days`` (both or neither, 0209).
+_PACE_KEYS = ("ytd_quarterly_burn_usd", "ytd_burn_days")
 _VALUE_KEYS: dict[str, frozenset[str]] = {
     "shares_outstanding": frozenset({"shares", "ads_ratio", "ads_ratio_status"}),
-    "cash_burn": frozenset({"cash_usd", "quarterly_burn_usd", "currency", "investments_usd"}),
+    "cash_burn": frozenset(
+        {"cash_usd", "quarterly_burn_usd", "currency", "investments_usd", *_PACE_KEYS}
+    ),
 }
 # Where approve reads a value key on the candidate when the names differ: the candidate keeps the extractor's
 # ``statement_currency`` (0200), the fact stores it as ``currency`` (0208).
@@ -296,6 +301,7 @@ def _write_fact(
             **common,
         )
     investments = values.get("investments_usd")
+    pace, days = values.get("ytd_quarterly_burn_usd"), values.get("ytd_burn_days")
     return ingest_cash_burn(
         conn,
         security_id,
@@ -303,13 +309,17 @@ def _write_fact(
         quarterly_burn_usd=float(values["quarterly_burn_usd"]),
         currency=values.get("currency"),  # None = not recorded, never assumed USD
         investments_usd=float(investments) if investments is not None else None,
+        ytd_quarterly_burn_usd=float(pace) if pace is not None else None,
+        ytd_burn_days=int(days) if days is not None else None,
         **common,
     )
 
 
 def _check_cash_parts(values: Mapping[str, Any]) -> None:
-    """A cash/burn value's optional parts: ``currency`` an ISO code (three capital letters), ``investments_usd`` a
-    finite, non-negative part no larger than ``cash_usd`` (it is INSIDE the cash). Else ``bad_values`` (422).
+    """A cash/burn value's optional parts: ``currency`` an ISO code (three capital letters), the year-to-date pace
+    (``ytd_quarterly_burn_usd`` finite with ``ytd_burn_days`` a whole number above zero, both or neither),
+    ``investments_usd`` a finite, non-negative part no larger than ``cash_usd`` (it is INSIDE the cash). Else
+    ``bad_values`` (422).
     """
     currency = values.get("currency")
     if currency is not None and (
@@ -317,6 +327,14 @@ def _check_cash_parts(values: Mapping[str, Any]) -> None:
     ):
         raise PlatformValueInvalid(
             "bad_values", f"a currency is an ISO code of three capital letters, not {currency!r}"
+        )
+    pace, days = values.get("ytd_quarterly_burn_usd"), values.get("ytd_burn_days")
+    if (pace is None) != (days is None) or (
+        pace is not None and (not math.isfinite(float(pace)) or int(days) != days or int(days) <= 0)
+    ):
+        raise PlatformValueInvalid(
+            "bad_values",
+            "a year-to-date pace is a finite burn a quarter together with its span in whole days above zero",
         )
     part = values.get("investments_usd")
     if part is None:
@@ -365,7 +383,8 @@ def approve(
     cache_dir: Path | None = None,
 ) -> StewardOutcome:
     """APPROVE a flagged candidate: write its OWN values as the company's value (its ``source``, filing, date,
-    ADS fields, filing acceptance, and a cash/burn candidate's statement currency and investment part), stamped
+    ADS fields, filing acceptance, and a cash/burn candidate's statement currency, investment part and year-to-date
+    pace), stamped
     with the steward's email, plus an ``approve`` decision that closes the candidate. ``note`` is the fact's note
     (else the candidate's).
 
@@ -459,7 +478,9 @@ def correct(
     open).
 
     ``values``: shares ``{shares, ads_ratio?, ads_ratio_status?}``; cash/burn ``{cash_usd, quarterly_burn_usd,
-    currency?, investments_usd?}`` (an ISO code; a non-negative part no larger than the cash: else 422).
+    currency?, investments_usd?, ytd_quarterly_burn_usd?, ytd_burn_days?}`` (an ISO code; a non-negative part no
+    larger than the cash; the pace with its span: else 422). A cash/burn correction that does not state the pace
+    stores none, and the machine-written pace is dropped from its note (``domain.burn_pace.drop_pace``).
     THE RULE (D1 (a)): the value wins when its date is on or after the shown value's (another filing's) and not
     after today; else it is refused with the date that blocks it (``after_today`` 422, ``older_than_shown``
     409). ``source`` defaults to ``ratified``; ``vouched`` is confirm/override provenance (never a score input).
@@ -471,6 +492,14 @@ def correct(
     _require_idle(conn)
     _company_exists(conn, security_id)
     conn.rollback()  # end the read before the lock
+    # a cash/burn correction that does not state the year-to-date pace stores none, and keeps no old pace in its
+    # note either: that pace would no longer describe the corrected burn (a reader falls back to the note only for
+    # a row written before 0209, whose pace columns are NULL)
+    kept_note = (
+        drop_pace(note)
+        if fact_type == "cash_burn" and values.get("ytd_quarterly_burn_usd") is None
+        else note
+    )
 
     def body() -> StewardOutcome:
         if candidate_id is not None:
@@ -493,7 +522,7 @@ def correct(
             source=source,
             source_ref=source_ref,
             event_date=event_date,
-            note=note,
+            note=kept_note,
             by=by,
             vouched=vouched,
             cache_dir=cache_dir,

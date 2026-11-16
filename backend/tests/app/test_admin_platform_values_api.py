@@ -444,6 +444,25 @@ def test_a_correction_states_the_currency_and_investment_part(world, db):
     assert (version["currency"], version["investments_usd"]) == ("CNY", 12_000_000)
 
 
+def test_a_correction_states_the_year_to_date_pace(world, db):
+    """0209: the steward's correction may restate the year-to-date pace; the stored version carries it and the
+    company read answers it from the columns."""
+    s, sid, asof = world["s"], world["sid"], world["asof"]
+    body = _correct_body(asof, ytd_quarterly_burn_usd=4_000_000, ytd_burn_days=181)
+    r = s.post(f"{BASE}/{sid}/correct", json=body)
+    assert r.status_code == 200, r.text
+    pace = r.json()["cash_burn"]["value"]["pace"]
+    assert (pace["ytd_quarterly_burn_usd"], pace["ytd_days"]) == (4_000_000, 181)
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT ytd_quarterly_burn_usd, ytd_burn_days FROM fact_cash_burn WHERE security_id = %s",
+            (sid,),
+        )
+        row = cur.fetchone()
+    db.rollback()
+    assert (float(row["ytd_quarterly_burn_usd"]), row["ytd_burn_days"]) == (4_000_000, 181)
+
+
 def test_a_correction_without_the_parts_answers_none(world, db):
     s, sid, asof = world["s"], world["sid"], world["asof"]
     r = s.post(f"{BASE}/{sid}/correct", json=_correct_body(asof))
@@ -460,6 +479,15 @@ def test_a_correction_without_the_parts_answers_none(world, db):
         {"currency": "$"},
         {"investments_usd": -1},  # never negative
         {"investments_usd": 30_000_001},  # never above the cash (the steward's rule)
+        {"ytd_quarterly_burn_usd": 1_000_000},  # a pace without its span (the steward's rule)
+        {
+            "ytd_quarterly_burn_usd": 1_000_000,
+            "ytd_burn_days": 0,
+        },  # the request type: a span above zero
+        {
+            "ytd_quarterly_burn_usd": 1_000_000,
+            "ytd_burn_days": 400,
+        },  # at most a fiscal year and a week
     ],
 )
 def test_a_correction_refuses_a_bad_currency_or_part(world, db, over):

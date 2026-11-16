@@ -88,7 +88,7 @@ from psycopg import sql
 
 from dashboards.baskets import per_company
 from db.clock import db_now
-from domain.burn_pace import runway_pace
+from domain.burn_pace import stored_pace
 from domain.insider_amendments import AMENDS_ACCESSION
 from domain.insider_internal_transfers import is_internal_transfer, transfer_with
 from domain.insider_joint_reports import JOINT_REPORTERS
@@ -1245,9 +1245,9 @@ def rows_from_ratified(
         if cash is None or burn is None:
             continue
         tail = f"burn {fmt_compact(burn)}/qtr" if burn > 0 else "cash-positive quarter"
-        # the year-to-date pace beside last quarter's burn, and its caveat, when the note carries one (V2 extractor
+        # the year-to-date pace beside last quarter's burn, and its caveat, when the fact carries one (V2 extractor
         # correctness PR 3, ``domain.burn_pace``); a value without one reads exactly as before
-        pace = runway_pace(cash, burn, f.get("note"))
+        pace = stored_pace(f)
         extra: list[str] = []
         if pace is not None:
             ytd = pace.ytd_quarterly_burn_usd

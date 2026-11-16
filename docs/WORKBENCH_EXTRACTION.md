@@ -202,8 +202,10 @@ most needs to make:
   pace rides `ExtractedFact.ytd_quarterly_burn_usd`/`ytd_burn_days` and the note's segment "year-to-date pace:
   burn N over S → E (D days) = Q a quarter"; a firing rule adds `pace_caveat` and "pace caveat: <sentence>" to
   the note. **It never adds a flag and never changes the tier** (the audit: the arithmetic was right on every
-  one of the 39 burners; the steward could only approve). No column stores the pace yet: the note is its
-  storage, and every runway reader recovers it with `runway_pace` (see `docs/WORKBENCH_SCORING.md`).
+  one of the 39 burners; the steward could only approve). Since migration 0209 the machine stores the pace
+  as figures on the fact and the candidate (`ytd_quarterly_burn_usd`, `ytd_burn_days`; never the caveat sentence),
+  and every runway reader reads it with `stored_pace`: the columns, else the note's segment for a row written
+  before 0209 (see `docs/PLATFORM_VALUES.md` and `docs/WORKBENCH_SCORING.md`).
 - **Every input's as-of date rides the note** ("cash as of … · burn over S → E (N days, tagged <tag>) · cited
   filing: the 10-Q for the period ending P (<link>)"), and a cash balance sheet older than the filing's period
   end flags `stale-cash` (the shares `stale-cover` rule, applied here).

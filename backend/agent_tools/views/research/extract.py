@@ -31,6 +31,8 @@ FACT_KEYS = (
     "quarterly_burn_usd",
     "statement_currency",
     "investments_usd",
+    "ytd_quarterly_burn_usd",
+    "ytd_burn_days",
     "flags",
     "located_passages",
     "estimate_source",
@@ -49,6 +51,8 @@ PASSAGES_SHOWN = 2
 OPTIONAL = (
     "statement_currency",
     "investments_usd",
+    "ytd_quarterly_burn_usd",
+    "ytd_burn_days",
     "estimate_source",
     "ads_ratio",
     "ads_ratio_status",

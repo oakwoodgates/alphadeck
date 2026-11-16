@@ -144,7 +144,8 @@ class ExtractedFact(DomainModel):
     # quarter (burn sign: positive = burning); ``ytd_burn_days`` its span. None when there is no separate year to
     # date (a first fiscal quarter, an annual filer, a burn outside the quarter window). ``pace_caveat`` = one plain
     # sentence when the quarter is far off that pace (``pace_divergence``), else None. A CAVEAT, never a flag: it
-    # never changes the tier. Carried here and stated in the note; not a stored column (the note is the storage).
+    # never changes the tier. Carried here, stated in the note, and stored on the candidate and the fact
+    # (``ytd_quarterly_burn_usd`` / ``ytd_burn_days``, migration 0209); the caveat sentence is never stored.
     ytd_quarterly_burn_usd: float | None = None
     ytd_burn_days: int | None = None
     pace_caveat: str | None = None
