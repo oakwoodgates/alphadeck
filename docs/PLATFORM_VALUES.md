@@ -13,9 +13,21 @@ A platform value is one value per company for everyone. It lives in the data ten
 
 `cash_usd` is one "cash and short-term investments" number (cash + equivalents + short-term investments +
 long-term marketable securities; never the generic long-term investments line: `docs/WORKBENCH_EXTRACTION.md`).
-The quarterly extractor also carries the investment part on its own (`ExtractedFact.investments_usd`) and names
-every component in the note. Neither `fact_cash_burn` nor `extraction_candidate` stores that part yet: the machine
-writer keeps the note, which states it, and a column is the follow-up migration (the plan's PR 1b).
+The extractor also carries the investment part on its own (`ExtractedFact.investments_usd`) and names every
+component in the note.
+
+**The stored currency and investment part** (migration 0208; operator decisions D4 and D1 (d), 2026-11-15).
+`fact_cash_burn.currency` is the statement's ISO code (three capital letters; the `*_usd` columns then hold that
+currency's figures, never converted) and `fact_cash_burn.investments_usd` the investment part already inside
+`cash_usd`; `extraction_candidate.investments_usd` is the same on the candidate (whose currency is its
+`statement_currency`). Both are nullable with no default and no backfill: NULL means **not recorded** (a V1 row, the
+periodic path, which sets no currency, an annual value whose currency the extractor could not establish, a
+correction that stated none), never an invented `USD` or 0. They are set on the INSERT of a new version only, on
+every write path: the machine's apply and its candidate, the steward's approve (the candidate's own) and correct
+(the steward states them: an ISO code, a part never negative and never above the cash, else 422), and an undo
+falls back to the earlier version with its own. The steward's screens label the figures in the stored currency
+(`?` for an annual-statements value stored without one, `$` for the periodic path and V1 rows) and add "of which
+short-term investments X" when a part is stored. Display only: nothing under `calls/` or `signals/` reads them.
 
 ## The one pick
 
@@ -91,7 +103,7 @@ platform value. It takes an `ExtractionResult` already fetched (no network insid
 |---|---|
 | AUTO with its number(s) | `machine_action` decides: a fact stamped `auto` (applied), a `flag` candidate with flag `pinned` (the company is pinned), or nothing: `already_on_file` (any stored version of the filing, set-aside ones too, so an undone approve is never re-applied), `older_than_on_file` (dated on or before the value shown), `after_today` (never shown, so never written) |
 | an annual share count (`source='annual-cover'`, a 20-F / 40-F cover) whose only flags are `annual-cover` / `stale-cover`, ADS ratio `known` or not applicable, at most `annual_shares_auto_max_age_days` (400) old | treated as AUTO (the annual share-count rule, below): the same `machine_action` |
-| FLAG, or AUTO with no number | a `flag` candidate: raw values, flags, filing, date, located passages, ADS fields / statement currency |
+| FLAG, or AUTO with no number | a `flag` candidate: raw values, flags, filing, date, located passages, ADS fields / statement currency and investment part |
 | no value of that type | a `nothing` candidate with the extractor's reason: cash/burn takes the runway reason first (`cash-generative`, `financials-in-exhibit`, `exhibit-ambiguous`, `statements-not-located`), then the result's (`no-annual-filing`, `cover-not-located`), else `no-candidate` |
 | an exception (SEC down, companyfacts 404) | nothing: the caller never gets a result to record |
 
@@ -399,8 +411,8 @@ the company's newest (the tie-break of D1 (a)).
 
 | Action | Writes | Refused |
 |---|---|---|
-| `approve(candidate)` | the candidate's own value (its filing, date, ADS fields), `vouched='confirmed'`; an `approve` decision | a "nothing" candidate or a flag without a complete value (422); already decided (409); would not be shown (below) |
-| `correct(company, type, values, source_ref, event_date)` | the steward's value, `source='ratified'` (the Workbench confirm keeps the candidate's basis); a `correct` decision, closing `candidate_id` when given | would not be shown (below); the candidate decided or not this company's and type's (409); an ADS ratio without `known`, or `known` without a ratio (422) |
+| `approve(candidate)` | the candidate's own value (its filing, date, ADS fields; a cash/burn candidate's `statement_currency` as `currency` and its `investments_usd`), `vouched='confirmed'`; an `approve` decision | a "nothing" candidate or a flag without a complete value (422); a currency that is not an ISO code or an investment part below zero or above the cash (422, `bad_values`); already decided (409); would not be shown (below) |
+| `correct(company, type, values, source_ref, event_date)` | the steward's value (cash/burn may state `currency` and `investments_usd`), `source='ratified'` (the Workbench confirm keeps the candidate's basis); a `correct` decision, closing `candidate_id` when given | would not be shown (below); the candidate decided or not this company's and type's (409); an ADS ratio without `known`, or `known` without a ratio (422); a currency that is not an ISO code, or an investment part below zero or above the cash (422) |
 | `dismiss(candidate, reason)` | a `dismiss` decision | a blank reason (422); already decided (409) |
 | `undo(decision)` | an `undo` decision naming it | an undo (409: make a new decision); already undone (409) |
 | `pin(company, type)` / `unpin` | a `steward_pin` event | already pinned / not pinned (409) |

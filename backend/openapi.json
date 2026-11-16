@@ -4677,7 +4677,7 @@
           "admin"
         ],
         "summary": "Correct Value",
-        "description": "CORRECT the company's value by hand, citing the filing (``source_ref``) and its date (``event_date``),\nstamped with your email (``source`` ``ratified``). It is written only when it will be shown: dated on or after\nthe value shown and not after today (approved decision D1 (a)). With ``candidate_id`` it also closes that\ncandidate. Undo with ``POST .../decisions/{id}/undo``. **404** unknown company or candidate; **409** a value\nwith a later date is shown (the detail names its date and filing), the candidate is decided or not this\ncompany's, or the company is busy; **422** a date after today or an ADS ratio without the status ``known``.",
+        "description": "CORRECT the company's value by hand, citing the filing (``source_ref``) and its date (``event_date``),\nstamped with your email (``source`` ``ratified``). It is written only when it will be shown: dated on or after\nthe value shown and not after today (approved decision D1 (a)). With ``candidate_id`` it also closes that\ncandidate. Undo with ``POST .../decisions/{id}/undo``. **404** unknown company or candidate; **409** a value\nwith a later date is shown (the detail names its date and filing), the candidate is decided or not this\ncompany's, or the company is busy; **422** a date after today, an ADS ratio without the status ``known``, a\ncurrency that is not an ISO code, or an investment part below zero or above the cash.",
         "operationId": "correct_value_admin_platform_values__security_id__correct_post",
         "parameters": [
           {
@@ -36333,6 +36333,28 @@
               }
             ],
             "title": "Quarterly Burn Usd"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "investments_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Investments Usd"
           }
         },
         "type": "object",
@@ -36342,7 +36364,7 @@
           "recorded_at"
         ],
         "title": "PlatformAppliedValueOut",
-        "description": "One stored fact version: ``valid_from`` the filing's date, ``ratified_by`` who set it (``auto``, an email,\nor ``operator`` for a carried V1 row), ``vouched`` confirm/override provenance. ``source_ref`` is ``None`` on\nthe wire unless it is a plain http(s) URL (``domain.links``)."
+        "description": "One stored fact version: ``valid_from`` the filing's date, ``ratified_by`` who set it (``auto``, an email,\nor ``operator`` for a carried V1 row), ``vouched`` confirm/override provenance. ``source_ref`` is ``None`` on\nthe wire unless it is a plain http(s) URL (``domain.links``). A cash/burn version's ``currency`` is its\nstatement's ISO code (the ``*_usd`` figures are in it) and ``investments_usd`` the investment part inside\n``cash_usd`` (0208); None = not recorded, never \"USD\" or 0 (a V1 row carries neither)."
       },
       "PlatformApproveIn": {
         "properties": {
@@ -36559,6 +36581,17 @@
             ],
             "title": "Statement Currency"
           },
+          "investments_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Investments Usd"
+          },
           "ads_ratio": {
             "anyOf": [
               {
@@ -36716,6 +36749,31 @@
             "maximum": 1000000000000000.0,
             "minimum": -1000000000000000.0,
             "title": "Quarterly Burn Usd"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[A-Z]{3}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "investments_usd": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1000000000000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Investments Usd"
           }
         },
         "type": "object",
@@ -36727,7 +36785,7 @@
           "quarterly_burn_usd"
         ],
         "title": "PlatformCorrectCashBurnIn",
-        "description": "Cash on hand and the quarterly burn (positive = cash used; zero or negative = cash-generative)."
+        "description": "Cash on hand and the quarterly burn (positive = cash used; zero or negative = cash-generative), in the\nstatement's ``currency`` (an ISO code; omitted = not recorded), and the ``investments_usd`` part of the cash\n(short-term investments; never negative, never above the cash; omitted = no split recorded)."
       },
       "PlatformCorrectSharesIn": {
         "properties": {
@@ -37659,6 +37717,28 @@
               }
             ],
             "title": "Quarterly Burn Usd"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "investments_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Investments Usd"
           },
           "set_aside": {
             "type": "boolean",
@@ -38745,6 +38825,31 @@
             "maximum": 1000000000000000.0,
             "minimum": -1000000000000000.0,
             "title": "Quarterly Burn Usd"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[A-Z]{3}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "investments_usd": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1000000000000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Investments Usd"
           }
         },
         "type": "object",

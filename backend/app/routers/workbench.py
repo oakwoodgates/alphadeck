@@ -2065,7 +2065,12 @@ def ratify_fact(
         }
         vouched = _vouched(req.estimate, req.shares)
     else:  # cash_burn
-        values = {"cash_usd": req.cash_usd, "quarterly_burn_usd": req.quarterly_burn_usd}
+        values = {
+            "cash_usd": req.cash_usd,
+            "quarterly_burn_usd": req.quarterly_burn_usd,
+            "currency": req.currency,  # the statement's ISO code (0208); None = not recorded
+            "investments_usd": req.investments_usd,
+        }
         vouched = _vouched(req.estimate, req.quarterly_burn_usd)
     # END THE READ: the steward write owns its transaction and starts it after the company lock (only the master
     # read above ran on this one)

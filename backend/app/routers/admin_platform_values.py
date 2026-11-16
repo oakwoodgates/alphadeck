@@ -51,7 +51,16 @@ from domain.platform_values import DerivedState
 from domain.scopes import DATA_TENANT_ID
 from domain.security import Security
 from domain.settings import get_settings
-from domain.text_types import AdsRatio, Money, Prose, RequestDate, Shares, UrlText
+from domain.text_types import (
+    AdsRatio,
+    CurrencyCode,
+    Money,
+    MoneyPart,
+    Prose,
+    RequestDate,
+    Shares,
+    UrlText,
+)
 from ingest.edgar.client import EdgarClient
 from platform_values import extraction, state, steward
 from platform_values.cards import CardCount, card_counts
@@ -129,6 +138,8 @@ class PlatformCandidateOut(BaseModel):
     cash_usd: float | None = None
     quarterly_burn_usd: float | None = None
     statement_currency: str | None = None
+    # the investment part inside ``cash_usd`` as the extractor read it (0208); None = no split recorded
+    investments_usd: float | None = None
     ads_ratio: int | None = None
     ads_ratio_status: str | None = None
     filing_accession: str | None = None
@@ -144,7 +155,9 @@ class PlatformCandidateOut(BaseModel):
 class PlatformAppliedValueOut(BaseModel):
     """One stored fact version: ``valid_from`` the filing's date, ``ratified_by`` who set it (``auto``, an email,
     or ``operator`` for a carried V1 row), ``vouched`` confirm/override provenance. ``source_ref`` is ``None`` on
-    the wire unless it is a plain http(s) URL (``domain.links``)."""
+    the wire unless it is a plain http(s) URL (``domain.links``). A cash/burn version's ``currency`` is its
+    statement's ISO code (the ``*_usd`` figures are in it) and ``investments_usd`` the investment part inside
+    ``cash_usd`` (0208); None = not recorded, never "USD" or 0 (a V1 row carries neither)."""
 
     id: UUID
     source: str | None = None
@@ -162,6 +175,8 @@ class PlatformAppliedValueOut(BaseModel):
     filing_accepted: datetime | None = None
     cash_usd: float | None = None
     quarterly_burn_usd: float | None = None
+    currency: str | None = None
+    investments_usd: float | None = None
 
 
 class PlatformVersionOut(PlatformAppliedValueOut):
@@ -366,11 +381,15 @@ class PlatformCorrectSharesIn(_CorrectBase):
 
 
 class PlatformCorrectCashBurnIn(_CorrectBase):
-    """Cash on hand and the quarterly burn (positive = cash used; zero or negative = cash-generative)."""
+    """Cash on hand and the quarterly burn (positive = cash used; zero or negative = cash-generative), in the
+    statement's ``currency`` (an ISO code; omitted = not recorded), and the ``investments_usd`` part of the cash
+    (short-term investments; never negative, never above the cash; omitted = no split recorded)."""
 
     fact_type: Literal["cash_burn"]
     cash_usd: Money
     quarterly_burn_usd: Money
+    currency: CurrencyCode | None = None
+    investments_usd: MoneyPart | None = None
 
 
 PlatformCorrectIn = Annotated[
@@ -448,6 +467,7 @@ def _candidate(
         cash_usd=_f(c.get("cash_usd")),
         quarterly_burn_usd=_f(c.get("quarterly_burn_usd")),
         statement_currency=c.get("statement_currency"),
+        investments_usd=_f(c.get("investments_usd")),
         ads_ratio=c.get("ads_ratio"),
         ads_ratio_status=c.get("ads_ratio_status"),
         filing_accession=c.get("filing_accession"),
@@ -492,6 +512,8 @@ def _value_fields(v: Mapping[str, Any]) -> dict[str, Any]:
         filing_accepted=v.get("filing_accepted"),
         cash_usd=_f(v.get("cash_usd")),
         quarterly_burn_usd=_f(v.get("quarterly_burn_usd")),
+        currency=v.get("currency"),
+        investments_usd=_f(v.get("investments_usd")),
     )
 
 
@@ -737,7 +759,8 @@ def correct_value(
     the value shown and not after today (approved decision D1 (a)). With ``candidate_id`` it also closes that
     candidate. Undo with ``POST .../decisions/{id}/undo``. **404** unknown company or candidate; **409** a value
     with a later date is shown (the detail names its date and filing), the candidate is decided or not this
-    company's, or the company is busy; **422** a date after today or an ADS ratio without the status ``known``.
+    company's, or the company is busy; **422** a date after today, an ADS ratio without the status ``known``, a
+    currency that is not an ISO code, or an investment part below zero or above the cash.
     """
     if isinstance(body, PlatformCorrectSharesIn):
         values: dict[str, Any] = {
@@ -746,7 +769,12 @@ def correct_value(
             "ads_ratio_status": body.ads_ratio_status,
         }
     else:
-        values = {"cash_usd": body.cash_usd, "quarterly_burn_usd": body.quarterly_burn_usd}
+        values = {
+            "cash_usd": body.cash_usd,
+            "quarterly_burn_usd": body.quarterly_burn_usd,
+            "currency": body.currency,
+            "investments_usd": body.investments_usd,
+        }
     return _act(
         conn,
         user,

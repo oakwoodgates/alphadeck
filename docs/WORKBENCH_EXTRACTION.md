@@ -138,8 +138,8 @@ most needs to make:
   and D2, 2026-11-15). `cash_usd` = cash + equivalents + short-term investments + long-term MARKETABLE
   securities: ONE "cash and short-term investments" number (the uniform cash rule, `WORKBENCH_SCORING.md`),
   with the investment part also carried on its own on the candidate (`investments_usd`; None = no investment
-  tagged on the cash date, never a fake 0). It is not yet a stored column: the plan's migration for it is a
-  follow-up (PR 1b). The tag lists (`ingest/edgar/extract.py`):
+  tagged on the cash date, never a fake 0). It is stored on the candidate and on the fact
+  (`investments_usd`, migration 0208; NULL = no split recorded). The tag lists (`ingest/edgar/extract.py`):
   - **cash** — `CashAndCashEquivalentsAtCarryingValue`, `…IncludingDiscontinuedOperations`, `Cash`, then the
     restricted-cash total (the newest label wins, the order breaks a tie; the note says when it includes
     restricted cash).
@@ -430,8 +430,9 @@ currency (never a blank-as-USD), and the front end renders `?`, never `$`. When 
 headers name different currencies and companyfacts does not settle it, that is `currency-unread` too.
 A fresher companyfacts reading is used only in the established currency (a mixed-currency ratio is
 unrepresentable). The stored `*_usd` fields carry statement-currency values; the note names the
-currency and how it was determined. (A cross-currency absolute display, and storing the currency on
-approval, are later work: PR 6.)
+currency and how it was determined. The fact stores the currency (`fact_cash_burn.currency`, migration
+0208): the steward's approve carries the candidate's, a correction states its own, and NULL means not recorded
+(never USD). (A cross-currency absolute display on the user screens is later work.)
 
 **The consolidated statement, not a breakdown** (PR 4). A 20-F often prints a parent-only, condensed
 consolidating (VIE / subsidiaries / eliminations) or segment balance sheet BEFORE the consolidated

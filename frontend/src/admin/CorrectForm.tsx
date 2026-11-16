@@ -2,11 +2,14 @@ import { useState } from "react";
 
 import type { PlatformCandidateOut, PlatformCorrectIn, PlatformFactType } from "../api/hooks";
 import { cashSymbol, labelCurrency } from "../components/LocatedPassages";
+import { storedCurrency } from "./factWords";
 
 // The steward's "Correct" form: the value they type, the filing it comes from, and its date. It starts from the
 // candidate (when one waits), the value shown, or an undone correction's set-aside version ("Correct again"), and
 // refuses to send a blank value, a blank filing URL or a blank date. The server judges the rest (a date older than
-// the value shown is refused with its own sentence, shown beside the form by the block).
+// the value shown is refused with its own sentence, shown beside the form by the block). A cash/burn value also
+// takes its statement currency (an ISO code, e.g. CNY; blank = not recorded, never assumed USD) and the part of the
+// cash that is short-term investments (blank = no split recorded; never negative, never above the cash).
 
 export interface CorrectInit {
   shares: string;
@@ -18,7 +21,12 @@ export interface CorrectInit {
   eventDate: string;
   note: string;
   candidateId?: string;
+  /** The label the figures are shown in before a code is typed ("?" for an unread currency, null = "$"). */
   currency?: string | null;
+  /** The ISO code the correction states (blank = not recorded). */
+  currencyCode?: string;
+  /** The short-term-investment part of the cash (blank = no split recorded). */
+  investments?: string;
 }
 
 const str = (n: number | null | undefined) => (n == null ? "" : String(n));
@@ -49,6 +57,8 @@ export function initFromCandidate(c: PlatformCandidateOut): CorrectInit {
     note: "",
     candidateId: c.id,
     currency: labelCurrency(c.statement_currency, c.flags),
+    currencyCode: c.statement_currency ?? "",
+    investments: str(c.investments_usd),
   };
 }
 
@@ -59,6 +69,9 @@ export function initFromValue(v: {
   ads_ratio_status?: string | null;
   cash_usd?: number | null;
   quarterly_burn_usd?: number | null;
+  currency?: string | null;
+  investments_usd?: number | null;
+  source?: string | null;
   source_ref?: string | null;
   valid_from: string;
 }): CorrectInit {
@@ -71,8 +84,14 @@ export function initFromValue(v: {
     sourceRef: v.source_ref ?? "",
     eventDate: v.valid_from,
     note: "",
+    currency: storedCurrency(v),
+    currencyCode: v.currency ?? "",
+    investments: str(v.investments_usd),
   };
 }
+
+/** An ISO currency code: three capital letters (the server's rule, `domain/text_types.CURRENCY_CODE_PATTERN`). */
+export const CURRENCY_CODE = /^[A-Z]{3}$/;
 
 /** A typed number that is really one: blank is not zero. */
 const isNum = (s: string) => s.trim() !== "" && Number.isFinite(Number(s));
@@ -99,7 +118,18 @@ export function correctBody(factType: PlatformFactType, f: CorrectInit): Platfor
     };
   }
   if (!isNum(f.cash) || !isNum(f.burn)) return null;
-  return { fact_type: "cash_burn", cash_usd: Number(f.cash), quarterly_burn_usd: Number(f.burn), ...common };
+  const code = (f.currencyCode ?? "").trim();
+  if (code && !CURRENCY_CODE.test(code)) return null;
+  const part = (f.investments ?? "").trim();
+  if (part && (!isNum(part) || Number(part) < 0 || Number(part) > Number(f.cash))) return null;
+  return {
+    fact_type: "cash_burn",
+    cash_usd: Number(f.cash),
+    quarterly_burn_usd: Number(f.burn),
+    ...(code ? { currency: code } : {}),
+    ...(part ? { investments_usd: Number(part) } : {}),
+    ...common,
+  };
 }
 
 export function CorrectForm({
@@ -118,7 +148,8 @@ export function CorrectForm({
   const [f, setF] = useState<CorrectInit>(init);
   const set = <K extends keyof CorrectInit>(k: K, v: CorrectInit[K]) => setF((p) => ({ ...p, [k]: v }));
   const body = correctBody(factType, f);
-  const sym = cashSymbol(f.currency);
+  const code = (f.currencyCode ?? "").trim();
+  const sym = cashSymbol(CURRENCY_CODE.test(code) ? code : f.currency);
   return (
     <form
       className="cf-form"
@@ -157,6 +188,27 @@ export function CorrectForm({
           <label className="cf-field">
             Quarterly burn ({sym})
             <input type="number" step="any" value={f.burn} onChange={(e) => set("burn", e.target.value)} />
+          </label>
+          <label className="cf-field">
+            Currency (ISO code)
+            <input
+              type="text"
+              maxLength={3}
+              placeholder="blank = not recorded"
+              value={f.currencyCode ?? ""}
+              onChange={(e) => set("currencyCode", e.target.value.toUpperCase())}
+            />
+          </label>
+          <label className="cf-field">
+            Of which short-term investments ({sym})
+            <input
+              type="number"
+              step="any"
+              min={0}
+              placeholder="blank = no split"
+              value={f.investments ?? ""}
+              onChange={(e) => set("investments", e.target.value)}
+            />
           </label>
         </>
       )}

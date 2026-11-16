@@ -84,8 +84,8 @@ class ExtractedFact(DomainModel):
     # short-term investments" number, the investment part carried on its own so a screen can show the split):
     # the short-term investments plus the long-term MARKETABLE securities counted, on the cash date. None =
     # no investment tag on the cash date (never a fake 0). The annual-statements path sets it to the
-    # short-term deposits/investments rows it added (PR 4). Carried on the candidate and stated in the note;
-    # not yet a stored column.
+    # short-term deposits/investments rows it added (PR 4). Stated in the note and stored on the candidate and
+    # the fact (``investments_usd``, migration 0208).
     investments_usd: float | None = None  # cash_burn
     # One OBSERVED condition, one label (a flag is evidence, #6 — never a catch-all). A flag marks an
     # EXCEPTION needing judgment; COMPOSITION (a cleanly-derived quarter, the marketable-securities
