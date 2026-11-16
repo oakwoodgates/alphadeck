@@ -243,6 +243,8 @@ function RatifyRow({
   const label = METER_LABEL[candidate.fact_type] ?? candidate.fact_type;
   // the cash/burn label currency (Slice A) — native for an IFRS annual filer, `$` for a domestic name
   const cashSym = cashSymbol(labelCurrency(candidate.statement_currency, candidate.flags));
+  // the short-term investment part inside the candidate's cash (0208), shown quietly beside it; none read: no line
+  const investments = candidate.investments_usd ?? null;
   const common = {
     security_id: securityId,
     source: candidate.source, // the candidate's BASIS, carried through (not retyped)
@@ -276,13 +278,26 @@ function RatifyRow({
             ? candidate.ads_ratio_status
             : undefined,
       });
-    else
+    else {
+      // GAP 4: the candidate's statement currency and investment part ride the confirm, and its year-to-date pace
+      // too while the burn is the candidate's own; an edited burn states no pace (that pace described the other
+      // burn), so none is stored. Absent = not recorded, never a guessed "USD" or 0.
+      const paceKept =
+        Number(burn) === candidate.quarterly_burn_usd &&
+        candidate.ytd_quarterly_burn_usd != null &&
+        candidate.ytd_burn_days != null;
       ratify.mutate({
         ...common,
         fact_type: "cash_burn",
         cash_usd: Number(cash),
         quarterly_burn_usd: Number(burn),
+        currency: candidate.statement_currency ?? undefined,
+        investments_usd: investments ?? undefined,
+        ...(paceKept
+          ? { ytd_quarterly_burn_usd: candidate.ytd_quarterly_burn_usd, ytd_burn_days: candidate.ytd_burn_days }
+          : {}),
       });
+    }
   };
 
   // purity needs a segment + a %: with an estimate both pre-fill (confirm as-is), else the operator
@@ -423,6 +438,12 @@ function RatifyRow({
               onChange={(e) => setCash(e.target.value)}
             />
           </label>
+          {investments != null && (
+            <div className="rf-reason">
+              of which short-term investments {cashSym}
+              {investments.toLocaleString("en-US", { maximumFractionDigits: 0 })}
+            </div>
+          )}
           <label className="rf">
             burn {cashSym}/qtr
             <input

@@ -433,8 +433,10 @@ headers name different currencies and companyfacts does not settle it, that is `
 A fresher companyfacts reading is used only in the established currency (a mixed-currency ratio is
 unrepresentable). The stored `*_usd` fields carry statement-currency values; the note names the
 currency and how it was determined. The fact stores the currency (`fact_cash_burn.currency`, migration
-0208): the steward's approve carries the candidate's, a correction states its own, and NULL means not recorded
-(never USD). (A cross-currency absolute display on the user screens is later work.)
+0208): the steward's approve carries the candidate's, a correction states its own, the Workbench facts panel's
+confirm sends the candidate's (with its investment part, and its year-to-date pace while the burn is unedited),
+and NULL means not recorded (never USD). Every screen labels the figures in that currency
+(`domain/cash_currency.py`, `frontend/src/components/currency.ts`); nothing converts them.
 
 **The consolidated statement, not a breakdown** (PR 4). A 20-F often prints a parent-only, condensed
 consolidating (VIE / subsidiaries / eliminations) or segment balance sheet BEFORE the consolidated
