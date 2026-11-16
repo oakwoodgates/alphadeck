@@ -435,9 +435,12 @@ _LT_MARKETABLE = [
 # EQUIVALENTS into it (GM's and NTSK's totals hold amounts already inside cash) or restricted holdings (NHC).
 # So (``_compose``): beside its own parts it is only a CHECK (parts above it -> ``investments-unreconciled``; a
 # total above them leaves the excess uncounted, named); beside other investment tags it is named, not counted;
-# ALONE on the cash date it is counted, said to be unsplit, and FLAGGED ``investments-unreconciled`` unless the
-# same-dated combined line confirms cash + it (tags alone cannot tell it apart from cash equivalents: BMRN's
-# same-shaped tag is not an addable amount).
+# ALONE on the cash date it is counted only when the same-dated combined line confirms cash + it (AUTO).
+# Otherwise it is QUOTED, NOT ADDED, and FLAGGED ``investments-unreconciled`` (the third re-audit, operator
+# decision: of 17 such offers 10 were overstated — NVDA's 46.9bn total already holds cash equivalents, EHC's,
+# NHC's and TPC's securities are restricted — and a steward's approve stores the offered number, so the offer
+# is the conservative one; tags alone cannot tell it apart from cash equivalents: BMRN's same-shaped tag is not
+# an addable amount).
 _DEBT_TOTALS: dict[str, tuple[str, str]] = {
     "AvailableForSaleSecuritiesDebtSecurities": (
         "AvailableForSaleSecuritiesDebtSecuritiesCurrent",
@@ -670,6 +673,7 @@ class _Composition:
     combined: float | None
     reconciled: bool  # cash + the current investments meet the combined line (or there is none)
     # every unsplit debt total on the cash date (``_DEBT_TOTALS``); counted only when nothing else is tagged
+    # and the combined line confirms cash + it (``counted_unsplit``), else quoted (``quoted_unsplit``)
     totals: list[tuple[str, float]] = field(default_factory=list)
     # (total tag, total, its own current + noncurrent parts on the cash date, "reconciles" | "short" | "exceeds")
     total_checks: list[tuple[str, float, float, str]] = field(default_factory=list)
@@ -690,14 +694,26 @@ class _Composition:
 
     @property
     def unsplit(self) -> list[tuple[str, float]]:
-        """The unsplit debt totals that COUNT: only when no current or noncurrent investment tag is on the cash
-        date (beside one, a total may restate it — a check or a name, never an addend)."""
+        """The unsplit debt totals standing ALONE: no current or noncurrent investment tag is on the cash date
+        (beside one, a total may restate it — a check or a name, never an addend)."""
         return [] if self.sti or self.lt_marketable else self.totals
 
     @property
     def unsplit_value(self) -> float | None:
         best = self._largest(self.unsplit)
         return None if best is None else best[1]
+
+    @property
+    def counted_unsplit(self) -> list[tuple[str, float]]:
+        """A lone total COUNTS only when the same-dated combined line confirms cash + it (established as the
+        short-term investments, none of it inside cash)."""
+        return self.unsplit if self.combined is not None and self.reconciled else []
+
+    @property
+    def quoted_unsplit(self) -> list[tuple[str, float]]:
+        """A lone total nothing confirms: QUOTED in the note, never added (it may already be inside cash
+        equivalents, NVDA, or restricted, EHC/NHC/TPC); the steward adds the eligible part."""
+        return [] if self.counted_unsplit else self.unsplit
 
     @property
     def uncounted_totals(self) -> list[tuple[str, float]]:
@@ -716,9 +732,10 @@ class _Composition:
 
     @property
     def investments(self) -> float | None:
-        if not self.sti and not self.lt_marketable and not self.unsplit:
-            return None  # nothing tagged on the cash date — None, never a fake 0
-        return (self.sti_value or 0.0) + (self.lt_value or 0.0) + (self.unsplit_value or 0.0)
+        if not self.sti and not self.lt_marketable and not self.counted_unsplit:
+            return None  # nothing counted on the cash date — None, never a fake 0
+        counted = self.unsplit_value if self.counted_unsplit else None
+        return (self.sti_value or 0.0) + (self.lt_value or 0.0) + (counted or 0.0)
 
 
 def _compose(facts: dict, cash: float, end: str, cfg: ExtractorConfig) -> _Composition:
@@ -814,21 +831,28 @@ def _composition_note(c: _Composition, cash_label: str) -> str:
         )
     else:
         missing.append("no long-term marketable securities tagged on the cash date")
-    if c.unsplit:
-        # the only investment tag on the cash date is an unsplit debt total: counted, and said to be one
+    if c.counted_unsplit:
+        # the only investment tag on the cash date is an unsplit debt total the combined line confirms: counted
         parts.append(
             f"debt securities {_m(c.unsplit_value or 0.0)} ({tags(c.unsplit)}), a total not split into"
             " current and noncurrent"
         )
-        missing = []
+    if c.unsplit:
+        missing = []  # a total IS tagged: "no investments tagged" would be false
     out = f"cash_usd {_m(total)} = " + " + ".join(parts)
     if missing:
         out += "; " + "; ".join(missing)
-    if c.unsplit and c.combined is None:
+    if c.quoted_unsplit:
+        confirm = (
+            f"no same-dated {_COMBINED} line confirms it"
+            if c.combined is None
+            else f"the same-dated {_COMBINED} line does not confirm it"
+        )
         out += (
-            "; the debt-securities total is not confirmed by a same-dated"
-            f" {_COMBINED} line, so whether part of it is securities classed as cash equivalents (already"
-            " inside cash) or restricted is not established"
+            f"; not counted: a debt-securities total of {_m(c.unsplit_value or 0.0)}"
+            f" ({tags(c.quoted_unsplit)}) was reported on the cash date, a total not split into current and"
+            f" noncurrent; {confirm}, and tags cannot tell whether it is already inside cash equivalents or"
+            " restricted; the steward should add the eligible part from the balance sheet"
         )
     for t, v, own, status in c.total_checks:
         if status == "reconciles":

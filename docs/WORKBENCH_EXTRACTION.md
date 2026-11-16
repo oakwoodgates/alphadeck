@@ -164,12 +164,20 @@ most needs to make:
       them → `investments-unreconciled` (the parts are offered as read); **larger**, the excess is named and
       NOT counted (it may be cash equivalents, already in cash: the conservative direction);
     - beside **other** investment tags (no part of its own) it is named as not counted (it may restate them);
-    - **alone** (no current or noncurrent investment tag on the cash date) it is **counted** (the largest if
-      both are tagged, never the sum) and the note says it is a total not split into current and noncurrent.
-      Tags alone cannot tell it apart from securities already inside cash equivalents (Biomarin's same-shaped
-      tag is not an addable amount), so it is a FLAG, `investments-unreconciled`, unless the same-dated
-      combined `CashCashEquivalentsAndShortTermInvestments` equals cash + the total (then it is established
-      as the short-term investments: AUTO).
+    - **alone** (no current or noncurrent investment tag on the cash date) it is **counted only when the
+      same-dated combined `CashCashEquivalentsAndShortTermInvestments` equals cash + the total** (the largest
+      if both are tagged, never the sum): it is then established as the short-term investments, AUTO, and the
+      note says it is a total not split into current and noncurrent. **Otherwise it is quoted, NOT added**
+      (operator decision after the third re-audit, 2026-11-16: of 17 such offers 10 were overstated — Nvidia's
+      46.9bn total already includes cash equivalents, a 12.8bn double count; Encompass Health's, National
+      HealthCare's and Tutor Perini's securities are restricted — and 6 were right, Glaukos's 174.4M among
+      them). Tags alone cannot tell it apart from securities already inside cash equivalents (Biomarin's
+      same-shaped tag is not an addable amount), and a steward's approve stores the offered number, so the
+      offer is the conservative one: cash and equivalents (plus any parts established by suffixed tags),
+      `investments_usd` without the total, a FLAG, `investments-unreconciled`, and the note names the tag and
+      amount, says it was not counted because tags cannot tell whether it is already inside cash equivalents
+      or restricted, and asks the steward to add the eligible part from the balance sheet (Glaukos reads
+      162.3M with the 174.4M quoted; Nvidia 22,443M with the 46,900M quoted).
     - `DepositsAssetsCurrent` is not read: the concept also carries security, utility and vendor deposits paid
       to others, so a short-term bank deposit cannot be told apart from tags (ODYS's 333k is left out, the
       conservative direction).
@@ -196,8 +204,8 @@ most needs to make:
     `investments_reconcile_tolerance` (0.5%). The combined line is a check, never an addend, and the gap is
     never filled by subtraction (the extractor locates, it never invents). Cash read from the restricted-cash
     total overshoots the combined line, so it flags too: never a silent double count. The same flag marks an
-    unsplit debt-securities total that is smaller than its own current + noncurrent parts, and one counted
-    alone that no combined line confirms (see the tag lists above).
+    unsplit debt-securities total that is smaller than its own current + noncurrent parts, and one standing
+    alone that no combined line confirms (quoted, not counted; see the tag lists above).
   - `investments-off-date` — an investment tag sits only on a NEWER balance sheet than the cash.
 - **The cash candidate's `source` names the cited form:** `10-q`, or `10-k` when the values filing is a 10-K
   (since B1 the newer of the two by public time; before 2026-11-15 every value said `10-q`).

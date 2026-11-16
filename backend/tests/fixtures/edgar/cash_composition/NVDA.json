@@ -1,0 +1,54 @@
+{
+ "cik": "",
+ "entityName": "NVDA (reconstructed from the 2026-11-16 third quarterly cash re-audit)",
+ "facts": {
+  "us-gaap": {
+   "CashAndCashEquivalentsAtCarryingValue": {
+    "units": {
+     "USD": [
+      {
+       "end": "2026-07-26",
+       "val": 22443000000,
+       "accn": "reconstructed",
+       "fy": 2027,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-08-27"
+      }
+     ]
+    }
+   },
+   "AvailableForSaleSecuritiesDebtSecurities": {
+    "units": {
+     "USD": [
+      {
+       "end": "2026-07-26",
+       "val": 46900000000,
+       "accn": "reconstructed",
+       "fy": 2027,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-08-27"
+      }
+     ]
+    }
+   },
+   "NetCashProvidedByUsedInOperatingActivities": {
+    "units": {
+     "USD": [
+      {
+       "start": "2026-04-27",
+       "end": "2026-07-26",
+       "val": 15000000000,
+       "accn": "reconstructed",
+       "fy": 2027,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-08-27"
+      }
+     ]
+    }
+   }
+  }
+ }
+}
