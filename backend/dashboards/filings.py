@@ -88,7 +88,8 @@ from psycopg import sql
 
 from dashboards.baskets import per_company
 from db.clock import db_now
-from domain.burn_pace import runway_pace
+from domain.burn_pace import stored_pace
+from domain.cash_currency import currency_symbol
 from domain.insider_amendments import AMENDS_ACCESSION
 from domain.insider_internal_transfers import is_internal_transfer, transfer_with
 from domain.insider_joint_reports import JOINT_REPORTERS
@@ -278,17 +279,19 @@ _UNITS: tuple[tuple[str, float, int], ...] = (
 )
 
 
-def fmt_compact(v: float, *, dollars: bool = True) -> str:
-    """A big number in one figure ("$41.2M", "84.2M", "$845.0K"). THE ROLLOVER RULE: the figure is rounded to what
-    the page shows (a whole number below a thousand, one decimal above), and one that rounds up to 1,000 moves
-    to the next unit, so 999,949 reads "$999.9K" and 999,950 reads "$1.0M", never "$1000.0K"."""
+def fmt_compact(v: float, *, dollars: bool = True, symbol: str = "$") -> str:
+    """A big number in one figure ("$41.2M", "84.2M", "$845.0K"; "CN¥1.2B" with ``symbol``, a stored cash/burn
+    value's own currency from ``domain.cash_currency.currency_symbol``, never converted). THE ROLLOVER RULE: the figure
+    is rounded to what the page shows (a whole number below a thousand, one decimal above), and one that rounds up to
+    1,000 moves to the next unit, so 999,949 reads "$999.9K" and 999,950 reads "$1.0M", never "$1000.0K".
+    """
     sign = "-" if v < 0 else ""
     a = abs(v)
     i = max(k for k, (_, size, _) in enumerate(_UNITS) if a >= size or k == 0)
     while i < len(_UNITS) - 1 and round(a / _UNITS[i][1], _UNITS[i][2]) >= 1000:
         i += 1
     suffix, size, decimals = _UNITS[i]
-    return f"{sign}{'$' if dollars else ''}{a / size:,.{decimals}f}{suffix}"
+    return f"{sign}{symbol if dollars else ''}{a / size:,.{decimals}f}{suffix}"
 
 
 def _instant(v: datetime) -> datetime:
@@ -1244,19 +1247,27 @@ def rows_from_ratified(
         cash, burn = _f(f.get("cash_usd")), _f(f.get("quarterly_burn_usd"))
         if cash is None or burn is None:
             continue
-        tail = f"burn {fmt_compact(burn)}/qtr" if burn > 0 else "cash-positive quarter"
-        # the year-to-date pace beside last quarter's burn, and its caveat, when the note carries one (V2 extractor
+        # the figures in the value's OWN currency (D4; ``domain.cash_currency``): CN¥ for a yuan filer, "?" for an
+        # annual value whose currency was never established, "$" for a quarterly or older row; never converted
+        sym = currency_symbol(f.get("currency"), source=f.get("source"))
+        tail = f"burn {fmt_compact(burn, symbol=sym)}/qtr" if burn > 0 else "cash-positive quarter"
+        # the year-to-date pace beside last quarter's burn, and its caveat, when the fact carries one (V2 extractor
         # correctness PR 3, ``domain.burn_pace``); a value without one reads exactly as before
-        pace = runway_pace(cash, burn, f.get("note"))
+        pace = stored_pace(f, symbol=sym)
         extra: list[str] = []
+        part = _f(f.get("investments_usd"))
+        if part is not None:  # the split, quiet, in the detail (D1 (d)); none recorded: no line
+            extra.append(f"Of which short-term investments {fmt_compact(part, symbol=sym)}")
         if pace is not None:
             ytd = pace.ytd_quarterly_burn_usd
             tail += " last quarter · year-to-date pace " + (
-                f"burn {fmt_compact(ytd)}/qtr" if ytd > 0 else "cash-positive"
+                f"burn {fmt_compact(ytd, symbol=sym)}/qtr" if ytd > 0 else "cash-positive"
             )
             if pace.caveat:
                 extra.append(pace.caveat)
-        out.append(_ratified_row(f, who, f"cash {fmt_compact(cash)} · {tail}", extra=extra))
+        out.append(
+            _ratified_row(f, who, f"cash {fmt_compact(cash, symbol=sym)} · {tail}", extra=extra)
+        )
     for f in shares:
         n = _f(f.get("shares"))
         if n is not None:

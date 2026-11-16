@@ -1,8 +1,7 @@
 import { useState } from "react";
 
 import type { PlatformCandidateOut, PlatformCorrectIn, PlatformFactType } from "../api/hooks";
-import { cashSymbol, labelCurrency } from "../components/LocatedPassages";
-import { storedCurrency } from "./factWords";
+import { cashSymbol, labelCurrency, storedCurrency } from "../components/currency";
 
 // The steward's "Correct" form: the value they type, the filing it comes from, and its date. It starts from the
 // candidate (when one waits), the value shown, or an undone correction's set-aside version ("Correct again"), and

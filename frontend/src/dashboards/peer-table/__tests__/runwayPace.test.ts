@@ -30,6 +30,29 @@ describe("the runway cell's pace", () => {
     expect(flip.title).toContain("Year-to-date pace: cash-generative, $1.52B per quarter.");
   });
 
+  it("speaks the stored currency and the split for a yuan annual value (GAP 3)", () => {
+    const c = runwayCell(
+      runway({
+        months: 72,
+        cash_usd: 1_200_000_000,
+        burn_usd: 50_000_000,
+        currency: "CNY",
+        source: "annual-statements",
+        investments_usd: 300_000_000,
+      }),
+    );
+    expect(c.title).toBe(
+      "Months of cash at last quarter's pace: cash CN¥1.20B (of which short-term investments CN¥300.0M), " +
+        "burn CN¥50.0M per quarter, from the fact dated May 10, 2026",
+    );
+    const usd = runwayCell(runway({ currency: "USD", source: "10-q" }));
+    expect(usd.title).toContain("cash $12.0M, burn $3.0M per quarter");
+    const unread = runwayCell(runway({ currency: null, source: "annual-statements" }));
+    expect(unread.title).toContain("cash ?12.0M, burn ?3.0M per quarter");
+    const older = runwayCell(runway({ currency: null, source: "10-q" }));
+    expect(older.title).toContain("cash $12.0M, burn $3.0M per quarter");
+  });
+
   it("reads as before for a value without a pace", () => {
     const c = runwayCell(runway());
     expect(c.text).toBe("12.0 mo");

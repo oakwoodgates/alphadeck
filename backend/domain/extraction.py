@@ -72,14 +72,15 @@ class ExtractedFact(DomainModel):
     quarterly_burn_usd: float | None = (
         None  # cash_burn; sign: see QUARTERLY_BURN_SIGN (positive = cash consumed)
     )
-    # The statement's own ISO currency, set ONLY by the annual-statements runway path — a foreign filer
+    # The statement's own ISO currency. On the annual-statements runway path a foreign filer
     # reports in its own currency (CNY/JPY/TWD/EUR/CAD/…) and the ``*_usd`` fields then carry those values
     # (the runway RATIO stays currency-correct). Since PR 4 (2026-11-15) it is ESTABLISHED, never guessed:
     # the companyfacts unit that reproduces the statement's figures exactly, else the header's explicit
     # markers (a bare "$" is not USD); None = UNREAD and flagged ``currency-unread`` (the FE renders "?",
-    # never "$"). It rides through DISPLAY-ONLY; it is NEVER converted to USD and NEVER a scoring input. None
-    # for every domestic/us-gaap 10-Q/10-K filer (the periodic ``_cash_burn`` path leaves it unset) → "$".
-    statement_currency: str | None = None  # cash_burn (annual-statements path only)
+    # never "$"). It rides through DISPLAY-ONLY; it is NEVER converted to USD and NEVER a scoring input. The
+    # periodic 10-Q/10-K path (``_cash_burn``) reads companyfacts' USD unit only, so a value it read says "USD"
+    # (since the extractor follow-up to PR 6); its nothing-read result says none.
+    statement_currency: str | None = None  # cash_burn
     # The INVESTMENT part already inside ``cash_usd`` (operator decision D1, 2026-11-15: one "cash and
     # short-term investments" number, the investment part carried on its own so a screen can show the split):
     # the short-term investments plus the long-term MARKETABLE securities counted, on the cash date. None =
@@ -144,7 +145,8 @@ class ExtractedFact(DomainModel):
     # quarter (burn sign: positive = burning); ``ytd_burn_days`` its span. None when there is no separate year to
     # date (a first fiscal quarter, an annual filer, a burn outside the quarter window). ``pace_caveat`` = one plain
     # sentence when the quarter is far off that pace (``pace_divergence``), else None. A CAVEAT, never a flag: it
-    # never changes the tier. Carried here and stated in the note; not a stored column (the note is the storage).
+    # never changes the tier. Carried here, stated in the note, and stored on the candidate and the fact
+    # (``ytd_quarterly_burn_usd`` / ``ytd_burn_days``, migration 0209); the caveat sentence is never stored.
     ytd_quarterly_burn_usd: float | None = None
     ytd_burn_days: int | None = None
     pace_caveat: str | None = None

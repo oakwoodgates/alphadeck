@@ -218,6 +218,8 @@ def _candidate_columns(p: _Planned, outcome: str, extra_flags: tuple[str, ...] =
             quarterly_burn_usd=f.quarterly_burn_usd,
             statement_currency=f.statement_currency,
             investments_usd=f.investments_usd,
+            ytd_quarterly_burn_usd=f.ytd_quarterly_burn_usd,
+            ytd_burn_days=f.ytd_burn_days,
         )
     return cols
 
@@ -232,10 +234,14 @@ _SAME = (
     "quarterly_burn_usd",
     "statement_currency",
     "investments_usd",
+    "ytd_quarterly_burn_usd",
+    "ytd_burn_days",
     "ads_ratio",
     "ads_ratio_status",
 )
-_NUMERIC = frozenset({"shares", "cash_usd", "quarterly_burn_usd", "investments_usd"})
+_NUMERIC = frozenset(
+    {"shares", "cash_usd", "quarterly_burn_usd", "investments_usd", "ytd_quarterly_burn_usd"}
+)
 
 
 def _same_candidate(stored: Mapping[str, Any], cols: Mapping[str, Any]) -> bool:
@@ -298,6 +304,8 @@ def _apply(conn: psycopg.Connection, security_id: UUID, p: _Planned) -> UUID:
         quarterly_burn_usd=f.quarterly_burn_usd,
         currency=f.statement_currency,  # None = not recorded (the periodic path sets none), never assumed USD
         investments_usd=f.investments_usd,
+        ytd_quarterly_burn_usd=f.ytd_quarterly_burn_usd,  # the pace (0209); None = not recorded
+        ytd_burn_days=f.ytd_burn_days,
         **common,
     )
 

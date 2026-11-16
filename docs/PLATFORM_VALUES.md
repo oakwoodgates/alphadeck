@@ -20,14 +20,34 @@ component in the note.
 `fact_cash_burn.currency` is the statement's ISO code (three capital letters; the `*_usd` columns then hold that
 currency's figures, never converted) and `fact_cash_burn.investments_usd` the investment part already inside
 `cash_usd`; `extraction_candidate.investments_usd` is the same on the candidate (whose currency is its
-`statement_currency`). Both are nullable with no default and no backfill: NULL means **not recorded** (a V1 row, the
-periodic path, which sets no currency, an annual value whose currency the extractor could not establish, a
+`statement_currency`). Both are nullable with no default and no backfill: NULL means **not recorded** (a V1 row, a
+periodic value applied before the PR 6 follow-up, an annual value whose currency the extractor could not establish, a
 correction that stated none), never an invented `USD` or 0. They are set on the INSERT of a new version only, on
 every write path: the machine's apply and its candidate, the steward's approve (the candidate's own) and correct
 (the steward states them: an ISO code, a part never negative and never above the cash, else 422), and an undo
-falls back to the earlier version with its own. The steward's screens label the figures in the stored currency
-(`?` for an annual-statements value stored without one, `$` for the periodic path and V1 rows) and add "of which
-short-term investments X" when a part is stored. Display only: nothing under `calls/` or `signals/` reads them.
+falls back to the earlier version with its own. Every screen that prints a cash or burn figure labels it in
+the stored currency through ONE rule (`?` for an annual-statements value stored without one, `$` for a quarterly
+value or a V1 row without one; never a conversion): `backend/domain/cash_currency.py` `currency_symbol` for every
+backend printer (the Filing Stream row, the pace caveat on the scored meter, the Peer Table cell and the steward
+page) and its twin `frontend/src/components/currency.ts` (`labelCurrency` / `storedCurrency` / `cashSymbol`) for
+every screen (the steward pages, the Workbench facts panel and rail, the scored row, the Cockpit name panel, the
+Peer Table). Where there is room (a hover, a detail line) they add "of which short-term investments X" when a part
+is stored. The runway in months is a ratio and unchanged. Display only: nothing under `calls/` or `signals/` reads them.
+The periodic 10-Q/10-K path reads companyfacts' USD unit only, so a value it read records `USD` explicitly
+(`statement_currency='USD'` on the extraction, `currency='USD'` once applied); a result that read nothing records
+none. Rows applied before that stay NULL (no backfill) and still read `$`.
+
+**The stored year-to-date pace** (migration 0209; operator decision D3's sub-decision, a column). `fact_cash_burn`
+and `extraction_candidate` carry `ytd_quarterly_burn_usd` (the year to date ending on the burn's end, scaled to one
+quarter, burn sign, in the value's own currency) and `ytd_burn_days` (its span): both or neither, nullable, no
+default, no backfill (NULL = not recorded). They ride the same write paths as 0208's columns, on the INSERT of a new
+version only: the machine's apply and its candidate, the steward's approve (the candidate's own), correct and the
+Workbench confirm (stated, both or neither, else 422), and an undo falls back to the earlier version's. A
+correction that does not state the pace stores none, and the machine-written pace segment and caveat are dropped
+from the note it keeps (`domain.burn_pace.drop_pace`), so an old pace is never re-applied to a corrected burn. One
+reader, `domain.burn_pace.stored_pace`, reads a row's pace: the columns, else (a row written before 0209) the
+note's segment. The caveat sentence is never stored: the pure rule computes it on read from the stored numbers,
+and it never changes a tier. Display only.
 
 ## The one pick
 

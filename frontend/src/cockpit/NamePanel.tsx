@@ -14,7 +14,13 @@ import { DataFlagsSection, FlagWrap } from "./DataFlagMark";
 import { cellFlag } from "./dataFlags";
 import { DisplayHeadlineRow, DisplaySignalsSection } from "./DisplaySignalsSection";
 import { Meter } from "../workbench/Meter";
-import { formatMarketCap, meterValueLabel, originWithFiler, runwayPaceWords } from "../workbench/format";
+import {
+  formatMarketCap,
+  meterValueLabel,
+  originWithFiler,
+  runwayCashWords,
+  runwayPaceWords,
+} from "../workbench/format";
 import {
   businessTypeLabel,
   byEventDateDesc,
@@ -376,11 +382,18 @@ export function NamePanel({
               // the runway's year-to-date pace beside last quarter's (V2 extractor correctness PR 3): quiet, the
               // caveat only when last quarter is far off that pace
               const pace = key === "runway" ? runwayPaceWords(scored[key]) : null;
+              // its cash and burn in the value's own currency, with the investment split when stored (GAP 3)
+              const cash = key === "runway" ? runwayCashWords(scored[key]) : null;
               return (
               <Fragment key={key}><div className="np-meter-row">
                 <Meter label={label} figure={scored[key]} risk={risk} />
                 <span className="val">{meterValueLabel(key, scored[key])}</span>
               </div>
+                {cash && (
+                  <div className="np-pace" data-testid="np-runway-cash">
+                    {cash}
+                  </div>
+                )}
                 {pace && (
                   <div className="np-pace" data-testid="np-runway-pace">
                     {pace.ytd}

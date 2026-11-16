@@ -19,6 +19,7 @@ import {
   onFileValues,
   provChip,
   provNotes,
+  runwayCashWords,
   runwayPaceWords,
   supersectorLabel,
 } from "./format";
@@ -37,12 +38,19 @@ function MeterProvenance({ meter, figure }: { meter: string; figure: ScoredFigur
   // the runway's year-to-date pace beside last quarter's (V2 extractor correctness PR 3): quiet, the caveat only
   // when last quarter is far off that pace
   const pace = meter === "runway" ? runwayPaceWords(figure) : null;
+  // the runway's cash and burn in the value's own currency, with the short-term investment part when stored (GAP 3)
+  const cash = meter === "runway" ? runwayCashWords(figure) : null;
   return (
     <div className="dd-meter">
       <div className="dd-meter-h">
         <span className="k">{meter}</span>
         <span className="v">{meterValueLabel(meter, figure)}</span>
       </div>
+      {cash && (
+        <div className="dd-pace" data-testid="dd-runway-cash">
+          {cash}
+        </div>
+      )}
       {pace && (
         <div className="dd-pace" data-testid="dd-runway-pace">
           {pace.ytd}

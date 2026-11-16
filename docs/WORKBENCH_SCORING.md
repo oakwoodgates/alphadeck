@@ -102,8 +102,10 @@ overhang; **market cap** → the price ref + the shares `source_ref`. Filing ref
 URLs (`edgar_url`).
 
 **The runway's pace (V2 extractor correctness PR 3; operator decision D3).** Every screen labels the runway "at
-last quarter's pace". When the stored note carries the extractor's year-to-date pace (`domain/burn_pace.py`,
-`runway_pace`), the runway provenance's `detail` adds `ytd_quarterly_burn_usd`, `ytd_burn_days`,
+last quarter's pace". The runway provenance's `detail` also carries the value's stored `currency` and `investments_usd` when
+recorded (0208), so every screen prints the cash in its own currency with its split (`domain/cash_currency.py`; the
+caveat sentence speaks the same currency). When the stored value carries the extractor's year-to-date pace (`domain/burn_pace.py`,
+`stored_pace`: the 0209 columns, else the note of a row written before them), the runway provenance's `detail` adds `ytd_quarterly_burn_usd`, `ytd_burn_days`,
 `ytd_runway_months` (when that pace burns) and `pace_caveat` (only when last quarter is more than 2× off that
 pace or of the opposite sign), and the Peer Table cell (`ytd_quarterly_burn_usd`, `ytd_months`, `pace_caveat`),
 the Filing Stream row and the steward's company page (`pace`) carry the same reading. Shown quietly: the pace

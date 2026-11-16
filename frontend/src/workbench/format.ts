@@ -3,6 +3,7 @@
 
 import { apiErrorText } from "../api/errorText";
 import type { ContextRole, ProvenanceOut, ScoredFigureOut } from "../api/hooks";
+import { cashSymbol, storedCurrency } from "../components/currency";
 import { safeHttpUrl } from "../components/ExternalLink";
 
 // the business-type labels live in the shared util/format (the Cockpit board uses them too); re-exported
@@ -365,33 +366,60 @@ export function provNotes(provenance: ProvenanceOut[]): string[] {
   return notes;
 }
 
-/** Dollars in short words, sign dropped: "$17.1M", "$1.5B", "$710.0K" (the backend's ``domain.burn_pace.money``
- *  rule: a figure that rounds up to the next unit moves to it). */
-export function shortUsd(n: number): string {
+/** An amount in short words, sign dropped, in the value's own currency symbol: "$17.1M", "CN¥1.5B", "$710.0K" (the
+ *  backend's ``domain.burn_pace.money`` rule: a figure that rounds up to the next unit moves to it). Never converted. */
+export function shortMoney(n: number, sym = "$"): string {
   const a = Math.abs(n);
   for (const [size, suffix] of [
     [1e9, "B"],
     [1e6, "M"],
     [1e3, "K"],
   ] as const) {
-    if (Math.round((a / size) * 10) / 10 >= 1) return `$${(a / size).toFixed(1)}${suffix}`;
+    if (Math.round((a / size) * 10) / 10 >= 1) return `${sym}${(a / size).toFixed(1)}${suffix}`;
   }
-  return `$${Math.round(a)}`;
+  return `${sym}${Math.round(a)}`;
+}
+
+/** The symbol the runway's figures are printed in: the stored currency the scored read threads on the runway
+ *  provenance's detail, and its source ("?" only for an annual-statements value with none; `components/currency`). */
+function runwaySymbol(figure: ScoredFigureOut): string {
+  const p = figure.provenance[0];
+  return cashSymbol(storedCurrency({ currency: dstr(p?.detail, "currency"), source: p?.source }));
+}
+
+/** The runway's figures in words, in the value's own currency (GAP 3 of the extractor correctness follow-up): the
+ *  cash, the short-term investment part inside it when one is stored, and last quarter's burn — "Cash CN¥1.2B, of
+ *  which short-term investments CN¥300.0M; burn CN¥50.0M last quarter". Quiet context, never a badge. `null` when the
+ *  runway carries no cash figure. */
+export function runwayCashWords(figure: ScoredFigureOut): string | null {
+  const d = figure.provenance[0]?.detail;
+  const cash = dnum(d, "cash_usd");
+  if (cash == null) return null;
+  const sym = runwaySymbol(figure);
+  const part = dnum(d, "investments_usd");
+  const burn = dnum(d, "quarterly_burn_usd");
+  let out = `Cash ${shortMoney(cash, sym)}`;
+  if (part != null) out += `, of which short-term investments ${shortMoney(part, sym)}`;
+  if (burn != null)
+    out += burn > 0 ? `; burn ${shortMoney(burn, sym)} last quarter` : `; cash-generative last quarter`;
+  return out;
 }
 
 /** The runway's year-to-date pace in words (V2 extractor correctness PR 3; operator decision D3), read off the runway
- *  provenance's detail (the scored read derives it from the stored note): the pace line, always quiet, and the caveat
- *  sentence ONLY when last quarter is far off that pace (honest loudness: the minority). `null` when the value carries
- *  no year-to-date pace (a first fiscal quarter, an annual or hand-entered value): the runway then stands alone. */
+ *  provenance's detail (the scored read derives it from the stored pace): the pace line, always quiet, in the value's
+ *  own currency, and the caveat sentence ONLY when last quarter is far off that pace (honest loudness: the minority).
+ *  `null` when the value carries no year-to-date pace (a first fiscal quarter, an annual or hand-entered value): the
+ *  runway then stands alone. */
 export function runwayPaceWords(figure: ScoredFigureOut): { ytd: string; caveat: string | null } | null {
   const d = figure.provenance[0]?.detail;
   const pace = dnum(d, "ytd_quarterly_burn_usd");
   if (pace == null) return null;
+  const sym = runwaySymbol(figure);
   const months = dnum(d, "ytd_runway_months");
   const ytd =
     pace > 0
-      ? `Year-to-date pace: ${shortUsd(pace)} burn a quarter${months != null ? `, ${months} mo of runway` : ""}`
-      : `Year-to-date pace: cash-generative, ${shortUsd(pace)} a quarter`;
+      ? `Year-to-date pace: ${shortMoney(pace, sym)} burn a quarter${months != null ? `, ${months} mo of runway` : ""}`
+      : `Year-to-date pace: cash-generative, ${shortMoney(pace, sym)} a quarter`;
   return { ytd, caveat: dstr(d, "pace_caveat") ?? null };
 }
 

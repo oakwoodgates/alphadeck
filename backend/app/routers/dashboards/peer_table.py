@@ -198,6 +198,12 @@ class PeerRunwayOut(_Wire):
     ytd_quarterly_burn_usd: float | None
     ytd_months: float | None
     pace_caveat: str | None
+    # the figures' own currency (never converted): the stored ISO code (None = not recorded) and the fact's source
+    # (an ``annual-statements`` value with no currency is labeled "?", any other "$"), and the short-term investment
+    # part inside the cash (None = no split recorded)
+    currency: str | None = None
+    source: str | None = None
+    investments_usd: float | None = None
 
 
 class PeerPurityOut(_Wire):

@@ -558,6 +558,53 @@ describe("FactsPanel — extract → ratify", () => {
     });
   });
 
+  it("a confirmed annual candidate sends its currency, its investment part and its pace (GAP 4)", async () => {
+    const user = userEvent.setup();
+    const ANNUAL_CNY = {
+      ...FLAG_BURN,
+      source: "annual-statements",
+      flags: ["annual-statements"],
+      cash_usd: 1_200_000_000,
+      quarterly_burn_usd: 50_000_000,
+      statement_currency: "CNY",
+      investments_usd: 300_000_000,
+      ytd_quarterly_burn_usd: 40_000_000,
+      ytd_burn_days: 272,
+      located_passages: [],
+    };
+    h.extract.data = env([ANNUAL_CNY]);
+    render(<FactsPanel securityId={SID} />);
+    // the split, quietly, in the value's own currency
+    expect(screen.getByText("of which short-term investments CN¥300,000,000")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    expect(h.mutate).toHaveBeenCalledTimes(1);
+    expect(h.mutate.mock.calls[0][0]).toMatchObject({
+      fact_type: "cash_burn",
+      cash_usd: 1_200_000_000,
+      quarterly_burn_usd: 50_000_000,
+      currency: "CNY",
+      investments_usd: 300_000_000,
+      ytd_quarterly_burn_usd: 40_000_000,
+      ytd_burn_days: 272,
+    });
+  });
+
+  it("a confirm whose burn was edited states no pace (the candidate's pace described the other burn)", async () => {
+    const user = userEvent.setup();
+    h.extract.data = env([
+      { ...FLAG_BURN, statement_currency: "USD", ytd_quarterly_burn_usd: 300_000_000, ytd_burn_days: 181 },
+    ]);
+    render(<FactsPanel securityId={SID} />);
+    const burn = screen.getByLabelText("quarterly burn");
+    await user.clear(burn);
+    await user.type(burn, "50483000");
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    const body = h.mutate.mock.calls[0][0];
+    expect(body).toMatchObject({ currency: "USD", quarterly_burn_usd: 50483000 });
+    expect(body.ytd_quarterly_burn_usd).toBeUndefined();
+    expect(body.ytd_burn_days).toBeUndefined();
+  });
+
   it("a HUMAN purity confirm requires an operator-entered % (no pre-fill)", async () => {
     const user = userEvent.setup();
     h.extract.data = env([HUMAN_PURITY]);

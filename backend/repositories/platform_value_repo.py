@@ -47,6 +47,8 @@ CANDIDATE_COLUMNS: tuple[str, ...] = (
     "quarterly_burn_usd",
     "statement_currency",
     "investments_usd",
+    "ytd_quarterly_burn_usd",
+    "ytd_burn_days",
     "ads_ratio",
     "ads_ratio_status",
     "filing_accession",

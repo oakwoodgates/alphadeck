@@ -83,6 +83,9 @@ MONEY_ABS_MAX = 1e15  # cash and quarterly burn, either sign (largest stored: 2.
 # a currency: an ISO 4217 code, three capital letters (the steward states a cash/burn value's statement currency;
 # the same rule as the stored column's check, migration 0208)
 CURRENCY_CODE_PATTERN = r"^[A-Z]{3}$"
+# a year-to-date pace's span in days (migration 0209): above zero, at most a fiscal year and a week (the extractor's
+# ``ExtractorConfig.pace_ytd_max_days``, 371, so a 53-week year fits)
+BURN_DAYS_MAX = 371
 DECISION_AMOUNT_MAX = 1e13  # a decision's shares and price
 
 # dates
@@ -189,6 +192,8 @@ Shares = Annotated[float, _FINITE, Gt(0), Le(SHARES_MAX), Bounded("shares")]
 Money = Annotated[float, _FINITE, Ge(-MONEY_ABS_MAX), Le(MONEY_ABS_MAX), Bounded("money")]
 # the investment part of a cash figure (never negative; the steward also checks it is not above the cash)
 MoneyPart = Annotated[float, _FINITE, Ge(0), Le(MONEY_ABS_MAX), Bounded("money_part")]
+# a cash/burn value's year-to-date pace span (0209): whole days above zero
+BurnDays = Annotated[int, Ge(1), Le(BURN_DAYS_MAX), Bounded("burn_days")]
 CurrencyCode = Annotated[
     str,
     StringConstraints(strip_whitespace=True, pattern=CURRENCY_CODE_PATTERN),
@@ -281,6 +286,7 @@ __all__ = [
     "ASOF_AHEAD_DAYS",
     "ASOF_MIN",
     "BASKET_MAX",
+    "BURN_DAYS_MAX",
     "CATALYSTS_MAX",
     "CIK_MAX_DIGITS",
     "CURRENCY_CODE_PATTERN",
@@ -320,6 +326,7 @@ __all__ = [
     "AdsRatio",
     "AsofDate",
     "Bounded",
+    "BurnDays",
     "CikIn",
     "CurrencyCode",
     "DecisionAmount",

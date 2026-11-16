@@ -35594,6 +35594,39 @@
               }
             ],
             "title": "Pace Caveat"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "investments_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Investments Usd"
           }
         },
         "type": "object",
@@ -36774,6 +36807,32 @@
               }
             ],
             "title": "Investments Usd"
+          },
+          "ytd_quarterly_burn_usd": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1000000000000000.0,
+                "minimum": -1000000000000000.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ytd Quarterly Burn Usd"
+          },
+          "ytd_burn_days": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 371.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ytd Burn Days"
           }
         },
         "type": "object",
@@ -37239,7 +37298,7 @@
           "ytd_days"
         ],
         "title": "PlatformPaceOut",
-        "description": "A cash-and-burn value's year-to-date pace (V2 extractor correctness PR 3, ``domain.burn_pace``), read from its\nnote: the pace per quarter (burn sign: positive = burning), its span in days, the months of runway that pace\nimplies (None when it generates cash or no cash is on file), and the caveat sentence when last quarter is far off\nthat pace (None on a steady reading). Display only."
+        "description": "A cash-and-burn value's year-to-date pace (V2 extractor correctness PR 3, ``domain.burn_pace``), read from its\npace columns (0209; else, before 0209, its note): the pace per quarter (burn sign: positive = burning), its span in days, the months of runway that pace\nimplies (None when it generates cash or no cash is on file), and the caveat sentence when last quarter is far off\nthat pace (None on a steady reading). Display only."
       },
       "PlatformPinEventOut": {
         "properties": {
@@ -38850,6 +38909,32 @@
               }
             ],
             "title": "Investments Usd"
+          },
+          "ytd_quarterly_burn_usd": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1000000000000000.0,
+                "minimum": -1000000000000000.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ytd Quarterly Burn Usd"
+          },
+          "ytd_burn_days": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 371.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ytd Burn Days"
           }
         },
         "type": "object",

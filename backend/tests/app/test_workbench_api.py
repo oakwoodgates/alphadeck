@@ -1598,6 +1598,33 @@ def test_ratify_cash_burn_refuses_a_bad_currency_or_part(client, db, security_id
         assert cur.fetchone()["n"] == 0
 
 
+def test_ratify_cash_burn_stores_a_confirmed_annual_candidates_parts(client, db, security_id):
+    """GAP 4: the Workbench confirm of an annual candidate sends its currency, its investment part and (when it has
+    one) its year-to-date pace; the stored version carries all of them (0208, 0209)."""
+    r = _ratify_cash(
+        client,
+        security_id,
+        currency="CNY",
+        investments_usd=300_000_000,
+        ytd_quarterly_burn_usd=60_000_000,
+        ytd_burn_days=272,
+    )
+    assert r.status_code == 200, r.text
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT currency, investments_usd, ytd_quarterly_burn_usd, ytd_burn_days FROM fact_cash_burn "
+            "WHERE id = %s",
+            (r.json()["fact_id"],),
+        )
+        row = cur.fetchone()
+    assert (
+        row["currency"],
+        float(row["investments_usd"]),
+        float(row["ytd_quarterly_burn_usd"]),
+        row["ytd_burn_days"],
+    ) == ("CNY", 300_000_000, 60_000_000, 272)
+
+
 def test_ratify_revenue_mix_preserves_the_basis_source(client, db, security_id):
     """`source` is the candidate's BASIS (10-k-segment), NOT flattened to 'ratified' — the DD-rail basis
     provenance (the chip) stays honest."""

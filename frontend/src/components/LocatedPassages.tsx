@@ -16,51 +16,6 @@ type LocatedPassage = components["schemas"]["LocatedPassage"];
  *  on a mere data gap drowns the flags that mark real composition risk. */
 export const MISSING_FLAGS = new Set(["no-companyfacts", "no-cashflow-column", "no-cash-instant"]);
 
-/** The cash/burn LABEL currency (Retrieval Slice A follow-up). The IFRS annual-statements runway path
- *  reports in the filer's NATIVE currency (TWD/EUR/CAD/…), so the raw value is New Taiwan Dollars, not
- *  USD — labeling it a bare `$` read `$2.77T` for what is really ~US$88B. The value is NEVER converted
- *  (runway is a ratio — the months are currency-correct as-is); only the LABEL names the currency. A
- *  small static ISO→symbol map, falling back to the raw ISO code (honest, never an invented symbol). */
-const CURRENCY_SYMBOL: Record<string, string> = {
-  TWD: "NT$",
-  EUR: "€",
-  CAD: "C$",
-  CHF: "CHF",
-  GBP: "£",
-  INR: "₹",
-  // PR 4 (annual statements): the currencies the annual path now reads. Currencies that share the "$" glyph
-  // carry their prefix (S$, HK$, A$, R$) — never a bare "$" for a non-USD value.
-  CNY: "CN¥",
-  JPY: "¥",
-  SGD: "S$",
-  HKD: "HK$",
-  KRW: "₩",
-  AUD: "A$",
-  ZAR: "R",
-  BRL: "R$",
-  ILS: "₪",
-};
-
-/** The annual path's flag for a currency it could NOT determine (a bare "$", or headers that disagree). */
-export const CURRENCY_UNREAD_FLAG = "currency-unread";
-
-/** The currency a candidate's figures are labeled in: its own ISO code, or "?" when the extractor flagged the
- *  currency unread — an unread currency never renders as "$" (PR 4). Null otherwise (a domestic 10-Q/10-K name). */
-export function labelCurrency(
-  currency: string | null | undefined,
-  flags: readonly string[] | null | undefined,
-): string | null {
-  if (currency) return currency;
-  return (flags ?? []).includes(CURRENCY_UNREAD_FLAG) ? "?" : null;
-}
-
-/** `$` for a domestic/us-gaap filer (statement_currency null or "USD" — the periodic path never sets it);
- *  the native symbol (or raw ISO fallback) for an annual filer; "?" passed through for an unread currency. */
-export function cashSymbol(currency: string | null | undefined): string {
-  if (!currency || currency === "USD") return "$";
-  return CURRENCY_SYMBOL[currency] ?? currency;
-}
-
 /** The passages themselves, clamped to a scannable window (a raw segment table arrives as a wall of collapsed
  *  text) with one expand for the long ones, the filing link on each. `show` false renders nothing but keeps the
  *  expand state, so a parent that toggles the block (the Workbench's AUTO source toggle) loses nothing. */
