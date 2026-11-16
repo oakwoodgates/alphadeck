@@ -33,7 +33,9 @@ from app.deps import get_conn
 from domain import market_time
 from domain.settings import get_settings
 
-Action = Literal["extract", "price_pull", "auto_confirm", "holdings", "chain_draft", "term_run"]
+Action = Literal[
+    "extract", "price_pull", "auto_confirm", "holdings", "chain_draft", "term_run", "flag"
+]
 
 # What one unit of each action is called in the 429 message (plural).
 LABELS: dict[str, str] = {
@@ -43,6 +45,9 @@ LABELS: dict[str, str] = {
     "holdings": "holdings reads",
     "chain_draft": "chain drafts",
     "term_run": "term or tier runs",
+    # V2 W5b: a user's flag on a platform value (POST /value-flags). Not a fetch: it bounds the steward's Slack
+    # messages. Charged by the route inside its own transaction (``take``), after the duplicate check.
+    "flag": "flags",
 }
 
 # The fixed start of every 429 this module answers (the frontend shows the whole message as it is).
@@ -72,7 +77,7 @@ def over_message(action: Action) -> str:
     )
 
 
-def consume(
+def take(
     conn: psycopg.Connection,
     user_id: UUID,
     action: Action,
@@ -80,9 +85,12 @@ def consume(
     *,
     day: date | None = None,
 ) -> bool:
-    """Take ``n`` units of ``action`` from ``user_id``'s allowance for ``day`` (default: today's market day) and
-    COMMIT, or take nothing and return False when fewer than ``n`` are left. A limit of 0 takes nothing and returns
-    True. One statement, so concurrent callers cannot pass the limit between them."""
+    """Take ``n`` units of ``action`` from ``user_id``'s allowance for ``day`` (default: today's market day) INSIDE
+    the caller's transaction, or take nothing and return False when fewer than ``n`` are left. A limit of 0 takes
+    nothing and returns True. It does NOT commit: the caller commits the unit together with the write it pays for
+    (a rollback returns it), so the two cannot diverge. One statement, so concurrent callers cannot pass the limit
+    between them (the upsert's row lock holds a second caller until the first commits or rolls back).
+    """
     limit = limit_for(action)
     if limit == 0 or n <= 0:
         return True
@@ -97,7 +105,20 @@ def consume(
             "RETURNING count",
             (user_id, action, day or market_day(), n, limit),
         )
-        taken = cur.fetchone() is not None
+        return cur.fetchone() is not None
+
+
+def consume(
+    conn: psycopg.Connection,
+    user_id: UUID,
+    action: Action,
+    n: int = 1,
+    *,
+    day: date | None = None,
+) -> bool:
+    """``take``, then COMMIT: the unit is spent at once, before the fetch it admits (a fetch that then fails still
+    spent its unit)."""
+    taken = take(conn, user_id, action, n, day=day)
     conn.commit()
     return taken
 
@@ -144,5 +165,6 @@ __all__ = [
     "limit_for",
     "market_day",
     "over_message",
+    "take",
     "used",
 ]

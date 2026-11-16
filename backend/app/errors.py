@@ -113,6 +113,30 @@ PLATFORM_VALUE_FUND = "This is a fund: its share count comes from the fund's own
 SCHEDULE_SETTING_MALFORMED = "The server's nightly schedule setting is malformed, so the schedule cannot be read. A steward needs to fix it."
 
 
+# V2 W5b (docs/PLATFORM_VALUES.md §Flags): a user's flag on a platform value (``platform_values.flags``). One fixed
+# sentence per refusal ``kind``; the status comes from the exception's class (``FlagConflict`` 409, ``FlagInvalid``
+# 422, ``FlagNotFound`` 404). Another user's flag is "no such flag", exactly like an unknown id. The steward's kinds
+# (close / reopen) are W5c's routes. Complete sentences: shown as is.
+VALUE_FLAG_STEWARD = "The steward corrects values on the company page. A flag is for users."
+VALUE_FLAG_NOT_FOUND = "There is no such flag."
+VALUE_FLAG_SENTENCES: dict[str, str] = {
+    # 409: the flag's state refuses it
+    "already_open": "You already have an open flag on this value. The steward will look at it.",
+    "already_closed": "This flag is already closed.",
+    "not_closed": "This flag is still open, so there is nothing to reopen.",
+    "already_reopened": "This flag was already reopened. Reopen its newest closed flag instead.",
+    "withdrawn_by_user": "The user withdrew this flag. Only a flag you closed can be reopened.",
+    "user_has_open_flag": "The user has a newer open flag on this value, so this one is not reopened.",
+    "wrong_decision": (
+        "That decision is not a standing approve or correct of this company's value. Nothing was saved."
+    ),
+    # 422: the request cannot be stored
+    "fixed_needs_decision": "Closing a flag as fixed needs the decision that fixed it. Nothing was saved.",
+    "decision_on_kept": "A flag closed as kept names no decision. Nothing was saved.",
+    "blank_note": "Closing a flag as kept needs a note for the user. Nothing was saved.",
+}
+
+
 def new_reference() -> str:
     """A short random id (8 hex characters) that ties a response to its log line."""
     return secrets.token_hex(4)
