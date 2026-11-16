@@ -1,0 +1,54 @@
+{
+ "_fixture": "RECONSTRUCTED from the 2026-11-16 re-audit, not copied from EDGAR. us-gaap, USD only. Recorded: cash 116,878,000 on 2026-01-31 (CashAndCashEquivalentsAtCarryingValue and the restricted-cash total both reproduce it, per the stored note), operating cash flow 40,331,000 for 2025-02-01 to 2026-01-31, and NO time-deposit row on 2026-01-31. Reconstructed: the filed date.",
+ "entityName": "CGNT",
+ "facts": {
+  "us-gaap": {
+   "CashAndCashEquivalentsAtCarryingValue": {
+    "units": {
+     "USD": [
+      {
+       "end": "2026-01-31",
+       "val": 116878000,
+       "accn": "0001824814-26-000021",
+       "fy": 2026,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-04-08"
+      }
+     ]
+    }
+   },
+   "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents": {
+    "units": {
+     "USD": [
+      {
+       "end": "2026-01-31",
+       "val": 116878000,
+       "accn": "0001824814-26-000021",
+       "fy": 2026,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-04-08"
+      }
+     ]
+    }
+   },
+   "NetCashProvidedByUsedInOperatingActivities": {
+    "units": {
+     "USD": [
+      {
+       "start": "2025-02-01",
+       "end": "2026-01-31",
+       "val": 40331000,
+       "accn": "0001824814-26-000021",
+       "fy": 2026,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-04-08"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

@@ -1,0 +1,88 @@
+{
+ "_fixture": "RECONSTRUCTED from the 2026-11-15 audit and the 2026-11-16 re-audit, not copied from EDGAR. The cash and operating-cash-flow rows are the 2026-11-15 fixture's (see its README). Added from the re-audit: us-gaap ShortTermInvestments 22,803,503,000 (CNY) and 3,260,858,000 (USD) on 2025-12-31, the two rows the stored note compared the time deposits against. No time-deposit concept row was recorded, so none is included.",
+ "entityName": "NTES",
+ "facts": {
+  "us-gaap": {
+   "CashAndCashEquivalentsAtCarryingValue": {
+    "units": {
+     "CNY": [
+      {
+       "end": "2025-12-31",
+       "val": 47167904000,
+       "accn": "0001104659-26-043468",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-04-20"
+      }
+     ],
+     "USD": [
+      {
+       "end": "2025-12-31",
+       "val": 6744921000,
+       "accn": "0001104659-26-043468",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-04-20"
+      }
+     ]
+    }
+   },
+   "NetCashProvidedByUsedInOperatingActivities": {
+    "units": {
+     "CNY": [
+      {
+       "start": "2025-01-01",
+       "end": "2025-12-31",
+       "val": 50739800000,
+       "accn": "0001104659-26-043468",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-04-20"
+      }
+     ],
+     "USD": [
+      {
+       "start": "2025-01-01",
+       "end": "2025-12-31",
+       "val": 7255695000,
+       "accn": "0001104659-26-043468",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-04-20"
+      }
+     ]
+    }
+   },
+   "ShortTermInvestments": {
+    "units": {
+     "CNY": [
+      {
+       "end": "2025-12-31",
+       "val": 22803503000,
+       "accn": "0001104659-26-043468",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-04-20"
+      }
+     ],
+     "USD": [
+      {
+       "end": "2025-12-31",
+       "val": 3260858000,
+       "accn": "0001104659-26-043468",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-04-20"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

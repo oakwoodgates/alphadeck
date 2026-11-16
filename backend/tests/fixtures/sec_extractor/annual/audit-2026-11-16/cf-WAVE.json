@@ -1,0 +1,39 @@
+{
+ "_fixture": "RECONSTRUCTED from the 2026-11-16 re-audit, not copied from EDGAR. ifrs-full, USD. Recorded: cash 6,022,000 on 2025-12-31 (the stored note: companyfacts agrees with the cash), no operating-cash-flow row on 2025-12-31, and the lagging -2,462,000 for 2022 (the stored note's 'still serves' row). Reconstructed: the accessions and filed dates.",
+ "entityName": "WAVE",
+ "facts": {
+  "ifrs-full": {
+   "CashAndCashEquivalents": {
+    "units": {
+     "USD": [
+      {
+       "end": "2025-12-31",
+       "val": 6022000,
+       "accn": "0001213900-26-026655",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-03-20"
+      }
+     ]
+    }
+   },
+   "CashFlowsFromUsedInOperatingActivities": {
+    "units": {
+     "USD": [
+      {
+       "start": "2022-01-01",
+       "end": "2022-12-31",
+       "val": -2462000,
+       "accn": "0001213900-23-000001",
+       "fy": 2022,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2023-03-30"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

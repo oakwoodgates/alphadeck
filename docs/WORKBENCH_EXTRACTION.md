@@ -438,9 +438,14 @@ flag `unit-scale-unread` — stated, never guessed.
 
 **The current column is picked, never assumed.** Statements print 2–3 fiscal years side by side —
 ascending or descending, sometimes with a convenience second-currency column — and the report year is
-matched against the column-year headers located above the row. An ambiguous mapping (a duplicated
-report-year header) withholds the value with flag `column-ambiguous`; when every column shares one
-sign, the generative/burning **state** still reads (a state is sign-only).
+matched against the column-year headers **of the row's own table header** (the year tokens between the
+table's heading and its first figure; 2026-11-16 guard). Year tokens printed later, inside a row label
+("Share-based payment (2024 and 2025 plans)") or a second summary table's header, are not the row's
+columns (WAVE's operating cash flow came from the 2023 column that way). Only when the header alone cannot
+map the current column is the older read (every year token above the row) tried. Cash, the deposits part
+and the operating cash flow all take the report year's column, whichever side it is printed on. An
+ambiguous mapping (a duplicated report-year header) withholds the value with flag `column-ambiguous`; when
+every column shares one sign, the generative/burning **state** still reads (a state is sign-only).
 
 **Currency is established, never guessed** (the extractor correctness plan's PR 4, 2026-11-15). Foreign
 filers report in their own currency (CNY, JPY, TWD, EUR, CAD, SGD, ...), often with a translated US$
@@ -452,7 +457,13 @@ flagged `currency-mismatch` (both stated). (2) **The header's explicit markers**
 NT$, HK$, S$, C$/CDN$/CAD, A$, R$, RMB/Renminbi/yuan, ¥/yen, ₩, €, ₹, CHF, NIS/₪, £, ZAR (one marker →
 it; a home currency beside US$ on a row with more value columns than fiscal years → the home currency,
 and when companyfacts did not confirm it, `convenience-column`). **A bare `$` (or "dollars") names no
-currency** — a Canadian filer prints `$` too. (3) Otherwise **`currency-unread`**: the fact carries no
+currency** — a Canadian filer prints `$` too. (2b) When the headers name none, **the filing's own
+presentation-currency statement**, read anywhere in the document: "presented in United States Dollars",
+"expressed in U.S. dollars", "(in thousands of US dollars)", "Figures in million - SA rand", "USD 000"
+(ARQQ, SBSW in the 2026-11-16 re-audit). Only an explicit marker right after the phrase counts (never a
+bare `$` or `$000s`); "denominated in" is not read (a lease note's "denominated in euros" is not the
+statements' currency); two statements naming different currencies settle nothing. (3) Otherwise
+**`currency-unread`**: the fact carries no
 currency (never a blank-as-USD), and the front end renders `?`, never `$`. When the two statements'
 headers name different currencies and companyfacts does not settle it, that is `currency-unread` too.
 A fresher companyfacts reading is used only in the established currency (a mixed-currency ratio is
@@ -477,14 +488,41 @@ statement set**: the first qualifying cash-flow total after the chosen balance s
 operating activities $ 31,741") is rejected. A cash row that is located but unreadable is flagged
 `cash-unread` (it used to add nothing, silently). The note names each table and what was passed over.
 
+**Cash is a closing balance, never a flow** (2026-11-16 guard). A cash row whose own row names a movement,
+an exchange-rate effect or an opening balance ("Net increase/(decrease) in cash and cash equivalents",
+"Effect of exchange rate changes on cash and cash equivalents", "at beginning of period") is located but
+never valued (ARQQ's and SBSW's stored cash was the net increase). The cash-flow statement's closing line
+("Cash and cash equivalents at end of period/year") is a balance: it is the fallback when no readable
+balance-sheet cash row was located, the note says so, and the operating cash flow then comes from that
+same cash-flow statement. Among rows companyfacts reproduces, and again among the rest, a balance-sheet
+**statement** row (a title heading such as "CONSOLIDATED BALANCE SHEETS" or "Statement of Financial
+Position", with no breakdown cue) is preferred over a note, MD&A table or summary that happens to print the
+same figure (QGEN's cash-composition note, CGNT's MD&A table).
+
 **Cash is cash plus short-term deposits and investments** (operator decision D1; PR 4). A "short-term
 (bank) deposits", "short-term investments" or "time deposits" row on the SAME balance sheet as the cash
 row (near it, no "Total current assets" between them, not restricted or long-term, not a combined
-"cash ... and short-term ..." line) is added; each part is named in the note, rides as its own passage,
-is carried on `investments_usd`, and is cross-checked against companyfacts' short-term deposit and
-investment concepts. Marketable securities and the generic long-term investments line are not read here
-(D2). When companyfacts carries same-date short-term investments that no row was located for, the note
-says so and they are not counted.
+"cash ... and short-term ..." line) is added; each part is named in the note with the row it came from,
+rides as its own passage, is carried on `investments_usd`, and is cross-checked against companyfacts'
+short-term deposit and investment concepts. Marketable securities and the generic long-term investments
+line are not read here (D2). When companyfacts carries same-date short-term investments that no row was
+located for, the note says so and they are not counted.
+
+**The addition is only ever from the same statement** (2026-11-16 guard; the re-audit found three of
+four remaining wrong-and-unflagged candidates caused by the D1 rule). A deposits/investments row is
+counted only when ALL hold: (1) the cash row is a balance-sheet **statement** row (a title heading, no
+breakdown cue) — never a note (QGEN's Note 3, whose "deposits 54,653" are already inside cash), an MD&A
+table or summary (CGNT, whose "113,100" was last year's total of cash, restricted cash and deposits), a
+breakdown, or the cash-flow statement's closing line; (2) the row is its own line, not a component,
+total or summary ("of which", "including", "comprising", "consisting of", "Total", or a label naming
+cash); (3) it reads the same column headers as the cash row; (4) its report-year cell holds a value: a
+**dash** is an empty cell (nothing added, the note says so — WAVE's "note 5, 2025 a dash, 2024 1,254"
+added 5,000 from the note number before), and a **blank** cell beside a note reference (a table with a
+Note column whose row prints only "5 1,254") is never the note number. A row that fails (1)–(3), is blank
+beside its note reference, or cannot be read is **seen and not counted**: nothing is added, the row is
+quoted in the note with the reason, and the candidate carries **`investments-unconfirmed`**. In a table
+whose header prints a Note column, a bare parenthesized "(3)" right after a label is that note reference,
+never a negative first column.
 
 **Later-as-of-wins per quantity** (the shares rule): companyfacts usually **lags** the filing by up to
 a year (annual XBRL ingests slowly — the reason the filing is read at all) and is sometimes
@@ -493,7 +531,12 @@ its own exact span). **The cross-check** (PR 4) reads us-gaap and ifrs-full in e
 statement's own date and requires an **exact** match at the printed precision (a 1% tolerance passed
 EH's wrong column, 0.4% off): an agreement is named with its concept and unit; a same-date row that
 reproduces nothing is `figures-disagree` with both numbers (this replaced `source-disagreement` on this
-path); **no same-date row is a stated condition ("not cross-checked"), never a pass**. A cross-date lag
+path); **no same-date row is a stated condition ("not cross-checked"), never a pass**. A deposits or
+investments row is compared only within its concept family (a "deposits" row never meets a
+marketable-securities concept, an "investments" row never meets a time-deposit concept) and never with a
+concept that reproduces ANOTHER counted row of the same balance sheet (NTES: "Short-term investments"
+owns `ShortTermInvestments`, so the separate "Time deposits" row is "not cross-checked", not
+`figures-disagree`; the note says which row owns the concept). A cross-date lag
 is stated in the note, not flagged — lag is the *rule* for annual filers and a flag true of every name
 carries no information. Every annual cash and burn candidate stays a FLAG whatever the cross-check says.
 
