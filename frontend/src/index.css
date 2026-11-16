@@ -397,6 +397,7 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .np-thinflag { margin-top: 9px; font-size: 10.5px; color: var(--warn, #b8860b); }
 /* 0056 — a KNOWN FEED LIMITATION the operator marked: a quiet gray note (an explained, ratified condition) */
 .np-feednote { margin-top: 9px; font-size: 10.5px; color: var(--txt-3); cursor: help; }
+.np-pace { font-size: 10.5px; line-height: 1.45; color: var(--txt-3); margin: 2px 0 4px; }
 /* the board-table thin marker — a quiet amber caret beside the ticker, only on a starved row */
 .thin-mark { color: var(--warn, #b8860b); font-size: 10px; margin-left: 5px; cursor: help; }
 /* S3 — the shared "is this real?" data flag. The ROW mark: a small hollow diamond after the ticker, only
@@ -987,6 +988,7 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .wb-meters { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
 .wb-meter { display: flex; align-items: center; gap: 7px; }
 .wb-meter .ml { font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--txt-4); }
+.wb-pace { font-size: 9.5px; color: var(--txt-4); cursor: help; margin-left: -2px; }
 .wb-meter.risk .ml { color: color-mix(in srgb, var(--armed) 75%, var(--txt-3)); }
 .wb-meter-sep { width: 1px; align-self: stretch; min-height: 16px; background: var(--line-2); margin: 0 1px; }
 .wb-pips { display: flex; gap: 3px; }
@@ -1061,6 +1063,8 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .dd-meter-h .k { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--txt-3); }
 .dd-meter-h .v { font-family: var(--mono); font-size: 11px; color: var(--txt-2); }
 .dd-why { font-size: 11px; line-height: 1.5; color: var(--txt-2); margin-top: 6px; padding-left: 9px; border-left: 2px solid var(--line-2); }
+/* the runway's year-to-date pace and its caveat (V2 extractor correctness PR 3): quiet text, never an alert */
+.dd-pace { font-size: 11px; line-height: 1.5; color: var(--txt-3); margin-top: 4px; }
 .prov { display: flex; flex-wrap: wrap; gap: 6px; }
 .prov .chip { font-family: var(--mono); font-size: 9.5px; color: var(--txt-3); background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 5px; padding: 3px 7px; text-decoration: none; display: inline-block; }
 .prov .chip::before { content: "◇ "; color: var(--txt-4); }

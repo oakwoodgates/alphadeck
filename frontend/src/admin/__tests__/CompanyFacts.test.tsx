@@ -968,3 +968,38 @@ describe("CompanyFacts: Extract now", () => {
     expect(within(sharesBlock()).getByTestId("cf-attempts")).toHaveTextContent("No extraction attempts yet.");
   });
 });
+
+describe("CompanyFacts: the burn's year-to-date pace (V2 extractor correctness PR 3)", () => {
+  const CAVEAT = "Last quarter's burn ($17.1M) is well below the year-to-date pace ($69.9M a quarter): runway reads 9.1 months at last quarter's pace and 2.2 months at the year-to-date pace.";
+  const upValue = (pace: Record<string, any> | null) =>
+    val({ source: "10-q", shares: null, cash_usd: 51811000, quarterly_burn_usd: 17085000, pace });
+
+  it("shows the year-to-date pace beside an applied value, and its caveat quietly", () => {
+    serve(company({}, { state: "from_filing", reason: null, ratifier: "machine", value: upValue({ ytd_quarterly_burn_usd: 69943025, ytd_days: 272, ytd_runway_months: 2.2, caveat: CAVEAT }) }));
+    renderPage();
+    expect(status(cashBlock())).toHaveTextContent(
+      "year-to-date pace: quarterly burn $69,943,025 (2.2 months of runway)",
+    );
+    const caveat = within(cashBlock()).getByTestId("cf-pace-caveat");
+    expect(caveat).toHaveTextContent(CAVEAT);
+    expect(caveat.className).toBe("cf-quiet");
+    expect(status(cashBlock()).className).not.toContain("cf-loud"); // a caveat, never a loud state
+  });
+
+  it("shows a steady pace without a caveat, and nothing for a value without a pace", () => {
+    serve(company({}, { state: "from_filing", reason: null, ratifier: "machine", value: upValue({ ytd_quarterly_burn_usd: 88779250, ytd_days: 272, ytd_runway_months: 18.6, caveat: null }) }));
+    const { unmount } = renderPage();
+    expect(status(cashBlock())).toHaveTextContent("year-to-date pace: quarterly burn $88,779,250 (18.6 months of runway)");
+    expect(within(cashBlock()).queryByTestId("cf-pace-caveat")).toBeNull();
+    unmount();
+    serve(company({}, { state: "from_filing", reason: null, ratifier: "machine", value: upValue(null) }));
+    renderPage();
+    expect(status(cashBlock())).not.toHaveTextContent("year-to-date pace");
+  });
+
+  it("says a cash-generating year to date in words", () => {
+    serve(company({}, { state: "from_filing", reason: null, ratifier: "machine", value: upValue({ ytd_quarterly_burn_usd: -1524448759, ytd_days: 272, ytd_runway_months: null, caveat: CAVEAT }) }));
+    renderPage();
+    expect(status(cashBlock())).toHaveTextContent("year-to-date pace: cash-generative, $1,524,448,759 a quarter");
+  });
+});

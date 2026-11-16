@@ -19,6 +19,7 @@ import {
   onFileValues,
   provChip,
   provNotes,
+  runwayPaceWords,
   supersectorLabel,
 } from "./format";
 import { ExternalLink } from "../components/ExternalLink";
@@ -33,12 +34,25 @@ const METERS: { key: string; figure: (m: ScoredMemberOut) => ScoredFigureOut }[]
 
 function MeterProvenance({ meter, figure }: { meter: string; figure: ScoredFigureOut }) {
   const notes = provNotes(figure.provenance);
+  // the runway's year-to-date pace beside last quarter's (V2 extractor correctness PR 3): quiet, the caveat only
+  // when last quarter is far off that pace
+  const pace = meter === "runway" ? runwayPaceWords(figure) : null;
   return (
     <div className="dd-meter">
       <div className="dd-meter-h">
         <span className="k">{meter}</span>
         <span className="v">{meterValueLabel(meter, figure)}</span>
       </div>
+      {pace && (
+        <div className="dd-pace" data-testid="dd-runway-pace">
+          {pace.ytd}
+        </div>
+      )}
+      {pace?.caveat && (
+        <div className="dd-pace" data-testid="dd-runway-caveat">
+          {pace.caveat}
+        </div>
+      )}
       {figure.provenance.length > 0 && (
         <div className="prov">
           {figure.provenance.map((p, i) => {

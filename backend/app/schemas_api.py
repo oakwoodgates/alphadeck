@@ -1044,6 +1044,9 @@ class ExtractedFactIn(ExtractedFact):
     estimate_source: Line | None = None
     ads_ratio: AdsRatio | None = None
     ads_ratio_status: Line | None = None
+    # the burn pace (V2 extractor correctness PR 3), sent back as the extract returned it; display only
+    ytd_quarterly_burn_usd: FiniteFloat | None = None
+    pace_caveat: Prose | None = None
 
 
 class FlagExplanationOut(BaseModel):

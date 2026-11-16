@@ -11394,6 +11394,12 @@ export interface components {
             ads_ratio?: number | null;
             /** Ads Ratio Status */
             ads_ratio_status?: string | null;
+            /** Ytd Quarterly Burn Usd */
+            ytd_quarterly_burn_usd?: number | null;
+            /** Ytd Burn Days */
+            ytd_burn_days?: number | null;
+            /** Pace Caveat */
+            pace_caveat?: string | null;
         };
         /**
          * ExtractedFactIn
@@ -11440,6 +11446,12 @@ export interface components {
             ads_ratio?: number | null;
             /** Ads Ratio Status */
             ads_ratio_status?: string | null;
+            /** Ytd Quarterly Burn Usd */
+            ytd_quarterly_burn_usd?: number | null;
+            /** Ytd Burn Days */
+            ytd_burn_days?: number | null;
+            /** Pace Caveat */
+            pace_caveat?: string | null;
         };
         /**
          * ExtractionResult
@@ -15719,8 +15731,10 @@ export interface components {
         };
         /**
          * PeerRunwayOut
-         * @description Months of cash at the current burn (cash / (quarterly burn / 3)); ``cash_positive`` when the burn is zero or
-         *     negative (no finite figure). ``as_of`` = the fact's date.
+         * @description Months of cash at LAST QUARTER'S burn (cash / (quarterly burn / 3)); ``cash_positive`` when the burn is zero
+         *     or negative (no finite figure). ``as_of`` = the fact's date. The year-to-date pace beside it (V2 extractor
+         *     correctness PR 3): ``ytd_quarterly_burn_usd`` (burn sign), ``ytd_months`` (None when that pace generates cash)
+         *     and ``pace_caveat`` (only when last quarter is far off that pace); all None when the fact's note has no pace.
          */
         PeerRunwayOut: {
             /** Months */
@@ -15735,6 +15749,12 @@ export interface components {
             as_of: string | null;
             /** Gap */
             gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
+            /** Ytd Quarterly Burn Usd */
+            ytd_quarterly_burn_usd: number | null;
+            /** Ytd Months */
+            ytd_months: number | null;
+            /** Pace Caveat */
+            pace_caveat: string | null;
         };
         /**
          * PeerScopesOut
@@ -15959,6 +15979,7 @@ export interface components {
             vouched?: string | null;
             /** Note */
             note?: string | null;
+            pace?: components["schemas"]["PlatformPaceOut"] | null;
             /** Shares */
             shares?: number | null;
             /** Ads Ratio */
@@ -16073,6 +16094,7 @@ export interface components {
             filing_accepted?: string | null;
             /** Note */
             note?: string | null;
+            pace?: components["schemas"]["PlatformPaceOut"] | null;
             /** Located Passages */
             located_passages?: components["schemas"]["LocatedPassage"][];
             /**
@@ -16279,6 +16301,23 @@ export interface components {
             detail?: string | null;
         };
         /**
+         * PlatformPaceOut
+         * @description A cash-and-burn value's year-to-date pace (V2 extractor correctness PR 3, ``domain.burn_pace``), read from its
+         *     note: the pace per quarter (burn sign: positive = burning), its span in days, the months of runway that pace
+         *     implies (None when it generates cash or no cash is on file), and the caveat sentence when last quarter is far off
+         *     that pace (None on a steady reading). Display only.
+         */
+        PlatformPaceOut: {
+            /** Ytd Quarterly Burn Usd */
+            ytd_quarterly_burn_usd: number;
+            /** Ytd Days */
+            ytd_days: number;
+            /** Ytd Runway Months */
+            ytd_runway_months?: number | null;
+            /** Caveat */
+            caveat?: string | null;
+        };
+        /**
          * PlatformPinEventOut
          * @description The newest pin event of a value: ``action`` ``pin`` or ``unpin``, ``decided_by`` the steward's email,
          *     ``note`` why (optional), ``recorded_at`` when.
@@ -16447,6 +16486,7 @@ export interface components {
             vouched?: string | null;
             /** Note */
             note?: string | null;
+            pace?: components["schemas"]["PlatformPaceOut"] | null;
             /** Shares */
             shares?: number | null;
             /** Ads Ratio */

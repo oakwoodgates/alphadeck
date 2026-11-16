@@ -32,10 +32,12 @@ describe("formatMarketCap", () => {
 describe("meterValueLabel", () => {
   it("renders each meter and the meter-specific no-data cases", () => {
     expect(meterValueLabel("purity", { pips: 4, value: 77, provenance: [] })).toBe("77%");
-    expect(meterValueLabel("runway", { pips: 2, value: 18, provenance: [] })).toBe("18 mo");
+    expect(meterValueLabel("runway", { pips: 2, value: 18, provenance: [] })).toBe(
+      "18 mo at last quarter's pace",
+    );
     // runway null = cash-generative (top pip, no months); dilution null = no convert data
     expect(meterValueLabel("runway", { pips: 4, value: null, provenance: [] })).toBe(
-      "cash-generative",
+      "cash-generative last quarter",
     );
     expect(meterValueLabel("dilution", { pips: null, value: null, provenance: [] })).toBe(
       "no convert data",

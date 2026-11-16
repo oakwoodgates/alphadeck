@@ -276,3 +276,15 @@ export function attemptWords(a: PlatformExtractionAttemptOut, factType: Platform
   }
   return `${head} · ${what}`;
 }
+
+/** A cash-and-burn value's year-to-date pace in words (V2 extractor correctness PR 3), from the steward read's
+ *  `pace` (derived from the stored note): "year-to-date pace: quarterly burn $69,943,025 (2.2 months of runway)",
+ *  or "year-to-date pace: cash-generative, $1,524,448,759 a quarter". `null` when the value carries no pace. The
+ *  caveat sentence is the pace's own `caveat` (shown quietly, only when set). */
+export function paceWords(pace: PlatformAppliedValueOut["pace"] | undefined): string | null {
+  if (!pace) return null;
+  const q = pace.ytd_quarterly_burn_usd;
+  if (q <= 0) return `year-to-date pace: cash-generative, ${fmtMoney(-q)} a quarter`;
+  const months = pace.ytd_runway_months != null ? ` (${pace.ytd_runway_months} months of runway)` : "";
+  return `year-to-date pace: quarterly burn ${fmtMoney(q)}${months}`;
+}

@@ -42,7 +42,7 @@ with no underlying fact reads "—", never a fake zero.
 | meter | formula | fact (PIT accessor) |
 |---|---|---|
 | **purity** | the largest revenue-line `mix_pct` for the name | `fact_revenue_mix` (`revenue_mix_facts`) |
-| **runway** | `cash_usd / (quarterly_burn_usd / 3)` months; cash-generative (burn ≤ 0) → top pip | `fact_cash_burn` (`cash_burn_facts`) |
+| **runway** | `cash_usd / (quarterly_burn_usd / 3)` months **at last quarter's pace**; cash-generative (burn ≤ 0) → top pip. The year-to-date pace beside it is display only (below) | `fact_cash_burn` (`cash_burn_facts`) |
 | **catalysts** | count of **live** catalysts (live = within the catalyst's liveness horizon) + the core/flip grade | `fact_catalyst` (`catalyst_facts`) |
 | **dilution** | the raw convert-overhang % | `fact_dilution` via `dilution_clock.overhang_pct` |
 | **market cap** | latest `close` × latest `shares` (A+B total-economic) | `fact_price_eod` × `fact_shares_outstanding` |
@@ -100,6 +100,16 @@ Every meter traces to a fact or a computation (`INVARIANTS.md` #3): **purity** �
 **catalysts** → each live `fact_catalyst.source_ref`; **dilution** → the convert accession + the computed
 overhang; **market cap** → the price ref + the shares `source_ref`. Filing refs resolve to clickable EDGAR
 URLs (`edgar_url`).
+
+**The runway's pace (V2 extractor correctness PR 3; operator decision D3).** Every screen labels the runway "at
+last quarter's pace". When the stored note carries the extractor's year-to-date pace (`domain/burn_pace.py`,
+`runway_pace`), the runway provenance's `detail` adds `ytd_quarterly_burn_usd`, `ytd_burn_days`,
+`ytd_runway_months` (when that pace burns) and `pace_caveat` (only when last quarter is more than 2× off that
+pace or of the opposite sign), and the Peer Table cell (`ytd_quarterly_burn_usd`, `ytd_months`, `pace_caveat`),
+the Filing Stream row and the steward's company page (`pace`) carry the same reading. Shown quietly: the pace
+line on the rail, the name panel and the steward page; the caveat sentence only on the minority it applies to (a
+quiet "uneven quarter" on the scored row, an asterisk on the Peer Table cell). **Never the pips, the months, the
+fit label or the sort**, and never a call input.
 
 ## The risk axis — dilution is the only implemented risk signal
 

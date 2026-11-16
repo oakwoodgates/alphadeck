@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from domain.burn_pace import runway_pace
 from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.enums import Grade
 from domain.platform_values import pick_current
@@ -99,13 +100,27 @@ def _purity(pit: PointInTimeData, sid, cfg: CallConfig) -> ScoredFigure:
 
 
 def _runway(pit: PointInTimeData, sid, cfg: CallConfig) -> ScoredFigure:
-    """Months of funding at the current burn (cash / monthly burn); cash-generative reads max (top pip)."""
+    """Months of funding at LAST QUARTER'S burn (cash / monthly burn); cash-generative reads max (top pip).
+
+    The year-to-date pace (V2 extractor correctness PR 3, ``domain.burn_pace``) rides the provenance DETAIL only,
+    read from the stored note: ``ytd_quarterly_burn_usd``, ``ytd_burn_days``, ``ytd_runway_months`` (when that pace
+    burns) and ``pace_caveat`` (only when the quarter is far off that pace). The pips and the value never read it.
+    """
     facts = pit.cash_burn_facts(sid)
     if not facts:
         return ScoredFigure()  # "—": no cash/burn data
     best = pick_current(facts)  # THE one pick (domain.platform_values, D1 a)
     cash, burn = float(best["cash_usd"]), float(best["quarterly_burn_usd"])
-    prov = _prov(best, cash_usd=cash, quarterly_burn_usd=burn)
+    pace = runway_pace(cash, burn, best.get("note"))
+    prov = _prov(
+        best,
+        cash_usd=cash,
+        quarterly_burn_usd=burn,
+        ytd_quarterly_burn_usd=None if pace is None else pace.ytd_quarterly_burn_usd,
+        ytd_burn_days=None if pace is None else pace.ytd_days,
+        ytd_runway_months=None if pace is None else pace.ytd_runway_months,
+        pace_caveat=None if pace is None else pace.caveat,
+    )
     if burn <= 0:  # cash-generative: no burn-funding risk -> the top pip, no finite months figure
         return ScoredFigure(pips=len(cfg.runway_pip_months), value=None, provenance=[prov])
     months = cash / (burn / _MONTHS_PER_QUARTER)

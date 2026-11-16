@@ -139,6 +139,15 @@ class ExtractedFact(DomainModel):
     # 10-Q candidate). Rides the ratify body into ``fact_shares_outstanding`` as derivation metadata.
     ads_ratio: int | None = None
     ads_ratio_status: str | None = None
+    # THE BURN PACE (V2 extractor correctness PR 3; operator decision D3, ``domain.burn_pace``) — cash_burn, the
+    # quarterly path only. ``ytd_quarterly_burn_usd`` = the year to date ending on the burn's end, scaled to one
+    # quarter (burn sign: positive = burning); ``ytd_burn_days`` its span. None when there is no separate year to
+    # date (a first fiscal quarter, an annual filer, a burn outside the quarter window). ``pace_caveat`` = one plain
+    # sentence when the quarter is far off that pace (``pace_divergence``), else None. A CAVEAT, never a flag: it
+    # never changes the tier. Carried here and stated in the note; not a stored column (the note is the storage).
+    ytd_quarterly_burn_usd: float | None = None
+    ytd_burn_days: int | None = None
+    pace_caveat: str | None = None
 
 
 class ExtractionResult(DomainModel):

@@ -24748,6 +24748,39 @@
               }
             ],
             "title": "Ads Ratio Status"
+          },
+          "ytd_quarterly_burn_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ytd Quarterly Burn Usd"
+          },
+          "ytd_burn_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ytd Burn Days"
+          },
+          "pace_caveat": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pace Caveat"
           }
         },
         "additionalProperties": false,
@@ -24902,6 +24935,40 @@
               }
             ],
             "title": "Ads Ratio Status"
+          },
+          "ytd_quarterly_burn_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ytd Quarterly Burn Usd"
+          },
+          "ytd_burn_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ytd Burn Days"
+          },
+          "pace_caveat": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pace Caveat"
           }
         },
         "additionalProperties": false,
@@ -35494,6 +35561,39 @@
               }
             ],
             "title": "Gap"
+          },
+          "ytd_quarterly_burn_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ytd Quarterly Burn Usd"
+          },
+          "ytd_months": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ytd Months"
+          },
+          "pace_caveat": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pace Caveat"
           }
         },
         "type": "object",
@@ -35503,10 +35603,13 @@
           "cash_usd",
           "burn_usd",
           "as_of",
-          "gap"
+          "gap",
+          "ytd_quarterly_burn_usd",
+          "ytd_months",
+          "pace_caveat"
         ],
         "title": "PeerRunwayOut",
-        "description": "Months of cash at the current burn (cash / (quarterly burn / 3)); ``cash_positive`` when the burn is zero or\nnegative (no finite figure). ``as_of`` = the fact's date."
+        "description": "Months of cash at LAST QUARTER'S burn (cash / (quarterly burn / 3)); ``cash_positive`` when the burn is zero\nor negative (no finite figure). ``as_of`` = the fact's date. The year-to-date pace beside it (V2 extractor\ncorrectness PR 3): ``ytd_quarterly_burn_usd`` (burn sign), ``ytd_months`` (None when that pace generates cash)\nand ``pace_caveat`` (only when last quarter is far off that pace); all None when the fact's note has no pace."
       },
       "PeerScopesOut": {
         "properties": {
@@ -36143,6 +36246,16 @@
             ],
             "title": "Note"
           },
+          "pace": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlatformPaceOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "shares": {
             "anyOf": [
               {
@@ -36534,6 +36647,16 @@
               }
             ],
             "title": "Note"
+          },
+          "pace": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlatformPaceOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "located_passages": {
             "items": {
@@ -37077,6 +37200,47 @@
         "title": "PlatformExtractionAttemptOut",
         "description": "One background-extraction attempt of the company (``platform_extraction_attempt``): ``run_kind`` who ran it\n(``nightly``, ``onboarding``, ``backfill``, ``steward``, ``get_data``); ``status`` ``done`` (the machine writer\nran: ``shares_reason`` / ``cash_reason`` its reason per value type), ``error`` (``error``: one line, why),\n``busy`` (another writer held the company; nothing written) or ``skipped`` (``detail``, e.g. no CIK)."
       },
+      "PlatformPaceOut": {
+        "properties": {
+          "ytd_quarterly_burn_usd": {
+            "type": "number",
+            "title": "Ytd Quarterly Burn Usd"
+          },
+          "ytd_days": {
+            "type": "integer",
+            "title": "Ytd Days"
+          },
+          "ytd_runway_months": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ytd Runway Months"
+          },
+          "caveat": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Caveat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ytd_quarterly_burn_usd",
+          "ytd_days"
+        ],
+        "title": "PlatformPaceOut",
+        "description": "A cash-and-burn value's year-to-date pace (V2 extractor correctness PR 3, ``domain.burn_pace``), read from its\nnote: the pace per quarter (burn sign: positive = burning), its span in days, the months of runway that pace\nimplies (None when it generates cash or no cash is on file), and the caveat sentence when last quarter is far off\nthat pace (None on a steady reading). Display only."
+      },
       "PlatformPinEventOut": {
         "properties": {
           "action": {
@@ -37465,6 +37629,16 @@
               }
             ],
             "title": "Note"
+          },
+          "pace": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlatformPaceOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "shares": {
             "anyOf": [

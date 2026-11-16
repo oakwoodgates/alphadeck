@@ -40,6 +40,7 @@ import {
   isOpen,
   isStanding,
   lowerFirst,
+  paceWords,
   pinEventOf,
   pinWords,
   setWords,
@@ -157,6 +158,12 @@ function CandidateEvidence({ c }: { c: PlatformCandidateOut }) {
         on {day(c.recorded_at)}
         {c.filing_accession ? ` · accession ${c.filing_accession}` : ""}
       </div>
+      {paceWords(c.pace) && (
+        <div className="cf-quiet" data-testid="cf-candidate-pace">
+          {paceWords(c.pace)}
+          {c.pace?.caveat ? `. ${c.pace.caveat}` : ""}
+        </div>
+      )}
       {c.note?.trim() && <div className="cf-quiet">{c.note}</div>}
       {unreadable > 0 && (
         <div className="cf-quiet">
@@ -293,6 +300,12 @@ function ValueBlock({
           <>
             {" · "}
             {valueWords(v.fact_type, value, storedCurrency(value))}
+            {paceWords(value.pace) && (
+              <>
+                {" · "}
+                <span data-testid="cf-pace">{paceWords(value.pace)}</span>
+              </>
+            )}
             {annual && (
               <>
                 {" · "}
@@ -306,6 +319,13 @@ function ValueBlock({
           </>
         )}
       </div>
+      {/* the pace caveat (V2 extractor correctness PR 3): quiet, only when last quarter is far off the year-to-date
+          pace; a caveat on the applied value, never something the steward owes a decision on */}
+      {value?.pace?.caveat && (
+        <div className="cf-quiet" data-testid="cf-pace-caveat">
+          {value.pace.caveat}
+        </div>
+      )}
 
       {v.pinned && (
         <div className="cf-pin">
