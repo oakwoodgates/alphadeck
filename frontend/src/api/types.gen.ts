@@ -2509,7 +2509,8 @@ export interface paths {
          *     the value shown and not after today (approved decision D1 (a)). With ``candidate_id`` it also closes that
          *     candidate. Undo with ``POST .../decisions/{id}/undo``. **404** unknown company or candidate; **409** a value
          *     with a later date is shown (the detail names its date and filing), the candidate is decided or not this
-         *     company's, or the company is busy; **422** a date after today or an ADS ratio without the status ``known``.
+         *     company's, or the company is busy; **422** a date after today, an ADS ratio without the status ``known``, a
+         *     currency that is not an ISO code, or an investment part below zero or above the cash.
          */
         post: operations["correct_value_admin_platform_values__security_id__correct_post"];
         delete?: never;
@@ -15928,7 +15929,9 @@ export interface components {
          * PlatformAppliedValueOut
          * @description One stored fact version: ``valid_from`` the filing's date, ``ratified_by`` who set it (``auto``, an email,
          *     or ``operator`` for a carried V1 row), ``vouched`` confirm/override provenance. ``source_ref`` is ``None`` on
-         *     the wire unless it is a plain http(s) URL (``domain.links``).
+         *     the wire unless it is a plain http(s) URL (``domain.links``). A cash/burn version's ``currency`` is its
+         *     statement's ISO code (the ``*_usd`` figures are in it) and ``investments_usd`` the investment part inside
+         *     ``cash_usd`` (0208); None = not recorded, never "USD" or 0 (a V1 row carries neither).
          */
         PlatformAppliedValueOut: {
             /**
@@ -15970,6 +15973,10 @@ export interface components {
             cash_usd?: number | null;
             /** Quarterly Burn Usd */
             quarterly_burn_usd?: number | null;
+            /** Currency */
+            currency?: string | null;
+            /** Investments Usd */
+            investments_usd?: number | null;
         };
         /**
          * PlatformApproveIn
@@ -16054,6 +16061,8 @@ export interface components {
             quarterly_burn_usd?: number | null;
             /** Statement Currency */
             statement_currency?: string | null;
+            /** Investments Usd */
+            investments_usd?: number | null;
             /** Ads Ratio */
             ads_ratio?: number | null;
             /** Ads Ratio Status */
@@ -16080,7 +16089,9 @@ export interface components {
         };
         /**
          * PlatformCorrectCashBurnIn
-         * @description Cash on hand and the quarterly burn (positive = cash used; zero or negative = cash-generative).
+         * @description Cash on hand and the quarterly burn (positive = cash used; zero or negative = cash-generative), in the
+         *     statement's ``currency`` (an ISO code; omitted = not recorded), and the ``investments_usd`` part of the cash
+         *     (short-term investments; never negative, never above the cash; omitted = no split recorded).
          */
         PlatformCorrectCashBurnIn: {
             /** Source Ref */
@@ -16103,6 +16114,10 @@ export interface components {
             cash_usd: number;
             /** Quarterly Burn Usd */
             quarterly_burn_usd: number;
+            /** Currency */
+            currency?: string | null;
+            /** Investments Usd */
+            investments_usd?: number | null;
         };
         /**
          * PlatformCorrectSharesIn
@@ -16446,6 +16461,10 @@ export interface components {
             cash_usd?: number | null;
             /** Quarterly Burn Usd */
             quarterly_burn_usd?: number | null;
+            /** Currency */
+            currency?: string | null;
+            /** Investments Usd */
+            investments_usd?: number | null;
             /**
              * Set Aside
              * @default false
@@ -16928,6 +16947,10 @@ export interface components {
             cash_usd: number;
             /** Quarterly Burn Usd */
             quarterly_burn_usd: number;
+            /** Currency */
+            currency?: string | null;
+            /** Investments Usd */
+            investments_usd?: number | null;
         };
         /**
          * RatifyCatalyst

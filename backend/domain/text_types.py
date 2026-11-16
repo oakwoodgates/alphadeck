@@ -80,6 +80,9 @@ MIX_PCT_MIN, MIX_PCT_MAX = 0.0, 100.0
 SHARES_MAX = 1e13  # largest stored share count: 6.1e10
 ADS_RATIO_MIN, ADS_RATIO_MAX = 1, 1_000_000
 MONEY_ABS_MAX = 1e15  # cash and quarterly burn, either sign (largest stored: 2.8e12)
+# a currency: an ISO 4217 code, three capital letters (the steward states a cash/burn value's statement currency;
+# the same rule as the stored column's check, migration 0208)
+CURRENCY_CODE_PATTERN = r"^[A-Z]{3}$"
 DECISION_AMOUNT_MAX = 1e13  # a decision's shares and price
 
 # dates
@@ -184,6 +187,13 @@ FiniteFloat = Annotated[float, _FINITE, Bounded("finite")]
 MixPct = Annotated[float, _FINITE, Ge(MIX_PCT_MIN), Le(MIX_PCT_MAX), Bounded("mix_pct")]
 Shares = Annotated[float, _FINITE, Gt(0), Le(SHARES_MAX), Bounded("shares")]
 Money = Annotated[float, _FINITE, Ge(-MONEY_ABS_MAX), Le(MONEY_ABS_MAX), Bounded("money")]
+# the investment part of a cash figure (never negative; the steward also checks it is not above the cash)
+MoneyPart = Annotated[float, _FINITE, Ge(0), Le(MONEY_ABS_MAX), Bounded("money_part")]
+CurrencyCode = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, pattern=CURRENCY_CODE_PATTERN),
+    Bounded("currency"),
+]
 DecisionAmount = Annotated[
     float, _FINITE, Ge(0), Le(DECISION_AMOUNT_MAX), Bounded("decision_amount")
 ]
@@ -273,6 +283,7 @@ __all__ = [
     "BASKET_MAX",
     "CATALYSTS_MAX",
     "CIK_MAX_DIGITS",
+    "CURRENCY_CODE_PATTERN",
     "DECISION_AMOUNT_MAX",
     "EMAIL_MAX",
     "EXCERPT_MAX",
@@ -310,6 +321,7 @@ __all__ = [
     "AsofDate",
     "Bounded",
     "CikIn",
+    "CurrencyCode",
     "DecisionAmount",
     "EmailIn",
     "Excerpt",
@@ -317,6 +329,7 @@ __all__ = [
     "Line",
     "MixPct",
     "Money",
+    "MoneyPart",
     "Narrative",
     "OpaqueState",
     "PasswordIn",

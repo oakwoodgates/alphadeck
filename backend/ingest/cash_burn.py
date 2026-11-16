@@ -32,6 +32,8 @@ def ingest_cash_burn(
     source_ref: str,
     event_date: date,
     note: str | None = None,
+    currency: str | None = None,
+    investments_usd: float | None = None,
     ratified_by: str | None = None,
     vouched: str | None = None,
     tenant_id: UUID = DEFAULT_TENANT_ID,
@@ -43,6 +45,11 @@ def ingest_cash_burn(
     quarter (``<= 0`` = cash-positive). ``source_ref`` is the 10-Q (provenance + identity); a restatement is
     a NEW row with a later ``recorded_at`` (latest-version-wins on the as-of read). ``vouched`` is confirm/
     override PROVENANCE ('confirmed' | 'overridden' | None) — never a scoring input. Returns the new fact id.
+
+    ``currency`` is the statement's ISO code (the ``*_usd`` columns then hold that currency's figures); None = not
+    recorded, never assumed USD. ``investments_usd`` is the investment part already INSIDE ``cash_usd`` (operator
+    decision D1 (d)); None = no split recorded. Both are set on this new version only (migration 0208), display
+    only, never a scoring input.
     """
     # platform data (V2, domain.scopes): the data tenant only, refused before any write
     require_write_tenant("fact_cash_burn", tenant_id)
@@ -51,6 +58,8 @@ def ingest_cash_burn(
         "security_id": security_id,
         "cash_usd": cash_usd,
         "quarterly_burn_usd": quarterly_burn_usd,
+        "currency": currency,
+        "investments_usd": investments_usd,
         "source": source,
         "source_ref": source_ref,
         "note": note,

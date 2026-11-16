@@ -45,6 +45,7 @@ import {
   setWords,
   statusWords,
   undoOf,
+  storedCurrency,
   valueWords,
 } from "./factWords";
 
@@ -291,7 +292,7 @@ function ValueBlock({
         {value && (
           <>
             {" · "}
-            {valueWords(v.fact_type, value)}
+            {valueWords(v.fact_type, value, storedCurrency(value))}
             {annual && (
               <>
                 {" · "}
@@ -474,7 +475,7 @@ function ValueBlock({
               const undoer = dec ? undoOf(dec, decisions) : undefined;
               return (
                 <li key={x.id} data-testid="cf-version-row" className={x.set_aside ? "cf-undone" : undefined}>
-                  {valueWords(v.fact_type, x)} · dated {day(x.valid_from)} · <FilingLink href={x.source_ref} /> ·{" "}
+                  {valueWords(v.fact_type, x, storedCurrency(x))} · dated {day(x.valid_from)} · <FilingLink href={x.source_ref} /> ·{" "}
                   {setWords(x.ratified_by, x.recorded_at)}
                   {x.set_aside && (
                     <b>

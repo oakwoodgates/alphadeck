@@ -429,6 +429,72 @@ def test_request_limits(world, db):
     assert _counts(db) == before
 
 
+def test_a_correction_states_the_currency_and_investment_part(world, db):
+    """0208: the steward's correction stores the statement currency and the investment part, and the company read
+    answers both on the value shown and on its version."""
+    s, sid, asof = world["s"], world["sid"], world["asof"]
+    r = s.post(
+        f"{BASE}/{sid}/correct",
+        json=_correct_body(asof, currency="CNY", investments_usd=12_000_000),
+    )
+    assert r.status_code == 200, r.text
+    value = r.json()["cash_burn"]["value"]
+    assert (value["currency"], value["investments_usd"]) == ("CNY", 12_000_000)
+    (version,) = r.json()["cash_burn"]["versions"]
+    assert (version["currency"], version["investments_usd"]) == ("CNY", 12_000_000)
+
+
+def test_a_correction_without_the_parts_answers_none(world, db):
+    s, sid, asof = world["s"], world["sid"], world["asof"]
+    r = s.post(f"{BASE}/{sid}/correct", json=_correct_body(asof))
+    assert r.status_code == 200, r.text
+    value = r.json()["cash_burn"]["value"]
+    assert (value["currency"], value["investments_usd"]) == (None, None)
+
+
+@pytest.mark.parametrize(
+    "over",
+    [
+        {"currency": "cny"},  # the request type: three capital letters
+        {"currency": "CNYX"},
+        {"currency": "$"},
+        {"investments_usd": -1},  # never negative
+        {"investments_usd": 30_000_001},  # never above the cash (the steward's rule)
+    ],
+)
+def test_a_correction_refuses_a_bad_currency_or_part(world, db, over):
+    s, sid, asof = world["s"], world["sid"], world["asof"]
+    before = _counts(db)
+    r = s.post(f"{BASE}/{sid}/correct", json=_correct_body(asof, **over))
+    assert r.status_code == 422, r.text
+    assert _counts(db) == before
+
+
+def test_approving_a_foreign_candidate_keeps_its_currency_on_the_wire(world, db):
+    s, sid, asof = world["s"], world["sid"], world["asof"]
+    cid = repo.append_candidate(
+        db,
+        security_id=sid,
+        fact_type="cash_burn",
+        outcome="flag",
+        flags=["annual-statements"],
+        source="20-f",
+        source_ref=NEW_REF,
+        event_date=asof - timedelta(days=40),
+        cash_usd=9_000_000,
+        quarterly_burn_usd=1_500_000,
+        statement_currency="JPY",
+        investments_usd=2_000_000,
+    )
+    db.commit()
+    company = s.get(f"{BASE}/{sid}").json()
+    assert company["cash_burn"]["awaiting"]["investments_usd"] == 2_000_000
+    r = s.post(f"{BASE}/candidates/{cid}/approve", json={})
+    assert r.status_code == 200, r.text
+    value = r.json()["cash_burn"]["value"]
+    assert (value["currency"], value["investments_usd"]) == ("JPY", 2_000_000)
+
+
 def test_the_awaiting_list_is_newest_first_and_omits_decided(world, db):
     s, sid, asof = world["s"], world["sid"], world["asof"]
     other = uuid.uuid4()

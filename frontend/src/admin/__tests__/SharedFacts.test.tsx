@@ -181,6 +181,33 @@ describe("SharedFacts: rows waiting", () => {
     expect(r).toHaveTextContent("cash and burn: $2,000,000 cash, quarterly burn $500,000");
   });
 
+  it("a foreign cash candidate names its currency and its short-term investment part", () => {
+    const cash = (over: Record<string, unknown>) => ({
+      state: "awaiting_steward",
+      candidate: cand({ fact_type: "cash_burn", cash_usd: 7000000, quarterly_burn_usd: 500000, ...over }),
+      value: null,
+    });
+    h.pages = (o, pen) =>
+      pen === "exclude"
+        ? page(
+            [
+              row(4, { shares: null, cash_burn: cash({ statement_currency: "CNY", investments_usd: 2500000 }) }),
+              row(5, { shares: null, cash_burn: cash({ flags: ["currency-unread"] }) }),
+            ],
+            2,
+            0,
+          )
+        : EMPTY_PEN;
+    renderCard();
+    const [cny, unread] = screen.getAllByTestId("sf-row");
+    expect(cny).toHaveTextContent(
+      "cash and burn: CN¥7,000,000 cash (of which short-term investments CN¥2,500,000), quarterly burn CN¥500,000",
+    );
+    expect(unread).toHaveTextContent("cash and burn: ?7,000,000 cash, quarterly burn ?500,000");
+    expect(unread).not.toHaveTextContent("$");
+    expect(unread).not.toHaveTextContent("of which");
+  });
+
   it("a row is a link to the company's page", async () => {
     renderCard();
     await userEvent.setup().click(within(screen.getAllByTestId("sf-row")[0]).getByRole("link"));
