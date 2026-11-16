@@ -58,7 +58,8 @@ def _cb(ticker: str, period: date):
 def test_gkos_counts_its_unsplit_debt_total_and_flags_that_it_is_unconfirmed():
     """GKOS: only the unsplit total is tagged on the cash date. It is counted (162.3M + 174.4M), the note says
     it is a total not split into current and noncurrent, and it is a FLAG: tags alone cannot rule out that it
-    holds securities already inside cash equivalents (BMRN's same-shaped tag is not an addable amount)."""
+    holds securities already inside cash equivalents (BMRN's same-shaped tag is not an addable amount).
+    """
     cb = _cb("GKOS", date(2026, 9, 30))
     assert cb.cash_usd == 336_699_000  # old reading: 162,327,000
     assert cb.investments_usd == 174_372_000  # exactly what was added
@@ -131,7 +132,8 @@ def test_a_total_below_its_parts_is_a_flag():
 
 def test_a_total_above_its_parts_leaves_the_excess_uncounted_and_named():
     """GM-shaped: the debt total holds securities classed as cash equivalents, already inside cash. The excess
-    is never added (it cannot be told apart from cash), the value stays what the parts give, and it is said."""
+    is never added (it cannot be told apart from cash), the value stays what the parts give, and it is said.
+    """
     cb = _run(
         CashAndCashEquivalentsAtCarryingValue=[_inst(_D, 100e6)],
         DebtSecuritiesAvailableForSaleExcludingAccruedInterestCurrent=[_inst(_D, 50e6)],
@@ -145,7 +147,8 @@ def test_a_total_above_its_parts_leaves_the_excess_uncounted_and_named():
 
 def test_a_total_beside_other_investment_tags_is_named_never_added():
     """NTSK-shaped: marketable securities 846.5M counted; a debt total of 956.2M that also holds 109.7M of cash
-    equivalents. With no current/noncurrent part of its own it may restate what was counted: named, not added."""
+    equivalents. With no current/noncurrent part of its own it may restate what was counted: named, not added.
+    """
     cb = _run(
         CashAndCashEquivalentsAtCarryingValue=[_inst(_D, 220_854_000)],
         MarketableSecuritiesCurrent=[_inst(_D, 846_509_000)],
@@ -201,7 +204,8 @@ def test_a_total_off_the_cash_date_is_ignored():
 
 def test_deposits_and_equity_or_mixed_totals_are_never_read():
     """ODYS-shaped: ``DepositsAssetsCurrent`` also carries security and vendor deposits paid to others, so it is
-    not read; ``AvailableForSaleSecurities`` and ``MarketableSecurities`` can hold equity stakes, never read."""
+    not read; ``AvailableForSaleSecurities`` and ``MarketableSecurities`` can hold equity stakes, never read.
+    """
     cb = _run(
         CashAndCashEquivalentsAtCarryingValue=[_inst(_D, 17_220_000)],
         DepositsAssetsCurrent=[_inst(_D, 333_000)],

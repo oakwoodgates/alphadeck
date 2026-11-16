@@ -32,7 +32,7 @@ dimensions, filer-specific marketable-securities tags), so the located passages 
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from typing import Any
 
@@ -424,8 +424,30 @@ _LT_MARKETABLE = [
     ("us-gaap", "MarketableSecuritiesNoncurrent"),
     ("us-gaap", "AvailableForSaleSecuritiesNoncurrent"),
     ("us-gaap", "AvailableForSaleSecuritiesDebtSecuritiesNoncurrent"),
+    # the noncurrent sibling of the short-term ex-accrued-interest tag (the 2026-11-16 re-audit: CRUS's 324.4M)
+    ("us-gaap", "DebtSecuritiesAvailableForSaleExcludingAccruedInterestNoncurrent"),
     ("us-gaap", "HeldToMaturitySecuritiesNoncurrent"),
 ]
+# UNSPLIT debt-security TOTALS (the 2026-11-16 re-audit: GKOS keeps 174.4M of short-term investments only under
+# ``AvailableForSaleSecuritiesDebtSecurities``), each mapped to its own (current, noncurrent) parts. Debt only:
+# ``AvailableForSaleSecurities`` and ``MarketableSecurities`` can hold equity stakes and are never read. A total
+# is not a plain addend: it may restate parts already read, and filers often tag securities classed as CASH
+# EQUIVALENTS into it (GM's and NTSK's totals hold amounts already inside cash) or restricted holdings (NHC).
+# So (``_compose``): beside its own parts it is only a CHECK (parts above it -> ``investments-unreconciled``; a
+# total above them leaves the excess uncounted, named); beside other investment tags it is named, not counted;
+# ALONE on the cash date it is counted, said to be unsplit, and FLAGGED ``investments-unreconciled`` unless the
+# same-dated combined line confirms cash + it (tags alone cannot tell it apart from cash equivalents: BMRN's
+# same-shaped tag is not an addable amount).
+_DEBT_TOTALS: dict[str, tuple[str, str]] = {
+    "AvailableForSaleSecuritiesDebtSecurities": (
+        "AvailableForSaleSecuritiesDebtSecuritiesCurrent",
+        "AvailableForSaleSecuritiesDebtSecuritiesNoncurrent",
+    ),
+    "DebtSecuritiesAvailableForSaleExcludingAccruedInterest": (
+        "DebtSecuritiesAvailableForSaleExcludingAccruedInterestCurrent",
+        "DebtSecuritiesAvailableForSaleExcludingAccruedInterestNoncurrent",
+    ),
+}
 # NEVER cash (D2): the generic long-term investments line and its kin, often stakes in other companies (DIS stored
 # 12.8bn against 5.2bn of cash, KMI 8.8bn against 0.9bn). Read only to NAME a same-dated one in the note as not
 # counted. Equity securities and restricted investments are never read at all.
@@ -646,7 +668,11 @@ class _Composition:
     ]  # every balance-sheet cash tag on the cash date (for a disagreement)
     disagree: bool
     combined: float | None
-    reconciled: bool
+    reconciled: bool  # cash + the current investments meet the combined line (or there is none)
+    # every unsplit debt total on the cash date (``_DEBT_TOTALS``); counted only when nothing else is tagged
+    totals: list[tuple[str, float]] = field(default_factory=list)
+    # (total tag, total, its own current + noncurrent parts on the cash date, "reconciles" | "short" | "exceeds")
+    total_checks: list[tuple[str, float, float, str]] = field(default_factory=list)
 
     @staticmethod
     def _largest(seen: list[tuple[str, float]]) -> tuple[str, float] | None:
@@ -663,10 +689,36 @@ class _Composition:
         return None if best is None else best[1]
 
     @property
+    def unsplit(self) -> list[tuple[str, float]]:
+        """The unsplit debt totals that COUNT: only when no current or noncurrent investment tag is on the cash
+        date (beside one, a total may restate it — a check or a name, never an addend)."""
+        return [] if self.sti or self.lt_marketable else self.totals
+
+    @property
+    def unsplit_value(self) -> float | None:
+        best = self._largest(self.unsplit)
+        return None if best is None else best[1]
+
+    @property
+    def uncounted_totals(self) -> list[tuple[str, float]]:
+        """Totals beside other investment tags with no part of their own to check against: named, not counted."""
+        checked = {t for t, _, _, _ in self.total_checks}
+        return [(t, v) for t, v in self.totals if not self.unsplit and t not in checked]
+
+    @property
+    def established(self) -> bool:
+        """False -> ``investments-unreconciled``: the combined line is missed, a total is smaller than its own
+        parts, or a counted unsplit total is not confirmed by the combined line (it may hold cash equivalents).
+        """
+        if not self.reconciled or any(s == "short" for _, _, _, s in self.total_checks):
+            return False
+        return not self.unsplit or self.combined is not None
+
+    @property
     def investments(self) -> float | None:
-        if not self.sti and not self.lt_marketable:
+        if not self.sti and not self.lt_marketable and not self.unsplit:
             return None  # nothing tagged on the cash date — None, never a fake 0
-        return (self.sti_value or 0.0) + (self.lt_value or 0.0)
+        return (self.sti_value or 0.0) + (self.lt_value or 0.0) + (self.unsplit_value or 0.0)
 
 
 def _compose(facts: dict, cash: float, end: str, cfg: ExtractorConfig) -> _Composition:
@@ -689,16 +741,41 @@ def _compose(facts: dict, cash: float, end: str, cfg: ExtractorConfig) -> _Compo
     vals = dict(cash_tags)
     disagree = any(n in vals and w in vals and vals[n] > vals[w] for n, w in _CASH_NESTING)
     sti = seen(_STI)
+    lt_marketable = seen(_LT_MARKETABLE)
+    totals = seen([("us-gaap", t) for t in _DEBT_TOTALS])
+    tol = cfg.investments_reconcile_tolerance
+
+    def within(a: float, b: float) -> bool:
+        return abs(a - b) <= tol * max(abs(a), abs(b))
+
+    # a total beside its OWN current/noncurrent parts is a check: it holds them, so it can never be smaller
+    # (``short``); a larger total holds something more (securities classed as cash equivalents, already in cash,
+    # or an untagged part) that tags cannot place — the excess is named, never added (conservative).
+    total_checks: list[tuple[str, float, float, str]] = []
+    for t, v in totals:
+        own = [x for x in (_at(facts, p, end) for p in _DEBT_TOTALS[t]) if x is not None]
+        if own:
+            parts_sum = sum(own)
+            status = (
+                "reconciles" if within(v, parts_sum) else ("short" if v < parts_sum else "exceeds")
+            )
+            total_checks.append((t, v, parts_sum, status))
     combined = _at(facts, _COMBINED, end)
     reconciled = True
     if combined is not None:
-        parts = cash + (max(v for _, v in sti) if sti else 0.0)
-        bound = cfg.investments_reconcile_tolerance * max(abs(combined), abs(parts))
-        reconciled = abs(parts - combined) <= bound
+        if sti:
+            current = max(v for _, v in sti)
+        elif not lt_marketable and totals:
+            current = max(
+                v for _, v in totals
+            )  # a counted unsplit total, confirmed only by this line
+        else:
+            current = 0.0
+        reconciled = within(cash + current, combined)
     return _Composition(
         cash=cash,
         sti=sti,
-        lt_marketable=seen(_LT_MARKETABLE),
+        lt_marketable=lt_marketable,
         not_counted=seen(_NOT_CASH),
         older=older,
         newer=newer,
@@ -706,6 +783,8 @@ def _compose(facts: dict, cash: float, end: str, cfg: ExtractorConfig) -> _Compo
         disagree=disagree,
         combined=combined,
         reconciled=reconciled,
+        totals=totals,
+        total_checks=total_checks,
     )
 
 
@@ -735,9 +814,42 @@ def _composition_note(c: _Composition, cash_label: str) -> str:
         )
     else:
         missing.append("no long-term marketable securities tagged on the cash date")
+    if c.unsplit:
+        # the only investment tag on the cash date is an unsplit debt total: counted, and said to be one
+        parts.append(
+            f"debt securities {_m(c.unsplit_value or 0.0)} ({tags(c.unsplit)}), a total not split into"
+            " current and noncurrent"
+        )
+        missing = []
     out = f"cash_usd {_m(total)} = " + " + ".join(parts)
     if missing:
         out += "; " + "; ".join(missing)
+    if c.unsplit and c.combined is None:
+        out += (
+            "; the debt-securities total is not confirmed by a same-dated"
+            f" {_COMBINED} line, so whether part of it is securities classed as cash equivalents (already"
+            " inside cash) or restricted is not established"
+        )
+    for t, v, own, status in c.total_checks:
+        if status == "reconciles":
+            out += f"; {t} {_m(v)} reconciles to its current + noncurrent parts {_m(own)}"
+        elif status == "short":
+            out += (
+                f"; {t} {_m(v)} ≠ its current + noncurrent parts {_m(own)} (a total smaller than its"
+                " own parts: the composition is contradicted)"
+            )
+        else:
+            out += (
+                f"; {t} {_m(v)} exceeds its current + noncurrent parts {_m(own)}; the {_m(v - own)}"
+                " more is not counted (it may be securities classed as cash equivalents, already inside"
+                " cash)"
+            )
+    if c.uncounted_totals:
+        out += (
+            "; not counted: "
+            + ", ".join(f"{t} {_m(v)}" for t, v in c.uncounted_totals)
+            + " (an unsplit debt-securities total beside the investment tags read; it may restate them)"
+        )
     if c.not_counted:
         out += (
             "; not counted as cash: "
@@ -745,11 +857,12 @@ def _composition_note(c: _Composition, cash_label: str) -> str:
             + " (a long-term investments line, often stakes in other companies, never cash)"
         )
     if c.combined is not None:
-        parts_sum = c.cash + (c.sti_value or 0.0)
+        what = "the debt-securities total" if c.unsplit else "short-term investments"
+        parts_sum = c.cash + (c.sti_value or c.unsplit_value or 0.0)
         out += (
-            f"; cash + short-term investments reconciles to {_COMBINED} {_m(c.combined)}"
+            f"; cash + {what} reconciles to {_COMBINED} {_m(c.combined)}"
             if c.reconciled
-            else f"; {_COMBINED} {_m(c.combined)} ≠ cash + short-term investments {_m(parts_sum)}"
+            else f"; {_COMBINED} {_m(c.combined)} ≠ cash + {what} {_m(parts_sum)}"
             " (investments may sit under a tag not read)"
         )
     if c.disagree:
@@ -950,7 +1063,7 @@ def _cash_burn(
     if comp is not None:
         if comp.disagree:
             flags.append("cash-tags-disagree")
-        if not comp.reconciled:
+        if not comp.established:
             flags.append("investments-unreconciled")
         if comp.newer:
             flags.append("investments-off-date")
