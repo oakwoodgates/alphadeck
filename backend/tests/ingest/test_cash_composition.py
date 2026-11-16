@@ -299,6 +299,7 @@ def test_the_tag_lists_as_built():
         "MarketableSecuritiesNoncurrent",
         "AvailableForSaleSecuritiesNoncurrent",
         "AvailableForSaleSecuritiesDebtSecuritiesNoncurrent",
+        "DebtSecuritiesAvailableForSaleExcludingAccruedInterestNoncurrent",
         "HeldToMaturitySecuritiesNoncurrent",
     ]
     assert names(ex._NOT_CASH) == [

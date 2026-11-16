@@ -99,7 +99,9 @@ class ExtractedFact(DomainModel):
     #           | "cash-tags-disagree" (two balance-sheet cash tags of one date contradict each other: a
     #             narrower line exceeds a wider one, SOAR's zero cash-and-equivalents beside 8.4M of cash)
     #           | "investments-unreconciled" (cash + short-term investments miss the same-dated combined
-    #             ``CashCashEquivalentsAndShortTermInvestments`` beyond the tolerance)
+    #             ``CashCashEquivalentsAndShortTermInvestments`` beyond the tolerance; or an unsplit debt-securities
+    #             total is smaller than its own current + noncurrent parts; or such a total is the only investment
+    #             tag, counted, and no combined line confirms it is not partly cash equivalents)
     #           | "investments-off-date" (an investment tag sits on a NEWER balance sheet than the cash and
     #             not on the cash date: the composition at one date is not established)
     #           | "burn-span" (the burn covers fewer than quarterly_span_min_days or more than
