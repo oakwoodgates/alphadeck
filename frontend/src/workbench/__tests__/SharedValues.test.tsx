@@ -372,3 +372,23 @@ describe("SharedValues — the steward", () => {
     expect(screen.queryByRole("link", { name: /Open on the steward's page/ })).not.toBeInTheDocument();
   });
 });
+
+describe("SharedValues — runway does not apply (V2 C1)", () => {
+  const NOTE = "Runway does not apply to this kind of company (a bank, insurer, broker, exchange, asset manager, lender or fund trust): its cash moves with customer money, loans or fund flows, not with spending.";
+
+  it("the cash keeps its figures and the sentence rides quietly beneath, with no pace line", () => {
+    h.company.data = company(sharesFromFiling(), cashVerified({ value: { ...cashVerified().value, pace: null } }), {
+      runway_not_applicable: NOTE,
+    });
+    renderBlock();
+    expect(screen.getByTestId("sv-runway-na")).toHaveTextContent(NOTE);
+    expect(screen.queryByTestId("sv-pace")).toBeNull();
+    expect(cash()).toHaveTextContent("Cash and burn");
+  });
+
+  it("says nothing where runway applies", () => {
+    set(sharesFromFiling(), cashVerified());
+    renderBlock();
+    expect(screen.queryByTestId("sv-runway-na")).toBeNull();
+  });
+});

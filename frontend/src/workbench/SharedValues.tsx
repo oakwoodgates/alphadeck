@@ -67,7 +67,12 @@ export function SharedValues({ securityId, asof }: { securityId: string; asof?: 
       {data && (
         <>
           <ValueBlock value={data.shares} securityId={securityId} canFlag={!steward} />
-          <ValueBlock value={data.cash_burn} securityId={securityId} canFlag={!steward} />
+          <ValueBlock
+            value={data.cash_burn}
+            securityId={securityId}
+            canFlag={!steward}
+            runwayNote={data.runway_not_applicable ?? null}
+          />
         </>
       )}
       {steward && data && (
@@ -96,10 +101,14 @@ function ValueBlock({
   value,
   securityId,
   canFlag,
+  runwayNote = null,
 }: {
   value: UserValueOut;
   securityId: string;
   canFlag: boolean;
+  /** V2 C1: the sentence when a runway does not apply to this kind of company (the cash value carries no pace then);
+   *  a quiet line, never a warning, and the cash keeps its own flag. */
+  runwayNote?: string | null;
 }) {
   const [passageOpen, setPassageOpen] = useState(false);
   const heading = FACT_HEADING[value.fact_type];
@@ -189,6 +198,11 @@ function ValueBlock({
               )}
             </div>
           )}
+        </div>
+      )}
+      {runwayNote && (
+        <div className="dd-pace" data-testid="sv-runway-na">
+          {runwayNote}
         </div>
       )}
       {pace && (

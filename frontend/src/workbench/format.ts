@@ -158,11 +158,13 @@ export const spacClass = (sector: string | null | undefined): SpacClass => {
  *  provenance (price bars, the awaiting-note) doesn't count. */
 export const memberHasFundamentals = (m: {
   purity?: { pips?: number | null } | null;
-  runway?: { pips?: number | null } | null;
+  runway?: { pips?: number | null; provenance?: { source: string }[] | null } | null;
   market_cap?: { value?: number | null; provenance?: { source: string }[] | null } | null;
 }): boolean =>
   m.purity?.pips != null ||
   m.runway?.pips != null ||
+  // a runway that does not apply (V2 C1) has no pips, but its cash fact is still on file
+  (m.runway?.provenance ?? []).some((p) => p.source !== "computed") ||
   m.market_cap?.value != null ||
   (m.market_cap?.provenance ?? []).some((p) => p.source !== "price" && p.source !== "computed");
 
@@ -314,6 +316,8 @@ export function meterValueLabel(meter: string, figure: ScoredFigureOut): string 
     case "purity":
       return v == null ? "—" : `${v}%`;
     case "runway":
+      // a company a runway means nothing for (V2 C1): a plain "n/a", the sentence on hover
+      if (runwayNotApplicable(figure) != null) return "n/a";
       // the runway is cash over LAST QUARTER'S burn (V2 extractor correctness PR 3): said on the label
       return v == null ? "cash-generative last quarter" : `${v} mo at last quarter's pace`;
     case "catalysts":
@@ -447,9 +451,23 @@ export function runwayPaceWords(figure: ScoredFigureOut): { ytd: string; caveat:
   return { ytd, caveat: dstr(d, "pace_caveat") ?? null };
 }
 
+/** The scored read's provenance ref for a company a runway means nothing for (V2 C1: a bank, insurer, broker,
+ *  exchange, asset manager, lender or fund trust; the backend's one rule, `securities.business_type.runway_applies`). */
+export const RUNWAY_NOT_APPLICABLE_REF = "runway:not-applicable";
+
+/** The sentence when a runway does not apply to this company (from the scored read's provenance), else `null`. Quiet
+ *  words, never a warning: it is true of a small minority and asks nothing of the user. */
+export function runwayNotApplicable(figure: ScoredFigureOut): string | null {
+  const p = figure.provenance.find((x) => x.ref === RUNWAY_NOT_APPLICABLE_REF);
+  return p ? (dstr(p.detail, "note") ?? "Runway does not apply to this kind of company.") : null;
+}
+
 /** The runway meter's hover on the scored row: the runway at last quarter's pace, then the year-to-date pace when
- *  the value carries one. Undefined when there is no runway reading (the "—" meter keeps its own "no data"). */
+ *  the value carries one; the sentence when a runway does not apply. Undefined when there is no runway reading (the
+ *  "—" meter keeps its own "no data"). */
 export function runwayTitle(figure: ScoredFigureOut): string | undefined {
+  const na = runwayNotApplicable(figure);
+  if (na != null) return na;
   if (figure.pips == null) return undefined;
   const head = `Runway ${meterValueLabel("runway", figure)}`;
   const pace = runwayPaceWords(figure);

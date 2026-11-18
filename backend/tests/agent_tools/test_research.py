@@ -992,3 +992,26 @@ def test_a5_the_extract_description_copies_the_domain_burn_sign_sentence():
     descriptions = run(FakeApi(), body)
     assert QUARTERLY_BURN_SIGN in descriptions["get_extract"]
     assert "positive when the company consumed cash" in QUARTERLY_BURN_SIGN
+
+
+# --- "runway does not apply" (V2 C1) -------------------------------------------------------------------------------
+
+
+def test_a_triage_row_says_when_runway_does_not_apply_and_only_then():
+    """The scored read's not-applicable runway (no pips) is said on the row, so an agent never reads it as missing
+    data; a row whose runway applies carries no such key (honest loudness)."""
+    note = "Runway does not apply to this kind of company."
+    na = {
+        "pips": None,
+        "value": None,
+        "provenance": [
+            {"source": "10-q", "ref": "Q", "detail": {"cash_usd": 1.0}},
+            {"source": "computed", "ref": "runway:not-applicable", "detail": {"note": note}},
+        ],
+    }
+    row = triage_view._row({"ticker": "BANK", "runway": na})
+    assert row["meters"]["runway"] is None and row["runway_not_applicable"] == note
+    plain = triage_view._row(
+        {"ticker": "BIO", "runway": {"pips": 2, "value": 9.0, "provenance": []}}
+    )
+    assert "runway_not_applicable" not in plain

@@ -12,6 +12,7 @@ display identity, never a call input. The Python in `__init__.py` is only the lo
 | `supersectors.csv` | leaf → super-sector (must cover EVERY leaf) |
 | `royalty_patterns.txt` | the overlay's company-name regexes |
 | `overrides.csv` | your exceptions: one ticker (e.g. ERII) or a whole SIC string, without touching the main map |
+| `runway_not_meaningful.csv` | where a runway (cash / burn) means nothing: SIC strings (banks, brokers, exchanges, insurers, asset managers, lenders, fund trusts) or single tickers; every ETF is covered by its kind. Read by `runway_applies` (V2 C1; `docs/PLATFORM_VALUES.md`) |
 
 Precedence: per-security DB re-tag (the Workbench UI) > `overrides.csv` ticker row > `overrides.csv`
 sic row > `sic_map.csv` > `other` (sector present but unmapped — stays visible) > unclassified (no

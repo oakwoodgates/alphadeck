@@ -20,6 +20,7 @@ import {
   meterValueLabel,
   originWithFiler,
   runwayCashWords,
+  runwayNotApplicable,
   runwayPaceWords,
 } from "../workbench/format";
 import { lowerFirst, reasonClause } from "../components/valueWords";
@@ -391,11 +392,24 @@ export function NamePanel({
               const pace = key === "runway" ? runwayPaceWords(scored[key]) : null;
               // its cash and burn in the value's own currency, with the investment split when stored (GAP 3)
               const cash = key === "runway" ? runwayCashWords(scored[key]) : null;
+              // a company a runway means nothing for (V2 C1): "n/a" and the sentence, quietly
+              const na = key === "runway" ? runwayNotApplicable(scored[key]) : null;
               return (
               <Fragment key={key}><div className="np-meter-row">
-                <Meter label={label} figure={scored[key]} risk={risk} />
+                <Meter
+                  label={label}
+                  figure={scored[key]}
+                  risk={risk}
+                  title={na ?? undefined}
+                  notApplicable={na != null ? "n/a" : undefined}
+                />
                 <span className="val">{meterValueLabel(key, scored[key])}</span>
               </div>
+                {na && (
+                  <div className="np-pace" data-testid="np-runway-na">
+                    {na}
+                  </div>
+                )}
                 {cash && (
                   <div className="np-pace" data-testid="np-runway-cash">
                     {cash}

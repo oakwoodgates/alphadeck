@@ -12,6 +12,7 @@ operational thesis columns.
 from __future__ import annotations
 
 from typing import Any
+from uuid import UUID
 
 from domain.burn_pace import stored_pace
 from domain.cash_currency import currency_symbol
@@ -103,22 +104,31 @@ def _purity(pit: PointInTimeData, sid, cfg: CallConfig) -> ScoredFigure:
     return ScoredFigure(pips=_bucket(pct, cfg.purity_pip_pct), value=pct, provenance=[prov])
 
 
-def _runway(pit: PointInTimeData, sid, cfg: CallConfig) -> ScoredFigure:
+def _runway(pit: PointInTimeData, sid, cfg: CallConfig, *, applies: bool = True) -> ScoredFigure:
     """Months of funding at LAST QUARTER'S burn (cash / monthly burn); cash-generative reads max (top pip).
 
     The year-to-date pace (V2 extractor correctness PR 3, ``domain.burn_pace``) rides the provenance DETAIL only,
     read from the stored pace columns (else, before 0209, the note): ``ytd_quarterly_burn_usd``, ``ytd_burn_days``, ``ytd_runway_months`` (when that pace
     burns) and ``pace_caveat`` (only when the quarter is far off that pace). The pips and the value never read it.
+
+    ``applies=False`` (V2 C1: ``securities.business_type.runway_applies`` said a runway means nothing for this
+    company, a bank, insurer, broker, exchange, asset manager, lender or fund trust): no pips and no months, the
+    stored cash and burn kept on the fact's provenance (numbers with their source) WITHOUT the pace (its months and
+    caveat are runway readings), and a ``runway:not-applicable`` entry carrying the sentence (``_runway_not_applicable``).
     """
     facts = pit.cash_burn_facts(sid)
     if not facts:
+        if not applies:
+            return _runway_not_applicable([])
         return ScoredFigure()  # "—": no cash/burn data
     best = pick_current(facts)  # THE one pick (domain.platform_values, D1 a)
     cash, burn = float(best["cash_usd"]), float(best["quarterly_burn_usd"])
     # the figures' own currency (D4): the caveat sentence speaks it; the detail carries the stored code and the
     # investment split so every screen labels the cash (``domain.cash_currency``; the front end's twin)
-    pace = stored_pace(
-        best, symbol=currency_symbol(best.get("currency"), source=best.get("source"))
+    pace = (
+        stored_pace(best, symbol=currency_symbol(best.get("currency"), source=best.get("source")))
+        if applies
+        else None
     )
     part = best.get("investments_usd")
     prov = _prov(
@@ -132,6 +142,8 @@ def _runway(pit: PointInTimeData, sid, cfg: CallConfig) -> ScoredFigure:
         ytd_runway_months=None if pace is None else pace.ytd_runway_months,
         pace_caveat=None if pace is None else pace.caveat,
     )
+    if not applies:
+        return _runway_not_applicable([prov])
     if burn <= 0:  # cash-generative: no burn-funding risk -> the top pip, no finite months figure
         return ScoredFigure(pips=len(cfg.runway_pip_months), value=None, provenance=[prov])
     months = cash / (burn / _MONTHS_PER_QUARTER)
@@ -140,6 +152,18 @@ def _runway(pit: PointInTimeData, sid, cfg: CallConfig) -> ScoredFigure:
         value=round(months, 1),
         provenance=[prov],
     )
+
+
+def _runway_not_applicable(facts: list[Provenance]) -> ScoredFigure:
+    """The runway of a company it means nothing for: no pips, no value (so ``_fit`` adds no "funding risk"), the
+    cash fact's provenance when one is on file, then the ``runway:not-applicable`` entry with the sentence (the
+    ``market-cap:awaiting-price`` shape)."""
+    na = Provenance(
+        source="computed",
+        ref="runway:not-applicable",
+        detail={"note": words.RUNWAY_NOT_APPLICABLE},
+    )
+    return ScoredFigure(pips=None, value=None, provenance=[*facts, na])
 
 
 def _catalysts(pit: PointInTimeData, sid, cfg: CallConfig) -> ScoredFigure:
@@ -294,13 +318,19 @@ def _fit(purity_pips: int | None, runway_pips: int | None, dilution_pips: int | 
 
 
 def score_member(
-    pit: PointInTimeData, member: BasketMember, cfg: CallConfig = DEFAULT_CONFIG
+    pit: PointInTimeData,
+    member: BasketMember,
+    cfg: CallConfig = DEFAULT_CONFIG,
+    *,
+    runway_applies: bool = True,
 ) -> ScoredMember:
     """Score one basket member from the point-in-time facts. The member MUST have a ``security_id`` (no
-    facts to read otherwise — ``score_thesis`` filters)."""
+    facts to read otherwise — ``score_thesis`` filters). ``runway_applies`` is the runway rule's answer for it
+    (``securities.business_type.runway_applies``, asked by the caller from the master; default: it applies).
+    """
     sid = member.security_id
     purity = _purity(pit, sid, cfg)
-    runway = _runway(pit, sid, cfg)
+    runway = _runway(pit, sid, cfg, applies=runway_applies)
     catalysts = _catalysts(pit, sid, cfg)
     dilution = _dilution(pit, sid, cfg)
     market_cap = _market_cap(pit, sid)
@@ -320,7 +350,17 @@ def score_member(
 
 
 def score_thesis(
-    pit: PointInTimeData, thesis: Thesis, cfg: CallConfig = DEFAULT_CONFIG
+    pit: PointInTimeData,
+    thesis: Thesis,
+    cfg: CallConfig = DEFAULT_CONFIG,
+    *,
+    runway_na: frozenset[UUID] = frozenset(),
 ) -> list[ScoredMember]:
-    """Score every basket member that has a resolved security (re-derived on read; nothing persisted)."""
-    return [score_member(pit, m, cfg) for m in thesis.basket if m.security_id is not None]
+    """Score every basket member that has a resolved security (re-derived on read; nothing persisted).
+    ``runway_na`` = the ids the runway rule says a runway means nothing for (V2 C1; the caller reads the master).
+    """
+    return [
+        score_member(pit, m, cfg, runway_applies=m.security_id not in runway_na)
+        for m in thesis.basket
+        if m.security_id is not None
+    ]
