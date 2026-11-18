@@ -87,6 +87,8 @@ def walk(tool: str, list_key: str, **args) -> tuple[list, int]:
 TRIAGE = {"thesis": rfx.THESIS_ID, "asof": rfx.ASOF}
 SCORED = rfx.scored()
 MEMBERS = SCORED["members"]
+VALUES = rfx.thesis_values()
+AWAITING = rfx.AWAITING_SHARES | rfx.NOT_EXTRACTED_CASH  # cash-generative is not missing
 
 
 # --- get_triage --------------------------------------------------------------------------------------------------------
@@ -99,25 +101,26 @@ def test_triage_default_carries_the_funnel_the_counts_and_the_first_rows_in_the_
     assert [s["silent"] for s in reply["segments"]] == [False] * 4 + [True] * 3
     sizes = {s["label"]: s["members_total"] for s in reply["segments"]}
     assert list(sizes.values()) == list(rfx.MEMBER_COUNTS)
-    voting = reply["segments"][:4]
-    assert [s["confirmed"] + s["unconfirmed"] for s in voting] == [
-        s["members_total"] for s in voting
-    ]
-    assert sum(s["confirmed"] for s in reply["segments"]) == 6
+    assert sum(s["awaiting"] for s in reply["segments"]) == len(AWAITING)
+    assert sum(s["needs_purity"] for s in reply["segments"]) == len(rfx.NO_PURITY)
+    assert all("confirmed" not in s and "unconfirmed" not in s for s in reply["segments"])
     assert reply["counts"] == {
         "members_total": 79,
         "silent_rows": 30,
-        "unconfirmed_members": 73,
+        "awaiting_members": len(AWAITING),
+        "needs_purity_members": len(rfx.NO_PURITY),
         "thin_price_history": 1,
         "price_feed_limitation": 1,
     }
+    assert reply["values_asof"] == triage_view.VALUES_ASOF  # the values are today's, not the asof's
     shown = reply["members"]
     assert [m["ticker"] for m in shown] == [m["ticker"] for m in MEMBERS[: len(shown)]]
     assert reply["members_total"] == 79 and reply["next_cursor"] == len(shown)
     assert reply["sections"] == {
         "member": "t",
         "segment": "segment",
-        "unconfirmed": None,
+        "awaiting": None,
+        "needs_purity": None,
         "silent": None,
     }
     assert all(s["descriptor"] == s["descriptor"][:80] for s in reply["segments"])
@@ -133,16 +136,16 @@ def test_triage_rows_copy_the_meters_and_the_sources():
         "dilution": api["dilution"]["pips"],
         "market_cap": api["market_cap"]["value"],
     }
-    assert row["unconfirmed_estimates"] == 0 and row["fit"] == api["fit"]
+    assert "unconfirmed_estimates" not in row and row["fit"] == api["fit"]
     assert "ratified" in row["sources"] and row["sources"][0] == "ratified"
     assert len(row["sources"]) == len(set(row["sources"]))  # distinct
     assert "instrument_kind" not in row and "thin_price_history" not in row
     assert len(row["name"]) <= 30
 
 
-def test_triage_default_cursor_walks_all_79_members_in_at_most_four_pages_in_the_api_order():
+def test_triage_default_cursor_walks_all_79_members_in_at_most_five_pages_in_the_api_order():
     rows, pages = walk("get_triage", "members", **TRIAGE)
-    assert pages <= 4, pages
+    assert pages <= 5, pages  # each row carries its two shared values' words since W5d
     assert [r["ticker"] for r in rows] == [m["ticker"] for m in MEMBERS]
     # the funnel and the counts ride the first page only
     second = call("get_triage", **TRIAGE, cursor=20)
@@ -152,7 +155,8 @@ def test_triage_default_cursor_walks_all_79_members_in_at_most_four_pages_in_the
 @pytest.mark.parametrize(
     ("section", "args", "expected"),
     [
-        ("unconfirmed", {}, [m for m in MEMBERS if m["unconfirmed_estimates"] > 0]),
+        ("awaiting", {}, [m for i, m in enumerate(MEMBERS) if i in AWAITING]),
+        ("needs_purity", {}, [m for i, m in enumerate(MEMBERS) if i in rfx.NO_PURITY]),
         ("silent", {}, [m for m in MEMBERS if m["segment"] in SILENT]),
         (
             "segment",
@@ -164,8 +168,12 @@ def test_triage_default_cursor_walks_all_79_members_in_at_most_four_pages_in_the
 def test_triage_list_sections_hold_only_their_rows_and_page_to_the_end(section, args, expected):
     rows, _ = walk("get_triage", "members", **TRIAGE, section=section, **args)
     assert [r["ticker"] for r in rows] == [m["ticker"] for m in expected]
-    if section == "unconfirmed":
-        assert all(r["unconfirmed_estimates"] > 0 for r in rows) and len(rows) == 73
+    if section == "awaiting":
+        assert all(
+            "awaiting_steward" in (r["values"]["shares"]["state"], r["values"]["cash"]["state"])
+            or r["values"]["cash"]["state"] == "no_value"
+            for r in rows
+        )
     reply = call("get_triage", **TRIAGE, section=section, **args)
     assert reply["section"] == section and reply["members_total"] == len(expected)
 
@@ -243,7 +251,7 @@ def test_triage_an_unknown_segment_or_ticker_is_invalid_arguments_naming_the_lab
         ({"section": "segment"}, "section=segment of `get_triage` needs segment (a link label"),
         (
             {"section": "nope"},
-            "Unknown section 'nope'; `get_triage` has: member, segment, unconfirmed, silent.",
+            "Unknown section 'nope'; `get_triage` has: member, segment, awaiting, needs_purity, silent.",
         ),
         ({"asof": "2026-02-30"}, "asof is not a real calendar date."),
         ({"asof": "yesterday"}, "asof takes a date as YYYY-MM-DD"),
@@ -269,6 +277,39 @@ def test_triage_unknown_thesis_and_the_scored_read_is_dated():
     run(api, body)
     scored = [r for r in api.requests if r[1].endswith("/scored")]
     assert len(scored) == 1 and scored[0][2] == {"asof": rfx.ASOF}
+    # the shared values are read once, current: the user read takes no asof
+    values = [r for r in api.requests if r[1].startswith("/platform-values/")]
+    assert [(r[1], r[2]) for r in values] == [(f"/platform-values/theses/{rfx.THESIS_ID}", {})]
+
+
+def test_triage_rows_carry_each_shared_values_state_in_words_and_never_a_figure():
+    rows, _ = walk("get_triage", "members", **TRIAGE)
+    by_ticker = {r["ticker"]: r for r in rows}
+    awaiting = by_ticker[MEMBERS[1]["ticker"]][
+        "values"
+    ]  # i = 1: its share count awaits the steward
+    assert awaiting["shares"] == {"state": "awaiting_steward", "words": "Awaiting the steward"}
+    shown = by_ticker[MEMBERS[0]["ticker"]]["values"]  # i = 0: shown, a newer filing pending
+    assert shown["shares"] == {
+        "state": "from_filing",
+        "words": "From the filing",
+        "pending": "A newer filing (dated Sep 30, 2026) is awaiting the steward",
+    }
+    generative = by_ticker[MEMBERS[4]["ticker"]]
+    assert generative["values"]["cash"]["state"] == "no_value"
+    assert MEMBERS[4]["ticker"] not in {
+        r["ticker"] for r in walk("get_triage", "members", **TRIAGE, section="awaiting")[0]
+    }  # "runway does not apply" is not missing
+    for r in rows:  # the state and its words only: no figure, no setter, no email
+        for v in r["values"].values():
+            assert set(v) <= {"state", "words", "pending"}
+            assert "@" not in json.dumps(v)
+
+
+def test_triage_without_the_values_read_still_answers_the_meters():
+    reply = triage_view.view(SCORED, ResearchRequest(thesis=THESIS, asof=rfx.ASOF))
+    assert "values_asof" not in reply and all("values" not in m for m in reply["members"])
+    assert reply["counts"]["awaiting_members"] == 0
 
 
 def test_triage_omitted_asof_reads_the_apis_current_night():
@@ -777,6 +818,9 @@ def _key_checks():
         (tr.PROVENANCE_KEYS, schemas, "ProvenanceOut"),
         (tr.SEGMENT_KEYS, "domain.thesis", "Segment"),
         (tr.BODY_KEYS, schemas, "WorkbenchScored"),
+        (tr.VALUES_BODY_KEYS, "app.routers.platform_values", "UserThesisValuesOut"),
+        (tr.VALUES_MEMBER_KEYS, "app.routers.platform_values", "UserCompanyValuesOut"),
+        (tr.VALUE_KEYS, "app.routers.platform_values", "UserValueOut"),
         (ds.RUN_KEYS, schemas, "SavedRunSummary"),
         (ds.PLACEMENT_KEYS, "workbench.chain_draft", "ResolvedPlacement"),
         (ds.CANDIDATE_KEYS, "workbench.chain_draft", "SecurityCandidate"),
