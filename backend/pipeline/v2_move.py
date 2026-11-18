@@ -18,8 +18,9 @@ SAFETY (the point of this module):
   database: a test database (``alphadeck_test…``) or a fork (``alphadeck_<name>``, the names
   ``scripts/refresh-fork.sh`` derives), never ``alphadeck`` (prod), ``alphadeck_dev``, ``alphadeck_sig`` or
   ``alphadeck_prod``. The name is read from the SAME connection that would write (``current_database()``), before
-  anything else is read. Exit 2. The dry run is guarded too: fail closed. W10's prod cutover gets its own entry
-  point that calls ``plan_move`` and ``apply_move`` directly.
+  anything else is read. Exit 2. The dry run is guarded too: fail closed. W10's cutover has its own entry point
+  (``pipeline.v2_reset``, ``python -m pipeline.v2_cutover run``): it calls ``plan_move`` and ``relabel_legs``
+  inside its one move-and-reset transaction, with its own guard (prod only with ``--prod``).
 - **Dry run by default.** Without ``--apply`` the connection is read-only (``conn.read_only`` and ``SET
   TRANSACTION READ ONLY``) and rolled back.
 - **One transaction, the trigger always back on.** The apply disables each table's append-only trigger
@@ -310,6 +311,43 @@ def _restore_triggers(conn: Any, tables: Sequence[str]) -> None:
             pass
 
 
+def relabel_legs(cur: Any, plan: MovePlan, disabled: list[str] | None = None) -> dict[str, int]:
+    """The relabel itself, in the CALLER's transaction: for each leg, the trigger off by name, the UPDATE, the
+    trigger on, the re-count. No guard, no commit, no journal (the caller owns all three: ``apply_move`` here,
+    ``pipeline.v2_reset`` in the cutover's one transaction). Each table whose trigger it disabled is appended to
+    ``disabled`` BEFORE the UPDATE, so a caller's failure path knows what to restore. Raises ``MoveRefused`` when a
+    leg moved a different number of rows than the plan said, or left any behind; the caller rolls back.
+    """
+    moved: dict[str, int] = {}
+    for p in plan.legs:
+        leg = p.leg
+        cur.execute(_trigger("DISABLE", leg.table))
+        if disabled is not None:
+            disabled.append(leg.table)
+        cur.execute(
+            sql.SQL("UPDATE {t} SET tenant_id = %s WHERE {w}").format(
+                t=sql.Identifier(leg.table), w=_where(leg)
+            ),
+            (leg.target, leg.source),
+        )
+        moved[leg.table] = cur.rowcount
+        cur.execute(_trigger("ENABLE", leg.table))
+        # the re-count: every planned row moved, and nothing this leg moves is left under the source
+        cur.execute(
+            sql.SQL("SELECT count(*) AS n FROM {t} WHERE {w}").format(
+                t=sql.Identifier(leg.table), w=_where(leg)
+            ),
+            (leg.source,),
+        )
+        left = int(cur.fetchone()["n"])
+        if moved[leg.table] != p.to_move or left:
+            raise MoveRefused(
+                f"{leg.table}: moved {moved[leg.table]} row(s) but the plan said {p.to_move}, and "
+                f"{left} row(s) are left under the source - rolled back, nothing written"
+            )
+    return moved
+
+
 def apply_move(conn: Any, plan: MovePlan) -> MoveResult:
     """Relabel the planned rows in ONE transaction on ``conn``, then journal one ``data_repair`` row.
 
@@ -327,34 +365,9 @@ def apply_move(conn: Any, plan: MovePlan) -> MoveResult:
         return MoveResult(moved={p.table: 0 for p in plan.legs}, stamped=0)
 
     disabled: list[str] = []
-    moved: dict[str, int] = {}
     try:
         with conn.cursor() as cur:
-            for p in plan.legs:
-                leg = p.leg
-                cur.execute(_trigger("DISABLE", leg.table))
-                disabled.append(leg.table)
-                cur.execute(
-                    sql.SQL("UPDATE {t} SET tenant_id = %s WHERE {w}").format(
-                        t=sql.Identifier(leg.table), w=_where(leg)
-                    ),
-                    (leg.target, leg.source),
-                )
-                moved[leg.table] = cur.rowcount
-                cur.execute(_trigger("ENABLE", leg.table))
-                # the re-count: every planned row moved, and nothing this leg moves is left under the source
-                cur.execute(
-                    sql.SQL("SELECT count(*) AS n FROM {t} WHERE {w}").format(
-                        t=sql.Identifier(leg.table), w=_where(leg)
-                    ),
-                    (leg.source,),
-                )
-                left = int(cur.fetchone()["n"])
-                if moved[leg.table] != p.to_move or left:
-                    raise MoveRefused(
-                        f"{leg.table}: moved {moved[leg.table]} row(s) but the plan said {p.to_move}, and "
-                        f"{left} row(s) are left under the source - rolled back, nothing written"
-                    )
+            moved = relabel_legs(cur, plan, disabled)
         stamped = mark_changed(conn, plan.security_ids)
         conn.commit()
     except BaseException:

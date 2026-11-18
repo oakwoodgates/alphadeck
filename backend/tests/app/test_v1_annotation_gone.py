@@ -43,8 +43,10 @@ ALLOWED = (
     "tests/db/test_migration_0045_call_annotation.py",
     "domain/scopes.py",
     "pipeline/v2_cutover.py",
+    "pipeline/v2_reset.py",  # W10a: the reset empties the table
     # tests of the kept pieces that list the table among the tables they cover
     "tests/pipeline/test_v2_cutover_plan.py",
+    "tests/pipeline/test_v2_reset.py",
     "tests/db/test_0078_founding_workspace.py",
     "tests/app/test_v1_annotation_gone.py",
 )

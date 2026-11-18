@@ -13,6 +13,9 @@ written to the database. ``--json PATH`` writes the same data to a file for comp
 The rules name TABLES, never a scope member that V2 deletes, so changing ``SCOPE_OF`` (V2 PR 3) needs no edit
 here: the generic rules (3, 4) follow ``owner_of``, and the tables with a dedicated rule (5-9) are skipped by the
 generic ones whatever their scope.
+
+``run`` (W10a, ``pipeline/v2_reset.py``) is the cutover's APPLY path: a guarded, confirmed, locked, backed-up move
+and history reset in ONE transaction. Dry run unless ``--apply``; see that module for its rules and exit codes.
 """
 
 from __future__ import annotations
@@ -39,9 +42,10 @@ CUTOVER_ACTION: dict[str, str] = {
     "fact_cash_burn": "move→data",
     # data-tenant RATIFIED purity rows are relabeled to the founding workspace (operator decision D2 (a))
     "fact_revenue_mix": "move→founding",
-    # workspace company catalysts and theme conviction become thesis catalysts (W6 / W10)
-    "fact_catalyst": "convert (W6/W10)",
-    "fact_theme_conviction": "convert (W6/W10)",
+    # W10a: nothing is converted at cutover. Company catalysts are feed rows (a workspace row refuses the apply);
+    # the theme conviction is still a call input until W6 converts it
+    "fact_catalyst": "keep (feed rows; a workspace row refuses)",
+    "fact_theme_conviction": "keep (W6 converts)",
     # the record restarts at cutover
     "calls": "reset",
     "call_annotation": "reset",
@@ -51,9 +55,9 @@ CUTOVER_ACTION: dict[str, str] = {
     "edition_call": "reset",
     "edition_outcome": "reset",
     "edition_cause": "reset",
-    # bookkeeping that is pruned, not carried
-    "user_action_count": "prune",
-    "security_change": "prune",
+    # bookkeeping the nightly jobs already prune (db/housekeeping.py, db/change_stamp.py): kept as is (W10a)
+    "user_action_count": "keep (pruned nightly)",
+    "security_change": "keep (pruned nightly)",
 }
 # --- V2 W1b: the new tables (migrations 0200-0202) are new and empty: kept, named explicitly -----------------
 CUTOVER_ACTION["extraction_candidate"] = "keep"
@@ -575,6 +579,57 @@ def main(argv: list[str] | None = None) -> int:
     )
     move.add_argument("--apply", action="store_true", help="write the move (default: dry run)")
     # --- end V2 W0b ---
+    # --- V2 W10a: the cutover's apply path (pipeline/v2_reset.py) ---
+    run = sub.add_parser(
+        "run",
+        help="the cutover: guard, preflight, verified backup, then the move and the history reset in ONE "
+        "transaction; dry run unless --apply (exit 0 done, 1 refused, 2 wrong database or confirmation, "
+        "3 backup failed, 4 rolled back, 75 busy or the nightly window)",
+    )
+    run.add_argument(
+        "--database",
+        required=True,
+        metavar="NAME",
+        help="the database name, read back from "
+        "the connection (current_database()) and compared",
+    )
+    run.add_argument("--confirm", required=True, metavar="TEXT", help='exactly "reset NAME"')
+    run.add_argument(
+        "--prod",
+        action="store_true",
+        help="required for, and only allowed with, the " "production database name",
+    )
+    run.add_argument("--apply", action="store_true", help="write (default: dry run, read-only)")
+    run.add_argument(
+        "--expect-plan",
+        metavar="PATH",
+        help="refuse unless the plan equals this file "
+        "(written by a dry run's --plan-out); required with --prod --apply",
+    )
+    run.add_argument("--plan-out", metavar="PATH", help="write the plan to PATH")
+    run.add_argument(
+        "--orphan-purity",
+        choices=("leave", "delete"),
+        default="leave",
+        help="the unratified data-tenant purity rows (rule 8): leave them (default) or delete them",
+    )
+    run.add_argument(
+        "--reuse-backup",
+        metavar="FILE",
+        help="use this verified backup (in the backups "
+        "directory, newer than the data) instead of taking a new one",
+    )
+    run.add_argument(
+        "--no-history-archive",
+        action="store_true",
+        help="skip the separate dump of the " "eight history tables (default: take it)",
+    )
+    run.add_argument(
+        "--provenance-dir",
+        metavar="DIR",
+        help="where the provenance file goes (default: " "data/cutover_runs)",
+    )
+    # --- end V2 W10a ---
     args = p.parse_args(argv)
     if args.command == "plan":
         return _plan(args.json)
@@ -582,6 +637,10 @@ def main(argv: list[str] | None = None) -> int:
         from pipeline import v2_move  # V2 W0b
 
         return v2_move.run(apply=args.apply)  # V2 W0b
+    if args.command == "run":  # V2 W10a
+        from pipeline import v2_reset  # V2 W10a
+
+        return v2_reset.run(v2_reset.options_from_args(args))  # V2 W10a
     return 2  # pragma: no cover - argparse refuses an unknown command first
 
 

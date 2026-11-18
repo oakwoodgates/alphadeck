@@ -43,7 +43,7 @@ import logging
 import os
 import re
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -173,7 +173,20 @@ def _redact(text: str, secrets: list[str]) -> str:
     return _DSN_PASSWORD.sub(r"\1***", text)
 
 
-def _pg_dump(url: str, dest: Path, *, timeout_s: float) -> None:
+def _pg_dump_argv(url: str, dest: Path, *, tables: Sequence[str] | None = None) -> list[str]:
+    """The ``pg_dump`` command line (PURE). ``url`` must already be the password-free string ``_dump_target``
+    returns. ``tables`` (W10a: the V2 cutover's history archive) adds one ``--table`` per name, so only those
+    tables are dumped; ``None`` (every existing caller) dumps the whole database, exactly as before.
+    """
+    argv = ["pg_dump", "--no-owner", "--dbname", url, "--file", str(dest)]
+    for t in tables or ():
+        argv += ["--table", t]
+    return argv
+
+
+def _pg_dump(
+    url: str, dest: Path, *, timeout_s: float, tables: Sequence[str] | None = None
+) -> None:
     """The DB touch — a READ-ONLY ``pg_dump`` subprocess (``--no-owner`` + plain-SQL default, the shape
     that restored cleanly on 2026-07-17). The ONLY seam that shells the binary, so a test injects a fake
     ``dump_runner`` and never needs it. A missing binary / non-zero exit is a LOUD, operator-facing raise
@@ -190,7 +203,7 @@ def _pg_dump(url: str, dest: Path, *, timeout_s: float) -> None:
     env = {**os.environ, "PGPASSWORD": password} if password else None
     try:
         subprocess.run(
-            ["pg_dump", "--no-owner", "--dbname", safe_url, "--file", str(dest)],
+            _pg_dump_argv(safe_url, dest, tables=tables),
             check=True,
             capture_output=True,
             text=True,
@@ -216,6 +229,7 @@ def run_backup(
     keep: int | None = None,
     now: datetime | None = None,
     dump_runner: Callable[..., None] | None = None,
+    tables: Sequence[str] | None = None,
 ) -> BackupResult:
     """Create ONE snapshot: dump to ``<name>.tmp``, then atomically ``os.replace`` it to ``<name>`` (so a
     crashed dump never lists), then prune — ONLY after the dump succeeds. ``dump_runner`` is the
@@ -223,7 +237,8 @@ def run_backup(
     back to the module-level ``_pg_dump`` resolved AT CALL TIME (so a test that monkeypatches
     ``pipeline.backup._pg_dump`` takes effect, and no unit test needs the real binary). A raising runner
     propagates BEFORE the replace + prune — no ``.sql`` is published, the keep-window is untouched and this run's
-    half-written ``.tmp`` is deleted (no other ``.tmp`` is ever touched).
+    half-written ``.tmp`` is deleted (no other ``.tmp`` is ever touched). ``tables`` (W10a) dumps only those
+    tables (the runner gets ``tables=``); left ``None``, the runner is called exactly as before.
     """
     now = now or datetime.now(timezone.utc)  # ONE timestamp: names the file AND is created_at
     settings = get_settings()
@@ -236,7 +251,8 @@ def run_backup(
     tmp = d / f"{name}.tmp"
 
     try:
-        runner(database_url or _database_url(), tmp, timeout_s=settings.backup_timeout_s)
+        extra = {"tables": list(tables)} if tables else {}
+        runner(database_url or _database_url(), tmp, timeout_s=settings.backup_timeout_s, **extra)
     except BaseException:
         # a failed dump (timeout, pg_dump error) leaves a half-written file that prune never touches (it lists
         # only finished ``*.sql``): remove THIS run's ``.tmp`` and nothing else (a concurrent backup may be
