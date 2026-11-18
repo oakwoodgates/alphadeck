@@ -1517,7 +1517,7 @@
           "workbench"
         ],
         "summary": "Ingest Security Prices",
-        "description": "Pull EOD price bars for ONE security \u2014 the price leg DECOUPLED from the back-half ingest, so the\nfinalize screen can complete a name (a real market cap) BEFORE the operator promotes. This endpoint\nWRITES (``fact_price_eod``) \u2014 deliberately, per explicit click: price bars are FEED data (the same\nclass as Form 4s), never operator-ratified facts; what they feed (the cap) stays display until the\noperator acts.\n\nBounded + polite by construction: one name per call (the tightest bound \u2014 the section button fans out\nclient-side over a section's members, never the draft); INCREMENTAL (only bars newer than the latest\nstored one append \u2014 a re-click adds zero rows); CACHE-FIRST (``force_refresh=False``: a first pull on\na fresh name is a cache miss and fetches live; a same-day re-click serves from the cache \u2014 the daily\ncron, not this endpoint, owns force-refresh). No-lookahead: ``recorded_at`` = now, never backdated.\nShares ONE implementation with ``pipeline.ingest_thesis`` (``ingest_bars_for_security``).\n\nBOUNDED (security hardening PR 1b): a plain user may pull prices only for a company on one of their own cards\n(else 404, \"This company is not on any of your cards. Add it to a card first.\") and within their daily\nprice-pull allowance (``Settings.allowance_price_pull_per_day``, else 429 naming the reset). The bars are\nFETCHED before the company write lock is taken, and the lock is held only for the compare-and-append, so a slow\nvendor never holds up the nightly. The automatic OTC price-symbol resolve (a write to the SHARED master) runs on\na steward's pull only; a plain user's OTC pull is priced under the canonical ticker, and the name is left for\nthe steward's price-feed panel or the backfill sweep.",
+        "description": "Pull EOD price bars for ONE security \u2014 the price leg DECOUPLED from the back-half ingest, so the\nfinalize screen can complete a name (a real market cap) BEFORE the operator promotes. This endpoint\nWRITES (``fact_price_eod``) \u2014 deliberately, per explicit click: price bars are FEED data (the same\nclass as Form 4s), never operator-ratified facts; what they feed (the cap) stays display until the\noperator acts.\n\nBounded + polite by construction: one name per call (the tightest bound \u2014 the section button fans out\nclient-side over a section's members, never the draft); INCREMENTAL (only bars newer than the latest\nstored one append \u2014 a re-click adds zero rows); CACHE-FIRST (``force_refresh=False``: a first pull on\na fresh name is a cache miss and fetches live; a same-day re-click serves from the cache \u2014 the daily\ncron, not this endpoint, owns force-refresh). No-lookahead: ``recorded_at`` = now, never backdated.\nShares ONE implementation with ``pipeline.ingest_thesis`` (``ingest_bars_for_security``).\n\nSTEWARD ONLY (V2 W7b): prices are platform data, so a plain user never pulls them on demand (the steward-only\n403); a company a user adds gets its prices from the promote's lane (``start_member_load``, which a fund or\nSPAC attach also starts), the staged onboarding job, or the nightly. Not counted against any allowance. The\nbars are FETCHED before the company write lock is taken, and the lock is held only for the compare-and-append,\nso a slow vendor never holds up the nightly. An unresolved OTC name has its vendor price symbol resolved first\n(a write to the SHARED master).",
         "operationId": "ingest_security_prices_workbench_securities__security_id__ingest_prices_post",
         "parameters": [
           {
@@ -2285,48 +2285,6 @@
         "responses": {
           "204": {
             "description": "Successful Response"
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/workbench/facts/auto-confirm": {
-      "post": {
-        "tags": [
-          "workbench"
-        ],
-        "summary": "Auto Confirm Fact",
-        "description": "Get-data's platform values (V2 W2b, approved D2 (a)): re-extract the company's filings and hand the result\nto the MACHINE WRITER (``platform_values.machine.record_extraction``) for BOTH the share count and cash/burn.\n\nPer value: a clean AUTO value is applied as a fact stamped ``ratified_by=\"auto\"`` when its filing is strictly\nnewer than the value shown (D3 (a): even over a steward's value, unless the steward pinned the company, which\nturns it into a candidate); a FLAGged value and a \"nothing found\" are recorded as CANDIDATES for the steward,\nnever as facts (no meter reads them); a value dated after today is never written (D1). Annual filers\n(20-F/40-F) are read too (``extract_with_annual_fallback``, the extract route's own entry): their values are\nalways FLAG, so they become candidates. The top-level fields answer for the share count, ``cash_burn`` for\ncash/burn; ``applied=False`` with its ``reason`` is a normal answer, never an error.\n\nWHY THIS IS NOT A #1/#3 VIOLATION: the written number is the extractor's deterministic reproduction of the\nfiling \u2014 never a model output, never an estimate. THE STRUCTURAL BOUND: the request carries NO value; the\nserver re-extracts (cache-first \u2014 get-data just warmed it) and writes its OWN parse.\n\nTHE LOCK: the extraction runs with the company FREE (no lock is ever held across an SEC call); the writer then\ntakes the company write lock, waiting at most ``Settings.ingest_lock_request_wait_s``, RE-READS what is on file\nunder it, writes both values in one transaction with the company's change stamp, and commits. Two clicks at\nonce write one value. While another writer holds the company: **409** naming the holder, nothing written. An\nextraction failure (SEC unreachable, companyfacts missing) is a **502** and writes nothing \u2014 it is never\nrecorded as \"nothing found\".\n\nBOUNDED (security hardening PR 1b, unchanged in V2 until W3/W7): a plain user may run it only for a company on\none of their own cards (else 404, \"This company is not on any of your cards. Add it to a card first.\") and\nwithin their daily auto-confirm allowance (``Settings.allowance_auto_confirm_per_day``, else 429 naming the\nreset; the security rides in the body, so this route counts the request before the card check). A steward is\nneither checked nor counted.\n\nPLATFORM DATA (V2): every row is written under the DATA tenant \u2014 one value per company, read by every\nworkspace \u2014 never under the caller's workspace.",
-        "operationId": "auto_confirm_fact_workbench_facts_auto_confirm_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AutoConfirmRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AutoConfirmOut"
-                }
-              }
-            }
           },
           "422": {
             "description": "Validation Error",
@@ -5549,7 +5507,7 @@
           "radar"
         ],
         "summary": "Spac Attach",
-        "description": "Add a radar name to a thesis basket \u2014 the operator's click, so ``operator_set`` (#10: the\nradar recommended, the operator decided). The member lands uncharacterized (role \"\u2014\", no\nsegment \u2014 the finalize rail characterizes it, item F), with ``surfaced_terms`` frozen from\nthe stored term matches (factual provenance, never client-supplied). Idempotent:\nalready-in-basket returns ``already`` and writes nothing. Reversible via detach (#1).",
+        "description": "Add a radar name to a thesis basket \u2014 the operator's click, so ``operator_set`` (#10: the\nradar recommended, the operator decided). The member lands uncharacterized (role \"\u2014\", no\nsegment \u2014 the finalize rail characterizes it, item F), with ``surfaced_terms`` frozen from\nthe stored term matches (factual provenance, never client-supplied). Idempotent:\nalready-in-basket returns ``already`` and writes nothing. A company it ADDS has its data load started after\nthe commit exactly as a promote's new name does (``start_member_load``, V2 W7b): the fast-lane job or the\nonboarding queue, carried in ``ingest`` / ``onboarding``. Reversible via detach (#1).",
         "operationId": "spac_attach_radar_spac_attach_post",
         "requestBody": {
           "content": {
@@ -5780,7 +5738,7 @@
           "radar"
         ],
         "summary": "Fund Attach",
-        "description": "Add a fund to a card's ETFs link \u2014 the operator's click (#10). For a plain user the symbol must already\nbe a fund in the shared company list (a master row with ``instrument_kind='etf'``): anything else (an\nunknown symbol, or a row that is not a fund) answers 404 with a fixed message and writes nothing, because\nthe security master is shared data only the steward adds to or alters. A steward's attach keeps the\nlookup-or-create of ``POST /workbench/securities/resolve-etf`` (``instrument_kind='etf'``). The symbol must\nbe 1 to 12 letters, digits, dots or hyphens, starting with a letter or digit (422 otherwise). The member is\nbuilt like the Workbench's \"Surface an ETF\" does (role \"ETF sleeve\", segment ETFs, a model draft, signed\noff, no conviction) and the card is re-written whole from the stored copy, so nothing it carries (context\nroles, catalysts, kill criteria...) is wiped. The write goes through the promote's own rules\n(``silent_conflicts`` / ``fund_conflicts``), so a fund can never land outside ETFs. Idempotent: already in\nETFs returns ``already`` and writes nothing. Prices are NOT pulled here (the screen does, as Surface an ETF\ndoes). Reversible via detach (#1).",
+        "description": "Add a fund to a card's ETFs link \u2014 the operator's click (#10). For a plain user the symbol must already\nbe a fund in the shared company list (a master row with ``instrument_kind='etf'``): anything else (an\nunknown symbol, or a row that is not a fund) answers 404 with a fixed message and writes nothing, because\nthe security master is shared data only the steward adds to or alters. A steward's attach keeps the\nlookup-or-create of ``POST /workbench/securities/resolve-etf`` (``instrument_kind='etf'``). The symbol must\nbe 1 to 12 letters, digits, dots or hyphens, starting with a letter or digit (422 otherwise). The member is\nbuilt like the Workbench's \"Surface an ETF\" does (role \"ETF sleeve\", segment ETFs, a model draft, signed\noff, no conviction) and the card is re-written whole from the stored copy, so nothing it carries (context\nroles, catalysts, kill criteria...) is wiped. The write goes through the promote's own rules\n(``silent_conflicts`` / ``fund_conflicts``), so a fund can never land outside ETFs. Idempotent: already in\nETFs returns ``already`` and writes nothing, and starts nothing. A fund it ADDS has its data load started\nafter the commit exactly as a promote's new name does (``start_member_load``, V2 W7b): the fast-lane job\n(``ingest``) or the onboarding queue (``onboarding``), bounded by the global ingest cap and, for a plain user,\none unit of today's ``price_pull`` allowance. The screen pulls no prices itself. Reversible via detach (#1).",
         "operationId": "fund_attach_radar_funds_attach_post",
         "requestBody": {
           "content": {
@@ -14245,141 +14203,6 @@
         ],
         "title": "Authorship",
         "description": "Who placed a basket member in its value-chain segment (the Workbench authorship seam).\n\nThe MVP writes only the operator values; ``SYSTEM_DRAFTED`` is present now so the seam already\nsupports the bounded LLM drafter (the next slice) without a later schema change."
-      },
-      "AutoConfirmOut": {
-        "properties": {
-          "applied": {
-            "type": "boolean",
-            "title": "Applied"
-          },
-          "reason": {
-            "type": "string",
-            "enum": [
-              "applied",
-              "already_on_file",
-              "older_than_on_file",
-              "after_today",
-              "pinned",
-              "not_auto",
-              "nothing_found"
-            ],
-            "title": "Reason"
-          },
-          "fact_id": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "uuid"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Fact Id"
-          },
-          "candidate_id": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "uuid"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Candidate Id"
-          },
-          "cash_burn": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/AutoConfirmPartOut"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "type": "object",
-        "required": [
-          "applied",
-          "reason"
-        ],
-        "title": "AutoConfirmOut",
-        "description": "The outcome of a get-data auto-confirm: the SHARE COUNT's result at the top level (the fields every caller\nalready reads) and the CASH/BURN result in ``cash_burn``.\n\nA flagged or empty result is recorded as a CANDIDATE for the steward, never as a fact: it moves no meter."
-      },
-      "AutoConfirmPartOut": {
-        "properties": {
-          "applied": {
-            "type": "boolean",
-            "title": "Applied"
-          },
-          "reason": {
-            "type": "string",
-            "enum": [
-              "applied",
-              "already_on_file",
-              "older_than_on_file",
-              "after_today",
-              "pinned",
-              "not_auto",
-              "nothing_found"
-            ],
-            "title": "Reason"
-          },
-          "fact_id": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "uuid"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Fact Id"
-          },
-          "candidate_id": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "uuid"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Candidate Id"
-          }
-        },
-        "type": "object",
-        "required": [
-          "applied",
-          "reason"
-        ],
-        "title": "AutoConfirmPartOut",
-        "description": "What get-data did with ONE platform value. ``applied=False`` is a normal, expected result, never an error;\n``reason`` says which rule decided. ``fact_id`` is set when a fact was written; ``candidate_id`` names the\ncandidate that stands for this result (``pinned`` / ``not_auto`` / ``nothing_found``; a repeat of the newest\ncandidate is not written again, and its id is returned)."
-      },
-      "AutoConfirmRequest": {
-        "properties": {
-          "security_id": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Security Id"
-          },
-          "fact_type": {
-            "type": "string",
-            "const": "shares_outstanding",
-            "title": "Fact Type"
-          }
-        },
-        "type": "object",
-        "required": [
-          "security_id",
-          "fact_type"
-        ],
-        "title": "AutoConfirmRequest",
-        "description": "Ask the server to record a company's platform values from its filings (the get-data path, V2 W2b).\n\nNOTE WHAT IS **NOT** HERE: a value. The client cannot supply a number \u2014 it names a security, and the SERVER\nre-extracts and hands its OWN deterministic parse to the machine writer (``platform_values.machine``). That is\nthe structural bound (INVARIANT #3): an auto-applied fact can only ever be the extractor's reproduction of the\nfiling, so no client bug or caller can inject a figure under the ``auto`` provenance.\n\nOne call covers BOTH platform values, the share count and cash/burn (approved D2 (a)); ``fact_type`` stays the\none-value Literal it always was, so existing callers keep working. Purity is never touched (the operator's\nedge: HUMAN, never auto-valued)."
       },
       "BacktestLedgerOut": {
         "properties": {
@@ -27027,6 +26850,26 @@
             "type": "boolean",
             "title": "Removed",
             "default": false
+          },
+          "ingest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PromoteIngestRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "onboarding": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PromoteOnboardingRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -43861,6 +43704,26 @@
             "type": "boolean",
             "title": "Removed",
             "default": false
+          },
+          "ingest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PromoteIngestRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "onboarding": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PromoteOnboardingRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",

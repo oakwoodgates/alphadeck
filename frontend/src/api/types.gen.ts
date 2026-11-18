@@ -809,13 +809,12 @@ export interface paths {
          *     cron, not this endpoint, owns force-refresh). No-lookahead: ``recorded_at`` = now, never backdated.
          *     Shares ONE implementation with ``pipeline.ingest_thesis`` (``ingest_bars_for_security``).
          *
-         *     BOUNDED (security hardening PR 1b): a plain user may pull prices only for a company on one of their own cards
-         *     (else 404, "This company is not on any of your cards. Add it to a card first.") and within their daily
-         *     price-pull allowance (``Settings.allowance_price_pull_per_day``, else 429 naming the reset). The bars are
-         *     FETCHED before the company write lock is taken, and the lock is held only for the compare-and-append, so a slow
-         *     vendor never holds up the nightly. The automatic OTC price-symbol resolve (a write to the SHARED master) runs on
-         *     a steward's pull only; a plain user's OTC pull is priced under the canonical ticker, and the name is left for
-         *     the steward's price-feed panel or the backfill sweep.
+         *     STEWARD ONLY (V2 W7b): prices are platform data, so a plain user never pulls them on demand (the steward-only
+         *     403); a company a user adds gets its prices from the promote's lane (``start_member_load``, which a fund or
+         *     SPAC attach also starts), the staged onboarding job, or the nightly. Not counted against any allowance. The
+         *     bars are FETCHED before the company write lock is taken, and the lock is held only for the compare-and-append,
+         *     so a slow vendor never holds up the nightly. An unresolved OTC name has its vendor price symbol resolved first
+         *     (a write to the SHARED master).
          */
         post: operations["ingest_security_prices_workbench_securities__security_id__ingest_prices_post"];
         delete?: never;
@@ -1243,55 +1242,6 @@ export interface paths {
          *     session is a no-op. Returns **204**.
          */
         delete: operations["delete_triage_session_workbench_theses__thesis_id__triage_session_delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/workbench/facts/auto-confirm": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Auto Confirm Fact
-         * @description Get-data's platform values (V2 W2b, approved D2 (a)): re-extract the company's filings and hand the result
-         *     to the MACHINE WRITER (``platform_values.machine.record_extraction``) for BOTH the share count and cash/burn.
-         *
-         *     Per value: a clean AUTO value is applied as a fact stamped ``ratified_by="auto"`` when its filing is strictly
-         *     newer than the value shown (D3 (a): even over a steward's value, unless the steward pinned the company, which
-         *     turns it into a candidate); a FLAGged value and a "nothing found" are recorded as CANDIDATES for the steward,
-         *     never as facts (no meter reads them); a value dated after today is never written (D1). Annual filers
-         *     (20-F/40-F) are read too (``extract_with_annual_fallback``, the extract route's own entry): their values are
-         *     always FLAG, so they become candidates. The top-level fields answer for the share count, ``cash_burn`` for
-         *     cash/burn; ``applied=False`` with its ``reason`` is a normal answer, never an error.
-         *
-         *     WHY THIS IS NOT A #1/#3 VIOLATION: the written number is the extractor's deterministic reproduction of the
-         *     filing — never a model output, never an estimate. THE STRUCTURAL BOUND: the request carries NO value; the
-         *     server re-extracts (cache-first — get-data just warmed it) and writes its OWN parse.
-         *
-         *     THE LOCK: the extraction runs with the company FREE (no lock is ever held across an SEC call); the writer then
-         *     takes the company write lock, waiting at most ``Settings.ingest_lock_request_wait_s``, RE-READS what is on file
-         *     under it, writes both values in one transaction with the company's change stamp, and commits. Two clicks at
-         *     once write one value. While another writer holds the company: **409** naming the holder, nothing written. An
-         *     extraction failure (SEC unreachable, companyfacts missing) is a **502** and writes nothing — it is never
-         *     recorded as "nothing found".
-         *
-         *     BOUNDED (security hardening PR 1b, unchanged in V2 until W3/W7): a plain user may run it only for a company on
-         *     one of their own cards (else 404, "This company is not on any of your cards. Add it to a card first.") and
-         *     within their daily auto-confirm allowance (``Settings.allowance_auto_confirm_per_day``, else 429 naming the
-         *     reset; the security rides in the body, so this route counts the request before the card check). A steward is
-         *     neither checked nor counted.
-         *
-         *     PLATFORM DATA (V2): every row is written under the DATA tenant — one value per company, read by every
-         *     workspace — never under the caller's workspace.
-         */
-        post: operations["auto_confirm_fact_workbench_facts_auto_confirm_post"];
-        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -2903,7 +2853,9 @@ export interface paths {
          *     radar recommended, the operator decided). The member lands uncharacterized (role "—", no
          *     segment — the finalize rail characterizes it, item F), with ``surfaced_terms`` frozen from
          *     the stored term matches (factual provenance, never client-supplied). Idempotent:
-         *     already-in-basket returns ``already`` and writes nothing. Reversible via detach (#1).
+         *     already-in-basket returns ``already`` and writes nothing. A company it ADDS has its data load started after
+         *     the commit exactly as a promote's new name does (``start_member_load``, V2 W7b): the fast-lane job or the
+         *     onboarding queue, carried in ``ingest`` / ``onboarding``. Reversible via detach (#1).
          */
         post: operations["spac_attach_radar_spac_attach_post"];
         delete?: never;
@@ -3007,8 +2959,10 @@ export interface paths {
          *     off, no conviction) and the card is re-written whole from the stored copy, so nothing it carries (context
          *     roles, catalysts, kill criteria...) is wiped. The write goes through the promote's own rules
          *     (``silent_conflicts`` / ``fund_conflicts``), so a fund can never land outside ETFs. Idempotent: already in
-         *     ETFs returns ``already`` and writes nothing. Prices are NOT pulled here (the screen does, as Surface an ETF
-         *     does). Reversible via detach (#1).
+         *     ETFs returns ``already`` and writes nothing, and starts nothing. A fund it ADDS has its data load started
+         *     after the commit exactly as a promote's new name does (``start_member_load``, V2 W7b): the fast-lane job
+         *     (``ingest``) or the onboarding queue (``onboarding``), bounded by the global ingest cap and, for a plain user,
+         *     one unit of today's ``price_pull`` allowance. The screen pulls no prices itself. Reversible via detach (#1).
          */
         post: operations["fund_attach_radar_funds_attach_post"];
         delete?: never;
@@ -6998,72 +6952,6 @@ export interface components {
          * @enum {string}
          */
         Authorship: "system_drafted" | "operator_set" | "operator_edited";
-        /**
-         * AutoConfirmOut
-         * @description The outcome of a get-data auto-confirm: the SHARE COUNT's result at the top level (the fields every caller
-         *     already reads) and the CASH/BURN result in ``cash_burn``.
-         *
-         *     A flagged or empty result is recorded as a CANDIDATE for the steward, never as a fact: it moves no meter.
-         */
-        AutoConfirmOut: {
-            /** Applied */
-            applied: boolean;
-            /**
-             * Reason
-             * @enum {string}
-             */
-            reason: "applied" | "already_on_file" | "older_than_on_file" | "after_today" | "pinned" | "not_auto" | "nothing_found";
-            /** Fact Id */
-            fact_id?: string | null;
-            /** Candidate Id */
-            candidate_id?: string | null;
-            cash_burn?: components["schemas"]["AutoConfirmPartOut"] | null;
-        };
-        /**
-         * AutoConfirmPartOut
-         * @description What get-data did with ONE platform value. ``applied=False`` is a normal, expected result, never an error;
-         *     ``reason`` says which rule decided. ``fact_id`` is set when a fact was written; ``candidate_id`` names the
-         *     candidate that stands for this result (``pinned`` / ``not_auto`` / ``nothing_found``; a repeat of the newest
-         *     candidate is not written again, and its id is returned).
-         */
-        AutoConfirmPartOut: {
-            /** Applied */
-            applied: boolean;
-            /**
-             * Reason
-             * @enum {string}
-             */
-            reason: "applied" | "already_on_file" | "older_than_on_file" | "after_today" | "pinned" | "not_auto" | "nothing_found";
-            /** Fact Id */
-            fact_id?: string | null;
-            /** Candidate Id */
-            candidate_id?: string | null;
-        };
-        /**
-         * AutoConfirmRequest
-         * @description Ask the server to record a company's platform values from its filings (the get-data path, V2 W2b).
-         *
-         *     NOTE WHAT IS **NOT** HERE: a value. The client cannot supply a number — it names a security, and the SERVER
-         *     re-extracts and hands its OWN deterministic parse to the machine writer (``platform_values.machine``). That is
-         *     the structural bound (INVARIANT #3): an auto-applied fact can only ever be the extractor's reproduction of the
-         *     filing, so no client bug or caller can inject a figure under the ``auto`` provenance.
-         *
-         *     One call covers BOTH platform values, the share count and cash/burn (approved D2 (a)); ``fact_type`` stays the
-         *     one-value Literal it always was, so existing callers keep working. Purity is never touched (the operator's
-         *     edge: HUMAN, never auto-valued).
-         */
-        AutoConfirmRequest: {
-            /**
-             * Security Id
-             * Format: uuid
-             */
-            security_id: string;
-            /**
-             * Fact Type
-             * @constant
-             */
-            fact_type: "shares_outstanding";
-        };
         /**
          * BacktestLedgerOut
          * @description The run's episode ledger — the PER-THESIS drill-down, in the Scoreboard's own wire vocabulary.
@@ -12417,6 +12305,8 @@ export interface components {
              * @default false
              */
             removed: boolean;
+            ingest?: components["schemas"]["PromoteIngestRef"] | null;
+            onboarding?: components["schemas"]["PromoteOnboardingRef"] | null;
         };
         /**
          * FundAttachRequest
@@ -19070,6 +18960,8 @@ export interface components {
              * @default false
              */
             removed: boolean;
+            ingest?: components["schemas"]["PromoteIngestRef"] | null;
+            onboarding?: components["schemas"]["PromoteOnboardingRef"] | null;
         };
         /**
          * SpacAttachRequest
@@ -22626,39 +22518,6 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    auto_confirm_fact_workbench_facts_auto_confirm_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AutoConfirmRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AutoConfirmOut"];
-                };
             };
             /** @description Validation Error */
             422: {
