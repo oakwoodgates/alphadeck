@@ -137,8 +137,7 @@ and says how. The rest are choices the plan does not spell out.
    last row recorded on or before the as-of". The log's rows are keyed by the night they describe (`asof`), and a
    reconstructed night is written later than the night it describes, so the page uses What Changed's rule exactly
    (the greatest `(asof, seq)` with `asof <=` the as-of). A reconstructed night therefore counts under its night and
-   is marked on its rows, "reported, never scored". The `call_annotation` rows (a set-aside phantom arm) are not
-   applied: the ledger shows what the log recorded.
+   is marked on its rows, "reported, never scored". The ledger shows what the log recorded.
 5. **Card entries are read live, per request; only the heavy read is cached.** The plan has the cache hold one card's
    ledger, but editing a catalyst or a kill criterion moves none of the cache's tokens (a run, a basket edit, a card
    rename), so a cached ledger would show a stale entry while saying "loads live". The cache holds the triggers,

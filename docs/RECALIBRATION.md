@@ -282,8 +282,7 @@ windows was NOT run, because the projection is over the 45-minute ceiling the ta
    - the family **still loses to both of its nulls**: −2.25 pp vs timing, −0.22 pp vs name.
 
    The record-side counts above (465 of 969 armed member-nights) predate D3a and were **not** re-measured.
-   The live record's phantom nights carry D3b annotations instead (`call_annotation`: 9 exclude + 107 note,
-   `docs/SCOREBOARD.md`). D3a removed phantoms, not the breadth question.
+   D3a removed phantoms, not the breadth question.
 
    **The H1 pass has run, and no lever cleared the rule (MEASURED, 2026-09-19).** Pass
    `20260919T015210Z-public-h1-h3-co-first-measureme` (nine 42-day windows, 2025-09-01 to 2026-09-14, public
