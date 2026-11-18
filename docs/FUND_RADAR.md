@@ -185,8 +185,10 @@ row.
 **The Cockpit line** sits between the basket table and the evidence: "fund launches · N filings from M sponsors in 90
 days (signal a · broad b · name c)". Collapsed by default, its own query (it never slows the card), at the Cockpit's
 as-of, and **rendered not at all when the count is 0**. Expanded, each matched fund shows its stage chips and card
-terms. For a fund at the ticker stage or later: **+ add to ETFs** (attach, then a price pull on the returned
-security) and, once in, **✓ in ETFs, remove** (detach).
+terms. For a fund at the ticker stage or later: **+ add to ETFs** (attach; the server starts the fund's data load the
+way a promote does, V2 W7b, and the line says "Added. Its prices and filings are loading now; the price appears in a
+few minutes." or, when queued, "Added. Its prices and filings load in the background outside the nightly window;
+until then it shows no price.") and, once in, **✓ in ETFs, remove** (detach). The screen pulls no prices itself.
 
 **Cost.** MEASURED against the dev DB (24-month backfill, 65 live cards): reading every card against about 1,000 funds
 took about 60 s before the matcher's substring prefilters, and the first (cold) tape read is now about 1.7 s; a cached
