@@ -768,6 +768,17 @@ class Settings(BaseSettings):
     # message). A withdrawal never refunds; a flag raised again spends a unit. ALPHADECK_ALLOWANCE_FLAG_PER_DAY.
     allowance_flag_per_day: int = 50
 
+    # --- V2 W7c: the WORKSPACE CAPS a NEW workspace gets (app/workspace_caps.py, docs/AUTH.md §Workspace caps) ---
+    # Written into ``tenant.cap_*`` (migration 0203) when ``python -m pipeline.users create`` makes a workspace; an
+    # existing workspace keeps its own caps (NULL = no cap), changed per workspace by ``python -m pipeline.users
+    # caps``. 0 here = the new workspace gets NO cap (NULL). docker-compose.yml passes each with the SAME fallback
+    # (tests/domain/test_settings.py checks they agree). ALPHADECK_WORKSPACE_CAP_<CAP>_DEFAULT.
+    workspace_cap_live_cards_default: int = Field(default=25, ge=0)  # live (non-archived) cards
+    workspace_cap_companies_default: int = Field(
+        default=500, ge=0
+    )  # distinct companies on live cards
+    workspace_cap_terms_per_card_default: int = Field(default=200, ge=0)  # search terms on one card
+
     # V2 W5b (decision W-c): the steward's Slack incoming webhook for users' flags
     # (ALPHADECK_STEWARD_SLACK_WEBHOOK_URL). Unset or blank = the env webhook (SLACK_WEBHOOK_URL); neither = one log
     # line per flag. A flag's note is private to its user and the steward, so every reader of this channel must be

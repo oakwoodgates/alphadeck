@@ -10,7 +10,7 @@ import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import ValidationError
 
-from app import allowance, errors
+from app import allowance, errors, workspace_caps
 from app.auth import CurrentUser, require_super_admin, require_user
 from app.deps import (
     body_at_most,
@@ -1068,7 +1068,12 @@ def promote(
     new name (``Settings.allowance_price_pull_per_day``, security hardening PR 1b); when today's allowance cannot
     cover them all, no job is kicked and ``onboarding`` says the names load outside the nightly window instead (the
     staged onboarding job, then the nightly). A steward is not counted. The lane is ``start_member_load``, shared
-    with the fund and SPAC attaches (V2 W7b)."""
+    with the fund and SPAC attaches (V2 W7b).
+
+    WORKSPACE CAPS (V2 W7c, ``app.workspace_caps``): a new card that would raise the workspace's live cards past its
+    cap, or a basket that would raise the distinct companies on its live cards past its cap, is refused whole with a
+    409 whose sentence names the count and the limit; nothing is written and no name is dropped. A save that keeps
+    or shrinks the count is never refused, even on a workspace already over a cap."""
     # THE FIXED LINKS, normalized BEFORE the Thesis is built (so the validator sees the final chain): the
     # payload's own Context / ETFs / Bench segments (any case, any position, any descriptor) are replaced by
     # the three fixed ones appended last, and a member naming one in any case is respelled to the canonical
@@ -1272,6 +1277,18 @@ def promote(
     # the spine stores). A brand-new thesis (no stored row) is all-new — the starter-basket case.
     prior_ids = {m.security_id for m in stored.basket if m.security_id} if stored else set()
     new_ids = {m.security_id for m in thesis.basket if m.security_id} - prior_ids
+    # WORKSPACE CAPS (V2 W7c): a new card counts toward the live cards, and the final basket's companies toward the
+    # distinct companies on live cards. Refused whole (409, nothing written, no name dropped) only when a count
+    # would rise past its cap, so a save that keeps or shrinks an over-cap card always passes. The check takes the
+    # workspace's caps lock, held through this transaction's commit below.
+    workspace_caps.check(
+        conn,
+        tenant_id,
+        thesis_id=thesis.id,
+        adding=workspace_caps.Adding.SAVE,
+        live_after=True if stored is None else None,
+        company_ids_after={m.security_id for m in thesis.basket if m.security_id},
+    )
     try:
         thesis_repo.upsert(conn, thesis)
     except thesis_repo.ThesisNotInWorkspace:
@@ -1444,10 +1461,29 @@ def produce_terms(
     re-promoted). New ``req.seeds`` are added as fresh SIGNAL. Returns the thesis so the operator can INSPECT the
     stored SIGNAL/BROAD split. Fail-open: no key / blank narrative + no seeds → an empty set is stored (the draft
     then 503s "term set is empty" — surfaced, never a silent recall fallback). It sources NO number (#3) — terms
-    only — and writes ONLY ``term_set`` (the narrow ``set_term_set``)."""
+    only — and writes ONLY ``term_set`` (the narrow ``set_term_set``). Workspace caps (V2 W7c): when the operator's
+    own terms and the seeds alone would raise the card past its term cap, 409 before the model runs; when the
+    generated set would, 409 and nothing is stored (the ``term_run`` unit stays spent either way).
+    """
     operator_terms = [
         e for e in thesis.term_set if e.authored_by is not Authorship.SYSTEM_DRAFTED
     ]  # operator_set ∪ operator_edited — preserved verbatim; only system_drafted re-rolls
+    seeds = req.seeds if req else []
+    # WORKSPACE CAPS (V2 W7c), before the model runs: the operator's own terms and the new seeds always survive a
+    # re-roll, so when they alone would raise the card past its term cap, refuse now (the ``term_run`` unit stays
+    # spent, as for any fetch that then fails). The rollback below releases the caps lock.
+    floor = {e.term.strip().lower() for e in operator_terms} | {
+        s.strip().lower() for s in seeds if s.strip()
+    }
+    floor.discard("")
+    workspace_caps.check(
+        conn,
+        thesis.tenant_id,
+        thesis_id=thesis.id,
+        adding=workspace_caps.Adding.TERMS,
+        terms_after=len(floor),
+        at_least=True,
+    )
     # END THE READ before calling out (security hardening PR 2): only reads ran on this transaction since the gate's
     # and the allowance's commits, so the rollback loses nothing, and no request sits idle in a transaction across
     # the network (the request connection's idle-in-transaction timeout, db.session.connect_request).
@@ -1455,8 +1491,16 @@ def produce_terms(
     entries = produce_term_set(
         keyword_llm,
         thesis.narrative,
-        seeds=(req.seeds if req else []),
+        seeds=seeds,
         operator_terms=operator_terms,
+    )
+    # and after it: the whole generated set is refused (nothing stored) when it would raise the card past its cap
+    workspace_caps.check(
+        conn,
+        thesis.tenant_id,
+        thesis_id=thesis.id,
+        adding=workspace_caps.Adding.TERMS,
+        terms_after=len(entries),
     )
     thesis_repo.set_term_set(conn, thesis.id, entries)
     conn.commit()
@@ -1478,11 +1522,20 @@ def edit_terms(
     ``set_term_set`` (the SOLE writer; ``upsert`` never names ``term_set`` — the structural wipe-guard stays
     intact). Sources NO number (#3) — structure/config only. 422 on an empty term or a case-insensitive
     duplicate. An empty ``terms`` clears the set (a visible operator choice; the draft then 503s "term set is
-    empty")."""
+    empty"). 409 (nothing saved) when the set would raise the card past its workspace's term cap (V2 W7c); a save
+    that keeps or shrinks the count always passes."""
     try:
         entries = stamp_edited_term_set(thesis.term_set, [(t.term, t.tier) for t in req.terms])
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    # WORKSPACE CAPS (V2 W7c): refused whole only when the saved set would raise the card past its term cap
+    workspace_caps.check(
+        conn,
+        thesis.tenant_id,
+        thesis_id=thesis.id,
+        adding=workspace_caps.Adding.TERMS,
+        terms_after=len(entries),
+    )
     thesis_repo.set_term_set(conn, thesis.id, entries)
     conn.commit()
     return ThesisDetail.from_thesis(thesis.model_copy(update={"term_set": entries}))

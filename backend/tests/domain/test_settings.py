@@ -208,6 +208,10 @@ _BACKEND_PASSED_THROUGH = {
     "ALPHADECK_ALLOWANCE_CHAIN_DRAFT_PER_DAY": "allowance_chain_draft_per_day",
     "ALPHADECK_ALLOWANCE_TERM_RUN_PER_DAY": "allowance_term_run_per_day",
     "ALPHADECK_ALLOWANCE_FLAG_PER_DAY": "allowance_flag_per_day",  # V2 W5b
+    # V2 W7c: the caps a new workspace gets (pipeline.users create runs in the backend container)
+    "ALPHADECK_WORKSPACE_CAP_LIVE_CARDS_DEFAULT": "workspace_cap_live_cards_default",
+    "ALPHADECK_WORKSPACE_CAP_COMPANIES_DEFAULT": "workspace_cap_companies_default",
+    "ALPHADECK_WORKSPACE_CAP_TERMS_PER_CARD_DEFAULT": "workspace_cap_terms_per_card_default",
     # security PR 5: the sign-in surface
     "ALPHADECK_OAUTH_AUTHORIZE_PER_ADDRESS_HOUR": "oauth_authorize_per_address_hour",
     "ALPHADECK_OAUTH_AUTHORIZE_PER_HOUR": "oauth_authorize_per_hour",

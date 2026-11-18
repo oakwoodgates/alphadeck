@@ -176,6 +176,11 @@ services:
       ALPHADECK_ALLOWANCE_CHAIN_DRAFT_PER_DAY: ${ALPHADECK_ALLOWANCE_CHAIN_DRAFT_PER_DAY:-20}
       ALPHADECK_ALLOWANCE_TERM_RUN_PER_DAY: ${ALPHADECK_ALLOWANCE_TERM_RUN_PER_DAY:-50}
       ALPHADECK_ALLOWANCE_FLAG_PER_DAY: ${ALPHADECK_ALLOWANCE_FLAG_PER_DAY:-50}
+      # V2 W7c: the caps a NEW workspace gets (`python -m pipeline.users create`; 0 = no cap). Fallbacks equal the
+      # Settings defaults (pinned by test).
+      ALPHADECK_WORKSPACE_CAP_LIVE_CARDS_DEFAULT: ${ALPHADECK_WORKSPACE_CAP_LIVE_CARDS_DEFAULT:-25}
+      ALPHADECK_WORKSPACE_CAP_COMPANIES_DEFAULT: ${ALPHADECK_WORKSPACE_CAP_COMPANIES_DEFAULT:-500}
+      ALPHADECK_WORKSPACE_CAP_TERMS_PER_CARD_DEFAULT: ${ALPHADECK_WORKSPACE_CAP_TERMS_PER_CARD_DEFAULT:-200}
       # Security PR 5, the sign-in surface (docs/AUTH.md, docs/CONNECTORS.md): OAuth self-registration (`POST
       # /register`) is OFF unless set to true; the /authorize limits (new sign-in requests per address per hour, and
       # in total per hour, counted from the table; 0 = no limit); the cap on concurrent password checks (0 = none)
