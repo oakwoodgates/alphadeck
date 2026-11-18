@@ -51,6 +51,7 @@ scripts/fork.sh refresh --reset               # newest prod dump + prod's caches
 scripts/fork.sh refresh --reset --fresh       # take a brand-new READ-ONLY prod dump first
 scripts/fork.sh refresh --reset --no-cache    # DB only, skip the appdata cache copy
 scripts/fork.sh refresh --reset --dry-run     # print the plan, touch nothing
+scripts/fork.sh refresh --reset --v1-state    # skip the V2 move: V1-shaped data for a cutover rehearsal
 
 # DESTROY — from the fork worktree root. down -v: removes the fork's containers AND volumes; prints the
 # worktree/branch removal commands to run from the main checkout afterwards. Prod/dev/sig untouched.
@@ -79,6 +80,12 @@ app plane — is **designed but deliberately not built yet** (deferred). The `--
 that if data mode ever lands as the default, the bare command's meaning cannot silently flip from
 "wipe + re-clone" to "merge". Until then: if your fork holds theses you care about, **don't refresh** —
 the data you seeded with keeps working (it just ages).
+
+On the `v2` branch a refresh also runs the V2 move (`python -m pipeline.v2_cutover move-platform-facts --apply`)
+right after migrating, so ordinary V2 work gets the moved state. **`--v1-state`** skips only that step, so the
+fork keeps prod's V1-shaped data and a V2 cutover rehearsal can start from it: the `--dry-run` plan prints
+`step (v2 move): SKIPPED (--v1-state: a cutover rehearsal)` and the closing line ends
+`(V1 state: run the cutover next)`. Everything else, including the one-way guarantee below, is unchanged.
 
 The refresh is **one-way by construction**: prod is only ever read via `pg_dump` (the same
 anti-truncation guarantee as `refresh-dev` / `refresh-sig`); the dump is read from the **main
