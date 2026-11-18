@@ -611,8 +611,7 @@ only *coincide* for insider buys, which is exactly why the two conviction source
   comparison base (another quarter's year-prior / prior); it just cannot be the quarter the trigger fires on. One
   pure check inside the shared detector (`signals/revenue_acceleration._fresh_at_knowability`), so the live call and
   the replay apply it identically. It also closes the D3 phantom independently of D3a: a comparative re-dated to
-  its year-later filing is always past 135 days (`pipeline.annotate_phantom_arms` therefore reads such a recorded
-  night as drift on today's code — never annotated; the annotations already applied stand). MEASURED live effect
+  its year-later filing is always past 135 days. MEASURED live effect
   (dev copy of prod, 2026-10-22, all 12 theses at asof 10-21 and 10-22): 7 revenue triggers per night cited such a
   quarter and are gone, on three of the 12 theses (one card's `exit_by` moved about three months earlier); two of
   those companies re-cite their genuine Q1-2026 inflection instead. No state, verdict or armed name changes.

@@ -393,7 +393,7 @@ describe("TrackRecord — the edition", () => {
 
   it("states the edition in force on the work line when a stored edition is read", () => {
     setup(payload({ edition: { number: 1, label: "first re-run" }, newest_edition: { number: 1, label: "first re-run" } }));
-    expect(screen.getByText(/edition 1: first re-run · annotated nights excluded/)).toBeInTheDocument();
+    expect(screen.getByText(/edition 1: first re-run · late nights excluded/)).toBeInTheDocument();
     expect(screen.queryByText(/editions are paused/)).toBeNull();
   });
 
@@ -411,7 +411,7 @@ describe("TrackRecord — the quiet work lines and the states", () => {
     setup();
     for (const text of [
       /as of 2026-07-24 · public clock/,
-      /edition 0: the original record \(the default; editions are paused\) · annotated nights excluded · late nights excluded/,
+      /edition 0: the original record \(the default; editions are paused\) · late nights excluded/,
       /20 arm episodes on 2 cards · 17 in the cells · left out: 1 flagged price history, 1 censored start, 1 ingest flagged/,
       /1 with an unpinned cap · 1 with unpinned liquidity \(counted, never dropped\)/,
       /10 sessions 9 counted, 8 maturing/,

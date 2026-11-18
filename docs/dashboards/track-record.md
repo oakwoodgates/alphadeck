@@ -24,8 +24,8 @@ tier. Display only: it never feeds a call, never writes, never calls the LLM, an
   `armed_members`, keyed (thesis, security, `arm_date`); a re-arm is a new episode. The page imports ONLY what
   `app/routers/scoreboard.py` already imports (the lean prod image has no `duckdb`; the Scoreboard route proves
   these modules load without it).
-- **Honesty filters are the Scoreboard's**, with the same query parameters: `include_annotated` and `include_late`
-  (defaults from `scoreboard_exclude_annotated` / `scoreboard_exclude_late`), `edition` (**omitted = 0, the calls
+- **Honesty filters are the Scoreboard's**, with the same query parameter: `include_late`
+  (default from `scoreboard_exclude_late`), `edition` (**omitted = 0, the calls
   log** while the editions nightly is paused; N = a stored edition; unlike the Scoreboard, which defaults to the
   newest published one). Reconstructed nights are never events. The Scoreboard's eligibility rule
   holds too: a `censored_start` episode (armed on the card's first recorded night) and an `ingest_flagged` one are
@@ -131,7 +131,7 @@ the session before the arm date" (with the share count public before it: the Wor
 
 ## Cache
 
-`dashboards.cache.cached(conn, "track-record", (edition, include_annotated, include_late, clock), asof, ...)` holds
+`dashboards.cache.cached(conn, "track-record", (edition, include_late, clock), asof, ...)` holds
 every episode's row with all five horizons, both benchmarks' spans, the raw return, the cap and the liquidity
 figure. Tiering, slicing, filtering and the entry toggle derive from that one read (the toggle needs both entry
 closes, so the row carries both and both sets of horizon returns). The cache clears on
@@ -145,8 +145,7 @@ a new run or a basket edit (rule 7).
   the cell statistics with the n < 10 rule, the counts.
 - `backend/dashboards/market_cap.py`, pure and shared: `cap_cell`, the share-count rule (`cover_shares`,
   `pick_shares`, the Market Map's) and `shares_at_event` (the same rule judged at an event's date, Track Record's).
-- `backend/app/routers/dashboards/track_record.py`: `GET /dashboards/track-record?asof=&edition=&include_annotated=
-  &include_late=` (every episode row + the counts; the client builds the table). `known_at, clock = serve_view(asof)`
+- `backend/app/routers/dashboards/track_record.py`: `GET /dashboards/track-record?asof=&edition=&include_late=` (every episode row + the counts; the client builds the table). `known_at, clock = serve_view(asof)`
   threads into the Scoreboard read, every `PointInTimeData` and the benchmark read. Wire models in the module (rule 8).
 - `backend/tests/dashboards/test_track_record.py`: horizons count SESSIONS (a weekend and a holiday gap do not shift
   the Nth bar); a path that ends before the Nth bar reads "path ended" and is not counted; excess against a benchmark
@@ -242,8 +241,8 @@ date (a bar with no volume is skipped, not read as zero). A value on a band's bo
 dollars is "under $1M" (a real measurement); under 20 volume-bearing bars is unpinned.
 
 **Which episodes.**
-- Archived cards are included (the Scoreboard's default). The route takes the Scoreboard's `edition`,
-  `include_annotated` and `include_late` and resolves the edition with the Scoreboard's own function (404 on an
+- Archived cards are included (the Scoreboard's default). The route takes the Scoreboard's `edition`
+  and `include_late` and resolves the edition with the Scoreboard's own function (404 on an
   unknown one). The page has a selector for the edition only (below); its first work line states the reading in force.
 - An episode left out is counted once, in this order: flagged price history (or a stopped feed, below), censored
   start, ingest flag. A left-out
@@ -284,7 +283,7 @@ dollars is "under $1M" (a real measurement); under 20 volume-bearing bars is unp
   draw it, but the frontend test reproduces it cell by cell from `rows`, so the two cannot drift apart.
 - The plan's `horizon_closes` is named `horizon_close` (it returns one bar). Price reads are unbounded in time and
   chunked 40 companies per point-in-time view (an episode can sit anywhere in a name's history).
-- The cache key is the plan's tuple with the RESOLVED values: the edition number, then whether annotated and late
+- The cache key is the plan's tuple with the RESOLVED values: the edition number, then whether late
   nights are included (fixed for a stored edition, which has none of those rows), then the clock.
 
 **The edition: the record by default while the editions nightly is paused (2026-10-29, after the dev walk below).**
@@ -304,7 +303,7 @@ dollars is "under $1M" (a real measurement); under 20 volume-bearing bars is unp
   the editions nightly (2026-10-26), stated as a fact about the system and not computed from the data: **when the
   editions nightly resumes, flip the route's default back to the Scoreboard's resolver and drop that clause in
   `recordView.ts::editionWords` in the same change.**
-- `include_annotated` and `include_late` are unchanged.
+- `include_late` is unchanged.
 
 **The entry: the next session's close by default (2026-10-30, the operator's decision).**
 - **The page opens on "Next session"** (`TrackRecord.tsx`'s entry state), the toggle lists it first, and "Arm night" is
@@ -344,7 +343,7 @@ build re-measured nothing.
 
 The build's own read on the DEV database (a prod copy, newest night 2026-10-29), read-only: the router's
 `read_record` at as-of 2026-10-29 through `serve_view(asof)` (the public clock), Edition 0, the default honesty
-policies (annotated and late nights set aside), with the dev backend's own run artifacts for the price flags. Once on
+policies (late nights set aside), with the dev backend's own run artifacts for the price flags. Once on
 the base commit's code (BEFORE), once on this change's (AFTER). 469 episodes, 240 counted, both times.
 
 | | BEFORE | AFTER |

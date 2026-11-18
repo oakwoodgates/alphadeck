@@ -6,7 +6,7 @@ import type { ScoreboardSummaryOut } from "../api/hooks";
 // READ POLICY decides whether this reading sets those rows aside (the default: an on-time row for the night
 // wins, a night with none reads like a cron gap) or scores them as before. Lateness is derived from the
 // row's stamp, so nothing is deleted or marked either way. The line says which reading the operator is
-// looking at; the toggle flips it for this view only. Pure helpers (the `annotated.ts` twin), so the copy
+// looking at; the toggle flips it for this view only. Pure helpers, so the copy
 // and the flip are testable on their own.
 
 type LateSummary = Pick<ScoreboardSummaryOut, "late_nights" | "late_policy">;
