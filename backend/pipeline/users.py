@@ -17,6 +17,7 @@ There is no sign-up page and no email delivery: the super admin creates every ac
     python -m pipeline.users oauth-client disable --client-id <id> # refused everywhere from the next request
     python -m pipeline.users oauth-client add --client-id desk --name "Research Desk" \
         --redirect-uri https://desk.example.com/cb [--redirect-uri ...] [--confidential]
+    python -m pipeline.users caps --workspace <uuid> [--live-cards N] [--companies N] [--terms N] [--clear]
 
 Every user has ONE workspace. ``create`` makes a NEW workspace named "<display name>'s workspace" by default;
 ``--workspace <uuid>`` attaches the user to an existing workspace and ``--founding`` to the founding workspace
@@ -39,6 +40,12 @@ stored as a known client (``registration='static'``), scope ``read steward`` (th
 user's role), public (PKCE, no secret) unless ``--confidential``, which prints a generated client secret ONCE and
 stores only its sha256. Each redirect URI must be https, or http on localhost (at most 10). An id that exists is
 refused, never overwritten.
+
+``caps`` (V2 W7c, docs/AUTH.md §Workspace caps) prints one workspace's caps and its counts; with a flag it sets that
+cap (0 is a real cap: nothing more may be added), with ``--clear`` it removes all three (NULL = no cap), and prints the
+caps before and after. A new workspace made by ``create`` gets the ``Settings.workspace_cap_*_default`` values (a
+default of 0 = no cap); attaching a user to an existing workspace leaves its caps alone. A tenant that is not a
+workspace (the data tenant) is refused. Lowering a cap below a workspace's current count refuses only further adds.
 """
 
 from __future__ import annotations
@@ -53,10 +60,11 @@ from uuid import UUID, uuid4
 
 import psycopg
 
-from app import auth
+from app import auth, workspace_caps
 from app.oauth import store as oauth_store
 from db.session import connect
 from domain.scopes import FOUNDING_WORKSPACE_ID
+from domain.settings import get_settings
 
 GENERATED_PASSWORD_LEN = 20
 _ALPHABET = string.ascii_letters + string.digits
@@ -121,9 +129,21 @@ def create_user(
 
 
 def _new_workspace(conn: psycopg.Connection, name: str) -> UUID:
+    """A new workspace with the default caps (``Settings.workspace_cap_*_default``; 0 = no cap, NULL)."""
+    s = get_settings()
     wid = uuid4()
     with conn.cursor() as cur:
-        cur.execute("INSERT INTO tenant (id, name, kind) VALUES (%s, %s, 'workspace')", (wid, name))
+        cur.execute(
+            "INSERT INTO tenant (id, name, kind, cap_live_cards, cap_companies, cap_terms_per_card) "
+            "VALUES (%s, %s, 'workspace', %s, %s, %s)",
+            (
+                wid,
+                name,
+                s.workspace_cap_live_cards_default or None,
+                s.workspace_cap_companies_default or None,
+                s.workspace_cap_terms_per_card_default or None,
+            ),
+        )
     return wid
 
 
@@ -133,6 +153,57 @@ def _require_workspace(conn: psycopg.Connection, workspace_id: UUID) -> None:
         row = cur.fetchone()
     if row is None or row["kind"] != "workspace":
         raise UserError(f"{workspace_id} is not a workspace")
+
+
+def set_caps(
+    conn: psycopg.Connection,
+    workspace_id: UUID,
+    *,
+    live_cards: int | None = None,
+    companies: int | None = None,
+    terms: int | None = None,
+    clear: bool = False,
+) -> tuple[workspace_caps.Caps, workspace_caps.Caps]:
+    """Set (a given value) or clear (``clear``: all three to NULL) one workspace's caps. Returns ``(before, after)``;
+    with nothing to change both are the current caps. Refuses a negative value, ``clear`` with a value, and a tenant
+    that is not a workspace."""
+    _require_workspace(conn, workspace_id)
+    given = {"cap_live_cards": live_cards, "cap_companies": companies, "cap_terms_per_card": terms}
+    if clear and any(v is not None for v in given.values()):
+        raise UserError("--clear removes every cap; give it alone")
+    if any(v is not None and v < 0 for v in given.values()):
+        raise UserError("a cap is 0 or more (0 = nothing more may be added; --clear = no cap)")
+    before = workspace_caps.read_caps(conn, workspace_id)
+    changes = (
+        {k: None for k in given} if clear else {k: v for k, v in given.items() if v is not None}
+    )
+    if changes:
+        sets = ", ".join(f"{k} = %({k})s" for k in changes)  # fixed column names, never input
+        with conn.cursor() as cur:
+            cur.execute(
+                f"UPDATE tenant SET {sets} WHERE id = %(id)s", {**changes, "id": workspace_id}
+            )
+    return before, workspace_caps.read_caps(conn, workspace_id)
+
+
+def _caps_line(caps: workspace_caps.Caps) -> str:
+    def one(v: int | None) -> str:
+        return "no cap" if v is None else str(v)
+
+    return (
+        f"live cards {one(caps.live_cards)}, companies {one(caps.companies)}, "
+        f"terms per card {one(caps.terms_per_card)}"
+    )
+
+
+def _max_terms(conn: psycopg.Connection, workspace_id: UUID) -> int:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT coalesce(max(coalesce(jsonb_array_length(term_set), 0)), 0) AS n FROM thesis "
+            "WHERE tenant_id = %s AND archived_at IS NULL",
+            (workspace_id,),
+        )
+        return cur.fetchone()["n"]
 
 
 def set_disabled(conn: psycopg.Connection, email: str, disabled: bool) -> UUID:
@@ -274,6 +345,14 @@ def _build_parser() -> argparse.ArgumentParser:
     tc.add_argument("--name", required=True)
     tr = tsub.add_parser("revoke", help="revoke a token by id")
     tr.add_argument("--id", type=UUID, required=True)
+    cp = sub.add_parser(
+        "caps", help="a workspace's caps: print them, set one, or --clear all (NULL = no cap)"
+    )
+    cp.add_argument("--workspace", type=UUID, required=True)
+    cp.add_argument("--live-cards", type=int, default=None, help="live (non-archived) cards")
+    cp.add_argument("--companies", type=int, default=None, help="distinct companies on live cards")
+    cp.add_argument("--terms", type=int, default=None, help="search terms on one card")
+    cp.add_argument("--clear", action="store_true", help="remove all three caps")
     o = sub.add_parser("oauth-client", help="OAuth clients (docs/CONNECTORS.md)")
     osub = o.add_subparsers(dest="oauth_cmd", required=True)
     osub.add_parser("list", help="every OAuth client (never a secret)")
@@ -352,6 +431,25 @@ def run(
                     f"{'disabled ' + format(u['disabled_at'], '%Y-%m-%d') if u['disabled_at'] else 'enabled'}\t"
                     f"sessions {u['sessions']}\ttokens {u['tokens']}"
                 )
+        elif args.cmd == "caps":
+            before, after = set_caps(
+                conn,
+                args.workspace,
+                live_cards=args.live_cards,
+                companies=args.companies,
+                terms=args.terms,
+                clear=args.clear,
+            )
+            used = workspace_caps.usage(conn, args.workspace)
+            most = _max_terms(conn, args.workspace)
+            conn.commit()
+            emit(f"caps of workspace {args.workspace}")
+            emit(f"before: {_caps_line(before)}")
+            emit(f"after: {_caps_line(after)}")
+            emit(
+                f"in use: {used.live_cards} live cards, {used.companies} companies, "
+                f"at most {most} terms on one live card"
+            )
         elif args.cmd == "token" and args.token_cmd == "create":
             tid, token = create_token(conn, args.email, args.name)
             conn.commit()
