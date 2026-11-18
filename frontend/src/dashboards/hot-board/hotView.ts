@@ -1,3 +1,4 @@
+import { NO_SHARED_SHARES } from "../../components/valueWords";
 import { fmtDate, verdictLabel } from "../../util/format";
 import type { Heat } from "./heat";
 import type { CapTier, HotBoardOut, HotCandidateCountsOut, HotRowOut, HotTriggerOut, RowKind } from "./useHotBoard";
@@ -120,7 +121,7 @@ export function capCell(r: HotRowOut): Cell {
     const why: Record<string, string> = {
       flagged: `flagged: ${c.note ?? r.tape.flag ?? "price history"}`,
       no_price: "awaiting price",
-      no_shares: "awaiting shares",
+      no_shares: NO_SHARED_SHARES,
       ads_unread: "the ADS ratio could not be read",
       no_cap: c.note ?? "the share count or the close is not positive",
     };

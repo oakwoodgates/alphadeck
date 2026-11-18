@@ -403,13 +403,13 @@ export default function PeerTable({ asof, onSelectThesis }: DashboardProps) {
                 </label>
               )}
               {controls.withFact && (
-                <label className="pt-check" title="Shares, cash and burn, revenue mix or a convertible note: the facts a name is marked for">
+                <label className="pt-check" title="Shares, cash and burn, revenue mix or a convertible note: the stored facts a name can have">
                   <input
                     type="checkbox"
                     checked={filters.withFact}
                     onChange={(e) => setFilters((f) => ({ ...f, withFact: e.target.checked }))}
                   />
-                  Only names with a Workbench fact
+                  Only names with a stored fact
                 </label>
               )}
               {filtering && (

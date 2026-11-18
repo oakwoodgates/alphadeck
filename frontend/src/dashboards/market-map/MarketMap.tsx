@@ -9,6 +9,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 
+import { NO_SHARED_SHARES } from "../../components/valueWords";
 import { businessTypeLabel, supersectorLabel } from "../../util/format";
 import { FlaggedNote } from "../FlaggedNote";
 import type { DashboardProps } from "../registry";
@@ -80,7 +81,7 @@ const plural = (n: number, one: string, many: string) =>
 
 const GAP_WORDS: Record<string, string> = {
   no_price: "awaiting price",
-  no_shares: "awaiting a share count",
+  no_shares: NO_SHARED_SHARES,
   ads_unread: "the ADS ratio is not read",
   no_cap: "the share count or the close is not positive",
   flagged: "a flagged price history",
@@ -110,7 +111,7 @@ export function workLine(d: MarketMapOut, tree: Tree, opts: ViewOpts): string {
   ];
   if (opts.sizeBy === "cap") {
     parts.push(
-      `caps: ${tree.caps.workbench.toLocaleString("en-US")} Workbench / ${tree.caps.cover.toLocaleString("en-US")} filing cover / ${tree.caps.none.toLocaleString("en-US")} none`,
+      `caps: ${tree.caps.workbench.toLocaleString("en-US")} shared count / ${tree.caps.cover.toLocaleString("en-US")} filing cover / ${tree.caps.none.toLocaleString("en-US")} none`,
     );
   }
   if (opts.sizeBy !== "equal" && tree.noWeight > 0) {

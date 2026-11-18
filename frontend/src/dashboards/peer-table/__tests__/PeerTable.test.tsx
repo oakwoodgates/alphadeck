@@ -87,7 +87,7 @@ describe("PeerTable — the table", () => {
     expect(header(/^Company/).querySelector(".pt-cov")).toBeNull(); // the pinned column carries none
     expect(header(/^Cap/).querySelector(".pt-cov")).toHaveAttribute(
       "title",
-      "2 of 4 names state this. Blank: 1 flagged, 1 awaiting shares.",
+      "2 of 4 names state this. Blank: 1 flagged, 1 no shared share count yet.",
     );
     expect(header(/^Company/)).toHaveAttribute("aria-sort", "none");
   });
@@ -121,7 +121,7 @@ describe("PeerTable — the table", () => {
     expect(aaa.textContent).toBe("micro · $250M");
     expect(aaa.getAttribute("title")).toContain("latest close $25.00");
     expect(bbb.textContent).toBe("small · $1.0B");
-    expect(ccc.textContent).toBe("awaiting shares");
+    expect(ccc.textContent).toBe("no shared share count yet");
     expect(ddd.textContent).toBe("flagged");
     expect(ddd).toHaveClass("gray");
     expect(ddd.getAttribute("title")).toContain(MIXED);
@@ -387,13 +387,13 @@ describe("PeerTable — the filters", () => {
     expect(g.textContent).toContain("3 names");
     expect(g.textContent).toContain("+5.0%median of 2 with a prior year");
     expect(headerCoverage(/^Cap/)).toBe("2 of 3");
-    expect(header(/^Cap/).querySelector(".pt-cov")).toHaveAttribute("title", "2 of 3 names state this. Blank: 1 awaiting shares.");
+    expect(header(/^Cap/).querySelector(".pt-cov")).toHaveAttribute("title", "2 of 3 names state this. Blank: 1 no shared share count yet.");
     expect(screen.getByText(/count the names that count/)).toBeInTheDocument();
   });
 
-  it("keeps only the names with a Workbench fact", async () => {
+  it("keeps only the names with a stored fact", async () => {
     setup();
-    await userEvent.click(screen.getByRole("checkbox", { name: "Only names with a Workbench fact" }));
+    await userEvent.click(screen.getByRole("checkbox", { name: "Only names with a stored fact" }));
     expect(keys()).toEqual(["AAA", "BBB"]);
   });
 
@@ -418,7 +418,7 @@ describe("PeerTable — the filters", () => {
     expect(screen.queryByRole("group", { name: "Cap tier" })).toBeNull(); // one tier
     expect(screen.queryByRole("checkbox", { name: "Counting names only" })).toBeNull(); // none is silent-only
     expect(screen.queryByRole("checkbox", { name: "Only names with revenue" })).toBeNull();
-    expect(screen.queryByRole("checkbox", { name: "Only names with a Workbench fact" })).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: "Only names with a stored fact" })).toBeNull();
   });
 });
 
@@ -522,7 +522,7 @@ describe("PeerTable — the work and the notes", () => {
   it("lists every column's coverage on expand", async () => {
     setup();
     await userEvent.click(screen.getByText("column coverage — every blank counted by reason"));
-    expect(screen.getByText("Cap: 2 of 4 — blank: 1 flagged, 1 awaiting shares")).toBeInTheDocument();
+    expect(screen.getByText("Cap: 2 of 4 — blank: 1 flagged, 1 no shared share count yet")).toBeInTheDocument();
     expect(screen.getAllByText(/^[A-Za-z0-9 ]+: \d+ of \d+/).length).toBeGreaterThanOrEqual(COVERAGE.length);
   });
 
@@ -558,7 +558,7 @@ describe("PeerTable — the work and the notes", () => {
   it("states the known limits and the honest notes", () => {
     setup();
     expect(screen.getByText(/^Approximate market cap: the latest close × the latest shares fact/)).toBeInTheDocument();
-    expect(screen.getByText(/the blanks are the to-do list, counted per column/)).toBeInTheDocument();
+    expect(screen.getByText(/the blanks are counted per column/)).toBeInTheDocument();
     expect(screen.getByText(/Short interest is not stored/)).toBeInTheDocument();
     expect(screen.getByText(/as the Cockpit's column screens them/)).toBeInTheDocument();
     expect(screen.getByText(/Group figures are medians with equal weight and no score/)).toBeInTheDocument();

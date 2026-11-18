@@ -1,4 +1,5 @@
 import { cashSymbol, storedCurrency } from "../../components/currency";
+import { NO_SHARED_SHARES, NO_SHARED_CASH, FLAG_IT_WORDS } from "../../components/valueWords";
 import { businessTypeLabel, supersectorLabel } from "../../util/format";
 import { formatMarketCap } from "../../workbench/format";
 import type {
@@ -148,14 +149,14 @@ export const GAP_WORDS: Record<Gap, string> = {
   flagged: "its data flags reach its price readings, so the Cockpit grays this cell too",
   no_price: "no price history is stored for this company at the as-of",
   no_reading: "the reading needs more history than is stored",
-  no_shares: "awaiting shares: no shares-outstanding fact is on file (mark the name for data)",
+  no_shares: `${NO_SHARED_SHARES} (it comes from a filing or the steward; ${FLAG_IT_WORDS})`,
   ads_unread: "ADS ratio unread: the cap is withheld rather than guessed at one ordinary share per ADS",
   no_cap: "the share count or the close is not positive",
   no_revenue: "no revenue facts are stored for this company",
   no_prior_year: "no row for the same period a year earlier in the stored series",
-  no_burn: "no cash and burn fact is on file (mark the name for data)",
+  no_burn: `${NO_SHARED_CASH} (it comes from a filing or the steward; ${FLAG_IT_WORDS})`,
   no_convert: "no live convertible-note overhang is on file",
-  no_mix: "no revenue-mix fact is on file (mark the name for data)",
+  no_mix: "no revenue-mix fact is on file",
   no_form4: "no Form 4 is ingested for this company",
   no_spy: "SPY has no price history at the as-of, so there is nothing to subtract",
   ends_differ: "its last close is not SPY's last close, so the two returns would end on different days",
@@ -166,7 +167,7 @@ export const GAP_SHORT: Record<Gap, string> = {
   flagged: "flagged",
   no_price: "awaiting price",
   no_reading: "short history",
-  no_shares: "awaiting shares",
+  no_shares: NO_SHARED_SHARES,
   ads_unread: "ADS ratio unread",
   no_cap: "not positive",
   no_revenue: "no revenue",
@@ -213,7 +214,7 @@ export function capTitle(c: PeerCapOut): string {
 
 export function capCell(c: PeerCapOut): Cell {
   if (c.gap) {
-    // the cap's blank reasons are the operator's to-do list ("awaiting shares"), so they ride in the cell
+    // the cap's blank reasons are the cap's own reason ("no shared share count yet"), so they ride in the cell
     return { ...blank(c.gap, c.note, GAP_SHORT[c.gap]), gray: c.gap === "flagged" };
   }
   return plain(`${c.tier ?? ""} · ${formatMarketCap(c.value)}`, capTitle(c));
@@ -768,7 +769,7 @@ export function rosterWords(n: number): string | null {
 /** The page's honest notes and known limits, stated on the page (docs/dashboards/peer-table.md). */
 export const LIMITS: readonly string[] = [
   "Approximate market cap: the latest close × the latest shares fact (the ADS ratio applied when known and the cap withheld when unread; a split in force between the count and the close puts the count on the close's scale). An ADR with an unread ratio shows no cap by design.",
-  "Workbench facts (shares, cash and burn, revenue mix, convertible notes) exist only where a name was marked for data or an automated leg reached it; the blanks are the to-do list, counted per column.",
+  "Stored facts (shares, cash and burn, revenue mix, convertible notes) exist only where the platform applied one from a filing, the steward verified one, or an automated leg reached the name; the blanks are counted per column.",
   "Revenue is the XBRL series only (companyfacts); a name with no revenue facts shows blank, not zero. Short interest is not stored, so there is no column for it.",
   "Insider buys are shown as the Cockpit's column screens them: open-market purchases only, offer-price subscriptions and transfers between linked filers set aside.",
   "A company whose data flags reach its price readings keeps its row; its price-derived cells (cap, 52w, 50d, 200d, RVOL, dollar volume, vs SPY) are blank with the reason and it is named above.",

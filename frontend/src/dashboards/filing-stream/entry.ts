@@ -9,7 +9,7 @@ export const entry: DashboardEntry = {
   slug: "filing-stream",
   order: 120,
   label: "Filing Stream",
-  description: "Every filing-derived fact the system holds for one card's names, newest first, as it was readable that night: 8-Ks with their items, Form 4s with the filer's words, 13D/G stakes, revenue prints, every other form in the EDGAR index, splits, dilution, catalysts, ratified and stored facts.",
+  description: "Every filing-derived fact the system holds for one card's names, newest first, as it was readable that night: 8-Ks with their items, Form 4s with the filer's words, 13D/G stakes, revenue prints, every other form in the EDGAR index, splits, dilution, catalysts, shared values, your purity and stored facts.",
   status: "experimental",
   asofAware: true,
   component: lazy(() => import("./FilingStream")),

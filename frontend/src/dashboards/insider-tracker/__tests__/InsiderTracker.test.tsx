@@ -151,7 +151,7 @@ describe("the tape", () => {
     const usd = cy.getAllByText("—").find((el) => el.closest(".ins-c-usd"));
     expect(usd).toBeTruthy();
     const capCell = cy.getAllByText("—").find((el) => el.closest(".ins-c-cap"))?.closest(".ins-c-cap");
-    expect(capCell).toHaveAttribute("title", expect.stringContaining("awaiting shares"));
+    expect(capCell).toHaveAttribute("title", expect.stringContaining("no shared share count yet"));
   });
 
   it("says when a filing names no filer", () => {

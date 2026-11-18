@@ -243,7 +243,7 @@ describe("cells", () => {
     expect(capCell(s.bbb).title).toContain("Approximate");
     expect(capCell(s.flagged)).toMatchObject({ text: "—", gray: true });
     expect(capCell(s.flagged).title).toContain("flagged");
-    expect(capCell(row({ cap: cap(null, null, { gap: "no_shares" }) })).title).toBe("Approximate cap: awaiting shares");
+    expect(capCell(row({ cap: cap(null, null, { gap: "no_shares" }) })).title).toBe("Approximate cap: no shared share count yet");
   });
 
   it("counts a risk signal and names the kinds, and a name with none is a quiet dash", () => {
