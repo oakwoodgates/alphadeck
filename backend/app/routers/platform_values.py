@@ -31,7 +31,7 @@ from app.errors import fail
 from domain.extraction import LocatedPassage
 from domain.links import HttpUrlOut, source_url
 from domain.thesis import Thesis
-from platform_values import user_view
+from platform_values import user_view, words
 from platform_values.user_view import AppliedValue, FilingRef, UserCompanyValues, UserValue
 
 router = APIRouter(prefix="/platform-values", tags=["platform-values"])
@@ -143,13 +143,16 @@ class UserValueOut(BaseModel):
 
 
 class UserCompanyValuesOut(BaseModel):
-    """A company's two platform values, current (no as-of)."""
+    """A company's two platform values, current (no as-of). ``runway_not_applicable``: the sentence when a runway
+    means nothing for this kind of company (a bank, insurer, broker, exchange, asset manager, lender or fund trust;
+    V2 C1); its cash value then carries no ``pace``. None when runway applies."""
 
     security_id: UUID
     ticker: str | None = None
     name: str | None = None
     shares: UserValueOut
     cash_burn: UserValueOut
+    runway_not_applicable: str | None = None
 
 
 class UserThesisValuesOut(BaseModel):
@@ -267,6 +270,7 @@ def company_out(cv: UserCompanyValues) -> UserCompanyValuesOut:
         name=cv.name,
         shares=_value(cv.shares, cv.cik),
         cash_burn=_value(cv.cash_burn, cv.cik),
+        runway_not_applicable=None if cv.runway_applies else words.RUNWAY_NOT_APPLICABLE,
     )
 
 

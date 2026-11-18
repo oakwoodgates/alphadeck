@@ -125,6 +125,12 @@ CARRIED_LINE = "Verified (carried over from V1)"
 # missing, never an instruction to ratify a shared value (a user flags one in the Workbench; the steward sets it)
 CAP_NO_PRICE = "No price bars for this name yet; the market cap needs shares × price. The share count is on file."
 CAP_NO_SHARES = "Price on file; no shared share count yet (see Shared values)."
+# the runway of a company it means nothing for (V2 C1, ``securities.business_type.runway_applies``): the scored
+# read's runway note, the Peer Table's runway hover and the user read's marker; plain and quiet, never a warning
+RUNWAY_NOT_APPLICABLE = (
+    "Runway does not apply to this kind of company (a bank, insurer, broker, exchange, asset manager, lender or "
+    "fund trust): its cash moves with customer money, loans or fund flows, not with spending."
+)
 CAP_ADS_UNREAD = (
     "This name trades as an ADR; the ordinary-shares-per-ADS ratio could not be read from its filing, so the cap "
     "is withheld rather than guessed at 1:1. The steward sets the ratio."
@@ -161,6 +167,7 @@ __all__ = [
     "FROM_FILING_LINE",
     "NO_VALUE",
     "NO_VALUE_WORDS",
+    "RUNWAY_NOT_APPLICABLE",
     "SetBy",
     "annual_line",
     "awaiting_line",

@@ -447,3 +447,85 @@ def test_scorer_has_no_magic_number_thresholds():
     code = "\n".join(line.split("#", 1)[0] for line in src.splitlines())
     floats = re.findall(r"\b\d+\.\d+\b", code)
     assert floats == [], f"cutoffs must come from CallConfig; found float literals: {floats}"
+
+
+# --- "runway does not apply" (V2 C1): a financial intermediary or a fund trust -----------------------------------
+
+
+def _short_runway_cash(db, security_id) -> None:
+    # $10M cash, $30M/qtr burn -> 1 month: a 0-pip runway and "funding risk" for any company runway applies to
+    ingest_cash_burn(
+        db,
+        security_id,
+        cash_usd=10_000_000,
+        quarterly_burn_usd=30_000_000,
+        source="10-q",
+        source_ref="10-Q-NA",
+        event_date=date(2026, 3, 31),
+    )
+    db.commit()
+
+
+def test_a_company_runway_does_not_apply_to_reads_not_applicable_with_its_cash_kept(
+    db, security_id
+):
+    """No pips, no months, the "not applicable" provenance with the sentence; the stored cash and burn stay on the
+    figure (numbers with their source); no year-to-date pace or caveat; the fit adds no "funding risk".
+    """
+    from platform_values import words
+
+    _short_runway_cash(db, security_id)
+    pit = PointInTimeData(db, asof=_ASOF, known_at=_KNOWN, workspace=DEFAULT_TENANT_ID)
+    sm = score_member(pit, _member(security_id), runway_applies=False)
+    assert sm.runway.pips is None and sm.runway.value is None
+    fact, na = sm.runway.provenance
+    assert (fact.source, fact.ref) == ("10-q", "10-Q-NA")
+    assert (
+        fact.detail["cash_usd"] == 10_000_000.0
+        and fact.detail["quarterly_burn_usd"] == 30_000_000.0
+    )
+    assert not {
+        "ytd_quarterly_burn_usd",
+        "ytd_burn_days",
+        "ytd_runway_months",
+        "pace_caveat",
+    } & set(fact.detail)
+    assert (na.source, na.ref) == ("computed", "runway:not-applicable")
+    assert na.detail == {"note": words.RUNWAY_NOT_APPLICABLE}
+    assert "funding risk" not in sm.fit
+
+
+def test_runway_not_applicable_without_a_cash_value_still_says_so(db, security_id):
+    pit = PointInTimeData(db, asof=_ASOF, known_at=_KNOWN, workspace=DEFAULT_TENANT_ID)
+    sm = score_member(pit, _member(security_id), runway_applies=False)
+    assert sm.runway.pips is None and [p.ref for p in sm.runway.provenance] == [
+        "runway:not-applicable"
+    ]
+
+
+def test_score_thesis_applies_the_rule_only_to_the_listed_ids(db, security_id):
+    """The unlisted company is UNCHANGED (its 0-pip runway and "funding risk"); the listed one is not applicable."""
+    from domain.thesis import Thesis
+
+    other = uuid.uuid4()
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO security_master (id, tenant_id, ticker, name, valid_from) "
+            "VALUES (%s, %s, 'OTHR', 'Other', '2026-01-01')",
+            (other, DEFAULT_TENANT_ID),
+        )
+    _short_runway_cash(db, security_id)
+    _short_runway_cash(db, other)
+    thesis = Thesis(
+        id=uuid.uuid4(),
+        tenant_id=DEFAULT_TENANT_ID,
+        name="t",
+        narrative="n",
+        basket=[_member(security_id), _member(other)],
+    )
+    pit = PointInTimeData(db, asof=_ASOF, known_at=_KNOWN, workspace=DEFAULT_TENANT_ID)
+    listed, unlisted = scoring.score_thesis(pit, thesis, runway_na=frozenset({security_id}))
+    assert listed.runway.pips is None and "funding risk" not in listed.fit
+    assert unlisted.runway.pips == 0 and unlisted.runway.value == 1.0
+    assert unlisted.fit.endswith("funding risk")
+    assert scoring.score_thesis(pit, thesis)[0].runway.pips == 0  # the default: runway applies

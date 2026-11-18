@@ -3,7 +3,8 @@ compute-on-read), with each member's two SHARED values in their state's words (`
 current; V2 W5d, the W5 plan's Q9).
 
 The default reply keeps the funnel per segment, the counts and the ONE paged list of member rows in the API's order
-(never sorted). Each row carries ``values``: the share count's and the cash's ``state`` and ``words`` (the API's
+(never sorted). A row whose runway means nothing for its kind of company (a bank, insurer, broker, exchange, asset
+manager, lender or fund trust; V2 C1) carries ``runway_not_applicable``, the sentence. Each row carries ``values``: the share count's and the cash's ``state`` and ``words`` (the API's
 ``label``, from ``platform_values.words``; a newer filing awaiting the steward rides as ``pending``), never a figure
 the steward has not checked (approved B1 (b)) and never who set it beyond a kind. They are the CURRENT state, not as of
 the asof (``values_asof`` says so). ``section="member"`` reads one name in full with every meter's provenance;
@@ -75,6 +76,9 @@ OPEN_STATES = ("awaiting_steward", "no_value")
 NOT_MISSING_REASONS = ("cash-generative",)
 VALUES_ASOF = "current: the shared values' state today, not as of asof"
 
+# the scored read's runway entry for a company a runway means nothing for (V2 C1, ``workbench.scoring``)
+RUNWAY_NA_REF = "runway:not-applicable"
+
 NAME_CUT = 30
 DESCRIPTOR_CUT = 80
 DETAIL_CUT = 200
@@ -93,6 +97,15 @@ def _sources(m: dict[str, Any]) -> list[str]:
             if source is not None and source not in seen:
                 seen.append(source)
     return seen
+
+
+def runway_not_applicable(m: dict[str, Any]) -> str | None:
+    """The scored read's sentence when a runway means nothing for this company (its runway has no pips then, which
+    is not missing data); ``None`` otherwise."""
+    for p in (m.get("runway") or {}).get("provenance") or []:
+        if p.get("ref") == RUNWAY_NA_REF:
+            return str((p.get("detail") or {}).get("note") or "") or None
+    return None
 
 
 def _is_open(v: dict[str, Any]) -> bool:
@@ -151,6 +164,9 @@ def _row(m: dict[str, Any], values: dict[str, dict[str, Any]] | None = None) -> 
     meters: dict[str, Any] = {k: (m.get(k) or {}).get("pips") for k in PIP_METERS}
     meters["market_cap"] = (m.get("market_cap") or {}).get("value")
     out["meters"] = meters
+    na = runway_not_applicable(m)
+    if na:  # only where it is so (honest loudness): the empty runway pip is not missing data
+        out["runway_not_applicable"] = na
     out["sources"] = _sources(m)
     said = _values_of(m, values)
     if said:

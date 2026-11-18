@@ -27580,6 +27580,7 @@
                   "no_revenue",
                   "no_prior_year",
                   "no_burn",
+                  "not_applicable",
                   "no_convert",
                   "no_mix",
                   "no_form4",
@@ -34883,6 +34884,7 @@
               "no_revenue",
               "no_prior_year",
               "no_burn",
+              "not_applicable",
               "no_convert",
               "no_mix",
               "no_form4",
@@ -34940,6 +34942,7 @@
                   "no_revenue",
                   "no_prior_year",
                   "no_burn",
+                  "not_applicable",
                   "no_convert",
                   "no_mix",
                   "no_form4",
@@ -35162,6 +35165,7 @@
                   "no_revenue",
                   "no_prior_year",
                   "no_burn",
+                  "not_applicable",
                   "no_convert",
                   "no_mix",
                   "no_form4",
@@ -35572,6 +35576,7 @@
                   "no_revenue",
                   "no_prior_year",
                   "no_burn",
+                  "not_applicable",
                   "no_convert",
                   "no_mix",
                   "no_form4",
@@ -35691,6 +35696,7 @@
                   "no_revenue",
                   "no_prior_year",
                   "no_burn",
+                  "not_applicable",
                   "no_convert",
                   "no_mix",
                   "no_form4",
@@ -35753,6 +35759,7 @@
                   "no_revenue",
                   "no_prior_year",
                   "no_burn",
+                  "not_applicable",
                   "no_convert",
                   "no_mix",
                   "no_form4",
@@ -35841,6 +35848,7 @@
                   "no_revenue",
                   "no_prior_year",
                   "no_burn",
+                  "not_applicable",
                   "no_convert",
                   "no_mix",
                   "no_form4",
@@ -35919,6 +35927,17 @@
               }
             ],
             "title": "Investments Usd"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
           }
         },
         "type": "object",
@@ -35934,7 +35953,7 @@
           "pace_caveat"
         ],
         "title": "PeerRunwayOut",
-        "description": "Months of cash at LAST QUARTER'S burn (cash / (quarterly burn / 3)); ``cash_positive`` when the burn is zero\nor negative (no finite figure). ``as_of`` = the fact's date. The year-to-date pace beside it (V2 extractor\ncorrectness PR 3): ``ytd_quarterly_burn_usd`` (burn sign), ``ytd_months`` (None when that pace generates cash)\nand ``pace_caveat`` (only when last quarter is far off that pace); all None when the fact's note has no pace."
+        "description": "Months of cash at LAST QUARTER'S burn (cash / (quarterly burn / 3)); ``cash_positive`` when the burn is zero\nor negative (no finite figure). ``as_of`` = the fact's date. The year-to-date pace beside it (V2 extractor\ncorrectness PR 3): ``ytd_quarterly_burn_usd`` (burn sign), ``ytd_months`` (None when that pace generates cash)\nand ``pace_caveat`` (only when last quarter is far off that pace); all None when the fact's note has no pace.\nGap ``not_applicable`` (V2 C1): a runway means nothing for this kind of company (a bank, insurer, broker,\nexchange, asset manager, lender or fund trust); ``note`` says so, the stored cash and burn stay, no months or pace."
       },
       "PeerScopesOut": {
         "properties": {
@@ -36119,6 +36138,7 @@
                   "no_revenue",
                   "no_prior_year",
                   "no_burn",
+                  "not_applicable",
                   "no_convert",
                   "no_mix",
                   "no_form4",
@@ -36465,6 +36485,7 @@
                   "no_revenue",
                   "no_prior_year",
                   "no_burn",
+                  "not_applicable",
                   "no_convert",
                   "no_mix",
                   "no_form4",
@@ -46233,6 +46254,7 @@
                   "no_revenue",
                   "no_prior_year",
                   "no_burn",
+                  "not_applicable",
                   "no_convert",
                   "no_mix",
                   "no_form4",
@@ -48157,6 +48179,17 @@
           },
           "cash_burn": {
             "$ref": "#/components/schemas/UserValueOut"
+          },
+          "runway_not_applicable": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Runway Not Applicable"
           }
         },
         "type": "object",
@@ -48166,7 +48199,7 @@
           "cash_burn"
         ],
         "title": "UserCompanyValuesOut",
-        "description": "A company's two platform values, current (no as-of)."
+        "description": "A company's two platform values, current (no as-of). ``runway_not_applicable``: the sentence when a runway\nmeans nothing for this kind of company (a bank, insurer, broker, exchange, asset manager, lender or fund trust;\nV2 C1); its cash value then carries no ``pace``. None when runway applies."
       },
       "UserPaceOut": {
         "properties": {

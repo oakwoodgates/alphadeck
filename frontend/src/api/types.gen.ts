@@ -12651,7 +12651,7 @@ export interface components {
             value: number | null;
             tier: components["schemas"]["CapTier"] | null;
             /** Gap */
-            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
+            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "not_applicable" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
             /** Note */
             note: string | null;
             /** Close */
@@ -15572,7 +15572,7 @@ export interface components {
              * Gap
              * @enum {string}
              */
-            gap: "flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ";
+            gap: "flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "not_applicable" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ";
             /** N */
             n: number;
         };
@@ -15588,7 +15588,7 @@ export interface components {
             value: number | null;
             tier: components["schemas"]["CapTier"] | null;
             /** Gap */
-            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
+            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "not_applicable" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
             /** Note */
             note: string | null;
             /** Close */
@@ -15656,7 +15656,7 @@ export interface components {
             /** Value */
             value: number | null;
             /** Gap */
-            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
+            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "not_applicable" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
             /** Note */
             note: string | null;
         };
@@ -15801,7 +15801,7 @@ export interface components {
             /** Buyers */
             buyers: number | null;
             /** Gap */
-            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
+            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "not_applicable" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
             /** Note */
             note: string | null;
         };
@@ -15836,7 +15836,7 @@ export interface components {
             /** Segment */
             segment: string | null;
             /** Gap */
-            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
+            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "not_applicable" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
         };
         /**
          * PeerRevenueOut
@@ -15848,7 +15848,7 @@ export interface components {
             /** Period End */
             period_end: string | null;
             /** Gap */
-            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
+            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "not_applicable" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
         };
         /**
          * PeerRunwayOut
@@ -15856,6 +15856,8 @@ export interface components {
          *     or negative (no finite figure). ``as_of`` = the fact's date. The year-to-date pace beside it (V2 extractor
          *     correctness PR 3): ``ytd_quarterly_burn_usd`` (burn sign), ``ytd_months`` (None when that pace generates cash)
          *     and ``pace_caveat`` (only when last quarter is far off that pace); all None when the fact's note has no pace.
+         *     Gap ``not_applicable`` (V2 C1): a runway means nothing for this kind of company (a bank, insurer, broker,
+         *     exchange, asset manager, lender or fund trust); ``note`` says so, the stored cash and burn stay, no months or pace.
          */
         PeerRunwayOut: {
             /** Months */
@@ -15869,7 +15871,7 @@ export interface components {
             /** As Of */
             as_of: string | null;
             /** Gap */
-            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
+            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "not_applicable" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
             /** Ytd Quarterly Burn Usd */
             ytd_quarterly_burn_usd: number | null;
             /** Ytd Months */
@@ -15882,6 +15884,8 @@ export interface components {
             source?: string | null;
             /** Investments Usd */
             investments_usd?: number | null;
+            /** Note */
+            note?: string | null;
         };
         /**
          * PeerScopesOut
@@ -15950,7 +15954,7 @@ export interface components {
             /** Last Close */
             last_close: string | null;
             /** Gap */
-            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
+            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "not_applicable" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
             /** Note */
             note: string | null;
         };
@@ -16065,7 +16069,7 @@ export interface components {
             /** Prior Period End */
             prior_period_end: string | null;
             /** Gap */
-            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
+            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "not_applicable" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
         };
         /**
          * PlacementStatus
@@ -19957,7 +19961,7 @@ export interface components {
             value: number | null;
             tier: components["schemas"]["CapTier"] | null;
             /** Gap */
-            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
+            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "not_applicable" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
             /** Note */
             note: string | null;
             /** Close */
@@ -20671,7 +20675,9 @@ export interface components {
         };
         /**
          * UserCompanyValuesOut
-         * @description A company's two platform values, current (no as-of).
+         * @description A company's two platform values, current (no as-of). ``runway_not_applicable``: the sentence when a runway
+         *     means nothing for this kind of company (a bank, insurer, broker, exchange, asset manager, lender or fund trust;
+         *     V2 C1); its cash value then carries no ``pace``. None when runway applies.
          */
         UserCompanyValuesOut: {
             /**
@@ -20685,6 +20691,8 @@ export interface components {
             name?: string | null;
             shares: components["schemas"]["UserValueOut"];
             cash_burn: components["schemas"]["UserValueOut"];
+            /** Runway Not Applicable */
+            runway_not_applicable?: string | null;
         };
         /**
          * UserPaceOut

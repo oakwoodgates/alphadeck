@@ -69,7 +69,7 @@ from .views.thesis import view_thesis
 from .views.ticker import view_ticker
 
 NAME = "alphadeck"
-VERSION = "2.8.0"
+VERSION = "2.9.0"
 DEFAULT_BACKEND = "http://127.0.0.1:8001"
 path_seg = segment  # a tool parameter named ``segment`` shadows the path-segment encoder inside its handler
 log = logging.getLogger("agent_tools")
@@ -799,7 +799,10 @@ def build_server(
         "The TRIAGE view of a card at asof: every basket member with its five meters (purity, runway, catalysts, "
         "dilution, market cap) and each figure's provenance, and per member values: the share count's and the "
         "cash's state in words (from the filing, verified by the steward, awaiting the steward, no value yet; the "
-        "CURRENT state, not as of asof; never a figure the steward has not checked). Nothing here is a call input. "
+        "CURRENT state, not as of asof; never a figure the steward has not checked). A row whose runway does not "
+        "apply to its kind of company (a bank, insurer, broker, exchange, asset manager, lender or fund trust) has "
+        "no runway pip and carries runway_not_applicable, the sentence: not missing data. Nothing here is a call "
+        "input. "
         "Shared values are set by the platform and the steward; a user who thinks one is wrong flags it in the "
         "Workbench; purity is the user's own to set. The default is the funnel per segment (per link: members, "
         "awaiting = a shared value awaiting the steward or missing, needs_purity; the silent Context, ETFs and "

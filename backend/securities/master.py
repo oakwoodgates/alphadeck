@@ -13,7 +13,7 @@ from domain.enums import BusinessType, InstrumentKind
 from domain.market_time import market_today
 from domain.security import Security, SecurityIdentity
 from securities import figi, sec_tickers
-from securities.business_type import resolve_business_type
+from securities.business_type import resolve_business_type, runway_applies
 from securities.filer_coverage import foreign_filer_form
 from securities.origin import resolve_origin
 
@@ -559,6 +559,8 @@ def identity_for(
     as ``business_type_override`` so the FE can mark "your tag" and offer the revert). ``instrument_kind``
     rides verbatim (an ETF's sleeve label keys on it, not on the maps — a fund has no SIC). Display
     identity like everything here, never a call input (#3/#4). ``None``/``False`` on an un-enriched row.
+    ``runway_applies`` is the runway rule (``securities.business_type.runway_applies``, V2 C1): ``False`` for a
+    bank, insurer, broker, exchange, asset manager, lender or fund, whose runway means nothing.
     """
     ids = list({sid for sid in security_ids})
     if not ids:
@@ -603,6 +605,12 @@ def identity_for(
                 "royalty": btype.royalty,
                 "business_type_override": row["business_type"],
                 "instrument_kind": row["instrument_kind"] or "equity",
+                # does a runway mean anything for it (V2 C1, ``runway_applies``: the one rule)
+                "runway_applies": runway_applies(
+                    sector=row["sector"],
+                    ticker=row["ticker"],
+                    instrument_kind=row["instrument_kind"],
+                ),
             }
         return out
 
