@@ -1494,8 +1494,9 @@ export function useFundLaunches(thesisId: string, asof: string, days = 90) {
 }
 
 // add to ETFs ⇄ remove: the operator's click on the radar's recommendation (#10), reversible (#1).
-// The server files the fund in the card's ETFs link (a silent link: it never counts toward the call); the
-// caller pulls prices afterwards with useIngestPrices on the returned security_id, as Surface an ETF does.
+// The server files the fund in the card's ETFs link (a silent link: it never counts toward the call) and, on an
+// add, starts the fund's data load the way a promote does (V2 W7b): the answer's `ingest` (loading now) or
+// `onboarding` (queued). The caller pulls no prices (the price pull is the steward's).
 export function useFundAttach() {
   const qc = useQueryClient();
   return useMutation({

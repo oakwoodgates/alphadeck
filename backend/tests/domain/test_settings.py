@@ -204,7 +204,6 @@ _BACKEND_PASSED_THROUGH = {
     "ALPHADECK_LOGIN_LOCKOUT_S": "login_lockout_s",
     "ALPHADECK_ALLOWANCE_EXTRACT_PER_DAY": "allowance_extract_per_day",
     "ALPHADECK_ALLOWANCE_PRICE_PULL_PER_DAY": "allowance_price_pull_per_day",
-    "ALPHADECK_ALLOWANCE_AUTO_CONFIRM_PER_DAY": "allowance_auto_confirm_per_day",
     "ALPHADECK_ALLOWANCE_HOLDINGS_PER_DAY": "allowance_holdings_per_day",
     "ALPHADECK_ALLOWANCE_CHAIN_DRAFT_PER_DAY": "allowance_chain_draft_per_day",
     "ALPHADECK_ALLOWANCE_TERM_RUN_PER_DAY": "allowance_term_run_per_day",

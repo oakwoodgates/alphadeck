@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.auth import CurrentUser, require_user
 from app.deps import get_conn, get_thesis_or_404, get_workspace
-from app.routers.workbench import _fund_ids, resolve_etf
+from app.routers.workbench import _fund_ids, resolve_etf, start_member_load
 from app.schemas_api import (
     FundAttachOut,
     FundAttachRequest,
@@ -384,8 +384,11 @@ def fund_attach(
     off, no conviction) and the card is re-written whole from the stored copy, so nothing it carries (context
     roles, catalysts, kill criteria...) is wiped. The write goes through the promote's own rules
     (``silent_conflicts`` / ``fund_conflicts``), so a fund can never land outside ETFs. Idempotent: already in
-    ETFs returns ``already`` and writes nothing. Prices are NOT pulled here (the screen does, as Surface an ETF
-    does). Reversible via detach (#1)."""
+    ETFs returns ``already`` and writes nothing, and starts nothing. A fund it ADDS has its data load started
+    after the commit exactly as a promote's new name does (``start_member_load``, V2 W7b): the fast-lane job
+    (``ingest``) or the onboarding queue (``onboarding``), bounded by the global ingest cap and, for a plain user,
+    one unit of today's ``price_pull`` allowance. The screen pulls no prices itself. Reversible via detach (#1).
+    """
     thesis = thesis_repo.get(conn, req.thesis_id, workspace=workspace)
     if thesis is None:
         raise HTTPException(status_code=404, detail="thesis not found")
@@ -425,8 +428,14 @@ def fund_attach(
         )
     thesis_repo.upsert(conn, updated)
     conn.commit()
+    ingest, onboarding = start_member_load(conn, user, thesis.id, {sec.security_id})
     return FundAttachOut(
-        thesis_id=thesis.id, security_id=sec.security_id, ticker=sec.ticker, added=True
+        thesis_id=thesis.id,
+        security_id=sec.security_id,
+        ticker=sec.ticker,
+        added=True,
+        ingest=ingest,
+        onboarding=onboarding,
     )
 
 

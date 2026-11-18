@@ -1,7 +1,6 @@
 import { useState } from "react";
 
-import { useFundAttach, useFundLaunches, useIngestPrices, type FundLaunchesOut } from "../api/hooks";
-import { refusalText } from "../api/refusals";
+import { useFundAttach, useFundLaunches, type FundAttachOut, type FundLaunchesOut } from "../api/hooks";
 import { MatchLine, StageChips } from "../radar/fundParts";
 import { errText } from "../workbench/format";
 import { ExternalLink } from "../components/ExternalLink";
@@ -9,6 +8,20 @@ import { ExternalLink } from "../components/ExternalLink";
 // The API's fixed 404 when a plain user's attach names a fund the shared company list does not hold yet (only a
 // steward adds to the list; security hardening PR 1a). It is an answer, not a breakage, so it reads on its own.
 const NOT_IN_LIST = "This fund is not in the company list yet. A steward can add it.";
+
+// What an add says about the fund's data (V2 W7b): the attach starts the same load a promote does, server-side, and
+// answers with the fast-lane job (`ingest`) or the onboarding queue (`onboarding`). No line for an idempotent add
+// (already there) or when neither came back.
+export const LOADING_NOW = "Added. Its prices and filings are loading now; the price appears in a few minutes.";
+export const LOADING_LATER =
+  "Added. Its prices and filings load in the background outside the nightly window; until then it shows no price.";
+
+export function loadLine(r: FundAttachOut): string | null {
+  if (!r.added) return null;
+  if (r.ingest) return LOADING_NOW;
+  if (r.onboarding) return LOADING_LATER;
+  return null;
+}
 
 /** The card's quiet fund-launch line (docs/FUND_RADAR.md), near the basket's silent ETFs link: how many fund
  *  filings fit this card in the window, counted by FILING and by SPONSOR (not by fund, so one batch cannot look
@@ -40,20 +53,16 @@ function FundLaunchesBody({
 }) {
   const [open, setOpen] = useState(false);
   const attach = useFundAttach();
-  const ingestPx = useIngestPrices();
+  const [loading, setLoading] = useState<string | null>(null);
   const c = d.counts;
 
+  // the server starts the fund's data load on an add (the promote's lane); the screen pulls no prices itself
   const add = (symbol: string) =>
-    attach.mutate(
-      { thesis_id: thesisId, symbol },
-      {
-        onSuccess: (r) => {
-          // the sleeve shows its price (the existing decoupled price leg), as "Surface an ETF" does
-          if (r.added && r.security_id) ingestPx.mutate(r.security_id);
-        },
-      },
-    );
-  const remove = (symbol: string) => attach.mutate({ thesis_id: thesisId, symbol, detach: true });
+    attach.mutate({ thesis_id: thesisId, symbol }, { onSuccess: (r) => setLoading(loadLine(r)) });
+  const remove = (symbol: string) => {
+    setLoading(null);
+    attach.mutate({ thesis_id: thesisId, symbol, detach: true });
+  };
 
   return (
     <div className="fl-line">
@@ -79,10 +88,7 @@ function FundLaunchesBody({
         ) : (
           <div className="note err">add/remove failed: {errText(attach.error)}</div>
         ))}
-      {refusalText(ingestPx.error) && (
-        // the fund's price pull was refused (security hardening PR 1b: today's price-pull allowance) — as worded
-        <div className="note err">{refusalText(ingestPx.error)}</div>
-      )}
+      {loading && <div className="note">{loading}</div>}
       {open && (
         <div className="fl-line-list">
           {d.filings.map((f) => (

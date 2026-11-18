@@ -5,13 +5,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FundLaunchesLine } from "../FundLaunchesLine";
 
 // The Cockpit's quiet fund-launch line with the API layer stubbed: hidden at 0, the counts line, collapsed by
-// default, and the reversible add ⇄ remove (add calls attach, then pulls prices for the returned security).
+// default, and the reversible add ⇄ remove. An add never pulls prices itself (V2 W7b: the price pull is the
+// steward's): the attach starts the fund's data load server-side and the line says so from the answer.
 // Made-up funds and cards.
 
 const h = vi.hoisted(() => ({
   q: { data: undefined as unknown },
   attach: { mutate: vi.fn(), isPending: false, error: null as unknown },
-  ingest: { mutate: vi.fn() },
   args: [] as unknown[][],
 }));
 
@@ -21,7 +21,6 @@ vi.mock("../../api/hooks", () => ({
     return h.q;
   },
   useFundAttach: () => h.attach,
-  useIngestPrices: () => h.ingest,
 }));
 
 const fund = (over: Record<string, unknown> = {}) => ({
@@ -65,7 +64,6 @@ const data = (funds: unknown[]) => ({
 beforeEach(() => {
   h.args = [];
   h.attach.mutate.mockReset();
-  h.ingest.mutate.mockReset();
   h.q = { data: data([fund()]) };
 });
 
@@ -110,7 +108,7 @@ describe("FundLaunchesLine", () => {
     expect(screen.getByText("filing ↗")).toHaveAttribute("href", "https://example.test/A-1");
   });
 
-  it("offers + add to ETFs only at the ticker stage or later, and pulls prices after a successful add", async () => {
+  it("offers + add to ETFs only at the ticker stage or later, and an add says its data is loading now", async () => {
     const user = userEvent.setup();
     h.q = {
       data: data([
@@ -128,14 +126,42 @@ describe("FundLaunchesLine", () => {
     expect(screen.getAllByRole("button", { name: "+ add to ETFs" })).toHaveLength(1); // not on the filed-only fund
 
     h.attach.mutate.mockImplementation((_v, opts) =>
-      opts?.onSuccess?.({ added: true, security_id: "sid-9" }),
+      opts?.onSuccess?.({
+        added: true,
+        security_id: "sid-9",
+        ingest: { job_id: "job-1", new_members: 1 },
+        onboarding: null,
+      }),
     );
     await user.click(screen.getByRole("button", { name: "+ add to ETFs" }));
     expect(h.attach.mutate.mock.calls[0][0]).toEqual({ thesis_id: "t-1", symbol: "TSTX" });
-    expect(h.ingest.mutate).toHaveBeenCalledWith("sid-9");
+    expect(
+      screen.getByText("Added. Its prices and filings are loading now; the price appears in a few minutes."),
+    ).toBeInTheDocument();
   });
 
-  it("an already-added fund shows the reversible remove, which detaches (and pulls no prices)", async () => {
+  it("a queued add says its data loads in the background outside the nightly window", async () => {
+    const user = userEvent.setup();
+    render(<FundLaunchesLine thesisId="t-1" asof="2026-11-04" />);
+    await user.click(screen.getByRole("button", { name: /fund launches/ }));
+    h.attach.mutate.mockImplementation((_v, opts) =>
+      opts?.onSuccess?.({
+        added: true,
+        security_id: "sid-9",
+        ingest: null,
+        onboarding: { queued: 1, new_members: 1, reason: "saved inside the nightly window" },
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: "+ add to ETFs" }));
+    expect(
+      screen.getByText(
+        "Added. Its prices and filings load in the background outside the nightly window; until then it shows no price.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/loading now/)).not.toBeInTheDocument();
+  });
+
+  it("an already-added fund shows the reversible remove, which detaches (and says nothing about loading)", async () => {
     const user = userEvent.setup();
     h.q = { data: data([fund({ in_etfs: true })]) };
     render(<FundLaunchesLine thesisId="t-1" asof="2026-11-04" />);
@@ -143,18 +169,18 @@ describe("FundLaunchesLine", () => {
     expect(screen.queryByRole("button", { name: "+ add to ETFs" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "✓ in ETFs — remove" }));
     expect(h.attach.mutate).toHaveBeenCalledWith({ thesis_id: "t-1", symbol: "TSTX", detach: true });
-    expect(h.ingest.mutate).not.toHaveBeenCalled();
+    expect(screen.queryByText(/^Added\./)).not.toBeInTheDocument();
   });
 
-  it("an idempotent attach (already in) pulls no prices", async () => {
+  it("an idempotent attach (already in) shows no load line", async () => {
     const user = userEvent.setup();
     render(<FundLaunchesLine thesisId="t-1" asof="2026-11-04" />);
     await user.click(screen.getByRole("button", { name: /fund launches/ }));
     h.attach.mutate.mockImplementation((_v, opts) =>
-      opts?.onSuccess?.({ already: true, added: false, security_id: "sid-9" }),
+      opts?.onSuccess?.({ already: true, added: false, security_id: "sid-9", ingest: null, onboarding: null }),
     );
     await user.click(screen.getByRole("button", { name: "+ add to ETFs" }));
-    expect(h.ingest.mutate).not.toHaveBeenCalled();
+    expect(screen.queryByText(/^Added\./)).not.toBeInTheDocument();
   });
 
   it("shows the not-in-the-company-list answer plainly, as the API words it", () => {
@@ -166,19 +192,6 @@ describe("FundLaunchesLine", () => {
       expect(screen.queryByText(/add\/remove failed/)).not.toBeInTheDocument();
     } finally {
       h.attach = { ...h.attach, error: null };
-    }
-  });
-
-  it("shows a refused price pull (the daily allowance) plainly, as the API words it", () => {
-    const msg =
-      "Daily allowance reached: 5,000 price pulls a day. It resets at midnight America/New_York time.";
-    const saved = h.ingest;
-    h.ingest = { ...h.ingest, error: { detail: msg } } as typeof h.ingest;
-    try {
-      render(<FundLaunchesLine thesisId="t-1" asof="2026-11-04" />);
-      expect(screen.getByText(msg)).toBeInTheDocument();
-    } finally {
-      h.ingest = saved;
     }
   });
 

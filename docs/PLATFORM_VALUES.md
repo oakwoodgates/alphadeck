@@ -176,11 +176,9 @@ filing); the steward presses "Extract now" (or a backfill extracts them).
 pin and every stored filing under it, writes both types in one transaction with the company's change stamp,
 commits, and releases. Two simultaneous get-data clicks write one value.
 
-**Callers.** `POST /workbench/facts/auto-confirm` (get-data; D2 (a)): same gates as before (own cards, the daily
-`auto_confirm` allowance; a steward neither), extraction by `extract_with_annual_fallback` (annual filers too), the
-lock wait `ingest_lock_request_wait_s` (busy is 409), an extraction failure 502. The answer's top level is the share
-count's outcome, `cash_burn` the cash/burn one; the reasons are the writer's, with `flagged` spelled `not_auto`.
-Background extraction (below) calls it with the request wait `ingest_lock_request_wait_s`, not the batch wait, so
+**Callers.** Background extraction (below) and the steward's "Extract now"
+(`POST /admin/platform-values/{id}/extract`). The get-data route `POST /workbench/facts/auto-confirm` (D2 (a)) was
+deleted in W7b, with its `auto_confirm` allowance. Background extraction calls it with the request wait `ingest_lock_request_wait_s`, not the batch wait, so
 one busy company cannot spend a run's budget (the W3 plan, Q5).
 
 ## Background extraction (W3a)
@@ -864,3 +862,20 @@ The rule "a plain user never sees an unverified extracted number" now holds on t
   console's own extraction (`POST /admin/platform-values/{id}/extract`) is unchanged.
 - **`POST /workbench/facts/explain`** is steward-only (`require_super_admin`), with no allowance.
 - **The agent tool `get_extract`** says the same: a user's token reads purity only (`docs/AGENT_TOOLS.md`).
+
+## W7b: no user fetch of platform data; attaches load like a promote
+
+- **The auto-confirm route is gone** (`POST /workbench/facts/auto-confirm`, its request and answer schemas, the
+  `auto_confirm` allowance and its setting). No screen or agent tool called it; shared values come from background
+  extraction and the steward.
+- **The price pull is the steward's** (`POST /workbench/securities/{id}/ingest-prices`, `require_super_admin`, not
+  counted). A plain user's call is the steward-only 403.
+- **A fund or SPAC attach starts the same data load as a promote.** `POST /radar/funds/attach` and
+  `POST /radar/spac/attach` call `app.routers.workbench.start_member_load` after their commit when they added the
+  company: the lane (cold names queued for the onboarding job, up to five loaded at once outside the nightly
+  window), the global ingest cap, one `price_pull` unit per new name for a plain user, then the kick. The answer
+  carries `ingest` or `onboarding` like the promote's. The Cockpit's fund-launch line no longer pulls prices; after
+  an add it reads "Added. Its prices and filings are loading now; the price appears in a few minutes." or "Added.
+  Its prices and filings load in the background outside the nightly window; until then it shows no price."
+- **Allowances reviewed down** (settings and `docker-compose.yml`): extract 300, new names loaded at once
+  (`price_pull`) 200, holdings 200, chain drafts 20, term runs 50, flags 50 (unchanged).

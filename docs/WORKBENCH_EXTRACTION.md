@@ -276,7 +276,12 @@ most needs to make:
 
 When no flag trips, `cash_burn` / `shares_outstanding` are AUTO; `revenue_mix` is always HUMAN.
 
-## The AUTO-shares auto-confirm — removing a FAKE gate, not relaxing a real one `[BUILT]`
+## The AUTO-shares auto-confirm — removing a FAKE gate, not relaxing a real one `[RETIRED in V2 W7b]`
+
+> **Retired.** `POST /workbench/facts/auto-confirm` is deleted (V2 W7b), with its schemas and its `auto_confirm`
+> allowance. A share count and cash/burn are platform values: background extraction applies AUTO values through
+> the machine writer and the steward decides the rest (`docs/PLATFORM_VALUES.md`). The section below is the
+> history of why an AUTO value is applied without a ceremonial confirm; that rule lives on in the machine writer.
 
 The AUTO shares confirm was **never a verification**. The operator has no independent knowledge of a share
 count and is not going to look one up — clicking "Confirm" on the extractor's single-class cover figure

@@ -3,8 +3,8 @@
 A plain user's click may start a live fetch of server-sourced data (SEC, the price vendor, the LLM seams). Each such
 path carries ``Depends(charge("<action>"))``: it counts one unit against the caller's allowance for the current
 MARKET day (``domain.market_time.market_today``) and answers **429** with a fixed message naming the reset once the
-day's ``Settings.allowance_<action>_per_day`` is spent. The allowances are ceilings against a runaway loop, set high
-on purpose, not a rationing tool.
+day's ``Settings.allowance_<action>_per_day`` is spent. The allowances are ceilings sized to one person's real day
+(reviewed down in V2 W7b: the platform pays for every fetch).
 
 - A steward (``super_admin``) is never limited and never counted; nor is the system principal (the cron's own
   read-only warm-up, which has no user row).
@@ -12,8 +12,10 @@ on purpose, not a rationing tool.
 - The count is ONE upsert statement (``INSERT ... ON CONFLICT DO UPDATE ... WHERE count + n <= limit``), so racing
   requests can never pass the limit between them; a refused request counts nothing.
 - A request is counted when it is admitted, before its fetch: a fetch that then fails still spent its unit.
-- A promote's fast lane spends ``price_pull`` units, one per new name (``consume(..., n=...)``); when they are not
-  there, the promote's new names go to the onboarding queue instead (``app.routers.workbench.promote``).
+- ``price_pull`` counts the NEW NAMES LOADED AT ONCE: a promote's or a fund/SPAC attach's fast lane spends one unit
+  per new name (``consume(..., n=...)``); when they are not there, the new names go to the onboarding queue instead
+  (``app.routers.workbench.start_member_load``). No route pulls prices for a plain user any more (V2 W7b: the
+  price pull is the steward's); the key keeps its name so its environment variable does not change.
 
 Table ``user_action_count`` (migration 0084): keyed on the user, so it has no tenant scope.
 """
@@ -33,15 +35,12 @@ from app.deps import get_conn
 from domain import market_time
 from domain.settings import get_settings
 
-Action = Literal[
-    "extract", "price_pull", "auto_confirm", "holdings", "chain_draft", "term_run", "flag"
-]
+Action = Literal["extract", "price_pull", "holdings", "chain_draft", "term_run", "flag"]
 
 # What one unit of each action is called in the 429 message (plural).
 LABELS: dict[str, str] = {
     "extract": "extracts",
-    "price_pull": "price pulls",
-    "auto_confirm": "auto-confirms",
+    "price_pull": "new names loaded at once",
     "holdings": "holdings reads",
     "chain_draft": "chain drafts",
     "term_run": "term or tier runs",

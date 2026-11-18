@@ -319,7 +319,7 @@ API can hold and what each connection may do:
   | `ALPHADECK_DB_LOCK_TIMEOUT_S` | 5 | a wait on a row or table lock; 503 |
   | `ALPHADECK_DB_IDLE_IN_TRANSACTION_TIMEOUT_S` | 120 | a session left idle inside a transaction |
 
-  No request route sits idle in a transaction across the network: extract, holdings, auto-confirm, the price pull,
+  No request route sits idle in a transaction across the network: extract, holdings, the (steward's) price pull,
   terms, recommend-tiers and resolve-ETF end their read-only transaction before calling SEC, a vendor or an LLM
   (`backend/tests/app/test_read_then_call.py`).
 - **Timeouts on job connections** (`db.session.connect_job`: the draft job, the on-promote ingest job):

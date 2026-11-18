@@ -262,8 +262,8 @@ _WRITERS = {
 _ALLOWED: dict[tuple[str, str], str] = {
     ("workbench.py", "resolve_etf"): "steward",
     ("workbench.py", "set_business_type"): "steward",
-    # the automatic OTC price-symbol resolve on a finalize pull: a steward's pull only (PR 1b)
-    ("workbench.py", "ingest_security_prices"): "steward-branch",
+    # the automatic OTC price-symbol resolve on a finalize pull: the price pull is steward-only (V2 W7b)
+    ("workbench.py", "ingest_security_prices"): "steward",
 }
 # ONE HOP: the (file, function) sites under backend/workbench/ that call a master writer. A router may reach one
 # of them only from a site in ``_ALLOWED_HOPS`` (steward-gated, or inside a steward branch).

@@ -23,7 +23,7 @@ A STALE entry fails too (a listed writer that no longer writes is removed, never
 one exception, stated where it applies: modules the parallel V2 W2 pull requests add or retire (below).
 
 PARALLEL PULL REQUESTS (the W2 plan, section 4). PR 2 adds ``platform_values/machine.py`` (the machine's AUTO
-writer) and moves ``auto_confirm_fact`` onto it; PR 3 adds ``platform_values/steward.py`` (the steward's approve /
+writer) and moved get-data's auto-confirm onto it (the route itself is deleted since V2 W7b); PR 3 adds ``platform_values/steward.py`` (the steward's approve /
 correct / undo), moves ``ratify_fact`` onto it and deletes ``pipeline/ratify_shares.py`` and
 ``pipeline/ratify_cash_burn.py``. Either may merge before or after this guard, so:
 - an EXPECTED writer (``_EXPECTED``) may be absent; once present it must call an ingest function;
@@ -58,8 +58,6 @@ _INGEST_CALLERS: dict[str, str] = {
 _EXPECTED = frozenset({"platform_values/machine.py", "platform_values/steward.py"})
 # (file, function) -> the module whose arrival retires it. Today's writers, removed by PR 2 / PR 3.
 _RETIRING: dict[tuple[str, str], str] = {
-    # get-data's auto-confirm: PR 2 moves it onto platform_values.machine.record_extraction
-    ("app/routers/workbench.py", "auto_confirm_fact"): "platform_values/machine.py",
     # the Workbench confirm: PR 3 moves its shares / cash branches onto platform_values.steward.correct
     ("app/routers/workbench.py", "ratify_fact"): "platform_values/steward.py",
     # the two V1 ratify CLIs: PR 3 deletes them (approved decision D4 (a))
@@ -366,21 +364,20 @@ def test_a_named_writer_passes_and_a_retiring_site_retires_when_its_replacement_
         tmp_path,
         "app/routers/workbench.py",
         call
-        + "def auto_confirm_fact(conn):\n    ingest_shares_outstanding(conn)\n"
         + "def ratify_fact(conn):\n    ingest_shares_outstanding(conn)\n"
         + "def other_route(conn):\n    ingest_shares_outstanding(conn)\n",
     )
-    # before PR 2 / PR 3: today's two routes are tolerated; any other route is not
+    # before PR 3: the retiring route is tolerated; any other route is not
     assert ingest_offenders(tmp_path) == ["app/routers/workbench.py:other_route"]
-    # PR 2 lands (machine.py exists): the auto-confirm must no longer call an ingest function itself
+    # PR 3 lands (steward.py exists): the Workbench confirm must no longer call an ingest function itself
     _plant(
         tmp_path,
-        "platform_values/machine.py",
+        "platform_values/steward.py",
         call + "def w(conn):\n    ingest_shares_outstanding(conn)\n",
     )
     assert ingest_offenders(tmp_path) == [
-        "app/routers/workbench.py:auto_confirm_fact",
         "app/routers/workbench.py:other_route",
+        "app/routers/workbench.py:ratify_fact",
     ]
 
 

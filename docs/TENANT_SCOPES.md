@@ -88,7 +88,8 @@ cards into the founding workspace and their DATA facts into the data tenant.
   per workspace and writes each card's rows under that card's own workspace (`--workspace` scopes a hand run).
 - **The ratify path (V2):** `POST /workbench/facts` writes purity under the caller's workspace and a share count or
   cash/burn value (steward only, through the steward's `correct` write, V2 W2c) under the data tenant;
-  `/facts/auto-confirm` writes the data tenant. `pipeline.ratify_shares` and `pipeline.ratify_cash_burn` are
+  the machine writer (background extraction, the steward's Extract now) writes the data tenant (the get-data
+  `/facts/auto-confirm` route is deleted, V2 W7b). `pipeline.ratify_shares` and `pipeline.ratify_cash_burn` are
   deleted (W2c): the steward's write (`platform_values.steward`, `/admin/platform-values`) is the one hand path;
   `pipeline.ratify_revenue_mix` takes a REQUIRED `--workspace <uuid>` (there is no deployment-wide default tenant:
   `ALPHADECK_TENANT_ID` and `db.session.current_tenant_id` are retired). `pipeline.ratify_catalyst` is deleted. The

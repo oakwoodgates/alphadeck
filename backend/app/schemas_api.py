@@ -947,67 +947,6 @@ class RatifiedFactOut(BaseModel):
     fact_type: str
 
 
-# --- Auto-confirm — the AUTO-tier shares fact, applied without a ceremonial confirm ---
-
-
-class AutoConfirmRequest(BaseModel):
-    """Ask the server to record a company's platform values from its filings (the get-data path, V2 W2b).
-
-    NOTE WHAT IS **NOT** HERE: a value. The client cannot supply a number — it names a security, and the SERVER
-    re-extracts and hands its OWN deterministic parse to the machine writer (``platform_values.machine``). That is
-    the structural bound (INVARIANT #3): an auto-applied fact can only ever be the extractor's reproduction of the
-    filing, so no client bug or caller can inject a figure under the ``auto`` provenance.
-
-    One call covers BOTH platform values, the share count and cash/burn (approved D2 (a)); ``fact_type`` stays the
-    one-value Literal it always was, so existing callers keep working. Purity is never touched (the operator's
-    edge: HUMAN, never auto-valued).
-    """
-
-    security_id: UUID
-    fact_type: Literal["shares_outstanding"]
-
-
-# What the machine writer did with one value type (``platform_values.machine.MachineOutcome``):
-# applied            — the extractor's clean AUTO value was written (ratified_by="auto", the data tenant)
-# already_on_file    — a version of this filing is already stored (any, including one the steward undid): nothing
-# older_than_on_file — the filing is dated on or before the value shown: nothing written
-# after_today        — the filing's date is after today's market date: never written
-# pinned             — the steward pinned this company's value: a candidate for the steward instead of a fact
-# not_auto           — the extractor FLAGged the value: a candidate for the steward (never a fact)
-# nothing_found      — the extractor found no value: a "nothing" candidate with its reason (never a fact)
-AutoConfirmReason = Literal[
-    "applied",
-    "already_on_file",
-    "older_than_on_file",
-    "after_today",
-    "pinned",
-    "not_auto",
-    "nothing_found",
-]
-
-
-class AutoConfirmPartOut(BaseModel):
-    """What get-data did with ONE platform value. ``applied=False`` is a normal, expected result, never an error;
-    ``reason`` says which rule decided. ``fact_id`` is set when a fact was written; ``candidate_id`` names the
-    candidate that stands for this result (``pinned`` / ``not_auto`` / ``nothing_found``; a repeat of the newest
-    candidate is not written again, and its id is returned)."""
-
-    applied: bool
-    reason: AutoConfirmReason
-    fact_id: UUID | None = None
-    candidate_id: UUID | None = None
-
-
-class AutoConfirmOut(AutoConfirmPartOut):
-    """The outcome of a get-data auto-confirm: the SHARE COUNT's result at the top level (the fields every caller
-    already reads) and the CASH/BURN result in ``cash_burn``.
-
-    A flagged or empty result is recorded as a CANDIDATE for the steward, never as a fact: it moves no meter.
-    """
-
-    cash_burn: AutoConfirmPartOut | None = None
-
-
 # --- FLAG-explanation drafter (M4b — the LLM seam) — a DISPLAY aid, NOT a fact ---
 
 
@@ -3208,6 +3147,11 @@ class SpacAttachOut(BaseModel):
     added: bool = False
     already: bool = False
     removed: bool = False
+    # V2 W7b: an attach that ADDED the company starts its data load the way a promote does
+    # (``app.routers.workbench.start_member_load``): the fast-lane job, or the onboarding queue and why. Both null on
+    # an idempotent attach, a detach, or when the kick failed open.
+    ingest: PromoteIngestRef | None = None
+    onboarding: PromoteOnboardingRef | None = None
 
 
 # --- the fund launch radar (docs/FUND_RADAR.md) — display only, never a call input -------------------
@@ -3343,6 +3287,11 @@ class FundAttachOut(BaseModel):
     added: bool = False
     already: bool = False
     removed: bool = False
+    # V2 W7b: an attach that ADDED the company starts its data load the way a promote does
+    # (``app.routers.workbench.start_member_load``): the fast-lane job, or the onboarding queue and why. Both null on
+    # an idempotent attach, a detach, or when the kick failed open.
+    ingest: PromoteIngestRef | None = None
+    onboarding: PromoteOnboardingRef | None = None
 
 
 # --- /backtest (B6) — the research surface's wire shapes --------------------------------------------
