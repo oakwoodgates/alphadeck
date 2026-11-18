@@ -59,7 +59,7 @@ The note says, in a line or two, what the next merge-main has to do on `v2` (for
 
 `python -m pipeline.v2_cutover plan [--json PATH]` reads a database and prints, for every table, its owner (from
 `domain/scopes.py`), what the cutover does with it (`keep` unless `CUTOVER_ACTION` says `move→data`,
-`move→founding`, `convert (W6/W10)`, `reset` or `prune`), its row count, and its rows per tenant and per
+`move→founding` or `reset`; a labeled `keep (...)` says why a table is left as it is), its row count, and its rows per tenant and per
 `ratified_by`. Then it lists every surprise (a row where no plan expects it). It is read-only: a read-only
 connection, rolled back, nothing written to the database (`--json` writes only the file you name).
 
@@ -68,3 +68,19 @@ Exit codes: `0` clean, `1` surprises, `2` a table the registry does not name or 
 
 Run it only where you are allowed to read: the test database the suite derives, or a fork. Never point it at a
 database you were not asked to inspect.
+
+**The apply path (W10a).** `python -m pipeline.v2_cutover run --database NAME --confirm "reset NAME" [--prod]
+[--apply] [--expect-plan PATH] [--plan-out PATH] [--orphan-purity leave|delete] [--reuse-backup FILE]
+[--no-history-archive] [--provenance-dir DIR]` (`backend/pipeline/v2_reset.py`) is the one-time cutover: it
+DELETES V1's history (`calls`, `call_annotation` and the six `edition*` tables) on purpose. It is a read-only dry
+run unless `--apply`. It reads the database name from its own connection and refuses (exit 2, nothing read) unless
+`--database` matches it and `--confirm` is exactly `reset NAME`; the production name only with `--prod`, `--prod`
+only with that name, and `--prod --apply` only with `--expect-plan`. Then the preflight (migrations applied, the
+two tenants, outside the nightly window, every job lock held, no surprise except the acknowledged orphan purity,
+no workspace company catalyst, 0206's vocabulary, the move's refusals, no foreign key into the reset tables from
+elsewhere, not already cut over); a verified backup of the same database and a V1 history archive; then ONE
+transaction: the platform-facts move, the reset (DELETE, children first, each count checked), VALIDATE of 0206's
+two constraints, and the `data_repair` journal row; and a provenance file with the recall baseline. Exit 0 done
+(or already cut over with nothing left), 1 refused, 2 wrong database or confirmation, 3 backup failed, 4 rolled
+back (backup kept), 75 busy or the nightly window. A second reset after a V2 night refuses. Rehearse it on a fork
+only; the production run is the operator's (the runbook, W10d).
