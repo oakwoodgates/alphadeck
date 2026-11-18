@@ -437,9 +437,10 @@ def thesis_with_terms() -> dict[str, Any]:
 FILING = "https://www.sec.gov/Archives/edgar/data/1000001/000100000126000012/synthetic-10q.htm"
 
 
-def extract(thesis_scoped: bool = False) -> dict[str, Any]:
+def extract(thesis_scoped: bool = False, purity_only: bool = False) -> dict[str, Any]:
     """MEASURED: 12.8 KB (12.9 KB thesis-scoped): revenue_mix HUMAN with 3 passages (3,004 / 800 / 400 characters),
-    shares_outstanding FLAG with 1 flag and 1 passage, cash_burn AUTO with 2 passages."""
+    shares_outstanding FLAG with 1 flag and 1 passage, cash_burn AUTO with 2 passages (the steward's reply).
+    ``purity_only``: a plain user's reply (W7a), revenue_mix alone."""
 
     def passage(kind: str, chars: int, seed: int) -> dict[str, Any]:
         return {
@@ -489,4 +490,6 @@ def extract(thesis_scoped: bool = False) -> dict[str, Any]:
         "flags": [],
         "located_passages": [passage("cash-flow", 900, 5), passage("balance-sheet", 700, 6)],
     }
+    if purity_only:
+        return _dump(ExtractionResult, {"facts": [revenue]})
     return _dump(ExtractionResult, {"facts": [revenue, shares, burn]})
