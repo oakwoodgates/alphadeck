@@ -35,8 +35,10 @@ OPEN = {("GET", "/health"), ("POST", "/auth/login")}
 PASSWORD = "correct horse battery"
 BUSINESS_TYPE = "/workbench/securities/{security_id}/business-type"
 RESOLVE_ETF = "/workbench/securities/resolve-etf"
-# the steward-only routes outside /admin and /backtest: each writes the shared security master (docs/AUTH.md)
-STEWARD_PATHS = {BUSINESS_TYPE, RESOLVE_ETF}
+EXPLAIN_FLAG = "/workbench/facts/explain"
+# the steward-only routes outside /admin and /backtest: the first two write the shared security master
+# (docs/AUTH.md); the flag explainer aids a steward's decision on a platform value's candidate (W7a)
+STEWARD_PATHS = {BUSINESS_TYPE, RESOLVE_ETF, EXPLAIN_FLAG}
 # Steward routes a super admin is NOT swept through: each one STARTS a real job when it passes the gate (a full
 # nightly pass, a database dump). They carry the same router-level gate as every other /admin route, which the
 # plain-user 403 sweep and the route-gate test already prove.
