@@ -139,6 +139,23 @@ _JSON_COLS: dict[str, tuple[str, ...]] = {
     "fact_dilution": ("terms",),
     "fact_corporate_event": ("items",),
     "fact_insider_txn": ("txn_footnotes", "filing_natures"),
+    # V2 W6a: the named members (a Postgres uuid[]) ride as a JSON array of uuid strings
+    "fact_thesis_catalyst": ("security_ids",),
+}
+
+# The fact tables added AFTER mirrors were first frozen (the backtest archives, the editions run dirs). A mirror
+# whose manifest does not list one was exported before the table existed, so it held no rows of it: the table
+# opens EMPTY, with the export's own column types, and an old mirror still opens and replays exactly what it
+# held. A mirror whose manifest DOES list the table but lacks its file is a broken export: loud, as for every
+# other fact table. (No manifest at all: nothing is assumed, the missing file fails loudly.)
+_LATE_FACT_TABLES: dict[str, str] = {
+    # V2 W6a (0212): the counting catalyst entries
+    "fact_thesis_catalyst": (
+        "id VARCHAR, tenant_id VARCHAR, thesis_id VARCHAR, entry_id VARCHAR, counts BOOLEAN, "
+        "security_ids VARCHAR, grade VARCHAR, label VARCHAR, citation VARCHAR, relevant_until DATE, "
+        "source VARCHAR, entered_at TIMESTAMPTZ, entered_by VARCHAR, valid_from DATE, valid_to DATE, "
+        "recorded_at TIMESTAMPTZ, supersedes VARCHAR"
+    ),
 }
 
 
@@ -166,7 +183,18 @@ def connect_mirror(parquet_dir: str | Path) -> duckdb.DuckDBPyConnection:
     for table in FACT_TABLES:
         if table in excluded:
             continue
-        path = (base / f"{table}.parquet").as_posix().replace("'", "''")
+        file = base / f"{table}.parquet"
+        if (
+            table in _LATE_FACT_TABLES
+            and manifest is not None
+            and table not in manifest.tables
+            and not file.is_file()
+        ):
+            # exported before the table existed: it held none of its rows (``_LATE_FACT_TABLES``)
+            extra = ", ingested_at TIMESTAMPTZ" if manifest.clock == "public" else ""
+            con.execute(f"CREATE TABLE {table} ({_LATE_FACT_TABLES[table]}{extra})")
+            continue
+        path = file.as_posix().replace("'", "''")
         con.execute(f"CREATE TABLE {table} AS SELECT * FROM read_parquet('{path}')")
     # R8-A — the insider-amendment aux tables: ALL present (a mirror exported since they exist — the
     # exporter always writes every one, empty or not) or NONE (a mirror from before; the resolver then has
@@ -626,6 +654,14 @@ class ReplayPointInTimeData:
 
     def theme_conviction_facts(self, thesis_id: UUID) -> list[dict[str, Any]]:
         return self._as_of("fact_theme_conviction", "thesis_id", thesis_id)
+
+    def thesis_catalyst_facts(self, thesis_id: UUID) -> list[dict[str, Any]]:
+        """V2 W6a: the mirror twin of ``repositories.thesis_catalyst_repo.versions_asof``: per catalyst entry,
+        the newest version of the card's counting statement visible at this view's ``asof`` / ``known_at`` (on a
+        public mirror ``recorded_at`` already IS each version's public instant, ``db.public_clock``).
+        ``security_ids`` is decoded back to a list of uuid strings (``_JSON_COLS``). No call reads it yet (W6c).
+        """
+        return self._as_of("fact_thesis_catalyst", "thesis_id", thesis_id)
 
     def _newest_splits(self, security_id: UUID, known_at: datetime | None) -> list[dict[str, Any]]:
         grouped = _splits_of(self.con)

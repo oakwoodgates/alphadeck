@@ -143,16 +143,6 @@ def _thesis_with_catalysts(db: psycopg.Connection) -> tuple[uuid.UUID, uuid.UUID
     return t.id, workspace, cats
 
 
-def _catalyst_rows(db: psycopg.Connection, thesis_id: uuid.UUID) -> list[dict]:
-    with db.cursor() as cur:
-        cur.execute(
-            "SELECT label, security_ids, grade, citation, entered_at FROM catalyst "
-            "WHERE thesis_id = %s ORDER BY ordinal",
-            (thesis_id,),
-        )
-        return cur.fetchall()
-
-
 # --- extraction_candidate: not a fact ------------------------------------------------------------------------
 
 
@@ -494,56 +484,9 @@ def test_caps_default_to_no_cap(db):
 
 
 # --- the thesis catalyst columns -------------------------------------------------------------------------------
-
-
-def test_existing_catalysts_get_empty_new_fields(db):
-    cols = _columns(db, "catalyst")
-    assert cols.get("security_ids", (None,))[:2] == ("ARRAY", "NO")
-    assert cols["grade"][:2] == ("text", "YES")
-    assert cols["citation"][:2] == ("text", "YES")
-    assert cols["entered_at"][:2] == ("timestamp with time zone", "YES")
-    assert cols["entered_at"][2] is None  # never stamped by default: NULL on every existing row
-    tid, _, _ = _thesis_with_catalysts(db)
-    rows = _catalyst_rows(db, tid)
-    assert [(r["security_ids"], r["grade"], r["citation"], r["entered_at"]) for r in rows] == [
-        ([], None, None, None),
-        ([], None, None, None),
-    ]
-    _refused(
-        db,
-        errors.CheckViolation,
-        "UPDATE catalyst SET grade = 'strong' WHERE thesis_id = %s",
-        (tid,),
-    )
-    with db.cursor() as cur:  # both grades the call uses are accepted
-        cur.execute(
-            "UPDATE catalyst SET grade = 'core' WHERE thesis_id = %s AND ordinal = 0", (tid,)
-        )
-        cur.execute(
-            "UPDATE catalyst SET grade = 'flip' WHERE thesis_id = %s AND ordinal = 1", (tid,)
-        )
-
-
-def test_set_catalysts_drops_the_new_fields_on_save(db):
-    """Documents finding 3 for W6: the editor's full-list replace (delete all, re-insert) writes none of the new
-    fields, so a save wipes them. W6 changes the writer to keep each entry's id and entry time and must flip
-    this test."""
-    tid, workspace, cats = _thesis_with_catalysts(db)
-    member = uuid.uuid4()
-    with db.cursor() as cur:
-        cur.execute(
-            "UPDATE catalyst SET security_ids = %s, grade = 'core', citation = 'https://sec/8k', "
-            "entered_at = now() WHERE thesis_id = %s",
-            ([member], tid),
-        )
-    assert {r["grade"] for r in _catalyst_rows(db, tid)} == {"core"}
-    thesis_repo.set_catalysts(db, tid, cats, tenant_id=workspace)
-    rows = _catalyst_rows(db, tid)
-    assert [r["label"] for r in rows] == ["FDA vote", "Q4 print"]
-    assert [(r["security_ids"], r["grade"], r["citation"], r["entered_at"]) for r in rows] == [
-        ([], None, None, None),
-        ([], None, None, None),
-    ]
+# 0204's four columns on `catalyst` (security_ids, grade, citation, entered_at) were never read and were dropped by
+# 0212 (V2 W6a, operator decision N11 (a)); their two tests retired with them. A counting entry's fields live in
+# `fact_thesis_catalyst` (tests/db/test_thesis_catalyst_store.py, which also pins that the columns are gone).
 
 
 # --- the migrations ----------------------------------------------------------------------------------------------

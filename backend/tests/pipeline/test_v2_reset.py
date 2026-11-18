@@ -1045,3 +1045,29 @@ def test_theses_baskets_decisions_and_children_are_untouched(db, tmp_path):
     }
     assert {t: _rows(db, t) for t in keep} == rows_before
     assert after["thesis"] == 1 and after["basket_member"] == 2
+
+
+# --- V2 W6a: the counting catalyst entries are a kept, counted child ---------------------------------------------
+
+
+def test_the_counting_catalyst_entries_are_kept_and_counted(db, capsys, tmp_path):
+    """``fact_thesis_catalyst`` (0212) is a per-thesis child: the baseline counts it (so ``v2_verify``'s recall
+    check covers it), P9 prints its count, and the reset keeps every row."""
+    assert "fact_thesis_catalyst" in R._CHILD_TABLES
+    seeded = _seed_v1(db)
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO fact_thesis_catalyst (tenant_id, thesis_id, entry_id, counts, grade, label, citation, "
+            "source, entered_at, valid_from, recorded_at) SELECT tenant_id, id, gen_random_uuid(), true, 'flip', "
+            "'a whole-card entry', 'https://example.com/x', 'thesis_catalyst', now(), '2026-06-01', now() "
+            "FROM thesis WHERE id = %s",
+            (seeded["thesis"],),
+        )
+    db.commit()
+    before = _rows(db, "fact_thesis_catalyst")
+    assert _apply(db, tmp_path) == 0
+    assert "fact_theme_conviction 0, fact_thesis_catalyst 1" in capsys.readouterr().out
+    assert _rows(db, "fact_thesis_catalyst") == before
+    (prov,) = sorted((tmp_path / "prov").glob("*.json"))
+    doc = json.loads(prov.read_text(encoding="utf-8"))
+    assert doc["baseline"]["children"][str(seeded["thesis"])]["fact_thesis_catalyst"] == 1

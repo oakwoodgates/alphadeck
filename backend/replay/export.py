@@ -83,6 +83,10 @@ _OID_ARROW: dict[int, pa.DataType] = {
     701: pa.float64(),  # float8
     1700: pa.float64(),  # numeric (close/usd/shares/... -> float)
     2950: pa.string(),  # uuid
+    # uuid[] (fact_thesis_catalyst.security_ids, V2 W6a): ``_coerce`` writes the list as a JSON array of uuid
+    # strings in its STORED order (the writer stores it sorted), and the mirror reader decodes it
+    # (``replay.pit._JSON_COLS``); named here so the type is explicit, not the unknown-OID fallback
+    2951: pa.string(),
     114: pa.string(),  # json
     3802: pa.string(),  # jsonb (terms -> JSON string; the accessor json.loads it back)
 }

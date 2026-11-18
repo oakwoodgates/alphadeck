@@ -30,7 +30,7 @@ finished ``v2_cutover`` record (``committed_at``, a baseline) and name this data
   tenant, at least one enabled ``super_admin``; V3 users equal the baseline; V4 every baseline thesis with its id,
   tenant, ``created_at`` and ``archived_at``, and no new one; **V5 recall**: every baseline ``basket_member`` row
   still present, by id AND by (thesis, security_id, segment), a missing one NAMED (thesis, ticker, security);
-  V5 children (per thesis, the eight child tables) and V5 decisions (``operator_decision``) equal the baseline;
+  V5 children (per thesis, the nine child tables) and V5 decisions (``operator_decision``) equal the baseline;
   V6 platform facts: no share-count or cash/burn row outside the data tenant, the data tenant's counts equal the
   baseline's data + founding counts, every company that had a share count (a cash/burn row) still has one in the
   data tenant; V7 purity: no ratified purity row on the data tenant, founding purity = baseline + moved; V8 the

@@ -33,7 +33,8 @@ the nightly window (exit 75); P4 (apply) the repair lock (call-of-record + fact 
 the whole run (exit 75, naming the holder); P5 the dry run's surprise rules (rules 1-2 exit 2; rules 3-9 refuse,
 except rule 8, the unratified data-tenant purity, which ``--orphan-purity`` acknowledges); P6 a workspace
 company catalyst refuses; P7 no share-count or cash/burn row would fail migration 0206's vocabulary; P8 the
-move's own refusals; P9 counts printed (decisions, positions, theme conviction: all kept); P10 already cut over
+move's own refusals; P9 counts printed (decisions, positions, theme conviction, counting catalyst entries: all
+kept); P10 already cut over
 (a ``data_repair`` row of tool ``v2_cutover``): nothing left to do -> exit 0, no backup, no journal; any history
 row present -> REFUSE ("a second reset would delete V2 nights"); P11 every foreign key INTO the reset tables comes
 from a reset table (so no cascade can reach a table the plan does not list). ``--expect-plan`` refuses (exit 1)
@@ -67,7 +68,8 @@ renamed after it; W10b's ``verify`` reads it), one JSON object:
   archived_at}``]; ``basket_members`` {thesis id: [``{id, security_id, ticker, segment, role}``]};
   ``children`` {thesis id: {table: rows}} for ``kill_criterion``, ``catalyst``, ``evidence``,
   ``thesis_exclusion``, ``basket_snapshot``, ``fact_term_mentions``, ``fact_spac_match``,
-  ``fact_theme_conviction``; ``operator_decision`` (rows); ``share_security_ids`` and ``cash_security_ids``
+  ``fact_theme_conviction``, ``fact_thesis_catalyst``; ``operator_decision`` (rows); ``share_security_ids`` and
+  ``cash_security_ids``
   (companies with a row, any tenant); ``moved_tables_by_tenant`` {table: {tenant: rows}} before the move;
   ``app_users`` [``{id, role, workspace_id, disabled_at}``]; ``plan_json`` (the ``plan --json`` document).
 """
@@ -170,6 +172,7 @@ _CHILD_TABLES = (
     "fact_term_mentions",
     "fact_spac_match",
     "fact_theme_conviction",
+    "fact_thesis_catalyst",  # V2 W6a (0212): a card's counting catalyst entries
 )
 
 # read at call time through this module, so a test can inject a name (never by connecting to a prod-named DB)
@@ -576,9 +579,10 @@ def preflight(conn: Any, opts: Options, name: str) -> Preflight:
             )
         )
         conviction = int(_scalar(cur, "SELECT count(*) AS n FROM fact_theme_conviction"))
+        entries = int(_scalar(cur, "SELECT count(*) AS n FROM fact_thesis_catalyst"))
         lines.append(
             f"count: P9 kept: operator_decision {decisions}, theses with position fields {positions}, "
-            f"fact_theme_conviction {conviction}"
+            f"fact_theme_conviction {conviction}, fact_thesis_catalyst {entries}"
         )
         resets = _reset_counts(cur)
         orphans = _orphans(cur)

@@ -95,6 +95,8 @@ SCOPE_OF: dict[str, Scope] = {
     "fact_theme_conviction": Scope.WORKSPACE,
     "fact_term_mentions": Scope.WORKSPACE,
     "fact_spac_match": Scope.WORKSPACE,
+    # V2 W6a: a card's counting catalyst entries (0212): the user's own statement, on their own card only
+    "fact_thesis_catalyst": Scope.WORKSPACE,
     # --- V2 W1a: the four formerly-MIXED tables, one scope each (no read unions two tenants) ---------------
     "fact_revenue_mix": Scope.WORKSPACE,  # purity: the workspace's own judgment
     "fact_cash_burn": Scope.DATA,  # platform values: one per company, for everyone
