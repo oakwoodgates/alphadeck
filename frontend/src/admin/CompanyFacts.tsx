@@ -4,12 +4,15 @@ import { Link } from "react-router";
 import { apiErrorText } from "../api/errorText";
 import {
   useApproveCandidate,
+  useClosedFlagPages,
+  useCloseFlag,
   useCompanyValues,
   useCorrectValue,
   useDismissCandidate,
   useExplainFlag,
   useExtractNow,
   usePinValue,
+  useReopenFlag,
   useUndoDecision,
   useUnpinValue,
   type ExtractedFact,
@@ -17,6 +20,7 @@ import {
   type PlatformDecisionOut,
   type PlatformExtractionAttemptOut,
   type PlatformFactType,
+  type PlatformUserFlagOut,
   type PlatformValueOut,
 } from "../api/hooks";
 import { refusalText } from "../api/refusals";
@@ -26,6 +30,7 @@ import { LocatedPassages, MISSING_FLAGS } from "../components/LocatedPassages";
 import { adminPath } from "../nav";
 import { CorrectForm, blankInit, initFromCandidate, initFromValue, type CorrectInit } from "./CorrectForm";
 import { FactSearch } from "./FactSearch";
+import { ClosedFlags, OpenFlags } from "./FlagsFromUsers";
 import {
   EXTRACT_NOTE,
   FACT_TITLE,
@@ -66,6 +71,19 @@ interface Mutations {
   undo: ReturnType<typeof useUndoDecision>;
   pin: ReturnType<typeof usePinValue>;
   unpin: ReturnType<typeof useUnpinValue>;
+}
+
+/** What the page carries about the company's user flags, for ONE value. `shown` / `total` count every closed flag of
+ *  the company (both values), loaded against all, so "Show older" is honest. */
+interface FlagProps {
+  open: PlatformUserFlagOut[];
+  closed: PlatformUserFlagOut[];
+  shown: number;
+  total: number;
+  close: ReturnType<typeof useCloseFlag>;
+  reopen: ReturnType<typeof useReopenFlag>;
+  paging: { isFetching: boolean; error: string | null };
+  onOlder: () => void;
 }
 
 /** The fact type a write was made for (every write's variables carry it; a correction's body does). */
@@ -234,12 +252,14 @@ function ValueBlock({
   m,
   busy,
   attempts,
+  fl,
 }: {
   securityId: string;
   v: PlatformValueOut;
   m: Mutations;
   busy: boolean;
   attempts: PlatformExtractionAttemptOut[];
+  fl: FlagProps;
 }) {
   const factType = v.fact_type as PlatformFactType;
   const [form, setForm] = useState<CorrectInit | null>(null);
@@ -346,6 +366,15 @@ function ValueBlock({
           A newer filing ({waiting.event_date ?? "undated"}) is awaiting you
         </div>
       )}
+
+      <OpenFlags
+        securityId={securityId}
+        flags={fl.open}
+        decisions={decisions}
+        busy={busy}
+        close={fl.close}
+        reopen={fl.reopen}
+      />
 
       {waiting && (
         <div className="cf-candidate" data-testid="cf-candidate">
@@ -568,6 +597,18 @@ function ValueBlock({
             })}
           </ul>
 
+          <ClosedFlags
+            securityId={securityId}
+            flags={fl.closed}
+            busy={busy}
+            close={fl.close}
+            reopen={fl.reopen}
+            shown={fl.shown}
+            total={fl.total}
+            paging={fl.paging}
+            onOlder={fl.onOlder}
+          />
+
           <h3 className="cf-h3">Recent extraction attempts</h3>
           <ul data-testid="cf-attempts">
             {attempts.length === 0 && <li className="cf-quiet">No extraction attempts yet.</li>}
@@ -602,10 +643,37 @@ export function CompanyFacts({
     unpin: useUnpinValue(),
   };
   const extract = useExtractNow();
-  // a company's writes hold its lock, so one at a time (an extraction writes too)
-  const busy = (Object.values(m) as AnyMutation[]).some((x) => x.isPending) || extract.isPending;
+  const close = useCloseFlag();
+  const reopen = useReopenFlag();
+  // a company's writes hold its lock, so one at a time (an extraction, a flag's close or reopen write too)
+  const busy =
+    (Object.values(m) as AnyMutation[]).some((x) => x.isPending) ||
+    extract.isPending ||
+    close.isPending ||
+    reopen.isPending;
   const d = q.data;
   const attempts = d?.attempts ?? [];
+
+  // the flags: every open one and the first page of closed ones come with the company; "Show older" reads more pages
+  const [extraPages, setExtraPages] = useState(0);
+  const first = d?.flags?.closed ?? [];
+  const older = useClosedFlagPages(securityId, extraPages, d?.flags?.closed_limit ?? 20);
+  const closedAll = [...first, ...older.rows.filter((r) => !first.some((f) => f.id === r.id))].filter(
+    (r, i, all) => all.findIndex((x) => x.id === r.id) === i,
+  );
+  const flagsFor = (type: string): FlagProps => ({
+    open: (d?.flags?.open ?? []).filter((f) => f.value_type === type),
+    closed: closedAll.filter((f) => f.value_type === type),
+    shown: closedAll.length,
+    total: d?.flags?.closed_total ?? 0,
+    close,
+    reopen,
+    paging: {
+      isFetching: older.isFetching,
+      error: older.isError ? (apiErrorText(older.error) ?? "The older flags could not be read.") : null,
+    },
+    onOlder: () => setExtraPages((n) => n + 1),
+  });
   return (
     <div className="cf-page">
       {header}
@@ -635,8 +703,22 @@ export function CompanyFacts({
         {d && (
           <>
             <ExtractNow securityId={securityId} extract={extract} busy={busy} />
-            <ValueBlock securityId={securityId} v={d.shares} m={m} busy={busy} attempts={attempts} />
-            <ValueBlock securityId={securityId} v={d.cash_burn} m={m} busy={busy} attempts={attempts} />
+            <ValueBlock
+              securityId={securityId}
+              v={d.shares}
+              m={m}
+              busy={busy}
+              attempts={attempts}
+              fl={flagsFor(d.shares.fact_type)}
+            />
+            <ValueBlock
+              securityId={securityId}
+              v={d.cash_burn}
+              m={m}
+              busy={busy}
+              attempts={attempts}
+              fl={flagsFor(d.cash_burn.fact_type)}
+            />
           </>
         )}
       </div>
