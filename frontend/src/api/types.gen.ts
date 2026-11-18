@@ -20681,6 +20681,8 @@ export interface components {
              * @default []
              */
             sources: components["schemas"]["ProvenanceOut"][];
+            /** Origin */
+            origin?: ("platform" | "operator") | null;
         };
         /**
          * UserAppliedValueOut

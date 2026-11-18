@@ -48027,6 +48027,21 @@
             "type": "array",
             "title": "Sources",
             "default": []
+          },
+          "origin": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "platform",
+                  "operator"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origin"
           }
         },
         "type": "object",
