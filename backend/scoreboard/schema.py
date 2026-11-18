@@ -125,11 +125,6 @@ class ScoredEpisode(BaseModel):
     arm_code_sha: str | None = None
     arm_run_kind: str | None = None  # 'cron' | 'manual' | 'backfill'
     run_identity_note: str | None = None  # backend-authored copy; the FE renders, never composes
-    # D3b (migration 0045) — the QUIET caption from the ACTIVE annotations on this run's winning rows that
-    # touch this member: a `note` (the arm stands, the rule changed its composition — still scored), or an
-    # `exclude` on a reading that INCLUDES annotated nights. None = nothing applies (no line at all).
-    # Caption only: it flags nothing and changes no metric; the exclusion itself is the record read's.
-    annotation_note: str | None = None
     triggers_at_arm: list[TriggerRef] = []  # the WHY, from the arm-date card (invariant #6)
     # Slice C — the run's own record detail, each field composed from the recorded cards (#6) and
     # DEFAULTED on the replay path (CallSnapshot deliberately drops risk_signals/missing — do not
@@ -240,22 +235,6 @@ class ReplaySnapshot(BaseModel):
     theses: list[ReplayThesisHistory] = []
 
 
-class AnnotatedNight(BaseModel):
-    """One (thesis, as-of) carrying at least one ACTIVE ``exclude`` annotation (D3b, migration 0045) — a
-    phantom-arm night (D3b) or a night dated a day with no market session (F10), by the ``rules`` that judged
-    it. The banner's unit, listed whichever reading the response is
-    (``ScoreboardSummary.annotated_policy`` says whether these were dropped or scored)."""
-
-    thesis_id: UUID
-    thesis_name: str
-    asof: date
-    # the annotation reason tokens, distinct (e.g. 'stale_comparative_revenue')
-    reasons: list[str] = []
-    # the code identities that judged it, distinct ('d3a-first-knowability@<sha>')
-    rules: list[str] = []
-    n_rows: int = 1  # annotated calls rows on the night (a re-recorded night can carry two)
-
-
 class LateNight(BaseModel):
     """One (thesis, as-of) carrying at least one LATE row (L1, operator Q5 = A): a non-reconstructed
     call-of-record recorded at/after its night's on-time window closed — the next weekday's 06:00 ET EDGAR
@@ -266,8 +245,7 @@ class LateNight(BaseModel):
     the latest EARLIER non-late, non-reconstructed row (usually the honest on-time row the late one
     superseded — e.g. AI Memory & Storage's 22:42 row under its 10-13 17:04 re-version), or ``None`` when
     there is none and the night reads like a cron gap (the record last spoke on the prior honest row). It is
-    the LATE judgment's own answer: it does not apply the annotated filter (an annotated row there is set
-    aside by that policy and named in ``annotated_nights``)."""
+    the LATE judgment's own answer."""
 
     thesis_id: UUID
     thesis_name: str
@@ -302,14 +280,6 @@ class ScoreboardSummary(BaseModel):
     # row is scored from it and is NOT listed. Reported once, quietly — never per row (with the filter
     # in place a reconstructed row produces no ledger row). Empty = every night has an honest row.
     reconstructed_nights: list[date] = []
-    # D3b — the annotated-night READ POLICY this summary was computed under, and the nights it concerns.
-    # "excluded" = rows carrying an active `exclude` annotation (phantom arms, no-session nights) were dropped before the
-    # per-as-of dedup, like reconstructed rows; "included" = they were scored, exactly as before D3b. The
-    # list is the same in both readings (as-ofs <= asof, ledger-wide), so the banner can name the nights
-    # either way and an externally quoted number can say which reading produced it.
-    # Editions S4: "n/a" on an edition >= 1 — a re-run has no annotated rows to set aside
-    annotated_policy: Literal["excluded", "included", "n/a"] = "excluded"
-    annotated_nights: list[AnnotatedNight] = []
     # L1 — the late-night READ POLICY this summary was computed under, and the nights it concerns.
     # "excluded" = rows recorded after their night's on-time window closed were dropped before the per-as-of
     # dedup (an on-time row for the night wins; a late-only night reads like a cron gap); "included" = they
@@ -324,8 +294,6 @@ class ScoreboardResult(BaseModel):
     (``assemble_scoreboard``) — the bare record walk leaves it None."""
 
     asof: date
-    # D3b — the annotated-night policy every record read in this result ran under (resolved once)
-    exclude_annotated: bool = True
     # L1 — the late-night policy every record read in this result ran under (resolved once)
     exclude_late: bool = True
     # Editions S4 — which edition this result read: 0 = the original record (the calls log)

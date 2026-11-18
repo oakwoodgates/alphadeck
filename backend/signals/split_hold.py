@@ -1,8 +1,7 @@
 """The split-night HOLD at the call seam (split plan S5, operator-approved 2026-10-22; ``docs/CALL_LOGIC.md`` §2b).
 
 The rule itself is ``domain/split_hold.py`` (pure). This module is its point-in-time half, used ONLY by
-``pipeline.core.assemble_from_pit`` — the one seam the nightly, the serve path, ``pipeline.backfill``, D3b's
-``annotate_phantom_arms`` and the replay harness all assemble through, so the hold applies identically
+``pipeline.core.assemble_from_pit`` — the one seam the nightly, the serve path, ``pipeline.backfill`` and the replay harness all assemble through, so the hold applies identically
 everywhere (the live view on the record clock, a history view on the public clock, the Parquet mirror).
 
 - ``find_holds`` reads each basket member's newest bars and the split list AS THE VIEW KNOWS THEM

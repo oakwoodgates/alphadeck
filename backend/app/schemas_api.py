@@ -1292,11 +1292,6 @@ class ScoreboardEpisodeOut(BaseModel):
     arm_code_sha: str | None = None
     arm_run_kind: str | None = None  # 'cron' | 'manual' | 'backfill'
     run_identity_note: str | None = None
-    # D3b (migration 0045) — a QUIET, backend-authored caption from the active annotations on this run's
-    # winning rows that touch this member: a `note` (the arm stands, still scored; the rule changed its
-    # composition) or an `exclude` scored only because the reading INCLUDES annotated nights. Null when
-    # nothing applies — a clean episode renders no line. Never a flag, never a metric input.
-    annotation_note: str | None = None
     verdict: Verdict | None = None
     entry_grade: Grade | None = None
     conviction_grade: Grade | None = None
@@ -1387,7 +1382,6 @@ def _scoreboard_episode_out(
         arm_code_sha=e.arm_code_sha,
         arm_run_kind=e.arm_run_kind,
         run_identity_note=e.run_identity_note,
-        annotation_note=e.annotation_note,
         verdict=ep.verdict,
         entry_grade=ep.entry_grade,
         conviction_grade=ep.conviction_grade,
@@ -1490,22 +1484,6 @@ class ScoreboardMetricOut(BaseModel):
     note: str = ""
 
 
-class AnnotatedNightOut(BaseModel):
-    """One annotated night (D3b, F10): a (thesis, as-of) whose recorded row carries an ACTIVE ``exclude``
-    annotation — a phantom arm, or a row dated a day with no market session — under the default reading it
-    is set aside like a reconstructed night; under the ``include_annotated`` reading it is scored.
-    ``reasons`` are the annotation tokens (e.g. ``stale_comparative_revenue``, ``no_session_day``), ``rules``
-    the code identities that judged it (``d3a-first-knowability@<sha>``, ``no-session-night@<sha>``),
-    ``n_rows`` the annotated rows on the night."""
-
-    thesis_id: UUID
-    thesis_name: str
-    asof: date
-    reasons: list[str] = []
-    rules: list[str] = []
-    n_rows: int = 1
-
-
 class LateNightOut(BaseModel):
     """One late night (L1, operator Q5 = A): a (thesis, as-of) holding a call-of-record recorded at/after
     its night's on-time window closed — the next weekday's 06:00 ET EDGAR open — so it can have read a
@@ -1556,19 +1534,11 @@ class ScoreboardSummaryOut(BaseModel):
     # night that also carries an honest row is scored from it and is NOT listed; the ones here are
     # named once and quietly, never as a per-row chip. Empty = every night has an honest row.
     reconstructed_nights: list[date] = []
-    # D3b — the annotated-night READ POLICY this response was computed under: "excluded" = annotated rows (phantom
-    # arms, no-session nights; an active `exclude` annotation, migration 0045) were dropped before the per-as-of dedup, exactly like
-    # reconstructed rows; "included" = they were scored, as before D3b. Default = the server setting
-    # (ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED); `?include_annotated=` overrides per request. A number quoted
-    # from this response should name this reading. `annotated_nights` lists the nights either way. "n/a" on an
-    # edition >= 1: a re-run has no annotated rows (the list comes back empty).
-    annotated_policy: Literal["excluded", "included", "n/a"] = "excluded"
-    annotated_nights: list[AnnotatedNightOut] = []
     # L1 — the late-night READ POLICY this response was computed under: "excluded" = rows recorded after
     # their night's next EDGAR open were dropped before the per-as-of dedup (an on-time row for the night
     # wins; a late-only night reads like a cron gap); "included" = they were scored, as before L1. Default =
     # the server setting (ALPHADECK_SCOREBOARD_EXCLUDE_LATE); `?include_late=` overrides per request.
-    # `late_nights` lists the nights either way. Composes with the two filters above by AND. "n/a" on an
+    # `late_nights` lists the nights either way. Composes with the reconstructed filter above by AND. "n/a" on an
     # edition >= 1: every page of a re-run is computed the same way, none is late (the list comes back empty,
     # as does `reconstructed_nights`).
     late_policy: Literal["excluded", "included", "n/a"] = "excluded"

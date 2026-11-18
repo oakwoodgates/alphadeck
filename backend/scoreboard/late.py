@@ -10,8 +10,8 @@ honest on-time row in the per-as-of dedup (AI Memory & Storage: seq 1334 at 22:4
 
 Under the policy (``Settings.scoreboard_exclude_late``, default on; ``GET /scoreboard?include_late=``
 overrides it per request) every Scoreboard record read drops late rows BEFORE the per-as-of dedup — at the
-same place and the same way as the reconstructed (0042) and annotated (D3b) filters, across all four
-winning-row peer reads (timeline, ingest health, run identity, annotations). So an on-time row for the same
+same place and the same way as the reconstructed (0042) filter, across all three
+winning-row peer reads (timeline, ingest health, run identity). So an on-time row for the same
 night WINS over a later late one, and a night whose only rows are late reads exactly like a cron gap (the
 record last spoke on the prior honest row). Nothing is deleted or marked: lateness is DERIVED on read from
 ``recorded_at`` (no migration), so flipping the policy re-scores the record exactly as before L1.
@@ -41,7 +41,7 @@ from scoreboard.schema import LateNight
 def resolve_exclude_late(exclude_late: bool | None = None) -> bool:
     """The Scoreboard's late-night read policy for ONE read (L1): an explicit bool wins (the request's
     ``include_late`` override, inverted by the router), ``None`` = the configured
-    ``Settings.scoreboard_exclude_late``. The ``resolve_exclude_annotated`` twin — one resolution per
+    ``Settings.scoreboard_exclude_late``. One resolution per
     request, threaded down, so every read in that request applies the same policy."""
     if exclude_late is None:
         return get_settings().scoreboard_exclude_late

@@ -2,7 +2,7 @@
 VERSIONS the read skips.
 
 ``fact_fundamentals`` is append-only; a judgment made LATER about one of its rows ("the data-quality screen would
-have refused this version") lives here, beside it, with its own history (the ``call_annotations_repo`` pattern).
+have refused this version") lives here, beside it, with its own history.
 Two actions:
 
 - ``set_aside`` — every read of the table skips the version (``db.set_aside``: both clocks, the basket prefetch,

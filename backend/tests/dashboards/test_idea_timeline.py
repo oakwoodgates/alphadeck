@@ -20,12 +20,10 @@ from app.main import app
 from app.routers.dashboards import idea_timeline as router_mod
 from dashboards.idea_timeline import (
     FUTURE_CAP_DAYS,
-    AnnotationRow,
     CallRow,
     Clocks,
     DecisionRow,
     IdeaTimeline,
-    active_excludes,
     idea_timeline,
 )
 from db.session import DEFAULT_TENANT_ID
@@ -76,8 +74,8 @@ def d(month: int, day: int) -> date:
     return date(2026, month, day)
 
 
-def run(theses, calls=(), annotations=(), decisions=(), clocks=None, today=TODAY) -> IdeaTimeline:
-    return idea_timeline(theses, calls, annotations, decisions, clocks or {}, today=today)
+def run(theses, calls=(), decisions=(), clocks=None, today=TODAY) -> IdeaTimeline:
+    return idea_timeline(theses, calls, decisions, clocks or {}, today=today)
 
 
 def only_row(result: IdeaTimeline):
@@ -230,9 +228,9 @@ def test_reconstructed_nights_hatch_the_span_they_hold_merged_when_consecutive()
     result = run([t], calls)
     (seg,) = only_row(result).segments
 
-    assert [(h.kind, h.start, h.end, h.nights, h.reason) for h in seg.hatches] == [
-        ("reconstructed", d(10, 2), d(10, 6), 2, None),
-        ("reconstructed", d(10, 8), TODAY, 1, None),  # the last night holds until today
+    assert [(h.kind, h.start, h.end, h.nights) for h in seg.hatches] == [
+        ("reconstructed", d(10, 2), d(10, 6), 2),
+        ("reconstructed", d(10, 8), TODAY, 1),  # the last night holds until today
     ]
     assert result.reconstructed_nights == 3
 
@@ -247,60 +245,6 @@ def test_the_flag_is_read_off_the_nights_winning_row():
     ]
     (seg,) = only_row(run([t], calls)).segments
     assert [(h.kind, h.start, h.end) for h in seg.hatches] == [("reconstructed", d(10, 2), TODAY)]
-
-
-def test_an_active_exclude_hatches_its_night_with_its_reason():
-    t = card("Grid")
-    phantom = call(t.id, d(10, 2), "armed")
-    calls = [call(t.id, d(10, 1), "warming"), phantom, call(t.id, d(10, 3), "warming")]
-    ann = [AnnotationRow(uuid.uuid4(), phantom.id, "exclude", "stale_comparative_revenue", None)]
-    result = run([t], calls, ann)
-    armed = only_row(result).segments[1]
-
-    assert [(h.kind, h.start, h.end, h.reason) for h in armed.hatches] == [
-        ("excluded", d(10, 2), d(10, 3), "stale_comparative_revenue")
-    ]
-    assert result.excluded_nights == 1
-
-
-def test_a_revoked_exclude_is_not_active():
-    a, b = uuid.uuid4(), uuid.uuid4()
-    kept, gone = uuid.uuid4(), uuid.uuid4()
-    anns = [
-        AnnotationRow(kept, a, "exclude", "stale_comparative_revenue", None),
-        AnnotationRow(gone, b, "exclude", "stale_comparative_revenue", None),
-        AnnotationRow(uuid.uuid4(), b, "revoke", "operator changed their mind", gone),
-    ]
-    assert active_excludes(anns) == {a: "stale_comparative_revenue"}
-
-    t = card("Grid")
-    revoked = call(t.id, d(10, 2), "armed", cid=b)
-    (seg,) = only_row(run([t], [revoked], anns)).segments
-    assert seg.hatches == ()
-
-
-def test_several_active_excludes_on_one_row_list_each_reason_once():
-    cid = uuid.uuid4()
-    anns = [
-        AnnotationRow(uuid.uuid4(), cid, "exclude", "rule_a", None),
-        AnnotationRow(uuid.uuid4(), cid, "exclude", "rule_b", None),
-        AnnotationRow(uuid.uuid4(), cid, "exclude", "rule_a", None),
-    ]
-    assert active_excludes(anns) == {cid: "rule_a; rule_b"}
-
-
-def test_different_exclude_reasons_are_separate_hatches():
-    t = card("Grid")
-    n1, n2 = call(t.id, d(10, 1), "armed"), call(t.id, d(10, 2), "armed")
-    anns = [
-        AnnotationRow(uuid.uuid4(), n1.id, "exclude", "rule_a", None),
-        AnnotationRow(uuid.uuid4(), n2.id, "exclude", "rule_b", None),
-    ]
-    (seg,) = only_row(run([t], [n1, n2], anns)).segments
-    assert [(h.start, h.end, h.reason) for h in seg.hatches] == [
-        (d(10, 1), d(10, 2), "rule_a"),
-        (d(10, 2), TODAY, "rule_b"),
-    ]
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -483,7 +427,6 @@ def stub_client(monkeypatch):
         "read_calls",
         reader("calls", [call(t.id, d(10, 1), "warming"), call(t.id, d(10, 20), "armed")]),
     )
-    monkeypatch.setattr(router_mod, "read_annotations", reader("annotations", []))
     monkeypatch.setattr(router_mod, "read_decisions", reader("decisions", []))
     monkeypatch.setattr(
         router_mod, "read_clocks", reader("clocks", {t.id: Clocks(d(11, 20), d(11, 5))})
@@ -502,7 +445,7 @@ def test_the_router_reads_the_default_live_list_and_serves_the_compute(stub_clie
 
     # list_all's DEFAULT excludes archived cards; the router must never widen it
     assert seen["list_all_kwargs"] == {"workspace": DEFAULT_TENANT_ID}
-    assert seen["calls"] == seen["annotations"] == seen["decisions"] == seen["clocks"] == [t.id]
+    assert seen["calls"] == seen["decisions"] == seen["clocks"] == [t.id]
     assert body["today"] == "2026-10-29"
     assert (body["axis_start"], body["axis_end"]) == ("2026-10-01", "2026-11-20")
     (row,) = body["rows"]
@@ -538,17 +481,6 @@ def _insert_call(db, tid: UUID, asof: date, state: str, card_json: str = "{}", *
         return cur.fetchone()["id"]
 
 
-def _insert_annotation(db, call_id: UUID, action: str, reason: str, revokes=None) -> UUID:
-    with db.cursor() as cur:
-        cur.execute(
-            "INSERT INTO call_annotation (tenant_id, call_id, thesis_id, asof, action, reason, rule, "
-            "revokes) SELECT tenant_id, id, thesis_id, asof, %s, %s, 'test@x', %s FROM calls "
-            "WHERE id = %s RETURNING id",
-            (action, reason, revokes, call_id),
-        )
-        return cur.fetchone()["id"]
-
-
 def test_the_real_reads_skip_archived_cards_and_honor_revokes_and_voids(db, monkeypatch):
     live = card("Live")
     parked = card("Parked")
@@ -558,16 +490,11 @@ def test_the_real_reads_skip_archived_cards_and_honor_revokes_and_voids(db, monk
 
     _insert_call(db, live.id, d(10, 1), "warming")
     _insert_call(db, live.id, d(10, 2), "warming", reconstructed=True)
-    kept = _insert_call(db, live.id, d(10, 5), "armed", verdict="starter_entry")
+    _insert_call(db, live.id, d(10, 5), "armed", verdict="starter_entry")
     _insert_call(db, live.id, d(10, 6), "armed")
     # the night's (and the card's) latest row: it wins the night and the clocks are read off it
-    revoked = _insert_call(
-        db, live.id, d(10, 6), "armed", '{"exit_by": "2026-11-20", "arm_until": null}'
-    )
+    _insert_call(db, live.id, d(10, 6), "armed", '{"exit_by": "2026-11-20", "arm_until": null}')
     _insert_call(db, parked.id, d(7, 1), "armed")
-    _insert_annotation(db, kept, "exclude", "stale_comparative_revenue")
-    gone = _insert_annotation(db, revoked, "exclude", "stale_comparative_revenue")
-    _insert_annotation(db, revoked, "revoke", "operator reversed it", gone)
     with db.cursor() as cur:
         cur.execute(
             "INSERT INTO operator_decision (tenant_id, thesis_id, action, decision_date) "
@@ -598,10 +525,7 @@ def test_the_real_reads_skip_archived_cards_and_honor_revokes_and_voids(db, monk
     assert [(h["kind"], h["start"], h["end"]) for h in warming["hatches"]] == [
         ("reconstructed", "2026-10-02", "2026-10-05")
     ]
-    # only the un-revoked exclude is active
-    assert [(h["kind"], h["start"], h["end"], h["reason"]) for h in armed["hatches"]] == [
-        ("excluded", "2026-10-05", "2026-10-06", "stale_comparative_revenue")
-    ]
+    assert armed["hatches"] == []
     assert armed["multi_row_nights"] == [{"asof": "2026-10-06", "rows": 2}]
     assert (row["exit_by"], row["arm_until"]) == ("2026-11-20", None)
     assert [(m["action"], m["voided"]) for m in row["decisions"]] == [("take", True)]

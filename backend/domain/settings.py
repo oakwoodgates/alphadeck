@@ -396,17 +396,6 @@ class Settings(BaseSettings):
     # The default MUST equal the sidecar's (compose + daily_cron.sh both default 5400 s = 90 min).
     cron_run_timeout_s: float = 5400.0
 
-    # --- D3b — the Scoreboard's ANNOTATED-NIGHT read policy (operator decision Q2, 2026-10-16) ---
-    # `call_annotation` (migration 0045) holds append-only judgments about recorded `calls` rows; an ACTIVE
-    # `exclude` marks a PHANTOM ARM (an arm that rested only on a stale-dated comparative revenue quarter,
-    # the bug D3a fixed) or, since F10, a row dated a day with no market session. True = the Scoreboard's record read drops those rows BEFORE the per-as-of dedup
-    # (the `calls.reconstructed` precedent) and the banner names the nights; False = they are scored again,
-    # exactly as before D3b. A READ policy, never a write: flipping it re-scores the record and deletes
-    # nothing, so the operator can go back and forth. `GET /scoreboard?include_annotated=` overrides it per
-    # request (true = include, false = exclude), so both readings can be compared without a restart. An
-    # externally quoted Scoreboard number should name the reading it came from. ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED.
-    scoreboard_exclude_annotated: bool = True
-
     # --- L1 — the Scoreboard's LATE-NIGHT read policy (operator decision Q5 = A, 2026-10-16) ---
     # A LATE row = a non-reconstructed call-of-record recorded at/after the END of its night's on-time window,
     # the next weekday's 06:00 ET EDGAR open (`pipeline.night_coverage.is_late`, M1's shared helper): it can

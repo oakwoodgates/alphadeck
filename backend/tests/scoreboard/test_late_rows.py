@@ -23,7 +23,7 @@ from domain.settings import get_settings
 from pipeline.night_coverage import next_edgar_open
 from replay.episodes import derive_episodes
 from replay.schema import CallSnapshot
-from repositories import call_annotations_repo, calls_repo
+from repositories import calls_repo
 from scoreboard.assemble import assemble_scoreboard
 from scoreboard.late import judge_late_nights, late_call_ids, late_nights
 from scoreboard.record import derive_thesis_record, scoreboard_records
@@ -303,51 +303,41 @@ def test_judge_late_nights_pure_contract():
     assert judge_late_nights(stamps[:3], tz=_NY) == []  # no late row: nothing to list
 
 
-# --- composition: reconstructed (always) AND annotated (its policy) AND late (this one) -----------------
+# --- composition: reconstructed (always) AND late (this policy) -----------------
 
 
-def test_the_three_filters_compose_by_AND(db, security_id):
-    """10-12 holds an on-time row annotated ``exclude`` (a phantom arm) AND a late re-version; 10-13 holds a
-    reconstruction AND a late row. A row is scored only if it is not reconstructed, not annotated (under that
-    policy) and not late (under this one) — each reading toggles exactly its own rows."""
+def test_the_two_filters_compose_by_AND(db, security_id):
+    """10-12 holds an on-time arm AND a late re-version; 10-13 holds a reconstruction AND a late row. A row is
+    scored only if it is not reconstructed and not late (under this policy) — the late reading toggles exactly
+    its own rows."""
     thesis = persist_thesis(db, security_id)
     conv, conf = _keys(security_id)
     record_day(db, thesis, [conv], _FRI)  # on time: warming
-    phantom = record_day(db, thesis, [conv, conf], _MON, recorded_at=_ON_TIME)  # on time: "armed"
+    record_day(db, thesis, [conv, conf], _MON, recorded_at=_ON_TIME)  # on time: "armed"
     record_day(db, thesis, [conv], _MON, recorded_at=_LATE)  # late: warming
     record_day(db, thesis, [conv, conf], _TUE, reconstructed=True)  # a backfill: "armed"
     record_day(db, thesis, [conv, conf], _TUE, recorded_at=_et(2026, 10, 14, 9, 0))  # late: armed
     record_day(db, thesis, [conv], _WED)  # on time: warming
-    call_annotations_repo.append_annotation(
-        db, phantom, action="exclude", reason="stale_comparative_revenue", rule="d3a@t"
-    )
-    db.commit()
 
     def arms(**kw):
         rec, snaps = derive_thesis_record(db, thesis, _READ, **kw)
         return _arms(rec), [s.asof for s in snaps]
 
-    # default: the annotated on-time row AND both late rows set aside -> 10-12 and 10-13 are gaps
-    assert arms() == ([], [_FRI, _WED])
-    # include annotated only: the phantom on-time row is scored (the late re-version still set aside)
-    assert arms(exclude_annotated=False) == ([(_MON, _WED)], [_FRI, _MON, _WED])
+    # default: both late rows set aside -> the on-time 10-12 arm is scored, 10-13 is a gap
+    assert arms() == ([(_MON, _WED)], [_FRI, _MON, _WED])
     # include late only: the late rows win their nights (warming on 10-12; armed on 10-13)
     assert arms(exclude_late=False) == ([(_TUE, _WED)], [_FRI, _MON, _TUE, _WED])
-    # both included: latest-append wins on 10-12 (the late warming), 10-13 is the late arm
-    assert arms(exclude_annotated=False, exclude_late=False) == arms(exclude_late=False)
     # a reconstruction is never scored under ANY reading — the 10-13 arm above is the late row's
     assert _include_late_episodes(db, thesis.id) == [(_TUE, _WED)]
 
     summary = assemble_scoreboard(db, asof=_READ, workspace=DEFAULT_TENANT_ID).summary
     # 10-13 is NOT a reconstructed-only night (a late honest row shares it) -> named in the LATE list.
-    # 10-12's earlier_recorded_at is the on-time row ignoring the ANNOTATED filter (that row is itself set
-    # aside under the annotated reading, and named in annotated_nights) — the late judgment is its own.
+    # 10-12's earlier_recorded_at is the on-time row.
     assert summary.reconstructed_nights == []
     assert [(n.asof, n.earlier_recorded_at) for n in summary.late_nights] == [
         (_MON, _ON_TIME),
         (_TUE, None),
     ]
-    assert [n.asof for n in summary.annotated_nights] == [_MON]
 
 
 # --- the read writes nothing ---------------------------------------------------------------------------
@@ -355,11 +345,11 @@ def test_the_three_filters_compose_by_AND(db, security_id):
 
 def test_every_reading_writes_nothing(db, security_id):
     _mixed_log(db, security_id)
-    before = (_count(db, "calls"), _count(db, "call_annotation"))
+    before = _count(db, "calls")
     for kw in ({}, {"exclude_late": False}, {"exclude_late": True}):
         assemble_scoreboard(db, asof=_READ, workspace=DEFAULT_TENANT_ID, **kw)
         scoreboard_records(db, _READ, workspace=DEFAULT_TENANT_ID, **kw)
-    assert (_count(db, "calls"), _count(db, "call_annotation")) == before
+    assert _count(db, "calls") == before
 
 
 def test_on_time_helper_is_inside_the_window():

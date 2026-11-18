@@ -10,7 +10,6 @@ from app.deps import get_conn, get_thesis_or_404, get_workspace
 from app.errors import SCHEDULE_SETTING_MALFORMED, fail
 from app.schemas_api import (
     ActivistStakeOut,
-    AnnotatedNightOut,
     CorporateEventOut,
     EditionCompanyDiffOut,
     EditionCutNoticeOut,
@@ -88,14 +87,6 @@ def get_scoreboard(
         description="archived theses ride the record by default (archiving stops accrual, "
         "never erases the record); false is the explicit, reversible filter",
     ),
-    include_annotated: bool | None = Query(
-        None,
-        description="the annotated-night reading: true = score rows annotated `exclude` (phantom "
-        "arms, and rows dated a day with no market session) as before; false = set them aside like "
-        "reconstructed rows; omitted = the server setting (ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED, "
-        "default: set aside). One reading covers every `exclude` whatever its rule. The response's "
-        "summary.annotated_policy names the reading used",
-    ),
     include_late: bool | None = Query(
         None,
         description="the late-night reading: true = score rows recorded after their night's next "
@@ -125,22 +116,17 @@ def get_scoreboard(
     Aggregate metrics judge only matured, non-censored episodes and gate below ``min_n`` — an
     instrument, not a claim, until n accrues.
 
-    On Edition 0 three kinds of recorded row are set aside before scoring: reconstructed rows
-    (always), rows annotated ``exclude`` (phantom arms, and rows dated a day with no market session;
-    by the annotated-night policy, which ``include_annotated`` overrides per request), and rows
-    recorded after their night's next EDGAR
-    open (by the late-night policy, which ``include_late`` overrides per request). Every reading is
-    available; nothing is deleted. An edition has none of those rows: its lists come back empty and
-    both policies read ``n/a``.
+    On Edition 0 two kinds of recorded row are set aside before scoring: reconstructed rows
+    (always) and rows recorded after their night's next EDGAR open (by the late-night policy, which
+    ``include_late`` overrides per request). Every reading is available; nothing is deleted. An
+    edition has none of those rows: its lists come back empty and the policy reads ``n/a``.
     """
     chosen = _resolve_edition(conn, current_tenant, edition)
     result = assemble_scoreboard(
         conn,
         asof=asof,
         include_archived=include_archived,
-        # None = the server setting; an explicit include_annotated inverts into the exclude policy
-        exclude_annotated=None if include_annotated is None else not include_annotated,
-        # L1 — the same tri-state for the late-night reading
+        # None = the server setting; an explicit include_late inverts into the exclude policy
         exclude_late=None if include_late is None else not include_late,
         edition=chosen,
         workspace=current_tenant,
@@ -195,11 +181,6 @@ def get_scoreboard(
             n_maturing_30d=summary.n_maturing_30d if summary else 0,
             projected_min_n_date=summary.projected_min_n_date if summary else None,
             reconstructed_nights=summary.reconstructed_nights if summary else [],
-            annotated_policy=summary.annotated_policy if summary else "excluded",
-            annotated_nights=[
-                AnnotatedNightOut(**n.model_dump())
-                for n in (summary.annotated_nights if summary else [])
-            ],
             late_policy=summary.late_policy if summary else "excluded",
             late_nights=[
                 LateNightOut(**n.model_dump()) for n in (summary.late_nights if summary else [])
@@ -357,7 +338,7 @@ def get_scoreboard_edition_diff(
     read-only. Every thesis is compared on the nights BOTH editions cover, through the earlier of the two
     editions' last nights (the earlier edition's last night once the later one has reached it), so a night
     neither could disagree about is never a change. Edition 0 is read the way the default Scoreboard reads
-    it: reconstructed rows never, annotated and late rows under the server's default policies.
+    it: reconstructed rows never, late rows under the server's default policy.
 
     Per company-night: armed or not in each edition, and — on a night both arm the company — its verdict,
     entry grade, conviction grade and exit-by; a night with no page reads that edition's last page before

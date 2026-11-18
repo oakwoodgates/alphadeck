@@ -1087,8 +1087,8 @@ def stub_client(monkeypatch):
     days = weekdays(date(2026, 6, 1), 40)
     bars = [Bar(d, 10.0 + i, 100_000.0) for i, d in enumerate(days)]
 
-    def fake_read(conn, asof, known_at, clock, edition, exclude_annotated, exclude_late, **_):
-        seen["reads"].append((asof, known_at, clock, edition, exclude_annotated, exclude_late))
+    def fake_read(conn, asof, known_at, clock, edition, exclude_late, **_):
+        seen["reads"].append((asof, known_at, clock, edition, exclude_late))
         market = market_of(bars, [])
         row = build_row(
             episode(arm_date=days[20], exit_by=days[30]),
@@ -1127,7 +1127,7 @@ def test_the_router_serves_one_cached_read_on_the_requests_view_keyed_by_the_rea
     client, seen = stub_client
     first = client.get(URL, params={"asof": "2026-07-24"}).json()
     assert (first["cache"], first["clock"]) == ("computed", "public")
-    ((asof, known_at, clock, edition, ex_annotated, ex_late),) = seen["reads"]
+    ((asof, known_at, clock, edition, ex_late),) = seen["reads"]
     assert asof == ASOF and clock == "public" and known_at is not None and edition is None
     assert seen["editions"] == [
         0
@@ -1135,14 +1135,12 @@ def test_the_router_serves_one_cached_read_on_the_requests_view_keyed_by_the_rea
     again = client.get(URL, params={"asof": "2026-07-24"}).json()
     assert again["cache"] == "hit" and len(seen["reads"]) == 1
     # the Scoreboard's own honesty readings are separate reads
-    client.get(URL, params={"asof": "2026-07-24", "include_annotated": "true"})
-    assert len(seen["reads"]) == 2 and seen["reads"][-1][4] is False
     client.get(URL, params={"asof": "2026-07-24", "include_late": "true"})
-    assert len(seen["reads"]) == 3 and seen["reads"][-1][5] is False
+    assert len(seen["reads"]) == 2 and seen["reads"][-1][4] is False
     # another as-of is its own read; a live as-of is the unchanged live read
     client.get(URL, params={"asof": "2026-07-23"})
     client.get(URL, params={"asof": market_today().isoformat()})
-    assert seen["reads"][-1][1:3] == (None, "record") and len(seen["reads"]) == 5
+    assert seen["reads"][-1][1:3] == (None, "record") and len(seen["reads"]) == 4
 
 
 def test_the_router_wire_shape(stub_client):
@@ -1155,7 +1153,6 @@ def test_the_router_wire_shape(stub_client):
     )
     assert body["edition"] == {"number": 0, "label": "the original record"}
     assert body["newest_edition"] is None  # nothing published
-    assert body["annotated_policy"] in ("included", "excluded")
     assert body["late_policy"] in ("included", "excluded")
     assert (
         body["market_source"] == "SPY"
@@ -1195,8 +1192,8 @@ def test_an_edition_argument_is_resolved_by_the_scoreboards_own_rule_and_skips_t
     monkeypatch.setattr(router_mod, "_resolve_edition", lambda c, t, requested: edition)
     body = client.get(URL, params={"asof": "2026-07-24", "edition": 2}).json()
     assert body["edition"] == {"number": 2, "label": "first re-run"}
-    assert (body["annotated_policy"], body["late_policy"]) == ("n/a", "n/a")
-    assert seen["reads"][-1][3] is edition and seen["reads"][-1][4:] == (False, False)
+    assert body["late_policy"] == "n/a"
+    assert seen["reads"][-1][3] is edition and seen["reads"][-1][4:] == (False,)
 
 
 def test_with_editions_published_a_request_that_names_none_still_reads_the_record(stub_client):
@@ -1805,4 +1802,4 @@ def test_the_record_is_the_default_with_an_edition_published_and_the_newest_ride
     named = _get(db, asof="2026-06-24", edition=1).json()
     assert named["edition"] == {"number": 1, "label": "first re-run"}
     assert named["newest_edition"] == {"number": 1, "label": "first re-run"}
-    assert (named["annotated_policy"], named["late_policy"]) == ("n/a", "n/a")
+    assert named["late_policy"] == "n/a"

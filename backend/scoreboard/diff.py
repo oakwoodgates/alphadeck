@@ -33,7 +33,7 @@ the same cause.
 Pure core (``diff_thesis``, ``count``) over ascending ``CallSnapshot`` lists and a scorer; the one database
 seam is ``edition_diff``. Read-only end to end: nothing here writes, and an edition is read through
 ``scoreboard.record``'s timeline sources (Edition 0 through its HONEST default read — reconstructed rows never,
-annotated and late rows under the server's default policies — the same read the Scoreboard scores).
+late rows under the server's default policy — the same read the Scoreboard scores).
 """
 
 from __future__ import annotations
@@ -612,8 +612,8 @@ class EditionDiff(BaseModel):
 
 
 def _source(edition: Edition | None) -> TimelineSource:
-    # Edition 0 through its HONEST default read: reconstructed rows never; annotated `exclude` and late rows
-    # under the server's default policies (None = the setting) — the read the default Scoreboard scores
+    # Edition 0 through its HONEST default read: reconstructed rows never; late rows
+    # under the server's default policy (None = the setting) — the read the default Scoreboard scores
     return EditionSource(edition) if edition is not None else RecordSource()
 
 

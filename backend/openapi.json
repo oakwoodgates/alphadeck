@@ -2370,7 +2370,7 @@
           "scoreboard"
         ],
         "summary": "Get Scoreboard",
-        "description": "The Scoreboard (SCORE): one EDITION scored as-of ``asof`` \u2014 a READ-ONLY pass over the\nimmutable calls log (or a stored edition's frozen pages), the operator-decision log, and realized\nasof-capped prices. Edition 0 is the call-of-record: the RECORD is the scoring source, never a\nrecompute (this holds the platform to what it actually said). Edition N >= 1 is a stored re-run of\ntoday's rules from each company's join date on the public clock, scored on read the same way. A\nrequest that names no edition reads the NEWEST published one (Edition 0 when nothing is published).\nAggregate metrics judge only matured, non-censored episodes and gate below ``min_n`` \u2014 an\ninstrument, not a claim, until n accrues.\n\nOn Edition 0 three kinds of recorded row are set aside before scoring: reconstructed rows\n(always), rows annotated ``exclude`` (phantom arms, and rows dated a day with no market session;\nby the annotated-night policy, which ``include_annotated`` overrides per request), and rows\nrecorded after their night's next EDGAR\nopen (by the late-night policy, which ``include_late`` overrides per request). Every reading is\navailable; nothing is deleted. An edition has none of those rows: its lists come back empty and\nboth policies read ``n/a``.",
+        "description": "The Scoreboard (SCORE): one EDITION scored as-of ``asof`` \u2014 a READ-ONLY pass over the\nimmutable calls log (or a stored edition's frozen pages), the operator-decision log, and realized\nasof-capped prices. Edition 0 is the call-of-record: the RECORD is the scoring source, never a\nrecompute (this holds the platform to what it actually said). Edition N >= 1 is a stored re-run of\ntoday's rules from each company's join date on the public clock, scored on read the same way. A\nrequest that names no edition reads the NEWEST published one (Edition 0 when nothing is published).\nAggregate metrics judge only matured, non-censored episodes and gate below ``min_n`` \u2014 an\ninstrument, not a claim, until n accrues.\n\nOn Edition 0 two kinds of recorded row are set aside before scoring: reconstructed rows\n(always) and rows recorded after their night's next EDGAR open (by the late-night policy, which\n``include_late`` overrides per request). Every reading is available; nothing is deleted. An\nedition has none of those rows: its lists come back empty and the policy reads ``n/a``.",
         "operationId": "get_scoreboard_scoreboard_get",
         "parameters": [
           {
@@ -2396,24 +2396,6 @@
               "title": "Include Archived"
             },
             "description": "archived theses ride the record by default (archiving stops accrual, never erases the record); false is the explicit, reversible filter"
-          },
-          {
-            "name": "include_annotated",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "boolean"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "the annotated-night reading: true = score rows annotated `exclude` (phantom arms, and rows dated a day with no market session) as before; false = set them aside like reconstructed rows; omitted = the server setting (ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED, default: set aside). One reading covers every `exclude` whatever its rule. The response's summary.annotated_policy names the reading used",
-              "title": "Include Annotated"
-            },
-            "description": "the annotated-night reading: true = score rows annotated `exclude` (phantom arms, and rows dated a day with no market session) as before; false = set them aside like reconstructed rows; omitted = the server setting (ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED, default: set aside). One reading covers every `exclude` whatever its rule. The response's summary.annotated_policy names the reading used"
           },
           {
             "name": "include_late",
@@ -2505,7 +2487,7 @@
           "scoreboard"
         ],
         "summary": "Get Scoreboard Edition Diff",
-        "description": "What changed from one edition to a later one (editions S6) \u2014 computed on read, never stored, and\nread-only. Every thesis is compared on the nights BOTH editions cover, through the earlier of the two\neditions' last nights (the earlier edition's last night once the later one has reached it), so a night\nneither could disagree about is never a change. Edition 0 is read the way the default Scoreboard reads\nit: reconstructed rows never, annotated and late rows under the server's default policies.\n\nPer company-night: armed or not in each edition, and \u2014 on a night both arm the company \u2014 its verdict,\nentry grade, conviction grade and exit-by; a night with no page reads that edition's last page before\nit. Per episode, paired on (thesis, company, arm date): matched (listed only when the run differs),\nmoved (the same company armed in both over overlapping windows), appeared, vanished \u2014 each scored\narm -> exit-by on realized closes through the last night, with the delta on a pair. Pages only one\nedition holds are reported as spans; a run lying wholly on them is counted, never compared, while one\nthat armed there and runs into the shared nights is a change (``armed_before_window``).\nGrouped thesis -> company, with headline counts. ``cause`` is filled only when the automatic cut (S7)\npublished the later edition from the earlier one (``causes`` true): what its trial proved, or what the\ntrial's scope implies (late data, a repair or late data, not separated); any other pair has null\ncauses \u2014 a cause is never guessed.",
+        "description": "What changed from one edition to a later one (editions S6) \u2014 computed on read, never stored, and\nread-only. Every thesis is compared on the nights BOTH editions cover, through the earlier of the two\neditions' last nights (the earlier edition's last night once the later one has reached it), so a night\nneither could disagree about is never a change. Edition 0 is read the way the default Scoreboard reads\nit: reconstructed rows never, late rows under the server's default policy.\n\nPer company-night: armed or not in each edition, and \u2014 on a night both arm the company \u2014 its verdict,\nentry grade, conviction grade and exit-by; a night with no page reads that edition's last page before\nit. Per episode, paired on (thesis, company, arm date): matched (listed only when the run differs),\nmoved (the same company armed in both over overlapping windows), appeared, vanished \u2014 each scored\narm -> exit-by on realized closes through the last night, with the delta on a pair. Pages only one\nedition holds are reported as spans; a run lying wholly on them is counted, never compared, while one\nthat armed there and runs into the shared nights is a change (``armed_before_window``).\nGrouped thesis -> company, with headline counts. ``cause`` is filled only when the automatic cut (S7)\npublished the later edition from the earlier one (``causes`` true): what its trial proved, or what the\ntrial's scope implies (late data, a repair or late data, not separated); any other pair has null\ncauses \u2014 a cause is never guessed.",
         "operationId": "get_scoreboard_edition_diff_scoreboard_editions_diff_get",
         "parameters": [
           {
@@ -7908,24 +7890,6 @@
               "title": "Edition"
             },
             "description": "which Scoreboard EDITION to read: 0 (the default) = the original record (the calls log); N >= 1 = the stored re-run Edition N (404 if it does not exist). Unlike the Scoreboard, a request that names no edition reads the record, not the newest published edition, while the editions nightly is paused; the response's `newest_edition` names the newest published one"
-          },
-          {
-            "name": "include_annotated",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "boolean"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "the Scoreboard's annotated-night reading: true = keep rows annotated `exclude` (phantom arms, and rows dated a day with no market session); false = set them aside; omitted = the server setting. The response names the reading used",
-              "title": "Include Annotated"
-            },
-            "description": "the Scoreboard's annotated-night reading: true = keep rows annotated `exclude` (phantom arms, and rows dated a day with no market session); false = set them aside; omitted = the server setting. The response names the reading used"
           },
           {
             "name": "include_late",
@@ -14096,53 +14060,6 @@
         ],
         "title": "AgentsOut",
         "description": "How an AI client reaches my workspace on this install. `hosted` is true when the app has a public address\n(the agent tools server answers at `connector_url`); `steward` is whether I am a super admin; `stdio_server`\nis whether the local agent tools server exists (always, on every install); `oauth` is whether an AI client can\nsign in here with my email and password (the OAuth sign-in is mounted)."
-      },
-      "AnnotatedNightOut": {
-        "properties": {
-          "thesis_id": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Thesis Id"
-          },
-          "thesis_name": {
-            "type": "string",
-            "title": "Thesis Name"
-          },
-          "asof": {
-            "type": "string",
-            "format": "date",
-            "title": "Asof"
-          },
-          "reasons": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Reasons",
-            "default": []
-          },
-          "rules": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Rules",
-            "default": []
-          },
-          "n_rows": {
-            "type": "integer",
-            "title": "N Rows",
-            "default": 1
-          }
-        },
-        "type": "object",
-        "required": [
-          "thesis_id",
-          "thesis_name",
-          "asof"
-        ],
-        "title": "AnnotatedNightOut",
-        "description": "One annotated night (D3b, F10): a (thesis, as-of) whose recorded row carries an ACTIVE ``exclude``\nannotation \u2014 a phantom arm, or a row dated a day with no market session \u2014 under the default reading it\nis set aside like a reconstructed night; under the ``include_annotated`` reading it is scored.\n``reasons`` are the annotation tokens (e.g. ``stale_comparative_revenue``, ``no_session_day``), ``rules``\nthe code identities that judged it (``d3a-first-knowability@<sha>``, ``no-session-night@<sha>``),\n``n_rows`` the annotated rows on the night."
       },
       "AuthMeOut": {
         "properties": {
@@ -28437,10 +28354,7 @@
         "properties": {
           "kind": {
             "type": "string",
-            "enum": [
-              "reconstructed",
-              "excluded"
-            ],
+            "const": "reconstructed",
             "title": "Kind"
           },
           "start": {
@@ -28456,17 +28370,6 @@
           "nights": {
             "type": "integer",
             "title": "Nights"
-          },
-          "reason": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reason"
           }
         },
         "type": "object",
@@ -28474,11 +28377,10 @@
           "kind",
           "start",
           "end",
-          "nights",
-          "reason"
+          "nights"
         ],
         "title": "IdeaTimelineHatchOut",
-        "description": "A stretch of a segment whose nights' winning rows are ``reconstructed`` (reported, never scored) or\ncarry an active ``exclude`` annotation (``excluded``: set aside on the Scoreboard, ``reason`` its\nreason). ``end`` is exclusive."
+        "description": "A stretch of a segment whose nights' winning rows are ``reconstructed`` (reported, never scored).\n``end`` is exclusive."
       },
       "IdeaTimelineMultiRowNightOut": {
         "properties": {
@@ -28545,10 +28447,6 @@
             "type": "integer",
             "title": "Reconstructed Nights"
           },
-          "excluded_nights": {
-            "type": "integer",
-            "title": "Excluded Nights"
-          },
           "first_recorded": {
             "anyOf": [
               {
@@ -28593,7 +28491,6 @@
           "nights",
           "multi_row_nights",
           "reconstructed_nights",
-          "excluded_nights",
           "first_recorded",
           "last_recorded",
           "rows"
@@ -41999,17 +41896,6 @@
             ],
             "title": "Run Identity Note"
           },
-          "annotation_note": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Annotation Note"
-          },
           "verdict": {
             "anyOf": [
               {
@@ -42701,24 +42587,6 @@
             },
             "type": "array",
             "title": "Reconstructed Nights",
-            "default": []
-          },
-          "annotated_policy": {
-            "type": "string",
-            "enum": [
-              "excluded",
-              "included",
-              "n/a"
-            ],
-            "title": "Annotated Policy",
-            "default": "excluded"
-          },
-          "annotated_nights": {
-            "items": {
-              "$ref": "#/components/schemas/AnnotatedNightOut"
-            },
-            "type": "array",
-            "title": "Annotated Nights",
             "default": []
           },
           "late_policy": {
@@ -46687,15 +46555,6 @@
               }
             ]
           },
-          "annotated_policy": {
-            "type": "string",
-            "enum": [
-              "included",
-              "excluded",
-              "n/a"
-            ],
-            "title": "Annotated Policy"
-          },
           "late_policy": {
             "type": "string",
             "enum": [
@@ -46793,7 +46652,6 @@
           "clock",
           "edition",
           "newest_edition",
-          "annotated_policy",
           "late_policy",
           "horizons",
           "min_n",
@@ -46810,7 +46668,7 @@
           "compute_ms"
         ],
         "title": "TrackRecordOut",
-        "description": "The Track Record at the as-of: every episode's row (newest arm first), the counts, the companies with a price-reaching\nflag and the opening table (IWM, the next-session entry, by cap tier, every armed member; the page\nrecomputes any other reading from ``rows`` with the same arithmetic). ``edition`` and the two policies are the\nScoreboard's own (``annotated_policy`` / ``late_policy``: ``included`` | ``excluded`` | ``n/a`` for a stored\nedition, which has no such rows). ``edition`` is the one READ (the record when the request named none);\n``newest_edition`` is the newest PUBLISHED edition (``null`` when none is), which the page offers beside the\nrecord. ``market_source`` = whose bar dates are the market's session clock;\n``benchmarks_missing`` = a benchmark with no bar at the as-of; ``stale_days`` = how far a name's tape may sit\nbehind the market before an unreached horizon reads path ended; ``min_n`` = the smallest n a cell may be read\nat. ``cards`` = cards with a recorded call, ``cards_unreadable`` = cards whose record could not be read.\n``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was public by the end of that date).\n``cache`` / ``compute_ms`` = whether the read came from the shared dashboard cache and how long it took."
+        "description": "The Track Record at the as-of: every episode's row (newest arm first), the counts, the companies with a price-reaching\nflag and the opening table (IWM, the next-session entry, by cap tier, every armed member; the page\nrecomputes any other reading from ``rows`` with the same arithmetic). ``edition`` and the late policy is the\nScoreboard's own (``late_policy``: ``included`` | ``excluded`` | ``n/a`` for a stored\nedition, which has no such rows). ``edition`` is the one READ (the record when the request named none);\n``newest_edition`` is the newest PUBLISHED edition (``null`` when none is), which the page offers beside the\nrecord. ``market_source`` = whose bar dates are the market's session clock;\n``benchmarks_missing`` = a benchmark with no bar at the as-of; ``stale_days`` = how far a name's tape may sit\nbehind the market before an unreached horizon reads path ended; ``min_n`` = the smallest n a cell may be read\nat. ``cards`` = cards with a recorded call, ``cards_unreadable`` = cards whose record could not be read.\n``clock``: ``record`` (the live read) or ``public`` (a past as-of: what was public by the end of that date).\n``cache`` / ``compute_ms`` = whether the read came from the shared dashboard cache and how long it took."
       },
       "TrackRowOut": {
         "properties": {

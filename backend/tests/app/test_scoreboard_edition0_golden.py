@@ -1,7 +1,7 @@
 """EDITION 0 IS TODAY'S READ, BYTE FOR BYTE — a golden taken BEFORE the editions read path landed (S4).
 
 The Scoreboard's default view is Edition 0, the original record: the calls log read exactly as it always was
-(the three set-aside readings, the provenance flags, the run identity, the metrics). Editions S4 adds a
+(the two set-aside readings, the provenance flags, the run identity, the metrics). Editions S4 adds a
 timeline-source seam under ``scoreboard/record.py``; this test pins that Edition 0 through the seam returns the
 SAME JSON the endpoint returned before the seam existed.
 
@@ -26,7 +26,6 @@ import pytest
 from app.routers import scoreboard
 from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
-from repositories import call_annotations_repo
 from tests.calls.factories import insider_event
 from tests.scoreboard.helpers import bar, keys_fired, persist_thesis, record_day
 
@@ -52,18 +51,9 @@ def _security(db, sid: uuid.UUID, ticker: str, cik: str, name: str) -> None:
     db.commit()
 
 
-def _call_id(db, thesis_id: uuid.UUID, asof: date) -> uuid.UUID:
-    with db.cursor() as cur:
-        cur.execute(
-            "SELECT id FROM calls WHERE thesis_id = %s AND asof = %s ORDER BY seq LIMIT 1",
-            (thesis_id, asof),
-        )
-        return cur.fetchone()["id"]
-
-
 def seed(db) -> None:
     """Two theses. T1: a warming row then five matured arm cycles (enough to clear MIN_N), stamped with a run
-    identity and ingest health. T2: an annotated phantom-arm night, a late re-version, a reconstructed night
+    identity and ingest health. T2: a late re-version, a reconstructed night
     and an open arm — every set-aside reading has something to say."""
     _security(db, S1, "GOLDA", "0000000101", "Golden A Inc.")
     _security(db, S2, "GOLDB", "0000000102", "Golden B Corp.")
@@ -103,7 +93,7 @@ def seed(db) -> None:
 
     conv, conf = keys_fired(S2, date(2026, 7, 9), conv_liveness=120, conf_liveness=120)
     record_day(db, t2, [conv], date(2026, 7, 9))  # warming: the next arm is not censored
-    record_day(db, t2, [conv, conf], date(2026, 7, 10))  # annotated below (phantom arm)
+    record_day(db, t2, [conv, conf], date(2026, 7, 10))  # armed, on time
     late_at = datetime(2026, 7, 14, 13, 0, tzinfo=timezone.utc)  # 09:00 ET the next Tuesday
     record_day(db, t2, [conv], date(2026, 7, 13))  # on time: warming
     record_day(db, t2, [conv, conf], date(2026, 7, 13), recorded_at=late_at)  # the late re-version
@@ -112,13 +102,6 @@ def seed(db) -> None:
     record_day(db, t2, [conv, conf], date(2026, 7, 16))
     for d, c in ((date(2026, 7, 10), 50.0), (date(2026, 7, 15), 52.0), (date(2026, 7, 16), 53.5)):
         bar(db, S2, d, c, recorded_at=datetime(2026, 8, 1, tzinfo=timezone.utc))
-    call_annotations_repo.append_annotation(
-        db,
-        _call_id(db, T2, date(2026, 7, 10)),
-        action="exclude",
-        reason="stale_comparative_revenue",
-        rule="d3a-first-knowability@golden",
-    )
     db.commit()
     # one insider buy on the drawer's tape, accepted the day it traded, stored a week later
     append_fact(
@@ -144,13 +127,12 @@ def seed(db) -> None:
 
 
 def payloads(client, edition: dict[str, str] | None = None) -> dict[str, object]:
-    """Every read the golden pins: the three Scoreboard readings and one drawer price window. ``edition``
+    """Every read the golden pins: the two Scoreboard readings and one drawer price window. ``edition``
     adds S4's explicit ``edition=0`` to every request (it must change nothing)."""
     ed = edition or {}
     out: dict[str, object] = {}
     for name, extra in (
         ("default", {}),
-        ("include_annotated", {"include_annotated": "true"}),
         ("include_late", {"include_late": "true"}),
     ):
         r = client.get("/scoreboard", params={"asof": ASOF, **extra, **ed})
