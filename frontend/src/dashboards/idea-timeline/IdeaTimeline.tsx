@@ -156,10 +156,6 @@ function Legend() {
         reconstructed
       </span>
       <span className="it-lg">
-        <span className="it-sw st-incub it-sw-hatch excluded" />
-        set aside
-      </span>
-      <span className="it-lg">
         <span className="it-sw-cat" />
         catalyst
       </span>

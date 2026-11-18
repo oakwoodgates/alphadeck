@@ -10,7 +10,6 @@ import { useScoreboard, useScoreboardEditions } from "../api/hooks";
 import { useAppClock } from "../clock";
 import { Drawer } from "../components/Drawer";
 import { fmtDate, isPastAsof } from "../util/format";
-import { annotatedNightsLine, annotatedNightsTitle, nextAnnotatedOverride } from "./annotated";
 import { editionLabel, editionNote, editionTitle, isRerun } from "./editions";
 import { lateNightsLine, lateNightsTitle, nextLateOverride } from "./late";
 import { EpisodeRow } from "./EpisodeRow";
@@ -238,11 +237,9 @@ function SpanRow({
 }
 
 export function Scoreboard({ header, asof, onSelect, edition = null, onEditionChange }: Props) {
-  // D3b — the annotated-night READING for this view: null = the server's policy (the default), a bool =
-  // the operator flipped it (include / set aside the phantom-arm nights). Local state like `view`/`sort`
-  // below — no URL param, no browser storage — and one click back to the default (`annotated.ts`).
-  const [annotatedOverride, setAnnotatedOverride] = useState<boolean | null>(null);
-  // L1 — the late-night READING, the same tri-state (`late.ts`): rows recorded after their night's next
+  // L1 — the late-night READING for this view: null = the server's policy (the default), a bool = the
+  // operator flipped it (`late.ts`). Local state like `view`/`sort` below — no URL param, no browser
+  // storage — and one click back to the default: rows recorded after their night's next
   // EDGAR open are set aside by default; one click scores them again for this view.
   const [lateOverride, setLateOverride] = useState<boolean | null>(null);
   // F1 — the server's current night: the app's default as-of, read live (clock.ts)
@@ -250,12 +247,11 @@ export function Scoreboard({ header, asof, onSelect, edition = null, onEditionCh
   const { data, isLoading, error } = useScoreboard(
     asof,
     true,
-    annotatedOverride,
     lateOverride,
     edition,
   );
   // Editions S4 — the list for the switcher, and the edition this response actually SERVED (the server's
-  // default when the URL names none). A re-run edition has no reconstructed / annotated / late rows and no
+  // default when the URL names none). A re-run edition has no reconstructed / late rows and no
   // ingest history, so those lines, their toggles and the INGEST badge are hidden for it.
   const editionsQ = useScoreboardEditions();
   const servedEdition = data?.edition ?? null;
@@ -401,31 +397,9 @@ export function Scoreboard({ header, asof, onSelect, edition = null, onEditionCh
               backfill · not scored
             </div>
           )}
-          {/* the annotated nights line — D3b + F10: rows annotated `exclude` (a phantom arm that rested
-              only on a stale-dated comparative revenue quarter, or a row dated a day with no market
-              session; the line names which kind) are set aside by the server's ONE READ policy,
-              exactly like reconstructed rows, and named once here. Rendered only when some night is
-              annotated (a control that does not discriminate does not render), with the reading toggle:
-              one click scores them again for this view, the next click returns to the default. Nothing is
-              deleted either way — the line says which reading the numbers below came from. */}
-          {!rerun && annotatedNightsLine(summary) && (
-            <div className="sb-freshline sb-fresh sb-annotline" title={annotatedNightsTitle(summary)}>
-              {annotatedNightsLine(summary)}{" "}
-              <button
-                type="button"
-                className="sb-filterclear sb-annottoggle"
-                aria-pressed={summary.annotated_policy === "included"}
-                onClick={() =>
-                  setAnnotatedOverride((cur) => nextAnnotatedOverride(cur, summary.annotated_policy))
-                }
-              >
-                include annotated nights
-              </button>
-            </div>
-          )}
           {/* the late-recorded nights line — L1: a row recorded after its night's next EDGAR open (a boot
-              catch-up the next afternoon) is set aside by the server's READ policy, exactly like the two
-              lines above, so an on-time row for the night wins and a night with none reads like a cron gap.
+              catch-up the next afternoon) is set aside by the server's READ policy, exactly like the
+              line above, so an on-time row for the night wins and a night with none reads like a cron gap.
               Rendered only when some night was recorded late, with the same reading toggle; nothing is
               deleted either way. */}
           {!rerun && lateNightsLine(summary) && (

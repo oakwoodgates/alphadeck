@@ -30,7 +30,7 @@ code, the rule version (``fundamentals-quality-screen@<image sha>``), the author
 ``recorded_at`` = the database instant, and the evidence (value, the figure it was judged against, the label,
 whether a same-filing re-parse already outranks it). The fact rows are never touched.
 
-SAFETY (the ``reingest_fundamentals`` / ``annotate_phantom_arms`` shape):
+SAFETY (the ``reingest_fundamentals`` shape):
 
 - **Dry-run is the DEFAULT.** Its connection is READ ONLY, it never goes to the network (cache only, always),
   and it prints every version it would set aside: company, period, value, filing, reason.

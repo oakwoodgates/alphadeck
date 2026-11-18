@@ -53,7 +53,7 @@ def call_for_thesis(
 
     It is exactly ``assemble_from_pit(pit, thesis, asof, cfg)`` over ``load_call_inputs(...)`` plus the
     optional record — the input half is its own function so a DIAGNOSTIC caller can assemble twice over ONE
-    prefetched view (``pipeline.annotate_phantom_arms``); this funnel's behavior is unchanged by that split.
+    prefetched view; this funnel's behavior is unchanged by that split.
 
     ``decisions_asof`` (F1, the SERVE path's live view only — ``domain.market_time.serve_decisions_asof``): read
     the operator's decisions log up to that day instead of ``asof``. ``None`` (every other caller: the nightly,
@@ -102,7 +102,7 @@ def load_call_inputs(
     ``(thesis, pit)``; ``assemble_from_pit(pit, thesis, asof, cfg)`` over them IS the call. Raises
     ``LookupError`` for an unknown thesis.
 
-    Split out (D3b) so ``pipeline.annotate_phantom_arms`` can run its D3a-off and D3a-on re-assemblies over
+    Split out (D3b) so a diagnostic can run two re-assemblies over
     ONE view — the PIT memo makes the second assembly cost no further DB reads — while still reading
     through exactly this funnel. The live callers (serve, the cron, the backfill, ``pipeline.run``) go
     through ``call_for_thesis`` and are unchanged.

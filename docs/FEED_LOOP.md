@@ -2919,14 +2919,6 @@ first.
   > 1`: MEASURED on dev, every backfill row landed >= 5 days late and every honest NULL-stamp row at lag
   <= 1) with a count assertion, the `no_update` trigger disabled for that ONE statement inside the
   migration's single transaction (the flag is provenance; nothing the call says is rewritten).
-- **Repairing the pre-creation rows — `pipeline.repair_reconstructed_precreation`.** Deletes the
-  reconstructed rows dated before their thesis existed — the SAME `thesis_existed_on` rule, imported, so
-  the two tools cannot disagree. Dry-run is the DEFAULT and prints every row (thesis, asof, state /
-  verdict, the creation date in market time); `--apply` deletes and prints per-thesis counts;
-  `DATABASE_URL` must be explicit (no dev-default for a destructive tool). The operator runs it on prod
-  after a backup and after re-running the classification query there (the pins differ per stack) — never
-  an agent. Reconstructed rows for theses that DID exist are left alone: reported-not-scored, and the
-  evidence the backfill happened.
 - **What a reconstruction changes on the ops surface.** The Admin freshness reads (`record_edge` /
   `record_first` / `recorded_asofs`, and the Scoreboard's `record_edge` line) count EVERY row, reconstructed
   included: after a backfill the night is no longer a hole, `gappy` clears, and the edge can advance. That is
@@ -2939,71 +2931,6 @@ first.
   for the night. A `--dry-run` writes NOTHING (no row, no artifact). A re-run over the same facts appends
   zero rows (count the table); a fact ingested since that was public before the night is a genuine change and
   appends one versioned row.
-
-### Annotating phantom arms — `pipeline.annotate_phantom_arms`  `[BUILT — D3b]`
-
-The reconstructed rule's sibling, and its cross-reference: `calls.reconstructed` marks rows a backfill
-WROTE (a fact, always filtered from scoring); `call_annotation` (migration 0045) holds JUDGMENTS made later
-about honest rows, which the Scoreboard filters by POLICY (`docs/SCOREBOARD.md` §"Phantom-arm (annotated)
-nights"). The first judgment is D3a's: before #390 the fundamentals read dated a re-reported comparative
-quarter at its later filing, so some nightly arms rested only on a year-old revenue inflection.
-
-- **Annotate ONLY what D3a changes.** Every honest (`NOT reconstructed`) row is re-assembled TWICE with the
-  current code at `asof = row.asof` ON THE PUBLIC CLOCK (`clock="public"`, `known_at` = the end of that market
-  day — since 2026-10-21, `INVARIANTS.md` #4: call effects are measured on the public clock, never by replaying
-  what our database held at the row's `recorded_at`, which is how the 2026-10-17 apply judged its 9 exclude +
-  107 note rows; a (call, action) already judged is never re-judged, so a re-run judges only the rows not yet
-  annotated, on the public clock): (i) D3a OFF — `PreD3aDatingView`, a
-  diagnostic view living only in the CLI, hands the detectors the fundamentals rows with `knowable_from` /
-  `knowable_accession` replaced by the picked version's `valid_from` / `accession` (exactly the pre-#390
-  read; D3a's tie-break, which only moves a same-date citation, is not reverted); (ii) D3a ON — the code as
-  it ships. Both run the live funnel (`pipeline.call_for_thesis.load_call_inputs` + `assemble_from_pit`;
-  `call_for_thesis(record=False)` is those two calls) over ONE prefetched view, so the second assembly costs
-  no DB reads. **No dial, flag, or argument on the live path can switch D3a off**: the view is imported by
-  no production module (an AST scan in `tests/pipeline/test_annotate_phantom_arms.py` pins it).
-- **The classification.** `drift` — (i) does not reproduce the recorded state, verdict, AND armed-member set
-  (other code/config/roster drift; reported, never annotated). `exclude` — reproduced, armed, and (ii) is not
-  armed (a phantom arm). `note` — reproduced, and (ii) differs in state, verdict, headline or armed set.
-  `unchanged` otherwise. Each result names the roster it ran on: the latest `basket_snapshot` by the end of
-  the row's as-of day, else the LIVE roster (every as-of before the 0043 seed on 2026-09-15) — the reproduction
-  test is what keeps a live-roster row from being blamed on D3a.
-- **Safety — the backfill's shape.** Dry-run is the DEFAULT, on a READ-ONLY connection (it physically cannot
-  write), prints every exclude / note / drift row with its stale-trigger evidence (security, detector, the
-  period, the date + filing the pre-D3a read cited, and the period's FIRST filing) and a per-thesis summary;
-  `--report-json PATH` writes the full evidence and is the only file a dry run writes. `--apply` appends the
-  annotations in ONE transaction (count-checked), writes `data/annotations/<utc-ts>.json`, and holds the
-  call-of-record advisory lock (`pipeline/run_lock.py`; exit 75 if a daily pass or backfill holds it). A dry
-  run takes no lock. Idempotent: a (call, action) its rule family (`d3a-first-knowability`, versioned
-  `@<image sha>` in `rule`) already judged — active or revoked — is never judged again (count the table: a
-  second `--apply` appends zero). `--revoke <id>` / `--revoke-all` + `--reason` append revokes (dry-run
-  unless `--apply`). The operator runs `--apply` on prod after a backup, from the deployed image — never an
-  agent.
-- **Runtime (MEASURED, prod dry-run, 2026-10-16):** 630 rows in ~9–10 minutes (580 s and 554 s on two runs;
-  ~1 s per row on a 79-name basket, ~3 s on the 196-name one).
-
-### Annotating no-session rows — `pipeline.annotate_no_session_rows`  `[BUILT — F10]`
-
-The phantom-arm annotator's sibling, on the same `call_annotation` table and the same Scoreboard READ policy.
-Before the September fix a daytime hand run recorded the card under the date it ran, so honest `calls` rows are
-dated a day with no market session (MEASURED on dev: 49 on a Saturday or Sunday, 11 on Labor Day). They stay in
-the immutable log — they are what the system said — and are set aside from scoring, reversibly.
-
-- **The rule is the shared calendar, nothing else.** A row is a no-session night when `not
-  domain.trading_days.is_scheduled_day(row.asof)`; only honest (`NOT reconstructed`) rows are looked at. The CLI
-  keeps no holiday list: the predicate is Mon–Fri minus the NYSE's full-day closures (F5), so the weekend rows
-  and the holiday rows (the 11 Labor Day rows) are both found with no change here.
-- **The annotation.** `exclude`, `reason = no_session_day`, `rule = no-session-night@<image sha>`, `detail`
-  = weekday, call seq, recorded_at, run_kind, code sha, the recorded state/verdict (no `affected_security_ids`:
-  the whole night is the judgment, so every member's drawer caption shows it). No migration.
-- **Safety — the phantom annotator's shape.** Dry-run is the DEFAULT on a READ-ONLY connection and prints every
-  row; `--report-json PATH` writes the evidence. `--apply` appends in ONE counted transaction, writes
-  `data/annotations/no-session-<utc-ts>.json`, and holds the call-of-record lock (exit 75 while a pass holds
-  it). Idempotent: a (call, exclude) its rule family already judged — active or revoked — is never judged again
-  (count the table: a second `--apply` appends zero; a revoke sticks). `--revoke <id>` / `--revoke-all` +
-  `--reason` append revokes (dry-run unless `--apply`; `--revoke-all` touches only this family). Not journaled
-  in `data_repair` (it touches `calls` annotations only, like the phantom annotator). The operator runs
-  `--apply` on prod after a backup, from the deployed image — never an agent. The Scoreboard side
-  (`docs/SCOREBOARD.md`): the one `include_annotated` reading covers these `exclude` rows too.
 
 ## Backups & restore (Slice 4)  `[BUILT]`
 

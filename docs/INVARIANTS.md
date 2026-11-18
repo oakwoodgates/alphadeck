@@ -538,16 +538,6 @@ stamped a fresh "policy" on every cron night.
   prior-row report, the freshness reads, the decision log's stance — keeps the default and sees every row.
   (`tests/scoreboard/test_record.py`, `tests/repositories/test_calls_repo.py`,
   `tests/db/test_migration_0042_reconstructed.py`.) See `SCOREBOARD.md`, `FEED_LOOP.md`.
-- *Also honored by (the annotated row — D3b, migration 0045):* a JUDGMENT about an honest row (a phantom arm under D3a's dating fix, or — F10 — a row dated a day
-  with no market session) lives in the append-only `call_annotation` side table, never on the row — `calls`
-  is not touched, not even under a trigger disable. The Scoreboard drops rows with an ACTIVE `exclude` by
-  READ POLICY (`Settings.scoreboard_exclude_annotated`, overridable per request with `include_annotated`),
-  BEFORE the per-as-of dedup exactly like the reconstructed filter; flipping the policy or appending a revoke
-  restores the pre-annotation reading byte-for-byte. Every other reader keeps the default and sees every row.
-  The annotator's D3a-off re-assembly is a diagnostic view that lives only in the CLI — no live-path switch.
-  (`tests/pipeline/test_annotate_phantom_arms.py`, `tests/pipeline/test_annotate_no_session_rows.py`,
-  `tests/repositories/test_call_annotations_repo.py`,
-  `tests/db/test_migration_0045_call_annotation.py`.) See `SCOREBOARD.md`, `FEED_LOOP.md`.
 - *Also honored by (the on-time row — M2 + C3, 2026-10-16):* nothing recorded LATER may supersede a night's
   honest on-time call-of-record, and nothing typed by hand may write a scored row for a past night with
   today's knowledge. A `--catch-up` pass skips (no ingest, no write) every thesis already holding a

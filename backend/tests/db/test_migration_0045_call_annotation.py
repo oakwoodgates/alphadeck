@@ -16,7 +16,6 @@ import pytest
 
 from db.migrate import MIGRATIONS_DIR
 from db.session import DEFAULT_TENANT_ID
-from repositories import call_annotations_repo
 
 _SQL = (MIGRATIONS_DIR / "0045_call_annotation.sql").read_text(encoding="utf-8")
 _ASOF = date(2026, 10, 14)
@@ -78,18 +77,27 @@ def test_update_is_refused_append_only(db):
         assert cur.fetchone()["reason"] == "r"
 
 
+def _active(db, cid: uuid.UUID) -> set[uuid.UUID]:
+    """The exclude / note rows of one call that no revoke row names."""
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT a.id FROM call_annotation a WHERE a.call_id = %s AND a.action IN ('exclude', 'note') "
+            "AND NOT EXISTS (SELECT 1 FROM call_annotation r WHERE r.revokes = a.id)",
+            (cid,),
+        )
+        return {r["id"] for r in cur.fetchall()}
+
+
 def test_a_revoke_makes_its_target_inactive_and_nothing_else(db):
     _, cid = _call(db)
     keep = _insert(db, cid, "note")
     gone = _insert(db, cid, "exclude")
     db.commit()
-    assert {a.id for a in call_annotations_repo.active_for_call(db, cid)} == {keep, gone}
+    assert _active(db, cid) == {keep, gone}
 
-    rid = call_annotations_repo.revoke(
-        db, gone, reason="operator disagrees", rule="operator-revoke@x"
-    )
+    rid = _insert(db, cid, "revoke", revokes=gone)
     db.commit()
-    assert {a.id for a in call_annotations_repo.active_for_call(db, cid)} == {keep}
+    assert _active(db, cid) == {keep}
     # the revoke is a ROW (append-only history), carrying its target's call / thesis / as-of
     with db.cursor() as cur:
         cur.execute("SELECT count(*) AS n FROM call_annotation WHERE call_id = %s", (cid,))

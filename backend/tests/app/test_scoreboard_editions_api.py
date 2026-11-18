@@ -144,8 +144,8 @@ def test_an_edition_is_read_from_its_pages_with_its_own_block(client, db):
     assert ed["engine_fingerprint"] == ENGINE["fingerprint"] and ed["code_sha"] == "abc1234def"
 
     s = body["summary"]
-    assert (s["annotated_policy"], s["late_policy"]) == ("n/a", "n/a")
-    assert s["annotated_nights"] == [] and s["late_nights"] == []
+    assert s["late_policy"] == "n/a"
+    assert s["late_nights"] == []
     assert s["reconstructed_nights"] == []  # the record HAS one (07-10); a re-run has none
     assert s["banner"].startswith("EDITION 1 · FIRST RE-RUN")
     assert s["record_began"] == "2026-07-08"
@@ -168,7 +168,6 @@ def test_an_edition_is_read_from_its_pages_with_its_own_block(client, db):
     )
     assert (a["arm_run_kind"], a["arm_config_hash"]) == ("rerun", ENGINE["config_hash"])
     assert a["ingest_flagged"] is False and a["ingest_note"] is None
-    assert a["annotation_note"] is None
     assert a["entry_close"] == 100.0  # scored on read against the realized tape
     # B: armed ON its estimated join night — the true arm date is unknowable (G12)
     assert b["censored_start"] is True and b["edition_join"]["armed_on_join_night"] is True
@@ -184,7 +183,7 @@ def test_an_edition_is_read_from_its_pages_with_its_own_block(client, db):
     zero = client.get("/scoreboard", params={"asof": ASOF, "edition": 0}).json()
     assert zero["edition"]["number"] == 0 and "EDA" not in _eps(zero)
     assert zero["summary"]["reconstructed_nights"] == ["2026-07-10"]
-    assert zero["summary"]["annotated_policy"] == "excluded"
+    assert zero["summary"]["late_policy"] == "excluded"
 
 
 def test_an_edition_read_ignores_a_calls_row_appended_later(client, db):

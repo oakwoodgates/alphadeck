@@ -15,8 +15,7 @@ Hooked (each tool's ``main`` journals its ``--apply`` / ``--revoke``; ``--execut
 ``repair_adr_insider_misattribution``, ``repair_impossible_txn_dates`` (deletes), ``repair_catalyst_dates``
 (deletes), ``backfill_accepted``, ``backfill_aff10b5_1``, ``backfill_insider_holds`` (it writes held rows
 to ``insider_txn_hold`` and changes no fact, so the trial it starts should find no change). Not hooked: what only
-touches ``calls`` (``annotate_phantom_arms``, ``annotate_no_session_rows``,
-``repair_reconstructed_precreation``, ``pipeline.backfill``),
+touches ``calls`` (``pipeline.backfill``),
 ordinary nightly data flow (``detect_splits``), and ``split_repair`` (a pure module, no CLI — its writer is
 ``repair_split_basis``).
 

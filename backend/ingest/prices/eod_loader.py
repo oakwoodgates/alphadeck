@@ -193,7 +193,7 @@ def ingest_prices_backfill(
     every nightly SPY/IWM bar ~26.5 h before it was ingested — 2,598 such rows remain on prod, history.
     KEPT for the TEST FIXTURES that reproduce exactly that history (the pre-D1 SPY/IWM rows prod still
     holds) or seed a past-dated tape a pinned read must see (``tests/app/test_theses_api.py``,
-    ``tests/pipeline/test_backfill.py``, ``test_annotate_phantom_arms.py``, ``test_ingest_benchmarks.py``,
+    ``tests/pipeline/test_backfill.py``, ``test_ingest_benchmarks.py``,
     ``test_repair_benchmark_bars.py``, ``test_settle_audit.py``). ``tests/pipeline/test_ingest_benchmarks.py``
     pins that no production module calls it."""
     count = 0

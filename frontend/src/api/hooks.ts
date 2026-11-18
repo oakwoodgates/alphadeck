@@ -611,7 +611,6 @@ export type ScoreboardThesisOut = components["schemas"]["ScoreboardThesisOut"];
 export type ScoreboardEpisodeOut = components["schemas"]["ScoreboardEpisodeOut"];
 export type TransitionOut = components["schemas"]["TransitionOut"];
 export type ScoreboardMetricOut = components["schemas"]["ScoreboardMetricOut"];
-export type AnnotatedNightOut = components["schemas"]["AnnotatedNightOut"];
 export type LateNightOut = components["schemas"]["LateNightOut"];
 export type EpisodeOperatorOut = components["schemas"]["EpisodeOperatorOut"];
 export type OperatorSpanOut = components["schemas"]["OperatorSpanOut"];
@@ -633,22 +632,20 @@ export type ActivistStakeOut = components["schemas"]["ActivistStakeOut"];
 
 // ONE aggregate GET (cross-thesis is the Scoreboard's nature — deliberately not a useCalls-style
 // fan-out). Read-only on the server; archived theses ride by default (the record is not erased).
-// `includeAnnotated` (D3b) picks the annotated-night READING: null = the server's policy (the param is
-// not sent at all), true = score the phantom-arm nights, false = set them aside. It is part of the key,
-// so both readings cache side by side and flipping back is instant. `includeLate` (L1) is the same
-// tri-state for the late-night reading (rows recorded after their night's next EDGAR open).
+// `includeLate` (L1) picks the late-night READING (rows recorded after their night's next EDGAR open):
+// null = the server's policy (the param is not sent at all), true = score them, false = set them aside.
+// It is part of the key, so both readings cache side by side and flipping back is instant.
 // `edition` (editions S4) picks WHICH edition is scored: null = the server's default edition (the param is
 // not sent), 0 = the original record (the calls log), N >= 1 = the stored re-run Edition N. Part of the key,
 // so switching editions back and forth is instant once each has loaded.
 export function useScoreboard(
   asof: string,
   includeArchived = true,
-  includeAnnotated: boolean | null = null,
   includeLate: boolean | null = null,
   edition: number | null = null,
 ) {
   return useQuery({
-    queryKey: ["scoreboard", asof, includeArchived, includeAnnotated, includeLate, edition] as const,
+    queryKey: ["scoreboard", asof, includeArchived, includeLate, edition] as const,
     enabled: Boolean(asof),
     // the record changes at the nightly pass (the daily-run job invalidates ["scoreboard"]) and on a logged decision (now invalidated too)
     staleTime: MONITOR_STALE_MS,
@@ -658,7 +655,6 @@ export function useScoreboard(
           query: {
             asof,
             include_archived: includeArchived,
-            ...(includeAnnotated === null ? {} : { include_annotated: includeAnnotated }),
             ...(includeLate === null ? {} : { include_late: includeLate }),
             ...(edition === null ? {} : { edition }),
           },

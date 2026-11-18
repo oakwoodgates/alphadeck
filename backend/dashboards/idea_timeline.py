@@ -2,7 +2,7 @@
 log as runs of one state on a shared date axis), with its dated catalysts, the operator's logged decisions and
 the latest call's two clocks. A "now" view: the time axis IS the history.
 
-PURE: ``idea_timeline(theses, calls, annotations, decisions, clocks, today=...)`` takes the rows as read and
+PURE: ``idea_timeline(theses, calls, decisions, clocks, today=...)`` takes the rows as read and
 returns the whole payload; the router only reads and calls it. ``today`` is a parameter (the router passes
 ``domain.market_time.market_today()``), never an ambient clock. Display only: nothing here feeds a call,
 scores an idea or writes anything (``docs/DASHBOARDS.md`` rule 1).
@@ -15,9 +15,8 @@ The reading rules, in one place:
   A night with no row carries the previous state through it.
 - A segment is one run of the same recorded state. Its days are calendar days, ``end - start``, with ``end``
   the next run's first night or ``today`` for the current run.
-- ``reconstructed`` (a missed night rebuilt by ``pipeline.backfill``) and an ACTIVE ``exclude`` annotation
-  (no ``revoke`` row names it: the rule ``call_annotations_repo.ACTIVE_SQL`` states) are read off each night's
-  winning row and drawn as hatches over the span that night holds.
+- ``reconstructed`` (a missed night rebuilt by ``pipeline.backfill``) is read off each night's winning row
+  and drawn as a hatch over the span that night holds.
 - Times armed = the number of armed runs, each one an entry into armed (the first recorded night included).
 - Catalysts: a dated one is a marker (past = before ``today``); undated ones are counted. Decisions: take /
   close / pass at their ``decision_date``; a row a later ``void`` names stays, marked voided; a void row
@@ -41,7 +40,7 @@ from domain.thesis import Thesis
 FUTURE_CAP_DAYS = 90
 DECISION_MARKS = ("take", "close", "pass")  # a 'void' row draws nothing; it grays the row it names
 
-HatchKind = Literal["reconstructed", "excluded"]
+HatchKind = Literal["reconstructed"]
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -60,18 +59,6 @@ class CallRow:
     state: str
     verdict: str
     reconstructed: bool
-
-
-@dataclass(frozen=True)
-class AnnotationRow:
-    """One ``call_annotation`` row of action ``exclude`` or ``revoke`` (``revokes`` names the one it
-    withdraws)."""
-
-    id: UUID
-    call_id: UUID
-    action: str
-    reason: str
-    revokes: UUID | None
 
 
 @dataclass(frozen=True)
@@ -104,14 +91,13 @@ class Clocks:
 @dataclass(frozen=True)
 class Hatch:
     """A stretch of a segment whose nights' winning rows carry a flag. ``end`` is exclusive, like a
-    segment's. ``reason`` = the active exclude annotation's reason(s); ``None`` for ``reconstructed``.
+    segment's.
     """
 
     kind: HatchKind
     start: date
     end: date
     nights: int
-    reason: str | None
 
 
 @dataclass(frozen=True)
@@ -193,7 +179,6 @@ class IdeaTimeline:
     nights: int  # (card, night) pairs recorded
     multi_row_nights: int
     reconstructed_nights: int
-    excluded_nights: int
     first_recorded: date | None
     last_recorded: date | None
     rows: tuple[TimelineRow, ...]  # in the cards' given order (list_all: by name)
@@ -209,49 +194,30 @@ class _Night:
     asof: date
     row: CallRow  # the night's winning (last) row
     rows: int
-    excluded: str | None  # the winning row's active exclude reason(s)
 
 
-def active_excludes(annotations: Iterable[AnnotationRow]) -> dict[UUID, str]:
-    """``call_id -> reason(s)`` of its ACTIVE exclude annotations: an ``exclude`` no ``revoke`` row names
-    (the same rule as ``call_annotations_repo.ACTIVE_SQL``). Several reasons on one row are joined.
-    """
-    anns = list(annotations)
-    revoked = {a.revokes for a in anns if a.action == "revoke" and a.revokes is not None}
-    reasons: dict[UUID, list[str]] = {}
-    for a in anns:
-        if a.action == "exclude" and a.id not in revoked:
-            got = reasons.setdefault(a.call_id, [])
-            if a.reason not in got:
-                got.append(a.reason)
-    return {cid: "; ".join(rs) for cid, rs in reasons.items()}
-
-
-def _nights(rows: Sequence[CallRow], excludes: Mapping[UUID, str]) -> list[_Night]:
+def _nights(rows: Sequence[CallRow]) -> list[_Night]:
     out: list[_Night] = []
     for asof, grp in groupby(sorted(rows, key=lambda r: (r.asof, r.seq)), key=lambda r: r.asof):
         g = list(grp)
         win = g[-1]
-        out.append(_Night(asof=asof, row=win, rows=len(g), excluded=excludes.get(win.id)))
+        out.append(_Night(asof=asof, row=win, rows=len(g)))
     return out
 
 
 def _hatches(spans: Sequence[tuple[_Night, date, date]]) -> tuple[Hatch, ...]:
-    """Merge consecutive flagged nights (same kind, same reason) into one hatch each."""
+    """Merge consecutive reconstructed nights into one hatch each."""
     out: list[Hatch] = []
-    for kind in ("reconstructed", "excluded"):
-        cur: Hatch | None = None
-        for night, start, end in spans:
-            on = night.row.reconstructed if kind == "reconstructed" else night.excluded is not None
-            reason = night.excluded if kind == "excluded" else None
-            if on and cur is not None and cur.reason == reason:
-                cur = Hatch(kind, cur.start, end, cur.nights + 1, reason)
-                continue
-            if cur is not None:
-                out.append(cur)
-            cur = Hatch(kind, start, end, 1, reason) if on else None
+    cur: Hatch | None = None
+    for night, start, end in spans:
+        if night.row.reconstructed and cur is not None:
+            cur = Hatch("reconstructed", cur.start, end, cur.nights + 1)
+            continue
         if cur is not None:
             out.append(cur)
+        cur = Hatch("reconstructed", start, end, 1) if night.row.reconstructed else None
+    if cur is not None:
+        out.append(cur)
     return tuple(sorted(out, key=lambda h: (h.start, h.kind)))
 
 
@@ -315,13 +281,12 @@ def _decision_marks(
 def _row(
     thesis: Thesis,
     calls: Sequence[CallRow],
-    excludes: Mapping[UUID, str],
     decisions: Sequence[DecisionRow],
     voided: set[UUID],
     clocks: Clocks | None,
     today: date,
 ) -> tuple[TimelineRow, list[_Night]]:
-    nights = _nights(calls, excludes)
+    nights = _nights(calls)
     segments = _segments(nights, today)
     last = segments[-1] if segments else None
     armed = [s for s in segments if s.state == State.ARMED]
@@ -369,7 +334,6 @@ def _marker_dates(row: TimelineRow) -> Iterable[date]:
 def idea_timeline(
     theses: Iterable[Thesis],
     calls: Iterable[CallRow],
-    annotations: Iterable[AnnotationRow],
     decisions: Iterable[DecisionRow],
     clocks: Mapping[UUID, Clocks],
     *,
@@ -387,7 +351,6 @@ def idea_timeline(
     decisions_by_card: dict[UUID, list[DecisionRow]] = {}
     for d in decisions:
         decisions_by_card.setdefault(d.thesis_id, []).append(d)
-    excludes = active_excludes(annotations)
 
     rows: list[TimelineRow] = []
     all_nights: list[_Night] = []
@@ -395,7 +358,6 @@ def idea_timeline(
         row, nights = _row(
             t,
             by_card[t.id],
-            excludes,
             decisions_by_card.get(t.id, []),
             voided,
             clocks.get(t.id),
@@ -421,7 +383,6 @@ def idea_timeline(
         nights=len(all_nights),
         multi_row_nights=sum(1 for n in all_nights if n.rows > 1),
         reconstructed_nights=sum(1 for n in all_nights if n.row.reconstructed),
-        excluded_nights=sum(1 for n in all_nights if n.excluded is not None),
         first_recorded=min(firsts) if firsts else None,
         last_recorded=max(lasts) if lasts else None,
         rows=tuple(rows),

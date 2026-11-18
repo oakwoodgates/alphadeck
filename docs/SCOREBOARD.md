@@ -46,8 +46,8 @@ The read is the same code with a different timeline source (`scoreboard/record.p
 `EditionSource`): an edition reads its pages only, so a `calls` row appended later never moves it. What differs
 for an edition, and only this:
 
-- **No reconstructed, annotated or late rows** — every page is computed the same way, on the public clock — so
-  those lists come back empty, both read policies say `n/a`, and the page hides their lines and toggles.
+- **No reconstructed or late rows** — every page is computed the same way, on the public clock — so
+  those lists come back empty, the late policy says `n/a`, and the page hides their lines and toggles.
 - **No ingest provenance** — the INGEST badge describes what *we* had fetched; a public-clock re-run has none,
   so it never renders.
 - **Censoring is G12's:** an arm on the company's own ESTIMATED join night has an unknowable true arm date,
@@ -164,7 +164,7 @@ changed are listed under it (the rest are counted), and nothing in it is colored
 never an alarm (#7).
 
 - **Edition 0 is read the way the default Scoreboard reads it** — its HONEST default read: reconstructed rows
-  never, annotated and late rows under the server's default policies.
+  never, late rows under the server's default policy.
 - **The window.** Through the earlier of the two editions' last nights — the earlier edition's last night once
   the later one has reached it (the designed case: a closed edition against the one that replaced it) — and,
   per thesis, only the nights BOTH editions cover. Pages only one edition holds (Edition 1's nights before the
@@ -236,70 +236,7 @@ replay's job (`docs/REPLAY.md` — the historical twin); attribution's source is
   rule landed (dev copy, 2026-09-12): of the 106 episode starts that sat on a reconstructed night, 48
   survive with a later (honest) arm date, 56 drop (armed only on reconstructed rows), 2 drop (the
   thesis did not exist); August 7, a reconstructed night, had been the single largest arm date on the
-  whole ledger. Pre-creation rows are additionally deletable by the operator
-  (`pipeline.repair_reconstructed_precreation`, dry-run by default; `docs/FEED_LOOP.md`).
-- **Phantom-arm (annotated) nights are set aside by a READ POLICY — reversibly (D3b).** An honest row can
-  still be wrong. Before D3a (#390) the fundamentals read dated a re-reported comparative revenue quarter at
-  its LATER filing, so some nightly arms rested only on a year-old inflection re-fired as fresh — phantom
-  arms. The operator decided (Q2, 2026-10-16) to annotate them and exclude them from scoring, built so the
-  decision can be flipped at any time. The mechanics mirror the reconstructed rule exactly, with one
-  difference: reconstructed is a FACT about a row (always filtered), annotated is a JUDGMENT (filtered by
-  policy).
-  - **The annotation, never an edit.** `pipeline.annotate_phantom_arms` appends rows to `call_annotation`
-    (migration 0045 — append-only, the `no_update` trigger) beside the `calls` row; `calls` is never touched.
-    `exclude` = a phantom arm (the row armed, and with D3a's dating the same night is not armed); `note` =
-    the arm stands but D3a changes its composition (verdict / headline / armed set) — it stays scored and
-    shows only as a quiet caption in the episode drawer; `revoke` = withdraws one earlier annotation. A row is
-    annotated ONLY for what D3a changes: the CLI re-assembles each honest row twice at its own `(asof,
-    known_at = recorded_at)`, D3a off and D3a on, and a row whose D3a-off re-assembly does not reproduce the
-    recorded state, verdict and armed set is DRIFT — reported, never annotated (`docs/FEED_LOOP.md`
-    §"Annotating phantom arms").
-  - **The policy.** `Settings.scoreboard_exclude_annotated` (env `ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED`,
-    default `true`): rows carrying an ACTIVE `exclude` are dropped from `thesis_timeline`, the ingest-health
-    stamp and the run-identity read — inside the WHERE, BEFORE the per-as-of dedup
-    (`calls_repo._annotated_clause` beside `_reconstructed_clause`), so all three still describe one winning
-    row. As with reconstructed rows, an excluded night reads like a cron gap (the record last spoke on the
-    prior row), and a night with another honest row is scored from it. `note`s never filter.
-  - **Both readings, side by side.** `GET /scoreboard?include_annotated=true` scores the annotated rows
-    (exactly as before D3b), `=false` sets them aside, omitted = the setting; the summary says which reading
-    it is (`annotated_policy: "excluded" | "included"`) and lists the nights either way (`annotated_nights`:
-    thesis, as-of, reason, rule). The ledger renders one quiet line — "N phantom-arm nights set aside · not
-    scored" (or "… included in this reading · scored") with the nights on hover; since F10 it names the KIND
-    by each night's rule family ("N no-session nights …", or "N annotated nights (A phantom-arm, B no-session)
-    …" when both are present) — and an **include annotated nights** toggle that flips the reading for that
-    view; the next click returns to the default. Rendered only when some night is annotated. `python -m scoreboard.run --include-annotated` is the CLI twin.
-  - **Reversing it.** Globally: flip the setting (`ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED=false`) and the
-    record scores every annotated row again — byte-identical to the pre-annotation reading
-    (`tests/pipeline/test_annotate_phantom_arms.py` pins it). Per row: `python -m
-    pipeline.annotate_phantom_arms --revoke <annotation-id> --reason "…" --apply` (or `--revoke-all`)
-    appends a revoke; a revoke sticks across re-runs of the annotator (a (call, action) its rule family
-    already judged is never judged again). Nothing is deleted either way.
-  - **No-session nights ride the SAME exclusion (F10).** A row dated a day with no market session — the daytime
-    hand runs before the September fix, recorded under the date they ran (MEASURED on dev: 49 rows dated a
-    Saturday or Sunday, 2026-08-16 .. 09-05, and 11 dated Labor Day 2026-09-07) — has no bar and no next
-    session to score against, yet the Scoreboard has no weekday filter. `pipeline.annotate_no_session_rows`
-    appends an `exclude` (reason `no_session_day`, rule `no-session-night@<sha>`) to each honest row for which
-    `not domain.trading_days.is_scheduled_day(asof)`; it keeps no calendar of its own, so the holiday rows join
-    when that predicate becomes holiday-aware. **There is ONE `include_annotated` toggle, and it covers EVERY
-    active `exclude`, whatever its rule** — phantom arms and no-session nights flip together (no second toggle);
-    `annotated_nights` lists both kinds (the `rules` field says which), and the episode drawer's caption names
-    the kind by the annotation's rule family: "phantom-arm night(s) …", "no-session night(s) …", or the generic
-    "set-aside night(s) …" for any other rule. Reversal is the same: the setting off, `include_annotated=true`,
-    or `--revoke` / `--revoke-all` on that CLI (it revokes only its own family).
-  - **Named limitation — the exclusion is ROW-level (the thesis-night), never member-level.** A night where
-    D3a removes SOME armed members but the thesis stays armed is a `note`: the row stays scored, so those
-    members' arm episodes stay on the ledger and in the metrics, marked only by the drawer caption. MEASURED
-    (prod dry-run): 82 of the 106 notes drop at least one armed member — 147 member-nights over 18 (thesis,
-    member) pairs (e.g. AI Memory & Storage's DELL / HPE / NLST before 2026-10-14). Setting those aside
-    would need an episode-level filter — a separate operator decision, not built.
-  - **Name the reading when quoting.** Any Scoreboard number quoted outside the app (e.g. in the expansion
-    talks) must say which policy produced it — "phantom-arm nights excluded" or "included" — because the two
-    readings differ by design. The API carries `annotated_policy` on every response for exactly this.
-  - MEASURED (prod dry-run, 2026-10-16, read-only): 630 honest rows → 7 `exclude` (AI Memory & Storage
-    2026-10-14/15, Nuclear Buildout 2026-10-14/15, Digital Asset Treasury Complex 2026-09-15/16 and
-    2026-10-05), 106 `note`, 103 drift (all pre-2026-09-15 rows re-assembled on the LIVE roster; none of them
-    a would-be exclusion), 414 unchanged. Nothing was applied; `--apply` on prod is the operator's call after
-    a backup.
+  whole ledger.
 - **Late-recorded rows never define an episode — a READ POLICY over a DERIVED fact, reversibly (L1).** A
   call-of-record recorded after its night closed can have read what the night could not: MEASURED on
   2026-10-12, the 22:30 pass died after 4 theses, and the next afternoon's boot catch-up recorded the night
@@ -314,9 +251,9 @@ replay's job (`docs/REPLAY.md` — the historical twin); attribution's source is
     `recorded_at` — no column, no migration, nothing stamped (`scoreboard/late.py`).
   - **The policy.** `Settings.scoreboard_exclude_late` (env `ALPHADECK_SCOREBOARD_EXCLUDE_LATE`, default
     `true`): the thesis's late rows are judged once per thesis (`late_call_ids`) and their ids dropped from
-    all four winning-row peer reads — `thesis_timeline`, the ingest-health stamp, the run identity and the
-    annotation caption — inside the WHERE, BEFORE the per-as-of dedup (`calls_repo._ids_clause` beside the
-    other two clauses). So an on-time row for the same night WINS over a later late re-version (and its
+    all three winning-row peer reads — `thesis_timeline`, the ingest-health stamp and the run identity —
+    inside the WHERE, BEFORE the per-as-of dedup (`calls_repo._ids_clause` beside the reconstructed
+    clause). So an on-time row for the same night WINS over a later late re-version (and its
     stamps caption the episode), and a night whose only rows are late reads exactly like a cron gap: the
     record last spoke on the prior honest row, and the next honest row opens or closes what changed.
   - **Both readings, side by side.** `GET /scoreboard?include_late=true` scores the late rows (exactly as
@@ -326,18 +263,16 @@ replay's job (`docs/REPLAY.md` — the historical twin); attribution's source is
     earlier honest row the default reading scores instead or `null` = a gap, and the reason "recorded after
     the next EDGAR open"). The ledger renders one quiet line — "N late-recorded nights · late rows set aside"
     — with each night, how many hours late, and gap-or-scored-instead on hover, and an **include late
-    nights** toggle (the D3b toggle's twin). `python -m scoreboard.run --include-late` is the CLI twin.
+    nights** toggle. `python -m scoreboard.run --include-late` is the CLI twin.
   - **Reversing it.** Flip the setting (`ALPHADECK_SCOREBOARD_EXCLUDE_LATE=false`) or pass the param: the
     record scores every late row again, identical to the pre-L1 reading (`tests/scoreboard/test_late_rows.py`
     pins it against an independent unfiltered read). Nothing is ever deleted or marked.
-  - **How the three filters compose.** By AND: a row is scored only if it is not reconstructed (always), not
-    annotated `exclude` (under its policy) and not late (under this one). Each reading toggles only its own
-    rows, and the two policies are independent (`?include_annotated=` and `?include_late=` combine freely).
+  - **How the two filters compose.** By AND: a row is scored only if it is not reconstructed (always) and
+    not late (under this policy). The late reading toggles only its own rows.
     Lists: `reconstructed_nights` names a night only when EVERY row on it is reconstructed — so a night with a
     reconstruction AND a late row is named in `late_nights` instead (as a gap); `earlier_recorded_at` is the
-    late judgment's own answer and ignores the annotated filter (a phantom-arm on-time row is set aside by
-    that policy and named in `annotated_nights`).
-  - **Name the reading when quoting** — as with the annotated reading, `late_policy` rides every response.
+    late judgment's own answer.
+  - **Name the reading when quoting** — `late_policy` rides every response.
   - **Admin says "recorded", this page says "gap" — and Admin names the difference.** Admin's per-(thesis,
     night) coverage counts a late row as COVERING its night (the pass did record it; `ADMIN.md` "Cron
     health"), so a thesis-night recorded ONLY late reads covered there and a gap here. Admin lists exactly
@@ -352,8 +287,7 @@ replay's job (`docs/REPLAY.md` — the historical twin); attribution's source is
     superseded its on-time seq 1334 at 22:42), and 8 late-only nights (Modern Defense, Modern Defense
     Buildout, Navy Shipbuilding Rebuild, Nuclear Buildout, Rainbow Rush, Small-scale nuclear, The Everything
     Exchange, UNH). The other three on-time theses that night (DEV, Digital Asset Treasury Complex, HIMS)
-    re-assembled identical cards, so the catch-up appended nothing for them. At asof 2026-10-16 (annotated
-    nights excluded): **325 episodes with late rows set aside vs 328 with them scored**. 3 episodes vanish
+    re-assembled identical cards, so the catch-up appended nothing for them. At asof 2026-10-16: **325 episodes with late rows set aside vs 328 with them scored**. 3 episodes vanish
     (Rainbow Rush CYCN and The Everything Exchange MELI, armed ONLY on the late 10-12 row and de-armed 10-13;
     Nuclear Buildout VST's 10-13 re-arm, because without the late row its 10-09 run never broke), 1 moves
     (Nuclear Buildout PCG: armed on the late 10-12 row → on the honest 10-13 row), and 7 change shape (VST

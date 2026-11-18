@@ -58,7 +58,7 @@ from pipeline import data_flags as flags_reader
 from repositories import editions_repo
 from repositories.editions_repo import Edition
 from scoreboard.late import resolve_exclude_late
-from scoreboard.record import resolve_exclude_annotated, scoreboard_records
+from scoreboard.record import scoreboard_records
 from securities import master
 from signals.base import PointInTimeData
 
@@ -273,8 +273,8 @@ class TrackEditionOut(_Wire):
 class TrackRecordOut(_Wire):
     """The Track Record at the as-of: every episode's row (newest arm first), the counts, the companies with a price-reaching
     flag and the opening table (IWM, the next-session entry, by cap tier, every armed member; the page
-    recomputes any other reading from ``rows`` with the same arithmetic). ``edition`` and the two policies are the
-    Scoreboard's own (``annotated_policy`` / ``late_policy``: ``included`` | ``excluded`` | ``n/a`` for a stored
+    recomputes any other reading from ``rows`` with the same arithmetic). ``edition`` and the late policy is the
+    Scoreboard's own (``late_policy``: ``included`` | ``excluded`` | ``n/a`` for a stored
     edition, which has no such rows). ``edition`` is the one READ (the record when the request named none);
     ``newest_edition`` is the newest PUBLISHED edition (``null`` when none is), which the page offers beside the
     record. ``market_source`` = whose bar dates are the market's session clock;
@@ -289,7 +289,6 @@ class TrackRecordOut(_Wire):
     clock: Literal["record", "public"]
     edition: TrackEditionOut
     newest_edition: TrackEditionOut | None
-    annotated_policy: Literal["included", "excluded", "n/a"]
     late_policy: Literal["included", "excluded", "n/a"]
     horizons: list[str]
     min_n: int
@@ -407,7 +406,6 @@ def read_record(
     known_at: datetime | None,
     clock: Literal["record", "public"],
     edition: Edition | None,
-    exclude_annotated: bool,
     exclude_late: bool,
     *,
     workspace: UUID,
@@ -421,7 +419,6 @@ def read_record(
         workspace=workspace,
         include_archived=True,
         known_at=known_at,
-        exclude_annotated=exclude_annotated,
         exclude_late=exclude_late,
         edition=edition,
     )
@@ -533,12 +530,6 @@ def track_record(
         "names no edition reads the record, not the newest published edition, while the editions nightly is "
         "paused; the response's `newest_edition` names the newest published one",
     ),
-    include_annotated: bool | None = Query(
-        None,
-        description="the Scoreboard's annotated-night reading: true = keep rows annotated `exclude` (phantom "
-        "arms, and rows dated a day with no market session); false = set them aside; omitted = the server "
-        "setting. The response names the reading used",
-    ),
     include_late: bool | None = Query(
         None,
         description="the Scoreboard's late-night reading: true = keep rows recorded after their night's next "
@@ -561,18 +552,15 @@ def track_record(
     known_at, clock = serve_view(asof)
     chosen = _resolve_edition(conn, workspace, edition)  # 0 = the record; the Scoreboard's own 404
     if chosen is None:
-        exclude_annotated = resolve_exclude_annotated(
-            None if include_annotated is None else not include_annotated
-        )
         exclude_late = resolve_exclude_late(None if include_late is None else not include_late)
-    else:  # a stored edition has no reconstructed, annotated or late rows: the readings do not apply
-        exclude_annotated = exclude_late = False
+    else:  # a stored edition has no reconstructed or late rows: the reading does not apply
+        exclude_late = False
     number = chosen.number if chosen is not None else 0
     newest = _newest_edition(conn, workspace)  # one small read, outside the cache
     got = cached(
         conn,
         SLUG,
-        (number, not exclude_annotated, not exclude_late, clock),
+        (number, not exclude_late, clock),
         asof,
         lambda: read_record(
             conn,
@@ -580,7 +568,6 @@ def track_record(
             known_at,
             clock,
             chosen,
-            exclude_annotated,
             exclude_late,
             workspace=workspace,
         ),
@@ -597,9 +584,6 @@ def track_record(
             },
             "newest_edition": (
                 None if newest is None else {"number": newest.number, "label": newest.label}
-            ),
-            "annotated_policy": (
-                "n/a" if chosen is not None else "excluded" if exclude_annotated else "included"
             ),
             "late_policy": (
                 "n/a" if chosen is not None else "excluded" if exclude_late else "included"

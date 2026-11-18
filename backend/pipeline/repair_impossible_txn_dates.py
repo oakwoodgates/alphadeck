@@ -19,7 +19,7 @@ date arrives and then wrongly visible from then on. The measured set carries ``t
 risk detector.
 
 THE RULE is ``ingest.edgar.form4.implausible_txn_date`` — IMPORTED, never re-stated, so this tool and the
-live ingest bound cannot drift apart (the ``repair_reconstructed_precreation`` pattern). A row is a candidate
+live ingest bound cannot drift apart. A row is a candidate
 iff that function returns a reason for its ``(valid_from, accession)``.
 
 WHY DELETE, and not a correction (the question the table's discipline forces):
@@ -40,7 +40,7 @@ WHY DELETE, and not a correction (the question the table's discipline forces):
 SCOPE: impossible DATES only. The 16-versions-for-6-facts ratio the platform note observed is the seed
 pile-up's byte-identical re-versions; ``pipeline.dedup_identical_versions`` owns those, not this tool.
 
-SAFETY (the ``repair_reconstructed_precreation`` shape):
+SAFETY (the ``repair_benchmark_bars`` shape):
 - **Dry-run is the DEFAULT** and prints EVERY row it would delete; ``--apply`` deletes and prints per-reason
   counts + a SUMMARY line.
 - ``DATABASE_URL`` MUST be set explicitly (no dev-default fallback for a destructive tool); the target is
