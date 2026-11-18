@@ -1,6 +1,6 @@
 """The four scoring-fact writers (``ingest_revenue_mix`` / ``ingest_shares_outstanding`` / ``ingest_cash_burn`` /
-``ingest_catalyst``) run outside the company write lock: the Workbench's ``POST /workbench/facts`` and
-``POST /workbench/facts/auto-confirm``, the ``pipeline.ratify_*`` CLIs. So each moves the company's change stamp
+``ingest_catalyst``) run outside the company write lock: the Workbench's ``POST /workbench/facts`` (the get-data
+auto-confirm route is deleted since V2 W7b), the ``pipeline.ratify_*`` CLIs. So each moves the company's change stamp
 in the SAME transaction as its fact (``db.change_stamp``: the dashboards' cache drops that company's pieces).
 The route-level proof is ``tests/app/test_workbench_api.py``'s. ``ingest_convert_terms`` (``fact_dilution``'s one
 writer, called by the seed, never under the lock) keeps the same rule. DB-backed."""

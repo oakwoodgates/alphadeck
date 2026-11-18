@@ -90,10 +90,8 @@ def test_an_sec_failure_on_extract_is_a_fixed_sentence(
     _check(r, 502, wb.SEC_FILINGS_UNREADABLE, steward=steward)
 
 
-@pytest.mark.parametrize(("user", "steward"), CALLERS)
-def test_a_price_source_failure_is_a_fixed_sentence(
-    client, carded_security, monkeypatch, user, steward
-):
+def test_a_price_source_failure_is_a_fixed_sentence(client, carded_security, monkeypatch):
+    """The price pull is the steward's (V2 W7b), so only a steward ever reads this sentence."""
     from app.routers import workbench as wb
     from ingest.prices import ingest_security as mod
 
@@ -102,9 +100,9 @@ def test_a_price_source_failure_is_a_fixed_sentence(
             raise RuntimeError(LEAK)
 
     monkeypatch.setattr(mod, "YahooPriceSource", _Boom)
-    as_user(user)
+    as_user(TEST_STEWARD)
     r = client.post(f"/workbench/securities/{carded_security}/ingest-prices")
-    _check(r, 502, wb.PRICE_SOURCE_UNREACHABLE, steward=steward)
+    _check(r, 502, wb.PRICE_SOURCE_UNREACHABLE, steward=True)
 
 
 # --- a file on the server ---------------------------------------------------------------------------------------------

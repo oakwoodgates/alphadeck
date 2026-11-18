@@ -34,8 +34,6 @@ from app.errors import (
 )
 from app.routers.admin_onboarding import readout_out
 from app.schemas_api import (
-    AutoConfirmOut,
-    AutoConfirmRequest,
     BusinessTypeOut,
     ChainDraftOut,
     DraftChainIn,
@@ -672,7 +670,7 @@ class _Fetched:
 @router.post(
     "/securities/{security_id}/ingest-prices",
     response_model=PriceIngestOut,
-    dependencies=[Depends(require_own_security), Depends(allowance.charge("price_pull"))],
+    dependencies=[Depends(require_super_admin)],
 )
 def ingest_security_prices(
     security_id: UUID,
@@ -693,13 +691,12 @@ def ingest_security_prices(
     cron, not this endpoint, owns force-refresh). No-lookahead: ``recorded_at`` = now, never backdated.
     Shares ONE implementation with ``pipeline.ingest_thesis`` (``ingest_bars_for_security``).
 
-    BOUNDED (security hardening PR 1b): a plain user may pull prices only for a company on one of their own cards
-    (else 404, "This company is not on any of your cards. Add it to a card first.") and within their daily
-    price-pull allowance (``Settings.allowance_price_pull_per_day``, else 429 naming the reset). The bars are
-    FETCHED before the company write lock is taken, and the lock is held only for the compare-and-append, so a slow
-    vendor never holds up the nightly. The automatic OTC price-symbol resolve (a write to the SHARED master) runs on
-    a steward's pull only; a plain user's OTC pull is priced under the canonical ticker, and the name is left for
-    the steward's price-feed panel or the backfill sweep."""
+    STEWARD ONLY (V2 W7b): prices are platform data, so a plain user never pulls them on demand (the steward-only
+    403); a company a user adds gets its prices from the promote's lane (``start_member_load``, which a fund or
+    SPAC attach also starts), the staged onboarding job, or the nightly. Not counted against any allowance. The
+    bars are FETCHED before the company write lock is taken, and the lock is held only for the compare-and-append,
+    so a slow vendor never holds up the nightly. An unresolved OTC name has its vendor price symbol resolved first
+    (a write to the SHARED master)."""
     # the master + the price tape are DATA (domain.scopes): read + written under the data tenant
     sec = master.get(conn, security_id, tenant_id=DATA_TENANT_ID)
     if sec is None:
@@ -708,20 +705,19 @@ def ingest_security_prices(
         raise HTTPException(
             status_code=422, detail="no listed ticker — there is no price line to pull"
         )
-    # #2 SELF-HEAL — resolve the OTC vendor price symbol at ADD-TIME, on a STEWARD's finalize pull (never the
-    # cron, and never a plain user's pull: the symbol is written to the SHARED master every workspace reads —
-    # security hardening PR 1b). Only an OTC name whose symbol is still unresolved (``price_symbol IS NULL``)
+    # #2 SELF-HEAL — resolve the OTC vendor price symbol at ADD-TIME, on the steward's finalize pull (never the
+    # cron: the symbol is written to the SHARED master every workspace reads — security hardening PR 1b; the route
+    # is steward-only since V2 W7b). Only an OTC name whose symbol is still unresolved (``price_symbol IS NULL``)
     # triggers it; on an AUTO the resolver writes the symbol, so THIS very pull fetches the fuller history.
-    # FAIL-OPEN: any miss/error NEVER blocks the add — the member enters priced under its canonical ticker (as a
-    # plain user's always is), and the backfill sweep (Slice D) + the thin-history flag (Slice F) catch it.
-    steward = user.is_super_admin
-    if steward and sec.exchange == "OTC" and sec.price_symbol is None:
+    # FAIL-OPEN: any miss/error NEVER blocks the add — the member enters priced under its canonical ticker, and the
+    # backfill sweep (Slice D) + the thin-history flag (Slice F) catch it.
+    if sec.exchange == "OTC" and sec.price_symbol is None:
         conn.rollback()  # END THE READ before the resolver's live lookups (only the master read ran)
         try:
             proposal = resolve_price_symbol(sec, allow_live=True)
             if proposal.tier == "AUTO" and proposal.proposed_symbol:
-                # a SERVER-SOURCED shared-master write (the symbol comes from the resolver, never the request), in
-                # a steward branch: tests/app/test_shared_master_writes.py checks it stays there
+                # a SERVER-SOURCED shared-master write (the symbol comes from the resolver, never the request), on a
+                # steward-only route: tests/app/test_shared_master_writes.py checks it stays there
                 master.set_price_symbol(
                     conn,
                     sec.id,
@@ -739,13 +735,13 @@ def ingest_security_prices(
             conn.rollback()
             _log.warning("price-symbol resolve failed for %s (fail-open): %s", sec.ticker, exc)
     # FETCH FIRST, with the company FREE (security hardening PR 1b): the vendor round trip is the slow part, and
-    # the nightly waits at most `Settings.ingest_lock_wait_s` for a company before it skips it, so a user's click
+    # the nightly waits at most `Settings.ingest_lock_wait_s` for a company before it skips it, so a click
     # must never hold the lock across the network. Fetched exactly as `ingest_bars_for_security` would (the
     # effective symbol, live, cache-first) and handed to it below as its source, so the shared function and the
     # nightly's path are unchanged.
     # END THE READ before calling out (security hardening PR 2): only reads ran on this transaction since the gate's
-    # and the allowance's commits, so the rollback loses nothing, and no request sits idle in a transaction across
-    # the network (the request connection's idle-in-transaction timeout, db.session.connect_request).
+    # commit, so the rollback loses nothing, and no request sits idle in a transaction across the network (the
+    # request connection's idle-in-transaction timeout, db.session.connect_request).
     conn.rollback()
     try:
         fetched = price_leg.YahooPriceSource().get_bars(
@@ -1002,9 +998,11 @@ def _fund_ids(conn: psycopg.Connection, thesis: Thesis) -> set[UUID]:
     }
 
 
-# Why a plain user's fast lane went to the queue: their price-pull allowance for today could not cover its new names.
+# Why a plain user's fast lane went to the queue: today's allowance of new names loaded at once (the ``price_pull``
+# key, ``Settings.allowance_price_pull_per_day``) could not cover them. Shown verbatim by the Workbench's
+# OnboardingNote.
 FAST_LANE_ALLOWANCE_SPENT = (
-    "today's price pull allowance cannot cover these new names — their history loads outside the nightly "
+    "today's limit on loading new names at once is used up — their history loads outside the nightly "
     "window instead"
 )
 
@@ -1066,10 +1064,11 @@ def promote(
     cost); a brand-new thesis is all-new (the full starter-basket ingest); no new members → no job and
     ``ingest`` null. The job never blocks or fails the promote.
 
-    For a plain user that fast-lane ingest spends one unit of the daily price-pull allowance per new name
-    (``Settings.allowance_price_pull_per_day``, security hardening PR 1b); when today's allowance cannot cover them
-    all, no job is kicked and ``onboarding`` says the names load outside the nightly window instead (the staged
-    onboarding job, then the nightly). A steward is not counted."""
+    For a plain user that fast-lane ingest spends one unit of the daily allowance of new names loaded at once per
+    new name (``Settings.allowance_price_pull_per_day``, security hardening PR 1b); when today's allowance cannot
+    cover them all, no job is kicked and ``onboarding`` says the names load outside the nightly window instead (the
+    staged onboarding job, then the nightly). A steward is not counted. The lane is ``start_member_load``, shared
+    with the fund and SPAC attaches (V2 W7b)."""
     # THE FIXED LINKS, normalized BEFORE the Thesis is built (so the validator sees the final chain): the
     # payload's own Context / ETFs / Bench segments (any case, any position, any descriptor) are replaced by
     # the three fixed ones appended last, and a member naming one in any case is respelled to the canonical
@@ -1283,41 +1282,7 @@ def promote(
     # Kick the new members' back-half ingest AFTER the commit (the job's own connection must see the
     # spine rows) — background, never blocking or failing the promote. No new members → no job at all
     # (the cost thread: a plain Save/triage promote pays nothing).
-    ingest_ref: PromoteIngestRef | None = None
-    onboarding_ref: PromoteOnboardingRef | None = None
-    if new_ids:
-        # X1 — THE LANE: the new names no other live basket holds are COLD (their history was never loaded) and
-        # are queued for the staged onboarding job; at most `Settings.onboard_fast_lane_max` of them, outside
-        # the nightly window, still ingest at once in the background (the fast lane — a 3-name promote stays
-        # instant). Fail-open toward the pre-X1 kick: a queue fault never costs the promote or its names.
-        plan = _plan_lane(conn, thesis.id, DATA_TENANT_ID, new_ids)
-        # THE GLOBAL INGEST CAP (security hardening PR 2): with `Settings.ingest_jobs_max_running` ingests running
-        # across all theses, no new one starts (each holds a connection); the names wait for the staged onboarding
-        # job and the nightly, the same fallback as a spent allowance. Checked before the allowance is spent.
-        if plan.fast and not ingest_jobs.has_room(thesis.id):
-            plan = onboarding.PromotePlan(plan.cold, False, INGEST_AT_CAPACITY)
-        # BOUNDED (security hardening PR 1b): a plain user's fast lane pulls prices for every new name, so it
-        # spends one price-pull unit per name; when today's allowance cannot cover them all, it takes none and
-        # the names wait for the staged onboarding job (cold ones are already queued by the plan) and the
-        # nightly. The promote itself never fails over the allowance. A steward is not counted.
-        if plan.fast and not (
-            allowance.exempt(user) or allowance.consume(conn, user.id, "price_pull", n=len(new_ids))
-        ):
-            plan = onboarding.PromotePlan(plan.cold, False, FAST_LANE_ALLOWANCE_SPENT)
-        if plan.fast:
-            try:
-                job = _kick_member_ingest(thesis.id, new_ids, tenant_id=DATA_TENANT_ID)
-            except (
-                ingest_jobs.IngestCapReached
-            ):  # the last slot went between the check and the kick
-                job = None
-                plan = onboarding.PromotePlan(plan.cold, False, INGEST_AT_CAPACITY)
-            if job is not None:
-                ingest_ref = PromoteIngestRef(job_id=job.job_id, new_members=len(new_ids))
-        if not plan.fast:
-            onboarding_ref = PromoteOnboardingRef(
-                queued=len(plan.cold), new_members=len(new_ids), reason=plan.reason or ""
-            )
+    ingest_ref, onboarding_ref = start_member_load(conn, user, thesis.id, new_ids)
     out = PromoteOut.from_thesis(thesis)
     # the payload never carries the meta index switch and ``upsert`` never writes it, so the response echoes
     # the STORED flag (read before the upsert, which leaves it untouched) — never the payload's default
@@ -1325,6 +1290,59 @@ def promote(
     out.ingest = ingest_ref
     out.onboarding = onboarding_ref
     return out
+
+
+def start_member_load(
+    conn: psycopg.Connection,
+    user: CurrentUser,
+    thesis_id: UUID,
+    new_ids: set[UUID],
+) -> tuple[PromoteIngestRef | None, PromoteOnboardingRef | None]:
+    """Start the data load for the companies a write just ADDED to a card (``new_ids``), AFTER that write is
+    committed: the ONE lane every basket writer that adds companies uses (the promote, ``POST /radar/funds/attach``
+    and ``POST /radar/spac/attach``, V2 W7b). Returns the fast-lane job (``ingest``) or the onboarding queue
+    (``onboarding``), never both; ``(None, None)`` when nothing was added or the kick itself failed open.
+
+    In order: plan the lane (cold names are queued for the staged onboarding job; a few, outside the nightly
+    window, take the fast lane), the global ingest cap, the plain user's allowance (one ``price_pull`` unit per new
+    name: "new names loaded at once"; a steward is not counted), then the kick. Never raises over the load: the
+    card is already saved, and the onboarding job and the nightly are the backstop.
+    """
+    ingest_ref: PromoteIngestRef | None = None
+    onboarding_ref: PromoteOnboardingRef | None = None
+    if not new_ids:
+        return ingest_ref, onboarding_ref
+    # X1 — THE LANE: the new names no other live basket holds are COLD (their history was never loaded) and
+    # are queued for the staged onboarding job; at most `Settings.onboard_fast_lane_max` of them, outside
+    # the nightly window, still ingest at once in the background (the fast lane — a 3-name promote stays
+    # instant). Fail-open toward the pre-X1 kick: a queue fault never costs the write or its names.
+    plan = _plan_lane(conn, thesis_id, DATA_TENANT_ID, new_ids)
+    # THE GLOBAL INGEST CAP (security hardening PR 2): with `Settings.ingest_jobs_max_running` ingests running
+    # across all theses, no new one starts (each holds a connection); the names wait for the staged onboarding
+    # job and the nightly, the same fallback as a spent allowance. Checked before the allowance is spent.
+    if plan.fast and not ingest_jobs.has_room(thesis_id):
+        plan = onboarding.PromotePlan(plan.cold, False, INGEST_AT_CAPACITY)
+    # BOUNDED (security hardening PR 1b): a plain user's fast lane loads every new name at once, so it spends one
+    # `price_pull` unit per name; when today's allowance cannot cover them all, it takes none and the names wait
+    # for the staged onboarding job (cold ones are already queued by the plan) and the nightly. The write itself
+    # never fails over the allowance. A steward is not counted.
+    if plan.fast and not (
+        allowance.exempt(user) or allowance.consume(conn, user.id, "price_pull", n=len(new_ids))
+    ):
+        plan = onboarding.PromotePlan(plan.cold, False, FAST_LANE_ALLOWANCE_SPENT)
+    if plan.fast:
+        try:
+            job = _kick_member_ingest(thesis_id, new_ids, tenant_id=DATA_TENANT_ID)
+        except ingest_jobs.IngestCapReached:  # the last slot went between the check and the kick
+            job = None
+            plan = onboarding.PromotePlan(plan.cold, False, INGEST_AT_CAPACITY)
+        if job is not None:
+            ingest_ref = PromoteIngestRef(job_id=job.job_id, new_members=len(new_ids))
+    if not plan.fast:
+        onboarding_ref = PromoteOnboardingRef(
+            queued=len(plan.cold), new_members=len(new_ids), reason=plan.reason or ""
+        )
+    return ingest_ref, onboarding_ref
 
 
 def _plan_lane(
@@ -1919,98 +1937,6 @@ def _vouched(estimate: float | None, value: float) -> str | None:
         return None
     return (
         "confirmed" if math.isclose(estimate, value, rel_tol=1e-9, abs_tol=1e-9) else "overridden"
-    )
-
-
-@router.post(
-    "/facts/auto-confirm",
-    response_model=AutoConfirmOut,
-    dependencies=[Depends(allowance.charge("auto_confirm"))],
-)
-def auto_confirm_fact(
-    req: AutoConfirmRequest,
-    conn: psycopg.Connection = Depends(get_conn),
-    tenant_id: UUID = Depends(get_workspace),
-    user: CurrentUser = Depends(require_user),
-) -> AutoConfirmOut:
-    """Get-data's platform values (V2 W2b, approved D2 (a)): re-extract the company's filings and hand the result
-    to the MACHINE WRITER (``platform_values.machine.record_extraction``) for BOTH the share count and cash/burn.
-
-    Per value: a clean AUTO value is applied as a fact stamped ``ratified_by="auto"`` when its filing is strictly
-    newer than the value shown (D3 (a): even over a steward's value, unless the steward pinned the company, which
-    turns it into a candidate); a FLAGged value and a "nothing found" are recorded as CANDIDATES for the steward,
-    never as facts (no meter reads them); a value dated after today is never written (D1). Annual filers
-    (20-F/40-F) are read too (``extract_with_annual_fallback``, the extract route's own entry): their values are
-    always FLAG, so they become candidates. The top-level fields answer for the share count, ``cash_burn`` for
-    cash/burn; ``applied=False`` with its ``reason`` is a normal answer, never an error.
-
-    WHY THIS IS NOT A #1/#3 VIOLATION: the written number is the extractor's deterministic reproduction of the
-    filing — never a model output, never an estimate. THE STRUCTURAL BOUND: the request carries NO value; the
-    server re-extracts (cache-first — get-data just warmed it) and writes its OWN parse.
-
-    THE LOCK: the extraction runs with the company FREE (no lock is ever held across an SEC call); the writer then
-    takes the company write lock, waiting at most ``Settings.ingest_lock_request_wait_s``, RE-READS what is on file
-    under it, writes both values in one transaction with the company's change stamp, and commits. Two clicks at
-    once write one value. While another writer holds the company: **409** naming the holder, nothing written. An
-    extraction failure (SEC unreachable, companyfacts missing) is a **502** and writes nothing — it is never
-    recorded as "nothing found".
-
-    BOUNDED (security hardening PR 1b, unchanged in V2 until W3/W7): a plain user may run it only for a company on
-    one of their own cards (else 404, "This company is not on any of your cards. Add it to a card first.") and
-    within their daily auto-confirm allowance (``Settings.allowance_auto_confirm_per_day``, else 429 naming the
-    reset; the security rides in the body, so this route counts the request before the card check). A steward is
-    neither checked nor counted.
-
-    PLATFORM DATA (V2): every row is written under the DATA tenant — one value per company, read by every
-    workspace — never under the caller's workspace.
-    """
-    from app.schemas_api import AutoConfirmPartOut
-    from platform_values.machine import record_extraction
-
-    _require_own_security(conn, user, tenant_id, req.security_id)
-    # the master is DATA (domain.scopes), and so is every value written below (V2)
-    if not master.exists(conn, req.security_id, tenant_id=DATA_TENANT_ID):
-        raise HTTPException(status_code=404, detail="security not in this tenant's master")
-    cik = master.ciks_for(conn, {req.security_id}, tenant_id=DATA_TENANT_ID).get(req.security_id)
-    if not cik:
-        raise HTTPException(status_code=404, detail="no CIK for this security — resolve it first")
-    # END THE READ before calling out (security hardening PR 2): only reads ran on this transaction since the gate's
-    # and the allowance's commits, so the rollback loses nothing, and no request sits idle in a transaction across
-    # the network (the request connection's idle-in-transaction timeout, db.session.connect_request).
-    conn.rollback()
-    client = EdgarClient(allow_live=True)
-    try:
-        result = extract_with_annual_fallback(client, cik)
-    except (
-        Exception
-    ) as exc:  # noqa: BLE001 — SEC unreachable / no UA / parse hiccup -> 502, not a 500; nothing written
-        raise fail(502, SEC_FILINGS_UNREADABLE, exc, user=user) from exc
-    try:
-        outcomes = record_extraction(
-            conn,
-            req.security_id,
-            result,
-            wait_s=get_settings().ingest_lock_request_wait_s,
-            cache_dir=getattr(client, "cache_dir", None),
-            cik=cik,
-        )
-    except CompanyLockBusy as busy:
-        # the holder (pid + session name) is shown to a steward only
-        raise fail(409, COMPANY_BUSY, busy, user=user) from busy
-    # the writer's "flagged" is this route's long-standing "not_auto"; every other reason is the same word
-    reasons = {"flagged": "not_auto"}
-    shares, cash = outcomes["shares_outstanding"], outcomes["cash_burn"]
-    return AutoConfirmOut(
-        applied=shares.applied,
-        reason=reasons.get(shares.reason, shares.reason),
-        fact_id=shares.fact_id,
-        candidate_id=shares.candidate_id,
-        cash_burn=AutoConfirmPartOut(
-            applied=cash.applied,
-            reason=reasons.get(cash.reason, cash.reason),
-            fact_id=cash.fact_id,
-            candidate_id=cash.candidate_id,
-        ),
     )
 
 
