@@ -8,6 +8,7 @@ from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.enums import Grade, Kind, Role
 from domain.signal import SignalEvent
 from domain.thesis import Thesis
+from signals import thesis_catalyst
 from signals.base import SignalPointInTimeData
 from signals.common import entry_signal_is_live, fired_signal, source_provenance
 
@@ -15,15 +16,6 @@ from signals.common import entry_signal_is_live, fired_signal, source_provenance
 # score so an own name out-tiebreaks a theme-armed one on conviction_score too (the is_own axis already
 # orders own-above-theme; this just reinforces it). Confidence is capped at starter_confidence_cap anyway.
 _THEME_SCORE = 0.45
-
-
-def HORIZONS(
-    cfg: CallConfig,
-) -> dict[str, int | None]:  # noqa: N802 — the registry's module-level name
-    """The READ-HORIZON declaration (``signals/horizons.py``) for this THESIS-LEVEL reader: the
-    thesis-scoped theme-conviction tape is read UNBOUNDED (``None``) — liveness selects from the full
-    as-of tape, so no event-time floor may ever be applied."""
-    return {"fact_theme_conviction": None}
 
 
 def _liveness(fact: dict[str, Any], cfg: CallConfig) -> int:
@@ -53,9 +45,15 @@ def detect_fact(
     asof: date,
     cfg: CallConfig = DEFAULT_CONFIG,
 ) -> dict[str, Any] | None:
-    """The only DB-touching step: read the thesis's operator-ratified theme conviction as-of. Returns the
-    live fact, or None when none is ratified / all have expired."""
-    return strongest_live_fact(pit.theme_conviction_facts(thesis_id), asof, cfg)
+    """The thesis's live theme conviction as-of (or None when none counts / all have expired).
+
+    V2 W6c (``docs/CALL_LOGIC.md`` §3c): its source is the card's catalyst list. A counting entry that names no
+    member IS the theme conviction (R4, operator decision N1 (a)); ``fact_theme_conviction`` is read by nothing
+    (its one row was converted by migration 0213, keeping its stated date, N4 (a)). Everything below this read is
+    unchanged: the latest live fact, the theme horizon dial with no cap (N3 (a)), the M5b broadcast.
+    """
+    entries = thesis_catalyst.counting_entries(pit.thesis_catalyst_facts(thesis_id))
+    return strongest_live_fact(thesis_catalyst.whole_card_facts(entries), asof, cfg)
 
 
 def _member_kinds(events: list[SignalEvent], security_id: UUID, kinds) -> list[SignalEvent]:

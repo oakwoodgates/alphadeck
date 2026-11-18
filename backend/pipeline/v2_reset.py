@@ -536,7 +536,7 @@ def preflight(conn: Any, opts: Options, name: str) -> Preflight:
                 "data-tenant purity row(s)"
             )
         elif s.rule == 6:
-            refuse(f"P6 {s.text.split(' - ')[0]} - W6 converts these; none were expected")
+            refuse(f"P6 {s.text.split(' - ')[0]} - nothing converts these; none were expected")
         else:
             refuse(f"P5 rule {s.rule}: {s.text}")
     if not found:

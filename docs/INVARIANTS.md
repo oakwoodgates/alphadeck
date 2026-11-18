@@ -148,8 +148,15 @@ Firings are **re-derived from facts on every read** (no persisted firing layer),
 replay stays honest.
 
 - *Enforced by:* `db/bitemporal.as_of` (security-scoped) + `as_of_thesis` (thesis-scoped, e.g.
-  `fact_theme_conviction`), both delegating to the shared `_as_of`; the append-only DB trigger; the
+  `fact_thesis_catalyst`), both delegating to the shared `_as_of`; the append-only DB trigger; the
   correction-axis test (`tests/ingest/test_pit.py` / the bitemporal tests).
+- *Also honored by (V2 W6, a card's own counting catalyst entries, `docs/CALL_LOGIC.md` §3c):* an operator's
+  entry is public from the instant it was SAVED (`fact_thesis_catalyst.entered_at` = its `recorded_at`, set by
+  the database, the `dated` public-clock kind) and counts from that instant's night (`edgar_night`), never from
+  the date typed on the calendar; a later grade, member or switch edit is a new version from its own night, so
+  no earlier night changes (`tests/pipeline/test_thesis_catalyst_history.py`, the mirror and an editions re-run
+  included). The one named exception: the theme conviction converted by migration 0213 carries no entry time
+  and keeps its stated date (operator decision N4 (a)).
 - *Also honored by (M2):* the per-thesis ingest leaves `recorded_at` to the DB default `now()` — **never
   backdated** — and the daily cron pins `asof=today` / `known_at=now` (a live read), so a fact ingested today
   is invisible to an as-of read pinned at an earlier transaction time (`tests/pipeline/test_ingest_thesis.py`,

@@ -42,6 +42,7 @@ from domain.thesis import BasketMember, Thesis
 from ingest.revenue_mix import ingest_revenue_mix
 from repositories import thesis_repo
 from signals.base import PointInTimeData
+from tests.thesis_catalyst_fixtures import insert_version
 from tests.workspaces import new_workspace
 
 _MIGRATIONS = Path(__file__).resolve().parents[2] / "db" / "migrations"
@@ -396,23 +397,22 @@ def test_a_data_read_ignores_a_row_stored_under_a_workspace(db, two_workspaces):
 
 
 def test_a_workspace_read_ignores_a_row_stored_under_the_data_tenant(db, two_workspaces):
+    """V2 W6c: the thesis-scoped call input is the card's counting catalyst entries (``fact_thesis_catalyst``,
+    which replaced ``fact_theme_conviction`` as the PIT's thesis-scoped call read): W's rows only.
+    """
     _, thesis = two_workspaces
-    for tenant, ref in ((DATA_TENANT_ID, "DATA-STRAY-THEME"), (W, "W-THEME")):
-        append_fact(
+    for tenant, label in ((DATA_TENANT_ID, "DATA-STRAY-ENTRY"), (W, "W-ENTRY")):
+        insert_version(
             db,
-            "fact_theme_conviction",
-            {
-                "tenant_id": tenant,
-                "thesis_id": thesis.id,
-                "grade": "flip",
-                "label": "a theme conviction",
-                "source": "ratified",
-                "source_ref": ref,
-                "valid_from": date(2026, 5, 1),
-            },
+            thesis.id,
+            uuid.uuid4(),
+            at=datetime(2026, 5, 1, 15, tzinfo=timezone.utc),
+            valid_from=date(2026, 5, 1),
+            tenant_id=tenant,
+            label=label,
         )
-    assert [r["source_ref"] for r in _pit(db, W).theme_conviction_facts(thesis.id)] == ["W-THEME"]
-    assert _pit(db, V).theme_conviction_facts(thesis.id) == []  # V sees none of W's rows
+    assert [r["label"] for r in _pit(db, W).thesis_catalyst_facts(thesis.id)] == ["W-ENTRY"]
+    assert _pit(db, V).thesis_catalyst_facts(thesis.id) == []  # V sees none of W's rows
 
 
 def test_fact_exists_honors_the_same_lists(db, two_workspaces):

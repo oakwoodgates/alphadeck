@@ -102,7 +102,7 @@ class _FakePIT:
         # double missing a new protocol method fails only once a reader goes live). No stakes here.
         return []
 
-    def theme_conviction_facts(self, thesis_id: UUID) -> list[dict]:
+    def thesis_catalyst_facts(self, thesis_id: UUID) -> list[dict]:
         return []
 
     def security_name(self, security_id: UUID) -> str | None:

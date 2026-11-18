@@ -43,9 +43,10 @@ CUTOVER_ACTION: dict[str, str] = {
     # data-tenant RATIFIED purity rows are relabeled to the founding workspace (operator decision D2 (a))
     "fact_revenue_mix": "move→founding",
     # W10a: nothing is converted at cutover. Company catalysts are feed rows (a workspace row refuses the apply);
-    # the theme conviction is still a call input until W6 converts it
+    # the theme conviction was converted onto its card's catalyst list by W6 (migration 0213); a workspace company
+    # catalyst cannot be written on v2
     "fact_catalyst": "keep (feed rows; a workspace row refuses)",
-    "fact_theme_conviction": "keep (W6 converts)",
+    "fact_theme_conviction": "keep (retired: converted by W6 0213, read by nothing)",
     # the record restarts at cutover
     "calls": "reset",
     "call_annotation": "reset",
@@ -337,7 +338,8 @@ def surprises(inv: Inventory) -> list[Surprise]:
                             "fact_catalyst",
                             n,
                             f"fact_catalyst: {n} row(s) under workspace {short_id(tenant)} with ratified_by "
-                            f"{label} - V2 converts these to thesis catalysts (W6/W10); none were expected",
+                            f"{label} - nothing converts these (a workspace company catalyst cannot be written on v2); "
+                            "none were expected",
                         )
                     )
         # 7. a data-tenant company catalyst with a ratifier

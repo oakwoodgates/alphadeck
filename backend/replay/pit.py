@@ -159,6 +159,34 @@ _LATE_FACT_TABLES: dict[str, str] = {
 }
 
 
+def _uuid_text(hex_expr: str) -> str:
+    """A DuckDB expression formatting a 32-hex-digit md5 as a canonical uuid string (Postgres ``md5(..)::uuid``)."""
+    parts = ((1, 8), (9, 4), (13, 4), (17, 4), (21, 12))
+    return " || '-' || ".join(f"substr({hex_expr}, {a}, {n})" for a, n in parts)
+
+
+def _fold_theme_conviction(con: duckdb.DuckDBPyConnection, *, public: bool) -> None:
+    """V2 W6c: a mirror exported BEFORE ``fact_thesis_catalyst`` existed still carries its theme conviction in
+    ``fact_theme_conviction``, which the call no longer reads. Convert it here exactly as migration 0213 converts
+    the stored rows (the same entry id ``md5(thesis_id || source_ref)``, a whole-card counting flip entry, the
+    citation = ``source_ref``, relevant until = ``horizon_end``, the source kept, no entry time, the same
+    ``valid_from`` and ``recorded_at``; on a public mirror ``recorded_at`` / ``ingested_at`` copied as exported), so
+    an old frozen mirror replays the theme conviction it held, byte for byte (operator decision N4 (a)).
+    """
+    entry = _uuid_text("md5(thesis_id || source_ref)")
+    row_id = _uuid_text("md5('0213:' || id)")
+    parent = _uuid_text("md5('0213:' || supersedes)")
+    extra_cols, extra_vals = (", ingested_at", ", ingested_at") if public else ("", "")
+    con.execute(f"""INSERT INTO fact_thesis_catalyst
+               (id, tenant_id, thesis_id, entry_id, counts, security_ids, grade, label, citation,
+                relevant_until, source, entered_at, entered_by, valid_from, valid_to, recorded_at,
+                supersedes{extra_cols})
+            SELECT {row_id}, tenant_id, thesis_id, {entry}, true, '[]', grade, label, source_ref, horizon_end,
+                   source, NULL, NULL, valid_from, valid_to, recorded_at,
+                   CASE WHEN supersedes IS NULL THEN NULL ELSE {parent} END{extra_vals}
+              FROM fact_theme_conviction""")
+
+
 def connect_mirror(parquet_dir: str | Path) -> duckdb.DuckDBPyConnection:
     """Open an in-memory DuckDB over the Parquet mirror — one materialized table per fact table. The
     mirror is rebuildable + non-authoritative; this reads it for the fast as-of sweeps.
@@ -180,6 +208,7 @@ def connect_mirror(parquet_dir: str | Path) -> duckdb.DuckDBPyConnection:
     manifest = read_mirror_manifest(base)
     # no manifest -> "assume nothing was excluded", so a genuinely missing file still fails loudly below
     excluded: set[str] = set(manifest.excluded_tables) if manifest else set()
+    late: set[str] = set()  # the late tables this mirror predates (created empty)
     for table in FACT_TABLES:
         if table in excluded:
             continue
@@ -193,9 +222,12 @@ def connect_mirror(parquet_dir: str | Path) -> duckdb.DuckDBPyConnection:
             # exported before the table existed: it held none of its rows (``_LATE_FACT_TABLES``)
             extra = ", ingested_at TIMESTAMPTZ" if manifest.clock == "public" else ""
             con.execute(f"CREATE TABLE {table} ({_LATE_FACT_TABLES[table]}{extra})")
+            late.add(table)
             continue
         path = file.as_posix().replace("'", "''")
         con.execute(f"CREATE TABLE {table} AS SELECT * FROM read_parquet('{path}')")
+    if "fact_thesis_catalyst" in late and "fact_theme_conviction" not in excluded:
+        _fold_theme_conviction(con, public=manifest is not None and manifest.clock == "public")
     # R8-A — the insider-amendment aux tables: ALL present (a mirror exported since they exist — the
     # exporter always writes every one, empty or not) or NONE (a mirror from before; the resolver then has
     # nothing to apply, exactly what that export held). A PARTIAL set is a broken export: loud.
@@ -652,14 +684,12 @@ class ReplayPointInTimeData:
         replay (scalar columns only — no ``_JSON_COLS`` decode needed). Parity-gated row-for-row."""
         return self._as_of("fact_activist_stake", "security_id", security_id)
 
-    def theme_conviction_facts(self, thesis_id: UUID) -> list[dict[str, Any]]:
-        return self._as_of("fact_theme_conviction", "thesis_id", thesis_id)
-
     def thesis_catalyst_facts(self, thesis_id: UUID) -> list[dict[str, Any]]:
         """V2 W6a: the mirror twin of ``repositories.thesis_catalyst_repo.versions_asof``: per catalyst entry,
         the newest version of the card's counting statement visible at this view's ``asof`` / ``known_at`` (on a
         public mirror ``recorded_at`` already IS each version's public instant, ``db.public_clock``).
-        ``security_ids`` is decoded back to a list of uuid strings (``_JSON_COLS``). No call reads it yet (W6c).
+        ``security_ids`` is decoded back to a list of uuid strings (``_JSON_COLS``). The call reads it (W6c,
+        ``signals.thesis_catalyst``); it replaced the mirror's ``theme_conviction_facts``.
         """
         return self._as_of("fact_thesis_catalyst", "thesis_id", thesis_id)
 

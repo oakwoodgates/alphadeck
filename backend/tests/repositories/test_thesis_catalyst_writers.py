@@ -14,7 +14,8 @@ only ``repositories/thesis_catalyst_repo.py`` (``append_version``), where the en
     counting entry).
 
 A STALE allowlist entry fails too (a listed module that no longer matches is removed, never left to cover a future
-one). W6c adds the seed's converted-row writer and migration 0213 here, by name.
+one). W6c added, by name: the seed's converted-row writer (``_CONVERTED_ROW_WRITERS``) and migration 0213
+(``_MIGRATION_WRITERS``: the only migration that inserts into the table).
 """
 
 from __future__ import annotations
@@ -28,6 +29,15 @@ from pathlib import Path
 _BACKEND = Path(__file__).resolve().parents[2]
 _TABLE = "fact_thesis_catalyst"
 _WRITER = "repositories/thesis_catalyst_repo.py"
+# V2 W6c: the ONE converted theme row (operator decision N4 (a)) has no entry time and keeps its stated date, a shape
+# the sole writer's ``append_version`` cannot make (it always stamps the database's now). Its writers, by name:
+_CONVERTED_ROW_WRITERS: dict[str, str] = {
+    "pipeline/seed.py": "seed_nuclear_theme_conviction writes the converted shape on a fresh (dev/test) database",
+    # not a Postgres write: connect_mirror converts an OLD frozen mirror's fact_theme_conviction rows into its
+    # in-memory DuckDB copy of the table, exactly as 0213 does, so the old mirror replays unchanged
+    "replay/pit.py": "_fold_theme_conviction fills an old mirror's in-memory table (DuckDB), never Postgres",
+}
+_MIGRATION_WRITERS = ("0213_v2_theme_conviction_fold.sql",)
 _WRITE = re.compile(
     rf"\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM|TRUNCATE(\s+TABLE)?|COPY)\s+{_TABLE}\b", re.I
 )
@@ -108,7 +118,17 @@ def test_only_the_repository_writes_the_table():
     writers = sorted(
         rel for rel, tree in _product_files() if any(_WRITE.search(s) for s in _strings(tree))
     )
-    assert writers == [_WRITER], f"only {_WRITER} may write {_TABLE}; found {writers}"
+    expected = sorted([_WRITER, *_CONVERTED_ROW_WRITERS])
+    assert writers == expected, f"only {expected} may write {_TABLE}; found {writers}"
+
+
+def test_only_migration_0213_inserts_into_the_table():
+    found = sorted(
+        p.name
+        for p in (_BACKEND / "db" / "migrations").glob("*.sql")
+        if _WRITE.search(p.read_text(encoding="utf-8"))
+    )
+    assert found == list(_MIGRATION_WRITERS)
 
 
 def test_no_module_appends_the_table_through_append_fact():

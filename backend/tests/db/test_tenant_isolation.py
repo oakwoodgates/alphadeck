@@ -46,6 +46,7 @@ from repositories import thesis_repo
 from securities import master
 from signals.base import PointInTimeData
 from signals.horizons import call_bounds
+from tests.thesis_catalyst_fixtures import insert_version
 from tests.workspaces import new_workspace
 from workbench.chain_draft import (
     PlacementStatus,
@@ -184,31 +185,26 @@ def test_read_isolation_both_axes(db):
         )
     ] == ["DATA-0001"]
 
-    # thesis-scoped WORKSPACE axis: W's theme conviction is W's only
+    # thesis-scoped WORKSPACE axis: W's counting catalyst entries are W's only (V2 W6c: the thesis-scoped call
+    # read, which replaced the theme conviction's)
     w_thesis = _thesis(sid, W, "W theme")
     thesis_repo.upsert(db, w_thesis)
-    append_fact(
+    insert_version(
         db,
-        "fact_theme_conviction",
-        {
-            "tenant_id": W,
-            "thesis_id": w_thesis.id,
-            "grade": "flip",
-            "label": "W theme conviction",
-            "source": "ratified",
-            "source_ref": "W-THEME-0001",
-            "valid_from": date(2026, 5, 1),
-        },
+        w_thesis.id,
+        uuid.uuid4(),
+        at=datetime(2026, 5, 1, 15, tzinfo=timezone.utc),
+        valid_from=date(2026, 5, 1),
+        tenant_id=W,
+        label="W-ENTRY-0001",
     )
-    assert [r["source_ref"] for r in _pit(db, W).theme_conviction_facts(w_thesis.id)] == [
-        "W-THEME-0001"
-    ]
-    assert _pit(db, V).theme_conviction_facts(w_thesis.id) == []
+    assert [r["label"] for r in _pit(db, W).thesis_catalyst_facts(w_thesis.id)] == ["W-ENTRY-0001"]
+    assert _pit(db, V).thesis_catalyst_facts(w_thesis.id) == []
     for other in (V, DATA):
         assert (
             as_of_thesis(
                 db,
-                "fact_theme_conviction",
+                "fact_thesis_catalyst",
                 thesis_id=w_thesis.id,
                 asof=_ARM_ASOF,
                 known_at=_KNOWN,

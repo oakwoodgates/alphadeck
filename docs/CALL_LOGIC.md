@@ -65,6 +65,8 @@ almost certainly a property you should be reading instead.
 
 Per `SignalEvent` (see `domain/signal.py`): `detector, security_id, role, kind, type, grade, score, fired, label, alpha_liveness_days, provenance, asof`.
 
+**The card's own counting catalyst entries `[BUILT — V2 W6]`** (`fact_thesis_catalyst`) are a call input of THIS card only: an entry naming members is a catalyst conviction on them, an entry naming none is the card's theme conviction (§3c).
+
 **Signal taxonomy `[SPECIFIED]` (confirmed).** Three orthogonal fields:
 - **`role`** — `entry_trigger` vs `risk_signal`. Only entry triggers can turn the two keys; risk signals feed `counter_case` / `kill_criteria` / setup strength (wire field `confidence`) and never raise readiness.
 - **`kind`** — what produced the signal: `insider | catalyst | technical_breakout | laggard | squeeze | etf_launch | etf_flow | dilution_risk | …` (extensible).
@@ -150,6 +152,7 @@ The lifecycle is a **loop**, not a ratchet: `Incubating → Warming → Armed �
 > with years of runway (OKLO → 2029). **M5b** adds an operator-ratified, thesis-level **theme conviction**
 > that supplies Key 1 as a *fallback* for a confirmed member with no own conviction (a capped, flagged
 > `theme_armed` starter that ranks below own-conviction names within a band); see §3 + `docs/THEME_CONVICTION.md`.
+> Since V2 W6 its source is a whole-card counting entry on the card's catalyst list (§3c).
 
 > **Risk-veto rule `[SPECIFIED]` (confirmed).** A risk signal *reduces setup strength* (wire field `confidence`) and, when severe
 > (e.g. critically short runway / imminent dilution), *blocks the Armed call* even if an entry trigger
@@ -531,7 +534,8 @@ only *coincide* for insider buys, which is exactly why the two conviction source
   core; it routes through the weaker-key path like any flip); liveness = the operator-set **horizon**
   (decoupled from grade, like a catalyst). It arms a member only when the member has its **own** live
   volume-backed (`core`) confirmation and **no** own live conviction (own wins; a lapsed own conviction falls
-  back — the floor). Full rule in `docs/THEME_CONVICTION.md`.
+  back — the floor). Full rule in `docs/THEME_CONVICTION.md`. Since V2 W6 the conviction is a whole-card counting
+  entry on the card's catalyst list (§3c); `fact_theme_conviction` is read by nothing.
 - **`revenue_acceleration` `[built — sig]` — grade-FIXED core, structural (Key 1).** YoY revenue growth's
   second derivative turning positive (re-accelerating for the first time in N quarters) is the structural
   conviction behind the 5–10x — `core` by default (a fundamental inflection is durable). The grade WAS fixed in
@@ -671,6 +675,60 @@ only *coincide* for insider buys, which is exactly why the two conviction source
   strong insider conviction, not a core.
 
 Firing + grade are always a **deterministic parse or an operator ratification — never the LLM** (invariant #3).
+
+### 3c. Thesis catalysts — an operator's catalyst on the card  `[BUILT — V2 W6, operator-signed 2026-11-18]`
+
+A card's catalyst list is the one place an operator enters a catalyst. Each entry is a calendar item (a label, a
+date, a kind) and nothing more, unless the operator makes it count.
+
+**When an entry counts.** Only when the operator turns on "counts toward the call" AND gives it a grade (core or flip)
+AND a citation (a link or an SEC accession number; recorded, not verified). The model never sets any of these: no
+module under `llm/` or `agent_tools/` can reach the store's writer (invariant 3,
+`tests/repositories/test_thesis_catalyst_writers.py`). Entries that existed before V2 are calendar items.
+
+**What it does.**
+- **Naming one or more members:** a Key-1 conviction on each named member, on THIS card only — the same event a
+  platform company catalyst produces (`Kind.CATALYST`, the catalyst detector's own scores: 0.9 core / 0.5 flip). It
+  warms; arming still needs a co-located confirmation on that member; grade, exit-by, setup strength and the gate
+  treat it as any catalyst. It is an own conviction, so the theme conviction skips that member (M5b rule 5). It
+  never reaches another card, even one holding the same company, and never another workspace: each card's
+  detectors read their own point-in-time view (`signals/thesis_catalyst.ThesisCatalystView`, built at the seam from
+  the card's own id).
+- **Naming no member:** the card's theme conviction, exactly as before (M5b, unchanged; operator decision N1 (a),
+  which supersedes the proposal's "warms every voting member"): flip only (a whole-card entry can only be saved as
+  flip), score 0.45, broadcast as a Key-1 fallback onto a voting member that has a live volume-backed (core)
+  confirmation and no conviction of its own; it arms that member as a starter and does nothing for any other
+  member, so it never warms a card on its own. It replaces `fact_theme_conviction`, which nothing reads any more.
+- **Members in Context, ETFs or Bench, and a meta index card:** nothing (they have no vote, §1). No new code:
+  `voting_thesis` removes those rows at the seam before any member is asked for.
+
+**When it counts from (invariant 1).** From the night it was saved — the save instant (the database's `now()`) is its
+public instant and `edgar_night` maps it to a night (a save before 06:00 ET belongs to the previous weekday's night) —
+never from the date typed on the calendar. An edit that changes the grade or the members, or turns it on, counts
+from the edit; an edit of the label, citation or relevant-until date keeps its night. Turning it off stops it from
+that night on. Every history view, the mirror and every edition re-run read the version that had been saved by the
+night they show, so no earlier night changes. **One exception, by name (operator decision N4 (a)):** the theme
+conviction seeded before V2 on the "Small-scale nuclear (system)" card keeps its stated date, 2026-01-15 (migration
+0213 converts it with no entry time, so it counts from 06:00 ET of that date, as it always did; a mirror frozen
+before the fold converts it the same way when it is opened).
+
+**How long it stays live.** To its "relevant until" date if set (capped by `catalyst_max_horizon_days` when that dial
+is set), else `catalyst_default_horizon_days` (365). A whole-card entry uses `theme_conviction_default_horizon_days`
+(365), uncapped, as before (N3 (a)).
+
+**With a platform catalyst on the same member.** The stronger counts, as among several platform catalysts: core over
+flip, then the later night; on a full tie, the platform's (N6 (a)). The trigger carries the other (the strongest
+live one of the other origin) as a second source marked "also live, not counted" (`detail.also_live`, with its
+label; N7 (a)); it changes nothing else.
+
+**Where it came from.** A trigger from an operator entry carries the provenance source `thesis_catalyst`, its
+citation as the ref and `{entry_id, counts_from}` in the detail; the recorded card gains no field (N8 (a)). The API
+response derives `origin` (`operator` / `platform`) from it for each catalyst and theme trigger. The Scoreboard is
+unchanged: it scores every call as before.
+
+Code: `signals/thesis_catalyst.py`, `signals/catalyst_conviction.py`, `signals/theme_conviction.py`,
+`pipeline/core.py`; store `fact_thesis_catalyst` (migration 0212; the theme row converted by 0213); writer
+`repositories/thesis_catalyst_repo.py`. Declared in `domain/rule_log.py` (`2026-11-v2-thesis-catalysts-count`).
 
 ## 4. Verdict mapping  `[PINNED]`
 

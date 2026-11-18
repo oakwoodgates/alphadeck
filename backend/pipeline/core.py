@@ -8,7 +8,7 @@ from domain.call import CallCard
 from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.signal import SignalEvent
 from domain.thesis import Thesis, voting_thesis
-from signals import laggard, registered_detectors, split_hold, theme_conviction
+from signals import laggard, registered_detectors, split_hold, theme_conviction, thesis_catalyst
 from signals.base import SignalPointInTimeData
 
 
@@ -34,6 +34,13 @@ def assemble_from_pit(
     goes on the card's ``missing[]`` for as long as it holds, naming the triggers it withheld (held is never
     silent, #6). No hold = the stream and the card are exactly what they were before S5.
 
+    **The card's own catalyst entries (V2 W6c, ``docs/CALL_LOGIC.md`` §3c)** are read HERE, once, after
+    ``voting_thesis``: the counting entries of THIS card (``pit.thesis_catalyst_facts(thesis.id)``) wrap the view
+    in ``signals.thesis_catalyst.ThesisCatalystView``, so the catalyst detector sees an entry naming a member as
+    one more company catalyst on that member (R3: this card only), and a whole-card entry is the theme conviction
+    the M5b broadcast reads (R4). The detectors, their registry and their signature are unchanged; a card with no
+    counting entry reads exactly the view it was given. An entry naming a silent member is never asked for (R10).
+
     **The call reads only the VOTING names.** A company in the thesis's Context, ETFs or Bench link is on the
     card and visible, but it never counts toward the call: ``voting_thesis`` removes those rows HERE, at the
     one seam, and everything below — the per-member detectors, the split-night hold and its ``missing[]``
@@ -52,6 +59,11 @@ def assemble_from_pit(
     thesis = voting_thesis(
         thesis
     )  # Context / ETFs / Bench rows never reach a detector or the assembler
+    # V2 W6c: THIS card's counting catalyst entries reach its detectors through its own view (a card with none
+    # reads the view it was given, untouched)
+    entries = thesis_catalyst.counting_entries(pit.thesis_catalyst_facts(thesis.id))
+    if entries:
+        pit = thesis_catalyst.ThesisCatalystView(pit, entries)
     holds = split_hold.find_holds(pit, thesis, asof)
     held_view = split_hold.HeldPriceView(pit, holds) if holds else pit
     # security -> the price-path triggers the hold WITHHELD there (every held member has a line: [] reads
@@ -78,7 +90,8 @@ def assemble_from_pit(
             if event is not None:
                 events.append(event)
 
-    # M5b — an operator-ratified, thesis-level theme conviction supplies Key 1 as a FALLBACK: broadcast it
+    # M5b — the card's theme conviction (since V2 W6c: a counting catalyst entry naming no member, §3c) supplies
+    # Key 1 as a FALLBACK: broadcast it
     # onto each eligible member (a live volume-backed confirmation, no own conviction) as a flip-capped
     # conviction event. Runs AFTER the per-member loop because eligibility reads the assembled member
     # stream; from here the assembler treats the broadcast events as ordinary convictions (no arming change).

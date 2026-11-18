@@ -63,6 +63,8 @@ def insert_version(
     grade: str = "flip",
     tenant_id: uuid.UUID = DEFAULT_TENANT_ID,
     label: str = "DOE loan",
+    citation: str = "https://example.com/doe",
+    relevant_until: date | None = None,
 ) -> uuid.UUID:
     """A TEST-ONLY version at a fixed instant (the precedent of the other public-clock tests): the sole writer
     stamps the database's ``now()``, which a test cannot place at a night boundary."""
@@ -70,20 +72,22 @@ def insert_version(
         cur.execute(
             """INSERT INTO fact_thesis_catalyst
                    (tenant_id, thesis_id, entry_id, counts, security_ids, grade, label, citation, source,
-                    entered_at, valid_from, recorded_at)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, 'https://example.com/doe', 'thesis_catalyst', %s, %s, %s)
+                    entered_at, valid_from, recorded_at, relevant_until)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'thesis_catalyst', %s, %s, %s, %s)
                RETURNING id""",
             (
                 tenant_id,
                 thesis_id,
                 entry_id,
                 counts,
-                security_ids or [],
+                sorted(security_ids or []),
                 grade,
                 label,
+                citation,
                 at,
                 valid_from,
                 at,
+                relevant_until,
             ),
         )
         return cur.fetchone()["id"]
