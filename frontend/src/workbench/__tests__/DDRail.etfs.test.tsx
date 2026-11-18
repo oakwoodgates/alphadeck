@@ -16,7 +16,6 @@ import { ETFS, SILENT_DESCRIPTORS } from "../useChainDraft";
 
 // the hook-using panels aren't under test here; the fund branch's SleeveRail is stubbed to render only the
 // controls the rail hands it (its holdings pull + display-signals reads are its own tests' business)
-vi.mock("../CatalystFactForm", () => ({ CatalystFactForm: () => null }));
 vi.mock("../FactsPanel", () => ({ FactsPanel: () => null }));
 vi.mock("../SharedValues", () => ({ SharedValues: () => null }));
 vi.mock("../SleeveRail", () => ({

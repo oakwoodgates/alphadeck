@@ -1394,6 +1394,33 @@ export function usePutCatalysts(thesisId: string) {
   });
 }
 
+// --- V2 W6d: make a calendar row COUNT toward the call (the counting route) ---
+// One PUT per statement: switch on / change / switch off. The server answers the saved ThesisDetail, which replaces
+// the cached one; the card's call read is invalidated so it re-renders. The body is exactly CatalystCountingIn
+// (the server refuses any other key).
+export type CatalystCountingIn = components["schemas"]["CatalystCountingIn"];
+export type CatalystCountingOut = components["schemas"]["CatalystCountingOut"];
+
+export function useCatalystCounting(thesisId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (v: { entryId: string; body: CatalystCountingIn }) => {
+      const { data, error } = await api.PUT("/theses/{thesis_id}/catalysts/{entry_id}/counting", {
+        params: { path: { thesis_id: thesisId, entry_id: v.entryId } },
+        body: v.body,
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (data) => {
+      qc.setQueryData(["thesis", thesisId], data); // the server's answer IS the saved card
+      qc.invalidateQueries({ queryKey: ["call", thesisId] }); // the call re-reads
+      invalidateDashboards(qc);
+    },
+  });
+}
+// --- end V2 W6d ---
+
 // --- the SPAC Radar (slices 1+2): the tape read + the reversible act-ons ---
 
 export type RadarSpacOut = components["schemas"]["RadarSpacOut"];

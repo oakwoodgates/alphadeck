@@ -129,6 +129,9 @@ export function CatalystEditor({
           cancel
         </button>
       </div>
+      {rows.some((r) => !r.id) && (
+        <div className="cc-hint">Save the calendar to make an entry count toward the call.</div>
+      )}
       {put.isError && <div className="note err">Couldn't save — {errText(put.error)}.</div>}
     </div>
   );
