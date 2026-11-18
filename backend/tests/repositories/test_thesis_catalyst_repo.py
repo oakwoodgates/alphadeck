@@ -11,12 +11,13 @@ from __future__ import annotations
 
 import inspect
 import uuid
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 import pytest
 
 from repositories import thesis_catalyst_repo as repo
-from tests.thesis_catalyst_fixtures import card, count
+from tests.thesis_catalyst_fixtures import card, count, insert_version
 
 _FAR = date(2100, 1, 1)
 _PAST = date(2000, 1, 1)
@@ -195,3 +196,36 @@ def test_the_writer_refuses_what_the_rule_does_not_allow(db):
     # the members check accepts every member of the card
     assert _save(db, tid, entry, grade="core", security_ids=sids) is not None
     assert other_tid != tid
+
+
+def test_an_edit_keeps_or_moves_an_earlier_night_by_the_rule(db):
+    """Across nights (the first version saved at a fixed past instant, a test-only insert): a label, citation or
+    relevant-until edit keeps that night; a grade or members edit, or a switch back on, counts from tonight.
+    """
+    tid, sids, entry = card(db)
+    past = datetime(2026, 6, 3, 10, tzinfo=ZoneInfo("America/New_York"))
+    insert_version(
+        db, tid, entry, at=past, valid_from=date(2026, 6, 3), security_ids=[sids[0]], grade="flip"
+    )
+    db.commit()
+    state: dict = {
+        "grade": "flip",
+        "security_ids": [sids[0]],
+        "citation": "https://example.com/doe",
+    }
+    for change in (
+        {"label": "renamed"},
+        {"citation": "https://example.com/b"},
+        {"relevant_until": _FAR},
+    ):
+        state.update(change)
+        assert _save(db, tid, entry, **state) is not None
+        _new_transaction(db)
+        assert _versions(db, tid, entry)[-1]["valid_from"] == date(2026, 6, 3), change
+    for change in ({"grade": "core"}, {"security_ids": [sids[0], sids[1]]}):
+        state.update(change)
+        assert _save(db, tid, entry, **state) is not None
+        _new_transaction(db)
+        v = _versions(db, tid, entry)[-1]
+        assert v["valid_from"] == repo.entry_night(v["recorded_at"]) != date(2026, 6, 3), change
+    assert count(db) == 6
