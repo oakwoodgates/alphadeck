@@ -995,6 +995,16 @@ describe("ChainEditor — TRIAGE include-controls (the prune)", () => {
     expect(screen.queryByText("✓ fundamentals")).not.toBeInTheDocument();
     expect(screen.getByText(/Surface your shortlist/)).toBeInTheDocument();
   });
+
+  it("V2 W5e: the hint and the placed-name note speak the new world (no get-data, no extract → ratify)", () => {
+    const { container } = render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
+    const hint = screen.getByText(/Surface your shortlist/);
+    // purity is the user's task; the share count and cash arrive from the platform
+    expect(hint).toHaveTextContent("set its purity in the rail");
+    expect(hint).toHaveTextContent("share count and cash arrive from the platform");
+    expect(container.textContent).not.toMatch(/get data|⇣|extract → ratify|extract -> ratify/i);
+    expect(container.textContent).toMatch(/a placed name is unscored until its purity is set/);
+  });
 });
 
 describe("ChainEditor — Workbench FE polish (items 2–6)", () => {
