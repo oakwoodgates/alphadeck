@@ -375,6 +375,7 @@ def test_identity_for_derives_origin_from_stored_ingredients(db):
         "business_type_override",
         "royalty",
         "instrument_kind",
+        "runway_applies",  # the runway rule (V2 C1), derived on read from the same sector
     }
 
 
@@ -409,6 +410,7 @@ def test_identity_for_still_carries_the_enrichment_strings(db):
         "business_type_override": None,  # no re-tag stored -> classified by the maps
         "royalty": False,
         "instrument_kind": "equity",
+        "runway_applies": True,  # a utility: runway applies (V2 C1)
     }
 
 
