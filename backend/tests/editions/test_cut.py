@@ -27,10 +27,23 @@ from db.clock import db_now
 from db.session import DEFAULT_TENANT_ID
 from domain import rule_log
 from domain.rule_log import RuleEntry
+from domain.thesis import BasketMember
 from editions.nightly import run_nightly
+from editions.run import run_publish
+from pipeline.call_for_thesis import call_for_thesis
 from repositories import data_repair_repo, editions_repo, thesis_repo
-from tests.editions.fixtures import seed_big_buy
-from tests.editions.test_nightly import END, _counts, _published
+from tests.calls.factories import make_thesis
+from tests.editions.fixtures import seed_big_buy, seed_tape
+from tests.editions.test_engine import _entry, real_roster
+from tests.editions.test_nightly import (
+    BUY_STORED,
+    CUT_NIGHT,
+    END,
+    JOIN,
+    _counts,
+    _fake_derive,
+    _published,
+)
 
 _REAL_ONE_PER_NIGHT = cut.one_per_night_refusal  # kept before the autouse fixture replaces it
 
@@ -679,3 +692,132 @@ def test_the_manual_cli_is_a_dry_run_by_default(db, security_id, tmp_path, monke
     out = capsys.readouterr().out
     assert "trial (dry run): the rules changed no page" in out
     assert _counts(db) == before
+
+
+# --- after the V2 reset: the platform's repairs, an empty store, a one-night store (W8a) ----------------------
+
+
+def _workspace(db, label: str) -> uuid.UUID:
+    wid = uuid.uuid4()
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO tenant (id, name, kind) VALUES (%s, %s, 'workspace')", (wid, label)
+        )
+    db.commit()
+    return wid
+
+
+def _card_in(db, workspace: uuid.UUID, security_id: uuid.UUID) -> uuid.UUID:
+    card = make_thesis(
+        id=uuid.uuid4(),
+        tenant_id=workspace,
+        basket=[BasketMember(ticker="DEVCO", role="Lead developer", security_id=security_id)],
+    )
+    thesis_repo.upsert(db, card)
+    db.commit()
+    return card.id
+
+
+def _publish_for(db, workspace, thesis_id, security_id, monkeypatch, tmp_path, **kw) -> None:
+    roster = real_roster(db, thesis_id)
+    _fake_derive(
+        monkeypatch, [roster], {thesis_id: {security_id: _entry(thesis_id, security_id, JOIN)}}
+    )
+    run_publish(db, tmp_path / "publish", apply=True, tenant_id=workspace, **kw)
+
+
+def test_a_platform_repair_journaled_under_the_data_tenant_starts_a_trial_for_a_workspace_edition(
+    db, security_id, tmp_path, monkeypatch
+):
+    """Finding 14: every repair CLI journals under the DATA tenant (the data every workspace reads), but the
+    cut read the journal under the workspace only, so a workspace's edition never saw a repair. The cut now
+    reads the workspace's rows AND the data tenant's — and never another workspace's."""
+    w = _workspace(db, "repair reader")
+    other = _workspace(db, "someone else")
+    tid = _card_in(db, w, security_id)
+    seed_tape(db, security_id)
+    seed_big_buy(db, security_id, recorded_at=BUY_STORED)
+    db.commit()
+    _publish_for(db, w, tid, security_id, monkeypatch, tmp_path, end=CUT_NIGHT)
+    ed = editions_repo.current_edition(db, tenant_id=w)
+    db.commit()
+    assert ed is not None and ed.number == 1
+
+    data_repair_repo.journal(db, tool="repair_test", summary="a platform repair", rows_changed=3)
+    data_repair_repo.journal(
+        db,
+        tool="repair_test",
+        summary="another workspace's repair",
+        rows_changed=2,
+        tenant_id=other,
+    )
+    events = cut.detect(db, ed, tenant_id=w)
+    db.commit()
+    assert [r.summary for r in events.repairs] == ["a platform repair"]
+    assert [r.summary for r in events.seen] == ["a platform repair"]
+    assert events.any and not events.rules
+
+
+def test_the_nightly_and_the_cut_on_an_empty_store_do_nothing_and_say_so(
+    db, security_id, tmp_path, monkeypatch, capsys
+):
+    """The first night after the reset: a workspace with a live card, no call on record, no edition. The
+    nightly adds no page, the cut tries nothing, each says so in one line, the CLIs return (exit 0), and no
+    row is written anywhere."""
+    from editions.run import main
+
+    w = _workspace(db, "empty store")
+    _card_in(db, w, security_id)
+    before = _counts(db)
+    assert before["calls"] == 0 and before["edition"] == 0
+
+    r = _nightly(db, tmp_path, tenant_id=w)
+    assert r.status == "done" and r.edition is None and r.n_pages == 0
+    assert r.admin_line() == "Editions · no open edition to add pages to"
+    c = cut.run_cut(
+        db,
+        apply=True,
+        known_by=db_now(db),
+        end=None,
+        tenant_id=w,
+        work_dir=tmp_path / "cut",
+        workers=1,
+    )
+    assert (
+        c.status == "no_edition" and c.line() == "Editions · nothing published yet, nothing to try"
+    )
+
+    monkeypatch.chdir(tmp_path)
+    main(["cut", "--workers", "1", "--workspace", str(w)])
+    main(["nightly", "--end", END.isoformat(), "--workspace", str(w)])
+    out = capsys.readouterr().out.splitlines()
+    assert out == [
+        "Editions · nothing published yet, nothing to try",
+        "Editions · no open edition to add pages to",
+    ]
+    assert _counts(db) == before
+
+
+def test_a_one_night_store_publishes_through_its_night_and_the_nightly_adds_nothing_before_it(
+    db, security_id, tmp_path, monkeypatch
+):
+    """The workspace's record holds ONE night. Edition 1 publishes through that night (its own, found without
+    ``--end``); the nightly then appends no page (the edition already holds the night) and the cut finds no
+    event — no page is added for any night before the record's start."""
+    w = _workspace(db, "one night")
+    tid = _card_in(db, w, security_id)
+    seed_tape(db, security_id)
+    seed_big_buy(db, security_id, recorded_at=BUY_STORED)
+    db.commit()
+    call_for_thesis(db, tid, END, record=True, run_kind="cron", workspace=w)
+    db.commit()
+    _publish_for(db, w, tid, security_id, monkeypatch, tmp_path)
+    ed = editions_repo.current_edition(db, tenant_id=w)
+    db.commit()
+    assert ed.number == 1 and ed.last_night == END
+    pages = _pages_of(db, ed.id)
+
+    r = _nightly(db, tmp_path, tenant_id=w)
+    assert r.cut["status"] == "no_event" and r.n_pages == 0
+    assert "up to date through Jul 10" in r.admin_line()
+    assert _pages_of(db, ed.id) == pages  # nothing appended, before the start or after it

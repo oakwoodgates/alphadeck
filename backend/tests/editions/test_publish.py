@@ -7,6 +7,7 @@ and after every step and never moves. The stored pages are the engine's own card
 
 from __future__ import annotations
 
+import uuid
 from datetime import date, datetime, timezone
 
 import pytest
@@ -14,10 +15,12 @@ import pytest
 import editions.engine as engine
 import editions.run as run
 from db.session import DEFAULT_TENANT_ID
+from domain.thesis import BasketMember
 from editions.run import PublishRefused, load_run, main, run_publish
 from pipeline.call_for_thesis import call_for_thesis
-from repositories import editions_repo
+from repositories import editions_repo, thesis_repo
 from repositories.calls_repo import _canonical
+from tests.calls.factories import make_thesis
 from tests.editions.fixtures import seed_big_buy, seed_tape
 from tests.editions.test_engine import _entry, real_roster
 from tests.scoreboard.helpers import persist_thesis
@@ -206,3 +209,117 @@ def test_publish_rejects_an_empty_or_malformed_edition(db):
         editions_repo.publish_edition(db, number=1, causes=["whim"], pages=[], **common)
     db.rollback()
     assert _counts(db)["edition"] == 0
+
+
+# --- after the V2 reset: an empty store, a workspace with no cards, a workspace's own last night (W8a) ------
+
+NO_NIGHT = (
+    "REFUSED: this workspace has no nightly call on record yet; publish Edition 1 after its first nightly "
+    "run. Nothing was run or written."
+)
+NO_CARDS = "REFUSED: this workspace has no live cards; there is nothing to re-run. Nothing was run or written."
+
+
+def _workspace(db, label: str) -> uuid.UUID:
+    wid = uuid.uuid4()
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO tenant (id, name, kind) VALUES (%s, %s, 'workspace')", (wid, label)
+        )
+    db.commit()
+    return wid
+
+
+def _spy_trial(monkeypatch) -> list:
+    ran: list = []
+    real = run.run_trial
+
+    def spy(*a, **k):
+        ran.append(1)
+        return real(*a, **k)
+
+    monkeypatch.setattr(run, "run_trial", spy)
+    return ran
+
+
+def test_publish_on_an_empty_store_is_refused_with_a_sentence(
+    db, security_id, tmp_path, monkeypatch, capsys
+):
+    """The first V2 publish before any nightly: a live card, an empty calls log. Refused in one sentence
+    before the engine runs (never a ``LookupError`` traceback); the CLI prints it and exits 2."""
+    persist_thesis(db, security_id)
+    start = _counts(db)
+    assert start["calls"] == 0
+    ran = _spy_trial(monkeypatch)
+    with pytest.raises(PublishRefused) as exc:
+        run_publish(db, tmp_path / "empty", apply=True)
+    assert str(exc.value) == NO_NIGHT
+    assert ran == [] and not (tmp_path / "empty").exists()
+    assert _counts(db) == start
+
+    with pytest.raises(SystemExit) as cli:
+        main(
+            [
+                "publish",
+                "--apply",
+                "--out",
+                str(tmp_path / "cli"),
+                "--workspace",
+                str(DEFAULT_TENANT_ID),
+            ]
+        )
+    assert cli.value.code == 2
+    assert capsys.readouterr().out.strip() == NO_NIGHT
+    assert ran == [] and _counts(db) == start
+
+
+def test_publish_for_a_workspace_with_no_cards_is_refused_before_the_run(
+    db, security_id, tmp_path, monkeypatch
+):
+    """Another workspace has a card and a recorded night; this one has only an ARCHIVED card. Refused before
+    the run (today the whole trial ran, then the store raised ``ValueError``), with or without ``--end``.
+    """
+    _seed(db, security_id, monkeypatch)  # the data tenant's card and its night
+    w = _workspace(db, "no live cards")
+    parked = make_thesis(
+        id=uuid.uuid4(),
+        tenant_id=w,
+        basket=[BasketMember(ticker="DEVCO", role="Lead developer", security_id=security_id)],
+    )
+    thesis_repo.upsert(db, parked)
+    thesis_repo.set_archived(db, parked.id, True)
+    db.commit()
+    start = _counts(db)
+    ran = _spy_trial(monkeypatch)
+    for end in (None, NIGHT):
+        with pytest.raises(PublishRefused) as exc:
+            run_publish(db, tmp_path / f"w-{end}", apply=True, end=end, tenant_id=w)
+        assert str(exc.value) == NO_CARDS
+    assert ran == [] and _counts(db) == start
+
+
+def test_the_last_recorded_night_is_the_workspaces_own(db, security_id, tmp_path, monkeypatch):
+    """The data tenant recorded ``NIGHT``; workspace W has a live card and no night. W's publish is refused
+    (today it ran through the OTHER tenant's night), and once W records an earlier night of its own, that is
+    W's last night — never the data tenant's later one."""
+    _seed(db, security_id, monkeypatch)
+    w = _workspace(db, "its own night")
+    card = make_thesis(
+        id=uuid.uuid4(),
+        tenant_id=w,
+        basket=[BasketMember(ticker="DEVCO", role="Lead developer", security_id=security_id)],
+    )
+    thesis_repo.upsert(db, card)
+    db.commit()
+    ran = _spy_trial(monkeypatch)
+    with pytest.raises(PublishRefused) as exc:
+        run_publish(db, tmp_path / "w", tenant_id=w)
+    assert str(exc.value) == NO_NIGHT and ran == []
+
+    own = date(2026, 7, 8)
+    call_for_thesis(db, card.id, own, record=True, run_kind="cron", workspace=w)
+    db.commit()
+    now = datetime.now(timezone.utc)
+    assert engine.latest_recorded_night(db, known_by=now, tenant_id=w) == own
+    assert engine.latest_recorded_night(db, known_by=now, tenant_id=DEFAULT_TENANT_ID) == NIGHT
+    db.commit()
