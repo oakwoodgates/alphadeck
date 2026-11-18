@@ -20,6 +20,8 @@ THE DATA IS NOT IN THIS MODULE. The maps live beside it as operator-editable fil
 - ``supersectors.csv``     — leaf -> super-sector (must be TOTAL over ``BusinessType``)
 - ``royalty_patterns.txt`` — the overlay's company-name regexes
 - ``overrides.csv``        — string-/ticker-level preference exceptions (e.g. ERII)
+- ``runway_not_meaningful.csv`` — the SIC strings and tickers a runway means nothing for (V2 C1:
+  banks, brokers, exchanges, insurers, asset managers, lenders, fund trusts); ``runway_applies``
 
 This module LOADS + VALIDATES them at import: an unknown leaf/super, a duplicate key, or a gap in
 the super map raises immediately (fail LOUD on drift — a broken data file must never resolve
@@ -172,11 +174,54 @@ def load_overrides(
     return by_ticker, by_sic
 
 
+def load_runway_not_meaningful(path: Path) -> tuple[frozenset[str], frozenset[str]]:
+    """``runway_not_meaningful.csv`` -> ({TICKER}, {normalized SIC}): the companies a runway means nothing for.
+    ``kind`` is ``ticker`` (one company) or ``sic`` (every company with that SIC description); the note column is
+    for humans. Validated like ``overrides.csv``: a bad kind, an empty or duplicate key fails loudly.
+    """
+    tickers: set[str] = set()
+    sics: set[str] = set()
+    for lineno, row in _data_rows(path, ["kind", "key", "note"]):
+        if len(row) != 3:
+            raise ValueError(f"{path.name}:{lineno}: expected 3 columns, got {len(row)}")
+        kind, key, _note = row
+        if kind == "ticker":
+            k, seen = key.strip().upper(), tickers
+        elif kind == "sic":
+            k, seen = norm_sic(key), sics
+        else:
+            raise ValueError(f"{path.name}:{lineno}: kind must be 'ticker' or 'sic', got {kind!r}")
+        if not k or k in seen:
+            raise ValueError(f"{path.name}:{lineno}: empty or duplicate {kind} key {key!r}")
+        seen.add(k)
+    return frozenset(tickers), frozenset(sics)
+
+
 # --- loaded ONCE at import; any drift in the data files fails loudly right here -------------------
 SUB_TYPE_BY_SIC, ROYALTY_SICS = load_sic_map(_DATA_DIR / "sic_map.csv")
 SUPER_BY_SUB = load_supersectors(_DATA_DIR / "supersectors.csv")
 ROYALTY_PATTERNS = load_royalty_patterns(_DATA_DIR / "royalty_patterns.txt")
 TICKER_OVERRIDES, SIC_OVERRIDES = load_overrides(_DATA_DIR / "overrides.csv")
+RUNWAY_NA_TICKERS, RUNWAY_NA_SICS = load_runway_not_meaningful(
+    _DATA_DIR / "runway_not_meaningful.csv"
+)
+
+
+def runway_applies(*, sector: str | None, ticker: str | None, instrument_kind: str | None) -> bool:
+    """THE RUNWAY RULE (V2 C1): does a runway (cash divided by quarterly burn) mean anything for this company?
+    ``False`` for a fund (``instrument_kind == "etf"``), a ticker listed in ``runway_not_meaningful.csv`` or a
+    company whose SIC description (``sector``) is listed there: a bank, insurer, broker, exchange, asset manager,
+    lender or fund trust, whose operating cash flow moves with customer money, loans or fund flows. ``True``
+    otherwise, including when nothing is known (no SIC, an unmapped string): runway applies by default, so
+    nothing disappears by accident. Pure; keyed on the SIC string, never on the business-type leaf (the finance
+    leaf also holds crypto miners, whose runway is real). Every screen that shows a runway asks this one function
+    (the Workbench scoring, the Peer Table, the user's shared-values read); display only, never a call input.
+    """
+    if instrument_kind == "etf":
+        return False
+    if ticker and ticker.strip().upper() in RUNWAY_NA_TICKERS:
+        return False
+    return not (sector and norm_sic(sector) in RUNWAY_NA_SICS)
 
 
 class BusinessTypeRead(NamedTuple):

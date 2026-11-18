@@ -465,3 +465,20 @@ describe("the work lines", () => {
     expect(rosterWords(1)).toContain("stands in for it");
   });
 });
+
+describe("runway does not apply (V2 C1)", () => {
+  it("reads n/a with the sentence and the stored cash on hover; its own blank words", () => {
+    const note = "Runway does not apply to this kind of company (a bank, insurer, broker, exchange, asset manager, lender or fund trust): its cash moves with customer money, loans or fund flows, not with spending.";
+    const c = runwayCell({
+      ...AAA.runway,
+      months: null,
+      gap: "not_applicable",
+      note,
+    });
+    expect(c.text).toBe("n/a");
+    expect(c.gray).toBe(false);
+    expect(c.title).toContain(note);
+    expect(c.title).toContain("cash $12.0M, burn $3.0M per quarter");
+    expect(GAP_WORDS.not_applicable).toBe("runway does not apply to this kind of company");
+  });
+});

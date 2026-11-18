@@ -3959,3 +3959,45 @@ def test_ratify_and_the_retag_each_move_the_companys_change_stamp(client, db):
     assert r.status_code == 200
     seen.append(_stamp(db, sid))
     assert None not in seen and seen == sorted(set(seen))  # each write drew a new, later seq
+
+
+# --- "runway does not apply" (V2 C1) ------------------------------------------------------------------------------
+
+
+def _set_sector(db, security_id, sector) -> None:
+    with db.cursor() as cur:
+        cur.execute("UPDATE security_master SET sector=%s WHERE id=%s", (sector, security_id))
+    db.commit()
+
+
+def test_scored_runway_does_not_apply_to_an_investment_adviser(client, db, security_id):
+    """An "Investment Advice" company: no runway pips or months, the not-applicable provenance with the sentence,
+    its cash and burn still on the figure; the fit carries no funding risk."""
+    from platform_values import words
+
+    _set_sector(db, security_id, "Investment Advice")
+    tid = _scored_thesis(db, security_id)
+    m = client.get(f"/workbench/theses/{tid}/scored", params={"asof": "2026-06-02"}).json()[
+        "members"
+    ][0]
+    assert m["runway"]["pips"] is None and m["runway"]["value"] is None
+    fact, na = m["runway"]["provenance"]
+    assert (
+        fact["detail"]["cash_usd"] == 500_000_000
+        and fact["detail"]["quarterly_burn_usd"] == 25_000_000
+    )
+    assert (na["ref"], na["detail"]["note"]) == (
+        "runway:not-applicable",
+        words.RUNWAY_NOT_APPLICABLE,
+    )
+    assert m["fit"] == "pure-play"
+
+
+def test_scored_runway_is_unchanged_for_a_crypto_miner(client, db, security_id):
+    _set_sector(db, security_id, "Finance Services")
+    tid = _scored_thesis(db, security_id)
+    m = client.get(f"/workbench/theses/{tid}/scored", params={"asof": "2026-06-02"}).json()[
+        "members"
+    ][0]
+    assert m["runway"]["pips"] == 4 and m["runway"]["value"] == 60.0
+    assert [p["ref"] for p in m["runway"]["provenance"]] == ["10-Q"]

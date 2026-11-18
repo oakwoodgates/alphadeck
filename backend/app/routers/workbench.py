@@ -210,11 +210,16 @@ def read_scored(
         bounds=scored_bounds(),
         clock=clock,
     )
-    scored = score_thesis(pit, thesis)
+    # the master identity first: it carries the runway rule's answer per company (V2 C1, ``runway_applies``,
+    # derived in ``identity_for``), which the scorer needs; a company with no master row keeps its runway
+    ident_for = master.identity_for(conn, basket, tenant_id=DATA_TENANT_ID)
+    runway_na = frozenset(
+        sid for sid, ident in ident_for.items() if not ident.get("runway_applies", True)
+    )
+    scored = score_thesis(pit, thesis, runway_na=runway_na)
     sec_ids = {m.security_id for m in scored}
     cik_for = master.ciks_for(conn, sec_ids, tenant_id=DATA_TENANT_ID)
     ticker_for = master.tickers_for(conn, sec_ids, tenant_id=DATA_TENANT_ID)
-    ident_for = master.identity_for(conn, sec_ids, tenant_id=DATA_TENANT_ID)
     # #1 thin-history DATA-HEALTH flag (derive-on-read, structurally OUT of the call path): count each name's
     # stored EOD bar-dates in the trailing year at ``asof`` (a name with 0 bars is simply absent from the map
     # -> 0 -> thin, covering the resolver's blind spots). Display-only, never a call input.

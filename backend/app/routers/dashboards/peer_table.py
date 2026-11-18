@@ -187,6 +187,8 @@ class PeerRunwayOut(_Wire):
     or negative (no finite figure). ``as_of`` = the fact's date. The year-to-date pace beside it (V2 extractor
     correctness PR 3): ``ytd_quarterly_burn_usd`` (burn sign), ``ytd_months`` (None when that pace generates cash)
     and ``pace_caveat`` (only when last quarter is far off that pace); all None when the fact's note has no pace.
+    Gap ``not_applicable`` (V2 C1): a runway means nothing for this kind of company (a bank, insurer, broker,
+    exchange, asset manager, lender or fund trust); ``note`` says so, the stored cash and burn stay, no months or pace.
     """
 
     months: float | None
@@ -204,6 +206,8 @@ class PeerRunwayOut(_Wire):
     currency: str | None = None
     source: str | None = None
     investments_usd: float | None = None
+    # gap ``not_applicable`` only: the sentence why a runway does not apply (``platform_values.words``)
+    note: str | None = None
 
 
 class PeerPurityOut(_Wire):

@@ -5,6 +5,7 @@ import {
   annualSharesTitle,
   contextRoleTag,
   formatMarketCap,
+  runwayNotApplicable,
   runwayPaceWords,
   runwayTitle,
   sharesAsof,
@@ -50,7 +51,10 @@ export function ScoredRow({ member, selected, onSelect, asof, contextRole, value
   // a blank cap / runway because the value waits on the steward (nothing applied): "—" with the hover. An applied
   // value with a newer filing waiting keeps its figure (the rail's block carries the pending line).
   const capAwaiting = member.market_cap.value == null && values?.shares.state === "awaiting_steward";
-  const runwayAwaiting = member.runway.pips == null && values?.cash_burn.state === "awaiting_steward";
+  // a company a runway means nothing for (V2 C1): a plain "n/a", the sentence on hover, ahead of any other state
+  const runwayNa = runwayNotApplicable(member.runway);
+  const runwayAwaiting =
+    runwayNa == null && member.runway.pips == null && values?.cash_burn.state === "awaiting_steward";
   const runwayPace = runwayPaceWords(member.runway);
 
   // the quiet context-role tag (set only; the hover is the role's description) — beside the name in both rows
@@ -124,6 +128,7 @@ export function ScoredRow({ member, selected, onSelect, asof, contextRole, value
           label="runway"
           figure={member.runway}
           title={runwayAwaiting ? AWAITING_HOVER : runwayTitle(member.runway)}
+          notApplicable={runwayNa != null ? "n/a" : undefined}
         />
         {runwayPace?.caveat && (
           // a quiet mark ONLY where last quarter is far off the year-to-date pace (honest loudness), the caveat on hover

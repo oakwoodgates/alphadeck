@@ -43,6 +43,7 @@ Gap = Literal[
     "no_revenue",  # no revenue facts
     "no_prior_year",  # a revenue print but no row for the same period a year earlier in the read
     "no_burn",  # no cash/burn fact
+    "not_applicable",  # a runway means nothing for this company (V2 C1, ``runway_applies``); not a missing value
     "no_convert",  # no live convertible-note overhang on file
     "no_mix",  # no revenue-mix fact
     "no_form4",  # no Form 4 ingested for the name

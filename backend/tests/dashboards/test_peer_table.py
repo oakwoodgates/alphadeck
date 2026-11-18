@@ -1448,3 +1448,35 @@ def test_a_context_role_reaches_the_company_row_as_a_quiet_tag(db, pinned_today)
         CACHE.clear()
     (c,) = body["companies"]
     assert c["roles"] == ["payer"] and c["cards"][0]["role"] == "payer"
+
+
+# --- "runway does not apply" (V2 C1) -------------------------------------------------------------------------------
+
+
+def test_a_runway_that_does_not_apply_is_its_own_blank_with_the_cash_kept():
+    from platform_values import words
+
+    c = runway_cell(burn(12_000_000, 3_000_000), applies=False)
+    assert (c.gap, c.months, c.cash_positive) == ("not_applicable", None, False)
+    assert c.note == words.RUNWAY_NOT_APPLICABLE
+    assert (c.cash_usd, c.burn_usd, c.as_of) == (12_000_000.0, 3_000_000.0, date(2026, 5, 10))
+    assert (c.ytd_months, c.pace_caveat) == (None, None)
+    assert runway_cell(None, applies=False).gap == "not_applicable"
+    # unchanged for a company runway applies to (the default)
+    assert runway_cell(burn(12_000_000, 3_000_000)) == runway_cell(
+        burn(12_000_000, 3_000_000), applies=True
+    )
+
+
+def test_identities_carry_whether_runway_applies_defaulting_to_yes():
+    got = identities({S1: {"name": "Bank", "runway_applies": False}, S2: {"name": "Plain"}})
+    assert got[S1].runway_applies is False and got[S2].runway_applies is True
+
+
+def test_a_not_applicable_runway_is_left_out_of_the_runway_count():
+    reads = CompanyReads(cash_burn=burn(12_000_000, 3_000_000))
+    bank_id = Identity("Bank", None, None, runway_applies=False)
+    bank = company_row(AAA, [ms("AAA", AAA)], bank_id, reads, None, ASOF)
+    plain = company_row(BBB, [ms("BBB", BBB)], ident(), reads, None, ASOF)
+    assert bank.runway.gap == "not_applicable" and plain.runway.months == 12.0
+    assert group_stats([bank, plain]).runway == 1

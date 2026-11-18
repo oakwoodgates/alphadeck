@@ -12,7 +12,10 @@ What a user receives (approved B1 (b), 2026-11-16):
   the pending line: that filing's date and reference only, never its figures;
 - a value awaiting the steward: the filing's reference and date and its located passages, and NO figure, for a
   share count and for cash (the steward has not checked the parked number; the user reads the filing instead);
-- no value yet: the reason.
+- no value yet: the reason;
+- for a company a runway means nothing for (V2 C1: a bank, insurer, broker, exchange, asset manager, lender or fund
+  trust, ``securities.business_type.runway_applies``, the one rule): ``runway_applies`` False and NO pace on its cash
+  value (the pace's months and caveat are runway readings); the cash and burn themselves are unchanged.
 
 The state comes from ``platform_values.state.read_states`` (the one reader), one batch per value type, so the
 number of statements does not grow with the number of companies: the master (1), two state batches, the caller's
@@ -41,6 +44,7 @@ from domain.scopes import DATA_TENANT_ID
 from platform_values import words
 from platform_values.state import read_states
 from platform_values.words import SetBy
+from securities.business_type import runway_applies
 
 # The value types a user flags here (0202's ``value_type``; a catalyst flag is never a share count's or cash's).
 _FLAG_VALUE_TYPES: tuple[str, ...] = FACT_TYPES
@@ -131,13 +135,14 @@ class UserCompanyValues:
     cik: str | None
     shares: UserValue
     cash_burn: UserValue
+    runway_applies: bool = True
 
 
 def _f(v: Any) -> float | None:
     return float(v) if v is not None else None
 
 
-def _applied(fact_type: FactType, row: Mapping[str, Any]) -> AppliedValue:
+def _applied(fact_type: FactType, row: Mapping[str, Any], *, pace: bool = True) -> AppliedValue:
     common: dict[str, Any] = dict(
         source=row.get("source"),
         source_ref=row.get("source_ref"),
@@ -160,7 +165,7 @@ def _applied(fact_type: FactType, row: Mapping[str, Any]) -> AppliedValue:
         investments_usd=_f(row.get("investments_usd")),
         currency=row.get("currency"),
         currency_symbol=symbol,
-        pace=stored_pace(row, symbol=symbol),
+        pace=stored_pace(row, symbol=symbol) if pace else None,
     )
 
 
@@ -176,7 +181,9 @@ def _filing(cand: Mapping[str, Any], line: str, *, passages: bool) -> FilingRef:
     )
 
 
-def _user_value(fact_type: FactType, st: DerivedState, flag: MyFlag | None) -> UserValue:
+def _user_value(
+    fact_type: FactType, st: DerivedState, flag: MyFlag | None, *, runway: bool = True
+) -> UserValue:
     shown = st.meter_value
     kind: SetBy | None = st.ratifier if shown is not None else None
     pending = (
@@ -204,7 +211,7 @@ def _user_value(fact_type: FactType, st: DerivedState, flag: MyFlag | None) -> U
         reason=st.reason,
         label=words.state_label(st.state, st.reason, kind),
         set_by=kind,
-        value=_applied(fact_type, shown) if shown is not None else None,
+        value=_applied(fact_type, shown, pace=runway) if shown is not None else None,
         annual_line=annual,
         pending=pending,
         awaiting=awaiting,
@@ -213,10 +220,12 @@ def _user_value(fact_type: FactType, st: DerivedState, flag: MyFlag | None) -> U
 
 
 def _companies(conn: psycopg.Connection, ids: list[UUID]) -> dict[UUID, dict]:
-    """``{id: {ticker, name, cik}}`` from the master (data tenant) for the ids that exist; one statement."""
+    """``{id: {ticker, name, cik, sector, instrument_kind}}`` from the master (data tenant) for the ids that exist;
+    one statement. ``sector`` and ``instrument_kind`` feed the runway rule only."""
     with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
-            "SELECT id, ticker, name, cik FROM security_master WHERE id = ANY(%s) AND tenant_id = %s",
+            "SELECT id, ticker, name, cik, sector, instrument_kind FROM security_master"
+            " WHERE id = ANY(%s) AND tenant_id = %s",
             (ids, DATA_TENANT_ID),
         )
         return {r["id"]: r for r in cur.fetchall()}
@@ -264,7 +273,13 @@ def values_for(
     out: dict[UUID, UserCompanyValues] = {}
     for sid in known:
         m = master[sid]
-        by_type = {ft: _user_value(ft, states[ft][sid], flags.get((sid, ft))) for ft in FACT_TYPES}
+        applies = runway_applies(
+            sector=m["sector"], ticker=m["ticker"], instrument_kind=m["instrument_kind"]
+        )
+        by_type = {
+            ft: _user_value(ft, states[ft][sid], flags.get((sid, ft)), runway=applies)
+            for ft in FACT_TYPES
+        }
         out[sid] = UserCompanyValues(
             security_id=sid,
             ticker=m["ticker"],
@@ -272,6 +287,7 @@ def values_for(
             cik=m["cik"],
             shares=by_type["shares_outstanding"],
             cash_burn=by_type["cash_burn"],
+            runway_applies=applies,
         )
     return out
 

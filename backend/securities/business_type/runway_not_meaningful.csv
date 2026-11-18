@@ -1,0 +1,54 @@
+# Alpha Deck: the companies a RUNWAY (cash divided by quarterly burn) means nothing for.
+#
+# EDIT THIS FILE to say "runway does not apply" for a kind of company, or for one company:
+#   kind=sic     ->  every company whose SIC description (the master's `sector`) is `key` (matched
+#                    whitespace-collapsed + case-insensitive, like sic_map.csv)
+#   kind=ticker  ->  one company (key = its SEC ticker), whatever its SIC says
+# Every ETF (instrument_kind 'etf') is covered without a row: a fund has no SIC and no burn.
+#
+# Why: a bank's, insurer's, broker's, exchange's, asset manager's, lender's or fund trust's operating cash flow
+# moves with customer money, loans or fund flows, not with spending, so cash / burn reads a runway that is not
+# one (the 2026-11-18 audit: a bitcoin ETF trust read cash 0, a $660M burn and runway 0; a broker read under two
+# quarters). Their cash and burn are still extracted, stored and shown as numbers with their source; only the
+# derived runway (months, pips, the year-to-date pace and its caveat) gives way to "does not apply".
+#
+# Left OUT on purpose (operator decisions; runway still shows): "Finance Services" (SIC 6199: bitcoin miners
+# and crypto-treasury companies, which burn real cash), "Insurance Agents, Brokers & Service" (service
+# businesses), REITs, "Patent Owners & Lessors". Adding one is one line here.
+#
+# Display only: never a call input (securities/business_type/__init__.py's rule). Checked by
+# tests/securities/test_business_type.py: every sic row must be a live SIC string (else it matches nothing).
+#
+# columns:
+kind,key,note
+
+# --- banks and savings institutions ---
+sic,"National Commercial Banks",bank
+sic,"Commercial Banks, NEC",bank
+sic,"State Commercial Banks",bank
+sic,"Savings Institution, Federally Chartered",savings institution
+sic,"Savings Institutions, Not Federally Chartered",savings institution
+
+# --- brokers, dealers, exchanges, fund trusts ---
+sic,"Security Brokers, Dealers & Flotation Companies",broker-dealer
+sic,"Security & Commodity Brokers, Dealers, Exchanges & Services",broker or exchange
+sic,"Commodity Contracts Brokers & Dealers","commodity broker; the crypto ETF trusts file here (FBTC, FSOL, AIFC, XRPN)"
+
+# --- asset managers and investors ---
+sic,"Investment Advice",asset manager
+sic,"Investors, NEC",investment company
+
+# --- insurers (underwriters; the agents stay out) ---
+sic,"Fire, Marine & Casualty Insurance",insurer
+sic,"Life Insurance",insurer
+sic,"Accident & Health Insurance",insurer
+sic,"Surety Insurance",insurer
+sic,"Title Insurance",insurer
+
+# --- lenders ---
+sic,"Mortgage Bankers & Loan Correspondents",lender
+sic,"Loan Brokers",lender
+sic,"Personal Credit Institutions",lender
+sic,"Short-Term Business Credit Institutions",lender
+sic,"Miscellaneous Business Credit Institution",lender
+sic,"Federal & Federally-Sponsored Credit Agencies",lender

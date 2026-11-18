@@ -9,7 +9,7 @@ A platform value is one value per company for everyone. It lives in the data ten
 | Value type (`fact_type`) | Fact table | Read by |
 |---|---|---|
 | `shares_outstanding` | `fact_shares_outstanding` | the market cap (Workbench, Hot Board, Insider Tracker, Peer Table, Theme Leaderboard, Ticker Lookup, Market Map, Track Record, the data flags) |
-| `cash_burn` | `fact_cash_burn` | the runway meter (Workbench), the Peer Table |
+| `cash_burn` | `fact_cash_burn` | the runway meter (Workbench), the Peer Table (a runway that does not apply: below, "Runway does not apply") |
 
 `cash_usd` is one "cash and short-term investments" number (cash + equivalents + short-term investments +
 long-term marketable securities; never the generic long-term investments line: `docs/WORKBENCH_EXTRACTION.md`).
@@ -879,3 +879,34 @@ The rule "a plain user never sees an unverified extracted number" now holds on t
   Its prices and filings load in the background outside the nightly window; until then it shows no price."
 - **Allowances reviewed down** (settings and `docker-compose.yml`): extract 300, new names loaded at once
   (`price_pull`) 200, holdings 200, chain drafts 20, term runs 50, flags 50 (unchanged).
+
+## Runway does not apply (V2 C1)
+
+A runway (cash divided by quarterly burn) means nothing for a bank, insurer, broker, exchange, asset manager, lender
+or fund trust: its operating cash flow moves with customer money, loans or fund flows, not with spending (the
+2026-11-18 audit: a bitcoin ETF trust read cash 0, a $660M burn and runway 0; a broker under two quarters).
+
+- **The rule, one place:** `securities.business_type.runway_applies(*, sector, ticker, instrument_kind)`, pure. False
+  for every ETF (`instrument_kind='etf'`), a ticker listed in `backend/securities/business_type/runway_not_meaningful.csv`
+  or a company whose SIC description (`security_master.sector`) is listed there (21 strings: banks, savings
+  institutions, brokers and dealers, exchanges, commodity brokers (the crypto ETF trusts file there), investment
+  advice, investors NEC, the five insurer strings, the six lender strings). True otherwise, including no SIC: nothing
+  disappears by accident. It keys on the SIC string, never on the business-type leaf (`finance_brokers` also holds
+  "Finance Services": the crypto miners and crypto-treasury companies, which keep their runway by operator decision,
+  as do insurance agents). Edit the file to re-rule; `tests/securities/test_business_type.py` checks every SIC row is
+  a live string.
+- **The three reads that show a runway ask it:** the Workbench scoring (`workbench/scoring.py`: the scored read, the
+  Cockpit name panel, `get_triage`) via `master.identity_for`'s derived `runway_applies`; the Peer Table
+  (`dashboards/peer_table.py`, the same identity); the user's shared-values read (`platform_values/user_view.py`).
+- **What changes there:** no runway pips, months, year-to-date pace or pace caveat. The scored runway carries the
+  cash fact's provenance (cash, burn, currency, investment part) and a `runway:not-applicable` entry with the
+  sentence; the fit adds no "funding risk". The Peer Table cell has gap `not_applicable` with `note` (the stored cash
+  and burn stay on it; left out of the runway count). The user read adds `runway_not_applicable` (the sentence; None
+  when runway applies) and its cash value carries no `pace`.
+- **What does not change:** the cash and burn are extracted, applied, stored and shown as numbers with their source,
+  and keep their flag; the steward's read and console show every figure as before; no migration.
+- **The words** (`platform_values.words.RUNWAY_NOT_APPLICABLE`): "Runway does not apply to this kind of company (a
+  bank, insurer, broker, exchange, asset manager, lender or fund trust): its cash moves with customer money, loans or
+  fund flows, not with spending." Screens show a plain "n/a" with that sentence on hover or as a quiet line; never a
+  warning (true of a small minority, asks nothing).
+- Display only: nothing on the call path imports the rule, and it lives outside the editions fingerprint.

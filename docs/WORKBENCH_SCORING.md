@@ -113,6 +113,14 @@ line on the rail, the name panel and the steward page; the caveat sentence only 
 quiet "uneven quarter" on the scored row, an asterisk on the Peer Table cell). **Never the pips, the months, the
 fit label or the sort**, and never a call input.
 
+**Runway does not apply (V2 C1).** For a bank, insurer, broker, exchange, asset manager, lender or fund trust
+(`securities.business_type.runway_applies`, driven by the editable `runway_not_meaningful.csv`; every ETF too) the
+runway meter has no pips and no value: its provenance is the cash fact (cash, burn, currency, investment part; no
+year-to-date pace) then `computed` / `runway:not-applicable` with the sentence in `detail.note`, so the fit adds no
+"funding risk". `score_thesis(..., runway_na=)` takes the ids; the scored read builds them from the master
+(`identity_for`'s `runway_applies`). The scored row and the name panel read "n/a" with the sentence. See
+`docs/PLATFORM_VALUES.md`, "Runway does not apply".
+
 ## The risk axis — dilution is the only implemented risk signal
 
 `dilution_risk` is the **sole implemented** `Role.RISK_SIGNAL` today (`squeeze` etc. are reserved in the

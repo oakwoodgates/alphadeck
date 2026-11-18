@@ -361,3 +361,55 @@ def test_each_user_sees_only_their_own_flag_in_both_reads(world, db):
         == _without_my_flag(company["b"].json())
         == _without_my_flag(company["s"].json())
     )
+
+
+# --- "runway does not apply" (V2 C1) -----------------------------------------------------------------------------
+
+
+def _paced_cash(db, sid, d):
+    """A cash value with a stored year-to-date pace that burns (so a runway pace and its months exist)."""
+    ingest_cash_burn(
+        db,
+        sid,
+        cash_usd=5_000_000,
+        quarterly_burn_usd=1_000_000,
+        source="10-Q",
+        source_ref=OLD_REF,
+        event_date=d,
+        ratified_by="auto",
+        tenant_id=DATA_TENANT_ID,
+        ytd_quarterly_burn_usd=2_000_000,
+        ytd_burn_days=180,
+    )
+    db.commit()
+
+
+def _sector(db, sid, sector):
+    with db.cursor() as cur:
+        cur.execute("UPDATE security_master SET sector=%s WHERE id=%s", (sector, sid))
+    db.commit()
+
+
+def test_a_broker_reads_no_runway_pace_and_the_not_applicable_sentence(world, db):
+    from platform_values import words
+
+    broker, miner = _company(db, "BRKR"), _company(db, "MINR")
+    _sector(db, broker, "Security Brokers, Dealers & Flotation Companies")
+    _sector(db, miner, "Finance Services")
+    d = world["asof"] - timedelta(days=40)
+    for sid in (broker, miner):
+        _paced_cash(db, sid, d)
+    b = world["a"].get(f"{BASE}/{broker}").json()
+    assert b["runway_not_applicable"] == words.RUNWAY_NOT_APPLICABLE
+    value = b["cash_burn"]["value"]
+    assert (value["cash_usd"], value["quarterly_burn_usd"]) == (
+        5_000_000,
+        1_000_000,
+    )  # the numbers stay
+    assert value["pace"] is None  # no runway months, no runway caveat
+    mnr = world["a"].get(f"{BASE}/{miner}").json()
+    assert mnr["runway_not_applicable"] is None
+    assert mnr["cash_burn"]["value"]["pace"]["ytd_runway_months"] is not None  # unchanged
+    tid = _card(world, db, "a", [broker, miner])
+    both = world["a"].get(f"{BASE}/theses/{tid}").json()["members"]
+    assert [x["runway_not_applicable"] is None for x in both] == [False, True]
