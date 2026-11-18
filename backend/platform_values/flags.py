@@ -16,10 +16,16 @@ changes a value; only its user and the steward ever see it. Every row is written
 - ``withdraw``: the user's own OPEN flag only; another user's id is ``FlagNotFound`` exactly like an unknown id.
   Never refunds the allowance.
 - ``mine``: the user's own flags (the user id in SQL), open first then the newest closed, one page.
-- The steward's side, for W5c's routes: ``close`` (``fixed`` names a standing approve or correct of the SAME company
+- The steward's side (W5c's routes): ``steward_close`` (the route's entry: it takes the COMPANY WRITE LOCK, the
+  one every steward decision takes, then runs ``close`` and commits, so an undo of the linked decision cannot land
+  between the check and the close), ``close`` (``fixed`` names a standing approve or correct of the SAME company
   and value type, checked in this transaction; ``kept`` needs a note that is not blank after trimming), ``reopen``
-  (a NEW open row copying the original's user, company, value and what it saw; never an open, already reopened or
-  user-withdrawn flag, nor over the user's newer open flag), ``for_company`` and ``open_by_company``.
+  (a NEW open row copying the original's user, company, value and what it saw, stamped with the steward who
+  reopened it; never an open, already reopened or user-withdrawn flag, nor over the user's newer open flag),
+  ``reopen_refusal`` (why a listed flag cannot be reopened), ``for_company`` and ``open_by_company``.
+
+A ``fixed`` close whose decision is undone LATER is never rewritten (0202's closed-once trigger refuses it): the
+link stays, the company read marks the decision undone, and the flag can be reopened.
 
 Not on the call path: nothing under ``calls/`` or ``signals/`` imports this module.
 """
@@ -28,15 +34,17 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
 import psycopg
 from psycopg import errors as pg_errors
+from psycopg.pq import TransactionStatus
 
-from domain.platform_values import DerivedState, FactType, ValueState
+from db.write_lock import acquire_company_lock
+from domain.platform_values import DerivedState, FactType, ValueState, is_steward_email
 from platform_values import state
 from repositories import platform_value_repo as pv_repo
 from repositories import value_flag_repo as repo
@@ -103,6 +111,8 @@ class CompanyFlags:
     open: list[dict]
     closed: list[dict]
     closed_total: int
+    # {closed flag id: the id of the row that reopened it}, for the closed flags on this page
+    reopened_as: dict[UUID, UUID] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -270,11 +280,50 @@ def close(
     return row
 
 
-def reopen(conn: psycopg.Connection, flag_id: UUID) -> dict:
+def steward_close(
+    conn: psycopg.Connection,
+    flag_id: UUID,
+    *,
+    outcome: Outcome,
+    note: str | None,
+    decision_id: UUID | None,
+    by: str,
+    wait_s: float,
+) -> dict:
+    """The steward's close, as the route runs it: on a connection with NO open transaction, read the flag's
+    company, take that company's WRITE LOCK (``db.write_lock``, the lock every steward decision and undo takes,
+    waiting up to ``wait_s``), then in ONE transaction lock the flag row, check it (and, for ``fixed``, that the
+    decision still stands), close it and commit; release the lock after the commit. An undo of the linked decision
+    therefore runs wholly before (the close is refused: ``wrong_decision``) or wholly after (the close stands; the
+    read then marks the decision undone). ``CompanyLockBusy`` when the wait runs out, with nothing written. On any
+    failure the transaction is rolled back."""
+    if not is_steward_email(by):
+        raise ValueError("a steward's close records the steward's email")
+    if conn.info.transaction_status != TransactionStatus.IDLE:
+        raise RuntimeError("a steward's close needs a connection with no open transaction")
+    found = repo.flag(conn, flag_id)
+    conn.rollback()  # end the read before the lock: the check runs again under it
+    if found is None:
+        raise FlagNotFound()
+    with acquire_company_lock(conn, found["security_id"], wait_s=wait_s):
+        try:
+            row = close(
+                conn, flag_id, outcome=outcome, note=note, decision_id=decision_id, closed_by=by
+            )
+            conn.commit()
+            return row
+        except BaseException:
+            conn.rollback()
+            raise
+
+
+def reopen(conn: psycopg.Connection, flag_id: UUID, *, reopened_by: str) -> dict:
     """The inverse of the steward's close (decision B3 (a)): a NEW open flag naming the closed one. Its user,
-    company, value, what it saw and the user's note are COPIED from the original; nothing comes from the caller.
-    Refuses an open flag, one already reopened, one its USER withdrew, and a value the user has since flagged again.
-    No Slack message. No commit."""
+    company, value, what it saw and the user's note are COPIED from the original; nothing comes from the caller but
+    ``reopened_by``, the steward's email (0211). Refuses an open flag, one already reopened, one its USER withdrew,
+    and a value the user has since flagged again. No Slack message, no allowance. No commit."""
+    if not is_steward_email(reopened_by):
+        raise ValueError("a reopen records the steward's email")
     original = repo.lock_row(conn, flag_id)
     if original is None:
         raise FlagNotFound()
@@ -304,6 +353,7 @@ def reopen(conn: psycopg.Connection, flag_id: UUID) -> dict:
                 seen_fact_id=original["seen_fact_id"],
                 seen_candidate_id=original["seen_candidate_id"],
                 reopens=original["id"],
+                reopened_by=reopened_by,
             )
     except pg_errors.UniqueViolation as exc:  # a racing reopen of the same flag
         raise FlagConflict("already_reopened") from exc
@@ -317,11 +367,29 @@ def for_company(
     closed_offset: int = 0,
 ) -> CompanyFlags:
     """A company's flags for the steward's company page (steward routes only: it names users)."""
+    closed = repo.company_closed(conn, security_id, limit=closed_limit, offset=closed_offset)
     return CompanyFlags(
         open=repo.company_open(conn, security_id),
-        closed=repo.company_closed(conn, security_id, limit=closed_limit, offset=closed_offset),
+        closed=closed,
         closed_total=repo.company_closed_count(conn, security_id),
+        reopened_as=repo.reopened_as(conn, [r["id"] for r in closed]),
     )
+
+
+def reopen_refusal(row: dict, company: CompanyFlags) -> str | None:
+    """Why the steward cannot reopen ``row`` (one of ``company``'s listed flags), as ``reopen``'s refusal kind
+    (``not_closed``, ``withdrawn_by_user``, ``already_reopened``, ``user_has_open_flag``), or None when it can.
+    Read from the lists already fetched: every open flag of the company is in ``company.open``."""
+    if row["closed_at"] is None:
+        return "not_closed"
+    if row["outcome"] == "withdrawn":
+        return "withdrawn_by_user"
+    if row["id"] in company.reopened_as:
+        return "already_reopened"
+    key = (row["user_id"], row["value_type"], row["value_ref"])
+    if any((o["user_id"], o["value_type"], o["value_ref"]) == key for o in company.open):
+        return "user_has_open_flag"
+    return None
 
 
 def open_by_company(
@@ -364,7 +432,9 @@ __all__ = [
     "open_by_company",
     "raise_flag",
     "reopen",
+    "reopen_refusal",
     "seen_of",
     "seen_word",
+    "steward_close",
     "withdraw",
 ]

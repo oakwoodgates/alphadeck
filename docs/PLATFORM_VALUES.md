@@ -478,10 +478,16 @@ row per company (approved B2 (a): these two values only; B3 (a)). It reads the s
 (`state.awaiting_companies`, so a flag older than the value shown is not listed) and adds each company's card count
 (below).
 
-`PlatformQueueItemOut { security_id, ticker, name, cards, pen_only, waiting_since, shares, cash_burn }`: `shares` and
-`cash_burn` are `PlatformQueueValueOut { state, candidate, value }` or None (that value waits for nothing); `value`
-is the value shown when the candidate is pending beside it. `waiting_since` is the older of the waiting candidates'
-`recorded_at`.
+`PlatformQueueItemOut { security_id, ticker, name, cards, pen_only, waiting_since, shares, cash_burn, open_flags }`:
+`shares` and `cash_burn` are `PlatformQueueValueOut { state, candidate, value }` or None (no candidate waits for that
+value); `value` is the value shown when the candidate is pending beside it. `waiting_since` is the oldest of the
+waiting candidates' `recorded_at` and the open user flags' `opened_at`.
+
+**Users' flags in the queue (W5c, the W5 plan's Q6).** A company with an OPEN user flag (below, §Flags) is in the
+queue even when no candidate waits: then `shares` and `cash_burn` are both None. `open_flags` is how many open user
+flags it has (0 when none): a number only, never whose, which value or what note. A closed or withdrawn flag waits
+for nothing. The order's keys are unchanged; a flag-only company sorts by its own cards and its oldest open flag
+like any other row (a company flagged only from an archived card counts 0 cards: just before the pen-only block).
 
 **The order** (approved B3 (a), B5 (a)), total:
 
@@ -495,8 +501,10 @@ A company on no live card (removed from every card after its candidate was writt
 lists only the pen-only companies, `pen=exclude` leaves them out; `offset` / `limit` cut the page. `total` counts
 every company waiting and `pen_only_total` the pen-only ones, whatever the page and `pen`.
 
-**Its cost is fixed.** The awaiting list (one query), one `read_states` batch per value type and one card count:
-the number of statements does not grow with the queue (`tests/app/test_admin_platform_values_queue_api.py`).
+**Its cost is fixed.** The awaiting list (one query), one `read_states` batch per value type, one grouped read of
+open user flags (`flags.open_by_company`), one master read for the flag-only companies' tickers (made even when there
+are none) and one card count: the number of statements does not grow with the queue, nor with 0 or 25 open flags
+(`tests/app/test_admin_platform_values_queue_api.py`).
 
 ## The card count
 
@@ -652,7 +660,9 @@ adds three nullable columns, each set only on the INSERT or the one close: `seen
 OR a candidate, never both: a CHECK), `fixed_decision_id` (allowed only when `outcome IS NOT DISTINCT FROM 'fixed'`,
 so an open row with a link is refused: a plain `outcome = 'fixed'` would be UNKNOWN on an open row and pass) and
 `reopens` (at most one row reopens a flag: a unique index; a trigger refuses a reopen of an open or user-withdrawn
-flag, or one that changes the user, company or value). Every query of the table lives in
+flag, or one that changes the user, company or value). 0211 adds `reopened_by` (the steward's email on a reopen
+row; when = that row's `opened_at`; a CHECK allows it only on a row that reopens something; nullable, so a reopen
+written before 0211 or by hand has none). Every query of the table lives in
 `repositories/value_flag_repo.py`; each user-side read filters by the user's id in SQL
 (`tests/app/test_value_flag_guard.py`).
 
@@ -666,14 +676,15 @@ flag, or one that changes the user, company or value). Every query of the table 
   the row (a `UniqueViolation` is the same 409).
 - `withdraw`: the user's own open flag only; never refunds. `mine`: the user's own flags, open first (newest opened
   first) then closed (newest closed first), paged.
-- For W5c's steward routes (written and tested now, no routes yet): `close` (`fixed` needs a STANDING approve or
-  correct of the SAME company and value type, checked in the close transaction after the flag row is locked;
-  `kept` needs a note that is not blank after trimming and names no decision), `reopen` (the inverse of the
-  steward's close, decision B3 (a): a NEW open row copying the original's user, company, value, what it saw and
-  the user's note; refuses an open flag, one already reopened, one the user withdrew, and a value the user has
-  flagged again since; sends no Slack), `for_company` (open flags oldest first plus a page of closed ones, each with
-  the user's email, decision B4 (a): steward routes only) and `open_by_company` (one grouped statement: count, per
-  value, the oldest open).
+- For the steward's routes (W5c, below): `steward_close` (the company write lock, then `close`, then the commit),
+  `close` (`fixed` needs a STANDING approve or correct of the SAME company and value type, checked in the close
+  transaction after the flag row is locked; `kept` needs a note that is not blank after trimming and names no
+  decision), `reopen` (the inverse of the steward's close, decision B3 (a): a NEW open row copying the original's
+  user, company, value, what it saw and the user's note, stamped `reopened_by`; refuses an open flag, one already
+  reopened, one the user withdrew, and a value the user has flagged again since; sends no Slack, spends no
+  allowance), `reopen_refusal` (the same refusals, read from a listed page), `for_company` (open flags oldest first
+  plus a page of closed ones, each with the user's email, decision B4 (a): steward routes only, and which closed ones
+  were reopened as what) and `open_by_company` (one grouped statement: count, per value, the oldest open).
 
 ### The routes (plain users, `/value-flags`)
 
@@ -731,3 +742,71 @@ Shared facts > <ticker>`. Each value is flattened with `one_line` (the note is c
 steward reads the whole note on the company page) and `& < >` are escaped at the chokepoint, so a note with
 `<!channel>`, a link or a newline posts as one inert line. It says "a user": never an email, a user id, a
 workspace, a card count or a queue rank. The channel carries users' notes, so every reader of it must be a steward.
+
+### The steward's side (W5c)
+
+Steward-only routes in `app/routers/admin_platform_values.py` (mounted under the steward gate; a plain user gets 403
+on each, and on the company read and the queue, with nothing written). Each answers the company's new state
+(`CompanyValuesOut`, the shape every steward write answers). Refusals use the error contract: the fixed sentence of
+`app.errors.VALUE_FLAG_SENTENCES`, a reference, and for the steward the detail.
+
+| Route | Request | Answer |
+|---|---|---|
+| `POST /admin/platform-values/flags/{flag_id}/close` | `PlatformFlagCloseIn { outcome: "fixed" \| "kept", note: Prose \| null, decision_id: uuid \| null }` | 200 `CompanyValuesOut` |
+| `POST /admin/platform-values/flags/{flag_id}/reopen` | no body | 200 `CompanyValuesOut` |
+| `GET /admin/platform-values/{security_id}?flags_offset=0..100000 (0)&flags_limit=1..100 (20)` | | `CompanyValuesOut` with `flags` |
+
+Refusals:
+
+| Status | When | Sentence |
+|---|---|---|
+| 404 | no flag with that id (close or reopen) | "There is no such flag." |
+| 409 | close: the flag is already closed (by the steward or withdrawn by its user) | "This flag is already closed." |
+| 409 | close `fixed`: the decision is unknown, another company's or value type's, a dismissal or an undo, or undone | "That decision is not a standing approve or correct of this company's value. Nothing was saved." |
+| 409 | close: another writer holds the company for the whole wait | the existing company-busy sentence |
+| 422 | close `kept` with no note or one that is blank after trimming | "Closing a flag as kept needs a note for the user. Nothing was saved." |
+| 422 | close `kept` naming a decision | "A flag closed as kept names no decision. Nothing was saved." |
+| 422 | close `fixed` naming no decision | "Closing a flag as fixed needs the decision that fixed it. Nothing was saved." |
+| 422 | an outcome other than the two, a note over 2,000 characters, a malformed id | the validation list |
+| 409 | reopen: the flag is open | "This flag is still open, so there is nothing to reopen." |
+| 409 | reopen: a row already reopens it | "This flag was already reopened. Reopen its newest closed flag instead." |
+| 409 | reopen: its user withdrew it | "The user withdrew this flag. Only a flag you closed can be reopened." |
+| 409 | reopen: the user has a newer open flag on the value | "The user has a newer open flag on this value, so this one is not reopened." |
+
+**Close as fixed is ordered by the company write lock.** `flags.steward_close` reads the flag's company, ends that
+read, then takes the company write lock (`db.write_lock.acquire_company_lock`, the one every approve, correct,
+dismiss, undo and pin takes, waiting `ingest_lock_request_wait_s`), then in ONE transaction locks the flag row,
+checks the decision (still an approve or correct of this company and value type, no undo naming it), closes the
+flag, commits, and only then releases. An undo of that decision therefore runs wholly before the close (the close
+is refused, nothing written) or wholly after it (the close stands). `tests/app/test_admin_platform_values_flags_api.py`
+proves it with two real threads on two connections: the close pauses after its check until the undo has been made
+to wait for the lock; when the undo answers, the flag is already closed. (Without the lock the undo answered first
+and the close still committed a fix linked to an undone decision.)
+
+**A linked decision undone LATER.** The closed row is never rewritten (0202's closed-once trigger refuses it), so a
+`fixed` flag keeps its `fixed_decision_id`. The company read shows the decision with `undone: true` and
+`fixed_decision_undone: true` ("the linked correction was since undone"), and the flag can be reopened. The user
+still reads `fixed` on their own flag; the steward reopens it when the fix no longer stands. Nothing closes or
+reopens by itself (decision W-j: an approve or correct never closes flags).
+
+**The company read's `flags`** (`PlatformUserFlagsOut { open, closed, closed_total, closed_offset, closed_limit }`):
+every open flag, oldest first, and one page of closed ones, newest closed first, so an old closed flag (and its
+Reopen) stays reachable by paging. Each `PlatformUserFlagOut`: `id`, `value_type`, `user_email` (decision B4 (a):
+the steward's page names the user; Slack never does), `note` (plain text as stored), `opened_at`,
+`current_when_flagged` (`value` / `awaiting` / `none`) with `seen_value` (the stored version it recorded, with
+`set_aside`) or `seen_candidate` (the candidate that was awaiting the steward, with its standing decision), `reopens`,
+`reopened_by`, `reopened_as` (the row that reopened this one), `closed_at`, `closed_by` (a steward's email, or `user`
+for a withdrawal), `outcome`, `outcome_note`, `fixed_decision` (with `undone`), `fixed_decision_undone`, `can_reopen`
+and `reopen_refusal` (the sentence the reopen route would answer). Reopen eligibility is read from the page already
+fetched: every open flag of the company is listed, so "the user has a newer open flag" needs no extra query.
+
+**Reopen** (decision B3 (a)) appends a new open row linked by `reopens`, copying the user, company, value, note and
+what was current from the closed row (nothing from the request) and stamping `reopened_by` with the steward's email;
+the closed row stays in the history as it was, so a reopen then a second close keeps both closes. It sends no Slack
+message and spends none of the user's allowance. The user's own list shows the new open flag with `reopens`.
+
+**Privacy.** A plain user's answers (`GET /value-flags`, `GET /platform-values/...`) carry only the caller's own
+flags, with the outcome and the steward's note and never `closed_by`, `reopened_by`, another user's flag or any
+count. Only the steward's routes read `user_email`, `closed_by` and `reopened_by` (`repositories/value_flag_repo.py`'s
+steward-side reads; the user-side reads select a column list without them). Proven with real sign-ins (two plain
+users in two workspaces and the steward) in `tests/app/test_admin_platform_values_flags_api.py`.

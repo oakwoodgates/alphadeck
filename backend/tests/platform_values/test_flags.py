@@ -388,12 +388,13 @@ def test_reopen_appends_a_new_open_row_copying_the_original(db):
         decision_id=None,
         closed_by=STEWARD,
     )
-    row = flags.reopen(db, original["id"])
+    row = flags.reopen(db, original["id"], reopened_by=STEWARD)
     assert row["id"] != original["id"] and row["reopens"] == original["id"]
     for key in ("user_id", "security_id", "value_type", "value_ref", "seen_fact_id", "note"):
         assert row[key] == original[key], key
     assert row["seen_candidate_id"] == cid
     assert (row["closed_at"], row["outcome"]) == (None, None)
+    assert row["reopened_by"] == STEWARD  # who reopened it (0211); when = its opened_at
     old = flags.for_company(db, sid).closed[0]
     assert (old["id"], old["outcome"], old["outcome_note"]) == (
         original["id"],
@@ -406,23 +407,23 @@ def test_reopen_refuses_an_open_a_reopened_and_a_withdrawn_flag(db):
     sid, uid = _company(db), _user(db)
     open_one = _raise(db, uid, sid).flag["id"]
     with pytest.raises(flags.FlagConflict) as exc:
-        flags.reopen(db, open_one)
+        flags.reopen(db, open_one, reopened_by=STEWARD)
     assert exc.value.kind == "not_closed"
     flags.close(db, open_one, outcome="kept", note="right", decision_id=None, closed_by=STEWARD)
-    again = flags.reopen(db, open_one)
+    again = flags.reopen(db, open_one, reopened_by=STEWARD)
     flags.close(
         db, again["id"], outcome="kept", note="still right", decision_id=None, closed_by=STEWARD
     )
     with pytest.raises(flags.FlagConflict) as exc:
-        flags.reopen(db, open_one)
+        flags.reopen(db, open_one, reopened_by=STEWARD)
     assert exc.value.kind == "already_reopened"
     withdrawn = _raise(db, uid, sid, "cash_burn").flag["id"]
     flags.withdraw(db, withdrawn, user_id=uid)
     with pytest.raises(flags.FlagConflict) as exc:
-        flags.reopen(db, withdrawn)
+        flags.reopen(db, withdrawn, reopened_by=STEWARD)
     assert exc.value.kind == "withdrawn_by_user"
     with pytest.raises(flags.FlagNotFound):
-        flags.reopen(db, uuid4())
+        flags.reopen(db, uuid4(), reopened_by=STEWARD)
 
 
 def test_reopen_refuses_when_the_user_has_a_newer_open_flag_on_the_value(db):
@@ -431,9 +432,89 @@ def test_reopen_refuses_when_the_user_has_a_newer_open_flag_on_the_value(db):
     flags.close(db, fid, outcome="kept", note="right", decision_id=None, closed_by=STEWARD)
     _raise(db, uid, sid)  # the user flagged it again
     with pytest.raises(flags.FlagConflict) as exc:
-        flags.reopen(db, fid)
+        flags.reopen(db, fid, reopened_by=STEWARD)
     assert exc.value.kind == "user_has_open_flag"
     assert _count(db) == 2
+
+
+def test_reopen_records_a_steward(db):
+    sid, uid = _company(db), _user(db)
+    fid = _raise(db, uid, sid).flag["id"]
+    flags.close(db, fid, outcome="kept", note="right", decision_id=None, closed_by=STEWARD)
+    for by in ("", "user", "auto"):
+        with pytest.raises(ValueError):
+            flags.reopen(db, fid, reopened_by=by)
+    assert _count(db) == 1
+
+
+def test_reopen_refusal_names_why_a_flag_cannot_be_reopened(db):
+    sid, a, b = _company(db), _user(db), _user(db)
+    kept = _raise(db, a, sid).flag["id"]
+    flags.close(db, kept, outcome="kept", note="right", decision_id=None, closed_by=STEWARD)
+    withdrawn = _raise(db, a, sid, "cash_burn").flag["id"]
+    flags.withdraw(db, withdrawn, user_id=a)
+    reopened = _raise(db, b, sid).flag["id"]
+    flags.close(db, reopened, outcome="kept", note="right", decision_id=None, closed_by=STEWARD)
+    newer = flags.reopen(db, reopened, reopened_by=STEWARD)
+    got = flags.for_company(db, sid)
+    assert got.reopened_as == {reopened: newer["id"]}
+    by = {r["id"]: r for r in got.open + got.closed}
+    assert flags.reopen_refusal(by[kept], got) is None
+    assert flags.reopen_refusal(by[withdrawn], got) == "withdrawn_by_user"
+    assert flags.reopen_refusal(by[reopened], got) == "already_reopened"
+    assert flags.reopen_refusal(by[newer["id"]], got) == "not_closed"
+    _raise(db, a, sid)  # A flags the share count again: the kept one is no longer reopened
+    got = flags.for_company(db, sid)
+    kept_row = next(r for r in got.closed if r["id"] == kept)
+    assert flags.reopen_refusal(kept_row, got) == "user_has_open_flag"
+
+
+# --- the steward's close under the company lock -------------------------------------------------------------------
+
+
+def test_steward_close_takes_the_company_lock_and_commits(db):
+    from db.session import connect
+    from db.write_lock import CompanyLockBusy, acquire_company_lock
+
+    sid, uid = _company(db), _user(db)
+    fid = _raise(db, uid, sid).flag["id"]
+    db.commit()
+    with connect() as other:
+        held = acquire_company_lock(other, sid, wait_s=0)
+        try:
+            with pytest.raises(CompanyLockBusy):
+                flags.steward_close(
+                    db, fid, outcome="kept", note="right", decision_id=None, by=STEWARD, wait_s=0
+                )
+        finally:
+            held.release()
+    assert flags.mine(db, uid, limit=5, offset=0).items[0]["closed_at"] is None
+    db.rollback()
+    row = flags.steward_close(
+        db, fid, outcome="kept", note="right", decision_id=None, by=STEWARD, wait_s=0
+    )
+    assert row["outcome"] == "kept"
+    with connect() as other, other.cursor() as cur:  # committed
+        cur.execute("SELECT outcome FROM value_flag WHERE id = %s", (fid,))
+        assert cur.fetchone()["outcome"] == "kept"
+
+
+def test_steward_close_needs_an_idle_connection_and_a_steward(db):
+    sid, uid = _company(db), _user(db)
+    fid = _raise(db, uid, sid).flag["id"]
+    with pytest.raises(RuntimeError):  # a transaction is open
+        flags.steward_close(
+            db, fid, outcome="kept", note="right", decision_id=None, by=STEWARD, wait_s=0
+        )
+    db.commit()
+    with pytest.raises(ValueError):
+        flags.steward_close(
+            db, fid, outcome="kept", note="right", decision_id=None, by="user", wait_s=0
+        )
+    with pytest.raises(flags.FlagNotFound):
+        flags.steward_close(
+            db, uuid4(), outcome="kept", note="right", decision_id=None, by=STEWARD, wait_s=0
+        )
 
 
 # --- the steward's reads ------------------------------------------------------------------------------------------

@@ -15,6 +15,10 @@ recognisable secret name.
 - The card count crosses workspaces, and the answer carries no thesis id or name, no workspace id and no user of A
   or B.
 - The number of SQL statements per request does not grow with the number of rows.
+- USERS' FLAGS (V2 W5c, the W5 plan's Q6): a company with an open user flag is in the queue even when no candidate
+  waits, with ``open_flags`` (a number only, never whose or what note); its ``waiting_since`` is the older of its
+  oldest waiting candidate and its oldest open flag; the order's keys are unchanged; a closed or withdrawn flag
+  waits for nothing; the statement count is the same with 0 and 25 open flags.
 
 DB-backed (the shared ``db`` fixture; skips when Postgres is unreachable).
 """
@@ -22,7 +26,7 @@ DB-backed (the shared ``db`` fixture; skips when Postgres is unreachable).
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import psycopg
 import pytest
@@ -36,6 +40,7 @@ from domain.scopes import DATA_TENANT_ID
 from domain.settings import get_settings
 from ingest.cash_burn import ingest_cash_burn
 from ingest.shares import ingest_shares_outstanding
+from platform_values import flags as user_flags
 from repositories import platform_value_repo as repo
 from tests.auth_fixtures import sign_out
 
@@ -355,3 +360,118 @@ def test_the_statement_count_does_not_grow_with_the_rows(world, db, monkeypatch)
     seen.clear()
     assert len(s.get(QUEUE).json()["items"]) == 18
     assert len(seen) == few, seen
+
+
+# --- users' flags (V2 W5c) -------------------------------------------------------------------------------------
+
+
+def _user_id(db, who: str) -> uuid.UUID:
+    db.rollback()
+    with db.cursor() as cur:
+        cur.execute("SELECT id FROM app_user WHERE email = %s", (f"{who}@q.test",))
+        uid = cur.fetchone()["id"]
+    db.rollback()
+    return uid
+
+
+def _user_flag(db, who: str, sid, value_type: str = "shares_outstanding", note: str | None = None):
+    """A user's open flag, raised and committed through ``platform_values.flags`` (the route's own path after its
+    own-card check)."""
+    row = user_flags.raise_flag(
+        db,
+        user_id=_user_id(db, who),
+        security_id=sid,
+        value_type=value_type,
+        note=note,
+        charge=lambda: True,
+    ).flag
+    db.commit()
+    return row
+
+
+def test_a_company_with_only_a_user_flag_is_in_the_queue(world, db):
+    ids = _scene(world, db)
+    only = _company(db, "ONLYFLAG")
+    _card(world, db, "a", [(only, "Fuel")])
+    first = _user_flag(db, "a", only, note="a secret note of A")
+    _user_flag(db, "b", only, "cash_burn")
+    _user_flag(db, "b", ids["BIG"])  # beside a waiting candidate
+    got = world["s"].get(QUEUE).json()
+    assert (got["total"], got["pen_only_total"]) == (7, 1)
+    by = {i["ticker"]: i for i in got["items"]}
+    row = by["ONLYFLAG"]
+    assert (row["open_flags"], row["shares"], row["cash_burn"], row["cards"]) == (2, None, None, 1)
+    assert (
+        datetime.fromisoformat(row["waiting_since"]) == first["opened_at"]
+    )  # its oldest open flag
+    assert by["BIG"]["open_flags"] == 1
+    # BIG's candidate is older than its flag: its wait is unchanged
+    assert by["BIG"]["waiting_since"] == by["BIG"]["shares"]["candidate"]["recorded_at"]
+    assert by["OLD1"]["open_flags"] == 0
+    # the order's keys are unchanged: ONLYFLAG has one card and the newest wait, so it sorts after the other
+    # one-card companies and before the company on no live card and the pen-only one
+    assert [i["ticker"] for i in got["items"]] == [
+        "BIG",
+        "OLD1",
+        "BOTH",
+        "NEW1",
+        "ONLYFLAG",
+        "ZERO",
+        "PEN",
+    ]
+
+
+def test_a_flag_older_than_the_candidates_sets_the_wait(world, db):
+    sid = _company(db, "EARLY")
+    _card(world, db, "b", [(sid, "Fuel")])
+    flag = _user_flag(db, "b", sid)
+    _flag(db, sid, world["asof"] - timedelta(days=10))
+    (row,) = world["s"].get(QUEUE).json()["items"]
+    assert row["ticker"] == "EARLY" and row["open_flags"] == 1
+    assert row["shares"] is not None
+    assert datetime.fromisoformat(row["waiting_since"]) == flag["opened_at"]
+
+
+def test_a_closed_or_withdrawn_flag_waits_for_nothing(world, db):
+    kept, withdrawn = _company(db, "KEPT"), _company(db, "GONE")
+    _card(world, db, "a", [(kept, "Fuel"), (withdrawn, "Fuel")])
+    k = _user_flag(db, "a", kept)
+    w = _user_flag(db, "a", withdrawn)
+    assert world["s"].get(QUEUE).json()["total"] == 2
+    a_id = _user_id(db, "a")  # (it ends the read's transaction: before the writes below)
+    user_flags.close(
+        db, k["id"], outcome="kept", note="right", decision_id=None, closed_by="s@q.test"
+    )
+    user_flags.withdraw(db, w["id"], user_id=a_id)
+    db.commit()
+    assert world["s"].get(QUEUE).json() == {"items": [], "total": 0, "pen_only_total": 0}
+
+
+def test_the_queue_names_no_flagging_user_or_note(world, db):
+    sid = _company(db, "QUIET")
+    _card(world, db, "a", [(sid, "Fuel")])
+    f = _user_flag(db, "a", sid, note="a secret note of A")
+    text = world["s"].get(QUEUE).text
+    assert '"QUIET"' in text
+    for word in ("a secret note", "a@q.test", str(f["id"]), str(_user_id(db, "a"))):
+        assert word not in text, word
+
+
+def test_the_statement_count_is_the_same_with_0_and_25_flags(world, db, monkeypatch):
+    _scene(world, db)
+    s = world["s"]
+    assert s.get(QUEUE).status_code == 200  # warm-up
+    seen = _statements(monkeypatch)
+    assert s.get(QUEUE).json()["total"] == 6
+    none = len(seen)
+    for n in range(
+        25
+    ):  # 25 open flags: 20 on companies with only a flag, 5 beside a waiting candidate
+        sid = _company(db, f"FLAGGED{n}")
+        _card(world, db, "a" if n % 2 else "b", [(sid, "Fuel")])
+        if n >= 20:
+            _flag(db, sid, world["asof"] - timedelta(days=10))
+        _user_flag(db, "a" if n % 2 else "b", sid)
+    seen.clear()
+    assert s.get(QUEUE).json()["total"] == 31
+    assert len(seen) == none, seen
