@@ -61,6 +61,11 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock("../../api/hooks", () => ({
+  // V2 W5e: the user's reads of the shared values + the flag mutations (inert here; their own suites cover them)
+  useUserCompanyValues: () => ({ data: undefined, isLoading: false, error: null }),
+  useUserThesisValues: () => ({ data: undefined, isLoading: false, error: null }),
+  useRaiseFlag: () => ({ mutate: () => {}, reset: () => {}, isPending: false, isError: false, error: null }),
+  useWithdrawFlag: () => ({ mutate: () => {}, reset: () => {}, isPending: false, isError: false, error: null }),
   useSetBusinessType: () => ({ mutate: () => {}, isPending: false }),
   useTriageSession: () => ({ data: { session: null }, isSuccess: true, isLoading: false, isError: false, error: null, refetch: vi.fn() }),
   usePutTriageSession: () => ({ mutate: vi.fn(), isPending: false, isError: false, isSuccess: false, error: null }),

@@ -185,11 +185,6 @@ export interface OnFileFact {
   cash_usd?: number;
   quarterly_burn_usd?: number;
   note?: string;
-  // WHO put it on file. Read for ONE branch: `"auto"` -> the machine applied an AUTO parse and no human
-  // vouched for it, so the panel says "auto-applied — confirm or override". Anything else (incl. the legacy
-  // `"operator"`) stays a neutral "on file": ~108 legacy rows are the OLD ceremonial AUTO confirm, so
-  // claiming "operator confirmed" off this field would assert a check that never happened.
-  ratified_by?: string;
 }
 export type OnFileMap = Partial<Record<string, OnFileFact>>;
 
@@ -220,7 +215,6 @@ export function onFileValues(m: {
     map.shares_outstanding = {
       shares: dnum(sh.detail, "shares"),
       note: dstr(sh.detail, "note"),
-      ratified_by: dstr(sh.detail, "ratified_by"),
     };
   }
   const cb = m.runway.provenance[0];
@@ -241,23 +235,53 @@ export function sharesAsof(m: { market_cap: ScoredFigureOut }): string | undefin
   return sh ? dstr(sh.detail, "shares_asof") : undefined;
 }
 
+/** The source of the share count behind the market cap (`annual-cover` for an annual foreign filer's cover count,
+ *  else a 10-Q/10-K cover), off the same shares provenance entry as `sharesAsof`. Undefined with no shares on file. */
+export function sharesSource(m: { market_cap: ScoredFigureOut }): string | undefined {
+  const sh = m.market_cap.provenance.find((p) => p.source !== "price" && p.source !== "computed");
+  return sh?.source;
+}
+
+/** The source an annual foreign filer's cover count carries (the shared read's `annual-cover`). */
+const ANNUAL_COVER = "annual-cover";
+/** How old an annual figure may be before it is "old" like any count: the SAME cap as the machine writer's
+ *  `ExtractorConfig.annual_shares_auto_max_age_days` (backend), so the badge and the auto-apply agree. */
+const ANNUAL_MAX_AGE_DAYS = 400;
+const DAY_MS = 1000 * 60 * 60 * 24;
+
 /** A STALE-SHARES warning: the rounded age (in months) of the share count's cover date IFF it is more than
- *  ~6 months before the as-of, else null. Why it exists (the ENDV finding): the AUTO-shares auto-apply
- *  faithfully reproduces whatever the latest filing's cover says — even a 2.5-year-old one for a delinquent
- *  filer — with no age signal, yielding a plausible-but-WRONG market cap on a name the operator doesn't know
- *  (the eye catches an absurd cap, not a merely old one). Honest loudness (#7): returns null for a current
- *  count (the common case) — the flag lights ONLY for the rare stale one. Threshold ~6 months = ≥2 missed
- *  quarterly filings; a company filing 10-Qs on schedule never trips it. Display-only; touches no signal. */
+ *  ~6 months before the as-of, else null. Why it exists (the ENDV finding): a count faithfully reproduces whatever
+ *  the latest filing's cover says — even a 2.5-year-old one for a delinquent filer — with no age signal, yielding a
+ *  plausible-but-WRONG market cap on a name the operator doesn't know. Honest loudness (#7): returns null for a
+ *  current count (the common case) — the flag lights ONLY for the rare stale one. Threshold ~6 months = ≥2 missed
+ *  quarterly filings; a company filing 10-Qs on schedule never trips it.
+ *
+ *  An ANNUAL figure (a 20-F/40-F cover, source `annual-cover`) is dated at the fiscal year end, so it is always
+ *  months old and is not stale: it is quiet until it passes its 400-day cap (V2 W5e); its date rides the hover
+ *  (`annualSharesTitle`). Display-only; touches no signal. */
 export function staleSharesMonths(
   sharesAsofDate: string | undefined,
   asof: string,
+  source?: string,
 ): number | null {
   if (!sharesAsofDate) return null;
   const cover = Date.parse(sharesAsofDate);
   const at = Date.parse(asof);
   if (Number.isNaN(cover) || Number.isNaN(at)) return null;
-  const months = (at - cover) / (1000 * 60 * 60 * 24 * 30.44);
+  if (source === ANNUAL_COVER && (at - cover) / DAY_MS <= ANNUAL_MAX_AGE_DAYS) return null;
+  const months = (at - cover) / (DAY_MS * 30.44);
   return months > 6 ? Math.round(months) : null;
+}
+
+/** The hover for an annual-figure count inside its cap ("annual figure, as of Mar 31, 2026"): where its date lives
+ *  now that it carries no badge. Null for any other count, or an annual one past the cap (the badge speaks then). */
+export function annualSharesTitle(m: { market_cap: ScoredFigureOut }, asof: string): string | null {
+  const when = sharesAsof(m);
+  if (sharesSource(m) !== ANNUAL_COVER || !when || staleSharesMonths(when, asof, ANNUAL_COVER) != null) return null;
+  const t = Date.parse(when);
+  if (Number.isNaN(t)) return null;
+  const day = new Date(t).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+  return `annual figure, as of ${day}`;
 }
 
 /** Market cap (a figure, not a meter) → "$8.0B" / "$600M"; "—" when either price or shares is missing

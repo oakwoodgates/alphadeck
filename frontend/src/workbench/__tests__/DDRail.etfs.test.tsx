@@ -18,6 +18,7 @@ import { ETFS, SILENT_DESCRIPTORS } from "../useChainDraft";
 // controls the rail hands it (its holdings pull + display-signals reads are its own tests' business)
 vi.mock("../CatalystFactForm", () => ({ CatalystFactForm: () => null }));
 vi.mock("../FactsPanel", () => ({ FactsPanel: () => null }));
+vi.mock("../SharedValues", () => ({ SharedValues: () => null }));
 vi.mock("../SleeveRail", () => ({
   SleeveRail: ({ roleControl }: { roleControl?: ReactNode }) => (
     <div data-testid="sleeve-rail">{roleControl}</div>
