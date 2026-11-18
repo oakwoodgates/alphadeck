@@ -5,6 +5,7 @@ import type {
   ScoredMemberOut,
 } from "../api/hooks";
 import { FactsPanel } from "./FactsPanel";
+import { SharedValues } from "./SharedValues";
 import { SleeveRail } from "./SleeveRail";
 import { silentLinkOptions, toggleMemberLink } from "./chainOps";
 import { ETFS, SILENT_DESCRIPTORS, isSilentLink } from "./useChainDraft";
@@ -289,9 +290,9 @@ function ContextRoleControl({
 
 /** The DD rail — "behind the scores" for the selected name. Deterministic provenance ONLY: every chip
  *  traces to a fact or a computation, and the notes (the recurring-vs-one-time burn composition, the
- *  cash-runway basis) are the payoff — the operator seeing WHY the number is what it is. The facts panel
- *  closes the extract → ratify → re-score loop in place of the old "stored company facts" marker. Only the
- *  auto-drafted thesis-fit prose stays deferred — marked, not faked (the LLM drafter, S5). */
+ *  cash-runway basis) are the payoff — the operator seeing WHY the number is what it is. Then the platform's
+ *  shared values (read-only, with a Flag), and purity — the one fact the user sets. Only the auto-drafted
+ *  thesis-fit prose stays deferred — marked, not faked (the LLM drafter, S5). */
 export function DDRail({
   member,
   thesisFit,
@@ -452,7 +453,11 @@ export function DDRail({
             move to the thesis's catalyst list (W6). An honest line instead of a control that would be refused. */}
         <div className="note">Company catalysts move to the thesis&apos;s catalyst list in V2.</div>
 
-        <div className="dd-sub">Extract &amp; ratify the facts</div>
+        {/* V2 W5e: the share count and cash are the PLATFORM'S, shared by every user: read here with their state
+            (read-only; a Flag tells the steward a value looks wrong). Purity stays the user's own. */}
+        <SharedValues securityId={member.security_id} asof={asof} />
+
+        <div className="dd-sub">Purity (yours to set)</div>
         <FactsPanel
           securityId={member.security_id}
           thesisId={thesisId}

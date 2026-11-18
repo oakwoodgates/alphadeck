@@ -27,6 +27,18 @@ const fx = vi.hoisted(() => {
     // the open position, ATTRIBUTED to J (post-#155 Position.security_id) — the panel joins on it
     position: { entry_price: 125, current_price: null, opened_on: "2026-07-11", security_id: "s-j" },
   },
+  userValues: {
+    thesis_id: "t-nuke",
+    members: [
+      {
+        security_id: "s-j",
+        ticker: "J",
+        name: "Jacobs Solutions Inc.",
+        shares: { fact_type: "shares_outstanding", state: "awaiting_steward", reason: null, label: "Awaiting the steward", set_by: null, value: null, annual_line: null, pending: null, awaiting: { event_date: "2026-03-31", source_url: null, line: "x", located_passages: [], passages_unreadable: 0 }, my_flag: null },
+        cash_burn: { fact_type: "cash_burn", state: "no_value", reason: "not-extracted", label: "No value yet: the platform has not read this company's filings yet", set_by: null, value: null, annual_line: null, pending: null, awaiting: null, my_flag: null },
+      },
+    ],
+  },
   decisions: [
     { id: "d1", action: "take", decision_date: "2026-07-11", security_id: "s-j", shares: 10, price: 125, reason: "test", voids: null, call_state: "armed", call_verdict: "starter_entry", recorded_at: "2026-07-11T12:00:00Z", voided: false },
     { id: "d2", action: "take", decision_date: "2026-07-10", security_id: "s-ztek", shares: null, price: null, reason: "other name", voids: null, call_state: null, call_verdict: null, recorded_at: "2026-07-10T12:00:00Z", voided: false },
@@ -152,9 +164,12 @@ vi.mock("../../api/hooks", () => ({
   usePutCatalysts: () => ({ mutate: () => {}, isPending: false, isError: false, error: null }),
   usePutKillCriteria: () => ({ mutate: () => {}, isPending: false, isError: false, error: null }),
   useDecisions: () => ({ data: fx.decisions, isLoading: false, error: null }),
+  // the user's read of the shared values (V2 W5e): J's share count awaits the steward, its cash has no value yet
+  useUserThesisValues: () => ({ data: fx.userValues, isLoading: false, error: null }),
   usePostDecision: () => ({ mutate: () => {}, isPending: false, isError: false, error: null }),
 }));
 
+import { ClockProvider } from "../../clock";
 import { Cockpit } from "../Cockpit";
 
 // In the app the selection key is URL-owned (?name=, App's CockpitRoute); the harness plays that
@@ -162,6 +177,7 @@ import { Cockpit } from "../Cockpit";
 function Harness() {
   const [name, setName] = useState<string | null>(null);
   return (
+    <ClockProvider value={{ currentNight: "2026-07-11", marketToday: "2026-07-11", actionDay: null, failed: false }}>
     <Cockpit
       thesisId="t-nuke"
       asof="2026-07-11"
@@ -172,6 +188,7 @@ function Harness() {
       railOpen
       onRailChange={() => {}}
     />
+    </ClockProvider>
   );
 }
 
@@ -325,8 +342,17 @@ describe("Cockpit — the per-name panel", () => {
     expect(p.getByText("Purity")).toBeInTheDocument(); // the four meters ride along (already fetched)
     expect(p.getByText("38%")).toBeInTheDocument();
     expect(p.getByText("cash-generative last quarter")).toBeInTheDocument(); // runway null value, honest label
-    expect(p.queryByText(/unconfirmed estimate/)).toBeNull(); // the count left the scored read (W5d)
+    expect(p.queryByText(/unconfirmed estimate/)).toBeNull(); // V2 W5e: the count line is gone, a wire count or not
     expect(p.getByText("model draft")).toBeInTheDocument(); // system_drafted fit tag (S1 honest label)
+  });
+
+  it("shows the quiet shared-value lines for J: share count awaiting, cash no value yet (V2 W5e)", () => {
+    const { container } = renderCockpit();
+    fireEvent.click(row(container, "bkt-armed")); // J
+    const p = within(panel(container) as HTMLElement);
+    expect(p.getByText("Share count: awaiting the steward")).toBeInTheDocument();
+    expect(p.getByText("Cash: no value yet (the platform has not read the filings)")).toBeInTheDocument();
+    expect(p.queryByText(/^Purity:/)).toBeNull(); // J's purity is set (38%)
   });
 
   it("shows the position and the decision rows logged ON this name — other names' never leak", () => {

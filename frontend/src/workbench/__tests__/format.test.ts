@@ -16,6 +16,8 @@ import {
   provChip,
   provNotes,
   sharesAsof,
+  sharesSource,
+  annualSharesTitle,
   spacClass,
   staleSharesMonths,
 } from "../format";
@@ -323,5 +325,42 @@ describe("stale-shares age (the ENDV finding — display-only)", () => {
   it("is null (never throws) on a missing or unparseable date", () => {
     expect(staleSharesMonths(undefined, "2026-07-17")).toBeNull();
     expect(staleSharesMonths("not-a-date", "2026-07-17")).toBeNull();
+  });
+});
+
+describe("the stale-shares badge by source (V2 W5e: an annual figure has a 400-day cap)", () => {
+  const capFrom = (source: string, shares_asof: string) => ({
+    market_cap: {
+      pips: null,
+      value: 1e6,
+      provenance: [
+        { source: "price", ref: "p", detail: { close: 10 } },
+        { source, ref: "Q", detail: { shares: 1e6, shares_asof } },
+      ],
+    } as never,
+  });
+
+  it("sharesSource reads the count's source off the shares provenance, not the price leg", () => {
+    expect(sharesSource(capFrom("annual-cover", "2026-03-31"))).toBe("annual-cover");
+    expect(sharesSource({ market_cap: { pips: null, value: null, provenance: [] } as never })).toBeUndefined();
+  });
+
+  it("an annual-cover count is quiet up to 400 days, then lights like any old count", () => {
+    expect(staleSharesMonths("2026-03-31", "2026-11-14", "annual-cover")).toBeNull(); // 228 days
+    expect(staleSharesMonths("2025-10-10", "2026-11-14", "annual-cover")).toBeNull(); // 400 days: at the cap
+    expect(staleSharesMonths("2025-10-09", "2026-11-14", "annual-cover")).toBe(13); // 401 days: over it
+  });
+
+  it("a quarterly count keeps the six-month rule whatever its age under 400 days", () => {
+    expect(staleSharesMonths("2026-03-31", "2026-11-14", "10-q-cover")).toBe(7);
+    expect(staleSharesMonths("2026-03-31", "2026-11-14")).toBe(7); // no source: unchanged
+  });
+
+  it("annualSharesTitle carries the cover date, only for an annual count inside the cap", () => {
+    expect(annualSharesTitle(capFrom("annual-cover", "2026-03-31"), "2026-11-14")).toBe(
+      "annual figure, as of Mar 31, 2026",
+    );
+    expect(annualSharesTitle(capFrom("annual-cover", "2025-01-31"), "2026-11-14")).toBeNull(); // over the cap: the badge speaks
+    expect(annualSharesTitle(capFrom("10-q-cover", "2026-09-30"), "2026-11-14")).toBeNull();
   });
 });

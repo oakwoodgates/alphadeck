@@ -810,3 +810,26 @@ flags, with the outcome and the steward's note and never `closed_by`, `reopened_
 count. Only the steward's routes read `user_email`, `closed_by` and `reopened_by` (`repositories/value_flag_repo.py`'s
 steward-side reads; the user-side reads select a column list without them). Proven with real sign-ins (two plain
 users in two workspaces and the steward) in `tests/app/test_admin_platform_values_flags_api.py`.
+
+## The Workbench and Cockpit for a user (W5e)
+
+A plain user never writes a share count or cash/burn: both are platform values. The screens (frontend only):
+
+- **The rail's "Shared values" block** (`frontend/src/workbench/SharedValues.tsx`, words in `components/valueWords.ts`):
+  read-only, one quiet block per value, from `GET /platform-values/{security_id}`, labeled CURRENT (a dated view says it
+  shows today's state and never explains an old meter with it). Each state has its words: from the filing; verified by the
+  steward; verified (carried over from V1); awaiting the steward (the filing link and date and the passage behind "Show the
+  filing passage", **no figure**); no value yet (the reason, quiet); a newer filing waits (gray line; the applied value and
+  the meters keep the applied value).
+- **The Flag** on each block (not for the steward, who gets "Open on the steward's page" instead): a one-line optional
+  note, "Send to the steward" / "Cancel"; then "You flagged this on <date>. The steward will look at it." with "Withdraw";
+  the steward's outcome is loud for 14 days after `closed_at` (computed, nothing stored), then quiet. Every refusal shows the
+  server's own sentence. Notes render as plain text.
+- **Purity stays the user's own** under "Purity (yours to set)" (`FactsPanel.tsx`: extract, the proposal, Confirm). The
+  shares and cash confirm forms, the per-row and per-section "get data", and the machine auto-confirm call are gone from the
+  Workbench for everyone; `POST /workbench/facts` still accepts the share and cash variants until W7 narrows it.
+- **The stale-shares badge** (`staleSharesMonths(date, asof, source)`): an annual-cover count inside the 400-day cap shows no
+  badge (its date is in the hover); a quarterly count over six months old keeps it.
+- **The Cockpit name panel**: "N unconfirmed estimate(s)" is gone; under the meters, only on the current view and only when
+  it applies, gray lines: "Share count: awaiting the steward", "Cash: no value yet (...)", "Purity: not set yet (yours to
+  set in the Workbench)".

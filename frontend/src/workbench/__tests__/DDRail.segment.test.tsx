@@ -15,6 +15,7 @@ import { SILENT_DESCRIPTORS } from "../useChainDraft";
 // the hook-using child panels aren't under test here — stub them so this stays a focused unit
 vi.mock("../CatalystFactForm", () => ({ CatalystFactForm: () => null }));
 vi.mock("../FactsPanel", () => ({ FactsPanel: () => null }));
+vi.mock("../SharedValues", () => ({ SharedValues: () => null }));
 
 const fig = (pips: number | null, value: number | null) => ({ pips, value, provenance: [] });
 const member = {

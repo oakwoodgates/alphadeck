@@ -431,7 +431,8 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .np-meters { border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; background: var(--panel); }
 .np-meter-row { display: flex; align-items: center; gap: 10px; padding: 3px 0; }
 .np-meter-row .val { margin-left: auto; font-family: var(--mono); font-size: 10.5px; color: var(--txt-2); }
-.np-unconf { margin-top: 6px; font-size: 10px; color: var(--warm); }
+/* the name panel's quiet lines about a blank meter (V2 W5e): gray text, never an alert — "no value yet" is the common case */
+.np-shared { margin-top: 6px; font-size: 10.5px; line-height: 1.5; color: var(--txt-3); }
 /* Indicators · this name — quiet by design (#7): chips in the panel idiom, muted event lines, fine-print basis */
 .np-ind { margin-bottom: 10px; }
 .np-ind-label { font-size: 10.5px; color: var(--txt-3); margin-bottom: 6px; }
@@ -928,23 +929,12 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .nmrow .cap { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--txt-2); }
 .nmrow .cap small { color: var(--txt-4); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; margin-right: 5px; }
 /* PR-C — the scored row's split: the row is a DIV (whole-surface click), the ticker block is the real
-   button (no nested buttons), and ⇣ get data is gate 2's per-name opt-in (mark = the click). */
+   button (no nested buttons). */
 .nmrow .nmrow-sel { border: none; background: transparent; font: inherit; color: inherit; display: inline-flex; align-items: center; gap: 9px; padding: 0; cursor: pointer; min-width: 0; }
 /* the company name on the scored row — a ticker-only list is a memory quiz over four-letter codes */
 .nmrow .co { font-size: 11px; color: var(--txt-3); max-width: 34ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.nmrow .wb-getdata { margin-left: 10px; font-size: 9px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--txt-3); background: transparent; border: 1px solid var(--line-2); border-radius: 5px; padding: 3px 8px; cursor: pointer; white-space: nowrap; }
-.nmrow button.wb-getdata:hover { color: var(--txt-2); border-color: var(--txt-4); }
-.nmrow .wb-getdata.ready { color: var(--manage); border-color: rgba(52, 194, 160, 0.4); }
-.nmrow .wb-getdata.err { color: var(--warm); border-color: rgba(224, 162, 60, 0.4); }
-.nmrow span.wb-getdata.busy { border-style: dashed; cursor: default; }
 /* ENDV finding: a stale-cover share count behind the market cap — warm, only shown when >~6mo old (honest loudness) */
 .nmrow .cap .wb-stale-shares { margin-left: 6px; font-size: 9px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--warm); background: rgba(224, 162, 60, 0.1); border: 1px solid rgba(224, 162, 60, 0.28); border-radius: 5px; padding: 1px 5px; white-space: nowrap; cursor: help; }
-/* the honest empty-extract states (Retrieval Slice 1 — the three empty reasons are DISTINCT):
-   `.none` = genuinely nothing on EDGAR (no 10-K/10-Q and no 20-F/40-F) — muted, non-actionable;
-   `.unread` = an annual filing EXISTS but its cover couldn't be read — the name is unread, not empty,
-   so it reads a shade warmer (dotted, help cursor) and never masquerades as absence. */
-.nmrow span.wb-getdata.none { color: var(--txt-4); border-style: dashed; border-color: var(--line); cursor: default; }
-.nmrow span.wb-getdata.unread { color: var(--txt-3); border-style: dotted; border-color: var(--line-2); cursor: help; }
 
 /* the fund-flow chip (ETF net flow, F3) — the sleeve's inflow/outflow read, beside the AUM strip:
    quiet vitals-strip styling; the glyph alone carries the tint (the shared .dirg rule, #7) */
@@ -1065,7 +1055,24 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .dd-why { font-size: 11px; line-height: 1.5; color: var(--txt-2); margin-top: 6px; padding-left: 9px; border-left: 2px solid var(--line-2); }
 /* the runway's year-to-date pace and its caveat (V2 extractor correctness PR 3): quiet text, never an alert */
 .dd-pace { font-size: 11px; line-height: 1.5; color: var(--txt-3); margin-top: 4px; }
-.prov { display: flex; flex-wrap: wrap; gap: 6px; }
+/* the Shared values block (V2 W5e): one small quiet block per value; the Flag is a quiet link; the steward's outcome is
+   warm only while it is loud (14 days after the close), then gray like the rest */
+.sv { margin-bottom: 14px; }
+.sv-block { margin: 0 0 8px; padding: 6px 9px; border-left: 2px solid var(--line-2); font-size: 11px; line-height: 1.5; color: var(--txt-2); }
+.sv-h { color: var(--txt-2); font-weight: 600; }
+.sv-sep { color: var(--txt-4); }
+.sv-sub { font-size: 10.5px; line-height: 1.5; color: var(--txt-3); margin-top: 3px; }
+.sv-link { color: var(--txt-2); }
+.sv-flag { margin-top: 4px; }
+.sv-flaglink { border: none; background: transparent; padding: 0; font: inherit; font-size: 10.5px; color: var(--txt-3); text-decoration: underline; cursor: pointer; }
+.sv-flaglink:hover { color: var(--txt-2); }
+.sv-flagform { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.sv-flagform input { flex: 1 1 200px; font: inherit; font-size: 11px; color: inherit; background: var(--bg-2); border: 1px solid var(--line-2); border-radius: 5px; padding: 3px 7px; }
+.sv-flagform .sv-sub, .sv-flagform .note { flex-basis: 100%; margin: 0; }
+.sv-outcome { font-size: 10.5px; line-height: 1.5; color: var(--txt-3); margin-bottom: 3px; }
+.sv-outcome.loud { color: var(--warm); }
+.sv-steward { font-size: 10.5px; }
+.sv-steward a { color: var(--txt-3); }.prov { display: flex; flex-wrap: wrap; gap: 6px; }
 .prov .chip { font-family: var(--mono); font-size: 9.5px; color: var(--txt-3); background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 5px; padding: 3px 7px; text-decoration: none; display: inline-block; }
 .prov .chip::before { content: "◇ "; color: var(--txt-4); }
 .prov a.chip:hover { color: var(--txt-2); border-color: var(--txt-4); }
@@ -1499,10 +1506,6 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .located .excerpt { font-size: 11px; line-height: 1.5; color: var(--txt-2); }
 /* the ratify note as a growable textarea (a truncated single line hid the basis being ratified) */
 .ratify-row .rf .rf-note { width: 100%; font: inherit; color: inherit; background: var(--bg-2); border: 1px solid var(--line-2); border-radius: 5px; padding: 4px 7px; resize: none; line-height: 1.45; }
-/* the section get-data bar — one deliberate click covers the active section; failures stay loud */
-.wb-section-data { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 2px 0 10px; }
-.wb-section-data .note { margin: 0; }
-.wb-section-data .flag { margin: 0; }
 /* the passage clamp — evidence stays scannable, not a wall; expand is explicit (one click) */
 .located .excerpt.clamped { max-height: 9.5em; overflow: hidden; -webkit-mask-image: linear-gradient(180deg, #000 72%, transparent); mask-image: linear-gradient(180deg, #000 72%, transparent); }
 /* "a ratified value is already on file" — quiet, green-ish; a re-confirm appends a new version */

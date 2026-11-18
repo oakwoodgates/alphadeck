@@ -10,11 +10,11 @@ import {
   type ThesisDetail,
   useDeleteTriageSession,
   usePromoteThesis,
-  useSectionData,
   useSetBusinessType,
   useTheses,
   useThesis,
   useTriageSession,
+  useUserThesisValues,
   useWorkbenchScored,
 } from "../api/hooks";
 import { useIsSteward } from "../auth/me";
@@ -100,6 +100,10 @@ export function Workbench({ header, asof }: Props) {
 
   const thesisQ = useThesis(thesisId);
   const scoredQ = useWorkbenchScored(thesisId, asof);
+  // the user's read of the card's shared values (V2 W5e): ONE read for every row. A row uses it only for the quiet
+  // "awaiting the steward" hover on a blank cap or runway; the rail reads its own company.
+  const sharedQ = useUserThesisValues(thesisId);
+  const sharedById = new Map((sharedQ.data?.members ?? []).map((m) => [m.security_id, m]));
   const promote = usePromoteThesis();
   // PR-4 — the on-promote ingest kick: the LAST save that ADDED members returned an `ingest` job ref;
   // IngestNote polls it. One state, fed from both save surfaces — the effect below catches every
@@ -120,10 +124,6 @@ export function Workbench({ header, asof }: Props) {
   useEffect(() => {
     if (promoteOnboarding) setOnboardingKick(promoteOnboarding);
   }, [promoteOnboarding]);
-  // the SECTION data runner (gate 2 at section granularity): prices + staged extraction for every name
-  // in the active section — bounded by the section, extract-and-propose only (the operator still
-  // ratifies per fact). The per-name row button stays the surgical option.
-  const sectionData = useSectionData(thesisId);
   // The resumable prune session (triageSession.ts + the blob store). Fetched only in edit mode; the editor
   // mount is GATED on it settling (below) so a restore seeds at mount, and a load ERROR never looks like
   // "no session" (which would silently discard a real prune). `dismissedIncompatible` is the operator's
@@ -220,12 +220,10 @@ export function Workbench({ header, asof }: Props) {
   // would differ from the stored one (`seg` still the tab the name LEFT) — and the next pick would be judged
   // against that stale tab: a multi-link name also in the old tab would "still be shown" there and snap the
   // view back. Writing it makes `baseSeg` the tab actually shown, so later picks are judged against it.
-  // Mirrors a tab click (minus clearing the pick — the pick is the point): the section report belonged to
-  // the tab we left.
+  // Mirrors a tab click (minus clearing the pick — the pick is the point).
   useEffect(() => {
     if (pickedHome && pickedHome !== seg) {
       setSeg(pickedHome);
-      sectionData.reset();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pickedHome, seg]);
@@ -293,7 +291,6 @@ export function Workbench({ header, asof }: Props) {
     setStaleSessionChoice(""); // the stale-session choice is per thesis
     setIngestKick(null); // the ingest note refers to the previous thesis's save
     setOnboardingKick(null); // ...and so does the onboarding note (X1)
-    sectionData.reset();
     promote.reset();
   };
 
@@ -990,7 +987,6 @@ export function Workbench({ header, asof }: Props) {
                             onClick={() => {
                               setSeg(s.label);
                               setPickedMemberId(null);
-                              sectionData.reset(); // the report describes the LAST run's section
                             }}
                           >
                             <div className="sn">{s.label}</div>
@@ -1091,57 +1087,14 @@ export function Workbench({ header, asof }: Props) {
                       Export ({members.length})
                     </button>
                   </div>
-                  {/* the SECTION get-data (gate 2 at section granularity): prices + staged extraction
-                      for EVERY name in the active section, one deliberate click — bounded by the
-                      section, cache-first both sides, proposes only (per-fact ratify stays yours).
-                      The per-row button below remains the surgical option. */}
-                  <div className="wb-section-data">
-                    <button
-                      type="button"
-                      className="wb-mini"
-                      disabled={sectionData.running || shownMembers.length === 0}
-                      title="pull EOD prices (incremental, cache-first) + stage extraction candidates for every name in this section — proposes only; you still ratify per fact, purity stays yours"
-                      onClick={() =>
-                        sectionData.run(
-                          shownMembers.map((m) => ({
-                            security_id: m.security_id,
-                            ticker: m.ticker,
-                          })),
-                        )
-                      }
-                    >
-                      {sectionData.running
-                        ? `getting data for ${shownMembers.length} names…`
-                        : `⇣ get data — ${activeSeg ?? "all names"} (${shownMembers.length})`}
-                    </button>
-                    {sectionData.report && (
-                      <span className="note">
-                        prices on {sectionData.report.pricesOk} · candidates staged on{" "}
-                        {sectionData.report.extractsOk} of {sectionData.report.total} — ratify per
-                        name below
-                      </span>
-                    )}
-                    {sectionData.report?.refusal && (
-                      // the API's own refusal (security hardening PR 1b), worded as the API words it
-                      <span className="note err">{sectionData.report.refusal}</span>
-                    )}
-                    {sectionData.report && sectionData.report.failures.length > 0 && (
-                      <span className="flag">
-                        ⚑ failed:{" "}
-                        {sectionData.report.failures
-                          .map((f) => `${f.ticker} (${f.what})`)
-                          .join(", ")}
-                      </span>
-                    )}
-                  </div>
                   {shownMembers.map((m) => (
                     <ScoredRow
                       key={m.security_id}
                       member={m}
                       selected={m.security_id === selectedMember?.security_id}
                       onSelect={() => setPickedMemberId(m.security_id)}
-                      thesisId={thesisId}
                       asof={asof}
+                      values={sharedById.get(m.security_id) ?? null}
                       contextRole={roleBySid.get(m.security_id) ?? null}
                     />
                   ))}
@@ -1173,8 +1126,8 @@ export function Workbench({ header, asof }: Props) {
                       member={m}
                       selected={m.security_id === selectedMember?.security_id}
                       onSelect={() => setPickedMemberId(m.security_id)}
-                      thesisId={thesisId}
                       asof={asof}
+                      values={sharedById.get(m.security_id) ?? null}
                       contextRole={roleBySid.get(m.security_id) ?? null}
                     />
                   ))}

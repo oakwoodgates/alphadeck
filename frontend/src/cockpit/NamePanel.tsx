@@ -6,9 +6,10 @@ import type {
   MemberDisplaySignalsOut,
   ThesisDetail,
   TriggerRefOut,
+  UserCompanyValuesOut,
 } from "../api/hooks";
 import { useDecisions } from "../api/hooks";
-import { useCountdownOrigin } from "../clock";
+import { useAppClock, useCountdownOrigin } from "../clock";
 import { TriggerRow } from "../components/CallCard";
 import { DataFlagsSection, FlagWrap } from "./DataFlagMark";
 import { cellFlag } from "./dataFlags";
@@ -21,6 +22,7 @@ import {
   runwayCashWords,
   runwayPaceWords,
 } from "../workbench/format";
+import { lowerFirst, reasonClause } from "../components/valueWords";
 import {
   businessTypeLabel,
   byEventDateDesc,
@@ -28,6 +30,7 @@ import {
   daysFrom,
   fmtDate,
   gradeClass,
+  isPastAsof,
   SETUP_STRENGTH_TOOLTIP,
   supersectorLabel,
   verdictLabel,
@@ -51,6 +54,9 @@ interface Props {
   /** S3 — this name's data flags + split rows (joined by security_id off the Cockpit-level query); null =
    *  nothing to say (the common case) — the section renders nothing. */
   dataFlags?: MemberDataFlagsOut | null;
+  /** This company's shared values (share count, cash/burn) as the user reads them, joined by security_id off the
+   *  Cockpit-level read; null/absent = not loaded or none. CURRENT state: used only on the current view. */
+  sharedValues?: UserCompanyValuesOut | null;
   asof: string;
   onClose: () => void;
 }
@@ -88,6 +94,7 @@ export function NamePanel({
   position,
   display,
   dataFlags = null,
+  sharedValues = null,
   asof,
   onClose,
 }: Props) {
@@ -409,6 +416,7 @@ export function NamePanel({
               );
             })}
           </div>
+          <SharedLines scored={scored} values={sharedValues} asof={asof} />
         </>
       )}
 
@@ -443,5 +451,45 @@ export function NamePanel({
         and undo live on the thesis rail. Closing returns the table exactly as you left it.
       </div>
     </aside>
+  );
+}
+
+/** The quiet lines under the meters (V2 W5e), ONLY when they apply: what a blank meter is waiting on, read from the
+ *  user's shared values. They replace the retired "N unconfirmed estimate(s)". Gray text, never an alert: a name with
+ *  "no value yet" is the common case until the platform's backfill runs, not a to-do. They describe the CURRENT state,
+ *  so on a dated (as-of) view there are none: today's state never explains an old blank meter. */
+function SharedLines({
+  scored,
+  values,
+  asof,
+}: {
+  scored: NonNullable<BucketRow["scored"]>;
+  values: UserCompanyValuesOut | null;
+  asof: string;
+}) {
+  const { currentNight } = useAppClock();
+  if (isPastAsof(asof, currentNight)) return null;
+  const lines: string[] = [];
+  if (values) {
+    for (const [title, v] of [
+      ["Share count", values.shares],
+      ["Cash", values.cash_burn],
+    ] as const) {
+      if (v.state === "awaiting_steward") lines.push(`${title}: awaiting the steward`);
+      else if (v.state === "no_value" && v.reason !== "cash-generative")
+        lines.push(`${title}: no value yet (${reasonClause(v)})`);
+      else if (v.pending) lines.push(`${title}: ${lowerFirst(v.pending.line)}`);
+    }
+  }
+  // a fund has no purity; a set purity needs no line
+  if (scored.instrument_kind !== "etf" && scored.purity.value == null)
+    lines.push("Purity: not set yet (yours to set in the Workbench)");
+  if (lines.length === 0) return null;
+  return (
+    <div className="np-shared">
+      {lines.map((l) => (
+        <div key={l}>{l}</div>
+      ))}
+    </div>
   );
 }

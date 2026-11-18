@@ -12,6 +12,7 @@ import { meterValueLabel, runwayCashWords, runwayPaceWords } from "../format";
 
 vi.mock("../CatalystFactForm", () => ({ CatalystFactForm: () => null }));
 vi.mock("../FactsPanel", () => ({ FactsPanel: () => null }));
+vi.mock("../SharedValues", () => ({ SharedValues: () => null }));
 
 const UP_CAVEAT =
   "Last quarter's burn ($17.1M) is well below the year-to-date pace ($69.9M a quarter): runway reads 9.1 months at last quarter's pace and 2.2 months at the year-to-date pace.";

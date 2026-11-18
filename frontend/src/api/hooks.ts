@@ -6,11 +6,10 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 
 import { api } from "./client";
 import { MONITOR_STALE_MS } from "./queryClient";
-import { refusalText } from "./refusals";
 import type { components } from "./types.gen";
 
 // Refresh every cross-card dashboard read after a write that can change what one shows. A PREFIX
@@ -53,7 +52,6 @@ export type ExtractedFact = components["schemas"]["ExtractedFact"];
 // states are distinct ("no-annual-filing" = genuinely nothing on EDGAR; "cover-not-located" = an
 // annual filing exists but its cover couldn't be read: UNREAD, not empty)
 export type ExtractionResult = components["schemas"]["ExtractionResult"];
-export type AutoConfirmOut = components["schemas"]["AutoConfirmOut"];
 export type LocatedPassage = components["schemas"]["LocatedPassage"];
 export type FlagExplanationOut = components["schemas"]["FlagExplanationOut"];
 // the ratify body is a discriminated union (one variant per fact type)
@@ -1097,108 +1095,6 @@ export function useSetBusinessType() {
   });
 }
 
-// Ask the server to auto-apply ONE name's AUTO shares count. No value crosses the wire — the server
-// re-extracts, gates on tier===AUTO, and writes its own parse (the #3 structural bound). Shared by the
-// per-name get-data (`useAutoConfirmShares`) and the section runner, so "get data" means the same thing
-// from both entry points.
-async function postAutoConfirmShares(securityId: string): Promise<AutoConfirmOut> {
-  const { data, error } = await api.POST("/workbench/facts/auto-confirm", {
-    body: { security_id: securityId, fact_type: "shares_outstanding" as const },
-  });
-  if (error) throw error;
-  return data;
-}
-
-export interface SectionDataReport {
-  total: number;
-  pricesOk: number;
-  extractsOk: number;
-  // how many names had their AUTO shares count applied by the machine this run — surfaced in the report so a
-  // fact the operator didn't type is never written silently (#6)
-  sharesAuto: number;
-  failures: { ticker: string; what: string }[];
-  // the API's own refusal when a leg was refused (security hardening PR 1b: a name not on your cards, or today's
-  // allowance spent), worded as the API words it, so the screen shows WHY rather than only "failed"; absent else
-  refusal?: string;
-}
-
-// The SECTION runner — gate 2 at value-chain-section granularity: for every member the caller passes
-// (the ACTIVE section — a slice of the saved shortlist, never the draft), pull prices (incremental,
-// cache-first server-side) and prefetch the extract into the SAME query the rows + rail observe. An
-// already-fetched extract is not re-spent (client cache checked).
-//
-// It EXTRACTS-AND-PROPOSES, with ONE exception: an AUTO (unflagged) shares count is auto-applied, the same
-// as the per-name get-data (see `useAutoConfirmShares`) — that confirm was ceremonial, never a verification.
-// Everything that needs judgment still stages for the operator: purity stays HUMAN, cash_burn is a manual
-// ratify, and a FLAGged shares count (dual-class / stale-cover) is declined by the server.
-export function useSectionData(thesisId: string) {
-  const qc = useQueryClient();
-  const [running, setRunning] = useState(false);
-  const [report, setReport] = useState<SectionDataReport | null>(null);
-
-  const run = async (members: { security_id: string; ticker?: string | null }[]) => {
-    setRunning(true);
-    setReport(null);
-    const outcomes = await Promise.all(
-      members.map(async (m) => {
-        const [px, ex] = await Promise.allSettled([
-          postIngestPrices(m.security_id),
-          qc.getQueryData(["workbench-extract", m.security_id, thesisId ?? null]) !== undefined
-            ? Promise.resolve("cached" as const) // cache-first client-side too — never re-spend a fetch
-            : qc.fetchQuery(extractQueryOptions(m.security_id, thesisId)),
-        ]);
-        // Auto-apply the AUTO shares count. Read the candidates from the cache so this covers the fetched
-        // AND the already-cached member alike; a rejected extract leaves it undefined -> we skip. The tier
-        // check just avoids a pointless call (the server re-verifies and owns the number), and a failure is
-        // swallowed: the section run must never break because a convenience write didn't land. An
-        // annual-cover name can never take this branch — its shares candidate is ALWAYS "flag".
-        let sharesAuto = false;
-        const cands = qc.getQueryData<ExtractionResult>([
-          "workbench-extract",
-          m.security_id,
-          thesisId ?? null,
-        ]);
-        if (cands?.facts?.find((f) => f.fact_type === "shares_outstanding")?.tier === "auto") {
-          try {
-            sharesAuto = (await postAutoConfirmShares(m.security_id)).applied;
-          } catch {
-            sharesAuto = false;
-          }
-        }
-        return { ticker: m.ticker ?? m.security_id.slice(0, 8), px, ex, sharesAuto };
-      }),
-    );
-    const failures: SectionDataReport["failures"] = [];
-    let refusal: string | null = null;
-    for (const o of outcomes) {
-      if (o.px.status === "rejected") failures.push({ ticker: o.ticker, what: "price" });
-      if (o.ex.status === "rejected") failures.push({ ticker: o.ticker, what: "extract" });
-      for (const leg of [o.px, o.ex]) {
-        if (leg.status === "rejected") refusal = refusal ?? refusalText(leg.reason);
-      }
-    }
-    setReport({
-      total: members.length,
-      pricesOk: outcomes.filter((o) => o.px.status === "fulfilled").length,
-      extractsOk: outcomes.filter((o) => o.ex.status === "fulfilled").length,
-      sharesAuto: outcomes.filter((o) => o.sharesAuto).length,
-      failures,
-      ...(refusal ? { refusal } : {}),
-    });
-    setRunning(false);
-    // ONE re-derive after the whole section lands (caps compute where shares are already ratified).
-    // The run pulls PRICES for every member, so it is the same write class as useIngestPrices — the
-    // call and the display tape re-derive too, or the MONITOR window would serve a card computed
-    // before the section's bars landed (PR-1a invalidation audit).
-    qc.invalidateQueries({ queryKey: ["workbench-scored"] });
-    qc.invalidateQueries({ queryKey: ["call"] });
-    qc.invalidateQueries({ queryKey: ["display-signals"] });
-    invalidateDashboards(qc);
-  };
-
-  return { run, running, report, reset: () => setReport(null) };
-}
-
 // The narrative -> chain drafter (S5, the SECOND LLM seam) — now a KICK-OFF + POLL job (the draft takes minutes;
 // held open as one request it 504'd at the proxy while the backend kept billing). `useStartDraft` POSTs and gets
 // a job_id back (202); `useDraftJobStatus` polls for the result. Response-only: the job returns a draft and
@@ -1477,31 +1373,6 @@ export function useRatifyFact() {
       // count is `etf_flow`, and it reads `fact_fund_shares` (the ETF sample table) — never the
       // `fact_shares_outstanding` this ratify writes. A ratified fact reaches no display member.
       invalidateDashboards(qc); // the cross-card dashboards (a ratified fact can move a cap or a call)
-    },
-  });
-}
-
-// Record a name's platform values from its filings — fired after get-data, for ONE name (V2 W2b). The server
-// re-extracts and hands its OWN parse to the machine writer: a clean AUTO share count AND cash/burn value are
-// applied as `ratified_by="auto"` when the filing is newer than the value shown (a re-click of the same filing
-// writes nothing); a FLAGged or empty result becomes a candidate for the steward, never a fact. It REMOVES a
-// ceremonial confirm: nobody independently knows a share count. We send NO value — the client cannot inject a
-// number under the auto provenance. The top-level fields answer for the share count, `cash_burn` for cash/burn.
-// `retry:false` + non-throwing at the call sites: a failed auto-apply is a missing convenience, never a blocked
-// get-data.
-export function useAutoConfirmShares() {
-  const qc = useQueryClient();
-  return useMutation({
-    retry: false,
-    mutationFn: postAutoConfirmShares,
-    onSuccess: (d) => {
-      // nothing applied (flagged / already on file / a candidate recorded) — no meter moved, nothing to refresh
-      if (!d?.applied && !d?.cash_burn?.applied) return;
-      qc.invalidateQueries({ queryKey: ["workbench-scored"] }); // the cap, the runway + funnel re-derive
-      qc.invalidateQueries({ queryKey: ["call"] }); // a shares fact can complete a cap -> the call
-      // NOT display-signals — same reason as useRatifyFact: neither `fact_shares_outstanding` nor
-      // `fact_cash_burn` feeds a display member (`etf_flow` reads the separate `fact_fund_shares` table).
-      invalidateDashboards(qc);
     },
   });
 }
@@ -2147,6 +2018,108 @@ export type CompanyValuesOut = components["schemas"]["CompanyValuesOut"];
 export type PlatformValueOut = components["schemas"]["PlatformValueOut"];
 export type PlatformCandidateOut = components["schemas"]["PlatformCandidateOut"];
 export type PlatformDecisionOut = components["schemas"]["PlatformDecisionOut"];
+// --- the user's read of the shared values, and the flag (V2 W5e) -------------------------------------------------
+// A company's share count and cash/burn are PLATFORM values: shared, set by the platform or approved by the steward.
+// A plain user reads them with a state (GET /platform-values/...) and never writes them; one that looks wrong is
+// FLAGGED to the steward (POST /value-flags), which changes nothing but tells the steward.
+
+export type UserValueOut = components["schemas"]["UserValueOut"];
+export type UserCompanyValuesOut = components["schemas"]["UserCompanyValuesOut"];
+export type UserThesisValuesOut = components["schemas"]["UserThesisValuesOut"];
+export type MyFlagOut = components["schemas"]["MyFlagOut"];
+export type ValueFlagIn = components["schemas"]["ValueFlagIn"];
+export type ValueFlagOut = components["schemas"]["ValueFlagOut"];
+export type ValueFlagListOut = components["schemas"]["ValueFlagListOut"];
+
+/** The prefix of every user read of the shared values (company and thesis): one key to refresh or clear. */
+export const PLATFORM_VALUES_KEY = "platform-values";
+/** The prefix of the user's own flag list. */
+export const VALUE_FLAGS_KEY = "value-flags";
+
+/** One company's two shared values as the signed-in user reads them (state, who set it, the filing, their own flag).
+ *  CURRENT: there is no as-of. Not `useCompanyValues`, which is the steward's admin read. */
+export function useUserCompanyValues(securityId: string | undefined) {
+  return useQuery({
+    queryKey: [PLATFORM_VALUES_KEY, "company", securityId ?? ""] as const,
+    enabled: !!securityId,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/platform-values/{security_id}", {
+        params: { path: { security_id: securityId as string } },
+      });
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+/** Both values of every company on one of the user's cards, in basket order (one read for the whole card). */
+export function useUserThesisValues(thesisId: string | undefined) {
+  return useQuery({
+    queryKey: [PLATFORM_VALUES_KEY, "thesis", thesisId ?? ""] as const,
+    enabled: !!thesisId,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/platform-values/theses/{thesis_id}", {
+        params: { path: { thesis_id: thesisId as string } },
+      });
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+/** The user's own flags, open first then the newest closed, paged (limit 1-100, offset 0-100,000). */
+export function useMyFlags(limit = 50, offset = 0) {
+  return useQuery({
+    queryKey: [VALUE_FLAGS_KEY, limit, offset] as const,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/value-flags", { params: { query: { limit, offset } } });
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+// A flag changes no value; it changes what the user's own read says (`my_flag`) and their flag list. A refusal (409:
+// the state moved) re-reads too, so the screen shows where the server is. The error body is thrown as it came: its
+// `detail` is the server's sentence (403, 404, 409, 429) and the screen shows it.
+function useFlagInvalidation() {
+  const qc = useQueryClient();
+  return () => {
+    qc.invalidateQueries({ queryKey: [PLATFORM_VALUES_KEY] });
+    qc.invalidateQueries({ queryKey: [VALUE_FLAGS_KEY] });
+  };
+}
+
+/** Raise a flag on one value of a company on one of the user's cards (never for the steward: 403). */
+export function useRaiseFlag() {
+  const refresh = useFlagInvalidation();
+  return useMutation({
+    retry: false,
+    mutationFn: async (body: ValueFlagIn) => {
+      const { data, error } = await api.POST("/value-flags", { body });
+      if (error) throw error;
+      return data;
+    },
+    onSettled: refresh,
+  });
+}
+
+/** Withdraw the user's own open flag (the inverse of raising it; the allowance unit is not given back). */
+export function useWithdrawFlag() {
+  const refresh = useFlagInvalidation();
+  return useMutation({
+    retry: false,
+    mutationFn: async (vars: { flagId: string }) => {
+      const { data, error } = await api.POST("/value-flags/{flag_id}/withdraw", {
+        params: { path: { flag_id: vars.flagId } },
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSettled: refresh,
+  });
+}
+
 export type PlatformVersionOut = components["schemas"]["PlatformVersionOut"];
 export type PlatformAppliedValueOut = components["schemas"]["PlatformAppliedValueOut"];
 export type PlatformCorrectIn =
@@ -2209,6 +2182,8 @@ function usePlatformAction<TVars extends { securityId: string }, TOut = CompanyV
       qc.invalidateQueries({ queryKey: ["admin-platform-queue"] });
       qc.invalidateQueries({ queryKey: ["admin-status"] });
       qc.invalidateQueries({ queryKey: ["workbench-scored"] });
+      // the user's read of the same value (the steward sees it in the Workbench block too)
+      qc.invalidateQueries({ queryKey: [PLATFORM_VALUES_KEY] });
       invalidateDashboards(qc);
     },
     // a 409 means the server's state moved: re-read the company to where the server has it
