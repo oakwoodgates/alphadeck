@@ -2997,7 +2997,8 @@ happened to exist. So a snapshot is now a one-click safety net — and a nightly
   ```
   (bash redirection; in PowerShell pipe the file in with `Get-Content`.) The backend applies any migration
   newer than the snapshot when it starts. Then check `GET /admin/status` (the record edge matches the
-  snapshot's date) and a spot-checked thesis.
+  snapshot's date) and a spot-checked thesis. The V2 cutover's rollback, with the image order it needs, is in
+  `docs/V2_CUTOVER.md`.
 
 ## Known gaps (opened 2026-09-10; closures recorded in place through 2026-10-21)
 

@@ -104,3 +104,5 @@ tenant. `edition`: one Edition 1 per workspace with a live card, an entry per li
 without one. From `nightly` on, user-editable equalities (users, archived state, new cards, child counts, purity)
 become notes; recall and the platform-fact checks stay FAILs. Exit 0 verified, 2 cannot verify (wrong database or
 flags, a provenance problem, an unmapped table), 5 a check failed.
+
+The step-by-step runbook, with its rollback and rehearsal checklist, is `docs/V2_CUTOVER.md`.

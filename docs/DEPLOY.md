@@ -125,6 +125,7 @@ bash scripts/deploy.sh --label pre-v2-cutover --hold-cron backend frontend  # bu
 - **`--dry-run`** runs the local checks for real: git (with `ls-remote` in place of `fetch`, so no
   ref moves) and the clock. It prints every stack read, command and check, and touches no Docker
   and no endpoint.
+- **The V2 cutover** has its own runbook, `docs/V2_CUTOVER.md`: follow it, not this page, for that deploy.
 - **`--hold-cron`** deploys `frontend` and/or `backend` while the cron sidecar stays STOPPED, for a change
   whose data must be cut over before any nightly work runs on the new code (the V2 cutover, step 4 of its
   runbook). Stop the cron first (`docker compose -f docker-compose.yml -f docker-compose.prod.yml stop cron`).

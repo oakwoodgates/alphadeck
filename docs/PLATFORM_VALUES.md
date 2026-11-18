@@ -411,7 +411,7 @@ the fork's cron service rides the `donotstart` profile (`docker-compose.fork.yml
 sidecar is what fires both the nightly and the onboarding job, so nothing on the fork acts on the marker. A re-seed resets it: `scripts/fork.sh
 refresh --reset` drops the fork database and restores prod's dump, which has no attempt rows (prod is not on V2 yet),
 then the migrations create an empty `platform_extraction_attempt`. On prod, run the dry run first, then `--apply`
-before the V2 cron starts (cutover order, W10).
+before the V2 cron starts (cutover order, W10; the runbook is `docs/V2_CUTOVER.md`).
 
 ## The steward's decisions and undo
 
