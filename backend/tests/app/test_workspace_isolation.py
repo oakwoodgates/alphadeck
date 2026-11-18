@@ -477,7 +477,8 @@ def test_a_plain_users_share_count_or_cash_confirm_is_refused(world, db):
 
 def test_the_stewards_confirm_lands_in_the_data_tenant_and_every_workspace_reads_it(world, db):
     """The steward (S, on W_S — not the data tenant) confirms a share count and a cash/burn figure: each row
-    lands under the DATA tenant with S's email as the ratifier, and A (on W_A) reads both on A's own card.
+    lands under the DATA tenant with S's email as the ratifier, and A (on W_A) reads both on A's own card (who set
+    them as a kind, ``steward``, never the email).
     """
     s, sid, asof = world["s"], world["sid"], world["asof"]
     for fact_type in ("shares_outstanding", "cash_burn"):
@@ -500,9 +501,9 @@ def test_the_stewards_confirm_lands_in_the_data_tenant_and_every_workspace_reads
         .json()["members"]
     )
     assert a_m["market_cap"]["value"] is not None  # A reads the steward's count (x A's price)
-    assert any(
-        p["detail"].get("ratified_by") == "s@iso.test" for p in a_m["market_cap"]["provenance"]
-    )
+    # A reads WHO set it as a kind, never S's email (V2 W5d)
+    assert any(p["detail"].get("set_by") == "steward" for p in a_m["market_cap"]["provenance"])
+    assert not any("ratified_by" in p["detail"] for p in a_m["market_cap"]["provenance"])
     assert a_m["runway"]["value"] == 30.0  # 30M cash / (3M a quarter / 3) = 30 months
 
 

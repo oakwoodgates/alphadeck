@@ -24483,6 +24483,7 @@
             "type": "string",
             "enum": [
               "operator",
+              "steward",
               "system",
               "automatic",
               "card"
@@ -24640,7 +24641,7 @@
           "reconstructed"
         ],
         "title": "EvidenceLedgerRowOut",
-        "description": "One piece of evidence. ``authority`` = WHO put it there, never a judgment of it: ``operator`` (a person\nratified or set it), ``system`` (a computation on public data), ``automatic`` (an ingest leg stored it, nobody\nratified it), ``card`` (an entry the operator maintains on the card). ``kind``: ``trigger`` | ``risk_signal``\n(the recorded card's) | ``ratified`` (a ratified or stored fact) | ``catalyst_fact`` | ``card_catalyst`` |\n``kill`` | ``evidence`` | ``role``. ``date`` = the day it counts under (``null`` = standing). ``form`` = the\nrow's own kind word. ``silent`` = Context / Bench when its company sits there. ``role`` = the context role\n(a role row). ``by`` / ``on`` = who ratified or set it and the day. ``edgar`` = a source links to EDGAR.\n``reconstructed`` = from a night ``pipeline.backfill`` wrote (reported, never scored)."
+        "description": "One piece of evidence. ``authority`` = WHO put it there, never a judgment of it: ``operator`` (you ratified\nor set it: your purity, a context role), ``steward`` (the steward verified it: a shared share count or cash\nvalue, or a company catalyst; a value carried over from V1 too), ``system`` (a computation on public data),\n``automatic`` (an ingest leg stored it, nobody ratified it), ``card`` (an entry the operator maintains on the\ncard). ``kind``: ``trigger`` | ``risk_signal``\n(the recorded card's) | ``ratified`` (a ratified or stored fact) | ``catalyst_fact`` | ``card_catalyst`` |\n``kill`` | ``evidence`` | ``role``. ``date`` = the day it counts under (``null`` = standing). ``form`` = the\nrow's own kind word. ``silent`` = Context / Bench when its company sits there. ``role`` = the context role\n(a role row). ``by`` / ``on`` = who ratified or set it, as a kind (``you``, ``steward``, ``carried``, a role's\n``operator``; never an email), and the day. ``edgar`` = a source links to EDGAR.\n``reconstructed`` = from a night ``pipeline.backfill`` wrote (reported, never scored)."
       },
       "EvidenceLedgerSourceOut": {
         "properties": {
@@ -24732,6 +24733,10 @@
             "type": "integer",
             "title": "Facts Ratified"
           },
+          "facts_verified": {
+            "type": "integer",
+            "title": "Facts Verified"
+          },
           "facts_stored": {
             "type": "integer",
             "title": "Facts Stored"
@@ -24764,6 +24769,7 @@
           "trace_other",
           "trace_none",
           "facts_ratified",
+          "facts_verified",
           "facts_stored",
           "catalysts_dated",
           "catalysts_undated",
@@ -24771,7 +24777,7 @@
           "roles_undated"
         ],
         "title": "EvidenceLedgerTalliesOut",
-        "description": "Every row, whatever the page's filters. ``trace_*`` = how the fired signals (triggers and risk signals)\ntrace: an EDGAR accession, a price reference only, another source, or no source stated. ``facts_ratified`` /\n``facts_stored`` = the fact rows a person ratified / nobody did."
+        "description": "Every row, whatever the page's filters. ``trace_*`` = how the fired signals (triggers and risk signals)\ntrace: an EDGAR accession, a price reference only, another source, or no source stated. ``facts_ratified`` /\n``facts_verified`` / ``facts_stored`` = the fact rows you ratified (your purity) / the steward verified / nobody\ndid."
       },
       "ExcludedName": {
         "properties": {
@@ -25878,7 +25884,7 @@
           "silent"
         ],
         "title": "FilingStreamRowOut",
-        "description": "One filing-derived fact. ``kind``: ``8k`` | ``form4`` | ``form4a`` | ``stake`` | ``revenue`` | ``filing``\n(any other form in the company's EDGAR index, shown as its form and primary document) | ``split`` |\n``dilution`` | ``catalyst`` | ``ratified`` (a ratified fact, ``form`` \"ratified fact\", or a stored fact nobody\nratified, ``form`` \"stored fact\"). ``form`` = the form as filed or the row's own label; ``date`` = the\npublic date it counts from; ``headline`` = one neutral line; ``detail`` = the lines the expanded row shows;\n``url`` = the filing's EDGAR index or the stored source (``null`` = none known); ``tags`` = quiet field\npredicates; ``routine`` = a fold candidate; ``fold`` = its fold group (``form4``: a Form 4 holding no code-P\npurchase, folded per day; ``prospectus``: a 424B / 424H / 424I / 497 / FWP index row and ``ownership``: an\nindex-only Form 3/4/5 or a Form 144 notice, each folded per day and company; ``null`` for a row that is not\nroutine); ``usd`` = the\nrow's dollar size when it has one (a Form 4's purchases minus sales, a dilution's principal). ``links`` /\n``role`` / ``silent`` = the company's place on the card at the as-of (``null`` in ``links`` = no link)."
+        "description": "One filing-derived fact. ``kind``: ``8k`` | ``form4`` | ``form4a`` | ``stake`` | ``revenue`` | ``filing``\n(any other form in the company's EDGAR index, shown as its form and primary document) | ``split`` |\n``dilution`` | ``catalyst`` | ``ratified`` (a shared value the steward set, ``form`` \"verified value\"; your own\npurity, ``form`` \"ratified fact\"; or a stored fact nobody set, ``form`` \"stored fact\"; who set a row is said in\nits detail as a kind, never an email). ``form`` = the form as filed or the row's own label; ``date`` = the\npublic date it counts from; ``headline`` = one neutral line; ``detail`` = the lines the expanded row shows;\n``url`` = the filing's EDGAR index or the stored source (``null`` = none known); ``tags`` = quiet field\npredicates; ``routine`` = a fold candidate; ``fold`` = its fold group (``form4``: a Form 4 holding no code-P\npurchase, folded per day; ``prospectus``: a 424B / 424H / 424I / 497 / FWP index row and ``ownership``: an\nindex-only Form 3/4/5 or a Form 144 notice, each folded per day and company; ``null`` for a row that is not\nroutine); ``usd`` = the\nrow's dollar size when it has one (a Form 4's purchases minus sales, a dilution's principal). ``links`` /\n``role`` / ``silent`` = the company's place on the card at the as-of (``null`` in ``links`` = no link)."
       },
       "FiringDiagnostics": {
         "properties": {
@@ -32226,7 +32232,7 @@
           "dollar_volume_note"
         ],
         "title": "MapCompanyOut",
-        "description": "One company's readings at the as-of. ``returns`` holds the six windows (``ret_1d`` ... ``ret_90d``, ``ytd``,\n``ret_1y``; percent, trading bars for the trailing ones), ``null`` where there is no reading, with the reason\nin ``gaps``. ``cap`` = the approximate market cap in USD with its band (``cap_tier``) and the share count it\nrests on (``cap_source``: ``workbench`` = ratified in the Workbench, ``cover`` = the latest count from a\nfiling's cover page, not ratified: used only when filed within 200 days of the as-of and at least 10,000\nshares); ``null`` with ``cap_gap`` / ``cap_note`` when there is none (``cap_note`` says why a cover count\nthat exists was refused).\n``dollar_volume`` = the mean of close x volume over the last 20 sessions. ``business_type`` / ``supersector``\nare today's identity; ``silent_only`` = every row of the company is Context or Bench."
+        "description": "One company's readings at the as-of. ``returns`` holds the six windows (``ret_1d`` ... ``ret_90d``, ``ytd``,\n``ret_1y``; percent, trading bars for the trailing ones), ``null`` where there is no reading, with the reason\nin ``gaps``. ``cap`` = the approximate market cap in USD with its band (``cap_tier``) and the share count it\nrests on (``cap_source``: ``workbench`` = the shared share count (the platform value), ``cover`` = the latest\ncount from a filing's cover page, not a shared value: used only when filed within 200 days of the as-of and at least 10,000\nshares); ``null`` with ``cap_gap`` / ``cap_note`` when there is none (``cap_note`` says why a cover count\nthat exists was refused).\n``dollar_volume`` = the mean of close x volume over the last 20 sessions. ``business_type`` / ``supersector``\nare today's identity; ``silent_only`` = every row of the company is Context or Bench."
       },
       "MapFlaggedOut": {
         "properties": {
@@ -42851,11 +42857,6 @@
             "type": "string",
             "title": "Fit"
           },
-          "unconfirmed_estimates": {
-            "type": "integer",
-            "title": "Unconfirmed Estimates",
-            "default": 0
-          },
           "thin_price_history": {
             "type": "boolean",
             "title": "Thin Price History",
@@ -44742,16 +44743,21 @@
             ],
             "title": "Usd"
           },
-          "ratifier": {
+          "set_by": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "enum": [
+                  "you",
+                  "steward",
+                  "carried"
+                ]
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Ratifier"
+            "title": "Set By"
           },
           "ratified_on": {
             "anyOf": [
@@ -44779,11 +44785,11 @@
           "routine",
           "fold",
           "usd",
-          "ratifier",
+          "set_by",
           "ratified_on"
         ],
         "title": "TickerLookupFilingOut",
-        "description": "One filing-derived row in the shared reader's shape (``dashboards/filings.py``)."
+        "description": "One filing-derived row in the shared reader's shape (``dashboards/filings.py``). ``set_by`` / ``ratified_on``\n= who set a row a person set, as a kind (``you``: your own purity; ``steward``: the steward verified a shared\nvalue or catalyst; ``carried``: verified in V1 and carried over), never an email, and the day it was set."
       },
       "TickerLookupFilingsOut": {
         "properties": {
@@ -46046,7 +46052,7 @@
           "source"
         ],
         "title": "TrackCapOut",
-        "description": "The approximate market cap (USD) AT THE EVENT and its tier: the as-traded close of the last session before the\narm date times the share count PUBLIC before it (``close_date`` / ``shares_date`` are the close's date and the\ncount's own date), ``ads_ratio`` applied when known, ``split_factor`` = the multiplier put on the count when a\nsplit in force sits between the count's date and the close's. ``source`` = which count made the cap:\n``workbench`` (the newest count ratified in the Workbench that was public before the arm date) or ``cover`` (none\nwas, so the filing cover's count the nightly stores, not ratified: a 10-Q filer's, filed within 200 days before\nthe arm date, at least 10,000 shares); ``null`` when there is no cap. ``gap`` says why a cap could not be pinned\n(``null`` when it is); ``tier`` is ``null`` then, and ``note`` says why a filing-cover count was refused when\none was."
+        "description": "The approximate market cap (USD) AT THE EVENT and its tier: the as-traded close of the last session before the\narm date times the share count PUBLIC before it (``close_date`` / ``shares_date`` are the close's date and the\ncount's own date), ``ads_ratio`` applied when known, ``split_factor`` = the multiplier put on the count when a\nsplit in force sits between the count's date and the close's. ``source`` = which count made the cap:\n``workbench`` (the newest shared share count that was public before the arm date) or ``cover`` (none was, so the\nfiling cover's count the nightly stores, not a shared value: a 10-Q filer's, filed within 200 days before\nthe arm date, at least 10,000 shares); ``null`` when there is no cap. ``gap`` says why a cap could not be pinned\n(``null`` when it is); ``tier`` is ``null`` then, and ``note`` says why a filing-cover count was refused when\none was."
       },
       "TrackCellOut": {
         "properties": {
@@ -46227,7 +46233,7 @@
           "next_session"
         ],
         "title": "TrackCountsOut",
-        "description": "What the page rests on. ``episodes`` = every Scoreboard episode in the record at the as-of; ``counted`` = those\nin the cells; ``left_out_*`` = those set aside, each episode once (flagged price history first, then censored\nstart, then ingest flag); ``unpinned_cap`` / ``unpinned_liquidity`` = counted episodes with no cap tier / no\nliquidity band; ``counted_feed_stopped`` = counted episodes whose price feed stopped because the company\nended (a subset of ``counted``); ``left_out_feed_stopped`` / ``left_out_no_longer_priced`` = the other\nstopped feeds, left out (on a live card / off every live card); ``cap_from_cover`` = counted episodes whose cap\nrests on the filing cover's share count (not ratified); ``arm_night`` / ``next_session`` = per horizon, how the\ncounted episodes read."
+        "description": "What the page rests on. ``episodes`` = every Scoreboard episode in the record at the as-of; ``counted`` = those\nin the cells; ``left_out_*`` = those set aside, each episode once (flagged price history first, then censored\nstart, then ingest flag); ``unpinned_cap`` / ``unpinned_liquidity`` = counted episodes with no cap tier / no\nliquidity band; ``counted_feed_stopped`` = counted episodes whose price feed stopped because the company\nended (a subset of ``counted``); ``left_out_feed_stopped`` / ``left_out_no_longer_priced`` = the other\nstopped feeds, left out (on a live card / off every live card); ``cap_from_cover`` = counted episodes whose cap\nrests on the filing cover's share count (not a shared value); ``arm_night`` / ``next_session`` = per horizon, how the\ncounted episodes read."
       },
       "TrackEditionOut": {
         "properties": {

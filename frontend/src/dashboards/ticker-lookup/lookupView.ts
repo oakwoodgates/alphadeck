@@ -363,10 +363,14 @@ export function usdHint(r: Pick<LookupFiling, "kind" | "usd">): string | null {
   return null;
 }
 
-/** Who ratified a fact and when, when a person did. */
-export function ratifiedWords(r: Pick<LookupFiling, "ratifier" | "ratified_on">): string | null {
-  if (!r.ratifier) return null;
-  return `ratified by ${r.ratifier}${r.ratified_on ? ` on ${fmtDay(r.ratified_on)}` : ""}`;
+/** Who set a fact and when, when a person did. The server sends a kind (`set_by`), never an email: the
+ *  steward's shared value or catalyst, a value carried over from V1, or your own purity. */
+export function ratifiedWords(r: Pick<LookupFiling, "set_by" | "ratified_on">): string | null {
+  const on = r.ratified_on ? ` on ${fmtDay(r.ratified_on)}` : "";
+  if (r.set_by === "steward") return `verified by the steward${on}`;
+  if (r.set_by === "carried") return "verified (carried over from V1)";
+  if (r.set_by === "you") return `ratified by you${on}`;
+  return null;
 }
 
 // --- the decisions -----------------------------------------------------------------------------------------------

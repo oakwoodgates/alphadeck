@@ -103,8 +103,9 @@ def test_market_cap_carries_shares_asof_when_priced(db, security_id):
 
 
 def test_market_cap_price_without_shares_stays_visible(db, security_id):
-    """The symmetric half: price bars with no ratified shares — value None, the price provenance rides
-    with a note pointing at the extract → ratify step (never a silent blank)."""
+    """The symmetric half: price bars with no shared share count — value None, the price provenance rides
+    with a note naming the missing count (never a silent blank; never an instruction to ratify it, W5d).
+    """
     _price(db, security_id, date(2026, 6, 20), 100.0)
     db.commit()
     pit = PointInTimeData(db, asof=date(2026, 7, 1), workspace=DEFAULT_TENANT_ID)
@@ -112,7 +113,8 @@ def test_market_cap_price_without_shares_stays_visible(db, security_id):
     assert m.market_cap.value is None
     assert [p.source for p in m.market_cap.provenance] == ["price"]
     assert any(
-        "NO ratified shares" in str(p.detail.get("note", "")) for p in m.market_cap.provenance
+        "no shared share count yet" in str(p.detail.get("note", ""))
+        for p in m.market_cap.provenance
     )
 
 
@@ -228,7 +230,7 @@ def test_adr_without_readable_ratio_suppresses_cap(db, security_id):
     assert sh.detail["shares"] == 365_444
     assert sh.detail["ads_ratio_status"] == "unread"
     withheld = next(p for p in cap.provenance if p.ref == "market-cap:ads-ratio-unread")
-    assert "WITHHELD" in str(withheld.detail["note"])  # the missing half is NAMED
+    assert "withheld" in str(withheld.detail["note"])  # the missing half is NAMED
 
 
 def test_no_adr_evidence_computes_at_one_to_one(db, security_id):
@@ -359,8 +361,6 @@ def test_score_member_golden(db, security_id):
     assert (
         sm.fit == "core exposure"
     )  # purity 3; runway 4 (no funding risk); dilution 1 (no dilution risk)
-    # all three fact-backed meters (purity / runway / market cap) are confirmed -> nothing unconfirmed
-    assert sm.unconfirmed_estimates == 0
 
 
 def test_no_data_reads_dash_not_zero(db, security_id):
@@ -375,8 +375,6 @@ def test_no_data_reads_dash_not_zero(db, security_id):
     assert sm.dilution.pips is None and sm.market_cap.pips is None
     assert sm.catalysts.pips == 0
     assert sm.fit == "unrated"  # no purity data
-    # all three fact-backed meters blank -> "rests on 3 unconfirmed"
-    assert sm.unconfirmed_estimates == 3
 
 
 def test_vouched_is_provenance_not_a_scoring_input(db, security_id):
@@ -402,36 +400,6 @@ def test_vouched_is_provenance_not_a_scoring_input(db, security_id):
     assert (
         sm.purity.pips == 4
     )  # 100% -> 4, whatever the vouched provenance; vouched never gates scoring
-
-
-def test_unconfirmed_estimates_counts_blank_fact_backed_meters(db, security_id):
-    """The 'rests on N unconfirmed' flag counts the fact-backed meters (purity / runway / market cap) with no
-    confirmed value; confirming one drops the count. A readiness signal, never a scoring input."""
-    assert (
-        score_member(
-            PointInTimeData(db, asof=_ASOF, known_at=_KNOWN, workspace=DEFAULT_TENANT_ID),
-            _member(security_id),
-        ).unconfirmed_estimates
-        == 3
-    )
-    ingest_revenue_mix(
-        db,
-        security_id,
-        segment_label="nuclear",
-        mix_pct=100,
-        source="10-k-segment",
-        source_ref="ref",
-        event_date=date(2025, 12, 31),
-    )
-    db.commit()
-    # purity now confirmed -> runway + market cap still unconfirmed
-    assert (
-        score_member(
-            PointInTimeData(db, asof=_ASOF, known_at=_KNOWN, workspace=DEFAULT_TENANT_ID),
-            _member(security_id),
-        ).unconfirmed_estimates
-        == 2
-    )
 
 
 def test_no_lookahead(db, security_id):

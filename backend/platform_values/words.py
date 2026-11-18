@@ -3,8 +3,9 @@
 One module for every user-facing sentence about a share count or cash/burn: the label of each state and reason,
 who set a value (a kind, never an email), the annual-figure line, the line for a newer filing awaiting the steward,
 and the line for a value awaiting the steward. The user read (``platform_values.user_view`` and
-``GET /platform-values/...``) uses it now; the server-written lines (the Filing Stream, the Evidence Ledger, the
-scored read's notes: W5d) use it later, so every screen says the same thing.
+``GET /platform-values/...``) uses it, and so do the server-written lines (W5d): the Filing Stream's and Ticker
+Lookup's detail lines (``dashboards/filings.py``), the Evidence Ledger's class for the steward, and the scored read's
+market-cap notes (``workbench/scoring.py``), so every screen and agent says the same thing.
 
 Pure: no database, no clock (every date is a parameter). It lives under ``platform_values/``, NOT ``domain/``: the
 editions fingerprint hashes ``domain/``, and a change of wording is not a rule change. Display only: nothing on the
@@ -114,6 +115,33 @@ def pending_line(event_date: date | None) -> str:
     return f"A newer filing (dated {day_words(event_date)}) is awaiting the steward"
 
 
+# --- the server-written lines (W5d): the dashboards' detail lines and the scored read's market-cap notes -----------
+
+# who set a stored value, as a dashboard's detail line says it (the Filing Stream, Ticker Lookup, the Evidence Ledger)
+FROM_FILING_LINE = "From the filing (applied automatically)"
+CARRIED_LINE = "Verified (carried over from V1)"
+
+# the scored read's market-cap notes (the DD rail's "Behind the scores", the Cockpit's hover, the agents): what is
+# missing, never an instruction to ratify a shared value (a user flags one in the Workbench; the steward sets it)
+CAP_NO_PRICE = "No price bars for this name yet; the market cap needs shares × price. The share count is on file."
+CAP_NO_SHARES = "Price on file; no shared share count yet (see Shared values)."
+CAP_ADS_UNREAD = (
+    "This name trades as an ADR; the ordinary-shares-per-ADS ratio could not be read from its filing, so the cap "
+    "is withheld rather than guessed at 1:1. The steward sets the ratio."
+)
+
+
+def set_by_line(kind: SetBy, on: date | None = None) -> str:
+    """A dashboard row's line naming who set a stored value, never an email: ``From the filing (applied
+    automatically)`` / ``Verified by the steward on <day>`` (``on`` = the day the steward set it, when known) /
+    ``Verified (carried over from V1)``."""
+    if kind == "steward":
+        return f"Verified by the steward on {day_words(on)}" if on else "Verified by the steward"
+    if kind == "carried":
+        return CARRIED_LINE
+    return FROM_FILING_LINE
+
+
 def awaiting_line(fact_type: FactType, event_date: date | None) -> str:
     """For a value awaiting the steward with nothing shown: what waits and which meter is blank. No figure (B1 (b)):
     the user reads the filing and its located passage instead."""
@@ -126,6 +154,11 @@ def awaiting_line(fact_type: FactType, event_date: date | None) -> str:
 
 __all__ = [
     "ANNUAL_COVER_SOURCE",
+    "CAP_ADS_UNREAD",
+    "CAP_NO_PRICE",
+    "CAP_NO_SHARES",
+    "CARRIED_LINE",
+    "FROM_FILING_LINE",
     "NO_VALUE",
     "NO_VALUE_WORDS",
     "SetBy",
@@ -135,6 +168,7 @@ __all__ = [
     "no_value_words",
     "pending_line",
     "set_by",
+    "set_by_line",
     "set_by_words",
     "state_label",
 ]

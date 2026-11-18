@@ -132,8 +132,8 @@ class TrackCapOut(_Wire):
     arm date times the share count PUBLIC before it (``close_date`` / ``shares_date`` are the close's date and the
     count's own date), ``ads_ratio`` applied when known, ``split_factor`` = the multiplier put on the count when a
     split in force sits between the count's date and the close's. ``source`` = which count made the cap:
-    ``workbench`` (the newest count ratified in the Workbench that was public before the arm date) or ``cover`` (none
-    was, so the filing cover's count the nightly stores, not ratified: a 10-Q filer's, filed within 200 days before
+    ``workbench`` (the newest shared share count that was public before the arm date) or ``cover`` (none was, so the
+    filing cover's count the nightly stores, not a shared value: a 10-Q filer's, filed within 200 days before
     the arm date, at least 10,000 shares); ``null`` when there is no cap. ``gap`` says why a cap could not be pinned
     (``null`` when it is); ``tier`` is ``null`` then, and ``note`` says why a filing-cover count was refused when
     one was."""
@@ -205,7 +205,7 @@ class TrackCountsOut(_Wire):
     liquidity band; ``counted_feed_stopped`` = counted episodes whose price feed stopped because the company
     ended (a subset of ``counted``); ``left_out_feed_stopped`` / ``left_out_no_longer_priced`` = the other
     stopped feeds, left out (on a live card / off every live card); ``cap_from_cover`` = counted episodes whose cap
-    rests on the filing cover's share count (not ratified); ``arm_night`` / ``next_session`` = per horizon, how the
+    rests on the filing cover's share count (not a shared value); ``arm_night`` / ``next_session`` = per horizon, how the
     counted episodes read.
     """
 
