@@ -225,7 +225,7 @@ describe("hover, click and pin", () => {
     const b = screen.getByRole("status");
     expect(b).toHaveTextContent("BBB Inc");
     expect(b).toHaveTextContent("~$4.00B");
-    expect(b).toHaveTextContent("share count ratified in the Workbench");
+    expect(b).toHaveTextContent("shared share count");
     expect(b).toHaveTextContent("Energy & Utilities · utilities");
   });
 
@@ -234,7 +234,7 @@ describe("hover, click and pin", () => {
     data.companies.find((c) => c.security_id === "bbb")!.cap_source = "cover";
     const { container } = renderMap(data);
     fireEvent.mouseMove(tile(container, "/card:t-grid/link:Turbines/co:bbb"), { clientX: 10, clientY: 10 });
-    expect(screen.getByRole("status")).toHaveTextContent("share count from the filing cover (not ratified)");
+    expect(screen.getByRole("status")).toHaveTextContent("share count from the filing cover (not a shared value)");
   });
 
   it("with a benchmark set, the box shows the relative figure with the raw one beside it", async () => {

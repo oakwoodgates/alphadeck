@@ -70,7 +70,7 @@ tier. Display only: it never feeds a call, never writes, never calls the LLM, an
      acceptance, else 06:00 ET on its filing date: `db/public_clock.py`'s rule for `fact_fundamentals`, on a night
      before the arm date); the company must be a 10-Q filer among those rows; the newest row must be filed within
      200 days of the event (never of today) and hold at least 10,000 shares. Its date is the cover's own, so the split
-     list scales it from the day it was true. Source `cover` (not ratified).
+     list scales it from the day it was true. Source `cover` (not a shared value).
   3. **Else none:** the cap is **unpinned**. No balance-sheet count is read (the operator kept the rule unchanged).
 - **Unpinned** (counted in the "unpinned" row, never dropped, never guessed): `no_price` (no close before the event),
   `no_shares` (no share count public before it), `ads_unread` (an unread ADS ratio on a Workbench count; the cover
@@ -104,7 +104,7 @@ readable.
 
 One row per counted episode: ticker (opens the Cockpit on the name, `onSelectThesis(thesisId, ticker)`), card
 chip, `arm_date`, tier and approximate cap (hover: close date, share count date and its source in the Market Map's
-words, "share count ratified in the Workbench" or "share count from the filing cover (not ratified)", ADS ratio,
+words, "shared share count" or "share count from the filing cover (not a shared value)", ADS ratio,
 split factor; an unpinned cap's hover says why, with the refused cover count's reason when there is one), the
 liquidity band, `key1_source`, grade, then the five horizons' excess (or "maturing" / "path ended"), sorted by
 `arm_date` newest first. Clicking a table cell filters the list to that cell's episodes. The unpinned episodes
@@ -120,8 +120,8 @@ on the page judges a result: the wording is "median excess vs IWM over 20 sessio
 ## The quiet "show the work" line
 
 The as-of; the clock; the edition and the honesty policies in force; episodes total / matured per horizon /
-maturing; which share count the caps rest on, once any rests on a filing cover's ("caps at the event: N on a share
-count ratified in the Workbench · N on a share count from the filing cover (not ratified)", from
+maturing; which share count the caps rest on, once any rests on a filing cover's ("caps at the event: N on a shared
+share count · N on a share count from the filing cover (not a shared value)", from
 `counts.cap_from_cover`); unpinned caps; names left out for a flagged price history, a stopped feed on a live card, or no longer priced (each counted apart, opens to the tickers), episodes counted although the company ended, censored starts, ingest
 flagged, paths ended; the entry rule in force; the comparison in force; the cache state and `compute_ms`. Below it,
 fixed: "the entry is a close, not a fill" (the default is the next session's close); "cap is approximate and measured

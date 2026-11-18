@@ -388,11 +388,11 @@ describe("the words", () => {
     expect(CAP_SOURCE_WORDS.workbench).toBe(capSourceWords({ cap_source: "workbench" }));
     expect(CAP_SOURCE_WORDS.cover).toBe(capSourceWords({ cap_source: "cover" }));
     expect(capWords(row()).title).toBe(
-      "Approximate: the as-traded close of 2026-06-02 ($14.40) times the 40,000,000 shares dated 2026-05-12 (share count ratified in the Workbench).",
+      "Approximate: the as-traded close of 2026-06-02 ($14.40) times the 40,000,000 shares dated 2026-05-12 (shared share count).",
     );
     const cover = capWords(row({ cap: cap({ source: "cover", shares_date: "2026-04-30", split_factor: 2 }) }));
     expect(cover.title).toBe(
-      "Approximate: the as-traded close of 2026-06-02 ($14.40) times the 40,000,000 shares dated 2026-04-30 (share count from the filing cover (not ratified)), the count put on the close's scale by a split (×2).",
+      "Approximate: the as-traded close of 2026-06-02 ($14.40) times the 40,000,000 shares dated 2026-04-30 (share count from the filing cover (not a shared value)), the count put on the close's scale by a split (×2).",
     );
   });
 
@@ -416,7 +416,7 @@ describe("the words", () => {
     const c = { ...SERVER.counts, counted: 240, unpinned_cap: 35, cap_from_cover: 37 };
     const lines = workLines(payload({ counts: c }), "arm_night", "iwm");
     expect(lines[2]).toBe(
-      "caps at the event: 168 on a share count ratified in the Workbench · 37 on a share count from the filing cover (not ratified)",
+      "caps at the event: 168 on a shared share count · 37 on a share count from the filing cover (not a shared value)",
     );
     expect(lines[3]).toBe("35 with an unpinned cap · 1 with unpinned liquidity (counted, never dropped)");
   });

@@ -395,10 +395,11 @@ export function spanView(s: TrackSpanOut | undefined, comparison: Comparison): {
 }
 
 /** Which share count a cap rests on, in the Market Map's EXACT words (market-map/mapView.ts `capSourceWords`; a test
- *  pins the two equal), so both pages name an unratified filing-cover count the same way. */
+ *  pins the two equal), so both pages name a filing-cover count that is not a shared value the same way. Neutral words
+ *  (V2 W5d): they never say who set the shared count, and never substitute today's state into this history view. */
 export const CAP_SOURCE_WORDS: Record<NonNullable<TrackCapOut["source"]>, string> = {
-  workbench: "share count ratified in the Workbench",
-  cover: "share count from the filing cover (not ratified)",
+  workbench: "shared share count",
+  cover: "share count from the filing cover (not a shared value)",
 };
 
 const sentence = (s: string) => `${s.charAt(0).toUpperCase()}${s.slice(1)}${s.endsWith(".") ? "" : "."}`;
@@ -540,7 +541,7 @@ export function workLines(data: TrackRecordOut, entry: EntryRule, comparison: Co
 /** The fixed notes under the work lines (the plan's known limits): stated on the page, not buried. */
 export const LIMITS: readonly string[] = [
   "The entry is a close, not a fill. The default is the next session's close, the first one after the arm night: a call recorded at 22:30 ET could be acted on then. The arm night's close, the Scoreboard's own entry, is one toggle away; no one could have taken it, but it reconciles with the Scoreboard's forward return.",
-  "Market cap is approximate and measured the session before the arm date: that session's as-traded close times the last share count public before it, the one ratified in the Workbench, else the filing cover's (not ratified; a 10-Q filer's, filed within 200 days of the event). Liquidity is the 20-day average dollar volume before it.",
+  "Market cap is approximate and measured the session before the arm date: that session's as-traded close times the last share count public before it, the shared share count, else the filing cover's (not a shared value; a 10-Q filer's, filed within 200 days of the event). Liquidity is the 20-day average dollar volume before it.",
   "Horizons are sessions of the name's own bars, never calendar days. Returns are as-traded closes: no dividends. A name whose bars end before a horizon reads path ended there, and is in no cell. A stopped price feed counts until it stops and then reads path ended only when the company itself ended (delisted); a stopped feed on a company that still trades (we stopped fetching its prices) is left out and named as such, and any other price flag leaves the episode out.",
   "A cell under 10 episodes is too small to read: it prints its n only. The pooled row is every counted episode and is listed last.",
   "The record is young: most cards are weeks old, so the 60-session and exit_by columns are mostly maturing. That shows as n and as maturing, never as a result.",
