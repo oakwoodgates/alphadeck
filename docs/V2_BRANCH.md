@@ -84,3 +84,5 @@ two constraints, and the `data_repair` journal row; and a provenance file with t
 (or already cut over with nothing left), 1 refused, 2 wrong database or confirmation, 3 backup failed, 4 rolled
 back (backup kept), 75 busy or the nightly window. A second reset after a V2 night refuses. Rehearse it on a fork
 only; the production run is the operator's (the runbook, W10d).
+
+The step-by-step runbook, with its rollback and rehearsal checklist, is `docs/V2_CUTOVER.md`.

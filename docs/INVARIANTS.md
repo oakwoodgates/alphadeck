@@ -446,6 +446,15 @@ V2 removed the third scope (MIXED: a read that unioned the data tenant and the w
 tenant per table, and a writer of a DATA table writes the data tenant only (`domain.scopes.require_write_tenant`).
 
 Never build a destructive reset path or assume a single global tenant — seeds are idempotent and additive.
+
+**The one exception (V2 cutover, once).** The V2 cutover, `python -m pipeline.v2_cutover run` (module
+`backend/pipeline/v2_reset.py`), is the only code that deletes from the immutable `calls` log and the editions
+store (`call_annotation` and the six `edition*` tables go with it): V1's history is reset on purpose when V2 goes
+live (operator decision). It is a dry run unless `--apply`. It refuses any database it was not named for on its
+command line (the name is read back from the writing connection; production needs `--prod`), takes and verifies a
+backup first, deletes inside one transaction with each row count checked, and leaves one `data_repair` journal row
+with tool `v2_cutover`. It runs once: a second run refuses while any history row exists. Nothing else may delete
+from those tables. The runbook is `docs/V2_CUTOVER.md`.
 Nothing but `domain/scopes.py` may hard-code which tenant a table lives in.
 
 **Isolation is discipline + the poison-row test, NOT RLS** — the `security_id` FK carries no tenant, so nothing
