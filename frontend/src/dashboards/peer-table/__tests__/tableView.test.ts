@@ -217,7 +217,7 @@ describe("the filters", () => {
     expect(pass({ tiers: ["large"] })).toEqual([]);
   });
 
-  it("leaves out the silent-only names, the names without revenue and the names without a Workbench fact", () => {
+  it("leaves out the silent-only names, the names without revenue and the names without a stored fact", () => {
     expect(pass({ countingOnly: true })).toEqual(["AAA", "BBB", "CCC"]);
     const noRev = company("zzz", { workbench_facts: true });
     expect(companyMatches(noRev, f({ withRevenue: true }))).toBe(false);
@@ -257,8 +257,8 @@ describe("the cells' words", () => {
     expect(t).toContain("× 0.0625 to put the count on the close's split scale");
   });
 
-  it("says why a cap is blank, in the cell: awaiting shares, awaiting price, ADS ratio unread, flagged", () => {
-    expect(capCell(capBlank("no_shares")).text).toBe("awaiting shares");
+  it("says why a cap is blank, in the cell: no shared share count yet, awaiting price, ADS ratio unread, flagged", () => {
+    expect(capCell(capBlank("no_shares")).text).toBe("no shared share count yet");
     expect(capCell(capBlank("no_price")).text).toBe("awaiting price");
     expect(capCell(capBlank("ads_unread")).text).toBe("ADS ratio unread");
     const flagged = capCell(capBlank("flagged", MIXED));
@@ -411,14 +411,14 @@ describe("the coverage", () => {
   it("words a column's coverage and its blanks by reason", () => {
     const cap = COVERAGE[0];
     expect(coverageWords(cap)).toBe("2 of 4");
-    expect(coverageTitle(cap)).toBe("2 of 4 names state this. Blank: 1 flagged, 1 awaiting shares.");
+    expect(coverageTitle(cap)).toBe("2 of 4 names state this. Blank: 1 flagged, 1 no shared share count yet.");
     expect(coverageTitle(COVERAGE[1])).toBe("4 of 4 names state this.");
   });
 
   it("lists every column for the show-the-work block", () => {
     const lines = coverageLines(COVERAGE);
     expect(lines).toHaveLength(COVERAGE.length);
-    expect(lines[0]).toBe("Cap: 2 of 4 — blank: 1 flagged, 1 awaiting shares");
+    expect(lines[0]).toBe("Cap: 2 of 4 — blank: 1 flagged, 1 no shared share count yet");
     expect(lines[1]).toBe("Revenue: 4 of 4");
     expect(lines.find((l) => l.startsWith("50d"))).toBe("50d: 3 of 4 — blank: 1 flagged");
     // every coverage column has a header column to carry it

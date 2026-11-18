@@ -401,7 +401,7 @@ export function rosterWords(n: number): string | null {
 export const LIMITS: readonly string[] = [
   "A role names a part, not a target: a row points at the card, never at specific names. Reading a role company's own disclosures against the names it relates to is a later step.",
   "Catalysts are today's list: card-level catalysts load live (they are not snapshotted), so a past as-of shows the catalysts as entered today.",
-  "Last filing means the newest form in the company's EDGAR index (its recent window: at least a year, or the last 1,000 filings), shown as its richest row; the Cockpit's insider price screens are not applied. A split, a catalyst or a ratified or stored fact is never counted as a filing.",
+  "Last filing means the newest form in the company's EDGAR index (its recent window: at least a year, or the last 1,000 filings), shown as its richest row; the Cockpit's insider price screens are not applied. A split, a catalyst or a shared value, your purity or a stored fact is never counted as a filing.",
   "The roster is each card's roster as of the as-of; links and business types are today's.",
   "The tape counts trading days of closes (7 and 30), not calendar days. A flagged price history grays the tape cells and names the reason; the row stays.",
 ];

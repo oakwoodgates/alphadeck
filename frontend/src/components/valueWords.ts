@@ -10,6 +10,15 @@ import { storedCurrency } from "./currency";
 
 export const FACT_HEADING = FACT_TITLE;
 
+/** What a dashboard's blank market cap says when no share count is applied yet: one phrase for every dashboard (Hot
+ *  Board, Insider Tracker, Peer Table, Ticker Lookup, Market Map). It names no setter: the page cannot tell a count
+ *  awaiting the steward from one never read, and a user never sees a parked number. */
+export const NO_SHARED_SHARES = "no shared share count yet";
+/** The same for cash and burn. */
+export const NO_SHARED_CASH = "no shared cash value yet";
+/** Where a user goes about a blank or wrong shared value: they flag it; they never set it. */
+export const FLAG_IT_WORDS = "flag it in the Workbench if it looks wrong";
+
 /** A day as a person reads it: "Sep 30, 2026" (the server's `day_words`), from an ISO date or timestamp's date part. */
 export function fmtDay(iso: string | null | undefined): string {
   if (!iso) return "";

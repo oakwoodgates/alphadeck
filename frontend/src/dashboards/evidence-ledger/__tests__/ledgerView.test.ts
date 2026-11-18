@@ -266,7 +266,7 @@ describe("workLines", () => {
     );
     expect(lines[1]).toBe("10 rows: 1 your · 1 steward · 3 computed · 1 stored · 4 card");
     expect(lines[2]).toBe(
-      "0 ratified facts, 1 verified value and 1 stored fact (the last 365 days) · 1 catalyst dated, 1 undated · 1 kill criterion · 1 evidence link · 1 context role (1 undated)",
+      "0 facts you ratified, 1 verified value and 1 stored fact (the last 365 days) · 1 catalyst dated, 1 undated · 1 kill criterion · 1 evidence link · 1 context role (1 undated)",
     );
     expect(lines[3]).toBe("5 roster rows · 2 companies resolved · 0 without a resolved security · 1 in Context or Bench");
   });

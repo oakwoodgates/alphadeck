@@ -93,7 +93,7 @@ const STORED = row("d5", {
   form: "stored fact",
   silent: "Context",
   sources: [],
-  detail: ["Stored on 2026-10-27", "Applied automatically, not operator-ratified"],
+  detail: ["Stored on 2026-10-27", "From the filing (applied automatically)"],
   edgar: false,
 });
 const VOTE = row("d0", {
@@ -408,7 +408,7 @@ describe("EvidenceLedger", () => {
     expect(within(kinds).getAllByRole("button").map((b) => b.textContent?.replace(/\s+/g, " ").trim())).toEqual([
       "Triggers 2",
       "Risk signals 1",
-      "Ratified and stored facts 2",
+      "Shared values and your purity 2",
       "Card catalysts 2",
       "Kill criteria 1",
       "Evidence links 1",
@@ -519,7 +519,7 @@ describe("EvidenceLedger", () => {
     setup(payload({ unresolved: ["ZZZ"], roster_fallback: true }));
     expect(screen.getByText(/as of Oct 28, 2026 · as it was public by Oct 28, 2026 · triggers from the call recorded for Oct 27, 2026 · cached/, { selector: ".el-work" })).toBeInTheDocument();
     expect(screen.getByText("10 rows: 1 your · 1 steward · 3 computed · 1 stored · 4 card")).toBeInTheDocument();
-    expect(screen.getByText(/0 ratified facts, 1 verified value and 1 stored fact \(the last 365 days\) · 1 catalyst dated, 1 undated · 1 kill criterion · 1 evidence link · 1 context role \(1 undated\)/)).toBeInTheDocument();
+    expect(screen.getByText(/0 facts you ratified, 1 verified value and 1 stored fact \(the last 365 days\) · 1 catalyst dated, 1 undated · 1 kill criterion · 1 evidence link · 1 context role \(1 undated\)/)).toBeInTheDocument();
     expect(screen.getByText(/4 roster rows · 4 companies resolved · 1 without a resolved security · 1 in Context or Bench/)).toBeInTheDocument();
     expect(screen.getByText("1 roster name has no resolved security, so no stored fact can be attached to it: ZZZ.")).toBeInTheDocument();
     expect(screen.getByText(/Today's roster stands in for this card: rosters are point-in-time only from Sep 15, 2026/)).toBeInTheDocument();

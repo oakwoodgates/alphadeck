@@ -1,3 +1,4 @@
+import { NO_SHARED_SHARES } from "../../components/valueWords";
 import { CONTEXT_ROLE_LABEL } from "../../workbench/format";
 import { STATE_LABEL, verdictLabel } from "../../util/format";
 import type {
@@ -104,7 +105,7 @@ export function fmtFigure(f: Pick<LookupFigure, "value" | "unit" | "tone" | "key
 export const CAP_GAP_WORDS: Record<string, string> = {
   flagged: "withheld, a data flag reaches its price",
   no_price: "awaiting price",
-  no_shares: "awaiting shares",
+  no_shares: NO_SHARED_SHARES,
   ads_unread: "ADS ratio not read",
   no_cap: "share count or close not positive",
 };

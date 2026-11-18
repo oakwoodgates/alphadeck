@@ -64,7 +64,7 @@ describe("the market cap", () => {
   const cap = payload().identity.cap;
   it("is labeled approximate with its tier, or says why it is not stated", () => {
     expect(capWords(cap)).toBe("≈ $125.0M · micro");
-    expect(capWords({ ...cap, value: null, tier: null, gap: "no_shares" })).toBe("not stated: awaiting shares");
+    expect(capWords({ ...cap, value: null, tier: null, gap: "no_shares" })).toBe("not stated: no shared share count yet");
     expect(capWords({ ...cap, value: null, tier: null, gap: "flagged" })).toBe(
       "not stated: withheld, a data flag reaches its price",
     );

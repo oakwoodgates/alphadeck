@@ -41,7 +41,7 @@ export const KIND_LABEL: Record<StreamKind, string> = {
   split: "Split",
   dilution: "Dilution",
   catalyst: "Catalyst",
-  ratified: "Ratified and stored facts",
+  ratified: "Shared values and your purity",
 };
 
 /** The kind's words for the work line: [one, many]. */
@@ -55,7 +55,7 @@ const KIND_WORDS: Record<StreamKind, readonly [string, string]> = {
   split: ["split", "splits"],
   dilution: ["dilution row", "dilution rows"],
   catalyst: ["catalyst", "catalysts"],
-  ratified: ["ratified or stored fact", "ratified or stored facts"],
+  ratified: ["shared value, purity or stored fact", "shared values, purity or stored facts"],
 };
 
 export const DAYS_OPTIONS: readonly { value: StreamDays; label: string }[] = [
