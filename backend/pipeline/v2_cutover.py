@@ -70,6 +70,10 @@ CUTOVER_ACTION["platform_value_decision"] = "keep"
 # --- V2 W3a: the extraction attempt record (migration 0207) is new and empty at cutover: kept, named explicitly
 CUTOVER_ACTION["platform_extraction_attempt"] = "keep"
 # --- end V2 W3a block ----------------------------------------------------------------------------------------
+# --- V2 W6a: the counting catalyst entries (migration 0212) are kept, named explicitly; the reset's per-thesis
+# child counts include them (pipeline/v2_reset._CHILD_TABLES), so the recall proof covers them -----------------
+CUTOVER_ACTION["fact_thesis_catalyst"] = "keep"
+# --- end V2 W6a block ----------------------------------------------------------------------------------------
 
 # The tables with a DEDICATED rule (5-9 below): the generic owner rules (3, 4) skip them, so each finding is
 # reported once, by its most specific sentence, before and after V2 PR 3 changes their scope.

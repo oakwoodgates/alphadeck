@@ -141,6 +141,7 @@ def test_every_action_names_a_mapped_table():
     # W10a: nothing is converted or pruned by the cutover; the labels say what happens instead
     assert C.CUTOVER_ACTION["fact_catalyst"] == "keep (feed rows; a workspace row refuses)"
     assert C.CUTOVER_ACTION["fact_theme_conviction"] == "keep (W6 converts)"
+    assert C.CUTOVER_ACTION["fact_thesis_catalyst"] == "keep"  # V2 W6a (0212): new, kept
     assert C.CUTOVER_ACTION["user_action_count"] == "keep (pruned nightly)"
     assert C.CUTOVER_ACTION["security_change"] == "keep (pruned nightly)"
 
