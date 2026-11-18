@@ -4499,7 +4499,7 @@
           "admin"
         ],
         "summary": "List Queue",
-        "description": "THE STEWARD'S QUEUE: one row per company with a share count or cash/burn waiting for you (the same open\nflags as ``/awaiting``), with how many live cards hold it across every workspace (a number only). Order:\ncompanies only in a Discovered pen last, then most cards first, then the longest wait first. ``pen``:\n``after`` (default) lists the pen-only companies after the rest, ``only`` lists only them, ``exclude`` leaves\nthem out. ``offset`` / ``limit`` cut the page (``limit`` 1-200, ``offset`` 0-100,000); ``total`` and\n``pen_only_total`` count every company waiting, whatever the page. **422** a parameter out of bounds.\nRead-only.",
+        "description": "THE STEWARD'S QUEUE: one row per company with a share count or cash/burn waiting for you (the same open\nflagged candidates as ``/awaiting``) or with an open user flag (``open_flags``, a number only; W5c), with how\nmany live cards hold it across every workspace (a number only). Order: companies only in a Discovered pen last,\nthen most cards first, then the longest wait first (the oldest waiting candidate or open user flag). ``pen``:\n``after`` (default) lists the pen-only companies after the rest, ``only`` lists only them, ``exclude`` leaves\nthem out. ``offset`` / ``limit`` cut the page (``limit`` 1-200, ``offset`` 0-100,000); ``total`` and\n``pen_only_total`` count every company waiting, whatever the page. **422** a parameter out of bounds.\nRead-only.",
         "operationId": "list_queue_admin_platform_values_queue_get",
         "parameters": [
           {
@@ -4566,13 +4566,111 @@
         }
       }
     },
+    "/admin/platform-values/flags/{flag_id}/close": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Close Flag",
+        "description": "CLOSE a user's open flag, stamped with your email. ``fixed``: name the approve or correct that fixed it\n(``decision_id``: this company's, this value's, not undone; checked under the company write lock, so an undo\ncannot slip in between); ``kept``: the value stands, and ``note`` (required) tells the user why. The user reads\nthe outcome and the note on their own flag; no Slack message. Undo with ``POST .../flags/{id}/reopen``.\nAnswers the company's new state. **404** unknown flag; **409** already closed (or withdrawn), a decision that\nis not a standing approve or correct of this company's value, or the company is busy; **422** ``kept`` with a\nblank note or a decision, ``fixed`` with no decision, a note over 2,000 characters.",
+        "operationId": "close_flag_admin_platform_values_flags__flag_id__close_post",
+        "parameters": [
+          {
+            "name": "flag_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Flag Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlatformFlagCloseIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyValuesOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/platform-values/flags/{flag_id}/reopen": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Reopen Flag",
+        "description": "REOPEN a flag you closed (the close's inverse, decision B3 (a)): a NEW open flag naming it, with the same\nuser, value, note and what was current, stamped with your email; the closed one stays in the history as it\nwas. No body. No Slack message; the user's allowance is untouched. Answers the company's new state. **404**\nunknown flag; **409** the flag is open, already reopened, withdrawn by its user, or the user has a newer open\nflag on the value.",
+        "operationId": "reopen_flag_admin_platform_values_flags__flag_id__reopen_post",
+        "parameters": [
+          {
+            "name": "flag_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Flag Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyValuesOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/admin/platform-values/{security_id}": {
       "get": {
         "tags": [
           "admin"
         ],
         "summary": "Get Company Values",
-        "description": "The company's share count and cash/burn: each value's state, every stored version (with ``set_aside``),\nthe newest candidates and decisions, the pin. **404** unknown company. Read-only.",
+        "description": "The company's share count and cash/burn: each value's state, every stored version (with ``set_aside``),\nthe newest candidates and decisions, the pin, and its users' flags (``flags``: every open one, and the page of\nclosed ones that ``flags_offset`` (0-100,000) / ``flags_limit`` (1-100, default 20) cut, newest closed first).\n**404** unknown company; **422** a parameter out of bounds. Read-only.",
         "operationId": "get_company_values_admin_platform_values__security_id__get",
         "parameters": [
           {
@@ -4583,6 +4681,30 @@
               "type": "string",
               "format": "uuid",
               "title": "Security Id"
+            }
+          },
+          {
+            "name": "flags_offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100000,
+              "minimum": 0,
+              "default": 0,
+              "title": "Flags Offset"
+            }
+          },
+          {
+            "name": "flags_limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Flags Limit"
             }
           }
         ],
@@ -17299,6 +17421,9 @@
             },
             "type": "array",
             "title": "Attempts"
+          },
+          "flags": {
+            "$ref": "#/components/schemas/PlatformUserFlagsOut"
           }
         },
         "type": "object",
@@ -17308,7 +17433,7 @@
           "cash_burn"
         ],
         "title": "CompanyValuesOut",
-        "description": "A company's two platform values (the steward's company page). ``attempts``: the company's newest\nbackground-extraction attempts (at most 10, newest first; W4d), whoever ran them."
+        "description": "A company's two platform values (the steward's company page). ``attempts``: the company's newest\nbackground-extraction attempts (at most 10, newest first; W4d), whoever ran them. ``flags``: its users' flags\n(W5c)."
       },
       "ConnectionListOut": {
         "properties": {
@@ -37555,6 +37680,48 @@
         "title": "PlatformExtractionAttemptOut",
         "description": "One background-extraction attempt of the company (``platform_extraction_attempt``): ``run_kind`` who ran it\n(``nightly``, ``onboarding``, ``backfill``, ``steward``, ``get_data``); ``status`` ``done`` (the machine writer\nran: ``shares_reason`` / ``cash_reason`` its reason per value type), ``error`` (``error``: one line, why),\n``busy`` (another writer held the company; nothing written) or ``skipped`` (``detail``, e.g. no CIK)."
       },
+      "PlatformFlagCloseIn": {
+        "properties": {
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "fixed",
+              "kept"
+            ],
+            "title": "Outcome"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "decision_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "outcome"
+        ],
+        "title": "PlatformFlagCloseIn",
+        "description": "Close a user's flag (W5c). ``outcome`` ``fixed``: ``decision_id`` names the steward's approve or correct of\nthe SAME company and value type that fixed it, still standing; ``note`` optional. ``kept``: the value stands;\n``note`` (required, not blank) tells the user why; no ``decision_id``."
+      },
       "PlatformPaceOut": {
         "properties": {
           "ytd_quarterly_burn_usd": {
@@ -37725,6 +37892,11 @@
                 "type": "null"
               }
             ]
+          },
+          "open_flags": {
+            "type": "integer",
+            "title": "Open Flags",
+            "default": 0
           }
         },
         "type": "object",
@@ -37733,7 +37905,7 @@
           "waiting_since"
         ],
         "title": "PlatformQueueItemOut",
-        "description": "One company with anything waiting (one row per company): ``cards`` how many live cards hold it, across every\nworkspace (a number only, never whose); ``pen_only`` every row it sits in is a Discovered pen; ``waiting_since``\nthe older of its waiting candidates; ``shares`` / ``cash_burn`` what waits (None = nothing for that value)."
+        "description": "One company with anything waiting (one row per company): ``cards`` how many live cards hold it, across every\nworkspace (a number only, never whose); ``pen_only`` every row it sits in is a Discovered pen; ``waiting_since``\nthe oldest of its waiting candidates and its open user flags; ``shares`` / ``cash_burn`` the candidate that\nwaits (None = none for that value); ``open_flags`` how many open user flags it has (W5c; a number only, never\nwhose or what note). A company with open user flags and no waiting candidate has both values None."
       },
       "PlatformQueueOut": {
         "properties": {
@@ -37805,6 +37977,231 @@
         "type": "object",
         "title": "PlatformUndoIn",
         "description": "Why (optional)."
+      },
+      "PlatformUserFlagOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "value_type": {
+            "type": "string",
+            "title": "Value Type"
+          },
+          "user_email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Email"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "opened_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Opened At"
+          },
+          "current_when_flagged": {
+            "type": "string",
+            "enum": [
+              "value",
+              "awaiting",
+              "none"
+            ],
+            "title": "Current When Flagged"
+          },
+          "seen_value": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlatformVersionOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "seen_candidate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlatformCandidateOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reopens": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reopens"
+          },
+          "reopened_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reopened By"
+          },
+          "reopened_as": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reopened As"
+          },
+          "closed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed At"
+          },
+          "closed_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed By"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome"
+          },
+          "outcome_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome Note"
+          },
+          "fixed_decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlatformDecisionOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "fixed_decision_undone": {
+            "type": "boolean",
+            "title": "Fixed Decision Undone",
+            "default": false
+          },
+          "can_reopen": {
+            "type": "boolean",
+            "title": "Can Reopen",
+            "default": false
+          },
+          "reopen_refusal": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reopen Refusal"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "value_type",
+          "opened_at",
+          "current_when_flagged"
+        ],
+        "title": "PlatformUserFlagOut",
+        "description": "One user's flag on a value of this company, as the steward reads it (W5c). Steward routes only: it names\nthe user (``user_email``, decision B4 (a)).\n\n- ``value_type`` ``shares_outstanding`` / ``cash_burn``; ``note`` the user's words, plain text as stored;\n  ``opened_at`` when it was raised (for a reopen row: when the steward reopened it).\n- ``current_when_flagged``: what the server recorded as current when it was raised: ``value`` (``seen_value``,\n  the stored version, ``set_aside`` if an undo has since set it aside), ``awaiting`` (``seen_candidate``, the\n  candidate that was awaiting the steward) or ``none`` (no value yet). None of the two when the row is gone.\n- ``reopens`` the closed flag this row reopens and ``reopened_by`` the steward who reopened it (0211);\n  ``reopened_as`` the row that later reopened THIS one.\n- Closed: ``closed_at``, ``closed_by`` (a steward's email, or ``user`` for the user's own withdrawal),\n  ``outcome`` ``fixed`` / ``kept`` / ``withdrawn``, ``outcome_note`` (the steward's note to the user, plain\n  text). ``fixed_decision`` the approve or correct a ``fixed`` close names; ``fixed_decision_undone`` = that\n  decision has since been undone (the closed row is never rewritten: reopen the flag if the fix no longer\n  stands).\n- ``can_reopen``; ``reopen_refusal`` the fixed sentence the reopen route would answer (None when it can)."
+      },
+      "PlatformUserFlagsOut": {
+        "properties": {
+          "open": {
+            "items": {
+              "$ref": "#/components/schemas/PlatformUserFlagOut"
+            },
+            "type": "array",
+            "title": "Open"
+          },
+          "closed": {
+            "items": {
+              "$ref": "#/components/schemas/PlatformUserFlagOut"
+            },
+            "type": "array",
+            "title": "Closed"
+          },
+          "closed_total": {
+            "type": "integer",
+            "title": "Closed Total",
+            "default": 0
+          },
+          "closed_offset": {
+            "type": "integer",
+            "title": "Closed Offset",
+            "default": 0
+          },
+          "closed_limit": {
+            "type": "integer",
+            "title": "Closed Limit",
+            "default": 20
+          }
+        },
+        "type": "object",
+        "title": "PlatformUserFlagsOut",
+        "description": "The company's users' flags: every ``open`` one (oldest first) and one page of ``closed`` ones (newest closed\nfirst, ``closed_offset`` / ``closed_limit``); ``closed_total`` counts every closed one, so an old closed flag\n(and its Reopen) stays reachable by paging."
       },
       "PlatformValueOut": {
         "properties": {
