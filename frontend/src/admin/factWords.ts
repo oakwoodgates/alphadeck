@@ -9,9 +9,10 @@ import type {
   PlatformExtractValueOut,
   PlatformExtractionAttemptOut,
   PlatformFactType,
+  PlatformUserFlagOut,
   PlatformValueOut,
 } from "../api/hooks";
-import { cashSymbol } from "../components/currency";
+import { cashSymbol, labelCurrency, storedCurrency } from "../components/currency";
 
 export const FACT_TITLE: Record<PlatformFactType, string> = {
   shares_outstanding: "Share count",
@@ -280,4 +281,53 @@ export function paceWords(
   if (q <= 0) return `year-to-date pace: cash-generative, ${fmtMoney(-q, currency)} a quarter`;
   const months = pace.ytd_runway_months != null ? ` (${pace.ytd_runway_months} months of runway)` : "";
   return `year-to-date pace: quarterly burn ${fmtMoney(q, currency)}${months}`;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Flags from users (W5f). Everything a user wrote (email, note) and the steward's outcome note are returned to the
+// screen as plain strings and rendered as text nodes only.
+
+export const FLAGS_HEADING = "Flags from users";
+export const KEPT_NOTE_HINT = "The user reads this note.";
+export const KEPT_NOTE_REQUIRED = "Closing a flag as kept needs a note for the user.";
+export const FIXED_NEEDS_CORRECTION = "Correct the value first, then close the flag as fixed.";
+export const LINKED_UNDONE_WORDS = "linked correction since undone";
+
+/** The queue row's mark: a count only, never whose or what note. */
+export function flagCountWords(n: number): string {
+  return n === 1 ? "1 flag from a user" : `${n} flags from users`;
+}
+
+/** The newest STANDING approve or correct of a value, from its decisions (newest first): what a "fixed" close names. */
+export function fixingDecision(decisions: PlatformDecisionOut[]): PlatformDecisionOut | undefined {
+  return decisions.find((d) => (d.action === "approve" || d.action === "correct") && !d.undone);
+}
+
+/** What was current when the user flagged, in the page's own words: the stored value (with its filing date), the
+ *  candidate that was awaiting the steward, or no value yet. */
+export function seenWords(f: PlatformUserFlagOut): string {
+  if (f.current_when_flagged === "value" && f.seen_value) {
+    const v = f.seen_value;
+    return (
+      `${valueWords(f.value_type, v, storedCurrency(v))}, dated ${day(v.valid_from)}` +
+      (v.set_aside ? " (since undone)" : "")
+    );
+  }
+  if (f.current_when_flagged === "awaiting" && f.seen_candidate) {
+    const c = f.seen_candidate;
+    return (
+      `awaiting you, ${valueWords(f.value_type, c, labelCurrency(c.statement_currency, c.flags))}` +
+      (c.event_date ? `, dated ${c.event_date}` : "")
+    );
+  }
+  if (f.current_when_flagged === "none") return "no value yet";
+  return "no longer on file";
+}
+
+/** A closed flag's first words: "Closed as kept by steward@x on 2026-11-15" / "Withdrawn by the user on ...". */
+export function closedWords(f: PlatformUserFlagOut): string {
+  const when = day(f.closed_at);
+  if (f.outcome === "withdrawn") return `Withdrawn by the user on ${when}`;
+  const what = f.outcome === "fixed" || f.outcome === "kept" ? `Closed as ${f.outcome}` : "Closed";
+  return `${what} by ${f.closed_by ?? "the steward"} on ${when}`;
 }
