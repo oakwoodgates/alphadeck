@@ -311,9 +311,11 @@ def _edition_1(db, cut, entries=None) -> None:
             cur,
             FOUNDING_WORKSPACE_ID,
             1,
-            entries
-            if entries is not None
-            else [(cut["t1"], cut["a"]), (cut["t1"], cut["b"]), (cut["t2"], cut["a"])],
+            (
+                entries
+                if entries is not None
+                else [(cut["t1"], cut["a"]), (cut["t1"], cut["b"]), (cut["t2"], cut["a"])]
+            ),
         )
     db.commit()
 
@@ -341,7 +343,11 @@ def test_a_clean_cutover_verifies_at_every_stage(db, cut, capsys):
 
 def test_every_line_is_ok_fail_or_note_and_the_url_is_never_printed(db, cut, capsys):
     code, out = _run(cut, capsys, "reset")
-    body = [line for line in out.splitlines() if line and not line.startswith(("V2 CUTOVER", "target DB"))]
+    body = [
+        line
+        for line in out.splitlines()
+        if line and not line.startswith(("V2 CUTOVER", "target DB"))
+    ]
     assert all(line.startswith(("ok: ", "FAIL: ", "note: ", "RESULT: ")) for line in body), out
     assert session.database_url() not in out and "postgresql://" not in out
 
@@ -354,9 +360,11 @@ def test_verify_is_read_only(db, cut, capsys, tmp_path):
     _edition_1(db, cut)
     before = _counts(db)
     files_before = sorted(p for p in tmp_path.rglob("*"))
-    for stage in V.STAGES:
+    for (
+        stage
+    ) in V.STAGES:  # the earlier stages FAIL V8 on this post-edition state: only the counts matter
         code, out = _run(cut, capsys, stage)
-        assert code == 0, out
+        assert code == (0 if stage == "edition" else V.EXIT_FAILED), out
     assert _counts(db) == before
     assert sorted(p for p in tmp_path.rglob("*")) == files_before
     out_json = tmp_path / "report" / "verify.json"
@@ -613,9 +621,10 @@ def test_refuses_a_database_that_is_not_the_named_one(db, cut, capsys):
 
 
 def test_refuses_production_without_prod(db, cut, capsys, monkeypatch):
+    real = V.database_name
     monkeypatch.setattr(V, "database_name", lambda conn: "alphadeck")
     assert "--prod" in _refused(cut, capsys, database="alphadeck")
-    monkeypatch.undo()
+    monkeypatch.setattr(V, "database_name", real)
     assert "--prod" in _refused(cut, capsys, database=cut["name"], prod=True)
 
 
@@ -762,3 +771,20 @@ def test_an_edition_for_a_workspace_with_no_live_card_fails(db, nightly, capsys)
     _exec(db, "UPDATE thesis SET archived_at = now()")
     _, out = _run(nightly, capsys, "edition")
     assert _ticker_line(out, "E3 no card")
+
+
+def test_the_cli_wires_verify(db, cut, capsys):
+    capsys.readouterr()
+    assert C.main(["verify", "--stage", "reset", "--database", cut["name"]]) == V.EXIT_CANNOT_VERIFY
+    assert "no provenance file" in capsys.readouterr().out
+    argv = [
+        "verify",
+        "--stage",
+        "nightly",
+        "--database",
+        cut["name"],
+        "--provenance",
+        str(cut["prov"]),
+    ]
+    assert C.main([*argv, "--run-kind", "any"]) == V.EXIT_FAILED  # no night recorded yet
+    assert "not yet" in capsys.readouterr().out
