@@ -196,6 +196,52 @@ because the Workbench is unusable without it. Each fetch is bounded (security ha
 The steward is neither checked nor counted. The screens show the 404 and the 429 as worded, on their own line.
 `backend/tests/app/test_user_fetches.py` pins all of it with a real plain user and a real steward.
 
+## Workspace caps
+
+The platform ingests data for every company on any live card, so what a workspace holds is a platform cost (V2 W7c).
+Three caps on the workspace's `tenant` row (migration 0203), each NULL = no cap, zero a real cap:
+
+| Cap | Counts | A new workspace gets |
+|---|---|---|
+| `cap_live_cards` | live (non-archived) cards | `ALPHADECK_WORKSPACE_CAP_LIVE_CARDS_DEFAULT`, 25 |
+| `cap_companies` | distinct companies over every basket row of the live cards (silent links and the Discovered pen included; a company on two cards counts once) | `ALPHADECK_WORKSPACE_CAP_COMPANIES_DEFAULT`, 500 |
+| `cap_terms_per_card` | search terms on one card | `ALPHADECK_WORKSPACE_CAP_TERMS_PER_CARD_DEFAULT`, 200 |
+
+`python -m pipeline.users create` writes the defaults into a NEW workspace (a default of 0 = no cap; `docker-compose.yml`
+passes each with the same fallback). Attaching a user to an existing workspace leaves its caps alone, and no existing
+workspace was changed: the founding and steward workspaces keep NULL until the operator sets them. The steward sets
+one workspace's caps from the shell (no route):
+
+```bash
+python -m pipeline.users caps --workspace <uuid>                                  # print the caps and the counts
+python -m pipeline.users caps --workspace <uuid> --live-cards 40 --companies 800  # set one or more (0 = nothing more)
+python -m pipeline.users caps --workspace <uuid> --clear                          # no cap on anything
+```
+
+**The rule (one module, `backend/app/workspace_caps.py`):** a request is refused only when a count would end ABOVE its
+cap AND above the count before the request. A workspace already over a cap still reads, edits, removes, archives and
+re-promotes; a save that keeps or shrinks a card is never refused. Enforced at every route that adds: the promote
+(`POST /workbench/theses`: a new card, the final basket's companies), `POST /theses/{id}/unarchive`,
+`POST /radar/funds/attach`, `POST /radar/spac/attach`, `PUT /workbench/theses/{id}/terms/edit` and
+`POST /workbench/theses/{id}/terms` (before the model, on the operator's own terms and the seeds; after it, on the
+generated set; the `term_run` unit stays spent). The check takes a per-workspace advisory transaction lock and the
+route writes and commits in that transaction, so two racing adds cannot both take the last slot. Caps belong to the
+workspace, not the caller: the steward is not exempt.
+
+A refusal is **409** with one sentence naming the count and the limit, before any write (nothing is
+written and no name is dropped: the whole request is refused). The screens show it as worded:
+
+- "This workspace can have at most 25 live cards and has 25. Archive a card to start another."
+- "Saving would put 512 companies on your live cards; this workspace's limit is 500. Remove 12 or archive a card."
+- "Restoring this card would make 26 live cards; this workspace's limit is 25. Archive another card first."
+- "Restoring this card would put 530 companies on your live cards; this workspace's limit is 500."
+- "Adding this fund would put 501 companies on your live cards; this workspace's limit is 500." ("this company" for
+  a SPAC)
+- "A card can carry at most 200 search terms; this one would have 215. Remove 15." ("would have at least" before the
+  model runs)
+
+`backend/tests/app/test_workspace_caps.py` pins all of it, including two racing promotes for the last slot.
+
 ## Errors
 
 What a failed request answers (security hardening PR 2, `backend/app/errors.py`). An error the code did not word
@@ -328,6 +374,7 @@ python -m pipeline.users token revoke --id <token uuid>
 python -m pipeline.users oauth-client list                       # the OAuth clients, static + self-registered; never a secret
 python -m pipeline.users oauth-client disable --client-id <id>   # refused everywhere; its connections stop at once
 python -m pipeline.users oauth-client add --client-id desk --name "Research Desk" --redirect-uri https://desk.example.com/cb [--redirect-uri ...] [--confidential]
+python -m pipeline.users caps --workspace <uuid> [--live-cards N] [--companies N] [--terms N] [--clear]   # a workspace's caps (§Workspace caps)
 ```
 
 `oauth-client add` registers an app the steward vetted (self-registration is off by default, `docs/CONNECTORS.md`):
