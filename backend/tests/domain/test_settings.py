@@ -208,6 +208,7 @@ _BACKEND_PASSED_THROUGH = {
     "ALPHADECK_ALLOWANCE_HOLDINGS_PER_DAY": "allowance_holdings_per_day",
     "ALPHADECK_ALLOWANCE_CHAIN_DRAFT_PER_DAY": "allowance_chain_draft_per_day",
     "ALPHADECK_ALLOWANCE_TERM_RUN_PER_DAY": "allowance_term_run_per_day",
+    "ALPHADECK_ALLOWANCE_FLAG_PER_DAY": "allowance_flag_per_day",  # V2 W5b
     # security PR 5: the sign-in surface
     "ALPHADECK_OAUTH_AUTHORIZE_PER_ADDRESS_HOUR": "oauth_authorize_per_address_hour",
     "ALPHADECK_OAUTH_AUTHORIZE_PER_HOUR": "oauth_authorize_per_hour",
@@ -280,6 +281,23 @@ def test_compose_passes_dynamic_registration_off_by_default():
     )
     assert m is not None, "ALPHADECK_OAUTH_DYNAMIC_REGISTRATION is not passed to the backend"
     assert m.group(1) == "false"
+
+
+def test_compose_passes_the_stewards_flag_webhook_to_the_backend_blank_by_default(monkeypatch):
+    """V2 W5b (decision W-c): the backend raises users' flags, so it reads the steward's flag webhook; compose
+    passes it with an EMPTY fallback, which the setting reads as unset (the flags then fall back to
+    SLACK_WEBHOOK_URL)."""
+    from pathlib import Path
+
+    compose = (Path(__file__).resolve().parents[3] / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+    backend = _compose_service_block(compose, "backend")
+    assert (
+        "ALPHADECK_STEWARD_SLACK_WEBHOOK_URL: ${ALPHADECK_STEWARD_SLACK_WEBHOOK_URL:-}" in backend
+    )
+    monkeypatch.setenv("ALPHADECK_STEWARD_SLACK_WEBHOOK_URL", "")
+    assert Settings().steward_slack_webhook_url is None
 
 
 def _compose_service_block(compose: str, service: str) -> str:

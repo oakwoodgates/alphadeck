@@ -100,6 +100,10 @@ services:
       # Here on the backend too so a manual `docker exec ... python -m pipeline.daily` also delivers; the cron
       # sidecar (below) is the automated path.
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      # V2 W5b: the steward's Slack webhook for users' flags on shared values (docs/PLATFORM_VALUES.md §Flags). Unset
+      # -> the flags post to SLACK_WEBHOOK_URL; neither -> one log line per flag. Every reader of that channel must
+      # be a steward (a flag's note is private to its user and the steward).
+      ALPHADECK_STEWARD_SLACK_WEBHOOK_URL: ${ALPHADECK_STEWARD_SLACK_WEBHOOK_URL:-}
       # The login door (docs/AUTH.md). The session cookie's `Secure` flag: true by default (prod is reached over
       # TLS after the server move); the dev overlay sets "false" (dev is plain http on localhost). Fallback `true`
       # (NOT empty: an empty value can't parse as a bool).
@@ -172,6 +176,7 @@ services:
       ALPHADECK_ALLOWANCE_HOLDINGS_PER_DAY: ${ALPHADECK_ALLOWANCE_HOLDINGS_PER_DAY:-1000}
       ALPHADECK_ALLOWANCE_CHAIN_DRAFT_PER_DAY: ${ALPHADECK_ALLOWANCE_CHAIN_DRAFT_PER_DAY:-100}
       ALPHADECK_ALLOWANCE_TERM_RUN_PER_DAY: ${ALPHADECK_ALLOWANCE_TERM_RUN_PER_DAY:-200}
+      ALPHADECK_ALLOWANCE_FLAG_PER_DAY: ${ALPHADECK_ALLOWANCE_FLAG_PER_DAY:-50}
       # Security PR 5, the sign-in surface (docs/AUTH.md, docs/CONNECTORS.md): OAuth self-registration (`POST
       # /register`) is OFF unless set to true; the /authorize limits (new sign-in requests per address per hour, and
       # in total per hour, counted from the table; 0 = no limit); the cap on concurrent password checks (0 = none)

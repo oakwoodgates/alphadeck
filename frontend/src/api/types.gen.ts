@@ -2682,6 +2682,61 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/value-flags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List My Flags
+         * @description Your own flags on shared values: the open ones first (newest first), then the closed ones (newest closed
+         *     first), with the steward's outcome and note. Nobody else's flags are ever listed or counted. ``offset`` /
+         *     ``limit`` cut the page (``limit`` 1-100, ``offset`` 0-100,000); ``total`` counts all of yours. **422** a
+         *     parameter out of bounds. Read-only.
+         */
+        get: operations["list_my_flags_value_flags_get"];
+        put?: never;
+        /**
+         * Raise Flag
+         * @description Tell the steward that one of a company's shared values (its share count, or its cash and burn) looks wrong
+         *     or is missing. It never changes the value. The company must be on one of your own cards. The server records
+         *     what was current: the value shown, a value awaiting the steward, or no value yet. One open flag per value;
+         *     each flag spends one unit of your daily flag allowance (a withdrawal does not give it back). **403** for the
+         *     steward; **404** a company that is not on any of your cards (or no such company); **409** you already have an
+         *     open flag on this value; **422** a value type other than a share count or cash/burn, or a note over 2,000
+         *     characters; **429** the day's flags are spent. Answers the new flag (201).
+         */
+        post: operations["raise_flag_value_flags_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/value-flags/{flag_id}/withdraw": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Withdraw Flag
+         * @description Withdraw your own open flag. The allowance unit it spent is not given back; you may flag the value again
+         *     (one more unit). **403** for the steward; **404** no flag of yours has this id; **409** it is already closed.
+         *     Answers the withdrawn flag.
+         */
+        post: operations["withdraw_flag_value_flags__flag_id__withdraw_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/theses/{thesis_id}/data-flags": {
         parameters: {
             query?: never;
@@ -20607,6 +20662,81 @@ export interface components {
             ctx?: Record<string, never>;
         };
         /**
+         * ValueFlagIn
+         * @description Raise a flag. Only these three fields are read: the user, what was current and the state of the flag are
+         *     the server's (any other field in the body is ignored).
+         */
+        ValueFlagIn: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /**
+             * Value Type
+             * @enum {string}
+             */
+            value_type: "shares_outstanding" | "cash_burn";
+            /** Note */
+            note?: string | null;
+        };
+        /**
+         * ValueFlagListOut
+         * @description One page of the caller's own flags; ``total`` counts all of them.
+         */
+        ValueFlagListOut: {
+            /** Items */
+            items: components["schemas"]["ValueFlagOut"][];
+            /** Total */
+            total: number;
+        };
+        /**
+         * ValueFlagOut
+         * @description One of the caller's flags, from the stored row. ``current_when_flagged``: what the server recorded as current
+         *     when it was raised (``value`` = the value shown, ``awaiting`` = a value awaiting the steward, ``none`` = no value
+         *     yet). ``outcome``: ``fixed`` / ``kept`` (the steward, with ``outcome_note`` for the user) or ``withdrawn``
+         *     (the user); null while open. ``reopens``: the closed flag of yours the steward reopened as this one. Never who
+         *     closed it. ``note`` and ``outcome_note`` are plain text, exactly as stored.
+         */
+        ValueFlagOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string | null;
+            /** Name */
+            name: string | null;
+            /** Value Type */
+            value_type: string;
+            /** Note */
+            note: string | null;
+            /**
+             * Opened At
+             * Format: date-time
+             */
+            opened_at: string;
+            /** Closed At */
+            closed_at: string | null;
+            /** Outcome */
+            outcome: string | null;
+            /** Outcome Note */
+            outcome_note: string | null;
+            /**
+             * Current When Flagged
+             * @enum {string}
+             */
+            current_when_flagged: "value" | "awaiting" | "none";
+            /** Reopens */
+            reopens: string | null;
+        };
+        /**
          * Verdict
          * @enum {string}
          */
@@ -23990,6 +24120,102 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserCompanyValuesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_my_flags_value_flags_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValueFlagListOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    raise_flag_value_flags_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ValueFlagIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValueFlagOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    withdraw_flag_value_flags__flag_id__withdraw_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                flag_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValueFlagOut"];
                 };
             };
             /** @description Validation Error */

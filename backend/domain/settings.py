@@ -761,6 +761,21 @@ class Settings(BaseSettings):
     allowance_chain_draft_per_day: int = 100  # POST /workbench/theses/{id}/draft-chain
     # POST /workbench/theses/{id}/terms and .../recommend-tiers, one shared count
     allowance_term_run_per_day: int = 200
+    # V2 W5b: POST /value-flags, a user's flag on a share count or cash/burn (each flag sends the steward one Slack
+    # message). A withdrawal never refunds; a flag raised again spends a unit. ALPHADECK_ALLOWANCE_FLAG_PER_DAY.
+    allowance_flag_per_day: int = 50
+
+    # V2 W5b (decision W-c): the steward's Slack incoming webhook for users' flags
+    # (ALPHADECK_STEWARD_SLACK_WEBHOOK_URL). Unset or blank = the env webhook (SLACK_WEBHOOK_URL); neither = one log
+    # line per flag. A flag's note is private to its user and the steward, so every reader of this channel must be
+    # a steward. A webhook URL is a credential: it is never logged.
+    steward_slack_webhook_url: str | None = None
+
+    @field_validator("steward_slack_webhook_url", mode="before")
+    @classmethod
+    def _blank_steward_webhook_is_unset(cls, v: object) -> object:
+        # compose passes `${ALPHADECK_STEWARD_SLACK_WEBHOOK_URL:-}` = "" when unset: that is "no steward webhook"
+        return None if isinstance(v, str) and not v.strip() else v
 
     # The app's PUBLIC origin (ALPHADECK_PUBLIC_ORIGIN), e.g. https://deck.example.com. Set = the agent tools server
     # is mounted in this API at /mcp and the connector URL is advertised; UNSET (the default) = no /mcp, no
