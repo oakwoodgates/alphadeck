@@ -60,6 +60,7 @@ import {
   type DigestTapeRowOut,
 } from "./useDailyDigest";
 import { ExternalLink } from "../../components/ExternalLink";
+import { RecordStartNote } from "../RecordStartNote";
 
 // Daily Digest (docs/dashboards/daily-digest.md): the morning page. Six sections in a fixed order, each a cut of a page
 // that already exists, read by that page's own rules and worded here; the header of each opens the full page with ?asof=.
@@ -549,6 +550,7 @@ export default function DailyDigest({ asof, onSelectThesis }: DashboardProps) {
   const after = afterNightNote(data.nights);
   return (
     <div className="dd">
+      <RecordStartNote empty={data.nights.latest === null} />
       <p className="dd-framing" data-testid="dd-framing">
         {FRAMING}
       </p>

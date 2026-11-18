@@ -12,5 +12,6 @@ export const entry: DashboardEntry = {
   description: "Every name the record shows Armed, one row each, ranked by a stated heat formula: how recently it armed, how loud its tape is, how it leads the market, how far it has already moved.",
   status: "experimental",
   asofAware: true,
+  readsRecord: true,
   component: lazy(() => import("./HotBoard")),
 };

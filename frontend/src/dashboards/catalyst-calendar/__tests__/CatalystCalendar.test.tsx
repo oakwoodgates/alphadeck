@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { setRecordStart } from "../../__tests__/recordStart";
 
 import CatalystCalendar from "../CatalystCalendar";
 import type {
@@ -436,5 +437,24 @@ describe("Catalyst Calendar — the empty states", () => {
     h.useCatalystCalendar.mockReturnValue(query(undefined, { error: new Error("boom") }));
     renderPage();
     expect(screen.getByText("Could not load the Catalyst Calendar.")).toBeInTheDocument();
+  });
+});
+
+vi.mock("../../../api/hooks", async (orig) =>
+  (await import("../../__tests__/recordStart")).withRecordStartStub(await orig<typeof import("../../../api/hooks")>()),
+);
+
+describe("Catalyst Calendar — the record-start note", () => {
+  it("says when the record starts on a page with no history", () => {
+    setRecordStart("2026-12-03");
+    h.useCatalystCalendar.mockReturnValue(query({ ...DATA, cards_without_calls: DATA.live_cards }));
+    renderPage();
+    expect(screen.getByTestId("record-start-note")).toHaveTextContent("The record starts on Dec 3, 2026.");
+  });
+
+  it("is absent on a page with history", () => {
+    setRecordStart("2026-12-03");
+    renderPage();
+    expect(screen.queryByTestId("record-start-note")).toBeNull();
   });
 });

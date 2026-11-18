@@ -12,5 +12,6 @@ export const entry: DashboardEntry = {
   description: "The cards where a key has turned or signals are gathering but nothing is Armed yet, at low energy, with what is still missing.",
   status: "experimental",
   asofAware: true,
+  readsRecord: true,
   component: lazy(() => import("./FormingQuietly")),
 };

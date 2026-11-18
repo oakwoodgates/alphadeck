@@ -30,6 +30,7 @@ import {
   type NarrativeCardOut,
   type NarrativeIndexOut,
 } from "./useNarrativeIndex";
+import { RecordStartNote } from "../RecordStartNote";
 
 // Narrative Index (docs/dashboards/narrative-index.md): each card's basket as of the as-of as one equal-weighted
 // line against SPY and IWM, with the day the card was created marked. Display only. Every number (the index,
@@ -444,6 +445,7 @@ export default function NarrativeIndex({ asof, onSelectThesis }: DashboardProps)
 
   return (
     <div className="ni">
+      <RecordStartNote empty={data.cards.every((c) => c.state == null)} />
       <div className="ni-controls">
         <div className="ni-seg" role="group" aria-label="Window">
           <span className="ni-seg-label">Window</span>

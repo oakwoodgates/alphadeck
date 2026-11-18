@@ -22,6 +22,7 @@ import {
   workLines,
 } from "./lookupView";
 import { fetchResolve, useResolveTicker, useTickerLookup } from "./useTickerLookup";
+import { RecordStartNote } from "../RecordStartNote";
 
 // Ticker Lookup (docs/dashboards/ticker-lookup.md): type a ticker, see what the platform holds about that company at
 // the as-of on one screen. Display only. The search box suggests as you type through the Workbench's company search;
@@ -251,6 +252,7 @@ export default function TickerLookup({ asof, onSelectThesis }: DashboardProps) {
         <div className="dash-note">Could not load the Ticker Lookup.</div>
       ) : (
         <>
+          <RecordStartNote empty={data.triggers.nights_read === 0} />
           {note && note.for === t && <div className="dash-note tl-work">{note.text}</div>}
           {stale && <div className="dash-note">{q.isFetching ? SLOW : "updating…"}</div>}
           <IdentitySection d={data} />

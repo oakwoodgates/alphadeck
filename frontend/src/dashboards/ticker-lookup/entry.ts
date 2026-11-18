@@ -12,5 +12,6 @@ export const entry: DashboardEntry = {
   description: "Type a ticker: every card the company sits on and its part in each, the record's triggers on it, its tape, its filings and your decisions on it, at the as-of.",
   status: "experimental",
   asofAware: true,
+  readsRecord: true,
   component: lazy(() => import("./TickerLookup")),
 };

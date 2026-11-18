@@ -32,6 +32,7 @@ import {
   type TableRowView,
 } from "./recordView";
 import { useTrackRecord, type TrackRowOut } from "./useTrackRecord";
+import { RecordStartNote } from "../RecordStartNote";
 
 // Track Record by Cap Tier (docs/dashboards/track-record.md): what the tape did after each arm episode the Scoreboard
 // records, by the name's market-cap tier AT THE EVENT, at 5 / 10 / 20 / 60 sessions and to the episode's own exit_by,
@@ -297,6 +298,7 @@ export default function TrackRecord({ asof, onSelectThesis }: DashboardProps) {
 
   return (
     <div className="tr">
+      <RecordStartNote empty={data.counts.episodes === 0} />
       <div className="tr-controls">
         {newest && (
           <Seg label="Edition" value={edition === 0 ? "record" : "newest"} options={editionOptions} onPick={pickEdition} />

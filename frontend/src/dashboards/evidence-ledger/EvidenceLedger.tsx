@@ -40,6 +40,7 @@ import {
   type EvidenceLedgerRowOut,
 } from "./useEvidenceLedger";
 import { ExternalLink, isSecLink } from "../../components/ExternalLink";
+import { RecordStartNote } from "../RecordStartNote";
 
 // Evidence Ledger (docs/dashboards/evidence-ledger.md): ONE card's provenance as a dated list. Everything the
 // recorded call and the stored facts rest on, each row marked by WHO put it there. Display only. Every row and
@@ -240,6 +241,7 @@ export default function EvidenceLedger({ asof, onSelectThesis }: DashboardProps)
 
   return (
     <div className="el">
+      <RecordStartNote empty={data != null && allRows.length === 0} />
       <div className="el-controls">
         <div className="el-pick">
           <span className="el-seg-label">Card</span>

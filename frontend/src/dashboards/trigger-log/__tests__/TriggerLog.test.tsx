@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { setRecordStart } from "../../__tests__/recordStart";
 
 import TriggerLog from "../TriggerLog";
 import type { TriggerLogOut } from "../useTriggerLog";
@@ -430,5 +431,23 @@ describe("the sheet", () => {
 describe("the fixtures", () => {
   it("are the four rows the tests above rest on", () => {
     expect(ROWS).toEqual([R1, R2, R3, R4]);
+  });
+});
+
+vi.mock("../../../api/hooks", async (orig) =>
+  (await import("../../__tests__/recordStart")).withRecordStartStub(await orig<typeof import("../../../api/hooks")>()),
+);
+
+describe("Trigger Log — the record-start note", () => {
+  it("says when the record starts on a page with no history", () => {
+    setRecordStart("2026-12-03");
+    show(page([]));
+    expect(screen.getByTestId("record-start-note")).toHaveTextContent("The record starts on Dec 3, 2026.");
+  });
+
+  it("is absent on a page with history", () => {
+    setRecordStart("2026-12-03");
+    show();
+    expect(screen.queryByTestId("record-start-note")).toBeNull();
   });
 });

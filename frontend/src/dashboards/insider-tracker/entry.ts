@@ -12,5 +12,6 @@ export const entry: DashboardEntry = {
   description: "Every open-market insider purchase across the counted cards' names in the window, newest first: who bought, how much, whether others bought too, whether it became a trigger, and what the tape did since.",
   status: "experimental",
   asofAware: true,
+  readsRecord: true,
   component: lazy(() => import("./InsiderTracker")),
 };

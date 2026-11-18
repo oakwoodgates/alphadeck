@@ -12,5 +12,6 @@ export const entry: DashboardEntry = {
   description: "What moved on your cards since last night: states, keys, names, triggers and clocks.",
   status: "experimental",
   asofAware: false,
+  readsRecord: true,
   component: lazy(() => import("./WhatChanged")),
 };

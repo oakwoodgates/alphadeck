@@ -12,5 +12,6 @@ export const entry: DashboardEntry = {
   description: "Each card's recorded state over time, with its catalysts and your logged decisions.",
   status: "experimental",
   asofAware: false,
+  readsRecord: true,
   component: lazy(() => import("./IdeaTimeline")),
 };

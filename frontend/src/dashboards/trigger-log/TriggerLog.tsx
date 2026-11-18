@@ -54,6 +54,7 @@ import {
   type TriggerLogRole,
 } from "./useTriggerLog";
 import { ExternalLink } from "../../components/ExternalLink";
+import { RecordStartNote } from "../RecordStartNote";
 
 // Trigger Log (docs/dashboards/trigger-log.md): every entry trigger and risk signal the RECORDED calls show firing
 // across the cards in a window, one row per trigger (the same trigger on twelve nights is one row, dated the
@@ -393,6 +394,7 @@ export default function TriggerLog({ asof, onSelectThesis }: DashboardProps) {
         <div className="dash-note">Could not load the Trigger Log.</div>
       ) : (
         <>
+          <RecordStartNote empty={data.rows.length === 0} />
           <div className="tl-filters">
             <Chips
               dim="role"
