@@ -1490,3 +1490,21 @@ def test_db_the_roster_at_the_asof_names_the_ticker(db):
     assert {r["ticker"] for r in body["rows"]} == {"AAA", "BBB"}
     assert body["counts"]["roster_fallback"] == 1
     assert {r["security_id"] for r in body["rows"]} <= {str(w.sa), str(w.sb)}
+
+
+def test_db_an_empty_log_is_an_honest_empty_page(db):
+    """After the reset: a live card, no call on the record. The page lists nothing, counts the card as one
+    with no call and reads no night, never a 500 and never an invented row (W8a, the empty-log check).
+    """
+    sid = _security(db, "EMPT", "0000000777")
+    _card(db, "Card E", [BasketMember(ticker="EMPT", role="x", security_id=sid, segment="Core")])
+    body = _get(db, PAST)
+    assert body["rows"] == []
+    c = body["counts"]
+    assert (c["cards_counted"], c["cards_with_nights"], c["cards_no_call"], c["nights_read"]) == (
+        1,
+        0,
+        1,
+        0,
+    )
+    assert (c["entry_rows"], c["risk_rows"], c["carried_live"]) == (0, 0, 0)

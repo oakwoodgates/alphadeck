@@ -159,24 +159,48 @@ def record_if_changed(
     return True
 
 
-def record_edge(conn: psycopg.Connection) -> date | None:
+def record_edge(conn: psycopg.Connection, *, tenant_id: UUID | None = None) -> date | None:
     """The record's EDGE — the latest call-of-record ``asof`` across every thesis (all tenants: the cron
     walks them all), or ``None`` when the log is empty (the record has never begun). THE dead-man's
     signal for the admin freshness read: ``record_if_changed`` always appends the FIRST row at a new
     as-of (its prior-compare matches on the same ``asof``), so every completed daily pass advances this
-    even on an all-quiet night — a stuck edge means the cron is not completing. Read-only.
+    even on an all-quiet night — a stuck edge means the cron is not completing. ``tenant_id`` narrows it to
+    ONE workspace's record (the Scoreboard's Edition 0 descriptor, V2 W8a); ``None`` keeps the platform-wide
+    read (the freshness reads, which describe the cron). Read-only.
     """
     with conn.cursor() as cur:
-        cur.execute("SELECT MAX(asof) AS edge FROM calls")
+        if tenant_id is None:
+            cur.execute("SELECT MAX(asof) AS edge FROM calls")
+        else:
+            cur.execute("SELECT MAX(asof) AS edge FROM calls WHERE tenant_id = %s", (tenant_id,))
         return cur.fetchone()["edge"]
 
 
-def record_first(conn: psycopg.Connection) -> date | None:
+def record_first(conn: psycopg.Connection, *, tenant_id: UUID | None = None) -> date | None:
     """The record's FIRST as-of — ``MIN(asof)`` across every thesis (``record_edge``'s mirror), or
     ``None`` when the log is empty. The hole-aware freshness read's lower bound: a night before the
-    record began is pre-history, never a "missed" run. Read-only."""
+    record began is pre-history, never a "missed" run. ``tenant_id`` narrows it to ONE workspace's record
+    (the Scoreboard's Edition 0 descriptor, V2 W8a); ``None`` keeps the platform-wide read. Read-only.
+    """
     with conn.cursor() as cur:
-        cur.execute("SELECT MIN(asof) AS first FROM calls")
+        if tenant_id is None:
+            cur.execute("SELECT MIN(asof) AS first FROM calls")
+        else:
+            cur.execute("SELECT MIN(asof) AS first FROM calls WHERE tenant_id = %s", (tenant_id,))
+        return cur.fetchone()["first"]
+
+
+def record_start(conn: psycopg.Connection, *, tenant_id: UUID) -> date | None:
+    """Where ONE workspace's record starts: the first night it holds an HONEST call of record — the earliest
+    ``asof`` of a non-reconstructed ``calls`` row in that workspace — or ``None`` when it holds none yet (the
+    honest "no record yet", never a zero date). A reconstructed row (a backfill's) is not the record of what
+    the system said that night, so it never starts it. Another workspace's nights, and the data tenant's,
+    never count. ``GET /record/start`` (V2 W8a). Read-only."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT MIN(asof) AS first FROM calls WHERE tenant_id = %s AND NOT reconstructed",
+            (tenant_id,),
+        )
         return cur.fetchone()["first"]
 
 
