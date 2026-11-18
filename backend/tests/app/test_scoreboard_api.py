@@ -10,12 +10,14 @@ from app.routers import scoreboard
 from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
 from domain.enums import Grade
+from domain.thesis import BasketMember
 from repositories import call_annotations_repo, thesis_repo
 from tests.calls.factories import (
     breakdown_event,
     breakout_event,
     insider_event,
     insider_sell_event,
+    make_thesis,
 )
 from tests.scoreboard.helpers import bar, keys_fired, persist_thesis, record_day
 
@@ -751,3 +753,41 @@ def test_include_late_is_a_tri_state_reading_and_the_get_writes_nothing(client, 
     # the two readings are independent: the annotated reading is untouched by include_late
     assert default["summary"]["annotated_policy"] == included["summary"]["annotated_policy"]
     assert _db_counts(db) == before  # every read wrote nothing
+
+
+def test_edition_0s_nights_are_the_callers_workspace_and_the_freshness_edge_stays_platform_wide(
+    client, db, security_id, monkeypatch
+):
+    """V2 W8a: Edition 0 (the record) is the caller's OWN calls log, so its first and last nights are the
+    workspace's — another workspace that began earlier (and ran later) moves neither. The freshness edge
+    (``summary.record_edge``) still describes the cron, which walks every workspace."""
+    _seed_record_edge(db, security_id, _FRI)  # the caller's workspace: one night, Fri 2026-07-17
+    other = uuid.uuid4()
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO tenant (id, name, kind) VALUES (%s, %s, 'workspace')",
+            (other, "another workspace"),
+        )
+    db.commit()
+    theirs = make_thesis(
+        id=uuid.uuid4(),
+        tenant_id=other,
+        basket=[BasketMember(ticker="DEVCO", role="Lead developer", security_id=security_id)],
+    )
+    thesis_repo.upsert(db, theirs)
+    db.commit()
+    theirs = thesis_repo.get(db, theirs.id, workspace=other)
+    for night in (date(2026, 7, 6), date(2026, 7, 20)):
+        conv, conf = keys_fired(security_id, night, conv_liveness=120, conf_liveness=120)
+        record_day(db, theirs, [conv, conf], night)
+
+    _pin(monkeypatch, datetime(2026, 7, 21, 9, 0))
+    body = client.get("/scoreboard", params={"asof": "2026-07-21"}).json()
+    assert body["edition"]["number"] == 0
+    assert (body["edition"]["first_night"], body["edition"]["last_night"]) == (
+        "2026-07-17",
+        "2026-07-17",
+    )
+    assert body["summary"]["record_edge"] == "2026-07-20"  # the cron's edge: every workspace
+    (zero,) = [e for e in client.get("/scoreboard/editions").json()["editions"] if e["number"] == 0]
+    assert (zero["first_night"], zero["last_night"]) == ("2026-07-17", "2026-07-17")

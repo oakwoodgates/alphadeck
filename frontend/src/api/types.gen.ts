@@ -1500,6 +1500,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/record/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Record Start
+         * @description The first night on the caller's workspace's record (``null`` before its first nightly call).
+         */
+        get: operations["get_record_start_record_start_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/status": {
         parameters: {
             query?: never;
@@ -17672,6 +17692,15 @@ export interface components {
             reason: string | null;
         };
         /**
+         * RecordStartOut
+         * @description ``first_night`` = the first night the caller's workspace holds an honest (non-reconstructed) call of
+         *     record; ``null`` = no record yet (it starts with the first nightly call), never an error or a zero date.
+         */
+        RecordStartOut: {
+            /** First Night */
+            first_night: string | null;
+        };
+        /**
          * RecordedCallSummary
          * @description The nightly RECORD in effect for a thesis at the list's ``asof``: the ``calls`` row with the greatest
          *     ``(asof, seq)`` on or before it, cut to its decision fields. ``record_asof`` is that row's own night (earlier
@@ -22806,6 +22835,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_record_start_record_start_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordStartOut"];
                 };
             };
         };

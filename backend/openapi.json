@@ -2710,6 +2710,28 @@
         }
       }
     },
+    "/record/start": {
+      "get": {
+        "tags": [
+          "record"
+        ],
+        "summary": "Get Record Start",
+        "description": "The first night on the caller's workspace's record (``null`` before its first nightly call).",
+        "operationId": "get_record_start_record_start_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordStartOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/admin/status": {
       "get": {
         "tags": [
@@ -40544,6 +40566,28 @@
         ],
         "title": "ReadThroughTapeOut",
         "description": "The company's tape. ``ret_7d`` / ``ret_30d`` = its trailing return in percent over the last 7 / 30 trading\ndays; ``vs_spy_*`` = that minus SPY's over the same window, in percentage points; ``last_close`` = the date of\nits last close. ``gap`` = why the vs-SPY cells are blank: ``flagged`` (its data flags reach its price readings;\n``reason`` = the flags' labels, and no return is shown), ``no_tape`` (no bars), ``no_spy`` (SPY has none) or\n``ends_differ`` (its last close is not SPY's last close). ``null`` = shown, or only that window is short."
+      },
+      "RecordStartOut": {
+        "properties": {
+          "first_night": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Night"
+          }
+        },
+        "type": "object",
+        "required": [
+          "first_night"
+        ],
+        "title": "RecordStartOut",
+        "description": "``first_night`` = the first night the caller's workspace holds an honest (non-reconstructed) call of\nrecord; ``null`` = no record yet (it starts with the first nightly call), never an error or a zero date."
       },
       "RecordedCallSummary": {
         "properties": {

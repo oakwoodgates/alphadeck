@@ -28,6 +28,7 @@ from app.routers import (
     oauth_consent,
     platform_values,
     radar,
+    record,
     scoreboard,
     theses,
     value_flags,
@@ -100,6 +101,7 @@ app.include_router(theses.router, dependencies=_USER)
 app.include_router(clock.router, dependencies=_USER)
 app.include_router(workbench.router, dependencies=_USER)
 app.include_router(scoreboard.router, dependencies=_USER)
+app.include_router(record.router, dependencies=_USER)  # V2 W8a: the workspace's record start
 app.include_router(admin.router, dependencies=_STEWARD)
 # T2 + Q8 — the operator's price-feed repairs (Adopt / Set / Acknowledge, each with its exact inverse)
 app.include_router(admin_price_feed.router, dependencies=_STEWARD)

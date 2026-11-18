@@ -372,7 +372,7 @@ def test_the_journal_reads_back_as_pending_for_the_editions_job(db, tmp_path, mo
     module, _, apply, _ = TOOLS["repair_split_basis"](monkeypatch, tmp_path)
     module.main(apply)
     (row,) = data_repair_repo.pending(
-        db, tenant_id=DEFAULT_TENANT_ID, after=datetime(2000, 1, 1, tzinfo=timezone.utc)
+        db, tenant_ids=[DEFAULT_TENANT_ID], after=datetime(2000, 1, 1, tzinfo=timezone.utc)
     )
     db.commit()
     assert row.tool == "repair_split_basis" and row.rows_changed == 5
