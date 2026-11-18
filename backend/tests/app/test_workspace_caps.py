@@ -78,6 +78,7 @@ def ws(db, kicked, monkeypatch):
     db.commit()
     yield {"p": _client("p@caps.test"), "w": w, "p_id": auth_user_id(db, "p@caps.test")}
     app.dependency_overrides.clear()
+    _set_caps(db, w)  # the shared fixture keeps tenant rows: leave no capped workspace behind
     auth.reset_throttle()
     get_settings.cache_clear()
 
