@@ -945,10 +945,11 @@ export interface paths {
          *     cost); a brand-new thesis is all-new (the full starter-basket ingest); no new members → no job and
          *     ``ingest`` null. The job never blocks or fails the promote.
          *
-         *     For a plain user that fast-lane ingest spends one unit of the daily price-pull allowance per new name
-         *     (``Settings.allowance_price_pull_per_day``, security hardening PR 1b); when today's allowance cannot cover them
-         *     all, no job is kicked and ``onboarding`` says the names load outside the nightly window instead (the staged
-         *     onboarding job, then the nightly). A steward is not counted.
+         *     For a plain user that fast-lane ingest spends one unit of the daily allowance of new names loaded at once per
+         *     new name (``Settings.allowance_price_pull_per_day``, security hardening PR 1b); when today's allowance cannot
+         *     cover them all, no job is kicked and ``onboarding`` says the names load outside the nightly window instead (the
+         *     staged onboarding job, then the nightly). A steward is not counted. The lane is ``start_member_load``, shared
+         *     with the fund and SPAC attaches (V2 W7b).
          */
         post: operations["promote_workbench_theses_post"];
         delete?: never;
