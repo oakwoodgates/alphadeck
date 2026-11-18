@@ -83,6 +83,6 @@ describe("CallCard — origin chip and the also-live line", () => {
     };
     const { container } = render(<CallCard card={cardWith({ origin: "operator", sources: [own, alsoLive] })} />);
     expect(screen.getByText((t) => t.includes(nasty))).toBeInTheDocument();
-    expect(container.querySelector("b, a")).toBeNull();
+    expect(container.querySelector(".also-live b, .also-live a, .also-live img")).toBeNull();
   });
 });

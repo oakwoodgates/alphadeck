@@ -29,6 +29,7 @@ import {
 } from "./DisplaySignalsSection";
 import { groupMoving } from "./groupAggregate";
 import { tapeMarks } from "./tapeMarks";
+import { CatalystCountingRow } from "./CatalystCounting";
 import { CatalystEditor, KillCriteriaEditor } from "./SpineListEditors";
 import { MemberMenu } from "../components/MemberMenu";
 import {
@@ -1084,10 +1085,22 @@ export function Cockpit({
                     ? `${fmtDate(c.when_date)}${d === null ? "" : d >= 0 ? ` · ${dayCount(d)}` : ` · ${-d}d ago`}`
                     : (c.when_label ?? "—");
                   return (
-                    <div className={`cat${soon ? " soon" : ""}${passed ? " passed" : ""}`} key={c.id}>
-                      <span className="when">{when}</span>
-                      <span className="lbl">{c.label}</span>
-                      <span className="kind">{c.kind ?? ""}</span>
+                    <div key={c.id}>
+                      <div className={`cat${soon ? " soon" : ""}${passed ? " passed" : ""}`}>
+                        <span className="when">{when}</span>
+                        <span className="lbl">{c.label}</span>
+                        <span className="kind">{c.kind ?? ""}</span>
+                      </div>
+                      {/* V2 W6d: a saved row can be made to count toward the call (a quiet control; the row's
+                          state in one line once it does). Matched to the entry by the row's id. */}
+                      <CatalystCountingRow
+                        thesisId={thesisId}
+                        entryId={c.id}
+                        label={c.label}
+                        counting={thesis?.catalyst_counting?.find((x) => x.entry_id === c.id)}
+                        members={basket}
+                        metaIndex={Boolean(thesis?.meta_index)}
+                      />
                     </div>
                   );
                 })}

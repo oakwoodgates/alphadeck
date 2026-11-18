@@ -13,7 +13,6 @@ import { SILENT_DESCRIPTORS } from "../useChainDraft";
 // "Unsorted (Discovered)" line. Read-only (no prop) renders nothing new.
 
 // the hook-using child panels aren't under test here — stub them so this stays a focused unit
-vi.mock("../CatalystFactForm", () => ({ CatalystFactForm: () => null }));
 vi.mock("../FactsPanel", () => ({ FactsPanel: () => null }));
 vi.mock("../SharedValues", () => ({ SharedValues: () => null }));
 

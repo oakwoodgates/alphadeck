@@ -10,7 +10,6 @@ import { meterValueLabel, runwayCashWords, runwayPaceWords } from "../format";
 // on the runway provenance's detail), and a quiet one-sentence caveat appears only when last quarter is far off that
 // pace. Display only: the pips never change.
 
-vi.mock("../CatalystFactForm", () => ({ CatalystFactForm: () => null }));
 vi.mock("../FactsPanel", () => ({ FactsPanel: () => null }));
 vi.mock("../SharedValues", () => ({ SharedValues: () => null }));
 
