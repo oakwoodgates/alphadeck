@@ -69,7 +69,7 @@ from .views.thesis import view_thesis
 from .views.ticker import view_ticker
 
 NAME = "alphadeck"
-VERSION = "2.7.0"
+VERSION = "2.8.0"
 DEFAULT_BACKEND = "http://127.0.0.1:8001"
 path_seg = segment  # a tool parameter named ``segment`` shadows the path-segment encoder inside its handler
 log = logging.getLogger("agent_tools")
@@ -80,7 +80,7 @@ INSTRUCTIONS = (
     "watches each card nightly and SCORE keeps the record. MONITOR is read by list_theses, get_call, "
     "get_thesis, get_data_flags, get_display_signals, get_decisions, lookup_ticker and get_clock, and the "
     "cross-card dashboards by list_dashboards and read_dashboard. The research stages are read by get_triage, "
-    "get_discovery, get_extract (one name's scoring-fact candidates: it spends EDGAR requests and, with "
+    "get_discovery, get_extract (one name's purity candidate: it spends EDGAR requests and, with "
     "thesis, an LLM call) and get_onboarding. A steward "
     "(super_admin) also reads the Admin readouts: get_splits (the split list with both sources' evidence) and "
     "get_admin_status, and the splits-review prompt; a plain user never lists them. Every reply states its "
@@ -947,20 +947,21 @@ def build_server(
 
     @tool(
         "get_extract",
-        "The extractor's three candidate scoring facts for one company from its latest SEC filings (revenue mix "
-        "= purity, shares outstanding = market cap, cash burn = runway), each AUTO (a clean value), FLAG (a raw "
-        "value, a detected risk and a located passage) or HUMAN (located only, never auto-valued), with the "
-        "passages that back them (each excerpt cut at 300 characters; section=passages with fact reads one "
-        "fact's passages in full). COST: up to 4 EDGAR requests when the filings are not cached; with thesis, "
-        "ONE LLM call (the grounded purity proposal) when a key is set. Pass thesis only when the operator asks "
-        "for the on-thesis purity proposal. The extract is DB-free: a candidate does not know whether its fact "
-        "is already on file (get_triage section=member does). "
-        + QUARTERLY_BURN_SIGN
-        + ". A fact with more "
-        "passages than shown carries more: the section call that reads them all. Nothing here is stored. The "
-        "share count and cash here are a fresh parse, NOT the shared values (those are set by the platform and the "
-        "steward: read their state with get_triage; a user who thinks one is wrong flags it in the Workbench); "
-        "only purity is the user's to ratify in the Workbench.",
+        "The extractor's purity candidate for one company from its latest SEC filings: revenue mix = purity, "
+        "HUMAN (located only, never auto-valued), with the passages that back it (each excerpt cut at 300 "
+        "characters; section=passages with fact reads one fact's passages in full). A user's token reads purity "
+        "ONLY: a share count and cash are shared values the platform and the steward set (read their state with "
+        "get_triage; a user who thinks one is wrong flags it in the Workbench), and a company that files annual "
+        "reports on Form 20-F or 40-F answers empty_reason purity-not-covered (purity is set by hand from its "
+        "annual report). A steward's token also reads the share count (market cap) and cash burn (runway) "
+        "candidates, each AUTO (a clean value) or FLAG (a raw value, a detected risk and a located passage): a "
+        "fresh parse, NOT the shared values. COST: up to 3 EDGAR requests for a user's token and up to 4 for a "
+        "steward's when the filings are not cached; with thesis, ONE LLM call (the grounded purity proposal) "
+        "when a key is set. Pass thesis only when the operator asks for the on-thesis purity proposal. The "
+        "extract is DB-free: a candidate does not know whether its fact is already on file (get_triage "
+        "section=member does). " + QUARTERLY_BURN_SIGN + ". A fact with more "
+        "passages than shown carries more: the section call that reads them all. Nothing here is stored. Only "
+        "purity is the user's to ratify in the Workbench.",
     )
     async def get_extract(
         t: Annotated[str, Field(description="The ticker (a former ticker also resolves).")],
@@ -978,7 +979,9 @@ def build_server(
         fact: Annotated[
             str | None,
             Field(
-                description="revenue_mix, shares_outstanding or cash_burn (section=passages).",
+                description=(
+                    "revenue_mix (shares_outstanding or cash_burn on a steward's token; section=passages)."
+                ),
                 max_length=40,
             ),
         ] = None,

@@ -25,6 +25,11 @@ that — how the facts get into the store. The loop is **extract → ratify → 
 
 1. **Extract** `[BUILT #55]` — from the name's latest 10-Q/10-K + companyfacts, produce *candidate* facts
    (`domain.extraction.ExtractedFact`). Cache-first; an EXPLICIT operator action (never fired on a render).
+   **Who may extract what (V2 W7a):** a plain user's extract is the PURITY candidate only
+   (`extract_purity_for_security`: submissions, companyfacts and one 10-K, else 10-Q; never the values filing,
+   an annual document or an exhibit; a 20-F/40-F filer answers `purity-not-covered` after the submissions read).
+   The share count and cash/burn are platform values the steward decides (`docs/PLATFORM_VALUES.md`); the
+   steward's extract carries all three, and the FLAG explainer (`POST /workbench/facts/explain`) is steward-only.
    **Which filing each fact cites (V2 decision B1, 2026-11-14):** the share count and cash/burn cite the NEWER
    of the latest 10-Q and the latest 10-K, by when each became public (its trusted SEC acceptance, else its filing
    date — never its period of report), so the link, period and located passages are that filing's; purity keeps
@@ -378,7 +383,10 @@ floor that **flags rather than drops** (#9: never silently discard).
 "there is nothing"): `no-annual-filing` (nothing on EDGAR — the only case where "nothing to extract" is
 true) · `cover-not-located` (a filing exists but its cover is unread — still a live candidate) · covered
 (shares emitted; **purity remains uncovered for these names** — cash/runway is now covered by the
-annual-statements path below — and the UI says so rather than letting a `—` imply zero).
+annual-statements path below — and the UI says so rather than letting a `—` imply zero). A plain user's
+purity-only extract of such a name answers a fourth reason, `purity-not-covered` (V2 W7a), shown as "Purity is
+not read automatically for a company that files annual reports on Form 20-F or 40-F. Set it by hand from its
+annual report."
 
 **The ADS ratio — apply where READ, SUPPRESS where not.** The annual cover states **ordinary** shares,
 but the price feed carries the **ADR/ADS** price — they only multiply at 1:1, and real ratios run 1:1 to

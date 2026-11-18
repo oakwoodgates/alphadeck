@@ -124,7 +124,8 @@ def _run(api: FakeApi, query: dict[str, str], thesis_id: str, run_id: str):
 def _extract(api: FakeApi, query: dict[str, str], security_id: str):
     if security_id != SECURITY_ID:
         return 404, {"detail": "security not found"}
-    return 200, rfx.extract(thesis_scoped="thesis_id" in query)
+    # the route's rule (W7a): a plain user's extract is the purity candidate only
+    return 200, rfx.extract(thesis_scoped="thesis_id" in query, purity_only=not api.steward)
 
 
 def _onboarding(api: FakeApi, query: dict[str, str], thesis_id: str):

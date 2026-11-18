@@ -1471,12 +1471,38 @@ def extract_with_annual_fallback(
     return annual_facts_for_security(client, cik, cfg=cfg)
 
 
+def extract_purity_for_security(client: EdgarClient, cik: str | int) -> ExtractionResult:
+    """A plain user's extract (W7a): the purity candidate ALONE, fetching only what it needs.
+
+    A share count and cash/burn are platform values (``docs/PLATFORM_VALUES.md``): extracted in the background,
+    decided by the steward, and never shown to a plain user unverified. So this entry never reads the values
+    filing, an annual (20-F/40-F) document or an exhibit. It reads the submissions index; for a company whose
+    newest periodic filing is a 20-F or 40-F (``_takes_annual_path``) it stops there with the
+    ``purity-not-covered`` empty reason (the annual path never covered purity), or ``no-annual-filing`` when the
+    company has no periodic or annual filing at all (unchanged words). Otherwise it reads companyfacts (the
+    revenue test choosing the segment table or the Item-1 passage) and ONE document: the latest 10-K, else the
+    latest 10-Q. The candidate is the same HUMAN purity candidate the full extract builds (located, never valued).
+    """
+    cik = int(cik)
+    subs = fetch_submissions(client, cik)
+    if _takes_annual_path(subs):
+        has_annual = any(filings_of(subs, form) for form in _ANNUAL_FORMS)
+        return ExtractionResult(
+            facts=[], empty_reason="purity-not-covered" if has_annual else "no-annual-filing"
+        )
+    row = next(iter(filings_of(subs, "10-K")), None) or next(iter(filings_of(subs, "10-Q")))
+    cf = client.get_json(companyfacts_url(cik), f"companyfacts/CIK{cik:010d}.json")
+    ref, text, period_end = _read_filing(client, cik, row)
+    return ExtractionResult(facts=[_purity(cf["facts"], text, ref, period_end)])
+
+
 __all__ = [
     "COVER_AFTER_FILING",
     "RefusedCover",
     "cover_after_filing",
     "extract_facts",
     "extract_for_security",
+    "extract_purity_for_security",
     "extract_with_annual_fallback",
     "ExtractedFact",
     "refused_cover_note",

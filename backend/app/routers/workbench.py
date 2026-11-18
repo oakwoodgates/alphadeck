@@ -90,7 +90,7 @@ from domain.thesis import (
 )
 from ingest.edgar import nport
 from ingest.edgar.client import EdgarClient
-from ingest.edgar.extract import extract_with_annual_fallback
+from ingest.edgar.extract import extract_purity_for_security, extract_with_annual_fallback
 from ingest.edgar.fulltext import DiscoveryUnavailable
 from ingest.prices import ingest_security as price_leg
 from ingest.prices.eod_loader import latest_bar_date, recent_distinct_bar_counts
@@ -572,7 +572,16 @@ def extract_scoring_facts(
     user: CurrentUser = Depends(require_user),
 ) -> ExtractionResult:
     """Auto-EXTRACT candidate scoring facts for a security from its latest SEC filings (Slice hybrid-1 +
-    Retrieval Slices 1/A/A-2). A 10-Q/10-K filer gets the three-tier hybrid: AUTO pre-fills the clean
+    Retrieval Slices 1/A/A-2).
+
+    WHO GETS WHAT (W7a, ``docs/PLATFORM_VALUES.md``): a share count and cash/burn are PLATFORM VALUES, decided by
+    the steward; a plain user never sees an unverified extracted number. So a PLAIN USER gets the purity candidate
+    ONLY (``extract_purity_for_security``): the request reads the submissions index, companyfacts and one 10-K
+    (else 10-Q), never the values filing, an annual document or an exhibit; a company that files annual reports on
+    Form 20-F or 40-F answers ``empty_reason="purity-not-covered"`` after the submissions read alone. The STEWARD
+    gets the full extract described below (all three candidates, the annual path, the exhibit hunt).
+
+    THE FULL EXTRACT (the steward's). A 10-Q/10-K filer gets the three-tier hybrid: AUTO pre-fills the clean
     facts, FLAG carries the raw value + a detected risk + the located passage (the operator ratifies the
     composition), HUMAN (purity) is LOCATED only and never auto-valued. An issuer with NO 10-K/10-Q (a
     foreign private issuer) reads its latest annual filing (20-F/40-F) ONCE and gets — ALWAYS tier FLAG —
@@ -616,13 +625,18 @@ def extract_scoring_facts(
     # the network (the request connection's idle-in-transaction timeout, db.session.connect_request).
     conn.rollback()
     try:
-        result = extract_with_annual_fallback(EdgarClient(allow_live=True), cik)
+        client = EdgarClient(allow_live=True)
+        result = (
+            extract_with_annual_fallback(client, cik)
+            if user.is_super_admin
+            else extract_purity_for_security(client, cik)
+        )
     except (
         Exception
     ) as exc:  # noqa: BLE001 — SEC unreachable / no UA / parse hiccup -> a clear 502, not a 500
         raise fail(502, SEC_FILINGS_UNREADABLE, exc, user=user) from exc
 
-    # Thesis-aware purity ESTIMATE — the ONLY thesis-scoped branch (purity's on-thesis segment depends on the
+    # Thesis-aware purity ESTIMATE (a plain user's and the steward's alike) — the ONLY thesis-scoped branch (purity's on-thesis segment depends on the
     # narrative; shares/cash are thesis-independent). Fail-open: no thesis / no key / ungrounded -> purity stays
     # today's HUMAN. The proposal is UNVERIFIED and carries its passage; it becomes a fact only on the operator's
     # ratify (never here — this endpoint writes nothing).
@@ -814,7 +828,7 @@ def set_business_type(
 @router.post(
     "/facts/explain",
     response_model=FlagExplanationOut,
-    dependencies=[Depends(allowance.charge("extract"))],
+    dependencies=[Depends(require_super_admin)],
 )
 def explain_flag_candidate(
     candidate: ExtractedFactIn,
@@ -824,11 +838,12 @@ def explain_flag_candidate(
     seam (M4b). A DISPLAY aid shown ALONGSIDE the raw passage; it NEVER becomes a fact.
 
     The body is the candidate the extract endpoint returned, sent back as is, held to the request limits (at most
-    10 passages of at most 4,000 characters, at most 20 flags; security hardening PR 3). A plain user's call
-    spends one unit of the daily extract allowance (it is an LLM call a click can repeat).
+    10 passages of at most 4,000 characters, at most 20 flags; security hardening PR 3). STEWARD ONLY (W7a): a
+    FLAG candidate is a share count or cash/burn, a platform value the steward decides; a plain user's extract
+    carries purity only, so a user has no candidate to explain and gets the steward-only 403. No allowance (the
+    steward is never counted).
 
-    Note what is absent: no tenant, no fact write (the one write is that allowance count). The explanation rides a
-    separate rail that
+    Note what is absent: no tenant, no fact write. The explanation rides a separate rail that
     dead-ends at the screen — the ratified number can only ever come from the operator's typed field on
     ``/facts`` (INVARIANT #3). The prompt asks the model not to state the final value; this missing
     connection is what guarantees it can't become one.

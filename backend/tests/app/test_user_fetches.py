@@ -43,6 +43,8 @@ from tests.app.test_workbench_api import (
     _subs,
 )
 from tests.auth_fixtures import sign_out
+from tests.ingest.test_extract_newest_filing import OKLO, FakeClient, _companyfacts, _text
+from tests.ingest.test_extract_newest_filing import _subs as _efsubs
 from tests.thread_support import BARRIER_TIMEOUT_S, join_all
 
 PASSWORD = "correct horse battery"
@@ -146,6 +148,8 @@ def fakes(monkeypatch):
         return None  # "not in the SEC fund file": a 404 after the checks, with no SEC traffic
 
     monkeypatch.setattr(wb, "extract_with_annual_fallback", fake_extract)
+    # a plain user's extract (W7a): purity only, through its own entry
+    monkeypatch.setattr(wb, "extract_purity_for_security", fake_extract, raising=False)
     monkeypatch.setattr(wb.fund_tickers, "resolve", fake_fund)
     _FakeSource.requested = []
     monkeypatch.setattr(price_leg, "YahooPriceSource", _FakeSource)
@@ -280,6 +284,146 @@ def test_a_plain_users_fetch_on_their_own_card_passes_the_check(people, action):
 def test_a_steward_may_fetch_any_security(people):
     assert _extract(people["s"], people["other"]).status_code == 200
     assert _pull(people["s"], people["other"]).status_code == 200
+
+
+# --- a plain user's extract is purity only (W7a, docs/PLATFORM_VALUES.md) ------------------------------------------
+#
+# A share count and cash/burn are platform values the steward decides; a plain user never sees an unverified
+# extracted number. These run the REAL extractor entries over a recording fake SEC client serving the repo's
+# extractor fixtures, so the response AND every request it made are checked.
+
+
+class _RecordingSec(FakeClient):
+    """``FakeClient`` that records every request URL and answers an unknown read with an empty one (so today's
+    annual path runs to its end instead of failing on a missing fixture)."""
+
+    urls: list[str] = []
+
+    def get_json(self, url: str, cache_key: str, **kw):
+        _RecordingSec.urls.append(url)
+        if cache_key.startswith(("companyfacts/", "submissions/")):
+            return super().get_json(url, cache_key, **kw)
+        return {}
+
+    def get_text(self, url: str, cache_key: str, **kw):
+        _RecordingSec.urls.append(url)
+        return self._docs.get(cache_key.split("/")[1], "")
+
+
+@pytest.fixture
+def sec(monkeypatch):
+    """Point the extract route at the real extractor entries and a recording fake SEC client. Call it with the
+    submissions rows to serve; returns the list of request URLs."""
+    from app.routers import workbench as wb
+    from ingest.edgar import extract as ex
+
+    monkeypatch.setattr(wb, "extract_with_annual_fallback", ex.extract_with_annual_fallback)
+    if hasattr(ex, "extract_purity_for_security"):
+        monkeypatch.setattr(wb, "extract_purity_for_security", ex.extract_purity_for_security)
+
+    def serve(*rows) -> list[str]:
+        docs = {
+            OKLO["new_tenq"][1]: _text(OKLO["new_tenq_text"]),
+            OKLO["tenk"][1]: _text(OKLO["tenk_text"]),
+        }
+        client = _RecordingSec(_companyfacts(OKLO["cik"]), _efsubs(*rows), docs)
+        _RecordingSec.urls = []
+        monkeypatch.setattr(wb, "EdgarClient", lambda **kw: client)
+        return _RecordingSec.urls
+
+    return serve
+
+
+_SHARE_OR_CASH = ("share", "cash", "burn", "investments")
+
+
+def _share_or_cash_figures(body, path: str = "") -> list[str]:
+    """Every place in a JSON body that carries a share-count or cash figure: a candidate of any type but purity,
+    or a number under a share / cash / burn key. Walks the whole body, not only ``facts``."""
+    found: list[str] = []
+    if isinstance(body, dict):
+        if "fact_type" in body and body["fact_type"] != "revenue_mix":
+            found.append(f"{path} is a {body['fact_type']} candidate")
+        for k, v in body.items():
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                if any(w in k.lower() for w in _SHARE_OR_CASH):
+                    found.append(f"{path}.{k}={v}")
+            found += _share_or_cash_figures(v, f"{path}.{k}")
+    elif isinstance(body, list):
+        for i, v in enumerate(body):
+            found += _share_or_cash_figures(v, f"{path}[{i}]")
+    return found
+
+
+def _doc_requested(urls: list[str], row) -> bool:
+    return any(row[1].replace("-", "") in u for u in urls)
+
+
+def test_a_plain_users_extract_is_purity_only_and_never_reads_the_values_filing(people, sec):
+    urls = sec(OKLO["new_tenq"], OKLO["tenk"])  # the newer 10-Q is the values filing
+    r = _extract(people["p"], people["own"])
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert [f["fact_type"] for f in body["facts"]] == ["revenue_mix"]
+    assert body["facts"][0]["value"] is None
+    assert _share_or_cash_figures(body) == []
+    assert not _doc_requested(
+        urls, OKLO["new_tenq"]
+    )  # the share-count / cash document is never fetched
+    assert _doc_requested(urls, OKLO["tenk"])  # purity's own document is
+
+
+def test_a_plain_users_extract_of_an_annual_filer_reads_purity_not_covered_and_fetches_only_submissions(
+    people, sec
+):
+    twenty_f = ("20-F", "0001628280-26-099001", "x-20f.htm", "2026-04-20", "2025-12-31")
+    urls = sec(twenty_f, OKLO["old_tenq"])
+    r = _extract(people["p"], people["own"])
+    assert r.status_code == 200, r.text
+    assert r.json() == {
+        "facts": [],
+        "empty_reason": "purity-not-covered",
+        "runway_empty_reason": None,
+    }
+    assert len(urls) == 1 and "/submissions/" in urls[0], urls
+
+
+def test_a_stewards_extract_still_returns_all_three(people, sec):
+    urls = sec(OKLO["new_tenq"], OKLO["tenk"])
+    r = _extract(people["s"], people["own"])
+    assert r.status_code == 200, r.text
+    assert sorted(f["fact_type"] for f in r.json()["facts"]) == [
+        "cash_burn",
+        "revenue_mix",
+        "shares_outstanding",
+    ]
+    assert _doc_requested(urls, OKLO["new_tenq"]) and _doc_requested(urls, OKLO["tenk"])
+
+
+def test_a_plain_users_purity_estimate_still_attaches(people, db, sec):
+    """The thesis-aware purity estimate (SURFACE 1b) still runs on a plain user's purity-only extract."""
+    from app.deps import get_purity_client
+    from llm.purity_estimate import PurityProposal
+
+    sec(OKLO["new_tenq"], OKLO["tenk"])
+    app.dependency_overrides[get_purity_client] = lambda: object()
+    from app.routers import workbench as wb
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(
+            wb,
+            "propose_purity",
+            lambda llm, narrative, c: PurityProposal(pct=0.4, reason="r", segment="seg"),
+        )
+        r = people["p"].get(
+            f"/workbench/securities/{people['own']}/extract",
+            params={"thesis_id": str(people["p_card"])},
+        )
+    assert r.status_code == 200, r.text
+    (pu,) = r.json()["facts"]
+    assert pu["fact_type"] == "revenue_mix" and pu["value"] == 0.4
+    assert pu["estimate_source"] == "llm_proposed"
+    assert _share_or_cash_figures(r.json()) == []
 
 
 # --- no shared-master write on a plain user's click ---------------------------------------------------------------
@@ -625,10 +769,6 @@ def test_a_stewards_fast_lane_is_not_counted(people, db, limits, lane):
 
 _CHARGED = {
     ("GET", "/workbench/securities/{security_id}/extract"): "extract",
-    (
-        "POST",
-        "/workbench/facts/explain",
-    ): "extract",  # an LLM call a click can repeat (security hardening PR 3)
     ("POST", "/workbench/securities/{security_id}/ingest-prices"): "price_pull",
     ("POST", "/workbench/facts/auto-confirm"): "auto_confirm",
     ("GET", "/workbench/securities/{security_id}/etf-holdings"): "holdings",
@@ -651,29 +791,24 @@ def test_each_fetch_route_carries_its_allowance_dependency():
     assert seen == _CHARGED
 
 
-def test_the_flag_explainer_spends_the_extract_allowance(people, db, limits, monkeypatch):
-    """``POST /workbench/facts/explain`` is an LLM call a plain user can fire in a loop: it spends one unit of the
-    extract allowance and answers the fixed 429 once the day's is spent (security hardening PR 3). A steward is
-    never counted."""
+def test_the_flag_explainer_is_steward_only(people, db, monkeypatch):
+    """``POST /workbench/facts/explain`` is steward-only (W7a): a plain user never holds a FLAG candidate (a share
+    count and cash are the steward's), so a user's call is the steward-only 403 and counts nothing; the steward's
+    is answered and never counted."""
     from app.deps import get_llm_client
     from tests.app.test_workbench_api import _flag_candidate
 
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     app.dependency_overrides[get_llm_client] = lambda: _FakeLLM(returns=None)
-    limits(extract=2)
     p, s = people["p"], people["s"]
-    assert p.post("/workbench/facts/explain", json=_flag_candidate()).status_code == 200
-    assert allowance.used(db, people["p_id"], "extract") == 1
-    assert p.post("/workbench/facts/explain", json=_flag_candidate()).status_code == 200
     r = p.post("/workbench/facts/explain", json=_flag_candidate())
-    assert r.status_code == 429 and r.json()["detail"].startswith("Daily allowance reached:")
+    assert r.status_code == 403, r.text
+    assert allowance.used(db, people["p_id"], "extract") == 0
     assert s.post("/workbench/facts/explain", json=_flag_candidate()).status_code == 200
     db.rollback()
     with db.cursor() as cur:
-        cur.execute(
-            "SELECT count(*) AS n FROM user_action_count WHERE user_id <> %s", (people["p_id"],)
-        )
-        assert cur.fetchone()["n"] == 0  # the steward spent nothing
+        cur.execute("SELECT count(*) AS n FROM user_action_count")
+        assert cur.fetchone()["n"] == 0  # nobody spent anything
 
 
 def test_the_day_is_the_market_day(monkeypatch):

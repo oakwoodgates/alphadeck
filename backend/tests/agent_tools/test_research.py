@@ -720,6 +720,75 @@ def test_extract_description_states_the_edgar_and_llm_cost():
         assert needle in tool.description, needle
 
 
+def _share_or_cash_figures(body, path: str = "") -> list[str]:
+    """Every share-count or cash figure in a reply: a candidate other than purity, or a number under a share /
+    cash / burn / investments key (a None placeholder is not a figure)."""
+    found: list[str] = []
+    if isinstance(body, dict):
+        if "fact_type" in body and body["fact_type"] != "revenue_mix":
+            found.append(f"{path} is a {body['fact_type']} candidate")
+        for k, v in body.items():
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                if any(w in k.lower() for w in ("share", "cash", "burn", "investments")):
+                    found.append(f"{path}.{k}={v}")
+            found += _share_or_cash_figures(v, f"{path}.{k}")
+    elif isinstance(body, list):
+        for i, v in enumerate(body):
+            found += _share_or_cash_figures(v, f"{path}[{i}]")
+    return found
+
+
+def test_a_plain_users_extract_reads_purity_only():
+    """W7a: the route answers a plain user's token with the purity candidate alone; the tool carries it and no
+    share-count or cash figure anywhere in the reply."""
+    api = FakeApi(steward=False)
+
+    async def body(session):
+        return await session.call_tool("get_extract", EXTRACT)
+
+    result = run(api, body)
+    assert not result.is_error, result.content[0].text
+    reply = result.structured_content
+    assert [f["fact_type"] for f in reply["facts"]] == ["revenue_mix"]
+    assert _share_or_cash_figures(reply) == []
+    assert _share_or_cash_figures(json.loads(result.content[0].text)) == []
+
+
+def test_a_plain_users_shares_passages_answer_that_the_extract_holds_purity_only():
+    err = failure(
+        "get_extract", FakeApi(steward=False), **EXTRACT, section="passages", fact="cash_burn"
+    )
+    assert err["code"] == "invalid_arguments"
+    assert "holds no cash_burn fact; it holds: revenue_mix" in err["message"]
+
+
+def test_an_annual_filers_purity_not_covered_reason_rides_the_reply(monkeypatch):
+    monkeypatch.setattr(
+        rfx,
+        "extract",
+        lambda **kw: {
+            "facts": [],
+            "empty_reason": "purity-not-covered",
+            "runway_empty_reason": None,
+        },
+    )
+    reply = call("get_extract", **EXTRACT)
+    assert reply["facts"] == [] and reply["empty_reason"] == "purity-not-covered"
+
+
+def test_the_extract_description_says_a_user_reads_purity_only():
+    async def body(session):
+        return {t.name: t.description for t in (await session.list_tools()).tools}
+
+    description = run(None, body)["get_extract"]
+    for needle in (
+        "A user's token reads purity ONLY",
+        "purity-not-covered",
+        "A steward's token also reads",
+    ):
+        assert needle in description, needle
+
+
 def test_extract_passages_section_reads_one_facts_passages_in_full():
     reply = call("get_extract", **EXTRACT, section="passages", fact="revenue_mix")
     assert reply["fact"] == "revenue_mix" and reply["passages_total"] == 3
