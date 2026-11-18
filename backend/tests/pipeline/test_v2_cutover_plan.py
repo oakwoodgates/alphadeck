@@ -60,12 +60,12 @@ tenants   : 00000000-0000-0000-0000-000000000001  data       "platform"         
             00000000-0000-0000-0000-000000000002  workspace  "founding workspace"   users 1
             5d0c1a2b-0000-4000-8000-00000c3f3f2a  workspace  "steward"              users 1
 
-TABLE                     OWNER       PLAN              ROWS  BY TENANT                BY ratified_by
-app_user                  user-keyed  keep                 3  -                        -
-calls                     user        reset            41210  …0002:41210              -
-fact_theme_conviction     user        convert (W6/W10)    12  …0002:9 …3f2a:3          null:2 operator:10
-security_change           platform    prune            90210  …0001:90210              -
-security_master           platform    keep              9021  …0001:9021               -
+TABLE                     OWNER       PLAN                   ROWS  BY TENANT                BY ratified_by
+app_user                  user-keyed  keep                      3  -                        -
+calls                     user        reset                 41210  …0002:41210              -
+fact_theme_conviction     user        keep (W6 converts)       12  …0002:9 …3f2a:3          null:2 operator:10
+security_change           platform    keep (pruned nightly) 90210  …0001:90210              -
+security_master           platform    keep                   9021  …0001:9021               -
 
 SURPRISES (1)
   1. fact_catalyst: 3 row(s) under workspace …0002 with ratified_by set - V2 converts these to thesis
@@ -138,6 +138,11 @@ def test_every_action_names_a_mapped_table():
         assert C.CUTOVER_ACTION[t] == "reset"
     assert len([t for t, a in C.CUTOVER_ACTION.items() if a == "reset"]) == 8
     assert C.plan_of("security_master") == "keep"  # the default
+    # W10a: nothing is converted or pruned by the cutover; the labels say what happens instead
+    assert C.CUTOVER_ACTION["fact_catalyst"] == "keep (feed rows; a workspace row refuses)"
+    assert C.CUTOVER_ACTION["fact_theme_conviction"] == "keep (W6 converts)"
+    assert C.CUTOVER_ACTION["user_action_count"] == "keep (pruned nightly)"
+    assert C.CUTOVER_ACTION["security_change"] == "keep (pruned nightly)"
 
 
 def test_the_rules_never_name_the_mixed_scope():
