@@ -64,6 +64,9 @@ _FACT_IDENTITY: dict[str, list[str]] = {
         "term",
         "month",
     ],  # one EDGAR full-text count per (term, month) within the THESIS scope — a re-count is a new version (0071)
+    "fact_thesis_catalyst": [
+        "entry_id"
+    ],  # one counting statement per catalyst entry within the THESIS scope — an edit is a new version (V2 W6a, 0212)
 }
 
 # The fact tables NO detector reads — DISPLAY data only (the research dashboards), kept OUT of the replay mirror.
