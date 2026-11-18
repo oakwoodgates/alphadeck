@@ -1528,6 +1528,7 @@ export function useSpacCatalyst() {
       });
       if (detail.error) throw detail.error;
       const current: CatalystIn[] = (detail.data?.catalysts ?? []).map((c) => ({
+        id: c.id, // V2 W6b: keep each row's identity (a counting entry is keyed by it)
         label: c.label,
         kind: c.kind ?? null,
         when_date: c.when_date ?? null,

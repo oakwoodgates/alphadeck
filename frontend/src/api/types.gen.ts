@@ -483,8 +483,47 @@ export interface paths {
          *     Full-list replace via the sole writer (``set_catalysts`` — the structural wipe-guard: a promote
          *     never touches this table). Operator authority (#4: the operator authors the events; the platform
          *     times them).
+         *
+         *     Ids (V2 W6b): a row sent with the ``id`` it was read with keeps it; a row without one is a new row; an id that
+         *     is not on this card is never adopted (the row gets a fresh one). An id sent twice is a 422.
+         *
+         *     The wipe guard (V2 W6b): a list that leaves out a row whose entry counts toward the call is refused with 409
+         *     and a sentence naming the entry, and nothing is written; turn the entry off first
+         *     (``PUT /theses/{id}/catalysts/{entry_id}/counting``), then remove the row. A label edit on a counting row
+         *     records a new version of its entry with the new label (it keeps the night it counts from).
          */
         put: operations["put_catalysts_theses__thesis_id__catalysts_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/theses/{thesis_id}/catalysts/{entry_id}/counting": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Put Catalyst Counting
+         * @description Make one calendar row count toward the call, change what it says, or stop it counting (V2 W6b; the signed
+         *     rule R2). ``entry_id`` is the calendar row's ``id``. Each change is one new version in the card's append-only
+         *     counting store; a request that changes nothing writes nothing. Answers the saved card with
+         *     ``catalyst_counting`` filled.
+         *
+         *     Switching on needs a grade (core or flip) and a citation (an http(s) link or an SEC accession number;
+         *     recorded, not verified); the names must be companies on this card (none = the whole card, Flip only); an
+         *     optional "relevant until" date must be after the night it would count from. The entry counts from the night it
+         *     is saved, never from the date typed on the calendar: no time is accepted from the request. A switch-off keeps
+         *     the last statement so it can be switched on again. Refusals: 404 (no such card or row), 422 with a sentence.
+         *
+         *     Advisory only: this records the operator's own statement. Until a later release no call reads it.
+         */
+        put: operations["put_catalyst_counting_theses__thesis_id__catalysts__entry_id__counting_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -7694,12 +7733,86 @@ export interface components {
             when_label: string | null;
         };
         /**
+         * CatalystCountingIn
+         * @description Make one calendar row count toward the call, edit what it says, or stop it counting (V2 W6b, the signed
+         *     rule R2). ``counts`` true needs a ``grade`` and a ``citation`` (an http(s) link or an SEC accession number);
+         *     ``security_ids`` names companies on this card (empty = the whole card, Flip only); ``relevant_until`` is
+         *     optional (empty = the 365-day default). ``counts`` false stops it counting; the other fields are then ignored.
+         *
+         *     There is deliberately NO time field: the entry counts from the night it is saved, set by the database (R5).
+         *     Unknown keys are refused (422), so a body that carries ``entered_at``, ``recorded_at``, ``valid_from`` or
+         *     ``when_date`` writes nothing. The label is the calendar row's own, never taken from here.
+         */
+        CatalystCountingIn: {
+            /** Counts */
+            counts: boolean;
+            /** Grade */
+            grade?: ("core" | "flip") | null;
+            /**
+             * Security Ids
+             * @default []
+             */
+            security_ids: string[];
+            /** Citation */
+            citation?: string | null;
+            /** Relevant Until */
+            relevant_until?: string | null;
+        };
+        /**
+         * CatalystCountingOut
+         * @description The CURRENT counting state of one calendar row (V2 W6b): the newest version of its entry in
+         *     ``fact_thesis_catalyst``, switched on or off. Response-only, never recorded. ``entry_id`` is the calendar row's
+         *     ``id``; a row with no entry has no item here (an ordinary calendar item). ``members`` empty = the whole card.
+         *     ``counts_from`` is the night the entry counts from (the night it was switched on or its grade or names last
+         *     changed; never the typed calendar date); ``saved_at`` is when this version was saved. Off (``counts`` false):
+         *     the last statement, kept so the form re-opens filled.
+         */
+        CatalystCountingOut: {
+            /**
+             * Entry Id
+             * Format: uuid
+             */
+            entry_id: string;
+            /** Counts */
+            counts: boolean;
+            /**
+             * Grade
+             * @enum {string}
+             */
+            grade: "core" | "flip";
+            /** Label */
+            label: string;
+            /**
+             * Members
+             * @default []
+             */
+            members: components["schemas"]["CountingMemberOut"][];
+            /** Citation */
+            citation: string;
+            /** Relevant Until */
+            relevant_until?: string | null;
+            /**
+             * Counts From
+             * Format: date
+             */
+            counts_from: string;
+            /**
+             * Saved At
+             * Format: date-time
+             */
+            saved_at: string;
+        };
+        /**
          * CatalystIn
          * @description One catalyst-surface entry (a narrative binary event the card's surface renders between entry
-         *     and exit-by) — display objects, distinct from the conviction FACTS (``RatifyCatalyst``). Server
-         *     generates the id; the list is replaced whole (the operator edits it as a list).
+         *     and exit-by) — display objects, distinct from the conviction FACTS (``RatifyCatalyst``). The list is
+         *     replaced whole (the operator edits it as a list). ``id`` (V2 W6b): send back the id each row was read with so
+         *     it keeps its identity (a counting entry is keyed by it); a row without one is a new row, and an id that is not
+         *     on this card is never adopted (the row gets a fresh one).
          */
         CatalystIn: {
+            /** Id */
+            id?: string | null;
             /** Label */
             label: string;
             /** Kind */
@@ -8439,6 +8552,19 @@ export interface components {
              * Format: date
              */
             ingested: string;
+        };
+        /**
+         * CountingMemberOut
+         * @description One company a counting catalyst entry names: its id and the ticker its basket row on this card carries.
+         */
+        CountingMemberOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker?: string | null;
         };
         /**
          * CrossCardOut
@@ -16959,6 +17085,11 @@ export interface components {
              * @default false
              */
             meta_index: boolean;
+            /**
+             * Catalyst Counting
+             * @default []
+             */
+            catalyst_counting: components["schemas"]["CatalystCountingOut"][];
             ingest?: components["schemas"]["PromoteIngestRef"] | null;
             onboarding?: components["schemas"]["PromoteOnboardingRef"] | null;
         };
@@ -19176,6 +19307,11 @@ export interface components {
              * @default false
              */
             meta_index: boolean;
+            /**
+             * Catalyst Counting
+             * @default []
+             */
+            catalyst_counting: components["schemas"]["CatalystCountingOut"][];
         };
         /**
          * ThesisEntry
@@ -21621,6 +21757,42 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["CatalystIn"][];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThesisDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_catalyst_counting_theses__thesis_id__catalysts__entry_id__counting_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+                thesis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CatalystCountingIn"];
             };
         };
         responses: {

@@ -912,7 +912,7 @@
           "theses"
         ],
         "summary": "Put Catalysts",
-        "description": "Author the thesis's catalyst SURFACE \u2014 the upcoming binary events the card renders between\nentry and exit-by (display objects; the per-name conviction FACTS go through the ratify path).\nFull-list replace via the sole writer (``set_catalysts`` \u2014 the structural wipe-guard: a promote\nnever touches this table). Operator authority (#4: the operator authors the events; the platform\ntimes them).",
+        "description": "Author the thesis's catalyst SURFACE \u2014 the upcoming binary events the card renders between\nentry and exit-by (display objects; the per-name conviction FACTS go through the ratify path).\nFull-list replace via the sole writer (``set_catalysts`` \u2014 the structural wipe-guard: a promote\nnever touches this table). Operator authority (#4: the operator authors the events; the platform\ntimes them).\n\nIds (V2 W6b): a row sent with the ``id`` it was read with keeps it; a row without one is a new row; an id that\nis not on this card is never adopted (the row gets a fresh one). An id sent twice is a 422.\n\nThe wipe guard (V2 W6b): a list that leaves out a row whose entry counts toward the call is refused with 409\nand a sentence naming the entry, and nothing is written; turn the entry off first\n(``PUT /theses/{id}/catalysts/{entry_id}/counting``), then remove the row. A label edit on a counting row\nrecords a new version of its entry with the new label (it keeps the night it counts from).",
         "operationId": "put_catalysts_theses__thesis_id__catalysts_put",
         "parameters": [
           {
@@ -937,6 +937,70 @@
                 },
                 "maxItems": 500,
                 "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThesisDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/theses/{thesis_id}/catalysts/{entry_id}/counting": {
+      "put": {
+        "tags": [
+          "theses"
+        ],
+        "summary": "Put Catalyst Counting",
+        "description": "Make one calendar row count toward the call, change what it says, or stop it counting (V2 W6b; the signed\nrule R2). ``entry_id`` is the calendar row's ``id``. Each change is one new version in the card's append-only\ncounting store; a request that changes nothing writes nothing. Answers the saved card with\n``catalyst_counting`` filled.\n\nSwitching on needs a grade (core or flip) and a citation (an http(s) link or an SEC accession number;\nrecorded, not verified); the names must be companies on this card (none = the whole card, Flip only); an\noptional \"relevant until\" date must be after the night it would count from. The entry counts from the night it\nis saved, never from the date typed on the calendar: no time is accepted from the request. A switch-off keeps\nthe last statement so it can be switched on again. Refusals: 404 (no such card or row), 422 with a sentence.\n\nAdvisory only: this records the operator's own statement. Until a later release no call reads it.",
+        "operationId": "put_catalyst_counting_theses__thesis_id__catalysts__entry_id__counting_put",
+        "parameters": [
+          {
+            "name": "entry_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Entry Id"
+            }
+          },
+          {
+            "name": "thesis_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thesis Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CatalystCountingIn"
               }
             }
           }
@@ -15770,8 +15834,155 @@
         ],
         "title": "CatalystCalendarUndatedOut"
       },
+      "CatalystCountingIn": {
+        "properties": {
+          "counts": {
+            "type": "boolean",
+            "title": "Counts"
+          },
+          "grade": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "core",
+                  "flip"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grade"
+          },
+          "security_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "maxItems": 3000,
+            "title": "Security Ids",
+            "default": []
+          },
+          "citation": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Citation"
+          },
+          "relevant_until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relevant Until"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "counts"
+        ],
+        "title": "CatalystCountingIn",
+        "description": "Make one calendar row count toward the call, edit what it says, or stop it counting (V2 W6b, the signed\nrule R2). ``counts`` true needs a ``grade`` and a ``citation`` (an http(s) link or an SEC accession number);\n``security_ids`` names companies on this card (empty = the whole card, Flip only); ``relevant_until`` is\noptional (empty = the 365-day default). ``counts`` false stops it counting; the other fields are then ignored.\n\nThere is deliberately NO time field: the entry counts from the night it is saved, set by the database (R5).\nUnknown keys are refused (422), so a body that carries ``entered_at``, ``recorded_at``, ``valid_from`` or\n``when_date`` writes nothing. The label is the calendar row's own, never taken from here."
+      },
+      "CatalystCountingOut": {
+        "properties": {
+          "entry_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Entry Id"
+          },
+          "counts": {
+            "type": "boolean",
+            "title": "Counts"
+          },
+          "grade": {
+            "type": "string",
+            "enum": [
+              "core",
+              "flip"
+            ],
+            "title": "Grade"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/CountingMemberOut"
+            },
+            "type": "array",
+            "title": "Members",
+            "default": []
+          },
+          "citation": {
+            "type": "string",
+            "title": "Citation"
+          },
+          "relevant_until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relevant Until"
+          },
+          "counts_from": {
+            "type": "string",
+            "format": "date",
+            "title": "Counts From"
+          },
+          "saved_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Saved At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "entry_id",
+          "counts",
+          "grade",
+          "label",
+          "citation",
+          "counts_from",
+          "saved_at"
+        ],
+        "title": "CatalystCountingOut",
+        "description": "The CURRENT counting state of one calendar row (V2 W6b): the newest version of its entry in\n``fact_thesis_catalyst``, switched on or off. Response-only, never recorded. ``entry_id`` is the calendar row's\n``id``; a row with no entry has no item here (an ordinary calendar item). ``members`` empty = the whole card.\n``counts_from`` is the night the entry counts from (the night it was switched on or its grade or names last\nchanged; never the typed calendar date); ``saved_at`` is when this version was saved. Off (``counts`` false):\nthe last statement, kept so the form re-opens filled."
+      },
       "CatalystIn": {
         "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
           "label": {
             "type": "string",
             "maxLength": 200,
@@ -15819,7 +16030,7 @@
           "label"
         ],
         "title": "CatalystIn",
-        "description": "One catalyst-surface entry (a narrative binary event the card's surface renders between entry\nand exit-by) \u2014 display objects, distinct from the conviction FACTS (``RatifyCatalyst``). Server\ngenerates the id; the list is replaced whole (the operator edits it as a list)."
+        "description": "One catalyst-surface entry (a narrative binary event the card's surface renders between entry\nand exit-by) \u2014 display objects, distinct from the conviction FACTS (``RatifyCatalyst``). The list is\nreplaced whole (the operator edits it as a list). ``id`` (V2 W6b): send back the id each row was read with so\nit keeps its identity (a counting entry is keyed by it); a row without one is a new row, and an id that is not\non this card is never adopted (the row gets a fresh one)."
       },
       "CatalystType": {
         "type": "string",
@@ -17434,6 +17645,32 @@
         ],
         "title": "CorporateEventOut",
         "description": "One stored 8-K filing inside an episode's window (Slice B) \u2014 an overlay chip / ledger row.\n\n``d`` = ``valid_from`` = ``filed`` (an 8-K is knowable exactly when EDGAR disseminates it, so the\none event clock plus ``ingested`` suffices \u2014 no separate ``disclosed``). ``items`` is the SEC's\nown item-code list; ``None`` = not-yet-resolved, rendered honestly as \"items unresolved\", never\ndropped (#9). ``url`` is the EDGAR filing-index URL (#6). EVERY stored 8-K in the window rides \u2014\nthere is NO server-side item cut (loudness is a display concern; a cut would be a silent filter).\nBoth time axes are asof-capped (no-lookahead #1)."
+      },
+      "CountingMemberOut": {
+        "properties": {
+          "security_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Security Id"
+          },
+          "ticker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticker"
+          }
+        },
+        "type": "object",
+        "required": [
+          "security_id"
+        ],
+        "title": "CountingMemberOut",
+        "description": "One company a counting catalyst entry names: its id and the ticker its basket row on this card carries."
       },
       "CrossCardOut": {
         "properties": {
@@ -38731,6 +38968,14 @@
             "title": "Meta Index",
             "default": false
           },
+          "catalyst_counting": {
+            "items": {
+              "$ref": "#/components/schemas/CatalystCountingOut"
+            },
+            "type": "array",
+            "title": "Catalyst Counting",
+            "default": []
+          },
           "ingest": {
             "anyOf": [
               {
@@ -44063,6 +44308,14 @@
             "type": "boolean",
             "title": "Meta Index",
             "default": false
+          },
+          "catalyst_counting": {
+            "items": {
+              "$ref": "#/components/schemas/CatalystCountingOut"
+            },
+            "type": "array",
+            "title": "Catalyst Counting",
+            "default": []
           }
         },
         "type": "object",
