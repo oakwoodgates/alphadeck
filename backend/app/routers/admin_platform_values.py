@@ -9,7 +9,14 @@ one value per company for everyone, read and decided by the steward.
 - ``POST /admin/platform-values/candidates/{candidate_id}/dismiss`` — close a candidate with a reason;
 - ``POST /admin/platform-values/decisions/{decision_id}/undo`` — undo an approve, correct or dismiss;
 - ``POST /admin/platform-values/{security_id}/pin`` and ``/unpin`` — review every future filing value by hand;
-- ``POST /admin/platform-values/{security_id}/extract`` — extract now: read the company's latest filings (W4d).
+- ``POST /admin/platform-values/{security_id}/extract`` — extract now: read the company's latest filings (W4d);
+- ``POST /admin/platform-values/flags/{flag_id}/close`` — close a user's flag as fixed (naming the decision) or kept
+  (with a note the user reads) (W5c);
+- ``POST /admin/platform-values/flags/{flag_id}/reopen`` — the inverse of a close: a new open flag naming it (W5c).
+
+The company read carries the company's users' flags (open ones, and a page of closed ones), each with the flagging
+user's email (decision B4 (a)); the queue lists a company with an open user flag even when no candidate waits, with
+the number of open flags only.
 
 Every write answers the company's new state. The writes are ``platform_values.steward``'s (the company write lock,
 the correction rule, append-only rows, the steward's email); this router only maps its errors to the error
@@ -25,6 +32,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from typing import Annotated, Any, Literal
 from uuid import UUID
@@ -40,6 +48,8 @@ from app.errors import (
     PLATFORM_VALUE_NO_CIK,
     PLATFORM_VALUE_NOT_FOUND,
     PLATFORM_VALUE_SENTENCES,
+    VALUE_FLAG_NOT_FOUND,
+    VALUE_FLAG_SENTENCES,
     fail,
 )
 from app.routers.workbench import COMPANY_BUSY
@@ -64,7 +74,7 @@ from domain.text_types import (
     UrlText,
 )
 from ingest.edgar.client import EdgarClient
-from platform_values import extraction, state, steward
+from platform_values import extraction, flags, state, steward
 from platform_values.cards import CardCount, card_counts
 from platform_values.machine import MachineOutcome
 from platform_values.steward import (
@@ -87,6 +97,10 @@ QUEUE_LIMIT_MAX = 200
 QUEUE_OFFSET_MAX = 100_000
 NO_CARDS = CardCount(cards=0, pen_only=False)
 ATTEMPTS_SHOWN = 10  # the company read's recent extraction attempts
+# the company read's page of CLOSED user flags (newest closed first); every open one is always listed
+FLAGS_CLOSED_LIMIT_DEFAULT = flags.CLOSED_SHOWN
+FLAGS_CLOSED_LIMIT_MAX = 100
+FLAGS_CLOSED_OFFSET_MAX = 100_000
 
 
 # --- response models (no limits: built from stored rows) ---------------------------------------------------------
@@ -241,9 +255,62 @@ class PlatformExtractionAttemptOut(BaseModel):
     detail: str | None = None
 
 
+class PlatformUserFlagOut(BaseModel):
+    """One user's flag on a value of this company, as the steward reads it (W5c). Steward routes only: it names
+    the user (``user_email``, decision B4 (a)).
+
+    - ``value_type`` ``shares_outstanding`` / ``cash_burn``; ``note`` the user's words, plain text as stored;
+      ``opened_at`` when it was raised (for a reopen row: when the steward reopened it).
+    - ``current_when_flagged``: what the server recorded as current when it was raised: ``value`` (``seen_value``,
+      the stored version, ``set_aside`` if an undo has since set it aside), ``awaiting`` (``seen_candidate``, the
+      candidate that was awaiting the steward) or ``none`` (no value yet). None of the two when the row is gone.
+    - ``reopens`` the closed flag this row reopens and ``reopened_by`` the steward who reopened it (0211);
+      ``reopened_as`` the row that later reopened THIS one.
+    - Closed: ``closed_at``, ``closed_by`` (a steward's email, or ``user`` for the user's own withdrawal),
+      ``outcome`` ``fixed`` / ``kept`` / ``withdrawn``, ``outcome_note`` (the steward's note to the user, plain
+      text). ``fixed_decision`` the approve or correct a ``fixed`` close names; ``fixed_decision_undone`` = that
+      decision has since been undone (the closed row is never rewritten: reopen the flag if the fix no longer
+      stands).
+    - ``can_reopen``; ``reopen_refusal`` the fixed sentence the reopen route would answer (None when it can).
+    """
+
+    id: UUID
+    value_type: str
+    user_email: str | None = None
+    note: str | None = None
+    opened_at: datetime
+    current_when_flagged: Literal["value", "awaiting", "none"]
+    seen_value: PlatformVersionOut | None = None
+    seen_candidate: PlatformCandidateOut | None = None
+    reopens: UUID | None = None
+    reopened_by: str | None = None
+    reopened_as: UUID | None = None
+    closed_at: datetime | None = None
+    closed_by: str | None = None
+    outcome: str | None = None
+    outcome_note: str | None = None
+    fixed_decision: PlatformDecisionOut | None = None
+    fixed_decision_undone: bool = False
+    can_reopen: bool = False
+    reopen_refusal: str | None = None
+
+
+class PlatformUserFlagsOut(BaseModel):
+    """The company's users' flags: every ``open`` one (oldest first) and one page of ``closed`` ones (newest closed
+    first, ``closed_offset`` / ``closed_limit``); ``closed_total`` counts every closed one, so an old closed flag
+    (and its Reopen) stays reachable by paging."""
+
+    open: list[PlatformUserFlagOut] = Field(default_factory=list)
+    closed: list[PlatformUserFlagOut] = Field(default_factory=list)
+    closed_total: int = 0
+    closed_offset: int = 0
+    closed_limit: int = FLAGS_CLOSED_LIMIT_DEFAULT
+
+
 class CompanyValuesOut(BaseModel):
     """A company's two platform values (the steward's company page). ``attempts``: the company's newest
-    background-extraction attempts (at most 10, newest first; W4d), whoever ran them."""
+    background-extraction attempts (at most 10, newest first; W4d), whoever ran them. ``flags``: its users' flags
+    (W5c)."""
 
     security_id: UUID
     ticker: str | None = None
@@ -251,6 +318,7 @@ class CompanyValuesOut(BaseModel):
     shares: PlatformValueOut
     cash_burn: PlatformValueOut
     attempts: list[PlatformExtractionAttemptOut] = Field(default_factory=list)
+    flags: PlatformUserFlagsOut = Field(default_factory=PlatformUserFlagsOut)
 
 
 class PlatformAwaitingItemOut(BaseModel):
@@ -286,7 +354,9 @@ class PlatformQueueValueOut(BaseModel):
 class PlatformQueueItemOut(BaseModel):
     """One company with anything waiting (one row per company): ``cards`` how many live cards hold it, across every
     workspace (a number only, never whose); ``pen_only`` every row it sits in is a Discovered pen; ``waiting_since``
-    the older of its waiting candidates; ``shares`` / ``cash_burn`` what waits (None = nothing for that value).
+    the oldest of its waiting candidates and its open user flags; ``shares`` / ``cash_burn`` the candidate that
+    waits (None = none for that value); ``open_flags`` how many open user flags it has (W5c; a number only, never
+    whose or what note). A company with open user flags and no waiting candidate has both values None.
     """
 
     security_id: UUID
@@ -297,6 +367,7 @@ class PlatformQueueItemOut(BaseModel):
     waiting_since: datetime
     shares: PlatformQueueValueOut | None = None
     cash_burn: PlatformQueueValueOut | None = None
+    open_flags: int = 0
 
 
 class PlatformQueueOut(BaseModel):
@@ -424,6 +495,16 @@ class PlatformPinIn(BaseModel):
 
     fact_type: FactTypeIn
     note: Prose | None = None
+
+
+class PlatformFlagCloseIn(BaseModel):
+    """Close a user's flag (W5c). ``outcome`` ``fixed``: ``decision_id`` names the steward's approve or correct of
+    the SAME company and value type that fixed it, still standing; ``note`` optional. ``kept``: the value stands;
+    ``note`` (required, not blank) tells the user why; no ``decision_id``."""
+
+    outcome: Literal["fixed", "kept"]
+    note: Prose | None = None
+    decision_id: UUID | None = None
 
 
 # --- row -> response ---------------------------------------------------------------------------------------------
@@ -594,7 +675,84 @@ def _attempt(a: Mapping[str, Any]) -> PlatformExtractionAttemptOut:
     )
 
 
-def _company_out(conn: psycopg.Connection, security_id: UUID) -> CompanyValuesOut:
+def _flags_out(
+    conn: psycopg.Connection, cv: state.CompanyValues, *, closed_offset: int, closed_limit: int
+) -> PlatformUserFlagsOut:
+    """The company's users' flags, each resolved to readable fields from the company read already made (its
+    versions, candidates and decisions); a seen candidate or a linked decision older than that read's window is
+    fetched by id (the company page only, never the queue)."""
+    cf = flags.for_company(
+        conn, cv.security_id, closed_limit=closed_limit, closed_offset=closed_offset
+    )
+    versions: dict[UUID, Mapping[str, Any]] = {}
+    candidates: dict[UUID, Mapping[str, Any]] = {}
+    decisions: dict[UUID, Mapping[str, Any]] = {}
+    standing: dict[UUID, Mapping[str, Any]] = {}
+    for tv in (cv.shares, cv.cash_burn):
+        versions.update({v["id"]: v for v in tv.versions})
+        for c in (tv.state.awaiting, tv.state.pending, *tv.candidates):
+            if c is not None:
+                candidates[c["id"]] = c
+        decisions.update({d["id"]: d for d in tv.decisions})
+        standing.update(_standing(tv.decisions))
+
+    def seen_candidate(cid: UUID) -> PlatformCandidateOut | None:
+        c = candidates.get(cid) or repo.candidate(conn, cid)
+        if c is None:  # pragma: no cover - a foreign key holds it
+            return None
+        d = standing.get(cid) or repo.standing_decision_for_candidate(conn, cid)
+        return _candidate(c, {cid: d} if d is not None else None)
+
+    def one(row: Mapping[str, Any]) -> PlatformUserFlagOut:
+        seen_fact, seen_cand = row.get("seen_fact_id"), row.get("seen_candidate_id")
+        version = versions.get(seen_fact) if seen_fact is not None else None
+        did = row.get("fixed_decision_id")
+        decision = (decisions.get(did) or repo.decision(conn, did)) if did is not None else None
+        refusal = flags.reopen_refusal(dict(row), cf)
+        return PlatformUserFlagOut(
+            id=row["id"],
+            value_type=row["value_type"],
+            user_email=row.get("user_email"),
+            note=row.get("note"),
+            opened_at=row["opened_at"],
+            current_when_flagged=flags.seen_word(dict(row)),
+            seen_value=(
+                PlatformVersionOut(
+                    **_value_fields(version), set_aside=bool(version.get("set_aside"))
+                )
+                if version is not None
+                else None
+            ),
+            seen_candidate=seen_candidate(seen_cand) if seen_cand is not None else None,
+            reopens=row.get("reopens"),
+            reopened_by=row.get("reopened_by"),
+            reopened_as=cf.reopened_as.get(row["id"]),
+            closed_at=row.get("closed_at"),
+            closed_by=row.get("closed_by"),
+            outcome=row.get("outcome"),
+            outcome_note=row.get("outcome_note"),
+            fixed_decision=_decision(decision) if decision is not None else None,
+            fixed_decision_undone=bool(decision is not None and decision.get("undone")),
+            can_reopen=refusal is None,
+            reopen_refusal=VALUE_FLAG_SENTENCES[refusal] if refusal is not None else None,
+        )
+
+    return PlatformUserFlagsOut(
+        open=[one(r) for r in cf.open],
+        closed=[one(r) for r in cf.closed],
+        closed_total=cf.closed_total,
+        closed_offset=closed_offset,
+        closed_limit=closed_limit,
+    )
+
+
+def _company_out(
+    conn: psycopg.Connection,
+    security_id: UUID,
+    *,
+    flags_offset: int = 0,
+    flags_limit: int = FLAGS_CLOSED_LIMIT_DEFAULT,
+) -> CompanyValuesOut:
     cv = state.read_company(conn, security_id)
     attempts = extraction_repo.latest_attempts(conn, [security_id], per_company=ATTEMPTS_SHOWN)
     return CompanyValuesOut(
@@ -604,12 +762,20 @@ def _company_out(conn: psycopg.Connection, security_id: UUID) -> CompanyValuesOu
         shares=_type_out(cv.shares, conn),
         cash_burn=_type_out(cv.cash_burn, conn),
         attempts=[_attempt(a) for a in attempts.get(security_id, [])],
+        flags=_flags_out(conn, cv, closed_offset=flags_offset, closed_limit=flags_limit),
     )
 
 
-def _read(conn: psycopg.Connection, security_id: UUID, user: CurrentUser) -> CompanyValuesOut:
+def _read(
+    conn: psycopg.Connection,
+    security_id: UUID,
+    user: CurrentUser,
+    *,
+    flags_offset: int = 0,
+    flags_limit: int = FLAGS_CLOSED_LIMIT_DEFAULT,
+) -> CompanyValuesOut:
     try:
-        return _company_out(conn, security_id)
+        return _company_out(conn, security_id, flags_offset=flags_offset, flags_limit=flags_limit)
     except LookupError as e:
         raise fail(404, PLATFORM_VALUE_NOT_FOUND, e, user=user) from e
     finally:
@@ -633,6 +799,26 @@ def _act(
     except CompanyLockBusy as e:
         raise fail(409, COMPANY_BUSY, e, user=user) from e
     return _read(conn, out.security_id, user)
+
+
+def _flag_act(
+    conn: psycopg.Connection, user: CurrentUser, fn: Callable[[], Mapping[str, Any]]
+) -> CompanyValuesOut:
+    """Run one steward action on a user's flag (it owns its transaction), map its refusals to the error contract
+    (``VALUE_FLAG_SENTENCES``: a fixed sentence and a reference; the steward also sees the detail), then answer the
+    flag's company's new state."""
+    conn.rollback()  # end the request's read transaction: the action starts its own
+    try:
+        row = fn()
+    except flags.FlagNotFound as e:
+        raise fail(404, VALUE_FLAG_NOT_FOUND, e, user=user) from e
+    except flags.FlagInvalid as e:
+        raise fail(422, VALUE_FLAG_SENTENCES[e.kind], e, user=user) from e
+    except flags.FlagConflict as e:
+        raise fail(409, VALUE_FLAG_SENTENCES[e.kind], e, user=user) from e
+    except CompanyLockBusy as e:
+        raise fail(409, COMPANY_BUSY, e, user=user) from e
+    return _read(conn, row["security_id"], user)
 
 
 # --- the routes --------------------------------------------------------------------------------------------------
@@ -683,12 +869,56 @@ def _queue_value(item: state.AwaitingItem | None) -> PlatformQueueValueOut | Non
     )
 
 
+@dataclass(frozen=True)
+class _QueueRow:
+    """One company of the queue: its waiting candidates (``awaiting``, None = none waits) and its open user flags
+    (None = none). ``waiting_since`` is the oldest of both (the W5 plan's Q6)."""
+
+    security_id: UUID
+    ticker: str | None
+    name: str | None
+    awaiting: state.AwaitingCompany | None
+    open_flags: flags.OpenFlags | None
+
+    @property
+    def waiting_since(self) -> datetime:
+        since = [self.awaiting.waiting_since] if self.awaiting is not None else []
+        if self.open_flags is not None:
+            since.append(self.open_flags.oldest_opened_at)
+        return min(since)
+
+
+def _queue_rows(conn: psycopg.Connection) -> list[_QueueRow]:
+    """Every company waiting for the steward: a waiting candidate (``state.awaiting_companies``) OR an open user
+    flag (``flags.open_by_company``, one grouped statement), unioned by company. A flag-only company's ticker and
+    name come from ONE master read (made even when there is none, so the statement count never varies).
+    """
+    companies = {c.security_id: c for c in state.awaiting_companies(conn)}
+    open_flags = flags.open_by_company(conn)
+    names = repo.companies(conn, [sid for sid in open_flags if sid not in companies])
+    rows = []
+    for sid in dict.fromkeys([*companies, *open_flags]):
+        c = companies.get(sid)
+        master = names.get(sid) or {}
+        rows.append(
+            _QueueRow(
+                security_id=sid,
+                ticker=c.ticker if c is not None else master.get("ticker"),
+                name=c.name if c is not None else master.get("name"),
+                awaiting=c,
+                open_flags=open_flags.get(sid),
+            )
+        )
+    return rows
+
+
 def _queue_order(
-    companies: list[state.AwaitingCompany], counts: Mapping[UUID, CardCount]
-) -> list[tuple[state.AwaitingCompany, CardCount]]:
-    """The queue's order (approved B3 (a), B5 (a)): pen-only companies last; then most cards first; then the
-    longest wait first; then the id, so the order is total. A company on no live card counts 0 cards, not
-    pen-only: it sorts just before the pen-only block."""
+    companies: list[_QueueRow], counts: Mapping[UUID, CardCount]
+) -> list[tuple[_QueueRow, CardCount]]:
+    """The queue's order (approved B3 (a), B5 (a); unchanged by W5c's flags, the W5 plan's Q6): pen-only companies
+    last; then most cards first; then the longest wait first (a candidate's or an open user flag's, whichever is
+    older); then the id, so the order is total. A company on no live card counts 0 cards, not pen-only: it sorts
+    just before the pen-only block (a user may flag a company held only on an archived card)."""
     rows = [(c, counts.get(c.security_id, NO_CARDS)) for c in companies]
     rows.sort(key=lambda r: (r[1].pen_only, -r[1].cards, r[0].waiting_since, str(r[0].security_id)))
     return rows
@@ -702,14 +932,15 @@ def list_queue(
     conn: psycopg.Connection = Depends(get_conn),
 ) -> PlatformQueueOut:
     """THE STEWARD'S QUEUE: one row per company with a share count or cash/burn waiting for you (the same open
-    flags as ``/awaiting``), with how many live cards hold it across every workspace (a number only). Order:
-    companies only in a Discovered pen last, then most cards first, then the longest wait first. ``pen``:
+    flagged candidates as ``/awaiting``) or with an open user flag (``open_flags``, a number only; W5c), with how
+    many live cards hold it across every workspace (a number only). Order: companies only in a Discovered pen last,
+    then most cards first, then the longest wait first (the oldest waiting candidate or open user flag). ``pen``:
     ``after`` (default) lists the pen-only companies after the rest, ``only`` lists only them, ``exclude`` leaves
     them out. ``offset`` / ``limit`` cut the page (``limit`` 1-200, ``offset`` 0-100,000); ``total`` and
     ``pen_only_total`` count every company waiting, whatever the page. **422** a parameter out of bounds.
     Read-only."""
     try:
-        companies = state.awaiting_companies(conn)
+        companies = _queue_rows(conn)
         ordered = _queue_order(companies, card_counts(conn, [c.security_id for c in companies]))
         pen_only_total = sum(1 for _, n in ordered if n.pen_only)
         if pen == "only":
@@ -725,8 +956,11 @@ def list_queue(
                     cards=n.cards,
                     pen_only=n.pen_only,
                     waiting_since=c.waiting_since,
-                    shares=_queue_value(c.shares),
-                    cash_burn=_queue_value(c.cash_burn),
+                    shares=_queue_value(c.awaiting.shares) if c.awaiting is not None else None,
+                    cash_burn=(
+                        _queue_value(c.awaiting.cash_burn) if c.awaiting is not None else None
+                    ),
+                    open_flags=c.open_flags.count if c.open_flags is not None else 0,
                 )
                 for c, n in ordered[offset : offset + limit]
             ],
@@ -737,15 +971,73 @@ def list_queue(
         conn.rollback()
 
 
+@router.post("/flags/{flag_id}/close", response_model=CompanyValuesOut)
+def close_flag(
+    flag_id: UUID,
+    body: PlatformFlagCloseIn,
+    conn: psycopg.Connection = Depends(get_conn),
+    user: CurrentUser = Depends(require_super_admin),
+) -> CompanyValuesOut:
+    """CLOSE a user's open flag, stamped with your email. ``fixed``: name the approve or correct that fixed it
+    (``decision_id``: this company's, this value's, not undone; checked under the company write lock, so an undo
+    cannot slip in between); ``kept``: the value stands, and ``note`` (required) tells the user why. The user reads
+    the outcome and the note on their own flag; no Slack message. Undo with ``POST .../flags/{id}/reopen``.
+    Answers the company's new state. **404** unknown flag; **409** already closed (or withdrawn), a decision that
+    is not a standing approve or correct of this company's value, or the company is busy; **422** ``kept`` with a
+    blank note or a decision, ``fixed`` with no decision, a note over 2,000 characters."""
+    wait_s = get_settings().ingest_lock_request_wait_s
+    return _flag_act(
+        conn,
+        user,
+        lambda: flags.steward_close(
+            conn,
+            flag_id,
+            outcome=body.outcome,
+            note=body.note,
+            decision_id=body.decision_id,
+            by=user.email,
+            wait_s=wait_s,
+        ),
+    )
+
+
+@router.post("/flags/{flag_id}/reopen", response_model=CompanyValuesOut)
+def reopen_flag(
+    flag_id: UUID,
+    conn: psycopg.Connection = Depends(get_conn),
+    user: CurrentUser = Depends(require_super_admin),
+) -> CompanyValuesOut:
+    """REOPEN a flag you closed (the close's inverse, decision B3 (a)): a NEW open flag naming it, with the same
+    user, value, note and what was current, stamped with your email; the closed one stays in the history as it
+    was. No body. No Slack message; the user's allowance is untouched. Answers the company's new state. **404**
+    unknown flag; **409** the flag is open, already reopened, withdrawn by its user, or the user has a newer open
+    flag on the value."""
+
+    def act() -> Mapping[str, Any]:
+        try:
+            row = flags.reopen(conn, flag_id, reopened_by=user.email)
+            conn.commit()
+            return row
+        except BaseException:
+            conn.rollback()
+            raise
+
+    return _flag_act(conn, user, act)
+
+
 @router.get("/{security_id}", response_model=CompanyValuesOut)
 def get_company_values(
     security_id: UUID,
+    flags_offset: int = Query(0, ge=0, le=FLAGS_CLOSED_OFFSET_MAX),
+    flags_limit: int = Query(FLAGS_CLOSED_LIMIT_DEFAULT, ge=1, le=FLAGS_CLOSED_LIMIT_MAX),
     conn: psycopg.Connection = Depends(get_conn),
     user: CurrentUser = Depends(require_super_admin),
 ) -> CompanyValuesOut:
     """The company's share count and cash/burn: each value's state, every stored version (with ``set_aside``),
-    the newest candidates and decisions, the pin. **404** unknown company. Read-only."""
-    return _read(conn, security_id, user)
+    the newest candidates and decisions, the pin, and its users' flags (``flags``: every open one, and the page of
+    closed ones that ``flags_offset`` (0-100,000) / ``flags_limit`` (1-100, default 20) cut, newest closed first).
+    **404** unknown company; **422** a parameter out of bounds. Read-only."""
+    return _read(conn, security_id, user, flags_offset=flags_offset, flags_limit=flags_limit)
 
 
 @router.post("/candidates/{candidate_id}/approve", response_model=CompanyValuesOut)
