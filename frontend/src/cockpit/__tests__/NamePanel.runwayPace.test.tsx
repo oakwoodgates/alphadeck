@@ -126,3 +126,21 @@ describe("NamePanel — the runway at last quarter's pace", () => {
     expect(screen.queryByTestId("np-runway-pace")).toBeNull();
   });
 });
+
+describe("NamePanel — runway does not apply (V2 C1)", () => {
+  it("reads n/a with the sentence, keeps the cash line and shows no pace", () => {
+    const note = "Runway does not apply to this kind of company (a bank, insurer, broker, exchange, asset manager, lender or fund trust): its cash moves with customer money, loans or fund flows, not with spending.";
+    renderPanel({
+      pips: null,
+      value: null,
+      provenance: [
+        { source: "10-q", ref: "https://www.sec.gov/x.htm", detail: { cash_usd: 12_000_000, quarterly_burn_usd: 3_000_000 } },
+        { source: "computed", ref: "runway:not-applicable", detail: { note } },
+      ],
+    });
+    expect(screen.getByTestId("np-runway-na")).toHaveTextContent(note);
+    expect(screen.getByTestId("np-runway-cash")).toHaveTextContent("Cash $12.0M; burn $3.0M last quarter");
+    expect(screen.queryByTestId("np-runway-pace")).toBeNull();
+    expect(screen.getAllByText("n/a").length).toBeGreaterThan(0);
+  });
+});

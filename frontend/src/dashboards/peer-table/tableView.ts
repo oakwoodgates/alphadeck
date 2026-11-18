@@ -155,6 +155,7 @@ export const GAP_WORDS: Record<Gap, string> = {
   no_revenue: "no revenue facts are stored for this company",
   no_prior_year: "no row for the same period a year earlier in the stored series",
   no_burn: `${NO_SHARED_CASH} (it comes from a filing or the steward; ${FLAG_IT_WORDS})`,
+  not_applicable: "runway does not apply to this kind of company",
   no_convert: "no live convertible-note overhang is on file",
   no_mix: "no revenue-mix fact is on file",
   no_form4: "no Form 4 is ingested for this company",
@@ -173,6 +174,7 @@ export const GAP_SHORT: Record<Gap, string> = {
   no_revenue: "no revenue",
   no_prior_year: "no prior year",
   no_burn: "no cash/burn fact",
+  not_applicable: "runway does not apply",
   no_convert: "no live convert",
   no_mix: "no revenue-mix fact",
   no_form4: "no Form 4",
@@ -257,12 +259,19 @@ export function runwayCell(r: {
   currency?: string | null;
   source?: string | null;
   investments_usd?: number | null;
+  note?: string | null;
 }): Cell {
-  if (r.gap) return blank(r.gap, null);
   const sym = cashSymbol(storedCurrency(r));
   const split =
     r.investments_usd != null ? ` (of which short-term investments ${fmtUsd(r.investments_usd, sym)})` : "";
   const fact = `cash ${fmtUsd(r.cash_usd, sym)}${split}, burn ${fmtUsd(r.burn_usd, sym)} per quarter, from the fact dated ${fmtDay(r.as_of)}`;
+  // V2 C1: a company a runway means nothing for (a bank, insurer, broker, exchange, asset manager, lender or fund
+  // trust): a plain "n/a", the sentence and the stored cash on hover; never gray, never a warning
+  if (r.gap === "not_applicable") {
+    const why = r.note ?? "Runway does not apply to this kind of company.";
+    return plain("n/a", r.cash_usd != null ? `${why} Stored: ${fact}.` : why);
+  }
+  if (r.gap) return blank(r.gap, null);
   const ytd = r.ytd_quarterly_burn_usd;
   const pace =
     ytd == null
