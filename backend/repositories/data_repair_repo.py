@@ -25,7 +25,7 @@ Self-contained: psycopg only, so a repair CLI in the lean image can journal with
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -139,13 +139,22 @@ def _jsonable(x: Any) -> Any:
 
 
 def pending(
-    conn: psycopg.Connection, *, tenant_id: UUID, after: datetime, through: datetime | None = None
+    conn: psycopg.Connection,
+    *,
+    tenant_ids: Sequence[UUID],
+    after: datetime,
+    through: datetime | None = None,
 ) -> list[RepairRow]:
-    """The tenant's journaled repairs applied after ``after`` (and at or before ``through`` when given),
-    oldest first — every row, a zero-change one included (the caller decides what starts a trial).
+    """The journaled repairs under any of ``tenant_ids`` applied after ``after`` (and at or before ``through``
+    when given), oldest first — every row, a zero-change one included (the caller decides what starts a
+    trial). The editions cut passes its workspace AND the data tenant: every repair CLI journals under the data
+    tenant (the data every workspace reads), so a workspace-only read would never see one (V2 W8a).
     """
-    sql = "SELECT * FROM data_repair WHERE tenant_id = %s AND applied_at > %s"
-    params: list[Any] = [tenant_id, after]
+    ids = list(dict.fromkeys(UUID(str(t)) for t in tenant_ids))
+    if not ids:
+        raise ValueError("pending needs at least one tenant")
+    sql = "SELECT * FROM data_repair WHERE tenant_id = ANY(%s) AND applied_at > %s"
+    params: list[Any] = [ids, after]
     if through is not None:
         sql += " AND applied_at <= %s"
         params.append(through)

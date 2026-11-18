@@ -180,8 +180,13 @@ def detect(
         )
     elif checked.fingerprint != engine["fingerprint"]:
         why = "the engine fingerprint changed"
+    # the workspace's own journal rows AND the data tenant's: every repair CLI journals under the data tenant
+    # (it repairs the data every workspace reads), so a workspace-only read never saw one (V2 W8a)
     seen = data_repair_repo.pending(
-        conn, tenant_id=tenant_id, after=checked.repairs_through, through=through
+        conn,
+        tenant_ids=(tenant_id, DATA_TENANT_ID),
+        after=checked.repairs_through,
+        through=through,
     )
     return Events(
         edition=edition,

@@ -425,12 +425,17 @@ class Prepared:
     end: date
 
 
-def latest_recorded_night(conn: psycopg.Connection, *, known_by: datetime) -> date | None:
-    """The newest as-of with an HONEST (non-reconstructed) call-of-record row recorded by the cut."""
+def latest_recorded_night(
+    conn: psycopg.Connection, *, known_by: datetime, tenant_id: UUID
+) -> date | None:
+    """The newest as-of with an HONEST (non-reconstructed) call-of-record row recorded by the cut, in THIS
+    workspace's record (``calls.tenant_id``) — never another workspace's night (V2 W8a). ``None`` = the
+    workspace has no night on record yet (an edition has nothing to run through)."""
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT max(asof) AS a FROM calls WHERE NOT reconstructed AND recorded_at <= %s",
-            (known_by,),
+            "SELECT max(asof) AS a FROM calls "
+            "WHERE tenant_id = %s AND NOT reconstructed AND recorded_at <= %s",
+            (tenant_id, known_by),
         )
         row = cur.fetchone()
     return row["a"] if row else None
@@ -472,7 +477,7 @@ def prepare(
             identity=True,
         )
         cut = MirrorCut(path=Path(out_dir), known_by=kb, snapshot_at=snapshot_at, manifest=manifest)
-        last = end or latest_recorded_night(conn, known_by=kb)
+        last = end or latest_recorded_night(conn, known_by=kb, tenant_id=tenant_id)
         if last is None:
             raise LookupError("no recorded night to run through (pass end=)")
         rosters, entries = derive_all(conn, known_by=kb)

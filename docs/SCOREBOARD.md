@@ -65,6 +65,32 @@ The CURRENT edition grows nightly: the cron sidecar appends tonight's page (and 
 missed) per live thesis after the nightly backup, so new theses and new companies join it from their own first
 night (`FEED_LOOP.md` §the editions nightly page).
 
+### After the V2 reset: an empty store, a workspace's own record  `[BUILT V2 W8a]`
+
+V2 goes live with the calls log, the editions and the Scoreboard history wiped; each workspace starts its record
+fresh, on the night its first nightly call is recorded, so workspaces start on different nights.
+
+- **The record start is per workspace.** `GET /record/start` (any signed-in user) answers
+  `{"first_night": <date> | null}` for the CALLER's workspace only: the first night it holds an honest
+  (non-reconstructed) call of record (`calls_repo.record_start`), `null` before its first nightly call — never an
+  error or a zero date. Another workspace's nights, and the data tenant's, never reach it. Edition 0's
+  descriptor (`first_night` / `last_night` in `GET /scoreboard` and `GET /scoreboard/editions`, and Edition 0's
+  last night in the diff) is the caller's workspace's record too; the freshness edge (`summary.record_edge`,
+  `days_behind`, `stale`) stays platform-wide, because it describes the cron, which walks every workspace.
+- **Publishing Edition 1 refuses cleanly** before the engine runs, prints one sentence and exits 2, writing
+  nothing: a workspace with no live (non-archived) card — "REFUSED: this workspace has no live cards; there is
+  nothing to re-run. Nothing was run or written." — and, when no `--end` names the last night, a workspace with
+  no honest night on its OWN record by the cut — "REFUSED: this workspace has no nightly call on record yet;
+  publish Edition 1 after its first nightly run. Nothing was run or written." The default last night is the
+  workspace's own latest recorded night (`editions.engine.latest_recorded_night`, per workspace), never another
+  workspace's. An explicit `--end` is the steward naming the night by hand and is not second-guessed.
+- **The nightly and the cut on a workspace with no edition** add no page and try nothing; each prints one line
+  and exits 0: "Editions · no open edition to add pages to" (nightly) and "Editions · nothing published yet,
+  nothing to try" (cut). Once Edition 1 is published on a one-night record, the nightly appends only nights
+  after the edition's last night ("up to date through ..." on the night itself) — never a night before it.
+  Edition 1 itself is the labeled re-run from each company's join date (operator decision D1, V2 plan): a
+  re-run page, not the record; the record (Edition 0) starts on the workspace's first nightly call.
+
 **The default is the NEWEST published edition** (operator decision 2026-10-23: "edition 1 is now kinda like
 main, so the menu should just link to that by default"). `GET /scoreboard` and `price-window` with no `edition`
 read it, `GET /scoreboard/editions` reports it as `default` (0 only when nothing is published), and the top
@@ -90,7 +116,11 @@ whole contract; it runs inside the nightly page job, before tonight's page (`FEE
 - **(b) A data repair ran on purpose.** A `data_repair` journal row (migration 0065) applied since E's cut (or
   since its last no-change trial) that changed rows. Every repair CLI that rewrites fact history journals each
   `--apply` / `--revoke` (`repositories/data_repair_repo.py` lists them; a dry run journals nothing). Nightly
-  data flow (`detect_splits`) is not a repair; tools that only touch `calls` are not either.
+  data flow (`detect_splits`) is not a repair; tools that only touch `calls` are not either. **Whose rows:** a
+  workspace's cut reads the journal rows of that workspace AND of the data tenant — every repair CLI journals
+  under the data tenant, because it repairs the data every workspace reads — and never another workspace's
+  (V2 W8a; before it, the cut read the workspace's rows only, so a workspace edition never saw a repair). A
+  platform repair therefore starts a trial in every workspace's current edition.
 - **The rules trial (P)** re-runs E's RE-RUN pages (the nights E's publish computed) with the current engine at
   `known_by = E's own cut`, E's frozen join dates and E's frozen thesis bodies (kill criteria + catalysts; an
   edition published before S7 froze none — its comparison then leaves out `counter_case` and

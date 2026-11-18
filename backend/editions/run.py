@@ -69,7 +69,7 @@ from domain.config import DEFAULT_CONFIG
 from domain.rule_log import rule_ids
 from domain.scopes import FOUNDING_WORKSPACE_ID
 from domain.settings import get_settings
-from editions.engine import Prepared, prepare, run_jobs, thesis_body
+from editions.engine import Prepared, latest_recorded_night, prepare, run_jobs, thesis_body
 from editions.entry import Entry
 from editions.fingerprint import engine_fingerprint
 from editions.preview import compare_to_record, render
@@ -232,7 +232,41 @@ INITIAL_CAUSES = ("initial",)
 
 
 class PublishRefused(Exception):
-    """The edition already exists for the tenant; nothing ran and nothing was written."""
+    """The publish cannot go ahead (the edition already exists for the tenant, or the workspace has nothing to
+    re-run yet); nothing ran and nothing was written. The CLI prints the sentence and exits 2."""
+
+
+# V2 W8a: the two honest refusals of a FIRST publish after the reset (the words: docs/SCOREBOARD.md)
+NO_LIVE_CARDS = "REFUSED: this workspace has no live cards; there is nothing to re-run. Nothing was run or written."
+NO_RECORDED_NIGHT = (
+    "REFUSED: this workspace has no nightly call on record yet; publish Edition 1 after its first nightly "
+    "run. Nothing was run or written."
+)
+
+
+def _nothing_to_run(
+    conn: psycopg.Connection, tenant_id: UUID, known_by: datetime | None, end: date | None
+) -> str | None:
+    """Why a publish has nothing to re-run, or ``None``. Checked BEFORE the engine runs, so an empty workspace
+    is a sentence, never a traceback: no non-archived card in the workspace; or, when no ``end`` names the last
+    night, no honest night on the workspace's OWN record by the cut (``latest_recorded_night``, per workspace).
+    An explicit ``end`` is the steward naming the last night by hand and is not second-guessed here.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT EXISTS (SELECT 1 FROM thesis WHERE tenant_id = %s AND archived_at IS NULL) AS live",
+            (tenant_id,),
+        )
+        live = cur.fetchone()["live"]
+    if not live:
+        return NO_LIVE_CARDS
+    if end is None:
+        from db.clock import db_now
+
+        cut = known_by or db_now(conn)
+        if latest_recorded_night(conn, known_by=cut, tenant_id=tenant_id) is None:
+            return NO_RECORDED_NIGHT
+    return None
 
 
 def _refusal(conn: psycopg.Connection, tenant_id: UUID, known_by: datetime | None) -> str | None:
@@ -400,8 +434,9 @@ def run_publish(
     """Publish Edition 1 (see the module docstring). Returns a summary: the plan's counts, and with
     ``apply`` the new edition's id plus the table counts before and after the write. Raises
     ``PublishRefused`` when the tenant already holds it — before the engine runs, and again inside the write
-    transaction (the unique constraints are the last guard)."""
-    refused = _refusal(conn, tenant_id, known_by)
+    transaction (the unique constraints are the last guard) — and, before the engine runs, when the workspace
+    has no live card or (with no ``end``) no night on its own record yet (``_nothing_to_run``)."""
+    refused = _refusal(conn, tenant_id, known_by) or _nothing_to_run(conn, tenant_id, known_by, end)
     conn.commit()
     if refused:
         raise PublishRefused(refused)

@@ -77,20 +77,20 @@ def test_pending_reads_the_rows_after_a_mark_oldest_first(db):
     db.commit()
     b = data_repair_repo.journal(db, tool="t2", summary="second", rows_changed=0, action="revoke")
     rows = data_repair_repo.pending(
-        db, tenant_id=DEFAULT_TENANT_ID, after=mark - timedelta(seconds=1)
+        db, tenant_ids=[DEFAULT_TENANT_ID], after=mark - timedelta(seconds=1)
     )
     assert [r.id for r in rows] == [a, b]
     assert [
-        r.id for r in data_repair_repo.pending(db, tenant_id=DEFAULT_TENANT_ID, after=mark)
+        r.id for r in data_repair_repo.pending(db, tenant_ids=[DEFAULT_TENANT_ID], after=mark)
     ] == [b]
     assert (
         data_repair_repo.pending(
-            db, tenant_id=DEFAULT_TENANT_ID, after=mark - timedelta(seconds=1), through=mark
+            db, tenant_ids=[DEFAULT_TENANT_ID], after=mark - timedelta(seconds=1), through=mark
         )[0].id
         == a
     )
     other = uuid.uuid4()
-    assert data_repair_repo.pending(db, tenant_id=other, after=mark - timedelta(days=1)) == []
+    assert data_repair_repo.pending(db, tenant_ids=[other], after=mark - timedelta(days=1)) == []
     db.commit()
 
 

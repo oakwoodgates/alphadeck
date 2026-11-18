@@ -226,7 +226,10 @@ def get_scoreboard(
         edition=(
             _edition_out(chosen)
             if chosen is not None
-            else _record_edition_out(calls_repo.record_first(conn), edge)
+            else _record_edition_out(
+                calls_repo.record_first(conn, tenant_id=current_tenant),
+                calls_repo.record_edge(conn, tenant_id=current_tenant),
+            )
         ),
     )
 
@@ -309,7 +312,10 @@ def get_scoreboard_editions(
     return ScoreboardEditionsResponse(
         default=chosen.number if chosen is not None else 0,
         editions=[
-            _record_edition_out(calls_repo.record_first(conn), calls_repo.record_edge(conn)),
+            _record_edition_out(
+                calls_repo.record_first(conn, tenant_id=current_tenant),
+                calls_repo.record_edge(conn, tenant_id=current_tenant),
+            ),
             *(_edition_out(e) for e in stored),
         ],
         notice=(
@@ -375,7 +381,10 @@ def get_scoreboard_edition_diff(
     before_out = (
         _edition_out(before)
         if before is not None
-        else _record_edition_out(calls_repo.record_first(conn), calls_repo.record_edge(conn))
+        else _record_edition_out(
+            calls_repo.record_first(conn, tenant_id=current_tenant),
+            calls_repo.record_edge(conn, tenant_id=current_tenant),
+        )
     )
     assert after is not None  # `to` >= 1: a stored edition, or the 404 above
     after_out = _edition_out(after)
