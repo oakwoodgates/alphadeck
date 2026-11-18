@@ -26,6 +26,7 @@ import {
   type CatalystCalendarItemOut,
   type CatalystCalendarUndatedGroupOut,
 } from "./useCatalystCalendar";
+import { RecordStartNote } from "../RecordStartNote";
 
 // Catalyst Calendar (docs/dashboards/catalyst-calendar.md): every live card's dated catalysts and its latest
 // call's two deadlines, bucketed from today, then the passed catalysts to prune and the undated ones to date. A
@@ -239,6 +240,7 @@ export default function CatalystCalendar({ onSelectThesis }: DashboardProps) {
 
   return (
     <div className="ccal">
+    <RecordStartNote empty={data.live_cards > 0 && data.cards_without_calls >= data.live_cards} />
       <div className="ccal-controls">
         <input
           type="search"

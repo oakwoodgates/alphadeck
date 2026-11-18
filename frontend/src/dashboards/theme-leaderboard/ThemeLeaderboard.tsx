@@ -41,6 +41,7 @@ import {
 } from "./boardView";
 import { scoreByKey, type Score } from "./score";
 import { useThemeLeaderboard, type LeaderboardCardOut } from "./useThemeLeaderboard";
+import { RecordStartNote } from "../RecordStartNote";
 
 // Theme Leaderboard (docs/dashboards/theme-leaderboard.md): every counted card ranked by a stated composite of its
 // tape, breadth, keys, adoption curve and insiders, the five parts beside the score. A tape, not a document: dense
@@ -189,6 +190,7 @@ export default function ThemeLeaderboard({ asof, onSelectThesis }: DashboardProp
 
   return (
     <div className="tl">
+      <RecordStartNote empty={data.cards.every((c) => c.state == null)} />
       <div className="dash-note tl-framing" data-testid="tl-framing">
         {FRAMING}
       </div>

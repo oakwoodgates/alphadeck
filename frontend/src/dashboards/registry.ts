@@ -36,6 +36,9 @@ export type DashboardEntry = {
    *  row, and the body takes the rest of the viewport with no padding: for a page that scrolls inside
    *  itself, like the Board's columns. */
   layout?: "page" | "fill";
+  /** true = the page reads the calls history, so it carries the shared `RecordStartNote` (a workspace's record
+   *  starts fresh; W8c). The sweep test in dashboards/__tests__/RecordStartNote.test.tsx holds the list. */
+  readsRecord?: true;
   /** React.lazy(() => import("./<Component>")) — the component file default-exports its body. */
   component: LazyExoticComponent<ComponentType<DashboardProps>>;
 };

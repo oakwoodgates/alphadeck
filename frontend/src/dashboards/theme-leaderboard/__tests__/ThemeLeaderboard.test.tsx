@@ -1,6 +1,7 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { setRecordStart } from "../../__tests__/recordStart";
 
 import ThemeLeaderboard from "../ThemeLeaderboard";
 import type { LeaderboardOut } from "../useThemeLeaderboard";
@@ -336,5 +337,24 @@ describe("ThemeLeaderboard — the states of the read", () => {
     setup(payload({ cards: [], live_cards: 3, cards_counted: 0, cards_not_yet_created: 3 }));
     expect(screen.getByText("No card is counted at this as-of (3 live, 3 created after it).")).toBeInTheDocument();
     expect(lines()).toHaveLength(0);
+  });
+});
+
+vi.mock("../../../api/hooks", async (orig) =>
+  (await import("../../__tests__/recordStart")).withRecordStartStub(await orig<typeof import("../../../api/hooks")>()),
+);
+
+describe("Theme Leaderboard — the record-start note", () => {
+  it("says when the record starts on a page with no history", () => {
+    setRecordStart("2026-12-03");
+    const p = payload();
+    setup({ ...p, cards: p.cards.map((c) => ({ ...c, state: null })) });
+    expect(screen.getByTestId("record-start-note")).toHaveTextContent("The record starts on Dec 3, 2026.");
+  });
+
+  it("is absent on a page with history", () => {
+    setRecordStart("2026-12-03");
+    setup();
+    expect(screen.queryByTestId("record-start-note")).toBeNull();
   });
 });

@@ -4,6 +4,7 @@ import { fmtDate, STATE_LABEL } from "../../util/format";
 import type { DashboardProps } from "../registry";
 import "./what-changed.css";
 import { useWhatChanged, type WhatChangedItemOut, type WhatChangedOut } from "./useWhatChanged";
+import { RecordStartNote } from "../RecordStartNote";
 
 // What Changed (docs/dashboards/what-changed.md): what moved on the live cards between two recorded nights,
 // and the clocks coming due on the newest one. A "now" view with its own "since" selector, display only.
@@ -362,6 +363,7 @@ export default function WhatChanged({ onSelectThesis }: DashboardProps) {
         <div className="dash-note wc-error">{errorNote(q.error)}</div>
       ) : (
         <>
+          <RecordStartNote empty={data.latest === null} />
           <WorkLine data={data} />
           {data.items.length === 0 ? (
             <div className="wc-quiet">{quietNote(data)}</div>

@@ -33,6 +33,7 @@ import {
   type Zoom,
 } from "./timeline";
 import { useIdeaTimeline, type IdeaTimelineRowOut } from "./useIdeaTimeline";
+import { RecordStartNote } from "../RecordStartNote";
 
 // Idea Timeline (docs/dashboards/idea-timeline.md): each live card's RECORDED state over time on one shared
 // date axis, with its dated catalysts, the logged decisions and the latest call's two clocks. A "now" view,
@@ -202,6 +203,7 @@ export default function IdeaTimeline({ onSelectThesis }: DashboardProps) {
 
   return (
     <div className="it">
+      <RecordStartNote empty={data.recorded_calls === 0} />
       <div className="it-controls">
         <div className="it-group" role="group" aria-label="Zoom">
           {ZOOMS.map((z) => (

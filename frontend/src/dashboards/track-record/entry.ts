@@ -12,5 +12,6 @@ export const entry: DashboardEntry = {
   description: "What happened after each Armed call, by market-cap tier at the event: fixed horizons, against SPY and IWM, with n and the hit rate in every cell.",
   status: "experimental",
   asofAware: true,
+  readsRecord: true,
   component: lazy(() => import("./TrackRecord")),
 };

@@ -102,3 +102,7 @@ describe("HotBoard — the page's reads", () => {
     expect(requests().sort()).toEqual([`${ASOF}:all`, `${ASOF}:armed`, `${OTHER}:all`, `${OTHER}:armed`].sort());
   });
 });
+
+vi.mock("../../../api/hooks", async (orig) =>
+  (await import("../../__tests__/recordStart")).withRecordStartStub(await orig<typeof import("../../../api/hooks")>()),
+);

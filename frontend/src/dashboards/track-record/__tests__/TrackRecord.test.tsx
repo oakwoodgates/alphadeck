@@ -1,6 +1,7 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { setRecordStart } from "../../__tests__/recordStart";
 
 import TrackRecord from "../TrackRecord";
 import type { TrackRecordOut } from "../useTrackRecord";
@@ -457,5 +458,23 @@ describe("TrackRecord — the quiet work lines and the states", () => {
     setup(SERVER, { isFetching: true });
     expect(screen.getByText("updating…")).toBeInTheDocument();
     expect(screen.getAllByTestId("tr-table-row")).toHaveLength(7);
+  });
+});
+
+vi.mock("../../../api/hooks", async (orig) =>
+  (await import("../../__tests__/recordStart")).withRecordStartStub(await orig<typeof import("../../../api/hooks")>()),
+);
+
+describe("Track Record — the record-start note", () => {
+  it("says when the record starts on a page with no history", () => {
+    setRecordStart("2026-12-03");
+    setup({ ...SERVER, counts: { ...SERVER.counts, episodes: 0 }, rows: [] });
+    expect(screen.getByTestId("record-start-note")).toHaveTextContent("The record starts on Dec 3, 2026.");
+  });
+
+  it("is absent on a page with history", () => {
+    setRecordStart("2026-12-03");
+    setup();
+    expect(screen.queryByTestId("record-start-note")).toBeNull();
   });
 });

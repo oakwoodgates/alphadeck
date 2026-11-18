@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { setRecordStart } from "../../__tests__/recordStart";
 
 import FormingQuietly from "../FormingQuietly";
 import { FRAMING } from "../quietView";
@@ -368,5 +369,23 @@ describe("FormingQuietly — empty, slow and error states", () => {
     await userEvent.click(screen.getByText(/1 name left out for a flagged price history/));
     expect(screen.getByText(MIXED)).toBeInTheDocument();
     expect(screen.getByText("FLG")).toBeInTheDocument();
+  });
+});
+
+vi.mock("../../../api/hooks", async (orig) =>
+  (await import("../../__tests__/recordStart")).withRecordStartStub(await orig<typeof import("../../../api/hooks")>()),
+);
+
+describe("Forming Quietly — the record-start note", () => {
+  it("says when the record starts on a page with no history", () => {
+    setRecordStart("2026-12-03");
+    setup(payload({ rows: [] }));
+    expect(screen.getByTestId("record-start-note")).toHaveTextContent("The record starts on Dec 3, 2026.");
+  });
+
+  it("is absent on a page with history", () => {
+    setRecordStart("2026-12-03");
+    setup();
+    expect(screen.queryByTestId("record-start-note")).toBeNull();
   });
 });
