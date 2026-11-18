@@ -833,3 +833,20 @@ A plain user never writes a share count or cash/burn: both are platform values. 
 - **The Cockpit name panel**: "N unconfirmed estimate(s)" is gone; under the meters, only on the current view and only when
   it applies, gray lines: "Share count: awaiting the steward", "Cash: no value yet (...)", "Purity: not set yet (yours to
   set in the Workbench)".
+
+## A user's extract is purity only (W7a)
+
+The rule "a plain user never sees an unverified extracted number" now holds on the API too, not only on the screens.
+
+- **`GET /workbench/securities/{id}/extract`** for a plain user (and the server's own system principal) runs
+  `ingest.edgar.extract.extract_purity_for_security`: it reads the submissions index, companyfacts (purity's revenue
+  test) and ONE document, the latest 10-K, else the latest 10-Q, and returns the HUMAN purity candidate alone. It never
+  fetches the values filing, an annual (20-F/40-F) document or an exhibit, so no share count or cash figure exists to
+  return. A company whose newest periodic filing is a 20-F or 40-F answers `empty_reason="purity-not-covered"` after
+  the submissions read alone (the annual path never covered purity); a company with no periodic or annual filing keeps
+  `no-annual-filing`. The facts panel says: "Purity is not read automatically for a company that files annual reports
+  on Form 20-F or 40-F. Set it by hand from its annual report." The thesis-aware purity proposal works as before.
+- **The steward** keeps the full extract (all three candidates, the annual path, the exhibit hunt); the steward
+  console's own extraction (`POST /admin/platform-values/{id}/extract`) is unchanged.
+- **`POST /workbench/facts/explain`** is steward-only (`require_super_admin`), with no allowance.
+- **The agent tool `get_extract`** says the same: a user's token reads purity only (`docs/AGENT_TOOLS.md`).

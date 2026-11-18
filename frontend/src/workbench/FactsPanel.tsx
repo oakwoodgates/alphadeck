@@ -14,8 +14,8 @@ import { LIMITS } from "../api/limits";
  *  readable inline (not a tooltip), because reading it IS the decision.
  *
  *  A share count and cash/burn are NOT here: they are the platform's, shared by every user, and read in the Shared
- *  values block (read-only, with a Flag) — no field, no Confirm, for anyone. The extract call still returns them;
- *  this panel shows only the `revenue_mix` candidate. */
+ *  values block (read-only, with a Flag) — no field, no Confirm, for anyone. Since W7a the extract returns only the
+ *  purity candidate to a plain user (the steward's still carries all three); this panel shows only `revenue_mix`. */
 export function FactsPanel({
   securityId,
   thesisId,
@@ -82,6 +82,13 @@ export function FactsPanel({
         <div className="note">
           Nothing on EDGAR the extractor can read — no 10-K/10-Q and no annual foreign filing
           (20-F/40-F) on file for this issuer. Nothing to extract here.
+        </div>
+      )}
+      {/* W7a: a plain user's extract is purity only, and the annual (20-F/40-F) path never reads purity */}
+      {settled && facts.length === 0 && extract.data?.empty_reason === "purity-not-covered" && (
+        <div className="note">
+          Purity is not read automatically for a company that files annual reports on Form 20-F or 40-F. Set it by
+          hand from its annual report.
         </div>
       )}
     </div>

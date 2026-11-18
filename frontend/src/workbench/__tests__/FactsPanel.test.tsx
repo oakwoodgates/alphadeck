@@ -169,6 +169,19 @@ describe("FactsPanel — purity only", () => {
     expect(screen.queryByText(/unread, not empty/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Nothing on EDGAR/)).not.toBeInTheDocument();
   });
+
+  it("an annual filer's purity-not-covered says purity is set by hand from its annual report (W7a)", () => {
+    h.extract.data = env([], "purity-not-covered");
+    render(<FactsPanel securityId={SID} />);
+    expect(
+      screen.getByText(
+        "Purity is not read automatically for a company that files annual reports on Form 20-F or 40-F. " +
+          "Set it by hand from its annual report.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Nothing on EDGAR/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Confirm" })).not.toBeInTheDocument();
+  });
 });
 
 describe("FactsPanel — purity (yours to set), unchanged", () => {

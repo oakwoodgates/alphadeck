@@ -131,7 +131,8 @@ state.
 | Backtest page and `/backtest/*` | 403; hidden likewise | yes |
 | The business-type re-tag (`POST /workbench/securities/{id}/business-type`), a write to the SHARED company master | 403; the control is hidden | yes |
 | Surface an ETF (`POST /workbench/securities/resolve-etf`): adds a fund to the SHARED company master or marks an existing row a fund | 403; the Workbench control is hidden | yes |
-| Live fetches on a click: extract, auto-confirm, holdings, the price pull, the chain draft, terms and tier runs (see "User-triggered fetches" below) | yes, for a company on one of their own cards (else 404) and within a daily allowance per action (else 429) | yes, for any company, unlimited |
+| Live fetches on a click: extract, auto-confirm, holdings, the price pull, the chain draft, terms and tier runs (see "User-triggered fetches" below) | yes, for a company on one of their own cards (else 404) and within a daily allowance per action (else 429); the extract is the PURITY candidate only (W7a: no share-count or cash document is fetched; a 20-F/40-F filer answers `purity-not-covered`) | yes, for any company, unlimited; the extract carries all three candidates |
+| The flag explainer (`POST /workbench/facts/explain`, an LLM call on a share-count or cash FLAG candidate) | 403 (W7a: a user's extract holds no FLAG candidate) | yes, unlimited |
 | Add a fund to a card's ETFs link (`POST /radar/funds/attach`) | yes, for a fund already in the company list; any other symbol is a 404 ("This fund is not in the company list yet. A steward can add it.") and nothing is written | yes, and may add the fund to the company list (the same lookup-or-create as Surface an ETF) |
 | User and token management | own name, email, password and Slack webhook, and own API tokens on the Agents tab (`/settings`) | the CLI, plus their own on `/settings` |
 | The Agents tab (`/settings/agents`) | yes: the connector URL, their own tokens and their connected apps | yes, plus one sentence on the steward scope |
@@ -154,7 +155,8 @@ is reached from a router only inside a steward branch (`execute_draft(steward=..
 A plain user's click may still start a live fetch of server-sourced data (SEC, the price vendor, the LLM seams),
 because the Workbench is unusable without it. Each fetch is bounded (security hardening PR 1b):
 
-- **Own cards only.** Extract (`GET /workbench/securities/{id}/extract`), auto-confirm
+- **Own cards only.** Extract (`GET /workbench/securities/{id}/extract`; for a plain user the purity candidate only,
+  W7a), auto-confirm
   (`POST /workbench/facts/auto-confirm`), holdings (`GET /workbench/securities/{id}/etf-holdings`) and the price
   pull (`POST /workbench/securities/{id}/ingest-prices`) answer **404** "This company is not on any of your cards.
   Add it to a card first." for a company that is not a member of one of the caller's own cards. Every screen that
@@ -281,7 +283,8 @@ the same limits as `maxLength` (`frontend/src/api/limits.ts`). Nothing is ever c
 
 - **Sign-in** checks the email and password limits in the request model, so an over-long password is refused before
   any hash is computed, on the unknown-email branch too.
-- **The flag explainer** also spends one unit of the extract allowance (it is an LLM call a click can repeat).
+- **The flag explainer** is steward-only (W7a; it spent one unit of the extract allowance before): a plain user's
+  extract carries purity only, so a user has no FLAG candidate to explain and gets the steward-only 403.
 - **Resending old data.** A promote is a full replace: the editor resends the whole card. If a stored card ever holds
   a value over a limit, its next save is refused with a 422 naming the field, and the stored card is left exactly as
   it was; there is no bypass. On the data measured on 2026-11-12 no stored value is over any limit.
