@@ -168,3 +168,23 @@ def test_a_day_reads_as_a_month_name_without_a_leading_zero():
 def test_the_words_live_outside_domain():
     """The editions fingerprint hashes ``domain/``: the words must not live there (the W5 plan, Q2)."""
     assert words.__name__ == "platform_values.words"
+
+
+# --- the server-written lines (W5d) -------------------------------------------------------------------------------
+
+
+def test_the_set_by_line_names_a_kind_and_never_an_email():
+    assert (
+        words.set_by_line("steward", date(2026, 11, 18))
+        == "Verified by the steward on Nov 18, 2026"
+    )
+    assert words.set_by_line("steward") == "Verified by the steward"
+    assert words.set_by_line("carried", date(2026, 11, 18)) == "Verified (carried over from V1)"
+    assert words.set_by_line("machine") == "From the filing (applied automatically)"
+
+
+def test_the_market_cap_notes_never_tell_a_user_to_ratify_a_shared_value():
+    notes = (words.CAP_NO_PRICE, words.CAP_NO_SHARES, words.CAP_ADS_UNREAD)
+    assert not any("ratif" in n.lower() for n in notes)
+    assert words.CAP_NO_SHARES == "Price on file; no shared share count yet (see Shared values)."
+    assert words.CAP_ADS_UNREAD.endswith("The steward sets the ratio.")

@@ -617,10 +617,28 @@ rule, an accession through the EDGAR index, anything else None).
 
 **The words** live in ONE module, `platform_values/words.py` (not under `domain/`, so the editions fingerprint does
 not move): `state_label`, the no-value reasons (`NO_VALUE_WORDS`), `set_by` / `set_by_words`, `annual_line`,
-`pending_line`, `awaiting_line`, `day_words`. The user read uses it now; the server-written lines (the Filing Stream,
-the Evidence Ledger, the scored read's notes) move to it in W5d. Tests: `tests/platform_values/test_words.py`,
-`test_user_view.py`, `tests/app/test_platform_values_user_api.py` (real sign-ins: two plain users in two workspaces
-and the steward).
+`pending_line`, `awaiting_line`, `day_words`, and (W5d) the server-written lines: `set_by_line` ("From the filing
+(applied automatically)" / "Verified by the steward on Nov 18, 2026" / "Verified (carried over from V1)") and the
+scored read's market-cap notes (`CAP_NO_PRICE`, `CAP_NO_SHARES`, `CAP_ADS_UNREAD`). Tests:
+`tests/platform_values/test_words.py`, `test_user_view.py`, `tests/app/test_platform_values_user_api.py` (real
+sign-ins: two plain users in two workspaces and the steward).
+
+## No email reaches a user (W5d)
+
+No response a plain user can receive, and no agent tool, names who set a value by email. Who set it is a KIND:
+
+| Surface | Before W5d | Now |
+|---|---|---|
+| The scored read (`GET /workbench/theses/{id}/scored`, `workbench/scoring.py::_prov`) | provenance `detail.ratified_by` = the stored value (the steward's email) | `detail.set_by`: `machine` / `steward` / `carried` for a share count or cash; `you` for the user's own ratified purity |
+| The Filing Stream and Ticker Lookup rows (`dashboards/filings.py`) | form "ratified fact", detail "Source: ratified, ratified by s@x", wire `ratifier` = the email | a shared value a person set: form "verified value", detail "Verified by the steward on Nov 18, 2026" or "Verified (carried over from V1)"; a machine value: "From the filing (applied automatically)"; the user's purity: form "ratified fact", "Ratified by you on Nov 18, 2026"; a company catalyst a person ratified: like the steward's value. Wire `set_by` (`you` / `steward` / `carried`), never `ratifier` |
+| The Evidence Ledger (`dashboards/evidence_ledger.py`) | class `operator` for any fact a person set, `by` = the email | class `steward` (after `operator`, before `system`) for a shared value or company catalyst the steward set (carried V1 values too), `by` `steward` / `carried`; the user's purity stays `operator`, `by` `you`. Tallies: `facts_ratified` (yours), `facts_verified` (the steward's), `facts_stored` |
+| `get_triage`, `lookup_ticker` (agent tools) | copied the provenance detail and the detail lines | copy the new kinds and lines; `get_triage` adds each member's `values` (state and words, current) |
+
+The steward still sees emails on the steward-only routes (`/admin/platform-values/...`). The scored read no longer
+carries `unconfirmed_estimates` (a blank runway or cap is a shared value's state, read here; a blank purity is the
+user's own). Tests: `tests/app/test_no_steward_email_for_users.py` (real sign-ins: no `@` in the scored read, the
+Filing Stream, Ticker Lookup or the Evidence Ledger), `tests/dashboards/test_filings_words.py`,
+`tests/workbench/test_scoring_words.py`.
 
 ## Flags (W5b)
 

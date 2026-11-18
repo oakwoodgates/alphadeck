@@ -619,7 +619,10 @@ class TickerLookupTapeOut(_Wire):
 
 
 class TickerLookupFilingOut(_Wire):
-    """One filing-derived row in the shared reader's shape (``dashboards/filings.py``)."""
+    """One filing-derived row in the shared reader's shape (``dashboards/filings.py``). ``set_by`` / ``ratified_on``
+    = who set a row a person set, as a kind (``you``: your own purity; ``steward``: the steward verified a shared
+    value or catalyst; ``carried``: verified in V1 and carried over), never an email, and the day it was set.
+    """
 
     kind: FilingKind
     form: str
@@ -632,7 +635,7 @@ class TickerLookupFilingOut(_Wire):
     routine: bool
     fold: FoldGroup | None
     usd: float | None
-    ratifier: str | None
+    set_by: Literal["you", "steward", "carried"] | None
     ratified_on: date | None
 
 

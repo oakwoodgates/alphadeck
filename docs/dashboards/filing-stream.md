@@ -98,8 +98,9 @@ with the request's `known_at, clock = serve_view(asof)`; invariant #1):
    `valid_from`, linked by `accession`.
 8. **Catalyst**: `pit.catalyst_facts` (`catalyst_type`, `grade`, `label`, `source`, `source_ref`,
    `ratified_by`), dated `valid_from` (its event date, so a future-dated catalyst appears once its day passes; the
-   card-level dated and undated catalysts are the Catalyst Calendar's and are NOT in the stream). The detail names
-   the ratifier when the operator ratified it and says so when nobody did (an automated feed such as
+   card-level dated and undated catalysts are the Catalyst Calendar's and are NOT in the stream). The detail says who
+   set it as a kind when a person did ("Verified by the steward on <day>" / "Verified (carried over from V1)"; never an
+   email, V2 W5d) and says so when nobody did (an automated feed such as
    `doe_usaspending` stores it with no `ratified_by`): see choice 16.
 9. **Ratified or stored fact**: `pit.cash_burn_facts`, `pit.shares_outstanding_facts`, `pit.revenue_mix_facts`, one
    row each, headline = the fact and its value ("cash $41.2M · burn $8.1M/qtr", "shares outstanding 84.2M", "revenue

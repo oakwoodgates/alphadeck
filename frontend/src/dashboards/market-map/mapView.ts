@@ -196,9 +196,9 @@ export function fmtDay(iso: string): string {
 
 export const capSourceWords = (c: Pick<MapCompany, "cap_source">): string | null =>
   c.cap_source === "workbench"
-    ? "share count ratified in the Workbench"
+    ? "shared share count"
     : c.cap_source === "cover"
-      ? "share count from the filing cover (not ratified)"
+      ? "share count from the filing cover (not a shared value)"
       : null;
 
 // --- the median ----------------------------------------------------------------------------------------------

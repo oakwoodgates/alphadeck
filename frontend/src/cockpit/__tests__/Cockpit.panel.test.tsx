@@ -325,7 +325,7 @@ describe("Cockpit — the per-name panel", () => {
     expect(p.getByText("Purity")).toBeInTheDocument(); // the four meters ride along (already fetched)
     expect(p.getByText("38%")).toBeInTheDocument();
     expect(p.getByText("cash-generative last quarter")).toBeInTheDocument(); // runway null value, honest label
-    expect(p.getByText("1 unconfirmed estimate(s)")).toBeInTheDocument();
+    expect(p.queryByText(/unconfirmed estimate/)).toBeNull(); // the count left the scored read (W5d)
     expect(p.getByText("model draft")).toBeInTheDocument(); // system_drafted fit tag (S1 honest label)
   });
 

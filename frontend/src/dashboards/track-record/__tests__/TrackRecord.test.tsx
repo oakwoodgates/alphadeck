@@ -346,14 +346,14 @@ describe("TrackRecord — what is left out is counted and kept visible", () => {
         .find((r) => r.querySelector(".tr-tk")?.textContent === ticker)
         ?.querySelector(".tr-cap")
         ?.getAttribute("title");
-    expect(capTitle("WBK")).toContain("(share count ratified in the Workbench)");
-    expect(capTitle("CVRCO")).toContain("(share count from the filing cover (not ratified))");
+    expect(capTitle("WBK")).toContain("(shared share count)");
+    expect(capTitle("CVRCO")).toContain("(share count from the filing cover (not a shared value))");
     expect(capTitle("FYO")).toBe(
       "Cap unpinned: no share count public before the arm date. The filing cover's count is not used: not a 10-Q filer.",
     );
     expect(
       screen.getByText(
-        "caps at the event: 1 on a share count ratified in the Workbench · 1 on a share count from the filing cover (not ratified)",
+        "caps at the event: 1 on a shared share count · 1 on a share count from the filing cover (not a shared value)",
       ),
     ).toBeInTheDocument();
   });

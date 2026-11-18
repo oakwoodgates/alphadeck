@@ -96,6 +96,12 @@ def _scored(api: FakeApi, query: dict[str, str], thesis_id: str):
     return 200, rfx.scored()
 
 
+def _thesis_values(api: FakeApi, query: dict[str, str], thesis_id: str):
+    if not _known(thesis_id):
+        return 404, {"detail": "thesis not found"}
+    return 200, rfx.thesis_values()
+
+
 def _runs(api: FakeApi, query: dict[str, str], thesis_id: str):
     if not _known(thesis_id):
         return 404, {"detail": "thesis not found"}
@@ -160,6 +166,7 @@ ROUTES: tuple[tuple[str, str | re.Pattern[str], Callable[..., tuple[int, object]
     ("GET", f"/dashboards/ticker-lookup/{SECURITY_ID}", _ticker_lookup),
     ("GET", re.compile(r"^/*workbench/theses/(?P<thesis_id>[^/]+)/scored$"), _scored),
     ("GET", re.compile(r"^/*workbench/theses/(?P<thesis_id>[^/]+)/onboarding$"), _onboarding),
+    ("GET", re.compile(r"^/*platform-values/theses/(?P<thesis_id>[^/]+)$"), _thesis_values),
     ("GET", re.compile(r"^/*workbench/theses/(?P<thesis_id>[^/]+)/runs$"), _runs),
     (
         "GET",

@@ -408,9 +408,6 @@ export function NamePanel({
               </Fragment>
               );
             })}
-            {scored.unconfirmed_estimates > 0 && (
-              <div className="np-unconf">{scored.unconfirmed_estimates} unconfirmed estimate(s)</div>
-            )}
           </div>
         </>
       )}

@@ -116,7 +116,8 @@ def test_a_cash_generator_has_a_pace_but_no_runway_and_no_caveat():
 
 def test_a_value_without_a_pace_reads_exactly_as_before():
     d = _runway(_row("UP", note=False)).provenance[0].detail
-    assert set(d) == {"cash_usd", "quarterly_burn_usd", "ratified_by"}
+    # who set it is a kind (W5d): ``set_by``, never the stored ``ratified_by``
+    assert set(d) == {"cash_usd", "quarterly_burn_usd", "set_by"} and d["set_by"] == "machine"
 
 
 # --- the Peer Table cell -------------------------------------------------------------------------------------

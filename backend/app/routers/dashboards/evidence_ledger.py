@@ -109,13 +109,16 @@ class EvidenceLedgerSourceOut(_Wire):
 
 
 class EvidenceLedgerRowOut(_Wire):
-    """One piece of evidence. ``authority`` = WHO put it there, never a judgment of it: ``operator`` (a person
-    ratified or set it), ``system`` (a computation on public data), ``automatic`` (an ingest leg stored it, nobody
-    ratified it), ``card`` (an entry the operator maintains on the card). ``kind``: ``trigger`` | ``risk_signal``
+    """One piece of evidence. ``authority`` = WHO put it there, never a judgment of it: ``operator`` (you ratified
+    or set it: your purity, a context role), ``steward`` (the steward verified it: a shared share count or cash
+    value, or a company catalyst; a value carried over from V1 too), ``system`` (a computation on public data),
+    ``automatic`` (an ingest leg stored it, nobody ratified it), ``card`` (an entry the operator maintains on the
+    card). ``kind``: ``trigger`` | ``risk_signal``
     (the recorded card's) | ``ratified`` (a ratified or stored fact) | ``catalyst_fact`` | ``card_catalyst`` |
     ``kill`` | ``evidence`` | ``role``. ``date`` = the day it counts under (``null`` = standing). ``form`` = the
     row's own kind word. ``silent`` = Context / Bench when its company sits there. ``role`` = the context role
-    (a role row). ``by`` / ``on`` = who ratified or set it and the day. ``edgar`` = a source links to EDGAR.
+    (a role row). ``by`` / ``on`` = who ratified or set it, as a kind (``you``, ``steward``, ``carried``, a role's
+    ``operator``; never an email), and the day. ``edgar`` = a source links to EDGAR.
     ``reconstructed`` = from a night ``pipeline.backfill`` wrote (reported, never scored)."""
 
     key: str
@@ -149,7 +152,8 @@ class EvidenceLedgerCountOut(_Wire):
 class EvidenceLedgerTalliesOut(_Wire):
     """Every row, whatever the page's filters. ``trace_*`` = how the fired signals (triggers and risk signals)
     trace: an EDGAR accession, a price reference only, another source, or no source stated. ``facts_ratified`` /
-    ``facts_stored`` = the fact rows a person ratified / nobody did."""
+    ``facts_verified`` / ``facts_stored`` = the fact rows you ratified (your purity) / the steward verified / nobody
+    did."""
 
     rows: int
     by_authority: list[EvidenceLedgerCountOut]
@@ -160,6 +164,7 @@ class EvidenceLedgerTalliesOut(_Wire):
     trace_other: int
     trace_none: int
     facts_ratified: int
+    facts_verified: int
     facts_stored: int
     catalysts_dated: int
     catalysts_undated: int

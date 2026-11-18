@@ -2,8 +2,9 @@
 undated; ``?thesis_id=`` only when the caller gave a card).
 
 The read SPENDS: up to 4 EDGAR requests when the filings are not cached and, with a card, one LLM call (the grounded
-purity proposal). The candidates are the extractor's LOCATIONS, not facts: the operator ratifies in the Workbench. The
-extract is DB-free, so a candidate does not know whether its fact is already on file. The default reply keeps each
+purity proposal). The candidates are the extractor's LOCATIONS, not facts: only purity is the user's to ratify in the
+Workbench; the share count and cash here are a fresh parse, not the SHARED values the platform and the steward set (a
+user who thinks one is wrong flags it in the Workbench; ``get_triage`` reads their state). The extract is DB-free, so a candidate does not know whether its fact is already on file. The default reply keeps each
 fact with at most two passages, every excerpt cut at 300 characters with its full length beside it; ``section="passages"``
 with ``fact`` reads one fact's passages in full. Every value is copied from the API's JSON.
 """

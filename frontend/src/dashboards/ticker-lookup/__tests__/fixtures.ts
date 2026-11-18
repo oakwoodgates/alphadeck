@@ -136,7 +136,7 @@ export const filing = (over: Partial<LookupFiling> = {}): LookupFiling => ({
   routine: false,
   fold: null,
   usd: null,
-  ratifier: null,
+  set_by: null,
   ratified_on: null,
   ...over,
 });
@@ -264,7 +264,7 @@ export const payload = (over: Partial<TickerLookupOut> = {}): TickerLookupOut =>
       headline: "catalyst: license decision expected",
       detail: [],
       accession: null,
-      ratifier: "operator",
+      set_by: "steward",
       ratified_on: "2026-10-16",
     }),
   ],

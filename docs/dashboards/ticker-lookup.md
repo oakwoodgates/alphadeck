@@ -57,7 +57,7 @@ calls the LLM. Nothing here is new data; every section is a reader another page 
    (`dashboards/series.py::aligned`). A member with no reading shows its note ("n/a: 12/20 volume bars"), counted.
 5. **Filings:** the company's filing-derived facts and its EDGAR index rows for the last 90 days (toggle 365),
    `dashboards/filings.py::read_filing_rows` for this one id, grouped by day in the Filing Stream's shape (kind, form,
-   headline, detail, link, routine rows folded per day), each row's `ratifier` / `ratified_on` shown where set.
+   headline, detail, link, routine rows folded per day), each row's `set_by` / `ratified_on` shown where set ("verified by the steward on <day>", "verified (carried over from V1)", "ratified by you on <day>"; never an email, V2 W5d).
 6. **Catalysts:** the dated and undated catalysts of the cards it counts on (thesis-level, `Thesis.catalysts`, each
    with its card chip; passed dates marked) and the company's own catalyst facts (`pit.catalyst_facts`, already rows of
    kind `catalyst` in the filings reader, listed here under their own heading).

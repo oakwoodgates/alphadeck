@@ -26,8 +26,9 @@ Every row is `{date, class, kind, label, company, source, link, detail}`, newest
    price / xbrl / ...; `ref` = the accession or the price reference; `detail` = the computation inputs, shown on
    expand). An accession links to its EDGAR index (`filings.filing_index_url`); a price reference shows as text. A
    reconstructed row (`reconstructed = true`) is marked "reconstructed, never scored".
-2. **Ratified and stored facts** (`class = operator` for `ratified_by` = operator, `class = automatic` for `auto` /
-   NULL): the Filing Stream reader's `ratified` and `catalyst` kinds over the card's roster (`filings.read_filing_rows`,
+2. **Ratified and stored facts** (`class = operator` for the reader's own ratified purity, `class = steward` for a
+   shared share count, cash value or company catalyst a person set (the steward, or carried over from V1; V2 W5d),
+   `class = automatic` for `auto` / NULL): the Filing Stream reader's `ratified` and `catalyst` kinds over the card's roster (`filings.read_filing_rows`,
    365 days, the roster at the as-of), each with its source reference and, for an operator row, who ratified it and
    when.
 3. **The card's own entries** (`class = card`): its catalysts (`Catalyst`: label, kind, `when_date` or `when_label`),
@@ -45,7 +46,8 @@ passages (not stored). Each is named in the work line as "not evidence".
 
 | Class | Means | Shown as |
 |---|---|---|
-| operator | a human ratified or set it | "your" tag, the ratifier and date |
+| operator | you ratified or set it (your purity, a context role) | "your" tag, "ratified by you" and the date |
+| steward | the steward set it (a shared value or a company catalyst; a value carried over from V1 too) (V2 W5d) | "steward" tag, "set by the steward" or "verified (carried over from V1)" and the date; never an email |
 | system | a computation on public data (a trigger, a risk signal) | "computed" tag, the inputs on expand |
 | automatic | an ingest leg stored it, no human | "stored" tag, the source |
 | card | a card-level entry the operator maintains | "card" tag |

@@ -13,10 +13,12 @@ The rules, in one place. This is our own simple listing, stated here and on the 
   each ``Provenance`` a source of it. (2) The ratified and stored facts the shared filing reader holds (kinds
   ``ratified`` and ``catalyst``). (3) The card's own entries: catalysts, kill criteria, evidence links.
   (4) Each context role set on the roster, dated by the roster snapshot that first carried it.
-- **The authority class** is a label of WHO put the row there, never a judgment of it. ``system`` = a computation
-  on public data (a trigger, a risk signal); ``operator`` = a person ratified or set it (a ratified fact, a
-  catalyst fact a person ratified, a context role); ``automatic`` = an ingest leg stored it, nobody ratified it;
-  ``card`` = an entry the operator maintains on the card. One rule per source, in one place: ``fact_authority``.
+- **The authority class** is a label of WHO put the row there, never a judgment of it. ``operator`` = you ratified
+  or set it (your own purity, a context role); ``steward`` = the steward verified it (a shared share count or
+  cash value, or a company catalyst a person ratified; a value verified in V1 and carried over counts here too, its
+  ``by`` says ``carried``); ``system`` = a computation on public data (a trigger, a risk signal); ``automatic`` =
+  an ingest leg or the machine stored it, nobody ratified it; ``card`` = an entry the operator maintains on the
+  card. One rule per source, in one place: ``fact_authority``. ``by`` is a kind, never an email (V2 W5d).
 - **The recorded card** is the row of the ``calls`` log in effect at the as-of (the greatest ``(asof, seq)`` with
   ``asof <=`` the as-of; the What Changed dashboard's rule). A call recorded for a later night is never read. A
   reconstructed night is marked on its rows, "reported, never scored".
@@ -49,9 +51,9 @@ from domain.thesis import SILENT_LABELS, Catalyst, Evidence, KillCriterion, Thes
 # the facts the shared reader is asked for: the last year (its longest window)
 READ_DAYS = 365
 
-Authority = Literal["operator", "system", "automatic", "card"]
-# the order of the classes in a tally: a person's rows first
-AUTHORITY_ORDER: tuple[Authority, ...] = ("operator", "system", "automatic", "card")
+Authority = Literal["operator", "steward", "system", "automatic", "card"]
+# the order of the classes in a tally: a person's rows first (yours, then the steward's)
+AUTHORITY_ORDER: tuple[Authority, ...] = ("operator", "steward", "system", "automatic", "card")
 
 LedgerKind = Literal[
     "trigger",
@@ -122,7 +124,8 @@ class LedgerRow:
     """One piece of evidence. ``date`` = the day it counts under (``None`` = standing). ``form`` = what kind of
     thing it is in the row's own words (a signal's kind, a filing's form, a catalyst's kind). ``silent`` =
     "Context" / "Bench" when the company sits there (it never counts toward the call). ``by`` / ``on`` = who
-    ratified or set it and the day, on an operator row. ``edgar`` = a source of the row links to EDGAR.
+    ratified or set it and the day, on an operator or steward row: a kind (``you``, ``steward``, ``carried``; a
+    role's ``operator``), never an email. ``edgar`` = a source of the row links to EDGAR.
     ``reconstructed`` = the row comes from a night ``pipeline.backfill`` wrote. ``key`` is unique within one
     response."""
 
@@ -194,9 +197,13 @@ def trace_of(row: LedgerRow) -> Trace:
 
 
 def fact_authority(row: FilingRow) -> Authority:
-    """WHO put a stored fact there: ``operator`` when a person ratified it (the reader's ``ratifier``), else
-    ``automatic`` (an ingest leg or the machine's auto-confirm stored it: nobody ratified it)."""
-    return "operator" if row.ratifier else "automatic"
+    """WHO put a stored fact there, from the shared reader's ``set_by``: ``operator`` for the reader's own purity
+    (``you``), ``steward`` for a shared value or company catalyst the steward verified (``steward``, or ``carried``
+    from V1), else ``automatic`` (an ingest leg or the machine stored it: nobody ratified it). Private purity
+    stays ``operator``: it is never relabeled as the steward's."""
+    if row.set_by == "you":
+        return "operator"
+    return "steward" if row.set_by in ("steward", "carried") else "automatic"
 
 
 # --- the recorded card's triggers ---------------------------------------------------------------------------
@@ -305,7 +312,7 @@ def fact_rows(
                     ticker=r.ticker,
                     form=r.form,
                     silent=silent.get(sid),
-                    by=r.ratifier,
+                    by=r.set_by,
                     on=r.ratified_on,
                     sources=source,
                     detail=r.detail,
@@ -568,7 +575,8 @@ class CountBy:
 class Tallies:
     """What the ledger holds, every row (the page's filters hide nothing from these). ``trace_*`` = how the
     fired signals (triggers and risk signals) trace: an EDGAR accession, a price reference only, another source,
-    or no source stated. ``facts_ratified`` / ``facts_stored`` = the fact rows a person ratified / nobody did.
+    or no source stated. ``facts_ratified`` / ``facts_verified`` / ``facts_stored`` = the fact rows you ratified (your
+    purity) / the steward verified (a shared value or a company catalyst, carried V1 values included) / nobody did.
     """
 
     rows: int
@@ -580,6 +588,7 @@ class Tallies:
     trace_other: int
     trace_none: int
     facts_ratified: int
+    facts_verified: int
     facts_stored: int
     catalysts_dated: int
     catalysts_undated: int
@@ -606,6 +615,7 @@ def tallies_of(rows: Sequence[LedgerRow]) -> Tallies:
         trace_other=traces.count("other"),
         trace_none=traces.count("none"),
         facts_ratified=sum(1 for r in facts if r.authority == "operator"),
+        facts_verified=sum(1 for r in facts if r.authority == "steward"),
         facts_stored=sum(1 for r in facts if r.authority == "automatic"),
         catalysts_dated=n("card_catalyst", True),
         catalysts_undated=n("card_catalyst", False),

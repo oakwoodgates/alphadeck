@@ -83,8 +83,8 @@ class MapCompanyOut(_Wire):
     """One company's readings at the as-of. ``returns`` holds the six windows (``ret_1d`` ... ``ret_90d``, ``ytd``,
     ``ret_1y``; percent, trading bars for the trailing ones), ``null`` where there is no reading, with the reason
     in ``gaps``. ``cap`` = the approximate market cap in USD with its band (``cap_tier``) and the share count it
-    rests on (``cap_source``: ``workbench`` = ratified in the Workbench, ``cover`` = the latest count from a
-    filing's cover page, not ratified: used only when filed within 200 days of the as-of and at least 10,000
+    rests on (``cap_source``: ``workbench`` = the shared share count (the platform value), ``cover`` = the latest
+    count from a filing's cover page, not a shared value: used only when filed within 200 days of the as-of and at least 10,000
     shares); ``null`` with ``cap_gap`` / ``cap_note`` when there is none (``cap_note`` says why a cover count
     that exists was refused).
     ``dollar_volume`` = the mean of close x volume over the last 20 sessions. ``business_type`` / ``supersector``
