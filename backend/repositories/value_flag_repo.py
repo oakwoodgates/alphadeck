@@ -1,9 +1,11 @@
-"""The ONE repository of users' flags on platform values (``value_flag``, migrations 0202 and 0210; V2 W5b).
+"""The ONE repository of users' flags on platform values (``value_flag``, migrations 0202, 0210 and 0211; V2 W5b,
+W5c).
 
 A flag is private to the user who raised it and the steward. Every user-side read here filters by the user's id IN
 SQL (``user_id = %s``), never after the fetch; ``tests/app/test_value_flag_guard.py`` fails when another product
-file queries the table, or when a user-side read here loses its filter. The steward-side reads (``for_company``,
-``open_counts``) are for steward routes only.
+file queries the table, or when a user-side read here loses its filter. The steward-side reads (``company_open``,
+``company_closed``, ``reopened_as``, ``open_counts``, ``flag``) are for steward routes only: they name users. The
+user-side reads select ``_COLS``, which never carries ``closed_by`` or ``reopened_by`` (who the steward is).
 
 No commit here: the caller (``platform_values.flags``, then the route) owns the transaction. Rows are dicts. The
 closed-once trigger (0202) refuses any update of a closed row, so every close below updates only an open one.
@@ -106,20 +108,36 @@ def insert(
     seen_fact_id: UUID | None,
     seen_candidate_id: UUID | None,
     reopens: UUID | None = None,
+    reopened_by: str | None = None,
 ) -> dict:
     """Append one OPEN flag. The partial unique index refuses a second open flag on the same (user, value)
-    (``UniqueViolation``); 0210's trigger refuses a reopen that changes the identity."""
+    (``UniqueViolation``); 0210's trigger refuses a reopen that changes the identity; 0211's check refuses a
+    reopener on a row that reopens nothing."""
     row = _one(
         conn,
         "INSERT INTO value_flag (user_id, security_id, value_type, note, seen_fact_id, seen_candidate_id, "
-        "reopens) VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING *",
-        (user_id, security_id, value_type, note, seen_fact_id, seen_candidate_id, reopens),
+        "reopens, reopened_by) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
+        (
+            user_id,
+            security_id,
+            value_type,
+            note,
+            seen_fact_id,
+            seen_candidate_id,
+            reopens,
+            reopened_by,
+        ),
     )
     assert row is not None
     return row
 
 
 # --- the steward's side (steward routes only) ----------------------------------------------------------------------
+
+
+def flag(conn: psycopg.Connection, flag_id: UUID) -> dict | None:
+    """One flag by id, any user's (steward routes only), unlocked, or None."""
+    return _one(conn, "SELECT * FROM value_flag WHERE id = %s", (flag_id,))
 
 
 def lock_row(conn: psycopg.Connection, flag_id: UUID) -> dict | None:
@@ -162,7 +180,7 @@ def any_open(
     return bool(row and row["o"])
 
 
-_STEWARD_COLS = f"{_COLS}, u.email AS user_email"
+_STEWARD_COLS = f"{_COLS}, f.reopened_by, u.email AS user_email"
 _STEWARD_FROM = "FROM value_flag f LEFT JOIN app_user u ON u.id = f.user_id "
 
 
@@ -198,6 +216,16 @@ def company_closed_count(conn: psycopg.Connection, security_id: UUID) -> int:
     return 0 if row is None else int(row["n"])
 
 
+def reopened_as(conn: psycopg.Connection, flag_ids: Iterable[UUID]) -> dict[UUID, UUID]:
+    """``{flag id: the id of the row that reopens it}`` for the given flags that were reopened; one statement."""
+    rows = _all(
+        conn,
+        "SELECT reopens, id FROM value_flag WHERE reopens = ANY(%s)",
+        (list(dict.fromkeys(flag_ids)),),
+    )
+    return {r["reopens"]: r["id"] for r in rows}
+
+
 def open_counts(conn: psycopg.Connection, security_ids: Iterable[UUID] | None = None) -> list[dict]:
     """One row per company with an open flag (``security_id``, ``n``, ``shares``, ``cash_burn``, ``oldest``), for
     every company (None) or the given ones; one statement."""
@@ -223,6 +251,7 @@ __all__ = [
     "company_closed_count",
     "company_open",
     "count_mine",
+    "flag",
     "for_user",
     "insert",
     "is_reopened",
@@ -230,5 +259,6 @@ __all__ = [
     "mine",
     "open_counts",
     "open_flag",
+    "reopened_as",
     "withdraw",
 ]
