@@ -159,24 +159,36 @@ def fact(**over) -> dict:
 # ---------------------------------------------------------------------------------------------------------
 
 
-def test_a_ratified_fact_is_operator_and_names_who_and_when():
+def test_a_shared_value_a_person_set_is_steward_and_names_who_as_a_kind_and_when():
+    """V2 W5d: a share count or cash value a person set is the STEWARD's class (a carried V1 ``operator`` row too),
+    and ``by`` is a kind, never the stored ``ratified_by``."""
     (r,) = rows_from_ratified([fact()], [], [], W)
-    assert (r.form, r.ratifier, r.ratified_on) == ("ratified fact", "operator", date(2026, 10, 20))
-    assert fact_authority(r) == "operator"
+    assert (r.form, r.set_by, r.ratified_on) == ("verified value", "carried", date(2026, 10, 20))
+    assert fact_authority(r) == "steward"
     (row,) = fact_rows({SID_A: [r]}, {})
     assert (row.authority, row.kind, row.by, row.on, row.date) == (
-        "operator",
+        "steward",
         "ratified",
-        "operator",
+        "carried",
         date(2026, 10, 20),
         date(2026, 10, 20),
     )
+    (s,) = fact_rows({SID_A: rows_from_ratified([fact(ratified_by="s@x.test")], [], [], W)}, {})
+    assert (s.authority, s.by) == ("steward", "steward")
+
+
+def test_the_users_own_purity_stays_operator_and_is_never_relabeled_as_the_stewards():
+    mix = fact(segment_label="core", mix_pct=Decimal("80"), ratified_by="jane@x.test")
+    (r,) = rows_from_ratified([], [], [mix], W)
+    assert (r.form, r.set_by, fact_authority(r)) == ("ratified fact", "you", "operator")
+    (row,) = fact_rows({SID_A: [r]}, {})
+    assert (row.authority, row.by) == ("operator", "you")
 
 
 @pytest.mark.parametrize("who", ["auto", " AUTO ", None, ""])
 def test_a_fact_the_machine_or_a_feed_stored_is_automatic_and_names_no_ratifier(who):
     (r,) = rows_from_ratified([fact(ratified_by=who)], [], [], W)
-    assert (r.form, r.ratifier, r.ratified_on) == ("stored fact", None, None)
+    assert (r.form, r.set_by, r.ratified_on) == ("stored fact", None, None)
     (row,) = fact_rows({SID_A: [r]}, {})
     assert (row.authority, row.kind, row.by, row.on) == ("automatic", "ratified", None, None)
     assert row.date == date(2026, 6, 30)  # dated by the cover date, as the reader gives it
@@ -194,11 +206,11 @@ def test_a_catalyst_fact_follows_the_same_rule_and_keeps_its_event_date():
     (op,) = rows_from_catalysts([{**base, "ratified_by": "operator"}], W)
     (feed,) = rows_from_catalysts([{**base, "ratified_by": None}], W)
     (auto,) = rows_from_catalysts([{**base, "ratified_by": "auto"}], W)
-    assert (op.ratifier, op.ratified_on) == ("operator", date(2026, 10, 12))
-    assert (feed.ratifier, auto.ratifier) == (None, None)
+    assert (op.set_by, op.ratified_on) == ("carried", date(2026, 10, 12))
+    assert (feed.set_by, auto.set_by) == (None, None)
     rows = fact_rows({SID_A: [op, feed, auto]}, {})
     assert [(r.authority, r.kind, r.date) for r in rows] == [
-        ("operator", "catalyst_fact", date(2026, 10, 10)),
+        ("steward", "catalyst_fact", date(2026, 10, 10)),  # a company catalyst is shared data
         ("automatic", "catalyst_fact", date(2026, 10, 10)),
         ("automatic", "catalyst_fact", date(2026, 10, 10)),
     ]
@@ -231,10 +243,10 @@ def test_trigger_and_risk_rows_are_system_and_the_card_entries_are_card():
     assert {r.authority for r in entry_rows(entries, ASOF)} == {"card"}
 
 
-def test_a_role_row_is_operator_and_the_four_classes_are_the_whole_set():
+def test_a_role_row_is_operator_and_the_five_classes_are_the_whole_set():
     (r,) = role_rows(roster_companies([member("AAA", SID_A, role="payer")]), {})
     assert (r.authority, r.kind, r.by) == ("operator", "role", "operator")
-    assert AUTHORITY_ORDER == ("operator", "system", "automatic", "card")
+    assert AUTHORITY_ORDER == ("operator", "steward", "system", "automatic", "card")
     assert set(ROLE_WORDS) == {r.value for r in ContextRole}  # a role added to the enum fails here
 
 
@@ -605,7 +617,7 @@ def test_tallies_count_every_row_by_class_and_kind_and_say_how_the_signals_trace
         LedgerRow("operator", "ratified", "f1", date=d),
         LedgerRow("automatic", "ratified", "f2", date=d),
         LedgerRow("automatic", "catalyst_fact", "f3", date=d),
-        LedgerRow("operator", "catalyst_fact", "f4", date=d),
+        LedgerRow("steward", "catalyst_fact", "f4", date=d),
         LedgerRow("card", "card_catalyst", "c1", date=d),
         LedgerRow("card", "card_catalyst", "c2"),
         LedgerRow("card", "kill", "k1"),
@@ -616,7 +628,8 @@ def test_tallies_count_every_row_by_class_and_kind_and_say_how_the_signals_trace
     t = tallies_of(rows)
     assert t.rows == 14
     assert [(c.key, c.rows) for c in t.by_authority] == [
-        ("operator", 4),
+        ("operator", 3),
+        ("steward", 1),
         ("system", 4),
         ("automatic", 2),
         ("card", 4),
@@ -638,7 +651,7 @@ def test_tallies_count_every_row_by_class_and_kind_and_say_how_the_signals_trace
         1,
         1,
     )
-    assert (t.facts_ratified, t.facts_stored) == (2, 2)
+    assert (t.facts_ratified, t.facts_verified, t.facts_stored) == (1, 1, 2)
     assert (t.catalysts_dated, t.catalysts_undated, t.roles_dated, t.roles_undated) == (1, 1, 1, 1)
     assert sum(c.rows for c in t.by_authority) == sum(c.rows for c in t.by_kind) == t.rows
 
@@ -779,8 +792,8 @@ def test_the_router_wire_shape(stub_client):
         "detail": ["shares: 4000"],
     }
     assert (fact_row["authority"], fact_row["by"], fact_row["on"], fact_row["date"]) == (
-        "operator",
-        "operator",
+        "steward",  # a carried V1 cash value: the steward's class, its setter a kind (never an email)
+        "carried",
         "2026-10-20",
         "2026-10-20",
     )
@@ -793,17 +806,19 @@ def test_the_router_wire_shape(stub_client):
     ]
     t = body["tallies"]
     assert t["rows"] == 4 and [(c["key"], c["rows"]) for c in t["by_authority"]] == [
-        ("operator", 2),
+        ("operator", 1),
+        ("steward", 1),
         ("system", 1),
         ("automatic", 0),
         ("card", 1),
     ]
-    assert (t["signals"], t["trace_accession"], t["facts_ratified"], t["roles_dated"]) == (
-        1,
-        1,
-        1,
-        1,
-    )
+    assert (
+        t["signals"],
+        t["trace_accession"],
+        t["facts_ratified"],
+        t["facts_verified"],
+        t["roles_dated"],
+    ) == (1, 1, 0, 1, 1)
     assert body["standing"][0]["kind"] == "kill"
 
 
@@ -1056,13 +1071,15 @@ def test_a_fact_ratified_after_a_past_asof_is_not_a_row(db, pinned_today):
             for r in _rows(body, "ratified")
         }
 
-    assert facts(past) == {
-        EARLY_10Q: ("operator", "operator", "2026-06-03"),
+    assert facts(
+        past
+    ) == {  # a cash value a person set (V1's word, carried): the steward's class (W5d)
+        EARLY_10Q: ("steward", "carried", "2026-06-03"),
         STORED_10Q: ("automatic", None, "2026-05-20"),
     }
     assert facts(later) == {
-        EARLY_10Q: ("operator", "operator", "2026-06-03"),
-        LATE_10Q: ("operator", "operator", "2026-06-10"),
+        EARLY_10Q: ("steward", "carried", "2026-06-03"),
+        LATE_10Q: ("steward", "carried", "2026-06-10"),
         STORED_10Q: ("automatic", None, "2026-05-20"),
     }
     assert set(facts(live)) == {EARLY_10Q, LATE_10Q, STORED_10Q}
@@ -1071,12 +1088,12 @@ def test_a_fact_ratified_after_a_past_asof_is_not_a_row(db, pinned_today):
         assert all(r["date"] <= asof.isoformat() for r in _rows(body, "ratified"))
     # a ratified fact names who and when; the source link is the filing index through the issuer's CIK
     early = next(r for r in _rows(past, "ratified") if r["sources"][0]["ref"] == EARLY_10Q)
-    assert (early["form"], early["on"], early["edgar"]) == ("ratified fact", "2026-06-03", True)
+    assert (early["form"], early["on"], early["edgar"]) == ("verified value", "2026-06-03", True)
     assert early["sources"][0]["url"] == filing_index_url(CIK, EARLY_10Q)
     stored = next(r for r in _rows(past, "ratified") if r["sources"][0]["ref"] == STORED_10Q)
     assert (stored["form"], stored["by"], stored["on"]) == ("stored fact", None, None)
-    assert past["tallies"]["facts_ratified"] == 1 and past["tallies"]["facts_stored"] == 1
-    assert later["tallies"]["facts_ratified"] == 2
+    assert past["tallies"]["facts_verified"] == 1 and past["tallies"]["facts_stored"] == 1
+    assert later["tallies"]["facts_verified"] == 2 and later["tallies"]["facts_ratified"] == 0
 
 
 def test_a_roster_snapshot_taken_after_the_asof_never_dates_a_role(db, pinned_today):

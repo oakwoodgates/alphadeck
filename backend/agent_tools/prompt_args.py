@@ -105,9 +105,9 @@ PROMPTS: tuple[PromptSpec, ...] = (
         derived={"group_clause": lambda v: f", group={v['group']}" if v["group"] else ""},
     ),
     PromptSpec(
-        "ratify-queue",
-        "What is still the operator's to ratify on a card: the unconfirmed estimates, the names not signed off, "
-        "the model drafts and the ambiguous picks.",
+        "card-data-check",
+        "What is still the operator's to set on a card (purity, sign-off, context roles) and which shared values "
+        "are awaiting the steward or missing; the model drafts and the ambiguous picks.",
         (("thesis", True, None), ("asof", False, None)),
     ),
     PromptSpec(

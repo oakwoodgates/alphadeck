@@ -310,7 +310,8 @@ describe("TickerLookup — the sections", () => {
     expect(items[1]).not.toHaveClass("passed");
     const fact = screen.getByTestId("tl-catalyst-fact");
     expect(fact).toHaveTextContent("catalyst: license decision expected");
-    expect(fact).toHaveTextContent("ratified by operator on Oct 16, 2026");
+    expect(fact).toHaveTextContent("verified by the steward on Oct 16, 2026");
+    expect(fact).not.toHaveTextContent("@");
   });
 
   it("lists the decisions with the operator's fills and a voided row struck through, never hidden", () => {

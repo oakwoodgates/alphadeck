@@ -2433,8 +2433,9 @@ export interface paths {
         /**
          * List Queue
          * @description THE STEWARD'S QUEUE: one row per company with a share count or cash/burn waiting for you (the same open
-         *     flags as ``/awaiting``), with how many live cards hold it across every workspace (a number only). Order:
-         *     companies only in a Discovered pen last, then most cards first, then the longest wait first. ``pen``:
+         *     flagged candidates as ``/awaiting``) or with an open user flag (``open_flags``, a number only; W5c), with how
+         *     many live cards hold it across every workspace (a number only). Order: companies only in a Discovered pen last,
+         *     then most cards first, then the longest wait first (the oldest waiting candidate or open user flag). ``pen``:
          *     ``after`` (default) lists the pen-only companies after the rest, ``only`` lists only them, ``exclude`` leaves
          *     them out. ``offset`` / ``limit`` cut the page (``limit`` 1-200, ``offset`` 0-100,000); ``total`` and
          *     ``pen_only_total`` count every company waiting, whatever the page. **422** a parameter out of bounds.
@@ -2443,6 +2444,56 @@ export interface paths {
         get: operations["list_queue_admin_platform_values_queue_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/platform-values/flags/{flag_id}/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Close Flag
+         * @description CLOSE a user's open flag, stamped with your email. ``fixed``: name the approve or correct that fixed it
+         *     (``decision_id``: this company's, this value's, not undone; checked under the company write lock, so an undo
+         *     cannot slip in between); ``kept``: the value stands, and ``note`` (required) tells the user why. The user reads
+         *     the outcome and the note on their own flag; no Slack message. Undo with ``POST .../flags/{id}/reopen``.
+         *     Answers the company's new state. **404** unknown flag; **409** already closed (or withdrawn), a decision that
+         *     is not a standing approve or correct of this company's value, or the company is busy; **422** ``kept`` with a
+         *     blank note or a decision, ``fixed`` with no decision, a note over 2,000 characters.
+         */
+        post: operations["close_flag_admin_platform_values_flags__flag_id__close_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/platform-values/flags/{flag_id}/reopen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reopen Flag
+         * @description REOPEN a flag you closed (the close's inverse, decision B3 (a)): a NEW open flag naming it, with the same
+         *     user, value, note and what was current, stamped with your email; the closed one stays in the history as it
+         *     was. No body. No Slack message; the user's allowance is untouched. Answers the company's new state. **404**
+         *     unknown flag; **409** the flag is open, already reopened, withdrawn by its user, or the user has a newer open
+         *     flag on the value.
+         */
+        post: operations["reopen_flag_admin_platform_values_flags__flag_id__reopen_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2459,7 +2510,9 @@ export interface paths {
         /**
          * Get Company Values
          * @description The company's share count and cash/burn: each value's state, every stored version (with ``set_aside``),
-         *     the newest candidates and decisions, the pin. **404** unknown company. Read-only.
+         *     the newest candidates and decisions, the pin, and its users' flags (``flags``: every open one, and the page of
+         *     closed ones that ``flags_offset`` (0-100,000) / ``flags_limit`` (1-100, default 20) cut, newest closed first).
+         *     **404** unknown company; **422** a parameter out of bounds. Read-only.
          */
         get: operations["get_company_values_admin_platform_values__security_id__get"];
         put?: never;
@@ -8346,7 +8399,8 @@ export interface components {
         /**
          * CompanyValuesOut
          * @description A company's two platform values (the steward's company page). ``attempts``: the company's newest
-         *     background-extraction attempts (at most 10, newest first; W4d), whoever ran them.
+         *     background-extraction attempts (at most 10, newest first; W4d), whoever ran them. ``flags``: its users' flags
+         *     (W5c).
          */
         CompanyValuesOut: {
             /**
@@ -8362,6 +8416,7 @@ export interface components {
             cash_burn: components["schemas"]["PlatformValueOut"];
             /** Attempts */
             attempts?: components["schemas"]["PlatformExtractionAttemptOut"][];
+            flags?: components["schemas"]["PlatformUserFlagsOut"];
         };
         /**
          * ConnectionListOut
@@ -11315,13 +11370,16 @@ export interface components {
         };
         /**
          * EvidenceLedgerRowOut
-         * @description One piece of evidence. ``authority`` = WHO put it there, never a judgment of it: ``operator`` (a person
-         *     ratified or set it), ``system`` (a computation on public data), ``automatic`` (an ingest leg stored it, nobody
-         *     ratified it), ``card`` (an entry the operator maintains on the card). ``kind``: ``trigger`` | ``risk_signal``
+         * @description One piece of evidence. ``authority`` = WHO put it there, never a judgment of it: ``operator`` (you ratified
+         *     or set it: your purity, a context role), ``steward`` (the steward verified it: a shared share count or cash
+         *     value, or a company catalyst; a value carried over from V1 too), ``system`` (a computation on public data),
+         *     ``automatic`` (an ingest leg stored it, nobody ratified it), ``card`` (an entry the operator maintains on the
+         *     card). ``kind``: ``trigger`` | ``risk_signal``
          *     (the recorded card's) | ``ratified`` (a ratified or stored fact) | ``catalyst_fact`` | ``card_catalyst`` |
          *     ``kill`` | ``evidence`` | ``role``. ``date`` = the day it counts under (``null`` = standing). ``form`` = the
          *     row's own kind word. ``silent`` = Context / Bench when its company sits there. ``role`` = the context role
-         *     (a role row). ``by`` / ``on`` = who ratified or set it and the day. ``edgar`` = a source links to EDGAR.
+         *     (a role row). ``by`` / ``on`` = who ratified or set it, as a kind (``you``, ``steward``, ``carried``, a role's
+         *     ``operator``; never an email), and the day. ``edgar`` = a source links to EDGAR.
          *     ``reconstructed`` = from a night ``pipeline.backfill`` wrote (reported, never scored).
          */
         EvidenceLedgerRowOut: {
@@ -11331,7 +11389,7 @@ export interface components {
              * Authority
              * @enum {string}
              */
-            authority: "operator" | "system" | "automatic" | "card";
+            authority: "operator" | "steward" | "system" | "automatic" | "card";
             /**
              * Kind
              * @enum {string}
@@ -11383,7 +11441,8 @@ export interface components {
          * EvidenceLedgerTalliesOut
          * @description Every row, whatever the page's filters. ``trace_*`` = how the fired signals (triggers and risk signals)
          *     trace: an EDGAR accession, a price reference only, another source, or no source stated. ``facts_ratified`` /
-         *     ``facts_stored`` = the fact rows a person ratified / nobody did.
+         *     ``facts_verified`` / ``facts_stored`` = the fact rows you ratified (your purity) / the steward verified / nobody
+         *     did.
          */
         EvidenceLedgerTalliesOut: {
             /** Rows */
@@ -11404,6 +11463,8 @@ export interface components {
             trace_none: number;
             /** Facts Ratified */
             facts_ratified: number;
+            /** Facts Verified */
+            facts_verified: number;
             /** Facts Stored */
             facts_stored: number;
             /** Catalysts Dated */
@@ -11811,8 +11872,9 @@ export interface components {
          * FilingStreamRowOut
          * @description One filing-derived fact. ``kind``: ``8k`` | ``form4`` | ``form4a`` | ``stake`` | ``revenue`` | ``filing``
          *     (any other form in the company's EDGAR index, shown as its form and primary document) | ``split`` |
-         *     ``dilution`` | ``catalyst`` | ``ratified`` (a ratified fact, ``form`` "ratified fact", or a stored fact nobody
-         *     ratified, ``form`` "stored fact"). ``form`` = the form as filed or the row's own label; ``date`` = the
+         *     ``dilution`` | ``catalyst`` | ``ratified`` (a shared value the steward set, ``form`` "verified value"; your own
+         *     purity, ``form`` "ratified fact"; or a stored fact nobody set, ``form`` "stored fact"; who set a row is said in
+         *     its detail as a kind, never an email). ``form`` = the form as filed or the row's own label; ``date`` = the
          *     public date it counts from; ``headline`` = one neutral line; ``detail`` = the lines the expanded row shows;
          *     ``url`` = the filing's EDGAR index or the stored source (``null`` = none known); ``tags`` = quiet field
          *     predicates; ``routine`` = a fold candidate; ``fold`` = its fold group (``form4``: a Form 4 holding no code-P
@@ -14416,8 +14478,8 @@ export interface components {
          * @description One company's readings at the as-of. ``returns`` holds the six windows (``ret_1d`` ... ``ret_90d``, ``ytd``,
          *     ``ret_1y``; percent, trading bars for the trailing ones), ``null`` where there is no reading, with the reason
          *     in ``gaps``. ``cap`` = the approximate market cap in USD with its band (``cap_tier``) and the share count it
-         *     rests on (``cap_source``: ``workbench`` = ratified in the Workbench, ``cover`` = the latest count from a
-         *     filing's cover page, not ratified: used only when filed within 200 days of the as-of and at least 10,000
+         *     rests on (``cap_source``: ``workbench`` = the shared share count (the platform value), ``cover`` = the latest
+         *     count from a filing's cover page, not a shared value: used only when filed within 200 days of the as-of and at least 10,000
          *     shares); ``null`` with ``cap_gap`` / ``cap_note`` when there is none (``cap_note`` says why a cover count
          *     that exists was refused).
          *     ``dollar_volume`` = the mean of close x volume over the last 20 sessions. ``business_type`` / ``supersector``
@@ -16433,6 +16495,23 @@ export interface components {
             detail?: string | null;
         };
         /**
+         * PlatformFlagCloseIn
+         * @description Close a user's flag (W5c). ``outcome`` ``fixed``: ``decision_id`` names the steward's approve or correct of
+         *     the SAME company and value type that fixed it, still standing; ``note`` optional. ``kept``: the value stands;
+         *     ``note`` (required, not blank) tells the user why; no ``decision_id``.
+         */
+        PlatformFlagCloseIn: {
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "fixed" | "kept";
+            /** Note */
+            note?: string | null;
+            /** Decision Id */
+            decision_id?: string | null;
+        };
+        /**
          * PlatformPaceOut
          * @description A cash-and-burn value's year-to-date pace (V2 extractor correctness PR 3, ``domain.burn_pace``), read from its
          *     pace columns (0209; else, before 0209, its note): the pace per quarter (burn sign: positive = burning), its span in days, the months of runway that pace
@@ -16484,7 +16563,9 @@ export interface components {
          * PlatformQueueItemOut
          * @description One company with anything waiting (one row per company): ``cards`` how many live cards hold it, across every
          *     workspace (a number only, never whose); ``pen_only`` every row it sits in is a Discovered pen; ``waiting_since``
-         *     the older of its waiting candidates; ``shares`` / ``cash_burn`` what waits (None = nothing for that value).
+         *     the oldest of its waiting candidates and its open user flags; ``shares`` / ``cash_burn`` the candidate that
+         *     waits (None = none for that value); ``open_flags`` how many open user flags it has (W5c; a number only, never
+         *     whose or what note). A company with open user flags and no waiting candidate has both values None.
          */
         PlatformQueueItemOut: {
             /**
@@ -16513,6 +16594,11 @@ export interface components {
             waiting_since: string;
             shares?: components["schemas"]["PlatformQueueValueOut"] | null;
             cash_burn?: components["schemas"]["PlatformQueueValueOut"] | null;
+            /**
+             * Open Flags
+             * @default 0
+             */
+            open_flags: number;
         };
         /**
          * PlatformQueueOut
@@ -16553,6 +16639,104 @@ export interface components {
         PlatformUndoIn: {
             /** Reason */
             reason?: string | null;
+        };
+        /**
+         * PlatformUserFlagOut
+         * @description One user's flag on a value of this company, as the steward reads it (W5c). Steward routes only: it names
+         *     the user (``user_email``, decision B4 (a)).
+         *
+         *     - ``value_type`` ``shares_outstanding`` / ``cash_burn``; ``note`` the user's words, plain text as stored;
+         *       ``opened_at`` when it was raised (for a reopen row: when the steward reopened it).
+         *     - ``current_when_flagged``: what the server recorded as current when it was raised: ``value`` (``seen_value``,
+         *       the stored version, ``set_aside`` if an undo has since set it aside), ``awaiting`` (``seen_candidate``, the
+         *       candidate that was awaiting the steward) or ``none`` (no value yet). None of the two when the row is gone.
+         *     - ``reopens`` the closed flag this row reopens and ``reopened_by`` the steward who reopened it (0211);
+         *       ``reopened_as`` the row that later reopened THIS one.
+         *     - Closed: ``closed_at``, ``closed_by`` (a steward's email, or ``user`` for the user's own withdrawal),
+         *       ``outcome`` ``fixed`` / ``kept`` / ``withdrawn``, ``outcome_note`` (the steward's note to the user, plain
+         *       text). ``fixed_decision`` the approve or correct a ``fixed`` close names; ``fixed_decision_undone`` = that
+         *       decision has since been undone (the closed row is never rewritten: reopen the flag if the fix no longer
+         *       stands).
+         *     - ``can_reopen``; ``reopen_refusal`` the fixed sentence the reopen route would answer (None when it can).
+         */
+        PlatformUserFlagOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Value Type */
+            value_type: string;
+            /** User Email */
+            user_email?: string | null;
+            /** Note */
+            note?: string | null;
+            /**
+             * Opened At
+             * Format: date-time
+             */
+            opened_at: string;
+            /**
+             * Current When Flagged
+             * @enum {string}
+             */
+            current_when_flagged: "value" | "awaiting" | "none";
+            seen_value?: components["schemas"]["PlatformVersionOut"] | null;
+            seen_candidate?: components["schemas"]["PlatformCandidateOut"] | null;
+            /** Reopens */
+            reopens?: string | null;
+            /** Reopened By */
+            reopened_by?: string | null;
+            /** Reopened As */
+            reopened_as?: string | null;
+            /** Closed At */
+            closed_at?: string | null;
+            /** Closed By */
+            closed_by?: string | null;
+            /** Outcome */
+            outcome?: string | null;
+            /** Outcome Note */
+            outcome_note?: string | null;
+            fixed_decision?: components["schemas"]["PlatformDecisionOut"] | null;
+            /**
+             * Fixed Decision Undone
+             * @default false
+             */
+            fixed_decision_undone: boolean;
+            /**
+             * Can Reopen
+             * @default false
+             */
+            can_reopen: boolean;
+            /** Reopen Refusal */
+            reopen_refusal?: string | null;
+        };
+        /**
+         * PlatformUserFlagsOut
+         * @description The company's users' flags: every ``open`` one (oldest first) and one page of ``closed`` ones (newest closed
+         *     first, ``closed_offset`` / ``closed_limit``); ``closed_total`` counts every closed one, so an old closed flag
+         *     (and its Reopen) stays reachable by paging.
+         */
+        PlatformUserFlagsOut: {
+            /** Open */
+            open?: components["schemas"]["PlatformUserFlagOut"][];
+            /** Closed */
+            closed?: components["schemas"]["PlatformUserFlagOut"][];
+            /**
+             * Closed Total
+             * @default 0
+             */
+            closed_total: number;
+            /**
+             * Closed Offset
+             * @default 0
+             */
+            closed_offset: number;
+            /**
+             * Closed Limit
+             * @default 20
+             */
+            closed_limit: number;
         };
         /**
          * PlatformValueOut
@@ -18589,11 +18773,6 @@ export interface components {
             /** Fit */
             fit: string;
             /**
-             * Unconfirmed Estimates
-             * @default 0
-             */
-            unconfirmed_estimates: number;
-            /**
              * Thin Price History
              * @default false
              */
@@ -19377,7 +19556,9 @@ export interface components {
         };
         /**
          * TickerLookupFilingOut
-         * @description One filing-derived row in the shared reader's shape (``dashboards/filings.py``).
+         * @description One filing-derived row in the shared reader's shape (``dashboards/filings.py``). ``set_by`` / ``ratified_on``
+         *     = who set a row a person set, as a kind (``you``: your own purity; ``steward``: the steward verified a shared
+         *     value or catalyst; ``carried``: verified in V1 and carried over), never an email, and the day it was set.
          */
         TickerLookupFilingOut: {
             /**
@@ -19408,8 +19589,8 @@ export interface components {
             fold: ("form4" | "prospectus" | "ownership") | null;
             /** Usd */
             usd: number | null;
-            /** Ratifier */
-            ratifier: string | null;
+            /** Set By */
+            set_by: ("you" | "steward" | "carried") | null;
             /** Ratified On */
             ratified_on: string | null;
         };
@@ -19817,8 +19998,8 @@ export interface components {
          *     arm date times the share count PUBLIC before it (``close_date`` / ``shares_date`` are the close's date and the
          *     count's own date), ``ads_ratio`` applied when known, ``split_factor`` = the multiplier put on the count when a
          *     split in force sits between the count's date and the close's. ``source`` = which count made the cap:
-         *     ``workbench`` (the newest count ratified in the Workbench that was public before the arm date) or ``cover`` (none
-         *     was, so the filing cover's count the nightly stores, not ratified: a 10-Q filer's, filed within 200 days before
+         *     ``workbench`` (the newest shared share count that was public before the arm date) or ``cover`` (none was, so the
+         *     filing cover's count the nightly stores, not a shared value: a 10-Q filer's, filed within 200 days before
          *     the arm date, at least 10,000 shares); ``null`` when there is no cap. ``gap`` says why a cap could not be pinned
          *     (``null`` when it is); ``tier`` is ``null`` then, and ``note`` says why a filing-cover count was refused when
          *     one was.
@@ -19883,7 +20064,7 @@ export interface components {
          *     liquidity band; ``counted_feed_stopped`` = counted episodes whose price feed stopped because the company
          *     ended (a subset of ``counted``); ``left_out_feed_stopped`` / ``left_out_no_longer_priced`` = the other
          *     stopped feeds, left out (on a live card / off every live card); ``cap_from_cover`` = counted episodes whose cap
-         *     rests on the filing cover's share count (not ratified); ``arm_night`` / ``next_session`` = per horizon, how the
+         *     rests on the filing cover's share count (not a shared value); ``arm_night`` / ``next_session`` = per horizon, how the
          *     counted episodes read.
          */
         TrackCountsOut: {
@@ -23799,9 +23980,78 @@ export interface operations {
             };
         };
     };
-    get_company_values_admin_platform_values__security_id__get: {
+    close_flag_admin_platform_values_flags__flag_id__close_post: {
         parameters: {
             query?: never;
+            header?: never;
+            path: {
+                flag_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlatformFlagCloseIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyValuesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reopen_flag_admin_platform_values_flags__flag_id__reopen_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                flag_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyValuesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_company_values_admin_platform_values__security_id__get: {
+        parameters: {
+            query?: {
+                flags_offset?: number;
+                flags_limit?: number;
+            };
             header?: never;
             path: {
                 security_id: string;

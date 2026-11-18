@@ -24,12 +24,16 @@ pair; invariant #1), plus one plain SELECT for the Form 4/A filings:
 - ``split``: ``pit.split_events``, under the split's own publication as the view knows it.
 - ``dilution``: ``pit.dilution_facts``, under ``valid_from`` (the issuance date).
 - ``catalyst``: ``pit.catalyst_facts``, under ``valid_from`` (its event date).
-- ``ratified`` (the wire kind of BOTH rows below, told apart by the row's ``form``):
-  ``pit.cash_burn_facts`` / ``shares_outstanding_facts`` / ``revenue_mix_facts``. A row the operator ratified
-  (``ratified_by`` set to anything but ``auto``) is a "ratified fact", under the instant the operator ratified it
-  (the public clock's own instant for those three tables). A row whose ``ratified_by`` is empty or ``auto`` (applied
-  by the machine: a 10-Q cover figure, an automated feed) is a "stored fact", under its ``valid_from`` (its cover or
-  filing date) with the day we stored it in the detail: an ingest batch never reads as a day of ratifications.
+- ``ratified`` (the wire kind of every row below, told apart by the row's ``form``):
+  ``pit.cash_burn_facts`` / ``shares_outstanding_facts`` / ``revenue_mix_facts``. A row a person set
+  (``ratified_by`` set to anything but ``auto``) is dated by the instant it was set (the public clock's own instant
+  for those three tables): a share count or cash value (a PLATFORM value, the data tenant's) is a "verified value",
+  "Verified by the steward on <day>" or "Verified (carried over from V1)"; the user's own purity (their workspace)
+  is a "ratified fact", "Ratified by you on <day>". A row whose ``ratified_by`` is empty or ``auto`` (applied by the
+  machine: a 10-Q cover figure, an automated feed) is a "stored fact", under its ``valid_from`` (its cover or filing
+  date) with the day we stored it in the detail: an ingest batch never reads as a day of ratifications. WHO set a
+  row is a kind on the wire (``set_by``: ``you`` / ``steward`` / ``carried``), never an email; the words are
+  ``platform_values.words`` (V2 W5d).
 
 The rules, in one place:
 
@@ -100,8 +104,10 @@ from domain.links import (  # noqa: F401  (the public names pages import from he
     source_url,
 )
 from domain.market_time import market_tz
+from domain.platform_values import ratifier_kind
 from domain.scopes import DATA_TENANT_ID
 from domain.splits import ratio_label
+from platform_values import words
 from securities import master
 from signals.corporate_events import item_label
 
@@ -203,6 +209,10 @@ YOY_TOLERANCE_DAYS = 10
 CLUSTER_MIN_BUYERS = 2
 
 
+# who set a row a person set, as a kind (never an email): the reader's own purity, the steward, a carried V1 value
+RowSetter = Literal["you", "steward", "carried"]
+
+
 @dataclass(frozen=True)
 class FilingRow:
     """One filing-derived fact for one company, in the shape every filing page shares.
@@ -213,10 +223,11 @@ class FilingRow:
     stored source), ``None`` when none is known. ``routine`` = a fold candidate: a Form 4 holding no code-P
     purchase, a prospectus supplement or an index-only Form 3/4/5 (``FOLD_GROUPS``). ``fold`` = the fold group a
     routine row belongs to (``None`` for every row that is not routine). ``usd`` = the row's dollar size when it
-    has one (a Form 4's purchases minus sales, a dilution's principal). ``ratifier`` / ``ratified_on`` = who
-    ratified the row and the market-time day they did, on a "ratified fact" and on a catalyst a person ratified
-    (``None`` on every other row, and on a row the machine applied or a feed stored: nobody ratified it); the
-    Evidence Ledger's authority classes read them.
+    has one (a Form 4's purchases minus sales, a dilution's principal). ``set_by`` / ``ratified_on`` = who set
+    the row, as a kind and never an email (``you``: the reader's own purity; ``steward``: the steward verified a
+    shared value; ``carried``: a value verified in V1 and carried over), and the market-time day it was set, on a
+    row a person set (``None`` on every other row, and on a row the machine applied or a feed stored: nobody set
+    it); the Evidence Ledger's authority classes read them.
     """
 
     security_id: UUID
@@ -231,7 +242,7 @@ class FilingRow:
     tags: tuple[str, ...] = ()
     routine: bool = False
     usd: float | None = None
-    ratifier: str | None = None
+    set_by: RowSetter | None = None
     ratified_on: date | None = None
     fold: FoldGroup | None = None
 
@@ -1023,10 +1034,11 @@ def rows_from_dilution(facts: Iterable[Mapping[str, Any]], who: Who) -> list[Fil
 AUTO_RATIFIER = "auto"
 
 
-def _ratifier(f: Mapping[str, Any]) -> str | None:
-    """Who ratified the row: the stored ``ratified_by`` when it names anyone but the machine, else ``None``.
-    ``None`` covers both a row with no ``ratified_by`` (an automated feed stored it) and ``auto`` (the machine
-    applied it): neither is a ratification, so neither is worded as one."""
+def _person(f: Mapping[str, Any]) -> str | None:
+    """The stored ``ratified_by`` when it names anyone but the machine, else ``None``. ``None`` covers both a row
+    with no ``ratified_by`` (an automated feed stored it) and ``auto`` (the machine applied it): neither is a
+    person's, so neither is worded as one. Read here only to classify a row (``_set_by``): it never reaches a row.
+    """
     by = f.get("ratified_by")
     if not isinstance(by, str):
         return None
@@ -1034,29 +1046,52 @@ def _ratifier(f: Mapping[str, Any]) -> str | None:
     return by if by and by.casefold() != AUTO_RATIFIER else None
 
 
+def _set_by(f: Mapping[str, Any], *, own: bool) -> RowSetter | None:
+    """Who set the row, as a kind: ``you`` for the reader's own purity (``own``: their workspace's row), else the
+    platform's vocabulary (``domain.platform_values.ratifier_kind``: an email is the steward, ``operator`` or any
+    other V1 word a carried value). ``None`` when nobody did (the machine, a feed). Never the email itself.
+    """
+    person = _person(f)
+    if person is None:
+        return None
+    if own:
+        return "you"
+    return "steward" if ratifier_kind(person) == "steward" else "carried"
+
+
 def _not_ratified_line(f: Mapping[str, Any]) -> str:
-    """The detail line of a row nobody ratified: what the stored ``ratified_by`` says, and no more."""
+    """The detail line of a catalyst or a purity row nobody ratified: what the stored ``ratified_by`` says."""
     by = f.get("ratified_by")
     if isinstance(by, str) and by.strip().casefold() == AUTO_RATIFIER:
         return "Applied automatically, not operator-ratified"
     return "No operator ratification stored"
 
 
+def _who_line(
+    set_by: RowSetter | None, on: date | None, f: Mapping[str, Any], *, platform: bool
+) -> str:
+    """The detail line naming who set a row, never an email: ``Ratified by you on <day>`` (the reader's purity),
+    ``Verified by the steward on <day>`` / ``Verified (carried over from V1)`` (``platform_values.words``); a
+    platform value nobody set reads ``From the filing (applied automatically)``, a catalyst or purity row nobody
+    ratified says so (``_not_ratified_line``)."""
+    if set_by == "you":
+        return f"Ratified by you on {words.day_words(on)}" if on else "Ratified by you"
+    if set_by is not None:
+        return words.set_by_line(set_by, on)
+    return words.FROM_FILING_LINE if platform else _not_ratified_line(f)
+
+
 def _source_line(f: Mapping[str, Any]) -> str:
-    """ "Source: ratified, ratified by operator": only the parts the row states (a ratifier only when it names
-    someone: a row nobody ratified says so on its own line, ``_not_ratified_line``)."""
-    parts = [str(f["source"])] if f.get("source") else []
-    ratifier = _ratifier(f)
-    if ratifier:
-        parts.append(f"ratified by {ratifier}")
-    return "Source: " + (", ".join(parts) if parts else "not stated")
+    """ "Source: 10-q-cover": the source the row states (who set it is its own line, ``_who_line``)."""
+    return "Source: " + (str(f["source"]) if f.get("source") else "not stated")
 
 
 def rows_from_catalysts(facts: Iterable[Mapping[str, Any]], who: Who) -> list[FilingRow]:
     """One row per catalyst, dated by its event date (``valid_from``; a future-dated one appears once its day
-    passes, the as-of read sees to that). A catalyst the operator ratified names the ratifier; one with no
-    ``ratified_by`` (an automated feed) or ``auto`` says it was not operator-ratified, in the detail. The
-    card-level catalysts are the Catalyst Calendar's.
+    passes, the as-of read sees to that). A company catalyst is shared data (the data tenant): one a person
+    ratified says who as a kind ("Verified by the steward on <day>", never an email); one with no ``ratified_by``
+    (an automated feed) or ``auto`` says it was not operator-ratified, in the detail. The card-level catalysts are
+    the Catalyst Calendar's.
     """
     out = []
     for f in facts:
@@ -1071,10 +1106,10 @@ def rows_from_catalysts(facts: Iterable[Mapping[str, Any]], who: Who) -> list[Fi
         if horizon:
             detail.append(f"Signal horizon ends {horizon}")
         detail.append(_source_line(f))
-        ratifier = _ratifier(f)
-        if ratifier is None:
-            detail.append(_not_ratified_line(f))
+        set_by = _set_by(f, own=False)
         stamped = f.get("recorded_at")
+        on = et_date(stamped) if set_by and isinstance(stamped, datetime) else None
+        detail.append(_who_line(set_by, on, f, platform=False))
         out.append(
             FilingRow(
                 security_id=who.security_id,
@@ -1086,10 +1121,8 @@ def rows_from_catalysts(facts: Iterable[Mapping[str, Any]], who: Who) -> list[Fi
                 detail=tuple(detail),
                 url=source_url(f.get("source_ref"), who.cik),
                 accession=_accession_of(f.get("source_ref")),
-                ratifier=ratifier,
-                ratified_on=(
-                    et_date(stamped) if ratifier and isinstance(stamped, datetime) else None
-                ),
+                set_by=set_by,
+                ratified_on=on,
             )
         )
     return out
@@ -1118,13 +1151,16 @@ def _ratified_row(
     headline: str,
     *,
     published: bool = False,
+    own: bool = False,
     extra: Sequence[str] = (),
 ) -> FilingRow | None:
     """One Workbench fact (cash and burn, shares outstanding, revenue mix), in one of two kinds of row:
 
-    - **ratified fact** (``ratified_by`` names someone but the machine): its public date is the instant the
-      operator ratified it (``recorded_at``, the public clock's own instant for these tables); the period or cover
-      date it states rides in the detail.
+    - **a person set it** (``ratified_by`` names someone but the machine): its public date is the instant it was
+      set (``recorded_at``, the public clock's own instant for these tables); the period or cover date it states
+      rides in the detail. ``own`` (the reader's purity, their workspace's row): a "ratified fact", "Ratified by
+      you on <day>". Else a shared value: a "verified value", "Verified by the steward on <day>" or "Verified
+      (carried over from V1)". Never an email (``set_by`` is a kind).
     - **stored fact** (``ratified_by`` empty or ``auto``): nobody ratified it, so it is not worded as ratified and
       is not dated by when we stored it (an ingest batch would read as a day of ratifications). Its date is its
       ``valid_from``, the cover or filing date, and the headline is led by its source as stored ("10-q-cover:
@@ -1135,13 +1171,15 @@ def _ratified_row(
       (``_share_count_public``), and the detail says so; a count with no publication stored keeps its cover date and
       says that instead.
 
-    Both kinds keep the wire kind ``ratified`` (the row's ``form`` tells them apart).
+    Every kind keeps the wire kind ``ratified`` (the row's ``form`` tells them apart). A shared value nobody set
+    reads "From the filing (applied automatically)"; a purity row nobody ratified says so as before.
     """
     stamped = f.get("recorded_at")
     stored = et_date(stamped) if isinstance(stamped, datetime) else None
     url = source_url(f.get("source_ref"), who.cik)
     accession = _accession_of(f.get("source_ref"))
-    if _ratifier(f):
+    set_by = _set_by(f, own=own)
+    if set_by is not None:
         if stored is None:
             return None
         detail = []
@@ -1149,17 +1187,18 @@ def _ratified_row(
             detail.append(f"Period or cover date: {_day(f.get('valid_from'))}")
         detail.extend(extra)  # what the fact states beyond its headline (the burn pace)
         detail.append(_source_line(f))
+        detail.append(_who_line(set_by, stored, f, platform=not own))
         return FilingRow(
             security_id=who.security_id,
             ticker=who.ticker,
             kind="ratified",
-            form="ratified fact",
+            form="ratified fact" if own else "verified value",
             date=stored,
             headline=headline,
             detail=tuple(detail),
             url=url,
             accession=accession,
-            ratifier=_ratifier(f),
+            set_by=set_by,
             ratified_on=stored,
         )
     cover = _day(f.get("valid_from"))
@@ -1185,7 +1224,7 @@ def _ratified_row(
         detail.append("No cover or filing date stated, so it is dated by the day it was stored")
     detail.extend(extra)  # what the fact states beyond its headline (the burn pace)
     detail.append(_source_line(f))
-    detail.append(_not_ratified_line(f))
+    detail.append(_who_line(None, None, f, platform=not own))
     source = str(f["source"]).strip() if f.get("source") else ""
     return FilingRow(
         security_id=who.security_id,
@@ -1206,8 +1245,9 @@ def rows_from_ratified(
     mix: Iterable[Mapping[str, Any]],
     who: Who,
 ) -> list[FilingRow]:
-    """The Workbench facts, one row each: cash and burn, shares outstanding, revenue mix. An operator-ratified
-    one is a "ratified fact" and a machine-applied or feed-stored one a "stored fact" (``_ratified_row``).
+    """The Workbench facts, one row each: cash and burn, shares outstanding, revenue mix. A shared value a person
+    set is a "verified value", the reader's own ratified purity a "ratified fact", and a machine-applied or
+    feed-stored one a "stored fact" (``_ratified_row``).
     """
     out = []
     for f in cash_burn:
@@ -1246,7 +1286,9 @@ def rows_from_ratified(
     for f in mix:
         pct = _f(f.get("mix_pct"))
         if pct is not None:
-            out.append(_ratified_row(f, who, f"revenue mix: {f.get('segment_label')} {pct:g}%"))
+            out.append(
+                _ratified_row(f, who, f"revenue mix: {f.get('segment_label')} {pct:g}%", own=True)
+            )
     return [r for r in out if r is not None]
 
 

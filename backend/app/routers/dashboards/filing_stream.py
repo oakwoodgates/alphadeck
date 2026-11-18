@@ -88,8 +88,9 @@ class FilingStreamCardsOut(_Wire):
 class FilingStreamRowOut(_Wire):
     """One filing-derived fact. ``kind``: ``8k`` | ``form4`` | ``form4a`` | ``stake`` | ``revenue`` | ``filing``
     (any other form in the company's EDGAR index, shown as its form and primary document) | ``split`` |
-    ``dilution`` | ``catalyst`` | ``ratified`` (a ratified fact, ``form`` "ratified fact", or a stored fact nobody
-    ratified, ``form`` "stored fact"). ``form`` = the form as filed or the row's own label; ``date`` = the
+    ``dilution`` | ``catalyst`` | ``ratified`` (a shared value the steward set, ``form`` "verified value"; your own
+    purity, ``form`` "ratified fact"; or a stored fact nobody set, ``form`` "stored fact"; who set a row is said in
+    its detail as a kind, never an email). ``form`` = the form as filed or the row's own label; ``date`` = the
     public date it counts from; ``headline`` = one neutral line; ``detail`` = the lines the expanded row shows;
     ``url`` = the filing's EDGAR index or the stored source (``null`` = none known); ``tags`` = quiet field
     predicates; ``routine`` = a fold candidate; ``fold`` = its fold group (``form4``: a Form 4 holding no code-P

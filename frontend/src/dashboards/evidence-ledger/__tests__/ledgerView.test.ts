@@ -57,9 +57,9 @@ const filters = (over: Partial<Filters> = {}): Filters => ({ ...DEFAULT_FILTERS,
 
 describe("the words", () => {
   it("name every class and kind the server can send, in the server's order", () => {
-    expect(AUTHORITY_ORDER).toEqual(["operator", "system", "automatic", "card"]);
-    expect(AUTHORITY_ORDER.map((a) => AUTHORITY_TAG[a])).toEqual(["your", "computed", "stored", "card"]);
-    expect(AUTHORITY_ORDER.map((a) => AUTHORITY_LABEL[a])).toEqual(["Your", "Computed", "Stored", "Card"]);
+    expect(AUTHORITY_ORDER).toEqual(["operator", "steward", "system", "automatic", "card"]);
+    expect(AUTHORITY_ORDER.map((a) => AUTHORITY_TAG[a])).toEqual(["your", "steward", "computed", "stored", "card"]);
+    expect(AUTHORITY_ORDER.map((a) => AUTHORITY_LABEL[a])).toEqual(["Your", "Steward", "Computed", "Stored", "Card"]);
     for (const a of AUTHORITY_ORDER) expect(AUTHORITY_MEANS[a].length).toBeGreaterThan(10);
     expect(KIND_ORDER).toHaveLength(8);
     for (const k of KIND_ORDER) expect(KIND_LABEL[k]).toBeTruthy();
@@ -87,7 +87,11 @@ describe("the words", () => {
 
 describe("byWords", () => {
   it("words who and when, and says so when the day was not recorded", () => {
-    expect(byWords({ kind: "ratified", by: "operator", on: "2026-10-20" })).toBe("ratified by operator · Oct 20, 2026");
+    expect(byWords({ kind: "ratified", by: "you", on: "2026-10-20" })).toBe("ratified by you · Oct 20, 2026");
+    expect(byWords({ kind: "ratified", by: "steward", on: "2026-11-18" })).toBe("set by the steward · Nov 18, 2026");
+    expect(byWords({ kind: "catalyst_fact", by: "carried", on: "2026-10-20" })).toBe(
+      "verified (carried over from V1) · Oct 20, 2026",
+    );
     expect(byWords({ kind: "role", by: "operator", on: "2026-10-01" })).toBe("set by operator · Oct 1, 2026");
     expect(byWords({ kind: "role", by: "operator", on: null })).toBe("set by operator · day not recorded");
     expect(byWords({ kind: "trigger", by: null, on: null })).toBeNull();
@@ -162,7 +166,8 @@ describe("the filters", () => {
 const tallies = (over: Partial<EvidenceLedgerTalliesOut> = {}): EvidenceLedgerTalliesOut => ({
   rows: 10,
   by_authority: [
-    { key: "operator", rows: 2 },
+    { key: "operator", rows: 1 },
+    { key: "steward", rows: 1 },
     { key: "system", rows: 3 },
     { key: "automatic", rows: 1 },
     { key: "card", rows: 4 },
@@ -182,7 +187,8 @@ const tallies = (over: Partial<EvidenceLedgerTalliesOut> = {}): EvidenceLedgerTa
   trace_price: 1,
   trace_other: 0,
   trace_none: 0,
-  facts_ratified: 1,
+  facts_ratified: 0,
+  facts_verified: 1,
   facts_stored: 1,
   catalysts_dated: 1,
   catalysts_undated: 1,
@@ -258,9 +264,9 @@ describe("workLines", () => {
     expect(lines[0]).toBe(
       "as of Oct 28, 2026 · as it was public by Oct 28, 2026 · triggers from the call recorded for Oct 27, 2026 · cached",
     );
-    expect(lines[1]).toBe("10 rows: 2 your · 3 computed · 1 stored · 4 card");
+    expect(lines[1]).toBe("10 rows: 1 your · 1 steward · 3 computed · 1 stored · 4 card");
     expect(lines[2]).toBe(
-      "1 ratified fact and 1 stored fact (the last 365 days) · 1 catalyst dated, 1 undated · 1 kill criterion · 1 evidence link · 1 context role (1 undated)",
+      "0 ratified facts, 1 verified value and 1 stored fact (the last 365 days) · 1 catalyst dated, 1 undated · 1 kill criterion · 1 evidence link · 1 context role (1 undated)",
     );
     expect(lines[3]).toBe("5 roster rows · 2 companies resolved · 0 without a resolved security · 1 in Context or Bench");
   });
@@ -269,7 +275,7 @@ describe("workLines", () => {
     const lines = workLines(data({ clock: "record", cache: "computed", compute_ms: 4200 }), 4, true);
     expect(lines[0]).toContain("live read");
     expect(lines[0]).toContain("computed in 4.2 s — first load since the last run or basket edit");
-    expect(lines[1]).toBe("10 rows: 2 your · 3 computed · 1 stored · 4 card · 4 shown after the filters");
+    expect(lines[1]).toBe("10 rows: 1 your · 1 steward · 3 computed · 1 stored · 4 card · 4 shown after the filters");
   });
 
   it("counts every row whatever the filters leave", () => {

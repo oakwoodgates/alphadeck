@@ -1,6 +1,8 @@
-"""The ``ratify-queue`` prompt's call plan on the 79-member card, run through the REAL stdio client against a loopback fake
-API: ``get_triage`` once, ``get_thesis`` once and ``get_discovery(section="ambiguous")`` because the card has a saved run.
-At most 3 calls and 24,000 characters in all, on the synthetic card; ``get_extract`` is never called (it spends).
+"""The ``card-data-check`` prompt's call plan on the 79-member card (V2 W5d: was ``ratify-queue``), run through the REAL
+stdio client against a loopback fake API: ``get_triage`` once, ``get_thesis`` once and
+``get_discovery(section="ambiguous")`` because the card has a saved run. At most 3 calls and 24,000 characters in all,
+on the synthetic card; ``get_extract`` is never called (it spends). No prompt tells anyone to ratify a share count or
+a cash value: those are shared values, set by the platform and the steward; a user flags one in the Workbench.
 """
 
 from __future__ import annotations
@@ -21,10 +23,11 @@ from tests.agent_tools.fake_api import FakeApi, LoopbackServer  # noqa: E402
 
 MAX_CALLS = 3
 MAX_CHARS = 24_000
-PROMPT_FILE = Path(__file__).resolve().parents[2] / "agent_tools" / "prompts" / "ratify-queue.md"
+PROMPTS_DIR = Path(__file__).resolve().parents[2] / "agent_tools" / "prompts"
+PROMPT_FILE = PROMPTS_DIR / "card-data-check.md"
 
 
-def test_the_ratify_queue_call_plan_costs_at_most_three_calls_and_24000_characters():
+def test_the_card_data_check_call_plan_costs_at_most_three_calls_and_24000_characters():
     spent: list[tuple[str, int]] = []
     api = FakeApi()
 
@@ -38,7 +41,7 @@ def test_the_ratify_queue_call_plan_costs_at_most_three_calls_and_24000_characte
             async with ClientSession(read_stream, write_stream, read_timeout_seconds=30) as session:
                 await session.initialize()
                 prompt = await session.get_prompt(
-                    "ratify-queue", {"thesis": rfx.THESIS_ID, "asof": rfx.ASOF}
+                    "card-data-check", {"thesis": rfx.THESIS_ID, "asof": rfx.ASOF}
                 )
 
                 async def read(tool: str, **args):
@@ -61,7 +64,7 @@ def test_the_ratify_queue_call_plan_costs_at_most_three_calls_and_24000_characte
     assert len(spent) <= MAX_CALLS, spent
     assert sum(chars for _, chars in spent) <= MAX_CHARS, spent
     print(
-        "ratify-queue cost:",
+        "card-data-check cost:",
         len(spent),
         "calls,",
         sum(chars for _, chars in spent),
@@ -71,8 +74,10 @@ def test_the_ratify_queue_call_plan_costs_at_most_three_calls_and_24000_characte
     assert [tool for tool, _ in spent] == ["get_triage", "get_thesis", "get_discovery"]
     assert all(chars <= 8_000 for _, chars in spent)
     # what the report needs is in those three reads
-    assert triage["counts"]["unconfirmed_members"] == 73
-    assert sum(s["confirmed"] for s in triage["segments"]) == 6
+    assert triage["counts"]["awaiting_members"] == len(rfx.AWAITING_SHARES | rfx.NOT_EXTRACTED_CASH)
+    assert sum(s["awaiting"] for s in triage["segments"]) == triage["counts"]["awaiting_members"]
+    assert all("values" in m for m in triage["members"])
+    assert "values_asof" in triage
     assert any(m["signed_off"] is False for s in thesis["segments"] for m in s["members"])
     assert any(
         m["authored_by"] == "system_drafted" for s in thesis["segments"] for m in s["members"]
@@ -83,9 +88,30 @@ def test_the_ratify_queue_call_plan_costs_at_most_three_calls_and_24000_characte
     assert not [r for r in api.requests if r[1].endswith("/extract")]
 
 
-def test_the_prompt_says_the_extract_spends_and_that_nothing_is_ratified_by_the_agent():
+def test_the_prompt_says_the_extract_spends_and_that_nothing_is_set_by_the_agent():
     raw = PROMPT_FILE.read_text("utf-8")
     assert "get_extract SPENDS" in raw and "only when the operator names the company" in raw
-    assert "you propose nothing and ratify nothing" in raw
+    assert "you propose nothing and set nothing" in raw
     assert "never feeds the call" in raw and "never a call input" in raw
     assert "Agent interpretation" in raw and len(raw) <= 2_000
+
+
+def test_the_prompt_ends_with_the_flag_and_never_says_ratify_or_unconfirmed():
+    text = PROMPT_FILE.read_text(encoding="utf-8")
+    assert text.rstrip().endswith("To dispute a shared value, flag it in the Workbench.")
+    assert "ratif" not in text.lower() and "unconfirmed" not in text.lower()
+    assert not (PROMPTS_DIR / "ratify-queue.md").exists()
+
+
+def test_no_prompt_tells_anyone_to_ratify_a_share_count_or_a_cash_value():
+    """A grep guard: a prompt may speak of ratifying purity (the user's own), never of ratifying the shared values."""
+    for path in sorted(PROMPTS_DIR.glob("*.md")):
+        for sentence in path.read_text(encoding="utf-8").replace("\n", " ").split(". "):
+            low = sentence.lower()
+            if "ratif" in low:
+                assert not any(
+                    w in low for w in ("share count", "shares", "cash", "runway", "market cap")
+                ), (
+                    path.name,
+                    sentence,
+                )

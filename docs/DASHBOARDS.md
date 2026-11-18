@@ -183,8 +183,10 @@ the data flags). Its plan is `docs/BOARD.md`.
    normalized to one `FilingRow` shape (`read_filing_rows`: the point-in-time view plus the Form 4/A SELECT, both on
    the request's one `serve_view(asof)` pair). A page that lists what a company filed reuses it rather than
    re-reading the fact tables; a page that wants one family names it (`kinds=`; Insider Buying reads `form4` and `form4a`
-   alone, and every other kind's read is skipped, not filtered). A ratified fact, and a catalyst a person ratified, carry who ratified them and the
-   day (`ratifier`, `ratified_on`; the Evidence Ledger's authority classes read them).
+   alone, and every other kind's read is skipped, not filtered). A fact or a catalyst a person set carries who set it AS A KIND and
+   the day (`set_by`: `you` = the reader's own purity, `steward` = the steward set a shared value or catalyst,
+   `carried` = verified in V1 and carried over; `ratified_on`), never an email (V2 W5d, `docs/PLATFORM_VALUES.md`);
+   the Evidence Ledger's authority classes read them, and the detail lines' words come from `platform_values/words.py`.
    Inside a page compute the reader keeps each company's rows as a piece named by the kinds read and the window
    (`filings_piece`: `filings.all.365d`), reused only for exactly the same read (the same shown ticker and tenant too;
    a narrower window is never a wider stored one filtered), and its Form 4/A SELECT runs only when a company is read.

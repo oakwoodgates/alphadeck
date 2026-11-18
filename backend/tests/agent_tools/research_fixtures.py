@@ -11,6 +11,7 @@ from __future__ import annotations
 import random
 from typing import Any
 
+from app.routers.platform_values import UserThesisValuesOut
 from app.schemas_api import (
     ChainDraftOut,
     OnboardingReadoutOut,
@@ -38,7 +39,8 @@ def _dump(model: Any, payload: Any) -> Any:
 REAL_LABELS = ["Segment 01", "Segment 02", "Segment 03", "Segment 04"]
 # members per segment: the four real links, then Context, ETFs, Bench (the three silent ones, last, in that order)
 MEMBER_COUNTS = (14, 5, 8, 22, 6, 0, 24)
-CONFIRMED = {0, 10, 20, 30, 40, 48}  # six voting members with every estimate confirmed
+CONFIRMED = {0, 10, 20, 30, 40, 48}  # six voting members whose purity the operator ratified
+NO_PURITY = {3, 16, 29, 42, 55}  # no purity yet: the operator's own to set
 BUSINESS_TYPES = (
     "software_it",
     "semiconductors",
@@ -102,7 +104,11 @@ def _member(i: int, label: str) -> dict[str, Any]:
         "royalty": False,
         "instrument_kind": "equity",
         "segment": label,
-        "purity": _figure(i % 5, round(10.0 + i, 1), [_provenance(purity_src, i)]),
+        "purity": (
+            _figure(None, None, [])
+            if i in NO_PURITY
+            else _figure(i % 5, round(10.0 + i, 1), [_provenance(purity_src, i)])
+        ),
         "runway": _figure(
             None if i % 9 == 0 else (i + 1) % 5,
             None if i % 9 == 0 else round(4.0 + i % 11, 1),
@@ -116,7 +122,6 @@ def _member(i: int, label: str) -> dict[str, Any]:
         ),
         "market_cap": _figure(None, 5.0e8 + i * 1.7e7, cap_provenance),
         "fit": ("strong", "partial", "weak")[i % 3],
-        "unconfirmed_estimates": 0 if confirmed else 3,
         "thin_price_history": i == 33,
         "price_feed_limitation": text(60, 3) if i == 61 else None,
     }
@@ -143,6 +148,76 @@ def scored() -> dict[str, Any]:
             "members": members,
         },
     )
+
+
+# --- GET /platform-values/theses/{id} (current; no asof) ----------------------------------------------------------------
+
+AWAITING_SHARES = {
+    i for i in range(79) if i % 6 == 1
+}  # a share count awaiting the steward: no value shown
+NOT_EXTRACTED_CASH = {i for i in range(79) if i % 5 == 2}  # cash: no value yet (not extracted)
+CASH_GENERATIVE = {4, 44}  # cash: "runway does not apply", nothing missing
+PENDING_SHARES = {0, 30}  # a share count shown, a newer filing awaiting the steward
+
+
+def _value(fact_type: str, state: str, reason: str | None, label: str, i: int) -> dict[str, Any]:
+    v: dict[str, Any] = {"fact_type": fact_type, "state": state, "reason": reason, "label": label}
+    if state == "awaiting_steward":
+        v["awaiting"] = {
+            "event_date": "2026-09-30",
+            "line": "The steward has not checked the share count read from the filing dated Sep 30, 2026. "
+            "Market cap is not shown until a count is verified.",
+        }
+    elif state in ("from_filing", "verified"):
+        v["set_by"] = "machine" if state == "from_filing" else "steward"
+        v["value"] = {"source": "10-q-cover", "valid_from": "2026-06-30", "shares": 1.0e7 + i}
+        if fact_type == "shares_outstanding" and i in PENDING_SHARES:
+            v["pending"] = {
+                "event_date": "2026-09-30",
+                "line": "A newer filing (dated Sep 30, 2026) is awaiting the steward",
+            }
+    return v
+
+
+def thesis_values() -> dict[str, Any]:
+    """Both shared values of every member of the 79-member card, in its order (``UserThesisValuesOut``)."""
+    out = []
+    for i, m in enumerate(scored()["members"]):
+        if i in AWAITING_SHARES:
+            shares = _value(
+                "shares_outstanding", "awaiting_steward", None, "Awaiting the steward", i
+            )
+        elif i % 2:
+            shares = _value("shares_outstanding", "verified", None, "Verified by the steward", i)
+        else:
+            shares = _value("shares_outstanding", "from_filing", None, "From the filing", i)
+        if i in CASH_GENERATIVE:
+            cash = _value(
+                "cash_burn",
+                "no_value",
+                "cash-generative",
+                "Runway does not apply: the company generated cash",
+                i,
+            )
+        elif i in NOT_EXTRACTED_CASH:
+            cash = _value(
+                "cash_burn",
+                "no_value",
+                "not-extracted",
+                "No value yet: the platform has not read this company's filings yet",
+                i,
+            )
+        else:
+            cash = _value("cash_burn", "from_filing", None, "From the filing", i)
+        out.append(
+            {
+                "security_id": m["security_id"],
+                "ticker": m["ticker"],
+                "shares": shares,
+                "cash_burn": cash,
+            }
+        )
+    return _dump(UserThesisValuesOut, {"thesis_id": THESIS_ID, "members": out})
 
 
 # --- GET /workbench/theses/{id}/onboarding -----------------------------------------------------------------------------

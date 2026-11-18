@@ -470,9 +470,6 @@ class ScoredMemberOut(BaseModel):
     dilution: ScoredFigureOut
     market_cap: ScoredFigureOut
     fit: str
-    # HONEST CONFIDENCE (SURFACE Slice 1a): how many fact-backed meters (purity/runway/market cap) have no
-    # operator-confirmed value yet. A "rests on N unconfirmed" readiness signal; never a scoring input.
-    unconfirmed_estimates: int = 0
     # DATA-HEALTH (#1 thin-history flag) — the name's stored EOD bar-dates in the trailing year fall below the
     # longest active price-history lookback (``THIN_HISTORY_BARS`` = 200), so the history-window reads may be
     # STARVED. A derive-on-read bar COUNT (from ``recent_distinct_bar_counts``), NEVER persisted and NEVER a
@@ -533,7 +530,6 @@ class ScoredMemberOut(BaseModel):
             dilution=fig(m.dilution),
             market_cap=fig(m.market_cap),
             fit=m.fit,
-            unconfirmed_estimates=m.unconfirmed_estimates,
             thin_price_history=bool((thin_history or {}).get(m.security_id, False)),
             price_feed_limitation=(limitations or {}).get(m.security_id),
         )

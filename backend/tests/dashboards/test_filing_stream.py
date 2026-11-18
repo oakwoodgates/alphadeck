@@ -691,7 +691,8 @@ def test_a_ratified_catalyst_is_dated_by_its_event_date_and_links_only_a_real_so
         "Type: regulatory",
         "Grade: core",
         "Signal horizon ends 2026-12-01",
-        "Source: ratified, ratified by operator",
+        "Source: ratified",
+        "Verified (carried over from V1)",  # a shared catalyst a person set: a kind, never an email (W5d)
     )
     (a,) = rows_from_catalysts(
         [{**f, "source_ref": "0000876543-26-000070", "horizon_end": None}], W
@@ -719,9 +720,10 @@ def test_a_catalyst_nobody_ratified_is_not_worded_as_ratified_but_keeps_its_even
         "Source: doe_usaspending",
         "Applied automatically, not operator-ratified",
     )
-    assert (
-        op.detail[-1] == "Source: doe_usaspending, ratified by operator"
-    )  # unchanged, no extra line
+    assert op.detail[-2:] == (
+        "Source: doe_usaspending",
+        "Verified (carried over from V1)",
+    )  # who set it is a kind on its own line (W5d)
     for r in (feed, auto, op):  # still a catalyst on its event date, whoever ratified it
         assert (r.kind, r.form, r.date) == ("catalyst", "catalyst", date(2026, 10, 10))
     assert not any("ratified by" in line for line in (*feed.detail, *auto.detail))
@@ -748,17 +750,27 @@ def test_ratified_facts_are_dated_by_the_ratification_and_worded_by_what_they_st
         "shares outstanding 84.2M",
         "revenue mix: nuclear 61%",
     ]
-    assert all(r.kind == "ratified" and r.form == "ratified fact" for r in got)
+    # a shared value a person set is a "verified value"; the user's own purity a "ratified fact" (W5d)
+    assert [r.form for r in got] == ["verified value"] * 3 + ["ratified fact"]
+    assert all(r.kind == "ratified" for r in got)
     assert all(r.date == date(2026, 10, 20) for r in got)  # the ratification, in market time
     assert got[0].detail == (
         "Period or cover date: 2026-06-30",
-        "Source: ratified, ratified by operator",
+        "Source: ratified",
+        "Verified (carried over from V1)",
     )
+    assert got[-1].detail[-1] == "Ratified by you on Oct 20, 2026"
     assert got[0].url == "https://x.test/10q"
-    # a ratifier other than "operator" is still a ratifier; only empty and "auto" are not
+    # a setter other than "operator" is still a person; only empty and "auto" are not. An email is the steward's
     (other,) = rows_from_ratified([], [{**shares, "ratified_by": "jane"}], [], W)
-    assert (other.form, other.date) == ("ratified fact", date(2026, 10, 20))
-    assert other.detail[-1] == "Source: ratified, ratified by jane"
+    assert (other.form, other.date, other.set_by) == (
+        "verified value",
+        date(2026, 10, 20),
+        "carried",
+    )
+    (steward,) = rows_from_ratified([], [{**shares, "ratified_by": "s@x.test"}], [], W)
+    assert steward.detail[-1] == "Verified by the steward on Oct 20, 2026"
+    assert "@" not in " ".join(steward.detail)
 
 
 def stored_shares(**over) -> dict:
@@ -788,8 +800,8 @@ def test_a_fact_nobody_ratified_is_a_stored_fact_dated_by_its_cover_date_not_its
         assert r.detail[2] == "Source: 10-q-cover"  # no "ratified by" for a row nobody ratified
         assert r.accession == "0000876543-26-000044"
         assert r.url == filing_index_url("0000876543", "0000876543-26-000044")
-    assert auto.detail[-1] == "Applied automatically, not operator-ratified"
-    assert feed.detail[-1] == "No operator ratification stored"
+        # a shared value nobody set reads as the machine's (W5d, platform_values.words)
+        assert r.detail[-1] == "From the filing (applied automatically)"
     assert (
         len(auto.detail) == 4
     )  # store day, dating note, source, ratification: nothing else claimed
@@ -818,9 +830,9 @@ def test_a_stored_fact_reads_the_same_in_all_three_tables_and_a_ratified_one_bes
     assert [(r.form, r.date) for r in both] == [
         ("stored fact", date(2026, 6, 30)),
         (
-            "ratified fact",
+            "verified value",
             date(2026, 10, 20),
-        ),  # the operator's own, dated by the ratification as before
+        ),  # a person set it (V1, carried), dated by the ratification as before
     ]
 
 
@@ -879,8 +891,8 @@ def test_the_company_rows_carry_both_a_stored_and_a_ratified_fact_with_their_own
     )
     rows = rows_for_company(pit, W, clock="public")
     assert sorted((r.form, r.date) for r in rows) == [
-        ("ratified fact", date(2026, 10, 20)),
         ("stored fact", date(2026, 6, 30)),
+        ("verified value", date(2026, 10, 20)),
     ]
     assert {r.kind for r in rows} == {"ratified"}
 
@@ -2226,7 +2238,7 @@ def test_rows_that_can_be_dated_but_state_nothing_else_still_make_a_row():
         "Stored on 2026-10-01",
         "No cover or filing date stated, so it is dated by the day it was stored",
         "Source: not stated",
-        "No operator ratification stored",
+        "From the filing (applied automatically)",
     )
     (op,) = rows_from_ratified(
         [
@@ -2241,7 +2253,10 @@ def test_rows_that_can_be_dated_but_state_nothing_else_still_make_a_row():
         [],
         W,
     )
-    assert (op.form, op.detail) == ("ratified fact", ("Source: ratified by operator",))
+    assert (op.form, op.detail) == (
+        "verified value",
+        ("Source: not stated", "Verified (carried over from V1)"),
+    )
 
 
 def test_the_year_over_year_and_overhang_rules_refuse_a_zero_or_missing_basis():
