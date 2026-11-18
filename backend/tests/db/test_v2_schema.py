@@ -457,6 +457,9 @@ def test_value_ref_only_for_catalysts(db):
 
 
 def test_caps_default_to_no_cap(db):
+    """The columns have no default (NULL = no cap) and no existing tenant gets one; a NEW workspace made by
+    ``pipeline.users create`` gets the Settings defaults (V2 W7c, 0 = no cap)."""
+    from domain.settings import get_settings
     from pipeline.users import create_user
 
     cols = _columns(db, "tenant")
@@ -473,12 +476,17 @@ def test_caps_default_to_no_cap(db):
         )
         rows = cur.fetchall()
     assert {DATA_TENANT_ID, FOUNDING_WORKSPACE_ID, new_ws} <= {r["id"] for r in rows}
+    s = get_settings()
+    defaults = (
+        s.workspace_cap_live_cards_default or None,
+        s.workspace_cap_companies_default or None,
+        s.workspace_cap_terms_per_card_default or None,
+    )
+    # the seeded tenants keep NO cap (other tests' workspaces may carry caps they set: not read here)
     for r in rows:
-        assert (r["cap_live_cards"], r["cap_companies"], r["cap_terms_per_card"]) == (
-            None,
-            None,
-            None,
-        )
+        if r["id"] in (DATA_TENANT_ID, FOUNDING_WORKSPACE_ID, new_ws):
+            got = (r["cap_live_cards"], r["cap_companies"], r["cap_terms_per_card"])
+            assert got == (defaults if r["id"] == new_ws else (None, None, None)), r["id"]
     for c in caps:
         _refused(db, errors.CheckViolation, f"UPDATE tenant SET {c} = -1 WHERE id = %s", (new_ws,))
         with db.cursor() as cur:

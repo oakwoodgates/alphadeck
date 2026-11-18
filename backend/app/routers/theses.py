@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from app import workspace_caps
 from app.deps import get_conn, get_thesis_or_404, get_workspace
 from app.schemas_api import (
     CallCardResponse,
@@ -131,7 +132,18 @@ def unarchive_thesis(
     conn: psycopg.Connection = Depends(get_conn),
     thesis: Thesis = Depends(get_thesis_or_404),
 ) -> ThesisSummary:
-    """Restore an archived thesis whole — back onto the Board and into the cron's nightly walk."""
+    """Restore an archived thesis whole — back onto the Board and into the cron's nightly walk.
+
+    Workspace caps (V2 W7c): a restore that would raise the live cards or the distinct companies on live cards past
+    the workspace's cap answers 409 with a sentence naming the count and the limit, and restores nothing. Restoring
+    a card that is already live changes no count and always passes."""
+    workspace_caps.check(
+        conn,
+        thesis.tenant_id,
+        thesis_id=thesis.id,
+        adding=workspace_caps.Adding.RESTORE,
+        live_after=True,
+    )
     thesis_repo.set_archived(conn, thesis.id, False)
     conn.commit()
     return ThesisSummary.from_thesis(thesis_repo.get(conn, thesis.id, workspace=thesis.tenant_id))

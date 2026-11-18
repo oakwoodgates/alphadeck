@@ -367,6 +367,10 @@ export interface paths {
         /**
          * Unarchive Thesis
          * @description Restore an archived thesis whole — back onto the Board and into the cron's nightly walk.
+         *
+         *     Workspace caps (V2 W7c): a restore that would raise the live cards or the distinct companies on live cards past
+         *     the workspace's cap answers 409 with a sentence naming the count and the limit, and restores nothing. Restoring
+         *     a card that is already live changes no count and always passes.
          */
         post: operations["unarchive_thesis_theses__thesis_id__unarchive_post"];
         delete?: never;
@@ -950,6 +954,11 @@ export interface paths {
          *     cover them all, no job is kicked and ``onboarding`` says the names load outside the nightly window instead (the
          *     staged onboarding job, then the nightly). A steward is not counted. The lane is ``start_member_load``, shared
          *     with the fund and SPAC attaches (V2 W7b).
+         *
+         *     WORKSPACE CAPS (V2 W7c, ``app.workspace_caps``): a new card that would raise the workspace's live cards past its
+         *     cap, or a basket that would raise the distinct companies on its live cards past its cap, is refused whole with a
+         *     409 whose sentence names the count and the limit; nothing is written and no name is dropped. A save that keeps
+         *     or shrinks the count is never refused, even on a workspace already over a cap.
          */
         post: operations["promote_workbench_theses_post"];
         delete?: never;
@@ -1034,7 +1043,9 @@ export interface paths {
          *     re-promoted). New ``req.seeds`` are added as fresh SIGNAL. Returns the thesis so the operator can INSPECT the
          *     stored SIGNAL/BROAD split. Fail-open: no key / blank narrative + no seeds → an empty set is stored (the draft
          *     then 503s "term set is empty" — surfaced, never a silent recall fallback). It sources NO number (#3) — terms
-         *     only — and writes ONLY ``term_set`` (the narrow ``set_term_set``).
+         *     only — and writes ONLY ``term_set`` (the narrow ``set_term_set``). Workspace caps (V2 W7c): when the operator's
+         *     own terms and the seeds alone would raise the card past its term cap, 409 before the model runs; when the
+         *     generated set would, 409 and nothing is stored (the ``term_run`` unit stays spent either way).
          */
         post: operations["produce_terms_workbench_theses__thesis_id__terms_post"];
         delete?: never;
@@ -1062,7 +1073,8 @@ export interface paths {
          *     ``set_term_set`` (the SOLE writer; ``upsert`` never names ``term_set`` — the structural wipe-guard stays
          *     intact). Sources NO number (#3) — structure/config only. 422 on an empty term or a case-insensitive
          *     duplicate. An empty ``terms`` clears the set (a visible operator choice; the draft then 503s "term set is
-         *     empty").
+         *     empty"). 409 (nothing saved) when the set would raise the card past its workspace's term cap (V2 W7c); a save
+         *     that keeps or shrinks the count always passes.
          */
         put: operations["edit_terms_workbench_theses__thesis_id__terms_edit_put"];
         post?: never;
@@ -2853,7 +2865,9 @@ export interface paths {
          *     the stored term matches (factual provenance, never client-supplied). Idempotent:
          *     already-in-basket returns ``already`` and writes nothing. A company it ADDS has its data load started after
          *     the commit exactly as a promote's new name does (``start_member_load``, V2 W7b): the fast-lane job or the
-         *     onboarding queue, carried in ``ingest`` / ``onboarding``. Reversible via detach (#1).
+         *     onboarding queue, carried in ``ingest`` / ``onboarding``. Reversible via detach (#1). A company that would
+         *     raise the distinct companies on the workspace's live cards past its cap answers 409 with a sentence naming the
+         *     count and the limit, and adds nothing (V2 W7c).
          */
         post: operations["spac_attach_radar_spac_attach_post"];
         delete?: never;
@@ -2961,6 +2975,8 @@ export interface paths {
          *     after the commit exactly as a promote's new name does (``start_member_load``, V2 W7b): the fast-lane job
          *     (``ingest``) or the onboarding queue (``onboarding``), bounded by the global ingest cap and, for a plain user,
          *     one unit of today's ``price_pull`` allowance. The screen pulls no prices itself. Reversible via detach (#1).
+         *     A fund that would raise the distinct companies on the workspace's live cards past its cap answers 409 with a
+         *     sentence naming the count and the limit, and adds nothing (V2 W7c).
          */
         post: operations["fund_attach_radar_funds_attach_post"];
         delete?: never;

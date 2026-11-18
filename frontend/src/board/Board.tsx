@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
 
+import { apiErrorText } from "../api/errorText";
 import type { CallCardResponse, ThesisSummary } from "../api/hooks";
 import { useCalls, useDataFlags, useSetArchived, useSetMetaIndex, useTheses } from "../api/hooks";
 import { countdownOrigin, useAppClock } from "../clock";
@@ -327,6 +328,14 @@ export function Board({ header, asof, onSelect }: Props) {
               </button>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* an archive or a restore the server refused (a restore past the workspace's caps answers 409 with a
+          sentence naming the count and the limit, V2 W7c): shown as worded, on its own line; nothing changed */}
+      {setArchived.error != null && (
+        <div className="note err" role="alert">
+          {apiErrorText(setArchived.error) ?? "The card was not changed. Try again."}
         </div>
       )}
 

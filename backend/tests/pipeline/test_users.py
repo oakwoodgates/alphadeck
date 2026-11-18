@@ -433,3 +433,88 @@ def test_oauth_client_add_refuses_an_id_that_exists(clean_clients):
     assert users.run(builtin, conn, emit=out.append) == 1
     assert _count(conn, "oauth_client") == before
     assert _client_row(conn, _CLIENT)["client_name"] == "Desk"  # never overwritten
+
+
+# --- workspace caps (V2 W7c): ``caps --workspace <id> [--live-cards N] [--companies N] [--terms N] [--clear]`` ----
+
+
+def _caps(conn, w) -> tuple:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT cap_live_cards, cap_companies, cap_terms_per_card FROM tenant WHERE id = %s",
+            (w,),
+        )
+        r = cur.fetchone()
+    return (r["cap_live_cards"], r["cap_companies"], r["cap_terms_per_card"])
+
+
+def _bare_workspace(conn) -> object:
+    w = uuid4()
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO tenant (id, name, kind) VALUES (%s, %s, 'workspace')",
+            (w, "Caps's workspace"),
+        )
+    conn.commit()
+    return w
+
+
+def test_caps_sets_one_cap_and_prints_before_and_after(conn):
+    w = _bare_workspace(conn)
+    out: list[str] = []
+    assert (
+        users.run(["caps", "--workspace", str(w), "--live-cards", "30"], conn, emit=out.append) == 0
+    )
+    assert _caps(conn, w) == (30, None, None)
+    text = "\n".join(out)
+    assert "before: live cards no cap, companies no cap, terms per card no cap" in text
+    assert "after: live cards 30, companies no cap, terms per card no cap" in text
+    assert "in use: 0 live cards, 0 companies" in text
+    assert (
+        users.run(
+            ["caps", "--workspace", str(w), "--companies", "0", "--terms", "150"],
+            conn,
+            emit=out.append,
+        )
+        == 0
+    )
+    assert _caps(conn, w) == (30, 0, 150)  # zero is a real cap
+
+
+def test_caps_clear_removes_every_cap(conn):
+    w = _bare_workspace(conn)
+    users.run(
+        ["caps", "--workspace", str(w), "--live-cards", "1", "--companies", "2", "--terms", "3"],
+        conn,
+        emit=lambda _: None,
+    )
+    assert users.run(["caps", "--workspace", str(w), "--clear"], conn, emit=lambda _: None) == 0
+    assert _caps(conn, w) == (None, None, None)
+
+
+def test_caps_with_no_flag_only_prints(conn):
+    w = _bare_workspace(conn)
+    out: list[str] = []
+    assert users.run(["caps", "--workspace", str(w)], conn, emit=out.append) == 0
+    assert _caps(conn, w) == (None, None, None)
+    assert any(line.startswith("caps of workspace") for line in out)
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [["--live-cards", "-1"], ["--clear", "--terms", "5"]],
+)
+def test_caps_refuses_a_negative_or_a_clear_with_a_value(conn, extra):
+    w = _bare_workspace(conn)
+    out: list[str] = []
+    assert users.run(["caps", "--workspace", str(w), *extra], conn, emit=out.append) == 1
+    assert out[-1].startswith("refused:")
+    assert _caps(conn, w) == (None, None, None)
+
+
+def test_caps_refuses_a_tenant_that_is_not_a_workspace(conn):
+    out: list[str] = []
+    argv = ["caps", "--workspace", str(DATA_TENANT_ID), "--live-cards", "5"]
+    assert users.run(argv, conn, emit=out.append) == 1
+    assert out[-1] == f"refused: {DATA_TENANT_ID} is not a workspace"
+    assert _caps(conn, DATA_TENANT_ID) == (None, None, None)
