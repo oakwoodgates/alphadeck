@@ -25,7 +25,7 @@ import json
 import textwrap
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -630,6 +630,50 @@ def main(argv: list[str] | None = None) -> int:
         help="where the provenance file goes (default: " "data/cutover_runs)",
     )
     # --- end V2 W10a ---
+    # --- V2 W10b: the read-only verify (pipeline/v2_verify.py) ---
+    verify = sub.add_parser(
+        "verify",
+        help="READ-ONLY proof of the cutover's result, by stage (cumulative): recall (no card lost a company), "
+        "platform facts, the history reset, then the backfill, the first V2 night and Edition 1 "
+        "(exit 0 verified, 2 cannot verify, 5 a check failed)",
+    )
+    verify.add_argument(
+        "--stage",
+        required=True,
+        choices=("reset", "backfill", "nightly", "edition"),
+        help="what to prove",
+    )
+    verify.add_argument(
+        "--database",
+        required=True,
+        metavar="NAME",
+        help="the database name, read back from the connection (current_database()) and compared",
+    )
+    verify.add_argument(
+        "--prod",
+        action="store_true",
+        help="required for, and only allowed with, the production database name",
+    )
+    verify.add_argument(
+        "--provenance", metavar="PATH", help="the provenance file `run --apply` wrote (required)"
+    )
+    verify.add_argument("--json", metavar="PATH", help="also write the report as JSON to PATH")
+    verify.add_argument(
+        "--health-url", metavar="URL", help="V10: this URL must answer 200 (optional)"
+    )
+    verify.add_argument(
+        "--night",
+        metavar="YYYY-MM-DD",
+        type=date.fromisoformat,
+        help="the night the nightly stage checks (default: the newest calls.asof)",
+    )
+    verify.add_argument(
+        "--run-kind",
+        choices=("cron", "any"),
+        default="cron",
+        help="the night's rows must be the cron's (default) or any kind (a fork rehearsal's manual pass)",
+    )
+    # --- end V2 W10b ---
     args = p.parse_args(argv)
     if args.command == "plan":
         return _plan(args.json)
@@ -641,6 +685,21 @@ def main(argv: list[str] | None = None) -> int:
         from pipeline import v2_reset  # V2 W10a
 
         return v2_reset.run(v2_reset.options_from_args(args))  # V2 W10a
+    if args.command == "verify":  # V2 W10b
+        from pipeline import v2_verify  # V2 W10b
+
+        return v2_verify.run(  # V2 W10b
+            v2_verify.Options(
+                database=args.database,
+                stage=args.stage,
+                provenance=Path(args.provenance) if args.provenance else None,
+                prod=bool(args.prod),
+                json_path=Path(args.json) if args.json else None,
+                health_url=args.health_url,
+                night=args.night,
+                run_kind=args.run_kind,
+            )
+        )
     return 2  # pragma: no cover - argparse refuses an unknown command first
 
 

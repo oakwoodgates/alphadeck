@@ -44,6 +44,8 @@ ALLOWED = (
     "domain/scopes.py",
     "pipeline/v2_cutover.py",
     "pipeline/v2_reset.py",  # W10a: the reset empties the table
+    "pipeline/v2_verify.py",  # W10b: verify (read-only) proves the table is still empty
+    "tests/pipeline/test_v2_verify.py",
     # tests of the kept pieces that list the table among the tables they cover
     "tests/pipeline/test_v2_cutover_plan.py",
     "tests/pipeline/test_v2_reset.py",

@@ -84,3 +84,23 @@ two constraints, and the `data_repair` journal row; and a provenance file with t
 (or already cut over with nothing left), 1 refused, 2 wrong database or confirmation, 3 backup failed, 4 rolled
 back (backup kept), 75 busy or the nightly window. A second reset after a V2 night refuses. Rehearse it on a fork
 only; the production run is the operator's (the runbook, W10d).
+
+**The verify step (W10b).** `python -m pipeline.v2_cutover verify --stage reset|backfill|nightly|edition
+--database NAME [--prod] --provenance PATH [--json PATH] [--health-url URL] [--night YYYY-MM-DD]
+[--run-kind cron|any]` (`backend/pipeline/v2_verify.py`) proves the cutover's result after each stage, against the
+baseline in the provenance file `run --apply` wrote. It is READ-ONLY: its session is read-only
+(`default_transaction_read_only`), one snapshot, plain reads (no advisory lock, no journal row), and it writes
+nothing but its report and the `--json` file. The same name guard as `run` (`--database` must be the connection's
+database; `alphadeck` only with `--prod`); no `--confirm`. A missing, `.pending`, unreadable or other-database
+provenance file is refused. Stages are cumulative; one `ok:` or `FAIL:` line per check (plus `note:` lines that never
+fail). `reset`: no dry-run surprise beyond the acknowledged orphan purity, every migration applied and 0206 validated,
+no thesis or user on the data tenant and an enabled super_admin, users and theses as before, **recall** (every
+baseline basket row still present, by id and by thesis + company + segment; a missing one is named), child and
+decision counts, share counts and cash/burn only in the data tenant with no company lost, purity, the eight history
+tables empty, exactly one `v2_cutover` journal row, `--health-url` 200. `backfill`: every non-ETF company on a live
+card attempted, B4 unlocked, coverage at or above the baseline's. `nightly`: a row per live thesis for the night,
+none reconstructed, run kind cron (`--run-kind any` on a fork), none dated before the cutover, none on the data
+tenant. `edition`: one Edition 1 per workspace with a live card, an entry per live thesis, none for a workspace
+without one. From `nightly` on, user-editable equalities (users, archived state, new cards, child counts, purity)
+become notes; recall and the platform-fact checks stay FAILs. Exit 0 verified, 2 cannot verify (wrong database or
+flags, a provenance problem, an unmapped table), 5 a check failed.
