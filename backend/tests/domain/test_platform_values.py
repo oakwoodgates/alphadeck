@@ -342,9 +342,10 @@ def test_a_winning_correction_is_what_the_pick_shows():
 # --- the machine's AUTO rule (Q6, D3 a) ----------------------------------------------------------------------
 
 
-def auto(ref: str, d: date, *, stored=(), shown=None, pinned=False):
+def auto(ref: str, d: date, *, stored=(), shown=None, pinned=False, source="10-q-cover"):
     return machine_action(
         source_ref=ref,
+        source=source,
         event_date=d,
         stored_refs=set(stored),
         shown=shown,
@@ -391,6 +392,74 @@ def test_machine_writes_a_pinned_candidate_instead():
 
 def test_machine_never_writes_a_value_dated_after_today():
     assert tuple(auto(B, date(2026, 12, 31))) == ("skip", "after_today", ())
+
+
+# --- the same-day annual tie (PR D1): a form switcher's annual cover replaces the machine's quarterly count ------
+#
+# A company that filed 10-Qs and now files a 20-F / 40-F can carry a MACHINE row labeled ``10-q-cover`` dated the
+# same day as the annual cover's count (written before the router fix; BTCT, CURR, EUDA on the fork). The annual
+# count replaces it ONLY then: the shown row was written by the machine (``auto`` / NULL) from the quarterly cover.
+# A verified value (a steward's email, or ``operator`` carried over from V1: GFUZ), a pin, an annual row already
+# shown, an earlier date and a quarterly-over-quarterly tie behave exactly as before.
+
+D = date(2026, 6, 30)  # SHOWN's date: "same day"
+_Q, _ANN = "10-q-cover", "annual-cover"
+
+
+@pytest.mark.parametrize(
+    ("shown", "d", "source", "pinned", "stored", "expected"),
+    [
+        (row(A, D, source=_Q), D, _ANN, False, {A}, ("apply", None, ())),
+        (row(A, D, source=_Q, by=None), D, _ANN, False, {A}, ("apply", None, ())),
+        (
+            row(A, D, source=_Q, by="s@x.test"),
+            D,
+            _ANN,
+            False,
+            {A},
+            ("skip", "older_than_on_file", ()),
+        ),
+        (
+            row(A, D, source=_Q, by="operator"),
+            D,
+            _ANN,
+            False,
+            {A},
+            ("skip", "older_than_on_file", ()),
+        ),
+        (row(A, D, source=_Q), D, _ANN, True, {A}, ("candidate", "pinned", ("pinned",))),
+        (row(A, D, source=_ANN), D, _ANN, False, {A}, ("skip", "older_than_on_file", ())),
+        (row(A, D, source=_Q), D, _ANN, False, {A, B}, ("skip", "already_on_file", ())),
+        (
+            row(A, D, source=_Q),
+            date(2026, 3, 31),
+            _ANN,
+            False,
+            {A},
+            ("skip", "older_than_on_file", ()),
+        ),
+        (row(A, D, source=_Q), date(2026, 9, 30), _ANN, False, {A}, ("apply", None, ())),
+        (row(A, D, source=_Q), D, _Q, False, {A}, ("skip", "older_than_on_file", ())),
+        (row(A, D, source="companyfacts"), D, _ANN, False, {A}, ("skip", "older_than_on_file", ())),
+        (row(A, D), D, _ANN, False, {A}, ("skip", "older_than_on_file", ())),
+    ],
+    ids=[
+        "same-day-machine-10q-cover-replaced",
+        "same-day-null-ratifier-10q-cover-replaced",
+        "same-day-steward-verified-kept",
+        "same-day-carried-verified-kept-GFUZ",
+        "same-day-pinned-candidate",
+        "same-day-annual-already-shown-kept",
+        "same-day-annual-already-stored-no-duplicate",
+        "earlier-annual-still-older",
+        "later-annual-applied-as-today",
+        "same-day-quarterly-over-quarterly-no-churn",
+        "same-day-other-machine-source-kept",
+        "same-day-shown-without-source-kept",
+    ],
+)
+def test_the_same_day_annual_tie(shown, d, source, pinned, stored, expected):
+    assert tuple(auto(B, d, stored=stored, shown=shown, pinned=pinned, source=source)) == expected
 
 
 # --- the annual share-count rule (PR 5; the extractor plan's Q7) ---------------------------------------------

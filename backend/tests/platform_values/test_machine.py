@@ -755,3 +755,105 @@ def test_an_annual_count_queued_before_the_rule_leaves_the_queue_once_applied(db
     ].applied
     assert sid not in {a.security_id for a in state.awaiting(db, limit=None, asof=today)}
     assert len(_candidates(db, sid, "shares_outstanding")) == 1  # kept, never deleted
+
+
+# --- the same-day annual tie (PR D1): a form switcher's machine 10-q-cover row --------------------------------
+#
+# BTCT / CURR / EUDA on the fork: a MACHINE row labeled ``10-q-cover`` (citing an old 10-Q URL) dated the same day
+# as the 20-F cover's count. The annual result was skipped ``older_than_on_file``, so the annual rules never ran.
+# Now it is APPENDED as a new version (never an UPDATE) when the annual rule passes; a flagged annual count stays
+# a candidate beside the unchanged shown value; a verified shown value (GFUZ: ``operator``) is never touched.
+
+OLD_10Q_REF = "https://www.sec.gov/Archives/edgar/data/1046179/old-10q.htm"
+
+
+def _seed_quarterly(db, sid: UUID, d: date, *, by: str | None) -> UUID:
+    fid = ingest_shares_outstanding(
+        db,
+        sid,
+        shares=25_000_000_000,
+        source="10-q-cover",
+        source_ref=OLD_10Q_REF,
+        event_date=d,
+        ratified_by=by,
+        tenant_id=DATA_TENANT_ID,
+    )
+    db.commit()
+    return fid
+
+
+def test_a_same_day_annual_cover_replaces_the_machines_quarterly_count_by_appending(db):
+    today = market_today()
+    fact = _tsm(300, today)
+    sid = _company(db, "BTCX")
+    old = _seed_quarterly(db, sid, fact.event_date, by="auto")
+    before = _counts(db, sid)
+    out = _record(db, sid, ExtractionResult(facts=[fact]), today=today)
+    o = out["shares_outstanding"]
+    assert (o.applied, o.reason) == (True, "applied")
+    assert _counts(db, sid)["fact_shares_outstanding"] == before["fact_shares_outstanding"] + 1
+    rows = _facts(db, "fact_shares_outstanding", sid)
+    assert [r["id"] for r in rows] == [old, o.fact_id]  # appended; the old row is kept as it was
+    assert (rows[0]["source"], float(rows[0]["shares"])) == ("10-q-cover", 25_000_000_000.0)
+    st = state.read_state(db, sid, "shares_outstanding", asof=today)
+    assert st.state == ValueState.FROM_FILING
+    shown = st.value
+    assert (shown["id"], shown["source"], shown["ratified_by"]) == (
+        o.fact_id,
+        "annual-cover",
+        "auto",
+    )
+    assert (shown["valid_from"], shown["ads_ratio"], shown["ads_ratio_status"]) == (
+        fact.event_date,  # the count's own as-of date: same day, never moved
+        5,
+        "known",
+    )
+    # idempotent: a re-run appends nothing anywhere
+    again = _counts(db, sid)
+    out = _record(db, sid, ExtractionResult(facts=[fact]), today=today)
+    assert (out["shares_outstanding"].reason, out["shares_outstanding"].written) == (
+        "already_on_file",
+        False,
+    )
+    assert _counts(db, sid) == again
+
+
+def test_a_same_day_flagged_annual_cover_is_a_candidate_and_the_shown_value_stays(db):
+    today = market_today()
+    fact = _tsm(300, today)
+    fact = fact.model_copy(update={"flags": [*fact.flags, "multi-value-cover"]})
+    sid = _company(db, "CURX")
+    old = _seed_quarterly(db, sid, fact.event_date, by="auto")
+    before = _counts(db, sid)
+    out = _record(db, sid, ExtractionResult(facts=[fact]), today=today)
+    assert (out["shares_outstanding"].applied, out["shares_outstanding"].reason) == (
+        False,
+        "flagged",
+    )
+    assert _counts(db, sid)["fact_shares_outstanding"] == before["fact_shares_outstanding"]
+    (cand,) = _candidates(db, sid, "shares_outstanding")
+    assert (cand["source"], "multi-value-cover" in cand["flags"]) == ("annual-cover", True)
+    st = state.read_state(db, sid, "shares_outstanding", asof=today)
+    assert (st.value["id"], st.value["source"]) == (
+        old,
+        "10-q-cover",
+    )  # the shown value did not change
+
+
+@pytest.mark.parametrize("by", ["operator", STEWARD], ids=["carried-GFUZ", "steward"])
+def test_a_same_day_annual_cover_never_replaces_a_verified_quarterly_value(db, by):
+    today = market_today()
+    fact = _tsm(300, today)
+    sid = _company(db, "GFZX")
+    old = _seed_quarterly(db, sid, fact.event_date, by=by)
+    before = _counts(db, sid)
+    out = _record(db, sid, ExtractionResult(facts=[fact]), today=today)
+    assert (out["shares_outstanding"].applied, out["shares_outstanding"].reason) == (
+        False,
+        "older_than_on_file",
+    )
+    after = _counts(db, sid)
+    assert after["fact_shares_outstanding"] == before["fact_shares_outstanding"]
+    assert _candidates(db, sid, "shares_outstanding") == []
+    st = state.read_state(db, sid, "shares_outstanding", asof=today)
+    assert (st.state, st.value["id"]) == (ValueState.VERIFIED, old)
