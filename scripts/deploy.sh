@@ -8,6 +8,8 @@
 # Usage:
 #   scripts/deploy.sh --label <label> <service>... [--dry-run]
 #       services: frontend | backend | cron (one or more). backup -> build -> restart rule -> verify.
+#   scripts/deploy.sh --label <label> --hold-cron <service>... [--dry-run]
+#       the same build with the cron sidecar HELD STOPPED (the V2 cutover): services frontend | backend only.
 #   scripts/deploy.sh --env-only cron [--label <label>] [--dry-run]
 #       a cron ENV change: recreate the sidecar with NO build (`up -d --no-deps --no-build cron` keeps
 #       its image). No backup unless --label is given.
@@ -15,6 +17,10 @@
 #
 #   --label L    names the pre-deploy backup (labeled = prune-exempt). Letters, digits, '.', '_', '-'.
 #                REQUIRED for a build.
+#   --hold-cron  deploy with alphadeck-cron-1 kept STOPPED: refuses (exit 2) with `cron` named or with
+#                --env-only, and (exit 3) unless the cron is already stopped (`docker compose -f
+#                docker-compose.yml -f docker-compose.prod.yml stop cron`). The build never starts it, and
+#                the verification expects it STILL stopped (it fails if it came up) instead of running.
 #   --dry-run    runs the LOCAL checks (git, the clock) and prints every stack check, command, and
 #                verification; touches no Docker and no endpoint, changes nothing (`git ls-remote`
 #                stands in for `git fetch`, so not even a remote-tracking ref moves).
@@ -26,7 +32,8 @@
 #
 # Verifies: the backend is healthy; :8080/api/health answers 200 (the /api PROXY); ALPHADECK_IMAGE_SHA
 # in each rebuilt backend/cron container equals the sha built; the cron container runs and printed its
-# boot lines; /admin/status reads, with no new cron.alarms line and no quiet -> loud cron.status.
+# boot lines (with --hold-cron: stayed stopped); /admin/status reads, with no new cron.alarms line and no
+# quiet -> loud cron.status.
 #
 # Exit: 0 deployed + verified (or a clean dry-run) · 2 usage · 3 refused (nothing changed) ·
 #       4 a step failed · 5 deployed but a verification failed. On 4/5: the stack-recovery skill.
@@ -287,6 +294,7 @@ image_sha() { # ALPHADECK_IMAGE_SHA inside container $1 ("" when unset or unread
 # --- args --------------------------------------------------------------------------------------------
 LABEL=""
 ENV_ONLY=0
+HOLD_CRON=0
 DRY_RUN=0
 SERVICES=()
 while [ $# -gt 0 ]; do
@@ -294,6 +302,7 @@ while [ $# -gt 0 ]; do
     --label)   [ $# -ge 2 ] || usage_refuse "--label needs a value"; LABEL="$2"; shift ;;
     --label=*) LABEL="${1#--label=}" ;;
     --env-only) ENV_ONLY=1 ;;
+    --hold-cron) HOLD_CRON=1 ;;
     --dry-run) DRY_RUN=1 ;;
     --help|-h) usage; exit 0 ;;
     -*)        usage_refuse "unknown option: $1" ;;
@@ -309,6 +318,13 @@ for _s in frontend backend cron; do has "$_s" && _want+=("$_s"); done
 SERVICES=(${_want[@]+"${_want[@]}"})
 [ ${#SERVICES[@]} -gt 0 ] || usage_refuse "name at least one service: frontend, backend, cron"
 
+if [ "$HOLD_CRON" -eq 1 ]; then
+  [ "$ENV_ONLY" -eq 0 ] \
+    || usage_refuse "--hold-cron cannot be combined with --env-only: an env-only deploy recreates (starts) the cron, and --hold-cron keeps it stopped"
+  if has cron; then
+    usage_refuse "--hold-cron keeps the cron stopped, so it cannot also deploy cron — name frontend and/or backend (start the cron later with scripts/deploy.sh --label <label> cron)"
+  fi
+fi
 if [ "$ENV_ONLY" -eq 1 ]; then
   [ "${SERVICES[*]}" = "cron" ] \
     || usage_refuse "--env-only recreates the cron sidecar only (scripts/deploy.sh --env-only cron); a frontend or backend change is a build"
@@ -326,6 +342,7 @@ if [ "$ENV_ONLY" -eq 1 ]; then
   what="cron (env-only: recreate with no build; the image is kept)"
 else
   what="${SERVICES[*]} (rebuild)"
+  if [ "$HOLD_CRON" -eq 1 ]; then what+=" (cron held stopped)"; fi
 fi
 if [ "$DRY_RUN" -eq 1 ]; then
   echo "deploy PLAN for $what — DRY RUN: no backup, no build, no restart, no Docker or endpoint touched"
@@ -402,6 +419,9 @@ if [ "$DRY_RUN" -eq 1 ]; then
   say "stack checks — a dry-run touches no stack; the real run makes these READS before it changes anything:"
   echo "    would read: curl -fsS -g --connect-timeout 5 --max-time 60 $ADMIN_URLS $OPS_NOTE ($TRY_NOTE; refuse only if every address fails) | docker exec -i $BACKEND_C python -c <parse> — refuse if a pass is running (cron.status running, or unfinished_run running inside its timeout)"
   echo "    would read: docker exec $BACKEND_C python -c <pg_locks read> — refuse if the call-of-record lock is held (pipeline/run_lock.py)"
+  if [ "$HOLD_CRON" -eq 1 ]; then
+    echo "    would read: docker inspect --format '{{.State.Status}}' $CRON_C — refuse unless it is stopped (--hold-cron)"
+  fi
 elif [ "$REFUSED" -gt 0 ]; then
   say "stack checks skipped — a local check already refused"
 else
@@ -428,6 +448,15 @@ else
     esac
   else
     refuse "cannot read the call-of-record lock (${lock##*$'\n'}) — a running pass or backfill cannot be ruled out"
+  fi
+  if [ "$HOLD_CRON" -eq 1 ]; then
+    cron_up || true
+    case "$LAST" in
+      exited|created|dead) ok "$CRON_C is '$LAST' (held stopped by --hold-cron)" ;;
+      running|restarting|paused)
+        refuse "$CRON_C is '$LAST' — --hold-cron deploys with the cron held stopped; stop it first: docker compose ${PROD[*]} stop cron" ;;
+      *) refuse "cannot read $CRON_C's state ('${LAST##*$'\n'}') — --hold-cron needs the cron stopped, and that cannot be confirmed" ;;
+    esac
   fi
 fi
 
@@ -486,6 +515,8 @@ if [ "$DRY_RUN" -eq 1 ]; then
   for svc in backend cron; do
     if [ "$ENV_ONLY" -eq 1 ] && [ "$svc" = "cron" ]; then
       echo "    would verify: docker exec $CRON_C printenv ALPHADECK_IMAGE_SHA -> unchanged from before the recreate"
+    elif [ "$HOLD_CRON" -eq 1 ] && [ "$svc" = "cron" ]; then
+      echo "    would skip:   docker exec $CRON_C printenv ALPHADECK_IMAGE_SHA (held stopped by --hold-cron)"
     elif has "$svc"; then
       echo "    would verify: docker exec alphadeck-$svc-1 printenv ALPHADECK_IMAGE_SHA -> $SHA"
     else
@@ -494,6 +525,8 @@ if [ "$DRY_RUN" -eq 1 ]; then
   done
   if [ "$recreated_cron" -eq 1 ]; then
     echo "    would verify: docker inspect --format '{{.State.Status}}' $CRON_C -> running, and docker logs --tail 60 $CRON_C shows its boot lines"
+  elif [ "$HOLD_CRON" -eq 1 ]; then
+    echo "    would verify: docker inspect --format '{{.State.Status}}' $CRON_C -> NOT running (held by --hold-cron; fail if it came up), and the log tail is shown"
   else
     echo "    would verify: docker inspect --format '{{.State.Status}}' $CRON_C -> running (the log tail is shown)"
   fi
@@ -524,6 +557,10 @@ backend_sha=""
 cron_sha=""
 for svc in backend cron; do
   c="alphadeck-$svc-1"
+  if [ "$HOLD_CRON" -eq 1 ] && [ "$svc" = "cron" ]; then
+    echo "    info: $c is held stopped by --hold-cron (not rebuilt; no sha to read)"
+    continue
+  fi
   got="$(image_sha "$c")"
   if [ "$svc" = "backend" ]; then backend_sha="$got"; else cron_sha="$got"; fi
   if [ "$ENV_ONLY" -eq 1 ] && [ "$svc" = "cron" ]; then
@@ -556,6 +593,13 @@ if [ "$recreated_cron" -eq 1 ]; then
   else
     vfail "$CRON_C never printed its boot line ('daily-cron: each pass bounded at') within ${WAIT_S}s"
   fi
+elif [ "$HOLD_CRON" -eq 1 ]; then
+  if cron_up; then
+    vfail "$CRON_C is 'running', but --hold-cron holds it stopped until the cutover is done — it came up during the deploy; stop it: docker compose ${PROD[*]} stop cron"
+  else
+    ok "$CRON_C is stopped (held by --hold-cron)"
+  fi
+  CRON_LOGS="$(docker logs --tail 60 "$CRON_C" 2>&1)" || true
 else
   if cron_up; then
     ok "$CRON_C is running (not recreated by this deploy)"

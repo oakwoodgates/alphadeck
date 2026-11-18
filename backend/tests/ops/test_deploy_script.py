@@ -121,6 +121,7 @@ case "$1" in
         echo "backup: wrote alphadeck-20261016T180500-label.sql (123 bytes)" ;;
       *" up "*)
         [ -z "${FAKE_BUILD_FAIL-}" ] || { echo "failed to solve: process did not complete" >&2; exit 17; }
+        : > "$SHIM_STATE/upped"
         case " $* " in
           *" --build "*)
             for s in backend cron; do
@@ -132,7 +133,13 @@ case "$1" in
   inspect)
     case "$3" in
       *Health*)       echo "${FAKE_HEALTH:-healthy}" ;;
-      *State.Status*) echo "${FAKE_CRON_STATE:-running}" ;;
+      *State.Status*)
+        # FAKE_CRON_STATE_AFTER_UP: the cron's state once a `compose up` ran (a held cron that came up)
+        if [ -f "$SHIM_STATE/upped" ] && [ -n "${FAKE_CRON_STATE_AFTER_UP-}" ]; then
+          echo "$FAKE_CRON_STATE_AFTER_UP"
+        else
+          echo "${FAKE_CRON_STATE:-running}"
+        fi ;;
       *) echo "fake docker: unexpected inspect: $*" >&2; exit 64 ;;
     esac ;;
   exec)
@@ -807,3 +814,92 @@ def test_a_401_from_admin_status_refuses_with_one_line_naming_the_fix(deploy):
     # a 401 is an answer: no retry, no walk to the next address
     assert len([c for c in r.calls("curl") if c.endswith("/admin/status")]) == 1
     _no_stack_change(r)
+
+
+# --- --hold-cron: deploy with the cron sidecar held STOPPED (the V2 cutover, step 4) -------------------------
+
+_PC = "docker compose -f docker-compose.yml -f docker-compose.prod.yml"
+
+
+def test_hold_cron_refuses_while_the_cron_runs(deploy):
+    """The cron must already be stopped: a running V1 cron would keep writing with V1 code under a V2 backend."""
+    r = deploy("--label", "pre-v2-cutover", "--hold-cron", "backend", "frontend")
+    assert r.code == 3, r.out
+    assert (
+        "REFUSE: alphadeck-cron-1 is 'running' — --hold-cron deploys with the cron held stopped"
+        in r.out
+    )
+    assert f"stop it first: {_PC} stop cron" in r.out
+    _no_stack_change(r)
+
+
+def test_hold_cron_refuses_with_cron_named(deploy):
+    r = deploy("--label", "pre-v2-cutover", "--hold-cron", "backend", "cron")
+    assert r.code == 2, r.out
+    assert "REFUSE: --hold-cron keeps the cron stopped, so it cannot also deploy cron" in r.out
+    assert r.log == []  # not even git ran
+
+
+def test_hold_cron_refuses_with_env_only(deploy):
+    r = deploy("--env-only", "--hold-cron", "cron")
+    assert r.code == 2, r.out
+    assert "REFUSE: --hold-cron cannot be combined with --env-only" in r.out
+    assert r.log == []
+
+
+def test_hold_cron_deploys_and_verifies_the_cron_stayed_down(deploy):
+    r = deploy(
+        "--label", "pre-v2-cutover", "--hold-cron", "backend", "frontend", FAKE_CRON_STATE="exited"
+    )
+    assert r.code == 0, r.out
+    assert "ok: alphadeck-cron-1 is 'exited' (held stopped by --hold-cron)" in r.out
+    # the backup, then a build that never names (so never starts) the cron
+    backup = r.index("exec -T backend python -m pipeline.backup --label pre-v2-cutover")
+    build = r.index("up -d --build --no-deps frontend backend")
+    assert backup < build
+    compose = [c for c in r.calls("docker") if " compose " in c]
+    assert not [c for c in compose if c.endswith(" cron") or " cron " in c], compose
+    assert f"ok: alphadeck-backend-1 ALPHADECK_IMAGE_SHA={HEAD} (the sha just built)" in r.out
+    assert not [
+        c for c in r.calls("docker") if "exec alphadeck-cron-1" in c
+    ]  # a stopped cron is not exec'd
+    assert "ok: alphadeck-cron-1 is stopped (held by --hold-cron)" in r.out
+    assert "cron log tail:" in r.out  # the tail and the status comparison stay
+    assert "ok: /admin/status reads; cron.status=healthy" in r.out
+    assert (
+        f"OK: deployed {HEAD[:12]} to prod: frontend backend (rebuild) (cron held stopped)" in r.out
+    )
+
+
+def test_hold_cron_fails_verification_if_the_cron_came_up(deploy):
+    r = deploy(
+        "--label",
+        "pre-v2-cutover",
+        "--hold-cron",
+        "backend",
+        FAKE_CRON_STATE="exited",
+        FAKE_CRON_STATE_AFTER_UP="running",
+    )
+    assert r.code == 5, r.out
+    assert "FAIL: alphadeck-cron-1 is 'running', but --hold-cron holds it stopped" in r.out
+    assert f"{_PC} stop cron" in r.out
+    assert "1 verification check(s) failed" in r.out and "stack-recovery" in r.out
+
+
+def test_hold_cron_dry_run_prints_the_plan(deploy):
+    r = deploy("--label", "pre-v2-cutover", "--hold-cron", "--dry-run", "backend", "frontend")
+    assert r.code == 0, r.out
+    for line in [
+        "deploy PLAN for frontend backend (rebuild) (cron held stopped)",
+        "would read: docker inspect --format '{{.State.Status}}' alphadeck-cron-1 — refuse unless "
+        "it is stopped (--hold-cron)",
+        f"would run: {_PC} exec -T backend python -m pipeline.backup --label pre-v2-cutover",
+        f"would run: GIT_SHA={HEAD} {_PC} up -d --build --no-deps frontend backend",
+        "would skip:   docker exec alphadeck-cron-1 printenv ALPHADECK_IMAGE_SHA (held stopped by "
+        "--hold-cron)",
+        "would verify: docker inspect --format '{{.State.Status}}' alphadeck-cron-1 -> NOT running "
+        "(held by --hold-cron; fail if it came up), and the log tail is shown",
+        "OK: dry-run",
+    ]:
+        assert line in r.out, line
+    assert r.calls("docker") == [] and r.calls("curl") == []

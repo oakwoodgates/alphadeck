@@ -45,6 +45,7 @@ git checkout main && git pull --ff-only origin main                     # the wr
 bash scripts/deploy.sh --label pre-deploy-pr123 --dry-run backend cron    # the plan: changes nothing
 bash scripts/deploy.sh --label pre-deploy-pr123 backend cron              # backup, build, restart rule, verify
 bash scripts/deploy.sh --env-only cron                                    # a cron ENV change: recreate, no build
+bash scripts/deploy.sh --label pre-v2-cutover --hold-cron backend frontend  # build with the cron HELD STOPPED (the V2 cutover)
 ```
 - **Run it from Git Bash, not PowerShell's `bash`.** On this Windows host, `bash` typed in PowerShell
   or cmd resolves to `C:\Windows\System32\bash.exe` (and a `WindowsApps` alias), which is **WSL**:
@@ -124,6 +125,18 @@ bash scripts/deploy.sh --env-only cron                                    # a cr
 - **`--dry-run`** runs the local checks for real: git (with `ls-remote` in place of `fetch`, so no
   ref moves) and the clock. It prints every stack read, command and check, and touches no Docker
   and no endpoint.
+- **`--hold-cron`** deploys `frontend` and/or `backend` while the cron sidecar stays STOPPED, for a change
+  whose data must be cut over before any nightly work runs on the new code (the V2 cutover, step 4 of its
+  runbook). Stop the cron first (`docker compose -f docker-compose.yml -f docker-compose.prod.yml stop cron`).
+  Every guard above still applies, and the flag adds three refusals: `cron` named or `--env-only` (usage,
+  exit 2), and `alphadeck-cron-1` not stopped (exit 3, with the `stop cron` command). The build stays
+  `--no-deps`, so it never starts the cron. Verification expects
+  `ok: alphadeck-cron-1 is stopped (held by --hold-cron)` in place of "the cron container is running", and
+  fails (exit 5) if the cron came up; it reads no image sha from the stopped cron, and the log tail and the
+  `/admin/status` alarm comparison stay. The V2 Admin line `platform_rows_in_workspaces` is its own field,
+  not a `cron.alarms` line, so it does not fail the comparison. The final line reads
+  `OK: deployed <sha> to prod: frontend backend (rebuild) (cron held stopped) — every verification passed`.
+  Start the cron later with an ordinary `bash scripts/deploy.sh --label <label> cron`.
 
 **Manual fallback** — the same procedure by hand, for when the wrapper cannot run (say the backend
 is down, so a running pass cannot be ruled out: that is a recovery, see the `stack-recovery` skill).
