@@ -210,6 +210,9 @@ def test_a_plain_user_gets_403_on_every_route_and_writes_nothing(world, db):
         ("post", f"{BASE}/{sid}/pin", {"fact_type": "shares_outstanding"}),
         ("post", f"{BASE}/{sid}/unpin", {"fact_type": "shares_outstanding"}),
         ("post", f"{BASE}/{sid}/extract", None),
+        # V2 W5c: the steward's side of users' flags
+        ("post", f"{BASE}/flags/{uuid.uuid4()}/close", {"outcome": "kept", "note": "x"}),
+        ("post", f"{BASE}/flags/{uuid.uuid4()}/reopen", None),
     ]
     # every route this router mounts is in the list
     mounted = {
