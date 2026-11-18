@@ -80,6 +80,11 @@ const fx = vi.hoisted(() => {
 });
 
 vi.mock("../../api/hooks", () => ({
+  // V2 W5e: the user's reads of the shared values + the flag mutations (inert here; their own suites cover them)
+  useUserCompanyValues: () => ({ data: undefined, isLoading: false, error: null }),
+  useUserThesisValues: () => ({ data: undefined, isLoading: false, error: null }),
+  useRaiseFlag: () => ({ mutate: () => {}, reset: () => {}, isPending: false, isError: false, error: null }),
+  useWithdrawFlag: () => ({ mutate: () => {}, reset: () => {}, isPending: false, isError: false, error: null }),
   useFundLaunches: () => ({ data: undefined, isLoading: false, error: null }),
   useThesis: () => ({ data: fx.thesis, isLoading: false, error: null }),
   useCall: () => ({ data: undefined, isLoading: false, error: null }),

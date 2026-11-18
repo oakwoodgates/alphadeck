@@ -7,6 +7,7 @@ import {
   useDisplaySignals,
   useThesis,
   useThesisDataFlags,
+  useUserThesisValues,
   useWorkbenchScored,
 } from "../api/hooks";
 import { useCountdownOrigin } from "../clock";
@@ -174,6 +175,8 @@ export function Cockpit({
   const countdownFrom = useCountdownOrigin(asof);
   const callQ = useCall(thesisId, asof);
   const scoredQ = useWorkbenchScored(thesisId, asof);
+  // the user's read of the card's shared values (V2 W5e), ONCE: the name panel's quiet lines about a blank meter read it
+  const sharedQ = useUserThesisValues(thesisId);
   // read-only per-name indicators, fetched ONCE at page level — the panel's top strip and the
   // basket table's SMA cell read the same query, bridged by security_id
   const displayQ = useDisplaySignals(thesisId, asof);
@@ -1139,6 +1142,9 @@ export function Cockpit({
             ) ?? null
           }
           dataFlags={flagsFor(selected.row.member.security_id)}
+          sharedValues={
+            (sharedQ.data?.members ?? []).find((m) => m.security_id === selected.row.member.security_id) ?? null
+          }
           asof={asof}
           onClose={() => onSelectName(null)}
         />
