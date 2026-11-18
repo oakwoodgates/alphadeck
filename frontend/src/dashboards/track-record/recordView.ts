@@ -463,7 +463,7 @@ export function workLines(data: TrackRecordOut, entry: EntryRule, comparison: Co
   const lines: string[] = [];
   const clock = data.clock === "public" ? "public clock: only what was public by the end of that date" : "live read";
   const policies =
-    data.annotated_policy === "n/a" ? "" : ` · annotated nights ${data.annotated_policy} · late nights ${data.late_policy}`;
+    data.late_policy === "n/a" ? "" : ` · late nights ${data.late_policy}`;
   lines.push(`as of ${data.asof} · ${clock} · ${editionWords(data)}${policies}`);
 
   const out = [

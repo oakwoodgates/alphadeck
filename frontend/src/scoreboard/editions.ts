@@ -4,7 +4,7 @@ import { fmtDate } from "../util/format";
 // Scoreboard EDITIONS (S4) — pure helpers for the header's quiet label + switcher. Edition 0 is the original
 // record: the calls log, what the platform actually said each night. Edition N >= 1 is a stored re-run of
 // today's rules from each company's join date, judged on the public clock and frozen at its cut. A re-run has
-// no reconstructed, annotated or late rows and no ingest history, so the page hides those lines, their
+// no reconstructed or late rows and no ingest history, so the page hides those lines, their
 // toggles and the INGEST badge for it (`isRerun`). Copy lives here so it is testable on its own.
 
 type EditionLike = Pick<ScoreboardEditionOut, "number" | "label" | "cut">;
@@ -59,6 +59,6 @@ export function editionNote(e: ScoreboardEditionOut | null | undefined): string 
   if (e.n_entries != null && e.n_entries_estimated != null && e.n_entries_estimated > 0) {
     parts.push(`${e.n_entries_estimated} of ${e.n_entries} join dates estimated`);
   }
-  parts.push("no reconstructed, annotated or late nights in a re-run");
+  parts.push("no reconstructed or late nights in a re-run");
   return parts.join(" · ");
 }

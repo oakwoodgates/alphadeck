@@ -165,9 +165,7 @@ const MAX_LISTED = 6;
 
 function hatchLine(h: IdeaTimelineHatchOut): string {
   const when = `${fmtDay(h.start)} → ${fmtDay(h.end)} (${plural(h.nights, "night", "nights")})`;
-  return h.kind === "reconstructed"
-    ? `${when}: reconstructed: reported, never scored`
-    : `${when}: set aside on the Scoreboard: ${h.reason ?? "no reason recorded"}`;
+  return `${when}: reconstructed: reported, never scored`;
 }
 
 export function segmentTitle(s: IdeaTimelineSegmentOut): string {
@@ -234,7 +232,6 @@ export function workLine(d: IdeaTimelineOut): string {
     "a state holds from its night until the card's next row",
     `a night with several rows reads its last one (${plural(d.multi_row_nights, "night", "nights")})`,
     `hatched = reconstructed, reported, never scored (${plural(d.reconstructed_nights, "night", "nights")})`,
-    `cross-hatched = set aside on the Scoreboard (${plural(d.excluded_nights, "night", "nights")})`,
     "the original record, not edition re-runs",
   ].join(" · ");
 }

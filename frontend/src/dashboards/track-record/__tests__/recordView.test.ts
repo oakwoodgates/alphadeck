@@ -432,7 +432,7 @@ describe("the words", () => {
   it("states the work: the as-of, the clock, the edition, what is in the cells and what is left out", () => {
     const lines = workLines(SERVER, "arm_night", "iwm");
     expect(lines[0]).toBe(
-      "as of 2026-07-24 · public clock: only what was public by the end of that date · edition 0: the original record (the default; editions are paused) · annotated nights excluded · late nights excluded",
+      "as of 2026-07-24 · public clock: only what was public by the end of that date · edition 0: the original record (the default; editions are paused) · late nights excluded",
     );
     expect(lines[1]).toBe(
       "20 arm episodes on 2 cards · 17 in the cells · left out: 1 flagged price history, 1 censored start, 1 ingest flagged",
@@ -451,12 +451,12 @@ describe("the words", () => {
     expect(editionWords(SERVER)).toBe("edition 0: the original record (the default; editions are paused)");
     const stored = payload({ edition: { number: 1, label: "first re-run" } });
     expect(editionWords(stored)).toBe("edition 1: first re-run");
-    expect(workLines(stored, "arm_night", "iwm")[0]).toContain("· edition 1: first re-run · annotated");
+    expect(workLines(stored, "arm_night", "iwm")[0]).toContain("· edition 1: first re-run · late nights");
   });
 
   it("states the entry rule and the comparison in force, a missing benchmark and a live read", () => {
     const lines = workLines(
-      payload({ clock: "record", benchmarks_missing: ["IWM"], market_source: null, annotated_policy: "n/a", late_policy: "n/a", cache: "hit" }),
+      payload({ clock: "record", benchmarks_missing: ["IWM"], market_source: null, late_policy: "n/a", cache: "hit" }),
       "next_session",
       "raw",
     );

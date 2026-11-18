@@ -206,12 +206,6 @@ export function EpisodeScorecard({
         </div>
       )}
 
-      {/* The annotation caption (D3b) — QUIET, and rendered only when an annotation actually touches this
-          run: a `note` (the arm stands and is scored; the D3a rule changed its composition that night) or
-          a night (a phantom arm, or one dated a day with no session) scored only because this view includes annotated nights. Server-composed,
-          rendered verbatim (the run-identity precedent); a clean episode carries no line at all. */}
-      {ep.annotation_note && <div className="sc-annot">{ep.annotation_note}</div>}
-
       {/* The join-date note (editions S4) — QUIET, server-composed, and present only on a re-run edition's
           episode whose company's join date is an ESTIMATE (the record has no join dates; an exact join is
           not an exception). When the arm fell on that estimated night it also says why the episode is
