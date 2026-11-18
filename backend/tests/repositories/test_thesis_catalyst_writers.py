@@ -30,9 +30,12 @@ _BACKEND = Path(__file__).resolve().parents[2]
 _TABLE = "fact_thesis_catalyst"
 _WRITER = "repositories/thesis_catalyst_repo.py"
 # V2 W6c: the ONE converted theme row (operator decision N4 (a)) has no entry time and keeps its stated date, a shape
-# the sole writer's ``append_version`` cannot make (it always stamps the database's now). Its two writers, by name:
+# the sole writer's ``append_version`` cannot make (it always stamps the database's now). Its writers, by name:
 _CONVERTED_ROW_WRITERS: dict[str, str] = {
     "pipeline/seed.py": "seed_nuclear_theme_conviction writes the converted shape on a fresh (dev/test) database",
+    # not a Postgres write: connect_mirror converts an OLD frozen mirror's fact_theme_conviction rows into its
+    # in-memory DuckDB copy of the table, exactly as 0213 does, so the old mirror replays unchanged
+    "replay/pit.py": "_fold_theme_conviction fills an old mirror's in-memory table (DuckDB), never Postgres",
 }
 _MIGRATION_WRITERS = ("0213_v2_theme_conviction_fold.sql",)
 _WRITE = re.compile(

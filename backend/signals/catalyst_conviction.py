@@ -6,7 +6,8 @@ from uuid import UUID
 
 from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.enums import CatalystType, Grade, Kind, Role
-from domain.signal import SignalEvent
+from domain.signal import Provenance, SignalEvent
+from signals import thesis_catalyst
 from signals.base import Detector, SignalPointInTimeData
 from signals.common import entry_signal_is_live, fired_signal, source_provenance
 from signals.registry import register_detector
@@ -64,6 +65,13 @@ def score(
     event date; it stays live to its horizon, re-derived from the facts on every read. Arming still
     needs a co-located confirmation (a fresh breakout), so a still-on-the-books catalyst arms nothing
     on its own.
+
+    **V2 W6c (``docs/CALL_LOGIC.md`` §3c).** ``facts`` may also hold a card's own counting entries naming this
+    security (``signals.thesis_catalyst.ThesisCatalystView``, source ``thesis_catalyst``): they compete with the
+    platform's catalysts under the same key, core over flip, then the later night, and on a full tie the
+    platform's wins (N6 (a)). The strongest live fact of the OTHER origin, when there is one, rides as a second
+    source marked ``also_live`` / not ``counted`` (N7 (a)); it never changes the score, grade, liveness, label or
+    fire date. With platform facts only the event is exactly what it was before W6c.
     """
     live: list[tuple[dict[str, Any], Grade, int]] = []
     for f in facts:
@@ -72,8 +80,21 @@ def score(
             live.append((f, Grade(f["grade"]), lv))
     if not live:
         return None
-    # strongest conviction: prefer a binding (core) catalyst, then the most recent
-    fact, grade, lv = max(live, key=lambda x: (x[1] is Grade.CORE, x[0]["valid_from"]))
+    # strongest conviction: prefer a binding (core) catalyst, then the most recent, then (V2 W6c, N6 (a)) a
+    # platform catalyst over a card's own entry on a full tie. Platform-only input: the third element is constant,
+    # so the pick is the fact it always was.
+    fact, grade, lv = max(live, key=_strength)
+    provenance = [_provenance(fact)]
+    # R8 / N7 (a): the strongest live fact of the OTHER origin rides as a second, muted source; it changes nothing
+    # else (score, grade, liveness, label and fire date are the winner's). Platform-only: never present.
+    others = [x for x in live if _is_entry(x[0]) is not _is_entry(fact)]
+    if others:
+        other = max(others, key=_strength)[0]
+        provenance.append(
+            _provenance(
+                other, also_live={"also_live": True, "counted": False, "label": other["label"]}
+            )
+        )
     ctype = CatalystType(fact["catalyst_type"]) if fact.get("catalyst_type") else None
     return fired_signal(
         detector=DETECTOR_NAME,
@@ -85,9 +106,27 @@ def score(
         score=_CORE_SCORE if grade is Grade.CORE else _FLIP_SCORE,
         label=fact["label"],
         alpha_liveness_days=lv,
-        provenance=[source_provenance(fact["source"], fact["source_ref"])],
+        provenance=provenance,
         asof=fact["valid_from"],
     )
+
+
+def _is_entry(fact: dict[str, Any]) -> bool:
+    """A card's own counting entry (V2 W6c, ``signals.thesis_catalyst``), not a platform company catalyst."""
+    return fact["source"] == thesis_catalyst.OPERATOR_SOURCE
+
+
+def _strength(x: tuple[dict[str, Any], Grade, int]) -> tuple[bool, Any, bool]:
+    return (x[1] is Grade.CORE, x[0]["valid_from"], not _is_entry(x[0]))
+
+
+def _provenance(fact: dict[str, Any], also_live: dict[str, Any] | None = None) -> Provenance:
+    """The fact's source pointer. A platform fact's detail is empty, exactly as before W6c; an entry's carries its
+    id and the night it counts from (``thesis_catalyst.member_fact``)."""
+    detail = fact.get(thesis_catalyst.DETAIL_KEY)
+    if also_live is not None:
+        detail = {**(detail or {}), **also_live}
+    return source_provenance(fact["source"], fact["source_ref"], detail=detail)
 
 
 def detect(
@@ -97,7 +136,9 @@ def detect(
     cfg: CallConfig = DEFAULT_CONFIG,
 ) -> SignalEvent | None:
     """Key 1 — catalyst conviction (warms) for theme/catalyst theses. Reads ratified/parsed catalyst
-    facts via the point-in-time view; arming still needs a co-located confirmation (the breakout).
+    facts via the point-in-time view (since V2 W6c also the card's own counting entries naming this security, when
+    the seam handed it the card's ``ThesisCatalystView``); arming still needs a co-located confirmation (the
+    breakout).
     """
     return score(pit.catalyst_facts(security_id), security_id, asof, cfg)
 

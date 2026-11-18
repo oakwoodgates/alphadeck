@@ -119,16 +119,48 @@ class TriggerRefOut(BaseModel):
     # the name this trigger fired on — attributes it in a multi-name basket
     ticker: str | None = None
     sources: list[ProvenanceOut] = []
+    # V2 W6c (R9, operator decision N8 (a)): where a catalyst trigger came from, COMPUTED for the response from the
+    # recorded provenance (never stored on the card): "operator" = the card's own counting catalyst entry (a
+    # member entry, or the theme conviction = a whole-card entry), "platform" = platform data; None = not a catalyst
+    origin: Literal["platform", "operator"] | None = None
+
+
+# the provenance source of a card's own counting catalyst entry (``signals.thesis_catalyst.OPERATOR_SOURCE``)
+_OPERATOR_SOURCE = "thesis_catalyst"
+
+
+def trigger_origin(t: TriggerRef) -> Literal["platform", "operator"] | None:
+    """Where a trigger came from (V2 W6c, R9), derived from what the card records: a theme conviction is the card's
+    whole-card entry (operator); a catalyst is the operator's when its FIRST source (the one that counted) is a
+    thesis-catalyst entry, else platform data (a muted "also live" source never decides it); any other kind:
+    None."""
+    if t.kind is Kind.THEME_CONVICTION:
+        return "operator"
+    if t.kind is Kind.CATALYST:
+        if t.sources and t.sources[0].source == _OPERATOR_SOURCE:
+            return "operator"
+        return "platform"
+    return None
 
 
 def _provenance_out(p: Provenance, cik: str | None) -> ProvenanceOut:
     """One provenance ref -> its wire form, resolving the clickable EDGAR URL from the issuer ``cik``. The
     single place ProvenanceOut is built (reused by the trigger/risk-signal + scored-figure mappers).
+
+    A card's own catalyst entry (``thesis_catalyst``, V2 W6c) cites a link or an SEC accession: a link goes out as
+    is (``HttpUrlOut`` drops anything that is not a safe http(s) URL), an accession resolves to its EDGAR filing
+    index like a Form 4's.
     """
+    url = edgar_url(p.source, p.ref, cik)
+    if p.source == _OPERATOR_SOURCE:
+        if _is_accession(p.ref):
+            url = edgar_url("8-k", p.ref, cik)
+        else:
+            url = p.ref
     return ProvenanceOut(
         source=p.source,
         ref=p.ref,
-        url=edgar_url(p.source, p.ref, cik),
+        url=url,
         detail=p.detail,
     )
 
@@ -143,6 +175,7 @@ def _trigger_out(
         event_date=t.event_date,
         ticker=tickers.get(t.security_id),
         sources=[_provenance_out(p, ciks.get(t.security_id)) for p in t.sources],
+        origin=trigger_origin(t),
     )
 
 

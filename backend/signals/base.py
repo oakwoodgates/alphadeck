@@ -197,7 +197,7 @@ class PointInTimeData:
         return on_view_scale(rows, self._split_rows(security_id), through=self._view_day)
 
     def _thesis_rows(self, table: str, thesis_id: UUID) -> list[dict[str, Any]]:
-        """A THESIS-scoped table (``fact_theme_conviction`` / ``fact_term_mentions``): WORKSPACE tables, so
+        """A THESIS-scoped table (``fact_thesis_catalyst`` / ``fact_term_mentions``): WORKSPACE tables, so
         the read covers the workspace only (``domain.scopes``)."""
         tenants = self._tenants(table)
         key = (table, tenants, thesis_id)
@@ -378,9 +378,14 @@ class PointInTimeData:
         history view) from its ``filed`` date (``db.public_clock``)."""
         return self._rows("fact_filing_index", security_id)
 
-    def theme_conviction_facts(self, thesis_id: UUID) -> list[dict[str, Any]]:
-        """Thesis-scoped (not co-located): the operator-ratified theme convictions for a thesis (M5b)."""
-        return self._thesis_rows("fact_theme_conviction", thesis_id)
+    def thesis_catalyst_facts(self, thesis_id: UUID) -> list[dict[str, Any]]:
+        """Thesis-scoped (not co-located), V2 W6c: per entry on the card's catalyst list, the newest version of
+        its counting statement visible to this view (``valid_from <= asof`` on ``clock`` at ``known_at``; the
+        workspace's rows only) — exactly ``repositories.thesis_catalyst_repo.versions_asof``; the mirror twin is
+        ``replay.pit.ReplayPointInTimeData.thesis_catalyst_facts``. The call keeps the counting ones
+        (``signals.thesis_catalyst``). It replaced ``theme_conviction_facts``: ``fact_theme_conviction`` is read
+        by nothing (migration 0213 converted its row)."""
+        return self._thesis_rows("fact_thesis_catalyst", thesis_id)
 
     def term_mentions(self, thesis_id: UUID) -> list[dict[str, Any]]:
         """Thesis-scoped (not co-located): the card's monthly EDGAR full-text counts per SIGNAL term (migration
@@ -388,7 +393,7 @@ class PointInTimeData:
         four form groups, ``filers`` / ``filers_sampled`` / ``filer_ciks`` / ``new_filers``, ``source_ref``),
         as-of. The Narrative Adoption Curve dashboard reads it.
 
-        A DISPLAY accessor (the ``fund_shares`` / ``theme_conviction_facts`` precedents), deliberately NOT on
+        A DISPLAY accessor (the ``fund_shares`` precedent), deliberately NOT on
         the detectors' ``SignalPointInTimeData`` protocol below: it is never a call input, and keeping it off
         the protocol keeps a detector from quietly growing a dependency on it (#3/#4). It is also kept out of
         the replay mirror (``db.bitemporal.DISPLAY_ONLY_FACT_TABLES``). Both clocks come from ``_thesis_rows``:
@@ -489,7 +494,7 @@ class SignalPointInTimeData(Protocol):
 
     def activist_stake_facts(self, security_id: UUID) -> list[dict[str, Any]]: ...
 
-    def theme_conviction_facts(self, thesis_id: UUID) -> list[dict[str, Any]]: ...
+    def thesis_catalyst_facts(self, thesis_id: UUID) -> list[dict[str, Any]]: ...
 
     def split_events(self, security_id: UUID) -> list[dict[str, Any]]: ...
 

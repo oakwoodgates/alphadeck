@@ -820,7 +820,7 @@ def test_workspace_company_catalysts_refuse(db, capsys, tmp_path):
     db.commit()
     before = _counts(db)
     assert _apply(db, tmp_path) == 1
-    assert "W6 converts these; none were expected" in capsys.readouterr().out
+    assert "nothing converts these; none were expected" in capsys.readouterr().out
     assert _counts(db) == before
 
 

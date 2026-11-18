@@ -11,6 +11,7 @@ import uuid
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
+from db.session import DEFAULT_TENANT_ID
 from domain.enums import Grade, Kind, State
 from domain.market_time import serve_view
 from editions.engine import assemble_night, open_mirror
@@ -46,7 +47,7 @@ def test_an_editions_rerun_counts_the_entry_from_its_night_only(db, tmp_path):
     )
     db.commit()
     kb = _cut(db, tmp_path / "mirror")
-    thesis = thesis_repo.get(db, NUCLEAR_THESIS_ID)
+    thesis = thesis_repo.get(db, NUCLEAR_THESIS_ID, workspace=DEFAULT_TENANT_ID)
     db.commit()
     con = open_mirror(tmp_path / "mirror")
     try:

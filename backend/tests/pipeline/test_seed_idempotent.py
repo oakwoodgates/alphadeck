@@ -31,14 +31,13 @@ from pipeline.seed import (
     UNH_SECURITY_ID,
 )
 
-# every table the seed writes: the nine fact tables, plus the spine it upserts (already idempotent —
+# every table the seed writes: the eight fact tables, plus the spine it upserts (already idempotent —
 # asserted here so a regression on either half fails this test)
 _FACT_TABLES = [
     "fact_price_eod",
     "fact_insider_txn",
     "fact_catalyst",
     "fact_dilution",
-    "fact_theme_conviction",
     "fact_thesis_catalyst",
     "fact_revenue_mix",
     "fact_shares_outstanding",
@@ -169,7 +168,9 @@ def test_the_first_run_still_writes_every_fixture(seeded):
     # V2 W6c: the nuclear theme conviction is a whole-card counting entry on the card's catalyst list (migration
     # 0213's converted shape); the retired fact_theme_conviction is written by nothing
     assert counts["fact_thesis_catalyst"] == 1
-    assert counts["fact_theme_conviction"] == 0
+    with conn.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM fact_theme_conviction")
+        assert cur.fetchone()["n"] == 0
     # every award the DOE feed emitted became exactly one stored catalyst fact
     assert counts["fact_catalyst"] == len(emitted)
 

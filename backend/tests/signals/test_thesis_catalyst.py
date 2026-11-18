@@ -220,7 +220,9 @@ def test_a_whole_card_entry_uses_the_theme_dial_with_no_cap():
     open_ended = _row(members=(), grade="flip")
     assert theme_conviction.detect_fact(_Pit(rows=[open_ended]), TID, NIGHT, short) is not None
     assert (
-        theme_conviction.detect_fact(_Pit(rows=[open_ended]), TID, NIGHT + timedelta(days=30), short)
+        theme_conviction.detect_fact(
+            _Pit(rows=[open_ended]), TID, NIGHT + timedelta(days=30), short
+        )
         is None
     )
 
@@ -261,7 +263,10 @@ def test_a_core_platform_catalyst_beats_a_flip_entry_which_changes_nothing_else(
 def test_on_the_same_grade_the_later_night_wins():
     ev = _pick(_platform(grade="flip", valid_from=NIGHT - timedelta(days=1)), _row(grade="flip"))
     assert ev.provenance[0].source == "thesis_catalyst"
-    ev = _pick(_platform(grade="flip", valid_from=NIGHT), _row(grade="flip", valid_from=NIGHT - timedelta(days=1)))
+    ev = _pick(
+        _platform(grade="flip", valid_from=NIGHT),
+        _row(grade="flip", valid_from=NIGHT - timedelta(days=1)),
+    )
     assert ev.provenance[0].source == "doe_usaspending"
 
 
@@ -291,7 +296,10 @@ def test_a_lapsed_loser_is_not_shown():
 
 def test_the_platform_only_pick_is_unchanged():
     """Byte identity for every card today: with no entry the event is exactly what ``score`` made before."""
-    plat = [_platform(grade="flip"), _platform(grade="core", ref="X-2", valid_from=date(2026, 5, 1))]
+    plat = [
+        _platform(grade="flip"),
+        _platform(grade="core", ref="X-2", valid_from=date(2026, 5, 1)),
+    ]
     ev = catalyst_conviction.score(plat, SID, NIGHT)
     assert ev.grade is Grade.CORE and len(ev.provenance) == 1
     assert ev.provenance[0].ref == "X-2" and ev.provenance[0].detail == {}

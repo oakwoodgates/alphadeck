@@ -25,7 +25,9 @@ SID = uuid.UUID(int=0xA1)
 
 
 def _t(kind: Kind, *sources: Provenance) -> TriggerRef:
-    return TriggerRef(label="x", kind=kind, grade=Grade.FLIP, security_id=SID, sources=list(sources))
+    return TriggerRef(
+        label="x", kind=kind, grade=Grade.FLIP, security_id=SID, sources=list(sources)
+    )
 
 
 def _out(t: TriggerRef, cik: str | None = "1234567"):
@@ -40,7 +42,9 @@ def test_origin_is_derived_from_the_first_source():
     assert _out(_t(Kind.CATALYST, doe)).origin == "platform"
     assert _out(_t(Kind.CATALYST, doe, entry)).origin == "platform"  # the entry rides muted
     assert _out(_t(Kind.CATALYST, Provenance(source="ratified", ref="r"))).origin == "platform"
-    assert _out(_t(Kind.THEME_CONVICTION, Provenance(source="ratified", ref="r"))).origin == "operator"
+    assert (
+        _out(_t(Kind.THEME_CONVICTION, Provenance(source="ratified", ref="r"))).origin == "operator"
+    )
     assert _out(_t(Kind.TECHNICAL_BREAKOUT, Provenance(source="price", ref="p"))).origin is None
     assert _out(_t(Kind.INSIDER, Provenance(source="form4", ref="0001-26-000001"))).origin is None
 
@@ -50,12 +54,17 @@ def test_a_thesis_catalyst_citation_links():
     assert url.sources[0].url == "https://example.com/a"
     acc = _out(_t(Kind.CATALYST, Provenance(source="thesis_catalyst", ref="0001193125-26-234847")))
     assert acc.sources[0].url is not None and "000119312526234847" in acc.sources[0].url
-    unsafe = _out(_t(Kind.CATALYST, Provenance(source="thesis_catalyst", ref="javascript:alert(1)")))
+    unsafe = _out(
+        _t(Kind.CATALYST, Provenance(source="thesis_catalyst", ref="javascript:alert(1)"))
+    )
     assert unsafe.sources[0].url is None
     # a platform source keeps its old (absent) link
-    assert _out(_t(Kind.CATALYST, Provenance(source="ratified", ref="https://x.example/"))).sources[
-        0
-    ].url is None
+    assert (
+        _out(_t(Kind.CATALYST, Provenance(source="ratified", ref="https://x.example/")))
+        .sources[0]
+        .url
+        is None
+    )
 
 
 def test_the_call_route_carries_the_origin(client, db):
@@ -73,7 +82,9 @@ def test_the_call_route_carries_the_origin(client, db):
         citation="https://example.com/smr",
     )
     db.commit()
-    body = client.get(f"/theses/{NUCLEAR_THESIS_ID}/call?asof={date(2026, 6, 2).isoformat()}").json()
+    body = client.get(
+        f"/theses/{NUCLEAR_THESIS_ID}/call?asof={date(2026, 6, 2).isoformat()}"
+    ).json()
     origins = {}
     for m in body["armed_members"]:
         for t in m["triggers"]:

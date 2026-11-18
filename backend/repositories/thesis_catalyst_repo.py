@@ -5,8 +5,14 @@ unless the operator makes it count (the signed rule R2): a grade, a citation, op
 "relevant until" date, and the switch "counts toward the call". Each change of that statement is one appended
 VERSION of this append-only, thesis-scoped WORKSPACE table; nothing is ever updated in place.
 
-**Nothing in the call path reads this module yet** (W6c does). Until then no call can differ by one byte
-(``tests/pipeline/test_w6_card_identity.py``).
+**The call reads the store** (V2 W6c, ``signals.thesis_catalyst``, ``docs/CALL_LOGIC.md`` §3c) through the
+point-in-time views (``signals.base.PointInTimeData.thesis_catalyst_facts`` and its mirror twin), never through this
+module's connection functions; it imports only the pure ``counting`` / ``members_of``.
+
+**The one other writer** is the converted theme row (operator decision N4 (a)): migration 0213 converts the old
+``fact_theme_conviction`` row, and the seed writes the same shape on a fresh database
+(``pipeline.seed.seed_nuclear_theme_conviction``). That row carries no entry time and keeps its stated date, a
+shape ``append_version`` deliberately cannot make (``tests/repositories/test_thesis_catalyst_writers.py``).
 
 **When a version counts from (invariant 1, R5).** The PUBLIC instant of an operator version is the moment it was
 SAVED, set by the database: ``recorded_at`` is the column default ``now()`` and ``entered_at`` is the SQL
@@ -35,6 +41,7 @@ after tonight's night when it is set or changed on a counting version. The datab
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from collections.abc import Iterable, Sequence
@@ -82,6 +89,13 @@ def is_citation(text: str) -> bool:
         return False
     parts = urlsplit(t)
     return parts.scheme in ("http", "https") and bool(parts.netloc)
+
+
+def theme_entry_id(thesis_id: UUID, source_ref: str) -> UUID:
+    """The entry id of a theme conviction converted onto a card's catalyst list (V2 W6c, migration 0213):
+    ``md5(thesis_id::text || source_ref)::uuid``, the same id in SQL and here, so the seed names the row 0213 makes
+    and the calendar row keeps it across every boot. Pure."""
+    return UUID(hashlib.md5(f"{thesis_id}{source_ref}".encode()).hexdigest())  # noqa: S324 — an id
 
 
 def entry_night(at: datetime) -> date:
@@ -280,7 +294,8 @@ def versions_asof(
     asof``) on ``clock`` at ``known_at`` — the ordinary thesis-scoped as-of read (``db.bitemporal.as_of_thesis``),
     the workspace's rows only. On the public clock a history view of night N (``known_at`` =
     ``known_at_for_asof(N)``) sees exactly the versions saved before EDGAR's next open. The mirror twin is
-    ``replay.pit.ReplayPointInTimeData.thesis_catalyst_facts``. No call reads it yet (W6c)."""
+    ``replay.pit.ReplayPointInTimeData.thesis_catalyst_facts``. The call's live read is the same read
+    (``signals.base.PointInTimeData.thesis_catalyst_facts``)."""
     return as_of_thesis(
         conn,
         TABLE,

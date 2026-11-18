@@ -114,7 +114,7 @@ class _Pit:
     def activist_stake_facts(self, security_id: UUID) -> list[dict]:
         return []
 
-    def theme_conviction_facts(self, thesis_id: UUID) -> list[dict]:
+    def thesis_catalyst_facts(self, thesis_id: UUID) -> list[dict]:
         return []
 
     def security_name(self, security_id: UUID) -> str | None:
@@ -315,20 +315,25 @@ F = UUID(int=0xA6)  # a fund: a breakout tape, nothing else
 _TICKER[F] = "FNDX"
 _FUND_BARS = {**_BARS, F: _BREAKOUT}
 
-# A live, operator-ratified theme conviction on the thesis (the fact shape ``theme_conviction`` reads).
+# A live theme conviction on the thesis: since V2 W6c a whole-card counting catalyst entry, in the stored version
+# shape ``thesis_catalyst_facts`` returns (``theme_conviction`` reads it through ``signals.thesis_catalyst``).
 _THEME_FACT = {
+    "entry_id": "00000000-0000-0000-0000-0000000000e1",
+    "counts": True,
+    "security_ids": [],
+    "grade": "flip",
     "valid_from": _d(255),
     "label": "Theme conviction (test)",
     "source": "ratified",
-    "source_ref": "https://example.test/theme-conviction",
-    "horizon_end": None,
+    "citation": "https://example.test/theme-conviction",
+    "relevant_until": None,
 }
 
 
 class _ThemePit(_Pit):
     """The same in-memory view with one live theme conviction ratified on the thesis."""
 
-    def theme_conviction_facts(self, thesis_id: UUID) -> list[dict]:
+    def thesis_catalyst_facts(self, thesis_id: UUID) -> list[dict]:
         return [dict(_THEME_FACT)]
 
 

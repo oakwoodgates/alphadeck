@@ -39,7 +39,7 @@ from repositories.calls_repo import _canonical
 from repositories.mappers import call_to_row
 from repositories.thesis_catalyst_repo import entry_night
 from signals.catalyst_conviction import _CORE_SCORE
-from tests.thesis_catalyst_fixtures import insert_version
+from tests.thesis_catalyst_fixtures import card, insert_version
 from tests.workspaces import new_workspace
 
 ET = ZoneInfo("America/New_York")
@@ -159,21 +159,21 @@ def test_an_entry_on_another_workspaces_card_reaches_nothing_here(db):
     before = _canonical(_card(db))
     _entry(db, elsewhere, members=(SMR_ID,), grade="core", tenant_id=other_ws)
     assert _canonical(_card(db)) == before
-    assert _armed(_card(db, elsewhere))[SMR_ID].conviction_grade is Grade.CORE  # it counts on its own card
+    assert (
+        _armed(_card(db, elsewhere))[SMR_ID].conviction_grade is Grade.CORE
+    )  # it counts on its own card
 
 
 def test_an_entry_alone_warms_and_never_arms(db):
-    """LEU has no breakout on the night: a core entry on it makes the card warm on LEU, never arm it."""
-    _seed(db)
-    _entry(db, members=(LEU_ID,), grade="core")
-    card = _card(db)
-    assert LEU_ID not in _armed(card)
-    (trigger,) = _catalyst_triggers(card, LEU_ID)
-    assert trigger.grade is Grade.CORE
-    # and on a night with no confirmation anywhere the card only warms
-    quiet = _card(db, night=date(2026, 6, 9))
-    assert quiet.state is State.WARMING and not quiet.armed_members
-    assert _catalyst_triggers(quiet, LEU_ID)
+    """A member with no confirmation at all (no price tape): a core entry on it warms the card, never arms it."""
+    tid, sids, _ = card(db)
+    db.commit()
+    assert _card(db, tid).state is State.INCUBATING
+    _entry(db, tid, members=(sids[0],), grade="core")
+    after = _card(db, tid)
+    assert after.state is State.WARMING and not after.armed_members
+    (trigger,) = [t for t in after.triggers_fired if t.kind is Kind.CATALYST]
+    assert trigger.security_id == sids[0] and trigger.grade is Grade.CORE
 
 
 def test_an_entry_is_an_own_conviction_so_the_theme_skips_that_member(db):
@@ -192,25 +192,31 @@ def test_zero_member_entry_is_the_theme_conviction(db):
     conviction) becomes a theme-armed starter; NNE (momentum-only) stays in watch."""
     _seed(db)
     _entry(db, members=(), grade="flip", label="the operator's theme")
-    card = _card(db)
-    assert card.state is State.ARMED
-    smr = _armed(card)[SMR_ID]
+    card_ = _card(db)
+    assert card_.state is State.ARMED
+    smr = _armed(card_)[SMR_ID]
     assert smr.theme_armed is True and smr.conviction_grade is Grade.FLIP
     theme = [t for t in smr.triggers if t.kind is Kind.THEME_CONVICTION]
     assert [(t.label, t.sources[0].source) for t in theme] == [
         ("the operator's theme", "thesis_catalyst")
     ]
-    assert NNE_ID not in _armed(card)
-    assert NNE_ID in {m.security_id for m in card.watch_members}
+    assert NNE_ID not in _armed(card_)
+    assert NNE_ID in {m.security_id for m in card_.watch_members}
 
 
 def test_zero_member_entry_does_not_warm_a_card_on_its_own(db):
-    """N1 (a): with no volume-backed confirmation on any member, the whole-card entry adds nothing at all."""
+    """N1 (a): a whole-card entry reaches only a member with a live VOLUME-BACKED confirmation. A card whose names
+    have no confirmation, and a card whose only breakout is momentum-only (NNE), are unchanged by it.
+    """
     _seed(db)
-    quiet_night = date(2026, 6, 9)
-    before = _canonical(_card(db, night=quiet_night))
-    _entry(db, members=(), grade="flip")
-    assert _canonical(_card(db, night=quiet_night)) == before
+    tid, _, _ = card(db)
+    nne_only = _second_card(db, members=[BasketMember(ticker="NNE", role="r", security_id=NNE_ID)])
+    db.commit()
+    before = {t: _canonical(_card(db, t)) for t in (tid, nne_only)}
+    _entry(db, tid, members=(), grade="flip")
+    _entry(db, nne_only, members=(), grade="flip")
+    assert {t: _canonical(_card(db, t)) for t in (tid, nne_only)} == before
+    assert _card(db, tid).state is State.INCUBATING
 
 
 # --- R6 ------------------------------------------------------------------------------------------------------

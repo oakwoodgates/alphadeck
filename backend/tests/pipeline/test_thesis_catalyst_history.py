@@ -81,7 +81,9 @@ def nuclear(db):
 def test_the_entry_night_mapping():
     assert entry_night(datetime(2026, 6, 3, 10, tzinfo=ET)) == WED  # Wednesday 10:00
     assert entry_night(datetime(2026, 6, 4, 3, tzinfo=ET)) == WED  # Thursday 03:00
-    assert entry_night(datetime(2026, 6, 6, 12, tzinfo=ET)) == date(2026, 6, 5)  # Saturday -> Friday
+    assert entry_night(datetime(2026, 6, 6, 12, tzinfo=ET)) == date(
+        2026, 6, 5
+    )  # Saturday -> Friday
 
 
 @pytest.mark.parametrize("clock", ["record", "public"])
@@ -110,7 +112,8 @@ def test_the_0600_et_boundary(db, nuclear, saved, counts_monday):
 
 def test_the_live_board_during_the_session_does_not_see_todays_entry(db, nuclear):
     """Tuesday 10:30 ET, the serve path still reads Monday's night (record clock, known_at = now): an entry
-    saved at 10:00 that morning counts from Tuesday's night, so Monday's live card does not have it."""
+    saved at 10:00 that morning counts from Tuesday's night, so Monday's live card does not have it.
+    """
     _save(db, datetime(2026, 6, 2, 10, tzinfo=ET), uuid.uuid4(), grade="core")
     card = call_for_thesis(
         db, NUCLEAR_THESIS_ID, MON, known_at=datetime(2026, 6, 2, 10, 30, tzinfo=ET), record=False
@@ -123,7 +126,9 @@ def test_edit_counts_from_the_edit(db, nuclear, clock):
     entry = uuid.uuid4()
     _save(db, datetime(2026, 5, 29, 10, tzinfo=ET), entry, grade="flip")  # Friday
     _save(db, datetime(2026, 6, 2, 10, tzinfo=ET), entry, grade="core")  # Tuesday: grade -> core
-    assert _grade_on(_card(db, MON, clock)) is Grade.FLIP  # the night before the edit: the old version
+    assert (
+        _grade_on(_card(db, MON, clock)) is Grade.FLIP
+    )  # the night before the edit: the old version
     assert _grade_on(_card(db, TUE, clock)) is Grade.CORE
 
 
@@ -144,21 +149,26 @@ def test_switch_off_leaves_history(db, nuclear, clock):
     _save(db, datetime(2026, 6, 1, 10, tzinfo=ET), entry, grade="core")  # Monday
     _save(db, datetime(2026, 6, 3, 10, tzinfo=ET), entry, grade="core", counts=False)  # Wednesday
     assert _grade_on(_card(db, MON, clock)) is Grade.CORE
-    assert _card(db, TUE, clock).state is State.ARMED  # still counted the night before the switch-off
+    assert (
+        _card(db, TUE, clock).state is State.ARMED
+    )  # still counted the night before the switch-off
     assert _smr_catalyst(_card(db, WED, clock)) == []
     assert _smr_catalyst(_card(db, date(2026, 6, 4), clock)) == []
 
 
 def test_typed_date_never_reaches_the_call(db, nuclear):
     """The REAL writer: a calendar row typed 2026-03-01 switched on today counts from today's night, so no
-    history night of the fixture tape (whose dates are all before today) sees it, on either clock."""
+    history night of the fixture tape (whose dates are all before today) sees it, on either clock.
+    """
     entry = uuid.uuid4()
     thesis_repo.set_catalysts(
         db,
         NUCLEAR_THESIS_ID,
         [
-            *thesis_repo.get(db, NUCLEAR_THESIS_ID).catalysts,
-            Catalyst(id=entry, label="NRC design approval", kind="regulatory", when_date=date(2026, 3, 1)),
+            *thesis_repo.get(db, NUCLEAR_THESIS_ID, workspace=DEFAULT_TENANT_ID).catalysts,
+            Catalyst(
+                id=entry, label="NRC design approval", kind="regulatory", when_date=date(2026, 3, 1)
+            ),
         ],
         tenant_id=DEFAULT_TENANT_ID,
     )
@@ -175,7 +185,9 @@ def test_typed_date_never_reaches_the_call(db, nuclear):
         user_id=None,
     )
     db.commit()
-    (row,) = [r for r in thesis_catalyst_repo.current(db, NUCLEAR_THESIS_ID) if r["entry_id"] == entry]
+    (row,) = [
+        r for r in thesis_catalyst_repo.current(db, NUCLEAR_THESIS_ID) if r["entry_id"] == entry
+    ]
     assert row["valid_from"] > date(2026, 6, 2) and row["valid_from"] != date(2026, 3, 1)
     for clock in ("record", "public"):
         for night in (date(2026, 3, 2), TUE):

@@ -168,7 +168,7 @@ def test_a_mirror_frozen_before_the_table_existed_still_opens(db, tmp_path):
                 con, asof=date(2026, 6, 8), known_at=_PIN, workspace=DEFAULT_TENANT_ID
             )
             assert pit.thesis_catalyst_facts(tid) == []
-            assert pit.theme_conviction_facts(tid) == []  # the rest of the mirror reads as before
+            assert pit.catalyst_facts(uuid.uuid4()) == []  # the rest of the mirror reads as before
         finally:
             con.close()
 
@@ -184,3 +184,73 @@ def test_a_listed_table_with_a_lost_file_still_fails_loudly(db, tmp_path):
     (tmp_path / "n" / MANIFEST_NAME).unlink()
     with pytest.raises(Exception, match="fact_thesis_catalyst"):
         connect_mirror(tmp_path / "n")
+
+
+def test_an_old_mirror_replays_its_theme_conviction_unchanged(db, tmp_path):
+    """V2 W6c: a mirror frozen BEFORE the fold holds the theme conviction in ``fact_theme_conviction``, which the
+    call no longer reads. ``connect_mirror`` converts it as migration 0213 converts the stored row (N4 (a)), so the
+    old mirror replays the seeded nuclear card exactly as the live path computes it from the converted row.
+    """
+    from db.bitemporal import append_fact
+    from domain.config import DEFAULT_CONFIG
+    from pipeline.call_for_thesis import load_call_inputs
+    from pipeline.core import assemble_from_pit
+    from pipeline.seed import (
+        NUCLEAR_THEME_LABEL,
+        NUCLEAR_THEME_SOURCE_REF,
+        NUCLEAR_THESIS_ID,
+        seed_nuclear,
+        seed_nuclear_theme_conviction,
+    )
+
+    seed_nuclear(db)
+    append_fact(  # the pre-W6 row, exactly as the old seed wrote it
+        db,
+        "fact_theme_conviction",
+        {
+            "tenant_id": DEFAULT_TENANT_ID,
+            "thesis_id": NUCLEAR_THESIS_ID,
+            "grade": "flip",
+            "label": NUCLEAR_THEME_LABEL,
+            "source": "ratified",
+            "source_ref": NUCLEAR_THEME_SOURCE_REF,
+            "horizon_end": date(2027, 1, 15),
+            "ratified_by": "operator",
+            "valid_from": date(2026, 1, 15),
+        },
+    )
+    db.commit()
+    for clock in ("record", "public"):
+        out = tmp_path / clock
+        export_snapshot(db, out, workspace=DEFAULT_TENANT_ID, clock=clock)
+        (out / _FILE).unlink()
+        manifest = json.loads((out / MANIFEST_NAME).read_text(encoding="utf-8"))
+        del manifest["tables"]["fact_thesis_catalyst"]
+        (out / MANIFEST_NAME).write_text(json.dumps(manifest), encoding="utf-8")
+    seed_nuclear_theme_conviction(db)  # the live store now holds the converted row
+    db.commit()
+    armed_theme = 0
+    for clock in ("record", "public"):
+        con = connect_mirror(tmp_path / clock)
+        try:
+            for night in (
+                date(2026, 1, 14),
+                date(2026, 1, 15),
+                date(2026, 6, 2),
+                date(2027, 1, 15),
+            ):
+                known_at = known_at_for_asof(night, _PIN) if clock == "public" else _PIN
+                thesis, pit = load_call_inputs(
+                    db, NUCLEAR_THESIS_ID, night, known_at=known_at, clock=clock
+                )
+                live = assemble_from_pit(pit, thesis, night, DEFAULT_CONFIG)
+                rep = ReplayPointInTimeData(
+                    con, asof=night, known_at=known_at, workspace=DEFAULT_TENANT_ID
+                )
+                old = assemble_from_pit(rep, thesis, night, DEFAULT_CONFIG)
+                assert old.model_dump(mode="json") == live.model_dump(mode="json"), (clock, night)
+                armed_theme += sum(m.theme_armed for m in live.armed_members)
+            db.commit()
+        finally:
+            con.close()
+    assert armed_theme  # not vacuous: the theme conviction arms a member on the demo night
