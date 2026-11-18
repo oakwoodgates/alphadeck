@@ -2652,3 +2652,22 @@ export function useBacktestSweep(
     },
   });
 }
+
+// --- the record's start (W8c) ---------------------------------------------------------------------------------
+/** The first night on the signed-in workspace's record (GET /record/start): a YYYY-MM-DD date, or `null` before
+ *  its first nightly call. A workspace's record starts fresh, so a history dashboard says so on an empty page
+ *  (the shared `RecordStartNote`). The value changes at most once (when the first night is recorded), so it
+ *  keeps the monitor reads' stale time; sign-out clears it with the rest of the cache. */
+export const RECORD_START_KEY = ["record-start"] as const;
+
+export function useRecordStart() {
+  return useQuery({
+    queryKey: RECORD_START_KEY,
+    staleTime: MONITOR_STALE_MS,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/record/start");
+      if (error) throw error;
+      return data.first_night;
+    },
+  });
+}
