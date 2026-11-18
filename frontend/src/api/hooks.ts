@@ -2291,6 +2291,98 @@ export function useExtractNow() {
   );
 }
 
+// --- User flags on a platform value (W5f): the steward closes a flag and reopens one it closed ---
+// CLOSE: `fixed` names the steward's own standing approve or correct (`decisionId`), `kept` needs a note the user
+// reads (the server refuses a blank one). REOPEN is its inverse: a NEW open flag naming the closed one. Both answer
+// the company's new state (CompanyValuesOut), which REPLACES the cached company read; the paged older closed flags
+// (their own reads) and the queue (its open-flag count), the status and the user-side value reads are re-read. A 409
+// means the server's state moved: the company is re-read to where the server has it. retry:false: never auto-retried.
+export type PlatformUserFlagOut = components["schemas"]["PlatformUserFlagOut"];
+export type PlatformUserFlagsOut = components["schemas"]["PlatformUserFlagsOut"];
+
+function useFlagAction<TVars extends { securityId: string }>(fn: (vars: TVars) => Promise<CompanyValuesOut | undefined>) {
+  const qc = useQueryClient();
+  return useMutation({
+    retry: false,
+    mutationFn: fn,
+    onSuccess: (data, vars) => {
+      // the older closed pages are stale (a close or reopen moves flags between the lists): drop them first, then
+      // put the answer where the company read lives
+      qc.invalidateQueries({ queryKey: [...companyValuesKey(vars.securityId), "closed-flags"] });
+      if (data) qc.setQueryData(companyValuesKey(vars.securityId), data);
+      qc.invalidateQueries({ queryKey: ["admin-platform-queue"] });
+      qc.invalidateQueries({ queryKey: ["admin-status"] });
+      qc.invalidateQueries({ queryKey: [PLATFORM_VALUES_KEY] });
+    },
+    onError: (_e, vars) => {
+      qc.invalidateQueries({ queryKey: companyValuesKey(vars.securityId) });
+    },
+  });
+}
+
+export function useCloseFlag() {
+  return useFlagAction(
+    async (vars: {
+      securityId: string;
+      flagId: string;
+      outcome: "fixed" | "kept";
+      note?: string;
+      decisionId?: string;
+    }) => {
+      const { data, error } = await api.POST("/admin/platform-values/flags/{flag_id}/close", {
+        params: { path: { flag_id: vars.flagId } },
+        body: {
+          outcome: vars.outcome,
+          ...noteBody(vars.note),
+          ...(vars.decisionId ? { decision_id: vars.decisionId } : {}),
+        },
+      });
+      if (error) throw error;
+      return data;
+    },
+  );
+}
+
+export function useReopenFlag() {
+  return useFlagAction(async (vars: { securityId: string; flagId: string }) => {
+    const { data, error } = await api.POST("/admin/platform-values/flags/{flag_id}/reopen", {
+      params: { path: { flag_id: vars.flagId } },
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
+// The closed flags past the first page, for "Show older": `extraPages` more pages of `limit` each, read through the
+// company read's `flags_offset` / `flags_limit` (page 0 is the company read itself). Rows come back newest closed
+// first, page after page; a page the server could not answer sets `isError`/`error` and the rest still show.
+export function useClosedFlagPages(securityId: string, extraPages: number, limit: number) {
+  const pages = Array.from({ length: Math.max(0, extraPages) }, (_, i) => (i + 1) * limit);
+  const results = useQueries({
+    queries: pages.map((offset) => ({
+      queryKey: [...companyValuesKey(securityId), "closed-flags", offset, limit] as readonly unknown[],
+      queryFn: async () => {
+        const { data, error } = await api.GET("/admin/platform-values/{security_id}", {
+          params: {
+            path: { security_id: securityId },
+            query: { flags_offset: offset, flags_limit: limit },
+          },
+        });
+        if (error) throw error;
+        return data?.flags?.closed ?? [];
+      },
+    })),
+  });
+  const rows: PlatformUserFlagOut[] = results.flatMap((r) => r.data ?? []);
+  const failed = results.find((r) => r.isError);
+  return {
+    rows,
+    isFetching: results.some((r) => r.isFetching),
+    isError: failed != null,
+    error: failed?.error ?? null,
+  };
+}
+
 // --- Splits (split plan S1): the operator's ratification of the split list ---
 // Its own read (the split list, live) and its WRITES, each fired ONLY by an explicit click with a visible
 // inverse (Confirm ⇄ Revoke, Reject / Revoke ⇄ Restore). Every write names the version it acts on, so a stale

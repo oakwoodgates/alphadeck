@@ -44,6 +44,10 @@ vi.mock("../../api/hooks", () => ({
     return { ...h.explain, refetch: h.explainRefetch };
   },
   useResolveSecurities: () => ({ data: undefined, isFetching: false }),
+  // W5f: inert stubs (the flags are tested in CompanyFacts.flags.test.tsx)
+  useCloseFlag: () => ({ mutate: vi.fn(), isPending: false, isError: false, error: null, variables: undefined }),
+  useReopenFlag: () => ({ mutate: vi.fn(), isPending: false, isError: false, error: null, variables: undefined }),
+  useClosedFlagPages: () => ({ rows: [], isFetching: false, isError: false, error: null }),
 }));
 
 const m = () => ({ mutate: vi.fn(), isPending: false, isError: false, error: null, variables: undefined });

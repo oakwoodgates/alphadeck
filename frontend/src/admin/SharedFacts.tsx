@@ -11,7 +11,7 @@ import { labelCurrency } from "../components/currency";
 import { ASOF, companyFactsPath, validAsof } from "../nav";
 import { errText } from "../workbench/format";
 import { FactSearch } from "./FactSearch";
-import { FACT_TITLE, PINNED_FLAG, day, valueWords } from "./factWords";
+import { FACT_TITLE, PINNED_FLAG, day, flagCountWords, valueWords } from "./factWords";
 
 // The Shared facts card on Admin (V2 W4c): which companies' share count or cash/burn awaits the steward, and a box to
 // open any company. A READ only: it writes nothing (the writes live on the company page, and they refresh this queue).
@@ -33,7 +33,7 @@ const DAY_MS = 86_400_000;
 
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
 
-/** How long a company has waited, from its oldest waiting candidate: "waiting 3 days". */
+/** How long a company has waited, from its oldest waiting candidate or open user flag: "waiting 3 days". */
 export function waitedWords(sinceIso: string, now: number = Date.now()): string {
   const since = Date.parse(sinceIso);
   if (Number.isNaN(since)) return "waiting";
@@ -63,6 +63,8 @@ function Row({ item, asof, now }: { item: PlatformQueueItemOut; asof: string | n
   const waits: string[] = [];
   if (item.shares) waits.push(waitingWords("shares_outstanding", item.shares));
   if (item.cash_burn) waits.push(waitingWords("cash_burn", item.cash_burn));
+  // a count only (never whose or what note); a company with only a flag has no candidate words, just this
+  if ((item.open_flags ?? 0) > 0) waits.push(flagCountWords(item.open_flags ?? 0));
   return (
     <li
       className={`sf-row${item.pen_only ? " sf-pen" : ""}`}
