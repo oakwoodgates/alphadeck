@@ -583,3 +583,31 @@ def test_the_fork_refresh_runs_the_move_after_migrate():
     assert plan.index("step (migrate)") < plan.index(
         f"step (v2 move): docker exec <fork backend> {_MOVE_CMD}"
     )
+
+
+def test_v1_state_skips_the_move():
+    """Read as TEXT. ``--v1-state`` (a cutover rehearsal) skips ONLY the V2 move, so the fork starts from V1-shaped
+    data; the default keeps the move (the test above), and the dry-run plan and the closing OK: line say so.
+    """
+    text = _REFRESH.read_text(encoding="utf-8")
+    args = text[text.index("# --- args") : text.index("# --reset is REQUIRED")]
+    assert "--v1-state)" in args, "no --v1-state option (today: FAIL: unknown argument: --v1-state)"
+    assert "--v1-state" in text[: text.index("set -euo pipefail")]  # the usage text names it
+    plan = text[
+        text.index('if [ "$DRY_RUN" -eq 1 ]; then') : text.index(
+            "# ===================================== REAL RUN"
+        )
+    ]
+    assert "step (v2 move): SKIPPED (--v1-state: a cutover rehearsal)" in plan
+    real = text[text.index("# ===================================== REAL RUN") :]
+    guard = real.index('if [ "$V1_STATE" -eq 1 ]; then')
+    move = real.index(f'docker exec "$FORK_BACKEND" {_MOVE_CMD}')
+    branch = real[guard:move]
+    assert (
+        "\nelse\n" in branch and "docker exec" not in branch
+    )  # the move runs only in the else branch
+    end = real.index("\nfi\n", move)
+    assert real.index("python -m db.migrate || fail") < guard
+    assert end < real.index('if [ "$WITH_CACHE" -eq 1 ]')
+    ok_line = real[real.index('echo "OK: fork') :].split("\n")[0]
+    assert "V1_NOTE" in ok_line and 'V1_NOTE=" (V1 state: run the cutover next)"' in real
