@@ -249,6 +249,7 @@ class MachineDecision(NamedTuple):
 def machine_action(
     *,
     source_ref: str,
+    source: str,
     event_date: date,
     stored_refs: Collection[str],
     shown: Mapping[str, Any] | None,
@@ -261,8 +262,13 @@ def machine_action(
     2. a pinned company: a flagged candidate with flag ``pinned``, never a fact;
     3. a filing with ANY stored version (``stored_refs`` includes set-aside versions, so a filing whose approve the
        steward undid is never re-applied): skip ``already_on_file``;
-    4. a date on or before the shown value's (``shown`` = ``pick_current``'s row): skip ``older_than_on_file``;
+    4. a date on or before the shown value's (``shown`` = ``pick_current``'s row): skip ``older_than_on_file`` —
+       except THE SAME-DAY ANNUAL TIE (``annual_cover_replaces``): an ``annual-cover`` count dated the SAME day as
+       a shown value the MACHINE wrote from the quarterly cover (``10-q-cover``) is applied, so a form switcher's
+       mislabeled count takes the annual path (PR D1);
     5. otherwise apply, whoever set the shown value (a strictly newer filing replaces a verified one: D3 (a)).
+
+    ``source`` is the value's provenance kind (``ExtractedFact.source``).
     """
     if event_date > today:
         return MachineDecision("skip", "after_today", ())
@@ -271,14 +277,35 @@ def machine_action(
     if source_ref in stored_refs:
         return MachineDecision("skip", "already_on_file", ())
     if shown is not None and event_date <= shown["valid_from"]:
-        return MachineDecision("skip", "older_than_on_file", ())
+        if not annual_cover_replaces(source=source, event_date=event_date, shown=shown):
+            return MachineDecision("skip", "older_than_on_file", ())
     return MachineDecision("apply", None, ())
+
+
+def annual_cover_replaces(*, source: str, event_date: date, shown: Mapping[str, Any]) -> bool:
+    """THE SAME-DAY ANNUAL TIE (PR D1): does an annual cover count replace the shown value of its own date?
+
+    True only when the new value is an ``annual-cover`` count dated EXACTLY the shown value's ``valid_from`` and
+    the shown row was written by the machine (``auto`` / NULL: ``ratifier_kind`` ``machine``) from the quarterly
+    cover (``source`` ``10-q-cover``) — a form switcher's count written on the quarterly path before the router
+    fix. Never over a steward's value, a carried V1 value (``operator``), an annual row already shown, another
+    source or an earlier date. Dates and provenance only: the new row keeps its own ``valid_from`` and filing
+    acceptance, so nothing becomes public earlier (invariant 1); the pick then shows it as the newest write.
+    """
+    return (
+        source == ANNUAL_COVER_SOURCE
+        and event_date == shown["valid_from"]
+        and shown.get("source") == QUARTERLY_COVER_SOURCE
+        and ratifier_kind(shown.get("ratified_by")) == "machine"
+    )
 
 
 # --- THE ANNUAL SHARE-COUNT RULE (the extractor plan's PR 5, Q7) ---------------------------------------------------
 
 # The source an annual foreign filer's cover count carries (``ingest.edgar.annual_shares``: a 20-F or 40-F cover).
 ANNUAL_COVER_SOURCE = "annual-cover"
+# The source a quarterly cover count carries (``ingest.edgar.extract``: a 10-Q cover).
+QUARTERLY_COVER_SOURCE = "10-q-cover"
 # The flags EVERY annual cover count carries by design: ``annual-cover`` always, ``stale-cover`` once its as-of date
 # is more than ~6 months old (on an annual filer that is only its age). A count whose flags are all in this set
 # carries no detected risk; any other flag (multi-value-cover, dual-class, ads-ratio-unread, source-disagreement,
@@ -335,7 +362,9 @@ __all__ = [
     "correction_wins",
     "MachineDecision",
     "machine_action",
+    "annual_cover_replaces",
     "ANNUAL_COVER_SOURCE",
+    "QUARTERLY_COVER_SOURCE",
     "ANNUAL_ONLY_FLAGS",
     "annual_shares_auto_eligible",
 ]

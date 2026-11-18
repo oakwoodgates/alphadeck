@@ -9,8 +9,9 @@ returns; already fetched — no network here) and, for EACH value type, does exa
   ``ratified_by='auto'`` in the data tenant), record it as a flagged **candidate** (the company is pinned: the
   steward reviews every new filing value), or **skip** it (``already_on_file`` — ANY stored version of the filing,
   set-aside ones included, so an undone approve is never re-applied; ``older_than_on_file`` — a date on or before
-  the value shown; ``after_today`` — a value dated after today could never be shown, D1). A strictly newer filing
-  is applied over a verified value unless the company is pinned (D3 (a)).
+  the value shown, except an ``annual-cover`` count dated the same day as a machine ``10-q-cover`` value, which is
+  applied (the same-day annual tie, PR D1); ``after_today`` — a value dated after today could never be shown, D1). A
+  strictly newer filing is applied over a verified value unless the company is pinned (D3 (a)).
 - an annual foreign filer's **FLAG share count whose only flags are the annual ones** (``annual-cover``,
   ``stale-cover``), no older than ``ExtractorConfig.annual_shares_auto_max_age_days`` (400) on today's market date
   → treated as AUTO (``domain.platform_values.annual_shares_auto_eligible``, the extractor plan's PR 5): the same
@@ -326,6 +327,7 @@ def _decide_and_write(
     st = read_state(conn, security_id, ft, asof=today)  # what the meters show NOW, under the lock
     decision = machine_action(
         source_ref=f.source_ref,
+        source=f.source,
         event_date=f.event_date,
         stored_refs=repo.stored_source_refs(conn, security_id, ft),
         shown=st.value,

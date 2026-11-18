@@ -157,6 +157,20 @@ as of <date>" in the value's status line, quietly. **Share counts only:** annual
 the steward. A candidate recorded for the same filing before the rule stops waiting (the value shown has its date),
 and stays in History. Tests: `tests/domain/test_platform_values.py`, `tests/platform_values/test_machine.py`.
 
+**The same-day annual tie (D1).** A company that filed 10-Qs and now files a 20-F/40-F can carry a share count the
+machine wrote on the quarterly path before the router fix: `ratified_by='auto'`, `source='10-q-cover'`, citing an
+old 10-Q, dated the same day as the annual cover's count (BTCT, CURR, EUDA on the fork). `older_than_on_file` used
+to skip the annual result, so the annual rules never ran. Now `machine_action` (via the pure
+`annual_cover_replaces`) applies an `annual-cover` count dated EXACTLY the shown value's date when the shown row
+was written by the machine (`auto` or NULL) from `10-q-cover`; the pick shows it as the newest write. It is an
+APPENDED new version (the old row is kept; a re-run is `already_on_file`), and only a count the annual rule makes
+`auto` reaches it: a flagged annual count stays a candidate and the value shown does not change. A steward's value,
+a carried `operator` value (GFUZ), a pin, an annual row already shown, an earlier date, another source and a
+quarterly-over-quarterly tie behave exactly as before. Dates and provenance only: the new row keeps its own
+`valid_from` and filing acceptance, so nothing becomes public earlier. The nightly does not retake these companies
+on its own (an `older_than_on_file` attempt is `done`, so the company stays "up to date" until a new periodic
+filing); the steward presses "Extract now" (or a backfill extracts them).
+
 **Lock and stamp.** The caller fetches with the company free. The writer then takes the company write lock
 (`acquire_company_lock`, waiting at most `wait_s`; `CompanyLockBusy` with nothing written), re-reads the state, the
 pin and every stored filing under it, writes both types in one transaction with the company's change stamp,
