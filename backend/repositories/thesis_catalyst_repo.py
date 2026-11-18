@@ -36,9 +36,11 @@ after tonight's night when it is set or changed on a counting version. The datab
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterable, Sequence
 from datetime import date, datetime
 from typing import Any
+from urllib.parse import urlsplit
 from uuid import UUID
 
 import psycopg
@@ -59,8 +61,27 @@ class CountingEntryError(ValueError):
     """A counting statement the store refuses (W6b maps it to 422)."""
 
 
+CITATION_NEEDED = "Add a citation: a link (https://…) or an SEC accession number."
+
+
 class UnknownEntry(LookupError):
     """No such card, or no such calendar row on it (W6b maps it to 404)."""
+
+
+_ACCESSION = re.compile(r"^\d{10}-\d{2}-\d{6}$")
+
+
+def is_citation(text: str) -> bool:
+    """The citation's form (operator decision N9 (a)): an http(s) link or an SEC accession number
+    (``0001193125-26-234847``). Recorded, never fetched or verified. Pure; the counting route checks it.
+    """
+    t = text.strip()
+    if _ACCESSION.match(t):
+        return True
+    if not t or any(c.isspace() for c in t):
+        return False
+    parts = urlsplit(t)
+    return parts.scheme in ("http", "https") and bool(parts.netloc)
 
 
 def entry_night(at: datetime) -> date:
@@ -150,13 +171,13 @@ def append_version(
             members = _members(security_ids)
             citation, label = citation.strip(), label.strip()
             if grade not in GRADES:
-                raise CountingEntryError(f"grade must be core or flip, not {grade!r}")
+                raise CountingEntryError("Pick a grade.")
             if not citation:
-                raise CountingEntryError("a counting entry needs a citation")
+                raise CountingEntryError(CITATION_NEEDED)
             if not label:
-                raise CountingEntryError("a counting entry needs a label")
+                raise CountingEntryError("Give the entry a label before it counts toward the call.")
             if not members and grade != "flip":
-                raise CountingEntryError("a whole-card entry (no names) can only be flip")
+                raise CountingEntryError("A whole-card entry can only be Flip.")
             if members:
                 cur.execute(
                     "SELECT DISTINCT security_id FROM basket_member "
@@ -165,14 +186,20 @@ def append_version(
                 )
                 on_card = {r["security_id"] for r in cur.fetchall()}
                 if missing := [m for m in members if m not in on_card]:
-                    raise CountingEntryError(f"not on this card: {missing}")
+                    raise CountingEntryError(
+                        "That company is not on this card."
+                        if len(missing) == 1
+                        else "Those companies are not on this card."
+                    )
             was_counting = prev is not None and prev["counts"]
             if (
                 relevant_until is not None
                 and not (was_counting and relevant_until == prev["relevant_until"])
                 and relevant_until <= night
             ):
-                raise CountingEntryError(f"relevant until {relevant_until} must be after {night}")
+                raise CountingEntryError(
+                    f"“Relevant until” must be after {night.isoformat()}, the night it would count from."
+                )
             if (
                 was_counting
                 and prev["grade"] == grade

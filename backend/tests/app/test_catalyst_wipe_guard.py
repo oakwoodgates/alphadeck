@@ -9,8 +9,10 @@ deleted). A label edit on a counting row appends one label-only version. A promo
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import date
+from pathlib import Path
 
 import pytest
 
@@ -56,9 +58,9 @@ def test_a_save_that_omits_a_counting_row_is_refused_and_writes_nothing(client, 
         "“DOE loan” counts toward the call. Turn that off before removing it."
     )
     assert _counts(db) == before
-    assert [c.id for c in thesis_repo.get(db, tid, workspace=thesis_repo_ws(db, tid)).catalysts] == [
-        entry
-    ]
+    assert [
+        c.id for c in thesis_repo.get(db, tid, workspace=thesis_repo_ws(db, tid)).catalysts
+    ] == [entry]
 
 
 def thesis_repo_ws(db, tid):
@@ -87,7 +89,12 @@ def test_a_save_that_keeps_the_counting_row_passes_and_appends_nothing(client, d
     r = client.put(
         f"/theses/{tid}/catalysts",
         json=[
-            {"id": str(entry), "label": "DOE loan", "kind": "regulatory", "when_date": "2026-03-01"},
+            {
+                "id": str(entry),
+                "label": "DOE loan",
+                "kind": "regulatory",
+                "when_date": "2026-03-01",
+            },
             {"label": "a second row"},
         ],
     )
@@ -151,9 +158,7 @@ def test_the_seed_rewrite_with_the_row_present_passes(db):
     assert _counts(db) == before
     # the seed's list WITHOUT the row is refused like any other writer
     stripped = thesis.model_copy(
-        update={
-            "catalysts": [Catalyst(id=uuid.uuid4(), label="other", when_date=date(2026, 3, 1))]
-        }
+        update={"catalysts": [Catalyst(id=uuid.uuid4(), label="other", when_date=date(2026, 3, 1))]}
     )
     with pytest.raises(thesis_repo.CountingCatalystRemoval):
         seed._persist_thesis(db, stripped)
@@ -170,3 +175,21 @@ def test_a_promote_touches_neither_table(db):
     db.commit()
     assert _counts(db) == before
     assert thesis_catalyst_repo.counting_entry_ids(db, tid) == {entry}
+
+
+def test_set_catalysts_is_the_only_writer_of_the_calendar_table():
+    """The guard holds only if nothing bypasses ``set_catalysts``: a writer that deleted ``catalyst`` rows directly
+    would orphan a counting entry (it would keep its versions with no row to switch it off). Source scan, no
+    database: only ``repositories/thesis_repo.py`` may hold a write statement against the table."""
+    write = re.compile(
+        r"\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM|TRUNCATE(\s+TABLE)?)\s+catalyst\b", re.I
+    )
+    backend = Path(__file__).resolve().parents[2]
+    writers = sorted(
+        path.relative_to(backend).as_posix()
+        for path in backend.rglob("*.py")
+        if not {"tests", ".venv", "build", "node_modules", "__pycache__"}
+        & set(path.relative_to(backend).parts)
+        and write.search(path.read_text(encoding="utf-8"))
+    )
+    assert writers == ["repositories/thesis_repo.py"]

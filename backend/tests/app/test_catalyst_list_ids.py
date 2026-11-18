@@ -48,7 +48,10 @@ def test_a_save_that_sends_ids_keeps_them(client, db, pinned_today):
     # a second save that sends both ids changes neither
     r = client.put(
         f"/theses/{tid}/catalysts",
-        json=[{"id": str(entry), "label": "DOE loan (renamed)"}, {"id": new_id, "label": "a new row"}],
+        json=[
+            {"id": str(entry), "label": "DOE loan (renamed)"},
+            {"id": new_id, "label": "a new row"},
+        ],
     )
     assert r.status_code == 200, r.text
     assert [c["id"] for c in r.json()["catalysts"]] == [str(entry), new_id]
@@ -125,8 +128,12 @@ def test_another_workspaces_row_id_is_never_adopted_and_its_card_is_404(
     CACHE.clear()
     try:
         w_a, w_b = _workspace(db, "ids A"), _workspace(db, "ids B")
-        auth.create_user(db, email="a@ids.test", display_name="A", password=PASSWORD, workspace_id=w_a)
-        auth.create_user(db, email="b@ids.test", display_name="B", password=PASSWORD, workspace_id=w_b)
+        auth.create_user(
+            db, email="a@ids.test", display_name="A", password=PASSWORD, workspace_id=w_a
+        )
+        auth.create_user(
+            db, email="b@ids.test", display_name="B", password=PASSWORD, workspace_id=w_b
+        )
         ta, _sa, ea = card(db, workspace=w_a)
         tb, _sb, _eb = card(db, workspace=w_b)
         db.commit()

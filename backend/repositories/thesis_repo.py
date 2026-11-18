@@ -10,6 +10,7 @@ from psycopg.types.json import Json
 
 from domain.scopes import WorkspaceScope, workspace_filter
 from domain.thesis import BasketMember, Catalyst, ExcludedName, KillCriterion, TermSetEntry, Thesis
+from repositories import thesis_catalyst_repo
 from repositories.mappers import (
     _row_to_basket_member,
     _row_to_catalyst,
@@ -256,15 +257,70 @@ def set_surfaced_terms(
             )
 
 
+class CountingCatalystRemoval(RuntimeError):
+    """V2 W6b, the WIPE GUARD: a new catalyst list would drop the calendar row of an entry that still counts
+    toward the call (``fact_thesis_catalyst``, keyed by the row's id). Nothing was written. The message names
+    each entry in plain words; the list route answers 409 with it (operator decision N10 (a): refused until the
+    switch is off, never switched off silently)."""
+
+    def __init__(self, labels: list[str]) -> None:
+        self.labels = labels
+        super().__init__(
+            " ".join(
+                f"“{label}” counts toward the call. Turn that off before removing it."
+                for label in labels
+            )
+        )
+
+
 def set_catalysts(
-    conn: psycopg.Connection, thesis_id: UUID, catalysts: list[Catalyst], *, tenant_id: UUID
+    conn: psycopg.Connection,
+    thesis_id: UUID,
+    catalysts: list[Catalyst],
+    *,
+    tenant_id: UUID,
+    user_id: UUID | None = None,
 ) -> None:
     """Persist the thesis's narrative catalysts (the card's catalyst SURFACE — upcoming binary events,
     display objects; the per-security CONVICTION facts live in ``fact_catalyst`` via the ratify path).
     The SOLE writer of the ``catalyst`` child table — deliberately NOT part of ``upsert``, so a promote
     that doesn't carry catalysts structurally CANNOT wipe them (the ``set_term_set`` wipe-guard).
-    Full-list replace (the operator edits the list as a whole); the caller owns the transaction."""
+    Full-list replace (the operator edits the list as a whole); the caller owns the transaction.
+
+    **Ids are kept (V2 W6b).** Each row is written with the id it carries, so a caller that sends back the ids it
+    read keeps every row's identity across saves (the list route mints a fresh id only for a row sent without one,
+    or with an id that is not on this card). An id that belongs to ANOTHER card raises ``ValueError``.
+
+    **The wipe guard (V2 W6b).** A row is a counting entry's identity (``fact_thesis_catalyst.entry_id``). A list
+    that would drop the row of an entry whose newest version counts raises ``CountingCatalystRemoval`` BEFORE
+    anything is written; once the entry is switched off its row can be removed (its versions stay: history is
+    never deleted). Every writer of the table comes through here (the list route, the SPAC Radar's "+ vote
+    catalyst" through that route, the seed's boot write), so every one is guarded. A label edit on a counting row
+    appends one label-only version through the store's sole writer (``thesis_catalyst_repo.append_version``, by
+    ``user_id``), in the same transaction; its refusal (``CountingEntryError``) rolls the whole list write back.
+    """
+    ids = [c.id for c in catalysts]
+    if len(set(ids)) != len(ids):
+        raise ValueError("a catalyst id appears more than once in the list")
+    current = {r["entry_id"]: r for r in thesis_catalyst_repo.current(conn, thesis_id)}
+    counting = {eid for eid, r in current.items() if r["counts"]}
     with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, label FROM catalyst WHERE thesis_id = %s ORDER BY ordinal", (thesis_id,)
+        )
+        existing = {r["id"]: r["label"] for r in cur.fetchall()}
+        if ids:
+            cur.execute(
+                "SELECT 1 FROM catalyst WHERE id = ANY(%s) AND thesis_id <> %s LIMIT 1",
+                (ids, thesis_id),
+            )
+            if cur.fetchone() is not None:
+                raise ValueError("a catalyst id belongs to another card")
+    kept = set(ids)
+    dropped = [eid for eid in existing if eid in counting and eid not in kept]
+    if dropped:
+        raise CountingCatalystRemoval([existing[eid] for eid in dropped])
+    with conn.transaction(), conn.cursor() as cur:
         cur.execute("DELETE FROM catalyst WHERE thesis_id = %s", (thesis_id,))
         for i, c in enumerate(catalysts):
             cur.execute(
@@ -273,6 +329,21 @@ def set_catalysts(
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
                 (c.id, tenant_id, thesis_id, c.label, c.kind, c.when_date, c.when_label, i),
             )
+        for c in catalysts:
+            prev = current.get(c.id)
+            if c.id in counting and prev is not None and prev["label"] != c.label.strip():
+                thesis_catalyst_repo.append_version(
+                    conn,
+                    thesis_id,
+                    c.id,
+                    counts=True,
+                    grade=prev["grade"],
+                    security_ids=prev["security_ids"],
+                    citation=prev["citation"],
+                    relevant_until=prev["relevant_until"],
+                    label=c.label,
+                    user_id=user_id,
+                )
 
 
 def set_kill_criteria(

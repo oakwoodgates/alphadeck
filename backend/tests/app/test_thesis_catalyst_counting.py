@@ -73,7 +73,9 @@ def test_a_time_in_the_body_is_refused_and_writes_nothing(client, db, pinned_tod
 def test_a_time_in_the_body_cannot_move_an_entry_that_counts(client, db, pinned_today):
     tid, sids, entry = card(db)
     db.commit()
-    assert client.put(_url(tid, entry), json={**ON, "security_ids": [str(sids[0])]}).status_code == 200
+    assert (
+        client.put(_url(tid, entry), json={**ON, "security_ids": [str(sids[0])]}).status_code == 200
+    )
     (before,) = thesis_catalyst_repo.current(db, tid)
     r = client.put(
         _url(tid, entry),

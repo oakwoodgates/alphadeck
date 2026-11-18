@@ -5,7 +5,7 @@ from datetime import date, datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from backtest.manifest import BacktestManifest
 from backtest.pooled import PooledReport
@@ -362,6 +362,65 @@ class ThesisSummary(BaseModel):
         )
 
 
+class CountingMemberOut(BaseModel):
+    """One company a counting catalyst entry names: its id and the ticker its basket row on this card carries."""
+
+    security_id: UUID
+    ticker: str | None = None
+
+
+class CatalystCountingOut(BaseModel):
+    """The CURRENT counting state of one calendar row (V2 W6b): the newest version of its entry in
+    ``fact_thesis_catalyst``, switched on or off. Response-only, never recorded. ``entry_id`` is the calendar row's
+    ``id``; a row with no entry has no item here (an ordinary calendar item). ``members`` empty = the whole card.
+    ``counts_from`` is the night the entry counts from (the night it was switched on or its grade or names last
+    changed; never the typed calendar date); ``saved_at`` is when this version was saved. Off (``counts`` false):
+    the last statement, kept so the form re-opens filled."""
+
+    entry_id: UUID
+    counts: bool
+    grade: Literal["core", "flip"]
+    label: str
+    members: list[CountingMemberOut] = []
+    citation: str
+    relevant_until: date | None = None
+    counts_from: date
+    saved_at: datetime
+
+
+def catalyst_counting_out(t: Thesis, rows: list[dict[str, Any]]) -> list[CatalystCountingOut]:
+    """The counting state of each calendar row on ``t``, in the calendar's order, from the store's newest versions
+    (``thesis_catalyst_repo.current``). Entries whose row is no longer on the calendar (switched off, then removed)
+    are left out: their versions stay in the store as history."""
+    by_entry = {r["entry_id"]: r for r in rows}
+    ticker_of: dict[UUID, str] = {}
+    for m in t.basket:
+        if m.security_id is not None:
+            ticker_of.setdefault(m.security_id, m.ticker)
+    out: list[CatalystCountingOut] = []
+    for c in t.catalysts:
+        r = by_entry.get(c.id)
+        if r is None:
+            continue
+        out.append(
+            CatalystCountingOut(
+                entry_id=c.id,
+                counts=r["counts"],
+                grade=r["grade"],
+                label=r["label"],
+                members=[
+                    CountingMemberOut(security_id=sid, ticker=ticker_of.get(sid))
+                    for sid in sorted(r["security_ids"] or [], key=str)
+                ],
+                citation=r["citation"],
+                relevant_until=r["relevant_until"],
+                counts_from=r["valid_from"],
+                saved_at=r["recorded_at"],
+            )
+        )
+    return out
+
+
 class ThesisDetail(BaseModel):
     """The full thesis for the Cockpit — a wire model (no tenant_id) so generated FE types never bind
     to the domain Thesis. Sub-objects reuse the domain value types (no transform needed, like the
@@ -383,9 +442,14 @@ class ThesisDetail(BaseModel):
     exclusions: list[ExcludedName] = []
     # a meta index card: none of its names count toward the call (written only by PUT /meta-index)
     meta_index: bool = False
+    # V2 W6b: the current counting state of each calendar row that has one, keyed by ``entry_id`` = the row's
+    # ``id``; additive, response-only, never recorded
+    catalyst_counting: list[CatalystCountingOut] = []
 
     @classmethod
-    def from_thesis(cls, t: Thesis) -> "ThesisDetail":
+    def from_thesis(cls, t: Thesis, counting: list[dict[str, Any]] | None = None) -> "ThesisDetail":
+        """``counting`` = the store's newest versions for ``t`` (``thesis_catalyst_repo.current``); every route
+        that answers a ``ThesisDetail`` passes them."""
         return cls(
             id=t.id,
             parent_id=t.parent_id,
@@ -401,6 +465,7 @@ class ThesisDetail(BaseModel):
             position=t.position,
             exclusions=list(t.exclusions),
             meta_index=t.meta_index,
+            catalyst_counting=catalyst_counting_out(t, counting or []),
         )
 
 
@@ -1140,9 +1205,12 @@ class TriageSessionGet(BaseModel):
 
 class CatalystIn(BaseModel):
     """One catalyst-surface entry (a narrative binary event the card's surface renders between entry
-    and exit-by) — display objects, distinct from the conviction FACTS (``RatifyCatalyst``). Server
-    generates the id; the list is replaced whole (the operator edits it as a list)."""
+    and exit-by) — display objects, distinct from the conviction FACTS (``RatifyCatalyst``). The list is
+    replaced whole (the operator edits it as a list). ``id`` (V2 W6b): send back the id each row was read with so
+    it keeps its identity (a counting entry is keyed by it); a row without one is a new row, and an id that is not
+    on this card is never adopted (the row gets a fresh one)."""
 
+    id: UUID | None = None
     label: Line
     kind: Line | None = None  # display kind e.g. "earnings", "regulatory"
     when_date: RequestDate | None = (
@@ -1171,6 +1239,25 @@ class ExclusionIn(BaseModel):
 CatalystList = Annotated[list[CatalystIn], Field(max_length=CATALYSTS_MAX)]
 KillCriterionList = Annotated[list[KillCriterionIn], Field(max_length=KILL_CRITERIA_MAX)]
 ExclusionList = Annotated[list[ExclusionIn], Field(max_length=EXCLUSIONS_MAX)]
+
+
+class CatalystCountingIn(BaseModel):
+    """Make one calendar row count toward the call, edit what it says, or stop it counting (V2 W6b, the signed
+    rule R2). ``counts`` true needs a ``grade`` and a ``citation`` (an http(s) link or an SEC accession number);
+    ``security_ids`` names companies on this card (empty = the whole card, Flip only); ``relevant_until`` is
+    optional (empty = the 365-day default). ``counts`` false stops it counting; the other fields are then ignored.
+
+    There is deliberately NO time field: the entry counts from the night it is saved, set by the database (R5).
+    Unknown keys are refused (422), so a body that carries ``entered_at``, ``recorded_at``, ``valid_from`` or
+    ``when_date`` writes nothing. The label is the calendar row's own, never taken from here."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    counts: bool
+    grade: Literal["core", "flip"] | None = None
+    security_ids: Annotated[list[UUID], Field(max_length=BASKET_MAX)] = []
+    citation: UrlText | None = None
+    relevant_until: RequestDate | None = None
 
 
 class MetaIndexIn(BaseModel):

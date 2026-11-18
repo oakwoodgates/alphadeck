@@ -109,7 +109,7 @@ from pipeline import ingest_thesis as ingest_thesis_mod
 from pipeline import onboarding
 from platform_values import steward
 from platform_values.steward import PlatformValueConflict, PlatformValueInvalid
-from repositories import price_feed_repo, thesis_repo
+from repositories import price_feed_repo, thesis_catalyst_repo, thesis_repo
 from securities import coherence, figi, fund_tickers, master
 from securities.business_type import resolve_business_type
 from securities.price_history_health import is_thin_history
@@ -1305,7 +1305,7 @@ def promote(
     # spine rows) — background, never blocking or failing the promote. No new members → no job at all
     # (the cost thread: a plain Save/triage promote pays nothing).
     ingest_ref, onboarding_ref = start_member_load(conn, user, thesis.id, new_ids)
-    out = PromoteOut.from_thesis(thesis)
+    out = PromoteOut.from_thesis(thesis, thesis_catalyst_repo.current(conn, thesis.id))
     # the payload never carries the meta index switch and ``upsert`` never writes it, so the response echoes
     # the STORED flag (read before the upsert, which leaves it untouched) — never the payload's default
     out.meta_index = stored.meta_index if stored is not None else False
@@ -1509,7 +1509,10 @@ def produce_terms(
     )
     thesis_repo.set_term_set(conn, thesis.id, entries)
     conn.commit()
-    return ThesisDetail.from_thesis(thesis.model_copy(update={"term_set": entries}))
+    return ThesisDetail.from_thesis(
+        thesis.model_copy(update={"term_set": entries}),
+        thesis_catalyst_repo.current(conn, thesis.id),
+    )
 
 
 @router.put("/theses/{thesis_id}/terms/edit", response_model=ThesisDetail)
@@ -1543,7 +1546,10 @@ def edit_terms(
     )
     thesis_repo.set_term_set(conn, thesis.id, entries)
     conn.commit()
-    return ThesisDetail.from_thesis(thesis.model_copy(update={"term_set": entries}))
+    return ThesisDetail.from_thesis(
+        thesis.model_copy(update={"term_set": entries}),
+        thesis_catalyst_repo.current(conn, thesis.id),
+    )
 
 
 @router.post(
