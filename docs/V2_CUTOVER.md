@@ -39,8 +39,9 @@ and `fact_cash_burn` change owner to the shared data tenant. Ratified `fact_reve
 tenant, if any, change owner to the founding workspace. The row ids, values and `recorded_at` do not change.
 
 **What is kept.** Everything else: every thesis (ids and `created_at` unchanged), every basket member and
-snapshot, kill criteria, evidence, exclusions, thesis catalysts, term mentions, `fact_theme_conviction`,
-`operator_decision`, positions, users, sessions, tokens, tenants, and every market, filing and price fact. The
+snapshot, kill criteria, evidence, exclusions, thesis catalysts (`fact_thesis_catalyst`: a card's counting catalyst
+entries; W6's migration 0213 turned each `fact_theme_conviction` version into one whole-card entry), term
+mentions, `fact_theme_conviction` (kept, and read by nothing), `operator_decision`, positions, users, sessions, tokens, tenants, and every market, filing and price fact. The
 dry run counts them before the apply, and the provenance file records a baseline so `verify` can prove that no
 company was dropped.
 
@@ -57,14 +58,14 @@ recommendation" column is only what the plan wrote down. Fill in the last column
 | # | Decision | Options | Carried by | Safe default | Plan's recommendation (not a decision) | Your decision |
 |---|---|---|---|---|---|---|
 | N1 | The one stray unratified `fact_revenue_mix` row on the data tenant (on the fork it was DEVCO, a seed demo company on no card; production may differ) | (a) leave it, unread; (b) delete it (journaled, and it is in the backup); (c) ratify it into the founding workspace | `--orphan-purity leave` or `--orphan-purity delete` on `run` | `leave`. Option (c) is not built | (a) | |
-| N2 | When to drop the empty `call_annotation` table | (a) keep the empty table, drop it later by migration 0212; (b) drop it at cutover | nothing in the cutover | (a): the table stays | (a) | |
+| N2 | When to drop the empty `call_annotation` table | (a) keep the empty table, drop it later by a new migration (0214 is the next free number; 0212 and 0213 are W6's); (b) drop it at cutover | nothing in the cutover | (a): the table stays | (a) | |
 | N4 | The first backfill | (a) live, now; (b) cache only (`--no-live`), live later | `--apply` or `--apply --no-live` on `pipeline.extract_values` | (a) live. On the fork, the cache-only run failed 1,016 companies with "not cached", so (b) leaves most companies with no value yet | (a) | |
 | N5 | The first V2 night | (a) accept: names already armed at cutover are on the Board but never pushed; (b) one summary push listing what is armed (a new CLI, not built); (c) change the push rule (call-logic work, not proposed) | none | (a) | (a), and open the Board the next morning | |
 | N6 | Edition 1 | For the existing workspace: (a) publish after the first night, or (b) skip. For later workspaces: (c) leave on Edition 0, or (d) auto-publish (not built) | the Edition 1 step (Part 4, step 13); (d) would need code | (a) and (c) | (a) and (c) | |
 | N7 | Caps on the existing workspaces | (a) leave them unset (no cap); (b) set them | `python -m pipeline.users caps` (any time) | (a): NULL means no cap | (a) | |
 | N8 | In-flight user state (decisions, positions) | (a) keep; (b) reset | the only built option is (a); the dry run prints the counts | (a) | (a) | |
 | N9 | A separate archive of V1's history | (a) take it; (b) the full backup is enough | `--no-history-archive` on `run` | (a): archive taken | (a) | |
-| N10 | Cut over before or after W6 (catalyst conversion) | (a) after W6 is merged and rehearsed; (b) before | the go-live date; no code | none: it is a date choice | (a) | |
+| N10 | Cut over before or after W6 (catalyst conversion) | (a) after W6 is merged and rehearsed; (b) before | the go-live date; no code. Status: W6 is merged, and rehearsed through R9 on the fork (rehearsal 1, Part 7); R10 to R13 are not yet rehearsed | none: it is a date choice | (a) | |
 | N11 | Day and time | (a) a weekday morning; (b) a Saturday | the tools refuse only inside 21:30-23:30 ET (`run`, the backfill) and 22:20-22:50 ET (`deploy.sh`) | a time that leaves hours before 21:30 ET | (a) | |
 | N12 | Retag V1's images for a fast rollback | (a) yes; (b) roll back by a revert merge on `main` and `deploy.sh` (slower: CI) | Part 4, step 2 | (a) yes | (a) | |
 | N13 | The `/backtest` archive (frozen V1 passes bound read-only by `docker-compose.prod.yml`) | (a) keep showing it; (b) unbind it | no change needed | (a) | (a) | |
@@ -83,7 +84,8 @@ Do not start Part 4 until every box is ticked. Tick them on the day, not from me
       `git revert -m 1`).
 - [ ] The decisions in Part 2 are answered, or you have accepted the defaults on purpose.
 - [ ] Disk space: room for four labeled full dumps and the history archive. A production dump was about 1.7 GB
-      in the plan's measurement (estimate: about 7 GB in all). Check the free space where `./data/backups` lives.
+      in the plan's measurement (estimate: about 7 GB in all). In rehearsal 1 the `-pre-v2-reset` dump was
+      1,704,637,697 bytes and the `-v1-history` archive 199,017,663 bytes. Check the free space where `./data/backups` lives.
 - [ ] Production `.env` (open it yourself; this page never shows it) has, by name: `ALPHADECK_USER_AGENT` (the
       backfill refuses a live run without it) and `ALPHADECK_OPS_TOKEN` (`deploy.sh` reads it; `docs/DEPLOY.md`).
       Also check any `ALPHADECK_ALLOWANCE_*` override, and the variable changes in Part 8.
@@ -91,8 +93,9 @@ Do not start Part 4 until every box is ticked. Tick them on the day, not from me
       is WSL).
 - [ ] It is a weekday morning or another time that leaves hours before 21:30 ET. Do not start within an hour of
       21:30 ET (see Part 9, "Known limits").
-- [ ] You have the time. The plan's estimate for steps 1 to 10 is a few hours, mostly the backfill (about 30
-      minutes), two or three backups (about 6 minutes each) and the builds. Rehearsal 2 replaces these estimates.
+- [ ] You have the time. The plan's estimate for steps 1 to 10 is a few hours, mostly the backfill (25 minutes 28
+      seconds on the fork at 1.5 requests a second, rehearsal 1), two or three backups (about 6 minutes each) and
+      the builds. Rehearsal 2 replaces the rest of these estimates.
 - [ ] The user is told that the Board will have no calls until the first V2 night, and that nobody edits cards
       from step 1 until step 8 is done.
 
@@ -106,8 +109,10 @@ Conventions used below:
 - Inside the backend container, `/data/backups` is the host's `./data/backups`. `/data/cutover_runs` is on the
   `appdata` volume (not visible on the host unless you copy it out with `docker cp`).
 - `<ts>` is a UTC timestamp such as `20261125T140000Z`. Copy the real one from the output of the step before.
-- Durations marked **estimate** come from the plan (a measured backup on a production-size dump, or a guess) and
-  stay estimates until a rehearsal times them. Part 7 has a table to fill in.
+- A duration written "measured on the fork, 2026-11-18" comes from rehearsal 1 (Part 7). The fork runs on the
+  same host as production, but production's database is larger or equal, so it is a fork measurement, not a
+  promise. Durations marked **estimate** come from the plan (a measured backup on a production-size dump, or a
+  guess); the rehearsal did not time them.
 - "Expected output" quotes the program text. Where a line depends on production data, it says so.
 
 ### Step 1. Announce, then freeze (stop the cron)
@@ -145,7 +150,7 @@ docker tag <image name>:<current tag> <image name>:v1-pre-v2
 *What it does.* Keeps V1's images under a second tag. The V2 build in step 4 overwrites the current tags, and
 nothing else keeps V1's images. Without these tags, rollback means a revert merge on `main`, then `deploy.sh`.
 
-*You should see.* Three `v1-pre-v2` tags in `docker images`. **To be filled in by the rehearsal:** the image
+*You should see.* Three `v1-pre-v2` tags in `docker images`. **Not yet rehearsed:** the image
 names (the rehearsal runs on the fork, whose names differ).
 
 *Duration.* About 1 minute (estimate).
@@ -182,7 +187,7 @@ bash scripts/deploy.sh --label pre-v2-cutover --hold-cron frontend backend
 *What it does.* The first command prints the plan and touches nothing. The second takes a labeled backup
 (`alphadeck-<ts>-pre-v2-cutover.sql`: V1's schema and V1's data), builds the two services from `main`, and
 verifies the result. `--hold-cron` keeps the cron stopped: the build is `--no-deps`, so it never starts it. When
-the backend boots it applies the V2 migrations (0200 to 0211 per the plan; check the boot log). **This backup
+the backend boots it applies the V2 migrations (0200 to 0213; check the boot log). **This backup
 is your V1 rollback point.**
 
 *Refuses (exit 3, nothing changed)* on a linked worktree, no `.env`, a dirty tree, a branch other than `main`,
@@ -195,9 +200,11 @@ followed by the rest of the plan. In the real run, the verification line
 `ok: alphadeck-cron-1 is stopped (held by --hold-cron)` and a final line that begins
 `OK: deployed <sha> to prod: frontend backend (rebuild) (cron held stopped)` and ends with
 `every verification passed`. The Admin page may show a loud `platform_rows_in_workspaces` line until step 7.
-That is expected: it counts platform rows still under a workspace. **To be filled in by the rehearsal:** the
-exact output of a real run, and whether this Admin line trips `deploy.sh`'s alarm comparison (the plan lists it
-as a risk it could not confirm; it checks that `cron.alarms` did not grow).
+That is expected: it counts platform rows still under a workspace. **Not yet rehearsed** (the rehearsal rebuilt the
+fork's images with `fork.sh up` and never ran `deploy.sh`): the exact output of a real run, and whether this
+Admin line trips `deploy.sh`'s alarm comparison (the plan lists it as a risk it could not confirm; it checks
+that `cron.alarms` did not grow). The fork rebuild (R0) took 91 seconds (measured on the fork, 2026-11-18); it is
+not the production build.
 
 *Duration.* Backup about 6 minutes (measured on a production dump); build and boot 5 to 10 minutes (estimate).
 
@@ -223,9 +230,12 @@ does not create the folder.
 `RESULT: CLEAN - no surprises. Exit 0.`, `RESULT: REFUSE - 1 surprise(s). Exit 1.` or the same with `Exit 2`.
 If production still has the one stray unratified purity row (N1), expect exactly that one surprise and exit 1;
 the apply acknowledges it. Compare the counts with rehearsal 2's JSON: only the days since that dump should
-differ. **To be filled in by the rehearsal:** the production-shaped output.
+differ. In rehearsal 1 on the fork it ended `RESULT: REFUSE - 1 surprise(s). Exit 1.`, with the one surprise
+being the stray purity row (the log kept the line `workspace only in V2 and no plan moves an unratified row`),
+and these rows: `fact_shares_outstanding` 2219 `move→data` (auto 1977, operator 242),
+`fact_cash_burn` 64 `move→data`, `calls` 1906 `reset`, `edition_call` 682 `reset`. The full counts are in Part 7.
 
-*Duration.* Under a minute (estimate).
+*Duration.* Measured on the fork, 2026-11-18: 3 seconds.
 
 *If it fails.* Exit 2 means a table the registry does not name, or a named table the database lacks. Stop. This
 needs a code fix (the merge-main routine in `docs/V2_BRANCH.md`), not a workaround. Any surprise other than the
@@ -257,7 +267,7 @@ preflight lines (in this table), then the plan lines and the end:
 | `ok: P6 no workspace company catalysts` | |
 | `ok: P7 every share-count and cash/burn ratified_by is in 0206's vocabulary` | so the constraint can be validated |
 | `ok: P8 the move has no refusals` | |
-| `count: P9 kept: operator_decision n, theses with position fields n, fact_theme_conviction n` | counts only; never a refusal |
+| `count: P9 kept: operator_decision n, theses with position fields n, fact_theme_conviction n, fact_thesis_catalyst n` | counts only; never a refusal |
 | `ok: P11 only the reset tables reference the reset tables` | so no delete can reach another table |
 | `ok: P10 not cut over yet` | |
 | `plan: move fact_shares_outstanding n row(s) (...)`, `plan: move fact_cash_burn ...`, `plan: move fact_revenue_mix ...` | what will move, by `ratified_by` |
@@ -268,10 +278,37 @@ preflight lines (in this table), then the plan lines and the end:
 | `RESULT: DRY RUN - nothing written. Exit 0.` | |
 
 Read the plan lines. Do they match your expectation (the number of share-count and cash/burn rows to move, the
-number of calls to delete, the count of kept decisions and positions)? **To be filled in by the rehearsal:** a
-full sample of this output on production-shaped data.
+number of calls to delete, the count of kept decisions and positions)? This is the dry run of rehearsal 1, as the
+rehearsal's log kept it (the `count: P9` line was not kept, and the run had no `--prod`, so its first lines
+differ):
 
-*Duration.* Under a minute (estimate).
+```
+ok: P3 outside the nightly window
+ok: P1 every migration file is applied
+ok: P2 the data tenant and the founding workspace exist
+ok: P5 rule 8 acknowledged by --orphan-purity leave: 1 unratified data-tenant purity row(s)
+ok: P6 no workspace company catalysts
+ok: P7 every share-count and cash/burn ratified_by is in 0206's vocabulary
+ok: P8 the move has no refusals
+ok: P11 only the reset tables reference the reset tables
+ok: P10 not cut over yet
+plan: move fact_shares_outstanding 2219 row(s) (auto 1977, operator 242)
+plan: move fact_cash_burn 64 row(s) (operator 64)
+plan: move fact_revenue_mix 0 row(s) (none)
+plan: reset edition_cause 0 row(s)
+plan: reset edition_outcome 113 row(s)
+plan: reset edition_call 682 row(s)
+plan: reset edition_entry 855 row(s)
+plan: reset edition_event 2 row(s)
+plan: reset edition 1 row(s)
+plan: reset call_annotation 176 row(s)
+plan: reset calls 1906 row(s)
+plan: orphan purity 1 row(s) (leave)
+plan-out: /data/cutover_runs/r1b-run-plan.json
+RESULT: DRY RUN - nothing written. Exit 0.
+```
+
+*Duration.* Measured on the fork, 2026-11-18: 5 seconds.
 
 *If it refuses or fails.*
 
@@ -332,8 +369,9 @@ exit 1: `a second reset would delete V2 nights`. Never work around this refusal.
 
 Copy the `provenance:` path. Step 8 needs it.
 
-*Duration.* Backup about 6 minutes (measured on a production dump); archive about 1 minute (estimate);
-transaction under a minute (estimate). The nightly-window check happens once, at the start (see Part 9).
+*Duration.* Measured on the fork, 2026-11-18: 389 seconds for the whole apply (backup of 1,704,637,697 bytes,
+archive of 199,017,663 bytes, and the transaction). The plan's measurement of a backup on a production dump,
+about 6 minutes, fits that. The log does not time the three parts separately. The nightly-window check happens once, at the start (see Part 9).
 
 *If it refuses or fails, by exit code.*
 
@@ -354,27 +392,60 @@ could not be finalized`, the file is at the `.pending` path it prints: rename it
 ### Step 8. Verify after the reset, then sign in by hand
 
 ```bash
-docker exec alphadeck-backend-1 python -m pipeline.v2_cutover verify --stage reset --provenance /data/cutover_runs/<ts>-alphadeck.json --health-url http://localhost:8000/health
+docker exec alphadeck-backend-1 python -m pipeline.v2_cutover verify --stage reset --database alphadeck --prod --provenance /data/cutover_runs/<ts>-alphadeck.json --health-url http://localhost:8000/health
 ```
 
-*What it does.* The `verify` command is built by a separate change (PR W10b) and is not in this runbook's
-branch. Per the plan, it reads the database without writing, and checks: no surprise beyond the acknowledged
-one; every migration applied and the 0206 constraints validated; no thesis or user on the data tenant and an
-enabled `super_admin` user; every thesis unchanged against the baseline; **recall**: every basket member of
-every thesis is still there (a failure names the thesis id and each missing security id); the child counts and
-`operator_decision` unchanged; no share-count or cash/burn row left outside the data tenant; the eight tables
-empty; exactly one `v2_cutover` journal row that matches the provenance; and that `--health-url` answers 200.
+Use the `provenance:` path that step 7 printed. Add `--json /data/cutover_runs/prod-verify-reset.json` to keep the report.
 
-*You should see.* **To be filled in by the rehearsal (PR W10e).** The plan expects each check to print `ok:`, a
-recall line of the form "N theses, N basket rows, 0 dropped", and `RESULT: VERIFIED. Exit 0.`
+*What it does.* `verify` is read-only: its session cannot write, and it writes nothing but its report (and the
+`--json` file). It reads the database name from its own connection and compares it with `--database`
+(`alphadeck` needs `--prod`; there is no `--confirm`). It refuses a provenance file that is missing, is a
+`.pending` file (an unfinished run), cannot be read, or names another database. The stages are cumulative, and
+each check prints one line. For `--stage reset` the checks are: V1 no surprise beyond the acknowledged orphan
+purity row; V2 every migration applied and the 0206 constraints validated; V3 no thesis or user on the data
+tenant, an enabled `super_admin`, and users unchanged; V4 every thesis unchanged against the baseline; **V5
+recall**: every basket member of every thesis is still there (a failure names the thesis, the ticker and the
+security id), the nine per-thesis child tables equal the baseline, and `operator_decision` is unchanged; V6 no
+share-count or cash/burn row outside the data tenant, and no company lost; V7 purity; V8 the eight history tables
+empty; V9 exactly one `v2_cutover` journal row that matches the provenance; V10 `--health-url` answers 200 (a
+`note:` when you leave it out).
+
+*You should see.* Every check line starts with `ok:`, `note:` lines never fail, and the last line is
+`RESULT: VERIFIED. Exit 0.` The recall line reads `ok: V5 recall: N theses, M basket rows, 0 dropped`. With
+`--health-url` there is also `ok: V10 health: http://localhost:8000/health answered 200`. Rehearsal 1 on the fork
+printed these (the numbers are the fork's, from a same-day nightly dump):
+
+```
+ok: V1 surprises: no surprise beyond the acknowledged orphan purity; every table is in a known scope
+ok: V2 schema: every migration applied; both 0206 constraints validated
+ok: V3 tenants: no thesis or user on the data tenant; 1 enabled super_admin
+ok: V3 users: 2 users, unchanged
+ok: V4 theses: 69 theses: ids, tenants and dates unchanged
+ok: V5 recall: 69 theses, 2599 basket rows, 0 dropped
+ok: V5 children: per-thesis counts of 9 child tables equal the baseline
+ok: V5 decisions: operator_decision 0 (the baseline's)
+ok: V6 platform facts: share counts and cash/burn only in the data tenant; 1224 companies with a share count and 59 with cash/burn, none lost
+ok: V7 purity: no ratified purity on the data tenant; founding purity 21
+ok: V8 history: empty: edition_cause, edition_outcome, edition_call, edition_entry, edition_event, edition, call_annotation, calls
+ok: V9 journal: one 'v2_cutover' journal row (b794de1e-d97e-4fe7-b83b-775a4d1ebeb2), its counts equal the provenance's
+RESULT: VERIFIED. Exit 0.
+```
+
+The rehearsal ran without `--health-url`, so it printed `note: V10 health not checked (no --health-url)`: the
+V10 check against a real URL is **not yet rehearsed**.
+
+*Exit codes.* 0 is verified. 2 is `RESULT: CANNOT VERIFY - nothing checked. Exit 2.`: it could not check (a wrong
+`--database`, `--prod` missing or misplaced, a provenance file that is missing, `.pending`, unreadable or from
+another database; read the `REFUSE:` line). A table the registry does not name also ends in exit 2. 5 is
+`RESULT: <n> check(s) failed. Exit 5.`: at least one `FAIL:` line.
 
 *Then, by hand.* No script signs in for you. Open the app. Sign in as the user and as the steward. Check: the
 Board shows the live cards with no call; the Scoreboard reads "The record starts with the first nightly call.";
 the steward queue is populated; the Admin page shows `data_tenant_theses` 0 and `platform_rows_in_workspaces` 0.
 
-*Duration.* Under a minute for `verify`, then your own time (estimate).
+*Duration.* `verify` took 3 seconds (measured on the fork, 2026-11-18); then your own time (estimate).
 
-*If it fails.* Any `FAIL:` line: stop. Do not start the cron. Read the line. If you cannot explain it and fix it
+*If it fails.* Exit 5 (any `FAIL:` line) or exit 2: stop. Do not start the cron. Read the line. If you cannot explain it and fix it
 without writing to the database, roll back (Part 5).
 
 ### Step 9. The extraction backfill
@@ -382,7 +453,7 @@ without writing to the database, roll back (Part 5).
 ```bash
 docker exec alphadeck-backend-1 python -m pipeline.extract_values
 docker exec alphadeck-backend-1 python -m pipeline.extract_values --apply
-docker exec alphadeck-backend-1 python -m pipeline.v2_cutover verify --stage backfill
+docker exec alphadeck-backend-1 python -m pipeline.v2_cutover verify --stage backfill --database alphadeck --prod --provenance /data/cutover_runs/<ts>-alphadeck.json
 ```
 
 *What it does.* The first command is the dry run: the cost plan, with no SEC request and no write. The second is
@@ -400,11 +471,31 @@ unknown `--ticker`.
 *You should see.* A summary (applied, flagged, nothing found, failed by reason) and a line that starts
 `B4:` saying whether the nightly is unlocked. A run that extracted nothing says
 `B4: nothing was extracted (...)`: the nightly stays held and you should find out why before step 10. Then
-`verify --stage backfill`. **To be filled in by the rehearsal:** the summary and the verify output. The plan
-expects `verify` to find, for each non-ETF company on a live card, at least one `backfill` attempt, and a `done`
-`backfill` attempt to prove B4.
+`verify --stage backfill`: it adds B1 (every non-ETF company on a live card has at least one `backfill` attempt),
+B2 (a `done` backfill attempt, which proves B4) and B3 (the share of those companies with a share count, and with
+cash/burn, is at or above the baseline's). Rehearsal 1 on the fork printed this summary:
 
-*Duration.* About 30 minutes (the plan's fork measurement; not re-measured; about 2,600 SEC requests).
+```
+extract-values: Shared facts · Nov 18: 1768 extracted: 1512 applied, 211 to the steward, 43 nothing found, 2 unchanged · 2220 SEC requests · 25m 28s
+extract-values: attempted 1,768 of 1,768 due · applied 1,512 · candidates 254 (211 flagged to the steward, 43 nothing found) · unchanged 2 · skipped 0 · busy 0 · failed 0 · deferred 0 · 2,220 live SEC fetches
+```
+
+and this verify output, `RESULT: VERIFIED. Exit 0.`:
+
+```
+ok: B1 attempts: every one of 1768 companies on a live card was attempted
+note: B attempts by status: done 1768
+ok: B2 B4: B4 unlocked: a backfill attempt extracted a company
+ok: B3 coverage: share count 1395/1768 (78.9%; baseline 63.3%); cash/burn 1269/1768 (71.8%; baseline 3.2%)
+```
+
+The check lines of stage `reset` print first, as in step 8. A `FAIL:` line is exit 5.
+
+*Duration.* Measured on the fork, 2026-11-18: 1,531 seconds (25 minutes 28 seconds) for the live run, 2,220 SEC
+requests, at `ALPHADECK_SEC_GLOBAL_RATE_PER_SEC=1.5`; `verify` took 5 seconds. The compose default for that
+setting is 8.5 (`docker-compose.yml`); production's own value is in its `.env`, and a different rate
+changes the time. The rehearsal run also passed `--budget-s 14400 --max-names 2500`, which bound a run and are not
+needed here. A fork measurement, not a promise.
 
 *If it fails.* Failed companies are listed and are not fatal (exit 0). For exit 75 or a stop, wait and run the
 same command again. For exit 1 with no User-Agent, set it in `.env` and recreate the backend (see `docs/DEPLOY.md` on environment changes), then run
@@ -423,7 +514,7 @@ calls, onboarding and extraction rows, and the 22:30 ET pass will run tonight. D
 *You should see.* a final line that begins `OK: deployed <sha> to prod: cron (rebuild)` and ends with
 `every verification passed`, and in the cron log
 the boot lines, `daily-cron: each pass bounded at ...`, and the plan's expectation of a catch-up that does
-nothing (the V1 pass ran last night) and `onboard-cron: every 1800s`. **To be filled in by the rehearsal.**
+nothing (the V1 pass ran last night) and `onboard-cron: every 1800s`. **Not yet rehearsed.**
 The fork has no running cron (its service is in a profile that never starts), so this step is only confirmed on
 the first production run.
 
@@ -447,12 +538,16 @@ Armed with Armed. **Open the Board the next morning** and read it yourself (deci
 ### Step 12. The next morning: verify the night
 
 ```bash
-docker exec alphadeck-backend-1 python -m pipeline.v2_cutover verify --stage nightly
+docker exec alphadeck-backend-1 python -m pipeline.v2_cutover verify --stage nightly --database alphadeck --prod --provenance /data/cutover_runs/<ts>-alphadeck.json
 ```
 
-*What it does.* Per the plan: one call row per live thesis for the newest night, none reconstructed, the run
-kind `cron`, none dated before the cutover, none under the data tenant. *You should see:* **to be filled in by
-the rehearsal (PR W10e).** The plan expects `RESULT: VERIFIED. Exit 0.`
+*What it does.* It runs every check of the earlier stages, then N1 the night has call rows (the newest
+`calls.asof`, or the night you give with `--night YYYY-MM-DD`), N2 a row for every live thesis, N3 none
+reconstructed, N4 the run kind is `cron`, N5 none dated before the cutover, N6 none under the data tenant. From
+this stage on, a difference in what users may edit (users, archived cards, new cards, child counts, purity)
+is a `note:`, not a `FAIL:`; recall and the platform-fact checks still fail. *You should see:* `ok:` on every
+check and `RESULT: VERIFIED. Exit 0.` **Not yet rehearsed** (R11 was not run, so the output of this stage has
+not been seen). Exit 2 and exit 5 mean what they do in step 8.
 
 Also open the Board and the Admin page (cron status and alarms, the steward queue).
 
@@ -465,7 +560,7 @@ Also open the Board and the Admin page (cron status and alarms, the steward queu
 docker exec alphadeck-backend-1 python -m pipeline.backup --label pre-edition-1
 docker exec alphadeck-cron-1 python -m editions.run publish --workspace 00000000-0000-0000-0000-000000000002 --workers 4
 docker exec alphadeck-cron-1 python -m editions.run publish --workspace 00000000-0000-0000-0000-000000000002 --workers 4 --apply
-docker exec alphadeck-backend-1 python -m pipeline.v2_cutover verify --stage edition
+docker exec alphadeck-backend-1 python -m pipeline.v2_cutover verify --stage edition --database alphadeck --prod --provenance /data/cutover_runs/<ts>-alphadeck.json
 ```
 
 *What it does.* A labeled backup first. Then the publish dry run, then the real publish into the editions store
@@ -481,9 +576,10 @@ from the command dispatch only, so do not run it during the nightly pass.
 
 *You should see.* The dry run ends with `DRY RUN`, then `nothing written to the database (re-run with --apply to
 publish)`; the real run prints `PUBLISHED edition <id>` and the before and after counts for `edition`,
-`edition_event`, `edition_entry`, `edition_call` and `calls`. `verify --stage edition`: **to be filled in by the
-rehearsal (PR W10e).** The plan expects exactly one edition, number 1, with an entry for every live thesis, and the
-Scoreboard defaulting to Edition 1.
+`edition_event`, `edition_entry`, `edition_call` and `calls`. `verify --stage edition` adds E1 (exactly one edition, number 1, for each workspace with a live card), E2 (an
+entry for every live thesis of that workspace) and E3 (no edition for a workspace with no live card), and should
+end `RESULT: VERIFIED. Exit 0.` The Scoreboard should default to Edition 1. **Not yet rehearsed** (R12 was not
+run).
 
 *Duration.* Backup about 6 minutes (measured); publish about 10 to 20 minutes (estimate; the dev trial took
 about 9 minutes at 4 workers for 659 pages).
@@ -519,8 +615,11 @@ it only to roll back.
 Afterward, open a pull request into `main` with `git revert -m 1 <the merge commit from step 3>`, so `main`
 matches what runs before the next `deploy.sh`. Check `/admin/status` and one thesis by hand.
 
-*How long.* The restore of a plain dump of about 1.7 GB is not measured: the plan's estimate is 15 to 30 minutes,
-and rehearsal step R1 times it (`refresh-fork.sh` runs the same restore). **To be filled in by the rehearsal.**
+*How long.* The plan's estimate was 15 to 30 minutes. In rehearsal 1, R8 restored the 1.6 GB
+`-pre-v2-reset` dump (1,704,637,697 bytes) into an empty database on the fork's Postgres in 106 seconds, with no
+error lines (measured on the fork, 2026-11-18; a fork measurement, not a promise). R1 (drop, restore and migrate
+the fork from a nightly dump) took 160 seconds. The rollback drill itself (R13, restoring into the live name and
+restarting V1's images) is **not yet rehearsed**.
 
 *What is lost.* Everything written after the step 4 dump. Before step 10 that is nothing a user made. After it,
 all V2 activity.
@@ -548,10 +647,11 @@ not for restoring a database.
   is of a different kind than its older ones (`docs/WORKBENCH_EXTRACTION.md` names EUDA, CURR, SCNI, CHR and BTCT
   as the audit's examples), the backfill can leave an older value on file and mark the attempt done, so the
   nightly does not retake it until a new periodic filing. In the Admin page, open each such company's page under
-  platform values and press **Extract now** (`docs/ADMIN.md`, `docs/PLATFORM_VALUES.md`). To be filled in by the
-  rehearsal: which companies on production this affects, and whether the backfill reports them.
+  platform values and press **Extract now** (`docs/ADMIN.md`, `docs/PLATFORM_VALUES.md`). Not yet rehearsed:
+  which companies on production this affects, and whether the backfill reports them (the rehearsal 1 log does not
+  say).
 - **Leftover table (N2).** `call_annotation` stays as an empty table. It can be dropped later by a migration
-  (0212 is the next free number, the plan says), with its entries in the scope map, in `CUTOVER_ACTION` and in
+  (0214 is the next free number; 0212 and 0213 are W6's), with its entries in the scope map, in `CUTOVER_ACTION` and in
   `tests/app/test_v1_annotation_gone.py`. There is no date. Do it after go-live when you are sure nothing reads
   it.
 - **The V1 history archive and the V1 rollback dump.** `alphadeck-<ts>-v1-history.sql`,
@@ -590,11 +690,16 @@ Never run a bare `docker compose up` while you mean the fork: it rebuilds produc
       fork for the live steps. Run every live step outside production's 21:30-23:30 ET window: the two stacks
       share one SEC limit.
 - [ ] Keep each console log and JSON under the fork's `data/cutover_runs/`, and write the results into Part 7's
-      tables.
+      tables. Write each step's full output to a log file (rehearsal 1 did, and only the lines it chose to print
+      survived in its summary log; keep the whole output of every step, with its exit code and its wall time).
+- [ ] If the fork's own SEC cache holds a live backfill from an earlier run, pass `--no-cache` to `refresh-fork.sh`
+      in R1: it skips the copy of production's cache, so the fork keeps its own. Without it, the default copies
+      production's cache over the fork's.
 
 **The run (time every step)**
 - [ ] **R1** `bash scripts/refresh-fork.sh --reset --fresh --v1-state`. `--fresh` takes a read-only dump of
-      production first; `--v1-state` skips the platform-facts move, so the fork keeps V1-shaped data. Pass: the last
+      production first (rehearsal 1 used `--from-latest --no-cache` instead, so its dump was the newest existing
+      nightly dump; rehearsal 2 must use `--fresh`); `--v1-state` skips the platform-facts move, so the fork keeps V1-shaped data. Pass: the last
       line ends `(V1 state: run the cutover next)`. The drop, restore and migrate time is the rollback restore
       estimate.
 - [ ] **R2** `$B python -m pipeline.v2_cutover plan --json /data/cutover_runs/r<N>-plan.json`. Pass: the
@@ -608,23 +713,26 @@ Never run a bare `docker compose up` while you mean the fork: it rebuilds produc
       `RESULT: CUT OVER. Exit 0.`, and the printed counts equal R4's plan.
 - [ ] **R6** R5 again. Pass: `ALREADY CUT OVER - nothing to do, no backup, no journal`, exit 0, no new backup file,
       no new journal row.
-- [ ] **R7** `$B python -m pipeline.v2_cutover verify --stage reset --provenance <file>`. Pass: exit 0, no
-      `FAIL:` line, recall "0 dropped".
+- [ ] **R7** `$B python -m pipeline.v2_cutover verify --stage reset --database alphadeck_v2 --provenance <file>`.
+      Pass: exit 0, every check line `ok:`, `V5 recall: N theses, M basket rows, 0 dropped`, and
+      `RESULT: VERIFIED. Exit 0.` The file is the `provenance:` path that R5 printed.
 - [ ] **R8** The backup restores. On the fork Postgres, create `alphadeck_v2_restorecheck`, restore
       `...-pre-v2-reset.sql` into it, compare the counts of `thesis`, `basket_member`, `calls` and
       `fact_shares_outstanding` with the baseline, then drop that check database. Time the restore. Pass: the
       counts equal the baseline.
 - [ ] **R9** `$B python -m pipeline.extract_values`, then `--apply` (in the mode you chose in N4), then
-      `$B python -m pipeline.v2_cutover verify --stage backfill`. Pass: exit 0.
+      `$B python -m pipeline.v2_cutover verify --stage backfill --database alphadeck_v2 --provenance <file>`.
+      Pass: exit 0. Rehearsal 1 set the rate for these commands with `docker exec -e ALPHADECK_SEC_GLOBAL_RATE_PER_SEC=1.5`.
 - [ ] **R10** On the fork's app (port 8083 per the plan): sign in as the user and as the steward. Pass: the Board
       shows live cards with no call; the Scoreboard says "The record starts with the first nightly call."; the
       steward queue is populated; Admin shows `data_tenant_theses` 0 and `platform_rows_in_workspaces` 0.
 - [ ] **R11** The first night, by hand (the fork's cron never starts): `$B python -m pipeline.daily --run-kind manual`
       (live). Pass: its output shows no transition push and no digest entry; then
-      `$B python -m pipeline.v2_cutover verify --stage nightly --run-kind any` exits 0.
+      `$B python -m pipeline.v2_cutover verify --stage nightly --database alphadeck_v2 --provenance <file> --run-kind any`
+      exits 0 (`--run-kind any` because a fork's pass is a manual one, not the cron's).
 - [ ] **R12** `$B python -m pipeline.backup --label pre-edition-1`, then
       `$B python -m editions.run publish --workspace 00000000-0000-0000-0000-000000000002 --workers 4`, then the same with
-      `--apply`, then `verify --stage edition`. Pass: exit 0, Edition 1 published with an entry per live thesis, and
+      `--apply`, then `verify --stage edition --database alphadeck_v2 --provenance <file>`. Pass: exit 0, Edition 1 published with an entry per live thesis, and
       the Scoreboard defaults to Edition 1.
 - [ ] **R13** Rollback drill: run R1 again (it is a V1 restore) and run R2. Pass: R2 reads V1 state again.
 
@@ -636,44 +744,86 @@ away.
 
 ### Results
 
-**To be filled in by PR W10e.** Leave every cell empty until a rehearsal has run.
+**Rehearsal 1.** Run on 2026-11-18 on the fork, on `v2` commit 47fb4514 (the fork was rebuilt at that commit in R0).
+It seeded from the newest existing production nightly dump, `alphadeck-20261118T035357.sql` (`--from-latest`, not
+`--fresh`; 69 theses, 1906 calls), and kept the fork's own SEC cache (`--no-cache`). The live backfill ran at
+`ALPHADECK_SEC_GLOBAL_RATE_PER_SEC=1.5`. An agent ran it without the operator present. It covers R0 to R9 only: R10
+(signing in), R11 (the first nightly by hand), R12 (Edition 1) and R13 (the rollback drill) were **not run**. An
+earlier run of the same steps on commit ca3f8eb8 (before W6) the same day gave the same move, reset and coverage
+counts; its per-step timings were not kept. The log is `v2-cutover-rehearsal-1b-2026-11-18.log` (in `docs/temp/` of
+the main checkout, not on this branch). All times are wall times on the fork, a fork measurement, not a promise.
+
+**Rehearsal 2** is still to be run. Leave its column empty until it has.
 
 Timings (for each step, wall time and the commit it ran on):
 
 | Step | Rehearsal 1 | Rehearsal 2 |
 |---|---|---|
-| Commit tested | | |
-| Production dump used (date) | | |
-| R1 refresh (drop, restore, migrate) | | |
-| R2 plan | | |
-| R4 dry run | | |
-| R5 apply (backup, archive, transaction) | | |
-| R6 second run | | |
-| R7 verify reset | | |
-| R8 restore check | | |
-| R9 backfill and verify | | |
-| R11 first night and verify | | |
-| R12 backup, publish, verify | | |
-| R13 rollback drill | | |
-| R4 to R9 total | | |
+| Commit tested | 47fb4514 | |
+| Production dump used (date) | `alphadeck-20261118T035357.sql` (newest existing nightly dump, 2026-11-18) | |
+| R0 rebuild the fork images | 91 s | |
+| R1 refresh (drop, restore, migrate) | 160 s | |
+| R2 plan | 3 s | |
+| R4 dry run | 5 s | |
+| R5 apply (backup, archive, transaction) | 389 s in all; the log does not time the parts. The backup's and the archive's file-name stamps are 23:06:06 and 23:12:24 UTC | |
+| R6 second run | 3 s | |
+| R7 verify reset | 3 s | |
+| R8 restore check | 106 s (the restore of the 1.6 GB `-pre-v2-reset` dump) | |
+| R9 backfill and verify | backfill 1,531 s (25 m 28 s); verify 5 s | |
+| R11 first night and verify | not run | |
+| R12 backup, publish, verify | not run | |
+| R13 rollback drill | not run | |
+| R4 to R9 total | 34 m 19 s by the log's clock (R4 started 18:05:57, the run finished 18:40:16) | |
 
-Outputs and pass record:
+Outputs and pass record (rehearsal 1 only; the Pass? column is for rehearsal 1):
 
 | Step | Pass? | Output as printed, or the file where it is kept | Rehearsal 1 | Rehearsal 2 |
 |---|---|---|---|---|
-| R2 plan (exit, surprises) | | | | |
-| R3 negative checks (three exits) | | | | |
-| R4 dry run (exit, plan lines) | | | | |
-| R5 apply (exit, counts) | | | | |
-| R6 second run | | | | |
-| R7 `verify --stage reset` | | | | |
-| R8 restore counts | | | | |
-| R9 backfill summary, `verify --stage backfill` | | | | |
-| R10 by-hand checks | | | | |
-| R11 `verify --stage nightly` | | | | |
-| R12 `verify --stage edition` | | | | |
-| R13 rollback drill | | | | |
-| `pg_dump` trailer confirmed on a real dump (Part 9) | | | | |
+| R2 plan (exit, surprises) | yes | the log; `/data/cutover_runs/r1b-plan.json` on the fork | exit 1, `RESULT: REFUSE - 1 surprise(s). Exit 1.` (the stray purity row) | |
+| R3 negative checks (three exits) | yes | the log | wrong `--database` exit 2; wrong `--confirm` exit 2; `--prod` on the fork exit 2; each `RESULT: REFUSED - nothing read or written. Exit 2.` | |
+| R4 dry run (exit, plan lines) | yes | the log; `/data/cutover_runs/r1b-run-plan.json` | exit 0, `RESULT: DRY RUN - nothing written. Exit 0.` (lines in step 6) | |
+| R5 apply (exit, counts) | yes | the log | exit 0, `RESULT: CUT OVER. Exit 0.`; counts below; equal to R4's plan | |
+| R6 second run | yes | the log | exit 0, `RESULT: ALREADY CUT OVER - nothing to do, no backup, no journal. Exit 0.`; backup files 4 before, 4 after | |
+| R7 `verify --stage reset` | yes | the log; `/data/cutover_runs/r1b-verify-reset.json` | exit 0, `RESULT: VERIFIED. Exit 0.`; `V5 recall: 69 theses, 2599 basket rows, 0 dropped` (lines in step 8) | |
+| R8 restore counts | yes | the log | restored: `thesis` 69, `basket_member` 2599, `calls` 1906, `fact_shares_outstanding` 2219; the fork after the cutover: 69, 2599, 0, 2219; 0 restore stderr lines | |
+| R9 backfill summary, `verify --stage backfill` | yes | the log; `/data/cutover_runs/r1b-verify-backfill.json`; the run artifact `/data/extraction_runs/20261118T231442.495118Z-backfill-a43d35.json` | see below; `verify` exit 0, `RESULT: VERIFIED. Exit 0.` | |
+| R10 by-hand checks | not run | | not yet rehearsed | |
+| R11 `verify --stage nightly` | not run | | not yet rehearsed | |
+| R12 `verify --stage edition` | not run | | not yet rehearsed | |
+| R13 rollback drill | not run | | not yet rehearsed | |
+| `pg_dump` trailer confirmed on a real dump (Part 9) | yes | the log | the `-pre-v2-reset` dump (1.6G on disk): trailer line count 1 in its last 4,096 bytes; the apply printed `verified (complete, 1704637697 bytes)` | |
+
+Rehearsal 1, the apply (R5), by table:
+
+| Table | Action | Rows |
+|---|---|---|
+| `fact_shares_outstanding` | moved to the data tenant | 2219 |
+| `fact_cash_burn` | moved to the data tenant | 64 |
+| `fact_revenue_mix` | moved to the founding workspace | 0 |
+| `edition_cause` | reset | 0 |
+| `edition_outcome` | reset | 113 |
+| `edition_call` | reset | 682 |
+| `edition_entry` | reset | 855 |
+| `edition_event` | reset | 2 |
+| `edition` | reset | 1 |
+| `call_annotation` | reset | 176 |
+| `calls` | reset | 1906 |
+
+Also printed by R5: `orphan purity: 1 row(s), leave (0 deleted)`, `validated: 2 constraints`,
+`companies stamped changed: 1224`.
+
+- Backup: `/data/backups/alphadeck-20261118T230606-pre-v2-reset.sql`, 1,704,637,697 bytes (1.6G on disk).
+- Archive: `/data/backups/alphadeck-20261118T231224-v1-history.sql`, 199,017,663 bytes (190M on disk).
+- Provenance: `/data/cutover_runs/20261118T230606Z-alphadeck_v2.json`.
+- Journal: `data_repair` `b794de1e-d97e-4fe7-b83b-775a4d1ebeb2`.
+
+Rehearsal 1, the backfill (R9). The dry run said: 1,768 due, 2,080 SEC requests known (up to 4,448 with what only
+a fetch can settle), at least 1,387 s to 2,965 s at 1.5 requests a second. The live run: 1,768 companies attempted;
+1,512 applied; 254 candidates (211 flagged to the steward, 43 nothing found); 2 unchanged; 0 failed; 2,220 live SEC
+fetches; 25 m 28 s. By fact: `shares_outstanding` already on file 283, applied 1073, flagged 349, nothing found 52,
+older than on file 11; `cash_burn` applied 1255, flagged 414, nothing found 99. Coverage of the companies on a live
+card, before and after: share count 63.3% (baseline) to 1395 of 1768 (78.9%); cash/burn 3.2% (baseline) to 1269 of
+1768 (71.8%).
 
 ## 8. From `v2` to `main`: environment changes
 
@@ -701,20 +851,27 @@ Check them against your `.env` yourself before the day. Names only.
 
 Read these before the day. Each is something this runbook cannot promise.
 
-- **The backup check's trailer is confirmed only on sample text.** The apply accepts a dump only if its last
-  4,096 bytes hold the line `-- PostgreSQL database dump complete`. That is the standard `pg_dump` trailer, but no
-  test may run `pg_dump`, so the code has never been shown a real dump. If rehearsal 1 shows a real dump lacking
-  that line, the apply would refuse every backup (exit 3), and a code fix is needed. Rehearsal 1 confirms or
-  refutes this; record the result in Part 7.
 - **The nightly window is checked once.** `run` and the backfill read the clock at the start. The backup then
   takes several minutes. Do not start `run --apply` within an hour of 21:30 ET. The cron is stopped during the
   cutover, so no pass will start, but the check is not repeated.
 - **The `--prod` path has never run.** It is built and tested against test databases only. The first run
   against the name `alphadeck` is the real one. The rehearsals use the fork's name and cannot exercise `--prod`
   (R3 checks that `--prod` on the fork refuses).
-- **`verify` is not in this runbook's branch.** Its command lines (`--stage`, `--provenance`, `--health-url`, `--run-kind`) are written as the plan gives them.
-  Its flags and output are unconfirmed here (to be filled in by PR W10e after the rehearsals).
-- **The compose image names and the cron's first boot** are not in the code, so they are marked "to be filled in".
+- **The backup check's trailer is confirmed.** The apply accepts a dump only if its last 4,096 bytes hold the line
+  `-- PostgreSQL database dump complete`. Rehearsal 1 showed a real 1.6 GB `pg_dump` ends with it (the line was found
+  once in the last 4,096 bytes, and the apply printed `verified (complete, 1704637697 bytes)`).
+- **R10 to R13 have not been rehearsed.** Rehearsal 1 stopped after R9: nobody signed in, no first nightly ran by
+  hand, no Edition 1 was published, and the rollback drill was not done. The stages `verify --stage nightly` and
+  `--stage edition`, the `--health-url` check (V10) against a real URL, and the production-only steps (the
+  `--prod` path, `deploy.sh`, the cron's first boot, the compose image names) have not been seen to run.
+- **No user-made counting catalyst entry existed in the rehearsal.** The `fact_thesis_catalyst` rows it kept were
+  W6's conversion of `fact_theme_conviction`, so the recall baseline's ninth child table was never tested against
+  entries an operator added.
+- **Rehearsal 1 used a same-day nightly dump, not `--fresh`.** Its data is production's as of the nightly backup
+  (`alphadeck-20261118T035357.sql`), not a dump taken for the rehearsal. Rehearsal 2 must use `--fresh`.
+- **The measured times are fork times.** The fork runs on the same host as production, but production's database is
+  larger or equal. The backfill's time depends on the SEC rate setting (1.5 requests a second in the rehearsal).
+- **The compose image names and the cron's first boot** are not in the code, so they are marked "not yet rehearsed".
 - **A host command with no database setting points at production.** A `python -m pipeline...` command run on the
   host, with no `DATABASE_URL` in its environment, connects to `localhost:5544` and the database `alphadeck`:
   production. This runbook runs every command inside a container for that reason. The cutover guard reads the
@@ -739,6 +896,10 @@ changed); 4 a step failed; 5 deployed but a verification failed.
 
 **`pipeline.extract_values` exit codes:** 0 ran (or the dry run); 1 could not run (no User-Agent for a live run, no
 database); 2 a bad argument; 75 refused or stopped.
+
+**`python -m pipeline.v2_cutover verify` exit codes:** 0 verified; 2 cannot verify (wrong database or flags, a
+missing, `.pending`, unreadable or other-database provenance file, or an unmapped or missing table); 5 a check
+failed.
 
 **`editions.run publish` exit code on a refusal:** 2.
 
