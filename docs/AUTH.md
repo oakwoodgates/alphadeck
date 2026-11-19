@@ -322,6 +322,7 @@ route) and query parameters.
 | The flag explainer (`POST /workbench/facts/explain`) | at most 10 passages, each excerpt at most 4,000 characters (prose rules), at most 20 flags; the rest per the classes above |
 | Numbers | finite only (no NaN, no Infinity); `mix_pct` 0 to 100; ratify `shares` above 0 and at most 1e13; `ads_ratio` 1 to 1,000,000; `cash_usd`, `quarterly_burn_usd` and `estimate` within ±1e15; a decision's `shares` and `price` 0 to 1e13 |
 | Dates on a request body | 1990-01-01 to 366 days after today's market date (`decision_date` also keeps "not after today") |
+| A catalyst calendar row (`label`, `when_date`) | label at most 500 characters (`CATALYST_LABEL_MAX`); date 1990-01-01 to 3,660 days after today (`CATALYST_DATE_AHEAD_DAYS`): the list is re-sent whole on every save and a calendar holds events years out |
 | `asof` (and the price window's `start` / `end`) on every read | 2000-01-01 to 7 days after today's market date |
 | The triage-session autosave | `state` stays opaque (its strings are never inspected); the request body at most 25 MB (**413**), nesting at most 32 levels |
 

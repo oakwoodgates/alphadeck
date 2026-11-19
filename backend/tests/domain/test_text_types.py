@@ -174,3 +174,26 @@ def test_json_depth_counts_containers_without_copying():
 def test_opaque_state_depth_limit():
     assert _ok(tt.OpaqueState, _nest(tt.STATE_MAX_DEPTH)) == _nest(tt.STATE_MAX_DEPTH)
     assert "nesting" in _refused(tt.OpaqueState, _nest(tt.STATE_MAX_DEPTH + 1))
+
+
+# --- the catalyst calendar's own bounds -----------------------------------------------------------------------------
+
+
+def test_catalyst_date_window():
+    today = market_today()
+    assert tt.CATALYST_DATE_AHEAD_DAYS == 3_660
+    assert _ok(tt.CatalystDate, date(1990, 1, 1)) == date(1990, 1, 1)
+    assert _ok(tt.CatalystDate, today + timedelta(days=3_660)) == today + timedelta(days=3_660)
+    assert _ok(tt.CatalystDate, today + timedelta(days=700)) == today + timedelta(days=700)
+    assert "1990-01-01" in _refused(tt.CatalystDate, date(1989, 12, 31))
+    _refused(tt.CatalystDate, today + timedelta(days=3_661))
+    _refused(tt.CatalystDate, "9999-12-31")
+
+
+def test_catalyst_label_limit():
+    assert tt.CATALYST_LABEL_MAX == 500
+    assert _ok(tt.CatalystLabel, "x" * 500) == "x" * 500
+    assert _ok(tt.CatalystLabel, "  padded  ") == "padded"
+    _refused(tt.CatalystLabel, "x" * 501)
+    _refused(tt.CatalystLabel, "a\nb")
+    _refused(tt.CatalystLabel, "a\x00b")

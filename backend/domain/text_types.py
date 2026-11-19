@@ -51,6 +51,9 @@ PASSWORD_MAX = 1_024
 SEARCH_Q_MAX = 100  # the security search ``q``
 CIK_MAX_DIGITS = 10
 EXCERPT_MAX = 4_000  # one located passage sent back to the flag explainer
+# a catalyst calendar row's label: wider than a Line because the list is re-sent whole and a stored label can be a
+# sentence (the nuclear theme row, converted from a conviction's label, is 227 characters)
+CATALYST_LABEL_MAX = 500
 
 # the OAuth sign-in's unauthenticated routes (security PR 5; app/oauth/provider.py): checked by the provider, since
 # the request models there are the MCP SDK's, not ours
@@ -91,6 +94,9 @@ DECISION_AMOUNT_MAX = 1e13  # a decision's shares and price
 # dates
 REQUEST_DATE_MIN = date(1990, 1, 1)
 REQUEST_DATE_AHEAD_DAYS = 366  # after today's market date
+# a catalyst calendar row's date: the calendar legitimately holds events years out (a bridge that ends in 2027), and
+# the whole list is re-sent on every save, so the forward window is about ten years
+CATALYST_DATE_AHEAD_DAYS = 3_660
 ASOF_MIN = date(2000, 1, 1)
 ASOF_AHEAD_DAYS = 7
 
@@ -155,6 +161,7 @@ SearchQuery = _line_type(SEARCH_Q_MAX, "search")
 Prose = _prose_type(PROSE_MAX, "prose")
 Narrative = _prose_type(NARRATIVE_MAX, "narrative")
 Excerpt = _prose_type(EXCERPT_MAX, "excerpt")
+CatalystLabel = _line_type(CATALYST_LABEL_MAX, "catalyst_label")
 
 # A password is counted as typed: never trimmed (a space is part of it) and never inspected beyond its length (it is
 # only ever hashed). The bounds are checked by the request model, so a refused one never reaches the hash.
@@ -223,6 +230,12 @@ def _window(lo: date, ahead_days: int) -> Any:
 # A date on a request body: not before 1990-01-01, not more than 366 days after today's market date.
 RequestDate = Annotated[
     date, AfterValidator(_window(REQUEST_DATE_MIN, REQUEST_DATE_AHEAD_DAYS)), Bounded("date")
+]
+# A catalyst calendar row's date: not before 1990-01-01, not more than 3,660 days after today's market date.
+CatalystDate = Annotated[
+    date,
+    AfterValidator(_window(REQUEST_DATE_MIN, CATALYST_DATE_AHEAD_DAYS)),
+    Bounded("catalyst_date"),
 ]
 _check_asof = _window(ASOF_MIN, ASOF_AHEAD_DAYS)
 
