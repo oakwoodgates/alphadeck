@@ -82,7 +82,7 @@ def test_a_stored_227_character_label_does_not_block_a_save(client, db, pinned_t
 @pytest.mark.parametrize(
     "build",
     [
-        pytest.param(lambda today: {"when_date": today + timedelta(days=3_661)}, id="too_far"),
+        pytest.param(lambda today: {"when_date": str(today + timedelta(days=3_661))}, id="too_far"),
         pytest.param(lambda today: {"when_date": "1989-12-31"}, id="before_1990"),
         pytest.param(lambda today: {"label": "x" * 501}, id="label_501"),
     ],
@@ -118,7 +118,9 @@ def test_what_the_card_returns_is_what_the_save_accepts(client, db, pinned_today
     ]
     seed.seed_nuclear_theme_conviction(db)
     db.commit()
-    assert any(len(c["label"]) > tt.LINE_MAX for c in client.get(f"/theses/{ids[1]}").json()["catalysts"])
+    assert any(
+        len(c["label"]) > tt.LINE_MAX for c in client.get(f"/theses/{ids[1]}").json()["catalysts"]
+    )
     for tid in ids:
         sent = client.get(f"/theses/{tid}").json()["catalysts"]
         before = _rows(db, tid)
@@ -126,7 +128,5 @@ def test_what_the_card_returns_is_what_the_save_accepts(client, db, pinned_today
         assert r.status_code == 200, (tid, r.text)
         assert r.json()["catalysts"] == sent
         assert _rows(db, tid) == before
-
-
 
     assert market_today() == pinned_today

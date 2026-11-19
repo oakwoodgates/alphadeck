@@ -165,18 +165,22 @@ def test_catalyst_lines_and_dates(client, db, card):
     url = f"/theses/{card['thesis_id']}/catalysts"
     today = market_today()
     ok = {
-        "label": "c" * tt.LINE_MAX,
+        "label": "c" * tt.CATALYST_LABEL_MAX,
         "kind": "k" * tt.LINE_MAX,
         "when_label": "w" * tt.LINE_MAX,
-        "when_date": (today + timedelta(days=366)).isoformat(),
+        "when_date": (today + timedelta(days=tt.CATALYST_DATE_AHEAD_DAYS)).isoformat(),
     }
     assert client.put(url, json=[ok]).status_code == 200
     before = _snapshot(db)
-    for field in ("label", "kind", "when_label"):
+    for field, limit in (
+        ("label", tt.CATALYST_LABEL_MAX),
+        ("kind", tt.LINE_MAX),
+        ("when_label", tt.LINE_MAX),
+    ):
         _refused(
-            client.put(url, json=[{**ok, field: "x" * (tt.LINE_MAX + 1)}]),
+            client.put(url, json=[{**ok, field: "x" * (limit + 1)}]),
             ("body", 0, field),
-            f"at most {tt.LINE_MAX} characters",
+            f"at most {limit} characters",
         )
     _refused(
         client.put(url, json=[{**ok, "when_date": "1989-12-31"}]),
@@ -184,9 +188,19 @@ def test_catalyst_lines_and_dates(client, db, card):
         "1990-01-01",
     )
     _refused(
-        client.put(url, json=[{**ok, "when_date": (today + timedelta(days=367)).isoformat()}]),
+        client.put(
+            url,
+            json=[
+                {
+                    **ok,
+                    "when_date": (
+                        today + timedelta(days=tt.CATALYST_DATE_AHEAD_DAYS + 1)
+                    ).isoformat(),
+                }
+            ],
+        ),
         ("body", 0, "when_date"),
-        "366 days after today",
+        f"{tt.CATALYST_DATE_AHEAD_DAYS} days after today",
     )
     assert _snapshot(db) == before
 

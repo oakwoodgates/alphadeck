@@ -39,6 +39,8 @@ from domain.text_types import (
     TERMS_MAX,
     AdsRatio,
     BurnDays,
+    CatalystDate,
+    CatalystLabel,
     CikIn,
     CurrencyCode,
     DecisionAmount,
@@ -1244,9 +1246,9 @@ class CatalystIn(BaseModel):
     on this card is never adopted (the row gets a fresh one)."""
 
     id: UUID | None = None
-    label: Line
+    label: CatalystLabel
     kind: Line | None = None  # display kind e.g. "earnings", "regulatory"
-    when_date: RequestDate | None = (
+    when_date: CatalystDate | None = (
         None  # dated -> enters the catalyst_surface filter; None = fuzzy
     )
     when_label: Line | None = None  # display string e.g. "~3wk", "Q3"
