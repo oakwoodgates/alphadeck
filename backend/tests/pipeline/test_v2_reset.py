@@ -1,8 +1,10 @@
-"""The V2 cutover's apply path (``python -m pipeline.v2_cutover run ...``, W10a): guard, preflight, backup, move
-and reset in ONE transaction, journal and provenance.
+"""The V2 cutover's apply path (``python -m pipeline.v2_cutover run ...``, W10a): guard, preflight, backup, the
+platform-facts move in ONE transaction, journal and provenance.
 
-THIS CODE DELETES A DATABASE'S HISTORY ON PURPOSE, so most of these tests are refusals: each one proves a path
-that must write NOTHING (every table counted before and after), or that the one transaction is all-or-nothing.
+V1's HISTORY IS KEPT (operator decision 2026-11-19, "keep the history"): the calls log, ``call_annotation`` and the
+six ``edition*`` tables keep every row; the only delete left is the orphan purity row, on request. The cutover still
+rewrites the platform facts' tenants, so most of these tests are refusals: each one proves a path that must write
+NOTHING (every table counted before and after), or that the one transaction is all-or-nothing.
 
 Safety of the tests themselves:
 
@@ -41,6 +43,19 @@ COMPLETE = (
 )
 INCOMPLETE = "--\n-- PostgreSQL database dump\n--\n\nSET statement_timeout = 0;\nCOPY public.calls (id) FROM stdin;\n"
 _MOVED = ("fact_shares_outstanding", "fact_cash_burn", "fact_revenue_mix")
+# V1's history: kept by the cutover, every row (operator decision 2026-11-19)
+_HISTORY = (
+    "calls",
+    "call_annotation",
+    "edition",
+    "edition_event",
+    "edition_entry",
+    "edition_call",
+    "edition_outcome",
+    "edition_cause",
+)
+# the journal summary for ``_seed_v1``'s four moved rows (2 share counts, 1 cash/burn, 1 purity)
+_SUMMARY = "V2 cutover: moved 4 share-count, cash/burn and purity row(s) to their V2 tenants; V1 history kept"
 
 
 @pytest.fixture(autouse=True)
@@ -493,16 +508,13 @@ def test_a_dry_run_is_read_only_and_takes_no_backup(db, monkeypatch, capsys, tmp
         doc["moves"]["fact_cash_burn"]["rows"] == 1
         and doc["moves"]["fact_revenue_mix"]["rows"] == 1
     )
-    assert doc["resets"] == {
-        "edition_cause": 1,
-        "edition_outcome": 1,
-        "edition_call": 1,
-        "edition_entry": 1,
-        "edition_event": 1,
-        "edition": 1,
-        "call_annotation": 1,
-        "calls": 2,
-    }
+    assert "resets" not in doc  # V1's history is kept: nothing to reset, nothing planned for it
+    assert "plan: reset" not in out
+    assert (
+        "count: P9 V1 history kept: calls 2, call_annotation 1, edition 1, edition_event 1, edition_entry 1, "
+        "edition_call 1, edition_outcome 1, edition_cause 1"
+    ) in out
+    assert "P11" not in out
     assert doc["orphan_purity"] == {"rows": 1, "action": "leave"}
     assert seeded["orphan"] in _rows(db, "fact_revenue_mix")
 
@@ -605,13 +617,16 @@ def test_no_connection_string_or_password_is_printed(db, monkeypatch, capsys, tm
     assert secret not in out and "postgresql://" not in out
 
 
-def test_the_history_archive_dumps_exactly_the_reset_tables(db, tmp_path):
+def test_the_history_archive_dumps_exactly_the_history_tables(db, tmp_path):
+    """K2: the archive is still taken, now a frozen snapshot of the KEPT history: exactly the eight tables, and
+    never an empty list (an empty list dumps the WHOLE database, pinned at the end)."""
     _seed_v1(db)
     dumps = Dumps()
     assert _apply(db, tmp_path, dumps) == 0
     full, archive = dumps.calls
     assert full["tables"] is None
-    assert archive["tables"] == [f"public.{t}" for t in R.RESET_ORDER]
+    assert archive["tables"] == [f"public.{t}" for t in R.HISTORY_TABLES]
+    assert sorted(archive["tables"]) == sorted(f"public.{t}" for t in _HISTORY)
     names = _backups(tmp_path)
     assert any(n.endswith("-pre-v2-reset.sql") for n in names)
     assert any(n.endswith("-v1-history.sql") for n in names)
@@ -626,6 +641,17 @@ def test_the_history_archive_dumps_exactly_the_reset_tables(db, tmp_path):
         "--file",
         "x.sql",
     ]
+    # why the table list must never be empty: no tables is a dump of the whole database, not of none
+    assert "--table" not in B._pg_dump_argv("postgresql://u@h/db", Path("x.sql"), tables=[])
+    whole = Dumps()
+    B.run_backup(
+        label=R.ARCHIVE_LABEL,
+        database_url="postgresql://u@h/db",
+        base_dir=tmp_path / "pin",
+        dump_runner=whole,
+        tables=[],
+    )
+    assert [c["tables"] for c in whole.calls] == [None]
 
 
 def test_no_history_archive_takes_only_the_full_backup(db, tmp_path):
@@ -657,16 +683,22 @@ def test_a_reused_backup_must_be_newer_than_the_data(db, capsys, tmp_path):
 # --- the transaction -------------------------------------------------------------------------------------------
 
 
-def test_apply_moves_and_resets_in_one_transaction(db, capsys, tmp_path):
+def test_apply_keeps_the_v1_history(db, capsys, tmp_path):
+    """Operator decision 2026-11-19: the cutover moves the platform facts and deletes NOTHING of V1's record. The
+    eight history tables keep every row and every column; the move happened in the same transaction.
+    """
     seeded = _seed_v1(db)
     shares_before = _rows(db, "fact_shares_outstanding")
+    history_before = {t: _rows(db, t) for t in _HISTORY}
     before = _counts(db)
+    assert all(before[t] for t in _HISTORY)  # the seed holds V1 history in every table
     assert _apply(db, tmp_path) == 0
     out = capsys.readouterr().out
     assert out.rstrip().endswith("RESULT: CUT OVER. Exit 0.")
+    assert "reset:" not in out and "kept: V1 history 9 row(s) (2 calls)" in out
     after = _counts(db)
-    for t in R.RESET_ORDER:
-        assert after[t] == 0, t
+    assert {t: after[t] for t in _HISTORY} == {t: before[t] for t in _HISTORY}
+    assert {t: _rows(db, t) for t in _HISTORY} == history_before
     shares = _rows(db, "fact_shares_outstanding")
     for rid in seeded["shares"]:
         assert shares[rid]["tenant_id"] == DATA_TENANT_ID
@@ -680,13 +712,14 @@ def test_apply_moves_and_resets_in_one_transaction(db, capsys, tmp_path):
     assert _constraints_valid(db) == {c: True for c in R.VALIDATED_CONSTRAINTS.values()}
     assert _triggers(db) == {t: "O" for t in _MOVED}
     (row,) = _journal(db)
-    assert row["deletes"] is True and row["action"] == "apply"
+    assert row["action"] == "apply" and "reset" not in row["counts"]
     assert row["counts"]["moved"] == {
         "fact_shares_outstanding": 2,
         "fact_cash_burn": 1,
         "fact_revenue_mix": 1,
     }
-    assert row["counts"]["reset"]["calls"] == 2 and row["counts"]["orphan_purity"] == {
+    assert row["counts"]["history_kept"] == {t: before[t] for t in _HISTORY}
+    assert row["counts"]["orphan_purity"] == {
         "rows": 1,
         "action": "leave",
         "deleted": 0,
@@ -699,7 +732,7 @@ def test_apply_moves_and_resets_in_one_transaction(db, capsys, tmp_path):
     assert [t["id"] for t in doc["baseline"]["theses"]] == [str(seeded["thesis"])]
     assert len(doc["baseline"]["basket_members"][str(seeded["thesis"])]) == 2
     assert doc["baseline"]["operator_decision"] == 1
-    assert doc["plan"]["resets"]["calls"] == 2
+    assert "resets" not in doc["plan"]
     with db.cursor() as cur:
         cur.execute("SELECT security_id FROM security_change")
         stamped = {r["security_id"] for r in cur.fetchall()}
@@ -709,18 +742,15 @@ def test_apply_moves_and_resets_in_one_transaction(db, capsys, tmp_path):
     assert _our_advisory_locks(db) == 0
 
 
-def test_a_failure_mid_reset_rolls_back_the_move(db, monkeypatch, capsys, tmp_path):
+def test_a_failure_mid_transaction_rolls_back_the_move(db, monkeypatch, capsys, tmp_path):
     seeded = _seed_v1(db)
     before = _counts(db)
     valid_before = _constraints_valid(db)
-    real_delete = R._delete_all
 
-    def failing(cur, table):
-        if table == "calls":
-            raise RuntimeError("injected: the calls delete failed")
-        return real_delete(cur, table)
+    def failing(conn, security_ids):
+        raise RuntimeError("injected: the change stamp failed after the move")
 
-    monkeypatch.setattr(R, "_delete_all", failing)
+    monkeypatch.setattr(R, "mark_changed", failing)
     assert _apply(db, tmp_path) == 4
     out = capsys.readouterr().out
     assert "ROLLED BACK" in out and out.rstrip().endswith("Exit 4.")
@@ -863,6 +893,31 @@ def test_the_orphan_purity_row_is_left_by_default_and_deleted_on_request(db, tmp
     }
 
 
+def test_the_journal_row_deletes_nothing_by_default(db, tmp_path):
+    """The cutover's journal row is a NON-deleting repair (``--orphan-purity leave``, K7): the automatic edition
+    cut then keeps the rules change separated from it (Edition 2 labeled "rule change: ..." first). Its summary
+    becomes part of that label, so it says what happened and names no reset."""
+    _seed_v1(db)
+    assert _apply(db, tmp_path) == 0
+    (row,) = _journal(db)
+    assert row["deletes"] is False
+    assert (
+        row["rows_changed"] == 4
+    )  # 2 share counts + 1 cash/burn + 1 purity moved; nothing deleted
+    assert row["summary"] == _SUMMARY == R.journal_summary(moved=4, deleted=0)
+    assert "reset" not in row["summary"].lower() and "backup" not in row["summary"]
+
+
+def test_the_journal_row_deletes_only_with_orphan_delete(db, tmp_path):
+    _seed_v1(db)
+    assert _apply(db, tmp_path, orphan_purity="delete") == 0
+    (row,) = _journal(db)
+    assert row["deletes"] is True
+    assert row["rows_changed"] == 5  # the four moved + the one orphan purity row deleted
+    assert row["summary"] == _SUMMARY + "; deleted 1 unratified orphan purity row(s)"
+    assert row["summary"] == R.journal_summary(moved=4, deleted=1)
+
+
 def _window_settings(monkeypatch):
     real = R.get_settings()
     patched = real.model_copy(
@@ -940,48 +995,30 @@ def test_an_unapplied_migration_refuses(db, monkeypatch, capsys, tmp_path):
     assert _counts(db) == before
 
 
-def test_a_foreign_key_into_the_reset_tables_from_elsewhere_refuses(
-    db, monkeypatch, capsys, tmp_path
-):
-    """The reset may empty exactly its eight tables: a cascade into any other table would delete rows the plan
-    never listed, so a foreign key from outside the set refuses (a new table needs its own decision).
+# P11 (every foreign key into the reset tables comes from a reset table) is gone with the reset: no table is emptied
+# any more, so no cascade can start from one. The one delete left (the orphan purity rows, by id, on request) was
+# never covered by P11; the apply instead checks, inside its transaction, that every history count is unchanged.
+
+
+def test_the_cutover_deletes_no_history_table():
+    """Operator decision 2026-11-19 ("keep the history"): no table's cutover action is a reset; the eight history
+    tables are named KEPT, and they are exactly the tables the archive dumps and the baseline counts.
     """
-    _seed_v1(db)
-    real = R._references_into
-
-    def plus_one(cur):
-        return [*real(cur), ("some_new_table", "calls", "c")]
-
-    monkeypatch.setattr(R, "_references_into", plus_one)
-    before = _counts(db)
-    assert _apply(db, tmp_path) == 1
-    assert "some_new_table" in capsys.readouterr().out
-    assert _counts(db) == before
+    assert "reset" not in set(C.CUTOVER_ACTION.values())
+    assert C.HISTORY_KEPT == "keep (V1 history: operator decision 2026-11-19)"
+    kept = {t for t, a in C.CUTOVER_ACTION.items() if a == C.HISTORY_KEPT}
+    assert kept == set(R.HISTORY_TABLES) == set(_HISTORY)
+    assert len(R.HISTORY_TABLES) == 8
+    assert not hasattr(R, "RESET_ORDER") and not hasattr(R, "_delete_all")
 
 
-def test_today_only_the_reset_tables_reference_the_reset_tables(db):
-    """Pinned: the foreign keys into the eight tables (call_annotation -> calls, the edition children -> edition,
-    and two self-references). A new one fails here first, and the apply refuses it (P11)."""
-    with db.cursor() as cur:
-        refs = R._references_into(cur)
-    db.rollback()
-    assert sorted(refs) == sorted(
-        [
-            ("call_annotation", "calls", "c"),
-            ("call_annotation", "call_annotation", "c"),
-            ("edition", "edition", "a"),
-            *[(t, "edition", "c") for t in R.RESET_ORDER if t.startswith("edition_")],
-        ]
-    )
-
-
-def test_the_reset_names_exactly_the_reset_tables():
-    assert set(R.RESET_ORDER) == {t for t, a in C.CUTOVER_ACTION.items() if a == "reset"}
-    assert len(R.RESET_ORDER) == 8
-    assert R.RESET_ORDER[-2:] == ("call_annotation", "calls")
-    assert R.RESET_ORDER.index("edition") > max(
-        R.RESET_ORDER.index(t) for t in R.RESET_ORDER if t.startswith("edition_")
-    )
+def test_a_plan_file_from_the_resetting_cutover_differs():
+    """A dry run's ``--plan-out`` written before V1's history was kept carries a ``resets`` section:
+    ``--expect-plan`` with it refuses (take a new dry run). PURE."""
+    new = {"database": "x", "moves": {}, "orphan_purity": {"rows": 0, "action": "leave"}}
+    old = {**new, "resets": {"calls": 1906}}
+    assert R.plan_differences(old, new) == ["resets.calls: expected 1906, found None"]
+    assert R.plan_differences(new, new) == []
 
 
 # --- once only -----------------------------------------------------------------------------------------------------
@@ -1001,7 +1038,10 @@ def test_a_second_apply_does_nothing_and_journals_nothing(db, capsys, tmp_path):
     assert dumps.calls == [] and _backups(tmp_path) == backups
 
 
-def test_after_a_v2_night_a_second_reset_refuses(db, capsys, tmp_path):
+def test_after_a_v2_night_a_second_run_does_nothing(db, capsys, tmp_path):
+    """The history rows (V1's and the first V2 night's) no longer matter to the second-run check: cut over and
+    nothing left to move -> "already cut over", exit 0, no backup, no journal row, every count unchanged.
+    """
     seeded = _seed_v1(db)
     assert _apply(db, tmp_path) == 0
     with db.cursor() as cur:  # the first V2 night
@@ -1013,18 +1053,61 @@ def test_after_a_v2_night_a_second_reset_refuses(db, capsys, tmp_path):
     db.commit()
     capsys.readouterr()
     before = _counts(db)
+    backups = _backups(tmp_path)
     dumps = Dumps()
     for apply in (False, True):
         code = R.run(
             _opts(db, tmp_path, apply=apply), dump_runner=dumps, backups_dir=tmp_path / "backups"
         )
-        assert code == 1
-        assert "a second reset would delete V2 nights" in capsys.readouterr().out
-    assert dumps.calls == [] and _counts(db) == before and len(_journal(db)) == 1
+        out = capsys.readouterr().out
+        assert code == 0, out
+        assert "already cut over on" in out and "nothing to do" in out and "REFUSE" not in out
+    assert dumps.calls == [] and _backups(tmp_path) == backups
+    assert _counts(db) == before and len(_journal(db)) == 1
+
+
+def test_after_the_cutover_a_row_left_to_move_refuses_a_second_run(db, capsys, tmp_path):
+    """Cut over, but a founding-workspace share count appeared since: a second cutover is refused (investigate by
+    hand), whatever the history holds."""
+    seeded = _seed_v1(db)
+    assert _apply(db, tmp_path) == 0
+    with db.cursor() as cur:
+        _share(cur, seeded["securities"][0], FOUNDING_WORKSPACE_ID, "A-AFTER", "auto")
+    db.commit()
+    capsys.readouterr()
+    before = _counts(db)
+    assert _apply(db, tmp_path) == 1
+    out = capsys.readouterr().out
+    assert "REFUSE: P10 already cut over on" in out and "1 row(s) to move or delete" in out
+    assert _counts(db) == before and len(_journal(db)) == 1
+
+
+def test_the_baseline_records_the_history_counts_and_editions(db, tmp_path):
+    """The recall baseline counts V1's history and lists its editions, so ``verify`` can prove nothing of it was
+    lost."""
+    _seed_v1(db)
+    with db.cursor() as cur:
+        cur.execute("SELECT id, tenant_id, number, created_at FROM edition")
+        (ed,) = cur.fetchall()
+    db.rollback()
+    before = _counts(db)
+    assert _apply(db, tmp_path) == 0
+    (prov,) = sorted((tmp_path / "prov").glob("*.json"))
+    base = json.loads(prov.read_text(encoding="utf-8"))["baseline"]
+    assert base["history"] == {t: before[t] for t in _HISTORY}
+    assert base["history"]["calls"] == 2 and base["history"]["edition"] == 1
+    assert base["editions"] == [
+        {
+            "id": str(ed["id"]),
+            "tenant_id": str(ed["tenant_id"]),
+            "number": 1,
+            "created_at": str(ed["created_at"]),
+        }
+    ]
 
 
 def test_theses_baskets_decisions_and_children_are_untouched(db, tmp_path):
-    """The recall proof: every table but the eight reset tables, the journal and the change log keeps its count,
+    """The recall proof: every table but the journal and the change log keeps its count (V1's history included),
     and the workspace's rows keep their ids and every column."""
     _seed_v1(db)
     keep = (
@@ -1039,7 +1122,7 @@ def test_theses_baskets_decisions_and_children_are_untouched(db, tmp_path):
     before = _counts(db)
     assert _apply(db, tmp_path) == 0
     after = _counts(db)
-    changed = set(R.RESET_ORDER) | {"data_repair", "security_change"}
+    changed = {"data_repair", "security_change"}
     assert {t: n for t, n in after.items() if t not in changed} == {
         t: n for t, n in before.items() if t not in changed
     }
@@ -1052,7 +1135,7 @@ def test_theses_baskets_decisions_and_children_are_untouched(db, tmp_path):
 
 def test_the_counting_catalyst_entries_are_kept_and_counted(db, capsys, tmp_path):
     """``fact_thesis_catalyst`` (0212) is a per-thesis child: the baseline counts it (so ``v2_verify``'s recall
-    check covers it), P9 prints its count, and the reset keeps every row."""
+    check covers it), P9 prints its count, and the cutover keeps every row."""
     assert "fact_thesis_catalyst" in R._CHILD_TABLES
     seeded = _seed_v1(db)
     with db.cursor() as cur:
