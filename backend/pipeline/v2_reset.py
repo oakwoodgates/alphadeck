@@ -1,8 +1,12 @@
 """The V2 cutover's APPLY path (W10a): ``python -m pipeline.v2_cutover run ...``.
 
-THIS MODULE DELETES A DATABASE'S HISTORY ON PURPOSE (operator decision D1: V2's record starts at cutover). Its
-guards, its backup precondition and its one all-or-nothing transaction are the product; every refusal below is a
-feature, and each one writes nothing.
+THIS MODULE REWRITES A DATABASE'S PLATFORM FACTS ON PURPOSE (the share counts and cash/burn move to the data
+tenant, ratified purity to the founding workspace) and KEEPS V1'S HISTORY: the calls log, ``call_annotation`` and
+the six ``edition*`` tables keep every row (operator decision 2026-11-19, "keep the history", which reverses D1's
+reset; V2's rule changes then reach the Scoreboard as Edition 2 through the automatic edition cut). The only delete
+left is the unratified orphan purity rows, and only with ``--orphan-purity delete``. Its guards, its backup
+precondition and its one all-or-nothing transaction are the product; every refusal below is a feature, and each
+one writes nothing.
 
 ::
 
@@ -21,7 +25,8 @@ verify (nothing written); 4 the transaction failed and rolled back (nothing writ
 
 **The guard** (``guard_refusal`` / ``assert_cutover_target``, PURE, allow-list). The name is read with
 ``current_database()`` on the connection that would write, never from a URL, before anything else is read.
-``--database`` must equal it; ``--confirm`` must equal ``reset <name>`` exactly; the production name
+``--database`` must equal it; ``--confirm`` must equal ``reset <name>`` exactly (the phrase is unchanged though nothing
+is reset any more: operator decision K6); the production name
 ``alphadeck`` is allowed only with ``--prod``, and ``--prod`` with any other name refuses; any other name must be
 a rehearsal database (``v2_move.assert_rehearsal_db``: a fork ``alphadeck_<name>`` or a test database);
 ``alphadeck_dev``, ``alphadeck_sig`` and ``alphadeck_prod`` always refuse. ``--prod --apply`` needs
@@ -33,37 +38,41 @@ the nightly window (exit 75); P4 (apply) the repair lock (call-of-record + fact 
 the whole run (exit 75, naming the holder); P5 the dry run's surprise rules (rules 1-2 exit 2; rules 3-9 refuse,
 except rule 8, the unratified data-tenant purity, which ``--orphan-purity`` acknowledges); P6 a workspace
 company catalyst refuses; P7 no share-count or cash/burn row would fail migration 0206's vocabulary; P8 the
-move's own refusals; P9 counts printed (decisions, positions, theme conviction, counting catalyst entries: all
-kept); P10 already cut over
-(a ``data_repair`` row of tool ``v2_cutover``): nothing left to do -> exit 0, no backup, no journal; any history
-row present -> REFUSE ("a second reset would delete V2 nights"); P11 every foreign key INTO the reset tables comes
-from a reset table (so no cascade can reach a table the plan does not list). ``--expect-plan`` refuses (exit 1)
-on any difference from the file; ``--plan-out`` writes the plan.
+move's own refusals; P9 counts printed (decisions, positions, theme conviction, counting catalyst entries, and V1's
+history by table: all kept); P10 already cut over (a ``data_repair`` row of tool ``v2_cutover``): nothing left to
+move (or to delete, with ``--orphan-purity delete``) -> exit 0, no backup, no journal, whatever the history holds
+(V1's rows and V2's nights alike); a row left to move or delete -> REFUSE (investigate by hand). ``--expect-plan``
+refuses (exit 1) on any difference from the file (a plan file written before the history was kept carries a
+``resets`` section, so it differs: take a new dry run); ``--plan-out`` writes the plan.
 
 **The backup** (apply, before any write): ``pipeline.backup.run_backup(label="pre-v2-reset")`` of the SAME
 database (the connection string's database name must equal the guarded name), or ``--reuse-backup FILE``
 (newer than the newest ``recorded_at`` in ``calls`` and the moved tables and the newest
 ``data_repair.applied_at``). Verified by ``verify_dump``: in the backups directory, a backup name, not empty, and
-the ``pg_dump`` completion trailer (``DUMP_COMPLETE_MARKER``) in its last ``TAIL_BYTES``. Then the history
-archive (``-v1-history``): the eight reset tables only, verified the same way. Exit 3 on any failure.
+the ``pg_dump`` completion trailer (``DUMP_COMPLETE_MARKER``) in its last ``TAIL_BYTES``. Then the V1 history
+archive (``-v1-history``, operator decision K2: still taken): a frozen snapshot of exactly the eight
+``HISTORY_TABLES`` (never an empty list: no tables would dump the whole database), verified the same way. Exit 3 on
+any failure.
 
 **The transaction** (ONE, on the guarded connection): re-plan and compare with the printed plan (any difference
 refuses, exit 1); read the baseline; the three move legs (``v2_move.relabel_legs``); the orphan purity rows when
-``--orphan-purity delete``; ``DELETE FROM`` each table of ``RESET_ORDER`` (children first; never TRUNCATE, never
-CASCADE, never DROP), each row count equal to the plan; ``mark_changed`` for every company touched; VALIDATE
-migration 0206's two constraints; the ``data_repair`` journal row (tool ``v2_cutover``, ``deletes`` true) -
-INSIDE the transaction, so the "already cut over" marker can never be missing after a committed reset; commit.
-Any failure: rollback, every disabled trigger checked back on (``v2_move._restore_triggers``), exit 4.
+``--orphan-purity delete`` (the only delete); every history count re-read and compared with the baseline (any
+difference refuses: nothing of V1's history may change); ``mark_changed`` for every company touched; VALIDATE
+migration 0206's two constraints; the ``data_repair`` journal row (tool ``v2_cutover``; ``deletes`` true only
+when an orphan purity row was deleted; ``rows_changed`` = moved + deleted; ``summary`` = ``journal_summary``, the
+words the automatic edition cut puts in Edition 2's label) - INSIDE the transaction, so the "already cut over"
+marker can never be missing after a committed cutover; commit. Any failure: rollback, every disabled trigger
+checked back on (``v2_move._restore_triggers``), exit 4.
 
 **The provenance file** ``<provenance-dir>/<UTC ts>-<db>.json`` (written as ``.pending`` before the commit and
 renamed after it; W10b's ``verify`` reads it), one JSON object:
 
 - ``tool``, ``database``, ``started_at``, ``committed_at``, ``journal_id``, ``backup``, ``archive``;
 - ``plan``: the plan document (``plan_document``: ``moves`` by table with ``rows`` and ``by_ratified``,
-  ``resets`` by table, ``orphan_purity`` ``{rows, action}``);
+  ``orphan_purity`` ``{rows, action}``);
 - ``preflight``: the printed preflight lines;
-- ``counts``: the journal's counts (``moved``, ``by_ratified``, ``reset``, ``orphan_purity``, ``validated``,
-  ``companies``);
+- ``counts``: the journal's counts (``moved``, ``by_ratified``, ``history_kept`` by table, ``orphan_purity``,
+  ``validated``, ``companies``, ``backup``, ``archive``);
 - ``baseline`` (read in the transaction, before the first write): ``theses`` [``{id, tenant_id, created_at,
   archived_at}``]; ``basket_members`` {thesis id: [``{id, security_id, ticker, segment, role}``]};
   ``children`` {thesis id: {table: rows}} for ``kill_criterion``, ``catalyst``, ``evidence``,
@@ -71,7 +80,9 @@ renamed after it; W10b's ``verify`` reads it), one JSON object:
   ``fact_theme_conviction``, ``fact_thesis_catalyst``; ``operator_decision`` (rows); ``share_security_ids`` and
   ``cash_security_ids``
   (companies with a row, any tenant); ``moved_tables_by_tenant`` {table: {tenant: rows}} before the move;
-  ``app_users`` [``{id, role, workspace_id, disabled_at}``]; ``plan_json`` (the ``plan --json`` document).
+  ``app_users`` [``{id, role, workspace_id, disabled_at}``]; ``history`` {table: rows} for the eight
+  ``HISTORY_TABLES`` and ``editions`` [``{id, tenant_id, number, created_at}``] (V1's record, kept: ``verify``
+  proves none of it was lost); ``plan_json`` (the ``plan --json`` document).
 """
 
 from __future__ import annotations
@@ -123,17 +134,18 @@ EXIT_BACKUP = 3
 EXIT_ROLLED_BACK = 4
 EXIT_BUSY = 75
 
-# The tables the reset empties: EXACTLY the ``reset`` entries of ``v2_cutover.CUTOVER_ACTION``, children before
-# parents (every edition child references ``edition``; ``call_annotation`` references ``calls``).
-RESET_ORDER: tuple[str, ...] = (
-    "edition_cause",
-    "edition_outcome",
-    "edition_call",
-    "edition_entry",
-    "edition_event",
-    "edition",
-    "call_annotation",
+# V1's history: KEPT by the cutover, every row (operator decision 2026-11-19, "keep the history"). EXACTLY the
+# ``HISTORY_KEPT`` entries of ``v2_cutover.CUTOVER_ACTION``. The cutover never deletes from them: it dumps them as
+# the V1 history archive (K2), counts them into the baseline and checks the counts inside its transaction.
+HISTORY_TABLES: tuple[str, ...] = (
     "calls",
+    "call_annotation",
+    "edition",
+    "edition_event",
+    "edition_entry",
+    "edition_call",
+    "edition_outcome",
+    "edition_cause",
 )
 # migration 0206's two NOT VALID constraints, validated in the transaction
 VALIDATED_CONSTRAINTS: dict[str, str] = {
@@ -327,10 +339,11 @@ def _scalar(cur: Any, query: Any, params: Sequence[Any] = ()) -> Any:
     return None if row is None else next(iter(row.values()))
 
 
-def _reset_counts(cur: Any) -> dict[str, int]:
+def _history_counts(cur: Any) -> dict[str, int]:
+    """The rows of each of V1's history tables (kept; counted, never deleted)."""
     return {
         t: int(_scalar(cur, sql.SQL("SELECT count(*) AS n FROM {}").format(sql.Identifier(t))))
-        for t in RESET_ORDER
+        for t in HISTORY_TABLES
     }
 
 
@@ -341,22 +354,6 @@ def _orphans(cur: Any) -> list[dict[str, Any]]:
         (scopes.DATA_TENANT_ID,),
     )
     return [dict(r) for r in cur.fetchall()]
-
-
-def _references_into(cur: Any) -> list[tuple[str, str, str]]:
-    """Every foreign key INTO a reset table (schema ``public``): ``(from table, to table, on-delete action)``. A
-    referencing table outside ``public`` is named ``schema.table``, so it can never pass for a reset table.
-    """
-    cur.execute(
-        "SELECT CASE WHEN fn.nspname = 'public' THEN fc.relname ELSE fn.nspname || '.' || fc.relname END AS f, "
-        "tc.relname AS t, con.confdeltype AS d "
-        "FROM pg_constraint con "
-        "JOIN pg_class tc ON tc.oid = con.confrelid JOIN pg_namespace tn ON tn.oid = tc.relnamespace "
-        "JOIN pg_class fc ON fc.oid = con.conrelid JOIN pg_namespace fn ON fn.oid = fc.relnamespace "
-        "WHERE con.contype = 'f' AND tn.nspname = 'public' AND tc.relname = ANY(%s) ORDER BY 1, 2",
-        (list(RESET_ORDER),),
-    )
-    return [(r["f"], r["t"], str(r["d"])) for r in cur.fetchall()]
 
 
 def _unapplied_migrations(cur: Any) -> list[str]:
@@ -387,18 +384,17 @@ def _newest_data_time(cur: Any) -> datetime | None:
 def plan_document(
     database: str,
     move: v2_move.MovePlan,
-    resets: dict[str, int],
     orphan_rows: int,
     orphan_action: str,
 ) -> dict[str, Any]:
-    """The planned counts, as plain JSON: what ``--plan-out`` writes and ``--expect-plan`` compares."""
+    """The planned counts, as plain JSON: what ``--plan-out`` writes and ``--expect-plan`` compares. V1's history is
+    kept, so the plan names no history table."""
     return {
         "database": database,
         "moves": {
             p.table: {"rows": p.to_move, "by_ratified": dict(sorted(p.by_ratified.items()))}
             for p in move.legs
         },
-        "resets": {t: int(resets[t]) for t in RESET_ORDER},
         "orphan_purity": {"rows": int(orphan_rows), "action": orphan_action},
     }
 
@@ -410,6 +406,7 @@ def plan_differences(expected: dict[str, Any], found: dict[str, Any]) -> list[st
         out.append(
             f"database: expected {expected.get('database')!r}, found {found.get('database')!r}"
         )
+    # "resets": only a plan file written before V1's history was kept has it, so such a file differs and refuses
     for section in ("moves", "resets"):
         a, b = expected.get(section) or {}, found.get(section) or {}
         for table in sorted(set(a) | set(b)):
@@ -459,6 +456,8 @@ def _baseline(cur: Any, plan_json: dict[str, Any]) -> dict[str, Any]:
         ids[key] = sorted(str(r["security_id"]) for r in cur.fetchall())
     cur.execute("SELECT id, role, workspace_id, disabled_at FROM app_user ORDER BY id")
     users = [dict(r) for r in cur.fetchall()]
+    cur.execute("SELECT id, tenant_id, number, created_at FROM edition ORDER BY tenant_id, number")
+    editions = [dict(r) for r in cur.fetchall()]
     return {
         "theses": theses,
         "basket_members": members,
@@ -467,8 +466,23 @@ def _baseline(cur: Any, plan_json: dict[str, Any]) -> dict[str, Any]:
         **ids,
         "moved_tables_by_tenant": by_tenant,
         "app_users": users,
+        "history": _history_counts(cur),
+        "editions": editions,
         "plan_json": plan_json,
     }
+
+
+def journal_summary(*, moved: int, deleted: int) -> str:
+    """The journal row's one-line summary. PURE. The automatic edition cut quotes it in Edition 2's label
+    ("rule change: ... · data repair: <this> · includes data ..."), so it says what the cutover did, briefly.
+    """
+    out = (
+        f"V2 cutover: moved {moved} share-count, cash/burn and purity row(s) to their V2 tenants; "
+        "V1 history kept"
+    )
+    if deleted:
+        out += f"; deleted {deleted} unratified orphan purity row(s)"
+    return out
 
 
 def _jsonable(x: Any) -> Any:
@@ -490,7 +504,7 @@ class Preflight:
 
 
 def preflight(conn: Any, opts: Options, name: str) -> Preflight:
-    """P1, P2, P5-P11 (P3 and P4 run before it). Reads only, in the caller's transaction."""
+    """P1, P2, P5-P10 (P3 and P4 run before it). Reads only, in the caller's transaction."""
     lines: list[str] = []
     refusals: list[str] = []
 
@@ -584,33 +598,22 @@ def preflight(conn: Any, opts: Options, name: str) -> Preflight:
             f"count: P9 kept: operator_decision {decisions}, theses with position fields {positions}, "
             f"fact_theme_conviction {conviction}, fact_thesis_catalyst {entries}"
         )
-        resets = _reset_counts(cur)
+        history = _history_counts(cur)
+        lines.append(
+            "count: P9 V1 history kept: " + ", ".join(f"{t} {n}" for t, n in history.items())
+        )
         orphans = _orphans(cur)
-        outside = [r for r in _references_into(cur) if r[0] not in RESET_ORDER]
-        if outside:
-            refuse(
-                "P11 foreign key(s) into the reset tables from other tables (a delete could reach rows the "
-                "plan does not list): "
-                + ", ".join(f"{f} -> {t} (on delete {d})" for f, t, d in outside)
-            )
-        else:
-            ok("P11 only the reset tables reference the reset tables")
         cut_at = _journal_marker(cur)
-    doc = plan_document(name, move, resets, len(orphans), opts.orphan_purity)
+    doc = plan_document(name, move, len(orphans), opts.orphan_purity)
     already = None
     if cut_at is not None:
-        history = sum(resets.values())
+        # V1's history and V2's nights are both kept: only a row still to move (or to delete) matters here
         pending = move.total + (len(orphans) if opts.orphan_purity == "delete" else 0)
         when = cut_at.astimezone(timezone.utc).date().isoformat()
-        if resets["calls"]:
+        if pending:
             refuse(
-                f"P10 already cut over on {when}, and calls holds {resets['calls']} row(s): a second reset "
-                "would delete V2 nights"
-            )
-        elif history or pending:
-            refuse(
-                f"P10 already cut over on {when}, but {history} history row(s) and {pending} row(s) to move "
-                "or delete are present: a second cutover is refused (investigate by hand)"
+                f"P10 already cut over on {when}, but {pending} row(s) to move or delete are present: a second "
+                "cutover is refused (investigate by hand)"
             )
         else:
             already = cut_at
@@ -625,8 +628,6 @@ def _plan_lines(doc: dict[str, Any]) -> list[str]:
     for table, m in doc["moves"].items():
         by = ", ".join(f"{k} {n}" for k, n in m["by_ratified"].items()) or "none"
         out.append(f"plan: move {table} {m['rows']} row(s) ({by})")
-    for table, n in doc["resets"].items():
-        out.append(f"plan: reset {table} {n} row(s)")
     o = doc["orphan_purity"]
     out.append(f"plan: orphan purity {o['rows']} row(s) ({o['action']})")
     return out
@@ -643,12 +644,6 @@ def _window_now(now: datetime) -> tuple[datetime, datetime] | None:
         before_min=s.onboard_window_before_min,
         after_min=s.onboard_window_after_min,
     )
-
-
-def _delete_all(cur: Any, table: str) -> int:
-    """``DELETE FROM`` one reset table (never TRUNCATE, never CASCADE); the deleted row count."""
-    cur.execute(sql.SQL("DELETE FROM {}").format(sql.Identifier(table)))
-    return int(cur.rowcount)
 
 
 def _result(code: int, text: str) -> int:
@@ -823,7 +818,8 @@ def _backup_step(
                 database_url=url,
                 base_dir=backups_dir,
                 dump_runner=dump_runner,
-                tables=[f"public.{t}" for t in RESET_ORDER],
+                # never empty: an empty table list dumps the whole database (pinned by a test)
+                tables=[f"public.{t}" for t in HISTORY_TABLES],
             )
         except Exception as exc:  # noqa: BLE001
             print(
@@ -865,9 +861,8 @@ def _apply(
     try:
         with conn.cursor() as cur:
             move = v2_move.plan_move(conn)
-            resets = _reset_counts(cur)
             orphans = _orphans(cur)
-            doc = plan_document(name, move, resets, len(orphans), opts.orphan_purity)
+            doc = plan_document(name, move, len(orphans), opts.orphan_purity)
             diffs = plan_differences(pf.doc, doc) + move.refusals()
             if diffs:
                 raise v2_move.MoveRefused(
@@ -887,16 +882,11 @@ def _apply(
                         f"fact_revenue_mix: deleted {deleted} orphan row(s) but the plan said {len(orphans)}"
                     )
                 touched |= {o["security_id"] for o in orphans}
-            reset: dict[str, int] = {}
-            for table in RESET_ORDER:
-                reset[table] = _delete_all(cur, table)
-                if reset[table] != resets[table]:
-                    raise v2_move.MoveRefused(
-                        f"{table}: deleted {reset[table]} row(s) but the plan said {resets[table]}"
-                    )
-            left = {t: n for t, n in _reset_counts(cur).items() if n}
-            if left:
-                raise v2_move.MoveRefused(f"rows left after the reset: {left}")
+            kept = _history_counts(cur)
+            if kept != base["history"]:
+                raise v2_move.MoveRefused(
+                    f"V1's history changed inside the transaction: {base['history']} -> {kept}"
+                )
         stamped = mark_changed(conn, touched)
         with conn.cursor() as cur:
             for table, constraint in VALIDATED_CONSTRAINTS.items():
@@ -908,7 +898,7 @@ def _apply(
             counts = {
                 "moved": moved,
                 "by_ratified": {t: m["by_ratified"] for t, m in doc["moves"].items()},
-                "reset": reset,
+                "history_kept": kept,
                 "orphan_purity": {
                     "rows": len(orphans),
                     "action": opts.orphan_purity,
@@ -919,18 +909,18 @@ def _apply(
                 "backup": full,
                 "archive": archive,
             }
-            total = sum(moved.values()) + sum(reset.values()) + deleted
+            # a NON-deleting repair unless an orphan purity row was deleted: the automatic edition cut then keeps
+            # V2's rule change separated from it (Edition 2 labeled "rule change: ..." first; K7)
             cur.execute(
                 "INSERT INTO data_repair (tenant_id, tool, action, summary, counts, rows_changed, deletes, "
-                "provenance) VALUES (%s, %s, 'apply', %s, %s, %s, true, %s) RETURNING id",
+                "provenance) VALUES (%s, %s, 'apply', %s, %s, %s, %s, %s) RETURNING id",
                 (
                     DEFAULT_TENANT_ID,
                     TOOL,
-                    f"V2 cutover: moved {sum(moved.values())} platform-fact row(s); reset "
-                    f"{sum(reset.values())} V1 history row(s) ({reset['calls']} calls); orphan purity "
-                    f"{opts.orphan_purity} ({deleted} deleted); backup {full}",
+                    journal_summary(moved=sum(moved.values()), deleted=deleted),
                     Json(_jsonable(counts)),
-                    total,
+                    sum(moved.values()) + deleted,
+                    deleted > 0,
                     str(final),
                 ),
             )
@@ -978,8 +968,7 @@ def _apply(
         )
     for table, n in moved.items():
         print(f"moved: {table} {n}")
-    for table, n in reset.items():
-        print(f"reset: {table} {n}")
+    print(f"kept: V1 history {sum(kept.values())} row(s) ({kept['calls']} calls)")
     print(f"orphan purity: {len(orphans)} row(s), {opts.orphan_purity} ({deleted} deleted)")
     print(f"validated: {len(VALIDATED_CONSTRAINTS)} constraints")
     print(f"companies stamped changed: {stamped}")

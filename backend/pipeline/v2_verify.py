@@ -33,18 +33,26 @@ finished ``v2_cutover`` record (``committed_at``, a baseline) and name this data
   V5 children (per thesis, the nine child tables) and V5 decisions (``operator_decision``) equal the baseline;
   V6 platform facts: no share-count or cash/burn row outside the data tenant, the data tenant's counts equal the
   baseline's data + founding counts, every company that had a share count (a cash/burn row) still has one in the
-  data tenant; V7 purity: no ratified purity row on the data tenant, founding purity = baseline + moved; V8 the
-  eight history tables empty; V9 exactly one ``v2_cutover`` journal row, the provenance's, with its counts;
-  V10 ``--health-url`` answers 200 (a note when not given).
+  data tenant; V7 purity: no ratified purity row on the data tenant, founding purity = baseline + moved; V8 V1's
+  history KEPT (operator decision 2026-11-19): before the V2 cron starts (reset, backfill) each of the eight history
+  tables holds exactly the baseline's rows; from the nightly stage on, the ``calls`` rows recorded at or before the
+  cutover's journal row equal the baseline's, no other history table has fewer rows, and every baseline edition is
+  still there; V9 exactly one ``v2_cutover`` journal row, the provenance's, with its counts; V10 ``--health-url``
+  answers 200 (a note when not given).
 - backfill: + B1 every non-ETF company on a live card has a ``backfill`` extraction attempt; B2 decision B4
   unlocked (a ``done`` backfill attempt); B3 the share of those companies with a share count (and with a cash/burn
   row) is at or above the baseline's; ``note:`` attempts by status and failures by reason.
-- nightly: + for ``--night`` (default the newest ``calls.asof``) N1 the night has call rows ("not yet" otherwise);
-  N2 a row for every live thesis created by then; N3 no reconstructed row; N4 the night's rows are ``run_kind``
-  cron (any with ``--run-kind any``); N5 no ``calls.asof`` before the cutover's journal date (market time);
-  N6 no call row under the data tenant; ``note:`` the share of the night's rows with ``ingest_fresh=false``.
-- edition: + E1 exactly one edition, number 1, per workspace with a live card ("not yet" when none); E2 an
-  ``edition_entry`` row for every live thesis of that workspace; E3 no edition for a workspace with no live card.
+- nightly: the N checks read V2's rows only, the ``calls`` rows RECORDED AFTER the cutover's journal row (V1's
+  rows are history, kept and checked by V8). + for ``--night`` (default the newest such ``calls.asof``) N1 the
+  night has V2 call rows ("not yet" otherwise: V1's last night never passes for the first V2 night); N2 a row for
+  every live thesis created by then; N3 no reconstructed V2 row; N4 the night's rows are ``run_kind`` cron (any
+  with ``--run-kind any``); N5 no V2 row dated before the cutover's journal date (market time); N6 no call row
+  under the data tenant; ``note:`` the share of the night's rows with ``ingest_fresh=false``.
+- edition: + E1 for each workspace whose baseline held an edition, the NEXT one (the automatic cut's Edition N+1
+  after the kept Edition N): its parent the kept edition, its label a rule change (``rule change:``), the kept
+  edition closed ("not yet" before the cut); E2 an ``edition_entry`` row for every live thesis of a workspace in
+  its newest edition, once that edition is new since the cutover; E3 no edition made since the cutover for a
+  workspace with no live card (a kept V1 edition is history, never a stray).
 
 From the ``nightly`` stage on (after the V2 cron starts, step 10, users edit their cards again), the checks that
 compare user-editable state for EQUALITY (users, archived state, new theses, child and decision counts, founding
@@ -104,6 +112,8 @@ _BASELINE_KEYS = (
     "cash_security_ids",
     "moved_tables_by_tenant",
     "app_users",
+    "history",
+    "editions",
 )
 _PLATFORM = (("fact_shares_outstanding", "share count"), ("fact_cash_burn", "cash/burn"))
 
@@ -132,6 +142,9 @@ class Ctx:
     health_get: Callable[[str], int]
     notes: list[str] = field(default_factory=list)
     fatal: bool = False
+    cut_at: datetime | None = (
+        None  # the cutover's journal row (``applied_at``): V1's rows were recorded by then
+    )
     cut_date: date | None = None
     night: date | None = None
     details: dict[str, list[str]] = field(default_factory=dict)
@@ -527,31 +540,69 @@ def check_purity(ctx: Ctx) -> Result:
     return True, f"no ratified purity on the data tenant; founding purity {founding}"
 
 
-def _history_tables(stage: str) -> tuple[str, ...]:
-    """The reset tables that must still be EMPTY at ``stage``: all eight until the first V2 night; then the
-    nightly's ``calls`` are checked by N1-N6, and from Edition 1 on the editions store by E1-E3."""
-    if stage in ("reset", "backfill"):
-        return reset.RESET_ORDER
-    if stage == "nightly":
-        return tuple(t for t in reset.RESET_ORDER if t != "calls")
-    return ("call_annotation",)
-
-
 def check_history(ctx: Ctx) -> Result:
-    """V8: the history tables the stage expects empty are empty."""
-    tables = _history_tables(ctx.opts.stage)
-    left = {
-        t: n
-        for t in tables
-        if (
-            n := int(
-                _scalar(ctx.cur, sql.SQL("SELECT count(*) AS n FROM {}").format(sql.Identifier(t)))
-            )
-        )
+    """V8: V1's history is KEPT (operator decision 2026-11-19). Before the V2 cron starts each history table holds
+    exactly the baseline's rows; after it, the nightly and the editions job append, so the ``calls`` rows recorded
+    at or before the cutover equal the baseline's and no other history table has fewer rows. Every baseline
+    edition is still there, at every stage."""
+    base = {t: int(n) for t, n in ctx.base["history"].items()}
+    now = {
+        t: int(_scalar(ctx.cur, sql.SQL("SELECT count(*) AS n FROM {}").format(sql.Identifier(t))))
+        for t in reset.HISTORY_TABLES
     }
-    if left:
-        return False, "not empty: " + ", ".join(f"{t} {n}" for t, n in left.items())
-    return True, f"empty: {', '.join(tables)}"
+    problems: list[str] = []
+    if ctx.frozen:
+        diffs = [f"{t} {base.get(t, 0)} -> {now[t]}" for t in now if now[t] != base.get(t, 0)]
+        if diffs:
+            problems.append(
+                "history rows differ from the baseline (nothing writes them until the V2 cron starts): "
+                + ", ".join(diffs)
+            )
+    else:
+        if ctx.cut_at is None:
+            problems.append("no cutover journal row to date the cutover")
+        else:
+            v1 = int(
+                _scalar(
+                    ctx.cur,
+                    "SELECT count(*) AS n FROM calls WHERE recorded_at <= %s",
+                    (ctx.cut_at,),
+                )
+            )
+            if v1 != base.get("calls", 0):
+                problems.append(
+                    f"calls recorded before the cutover {v1}, the baseline had {base.get('calls', 0)}"
+                )
+        fewer = [
+            f"{t} {base.get(t, 0)} -> {now[t]}"
+            for t in now
+            if t != "calls" and now[t] < base.get(t, 0)
+        ]
+        if fewer:
+            problems.append("history rows lost: " + ", ".join(fewer))
+        grown = [f"{t} {base.get(t, 0)} -> {now[t]}" for t in now if now[t] > base.get(t, 0)]
+        if grown:
+            ctx.note(f"V8 history appended since the cutover: {', '.join(grown)}")
+    ids = {str(r["id"]) for r in _rows(ctx.cur, "SELECT id FROM edition")}
+    gone = [
+        f"{e['id']} (workspace {e['tenant_id']}, Edition {e['number']})"
+        for e in ctx.base["editions"]
+        if str(e["id"]) not in ids
+    ]
+    if gone:
+        problems.append(f"{_plural(len(gone), 'baseline edition')} gone: {_named(gone)}")
+    ctx.details["V8 history"] = problems
+    if problems:
+        return False, "; ".join(problems)
+    if ctx.frozen:
+        return (
+            True,
+            "V1's history kept: " + ", ".join(f"{t} {now[t]}" for t in now) + " (the baseline's)",
+        )
+    return True, (
+        f"V1's history kept: calls recorded before the cutover {base.get('calls', 0)} (the baseline's), "
+        f"no history table below the baseline, {_plural(len(ctx.base['editions']), 'baseline edition')} present"
+    )
 
 
 def check_journal(ctx: Ctx) -> Result:
@@ -706,27 +757,41 @@ def check_coverage(ctx: Ctx) -> Result:
 
 
 def _night_rows(ctx: Ctx) -> list[dict[str, Any]]:
+    """The night's V2 rows: recorded after the cutover (V1's rows for the same night are history)."""
     return _rows(
         ctx.cur,
-        "SELECT thesis_id, tenant_id, run_kind, reconstructed, ingest_fresh FROM calls WHERE asof = %s",
-        (ctx.night,),
+        "SELECT thesis_id, tenant_id, run_kind, reconstructed, ingest_fresh FROM calls "
+        "WHERE asof = %s AND recorded_at > %s",
+        (ctx.night, ctx.cut_at),
     )
 
 
 def check_night(ctx: Ctx) -> Result:
-    """N1: the night verified has call rows (the newest ``calls.asof`` by default); "not yet" otherwise."""
+    """N1: the night verified has V2 call rows (by default the newest ``calls.asof`` recorded after the cutover);
+    "not yet" otherwise. V1's rows are kept, so V1's last night must never pass for the first V2 night.
+    """
+    if ctx.cut_at is None:
+        return False, "no cutover journal row to date the cutover"
     if ctx.opts.night is not None:
-        ctx.night = date.fromisoformat(str(ctx.opts.night))
+        night = date.fromisoformat(str(ctx.opts.night))
+        ctx.night = night
         n = len(_night_rows(ctx))
         if not n:
+            ctx.night = None  # nothing for N2-N6 to read
             return (
                 False,
-                f"no call row for night {ctx.night}: the night has not been recorded (not yet?)",
+                f"no V2 call row for night {night} (recorded after the cutover): the night has not been "
+                "recorded (not yet?)",
             )
     else:
-        ctx.night = _scalar(ctx.cur, "SELECT max(asof) AS d FROM calls")
+        ctx.night = _scalar(
+            ctx.cur, "SELECT max(asof) AS d FROM calls WHERE recorded_at > %s", (ctx.cut_at,)
+        )
         if ctx.night is None:
-            return False, "no nightly call recorded yet: not yet (the first V2 night writes them)"
+            return False, (
+                "no V2 nightly call recorded yet: not yet (the first V2 night writes them; V1's kept rows "
+                "do not count)"
+            )
         n = len(_night_rows(ctx))
     stale = sum(1 for r in _night_rows(ctx) if r["ingest_fresh"] is False)
     ctx.note(f"N ingest: {stale} of {n} call row(s) for night {ctx.night} have ingest_fresh=false")
@@ -756,13 +821,19 @@ def check_one_per_thesis(ctx: Ctx) -> Result:
 
 
 def check_reconstructed(ctx: Ctx) -> Result:
-    """N3: no V2 call row is reconstructed."""
+    """N3: no V2 call row (recorded after the cutover) is reconstructed; V1's kept rows are history."""
     if ctx.night is None:
         return None
-    n = int(_scalar(ctx.cur, "SELECT count(*) AS n FROM calls WHERE reconstructed"))
+    n = int(
+        _scalar(
+            ctx.cur,
+            "SELECT count(*) AS n FROM calls WHERE reconstructed AND recorded_at > %s",
+            (ctx.cut_at,),
+        )
+    )
     if n:
-        return False, f"{_plural(n, 'reconstructed call row')}"
-    return True, "no reconstructed call row"
+        return False, f"{_plural(n, 'reconstructed V2 call row')} (recorded after the cutover)"
+    return True, "no reconstructed V2 call row"
 
 
 def check_run_kind(ctx: Ctx) -> Result:
@@ -781,15 +852,24 @@ def check_run_kind(ctx: Ctx) -> Result:
 
 
 def check_after_cutover(ctx: Ctx) -> Result:
-    """N5: no call row is dated before the cutover's journal date (market time)."""
+    """N5: no V2 call row (recorded after the cutover) is dated before the cutover's journal date (market time).
+    V1's kept rows are dated before it by nature; V8 proves they are unchanged."""
     if ctx.night is None:
         return None
     if ctx.cut_date is None:
         return False, "no cutover journal row to date the cutover"
-    n = int(_scalar(ctx.cur, "SELECT count(*) AS n FROM calls WHERE asof < %s", (ctx.cut_date,)))
+    n = int(
+        _scalar(
+            ctx.cur,
+            "SELECT count(*) AS n FROM calls WHERE recorded_at > %s AND asof < %s",
+            (ctx.cut_at, ctx.cut_date),
+        )
+    )
     if n:
-        return False, f"{_plural(n, 'call row')} dated before the cutover ({ctx.cut_date})"
-    return True, f"every call row dated on or after the cutover ({ctx.cut_date})"
+        return False, (
+            f"{_plural(n, 'call row')} recorded after the cutover but dated before it ({ctx.cut_date})"
+        )
+    return True, f"every V2 call row dated on or after the cutover ({ctx.cut_date})"
 
 
 def check_calls_tenant(ctx: Ctx) -> Result:
@@ -812,10 +892,30 @@ def check_calls_tenant(ctx: Ctx) -> Result:
 
 
 def _editions(ctx: Ctx) -> dict[str, list[dict[str, Any]]]:
+    """Every edition by tenant, oldest first, with whether it is closed (a ``closed`` event)."""
     out: dict[str, list[dict[str, Any]]] = {}
-    for r in _rows(ctx.cur, "SELECT id, tenant_id, number FROM edition ORDER BY tenant_id, number"):
+    for r in _rows(
+        ctx.cur,
+        "SELECT e.id, e.tenant_id, e.number, e.parent_id, e.label, EXISTS (SELECT 1 FROM edition_event v "
+        "WHERE v.edition_id = e.id AND v.kind = 'closed') AS closed "
+        "FROM edition e ORDER BY e.tenant_id, e.number",
+    ):
         out.setdefault(str(r["tenant_id"]), []).append(r)
     return out
+
+
+def _kept_newest(ctx: Ctx) -> dict[str, dict[str, Any]]:
+    """Each workspace's newest edition in the baseline (the kept V1 edition the cut builds on)."""
+    out: dict[str, dict[str, Any]] = {}
+    for e in ctx.base["editions"]:
+        ws = str(e["tenant_id"])
+        if ws not in out or int(e["number"]) > int(out[ws]["number"]):
+            out[ws] = e
+    return out
+
+
+def _baseline_edition_ids(ctx: Ctx) -> set[str]:
+    return {str(e["id"]) for e in ctx.base["editions"]}
 
 
 def _live_by_workspace(ctx: Ctx) -> dict[str, list[dict[str, Any]]]:
@@ -826,40 +926,64 @@ def _live_by_workspace(ctx: Ctx) -> dict[str, list[dict[str, Any]]]:
 
 
 def check_edition(ctx: Ctx) -> Result:
-    """E1: exactly one edition, number 1, per workspace with a live card."""
-    eds, live = _editions(ctx), _live_by_workspace(ctx)
-    if not live:
-        return True, "no workspace has a live card"
-    problems = []
-    for ws in sorted(live):
-        mine = eds.get(ws, [])
-        if not mine:
+    """E1: after each kept edition, the NEXT one. For every workspace whose baseline held an edition (newest N):
+    Edition N+1 exists, its parent is the kept Edition N, its label is a rule change (``rule change:``), and
+    Edition N is closed. "not yet" before the cut (``editions.run cut``, by hand on cutover day)."""
+    eds, kept, live = _editions(ctx), _kept_newest(ctx), _live_by_workspace(ctx)
+    for ws in sorted(set(live) - set(kept)):
+        ctx.note(
+            f"E1 workspace {ws} has a live card and held no edition before the cutover: nothing to cut after"
+        )
+    if not kept:
+        return True, "no workspace held an edition before the cutover: nothing to cut after"
+    problems, done = [], []
+    for ws, k in sorted(kept.items()):
+        n = int(k["number"])
+        mine = {int(e["number"]): e for e in eds.get(ws, [])}
+        new = mine.get(n + 1)
+        if new is None:
             problems.append(
-                f"workspace {ws} has no edition yet: Edition 1 is not published yet (not yet)"
+                f"workspace {ws} has no Edition {n + 1} after the kept Edition {n} yet: cut it "
+                "(editions.run cut) (not yet)"
             )
-        elif len(mine) > 1:
-            problems.append(f"workspace {ws} has {len(mine)} editions, expected one")
-        elif mine[0]["number"] != 1:
-            problems.append(f"workspace {ws}'s edition is number {mine[0]['number']}, expected 1")
+            continue
+        bad = []
+        if str(new["parent_id"]) != str(k["id"]):
+            bad.append(f"its parent is {new['parent_id']}, not the kept Edition {n} ({k['id']})")
+        if "rule change:" not in new["label"]:
+            bad.append(f"its label {new['label']!r} names no rule change ('rule change:')")
+        prev = mine.get(n)
+        if prev is None or str(prev["id"]) != str(k["id"]):
+            bad.append(f"the kept Edition {n} ({k['id']}) is gone")
+        elif not prev["closed"]:
+            bad.append(f"the kept Edition {n} is not closed")
+        if bad:
+            problems.append(f"workspace {ws}'s Edition {n + 1}: " + "; ".join(bad))
+        else:
+            done.append(f"Edition {n + 1} after the kept Edition {n} in workspace {ws}")
+        later = sorted(m for m in mine if m > n + 1)
+        if later:
+            ctx.note(f"E1 workspace {ws} has later editions too: {', '.join(map(str, later))}")
     if problems:
         return False, "; ".join(problems)
-    return True, f"Edition 1 in each of {_plural(len(live), 'workspace')} with a live card"
+    return True, "; ".join(done)
 
 
 def check_entries(ctx: Ctx) -> Result:
-    """E2: the edition has entry rows for every live thesis of its workspace."""
-    eds, live = _editions(ctx), _live_by_workspace(ctx)
+    """E2: a workspace's newest edition, once it is new since the cutover, has entry rows for every live thesis
+    of the workspace (a kept edition is history: E1 names a cut not made yet)."""
+    eds, live, kept = _editions(ctx), _live_by_workspace(ctx), _baseline_edition_ids(ctx)
     missing, checked = [], 0
     for ws, theses in sorted(live.items()):
         mine = eds.get(ws, [])
-        if len(mine) != 1:
-            continue  # E1 names it
+        if not mine or str(mine[-1]["id"]) in kept:
+            continue  # no edition, or no new one yet (E1 names it)
         have = {
             str(r["thesis_id"])
             for r in _rows(
                 ctx.cur,
                 "SELECT DISTINCT thesis_id FROM edition_entry WHERE edition_id = %s",
-                (mine[0]["id"],),
+                (mine[-1]["id"],),
             )
         }
         checked += len(theses)
@@ -873,14 +997,21 @@ def check_entries(ctx: Ctx) -> Result:
 
 
 def check_no_card_no_edition(ctx: Ctx) -> Result:
-    """E3: no edition for a workspace (or the data tenant) with no live card."""
-    eds, live = _editions(ctx), _live_by_workspace(ctx)
-    stray = {ws: len(rows) for ws, rows in eds.items() if ws not in live}
+    """E3: no edition made since the cutover for a workspace (or the data tenant) with no live card. A kept V1
+    edition is history, never a stray."""
+    eds, live, kept = _editions(ctx), _live_by_workspace(ctx), _baseline_edition_ids(ctx)
+    stray = {
+        ws: n
+        for ws, rows in eds.items()
+        if ws not in live and (n := sum(1 for r in rows if str(r["id"]) not in kept))
+    }
     if stray:
-        return False, "edition(s) for a tenant with no live card: " + ", ".join(
-            f"{ws} ({n})" for ws, n in sorted(stray.items())
+        return (
+            False,
+            "edition(s) made since the cutover for a tenant with no live card: "
+            + ", ".join(f"{ws} ({n})" for ws, n in sorted(stray.items())),
         )
-    return True, "no edition for a workspace with no live card"
+    return True, "no edition made since the cutover for a workspace with no live card"
 
 
 # --- the stages -----------------------------------------------------------------------------------------------
@@ -970,6 +1101,16 @@ def load_provenance(path: Path | str | None, name: str) -> tuple[dict[str, Any] 
         return None, f"the provenance file {p.name} cannot be read ({exc.__class__.__name__})"
     base = doc.get("baseline") if isinstance(doc, dict) else None
     if (
+        isinstance(doc, dict)
+        and doc.get("tool") == reset.TOOL
+        and isinstance(base, dict)
+        and "history" not in base
+    ):
+        return None, (
+            f"{p.name} was written by the cutover that reset V1's history; this verify checks the cutover "
+            "that keeps it (its baseline counts the history)"
+        )
+    if (
         not isinstance(doc, dict)
         or doc.get("tool") != reset.TOOL
         or not doc.get("committed_at")
@@ -1015,13 +1156,13 @@ def _result(code: int, text: str) -> int:
     return code
 
 
-def _cut_date(cur: Any, journal_id: Any) -> date | None:
-    at = _scalar(
+def _cut_at(cur: Any, journal_id: Any) -> datetime | None:
+    """When the cutover was journaled (the provenance's ``data_repair`` row), or ``None``."""
+    return _scalar(
         cur,
         "SELECT applied_at AS at FROM data_repair WHERE tool = %s AND id::text = %s",
         (reset.TOOL, str(journal_id)),
     )
-    return None if at is None else at.astimezone(market_time.market_tz()).date()
 
 
 def run(opts: Options, *, health_get: Callable[[str], int] | None = None) -> int:
@@ -1050,7 +1191,12 @@ def run(opts: Options, *, health_get: Callable[[str], int] | None = None) -> int
                 opts=opts,
                 health_get=health_get or _http_status,
             )
-            ctx.cut_date = _cut_date(cur, prov.get("journal_id"))
+            ctx.cut_at = _cut_at(cur, prov.get("journal_id"))
+            ctx.cut_date = (
+                None
+                if ctx.cut_at is None
+                else ctx.cut_at.astimezone(market_time.market_tz()).date()
+            )
             print(f"note: provenance {Path(str(opts.provenance)).name}, cut over on {ctx.cut_date}")
             report = []
             for check_id, fn in checks_for(opts.stage):
