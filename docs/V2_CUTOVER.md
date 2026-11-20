@@ -18,7 +18,7 @@ in Git Bash, not from a worktree and not from PowerShell. Where a value is not i
 4. Run the first extraction backfill.
 5. Start the cron.
 6. Cut Edition 2 by hand (`python -m editions.run cut`), before the first V2 night. This is how V2's rule
-   changes reach the Scoreboard.
+   changes reach the Scoreboard. Then, only if you chose it (O1), turn the editions nightly job on (step 11b).
 7. Verify, after the first V2 night.
 
 **What is kept: V1's history.** The operator decided on 2026-11-19 to keep V1's record. The cutover deletes
@@ -93,14 +93,25 @@ kept here for the record. Row O1 is open.
 | K5 | Edition 0 now scores V1's annotated phantom arms (V2 removed the set-aside) | (a) accept: Edition 0 is what the system said, and the Scoreboard defaults to Edition 2; (b) restore a V1-only set-aside (code; not built) | none | (a) | (a) | Decided 2026-11-19: (a) accept |
 | K6 | The `--confirm "reset NAME"` phrase | (a) keep it; (b) rename it | the guard in `v2_reset.py` | (a): the phrase is unchanged though nothing is reset | (a) | Decided 2026-11-19: (a) keep |
 | K7 | The orphan purity row under keep-history | `leave` or `delete` | `--orphan-purity` on `run` | `leave`. `delete` makes the journal row a deleting repair | `leave` | Decided 2026-11-19: `leave` |
-| O1 | OPEN: the editions nightly job on production. It is off: production's cron log says `EDITIONS_NIGHTLY=0`. The compose default, `ALPHADECK_EDITIONS_NIGHTLY`, is 1. Decide before go-live | (a) turn it on; (b) leave it off | `ALPHADECK_EDITIONS_NIGHTLY` in production's `.env`, read when the cron starts (`docs/FEED_LOOP.md` calls it an env-only cron deploy) | leave it as it is (off) | none: the operator has not decided. A separate read-only review of the cron's first start is under way | OPEN |
+| O1 | OPEN: the editions nightly job on production. It is off: production's cron log says `EDITIONS_NIGHTLY=0`. The compose default, `ALPHADECK_EDITIONS_NIGHTLY`, is 1. Decide before go-live | (a) turn it on; (b) leave it off | `ALPHADECK_EDITIONS_NIGHTLY` in production's `.env`, read when the cron starts (`docs/FEED_LOOP.md` calls it an env-only cron deploy) | leave it as it is (off) | none: the operator has not decided. The read-only review of the cron's first start (`docs/temp/v2-cron-first-start-review-2026-11-20.md` in the main checkout) found no technical reason for it being off, and suggests turning it on only after Edition 2 is cut and verified (step 11b). Keep it at 0 until then (Part 3) | OPEN |
 
-**What O1 means.** The editions nightly job is also what runs the automatic cut, so while it is off, nothing cuts
-an edition except you, by hand. After the hand cut in step 11, Edition 2 ends at the newest night on record then
-(V1's last night, because step 11 comes before the first V2 night). With the job off, no later night is added to
-Edition 2. Production's Edition 1 holds only 10 theses (669 re-run pages) and was paged once (2026-10-24), which
-fits a job that has been off. If you turn it on, still cut Edition 2 by hand before the first night (K4): if the
-job cut it that night and the cut failed, that night's V2 pages would go onto Edition 1.
+**What O1 means.** `ALPHADECK_EDITIONS_NIGHTLY=0` turns off the whole `editions.run nightly` call in the cron
+(`backend/scripts/daily_cron.sh`): tonight's page, catch-up pages, a new card's join row, the ink, the self-check
+**and the automatic cut**. So while it is off, nothing cuts an edition except you, by hand. After the hand cut in
+step 11, Edition 2 ends at the newest night on record then (V1's last night, because step 11 comes before the first
+V2 night). With the job off, no later night is added to Edition 2, the Scoreboard's default view stops at the
+cutover while Edition 0 keeps growing, and a card made after the cut never joins Edition 2 (Part 9).
+Production's Edition 1 holds only 10 theses (669 re-run pages) and was paged once (2026-10-24), which fits a job
+that has been off.
+
+The review found no bug note, performance note or rule-log entry that explains why it is off. The only stated
+reason it found is "OFF by the operator's hold" (`docs/temp/dashboard-choices-2026-10-30.md`, line 1255, in the
+main checkout; not checked from this branch). So it reads as a hold with a motive only you know. Whether it goes
+on after go-live is your decision.
+
+**Keep it at 0 through the cut (steps 10 and 11).** If you turn it on, do it in step 11b, after Edition 2 is cut
+and verified. Turned on earlier, the first night's job would run the cut itself with no dry run, and if that cut
+deferred or failed, that night's V2 pages would go onto Edition 1.
 
 ## 3. Preconditions checklist
 
@@ -125,6 +136,21 @@ Do not start Part 4 until every box is ticked. Tick them on the day, not from me
       backfill refuses a live run without it) and `ALPHADECK_OPS_TOKEN` (`deploy.sh` reads it; `docs/DEPLOY.md`).
       Also check any `ALPHADECK_ALLOWANCE_*` override, `ALPHADECK_EDITIONS_NIGHTLY` (O1), and the variable changes
       in Part 8.
+- [ ] **V1 recorded the last session before today (call it night D-1).** Open the Admin page. The cron status
+      reads current, with no missed night, and the newest run record is finished, live, started at or after 22:30 ET
+      on D-1, and recorded for at least one thesis. (In the files, `/data/cron_runs/*.json`, that is `status`
+      `finished`, `mode` `live`, a `started_at` after 22:30 ET on `asof` D-1.) If not, let V1 catch it up first:
+      `docker restart alphadeck-cron-1`, which is the V1 cron and runs V1's own boot catch-up. Watch
+      `docker logs alphadeck-cron-1` until that pass ends and the log shows `daily-cron: next run`, then check the
+      Admin page again. Do not restart it inside 22:20 to 22:50 ET. **Never leave night D-1 to V2.** A V2 catch-up
+      pass would write call rows dated before the cutover. N5 would then fail for good (the calls log is
+      immutable), and V2 would push those changes to Slack labeled "recorded late" (step 10).
+- [ ] **Production's `EDITIONS_NIGHTLY` value is written down, and it stays 0 through the cut (O1).** Read it:
+      `docker exec alphadeck-cron-1 printenv EDITIONS_NIGHTLY` (it should print `0`; the cron log's
+      `daily-cron: EDITIONS_NIGHTLY=0` line says the same after each night's backup). In production's `.env` (open it
+      yourself), check that `ALPHADECK_EDITIONS_NIGHTLY=0` is set by name. The compose default is 1, so a missing
+      line would turn the job on when step 10 recreates the cron. Do not change it before step 11b. Decide now whether
+      it goes on after go-live (O1).
 - [ ] You are on the main checkout, the tree is clean, and you have Git Bash open (not PowerShell's `bash`, which
       is WSL).
 - [ ] It is a weekday morning or another time that leaves hours before 21:30 ET, so the first V2 night is a new
@@ -132,7 +158,8 @@ Do not start Part 4 until every box is ticked. Tick them on the day, not from me
 - [ ] You have the time. Steps 1 to 11 must end before 21:00 ET. The plan's estimate for steps 1 to 10 is a few
       hours, mostly the backfill (25 minutes 23 seconds on the fork at 1.5 requests a second, rehearsal 2), two
       or three backups (about 5 to 6 minutes each) and the builds. Step 11 adds a backup and the cut: a dry run
-      of 1,132 seconds and an apply of 1,103 seconds at 4 workers on the fork (rehearsal 2).
+      of 1,132 seconds and an apply of 1,103 seconds at 4 workers on the fork (rehearsal 2). Start step 11 no later
+      than about 19:30 ET: its backup, dry run and apply take about 45 minutes, and it must end well before 21:30 ET.
 - [ ] The user is told that the Board keeps V1's last calls until the first V2 night, that Edition 0's numbers
       change (K5), that the Scoreboard will default to Edition 2, and that nobody edits cards from step 1 until
       step 8 is done.
@@ -156,6 +183,9 @@ Conventions used below:
   production's.
 
 ### Step 1. Announce, then freeze (stop the cron)
+
+**Before this step**, the two Part 3 boxes about V1's last night and `EDITIONS_NIGHTLY` must be ticked. Once the V1
+cron is stopped, a missed night can be caught up only by V2, and that breaks N5 (step 10).
 
 ```bash
 cd /c/Users/funky/sites/oakwoodgates/alphadeck && git branch --show-current && git status --short
@@ -603,15 +633,42 @@ bash scripts/deploy.sh --label post-v2-reset cron
 
 *What it does.* Takes another labeled backup, builds the cron image and starts it. From here the V2 cron writes
 calls, onboarding and extraction rows, and the 22:30 ET pass will run tonight. Do not run this inside 22:20 to
-22:50 ET.
+22:50 ET. Keep `ALPHADECK_EDITIONS_NIGHTLY` at 0 in `.env` for this deploy (Part 3, O1): the build recreates the
+cron from `.env`.
 
-*You should see.* a final line that begins `OK: deployed <sha> to prod: cron (rebuild)` and ends with
-`every verification passed`, and in the cron log
-the boot lines, `daily-cron: each pass bounded at ...`, and the plan's expectation of a catch-up that does
-nothing (the V1 pass ran last night, and its calls are kept) and `onboard-cron: every 1800s`. If the editions
-nightly job is off (O1), the cron log says `EDITIONS_NIGHTLY=0` after each night's backup. **Not yet rehearsed.**
-The fork has no running cron (its service is in a profile that never starts), so this step is only confirmed on
-the first production run. A separate read-only review of the cron's first start is under way.
+*You should see.* A final line that begins `OK: deployed <sha> to prod: cron (rebuild)` and ends with
+`every verification passed`.
+
+**Then read the cron log, and do not start step 11 before you have.** `deploy.sh` returns as soon as it sees
+`daily-cron: each pass bounded at`, and that line is printed before the boot catch-up runs. So the boot steps may
+still be running when it says `OK: deployed`. Run `docker logs --tail 80 alphadeck-cron-1` until you see these
+lines, in this order (lines from the background onboarding run can sit between them):
+
+1. `daily-cron: scheduled for 22:30 ...` and `daily-cron: each pass bounded at ...`.
+2. `daily-cron: booted <date>`, then `catch-up for the last expected night <D-1>`. On a weekday morning that
+   night is the last session before today (on a Monday, Friday).
+3. `daily-cron: a live pass for <D-1> started at/after 22:30 America/New_York already ran`, ending
+   `catch-up is a no-op`. This is the line that matters. The boot catch-up found V1's finished pass for that night
+   in `/data/cron_runs` (the volume the V1 and V2 containers share) and wrote nothing: no lock, no row, no push.
+4. The boot backup line. On a normal weekday morning it starts `backup: skipped`, because the newest unlabeled
+   dump (V1's nightly one, about 11 hours old at 10:00 ET) is younger than the 20-hour gate. Labeled dumps such as
+   `post-v2-reset` do not count toward the gate. After a weekend or after about 18:45 ET it dumps instead (about
+   6 minutes).
+5. `onboard-cron: every 1800s ...`, `master-refresh: weekly on day ...` and `term-mentions: weekly on day ...`.
+6. `daily-cron: next run <date and time> ... asof <D>`, where D is today. That line ends the boot block.
+
+The editions line (`daily-cron: EDITIONS_NIGHTLY=0`) is not a boot line. It appears only after a night's backup.
+
+**Stop if the catch-up ran a real pass instead of skipping itself.** You will see pass output after the `booted`
+line, and no `catch-up is a no-op` line. (A failed one prints `daily-cron: boot catch-up <D-1> FAILED`.) That
+means V1 had not recorded night D-1 (Part 3). The real pass takes the call-of-record lock, writes a V2 row dated
+D-1 for every card with no on-time V1 row, and pushes their changes to Slack labeled "recorded late". N5 then fails
+on every later verify, because the calls log is immutable. Let the pass finish, do not start step 11 while it runs
+(the cut refuses with exit 75 while the lock is held), and write down that N5 will fail and why.
+
+**Not yet rehearsed.** The fork has no running cron (its service is in a profile that never starts), so this step is
+only confirmed on the first production run. The lines above come from a read-only review of the code (the review
+named in O1), which traced them; no run has shown them yet.
 
 *Duration.* Backup about 6 minutes (measured); build about 5 minutes (estimate).
 
@@ -619,22 +676,48 @@ the first production run. A separate read-only review of the cron's first start 
 
 ### Step 11. Cut Edition 2 (decision K4; replaces the old "publish Edition 1" step)
 
-Do this after step 10 and before 21:00 ET, so it is done before the first V2 night. The cron container carries the
-`replay` extra (duckdb and pyarrow) that the cut needs; the backend image does not. Run the dry run first and read
-it.
+Do this after step 10 and before the first V2 night. The cron container carries the `replay` extra (duckdb and
+pyarrow) that the cut needs; the backend image does not. Run the dry run first and read it.
+
+**Timing.**
+- Start only after the cron log shows `daily-cron: next run ...` with `asof <D>` for tonight (step 10: the boot
+  block is finished).
+- Start by about 19:30 ET. The backup (about 6 minutes), the dry run (about 19) and the apply (about 18) take about
+  45 minutes, and the cut must end well before 21:30 ET and long before 22:30.
+- Never during a cron deploy or recreate (`deploy.sh ... cron`, including `--env-only cron`). A redeploy kills a cut
+  running in the cron container. The store is one transaction, so nothing partial lands, but the run is lost.
+- The hand cut and the editions nightly share one lock (the editions lock). Whichever comes second exits 75 and
+  writes nothing.
+- The cut also refuses (exit 75) while a pass, a catch-up or a backfill holds the call-of-record lock, at its start
+  and again just before it writes. It never makes the 22:30 pass wait. If a pass starts mid-cut, the cut runs to the
+  end and is then refused at the write (about 19 minutes lost).
+
+**First, check the onboarding queue.** A company on a live card that is still loading its history makes the cut
+`deferred` (exit 0, nothing written). The onboarding job runs at the cron's start and every 30 minutes.
+
+```bash
+docker exec alphadeck-backend-1 python -m pipeline.onboarding --status
+```
+
+No company on a live card may be `queued`, `in_progress` or `failed`. If one is, wait for the next batch and check
+again. A `failed` row (after its maximum attempts) blocks every cut until you re-queue it:
+`docker exec alphadeck-backend-1 python -m pipeline.onboarding --retry-failed`, then wait for the next batch.
+
+Then the backup, the dry run and the apply (read the dry run before you run the apply):
 
 ```bash
 docker exec alphadeck-backend-1 python -m pipeline.backup --label pre-edition-2
-docker exec alphadeck-cron-1 python -m editions.run cut --workers 4
-docker exec alphadeck-cron-1 python -m editions.run cut --workers 4 --apply
+docker exec alphadeck-cron-1 python -m editions.run cut --workspace 00000000-0000-0000-0000-000000000002 --workers 4
+docker exec alphadeck-cron-1 python -m editions.run cut --workspace 00000000-0000-0000-0000-000000000002 --workers 4 --apply
 ```
 
 *What it does.* A labeled backup first. Then the cut: it checks whether the rules changed or a data repair ran since
 Edition 1's cut. If so, it tries a new edition in two parts. P re-runs Edition 1's stored pages with today's engine
 at Edition 1's own cut, to see what the rules changed. N re-runs every thesis from each company's join date through
 the newest night on record (before the first V2 night, that is V1's last night), to see what the new edition holds.
-With `--apply` it stores Edition 2 (parent Edition 1) and closes Edition 1, which stays readable. The command
-checks every workspace unless you add `--workspace <id>`; a workspace with no edition prints
+With `--apply` it stores Edition 2 (parent Edition 1) and closes Edition 1, which stays readable. The commands
+name the founding workspace with `--workspace` (`FOUNDING_WORKSPACE_ID` in `backend/domain/scopes.py`). Without it
+the cut checks every workspace, and a workspace with no edition prints
 `Editions · nothing published yet, nothing to try` and writes nothing. When the editions nightly job is on, it runs
 the same cut on its own. An edition is append-only: one new edition per market day, never a second at the same cut.
 That is why the dry run comes first.
@@ -652,12 +735,19 @@ another editions job runs: `editions cut: REFUSED` and a reason. Run it outside 
 - a `new edition run (N at ...)` line with page counts and timings;
 - a last line that begins `DRY RUN` and says nothing was written.
 
+**Check the first line before anything else.** It must start `Edition 2 would be cut (dry run)`: the status is
+`cut`. If it reads `Edition 1 · a new edition is due but waits: history still loading for ...`, the status is
+`deferred`. Nothing was written and the exit code is 0. Do not apply. Go back to the onboarding check, wait, and run
+the dry run again.
+
 Read the label before you apply. It is permanent. **If it reads `unexplained change`, do not apply:** the engine's
 output moved with no declared rule, and the cut would also page the steward. Stop and find out why.
 
 The apply prints the same lines, then a notice line that begins `EDITION Scoreboard Edition 2` (the quiet notice;
 the plan says one quiet Slack line goes out through the environment notifier), then
-`PUBLISHED Edition 2 (<id>) · causes ['rule_change', 'data_repair']`.
+`PUBLISHED Edition 2 (<id>) · causes ['rule_change', 'data_repair']`. If the apply prints no `PUBLISHED` line,
+nothing was cut (it deferred, was refused, or failed): read its line and treat the cut as not done (step 11b says
+what that changes).
 
 *The label comes in two shapes.*
 
@@ -687,18 +777,59 @@ together at 23 minutes 53 seconds. Allow about 40 minutes for the dry run and th
 
 | What you see | What it means | What to do |
 |---|---|---|
-| `editions cut: REFUSED` with a lock reason, exit 75 | a pass, a backfill, a repair or another editions job holds a lock | wait, then run it again |
+| `editions cut: REFUSED` with a lock reason, exit 75 | a pass, a backfill, a repair or another editions job (the editions nightly counts) holds a lock | wait, then run it again. If a cron deploy killed a running cut, nothing was stored: run it again |
 | `Edition 1 · no trial tonight: ...` | one new edition per market day (not expected here) | read the reason |
-| `Edition 1 · a new edition is due but waits: ...` | a roster member still has history loading (onboarding) | wait for onboarding, then run it again |
+| `Edition 1 · a new edition is due but waits: ...` (exit 0, nothing written) | a company on a live card is still loading its history, or its onboarding row is `failed` | run `pipeline.onboarding --status`, wait for the batch, re-queue a failed row with `--retry-failed`, then run the dry run again |
 | `Edition 1 · the edition trial failed (...)` | the trial raised an error; the command still exits 0 | read the reason; do not apply until you understand it |
 | `Edition 1 · no rule change and no data repair since its cut ...` | no event: nothing to cut (not expected after a V2 deploy) | stop and find out why |
 
 **Not yet rehearsed:** the production command in `alphadeck-cron-1` (rehearsal 2 ran the cut in the fork's backend
 container), and the cut before the first V2 night (rehearsal 2 cut Edition 2 after its first night; Part 7).
 
+### Step 11b. Turn the editions nightly on (only if you chose "on" in O1)
+
+Skip this step if you chose to leave the job off. Then Edition 2 stays frozen at the cutover night (Part 9).
+
+Do it only if step 11's apply printed `PUBLISHED Edition 2`. **If the cut did not happen, leave the job at 0 for night
+1.** Otherwise the first night's job would run the cut itself, with no dry run and no label review. If that cut
+deferred or failed, that night's V2 pages, and up to 30 catch-up pages per card, would go onto Edition 1. Cut by hand
+on a later day, then do this step.
+
+1. Set `ALPHADECK_EDITIONS_NIGHTLY=1` in production's `.env` (open it yourself; deleting the line also works, because
+   the compose default is 1).
+2. Before 22:20 ET, and with no cut running:
+
+   ```bash
+   bash scripts/deploy.sh --env-only cron --dry-run
+   bash scripts/deploy.sh --env-only cron
+   ```
+
+3. Confirm the container has it:
+
+   ```bash
+   docker exec alphadeck-cron-1 printenv EDITIONS_NIGHTLY
+   ```
+
+   It should print `1`.
+
+*What it does.* `--env-only cron` recreates the cron with no build (`up -d --no-deps --no-build cron`: the same image,
+and no backup unless you pass `--label`). `deploy.sh` refuses inside 22:20-22:50 ET and while the call-of-record lock
+is held. The recreate runs the boot block again: a catch-up for night D-1 that is a no-op, an age-gated backup, and
+an immediate onboarding run. Read the log for the same lines as in step 10.
+
+*If it fails.* Same exit codes as step 4. If the value does not read `1`, the container was not recreated with the
+new `.env`: read `deploy.sh`'s output. The job stays off until it reads `1`.
+
+*Not yet rehearsed.*
+
 ### Step 12. The first V2 night (automatic)
 
-The cron runs the pass at 22:30 ET on its own. Do nothing, and do not run the pass by hand.
+The cron runs the pass at 22:30 ET on its own. Do nothing, and do not run the pass by hand. Do not start a cut or a
+cron deploy after 22:20 ET.
+
+*In the cron log, after the backup.* The order is the pass, the backup, then the editions job. If the job is off, the
+log says `daily-cron: EDITIONS_NIGHTLY=0`. If it is on, you see its own output instead, or a line that says
+`daily-cron: editions nightly REFUSED for <D>` (a lock was held; nothing was written, and the next night catches up).
 
 **The first V2 night is not silent.** V1's calls are kept, so the pass compares each live card's call with V1's
 last call for that card (decision K3; the old decision N5, a silent night, is superseded). The push rule
@@ -714,8 +845,9 @@ last call for that card (decision K3; the old decision N5, a silent night, is su
 *What rehearsal 2 measured.* Of 67 live cards, 1 changed state (the Golden Dome card, armed to warming), 0 entered
 Armed, and the log shows one `DIGEST` line with 4 names on 4 cards (2 marked `(re-arm)`). That is what the new
 rules alone did to V1's own call for the same night. A typical V1 night since 2026-09-15 (48 nights) had a median of
-1 state change (maximum 15) and a median of 0.5 cards entering Armed (maximum 9). So a go-live night adds a normal
-day's movement to the rule effect. **Recommended (K3): accept the pushes, with no mute. The operator is to
+1 state change (maximum 15) and a median of 0.5 cards entering Armed (maximum 9). So expect the rehearsal's one
+record-only change (armed to warming) and no card entering Armed from the new rules alone, plus a normal day's
+movement on top. A busy day can still send loud pushes. **Recommended (K3): accept the pushes, with no mute. The operator is to
 confirm.** If you choose the mute instead, clear the Slack webhooks before 22:30 ET (each founding-workspace user's
 Settings, and the cron's environment `SLACK_WEBHOOK_URL`), and restore both the next morning. With the environment
 webhook unset, that night's ops health pages and the edition notice go to the log only.
@@ -771,6 +903,20 @@ had already recorded:
 
 If either fails on go-live night, treat it as real and read the cron log and the Admin page.
 
+**N5 is global, so one bad row fails it for good.** It counts every `calls` row recorded after the cutover and
+dated before the cutover's date, from any night, not only the night you verify. The calls log is immutable, so such a
+row cannot be removed, and N5 then fails on every later `verify --stage nightly` and `--stage edition`. The number in
+the failure line is the count of those rows. On a weekday-morning cutover, the usual cause is a V2 pass that wrote
+rows for night D-1: V2's boot catch-up in step 10 (see its stop condition). Unlike rehearsal 2's N5, it is not a
+timing artifact. Tell the operator, and write down the count.
+
+**If the editions nightly is on** (step 11b), also read the Admin page's `Editions ·` line. It should read
+`Edition 2 · page for <Mon D> added · <n> theses ... self-check passed`, with `<Mon D>` the night you verify. A cut
+part in it should read `no trial tonight: ...` (refused) or be absent (no event). A line saying a new edition was
+cut that night is not expected, because step 11 made Edition 2: read it before you go on.
+
+**Expect** `note: N ingest: ... have ingest_fresh=false` for companies still onboarding. It is a note, not a `FAIL:`.
+
 Also open the Board and the Admin page (cron status and alarms, the steward queue).
 
 *If it fails.* A missing row for a live thesis: read the cron log and the Admin page. E1 saying "not yet" means
@@ -824,10 +970,19 @@ tables, as they stood at step 7: a frozen snapshot, for reading V1's record, not
 
 - **The first night.** It is not silent (step 12, decision K3). Open the Board the next morning. If you muted the
   webhooks for the night, restore them now.
+- **Where Slack messages go.** Call pushes (a card's state changes), the digest and the SPAC-radar pages go to each
+  enabled workspace user's own webhook (Settings). If no user in the workspace has one, they go to the environment
+  `SLACK_WEBHOOK_URL`, but only when the workspace has an enabled super admin. Otherwise they are only logged. The
+  rest goes to the environment `SLACK_WEBHOOK_URL`: the pass's health pages and crash pages, the cron shell's own
+  failure pages, the quiet Edition cut notice and the cut's drift page, and the editions self-check page. Never put
+  a webhook in a doc or a commit.
 - **Editions.** Edition 1 is closed and stays readable. Edition 2 is the default. While the editions nightly job is
   off (O1), nothing adds a page to Edition 2 after the cut and nothing cuts a later edition by itself: you run
   `editions.run cut` by hand (dry run first) after any declared rule change or data repair. Where the job runs, it
-  adds each night's page to Edition 2 and runs the automatic cut. A workspace with no edition (a new one) prints
+  adds each night's page to Edition 2 and runs the automatic cut. If you leave it off, you can add the last night's
+  page by hand with `docker exec alphadeck-cron-1 python -m editions.run nightly` (dry run) and then the same with
+  `--apply`. It runs only after a finished nightly pass, and it includes the automatic cut check, so read the dry run
+  first. A workspace with no edition (a new one) prints
   `Editions · no open edition to add pages to` from `editions.run nightly` and
   `Editions · nothing published yet, nothing to try` from the cut. That is normal.
 - **Caps (N7).** Existing workspaces have no caps (NULL). A new workspace gets the default caps from settings.
@@ -1162,9 +1317,12 @@ Check them against your `.env` yourself before the day. Names only.
 - **The editions nightly job (O1):** `ALPHADECK_EDITIONS_NIGHTLY` (compose default 1) and
   `ALPHADECK_EDITIONS_TIMEOUT_S` (compose default 3600). Production's cron log says `EDITIONS_NIGHTLY=0`, so the job
   is off there. Decide before go-live.
-- **The cron on the first night:** `RUN_AT` stays 22:30 ET; the plan expects the boot catch-up to do nothing when
-  the V1 pass ran the last expected night; onboarding runs every 1,800 seconds; the extraction leg takes up to 300
-  names in up to 900 seconds; the backup runs after the pass; the weekly jobs run on Saturday.
+- **The cron on the first night:** `RUN_AT` stays 22:30 ET. The boot catch-up does nothing only when V1's pass for
+  the last expected night is on record as a finished, live pass that started at or after 22:30 ET that night and
+  recorded for at least one thesis (Part 3, step 10). Otherwise it runs a real pass, and its rows are dated before the
+  cutover. Onboarding runs once at the cron's start and then every 1,800 seconds; the extraction leg takes up to 300
+  names in up to 900 seconds; the backup runs after the pass; the weekly jobs run on Saturday (the company-list
+  refresh at 09:00 ET, the term-mentions count at 10:00 ET).
 
 ## 9. Known limits
 
@@ -1195,8 +1353,27 @@ Read these before the day. Each is something this runbook cannot promise.
   that was not checked for the other 559 pages that differ.
 - **The editions nightly job is off on production** (O1). Edition 2 is a hand cut and gets no later pages while the
   job stays off. Production's Edition 1 holds 10 theses (669 pages) and was paged once, on 2026-10-24.
+- **With the editions nightly off, Edition 2 freezes at the cutover night.** It holds only its re-run pages, through
+  V1's last night. No V2 night is added, inked or self-checked. The Scoreboard's default view stops at the cutover
+  while Edition 0 keeps growing. A card made after the cut never joins Edition 2, so a later `verify --stage edition`
+  should fail E2 for it (expected from E2's definition; not seen). A later rule change never yields Edition 3 unless
+  you cut it by hand.
+- **Onboarding's split-history fill journals a data repair.** For companies that join a card, the onboarding job
+  fills their split history and journals a `data_repair` row under the data tenant (the shared one). V2's cut counts
+  data-tenant repairs, so a fill after your hand cut makes that night's editions job refuse a trial (one cut per market
+  day) and the next night's run one. With the job on, an Edition 3 can appear within days of go-live. A trial of this
+  size took about 12 minutes of re-run in rehearsal 2. On V1 these repairs never started a trial. Not seen on V2.
+- **A `failed` onboarding row blocks every cut** (status `deferred`) and holds that card's edition pages, until
+  someone runs `python -m pipeline.onboarding --retry-failed`.
+- **Option, not a step (code):** make the editions nightly refuse to page onto an edition whose stored fingerprint
+  version differs from the engine's. That would close the "V2 pages land on Edition 1" path by code, instead of by this
+  runbook (step 11b). The review says it touches `editions/`, which is fingerprinted, so it would start a trial and
+  need a rule-log decision. It is not built and not needed if steps 11 and 11b are followed. It is your call.
 - **The cron's first start has never been rehearsed.** The fork has no cron (its service is in a profile that never
-  starts). A separate read-only review of the cron's first start is under way.
+  starts). A read-only review traced the code (step 10 lists the boot lines it expects), but no run has shown them.
+  Also not rehearsed: the editions nightly paging onto Edition 2 (R11b), including its first ink of every matured
+  Edition 2 episode at once (the cost is not measured), and Saturday's weekly jobs (the company-list refresh and the
+  term-mentions count) under V2. Their code is unchanged from V1, but they have not run against the V2 schema.
 - **R10, R11b and R13 have not been run.** Nobody signed in during rehearsal 1 or 2, the editions nightly after the
   cut was not run, and the rollback drill was not done. The `--health-url` check (V10) against a real URL, and the
   production-only steps (the `--prod` path, `deploy.sh`, the cron's first boot, the compose image names) have not
@@ -1242,7 +1419,7 @@ database); 2 a bad argument; 75 refused or stopped.
 missing, `.pending`, unreadable or other-database provenance file, or an unmapped or missing table); 5 a check
 failed.
 
-**`python -m editions.run cut` exit codes:** 0 ran (a cut, a no-change trial, or nothing to try); 75 refused because
+**`python -m editions.run cut` exit codes:** 0 ran (a cut, a no-change trial, a deferred cut that wrote nothing, or nothing to try); 75 refused because
 a lock is held (nothing written). It is a dry run unless `--apply`.
 
 **`editions.run publish` exit code on a refusal:** 2. It is not part of the cutover: Edition 1 is already
