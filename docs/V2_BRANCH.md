@@ -1,8 +1,8 @@
 # The `v2` branch
 
 `v2` is the long-lived branch for the V2 rebuild: platform data (share counts, cash/burn, company catalysts,
-filings) becomes shared and steward-approved, theses stay private to a user's workspace, and one cutover (with a
-reset) ends it. It is NOT `main`. Every V2 change lands on `v2` through a pull request into `v2`; `main` keeps
+filings) becomes shared and steward-approved, theses stay private to a user's workspace, and one cutover (which keeps
+V1's history) ends it. It is NOT `main`. Every V2 change lands on `v2` through a pull request into `v2`; `main` keeps
 shipping V1 until the cutover merges `v2` into it.
 
 This page is the routine for keeping `v2` current with `main`, and the rules a `main` change follows when it
