@@ -107,7 +107,9 @@ Params = Mapping[str, Param]
 # (path under /dashboards, the query a page sends beyond ``asof`` on its default view), heaviest cold read first so
 # a budget that runs out costs the lightest pages. The cache is keyed by the as-of, the params the router puts in its
 # key and the clock; a param the router serves off ONE shared read (group_by, window, the vs-SPY toggle) is sent as the
-# page sends it all the same, so a router that moves it into its key does not silently turn this into a miss.
+# page sends it all the same, so a router that moves it into its key does not silently turn this into a miss. A param
+# the page leaves off on its default view is left off here too (the Track Record's `edition`: the server's default
+# names it, so the warmed key is the resolved edition's and follows the default when a new edition is cut).
 PAGES: tuple[tuple[str, Params], ...] = (
     ("theme-leaderboard", {}),
     # the scopes read; the default scope and `all` follow it, named by its reply (_peer_table_follow_ups)
@@ -120,7 +122,8 @@ PAGES: tuple[tuple[str, Params], ...] = (
         "hot-board",
         {"rows": "armed"},
     ),  # armed rows with their tape; `rows=all` is the toggles' second read
-    ("track-record", {"edition": 0}),
+    # no `edition`: the page names none, so the server's default (the Scoreboard's) answers
+    ("track-record", {}),
     ("forming-quietly", {}),
     ("entry-windows", {}),
     ("leaders", {"group_by": "link", "include_silent": False}),

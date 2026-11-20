@@ -7927,7 +7927,7 @@
           "dashboards"
         ],
         "summary": "Track Record",
-        "description": "What the tape did after each arm episode the Scoreboard records, by market-cap tier at the event: one row per\nepisode with its cap tier and liquidity band, and, for the next session's entry and the arm night's, the return at\n5, 10, 20 and 60 sessions of the name's own bars and to the episode's own exit_by, with IWM's and SPY's returns\nover the same dates. The cap rests on the share count public before the arm date: the Workbench's, else the\nfiling cover's (``cap.source``). The Scoreboard's own episodes and honesty filters: a censored start, an\ningest-flagged episode and a company whose price history carries a data flag are left out of every cell and counted, apart\nfrom one whose only flag is a stopped feed and whose company ended: that is counted until its bars stop (a\nlater horizon reads path ended). Reads the record\n(Edition 0) unless an edition is named. Display only; a past as-of reads what was public by the end of that\ndate, and a horizon that has not arrived by then is not counted.",
+        "description": "What the tape did after each arm episode the Scoreboard records, by market-cap tier at the event: one row per\nepisode with its cap tier and liquidity band, and, for the next session's entry and the arm night's, the return at\n5, 10, 20 and 60 sessions of the name's own bars and to the episode's own exit_by, with IWM's and SPY's returns\nover the same dates. The cap rests on the share count public before the arm date: the Workbench's, else the\nfiling cover's (``cap.source``). The Scoreboard's own episodes and honesty filters: a censored start, an\ningest-flagged episode and a company whose price history carries a data flag are left out of every cell and counted, apart\nfrom one whose only flag is a stopped feed and whose company ended: that is counted until its bars stop (a\nlater horizon reads path ended). Reads the Scoreboard's default edition (the newest published; the record,\nEdition 0, when none is published) unless an edition is named. Display only; a past as-of reads what was\npublic by the end of that date, and a horizon that has not arrived by then is not counted.",
         "operationId": "track_record_dashboards_track_record_get",
         "parameters": [
           {
@@ -7947,13 +7947,19 @@
             "in": "query",
             "required": false,
             "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "description": "which Scoreboard EDITION to read: 0 (the default) = the original record (the calls log); N >= 1 = the stored re-run Edition N (404 if it does not exist). Unlike the Scoreboard, a request that names no edition reads the record, not the newest published edition, while the editions nightly is paused; the response's `newest_edition` names the newest published one",
-              "default": 0,
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "which Scoreboard EDITION to read: omitted = the Scoreboard's default (the newest published edition, or the original record when none is published; the server's optional default-edition setting can pin another); 0 = the original record (the calls log); N >= 1 = the stored re-run Edition N (404 if it does not exist). The response's `edition` names the edition served and `newest_edition` the newest published one",
               "title": "Edition"
             },
-            "description": "which Scoreboard EDITION to read: 0 (the default) = the original record (the calls log); N >= 1 = the stored re-run Edition N (404 if it does not exist). Unlike the Scoreboard, a request that names no edition reads the record, not the newest published edition, while the editions nightly is paused; the response's `newest_edition` names the newest published one"
+            "description": "which Scoreboard EDITION to read: omitted = the Scoreboard's default (the newest published edition, or the original record when none is published; the server's optional default-edition setting can pin another); 0 = the original record (the calls log); N >= 1 = the stored re-run Edition N (404 if it does not exist). The response's `edition` names the edition served and `newest_edition` the newest published one"
           },
           {
             "name": "include_late",

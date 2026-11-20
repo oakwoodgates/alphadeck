@@ -432,7 +432,7 @@ describe("the words", () => {
   it("states the work: the as-of, the clock, the edition, what is in the cells and what is left out", () => {
     const lines = workLines(SERVER, "arm_night", "iwm");
     expect(lines[0]).toBe(
-      "as of 2026-07-24 · public clock: only what was public by the end of that date · edition 0: the original record (the default; editions are paused) · late nights excluded",
+      "as of 2026-07-24 · public clock: only what was public by the end of that date · edition 0: the original record · late nights excluded",
     );
     expect(lines[1]).toBe(
       "20 arm episodes on 2 cards · 17 in the cells · left out: 1 flagged price history, 1 censored start, 1 ingest flagged",
@@ -447,8 +447,8 @@ describe("the words", () => {
     expect(lines.at(-1)).toBe("computed · 1,234 ms");
   });
 
-  it("names the edition in force, and for the record says why it is the default", () => {
-    expect(editionWords(SERVER)).toBe("edition 0: the original record (the default; editions are paused)");
+  it("names the edition in force: the record and a stored edition read alike, with no word about a default or a pause", () => {
+    expect(editionWords(SERVER)).toBe("edition 0: the original record");
     const stored = payload({ edition: { number: 1, label: "first re-run" } });
     expect(editionWords(stored)).toBe("edition 1: first re-run");
     expect(workLines(stored, "arm_night", "iwm")[0]).toContain("· edition 1: first re-run · late nights");
@@ -460,7 +460,7 @@ describe("the words", () => {
       "next_session",
       "raw",
     );
-    expect(lines[0]).toBe("as of 2026-07-24 · live read · edition 0: the original record (the default; editions are paused)");
+    expect(lines[0]).toBe("as of 2026-07-24 · live read · edition 0: the original record");
     expect(lines[3]).toContain("by horizon (next-session close entry)");
     expect(lines[4]).toContain("the next session's close");
     expect(lines[5]).toBe("Comparison: none shown (the raw return). IWM has no bar at this as-of, so its comparison is blank.");

@@ -3907,9 +3907,9 @@ export interface paths {
          *     filing cover's (``cap.source``). The Scoreboard's own episodes and honesty filters: a censored start, an
          *     ingest-flagged episode and a company whose price history carries a data flag are left out of every cell and counted, apart
          *     from one whose only flag is a stopped feed and whose company ended: that is counted until its bars stop (a
-         *     later horizon reads path ended). Reads the record
-         *     (Edition 0) unless an edition is named. Display only; a past as-of reads what was public by the end of that
-         *     date, and a horizon that has not arrived by then is not counted.
+         *     later horizon reads path ended). Reads the Scoreboard's default edition (the newest published; the record,
+         *     Edition 0, when none is published) unless an edition is named. Display only; a past as-of reads what was
+         *     public by the end of that date, and a horizon that has not arrived by then is not counted.
          */
         get: operations["track_record_dashboards_track_record_get"];
         put?: never;
@@ -26033,8 +26033,8 @@ export interface operations {
             query: {
                 /** @description as-of date; nothing published after it is read */
                 asof: string;
-                /** @description which Scoreboard EDITION to read: 0 (the default) = the original record (the calls log); N >= 1 = the stored re-run Edition N (404 if it does not exist). Unlike the Scoreboard, a request that names no edition reads the record, not the newest published edition, while the editions nightly is paused; the response's `newest_edition` names the newest published one */
-                edition?: number;
+                /** @description which Scoreboard EDITION to read: omitted = the Scoreboard's default (the newest published edition, or the original record when none is published; the server's optional default-edition setting can pin another); 0 = the original record (the calls log); N >= 1 = the stored re-run Edition N (404 if it does not exist). The response's `edition` names the edition served and `newest_edition` the newest published one */
+                edition?: number | null;
                 /** @description the Scoreboard's late-night reading: true = keep rows recorded after their night's next EDGAR open; false = set them aside; omitted = the server setting. The response names the reading used */
                 include_late?: boolean | null;
             };

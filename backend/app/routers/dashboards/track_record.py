@@ -1,10 +1,10 @@
 """The Track Record by Cap Tier dashboard's API (``docs/dashboards/track-record.md``): what the tape did after each
 Armed call, by market-cap tier at the event, at fixed horizons, against IWM and SPY, with n and the hit rate in every
 cell. It READS the Scoreboard's own arm episodes (``scoreboard.record.scoreboard_records``, the same editions and the
-same honesty policies the Scoreboard route takes; unlike the Scoreboard, a request that names no edition reads the
-RECORD, Edition 0, while the editions nightly is paused) and, for the companies on those episodes, each one's bars, share
-facts (the Workbench's and the filing covers': ``pit.fundamentals_facts`` rows of ``COVER_METRIC``) and split list
-through the point-in-time view the Cockpit builds, the benchmarks' bars and which companies have a data flag that
+same honesty policies the Scoreboard route takes, and the same default edition: a request that names none reads the
+newest published edition, or the record, Edition 0, when none is published) and, for the companies on those episodes,
+each one's bars, share facts (the Workbench's and the filing covers': ``pit.fundamentals_facts`` rows of
+``COVER_METRIC``) and split list through the point-in-time view the Cockpit builds, the benchmarks' bars and which companies have a data flag that
 reaches their price readings (``dashboards.baskets.price_flags``). The request's one
 ``serve_view(asof)`` pair (``known_at`` + ``clock``) is threaded into every one of those reads. The pure compute is
 ``dashboards/track_record.py``; the page's whole read is computed once per (edition, honesty policies, clock, as-of) in
@@ -522,13 +522,14 @@ def _newest_edition(conn: psycopg.Connection, tenant: UUID) -> Edition | None:
 @router.get("", response_model=TrackRecordOut)
 def track_record(
     asof: AsofDate = Query(..., description="as-of date; nothing published after it is read"),
-    edition: int = Query(
-        0,
+    edition: int | None = Query(
+        None,
         ge=0,
-        description="which Scoreboard EDITION to read: 0 (the default) = the original record (the calls log); "
-        "N >= 1 = the stored re-run Edition N (404 if it does not exist). Unlike the Scoreboard, a request that "
-        "names no edition reads the record, not the newest published edition, while the editions nightly is "
-        "paused; the response's `newest_edition` names the newest published one",
+        description="which Scoreboard EDITION to read: omitted = the Scoreboard's default (the newest published "
+        "edition, or the original record when none is published; the server's optional default-edition setting can "
+        "pin another); 0 = the original record (the calls log); N >= 1 = the stored re-run Edition N (404 if it "
+        "does not exist). The response's `edition` names the edition served and `newest_edition` the newest "
+        "published one",
     ),
     include_late: bool | None = Query(
         None,
@@ -545,12 +546,14 @@ def track_record(
     filing cover's (``cap.source``). The Scoreboard's own episodes and honesty filters: a censored start, an
     ingest-flagged episode and a company whose price history carries a data flag are left out of every cell and counted, apart
     from one whose only flag is a stopped feed and whose company ended: that is counted until its bars stop (a
-    later horizon reads path ended). Reads the record
-    (Edition 0) unless an edition is named. Display only; a past as-of reads what was public by the end of that
-    date, and a horizon that has not arrived by then is not counted.
+    later horizon reads path ended). Reads the Scoreboard's default edition (the newest published; the record,
+    Edition 0, when none is published) unless an edition is named. Display only; a past as-of reads what was
+    public by the end of that date, and a horizon that has not arrived by then is not counted.
     """
     known_at, clock = serve_view(asof)
-    chosen = _resolve_edition(conn, workspace, edition)  # 0 = the record; the Scoreboard's own 404
+    # the Scoreboard's own rule: none named = its default (the newest published; None = the record), 0 = the
+    # record, N = that edition or its 404
+    chosen = _resolve_edition(conn, workspace, edition)
     if chosen is None:
         exclude_late = resolve_exclude_late(None if include_late is None else not include_late)
     else:  # a stored edition has no reconstructed or late rows: the reading does not apply

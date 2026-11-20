@@ -44,10 +44,13 @@ from fastapi.testclient import TestClient
 
 from app.deps import get_conn
 from app.main import app
+from calls.assembler import assemble_call
 from dashboards.cache import CACHE, MAX_ENTRIES
 from db.session import DEFAULT_TENANT_ID
 from domain import market_time
+from domain.config import DEFAULT_CONFIG
 from domain.market_time import current_night
+from domain.scopes import WORKSPACE_ANY
 from domain.settings import get_settings
 from domain.thesis import BasketMember, Segment, Thesis
 from pipeline import warm_dashboards as wd
@@ -62,7 +65,7 @@ from pipeline.warm_dashboards import (
     run,
     visit_asofs,
 )
-from repositories import thesis_repo
+from repositories import editions_repo, thesis_repo
 from tests.auth_fixtures import sign_in_as_steward
 from tests.shell_support import needs_sh, path_with, sh_path
 
@@ -93,7 +96,7 @@ FRONTEND_DEFAULT_QUERY: dict[str, dict] = {
     "daily-digest": {},
     "trigger-log": {"days": 90, "role": "entry"},
     "hot-board": {"rows": "armed"},
-    "track-record": {"edition": 0},
+    "track-record": {},  # no `edition`: the server's default (the Scoreboard's resolver) answers
     "forming-quietly": {},
     "entry-windows": {},
     "leaders": {"group_by": "link", "include_silent": False},
@@ -117,6 +120,12 @@ FRONTEND_DEFAULT_QUERY: dict[str, dict] = {
 PENDING_PARAMS: set[tuple[str, str]] = (
     set()
 )  # the Hot Board's `rows` was the last; its route declares it now
+
+# A query parameter a page's hook names but leaves UNDEFINED on its default view (the client omits it from the URL),
+# so the server's own default answers: the Track Record's `edition` is sent only when the operator picks one.
+# PAGES must NOT send it: the default read's cache key is the RESOLVED edition, and a warm-up that named one
+# would be a different read the day the default moves.
+HOOK_OPTIONAL_PARAMS: set[tuple[str, str]] = {("track-record", "edition")}
 
 SCOPES_REPLY = {
     "default_scope": "business_type",
@@ -264,7 +273,9 @@ def test_the_plan_is_one_request_per_page_per_asof_with_the_pages_exact_default_
     a = ASOF.isoformat()
     assert first["trigger-log"] == {"asof": a, "days": "90", "role": "entry"}
     assert first["insider-tracker"] == {"asof": a, "days": "30", "silent": "false"}
-    assert first["track-record"] == {"asof": a, "edition": "0"}
+    assert first["track-record"] == {
+        "asof": a
+    }  # no edition: the page asks for the server's default
     assert first["hot-board"] == {"asof": a, "rows": "armed"}
     assert first["cross-radar"] == {
         "asof": a,
@@ -892,8 +903,12 @@ def test_pages_send_the_query_parameters_the_frontend_hooks_send():
     for path, params in PAGES:
         assert path in hooks, f"no hook under frontend/src/dashboards reads /dashboards/{path}"
         sent = {"asof"} | {k for k in params if (path, k) not in PENDING_PARAMS}
+        optional = {k for p, k in HOOK_OPTIONAL_PARAMS if p == path}
+        assert not optional & set(
+            params
+        ), f"{path}: PAGES sends a param the page leaves off by default"
         assert (
-            hooks[path] == sent
+            hooks[path] == sent | optional
         ), f"{path}: the hook sends {sorted(hooks[path])}, PAGES sends {sorted(sent)}"
         assert set(FRONTEND_DEFAULT_QUERY[path]) == sent - {"asof"}
 
@@ -1047,6 +1062,38 @@ def test_the_warmed_read_is_the_cache_hit_of_the_pages_default_read(api, monkeyp
         assert (
             r.json()["cache"] == "hit"
         ), f"{path} {query}: the warm-up did not fill the key the page reads"
+
+
+def test_the_track_records_warmed_default_is_the_newest_published_editions_read(
+    api, db, monkeypatch
+):
+    """The page names no edition, so the warm-up names none either: with an edition published, both are the
+    Scoreboard's default (that edition), one cache key, and a pick of the record is its own read."""
+    client, fetch = api
+    _pin_thursday_morning(monkeypatch)
+    cut = datetime(2026, 10, 27, 2, 0, tzinfo=timezone.utc)
+    (thesis,) = thesis_repo.list_all(db, workspace=WORKSPACE_ANY)  # the one card the fixture seeded
+    editions_repo.publish_edition(
+        db,
+        tenant_id=DEFAULT_TENANT_ID,
+        number=1,
+        label="first re-run",
+        causes=["initial"],
+        engine={"fingerprint": "f" * 64, "config_hash": "c" * 64, "code_sha": "abc1234def"},
+        data_known_by=cut,
+        pages=[assemble_call(thesis, [], date(2026, 10, 20), DEFAULT_CONFIG)],
+        entries=[],
+        computed_at=cut,
+    )
+    db.commit()
+    page = [p for p in PAGES if p[0] == "track-record"]
+    got = run([_A_PAST_DAY], page, base_url="http://testserver", fetch=fetch)
+    assert got.counts()["ok"] == 1
+    url, asof = "/dashboards/track-record", {"asof": _A_PAST_DAY.isoformat()}
+    visit = client.get(url, params=asof).json()
+    assert (visit["edition"]["number"], visit["cache"]) == (1, "hit")
+    record = client.get(url, params={**asof, "edition": 0}).json()
+    assert (record["edition"]["number"], record["cache"]) == (0, "computed")
 
 
 def test_the_clock_of_the_warmed_key_is_the_one_the_next_visit_reads(api, monkeypatch):
