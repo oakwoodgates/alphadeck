@@ -233,12 +233,16 @@ const LEFT_OUT: { reason: NonNullable<TrackRowOut["left_out"]>; words: string; h
   { reason: "ingest_flagged", words: "ingest flagged", hint: "The arm rested on a flagged ingest run; the Scoreboard leaves it out of its metrics too." },
 ];
 
-type EditionPick = "record" | "newest";
+// "other" = the server's default is a published edition that is neither the record nor the newest (a pinned
+// default): no button is pressed then, and the work line names the edition read.
+type EditionPick = "record" | "newest" | "other";
 
 export default function TrackRecord({ asof, onSelectThesis }: DashboardProps) {
-  // The Scoreboard edition read: 0 = the record (the default while editions are paused), N = a stored re-run. Each
-  // is its own server read, so it is a request parameter; everything else on the page is picked client side.
-  const [edition, setEdition] = useState(0);
+  // The Scoreboard edition read: none named = the server's default (the Scoreboard's: the newest published edition,
+  // the record when none is published), and the reply says which it served; 0 = the record, N = a stored re-run, once
+  // the operator picks. Each is its own server read, so it is a request parameter; everything else on the page is
+  // picked client side.
+  const [edition, setEdition] = useState<number | undefined>(undefined);
   const q = useTrackRecord(asof, edition);
   const data = q.data;
   const [slice, setSlice] = useState<SliceBy>("tier");
@@ -280,6 +284,8 @@ export default function TrackRecord({ asof, onSelectThesis }: DashboardProps) {
   };
   // A selector with one option cannot discriminate (WB#3): the edition control shows only once an edition is published.
   const newest = data.newest_edition ?? null;
+  const served = data.edition.number; // what the server read, whether the page named it or the default did
+  const pressed: EditionPick = served === 0 ? "record" : newest && served === newest.number ? "newest" : "other";
   const editionOptions: { value: EditionPick; label: string; title: string }[] = newest
     ? [
         { value: "record", label: "The record", title: "The calls log as recorded each night: the Scoreboard's Edition 0" },
@@ -301,7 +307,7 @@ export default function TrackRecord({ asof, onSelectThesis }: DashboardProps) {
       <RecordStartNote empty={data.counts.episodes === 0} />
       <div className="tr-controls">
         {newest && (
-          <Seg label="Edition" value={edition === 0 ? "record" : "newest"} options={editionOptions} onPick={pickEdition} />
+          <Seg label="Edition" value={pressed} options={editionOptions} onPick={pickEdition} />
         )}
         <Seg label="Slice" value={slice} options={SLICES} onPick={(v) => reset({ slice: v })} />
         <Seg label="Compare" value={comparison} options={COMPARISONS} onPick={(v) => reset({ comparison: v })} />

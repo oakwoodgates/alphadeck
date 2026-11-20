@@ -273,7 +273,9 @@ def test_the_plan_is_one_request_per_page_per_asof_with_the_pages_exact_default_
     a = ASOF.isoformat()
     assert first["trigger-log"] == {"asof": a, "days": "90", "role": "entry"}
     assert first["insider-tracker"] == {"asof": a, "days": "30", "silent": "false"}
-    assert first["track-record"] == {"asof": a}  # no edition: the page asks for the server's default
+    assert first["track-record"] == {
+        "asof": a
+    }  # no edition: the page asks for the server's default
     assert first["hot-board"] == {"asof": a, "rows": "armed"}
     assert first["cross-radar"] == {
         "asof": a,
@@ -902,7 +904,9 @@ def test_pages_send_the_query_parameters_the_frontend_hooks_send():
         assert path in hooks, f"no hook under frontend/src/dashboards reads /dashboards/{path}"
         sent = {"asof"} | {k for k in params if (path, k) not in PENDING_PARAMS}
         optional = {k for p, k in HOOK_OPTIONAL_PARAMS if p == path}
-        assert not optional & set(params), f"{path}: PAGES sends a param the page leaves off by default"
+        assert not optional & set(
+            params
+        ), f"{path}: PAGES sends a param the page leaves off by default"
         assert (
             hooks[path] == sent | optional
         ), f"{path}: the hook sends {sorted(hooks[path])}, PAGES sends {sorted(sent)}"

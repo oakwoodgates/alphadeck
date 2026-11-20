@@ -448,11 +448,10 @@ export function liquidityWords(r: TrackRowOut): { text: string; title: string } 
   };
 }
 
-/** Which edition the read is, and for the record why it is the default: the editions nightly is paused, so a page
- *  that names no edition reads the calls log. */
+/** Which edition the read is: the one the server served, named by its number and label. */
 export function editionWords(data: TrackRecordOut): string {
   const e = data.edition;
-  return e.number === 0 ? `edition 0: ${e.label} (the default; editions are paused)` : `edition ${e.number}: ${e.label}`;
+  return `edition ${e.number}: ${e.label}`;
 }
 
 /** The quiet "show the work" lines above the table: the as-of, the clock, the edition and the honesty policies in

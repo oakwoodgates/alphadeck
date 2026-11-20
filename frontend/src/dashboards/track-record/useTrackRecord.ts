@@ -19,15 +19,17 @@ export type TrackTableRowOut = components["schemas"]["TrackTableRowOut"];
 export type TrackFlaggedOut = components["schemas"]["TrackFlaggedOut"];
 export type TrackEditionOut = components["schemas"]["TrackEditionOut"];
 
-/** The whole page's read at the as-of for one Scoreboard edition (0 = the record, the calls log): every arm
- *  episode's row (both entry rules, every horizon, the cap and the liquidity at the event), the counts and the
- *  opening table. The edition is server side (each is its own read), so it is in the key; the tiering, slicing,
- *  filtering and the entry toggle are client side (recordView.ts), so none of them is a request parameter. The
- *  Scoreboard's honesty readings are the server's defaults. The previous view stays on screen while the next as-of
- *  or edition loads. */
-export function useTrackRecord(asof: string, edition: number) {
+/** The whole page's read at the as-of for one Scoreboard edition: every arm episode's row (both entry rules, every
+ *  horizon, the cap and the liquidity at the event), the counts and the opening table. No edition named (the
+ *  default view) asks for the server's default, the Scoreboard's (the newest published edition, the record when
+ *  none is published), and the reply says which it served; the operator's pick names one (0 = the record, the calls
+ *  log). The edition is server side (each is its own read), so it is in the key; the tiering, slicing, filtering and
+ *  the entry toggle are client side (recordView.ts), so none of them is a request parameter. The Scoreboard's
+ *  honesty readings are the server's defaults. The previous view stays on screen while the next as-of or edition
+ *  loads. */
+export function useTrackRecord(asof: string, edition?: number) {
   return useQuery({
-    queryKey: ["dashboard-track-record", asof, edition] as const,
+    queryKey: ["dashboard-track-record", asof, edition ?? "default"] as const,
     queryFn: async () => {
       const { data, error } = await api.GET("/dashboards/track-record", {
         params: { query: { asof, edition } },

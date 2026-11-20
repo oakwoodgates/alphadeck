@@ -1209,7 +1209,9 @@ def test_a_request_that_names_no_edition_serves_the_scoreboards_default_and_says
     body = client.get(URL, params={"asof": "2026-07-24"}).json()
     assert body["edition"] == {"number": 3, "label": "third re-run"}
     assert body["newest_edition"] == {"number": 3, "label": "third re-run"}
-    assert body["late_policy"] == "n/a"  # a stored edition has no late rows: the reading does not apply
+    assert (
+        body["late_policy"] == "n/a"
+    )  # a stored edition has no late rows: the reading does not apply
     assert seen["editions"] == [None] and seen["reads"][-1][3] is third
     # an explicit 0 is the record (the Scoreboard's own rule for 0), its own read, not the default's
     record = client.get(URL, params={"asof": "2026-07-24", "edition": 0}).json()
@@ -1848,7 +1850,8 @@ def test_the_scoreboards_default_edition_override_is_honored_and_an_unpublished_
     db, pinned_today, world, monkeypatch
 ):
     """The route takes the Scoreboard's resolver whole: `scoreboard_default_edition` 0 pins the record, a published N
-    pins that edition, and one naming an unpublished edition falls back to the newest (never a 404)."""
+    pins that edition, and one naming an unpublished edition falls back to the newest (never a 404).
+    """
     _publish_edition_one(db, world)
     try:
         for override, served in (("0", 0), ("1", 1), ("5", 1)):
@@ -1857,7 +1860,9 @@ def test_the_scoreboards_default_edition_override_is_honored_and_an_unpublished_
             resp = _get(db, asof="2026-06-24")
             assert resp.status_code == 200
             assert resp.json()["edition"]["number"] == served, override
-            assert resp.json()["newest_edition"]["number"] == 1  # the selector's newest is not the override
+            assert (
+                resp.json()["newest_edition"]["number"] == 1
+            )  # the selector's newest is not the override
     finally:
         monkeypatch.delenv("ALPHADECK_SCOREBOARD_DEFAULT_EDITION")
         get_settings.cache_clear()

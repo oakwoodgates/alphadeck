@@ -119,7 +119,8 @@ describe("TrackRecord — the toggles re-table the page with no request", () => 
     expect(tableKeys()).toEqual(["under_1m", "1m_10m", "10m_plus", "unpinned", "pooled"]);
     expect(screen.getAllByRole("columnheader")[0].textContent).toBe("Liquidity at the event");
     expect(screen.getAllByTestId("tr-table-row").at(-1)?.querySelector("th")?.textContent).toBe("all liquidity bands (pooled)");
-    expect(h.hook).toHaveBeenCalledWith("2026-07-24", 0); // the same read: the toggle is not a parameter
+    // the same read (the default's, no edition named): the toggle is not a parameter
+    expect(h.hook.mock.calls.every((c) => c[0] === "2026-07-24" && c[1] === undefined)).toBe(true);
   });
 
   it("switches the comparison to SPY and to the raw return", async () => {
