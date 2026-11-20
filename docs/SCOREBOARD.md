@@ -65,10 +65,14 @@ The CURRENT edition grows nightly: the cron sidecar appends tonight's page (and 
 missed) per live thesis after the nightly backup, so new theses and new companies join it from their own first
 night (`FEED_LOOP.md` §the editions nightly page).
 
-### After the V2 reset: an empty store, a workspace's own record  `[BUILT V2 W8a]`
+### After the V2 cutover: the history kept, a workspace's own record  `[BUILT V2 W8a]`
 
-V2 goes live with the calls log, the editions and the Scoreboard history wiped; each workspace starts its record
-fresh, on the night its first nightly call is recorded, so workspaces start on different nights.
+V2 goes live with V1's record KEPT (operator decision 2026-11-19, "keep the history"; it reverses the earlier plan to
+wipe it): the calls log (Edition 0) and the published Edition 1 stay, and V2's rule changes become Edition 2 through
+the automatic edition cut, like any later rule change. The founding workspace's record therefore starts on V1's
+first honest night; a workspace with no call on record yet (a new one) starts its record on the night its first
+nightly call is recorded, so workspaces can start on different nights. The rules below are what a workspace with
+no record yet sees.
 
 - **The record start is per workspace.** `GET /record/start` (any signed-in user) answers
   `{"first_night": <date> | null}` for the CALLER's workspace only: the first night it holds an honest
@@ -89,7 +93,9 @@ fresh, on the night its first nightly call is recorded, so workspaces start on d
   nothing to try" (cut). Once Edition 1 is published on a one-night record, the nightly appends only nights
   after the edition's last night ("up to date through ..." on the night itself) — never a night before it.
   Edition 1 itself is the labeled re-run from each company's join date (operator decision D1, V2 plan): a
-  re-run page, not the record; the record (Edition 0) starts on the workspace's first nightly call.
+  re-run page, not the record; the record (Edition 0) starts on the workspace's first nightly call. (The founding
+  workspace keeps its V1 Edition 1, so a publish there refuses as "already published"; its next edition comes
+  from the automatic cut.)
 
 **The default is the NEWEST published edition** (operator decision 2026-10-23: "edition 1 is now kinda like
 main, so the menu should just link to that by default"). `GET /scoreboard` and `price-window` with no `edition`

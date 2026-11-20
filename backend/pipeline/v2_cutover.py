@@ -14,8 +14,9 @@ The rules name TABLES, never a scope member that V2 deletes, so changing ``SCOPE
 here: the generic rules (3, 4) follow ``owner_of``, and the tables with a dedicated rule (5-9) are skipped by the
 generic ones whatever their scope.
 
-``run`` (W10a, ``pipeline/v2_reset.py``) is the cutover's APPLY path: a guarded, confirmed, locked, backed-up move
-and history reset in ONE transaction. Dry run unless ``--apply``; see that module for its rules and exit codes.
+``run`` (W10a, ``pipeline/v2_reset.py``) is the cutover's APPLY path: a guarded, confirmed, locked, backed-up
+platform-facts move in ONE transaction that KEEPS V1's history (operator decision 2026-11-19). Dry run unless
+``--apply``; see that module for its rules and exit codes.
 """
 
 from __future__ import annotations
@@ -35,6 +36,10 @@ from psycopg import sql
 import domain.scopes as scopes
 from db import session
 
+# V1's record (the calls log, its annotations, the editions store): KEPT, every row (operator decision 2026-11-19,
+# "keep the history"; it reverses the V1 reset). ``pipeline/v2_reset.HISTORY_TABLES`` names exactly these tables.
+HISTORY_KEPT = "keep (V1 history: operator decision 2026-11-19)"
+
 # What the cutover does with a table. EXCEPTIONS only: every other mapped table is ``keep``.
 CUTOVER_ACTION: dict[str, str] = {
     # the founding workspace's share counts and cash/burn are relabeled to the data tenant (V2 PR 2)
@@ -47,15 +52,15 @@ CUTOVER_ACTION: dict[str, str] = {
     # catalyst cannot be written on v2
     "fact_catalyst": "keep (feed rows; a workspace row refuses)",
     "fact_theme_conviction": "keep (retired: converted by W6 0213, read by nothing)",
-    # the record restarts at cutover
-    "calls": "reset",
-    "call_annotation": "reset",
-    "edition": "reset",
-    "edition_event": "reset",
-    "edition_entry": "reset",
-    "edition_call": "reset",
-    "edition_outcome": "reset",
-    "edition_cause": "reset",
+    # V1's record is kept: archived and counted by the apply path, never deleted
+    "calls": HISTORY_KEPT,
+    "call_annotation": HISTORY_KEPT,
+    "edition": HISTORY_KEPT,
+    "edition_event": HISTORY_KEPT,
+    "edition_entry": HISTORY_KEPT,
+    "edition_call": HISTORY_KEPT,
+    "edition_outcome": HISTORY_KEPT,
+    "edition_cause": HISTORY_KEPT,
     # bookkeeping the nightly jobs already prune (db/housekeeping.py, db/change_stamp.py): kept as is (W10a)
     "user_action_count": "keep (pruned nightly)",
     "security_change": "keep (pruned nightly)",
@@ -71,7 +76,7 @@ CUTOVER_ACTION["platform_value_decision"] = "keep"
 # --- V2 W3a: the extraction attempt record (migration 0207) is new and empty at cutover: kept, named explicitly
 CUTOVER_ACTION["platform_extraction_attempt"] = "keep"
 # --- end V2 W3a block ----------------------------------------------------------------------------------------
-# --- V2 W6a: the counting catalyst entries (migration 0212) are kept, named explicitly; the reset's per-thesis
+# --- V2 W6a: the counting catalyst entries (migration 0212) are kept, named explicitly; the cutover's per-thesis
 # child counts include them (pipeline/v2_reset._CHILD_TABLES), so the recall proof covers them -----------------
 CUTOVER_ACTION["fact_thesis_catalyst"] = "keep"
 # --- end V2 W6a block ----------------------------------------------------------------------------------------
@@ -588,8 +593,8 @@ def main(argv: list[str] | None = None) -> int:
     # --- V2 W10a: the cutover's apply path (pipeline/v2_reset.py) ---
     run = sub.add_parser(
         "run",
-        help="the cutover: guard, preflight, verified backup, then the move and the history reset in ONE "
-        "transaction; dry run unless --apply (exit 0 done, 1 refused, 2 wrong database or confirmation, "
+        help="the cutover: guard, preflight, verified backup, then the platform-facts move in ONE transaction; "
+        "V1's history is kept; dry run unless --apply (exit 0 done, 1 refused, 2 wrong database or confirmation, "
         "3 backup failed, 4 rolled back, 75 busy or the nightly window)",
     )
     run.add_argument(
@@ -628,7 +633,7 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument(
         "--no-history-archive",
         action="store_true",
-        help="skip the separate dump of the " "eight history tables (default: take it)",
+        help="skip the separate dump of the eight (kept) history tables (default: take it)",
     )
     run.add_argument(
         "--provenance-dir",
@@ -640,7 +645,8 @@ def main(argv: list[str] | None = None) -> int:
     verify = sub.add_parser(
         "verify",
         help="READ-ONLY proof of the cutover's result, by stage (cumulative): recall (no card lost a company), "
-        "platform facts, the history reset, then the backfill, the first V2 night and Edition 1 "
+        "platform facts, V1's history kept, then the backfill, the first V2 night and Edition 2 after the kept "
+        "edition "
         "(exit 0 verified, 2 cannot verify, 5 a check failed)",
     )
     verify.add_argument(
@@ -671,7 +677,7 @@ def main(argv: list[str] | None = None) -> int:
         "--night",
         metavar="YYYY-MM-DD",
         type=date.fromisoformat,
-        help="the night the nightly stage checks (default: the newest calls.asof)",
+        help="the night the nightly stage checks (default: the newest calls.asof recorded after the cutover)",
     )
     verify.add_argument(
         "--run-kind",

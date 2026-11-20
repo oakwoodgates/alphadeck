@@ -454,14 +454,16 @@ tenant per table, and a writer of a DATA table writes the data tenant only (`dom
 
 Never build a destructive reset path or assume a single global tenant — seeds are idempotent and additive.
 
-**The one exception (V2 cutover, once).** The V2 cutover, `python -m pipeline.v2_cutover run` (module
-`backend/pipeline/v2_reset.py`), is the only code that deletes from the immutable `calls` log and the editions
-store (`call_annotation` and the six `edition*` tables go with it): V1's history is reset on purpose when V2 goes
-live (operator decision). It is a dry run unless `--apply`. It refuses any database it was not named for on its
-command line (the name is read back from the writing connection; production needs `--prod`), takes and verifies a
-backup first, deletes inside one transaction with each row count checked, and leaves one `data_repair` journal row
-with tool `v2_cutover`. It runs once: a second run refuses while any history row exists. Nothing else may delete
-from those tables. The runbook is `docs/V2_CUTOVER.md`.
+**The V2 cutover keeps the history (once).** The V2 cutover, `python -m pipeline.v2_cutover run` (module
+`backend/pipeline/v2_reset.py`), moves the platform facts to their V2 tenants and deletes NOTHING from the immutable
+`calls` log, `call_annotation` or the six `edition*` tables: V1's history is kept (operator decision 2026-11-19,
+"keep the history", reversing the earlier reset), and V2's rule changes become Edition 2 through the automatic
+edition cut. Its only delete is the unratified orphan purity rows, and only with `--orphan-purity delete`. It is a
+dry run unless `--apply`. It refuses any database it was not named for on its command line (the name is read back
+from the writing connection; production needs `--prod`), takes and verifies a backup first, checks every history
+count unchanged inside its one transaction, and leaves one `data_repair` journal row with tool `v2_cutover`. It
+runs once: a second run, with nothing left to move, does nothing. No code may delete from those tables. The
+runbook is `docs/V2_CUTOVER.md`.
 Nothing but `domain/scopes.py` may hard-code which tenant a table lives in.
 
 **Isolation is discipline + the poison-row test, NOT RLS** — the `security_id` FK carries no tenant, so nothing

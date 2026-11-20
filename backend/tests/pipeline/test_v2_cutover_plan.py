@@ -62,7 +62,7 @@ tenants   : 00000000-0000-0000-0000-000000000001  data       "platform"         
 
 TABLE                     OWNER       PLAN                                                   ROWS  BY TENANT                BY ratified_by
 app_user                  user-keyed  keep                                                      3  -                        -
-calls                     user        reset                                                 41210  …0002:41210              -
+calls                     user        keep (V1 history: operator decision 2026-11-19)       41210  …0002:41210              -
 fact_theme_conviction     user        keep (retired: converted by W6 0213, read by nothing)    12  …0002:9 …3f2a:3          null:2 operator:10
 security_change           platform    keep (pruned nightly)                                 90210  …0001:90210              -
 security_master           platform    keep                                                   9021  …0001:9021               -
@@ -104,11 +104,13 @@ def test_render_is_byte_stable():
         "thesis catalysts (W6/W10); none were expected",
     )
     assert C.render(inv, [surprise]) == _EXPECTED
-    # with no wide cell, the columns are exactly the plan's example (its lines, byte for byte)
+    # with no wide cell, the columns are exactly the plan's example (its lines, byte for byte; the example's
+    # ``calls  reset`` row is ``thesis  keep`` here, since the cutover keeps V1's history: operator decision
+    # 2026-11-19)
     narrow = C.render(
         _inventory(
             [
-                _table("calls", 41210, {FOUNDING_WORKSPACE_ID: 41210}),
+                _table("thesis", 41210, {FOUNDING_WORKSPACE_ID: 41210}),
                 _table("security_master", 9021, {DATA_TENANT_ID: 9021}),
                 _table("app_user", 3),
             ]
@@ -118,15 +120,17 @@ def test_render_is_byte_stable():
     assert narrow[narrow.index("") + 1 : narrow.index("") + 5] == [
         "TABLE                     OWNER       PLAN          ROWS  BY TENANT                BY ratified_by",
         "app_user                  user-keyed  keep             3  -                        -",
-        "calls                     user        reset        41210  …0002:41210              -",
         "security_master           platform    keep          9021  …0001:9021               -",
+        "thesis                    user        keep         41210  …0002:41210              -",
     ]
     # the JSON carries the same data, and is plain JSON
     doc = C.to_json(inv, [surprise])
     assert json.loads(json.dumps(doc)) == doc
     assert doc["exit_code"] == 1 and doc["surprises"][0]["rule"] == 6
     calls = next(t for t in doc["tables"] if t["name"] == "calls")
-    assert calls["plan"] == "reset" and calls["by_tenant"] == {str(FOUNDING_WORKSPACE_ID): 41210}
+    assert calls["plan"] == C.HISTORY_KEPT and calls["by_tenant"] == {
+        str(FOUNDING_WORKSPACE_ID): 41210
+    }
 
 
 def test_every_action_names_a_mapped_table():
@@ -134,9 +138,15 @@ def test_every_action_names_a_mapped_table():
     assert C.CUTOVER_ACTION["fact_shares_outstanding"] == "move→data"
     assert C.CUTOVER_ACTION["fact_cash_burn"] == "move→data"
     assert C.CUTOVER_ACTION["fact_revenue_mix"] == "move→founding"
+    # V1's history is KEPT (operator decision 2026-11-19, "keep the history"): no table is reset
     for t in ("calls", "call_annotation") + tuple(t for t in SCOPE_OF if t.startswith("edition")):
-        assert C.CUTOVER_ACTION[t] == "reset"
-    assert len([t for t, a in C.CUTOVER_ACTION.items() if a == "reset"]) == 8
+        assert (
+            C.CUTOVER_ACTION[t]
+            == C.HISTORY_KEPT
+            == "keep (V1 history: operator decision 2026-11-19)"
+        )
+    assert len([t for t, a in C.CUTOVER_ACTION.items() if a == C.HISTORY_KEPT]) == 8
+    assert "reset" not in set(C.CUTOVER_ACTION.values())
     assert C.plan_of("security_master") == "keep"  # the default
     # W10a: nothing is converted or pruned by the cutover; the labels say what happens instead
     assert C.CUTOVER_ACTION["fact_catalyst"] == "keep (feed rows; a workspace row refuses)"

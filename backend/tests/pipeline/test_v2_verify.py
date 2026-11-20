@@ -1,7 +1,8 @@
 """The V2 cutover's VERIFY step (``python -m pipeline.v2_cutover verify --stage ...``, W10b).
 
-Every test starts from a REAL post-cutover database: a small V1-state seed, then the apply path itself
-(``v2_reset.run`` with a stub dump runner and a clock outside the nightly window), which writes the real provenance
+Every test starts from a REAL post-cutover database: a small V1-state seed WITH V1 history (calls, a reconstructed
+call, an annotation, Edition 1), then the apply path itself (``v2_reset.run`` with a stub dump runner and a clock
+outside the nightly window), which keeps that history (operator decision 2026-11-19) and writes the real provenance
 file the verify reads. Then a test breaks the result in ONE way and asserts the stage fails NAMING it.
 
 Safety: the per-worktree test database only (the ``db`` fixture); no pg_dump (a fail-loud stub for the module); the
@@ -30,6 +31,12 @@ from pipeline import v2_reset as R
 from pipeline import v2_verify as V
 
 COMPLETE = "--\n-- PostgreSQL database dump\n--\n\n--\n-- PostgreSQL database dump complete\n--\n\n"
+V1_NIGHT = date(2026, 6, 1)  # V1's night on record, long before the cutover
+# what the automatic cut labels Edition 2 after the cutover (tests/editions/test_cut.py characterizes it)
+RULE_LABEL = (
+    "rule change: insider window widened · data repair: V2 cutover: moved 4 share-count, cash/burn and purity "
+    "row(s) to their V2 tenants; V1 history kept · includes data that arrived since Edition 1"
+)
 _VOCABULARY = (
     "CHECK (ratified_by IS NULL OR ratified_by IN ('auto', 'operator') "
     "OR ratified_by ~ '^[^@[:space:]]+@[^@[:space:]]+$') NOT VALID"
@@ -158,7 +165,8 @@ def admin(db):
 def _seed(db) -> dict:
     """A V1-state database: founding share counts and cash/burn, a feed share row, a ratified data-tenant purity
     row (moves to founding), the orphan (unratified, data tenant), two theses (RSTA + RSTB, and RSTA again in
-    another segment), a kill criterion, a decision, V1 calls with an annotation, and one edition."""
+    another segment), a kill criterion, a decision, V1 calls (one reconstructed) with an annotation, and one
+    edition (Edition 1, kept by the cutover)."""
     names = sorted(SCOPE_OF)
     out: dict = {}
     with db.cursor() as cur:
@@ -202,7 +210,7 @@ def _seed(db) -> dict:
         cur.execute(
             "INSERT INTO calls (tenant_id, thesis_id, asof, state, verdict, card, run_kind) "
             "VALUES (%s, %s, %s, 'Armed', 'go', '{}'::jsonb, 'cron') RETURNING id",
-            (FOUNDING_WORKSPACE_ID, t1, date(2026, 6, 1)),
+            (FOUNDING_WORKSPACE_ID, t1, V1_NIGHT),
         )
         call_id = cur.fetchone()["id"]
         cur.execute(
@@ -210,16 +218,30 @@ def _seed(db) -> dict:
             "SELECT %s, tenant_id, id, thesis_id, asof, 'exclude', 'r', 'test@x' FROM calls WHERE id = %s",
             (uuid.uuid4(), call_id),
         )
+        cur.execute(  # V1 wrote reconstructed rows too (migration 0042): history, never a V2 night
+            "INSERT INTO calls (tenant_id, thesis_id, asof, state, verdict, card, run_kind, reconstructed) "
+            "VALUES (%s, %s, %s, 'Incubating', 'none', '{}'::jsonb, 'cron', true)",
+            (FOUNDING_WORKSPACE_ID, t2, V1_NIGHT),
+        )
         _edition(cur, FOUNDING_WORKSPACE_ID, 1, [(t1, a)])
     db.commit()
     return out
 
 
-def _edition(cur, tenant, number: int, entries) -> uuid.UUID:
+def _edition(
+    cur,
+    tenant,
+    number: int,
+    entries,
+    *,
+    label: str = "first re-run",
+    parent=None,
+    causes: tuple[str, ...] = ("initial",),
+) -> uuid.UUID:
     cur.execute(
-        "INSERT INTO edition (tenant_id, number, label, causes, engine_fingerprint, config_hash, data_known_by, "
-        "first_night) VALUES (%s, %s, 'first re-run', ARRAY['initial'], 'fp', 'cfg', now(), %s) RETURNING id",
-        (tenant, number, date(2026, 6, 1)),
+        "INSERT INTO edition (tenant_id, number, parent_id, label, causes, engine_fingerprint, config_hash, "
+        "data_known_by, first_night) VALUES (%s, %s, %s, %s, %s, 'fp', 'cfg', now(), %s) RETURNING id",
+        (tenant, number, parent, label, list(causes), date(2026, 6, 1)),
     )
     ed = cur.fetchone()["id"]
     for tid, sid in entries:
@@ -305,39 +327,74 @@ def _night(db, theses, *, asof: date | None = None, run_kind: str = "cron", **co
         )
 
 
-def _edition_1(db, cut, entries=None) -> None:
+def _kept_edition(db) -> uuid.UUID | None:
+    """The kept V1 Edition 1 (the seed's), or ``None`` when it is gone."""
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT id FROM edition WHERE tenant_id = %s AND number = 1", (FOUNDING_WORKSPACE_ID,)
+        )
+        row = cur.fetchone()
+    db.rollback()
+    return None if row is None else row["id"]
+
+
+def _v1_calls(db) -> int:
+    with db.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM calls WHERE asof = %s", (V1_NIGHT,))
+        n = int(cur.fetchone()["n"])
+    db.rollback()
+    return n
+
+
+def _edition_2(
+    db, cut, entries=None, *, label: str = RULE_LABEL, parent: str = "kept", close: bool = True
+) -> None:
+    """What the automatic cut writes after the cutover: Edition 2 (parent the kept Edition 1, a rule-change
+    label, an entry row per company) and Edition 1's ``closed`` event."""
+    kept = _kept_edition(db)
+    assert kept is not None, "the kept Edition 1 is gone"
     with db.cursor() as cur:
         _edition(
             cur,
             FOUNDING_WORKSPACE_ID,
-            1,
+            2,
             (
                 entries
                 if entries is not None
                 else [(cut["t1"], cut["a"]), (cut["t1"], cut["b"]), (cut["t2"], cut["a"])]
             ),
+            label=label,
+            parent=kept if parent == "kept" else None,
+            causes=("rule_change", "data_repair"),
         )
+        if close:
+            cur.execute(
+                "INSERT INTO edition_event (tenant_id, edition_id, kind) VALUES (%s, %s, 'closed')",
+                (FOUNDING_WORKSPACE_ID, kept),
+            )
     db.commit()
 
 
 # --- the clean path -----------------------------------------------------------------------------------------
 
 
-def test_a_clean_cutover_verifies_at_every_stage(db, cut, capsys):
+def test_a_clean_cutover_with_history_verifies_at_every_stage(db, cut, capsys):
     code, out = _run(cut, capsys, "reset")
     assert code == V.EXIT_VERIFIED, out
     assert "RESULT: VERIFIED. Exit 0." in out and not _fails(out)
     assert "2 theses, 3 basket rows, 0 dropped" in out
+    assert "ok: V8 history: V1's history kept" in out
     _backfill(db, cut)
     code, out = _run(cut, capsys, "backfill")
     assert code == 0 and not _fails(out), out
     _night(db, [cut["t1"], cut["t2"]])
     code, out = _run(cut, capsys, "nightly")
     assert code == 0 and not _fails(out), out
-    _edition_1(db, cut)
+    assert f"ok: N1 night: night {market_time.market_today()}: 2 call rows" in out
+    _edition_2(db, cut)
     code, out = _run(cut, capsys, "edition")
     assert code == 0 and not _fails(out), out
-    for prefix in ("ok: V1", "ok: V5", "ok: B1", "ok: N1", "ok: E1"):
+    for prefix in ("ok: V1", "ok: V5", "ok: V8", "ok: B1", "ok: N1", "ok: E1", "ok: E2", "ok: E3"):
         assert prefix in out
 
 
@@ -357,14 +414,14 @@ def test_verify_is_read_only(db, cut, capsys, tmp_path):
     its connection refuses a write even in a fresh transaction."""
     _backfill(db, cut)
     _night(db, [cut["t1"], cut["t2"]])
-    _edition_1(db, cut)
+    _edition_2(db, cut)
     before = _counts(db)
     files_before = sorted(p for p in tmp_path.rglob("*"))
     for (
         stage
-    ) in V.STAGES:  # the earlier stages FAIL V8 on this post-edition state: only the counts matter
+    ) in V.STAGES:  # reset and backfill FAIL V8 here (the history grew): only the counts matter
         code, out = _run(cut, capsys, stage)
-        assert code == (0 if stage == "edition" else V.EXIT_FAILED), out
+        assert code == (0 if stage in ("nightly", "edition") else V.EXIT_FAILED), out
     assert _counts(db) == before
     assert sorted(p for p in tmp_path.rglob("*")) == files_before
     out_json = tmp_path / "report" / "verify.json"
@@ -523,10 +580,37 @@ def test_a_ratified_purity_row_on_the_data_tenant_fails(db, cut, capsys):
     assert _ticker_line(out, "V7 purity")
 
 
-def test_a_calls_row_left_fails(db, cut, capsys):
+def test_a_deleted_v1_call_fails_v8(db, cut, capsys):
+    """V1's history is kept: a V1 call gone (its annotation cascades with it) fails V8, before the V2 cron starts
+    (counts equal the baseline) and after it (the rows recorded before the cutover equal the baseline).
+    """
+    assert _v1_calls(db) == 2
+    _exec(db, "DELETE FROM calls WHERE thesis_id = %s AND asof = %s", (cut["t1"], V1_NIGHT))
+    code, out = _run(cut, capsys)
+    line = _ticker_line(out, "V8 history")
+    assert code == V.EXIT_FAILED and "calls 2 -> 1" in line and "call_annotation 1 -> 0" in line
+    _backfill(db, cut)
+    _night(db, [cut["t1"], cut["t2"]])
+    code, out = _run(cut, capsys, "nightly", run_kind="any")
+    line = _ticker_line(out, "V8 history")
+    assert code == V.EXIT_FAILED and "recorded before the cutover" in line and "1" in line
+
+
+def test_a_deleted_v1_edition_fails_v8(db, cut, capsys):
+    kept = _kept_edition(db)
+    assert kept is not None
+    _exec(db, "DELETE FROM edition WHERE id = %s", (kept,))  # its children cascade
+    code, out = _run(cut, capsys)
+    line = _ticker_line(out, "V8 history")
+    assert code == V.EXIT_FAILED and "edition 1 -> 0" in line and str(kept) in line
+
+
+def test_a_history_row_added_before_the_cron_starts_fails_v8(db, cut, capsys):
+    """Until the V2 cron starts (step 10) nothing may write the history: a call row recorded then fails V8 at the
+    reset stage (the counts must EQUAL the baseline)."""
     _night(db, [cut["t1"]])
     code, out = _run(cut, capsys)
-    assert code == V.EXIT_FAILED and "calls" in _ticker_line(out, "V8 history")
+    assert code == V.EXIT_FAILED and "calls 2 -> 3" in _ticker_line(out, "V8 history")
 
 
 def test_a_constraint_left_not_valid_fails(db, cut, capsys):
@@ -683,9 +767,16 @@ def backfilled(db, cut):
     return cut
 
 
-def test_no_nightly_call_yet_is_an_honest_fail(db, backfilled, capsys):
+def test_n1_ignores_v1_nights_before_the_first_v2_night(db, backfilled, capsys):
+    """V1's calls are kept, so before the first V2 night the newest ``asof`` is V1's. N1 must say "not yet" and
+    never pass on it: by default, or when that V1 night is named."""
+    assert _v1_calls(db) == 2  # V1's night is still on record
     code, out = _run(backfilled, capsys, "nightly")
     assert code == V.EXIT_FAILED and "not yet" in _ticker_line(out, "N1 night")
+    assert "ok: N" not in out
+    code, out = _run(backfilled, capsys, "nightly", night=V1_NIGHT.isoformat())
+    assert code == V.EXIT_FAILED and V1_NIGHT.isoformat() in _ticker_line(out, "N1 night")
+    assert "ok: N" not in out
 
 
 def test_a_live_thesis_missing_from_the_night_is_named(db, backfilled, capsys):
@@ -698,7 +789,19 @@ def test_a_reconstructed_nightly_row_fails(db, backfilled, capsys):
     _night(db, [backfilled["t1"]])
     _night(db, [backfilled["t2"]], reconstructed=True)
     _, out = _run(backfilled, capsys, "nightly")
-    assert _ticker_line(out, "N3 reconstructed")
+    assert "1 reconstructed" in _ticker_line(out, "N3 reconstructed")
+
+
+def test_a_v1_reconstructed_row_does_not_fail_n3(db, backfilled, capsys):
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT count(*) AS n FROM calls WHERE reconstructed AND asof = %s", (V1_NIGHT,)
+        )
+        assert cur.fetchone()["n"] == 1  # V1's reconstructed row is kept
+    db.rollback()
+    _night(db, [backfilled["t1"], backfilled["t2"]])
+    code, out = _run(backfilled, capsys, "nightly")
+    assert code == 0 and "ok: N3 reconstructed" in out, out
 
 
 def test_the_run_kind_must_be_cron_unless_any(db, backfilled, capsys):
@@ -709,11 +812,16 @@ def test_the_run_kind_must_be_cron_unless_any(db, backfilled, capsys):
     assert code == 0, out
 
 
-def test_a_call_dated_before_the_cutover_fails(db, backfilled, capsys):
+def test_a_v2_row_dated_before_the_cutover_fails_n5(db, backfilled, capsys):
+    """V1's rows are dated long before the cutover and do not fail N5; a row written after the cutover for a night
+    before it does."""
+    assert _v1_calls(db) == 2
     _night(db, [backfilled["t1"], backfilled["t2"]])
+    code, out = _run(backfilled, capsys, "nightly")
+    assert code == 0 and "ok: N5 after the cutover" in out, out
     _night(db, [backfilled["t1"]], asof=market_time.market_today() - timedelta(days=3))
     _, out = _run(backfilled, capsys, "nightly")
-    assert _ticker_line(out, "N5 after the cutover")
+    assert "1 call row" in _ticker_line(out, "N5 after the cutover")
 
 
 def test_a_call_under_the_data_tenant_fails(db, backfilled, capsys):
@@ -746,29 +854,52 @@ def nightly(db, backfilled):
     return backfilled
 
 
-def test_no_edition_yet_is_an_honest_fail(db, nightly, capsys):
+def test_edition_stage_wants_a_new_edition_after_the_kept_one(db, nightly, capsys):
+    """Edition 1 is kept: the edition stage waits for the NEXT one (the automatic cut, run by hand on cutover day):
+    "not yet" with only the kept edition; it passes with Edition 2 (parent the kept Edition 1, a rule-change
+    label, Edition 1 closed)."""
+    assert _kept_edition(db) is not None
     code, out = _run(nightly, capsys, "edition")
-    assert code == V.EXIT_FAILED and "not yet" in _ticker_line(out, "E1 edition")
+    line = _ticker_line(out, "E1 edition")
+    assert code == V.EXIT_FAILED and "not yet" in line and "Edition 2" in line
+    assert not [f for f in _fails(out) if f.startswith("FAIL: E2")]  # E2 waits for the new edition
+    _edition_2(db, nightly)
+    code, out = _run(nightly, capsys, "edition")
+    assert code == 0 and not _fails(out), out
+    assert "ok: E1 edition: Edition 2 after the kept Edition 1" in out
 
 
-def test_two_editions_fail(db, nightly, capsys):
-    _edition_1(db, nightly)
-    with db.cursor() as cur:
-        _edition(cur, FOUNDING_WORKSPACE_ID, 2, [])
-    db.commit()
-    _, out = _run(nightly, capsys, "edition")
-    assert "2 editions" in _ticker_line(out, "E1 edition")
+@pytest.mark.parametrize("broken", ["label", "parent", "not closed"])
+def test_a_new_edition_must_be_a_rule_change_after_the_closed_kept_one(db, nightly, capsys, broken):
+    _edition_2(
+        db,
+        nightly,
+        label=(
+            "data repair: x · includes data that arrived since Edition 1"
+            if broken == "label"
+            else RULE_LABEL
+        ),
+        parent="none" if broken == "parent" else "kept",
+        close=broken != "not closed",
+    )
+    code, out = _run(nightly, capsys, "edition")
+    line = _ticker_line(out, "E1 edition")
+    assert code == V.EXIT_FAILED
+    assert {"label": "rule change", "parent": "parent", "not closed": "not closed"}[broken] in line
 
 
 def test_a_live_thesis_with_no_entry_is_named(db, nightly, capsys):
-    _edition_1(db, nightly, entries=[(nightly["t1"], nightly["a"])])
+    _edition_2(db, nightly, entries=[(nightly["t1"], nightly["a"])])
     _, out = _run(nightly, capsys, "edition")
     assert str(nightly["t2"]) in _ticker_line(out, "E2 entries")
 
 
 def test_an_edition_for_a_workspace_with_no_live_card_fails(db, nightly, capsys):
-    _edition_1(db, nightly)
+    """A NEW edition for a workspace with no live card fails E3; the kept V1 edition is history, never a stray."""
     _exec(db, "UPDATE thesis SET archived_at = now()")
+    _, out = _run(nightly, capsys, "edition")
+    assert not [f for f in _fails(out) if f.startswith("FAIL: E3")], out
+    _edition_2(db, nightly)
     _, out = _run(nightly, capsys, "edition")
     assert _ticker_line(out, "E3 no card")
 

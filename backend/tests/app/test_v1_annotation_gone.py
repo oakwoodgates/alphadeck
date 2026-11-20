@@ -1,7 +1,8 @@
-"""V2 W8b: V1's call-annotation machinery is GONE (the table stays, empty after the cutover).
+"""V2 W8b: V1's call-annotation machinery is GONE (the table stays: its V1 rows are kept, unread).
 
-The cutover resets V1's calls log and empties ``call_annotation``, so nothing is left to annotate or to set
-aside. These tests pin the end state: the three CLIs and the repository cannot be imported, the Scoreboard
+The cutover keeps V1's calls log and ``call_annotation`` (operator decision 2026-11-19, "keep the history"), but
+nothing on V2 reads, writes or sets aside by an annotation any more (the Scoreboard counts what the system said;
+operator decision K5). These tests pin the end state: the three CLIs and the repository cannot be imported, the Scoreboard
 and Track Record have no annotated reading (no ``include_annotated`` parameter, no ``annotated_policy`` /
 ``annotation_note``), the setting is gone, and no source file outside the few allowed ones names the old
 machinery again.
@@ -37,14 +38,15 @@ FORBIDDEN = (
     "exclude_" + "annotated",
 )
 
-# the table stays: its migrations, its schema test, its scope entry and the cutover's reset entry name it
+# the table stays (its V1 rows kept, unread): its migrations, its schema test, its scope entry and the cutover's
+# keep entry name it
 ALLOWED = (
     "db/migrations/",
     "tests/db/test_migration_0045_call_annotation.py",
     "domain/scopes.py",
     "pipeline/v2_cutover.py",
-    "pipeline/v2_reset.py",  # W10a: the reset empties the table
-    "pipeline/v2_verify.py",  # W10b: verify (read-only) proves the table is still empty
+    "pipeline/v2_reset.py",  # W10a: the cutover keeps the table's rows (archived and counted, never deleted)
+    "pipeline/v2_verify.py",  # W10b: verify (read-only) proves none of its rows was lost
     "tests/pipeline/test_v2_verify.py",
     # tests of the kept pieces that list the table among the tables they cover
     "tests/pipeline/test_v2_cutover_plan.py",

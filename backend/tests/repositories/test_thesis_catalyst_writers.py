@@ -48,9 +48,9 @@ _GENERIC_WRITERS: dict[str, str] = {
     # ``append_fact`` (the definition): the table name appears only in the as-of whitelist ``_FACT_IDENTITY``;
     # rule (2) forbids every call of it on this table
     "db/bitemporal.py": "the generic append_fact (the definition)",
-    # the cutover reset: ``DELETE FROM {}`` runs over ``RESET_ORDER`` only (the calls and editions record); it
-    # names this table in ``_CHILD_TABLES``, which it COUNTS for the recall baseline and never deletes from
-    "pipeline/v2_reset.py": "the reset deletes only RESET_ORDER; this table is a counted child (keep)",
+    # (``pipeline/v2_reset.py`` is no longer listed: since the cutover keeps V1's history (operator decision
+    # 2026-11-19) it deletes no table wholesale, so it builds no write against a computed table. It still names
+    # this table in ``_CHILD_TABLES``, which it only COUNTS for the recall baseline.)
 }
 
 

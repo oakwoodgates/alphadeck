@@ -79,9 +79,9 @@ _DIRECT_WRITERS: dict[str, str] = {
     "pipeline/repair_filing_dates.py": "a guarded repair (W2d)",
     # V2 W0b: the one-time, fork-guarded move of the founding workspace's rows INTO the data tenant
     "pipeline/v2_move.py": "the W0b platform-facts move (into the data tenant only)",
-    # V2 W10a: the cutover's one transaction runs the same move (v2_move.relabel_legs, into the data tenant only)
-    # and VALIDATEs migration 0206's constraints; guarded, confirmed, backed up, journaled, once
-    "pipeline/v2_reset.py": "the W10a cutover (the W0b move inside its one transaction)",
+    # (``pipeline/v2_reset.py``, the W10a cutover, is no longer listed: it runs the move through
+    # ``v2_move.relabel_legs`` above, and since it keeps V1's history (operator decision 2026-11-19) it builds no
+    # write against a computed table, so it no longer writes either table directly.)
     # NOT V2-AWARE (found by this guard; outside W2's plan): deletes byte-identical duplicate versions in every
     # ``_FACT_IDENTITY`` table, every tenant. Listed so a NEW writer still fails; its V2 rules are a follow-up.
     "pipeline/dedup_identical_versions.py": "the duplicate-version dedup (generic; follow-up)",

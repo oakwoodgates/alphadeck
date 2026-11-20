@@ -1,7 +1,9 @@
 """``GET /record/start`` (V2 W8a): where the signed-in user's workspace's record starts.
 
-After the V2 reset every workspace starts its record fresh, on the night its first nightly call is recorded,
-and workspaces start on different nights. The history dashboards say so ("The record starts on ...", W8c).
+A workspace's record starts on the first night it holds an honest call: V1's first night for the founding
+workspace (the V2 cutover keeps V1's history, operator decision 2026-11-19), the night of its first nightly call
+for a newer workspace, so workspaces start on different nights. The history dashboards say so ("The record starts
+on ...", W8c).
 This route answers for the caller's OWN workspace only (``get_workspace``): another workspace's nights, and
 the data tenant's, never reach it. It reads ``calls_repo`` only and imports no dashboard module (the leaf rule,
 ``tests/dashboards/test_isolation.py``). Read-only.
