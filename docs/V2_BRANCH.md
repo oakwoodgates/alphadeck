@@ -59,7 +59,8 @@ The note says, in a line or two, what the next merge-main has to do on `v2` (for
 
 `python -m pipeline.v2_cutover plan [--json PATH]` reads a database and prints, for every table, its owner (from
 `domain/scopes.py`), what the cutover does with it (`keep` unless `CUTOVER_ACTION` says `move→data`,
-`move→founding` or `reset`; a labeled `keep (...)` says why a table is left as it is), its row count, and its rows per tenant and per
+`move→founding`; a labeled `keep (...)` says why a table is left as it is, e.g. V1's history: `keep (V1 history:
+operator decision 2026-11-19)`), its row count, and its rows per tenant and per
 `ratified_by`. Then it lists every surprise (a row where no plan expects it). It is read-only: a read-only
 connection, rolled back, nothing written to the database (`--json` writes only the file you name).
 
@@ -71,19 +72,24 @@ database you were not asked to inspect.
 
 **The apply path (W10a).** `python -m pipeline.v2_cutover run --database NAME --confirm "reset NAME" [--prod]
 [--apply] [--expect-plan PATH] [--plan-out PATH] [--orphan-purity leave|delete] [--reuse-backup FILE]
-[--no-history-archive] [--provenance-dir DIR]` (`backend/pipeline/v2_reset.py`) is the one-time cutover: it
-DELETES V1's history (`calls`, `call_annotation` and the six `edition*` tables) on purpose. It is a read-only dry
-run unless `--apply`. It reads the database name from its own connection and refuses (exit 2, nothing read) unless
-`--database` matches it and `--confirm` is exactly `reset NAME`; the production name only with `--prod`, `--prod`
+[--no-history-archive] [--provenance-dir DIR]` (`backend/pipeline/v2_reset.py`) is the one-time cutover: it moves
+the platform facts and KEEPS V1's history (`calls`, `call_annotation` and the six `edition*` tables keep every row;
+operator decision 2026-11-19, "keep the history"; V2's rule changes then become Edition 2 through the automatic
+edition cut). It is a read-only dry run unless `--apply`. It reads the database name from its own connection and refuses (exit 2, nothing read) unless
+`--database` matches it and `--confirm` is exactly `reset NAME` (the phrase is unchanged, decision K6); the
+production name only with `--prod`, `--prod`
 only with that name, and `--prod --apply` only with `--expect-plan`. Then the preflight (migrations applied, the
 two tenants, outside the nightly window, every job lock held, no surprise except the acknowledged orphan purity,
-no workspace company catalyst, 0206's vocabulary, the move's refusals, no foreign key into the reset tables from
-elsewhere, not already cut over); a verified backup of the same database and a V1 history archive; then ONE
-transaction: the platform-facts move, the reset (DELETE, children first, each count checked), VALIDATE of 0206's
-two constraints, and the `data_repair` journal row; and a provenance file with the recall baseline. Exit 0 done
-(or already cut over with nothing left), 1 refused, 2 wrong database or confirmation, 3 backup failed, 4 rolled
-back (backup kept), 75 busy or the nightly window. A second reset after a V2 night refuses. Rehearse it on a fork
-only; the production run is the operator's (the runbook, W10d).
+no workspace company catalyst, 0206's vocabulary, the move's refusals, not already cut over; V1's history counts
+printed); a verified backup of the same database and a V1 history archive (a frozen dump of exactly the eight
+history tables); then ONE transaction: the platform-facts move, the orphan purity rows deleted only with
+`--orphan-purity delete` (the only delete), every history count checked unchanged, VALIDATE of 0206's two
+constraints, and the `data_repair` journal row (`deletes` false unless an orphan row was deleted; its summary is
+what the automatic cut quotes in Edition 2's label); and a provenance file with the recall baseline (which also
+counts the history and lists the editions). Exit 0 done (or already cut over with nothing left), 1 refused, 2 wrong
+database or confirmation, 3 backup failed, 4 rolled back (backup kept), 75 busy or the nightly window. A second run
+after a V2 night does nothing (exit 0, no backup, no journal row); one with a row still to move refuses. Rehearse
+it on a fork only; the production run is the operator's (the runbook, W10d).
 
 **The verify step (W10b).** `python -m pipeline.v2_cutover verify --stage reset|backfill|nightly|edition
 --database NAME [--prod] --provenance PATH [--json PATH] [--health-url URL] [--night YYYY-MM-DD]
@@ -96,12 +102,16 @@ provenance file is refused. Stages are cumulative; one `ok:` or `FAIL:` line per
 fail). `reset`: no dry-run surprise beyond the acknowledged orphan purity, every migration applied and 0206 validated,
 no thesis or user on the data tenant and an enabled super_admin, users and theses as before, **recall** (every
 baseline basket row still present, by id and by thesis + company + segment; a missing one is named), child and
-decision counts, share counts and cash/burn only in the data tenant with no company lost, purity, the eight history
-tables empty, exactly one `v2_cutover` journal row, `--health-url` 200. `backfill`: every non-ETF company on a live
-card attempted, B4 unlocked, coverage at or above the baseline's. `nightly`: a row per live thesis for the night,
-none reconstructed, run kind cron (`--run-kind any` on a fork), none dated before the cutover, none on the data
-tenant. `edition`: one Edition 1 per workspace with a live card, an entry per live thesis, none for a workspace
-without one. From `nightly` on, user-editable equalities (users, archived state, new cards, child counts, purity)
+decision counts, share counts and cash/burn only in the data tenant with no company lost, purity, V1's history
+kept (the eight history tables equal the baseline's counts before the V2 cron starts; from `nightly` on, the calls
+recorded before the cutover equal the baseline's, no history table below it, every baseline edition present),
+exactly one `v2_cutover` journal row, `--health-url` 200. `backfill`: every non-ETF company on a live card
+attempted, B4 unlocked, coverage at or above the baseline's. `nightly` (V2 rows only: the calls recorded after the
+cutover; V1's last night never passes for the first V2 night): a row per live thesis for the night, none
+reconstructed, run kind cron (`--run-kind any` on a fork), none dated before the cutover, none on the data tenant.
+`edition`: after each kept edition the next one (Edition 2, parent the kept Edition 1, a `rule change:` label,
+Edition 1 closed; "not yet" before the cut), an entry per live thesis in it, no edition made since the cutover for a
+workspace without a live card. From `nightly` on, user-editable equalities (users, archived state, new cards, child counts, purity)
 become notes; recall and the platform-fact checks stay FAILs. Exit 0 verified, 2 cannot verify (wrong database or
 flags, a provenance problem, an unmapped table), 5 a check failed.
 
