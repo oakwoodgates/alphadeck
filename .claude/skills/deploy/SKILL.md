@@ -5,7 +5,7 @@ description: >-
   or uncommitted worktree work, on DEV) by rebuilding the built Docker images — the frontend/backend are baked
   images, so a change is dormant until rebuilt. Trigger on "deploy", "ship it", "take
   it live", "push to prod", "rebuild prod", "preview on dev". Touches PROD — back up
-  first; the prod DB stays read-only.
+  first; the backend's boot migrates the prod DB.
 ---
 
 # Deploy — take code live on the running stack
@@ -38,6 +38,9 @@ bash scripts/deploy.sh --env-only cron                                   # cron 
 - **Then:** a labeled backup (`--label`, required for a build), then
   `GIT_SHA=$(git rev-parse HEAD) … up -d --build --no-deps <services>`. If the backend was rebuilt
   without the frontend, it runs `docker restart alphadeck-frontend-1`.
+- **Its `/admin/status` probes send a steward's token:** `ALPHADECK_OPS_TOKEN` from `.env`
+  (`scripts/deploy.sh:192-206`; step 4 below shows how to read it). With none set the status
+  answers 401 and the wrapper refuses.
 - **Exit 0 only if every check passes:** the backend is `healthy`; `:8080/api/health` returns 200;
   `ALPHADECK_IMAGE_SHA` in each rebuilt backend/cron container equals the built sha; the cron is
   running and printed its boot lines; `/admin/status` shows no new `cron.alarms` line and no quiet → loud
@@ -67,7 +70,8 @@ America/New_York, and never while `/admin/status` reads `cron.status: running`.
    (F1 / migration 0044), so the record names the code that produced a call. OPTIONAL: unset means
    UNKNOWN and the column gets `NULL` — never a wrong value — so a forgotten prefix costs legibility
    and nothing else. **Never pass a sha you did not just read from the checkout you are building.**
-   (A backend rebuild re-runs the idempotent migrate + seed — ~20-40s, brief API blip.)
+   (A backend (re)start runs `db.migrate`, which applies any pending migration to the prod DB, then
+   `pipeline.seed`, which does nothing on prod — see Guardrails. ~20-40s, brief API blip.)
    **After a backend rebuild, restart the frontend too** — a recreated backend gets a NEW
    Docker-network IP, and the frontend nginx cached the old one, so every `/api` call 502s
    until nginx re-resolves. (A rebuild that already includes `frontend` recreates it, so no
@@ -79,12 +83,21 @@ America/New_York, and never while `/admin/status` reads `cron.status: running`.
 4. **Verify the REAL artifact**, not just the build:
    ```
    docker inspect --format '{{.State.Health.Status}}' alphadeck-backend-1   # healthy
-   curl http://localhost:8000/<endpoint>                                    # new field
-   curl -o /dev/null -w '%{http_code}' http://localhost:8080/api/health     # the /api PROXY — MUST be 200
+   curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/<endpoint>  # new field
+   curl -o /dev/null -w '%{http_code}' http://localhost:8080/api/health     # the /api PROXY — MUST be 200 (open: no token)
    docker exec alphadeck-backend-1 printenv ALPHADECK_IMAGE_SHA             # the sha you built (and alphadeck-cron-1)
    docker logs --tail 20 alphadeck-cron-1                                   # the cron's boot lines
-   curl http://localhost:8000/admin/status                                  # cron.status + cron.alarms: nothing new
+   curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/admin/status  # cron.status + cron.alarms: nothing new
    ```
+   Every route except `/health` needs a sign-in and `/admin/*` a steward, so a bare curl answers 401.
+   `$TOKEN` is the prod ops token, `ALPHADECK_OPS_TOKEN` in `.env`. Read it as one line, the way the
+   wrapper does, and never print it (from the main checkout):
+   ```
+   TOKEN=$(sed -n 's/^[[:space:]]*ALPHADECK_OPS_TOKEN=//p' .env | tail -n 1 | tr -d "\r\"'")
+   ```
+   Nothing there yet: the operator mints one once
+   (`docker exec -it alphadeck-backend-1 python -m pipeline.users token create --email <admin> --name ops`)
+   and adds `ALPHADECK_OPS_TOKEN=<token>` to `.env`.
    **Verify the `/api` PROXY (`:8080/api/health`), not just the backend directly (`:8000`)** — a
    backend rebuild can leave the frontend's nginx pointing at the old backend IP (502) even while
    `:8000/health` is 200. For a frontend change, open the live control in the Browser pane. Prod app
@@ -92,7 +105,10 @@ America/New_York, and never while `/admin/status` reads `cron.status: running`.
 
 ## Preview on DEV (unmerged branch)
 Detach the main checkout to the sha, rebuild the dev service, restore main — full form in
-`docs/DEPLOY.md` Flow B. Dev app :8081 / api :8001.
+`docs/DEPLOY.md` Flow B. Dev app :8081 / api :8001. A curl against dev needs a dev token: dev is its
+own database, so mint one in the dev backend
+(`docker compose -f docker-compose.yml -f docker-compose.dev.yml -p alphadeck_dev --env-file .env.dev exec backend python -m pipeline.users token create --email <dev user> --name dev`;
+it prints once).
 
 ## Preview on DEV (UNCOMMITTED work in a worktree)
 No sha yet — the loop is build -> look -> then decide whether to commit. Build dev from the
@@ -102,7 +118,12 @@ Flow C. **Rebuild dev from the main checkout afterwards**, or dev serves code th
 commit.
 
 ## Guardrails (never violate)
-- **Prod DB is read-only** — deploy rebuilds IMAGES, never data. Never
-  `docker compose down -v` against prod; never `DROP DATABASE alphadeck`.
+- **A deploy rebuilds IMAGES; it never restores or re-ingests data — but the backend's boot writes to
+  the prod DB.** The image starts with `db.wait && db.migrate && pipeline.seed`
+  (`backend/Dockerfile:82`), so every backend (re)start applies any pending migration to prod; that
+  is why the pre-deploy backup comes first. `pipeline.seed` writes only when `ALPHADECK_SEED_ON_BOOT`
+  is true (`backend/pipeline/seed.py:807-809`): the default is false (`docker-compose.yml:121`) and
+  only the dev overlay sets it (`docker-compose.dev.yml:35`), so on prod it does nothing unless
+  `.env` turns it on. Never `docker compose down -v` against prod; never `DROP DATABASE alphadeck`.
 - **`--no-deps`** — never rebuild postgres/cron as a side effect of shipping FE/BE.
 - Prefer the targeted `--no-deps <service>` over a full `docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build`.
