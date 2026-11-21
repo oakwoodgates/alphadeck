@@ -23,7 +23,7 @@ from signals.base import PointInTimeData
 # B2 — the PUBLIC clock. The backtest asks "what would the algorithm have called on the information
 # available?", and the system clock cannot answer it: the filing tables' recorded_at begins 2026-06, so a
 # 2025 backrun either sees nothing or (under a future pin) sees every Form 4 on its TRANSACTION date, months
-# before it was public. Since 2026-10-21 the product's history views ask the same question (INVARIANTS §4),
+# before it was public. Since 2026-10-21 the product's history views ask the same question (INVARIANTS §1),
 # so the definition is ONE (``db.public_clock``) and the mirror is row-for-row the live public read
 # (``test_the_public_mirror_is_row_for_row_the_live_public_read``).
 #

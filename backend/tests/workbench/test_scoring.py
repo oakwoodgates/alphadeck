@@ -344,7 +344,7 @@ def test_score_member_golden(db, security_id):
         sm.purity.provenance[0].source == "10-k-segment"
         and sm.purity.provenance[0].ref == "10-K-seg"
     )
-    # the ratified values ride provenance DETAIL (display-only, #2) — the ratify panel reads them so a
+    # the ratified values ride provenance DETAIL (display-only, #11) — the ratify panel reads them so a
     # re-open shows the operator's saved values, never the stale extract candidate (the DB-free extract
     # can't know a ratify happened; the scored read is the panel's only DB-backed surface)
     assert sm.purity.provenance[0].detail["mix_pct"] == 77.0

@@ -1,6 +1,6 @@
 """The narrative→chain resolver (Slice 5a) — exact membership decides; the model only suggests.
 
-These pin INVARIANT #2 at the resolver: a name auto-places ONLY on a unique exact ticker/name master match;
+These pin INVARIANT #11 at the resolver: a name auto-places ONLY on a unique exact ticker/name master match;
 a token/partial match (the homonym trap) falls to the operator's pick; an unknown name is ABSENT. No write,
 no number — a placed name is still unscored until the operator extract→ratifies it (covered elsewhere).
 """
@@ -123,7 +123,7 @@ def test_unresolvable_ticker_falls_back_to_exact_name(db):
 
 
 def test_name_and_ticker_exact_match_different_rows_is_ambiguous(db):
-    """The invariant-#2 line: when the exact name and the exact ticker resolve to DIFFERENT master rows, that
+    """The invariant-#11 line: when the exact name and the exact ticker resolve to DIFFERENT master rows, that
     contradiction is not a confident match — it falls to the operator's pick (both rows surfaced), never
     auto-placed (choosing ticker-over-name when they disagree would be a judgment call)."""
     oklo = _insert(db, "OKLO", name="Oklo Inc.")
@@ -183,7 +183,7 @@ def _universe(*, placed=(), verify=()) -> DiscoveredUniverse:
 
 def test_discovered_chain_places_matched_by_cik(db):
     """An organizer placement matching a discovered filer (exact ticker) is PLACED / VERIFY by that CIK's id —
-    CIK-exact membership, the cleanest #2. Nothing is dropped, so there is no 'Discovered' bucket.
+    CIK-exact membership, the cleanest #11. Nothing is dropped, so there is no 'Discovered' bucket.
     """
     u = _universe(
         placed=[("0000000001", "OKLO", "Oklo Inc.")],

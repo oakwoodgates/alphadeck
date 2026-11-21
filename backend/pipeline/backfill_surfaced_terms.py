@@ -95,7 +95,7 @@ class ThesisReceipt:
 def _member_ciks(conn: psycopg.Connection, thesis: Thesis) -> dict[UUID, str | None]:
     """Resolve each distinct member ``security_id`` -> its master row's CIK (``None`` = no CIK-bearing row
     under this thesis's tenant — an ETF sleeve / OpenFIGI-era row; nothing to match, never guessed). Reads
-    through the tenant-scoped master accessor (#2/#5 — never a raw query, never a fresh fuzzy resolve).
+    through the tenant-scoped master accessor (#11/#12 — never a raw query, never a fresh fuzzy resolve).
     """
     tenant = thesis.tenant_id or DEFAULT_TENANT_ID
     sids = {m.security_id for m in thesis.basket if m.security_id is not None}

@@ -28,7 +28,7 @@ ever). It is:
   the one connection, under the W1 company lock, in basket order — the same facts and versions as serial.
 - **No-lookahead** — ``recorded_at`` is left to the DB default ``now()`` (NEVER backdated), so a fact ingested
   today is invisible to an as-of read pinned at an earlier transaction time (the replay guarantee holds).
-- **Exact membership (#2)** — it targets the member's RESOLVED ``security_id`` via ``master.get`` (the issuer
+- **Exact membership (#11)** — it targets the member's RESOLVED ``security_id`` via ``master.get`` (the issuer
   ticker + CIK), never a fresh fuzzy resolve. Tenant comes from the thesis (one thesis = one tenant).
 
     python -m pipeline.ingest_thesis --thesis <uuid>

@@ -32,7 +32,7 @@ that is the market-time date of SEC's trusted acceptance, stored in ``accepted``
 .filing_acceptance`` — a schedule submitted after the cutoff carries the next business day's filing date
 although EDGAR disseminated it that evening), else ``filed`` as before; ``filed`` stays SEC's filing date, and
 a stored row is re-dated only by ``pipeline.repair_filing_dates``. ``recorded_at`` is left to the DB's ``now()``,
-NEVER backdated (invariant #4). The natural-key constraint carries ``security_id`` (migration 0039 —
+NEVER backdated (invariant #1). The natural-key constraint carries ``security_id`` (migration 0039 —
 the 0037 lesson).
 """
 
@@ -282,7 +282,7 @@ def ingest_schedule13(
     (count-the-table idempotent); a changed surface — the load-bearing case being identity resolving
     on a retry — appends a new VERSION. An identity failure stores the row with NULL filer +
     ``identity_skipped`` (loud, never dropped — #9). ``recorded_at`` is a TEST seam only —
-    production leaves it to the DB's ``now()`` (never backdated, #4).
+    production leaves it to the DB's ``now()`` (never backdated, #1).
 
     SUBJECT ATTRIBUTION (the root-cause fix): a 13D-family filing whose cover/header names a subject
     OTHER than ``cik`` (this feed's owner) is DROPPED and counted ``subject_skipped`` (a loud precision

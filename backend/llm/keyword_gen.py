@@ -7,7 +7,7 @@ a single hit places a company) and **BROAD** (collision-prone terms that count o
 a single BROAD-only match goes to the verify tier, never auto-placed). Cheap, bounded, no web search.
 
 The LLM only PROPOSES keywords; the deterministic EFTS enumerator + the precision filter + exact CIK membership
-DECIDE the universe (INVARIANT #2). It sources no number (#3). Fail-open: any trouble -> ``None`` (the caller
+DECIDE the universe (INVARIANT #11). It sources no number (#3). Fail-open: any trouble -> ``None`` (the caller
 then has no EFTS keywords for this thesis and degrades to the LLM tail-sweep / hand-authoring).
 """
 

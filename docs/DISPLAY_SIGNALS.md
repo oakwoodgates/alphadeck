@@ -75,7 +75,7 @@ series member rides it with zero schema change). Because every read is the bitem
 (#1) — on the PUBLIC clock: the route threads `serve_view(asof)`, so a past as-of reads every bar from its
 session settle (a vendor correction from its own publication) up to the end of that night (EDGAR's next
 open, F6) — a bar we
-ingested late is not hidden for it (`INVARIANTS.md` #4, `db/public_clock.py`; the roster is point-in-time from
+ingested late is not hidden for it (`INVARIANTS.md` #1, `db/public_clock.py`; the roster is point-in-time from
 2026-09-15 — `INVARIANTS.md` §Known gaps). A member with nothing computable returns `signals: []` — an honest empty, never a dropped row.
 
 ## Member catalog
@@ -267,4 +267,4 @@ window" (→ `0/0`) semantics would collapse under a floor for a name whose only
 A member that reads a table it has not declared, or asks for a longer window than it declared, fails
 `tests/signals/test_horizons.py` — never a truncated read. MEASURED on a 190-name operator thesis
 (dev, host venv → dev DB, 2026-09-03): the `/display-signals` body 16.3 s → 3.1 s and `/call` 10.9 s → 2.1 s (2,851 and
-2,934 per-security queries → one batch query per table), output byte-identical on all eleven theses at two as-ofs. See `docs/INVARIANTS.md` §4.
+2,934 per-security queries → one batch query per table), output byte-identical on all eleven theses at two as-ofs. See `docs/INVARIANTS.md` §1.

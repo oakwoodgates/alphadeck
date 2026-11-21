@@ -1392,7 +1392,7 @@ describe("ChainEditor — the off-thesis flag (the narrator's opinion)", () => {
     render(<ChainEditor asof="2026-06-08" thesis={flatThesis} onDone={vi.fn()} />);
     await user.click(screen.getByRole("button", { name: /Draft from narrative/ }));
 
-    // NEVER dropped — the flagged name is a placed member (membership is deterministic, #2)
+    // NEVER dropped — the flagged name is a placed member (membership is deterministic, #11)
     await screen.findByLabelText("include KR");
     expect(screen.getByText(/model thinks off-thesis/)).toBeInTheDocument();
     expect(rowOf("KR")).toHaveClass("flagged"); // the amber tint lights up

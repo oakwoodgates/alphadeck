@@ -66,7 +66,7 @@ _LEGAL_SUFFIXES = {
 
 def _norm_name(s: str | None) -> str:
     """Collapse case/punctuation and trailing legal-form tokens so 'MAXLINEAR, INC' == 'MaxLinear Inc.' and
-    'Cybin' == 'CYBIN INC.' — a display-name equality test, never an identity decision (#2: only used to
+    'Cybin' == 'CYBIN INC.' — a display-name equality test, never an identity decision (#11: only used to
     sort benign labels from review items)."""
     tokens = _WS.sub(" ", (s or "").upper()).split()
     while tokens and tokens[-1] in _LEGAL_SUFFIXES:

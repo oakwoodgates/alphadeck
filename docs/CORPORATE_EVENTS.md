@@ -32,7 +32,7 @@
   idempotency · the tenant-isolation poison-row growth.
 - **Knowability is free here:** `valid_from = filed` — the EDGAR acceptance date IS when the filing
   became knowable (the cleanest bitemporal source on the signal menu). `recorded_at` = the DB's
-  `now()`, never backdated (#4).
+  `now()`, never backdated (invariant 1).
 - **The natural-key constraint carries `security_id` from birth** —
   `UNIQUE (tenant_id, security_id, accession, recorded_at)` — the 0037 lesson: one issuer held as
   two master rows stores the same filing once per scope, and same-instant re-versions under two

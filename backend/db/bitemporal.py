@@ -100,7 +100,7 @@ DISPLAY_ONLY_FACT_TABLES: frozenset[str] = frozenset({"fact_filing_index", "fact
 # BYTE-IDENTICALLY, so the replay-parity gate stays provable.
 #
 # THIS IS THE RECORD CLOCK — the LIVE read's gate (``asof`` = today, ``known_at = now``), where it coincides
-# with the public one. HISTORY is judged on the PUBLIC clock (operator decision 2026-10-21, INVARIANTS §4):
+# with the public one. HISTORY is judged on the PUBLIC clock (operator decision 2026-10-21, INVARIANTS §1):
 # a past-asof view reads with ``clock="public"``, which gates each version on its PUBLIC instant
 # (``db.public_clock`` — the filing / acceptance / settled session; a correction from its own publication)
 # instead of ``recorded_at``. The paragraphs above are the record-clock history of this gate.
@@ -132,7 +132,7 @@ def knowability_expr(table: str) -> str:
 #
 # A version's own knowable date is its PUBLIC date — ``valid_from``, the filing's acceptance date — never the
 # day this system happened to record it (the public clock judges history; ``recorded_at`` is bookkeeping —
-# INVARIANTS.md §4, operator decision 2026-10-21, which also approved retiring the held-date term below). The
+# INVARIANTS.md §1, operator decision 2026-10-21, which also approved retiring the held-date term below). The
 # store stamp only bounds which rows the gate hands in (``recorded_at <= known_at``; at the live nightly's
 # ``asof = today`` the two clocks coincide). Until migration 0057 the ingest stamped ``recorded_at = filed
 # 00:00 UTC`` (a backdated stamp — MEASURED: all 120,876 prod rows), and this date read ``max(valid_from, market

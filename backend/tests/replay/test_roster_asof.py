@@ -257,7 +257,7 @@ def test_the_roster_clock_is_the_MARKET_day_cap_never_the_bare_pin():
     """The formula itself, stated once so a refactor cannot quietly swap it for ``known_at=pin``.
 
     ``known_at_for_asof(T, now=pin)`` IS ``min(pin, end of T's market day)`` — the same definition the
-    serve path's scrub-back uses (INVARIANTS #4), not a second one invented here. Pure: no DB, no replay.
+    serve path's scrub-back uses (INVARIANTS #1), not a second one invented here. Pure: no DB, no replay.
     """
     session = date(2025, 8, 15)
     far_pin = datetime(2100, 1, 1, tzinfo=timezone.utc)

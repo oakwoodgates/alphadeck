@@ -54,7 +54,7 @@ def _prov(fact: dict[str, Any], *, own: bool = False, **figures: Any) -> Provena
     The extra ``figures`` are the fact's OWN ratified values (shares / cash_usd / mix_pct / …), threaded
     into ``detail`` so the ratify panel can show WHAT is on file instead of re-offering the stale extract
     candidate — the DB-free extract endpoint can't know a ratify happened; the scored read is the only
-    DB-backed surface the panel sees. Display-only (#2): these ride provenance, they never make a number.
+    DB-backed surface the panel sees. Display-only (#11): these ride provenance, they never make a number.
 
     WHO set the fact rides ``detail`` as ``set_by``, a KIND and never the stored ``ratified_by`` (V2 W5d: the
     steward's email must not reach a user or an agent). A shared value (shares, cash/burn): ``machine`` /

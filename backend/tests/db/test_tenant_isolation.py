@@ -1,4 +1,4 @@
-"""The poison-row isolation proof for the TWO TENANT SCOPES (docs/TENANT_SCOPES.md, INVARIANTS §5).
+"""The poison-row isolation proof for the TWO TENANT SCOPES (docs/TENANT_SCOPES.md, INVARIANTS §12).
 
 Every table carries ``tenant_id``, and ``domain.scopes`` names which scope each one lives in: the shared DATA tenant
 (the master, every ingested fact, and since V2 the share counts, cash/burn and company catalysts) or a user's

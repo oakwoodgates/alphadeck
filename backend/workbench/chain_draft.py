@@ -1,7 +1,7 @@
 """The narrative→chain drafter's RESOLVER (Slice 5a) — the exact-membership decider.
 
 S5 (the LLM decomposition, Slice 5b) proposes value-chain segments and the names that sit in them. A
-proposed name is a **discovery suggestion, never a decision** (INVARIANT #2): the model's name/ticker is a
+proposed name is a **discovery suggestion, never a decision** (INVARIANT #11): the model's name/ticker is a
 key, never an id. This module runs every proposed name through THIS tenant's security master and decides:
 
 - **PLACED** — a unique EXACT ticker match OR a unique EXACT name match → the master row's ``security_id``
@@ -113,12 +113,12 @@ class ResolvedPlacement(DomainModel):
     sweep-augmented context. **It is NOT a hard claim the tail-sweep's web-search sourced the name** (``decompose``
     may surface an off-universe name from its own knowledge) — it means only "off the deterministic universe,"
     never "tail-sweep found this." Display-only like ``matched_terms``: never a number (#3), never promoted onto a
-    ``BasketMember`` (#2). Defaults ``"edgar"`` (the conservative no-pill state) and is set ``"off_universe"`` in
+    ``BasketMember`` (#11). Defaults ``"edgar"`` (the conservative no-pill state) and is set ``"off_universe"`` in
     exactly ONE place — the ``_match_discovered_cik`` fork — so a stray construction can never over-claim.
 
     ``sector`` / ``exchange`` / ``listing_status`` / ``category`` are machine-parsed IDENTITY carried from the master (enriched
     just-in-time from EDGAR submissions before resolution) — display-only like ``matched_terms``: never a number
-    (#3), never promoted onto a ``BasketMember`` (#2). ``listing_status`` is a LISTING-PRESENCE heuristic
+    (#3), never promoted onto a ``BasketMember`` (#11). ``listing_status`` is a LISTING-PRESENCE heuristic
     (``"active"`` / ``"inactive"``), NOT a delisting verdict: a PLACED name whose master row reads ``"inactive"``
     is DOWNGRADED to AMBIGUOUS (never auto-placed) with its own row as the single pick — a frictionless rescue,
     surfaced with a HEDGED flag ("no current listing found in EDGAR"), so a false-inactive costs one extra click,
@@ -126,8 +126,8 @@ class ResolvedPlacement(DomainModel):
 
     ``off_thesis`` surfaces the NARRATOR's already-made "this name doesn't fit the thesis" opinion as a bit (the
     ``prose`` is the why) — display-only like ``matched_terms`` / ``discovery_source``: never a number (#3), never
-    promoted onto a ``BasketMember`` (#2), never on the call path. It RECOMMENDS, never removes: a flagged name
-    STAYS placed (membership is deterministic exact-CIK, #2 / #9 — never a silent drop) with a ``remove`` the
+    promoted onto a ``BasketMember`` (#11), never on the call path. It RECOMMENDS, never removes: a flagged name
+    STAYS placed (membership is deterministic exact-CIK, #11 / #9 — never a silent drop) with a ``remove`` the
     OPERATOR clicks (#10). Set at the narration MERGE (``app.routers.workbench.execute_draft``), not at resolution
     — so it defaults ``False`` on every construction path here. COVERAGE = every placed/verify name: since the
     prose reroute the organizer emits structure + assignment only, so organizer-placed and reconciler-appended
@@ -148,11 +148,11 @@ class ResolvedPlacement(DomainModel):
     exchange: str | None = None
     listing_status: str | None = None
     category: str | None = (
-        None  # EDGAR filer category (maturity/size tell) — machine-parsed identity, #1/#3
+        None  # EDGAR filer category (maturity/size tell) — machine-parsed identity, #3
     )
     # WHERE the name is from — derived on read (``securities.origin.resolve_origin``) from the master's raw
     # 0028 locator ingredients, set in ``_carry_identity_and_gate`` beside sector/exchange. Display-only
-    # identity like the rest of this block: never a number (#3), never promoted onto a ``BasketMember`` (#2),
+    # identity like the rest of this block: never a number (#3), never promoted onto a ``BasketMember`` (#11),
     # never a call input. It TAGS, never filters (#9 — the foreign name stays in the draft; the operator's
     # existing prune is the decision, #10). ``None`` = unknown → the FE renders NOTHING (honest abstain).
     origin: str | None = None
@@ -160,7 +160,7 @@ class ResolvedPlacement(DomainModel):
     # ``resolve_business_type`` over the BOUND master row's stored ``sector`` + name + ticker, with the
     # operator's stored 0033 re-tag winning when present (``_carry_identity_and_gate`` passes it as
     # ``override``). ``business_type`` is the EFFECTIVE leaf; MONITOR display identity like the block above —
-    # never a number (#3), never promoted onto a ``BasketMember`` (#2), never a call input (#4). ``None`` =
+    # never a number (#3), never promoted onto a ``BasketMember`` (#11), never a call input (#4). ``None`` =
     # no sector on the bound row (un-enriched → the FE renders NO chip, the honest abstain) or the row is
     # UNBOUND (AMBIGUOUS / ABSENT — no master identity to derive from). ``BusinessType.OTHER`` (a sector on
     # file the maps don't cover) DOES render — the visible tail (#9), not a guess.
@@ -312,7 +312,7 @@ def _resolve_one(
 
     # A ticker/name CONTRADICTION (both resolve, to DIFFERENT rows) is not a confident match — choosing one
     # would be a judgment call (we can't know which the model meant) — so it goes to the operator's pick,
-    # never auto-placed (INVARIANT #2). Surface BOTH rows for the pick.
+    # never auto-placed (INVARIANT #11). Surface BOTH rows for the pick.
     if by_ticker is not None and by_name is not None and by_ticker != by_name:
         return ResolvedPlacement(
             **base,
@@ -346,7 +346,7 @@ def resolve_placements(
     *,
     tenant_id: UUID = DEFAULT_TENANT_ID,
 ) -> ResolvedChain:
-    """Resolve every proposed name against THIS tenant's master (INVARIANT #2: the model is a discovery NET;
+    """Resolve every proposed name against THIS tenant's master (INVARIANT #11: the model is a discovery NET;
     exact master membership DECIDES). Read-only — never ingests, never writes, sources no number.
 
     Per name: a unique EXACT ticker match OR a unique EXACT name match → PLACED with the master row's id
@@ -408,7 +408,7 @@ def resolve_discovered_chain(
     4a). The deterministic discovery layer OWNS COMPLETENESS; the organizer (LLM) owns only LAYOUT — so:
 
     - An organizer placement that matches a discovered CIK (exact ticker / name) is PLACED or VERIFY by that
-      CIK's ``security_id`` (the cleanest INVARIANT #2 — CIK-exact membership), carrying the organizer's segment
+      CIK's ``security_id`` (the cleanest INVARIANT #11 — CIK-exact membership), carrying the organizer's segment
       (``prose`` arrives empty since the prose reroute — the narration step downstream authors it). The CIK is
       recorded as EMITTED.
     - A placement that matches NO discovered CIK is a tail-sweep / off-universe name → the existing master

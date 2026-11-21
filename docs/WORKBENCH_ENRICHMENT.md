@@ -20,8 +20,8 @@
 Discovery finds a name by CIK. Before that name reaches the operator, the enrichment layer fills its **descriptive
 identity** from the name's EDGAR submissions JSON. This is **not extraction and not a fact**: identity strings
 (sector, exchange, listing status, filer category) never enter a `fact_*` table, never feed a number on a call
-card, and are **never promoted onto a `BasketMember`** (#2) — they ride **display-only** on the placement, exactly
-like `matched_terms` / `discovery_source`. `#1/#3` govern *numbers*; identity is descriptive metadata.
+card, and are **never promoted onto a `BasketMember`** (invariant 11) — they ride **display-only** on the placement, exactly
+like `matched_terms` / `discovery_source`. Invariant 3 governs *numbers*; identity is descriptive metadata.
 
 **Why it exists:** without it, every discovered name defaulted to a blank identity and a blanket `high_beta`
 archetype — "high-beta on everything." Enrichment makes a discovered name arrive *characterized*, so TRIAGE is a
@@ -95,7 +95,7 @@ A PLACED name whose master row reads `"inactive"` is **DOWNGRADED to AMBIGUOUS**
 row as the single pick. The operator sees a **hedged flag** ("no current listing found in EDGAR — a guess, not a
 delisting; place it anyway if it's real") and a one-click "place anyway…". So a false-inactive (a recent IPO not
 yet in the snapshot) costs **one extra click, never a silent drop** (#9); an un-enriched row keeps
-`listing_status=None` — no flag, no gate. This is the allowlist discipline of #2 applied to listing presence: a
+`listing_status=None` — no flag, no gate. This is the allowlist discipline of invariant 11 applied to listing presence: a
 guess surfaces for the operator to ratify, it never decides.
 
 ## The business type — the two-level derived characterization (RETIRED: the archetype hint)
@@ -117,9 +117,9 @@ guess surfaces for the operator to ratify, it never decides.
 
 ## Invariant fit
 
-- **#1 / #3** — identity + category are descriptive strings, never numbers, never a fact row, never on the call
+- **#3** — identity + category are descriptive strings, never numbers, never a fact row, never on the call
   path. The business-type derivation is deterministic (the SIC maps + a name regex), not model-sourced.
-- **#2** — identity is display-only on the placement, **never promoted onto `BasketMember`**; the listing-status
+- **#11** — identity is display-only on the placement, **never promoted onto `BasketMember`**; the listing-status
   gate is the exact-membership allowlist applied to listing presence (a guess surfaces, never decides).
 - **#9** — every gate/abstention is VISIBLE + reversible (the hedged "not listed" pick; an unmapped sector reads
   a visible `other`, an un-enriched one an honest unclassified); a bad fetch abstains, never hardens into a false verdict.

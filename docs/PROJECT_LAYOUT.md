@@ -91,7 +91,7 @@ alphadeck/
     │   ├── workbench.py            #   ScoredMember · ScoredFigure (the meter results)
     │   ├── config.py               #   CallConfig (the trust-validated call-engine dials) · ExtractorConfig
     │   ├── settings.py             #   typed Settings: env-overridable LLM dials + base URLs + throttle + market_tz (ALPHADECK_*; config refactor)
-    │   ├── market_time.py          #   market_today()/market_now() — "today" on an EXPLICIT ZoneInfo: the ONE home for the trading day (INVARIANTS #6; NO calendar logic)
+    │   ├── market_time.py          #   market_today()/market_now() — "today" on an EXPLICIT ZoneInfo: the ONE home for the trading day (INVARIANTS #13; NO calendar logic)
     │   ├── rule_log.py             #   the declared call-logic changes, in order (editions S7): a PR that changes call logic appends here, so the automatic cut labels the new edition "rule change", not "unexplained"
     │   └── coerce.py               #   to_float — the shared scalar coercer (Tier-1 dedup)
     ├── llm/                        # THE LLM SEAMS (model-agnostic; fail-open; SDK lazy-imported)
@@ -252,7 +252,7 @@ alphadeck/
   decision** (keep Yahoo + re-version vs raw+splits + own-the-adjustment — `DATA_SOURCES.md` / `FEED_LOOP.md`);
   **cron-scaling** (active theses daily, dormant less) + the REMAINING **cron-ops hardening** (the R4 0-fetch
   false-positive — the attempts-vs-successes fetch counter (O5), the dead-man's-switch heartbeat (H2) and the
-  durable `market_today()` are DONE, `INVARIANTS.md` §6); **2f "the real WHY"**;
+  durable `market_today()` are DONE, `INVARIANTS.md` §13); **2f "the real WHY"**;
   **insider Class B** + the `insider_flow` sell-side ceiling; Phase-3 breadth
   (more catalyst sources, umbrella hierarchy, live LLM
   counter-case) — by appetite. The N-1A/485 fund launch radar is built as display-only context, not a call

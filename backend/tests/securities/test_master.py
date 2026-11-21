@@ -106,7 +106,7 @@ def test_search_finds_by_ticker_or_name_substring(db):
 
 
 def test_search_no_match_is_empty_and_read_only(db):
-    """An unknown name resolves to nothing — never guessed, never ingested (INVARIANT #2). The search is
+    """An unknown name resolves to nothing — never guessed, never ingested (INVARIANT #11). The search is
     read-only: no master row is conjured into existence (unlike resolve's allow_live ingest path).
     """
     _insert(db, ticker="OKLO", name="Oklo Inc.")
@@ -131,7 +131,7 @@ def test_search_returns_latest_row_per_ticker(db):
     assert [h.name for h in master.search(db, "OKLO")] == ["Oklo Inc."]
 
 
-# --- ids_for_ciks: the EDGAR-first discovery resolution (CIK -> security id, the cleanest #2) ---
+# --- ids_for_ciks: the EDGAR-first discovery resolution (CIK -> security id, the cleanest #11) ---
 
 
 def test_ids_for_ciks_maps_cik_to_id_and_omits_missing(db):
@@ -474,7 +474,7 @@ def test_all_cik_primary_ids_picks_the_primary_sibling_and_skips_cikless(db):
 
 
 def test_all_cik_primary_ids_is_tenant_scoped(db):
-    """Tenant isolation (#5): the map covers ONLY the asked tenant's rows — another tenant's CIK never
+    """Tenant isolation (#12): the map covers ONLY the asked tenant's rows — another tenant's CIK never
     leaks into a universe scope (a leaked id would let the enrich write under the wrong tenant)."""
     from tests.workspaces import new_workspace
 

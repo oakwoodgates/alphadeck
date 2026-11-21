@@ -463,7 +463,7 @@ def put_exclusions(
     guard, fourth application: a promote never touches the table, so a narrative edit can't wipe
     the pruning). THE #9 LINE: discovery never filters on this — a re-draft still surfaces every
     name; the EDITOR seeds these as visibly-grayed, one-click-reversible state."""
-    # bound #2, fail-closed (the promote route's own guard): a caller-supplied security_id must be
+    # invariant #11, fail-closed (the promote route's own guard): a caller-supplied security_id must be
     # an exact member of this tenant's master — never a junk row behind an FK error
     for e in body:
         if not master.exists(conn, e.security_id, tenant_id=DATA_TENANT_ID):

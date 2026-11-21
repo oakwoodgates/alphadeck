@@ -3,7 +3,7 @@
 Queries ``efts.sec.gov`` for every US filer whose filings mention a thesis's keywords and returns distinct
 **CIKs** (+ the current name / ticker). DETERMINISTIC (an index query — re-running returns the same set),
 CIK-keyed (no ticker-guessing, no rebrand/DBA problem — the CIK is the stable identity), and FREE. Discovery
-only PROPOSES — the resolver + EXACT CIK membership decide (INVARIANT #2); nothing here sources a number (#3).
+only PROPOSES — the resolver + EXACT CIK membership decide (INVARIANT #11); nothing here sources a number (#3).
 
 The precision filter (``>=2`` distinct keywords OR ``>=1`` SIGNAL keyword) drops the abbreviation-collision
 noise (a miner that says "DMT" once, a retailer that says "LSD" once, a utility that says "MDMA") while keeping
@@ -473,13 +473,13 @@ def precision_filter(filers: dict[str, Filer], *, signal: Iterable[str]) -> dict
 @dataclass
 class Discovery:
     """The classified EFTS universe as ``security_id``s, by tier (the resolver placed each by exact CIK
-    membership — INVARIANT #2, the cleanest form).
+    membership — INVARIANT #11, the cleanest form).
 
     - ``placed`` — high-confidence: in-master AND hits >=1 SIGNAL (a seed — an operator-specified compound).
     - ``verify`` — LOWER-confidence (in-master, no signal, hits >=1 BROAD keyword — any count): the broad-only
       adjacents (ALKS/JUNS/PRTG-class) surfaced for the operator to promote, NEVER mixed into ``placed`` (an
       LLM-driven broad match auto-treated as on-thesis is the homonym/corroboration trap; discovery proposes,
-      the operator decides — #2).
+      the operator decides — #11).
 
     A filer not in the master is omitted (foreign / no US ticker -> the LLM tail-sweep's job)."""
 
@@ -500,7 +500,7 @@ def classify(
 
     PLACED = in-master AND hits >=1 SIGNAL (a seed — an operator-specified compound). VERIFY = in-master AND no
     signal AND hits >=1 BROAD keyword (ANY broad-only count, 1 or more) — surfaced lower-confidence, kept
-    SEPARATE from placed so an LLM-driven broad match never auto-places (#2: discovery proposes, the operator
+    SEPARATE from placed so an LLM-driven broad match never auto-places (#11: discovery proposes, the operator
     decides).
 
     SEEDS-ONLY-PLACE (the deterministic-PLACED rule): SIGNAL is the operator's seeds alone, so PLACED means

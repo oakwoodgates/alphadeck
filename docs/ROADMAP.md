@@ -73,7 +73,7 @@ non-`alphadeck_test` name).
 its net-flow ingest leg (#233–#237), the origin/country + **foreign-filer** identity tells and the
 `enrich_identity` lifecycle (#238–#242, #251), the **SPAC radar** deal tape (#244), **OTC price-symbol
 healing** (#252), **empty-seed** ("∅ no EDGAR hits") visibility (#253), and `market_today()` closing
-INVARIANTS §6 (#250). Then the headline: **Business-type M1** (#255) retired the size-tier archetype for a
+INVARIANTS §13 (#250). Then the headline: **Business-type M1** (#255) retired the size-tier archetype for a
 durable two-level **SIC → leaf → super-sector** characterization (operator-editable maps, the operator's
 per-security re-tag winning), and the **cockpit-refinement arc** (#256–#262) turned the basket table into a
 scannable **display-signal instrument** — trailing-return columns (1d/7d/30d/90d/1Y), `RVOL 8D`/`RVOL 20D`,
@@ -130,7 +130,7 @@ insider `Ins 30d`/`Ins 90d`, three lenses (call-state · business-type · value-
 | TRIAGE crafting: include/find/weight + To-Review ruleset + row polish | #113–#122 | `TRIAGE.md` |
 | Honest discovery: coverage + retry, capped terms, tail-sweep tri-state, status strip, worker guard | #123, #124 | `DISCOVERY.md`, `INVARIANTS.md` #9 |
 | Draft persistence: the `/data` cache volume + the write-only draft run log + the run loader | #125, #131 | `DISCOVERY.md` |
-| Canonical-primary CIK resolution (composite rank; the empirical gate killed SEC-file-order) | #126 | `DISCOVERY.md` §3, `INVARIANTS.md` #2 |
+| Canonical-primary CIK resolution (composite rank; the empirical gate killed SEC-file-order) | #126 | `DISCOVERY.md` §3, `INVARIANTS.md` #11 |
 | The three-gate TRIAGE round: board partitions + low-quality lens · archetype-null (rail = single home) · per-name get-data | #127–#129 | `TRIAGE.md` |
 | Gate-3 honesty: shares period-of-report + three labels · scored-view visibility · per-section data + decoupled price leg · runway honest flags + one-date rule | #132–#136 | `WORKBENCH_EXTRACTION.md`, `FEED_LOOP.md` |
 | Runway re-tier (flags mark exceptions) · finalize feel-of-control (on-file values, AUTO shows work, honest empty purity) | #140, #141 | `WORKBENCH_EXTRACTION.md` |
@@ -155,7 +155,7 @@ insider `Ins 30d`/`Ins 90d`, three lenses (call-state · business-type · value-
 | SURFACE identity + Workbench editor round: the per-name origin/country chip (derive-on-read, migration 0028) · the `enrich_identity` lifecycle + the scored-join origin read · Country/Exchange find-bar filters · the additive **Basket section** (an established thesis's re-draft only ADDS, never invents links) | #238–#242 | `WORKBENCH_ENRICHMENT.md`, `TRIAGE.md` |
 | Re-scope loop: frozen `basket_member.surfaced_terms` seed-provenance + "also matches now" + the ⟳ Re-scope button + the stale-session badge/expire | #243 | `DISCOVERY.md`, `INVARIANTS.md` |
 | SPAC radar: the blank-check deal tape (daily-index DA scan) + the term-set thesis matcher + the quiet To-Review drawer / Type filter, on an always-on shared AppHeader nav | #244, #245 | `PROJECT_LAYOUT.md` |
-| Ops/UX touchups: the Scoreboard's full company name + a drawn chart for a just-armed (no-forward-bar) episode · the TradingView-importable watchlist Export · `market_today()` — "today" as a market-tz domain fact (closes `INVARIANTS.md` §6) | #246–#248, #250 | `SCOREBOARD.md`, `BOARD.md`, `INVARIANTS.md` |
+| Ops/UX touchups: the Scoreboard's full company name + a drawn chart for a just-armed (no-forward-bar) episode · the TradingView-importable watchlist Export · `market_today()` — "today" as a market-tz domain fact (closes `INVARIANTS.md` §13) | #246–#248, #250 | `SCOREBOARD.md`, `BOARD.md`, `INVARIANTS.md` |
 | Foreign-filer explainability: the §16-exempt "Canada · 40-F · no Form 4" tell on the origin cell | #251 | `WORKBENCH_ENRICHMENT.md`, `BOARD.md` |
 | OTC price-symbol healing: resolve the vendor price symbol when the SEC ticker ≠ vendor symbol (ingest under it · self-heal at add-time · export the resolved symbol · thin-history data-health flag · shortened-name search fallback) | #252 | `DATA_SOURCES.md` |
 | Empty-seed visibility: dead ("∅ no EDGAR hits") seed terms ride the draft report (the `empty_terms` chip + strip line) + a DecisionActions name-dedupe fix | #253, #254 | `DISCOVERY.md`, `INVARIANTS.md` #9 |
@@ -164,7 +164,7 @@ insider `Ins 30d`/`Ins 90d`, three lenses (call-state · business-type · value-
 | *(#263–#329 are not yet logged here — the canon docs carry them: `BOARD.md`, `DISPLAY_SIGNALS.md`, `SCOREBOARD.md`, `DEPLOY.md`, `ACTIVIST_STAKE.md`, `CORPORATE_EVENTS.md`)* | #263–#329 | — |
 | **Cron missed-nights arc**: the sidecar fires for the INTENDED night (target as-of fixed at schedule time) + forward-only late-wake catch-up · the hole-aware freshness read + `gappy` · `pipeline.backfill` (first shipped with a pinned `known_at`; it now judges each night on the public clock and refuses `--known-at`) · boot catch-up to the LAST EXPECTED night + a post-`RUN_AT`-only `already_ran_live` + the sliced wall-clock wait (the monotonic-sleep overshoot under host suspend, MEASURED) | #330–#332 | `FEED_LOOP.md`, `ADMIN.md` |
 | **Scoreboard Timing view + record bugs**: MAE/MFE excursions (close + wick, all four columns) · the episode path sparkline with the de-arm tick · split Armed/De-armed columns + close-reason chips · sortable columns + sticky headers · `truncated` redefined against the tape edge (+ `tape_behind_market`, the TAPE ENDS badge) · the exit = the last bar IN the window (the backwards-return fix) | #333, #334 | `SCOREBOARD.md` |
-| **Serve-path `known_at` cap + reconstructed rows**: `serve_known_at(asof)` on `/call`, `/display-signals`, `/scored` (a scrub-back reads what was knowable by the end of that MARKET day) · `calls.reconstructed` (migration 0042) + the backfill's thesis-existence gate · the Scoreboard scores honest rows only, `reconstructed_nights` named once | #336–#338 | `INVARIANTS.md` #4, `FEED_LOOP.md`, `SCOREBOARD.md` |
+| **Serve-path `known_at` cap + reconstructed rows**: `serve_known_at(asof)` on `/call`, `/display-signals`, `/scored` (a scrub-back reads what was knowable by the end of that MARKET day) · `calls.reconstructed` (migration 0042) + the backfill's thesis-existence gate · the Scoreboard scores honest rows only, `reconstructed_nights` named once | #336–#338 | `INVARIANTS.md` #1, `FEED_LOOP.md`, `SCOREBOARD.md` |
 
 ## Standing design decisions (made once, still steering)
 
@@ -215,7 +215,7 @@ insider `Ins 30d`/`Ins 90d`, three lenses (call-state · business-type · value-
    item shipped: #414.)
 6. **Cron ops hardening** (distinct from #3 scaling — this is freshness/observability, not load). The
    ambient-`date.today()` item is **DONE** — `domain/market_time.market_today()` + the repo-scan guard
-   (`INVARIANTS.md` §6). It did **not** unify the Mon-Fri-minus-NYSE-closures (F5) + `RUN_AT` schedule contract, which still has two
+   (`INVARIANTS.md` §13). It did **not** unify the Mon-Fri-minus-NYSE-closures (F5) + `RUN_AT` schedule contract, which still has two
    homes (`scripts/daily_cron.sh` and `pipeline/schedule.py`, kept in step by hand) — `market_today()`
    deliberately does no trading-calendar logic, so shrinking the shell to a dumb trigger remains open.
    The **wrong-day fire is CLOSED** (#330–#332: target-at-schedule-time, the sliced wall-clock wait, boot
@@ -315,7 +315,7 @@ insider `Ins 30d`/`Ins 90d`, three lenses (call-state · business-type · value-
 
 ## Locked — do not reopen
 
-- **The through-line** (`INVARIANTS.md` #7): categorical call strength ← grade; signal-validity window ←
+- **The through-line** (`INVARIANTS.md` #14): categorical call strength ← grade; signal-validity window ←
   horizon; provisional-call wording / setup-strength cap (`confidence` in code) ← the weaker key;
   catalyst-liveness ← the agreement horizon; sizing / instruments / execution / portfolio risk ← the operator
   and external systems. **Never re-couple; never add an `if kind ==` branch** where a property already carries

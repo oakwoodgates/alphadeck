@@ -9,7 +9,7 @@ always now. A naive backfill — ``python -m pipeline.daily --asof <past>`` — 
 ``known_at = now`` on the record clock, i.e. TODAY's knowledge: MEASURED on dev, a thesis backfilled as ARMED
 on nights whose real nightly neighbors recorded INCUBATING, because its facts arrived AFTER those nights. This
 module reconstructs the night on the PUBLIC clock instead (operator decision 2026-10-21, ``docs/INVARIANTS.md``
-§4): every fact counts from when it became public — a Form 4 from its SEC acceptance, a bar from its settled
+§1): every fact counts from when it became public — a Form 4 from its SEC acceptance, a bar from its settled
 session, an 8-K / 13D from its filing, a correction from its OWN publication — up to the end of that night,
 EDGAR's next open (``domain.market_time.known_at_for_asof``, F6). So the row is how TODAY's rules judge what was PUBLIC
 that night: a filing published later can never leak in, and a fact our database happened to ingest late (an

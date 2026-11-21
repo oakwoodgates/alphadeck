@@ -3,7 +3,7 @@
 > Repo path: `docs/WORKBENCH_EXTRACTION.md`. How the Workbench turns a name's SEC filings into the
 > **ratified scoring facts** the meters read: the three-tier hybrid extractor, the operator ratify, and the
 > one LLM aid in that loop (the flag-explanation drafter). Companion to `WORKBENCH_SCORING.md` (what the
-> facts SCORE to — the consumption side), `INVARIANTS.md` (#1 no model-sourced numbers, #2 exact membership),
+> facts SCORE to — the consumption side), `INVARIANTS.md` (#3 no model-sourced numbers, #11 exact membership),
 > and `ROADMAP.md` (Phase-2 sequencing). Engine: `backend/ingest/edgar/extract.py`; ratify:
 > `backend/app/routers/workbench.py` + `backend/ingest/*`; the LLM seam: `backend/llm/`.
 >
@@ -49,7 +49,7 @@ that — how the facts get into the store. The loop is **extract → ratify → 
 
 **The core principle: the extractor LOCATES, the operator RATIFIES.** The extractor auto-fills only the clean
 cases; for everything else it puts the *right passage* in front of the operator and lets them ratify. This is
-INVARIANT #3 (the LLM/automation never sources a number; `INVARIANTS.md` #1) at the data-entry boundary: a
+INVARIANT #3 (the LLM/automation never sources a number; `INVARIANTS.md`) at the data-entry boundary: a
 stored scoring fact is always either a deterministic parse the operator confirmed or a value the operator
 authored — never a guess the system made.
 
@@ -75,7 +75,7 @@ fact → estimated; ratified == the shown estimate → confirmed; ratified diffe
 > **Not "should not" — MUST NOT.** The bitemporal as-of scoring read (`db/bitemporal.as_of`) has **no
 > `ratified_by` filter**, and its `PointInTimeData` is the **shared** read for the Armed-call detectors. So **any**
 > estimate written to a `fact_*` table would immediately, silently leak an **unverified number** into BOTH the
-> Workbench score AND the back-half Armed call — a **#1/#3 violation that throws no error**; it just quietly
+> Workbench score AND the back-half Armed call — an **invariant 3 violation that throws no error**; it just quietly
 > corrupts the call. Therefore estimates live **only** in the extract endpoint's computed-on-read response; the
 > **only** writer of a `fact_*` row is the operator's confirm/override (`POST /workbench/facts`,
 > `ratified_by="operator"`). **The trap for a future author:** "cache the estimate for perf" or "persist it so the
@@ -98,7 +98,7 @@ three candidates — one per meter: `revenue_mix` (purity), `shares_outstanding`
 - **HUMAN — interpretation-bound (purity).** The extractor locates the evidence (the segment footnote or Item-1).
   Base behavior: LOCATED only, the operator authors the % from it. **SURFACE upgrade (#110):** when the extract is
   thesis-scoped, the **grounded purity-estimate seam** now PROPOSES an on-thesis % — *grounded in the fetched
-  segment-footnote passage it carries* (never recalled from memory — a #1 violation would be inventing the number)
+  segment-footnote passage it carries* (never recalled from memory — an invariant 3 violation would be inventing the number)
   — for the operator to **confirm or override**. It is a recommendation (#10), tagged `llm_proposed` + unverified,
   **fail-open to today's HUMAN** (no key / not-grounded → no value, the operator types it). Purity stays the
   operator's exposure-concentration edge; the model proposes a grounded starting point, the operator decides. The
@@ -293,7 +293,7 @@ occurs. This is a *net gain* in honesty (#6), not a loosened gate.
 **The real human check is downstream and unchanged:** the operator reads the resulting **market cap** — a
 figure they *do* have intuition for — and overrides the shares if it looks wrong.
 
-**Why it is not a #1/#3 violation.** The written number is the extractor's deterministic reproduction of filed
+**Why it is not an invariant 3 violation.** The written number is the extractor's deterministic reproduction of filed
 companyfacts (the market-cap trust class) — never a model output, never a `computed`/`llm_proposed` estimate.
 The architectural constraint above is untouched: estimates stay computed-on-read and never become `fact_*`
 rows. AUTO is exactly the unambiguous case; anything ambiguous trips a FLAG and is excluded.
@@ -660,7 +660,7 @@ ratify UI shows it inline (not a tooltip) with a clickable EDGAR link.
   re-opened name still *seeded its inputs* from the original candidate, so a saved purity visibly
   "reverted" to the original LLM rec even though the meter was right). The scored read threads each
   fact's own figures into its provenance **`detail`** (`mix_pct` + `segment_label` / `shares` /
-  `cash_usd` + `quarterly_burn_usd` + the ratified note — display-only, #2, an open dict so **no wire
+  `cash_usd` + `quarterly_burn_usd` + the ratified note — display-only, invariant 11, an open dict so **no wire
   schema change**); the panel seeds its inputs from those, suppresses the stale estimate tag, and
   remounts into the on-file state when a confirm lands. The candidate is only the seed for a fact
   **not yet on file**.
@@ -742,7 +742,7 @@ name arrives with an on-thesis % to confirm instead of a blank. `backend/llm/pur
 `{segment, pct, reason, grounded}`.
 
 - **Grounded ONLY in the located passage.** The operator's hard requirement: "the LLM read this footnote and
-  proposes 20%" is fine; "the LLM knows the company is ~20% nuclear" is a **#1 violation**. So a non-grounded
+  proposes 20%" is fine; "the LLM knows the company is ~20% nuclear" is an **invariant 3 violation**. So a non-grounded
   proposal (or a % out of `[0,100]`, or an empty segment) is **discarded, never surfaced as a number** — the
   estimate ALWAYS carries the passage it read, enforced by construction. To ground on real figures the purity path
   retrieves a **widened, financial-figure-ranked** segment window (`_segment_passages` in

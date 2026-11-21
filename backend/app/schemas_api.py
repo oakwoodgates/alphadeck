@@ -522,7 +522,7 @@ class ScoredMemberOut(BaseModel):
 
     security_id: UUID
     ticker: str | None = None
-    # Display identity, joined from the master on read (never promoted onto a BasketMember, #2): the
+    # Display identity, joined from the master on read (never promoted onto a BasketMember, #11): the
     # company NAME rides the scored row (a ticker-only list made the finalize pass a memory quiz), and
     # the enrichment strings give the rail its who-is-this context.
     name: str | None = None
@@ -531,7 +531,7 @@ class ScoredMemberOut(BaseModel):
     category: str | None = None
     # WHERE the name is from — DERIVED ON READ by the master join (``identity_for`` -> ``resolve_origin``
     # over the stored 0028 locator ingredients; the raw ingredients stay OFF the wire). Display identity
-    # like the block above: never promoted (#2), never a call input, never a number (#3). ``None`` =
+    # like the block above: never promoted (#11), never a call input, never a number (#3). ``None`` =
     # un-enriched / unknown — the FE renders NOTHING (honest abstain, never a guessed origin).
     origin: str | None = None
     # WHETHER this is a §16-exempt foreign filer that files NO Form 4 — DERIVED ON READ the same way
@@ -542,13 +542,13 @@ class ScoredMemberOut(BaseModel):
     foreign_filer_form: str | None = None
     # The RESOLVED vendor price symbol (migration 0032) — carried verbatim from the master (``identity_for``).
     # A non-null value is the EXCEPTION: the name is priced under a different symbol than its SEC ticker
-    # (EXMPL priced under "EXMPLD"). Display identity like origin, never a call input (#1/#3). ``None`` = priced
+    # (EXMPL priced under "EXMPLD"). Display identity like origin, never a call input (#3). ``None`` = priced
     # under the canonical ticker (the common, healthy case) — the FE renders the note ONLY when set, and the
     # watchlist export emits ``price_symbol ?? ticker`` so TradingView resolves the right listing.
     price_symbol: str | None = None
     # WHAT the company DOES — the two-level business type (Business-Type M1), DERIVED ON READ by the master
     # join (``identity_for`` -> ``resolve_business_type`` over the stored ``sector``/name/ticker + the 0033
-    # re-tag). MONITOR display identity like origin: never promoted (#2), never a call input (#3/#4).
+    # re-tag). MONITOR display identity like origin: never promoted (#11), never a call input (#3/#4).
     # ``business_type`` is the EFFECTIVE leaf (the stored re-tag already folded in); ``None`` = unclassified
     # (un-enriched — the FE renders its own visible group, never a guess).
     business_type: BusinessType | None = None
@@ -687,7 +687,7 @@ class BusinessTypeOut(BaseModel):
 class SecurityMatchOut(BaseModel):
     """A security-master match for the Workbench's add-a-name typeahead (Slice 4b) AND the surface-ETF
     resolve receipt (ETF Sleeve, Slice 1). The operator picks the exact row; its ``security_id`` is then
-    placed into the basket. A discovery net over the EXISTING per-tenant master (INVARIANT #2) — every match
+    placed into the basket. A discovery net over the EXISTING per-tenant master (INVARIANT #11) — every match
     is a real member, nothing is ingested or guessed.
 
     ``instrument_kind`` is what the row IS — ``equity`` (the typeahead default) or ``etf`` (returned by the
@@ -732,7 +732,7 @@ class EtfHoldingOut(BaseModel):
 class EtfHoldingsOut(BaseModel):
     """A ``fund`` sleeve's N-PORT holdings + basket overlap (ETF Sleeve, Slice 2a) — RESPONSE-ONLY
     discovery context, recomputed per click, never persisted (the operator's promote stays the only
-    spine writer, #2).
+    spine writer, #11).
 
     ``report_date`` is the holdings VINTAGE (N-PORT is quarter-end, ~60 days lagged — fine for a
     discovery seed); ``source_ref`` the EDGAR filing index URL the whole answer traces to (#6). The
@@ -1138,7 +1138,7 @@ class DraftReportOut(BaseModel):
 
 class ChainDraftOut(BaseModel):
     """The narrative→chain draft (Slice 5b): the value-chain SEGMENTS the model proposed + each proposed name
-    resolved against the master to PLACED / AMBIGUOUS / ABSENT (exact membership decides — INVARIANT #2).
+    resolved against the master to PLACED / AMBIGUOUS / ABSENT (exact membership decides — INVARIANT #11).
 
     RESPONSE-ONLY and value-free: it carries NO score/number field, and the endpoint persists NOTHING — a
     placed name is UNSCORED until the operator extract→ratifies it, and the operator's promote is the only

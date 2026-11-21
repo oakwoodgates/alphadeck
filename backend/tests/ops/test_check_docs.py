@@ -141,7 +141,7 @@ def _pointer_tree(cd, tmp_path: Path, code: dict[str, str]) -> list:
         "docs/A.md": "# A\n\n## Real heading here\n\n## Cache freshness\n",
         "docs/DASHBOARDS.md": "# Dashboards\n\n## The rules\n",
         "docs/CALL_LOGIC.md": "# Call logic\n\n## 2. State\n\n### 3c. Thesis catalysts\n",
-        "docs/INVARIANTS.md": "# Invariants\n\n## 4. No lookahead\n",
+        "docs/INVARIANTS.md": "# Invariants\n\n## 1. No lookahead\n",
     }
     files.update(code)
     return _run(cd, tmp_path, files)
@@ -165,7 +165,7 @@ def test_pointer_headings_match_by_case_insensitive_prefix(cd, tmp_path):
         '# docs/A.md ("Real heading")\n'
         '# ``docs/A.md`` "Real heading"\n'
         "# docs/A.md §cache-freshness\n"
-        "# INVARIANTS.md §4: each\n"
+        "# INVARIANTS.md §1: each\n"
         "# docs/A.md §Missing part\n"
         '# docs/A.md ("Nope")\n'
     )

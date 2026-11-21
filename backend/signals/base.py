@@ -51,7 +51,7 @@ class PointInTimeData:
     read goes through ``db.bitemporal.as_of`` / ``as_of_many``. ``known_at`` defaults to now (UTC) for
     live reads; the replay harness (M5) sets it to a simulated past transaction time.
 
-    **The clock (operator decision 2026-10-21, ``docs/INVARIANTS.md`` §4).** ``clock="record"`` (the default)
+    **The clock (operator decision 2026-10-21, ``docs/INVARIANTS.md`` §1).** ``clock="record"`` (the default)
     is the LIVE read: ``recorded_at <= known_at``. ``clock="public"`` is a HISTORY view — a past-asof
     recompute (serve, backfill): every fact read is judged on each version's PUBLIC instant
     (``db.public_clock`` — its filing / acceptance / settled session; a correction from its own publication)
@@ -82,7 +82,7 @@ class PointInTimeData:
       readers filter by date). A per-call bound is never a memo input: two readers of one table with
       different horizons share one memo entry and each sees at least its declared window. A reader
       whose horizon is not declared fails the registry test (``tests/signals/test_horizons.py``), never
-      a truncated read. See ``docs/INVARIANTS.md`` §4.
+      a truncated read. See ``docs/INVARIANTS.md`` §1.
     """
 
     def __init__(

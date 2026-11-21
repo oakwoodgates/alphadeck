@@ -84,7 +84,7 @@ funnel.
 > The bitemporal as-of scoring read (`db/bitemporal.as_of`) has **no `ratified_by` filter**, and its
 > `PointInTimeData` is the **shared** read for the Armed-call detectors. So **any** estimate written as a `fact_*`
 > row would immediately, silently leak an **unverified number** into BOTH the Workbench score AND the back-half
-> Armed call — a #1/#3 violation (`INVARIANTS.md`) that **throws no error**; it just quietly corrupts the call.
+> Armed call — an invariant 3 violation (`INVARIANTS.md`) that **throws no error**; it just quietly corrupts the call.
 >
 > Therefore estimates live **only** in the extract endpoint's computed-on-read response; the **only** writer of a
 > `fact_*` row is the operator's confirm/override (`POST /workbench/facts`, `ratified_by="operator"`). The three
