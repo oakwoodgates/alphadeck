@@ -1,5 +1,5 @@
 /* Entry Windows (docs/dashboards/entry-windows.md) — its own sheet, imported by the component, never index.css
-   (docs/DASHBOARDS.md rule 8). The trading set's TAPE look (docs/dashboards/hot-board.md §Look): dense rows,
+   (docs/DASHBOARDS.md rule 8). The trading set's TAPE look (docs/DASHBOARDS.md §Looks): dense rows,
    tabular numerals in the mono font for every figure, a sticky header, no cards, no chrome, a hairline between
    rows. Loudness marks the exception only (#7 / WB#3): the window bars are two grays, the as-of line is the only
    line color, the sign tone (the app's positive and negative mixed 55% into gray, the Rotation Quadrant's recipe)

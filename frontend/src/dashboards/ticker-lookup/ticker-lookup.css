@@ -1,5 +1,5 @@
 /* Ticker Lookup (docs/dashboards/ticker-lookup.md) — its own sheet, imported by the component, never index.css
-   (docs/DASHBOARDS.md rule 8). The trading set's tape look (docs/dashboards/hot-board.md §Look): dense rows about
+   (docs/DASHBOARDS.md rule 8). The trading set's tape look (docs/DASHBOARDS.md §Looks): dense rows about
    26px high, tabular numerals in the mono font for every figure, a hairline between rows, no cards, no chrome. Tone:
    the sign tone only on signed tape figures (the app's positive and negative mixed 55% into gray, the Rotation
    Quadrant's recipe); ONE accent, the word "armed" in a card's place cell, in the Board's armed tone. Section
