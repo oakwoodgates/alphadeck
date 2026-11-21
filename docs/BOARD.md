@@ -155,7 +155,7 @@ per row:
 - **Watch** — `watch_members` ("moving, no conviction yet").
 - **Quiet** — the remainder, incl. unresolved rows: every basket row lands somewhere
   (keep-it-visible), grayed rather than gone.
-- **Context** / **ETFs** / **Bench** (after Quiet) — the three **silent value-chain links** (`TRIAGE.md`
+- **Context** / **ETFs** / **Bench** (after Quiet) — the three **silent value-chain links** (`WORKBENCH.md`
   "Context, ETFs and Bench"; ETFs holds the card's funds): a name placed in any of them is on the card and
   visible but **never counts toward the call**, so when the card has nothing on it (no armed/watch hit, no
   fired trigger) it files under its link's own bucket — one bucket per link, never a binary (header "Context ·
@@ -190,7 +190,7 @@ row lands in the keep-visible `Unsegmented` tail. **Context, ETFs and Bench are 
 (after the unknown labels and the `Unsegmented` tail, whatever order a payload's segments came in), under
 their fixed descriptors, and hidden when empty. In the **business-type** lens a silent name keeps its grayed
 row and carries a small lowercase `context` / `etfs` / `bench` tag (the lens hides which link it sits in; the other two
-name it in the header). A name the operator gave a **context role** (`TRIAGE.md` "Context roles") carries a
+name it in the header). A name the operator gave a **context role** (`WORKBENCH.md` "Context roles") carries a
 second quiet lowercase tag beside its ticker (`payer`, `counter-case`…) in **every** lens and on any row, **only
 when set** (never a "—" placeholder); it moves no row, bucket or call. The two non-segment lenses **dedupe to one row per
 `security_id`** (a multi-segment name's otherwise-identical duplicate rows collapse — losslessly, since

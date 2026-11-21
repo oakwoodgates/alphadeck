@@ -3,7 +3,7 @@
 > Repo path: `docs/FEED_LOOP.md`. The back half's **data loop**: how a thesis's basket gets the CALL-ENGINE
 > facts (insider Form 4 + price EOD) it needs to WARM/ARM, and how a daily cron refreshes them and appends the
 > day's **call-of-record** per thesis — so the platform *feeds itself*. This is the M2 subsystem (the MVP's
-> second half). Companion to `CHAIN_DRAFTER.md` (the front door — narrative → chain), `CALL_LOGIC.md` (what the
+> second half). Companion to `WORKBENCH.md` (the front door — narrative → chain), `CALL_LOGIC.md` (what the
 > facts ARM into), `DATA_SOURCES.md` (the price/EDGAR sources + the Yahoo split-adjustment finding),
 > `DATA_FLOW.md` (where data lives), `INVARIANTS.md` (#1 no-lookahead, #11 exact membership, the calls log).
 > Engines: `backend/pipeline/ingest_thesis.py` · `backend/pipeline/daily.py` · `backend/ingest/prices/source.py`

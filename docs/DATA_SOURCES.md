@@ -148,7 +148,7 @@ and the free proxy is demonstrably inadequate. Default to free + derive.
   `{"errorType": "ConnectionError", "errorMessage": "getaddrinfo EBUSY ...", ...}` (817 bytes, no `hits`).
   `polite_get` only retries a non-2xx, so that body used to be written to the cache like any document, served
   for the rest of its TTL (forever, on an immutable key), and read downstream as an empty one (eight EFTS pages
-  on 2026-10-23: three seeds reported "empty", five deep pages silently lost — `DISCOVERY.md` §2). Now
+  on 2026-10-23: three seeds reported "empty", five deep pages silently lost — `DISCOVERY.md` "Enumeration (EFTS)"). Now
   `EdgarClient.get_text` checks every body, fresh or cached, before returning it: **(a)** a generic guard for
   EVERY key rejects a body whose top level is a JSON object carrying `errorType` (no real SEC document has
   one — checked against every SEC fixture in the repo; it parses only a body that starts with `{` and contains

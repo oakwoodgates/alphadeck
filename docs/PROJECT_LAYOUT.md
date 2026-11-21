@@ -40,7 +40,7 @@ alphadeck/
 ├── scripts/ensure-venv.sh · .ps1   # tooling: provision THIS checkout's backend/.venv with `-e ".[dev,replay,mcp]"` (per worktree, idempotent; `make venv`) + ensure-venv-probe.py, the readiness probe both twins run
 ├── docs/                           # THE CANON — read STAGE_MODEL.md first (the frame), then by stage
 │   ├── STAGE_MODEL.md · PROJECT_OVERVIEW.md · ROADMAP.md · INVARIANTS.md · DATA_FLOW.md · DATA_SOURCES.md
-│   ├── DISCOVERY.md · CHAIN_DRAFTER.md · WORKBENCH_EXTRACTION.md · WORKBENCH_ENRICHMENT.md · WORKBENCH_SCORING.md · TRIAGE.md   # the front half, in stage order
+│   ├── DISCOVERY.md · WORKBENCH.md · WORKBENCH_EXTRACTION.md · WORKBENCH_SCORING.md   # the front half, in stage order
 │   ├── BOARD.md (the MONITOR surface) · CALL_LOGIC.md (the brain) · FEED_LOOP.md (the rhythm) · ADMIN.md (the ops surface)   # the back half
 │   ├── SCOREBOARD.md · DISPLAY_SIGNALS.md   # SCORE (the forward record) · the read-only tape indicators
 │   ├── CATALYST_CONVICTION.md · THEME_CONVICTION.md · TENANT_SCOPES.md · REPLAY.md · DEV_PROD.md   # + the local dev/prod split
@@ -272,7 +272,7 @@ alphadeck/
    and user-login SSO remain deferred; hosted connector OAuth is separate (`CONNECTORS.md`).
 4. **The LLM bound rests partly on the prompt.** The chain drafter's "never a number" is structural (no value
    field) + prompt (Sonnet the lever); the **manual no-number check is its real test** — a fake-client unit
-   test can't exercise a prompt. The regex post-filter is the deferred lever (`CHAIN_DRAFTER.md`).
+   test can't exercise a prompt. The regex post-filter is the deferred lever (`DISCOVERY.md`).
 5. **`GET /theses/{id}` returns the wire `ThesisDetail`** (no `tenant_id` on the wire); the server derives
    the workspace from the authenticated user and returns 404 for a thesis outside it.
 6. **The openapi↔types contract is generated** — any FastAPI schema change (incl. a route docstring) must
