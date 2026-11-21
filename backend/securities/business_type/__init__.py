@@ -29,7 +29,7 @@ quietly). Precedence: DB override > ticker override > SIC-string override > the 
 (sector present but unmapped — the visible tail, #9) > ``None`` (no sector — unclassified, the
 honest abstain; the same hedged honesty as the origin chip).
 
-Machine-derived SURFACE identity, never a fact (#1/#3 govern numbers, not identity strings): never
+Machine-derived SURFACE identity, never a fact (#3 governs numbers, not identity strings): never
 enters a fact_* table, never feeds a number on a call card, never a call input, and NOT a display
 signal (those live in ``signals/display/``) — this module is pure and imports nothing from the call
 path. It TAGS, never filters (#9): every name still surfaces; the operator's re-tag is the decision

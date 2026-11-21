@@ -364,7 +364,7 @@ def test_ingest_prices_non_otc_never_resolves(client, db, security_id, monkeypat
 
 def test_scored_carries_master_identity(client, db, security_id):
     """The scored view says WHO each row is: company name + the enrichment strings (sector / exchange /
-    category), joined from the master on read via ``identity_for``. Display-only (#2) — never promoted
+    category), joined from the master on read via ``identity_for``. Display-only (#11) — never promoted
     onto a BasketMember; a fresh row without enrichment reads null, never a crash."""
     with db.cursor() as cur:
         cur.execute(
@@ -386,7 +386,7 @@ def test_scored_carries_derived_origin(client, db, security_id):
     """The identity-lifecycle read: the scored row carries a DERIVED ``origin`` — the enriched member
     derives from its stored 0028 ingredients via the master join (the NIO shape: country NULL, city
     "SHANGHAI" -> "Shanghai"); an un-enriched member reads ``None`` (honest abstain), never a crash.
-    The RAW ingredients stay OFF the wire — only the derived display string travels (#2/#3: display
+    The RAW ingredients stay OFF the wire — only the derived display string travels (#11/#3: display
     identity, never promoted, never a number)."""
     bare = uuid.uuid4()
     with db.cursor() as cur:
@@ -930,7 +930,7 @@ def _insert_security(db, ticker, *, name=None, cik=None, is_primary=None) -> uui
 
 def test_securities_search_serves_the_master(client, db):
     """The authoring typeahead (Slice 4b): the resolver surfaces exact master rows for the operator to pick
-    — a discovery net (INVARIANT #2), never a guess. No match -> []."""
+    — a discovery net (INVARIANT #11), never a guess. No match -> []."""
     oklo = _insert_security(db, "OKLO", name="Oklo Inc.", cik="0001849056")
     _insert_security(db, "LEU", name="Centrus Energy Corp.")
     hits = client.get("/workbench/securities", params={"q": "OK"}).json()
@@ -1107,7 +1107,7 @@ def test_promote_honors_authorship_from_the_body(client, security_id):
 
 
 def test_promote_rejects_a_security_not_in_this_tenants_master(client):
-    """Bound #2 at the single writer (relocated here now that the S5 drafter returns a draft and writes
+    """Invariant #11 at the single writer (relocated here now that the S5 drafter returns a draft and writes
     nothing): a placed `security_id` that isn't an EXACT member of this tenant's master fails closed — a
     hallucinated / foreign id never reaches the spine. Distinct from the orphan-segment 422: the chain is
     consistent here; the SECURITY is the problem (mirrors the ratify write-side check → 404)."""
@@ -1215,7 +1215,7 @@ def test_promote_rejects_a_cross_company_identity_mismatch(client, db):
     """The identity-coherence guard (the misbind class, fail-closed): a member whose shown ticker belongs
     to a DIFFERENT company than its bound row — SIMO's label riding MXL's security_id, exactly how the
     joint-filing mispair persisted — 422s NAMING BOTH IDENTITIES, and the spine stays untouched (count the
-    table). Promote never silently decides which company the operator meant (#2)."""
+    table). Promote never silently decides which company the operator meant (#11)."""
     mxl = _insert_security(db, "MXL", name="MAXLINEAR, INC", cik="0001288469")
     _insert_security(db, "SIMO", name="Silicon Motion Technology CORP", cik="0001329394")
     r = client.post("/workbench/theses", json=_identity_payload("SIMO", mxl))
@@ -3229,7 +3229,7 @@ def test_session_delete_then_get_null(client, db):
 
 
 def test_session_endpoints_404_for_unknown_thesis(client, db):
-    """Tenant isolation (#5): all three verbs go through ``get_thesis_or_404`` — a thesis you can't access, you
+    """Tenant isolation (#12): all three verbs go through ``get_thesis_or_404`` — a thesis you can't access, you
     can't load / write / delete the session for. An unknown thesis_id → 404 on GET, PUT, and DELETE alike.
     """
     ghost = uuid.uuid4()

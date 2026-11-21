@@ -333,7 +333,7 @@ class Settings(BaseSettings):
     benchmark_restate_window: int = 5
 
     # --- The trading-day clock (domain/market_time.py) — the zone "today" is computed in ---
-    # "Today" is a DOMAIN fact, not an environment fact (INVARIANTS.md §6): `date.today()` read the
+    # "Today" is a DOMAIN fact, not an environment fact (INVARIANTS.md §13): `date.today()` read the
     # process's AMBIENT timezone, so a UTC container after ~20:00 ET derived TOMORROW's trading day and
     # computed a materially different call (asof is a liveness PARAMETER, not a label). This field is the
     # explicit answer; `market_today()` / `market_now()` are its only readers. Read via the env_prefix

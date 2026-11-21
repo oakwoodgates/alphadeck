@@ -1,5 +1,5 @@
 """The PUBLIC clock as-of read (``clock="public"``) — history judged on when each fact became PUBLIC, not on
-when this system ingested it (operator decision 2026-10-21; ``docs/INVARIANTS.md`` §4, ``db/public_clock.py``).
+when this system ingested it (operator decision 2026-10-21; ``docs/INVARIANTS.md`` §1, ``db/public_clock.py``).
 
 What these pin, each on the read the history views use (``db.bitemporal`` + ``signals.base.PointInTimeData``):
 

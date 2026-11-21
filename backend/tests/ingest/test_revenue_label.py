@@ -12,7 +12,7 @@ THAT filing, naming the version it replaces (``plan_versions``; the ``supersedes
 
 Every new row carries the writer's honest ``recorded_at`` (migration 0057); the pre-fix rows are laid down
 exactly as prod holds them (``legacy_stamp``). Every past view here is a HISTORY read on the PUBLIC clock
-(INVARIANTS.md §4): a version counts from its filing, so a number re-stored today from an EXISTING filing is
+(INVARIANTS.md §1): a version counts from its filing, so a number re-stored today from an EXISTING filing is
 public at that filing's date.
 
 Every company here is a REAL companyfacts document trimmed to its revenue nodes
@@ -555,7 +555,7 @@ def _store_as_prod_held_it(db, sec: Security, ticker: str) -> int:
 
 def _pit(db, asof: date) -> PointInTimeData:
     """A HISTORY view at ``asof`` — the serve path's scrub-back, on the PUBLIC clock (each version counts from
-    its filing; INVARIANTS.md §4)."""
+    its filing; INVARIANTS.md §1)."""
     return PointInTimeData(
         db, asof=asof, known_at=known_at_for_asof(asof), clock="public", workspace=DEFAULT_TENANT_ID
     )

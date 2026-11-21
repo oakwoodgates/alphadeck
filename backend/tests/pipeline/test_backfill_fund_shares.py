@@ -219,7 +219,7 @@ def test_a_real_failure_stops_that_members_walk_and_is_captured(db):
 def test_end_is_capped_at_today_never_future_dated(db):
     sid = _add_master(db, ticker="URA")
     tid = _make_thesis(db, [("URA", sid)])
-    # Option (b), INVARIANTS.md §6: the cap is market_today() in production, so the test computes the
+    # Option (b), INVARIANTS.md §13: the cap is market_today() in production, so the test computes the
     # window against the SAME clock — never an ambient date.today() that could lead market time (CI runs UTC).
     future = market_today() + timedelta(days=10)
     stub = _StubPolygon(_flat_counts(backfill_dates(market_today(), 3, 1)))

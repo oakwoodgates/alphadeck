@@ -3,7 +3,7 @@
 ONE ENGINE, ONE CLOCK. It is the replay engine — the Parquet mirror read by ``ReplayPointInTimeData`` and
 assembled by the SAME ``pipeline.core.assemble_from_pit`` the live call uses — over a ``clock="public"``
 mirror (``replay.export``), the ONE public-clock definition every history view shares (``db.public_clock``,
-the operator's 2026-10-21 rule, ``docs/INVARIANTS.md`` §4): each fact version counts from when it became
+the operator's 2026-10-21 rule, ``docs/INVARIANTS.md`` §1): each fact version counts from when it became
 PUBLIC (an SEC acceptance, a filing date, a bar's settle; a correction from its own publication), never from
 when this system happened to ingest it. There is no edition-specific clock and no per-table timing rule.
 

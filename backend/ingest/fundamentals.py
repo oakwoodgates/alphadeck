@@ -720,7 +720,7 @@ def append_planned(
 
     THE STAMP (migration 0057, 2026-10-21; the §2.4 acceptance bar — "no backdated recorded_at on the live
     path"). ``recorded_at`` is honest bookkeeping — when THIS system stored the row — never the history gate
-    (history is judged on the public clock, ``valid_from`` here; INVARIANTS.md §4). Before 0057 every row was
+    (history is judged on the public clock, ``valid_from`` here; INVARIANTS.md §1). Before 0057 every row was
     stamped ``recorded_at = filed 00:00 UTC``, wrong as bookkeeping (MEASURED on prod: all 120,876 rows; a
     lower bound on the backdate puts the median at ~6.2 years, 108,919 rows over a year, since a name's whole
     history is written on the night it joins a basket). Those rows stay exactly as written (no rewrite of

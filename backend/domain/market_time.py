@@ -1,7 +1,7 @@
 """``market_today`` / ``market_now`` — the ONE home for "what day is it, in market time".
 
 **Why this lives in ``domain/``.** The invariant's own words: *the trading day is a domain fact, not an
-environment fact* (``INVARIANTS.md`` §6). ``date.today()`` reads the process's ambient timezone, so the
+environment fact* (``INVARIANTS.md`` §13). ``date.today()`` reads the process's ambient timezone, so the
 same code answered a different question depending on where it ran — and in production it did: a manual
 ``pipeline.daily`` in a UTC container after ~20:00 ET derived **tomorrow's** trading day and recorded a
 materially different call (``asof`` is a LIVENESS PARAMETER, not a label — ``signals/common.py``'s
@@ -48,7 +48,7 @@ whose read first holds an instant.
 
 **What it is NOT, part two:** transaction time. ``datetime.now(timezone.utc)`` pins ``recorded_at`` (when
 we learned a fact) and is correctly UTC — bitemporal record-keeping, not a trading day. Do not route those
-through here; they are a different axis (``INVARIANTS.md`` §4).
+through here; they are a different axis (``INVARIANTS.md`` §1).
 
 **TESTS must use this too when they assert a production date contract** — and this bit on the very PR that
 introduced the helper. A test that posts ``decision_date=date.today()`` or seeds a cache keyed on
@@ -236,7 +236,7 @@ def known_at_for_asof(asof: date, now: datetime | None = None) -> datetime:
     """The transaction-axis cap for a scrubbed-back read: ``min(now, the end of night asof)``, as UTC — the
     night ending at the last instant before ``next_edgar_open(asof)`` (06:00 market time on the next weekday).
 
-    The two-axis no-lookahead a forward reader owes (invariant #1 / ``INVARIANTS.md`` §4). The as-of gate
+    The two-axis no-lookahead a forward reader owes (invariant #1, ``INVARIANTS.md`` §1). The as-of gate
     is ``valid_from <= asof AND recorded_at <= known_at``, and with ``known_at = now`` the second half never
     bites for a past ``asof`` — a scrub-back reads TODAY's knowledge of that date (the serve-path leak:
     TPCS bars dated August, ingested 09-01, arming an 08-25 recompute the record had logged as watching).
@@ -271,7 +271,7 @@ def known_at_for_asof(asof: date, now: datetime | None = None) -> datetime:
     PUBLIC instant of each fact by this same cap (``serve_view``): "what was public by the end of that
     night". (The backfill's old record-clock ``next-run`` pin is retired.)
 
-    ``now`` is injectable for tests; the default is the UTC instant (transaction time, correctly UTC — #4).
+    ``now`` is injectable for tests; the default is the UTC instant (transaction time, correctly UTC — #1).
     Returns an aware UTC datetime either way.
     """
     now = now or datetime.now(timezone.utc)
@@ -335,7 +335,7 @@ def serve_view(
     - live (``asof >=`` the current night, F1): ``(None, "record")`` — the unchanged live read
       (``serve_known_at``). The current night itself is live, so the app's default view is never a recompute.
     - past (before the current night): ``(known_at_for_asof(asof), "public")`` — a HISTORY view, judged on the
-      PUBLIC clock (operator decision 2026-10-21, ``docs/INVARIANTS.md`` §4): each fact version counts from
+      PUBLIC clock (operator decision 2026-10-21, ``docs/INVARIANTS.md`` §1): each fact version counts from
       when it became public (``db.public_clock``) up to the end of that night (06:00 on the next weekday,
       F6) — so a scrub-back shows how today's rules judge what was public then, not which rows our database
       happened to hold (our outages, our onboarding order). The roster and the position (operator

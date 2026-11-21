@@ -14,7 +14,7 @@ stamped one, else its CUSIP resolved to a US ticker via OpenFIGI (``figi.map_cus
 ``cusip_tickers`` — the caller does the I/O; this stays pure). The CUSIP leg is what makes the overlap
 resolve at all: most filers stamp NO ticker on equity holdings (measured: SMH/URA/LIT all 0; only
 ARK-style filers do), but a CUSIP rides essentially every US-line holding. Both keys are EXACT
-identifier maps (INVARIANT #2 — never a fuzzy name-guess), and the match target is the master's
+identifier maps (INVARIANT #11 — never a fuzzy name-guess), and the match target is the master's
 ticker map — NEVER the master ``cusip`` column (effectively always NULL: a CUSIP join silently returns
 nothing — the #9 trap the plan pins).
 

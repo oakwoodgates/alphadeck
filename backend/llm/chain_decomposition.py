@@ -18,11 +18,11 @@ empty draft; the reconciler (``workbench.chain_draft.resolve_discovered_chain``)
 deterministically-found name is dropped by the organizer's layout.
 
 THE BOUNDS (carried from the gate-1 plan):
-- **Never a number** (INVARIANT #1/#3). The prompt + tool schema forbid any price / %% / share count / cash /
+- **Never a number** (INVARIANT #3). The prompt + tool schema forbid any price / %% / share count / cash /
   runway / market cap / catalyst value; the response carries no value field. This half of the bound rests on
   the PROMPT — Sonnet is the adherence lever, and the gate-2 MANUAL no-number-in-the-prose check is its real
   test (a fake-client unit test cannot exercise a prompt).
-- **A name is a discovery suggestion, never a decision** (INVARIANT #2). This module proposes
+- **A name is a discovery suggestion, never a decision** (INVARIANT #11). This module proposes
   ``{name, ticker?}``; exact master membership DECIDES, downstream in ``workbench.chain_draft`` — the
   model's ticker is a best-guess key, never trusted as the id.
 - **Fail-open.** Every failure path (no key, live disabled, timeout, SDK error, no tool call, blank
@@ -48,7 +48,7 @@ _log = logging.getLogger("alphadeck.llm")
 # The structured-output contract — the model MUST call this tool; we read back its validated input. STRUCTURE
 # + ASSIGNMENT ONLY: no per-name prose field (the prose reroute — per-name sentences made the organize output
 # scale with the universe and truncate; ``narrate_placements`` authors ALL prose, batched) and no
-# value/score/number field anywhere in the schema (INVARIANT #1).
+# value/score/number field anywhere in the schema (INVARIANT #3).
 DECOMPOSE_TOOL: dict[str, Any] = {
     "name": "draft_value_chain",
     "description": (
@@ -231,7 +231,7 @@ def narrate_placements(
 
     ``off_thesis`` surfaces the model's already-made "this doesn't fit" judgment as a bit (the prose is the why) —
     a display recommendation, never a decision (#10): a flagged name STAYS placed (membership is deterministic,
-    #2) with a ``remove`` the operator clicks. Fail-open: an absent ``off_thesis`` defaults ``False`` — never flag
+    #11) with a ``remove`` the operator clicks. Fail-open: an absent ``off_thesis`` defaults ``False`` — never flag
     on missing data. COVERAGE = every empty-prose PLACED/VERIFY name — organizer-placed and reconciler-appended
     alike are narrated here, so ANY of them can be flagged (the old organizer-placements-exempt scope ended with
     the prose reroute; the boilerplate-collision flood is still mostly the reconciler-appended population).
@@ -379,7 +379,7 @@ def research_tail_sweep(client: Any, narrative: str, found_names: list[str]) -> 
 
     Framed as a directed sweep, NOT a bare "ignore these" (a bare exclusion makes the model re-list the core and
     stop early). The found list is threaded into the user message. ``client`` only needs a
-    ``research(system, user, tool)`` method. It sources NO number (#3); discovery only PROPOSES (#2 — the
+    ``research(system, user, tool)`` method. It sources NO number (#3); discovery only PROPOSES (#11 — the
     resolver + the secondary name/ticker bridges decide membership, never auto-place).
     """
     if not narrative or not narrative.strip():

@@ -1,6 +1,6 @@
 """THE PUBLIC CLOCK — "when could ANYONE have known this?" — defined ONCE, per table.
 
-**The rule (operator decision 2026-10-21; CLAUDE.md invariant #1, ``docs/INVARIANTS.md`` §4).** History is
+**The rule (operator decision 2026-10-21; ``docs/INVARIANTS.md`` §1).** History is
 judged on the PUBLIC clock: a fact version counts only from when it became public — its filing / acceptance
 time, its settled session; a correction from its OWN publication. ``recorded_at`` (when THIS system ingested a
 row) stays honest bookkeeping — stamped now, never backdated — but it is not the history gate: gating a past

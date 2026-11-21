@@ -11,7 +11,7 @@ One call, two FREE deterministic steps over the thesis's PERSISTED term set, end
    under PER-TIER hit caps (SIGNAL deep / BROAD shallow; a term in both tiers enumerates deep); the keyword
    tiers stay attached for ``classify``.
 3. **CIK -> placeable** (FREE, deterministic) — ``master.ids_for_ciks`` resolves each CIK to an EXACT in-master
-   member (INVARIANT #2, the cleanest form), then ``classify`` splits PLACED (>=1 SIGNAL seed) vs VERIFY
+   member (INVARIANT #11, the cleanest form), then ``classify`` splits PLACED (>=1 SIGNAL seed) vs VERIFY
    (broad-only, lower-confidence) and omits the not-in-master tail (the LLM tail-sweep's job).
 
 The OUTPUT is a ``DiscoveredUniverse``: the placeable CIKs as ``security_id``s by tier, plus the raw ``Filer``
@@ -19,7 +19,7 @@ map (name / ticker / keyword overlap) the chain reconciler matches the organizer
 layer OWNS COMPLETENESS — it deterministically finds the universe; the downstream organizer owns only LAYOUT,
 and a per-CIK reconciliation guarantees no discovered name is ever silently dropped (``workbench.chain_draft``).
 
-It sources NO number (#3) and only PROPOSES (#2 — exact CIK membership decides). **Completeness-or-fail:** an
+It sources NO number (#3) and only PROPOSES (#11 — exact CIK membership decides). **Completeness-or-fail:** an
 empty term set -> ``DiscoveryNoTerms``; keywords-but-nothing-placeable -> ``DiscoveryEmpty``; an EFTS enumerate
 fault -> ``DiscoveryDegraded`` — all surface as 503, never a silent recall fallback.
 """

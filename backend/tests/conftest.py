@@ -91,7 +91,7 @@ def pinned_today(monkeypatch) -> date:
     goes through that module attribute, so the test and every route it calls agree on the day by
     construction, even across a real midnight. NOT pinned: transaction time (``recorded_at`` from the
     DB clock, ``datetime.now(timezone.utc)``, the ``known_at`` cap's ``now``), so a pinned DAY never
-    fakes when a fact was learned (INVARIANTS.md §4). A module that imported ``market_now`` BY NAME
+    fakes when a fact was learned (INVARIANTS.md §1). A module that imported ``market_now`` BY NAME
     (``pipeline/daily.py``) keeps the live clock; a test that needs it pinned patches that name too.
     """
     # Imported here, not at the top: this conftest is imported before its ``pytest_configure`` test-DB

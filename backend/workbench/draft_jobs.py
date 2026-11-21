@@ -17,7 +17,7 @@ worker, SILENTLY. (If >1 worker is ever truly needed, this needs a shared store 
 table — the same caveat as ``research_runner``.)
 
 The result (a ``ChainDraftOut``) lives ONLY in memory and is RESPONSE-ONLY: the draft writes no fact and no
-promote (INVARIANT #2/#3). The one exception is deliberately NOT a fact: a successful job fires the caller's
+promote (INVARIANT #11/#3). The one exception is deliberately NOT a fact: a successful job fires the caller's
 ``on_success`` hook (the route passes ``write_draft_run_log`` — the write-only run-of-record artifact,
 ``workbench/draft_run_log.py``), AFTER the result is published and structurally unable to fail the draft. A
 restart wipes the registry — an in-flight poll then 404s, which the FE shows as a visible "draft was lost"

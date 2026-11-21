@@ -2,7 +2,7 @@
 master rows for a set of discovered CIKs, from each CIK's EDGAR submissions JSON.
 
 Run on the draft path BEFORE resolution (``execute_draft``: discovery → ENRICH → resolve), so the chain
-reconciler's status-gate reads a fresh listing status. Machine-parsed identity, never a fact (#1/#3): it writes
+reconciler's status-gate reads a fresh listing status. Machine-parsed identity, never a fact (#3): it writes
 only the master's descriptive columns (with an enrichment basis), never a fact_* row, never a number on a call
 card. FAIL-VISIBLE per CIK — a fetch / parse / write fault logs and skips that name (its row stays un-enriched
 → abstains, the honest fallback), NEVER aborting the draft (#9). The network stays OUT of the pure resolver.

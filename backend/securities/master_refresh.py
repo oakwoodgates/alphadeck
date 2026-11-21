@@ -616,7 +616,7 @@ def plan_refresh(
     deduped: list[tuple[str, str, str | None, str | None]] = []
     for cik, ticker, name, exchange in rows:
         if not cik or not ticker:
-            continue  # exact mappings only (INVARIANT #2)
+            continue  # exact mappings only (INVARIANT #11)
         key = (cik, str(ticker).upper())
         if key in seen:
             continue

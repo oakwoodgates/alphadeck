@@ -11,10 +11,11 @@ description: >-
 
 # Invariant review — the Alpha Deck overlay
 
-Authoritative sources: `docs/INVARIANTS.md` (implementation invariants — READ the
-relevant sections during the review, don't work from memory of them) + `CLAUDE.md`
-(product invariants #1–7, interaction principles, cost thread). This complements
-/code-review (bugs); it does not replace it.
+Authoritative sources: `docs/INVARIANTS.md` (invariants 1-14 in full — READ the
+relevant sections during the review, don't work from memory of them; its "Former
+numbers" table decodes an old cite) + `CLAUDE.md` (the same numbers in one line each,
+interaction principles, cost thread). This complements /code-review (bugs); it does
+not replace it.
 
 ## Guardrails (never violate)
 - **Findings are proposals.** Report VIOLATION / PASS / N-A with file:line and the
@@ -23,23 +24,31 @@ relevant sections during the review, don't work from memory of them) + `CLAUDE.m
   MEASURED; a judgment from reading is PROPOSED. Never blur them.
 
 ## Checks — trust invariants (backend / call path)
-- **No lookahead (#1 / INV §4):** every historical read via the as-of accessors; no
-  bare `date.today()` / no-arg `datetime.now()` (the AST scans in
-  `tests/domain/test_market_time.py` enforce — new code must pass them).
-- **LLM never sources (#3 / INV §1):** any new LLM touchpoint goes through
+- **No lookahead (invariant 1):** every historical read via the as-of accessors, a
+  fact counted from when it became public (`db/public_clock.py`); writers stamp
+  `now()`, never a backdated time.
+- **Everything attaches to a thesis (invariant 2):** no orphan screener or tool.
+- **LLM never sources (invariant 3):** any new LLM touchpoint goes through
   `backend/llm`, response-only, no write rail, no value field in its schema.
-- **Exact-membership resolution (INV §2):** fuzzy may discover, never decide.
-- **Provenance (#6 / INV §3):** every new trigger carries a checkable source.
-- **Tenant isolation (INV §5):** new read paths use the tenant-filtered accessors,
-  and the poison-row test GROWS to cover them.
-- **Pure assembler + property-factoring (INV §6/§7):** no clock/DB/network in the
-  call path; behavior keys on the driving property, never `if kind ==`.
-- **The two convictions never cross (#4):** operator conviction (size weight) must
-  never touch the call machinery.
-- **Recall (#9):** ANY change to discovery/classify/filters/caps/term tiers triggers
-  the five §9 rules — require the `recall-rescore` skill's re-score as the gate.
-- **Recommend→confirm (#10):** nothing model-suggested auto-applies; authorship
-  transfers only on an operator edit.
+- **Timing, not judgment (invariant 4):** nothing ranks or vetoes a thesis; the user's
+  conviction on a member is a displayed weight and never touches the call machinery.
+- **Advisory only (invariant 5):** nothing sizes, routes or executes a trade.
+- **Provenance (invariant 6):** every new trigger carries a checkable source.
+- **Inverse loudness (invariant 7):** only a move into Armed is loud.
+- **Dilution overhang (invariant 8):** one raw computation, never backed out of severity.
+- **Recall (invariant 9):** ANY change to discovery/classify/filters/caps/term tiers
+  triggers the five rules of invariant 9 — require the `recall-rescore` skill's
+  re-score as the gate.
+- **Recommend→confirm (invariant 10):** nothing model-suggested auto-applies;
+  authorship transfers only on an operator edit.
+- **Exact-membership resolution (invariant 11):** fuzzy may discover, never decide.
+- **Tenant isolation (invariant 12):** new read paths use the tenant-filtered
+  accessors, and the poison-row test GROWS to cover them; nothing deletes from
+  `calls` or the editions store.
+- **Pure assembler (invariant 13) + property-factoring (invariant 14):** no
+  clock/DB/network in the call path; no bare `date.today()` / no-arg `datetime.now()`
+  (the AST scans in `tests/domain/test_market_time.py` enforce — new code must pass
+  them); behavior keys on the driving property, never `if kind ==`.
 - **Display signals stay display:** no import path into `calls/`, never persisted.
 
 ## Checks — frontend / workflow

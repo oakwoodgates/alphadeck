@@ -6,7 +6,7 @@
 > door; `CHAIN_DRAFTER.md` is its companion (the authoring / ratify / promote surface that consumes this draft).
 >
 > House style follows `INVARIANTS.md`: a statement, the war story that earned it, then **Enforced by:** the
-> code + tests. Companions: `INVARIANTS.md` (#2 exact membership, #3 no model-sourced numbers, **#9 recall is
+> code + tests. Companions: `INVARIANTS.md` (#11 exact membership, #3 no model-sourced numbers, **#9 recall is
 > sacred**), `CHAIN_DRAFTER.md`, `ROADMAP.md` (sequencing). Engines:
 > `backend/ingest/edgar/fulltext.py` (the EFTS enumerator + `classify`), `backend/workbench/term_set.py` (the
 > producer), `backend/workbench/discovery.py` (the orchestrator), `backend/workbench/chain_draft.py` (the
@@ -48,7 +48,7 @@ drops real names.
 One narrative → a complete universe, in six steps. The deterministic layer (steps 1–4) owns COMPLETENESS; the
 LLM (steps 5–6) only arranges LAYOUT and adds DISPLAY prose + the foreign tail (the organizer emits structure
 + assignment only; the batched narration step authors ALL per-name prose — the prose reroute). Nothing here
-sources a number (#3); discovery only PROPOSES — exact CIK membership DECIDES (#2).
+sources a number (#3); discovery only PROPOSES — exact CIK membership DECIDES (invariant 11).
 
 ### 1. The term set — the operator owns the discriminating decision
 
@@ -166,7 +166,7 @@ structural, not log-only):
 
 ### 3. classify — PLACED / VERIFY (seeds-only-place)
 
-`master.ids_for_ciks` resolves each discovered CIK to an EXACT in-master member (the cleanest INVARIANT #2),
+`master.ids_for_ciks` resolves each discovered CIK to an EXACT in-master member (the cleanest invariant 11),
 then `classify` splits the in-master set by tier:
 
 - **PLACED** — hits **≥1 SIGNAL** (a seed — an operator-specified compound). High-confidence; auto-loads.
@@ -247,7 +247,7 @@ Each surfaced name carries two display layers, both value-free (#3):
   **orthogonal to status** — an off-universe name can be PLACED / AMBIGUOUS / ABSENT. The FE lights a quiet
   "off-universe" pill from it. It records "off the deterministic universe," **never** the hard claim "the
   tail-sweep sourced this" (`decompose` may surface an off-universe name from its own knowledge); display-only
-  like `matched_terms`, never a number (#3), never promoted onto a `BasketMember` (#2).
+  like `matched_terms`, never a number (#3), never promoted onto a `BasketMember` (invariant 11).
 
 **Identity chips carried onto the placement — the derived business type (Business-Type M1).** Beyond those
 value-free layers, `_carry_identity_and_gate` binds machine-parsed IDENTITY from the resolved master row
@@ -259,7 +259,7 @@ winning); the FE renders it as a **muted `.idchip`** riding right after the raw 
 candidate (To-Review / Couldn't-resolve) and placed rows, with the ◈ **royalty/streaming** overlay marked
 only when true (honest loudness — ~32 of ~8k names). A no-sector name shows **no** chip (honest abstain,
 #9); `other` (a SIC the maps don't cover) still shows — the visible tail. Display-only like the rest: never
-a number (#3), never promoted onto a `BasketMember` (#2), never a call input (#4). *Enforced by:*
+a number (#3), never promoted onto a `BasketMember` (invariant 11), never a call input (#4). *Enforced by:*
 `workbench/chain_draft.py` (`ResolvedPlacement.business_type` / `royalty`, set in `_carry_identity_and_gate`;
 `tests/app/test_workbench_api.py`); `frontend/src/workbench/ChainEditor.tsx` (the `.idchip` at all three
 `IdentityChips` sites; `__tests__/ChainEditor.scoredIdentity.test.tsx`).
@@ -371,13 +371,13 @@ Basket entry**. It is captured on the FE the moment a placement enters the baske
 call path (#3)**; a hand-added name with no discovery origin (an operator-typed ETF sleeve) honestly carries
 `{}`.
 
-**The deliberate #2 crossing.** §5 says the display tag is "never promoted onto a `BasketMember` (#2)" — and its
+**The deliberate invariant-11 crossing.** §5 says the display tag is "never promoted onto a `BasketMember` (invariant 11)" — and its
 live form still isn't. `surfaced_terms` is the ONE blessed exception, and narrowly: it is not the
 recompute-every-draft tag riding the member, it is a **fact captured once at entry** — *these terms surfaced
-this name*. Membership was already decided by exact CIK + the operator's promote (#2 proper); this record
+this name*. Membership was already decided by exact CIK + the operator's promote (invariant 11 proper); this record
 **decides nothing**, is never a figure, never an input to the call (#3), and sits squarely on #3/#6's
 explainability side of the line. Operator-blessed, on the record — do not "fix" it back off the member.
-(`INVARIANTS.md` #2 carries the breadcrumb.)
+(`INVARIANTS.md` #11 carries the breadcrumb.)
 
 **2. Freeze-on-promote + a re-runnable backfill.** Two write paths, one rule — *the stored value wins for an
 existing member*:
@@ -450,7 +450,7 @@ visible, distinguished.
 
 ## Invariant ties
 
-- **#2 — exact CIK membership decides; discovery only PROPOSES.** EFTS surfaces CIKs; `ids_for_ciks` +
+- **#11 — exact CIK membership decides; discovery only PROPOSES.** EFTS surfaces CIKs; `ids_for_ciks` +
   `classify` place only EXACT in-master members; a VERIFY/AMBIGUOUS name enters the basket only by an explicit
   operator action. *Enforced by:* `fulltext.classify`, `chain_draft.resolve_discovered_chain`, the promote
   membership guard (`app/routers/workbench.py`).

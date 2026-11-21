@@ -122,7 +122,7 @@ class BusinessType(StrEnum):
 
     Derived on read from the master's stored ``sector`` (EDGAR ``sicDescription``) via the editable
     data files in ``securities/business_type/`` — descriptive IDENTITY like ``sector``/``origin``
-    (#1/#3 govern numbers, not identity strings): never a fact, never a call input, never fires/arms/
+    (#3 governs numbers, not identity strings): never a fact, never a call input, never fires/arms/
     vetoes/grades. ``OTHER`` is the visible tail (an unmapped-but-present sector — never a silent
     drop, #9); an un-enriched row derives ``None`` (unclassified — the honest abstain). This enum is
     the TYPE CONTRACT; the SIC→leaf DATA lives in ``sic_map.csv`` (operator-editable)."""

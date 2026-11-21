@@ -912,7 +912,7 @@ with intent", 13G = passive; the fire policy (13D-family ORIGINALS only) is appl
 Every ingested fact lands with `valid_from` = event/effective time and `recorded_at` = ingest time, into
 the bitemporal store (see `CLAUDE.md`). No source is read in a way that lets a detector see data dated
 after its `asof`. This is what makes the replay harness honest. History is judged on the PUBLIC clock
-(`INVARIANTS.md` §4, operator decision 2026-10-21); `recorded_at` is bookkeeping. Two writers used to backdate
+(`INVARIANTS.md` §1, operator decision 2026-10-21); `recorded_at` is bookkeeping. Two writers used to backdate
 it and no longer do — the pre-D1 SPY/IWM bars (`recorded_at = D 00:00 UTC`, 2,598 rows) and the pre-0057
 `fact_fundamentals` rows (`recorded_at = filed 00:00 UTC`, 120,876 rows) keep those stamps as written, which
 is moot under the public clock (each sits on its public date already).

@@ -30,7 +30,7 @@ def parse_identity(submissions: dict[str, Any]) -> SecurityIdentity:
     ``status`` is a HEURISTIC, not a delisting feed: a filer with a current ticker AND a current exchange reads
     ``"active"``; otherwise ``"inactive"`` (no current listing found in EDGAR). It must never be surfaced as a
     hard "delisted" verdict — the operator-facing label stays a hedged guess. ``category`` is EDGAR's own
-    filing-status string surfaced verbatim (identity, never a number #1/#3) — ``None`` when the filer omits it.
+    filing-status string surfaced verbatim (identity, never a number #3) — ``None`` when the filer omits it.
 
     ORIGIN ingredients (migration 0028) — four raw locators for the derive-on-read origin chip
     (``securities/origin.py``): ``incorporation`` (``stateOfIncorporationDescription`` — "Cayman Islands", or
@@ -46,7 +46,7 @@ def parse_identity(submissions: dict[str, Any]) -> SecurityIdentity:
     ``files_domestic_forms`` (a 10-K or 10-Q present — the domestic veto that kills the legacy-foreign-form
     false positive, e.g. Energy Fuels' stale 40-F). Neither present → None/False (the tell abstains).
 
-    Pure (no I/O) — feed it the dict from ``fetch_submissions``. Machine-parsed identity, never a fact (#1/#3).
+    Pure (no I/O) — feed it the dict from ``fetch_submissions``. Machine-parsed identity, never a fact (#3).
     Tolerates a sparse/old submissions (missing keys) without raising.
     """
     sector = (submissions.get("sicDescription") or "").strip() or None
@@ -284,7 +284,7 @@ def edgar_tickers(submissions: dict[str, Any]) -> tuple[str, ...]:
     """The company's CURRENT trading symbols as EDGAR lists them (the submissions ``tickers`` array),
     stripped and upper-cased, in EDGAR's order — ``()`` when EDGAR lists none (or the key is absent).
 
-    Identity, never a fact (#1/#3 govern numbers). The tape monitor's RENAME guard reads it as MEMBERSHIP
+    Identity, never a fact (#3 governs numbers). The tape monitor's RENAME guard reads it as MEMBERSHIP
     (does the list hold our ``ticker`` or our ``price_symbol``?), never ``tickers[0]``: EDGAR lists every
     current class side by side (``['KYOCF', 'KYOAY']``, ``['ABLZF', 'ABBNY']``, ``['WELPP', 'WELPM']``), so
     a first-element read mis-flags a name priced under its second symbol. ``()`` is honest absence: a

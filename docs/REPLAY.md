@@ -65,7 +65,7 @@ in the PAST: `replay.run --pin` is explicit, but the Scoreboard's replay-snapsho
 retired with its panel by editions S8 on 2026-10-23 — a stored edition replaced it) pinned `now`, so that panel was
 honest by LABELING (a recompute, never the record), not by gating to the past — the
 same knowledge-horizon caveat the serve path closes for a past view with the public clock (`serve_view`,
-`INVARIANTS.md` #4). **That CLI also
+`INVARIANTS.md` #1). **That CLI also
 passes an explicit `cfg` and stamps its fingerprint (F2):** it used to omit `cfg` entirely and silently take
 `DEFAULT_CONFIG`, so the artifact could not name the dials behind the panel. It now carries `config_hash` (the
 same `domain.config.config_hash` the `calls` rows carry, so lab and record are comparable on policy) and the
@@ -118,7 +118,7 @@ Step 2, which runs against real history at scale.
 **The roster half is CLOSED (F4).** At every session T the harness re-resolves each thesis's basket through
 `thesis_repo.get_asof` at `known_at = min(pin, known_at_for_asof(T))` — the same **night cap** every
 history view uses (since F6, 2026-10-31: the last instant before 06:00 ET on the next weekday, EDGAR's
-next open — not midnight; a Friday's runs to Monday 06:00) (`domain.market_time.serve_view`, `INVARIANTS.md` #4), never the run's bare pin. The
+next open — not midnight; a Friday's runs to Monday 06:00) (`domain.market_time.serve_view`, `INVARIANTS.md` #1), never the run's bare pin. The
 per-session clock is the load-bearing part: the harness pins ONE `known_at` for the sweep, so resolving the
 roster once at that pin would return **today's** basket for any caller that pins `now` (the retired
 `scoreboard.replay_snapshot` CLI did) and the lookahead would have survived the fix. A member added after T is now invisible at T.
@@ -136,11 +136,11 @@ roster once at that pin would return **today's** basket for any caller that pins
 **On the record clock the fact axis is capped at the run's single pin**, so the roster can be *older*
 knowledge than the facts — deliberate and conservative (it can never invent a member the thesis did not have).
 The backtest's public-clock mode moves the fact axis onto the same per-T cap (`known_at_mode = lockstep`), so
-the two are lockstep there — and since 2026-10-21 the public clock is THE history clock (`INVARIANTS.md` #4):
+the two are lockstep there — and since 2026-10-21 the public clock is THE history clock (`INVARIANTS.md` #1):
 its per-table definition is `db/public_clock.py`, shared verbatim with the product's history views.
 
 The *roster* gap was never replay's alone — it sits under every past-`asof` recompute (the
-Board/Cockpit/Workbench scrub-back, `INVARIANTS.md` #4) and under `pipeline.backfill`'s reconstruction of a
+Board/Cockpit/Workbench scrub-back, `INVARIANTS.md` #1) and under `pipeline.backfill`'s reconstruction of a
 missed night (`FEED_LOOP.md`), which is why a reconstructed row is reported, never scored (`SCOREBOARD.md`).
 The canonical statement, and the one surface immune to it (the Scoreboard's record path), live in
 `INVARIANTS.md` §Known gaps; this section records only replay's own exposure.

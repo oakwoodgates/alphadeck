@@ -38,7 +38,7 @@ exactly as before editions existed (a golden taken before the change pins it byt
 `tests/app/test_scoreboard_edition0_golden.py`). Edition 0 is never stored as an edition.
 
 **Edition N >= 1** is a re-run of TODAY's rules from the night each company joined its basket, judged on the
-PUBLIC clock (`docs/INVARIANTS.md` §4), frozen at its CUT and stored in its own append-only tables (migration
+PUBLIC clock (`docs/INVARIANTS.md` §1), frozen at its CUT and stored in its own append-only tables (migration
 `0063`: `edition`, `edition_event`, `edition_entry` = the join dates it was cut with, `edition_call` = one
 page per thesis-night). It is published by `python -m editions.run publish` (dry-run by default; `--apply`
 writes; a second publish of the same edition is refused and appends nothing) and **never writes `calls`**.

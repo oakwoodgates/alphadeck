@@ -14,7 +14,7 @@ class Security(DomainModel):
 
     ``sector`` / ``exchange`` / ``status`` / ``category`` are machine-parsed IDENTITY (from EDGAR submissions),
     enriched onto the master — descriptive, NEVER a fact: they never enter a fact_* table or feed a number on a
-    call card (#1/#3 govern NUMBERS, not identity strings). ``status`` is a listing-presence heuristic, not a
+    call card (#3 governs NUMBERS, not identity strings). ``status`` is a listing-presence heuristic, not a
     delisting feed; ``category`` is EDGAR's filer-status string (a maturity/size tell, e.g. "Large accelerated
     filer" vs "Smaller reporting company"). All optional — an un-enriched row reads ``None`` (the honest fallback).
 
@@ -64,7 +64,7 @@ class Security(DomainModel):
     recent_foreign_form: str | None = None
     # RESOLVED PRICE SYMBOL (migration 0032) — the vendor symbol to PRICE under when it DIFFERS from the SEC
     # ``ticker`` (FDCT priced under FDCTD: 251 bars vs 16). Identity like the above, never a fact / call input
-    # (#1/#3). NULL is the healthy common case ("priced under the canonical ticker"); a non-null value is the
+    # (#3). NULL is the healthy common case ("priced under the canonical ticker"); a non-null value is the
     # EXCEPTION marker. Consumers price under ``price_symbol or ticker``; the SEC ``ticker`` is NEVER overwritten.
     # ``price_symbol_basis`` is the provenance of the resolution (resolver:auto / operator:adopt), stored as a
     # basis (like ``enriched_source``), never a fact's ``ratified_by``. NULL = un-resolved.
@@ -73,7 +73,7 @@ class Security(DomainModel):
     # BUSINESS-TYPE RE-TAG (migration 0033) — the operator's stored per-security business-type override,
     # kept ONLY when it DIFFERS from what the securities/business_type maps derive from ``sector`` (the
     # price_symbol store-on-diff idiom; NULL = classified by the maps, the healthy common case). MONITOR
-    # display identity like the above, never a fact / call input (#1/#3/#4). ``business_type_basis`` is
+    # display identity like the above, never a fact / call input (#3/#4). ``business_type_basis`` is
     # the re-tag's provenance ("operator:retag"), identity-basis like ``price_symbol_basis``.
     business_type: str | None = None
     business_type_basis: str | None = None
@@ -83,7 +83,7 @@ class SecurityIdentity(DomainModel):
     """Identity parsed from an EDGAR submissions JSON — the input to ``master.enrich``.
 
     Machine-parsed descriptive identity (sector/exchange/status + rebrand history), NOT a fact: it never
-    enters a fact_* table and never feeds a number on a call card (#1/#3 govern NUMBERS, not identity
+    enters a fact_* table and never feeds a number on a call card (#3 governs NUMBERS, not identity
     strings). ``status`` is a LISTING-PRESENCE heuristic (a current ticker AND exchange -> 'active', else
     'inactive'), never a formal delisting verdict — the operator-facing label stays a hedged guess.
     ``former_names`` is parsed now so the later identity-bridge slice's data shape is ready; it is UNUSED
