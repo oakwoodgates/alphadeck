@@ -183,7 +183,7 @@ because the Workbench is unusable without it. Each fetch is bounded (security ha
   | `ALPHADECK_ALLOWANCE_HOLDINGS_PER_DAY` | 200 | holdings |
   | `ALPHADECK_ALLOWANCE_CHAIN_DRAFT_PER_DAY` | 20 | `POST /workbench/theses/{id}/draft-chain` |
   | `ALPHADECK_ALLOWANCE_TERM_RUN_PER_DAY` | 50 | `POST .../terms` and `POST .../recommend-tiers`, one shared count |
-  | `ALPHADECK_ALLOWANCE_FLAG_PER_DAY` | 50 | a user's flag on a shared value (`POST /value-flags`, V2 W5b): not a fetch, it bounds the steward's Slack messages. Counted in the flag's own transaction after the own-card check (404) and the open-flag check (409), so a refused flag spends nothing; a withdrawal never refunds (`docs/PLATFORM_VALUES.md` §Flags) |
+  | `ALPHADECK_ALLOWANCE_FLAG_PER_DAY` | 50 | a user's flag on a shared value (`POST /value-flags`, V2 W5b): not a fetch, it bounds the steward's Slack messages. Counted in the flag's own transaction after the own-card check (404) and the open-flag check (409), so a refused flag spends nothing; a withdrawal never refunds (`docs/VALUE_FLAGS.md`) |
 
 - **No shared-master write.** The automatic OTC price-symbol resolve runs on a steward's pull only (a plain user's
   OTC pull is priced under the canonical ticker; the steward's price-feed panel or the backfill sweep resolves it).

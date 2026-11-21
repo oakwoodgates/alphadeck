@@ -1444,5 +1444,5 @@ published, so it refuses.
   `backend/editions/run.py` and `backend/editions/cut.py` (the cut), `backend/pipeline/backup.py`,
   `scripts/deploy.sh`, `scripts/refresh-fork.sh`.
 - Related pages: `docs/DEPLOY.md`, `docs/FORKS.md`, `docs/V2_BRANCH.md`, `docs/FEED_LOOP.md` (backups and restore),
-  `docs/PLATFORM_VALUES.md` (the backfill and decision B4), `docs/SCOREBOARD.md` ("After the V2 cutover: the history
+  `docs/PLATFORM_EXTRACTION.md` (the backfill and decision B4), `docs/SCOREBOARD.md` ("After the V2 cutover: the history
   kept, a workspace's own record").

@@ -50,7 +50,7 @@ THE SHAPE — four parts, one state table (``security_onboarding``, migration 00
 NEW COMPANIES' PLATFORM VALUES (V2 W3e, ``_extraction_step``). AFTER the queue's batch, under the job's lock with
 every company lock released, the job extracts the share count and cash/burn of each NEVER-extracted company on a
 live card (fast-laned promotes and companies from another card included). Fail-open; it never changes the batch's
-own result or the queue. ``docs/PLATFORM_VALUES.md`` ("The onboarding job's step").
+own result or the queue. ``docs/PLATFORM_EXTRACTION.md`` ("The onboarding job's step").
 
 THE SEC BUDGET. Every EDGAR read the job makes goes through ONE client built by ``_edgar_client``: the
 recurring dial, which also places it in the global SEC budget's ``recurring`` lane (X2) — a bulk background
@@ -917,7 +917,7 @@ def _extraction_step(
     now: Callable[[], datetime],
     clock: Callable[[], float],
 ) -> None:
-    """THE NEW-COMPANY EXTRACTION STEP (V2 W3e, approved B5 (a); ``docs/PLATFORM_VALUES.md``, "The
+    """THE NEW-COMPANY EXTRACTION STEP (V2 W3e, approved B5 (a); ``docs/PLATFORM_EXTRACTION.md``, "The
     onboarding job's step"): AFTER the queue's batch has finished and released every company lock, extract the platform
     values of the companies on a live card that were NEVER extracted, wherever they came from: a cold name this
     batch (or an earlier one) loaded, a FAST-LANED promote (marked done without the job running a leg for it), or

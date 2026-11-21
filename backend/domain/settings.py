@@ -595,7 +595,7 @@ class Settings(BaseSettings):
     # ALPHADECK_INGEST_FETCH_CONCURRENCY.
     ingest_fetch_concurrency: int = 8
 
-    # --- V2 W3a — BACKGROUND EXTRACTION of platform values (``platform_values/extraction.py``; docs/PLATFORM_VALUES.md)
+    # --- V2 W3a — BACKGROUND EXTRACTION of platform values (``platform_values/extraction.py``; docs/PLATFORM_EXTRACTION.md)
     # THE KILL SWITCH: ``platform_extraction_max_names = 0`` turns the nightly leg AND the onboarding step off (no
     # company is fetched, no attempt is written); the backfill CLI still runs by hand. Otherwise it is how many
     # companies one nightly leg may extract. ALPHADECK_PLATFORM_EXTRACTION_MAX_NAMES.

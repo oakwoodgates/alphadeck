@@ -1110,7 +1110,7 @@ the nightly itself, inside the window.
   the job's lock, `_extraction_step` extracts the share count and cash/burn of every NEVER-extracted company on a
   live card: a fast-laned promote and a company that joined from another card included, which no leg of the job
   ever sees. Fail-open, through the same recurring client, with what is left of the batch's time budget. Rules:
-  `docs/PLATFORM_VALUES.md` ("The onboarding job's step").
+  `docs/PLATFORM_EXTRACTION.md` ("The onboarding job's step").
 
 **The nightly's treatment of a not-yet-warm name.** `run_daily` reads the pending rows ONCE
 (`onboarding.pending_status`; FAIL-OPEN toward the full walk — a read that fails prints a WARNING and every
@@ -1211,7 +1211,7 @@ full description (dates, stages, the two reads, the CLI) is `docs/FUND_RADAR.md`
 ### The platform-extraction step — the LAST thing in the pass (V2 W3c, 2026-11)  `[BUILT]`
 
 Approved B2 (a): after the fund radar, `run_daily_pass` runs `pipeline/nightly_extraction.py`, which keeps the shared
-share counts and cash/burn current (`docs/PLATFORM_VALUES.md`, "Background extraction"). By then every thesis's
+share counts and cash/burn current (`docs/PLATFORM_EXTRACTION.md`, "The nightly step"). By then every thesis's
 call of record is written and committed, the artifact is finished, the health page sent. Its own connections, its
 own recurring `EdgarClient` (the recurring lane of the global SEC budget; built only when a company is due),
 `timed("platform_extraction")`, live passes only (a `--no-live` pass records `skipped: no-live`), and fail-open (a

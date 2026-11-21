@@ -1,5 +1,5 @@
 """The steward's Slack message for a user's FLAG on a platform value (V2 W5b; the W5 plan's Q5, decisions B4 and
-W-c; ``docs/PLATFORM_VALUES.md`` §Flags).
+W-c; ``docs/VALUE_FLAGS.md``).
 
 One message per raised flag (none on a withdrawal, a close or a reopen), sent AFTER the row is committed and after
 the user's answer (the route's background task), so Slack never holds a click and never decides it:

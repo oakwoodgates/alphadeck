@@ -1,5 +1,5 @@
-"""V2 W5c: migration 0211 records WHO reopened a user's flag (``value_flag.reopened_by``; ``docs/PLATFORM_VALUES.md``
-§Flags, the steward's side).
+"""V2 W5c: migration 0211 records WHO reopened a user's flag (``value_flag.reopened_by``; ``docs/VALUE_FLAGS.md``,
+"The steward's side").
 
 - one nullable text column: the steward's email on a reopen row (``reopens`` set); when = that row's ``opened_at``;
 - a CHECK: only a reopen row names a reopener (an ordinary flag never does);
