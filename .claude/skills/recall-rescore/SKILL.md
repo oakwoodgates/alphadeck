@@ -36,8 +36,17 @@ and this skill is its executable home.
    surface, so the run under-counts). Find the psychedelic thesis id on dev.
 2. **Trigger the draft** (a background job — 202, then poll):
    ```
-   curl -X POST http://localhost:8001/workbench/theses/<id>/draft-chain
+   curl -X POST -H "Authorization: Bearer $TOKEN" http://localhost:8001/workbench/theses/<id>/draft-chain
    ```
+   Every route except `/health` needs a sign-in. `$TOKEN` is a dev-stack token for the user whose
+   workspace holds the psychedelic thesis (another workspace's thesis answers 404). Mint one in the
+   dev backend, keeping it out of the transcript (run it in the container: on the host the default
+   database URL is PROD):
+   ```
+   TOKEN=$(docker compose -f docker-compose.yml -f docker-compose.dev.yml -p alphadeck_dev --env-file .env.dev exec -T backend python -m pipeline.users token create --email <owner> --name rescore | sed -n 's/^token (shown once): //p' | tr -d '\r')
+   ```
+   A plain user's kick-off spends one daily `chain_draft` allowance unit (429 once it is spent; a
+   steward is never counted). Poll `GET .../draft-chain/jobs/<job_id>` with the same header.
    Collect the finished `ChainDraftOut`: PLACED + VERIFY placements, the
    surfaced-not-placed context, and the coverage report.
 3. **Score at CIK level** — write a scratch scorer (scratchpad, not the repo)
