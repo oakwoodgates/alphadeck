@@ -81,3 +81,16 @@ jobs:
           git diff --exit-code src/api/types.gen.ts
       - run: npm run build  # tsc -b (strict typecheck) + vite build
       - run: npm test  # vitest: the Workbench authoring components + the grouped-render coverage
+
+  docs:
+    name: docs (check_docs.py against the baseline)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"  # the floor the backend declares; the checker is stdlib only (no install)
+      # Report mode (docs/DOCS_STANDARD.md): fails only on a fail-severity finding that is not in
+      # scripts/check_docs_baseline.json; `--all` prints the baselined ones too.
+      - name: Docs checker
+        run: python scripts/check_docs.py

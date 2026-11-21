@@ -173,6 +173,24 @@ def test_pointer_headings_match_by_case_insensitive_prefix(cd, tmp_path):
     assert _keys(findings, "pointers") == ["docs/A.md §Missing part", "docs/A.md §Nope"]
 
 
+def test_pointer_headings_include_bold_run_in_heads_and_loose_forms(cd, tmp_path):
+    files = {
+        "docs/R.md": (
+            "# R\n\n## The Settings page\n\n## ⚠️ KNOWN LIMITATION — the roster\n\n"
+            "**What the hash promises.** Text.\n\n- **No silent loudness** — text.\n"
+        ),
+        "backend/x.py": (
+            "# docs/R.md §Settings page\n"
+            "# docs/R.md §Known limitation\n"
+            '# docs/R.md §"What the hash promises"\n'
+            '# docs/R.md "no silent loudness"\n'
+            "# docs/R.md §The Settings page (where a user sets the webhook)\n"
+            "# docs/R.md §Gone heading\n"
+        ),
+    }
+    assert _keys(_run(cd, tmp_path, files), "pointers") == ["docs/R.md §Gone heading"]
+
+
 def test_pointer_dashboard_rules_and_call_logic_sections(cd, tmp_path):
     code = (
         "// docs/DASHBOARDS.md rule 9\n"
@@ -255,6 +273,15 @@ def test_hygiene_patterns_fail(cd, tmp_path):
     ]
 
 
+def test_code_line_numbers_warn(cd, tmp_path):
+    _tree(
+        tmp_path,
+        {"docs/A.md": "# A\n\nThe list is at `registry.ts:32`; the host is localhost:8000.\n"},
+    )
+    found = _found(cd.run_checks(tmp_path), "banned", "docs/A.md")
+    assert [(f.severity, f.key) for f in found] == [("warn", "line-number-code: registry.ts:32")]
+
+
 def test_status_and_slop_phrases_fail_outside_code(cd, tmp_path):
     text = (
         "# A\n\nMEASURED 300 s. Choices to confirm. Not yet rehearsed.\n"
@@ -291,6 +318,8 @@ def test_em_dash_density_and_stacked_emphasis_warn(cd, tmp_path):
     assert _ids(_banned(cd, tmp_path, loud, "docs/B.md")) == ["emphasis"]
     calm = "# C\n\n" + " — ".join([_words(40)] * 2) + " **Bold** once.\n"
     assert _banned(cd, tmp_path, calm, "docs/C.md") == []
+    sql = "# D\n\nA dump with NO DROP or DELETE IN it replays only into an EMPTY database.\n"
+    assert _banned(cd, tmp_path, sql, "docs/D.md") == []
 
 
 def test_unauthenticated_curl_to_app_routes_fails(cd, tmp_path):
