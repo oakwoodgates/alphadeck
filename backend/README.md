@@ -105,12 +105,10 @@ backend\.venv\Scripts\python -m pipeline.daily                                # 
 ```
 
 The **prod cron sidecar** runs it on the US-close schedule — **on by default in prod**, off in isolated dev.
-The following commands target **prod**, not the dev quickstart; follow [`DEPLOY.md`](../docs/DEPLOY.md)'s
-backup, nightly-window and lock safeguards before changing that stack:
-
-```powershell
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build   # the cron sidecar starts with the stack
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --scale cron=0   # ...or skip it for one run
-```
+Do not rebuild or restart the **prod** stack with raw `docker compose` commands. Change prod through
+`scripts/deploy.sh` (from the main checkout; `bash scripts/deploy.sh --help`): it takes a labeled backup
+first, refuses inside the nightly window or while a pass is running, rebuilds only the services you name
+and verifies the result; `--hold-cron` deploys with the cron sidecar kept stopped. Steps: the `deploy`
+skill (`.claude/skills/deploy/SKILL.md`); model: [`DEPLOY.md`](../docs/DEPLOY.md).
 
 `app/openapi_export.py` dumps `openapi.json` — the frontend generates its TS types from it (`npm run gen:api`).
