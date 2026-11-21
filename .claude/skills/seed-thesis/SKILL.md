@@ -14,8 +14,8 @@ description: >-
 Authoritative depth: `docs/DISCOVERY.md` (EDGAR-first discovery + the term tiers),
 `docs/CHAIN_DRAFTER.md` (the narrative→chain draft), `docs/WORKBENCH_EXTRACTION.md`.
 This skill is the executable checklist — follow it top to bottom, STOP on any failed
-precondition (report, don't guess). Migrating a seeded thesis dev→prod is a DIFFERENT
-job — use the `migrate-thesis` skill (the same wipe-guard applies).
+precondition (report, don't guess). Copying a seeded thesis dev→prod is a DIFFERENT job and
+has no skill (it is a prod write): stop and ask the operator. The same wipe-guard (step 2) applies to any replay.
 
 ## Guardrails (never violate)
 - **DEV, unless the operator says prod.** Creating a thesis is a WRITE and the draft
@@ -31,6 +31,15 @@ job — use the `migrate-thesis` skill (the same wipe-guard applies).
 - **Stack ops from the MAIN checkout**, never a worktree.
 
 ## Steps (dev, `:8001`)
+Every route except `/health` needs a sign-in: send `-H "Authorization: Bearer $TOKEN"` on each call
+below. `$TOKEN` is a dev-stack user's token, and the thesis is created in THAT user's workspace (the
+workspace comes from the token, never the body); a thesis in another workspace answers 404. Mint one
+in the dev backend, keeping it out of the transcript (`pipeline.users list` names the users; run it in
+the container, because on the host the default database URL is PROD):
+```
+TOKEN=$(docker compose -f docker-compose.yml -f docker-compose.dev.yml -p alphadeck_dev --env-file .env.dev exec -T backend python -m pipeline.users token create --email <dev user> --name seed | sed -n 's/^token (shown once): //p' | tr -d '\r')
+```
+
 1. **Create the thesis** — `POST /workbench/theses` (the promote writer):
    ```
    {"id": null,            # or a UUID to PRESERVE the id (aligns the draft_runs dir)
@@ -40,7 +49,10 @@ job — use the `migrate-thesis` skill (the same wipe-guard applies).
    ```
    Returns the `ThesisDetail` with the id. Promote is the PURE structured writer — it
    does **NOT** carry `term_set` / `catalysts` / `kill_criteria` / `exclusions` (the
-   wipe-guard); each needs its own narrow writer below.
+   wipe-guard); each needs its own narrow writer below. For a plain user a promote that adds
+   names spends one `price_pull` allowance unit per new name (when today's allowance cannot cover
+   them, the names wait for the onboarding queue instead of failing), and a card that would pass
+   the workspace's live-card or company cap is refused with a 409 and nothing is written.
 2. **Seed the term set (THE WIPE-GUARD STEP — promote dropped it).** Either
    `PUT /workbench/theses/{id}/terms/edit` with `{"terms":[{"term":"...","tier":"signal|broad"}]}`
    (stamps `operator_set` — fine for a fresh seed), OR the narrow
@@ -48,13 +60,17 @@ job — use the `migrate-thesis` skill (the same wipe-guard applies).
    backend container (preserves EXACT authorship — use this when migrating). Read the
    set back and confirm the count + the signal/broad split.
 3. **(Optional) catalysts / kill_criteria / exclusions** — via their narrow writers
-   (`set_catalysts` / `set_kill_criteria` / `set_exclusions`); promote drops these too.
+   (`set_catalysts` / `set_kill_criteria` / `set_exclusions`, each with `tenant_id=` the thesis's
+   `tenant_id`); promote drops these too.
 4. **Run the draft** — `POST /workbench/theses/{id}/draft-chain` → **202 + `{job_id}`**;
    poll `GET /workbench/theses/{id}/draft-chain/jobs/{job_id}` until `done`/`failed`
    (minutes: EDGAR discovery → Opus tail-sweep → decompose → narrate). **RESPONSE-ONLY**
    — it saves a run under `data/draft_runs/<id>/` and persists NO basket; the operator
    triages/promotes. The LLM seams need `ANTHROPIC_API_KEY` (fail-open without → an
-   empty draft, surfaced not silent).
+   empty draft, surfaced not silent). A plain user's kick-off spends one `chain_draft` allowance
+   unit (429 once the day's is spent; a steward is never counted), the kick-off also answers 429
+   while the server's draft capacity is full, and a plain user's draft never writes the shared
+   security master.
 5. **Grade the run** (from the job result / the run JSON): placed vs verify vs
    ambiguous/absent; the segments built; `capped_terms` + coverage (retry a DEGRADED
    run before trusting it — a gap scored as truth is the silent-drop failure). Then:
@@ -64,7 +80,8 @@ job — use the `migrate-thesis` skill (the same wipe-guard applies).
 
 ## Traps (all hit in practice)
 - **`GET /workbench/theses/{id}` is NOT a route → 404.** Read the thesis via
-  `thesis_repo.get` in the backend container, or `GET .../scored` — never a bare GET.
+  `thesis_repo.get(conn, id, workspace=WORKSPACE_ANY)` in the backend container (`workspace=` is
+  required; `WORKSPACE_ANY` is in `domain.scopes`), or `GET .../scored` — never a bare GET.
   (A 404 body parses as all-null fields — don't mistake it for "empty thesis".)
 - **The double-stdin trap:** `docker exec -i <c> python < script.py` uses stdin for the
   SCRIPT — you canNOT also pipe data via stdin (it silently arrives empty). Embed the

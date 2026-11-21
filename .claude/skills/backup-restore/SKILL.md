@@ -31,8 +31,15 @@ subprocess, no app connection.
 
 ## Snapshot (safe, read-only)
 1. Check what already exists first — the cron takes a nightly weekday snapshot:
-   `GET /admin/status` carries the last-snapshot age; `GET /admin/backups` lists all
-   (or `ls data/backups` at the main-checkout root).
+   `curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/admin/status` carries the last-snapshot
+   age; `.../admin/backups` lists all (or `ls data/backups` at the main-checkout root). `/admin/*` is
+   steward-only, so a bare curl answers 401. `$TOKEN` is the prod ops token, `ALPHADECK_OPS_TOKEN` in
+   `.env`; read it as one line, the way `scripts/deploy.sh:192-206` does, and never print it (from the
+   main checkout):
+   `TOKEN=$(sed -n 's/^[[:space:]]*ALPHADECK_OPS_TOKEN=//p' .env | tail -n 1 | tr -d "\r\"'")`.
+   Nothing there yet: the operator mints one once
+   (`docker exec -it alphadeck-backend-1 python -m pipeline.users token create --email <admin> --name ops`).
+   For dev or a fork, use that stack's API port and mint in its own backend.
 2. Create, labeled with the reason:
    ```
    docker compose -f docker-compose.yml -f docker-compose.prod.yml exec backend python -m pipeline.backup --label pre-<why>
@@ -58,4 +65,6 @@ subprocess, no app connection.
    (For dev/fork, substitute that stack's compose project, postgres container and DB name; in
    PowerShell pipe the file in with `Get-Content` instead of `<`.)
 4. Verify: `/health` ok (the backend applies any migration newer than the snapshot on start), the
-   record edge (`GET /admin/status`) matches the snapshot's date, and a spot-checked thesis renders.
+   record edge (`/admin/status`, with the token) matches the snapshot's date, and a spot-checked thesis
+   renders. The snapshot holds the whole database, tokens included: one minted after it was taken is
+   gone, so a 401 after a restore means mint a new one.

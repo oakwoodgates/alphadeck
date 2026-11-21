@@ -60,7 +60,13 @@ relevant sections during the review, don't work from memory of them) + `CLAUDE.m
 ## Conditional — the live-seam check (diff touches `backend/llm/*` or a seam's prompt/schema)
 Fake-client tests prove WIRING only. Before claiming the seam works, confirm against
 live Anthropic (needs `ANTHROPIC_API_KEY`; run on DEV, never prod) — e.g.
-`curl -X POST http://localhost:8001/workbench/theses/<id>/draft-chain` for the chain
-seam, or the explain endpoint for the flag seam — and report the live result as
-MEASURED. No key available → say the live confirmation is OUTSTANDING; never imply it
+`curl -X POST -H "Authorization: Bearer $TOKEN" http://localhost:8001/workbench/theses/<id>/draft-chain`
+for the chain seam, or `POST /workbench/facts/explain` (steward-only) for the flag seam — and report
+the live result as MEASURED. Every route except `/health` needs a sign-in: `$TOKEN` is a dev-stack
+user's token for the thesis's workspace (a steward's for the explain route), minted in the dev backend
+and kept out of the transcript:
+```
+TOKEN=$(docker compose -f docker-compose.yml -f docker-compose.dev.yml -p alphadeck_dev --env-file .env.dev exec -T backend python -m pipeline.users token create --email <dev user> --name review | sed -n 's/^token (shown once): //p' | tr -d '\r')
+```
+No key available → say the live confirmation is OUTSTANDING; never imply it
 happened.
