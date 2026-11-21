@@ -146,7 +146,7 @@ _log = logging.getLogger("alphadeck.workbench")
 
 router = APIRouter(prefix="/workbench", tags=["workbench"])
 
-# The fixed sentences a caught failure answers (security hardening PR 2, docs/AUTH.md §Errors). ``app.errors.fail``
+# The fixed sentences a caught failure answers (security hardening PR 2, docs/SECURITY.md §Errors). ``app.errors.fail``
 # adds a reference id and logs the exception under it; a steward also sees the underlying error.
 ETF_RESOLVE_FAILED = "The fund could not be looked up. Try again."
 FUND_FILE_UNREADABLE = "The SEC fund list could not be read. Try again."
@@ -1415,7 +1415,7 @@ def get_member_ingest_job(
     what landed; ``failed`` → an operator-facing ``error`` (VISIBLE, never silent — the nightly cron
     remains the backstop that ingests everything regardless). An unexpected fault reads as a fixed sentence
     and a reference, and a partial failure names each failed ticker and its legs plus a reference; a steward
-    also sees the underlying error (docs/AUTH.md §Errors). **404** if the job is unknown / expired,
+    also sees the underlying error (docs/SECURITY.md §Errors). **404** if the job is unknown / expired,
     or the registry was wiped by a restart — the FE shows a visible "lost from view" line (never an
     infinite spinner). The thesis must be the caller's (else 404) and the job_id must belong to it.
     """
@@ -1882,7 +1882,7 @@ def get_draft_chain_job(
 ) -> DraftJobStatus:
     """POLL a kicked-off draft job. ``done`` → the ``result`` (a ChainDraftOut); ``failed`` → an operator-facing
     ``error`` (discovery-not-ready, a timeout, or an unexpected fault — VISIBLE, #9). An unexpected fault reads as a
-    fixed sentence and a reference; a steward also sees the underlying error (docs/AUTH.md §Errors). **404** if the job is
+    fixed sentence and a reference; a steward also sees the underlying error (docs/SECURITY.md §Errors). **404** if the job is
     unknown / expired, or the registry was wiped by a restart — the FE shows a visible "draft was lost" (never an
     infinite spinner). The thesis must be the caller's (else 404) and the job_id must belong to it.
     """

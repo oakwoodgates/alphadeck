@@ -1,4 +1,4 @@
-"""The request INPUT LIMITS, defined once (security hardening PR 3, docs/AUTH.md §Request limits).
+"""The request INPUT LIMITS, defined once (security hardening PR 3, docs/SECURITY.md §Request limits).
 
 Limits apply to what comes IN on a request and NEVER when stored data is read. The domain models (``Thesis``,
 ``BasketMember``, ``Segment``, ``ExtractedFact``, ...) are built from database rows and server-side extraction on

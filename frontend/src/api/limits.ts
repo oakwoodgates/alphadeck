@@ -1,4 +1,4 @@
-// The API's request input limits (security hardening PR 3, docs/AUTH.md §Request limits), in characters, mirrored
+// The API's request input limits (security hardening PR 3, docs/SECURITY.md §Request limits), in characters, mirrored
 // from backend/domain/text_types.py so a form stops the user at the limit before it is sent (`maxLength`). The API
 // still checks every value itself and answers 422 naming the field. backend/tests/app/test_request_bounds_guard.py
 // keeps these numbers equal to the backend's.
