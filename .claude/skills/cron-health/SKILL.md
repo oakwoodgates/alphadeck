@@ -89,7 +89,7 @@ surfaces) + `docs/POSTMORTEM_CRON_FREEZE_2026-07.md` (what a freeze looks like).
    failure shape): mutable EDGAR prefixes refresh on a key-classed TTL (five minutes
    on the nightly's recurring client, 12h on an interactive one; G1) — check
    a stale-looking name's newest insider fact date against EDGAR's actual filings
-   (`docs/DATA_SOURCES.md` §cache-freshness).
+   (`docs/DATA_SOURCES.md` §Cache freshness).
 5. **Report MEASURED findings** — verdict, evidence (edge dates, run-log excerpts),
    and the proposed remediation with its blast radius. Wait for the operator's go
    before touching anything.

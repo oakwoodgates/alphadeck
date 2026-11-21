@@ -769,7 +769,7 @@ def _same_owner(a: Mapping[str, Any], b: Mapping[str, Any]) -> bool:
 
 # --- R8-B: what the filer's OWN words say (deterministic phrase lists — a located passage, never a model) ---
 # Kept small and explicit; each is matched case-insensitively against the 4/A's remarks + footnotes
-# (``filer_text``). Documented in ``docs/FEED_LOOP.md`` §R8-B.
+# (``filer_text``). Documented in ``docs/FILINGS.md`` §The filer's words.
 _TXN_NOUN = r"(?:sale|purchase|acquisition|disposition|transaction|grant)s?"
 # "cancel" counts only beside a TRADE (the same sentence, within 60 characters, either order): FLS's "previously
 # reported sale … was cancelled", CZR's "cancellation of such transaction" — never "options … cancelled in
