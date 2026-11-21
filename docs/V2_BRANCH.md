@@ -1,0 +1,118 @@
+# The `v2` branch
+
+`v2` is the long-lived branch for the V2 rebuild: platform data (share counts, cash/burn, company catalysts,
+filings) becomes shared and steward-approved, theses stay private to a user's workspace, and one cutover (which keeps
+V1's history) ends it. It is NOT `main`. Every V2 change lands on `v2` through a pull request into `v2`; `main` keeps
+shipping V1 until the cutover merges `v2` into it.
+
+This page is the routine for keeping `v2` current with `main`, and the rules a `main` change follows when it
+touches what V2 changes.
+
+## Why a pull request, every time
+
+CI runs on every pull request, but on pushes to `main` only (`.github/workflows/ci.yml`). A merge of `main` pushed
+straight to `v2` is never tested. So nothing is pushed straight to `v2`: not a feature, not a merge of `main`.
+
+## The merge-main routine
+
+From the `v2` worktree (the one whose branch is `v2`, or a fresh worktree off it):
+
+1. `git fetch`
+2. Branch off `v2`: `git switch -c merge-main-<YYYY-MM-DD> v2` (start from an up-to-date `v2`:
+   `git merge --ff-only origin/v2` first if your local `v2` is behind).
+3. `git merge --no-ff origin/main`
+4. Resolve conflicts with these rules:
+   - **`backend/domain/scopes.py`: keep V2's map.** Then classify every table `main` added: a table with a
+     `tenant_id` goes in `SCOPE_OF` (with its V2 scope), a table without one goes in `UNSCOPED_TABLES`
+     (`"platform"` or `"user-keyed"`). If you forget, the cutover dry run fails closed (exit 2, the table is
+     listed under `UNMAPPED TABLES`) and `tests/db/test_scopes.py::test_every_table_has_one_owner` fails.
+     If the new table needs something other than `keep` at cutover, add it to `CUTOVER_ACTION` in
+     `backend/pipeline/v2_cutover.py`.
+   - **Migrations:** a migration numbered below `0200` that comes from `main` is kept exactly as it is. Never
+     renumber a migration, on either branch: `schema_migrations` records file names, so a renamed file runs twice.
+   - **Generated contract files:** do not hand-merge `backend/openapi.json` or `frontend/src/api/types.gen.ts`.
+     Take either side, then regenerate both from the merged code: from `backend/`,
+     `python -m app.openapi_export`; from `frontend/`, `npm run gen:api`.
+5. Test, from `backend/`:
+   - `pytest tests/db/test_scopes.py tests/pipeline/test_v2_cutover_plan.py -n 6`
+   - the scoped suites of every area the merge touched (`pytest tests/<area> -n 6 -m "not slow"`), and the
+     frontend tests if `frontend/` changed.
+   - `ruff check .` and `black --check .`
+6. Push the branch and open a pull request into `v2` (not `main`) so CI runs on the merge. Merge it once CI is
+   green.
+7. After it merges, rebuild the V2 fork's image and re-seed it, so the fork runs the merged code on a fresh copy
+   of prod: `bash scripts/fork.sh up`, then the re-seed (`scripts/refresh-fork.sh`; see `docs/FORKS.md`).
+
+## A `main` change that touches what V2 changes
+
+A pull request into `main` that touches any of these carries a short **"How this lands on v2"** note in its body:
+
+- `backend/domain/scopes.py` (the scope map, or a new table);
+- the ratify routes and CLIs (the Workbench ratify and auto-confirm, `pipeline.ratify_*`);
+- the four scoring-fact tables: `fact_shares_outstanding`, `fact_cash_burn`, `fact_catalyst`, `fact_revenue_mix`;
+- the thesis `catalyst` table.
+
+The note says, in a line or two, what the next merge-main has to do on `v2` (for example: "new table `x` has a
+`tenant_id`; on v2 it is DATA").
+
+## The cutover dry run
+
+`python -m pipeline.v2_cutover plan [--json PATH]` reads a database and prints, for every table, its owner (from
+`domain/scopes.py`), what the cutover does with it (`keep` unless `CUTOVER_ACTION` says `move→data`,
+`move→founding`; a labeled `keep (...)` says why a table is left as it is, e.g. V1's history: `keep (V1 history:
+operator decision 2026-11-19)`), its row count, and its rows per tenant and per
+`ratified_by`. Then it lists every surprise (a row where no plan expects it). It is read-only: a read-only
+connection, rolled back, nothing written to the database (`--json` writes only the file you name).
+
+Exit codes: `0` clean, `1` surprises, `2` a table the registry does not name or a named table the database lacks
+(migrate first).
+
+Run it only where you are allowed to read: the test database the suite derives, or a fork. Never point it at a
+database you were not asked to inspect.
+
+**The apply path (W10a).** `python -m pipeline.v2_cutover run --database NAME --confirm "reset NAME" [--prod]
+[--apply] [--expect-plan PATH] [--plan-out PATH] [--orphan-purity leave|delete] [--reuse-backup FILE]
+[--no-history-archive] [--provenance-dir DIR]` (`backend/pipeline/v2_reset.py`) is the one-time cutover: it moves
+the platform facts and KEEPS V1's history (`calls`, `call_annotation` and the six `edition*` tables keep every row;
+operator decision 2026-11-19, "keep the history"; V2's rule changes then become Edition 2 through the automatic
+edition cut). It is a read-only dry run unless `--apply`. It reads the database name from its own connection and refuses (exit 2, nothing read) unless
+`--database` matches it and `--confirm` is exactly `reset NAME` (the phrase is unchanged, decision K6); the
+production name only with `--prod`, `--prod`
+only with that name, and `--prod --apply` only with `--expect-plan`. Then the preflight (migrations applied, the
+two tenants, outside the nightly window, every job lock held, no surprise except the acknowledged orphan purity,
+no workspace company catalyst, 0206's vocabulary, the move's refusals, not already cut over; V1's history counts
+printed); a verified backup of the same database and a V1 history archive (a frozen dump of exactly the eight
+history tables); then ONE transaction: the platform-facts move, the orphan purity rows deleted only with
+`--orphan-purity delete` (the only delete), every history count checked unchanged, VALIDATE of 0206's two
+constraints, and the `data_repair` journal row (`deletes` false unless an orphan row was deleted; its summary is
+what the automatic cut quotes in Edition 2's label); and a provenance file with the recall baseline (which also
+counts the history and lists the editions). Exit 0 done (or already cut over with nothing left), 1 refused, 2 wrong
+database or confirmation, 3 backup failed, 4 rolled back (backup kept), 75 busy or the nightly window. A second run
+after a V2 night does nothing (exit 0, no backup, no journal row); one with a row still to move refuses. Rehearse
+it on a fork only; the production run is the operator's (the runbook, W10d).
+
+**The verify step (W10b).** `python -m pipeline.v2_cutover verify --stage reset|backfill|nightly|edition
+--database NAME [--prod] --provenance PATH [--json PATH] [--health-url URL] [--night YYYY-MM-DD]
+[--run-kind cron|any]` (`backend/pipeline/v2_verify.py`) proves the cutover's result after each stage, against the
+baseline in the provenance file `run --apply` wrote. It is READ-ONLY: its session is read-only
+(`default_transaction_read_only`), one snapshot, plain reads (no advisory lock, no journal row), and it writes
+nothing but its report and the `--json` file. The same name guard as `run` (`--database` must be the connection's
+database; `alphadeck` only with `--prod`); no `--confirm`. A missing, `.pending`, unreadable or other-database
+provenance file is refused. Stages are cumulative; one `ok:` or `FAIL:` line per check (plus `note:` lines that never
+fail). `reset`: no dry-run surprise beyond the acknowledged orphan purity, every migration applied and 0206 validated,
+no thesis or user on the data tenant and an enabled super_admin, users and theses as before, **recall** (every
+baseline basket row still present, by id and by thesis + company + segment; a missing one is named), child and
+decision counts, share counts and cash/burn only in the data tenant with no company lost, purity, V1's history
+kept (the eight history tables equal the baseline's counts before the V2 cron starts; from `nightly` on, the calls
+recorded before the cutover equal the baseline's, no history table below it, every baseline edition present),
+exactly one `v2_cutover` journal row, `--health-url` 200. `backfill`: every non-ETF company on a live card
+attempted, B4 unlocked, coverage at or above the baseline's. `nightly` (V2 rows only: the calls recorded after the
+cutover; V1's last night never passes for the first V2 night): a row per live thesis for the night, none
+reconstructed, run kind cron (`--run-kind any` on a fork), none dated before the cutover, none on the data tenant.
+`edition`: after each kept edition the next one (Edition 2, parent the kept Edition 1, a `rule change:` label,
+Edition 1 closed; "not yet" before the cut), an entry per live thesis in it, no edition made since the cutover for a
+workspace without a live card. From `nightly` on, user-editable equalities (users, archived state, new cards, child counts, purity)
+become notes; recall and the platform-fact checks stay FAILs. Exit 0 verified, 2 cannot verify (wrong database or
+flags, a provenance problem, an unmapped table), 5 a check failed.
+
+The step-by-step runbook, with its rollback and rehearsal checklist, is `docs/V2_CUTOVER.md`.

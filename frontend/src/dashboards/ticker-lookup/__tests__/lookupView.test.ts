@@ -64,7 +64,7 @@ describe("the market cap", () => {
   const cap = payload().identity.cap;
   it("is labeled approximate with its tier, or says why it is not stated", () => {
     expect(capWords(cap)).toBe("≈ $125.0M · micro");
-    expect(capWords({ ...cap, value: null, tier: null, gap: "no_shares" })).toBe("not stated: awaiting shares");
+    expect(capWords({ ...cap, value: null, tier: null, gap: "no_shares" })).toBe("not stated: no shared share count yet");
     expect(capWords({ ...cap, value: null, tier: null, gap: "flagged" })).toBe(
       "not stated: withheld, a data flag reaches its price",
     );
@@ -181,8 +181,10 @@ describe("the filings window and fold", () => {
     expect(usdHint({ kind: "form4", usd: -5000 })).toBe("-$5.0K net");
     expect(usdHint({ kind: "dilution", usd: 402_500_000 })).toBe("$402.5M");
     expect(usdHint({ kind: "8k", usd: 1 })).toBeNull();
-    expect(ratifiedWords({ ratifier: "operator", ratified_on: "2026-10-16" })).toBe("ratified by operator on Oct 16, 2026");
-    expect(ratifiedWords({ ratifier: null, ratified_on: null })).toBeNull();
+    expect(ratifiedWords({ set_by: "steward", ratified_on: "2026-10-16" })).toBe("verified by the steward on Oct 16, 2026");
+    expect(ratifiedWords({ set_by: "carried", ratified_on: "2026-10-16" })).toBe("verified (carried over from V1)");
+    expect(ratifiedWords({ set_by: "you", ratified_on: "2026-10-16" })).toBe("ratified by you on Oct 16, 2026");
+    expect(ratifiedWords({ set_by: null, ratified_on: null })).toBeNull();
   });
 
   it("words the routine rows the cap left out", () => {

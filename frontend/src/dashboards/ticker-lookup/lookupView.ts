@@ -1,3 +1,4 @@
+import { NO_SHARED_SHARES } from "../../components/valueWords";
 import { CONTEXT_ROLE_LABEL } from "../../workbench/format";
 import { STATE_LABEL, verdictLabel } from "../../util/format";
 import type {
@@ -104,7 +105,7 @@ export function fmtFigure(f: Pick<LookupFigure, "value" | "unit" | "tone" | "key
 export const CAP_GAP_WORDS: Record<string, string> = {
   flagged: "withheld, a data flag reaches its price",
   no_price: "awaiting price",
-  no_shares: "awaiting shares",
+  no_shares: NO_SHARED_SHARES,
   ads_unread: "ADS ratio not read",
   no_cap: "share count or close not positive",
 };
@@ -363,10 +364,14 @@ export function usdHint(r: Pick<LookupFiling, "kind" | "usd">): string | null {
   return null;
 }
 
-/** Who ratified a fact and when, when a person did. */
-export function ratifiedWords(r: Pick<LookupFiling, "ratifier" | "ratified_on">): string | null {
-  if (!r.ratifier) return null;
-  return `ratified by ${r.ratifier}${r.ratified_on ? ` on ${fmtDay(r.ratified_on)}` : ""}`;
+/** Who set a fact and when, when a person did. The server sends a kind (`set_by`), never an email: the
+ *  steward's shared value or catalyst, a value carried over from V1, or your own purity. */
+export function ratifiedWords(r: Pick<LookupFiling, "set_by" | "ratified_on">): string | null {
+  const on = r.ratified_on ? ` on ${fmtDay(r.ratified_on)}` : "";
+  if (r.set_by === "steward") return `verified by the steward${on}`;
+  if (r.set_by === "carried") return "verified (carried over from V1)";
+  if (r.set_by === "you") return `ratified by you${on}`;
+  return null;
 }
 
 // --- the decisions -----------------------------------------------------------------------------------------------

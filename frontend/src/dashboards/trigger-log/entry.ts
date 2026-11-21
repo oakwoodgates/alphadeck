@@ -12,5 +12,6 @@ export const entry: DashboardEntry = {
   description: "Every entry trigger and risk signal the record shows firing across the cards in the last 90 days, newest first, with its source, the state it moved, and what the name's tape did after.",
   status: "experimental",
   asofAware: true,
+  readsRecord: true,
   component: lazy(() => import("./TriggerLog")),
 };

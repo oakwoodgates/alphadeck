@@ -87,6 +87,8 @@ def walk(tool: str, list_key: str, **args) -> tuple[list, int]:
 TRIAGE = {"thesis": rfx.THESIS_ID, "asof": rfx.ASOF}
 SCORED = rfx.scored()
 MEMBERS = SCORED["members"]
+VALUES = rfx.thesis_values()
+AWAITING = rfx.AWAITING_SHARES | rfx.NOT_EXTRACTED_CASH  # cash-generative is not missing
 
 
 # --- get_triage --------------------------------------------------------------------------------------------------------
@@ -99,25 +101,26 @@ def test_triage_default_carries_the_funnel_the_counts_and_the_first_rows_in_the_
     assert [s["silent"] for s in reply["segments"]] == [False] * 4 + [True] * 3
     sizes = {s["label"]: s["members_total"] for s in reply["segments"]}
     assert list(sizes.values()) == list(rfx.MEMBER_COUNTS)
-    voting = reply["segments"][:4]
-    assert [s["confirmed"] + s["unconfirmed"] for s in voting] == [
-        s["members_total"] for s in voting
-    ]
-    assert sum(s["confirmed"] for s in reply["segments"]) == 6
+    assert sum(s["awaiting"] for s in reply["segments"]) == len(AWAITING)
+    assert sum(s["needs_purity"] for s in reply["segments"]) == len(rfx.NO_PURITY)
+    assert all("confirmed" not in s and "unconfirmed" not in s for s in reply["segments"])
     assert reply["counts"] == {
         "members_total": 79,
         "silent_rows": 30,
-        "unconfirmed_members": 73,
+        "awaiting_members": len(AWAITING),
+        "needs_purity_members": len(rfx.NO_PURITY),
         "thin_price_history": 1,
         "price_feed_limitation": 1,
     }
+    assert reply["values_asof"] == triage_view.VALUES_ASOF  # the values are today's, not the asof's
     shown = reply["members"]
     assert [m["ticker"] for m in shown] == [m["ticker"] for m in MEMBERS[: len(shown)]]
     assert reply["members_total"] == 79 and reply["next_cursor"] == len(shown)
     assert reply["sections"] == {
         "member": "t",
         "segment": "segment",
-        "unconfirmed": None,
+        "awaiting": None,
+        "needs_purity": None,
         "silent": None,
     }
     assert all(s["descriptor"] == s["descriptor"][:80] for s in reply["segments"])
@@ -133,16 +136,16 @@ def test_triage_rows_copy_the_meters_and_the_sources():
         "dilution": api["dilution"]["pips"],
         "market_cap": api["market_cap"]["value"],
     }
-    assert row["unconfirmed_estimates"] == 0 and row["fit"] == api["fit"]
+    assert "unconfirmed_estimates" not in row and row["fit"] == api["fit"]
     assert "ratified" in row["sources"] and row["sources"][0] == "ratified"
     assert len(row["sources"]) == len(set(row["sources"]))  # distinct
     assert "instrument_kind" not in row and "thin_price_history" not in row
     assert len(row["name"]) <= 30
 
 
-def test_triage_default_cursor_walks_all_79_members_in_at_most_four_pages_in_the_api_order():
+def test_triage_default_cursor_walks_all_79_members_in_at_most_five_pages_in_the_api_order():
     rows, pages = walk("get_triage", "members", **TRIAGE)
-    assert pages <= 4, pages
+    assert pages <= 5, pages  # each row carries its two shared values' words since W5d
     assert [r["ticker"] for r in rows] == [m["ticker"] for m in MEMBERS]
     # the funnel and the counts ride the first page only
     second = call("get_triage", **TRIAGE, cursor=20)
@@ -152,7 +155,8 @@ def test_triage_default_cursor_walks_all_79_members_in_at_most_four_pages_in_the
 @pytest.mark.parametrize(
     ("section", "args", "expected"),
     [
-        ("unconfirmed", {}, [m for m in MEMBERS if m["unconfirmed_estimates"] > 0]),
+        ("awaiting", {}, [m for i, m in enumerate(MEMBERS) if i in AWAITING]),
+        ("needs_purity", {}, [m for i, m in enumerate(MEMBERS) if i in rfx.NO_PURITY]),
         ("silent", {}, [m for m in MEMBERS if m["segment"] in SILENT]),
         (
             "segment",
@@ -164,8 +168,12 @@ def test_triage_default_cursor_walks_all_79_members_in_at_most_four_pages_in_the
 def test_triage_list_sections_hold_only_their_rows_and_page_to_the_end(section, args, expected):
     rows, _ = walk("get_triage", "members", **TRIAGE, section=section, **args)
     assert [r["ticker"] for r in rows] == [m["ticker"] for m in expected]
-    if section == "unconfirmed":
-        assert all(r["unconfirmed_estimates"] > 0 for r in rows) and len(rows) == 73
+    if section == "awaiting":
+        assert all(
+            "awaiting_steward" in (r["values"]["shares"]["state"], r["values"]["cash"]["state"])
+            or r["values"]["cash"]["state"] == "no_value"
+            for r in rows
+        )
     reply = call("get_triage", **TRIAGE, section=section, **args)
     assert reply["section"] == section and reply["members_total"] == len(expected)
 
@@ -243,7 +251,7 @@ def test_triage_an_unknown_segment_or_ticker_is_invalid_arguments_naming_the_lab
         ({"section": "segment"}, "section=segment of `get_triage` needs segment (a link label"),
         (
             {"section": "nope"},
-            "Unknown section 'nope'; `get_triage` has: member, segment, unconfirmed, silent.",
+            "Unknown section 'nope'; `get_triage` has: member, segment, awaiting, needs_purity, silent.",
         ),
         ({"asof": "2026-02-30"}, "asof is not a real calendar date."),
         ({"asof": "yesterday"}, "asof takes a date as YYYY-MM-DD"),
@@ -269,6 +277,39 @@ def test_triage_unknown_thesis_and_the_scored_read_is_dated():
     run(api, body)
     scored = [r for r in api.requests if r[1].endswith("/scored")]
     assert len(scored) == 1 and scored[0][2] == {"asof": rfx.ASOF}
+    # the shared values are read once, current: the user read takes no asof
+    values = [r for r in api.requests if r[1].startswith("/platform-values/")]
+    assert [(r[1], r[2]) for r in values] == [(f"/platform-values/theses/{rfx.THESIS_ID}", {})]
+
+
+def test_triage_rows_carry_each_shared_values_state_in_words_and_never_a_figure():
+    rows, _ = walk("get_triage", "members", **TRIAGE)
+    by_ticker = {r["ticker"]: r for r in rows}
+    awaiting = by_ticker[MEMBERS[1]["ticker"]][
+        "values"
+    ]  # i = 1: its share count awaits the steward
+    assert awaiting["shares"] == {"state": "awaiting_steward", "words": "Awaiting the steward"}
+    shown = by_ticker[MEMBERS[0]["ticker"]]["values"]  # i = 0: shown, a newer filing pending
+    assert shown["shares"] == {
+        "state": "from_filing",
+        "words": "From the filing",
+        "pending": "A newer filing (dated Sep 30, 2026) is awaiting the steward",
+    }
+    generative = by_ticker[MEMBERS[4]["ticker"]]
+    assert generative["values"]["cash"]["state"] == "no_value"
+    assert MEMBERS[4]["ticker"] not in {
+        r["ticker"] for r in walk("get_triage", "members", **TRIAGE, section="awaiting")[0]
+    }  # "runway does not apply" is not missing
+    for r in rows:  # the state and its words only: no figure, no setter, no email
+        for v in r["values"].values():
+            assert set(v) <= {"state", "words", "pending"}
+            assert "@" not in json.dumps(v)
+
+
+def test_triage_without_the_values_read_still_answers_the_meters():
+    reply = triage_view.view(SCORED, ResearchRequest(thesis=THESIS, asof=rfx.ASOF))
+    assert "values_asof" not in reply and all("values" not in m for m in reply["members"])
+    assert reply["counts"]["awaiting_members"] == 0
 
 
 def test_triage_omitted_asof_reads_the_apis_current_night():
@@ -635,6 +676,25 @@ def test_extract_default_has_no_thesis_so_no_llm_call_and_cuts_every_excerpt_at_
             assert len(p["excerpt"]) <= 300
 
 
+def test_extract_carries_the_investment_part_only_when_the_extractor_set_it():
+    """D1 (d): the cash figure's short-term-investment part rides the view beside the statement currency, and
+    is left out (never a fake 0) when the extractor read none."""
+    base = {"fact_type": "cash_burn", "tier": "flag", "cash_usd": 9.0, "quarterly_burn_usd": 1.0}
+    with_part = extract_view._fact({**base, "investments_usd": 4.0, "statement_currency": "CNY"})
+    assert (with_part["investments_usd"], with_part["statement_currency"]) == (4.0, "CNY")
+    without = extract_view._fact({**base, "investments_usd": None})
+    assert "investments_usd" not in without and "statement_currency" not in without
+
+
+def test_extract_carries_the_year_to_date_pace_only_when_the_extractor_set_it():
+    """0209: the burn's year-to-date pace (the figures the machine now stores) rides the view; left out when absent."""
+    base = {"fact_type": "cash_burn", "tier": "auto", "cash_usd": 9.0, "quarterly_burn_usd": 1.0}
+    paced = extract_view._fact({**base, "ytd_quarterly_burn_usd": 3.0, "ytd_burn_days": 272})
+    assert (paced["ytd_quarterly_burn_usd"], paced["ytd_burn_days"]) == (3.0, 272)
+    plain = extract_view._fact(base)
+    assert "ytd_quarterly_burn_usd" not in plain and "ytd_burn_days" not in plain
+
+
 def test_extract_with_a_thesis_passes_its_id_once_and_says_so():
     api = FakeApi()
 
@@ -658,6 +718,75 @@ def test_extract_description_states_the_edgar_and_llm_cost():
     tool = next(t for t in run(None, body) if t.name == "get_extract")
     for needle in ("EDGAR", "LLM call", "up to 4", "Pass thesis only when the operator asks"):
         assert needle in tool.description, needle
+
+
+def _share_or_cash_figures(body, path: str = "") -> list[str]:
+    """Every share-count or cash figure in a reply: a candidate other than purity, or a number under a share /
+    cash / burn / investments key (a None placeholder is not a figure)."""
+    found: list[str] = []
+    if isinstance(body, dict):
+        if "fact_type" in body and body["fact_type"] != "revenue_mix":
+            found.append(f"{path} is a {body['fact_type']} candidate")
+        for k, v in body.items():
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                if any(w in k.lower() for w in ("share", "cash", "burn", "investments")):
+                    found.append(f"{path}.{k}={v}")
+            found += _share_or_cash_figures(v, f"{path}.{k}")
+    elif isinstance(body, list):
+        for i, v in enumerate(body):
+            found += _share_or_cash_figures(v, f"{path}[{i}]")
+    return found
+
+
+def test_a_plain_users_extract_reads_purity_only():
+    """W7a: the route answers a plain user's token with the purity candidate alone; the tool carries it and no
+    share-count or cash figure anywhere in the reply."""
+    api = FakeApi(steward=False)
+
+    async def body(session):
+        return await session.call_tool("get_extract", EXTRACT)
+
+    result = run(api, body)
+    assert not result.is_error, result.content[0].text
+    reply = result.structured_content
+    assert [f["fact_type"] for f in reply["facts"]] == ["revenue_mix"]
+    assert _share_or_cash_figures(reply) == []
+    assert _share_or_cash_figures(json.loads(result.content[0].text)) == []
+
+
+def test_a_plain_users_shares_passages_answer_that_the_extract_holds_purity_only():
+    err = failure(
+        "get_extract", FakeApi(steward=False), **EXTRACT, section="passages", fact="cash_burn"
+    )
+    assert err["code"] == "invalid_arguments"
+    assert "holds no cash_burn fact; it holds: revenue_mix" in err["message"]
+
+
+def test_an_annual_filers_purity_not_covered_reason_rides_the_reply(monkeypatch):
+    monkeypatch.setattr(
+        rfx,
+        "extract",
+        lambda **kw: {
+            "facts": [],
+            "empty_reason": "purity-not-covered",
+            "runway_empty_reason": None,
+        },
+    )
+    reply = call("get_extract", **EXTRACT)
+    assert reply["facts"] == [] and reply["empty_reason"] == "purity-not-covered"
+
+
+def test_the_extract_description_says_a_user_reads_purity_only():
+    async def body(session):
+        return {t.name: t.description for t in (await session.list_tools()).tools}
+
+    description = run(None, body)["get_extract"]
+    for needle in (
+        "A user's token reads purity ONLY",
+        "purity-not-covered",
+        "A steward's token also reads",
+    ):
+        assert needle in description, needle
 
 
 def test_extract_passages_section_reads_one_facts_passages_in_full():
@@ -758,6 +887,9 @@ def _key_checks():
         (tr.PROVENANCE_KEYS, schemas, "ProvenanceOut"),
         (tr.SEGMENT_KEYS, "domain.thesis", "Segment"),
         (tr.BODY_KEYS, schemas, "WorkbenchScored"),
+        (tr.VALUES_BODY_KEYS, "app.routers.platform_values", "UserThesisValuesOut"),
+        (tr.VALUES_MEMBER_KEYS, "app.routers.platform_values", "UserCompanyValuesOut"),
+        (tr.VALUE_KEYS, "app.routers.platform_values", "UserValueOut"),
         (ds.RUN_KEYS, schemas, "SavedRunSummary"),
         (ds.PLACEMENT_KEYS, "workbench.chain_draft", "ResolvedPlacement"),
         (ds.CANDIDATE_KEYS, "workbench.chain_draft", "SecurityCandidate"),
@@ -860,3 +992,26 @@ def test_a5_the_extract_description_copies_the_domain_burn_sign_sentence():
     descriptions = run(FakeApi(), body)
     assert QUARTERLY_BURN_SIGN in descriptions["get_extract"]
     assert "positive when the company consumed cash" in QUARTERLY_BURN_SIGN
+
+
+# --- "runway does not apply" (V2 C1) -------------------------------------------------------------------------------
+
+
+def test_a_triage_row_says_when_runway_does_not_apply_and_only_then():
+    """The scored read's not-applicable runway (no pips) is said on the row, so an agent never reads it as missing
+    data; a row whose runway applies carries no such key (honest loudness)."""
+    note = "Runway does not apply to this kind of company."
+    na = {
+        "pips": None,
+        "value": None,
+        "provenance": [
+            {"source": "10-q", "ref": "Q", "detail": {"cash_usd": 1.0}},
+            {"source": "computed", "ref": "runway:not-applicable", "detail": {"note": note}},
+        ],
+    }
+    row = triage_view._row({"ticker": "BANK", "runway": na})
+    assert row["meters"]["runway"] is None and row["runway_not_applicable"] == note
+    plain = triage_view._row(
+        {"ticker": "BIO", "runway": {"pips": 2, "value": 9.0, "provenance": []}}
+    )
+    assert "runway_not_applicable" not in plain

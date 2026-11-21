@@ -42,7 +42,7 @@ with no underlying fact reads "—", never a fake zero.
 | meter | formula | fact (PIT accessor) |
 |---|---|---|
 | **purity** | the largest revenue-line `mix_pct` for the name | `fact_revenue_mix` (`revenue_mix_facts`) |
-| **runway** | `cash_usd / (quarterly_burn_usd / 3)` months; cash-generative (burn ≤ 0) → top pip | `fact_cash_burn` (`cash_burn_facts`) |
+| **runway** | `cash_usd / (quarterly_burn_usd / 3)` months **at last quarter's pace**; cash-generative (burn ≤ 0) → top pip. The year-to-date pace beside it is display only (below) | `fact_cash_burn` (`cash_burn_facts`) |
 | **catalysts** | count of **live** catalysts (live = within the catalyst's liveness horizon) + the core/flip grade | `fact_catalyst` (`catalyst_facts`) |
 | **dilution** | the raw convert-overhang % | `fact_dilution` via `dilution_clock.overhang_pct` |
 | **market cap** | latest `close` × latest `shares` (A+B total-economic) | `fact_price_eod` × `fact_shares_outstanding` |
@@ -101,6 +101,26 @@ Every meter traces to a fact or a computation (`INVARIANTS.md` #3): **purity** �
 overhang; **market cap** → the price ref + the shares `source_ref`. Filing refs resolve to clickable EDGAR
 URLs (`edgar_url`).
 
+**The runway's pace (V2 extractor correctness PR 3; operator decision D3).** Every screen labels the runway "at
+last quarter's pace". The runway provenance's `detail` also carries the value's stored `currency` and `investments_usd` when
+recorded (0208), so every screen prints the cash in its own currency with its split (`domain/cash_currency.py`; the
+caveat sentence speaks the same currency). When the stored value carries the extractor's year-to-date pace (`domain/burn_pace.py`,
+`stored_pace`: the 0209 columns, else the note of a row written before them), the runway provenance's `detail` adds `ytd_quarterly_burn_usd`, `ytd_burn_days`,
+`ytd_runway_months` (when that pace burns) and `pace_caveat` (only when last quarter is more than 2× off that
+pace or of the opposite sign), and the Peer Table cell (`ytd_quarterly_burn_usd`, `ytd_months`, `pace_caveat`),
+the Filing Stream row and the steward's company page (`pace`) carry the same reading. Shown quietly: the pace
+line on the rail, the name panel and the steward page; the caveat sentence only on the minority it applies to (a
+quiet "uneven quarter" on the scored row, an asterisk on the Peer Table cell). **Never the pips, the months, the
+fit label or the sort**, and never a call input.
+
+**Runway does not apply (V2 C1).** For a bank, insurer, broker, exchange, asset manager, lender or fund trust
+(`securities.business_type.runway_applies`, driven by the editable `runway_not_meaningful.csv`; every ETF too) the
+runway meter has no pips and no value: its provenance is the cash fact (cash, burn, currency, investment part; no
+year-to-date pace) then `computed` / `runway:not-applicable` with the sentence in `detail.note`, so the fit adds no
+"funding risk". `score_thesis(..., runway_na=)` takes the ids; the scored read builds them from the master
+(`identity_for`'s `runway_applies`). The scored row and the name panel read "n/a" with the sentence. See
+`docs/PLATFORM_VALUES.md`, "Runway does not apply".
+
 ## The risk axis — dilution is the only implemented risk signal
 
 `dilution_risk` is the **sole implemented** `Role.RISK_SIGNAL` today (`squeeze` etc. are reserved in the
@@ -136,6 +156,13 @@ rule is applied at RATIFY time** (when `cash_usd` is ratified) **as a documented
 ratified. Every future cash ratification follows the one stated rule. *(Origin: the seed draft mixed bases —
 one name's figure included noncurrent marketable securities, another's was current-only — so the rule was
 made uniform + documented.)*
+
+**Which lines count (operator decisions D1 + D2, 2026-11-15).** "Marketable securities" means short-term
+investments (Treasury bills, deposits and bonds due within a year, under any of the tags the extractor
+reads) plus long-term MARKETABLE debt securities. The generic **long-term investments** line is **never**
+cash: it is often stakes in other companies. The machine's candidate carries the investment part on its own
+(`investments_usd`) so a screen can later show the split. Tag lists and the reconcile rule:
+`WORKBENCH_EXTRACTION.md` (Cash includes short-term investments…).
 
 ### The recurring-vs-one-time burn provenance pattern (the ENTRA1 lesson)
 **A cash-burn provenance note MUST separate one-time outflows from recurring burn** — the runway meter is

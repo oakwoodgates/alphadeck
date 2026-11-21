@@ -10,12 +10,14 @@ from app.routers import scoreboard
 from db.bitemporal import append_fact
 from db.session import DEFAULT_TENANT_ID
 from domain.enums import Grade
-from repositories import call_annotations_repo, thesis_repo
+from domain.thesis import BasketMember
+from repositories import thesis_repo
 from tests.calls.factories import (
     breakdown_event,
     breakout_event,
     insider_event,
     insider_sell_event,
+    make_thesis,
 )
 from tests.scoreboard.helpers import bar, keys_fired, persist_thesis, record_day
 
@@ -635,7 +637,7 @@ def test_a_legacy_row_carries_NULLS_and_NO_note_on_the_wire(client, db, security
     assert ep["run_identity_note"] is None
 
 
-# --- D3b: the annotated-night READ POLICY over the wire --------------------------------------------------
+# --- helpers for the read-policy tests below --------------------------------------------------
 
 
 def _ep_of(payload: dict) -> dict:
@@ -643,69 +645,10 @@ def _ep_of(payload: dict) -> dict:
     return ep
 
 
-def _db_counts(db) -> tuple[int, int]:
+def _db_counts(db) -> int:
     with db.cursor() as cur:
-        cur.execute(
-            "SELECT (SELECT count(*) FROM calls) AS c, (SELECT count(*) FROM call_annotation) AS a"
-        )
-        r = cur.fetchone()
-        return (r["c"], r["a"])
-
-
-def test_include_annotated_is_a_tri_state_reading_and_the_get_writes_nothing(
-    client, db, security_id
-):
-    """A warming night, then two armed nights; the FIRST armed night's row gets an ACTIVE exclude (the
-    phantom-arm judgment — the contract under test is the READ POLICY, so the annotation is a direct input
-    here; the real-phantom end-to-end is tests/pipeline/test_annotate_phantom_arms.py). Default and
-    ``include_annotated=false`` set it aside (the episode opens on the next honest arm); ``=true`` scores it
-    exactly as before the annotation; the nights are listed under both readings; no read writes."""
-    thesis = persist_thesis(db, security_id)
-    conv, conf = keys_fired(security_id, date(2026, 7, 10), conv_liveness=120, conf_liveness=120)
-    record_day(db, thesis, [conv], date(2026, 7, 9))  # warming: the arm below is not censored
-    record_day(db, thesis, [conv, conf], date(2026, 7, 10))  # the night that gets annotated
-    record_day(db, thesis, [conv, conf], date(2026, 7, 13))  # still armed (never annotated)
-    bar(db, security_id, date(2026, 7, 10), 100.0)
-    bar(db, security_id, date(2026, 7, 13), 103.0)
-    plain = client.get("/scoreboard", params={"asof": ASOF}).json()
-    assert plain["summary"]["annotated_nights"] == []  # nothing annotated: the quiet default
-    assert _ep_of(plain)["arm_date"] == "2026-07-10" and _ep_of(plain)["annotation_note"] is None
-
-    with db.cursor() as cur:
-        cur.execute(
-            "SELECT id FROM calls WHERE thesis_id = %s AND asof = '2026-07-10'", (thesis.id,)
-        )
-        cid = cur.fetchone()["id"]
-    call_annotations_repo.append_annotation(
-        db,
-        cid,
-        action="exclude",
-        reason="stale_comparative_revenue",
-        rule="d3a-first-knowability@t",
-    )
-    db.commit()
-    before = _db_counts(db)
-
-    default = client.get("/scoreboard", params={"asof": ASOF}).json()  # the setting: set aside
-    explicit = client.get("/scoreboard", params={"asof": ASOF, "include_annotated": "false"}).json()
-    included = client.get("/scoreboard", params={"asof": ASOF, "include_annotated": "true"}).json()
-
-    for view in (default, explicit):
-        assert view["summary"]["annotated_policy"] == "excluded"
-        assert _ep_of(view)["arm_date"] == "2026-07-13"  # the annotated night opens nothing
-    nights = default["summary"]["annotated_nights"]
-    assert [(n["thesis_name"], n["asof"], n["reasons"]) for n in nights] == [
-        (thesis.name, "2026-07-10", ["stale_comparative_revenue"])
-    ]
-    assert included["summary"]["annotated_policy"] == "included"
-    assert included["summary"]["annotated_nights"] == nights  # listed under BOTH readings
-    inc = _ep_of(included)
-    # scored again, identically to the pre-annotation record (only the quiet caption differs)
-    assert {k: v for k, v in inc.items() if k != "annotation_note"} == {
-        k: v for k, v in _ep_of(plain).items() if k != "annotation_note"
-    }
-    assert "phantom-arm night(s) 2026-07-10" in inc["annotation_note"]
-    assert _db_counts(db) == before  # every read wrote nothing
+        cur.execute("SELECT count(*) AS c FROM calls")
+        return cur.fetchone()["c"]
 
 
 # --- L1: the late-night READ POLICY over the wire ---------------------------------------------------------
@@ -748,6 +691,42 @@ def test_include_late_is_a_tri_state_reading_and_the_get_writes_nothing(client, 
     )
     assert night["reason"] == "recorded after the next EDGAR open"
     assert included["summary"]["late_nights"] == default["summary"]["late_nights"]  # BOTH readings
-    # the two readings are independent: the annotated reading is untouched by include_late
-    assert default["summary"]["annotated_policy"] == included["summary"]["annotated_policy"]
     assert _db_counts(db) == before  # every read wrote nothing
+
+
+def test_edition_0s_nights_are_the_callers_workspace_and_the_freshness_edge_stays_platform_wide(
+    client, db, security_id, monkeypatch
+):
+    """V2 W8a: Edition 0 (the record) is the caller's OWN calls log, so its first and last nights are the
+    workspace's — another workspace that began earlier (and ran later) moves neither. The freshness edge
+    (``summary.record_edge``) still describes the cron, which walks every workspace."""
+    _seed_record_edge(db, security_id, _FRI)  # the caller's workspace: one night, Fri 2026-07-17
+    other = uuid.uuid4()
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO tenant (id, name, kind) VALUES (%s, %s, 'workspace')",
+            (other, "another workspace"),
+        )
+    db.commit()
+    theirs = make_thesis(
+        id=uuid.uuid4(),
+        tenant_id=other,
+        basket=[BasketMember(ticker="DEVCO", role="Lead developer", security_id=security_id)],
+    )
+    thesis_repo.upsert(db, theirs)
+    db.commit()
+    theirs = thesis_repo.get(db, theirs.id, workspace=other)
+    for night in (date(2026, 7, 6), date(2026, 7, 20)):
+        conv, conf = keys_fired(security_id, night, conv_liveness=120, conf_liveness=120)
+        record_day(db, theirs, [conv, conf], night)
+
+    _pin(monkeypatch, datetime(2026, 7, 21, 9, 0))
+    body = client.get("/scoreboard", params={"asof": "2026-07-21"}).json()
+    assert body["edition"]["number"] == 0
+    assert (body["edition"]["first_night"], body["edition"]["last_night"]) == (
+        "2026-07-17",
+        "2026-07-17",
+    )
+    assert body["summary"]["record_edge"] == "2026-07-20"  # the cron's edge: every workspace
+    (zero,) = [e for e in client.get("/scoreboard/editions").json()["editions"] if e["number"] == 0]
+    assert (zero["first_night"], zero["last_night"]) == ("2026-07-17", "2026-07-17")

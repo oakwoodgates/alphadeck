@@ -51,6 +51,9 @@ PASSWORD_MAX = 1_024
 SEARCH_Q_MAX = 100  # the security search ``q``
 CIK_MAX_DIGITS = 10
 EXCERPT_MAX = 4_000  # one located passage sent back to the flag explainer
+# a catalyst calendar row's label: wider than a Line because the list is re-sent whole and a stored label can be a
+# sentence (the nuclear theme row, converted from a conviction's label, is 227 characters)
+CATALYST_LABEL_MAX = 500
 
 # the OAuth sign-in's unauthenticated routes (security PR 5; app/oauth/provider.py): checked by the provider, since
 # the request models there are the MCP SDK's, not ours
@@ -80,11 +83,20 @@ MIX_PCT_MIN, MIX_PCT_MAX = 0.0, 100.0
 SHARES_MAX = 1e13  # largest stored share count: 6.1e10
 ADS_RATIO_MIN, ADS_RATIO_MAX = 1, 1_000_000
 MONEY_ABS_MAX = 1e15  # cash and quarterly burn, either sign (largest stored: 2.8e12)
+# a currency: an ISO 4217 code, three capital letters (the steward states a cash/burn value's statement currency;
+# the same rule as the stored column's check, migration 0208)
+CURRENCY_CODE_PATTERN = r"^[A-Z]{3}$"
+# a year-to-date pace's span in days (migration 0209): above zero, at most a fiscal year and a week (the extractor's
+# ``ExtractorConfig.pace_ytd_max_days``, 371, so a 53-week year fits)
+BURN_DAYS_MAX = 371
 DECISION_AMOUNT_MAX = 1e13  # a decision's shares and price
 
 # dates
 REQUEST_DATE_MIN = date(1990, 1, 1)
 REQUEST_DATE_AHEAD_DAYS = 366  # after today's market date
+# a catalyst calendar row's date: the calendar legitimately holds events years out (a bridge that ends in 2027), and
+# the whole list is re-sent on every save, so the forward window is about ten years
+CATALYST_DATE_AHEAD_DAYS = 3_660
 ASOF_MIN = date(2000, 1, 1)
 ASOF_AHEAD_DAYS = 7
 
@@ -149,6 +161,7 @@ SearchQuery = _line_type(SEARCH_Q_MAX, "search")
 Prose = _prose_type(PROSE_MAX, "prose")
 Narrative = _prose_type(NARRATIVE_MAX, "narrative")
 Excerpt = _prose_type(EXCERPT_MAX, "excerpt")
+CatalystLabel = _line_type(CATALYST_LABEL_MAX, "catalyst_label")
 
 # A password is counted as typed: never trimmed (a space is part of it) and never inspected beyond its length (it is
 # only ever hashed). The bounds are checked by the request model, so a refused one never reaches the hash.
@@ -184,6 +197,15 @@ FiniteFloat = Annotated[float, _FINITE, Bounded("finite")]
 MixPct = Annotated[float, _FINITE, Ge(MIX_PCT_MIN), Le(MIX_PCT_MAX), Bounded("mix_pct")]
 Shares = Annotated[float, _FINITE, Gt(0), Le(SHARES_MAX), Bounded("shares")]
 Money = Annotated[float, _FINITE, Ge(-MONEY_ABS_MAX), Le(MONEY_ABS_MAX), Bounded("money")]
+# the investment part of a cash figure (never negative; the steward also checks it is not above the cash)
+MoneyPart = Annotated[float, _FINITE, Ge(0), Le(MONEY_ABS_MAX), Bounded("money_part")]
+# a cash/burn value's year-to-date pace span (0209): whole days above zero
+BurnDays = Annotated[int, Ge(1), Le(BURN_DAYS_MAX), Bounded("burn_days")]
+CurrencyCode = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, pattern=CURRENCY_CODE_PATTERN),
+    Bounded("currency"),
+]
 DecisionAmount = Annotated[
     float, _FINITE, Ge(0), Le(DECISION_AMOUNT_MAX), Bounded("decision_amount")
 ]
@@ -208,6 +230,12 @@ def _window(lo: date, ahead_days: int) -> Any:
 # A date on a request body: not before 1990-01-01, not more than 366 days after today's market date.
 RequestDate = Annotated[
     date, AfterValidator(_window(REQUEST_DATE_MIN, REQUEST_DATE_AHEAD_DAYS)), Bounded("date")
+]
+# A catalyst calendar row's date: not before 1990-01-01, not more than 3,660 days after today's market date.
+CatalystDate = Annotated[
+    date,
+    AfterValidator(_window(REQUEST_DATE_MIN, CATALYST_DATE_AHEAD_DAYS)),
+    Bounded("catalyst_date"),
 ]
 _check_asof = _window(ASOF_MIN, ASOF_AHEAD_DAYS)
 
@@ -271,8 +299,10 @@ __all__ = [
     "ASOF_AHEAD_DAYS",
     "ASOF_MIN",
     "BASKET_MAX",
+    "BURN_DAYS_MAX",
     "CATALYSTS_MAX",
     "CIK_MAX_DIGITS",
+    "CURRENCY_CODE_PATTERN",
     "DECISION_AMOUNT_MAX",
     "EMAIL_MAX",
     "EXCERPT_MAX",
@@ -309,7 +339,9 @@ __all__ = [
     "AdsRatio",
     "AsofDate",
     "Bounded",
+    "BurnDays",
     "CikIn",
+    "CurrencyCode",
     "DecisionAmount",
     "EmailIn",
     "Excerpt",
@@ -317,6 +349,7 @@ __all__ = [
     "Line",
     "MixPct",
     "Money",
+    "MoneyPart",
     "Narrative",
     "OpaqueState",
     "PasswordIn",

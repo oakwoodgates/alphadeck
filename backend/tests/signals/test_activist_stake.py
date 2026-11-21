@@ -673,7 +673,7 @@ class _PIT:
     def activist_stake_facts(self, security_id: UUID) -> list[dict]:
         return [dict(f) for f in self._stakes if f["valid_from"] <= self.asof]
 
-    def theme_conviction_facts(self, thesis_id: UUID) -> list[dict]:
+    def thesis_catalyst_facts(self, thesis_id: UUID) -> list[dict]:
         return []
 
     def security_name(self, security_id: UUID) -> str | None:

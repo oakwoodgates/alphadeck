@@ -9,6 +9,7 @@ from db.bitemporal import append_fact
 from db.change_stamp import mark_changed
 from db.session import DEFAULT_TENANT_ID
 from domain.enums import CatalystType, Grade
+from domain.scopes import require_write_tenant
 
 
 def ingest_catalyst(
@@ -36,6 +37,8 @@ def ingest_catalyst(
     structured record carries one) — it drives liveness, decoupled from grade; ``None`` -> the default.
     Returns the new fact id.
     """
+    # platform data (V2, domain.scopes): the data tenant only, refused before any write
+    require_write_tenant("fact_catalyst", tenant_id)
     values = {
         "tenant_id": tenant_id,
         "security_id": security_id,

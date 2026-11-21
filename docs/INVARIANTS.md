@@ -148,8 +148,15 @@ Firings are **re-derived from facts on every read** (no persisted firing layer),
 replay stays honest.
 
 - *Enforced by:* `db/bitemporal.as_of` (security-scoped) + `as_of_thesis` (thesis-scoped, e.g.
-  `fact_theme_conviction`), both delegating to the shared `_as_of`; the append-only DB trigger; the
+  `fact_thesis_catalyst`), both delegating to the shared `_as_of`; the append-only DB trigger; the
   correction-axis test (`tests/ingest/test_pit.py` / the bitemporal tests).
+- *Also honored by (V2 W6, a card's own counting catalyst entries, `docs/CALL_LOGIC.md` §3c):* an operator's
+  entry is public from the instant it was SAVED (`fact_thesis_catalyst.entered_at` = its `recorded_at`, set by
+  the database, the `dated` public-clock kind) and counts from that instant's night (`edgar_night`), never from
+  the date typed on the calendar; a later grade, member or switch edit is a new version from its own night, so
+  no earlier night changes (`tests/pipeline/test_thesis_catalyst_history.py`, the mirror and an editions re-run
+  included). The one named exception: the theme conviction converted by migration 0213 carries no entry time
+  and keeps its stated date (operator decision N4 (a)).
 - *Also honored by (M2):* the per-thesis ingest leaves `recorded_at` to the DB default `now()` — **never
   backdated** — and the daily cron pins `asof=today` / `known_at=now` (a live read), so a fact ingested today
   is invisible to an as-of read pinned at an earlier transaction time (`tests/pipeline/test_ingest_thesis.py`,
@@ -436,16 +443,28 @@ Every row carries `tenant_id`, and every tenant-bearing table belongs to exactly
 
 - **DATA** — the single shared data tenant (`DATA_TENANT_ID`, the `tenant` row with `kind='data'`, migration
   0076): the company master, every ingested fact, the split / ticker / CIK history, the onboarding queue, the
-  price-feed repairs, the Form 4/A tables, the set-asides, the repair journal. The feed writes it; every
-  workspace reads it.
+  price-feed repairs, the Form 4/A tables, the set-asides, the repair journal, and (V2) the platform values:
+  share counts, cash/burn and company catalysts. The feed writes it (a share count or cash/burn value by hand:
+  a steward only); every workspace reads it.
 - **WORKSPACE** — one per user: the thesis and its children, the calls of record, the annotations, the
-  operator's decisions, the editions store, the thesis-scoped facts.
-- **MIXED** — the four Workbench scoring-fact tables (`fact_revenue_mix` / `fact_cash_burn` /
-  `fact_shares_outstanding` / `fact_catalyst`): a FEED row lives in DATA, a RATIFIED row in the caller's
-  workspace, and a read unions the two; the latest-version pick resolves the union (a workspace's later
-  ratification overrides the feed row for that workspace only).
+  operator's decisions, the editions store, the thesis-scoped facts, and (V2) purity (`fact_revenue_mix`).
+
+V2 removed the third scope (MIXED: a read that unioned the data tenant and the workspace). Every read names ONE
+tenant per table, and a writer of a DATA table writes the data tenant only (`domain.scopes.require_write_tenant`).
 
 Never build a destructive reset path or assume a single global tenant — seeds are idempotent and additive.
+
+**The one exception (V2 cutover, once).** The V2 cutover, `python -m pipeline.v2_cutover run` (module
+`backend/pipeline/v2_reset.py`), is the only code allowed to delete from the immutable `calls` log and the editions
+store (`call_annotation` and the six `edition*` tables with it). The exception stays open for a future build: as
+built it deletes NOTHING from those tables. V1's history is kept (operator decision 2026-11-19, "keep the
+history"), and V2's rule changes become Edition 2 through the automatic edition cut. It moves the platform facts to
+their V2 tenants; its only delete is the unratified orphan purity rows, and only with `--orphan-purity delete`. It
+is a dry run unless `--apply`. It refuses any database it was not named for on its command line (the name is read
+back from the writing connection; production needs `--prod`), takes and verifies a backup first, checks every
+history count unchanged inside its one transaction, and leaves one `data_repair` journal row with tool
+`v2_cutover`. It runs once: a second run, with nothing left to move, does nothing. Nothing else may delete from
+those tables. The runbook is `docs/V2_CUTOVER.md`.
 Nothing but `domain/scopes.py` may hard-code which tenant a table lives in.
 
 **Isolation is discipline + the poison-row test, NOT RLS** — the `security_id` FK carries no tenant, so nothing
@@ -455,7 +474,7 @@ at the database layer *forces* a read to pass the right tenant. The standing obl
    (`db.bitemporal.as_of` / `as_of_many` / `as_of_thesis` / `fact_exists`, which take one tenant or several;
    `securities/master.*`; the `PointInTimeData` methods, which pick per table with `tenants_for`) — never a raw
    fact query with a hand-picked tenant. A DATA read names `DATA_TENANT_ID`; a WORKSPACE read names the
-   caller's workspace; a MIXED read names both. A feed writer names `DATA_TENANT_ID`, never `thesis.tenant_id`.
+   caller's workspace. A feed writer names `DATA_TENANT_ID`, never `thesis.tenant_id`.
 2. **The isolation test grows with each new read surface** (`tests/db/test_tenant_isolation.py`), and **the map
    grows with the schema**: a new table with a `tenant_id` column fails `tests/db/test_scopes.py` until it is
    named in `SCOPE_OF`.
@@ -538,16 +557,6 @@ stamped a fresh "policy" on every cron night.
   prior-row report, the freshness reads, the decision log's stance — keeps the default and sees every row.
   (`tests/scoreboard/test_record.py`, `tests/repositories/test_calls_repo.py`,
   `tests/db/test_migration_0042_reconstructed.py`.) See `SCOREBOARD.md`, `FEED_LOOP.md`.
-- *Also honored by (the annotated row — D3b, migration 0045):* a JUDGMENT about an honest row (a phantom arm under D3a's dating fix, or — F10 — a row dated a day
-  with no market session) lives in the append-only `call_annotation` side table, never on the row — `calls`
-  is not touched, not even under a trigger disable. The Scoreboard drops rows with an ACTIVE `exclude` by
-  READ POLICY (`Settings.scoreboard_exclude_annotated`, overridable per request with `include_annotated`),
-  BEFORE the per-as-of dedup exactly like the reconstructed filter; flipping the policy or appending a revoke
-  restores the pre-annotation reading byte-for-byte. Every other reader keeps the default and sees every row.
-  The annotator's D3a-off re-assembly is a diagnostic view that lives only in the CLI — no live-path switch.
-  (`tests/pipeline/test_annotate_phantom_arms.py`, `tests/pipeline/test_annotate_no_session_rows.py`,
-  `tests/repositories/test_call_annotations_repo.py`,
-  `tests/db/test_migration_0045_call_annotation.py`.) See `SCOREBOARD.md`, `FEED_LOOP.md`.
 - *Also honored by (the on-time row — M2 + C3, 2026-10-16):* nothing recorded LATER may supersede a night's
   honest on-time call-of-record, and nothing typed by hand may write a scored row for a past night with
   today's knowledge. A `--catch-up` pass skips (no ingest, no write) every thesis already holding a

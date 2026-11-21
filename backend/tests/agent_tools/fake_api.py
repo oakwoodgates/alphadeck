@@ -96,6 +96,12 @@ def _scored(api: FakeApi, query: dict[str, str], thesis_id: str):
     return 200, rfx.scored()
 
 
+def _thesis_values(api: FakeApi, query: dict[str, str], thesis_id: str):
+    if not _known(thesis_id):
+        return 404, {"detail": "thesis not found"}
+    return 200, rfx.thesis_values()
+
+
 def _runs(api: FakeApi, query: dict[str, str], thesis_id: str):
     if not _known(thesis_id):
         return 404, {"detail": "thesis not found"}
@@ -118,7 +124,8 @@ def _run(api: FakeApi, query: dict[str, str], thesis_id: str, run_id: str):
 def _extract(api: FakeApi, query: dict[str, str], security_id: str):
     if security_id != SECURITY_ID:
         return 404, {"detail": "security not found"}
-    return 200, rfx.extract(thesis_scoped="thesis_id" in query)
+    # the route's rule (W7a): a plain user's extract is the purity candidate only
+    return 200, rfx.extract(thesis_scoped="thesis_id" in query, purity_only=not api.steward)
 
 
 def _onboarding(api: FakeApi, query: dict[str, str], thesis_id: str):
@@ -160,6 +167,7 @@ ROUTES: tuple[tuple[str, str | re.Pattern[str], Callable[..., tuple[int, object]
     ("GET", f"/dashboards/ticker-lookup/{SECURITY_ID}", _ticker_lookup),
     ("GET", re.compile(r"^/*workbench/theses/(?P<thesis_id>[^/]+)/scored$"), _scored),
     ("GET", re.compile(r"^/*workbench/theses/(?P<thesis_id>[^/]+)/onboarding$"), _onboarding),
+    ("GET", re.compile(r"^/*platform-values/theses/(?P<thesis_id>[^/]+)$"), _thesis_values),
     ("GET", re.compile(r"^/*workbench/theses/(?P<thesis_id>[^/]+)/runs$"), _runs),
     (
         "GET",

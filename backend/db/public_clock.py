@@ -83,6 +83,10 @@ fact_fund_shares               recorded   ``recorded_at`` — a scraped issuer p
                                           publication time; we cannot know it earlier than we read it
 fact_term_mentions             date       ``valid_from`` (= the counted month's LAST day; THESIS-scoped,
                                           display only, 0071)
+fact_thesis_catalyst           dated      an operator version: the instant it was SAVED (``entered_at``, the
+                                          database's ``now()``, equal to its ``recorded_at``; R5, V2 W6a,
+                                          0212); the one converted theme row, which carries none: 06:00 of
+                                          its stated date (N4). THESIS-scoped. Never the typed calendar date
 ============================  =========  ==================================================================
 
 THE SPLIT LIST (``security_split``, split plan S2 — not a fact table; ``split_versions_sql``): every version
@@ -202,12 +206,14 @@ PUBLIC_TIME: dict[str, PublicTime] = {
     "fact_cash_burn": PublicTime("recorded", "recorded_at"),
     "fact_fund_shares": PublicTime("recorded", "recorded_at"),
     "fact_term_mentions": PublicTime("date", "valid_from"),
+    "fact_thesis_catalyst": PublicTime("dated", "entered_at", "valid_from"),
 }
 
 # The fact tables keyed by THESIS, not co-located on a security (the theme conviction is basket-level; the
-# term-mentions count is a card's own term set, 0071). Every other fact table is security-scoped.
+# term-mentions count is a card's own term set, 0071; a counting catalyst entry is the card's own, V2 W6a).
+# Every other fact table is security-scoped.
 THESIS_SCOPED_FACT_TABLES: frozenset[str] = frozenset(
-    {"fact_theme_conviction", "fact_term_mentions"}
+    {"fact_theme_conviction", "fact_term_mentions", "fact_thesis_catalyst"}
 )
 
 # The SCOPE each fact is partitioned within — a table's identity is unique only WITHIN one scope
@@ -228,9 +234,8 @@ def partition_cols(table: str) -> list[str]:
     partition it.
 
     ``tenant_id`` leads because a version's public instant is computed WITHIN its own tenant (the two tenant
-    scopes, ``domain.scopes``): a MIXED table's feed rows (the data tenant) and a workspace's ratified rows are
-    each windowed on their own, and the as-of pick then resolves the union across them (``db.bitemporal`` —
-    the natural key carries no tenant). Every cross-version join below (the price tape's edge, the split list,
+    scopes, ``domain.scopes``: every read names one tenant per table since V2, so a stray row under another
+    tenant is windowed on its own and never mixes into the read's versions). Every cross-version join below (the price tape's edge, the split list,
     the 4/A record behind a link) matches the row's OWN tenant, which is right for those DATA tables.
     """
     from db.bitemporal import _FACT_IDENTITY  # local: db.bitemporal imports this module

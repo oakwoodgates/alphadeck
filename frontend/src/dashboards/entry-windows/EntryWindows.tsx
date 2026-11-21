@@ -53,6 +53,7 @@ import {
   type SortKey,
 } from "./windowsView";
 import { ExternalLink } from "../../components/ExternalLink";
+import { RecordStartNote } from "../RecordStartNote";
 
 // Entry Windows (docs/dashboards/entry-windows.md): one row per Armed card, its entry window (to arm_until) and
 // hold horizon (to exit_by) drawn from the arm night on ONE date axis with the as-of through every row, the
@@ -450,6 +451,7 @@ function Page({
   const c = data.counts;
   return (
     <div className="ew">
+      <RecordStartNote empty={data.rows.length === 0} />
       <div className="ew-controls">
         {c.managing > 0 && (
           <label className="ew-check" title="A Managing card's hold horizon still runs; its window is drawn from the Armed run before the position">

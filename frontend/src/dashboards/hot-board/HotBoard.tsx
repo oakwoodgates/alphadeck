@@ -50,6 +50,7 @@ import {
 } from "./hotView";
 import { useHotBoard, type HotRowOut } from "./useHotBoard";
 import { ExternalLink } from "../../components/ExternalLink";
+import { RecordStartNote } from "../RecordStartNote";
 
 // Hot Board (docs/dashboards/hot-board.md): every name the RECORD shows Armed, one row each, ranked by a stated heat
 // formula. A tape, not a document: dense rows, tabular numerals in the mono font, a sticky header, no cards and
@@ -303,6 +304,7 @@ export default function HotBoard({ asof, onSelectThesis }: DashboardProps) {
 
   return (
     <div className="hb">
+      <RecordStartNote empty={data.rows.length === 0} />
       <div className="hb-controls">
         {toggleOn.length > 0 && (
           <span className="hb-field" role="group" aria-label="Add rows">

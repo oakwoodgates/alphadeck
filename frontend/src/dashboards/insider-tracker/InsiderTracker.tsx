@@ -54,6 +54,7 @@ import {
   type InsiderTrackerOut,
 } from "./useInsiderTracker";
 import { ExternalLink, isSecLink } from "../../components/ExternalLink";
+import { RecordStartNote } from "../RecordStartNote";
 
 // Insider Buying (docs/dashboards/insider-tracker.md): every open-market insider purchase (Form 4 code P) across the
 // counted cards' names in a window, one row per Form 4, dated by the day it was FILED, newest first: who bought, how
@@ -407,6 +408,7 @@ export default function InsiderTracker({ asof, onSelectThesis }: DashboardProps)
         <div className="dash-note">Could not load Insider Buying.</div>
       ) : (
         <>
+          <RecordStartNote empty={data.rows.length === 0} />
           <div className="ins-filters">
             <Chips
               dim="size"

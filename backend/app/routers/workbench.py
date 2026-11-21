@@ -10,7 +10,7 @@ import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import ValidationError
 
-from app import allowance, errors
+from app import allowance, errors, workspace_caps
 from app.auth import CurrentUser, require_super_admin, require_user
 from app.deps import (
     body_at_most,
@@ -25,11 +25,15 @@ from app.deps import (
     get_tier_rec_client,
     get_workspace,
 )
-from app.errors import fail
+from app.errors import (
+    CATALYST_FORM_RETIRED,
+    PLATFORM_VALUE_NOT_FOUND,
+    PLATFORM_VALUE_SENTENCES,
+    STEWARD_SETS_PLATFORM_VALUE,
+    fail,
+)
 from app.routers.admin_onboarding import readout_out
 from app.schemas_api import (
-    AutoConfirmOut,
-    AutoConfirmRequest,
     BusinessTypeOut,
     ChainDraftOut,
     DraftChainIn,
@@ -67,7 +71,7 @@ from app.schemas_api import (
 from db.session import connect_job, name_session
 from db.write_lock import CompanyLockBusy, acquire_company_lock
 from domain.enums import Authorship, InstrumentKind, TermTier
-from domain.extraction import ExtractionResult, Tier
+from domain.extraction import ExtractionResult
 from domain.market_time import serve_view
 from domain.scopes import DATA_TENANT_ID
 from domain.settings import get_settings
@@ -82,18 +86,15 @@ from domain.thesis import (
     with_inherited_context_roles,
     with_silent_links,
 )
-from ingest.cash_burn import ingest_cash_burn
-from ingest.catalyst import ingest_catalyst
 from ingest.edgar import nport
 from ingest.edgar.client import EdgarClient
-from ingest.edgar.extract import extract_for_security, extract_with_annual_fallback
+from ingest.edgar.extract import extract_purity_for_security, extract_with_annual_fallback
 from ingest.edgar.fulltext import DiscoveryUnavailable
 from ingest.prices import ingest_security as price_leg
 from ingest.prices.eod_loader import latest_bar_date, recent_distinct_bar_counts
 from ingest.prices.ingest_security import ingest_bars_for_security
 from ingest.prices.resolve_symbol import resolve_price_symbol
 from ingest.revenue_mix import ingest_revenue_mix
-from ingest.shares import cik_of_source_ref, ingest_shares_outstanding, shares_publication
 from llm.chain_decomposition import (
     TailSweepStatus,
     decompose_narrative,
@@ -106,7 +107,9 @@ from llm.purity_estimate import propose_purity
 from llm.tier_recommendation import recommend_tiers
 from pipeline import ingest_thesis as ingest_thesis_mod
 from pipeline import onboarding
-from repositories import price_feed_repo, thesis_repo
+from platform_values import steward
+from platform_values.steward import PlatformValueConflict, PlatformValueInvalid
+from repositories import price_feed_repo, thesis_catalyst_repo, thesis_repo
 from securities import coherence, figi, fund_tickers, master
 from securities.business_type import resolve_business_type
 from securities.price_history_health import is_thin_history
@@ -207,11 +210,16 @@ def read_scored(
         bounds=scored_bounds(),
         clock=clock,
     )
-    scored = score_thesis(pit, thesis)
+    # the master identity first: it carries the runway rule's answer per company (V2 C1, ``runway_applies``,
+    # derived in ``identity_for``), which the scorer needs; a company with no master row keeps its runway
+    ident_for = master.identity_for(conn, basket, tenant_id=DATA_TENANT_ID)
+    runway_na = frozenset(
+        sid for sid, ident in ident_for.items() if not ident.get("runway_applies", True)
+    )
+    scored = score_thesis(pit, thesis, runway_na=runway_na)
     sec_ids = {m.security_id for m in scored}
     cik_for = master.ciks_for(conn, sec_ids, tenant_id=DATA_TENANT_ID)
     ticker_for = master.tickers_for(conn, sec_ids, tenant_id=DATA_TENANT_ID)
-    ident_for = master.identity_for(conn, sec_ids, tenant_id=DATA_TENANT_ID)
     # #1 thin-history DATA-HEALTH flag (derive-on-read, structurally OUT of the call path): count each name's
     # stored EOD bar-dates in the trailing year at ``asof`` (a name with 0 bars is simply absent from the map
     # -> 0 -> thin, covering the resolver's blind spots). Display-only, never a call input.
@@ -567,7 +575,16 @@ def extract_scoring_facts(
     user: CurrentUser = Depends(require_user),
 ) -> ExtractionResult:
     """Auto-EXTRACT candidate scoring facts for a security from its latest SEC filings (Slice hybrid-1 +
-    Retrieval Slices 1/A/A-2). A 10-Q/10-K filer gets the three-tier hybrid: AUTO pre-fills the clean
+    Retrieval Slices 1/A/A-2).
+
+    WHO GETS WHAT (W7a, ``docs/PLATFORM_VALUES.md``): a share count and cash/burn are PLATFORM VALUES, decided by
+    the steward; a plain user never sees an unverified extracted number. So a PLAIN USER gets the purity candidate
+    ONLY (``extract_purity_for_security``): the request reads the submissions index, companyfacts and one 10-K
+    (else 10-Q), never the values filing, an annual document or an exhibit; a company that files annual reports on
+    Form 20-F or 40-F answers ``empty_reason="purity-not-covered"`` after the submissions read alone. The STEWARD
+    gets the full extract described below (all three candidates, the annual path, the exhibit hunt).
+
+    THE FULL EXTRACT (the steward's). A 10-Q/10-K filer gets the three-tier hybrid: AUTO pre-fills the clean
     facts, FLAG carries the raw value + a detected risk + the located passage (the operator ratifies the
     composition), HUMAN (purity) is LOCATED only and never auto-valued. An issuer with NO 10-K/10-Q (a
     foreign private issuer) reads its latest annual filing (20-F/40-F) ONCE and gets — ALWAYS tier FLAG —
@@ -611,13 +628,18 @@ def extract_scoring_facts(
     # the network (the request connection's idle-in-transaction timeout, db.session.connect_request).
     conn.rollback()
     try:
-        result = extract_with_annual_fallback(EdgarClient(allow_live=True), cik)
+        client = EdgarClient(allow_live=True)
+        result = (
+            extract_with_annual_fallback(client, cik)
+            if user.is_super_admin
+            else extract_purity_for_security(client, cik)
+        )
     except (
         Exception
     ) as exc:  # noqa: BLE001 — SEC unreachable / no UA / parse hiccup -> a clear 502, not a 500
         raise fail(502, SEC_FILINGS_UNREADABLE, exc, user=user) from exc
 
-    # Thesis-aware purity ESTIMATE — the ONLY thesis-scoped branch (purity's on-thesis segment depends on the
+    # Thesis-aware purity ESTIMATE (a plain user's and the steward's alike) — the ONLY thesis-scoped branch (purity's on-thesis segment depends on the
     # narrative; shares/cash are thesis-independent). Fail-open: no thesis / no key / ungrounded -> purity stays
     # today's HUMAN. The proposal is UNVERIFIED and carries its passage; it becomes a fact only on the operator's
     # ratify (never here — this endpoint writes nothing).
@@ -653,7 +675,7 @@ class _Fetched:
 @router.post(
     "/securities/{security_id}/ingest-prices",
     response_model=PriceIngestOut,
-    dependencies=[Depends(require_own_security), Depends(allowance.charge("price_pull"))],
+    dependencies=[Depends(require_super_admin)],
 )
 def ingest_security_prices(
     security_id: UUID,
@@ -674,13 +696,12 @@ def ingest_security_prices(
     cron, not this endpoint, owns force-refresh). No-lookahead: ``recorded_at`` = now, never backdated.
     Shares ONE implementation with ``pipeline.ingest_thesis`` (``ingest_bars_for_security``).
 
-    BOUNDED (security hardening PR 1b): a plain user may pull prices only for a company on one of their own cards
-    (else 404, "This company is not on any of your cards. Add it to a card first.") and within their daily
-    price-pull allowance (``Settings.allowance_price_pull_per_day``, else 429 naming the reset). The bars are
-    FETCHED before the company write lock is taken, and the lock is held only for the compare-and-append, so a slow
-    vendor never holds up the nightly. The automatic OTC price-symbol resolve (a write to the SHARED master) runs on
-    a steward's pull only; a plain user's OTC pull is priced under the canonical ticker, and the name is left for
-    the steward's price-feed panel or the backfill sweep."""
+    STEWARD ONLY (V2 W7b): prices are platform data, so a plain user never pulls them on demand (the steward-only
+    403); a company a user adds gets its prices from the promote's lane (``start_member_load``, which a fund or
+    SPAC attach also starts), the staged onboarding job, or the nightly. Not counted against any allowance. The
+    bars are FETCHED before the company write lock is taken, and the lock is held only for the compare-and-append,
+    so a slow vendor never holds up the nightly. An unresolved OTC name has its vendor price symbol resolved first
+    (a write to the SHARED master)."""
     # the master + the price tape are DATA (domain.scopes): read + written under the data tenant
     sec = master.get(conn, security_id, tenant_id=DATA_TENANT_ID)
     if sec is None:
@@ -689,20 +710,19 @@ def ingest_security_prices(
         raise HTTPException(
             status_code=422, detail="no listed ticker — there is no price line to pull"
         )
-    # #2 SELF-HEAL — resolve the OTC vendor price symbol at ADD-TIME, on a STEWARD's finalize pull (never the
-    # cron, and never a plain user's pull: the symbol is written to the SHARED master every workspace reads —
-    # security hardening PR 1b). Only an OTC name whose symbol is still unresolved (``price_symbol IS NULL``)
+    # #2 SELF-HEAL — resolve the OTC vendor price symbol at ADD-TIME, on the steward's finalize pull (never the
+    # cron: the symbol is written to the SHARED master every workspace reads — security hardening PR 1b; the route
+    # is steward-only since V2 W7b). Only an OTC name whose symbol is still unresolved (``price_symbol IS NULL``)
     # triggers it; on an AUTO the resolver writes the symbol, so THIS very pull fetches the fuller history.
-    # FAIL-OPEN: any miss/error NEVER blocks the add — the member enters priced under its canonical ticker (as a
-    # plain user's always is), and the backfill sweep (Slice D) + the thin-history flag (Slice F) catch it.
-    steward = user.is_super_admin
-    if steward and sec.exchange == "OTC" and sec.price_symbol is None:
+    # FAIL-OPEN: any miss/error NEVER blocks the add — the member enters priced under its canonical ticker, and the
+    # backfill sweep (Slice D) + the thin-history flag (Slice F) catch it.
+    if sec.exchange == "OTC" and sec.price_symbol is None:
         conn.rollback()  # END THE READ before the resolver's live lookups (only the master read ran)
         try:
             proposal = resolve_price_symbol(sec, allow_live=True)
             if proposal.tier == "AUTO" and proposal.proposed_symbol:
-                # a SERVER-SOURCED shared-master write (the symbol comes from the resolver, never the request), in
-                # a steward branch: tests/app/test_shared_master_writes.py checks it stays there
+                # a SERVER-SOURCED shared-master write (the symbol comes from the resolver, never the request), on a
+                # steward-only route: tests/app/test_shared_master_writes.py checks it stays there
                 master.set_price_symbol(
                     conn,
                     sec.id,
@@ -720,13 +740,13 @@ def ingest_security_prices(
             conn.rollback()
             _log.warning("price-symbol resolve failed for %s (fail-open): %s", sec.ticker, exc)
     # FETCH FIRST, with the company FREE (security hardening PR 1b): the vendor round trip is the slow part, and
-    # the nightly waits at most `Settings.ingest_lock_wait_s` for a company before it skips it, so a user's click
+    # the nightly waits at most `Settings.ingest_lock_wait_s` for a company before it skips it, so a click
     # must never hold the lock across the network. Fetched exactly as `ingest_bars_for_security` would (the
     # effective symbol, live, cache-first) and handed to it below as its source, so the shared function and the
     # nightly's path are unchanged.
     # END THE READ before calling out (security hardening PR 2): only reads ran on this transaction since the gate's
-    # and the allowance's commits, so the rollback loses nothing, and no request sits idle in a transaction across
-    # the network (the request connection's idle-in-transaction timeout, db.session.connect_request).
+    # commit, so the rollback loses nothing, and no request sits idle in a transaction across the network (the
+    # request connection's idle-in-transaction timeout, db.session.connect_request).
     conn.rollback()
     try:
         fetched = price_leg.YahooPriceSource().get_bars(
@@ -809,7 +829,7 @@ def set_business_type(
 @router.post(
     "/facts/explain",
     response_model=FlagExplanationOut,
-    dependencies=[Depends(allowance.charge("extract"))],
+    dependencies=[Depends(require_super_admin)],
 )
 def explain_flag_candidate(
     candidate: ExtractedFactIn,
@@ -819,11 +839,12 @@ def explain_flag_candidate(
     seam (M4b). A DISPLAY aid shown ALONGSIDE the raw passage; it NEVER becomes a fact.
 
     The body is the candidate the extract endpoint returned, sent back as is, held to the request limits (at most
-    10 passages of at most 4,000 characters, at most 20 flags; security hardening PR 3). A plain user's call
-    spends one unit of the daily extract allowance (it is an LLM call a click can repeat).
+    10 passages of at most 4,000 characters, at most 20 flags; security hardening PR 3). STEWARD ONLY (W7a): a
+    FLAG candidate is a share count or cash/burn, a platform value the steward decides; a plain user's extract
+    carries purity only, so a user has no candidate to explain and gets the steward-only 403. No allowance (the
+    steward is never counted).
 
-    Note what is absent: no tenant, no fact write (the one write is that allowance count). The explanation rides a
-    separate rail that
+    Note what is absent: no tenant, no fact write. The explanation rides a separate rail that
     dead-ends at the screen — the ratified number can only ever come from the operator's typed field on
     ``/facts`` (INVARIANT #3). The prompt asks the model not to state the final value; this missing
     connection is what guarantees it can't become one.
@@ -982,9 +1003,11 @@ def _fund_ids(conn: psycopg.Connection, thesis: Thesis) -> set[UUID]:
     }
 
 
-# Why a plain user's fast lane went to the queue: their price-pull allowance for today could not cover its new names.
+# Why a plain user's fast lane went to the queue: today's allowance of new names loaded at once (the ``price_pull``
+# key, ``Settings.allowance_price_pull_per_day``) could not cover them. Shown verbatim by the Workbench's
+# OnboardingNote.
 FAST_LANE_ALLOWANCE_SPENT = (
-    "today's price pull allowance cannot cover these new names — their history loads outside the nightly "
+    "today's limit on loading new names at once is used up — their history loads outside the nightly "
     "window instead"
 )
 
@@ -1046,10 +1069,16 @@ def promote(
     cost); a brand-new thesis is all-new (the full starter-basket ingest); no new members → no job and
     ``ingest`` null. The job never blocks or fails the promote.
 
-    For a plain user that fast-lane ingest spends one unit of the daily price-pull allowance per new name
-    (``Settings.allowance_price_pull_per_day``, security hardening PR 1b); when today's allowance cannot cover them
-    all, no job is kicked and ``onboarding`` says the names load outside the nightly window instead (the staged
-    onboarding job, then the nightly). A steward is not counted."""
+    For a plain user that fast-lane ingest spends one unit of the daily allowance of new names loaded at once per
+    new name (``Settings.allowance_price_pull_per_day``, security hardening PR 1b); when today's allowance cannot
+    cover them all, no job is kicked and ``onboarding`` says the names load outside the nightly window instead (the
+    staged onboarding job, then the nightly). A steward is not counted. The lane is ``start_member_load``, shared
+    with the fund and SPAC attaches (V2 W7b).
+
+    WORKSPACE CAPS (V2 W7c, ``app.workspace_caps``): a new card that would raise the workspace's live cards past its
+    cap, or a basket that would raise the distinct companies on its live cards past its cap, is refused whole with a
+    409 whose sentence names the count and the limit; nothing is written and no name is dropped. A save that keeps
+    or shrinks the count is never refused, even on a workspace already over a cap."""
     # THE FIXED LINKS, normalized BEFORE the Thesis is built (so the validator sees the final chain): the
     # payload's own Context / ETFs / Bench segments (any case, any position, any descriptor) are replaced by
     # the three fixed ones appended last, and a member naming one in any case is respelled to the canonical
@@ -1253,6 +1282,18 @@ def promote(
     # the spine stores). A brand-new thesis (no stored row) is all-new — the starter-basket case.
     prior_ids = {m.security_id for m in stored.basket if m.security_id} if stored else set()
     new_ids = {m.security_id for m in thesis.basket if m.security_id} - prior_ids
+    # WORKSPACE CAPS (V2 W7c): a new card counts toward the live cards, and the final basket's companies toward the
+    # distinct companies on live cards. Refused whole (409, nothing written, no name dropped) only when a count
+    # would rise past its cap, so a save that keeps or shrinks an over-cap card always passes. The check takes the
+    # workspace's caps lock, held through this transaction's commit below.
+    workspace_caps.check(
+        conn,
+        tenant_id,
+        thesis_id=thesis.id,
+        adding=workspace_caps.Adding.SAVE,
+        live_after=True if stored is None else None,
+        company_ids_after={m.security_id for m in thesis.basket if m.security_id},
+    )
     try:
         thesis_repo.upsert(conn, thesis)
     except thesis_repo.ThesisNotInWorkspace:
@@ -1263,48 +1304,67 @@ def promote(
     # Kick the new members' back-half ingest AFTER the commit (the job's own connection must see the
     # spine rows) — background, never blocking or failing the promote. No new members → no job at all
     # (the cost thread: a plain Save/triage promote pays nothing).
-    ingest_ref: PromoteIngestRef | None = None
-    onboarding_ref: PromoteOnboardingRef | None = None
-    if new_ids:
-        # X1 — THE LANE: the new names no other live basket holds are COLD (their history was never loaded) and
-        # are queued for the staged onboarding job; at most `Settings.onboard_fast_lane_max` of them, outside
-        # the nightly window, still ingest at once in the background (the fast lane — a 3-name promote stays
-        # instant). Fail-open toward the pre-X1 kick: a queue fault never costs the promote or its names.
-        plan = _plan_lane(conn, thesis.id, DATA_TENANT_ID, new_ids)
-        # THE GLOBAL INGEST CAP (security hardening PR 2): with `Settings.ingest_jobs_max_running` ingests running
-        # across all theses, no new one starts (each holds a connection); the names wait for the staged onboarding
-        # job and the nightly, the same fallback as a spent allowance. Checked before the allowance is spent.
-        if plan.fast and not ingest_jobs.has_room(thesis.id):
-            plan = onboarding.PromotePlan(plan.cold, False, INGEST_AT_CAPACITY)
-        # BOUNDED (security hardening PR 1b): a plain user's fast lane pulls prices for every new name, so it
-        # spends one price-pull unit per name; when today's allowance cannot cover them all, it takes none and
-        # the names wait for the staged onboarding job (cold ones are already queued by the plan) and the
-        # nightly. The promote itself never fails over the allowance. A steward is not counted.
-        if plan.fast and not (
-            allowance.exempt(user) or allowance.consume(conn, user.id, "price_pull", n=len(new_ids))
-        ):
-            plan = onboarding.PromotePlan(plan.cold, False, FAST_LANE_ALLOWANCE_SPENT)
-        if plan.fast:
-            try:
-                job = _kick_member_ingest(thesis.id, new_ids, tenant_id=DATA_TENANT_ID)
-            except (
-                ingest_jobs.IngestCapReached
-            ):  # the last slot went between the check and the kick
-                job = None
-                plan = onboarding.PromotePlan(plan.cold, False, INGEST_AT_CAPACITY)
-            if job is not None:
-                ingest_ref = PromoteIngestRef(job_id=job.job_id, new_members=len(new_ids))
-        if not plan.fast:
-            onboarding_ref = PromoteOnboardingRef(
-                queued=len(plan.cold), new_members=len(new_ids), reason=plan.reason or ""
-            )
-    out = PromoteOut.from_thesis(thesis)
+    ingest_ref, onboarding_ref = start_member_load(conn, user, thesis.id, new_ids)
+    out = PromoteOut.from_thesis(thesis, thesis_catalyst_repo.current(conn, thesis.id))
     # the payload never carries the meta index switch and ``upsert`` never writes it, so the response echoes
     # the STORED flag (read before the upsert, which leaves it untouched) — never the payload's default
     out.meta_index = stored.meta_index if stored is not None else False
     out.ingest = ingest_ref
     out.onboarding = onboarding_ref
     return out
+
+
+def start_member_load(
+    conn: psycopg.Connection,
+    user: CurrentUser,
+    thesis_id: UUID,
+    new_ids: set[UUID],
+) -> tuple[PromoteIngestRef | None, PromoteOnboardingRef | None]:
+    """Start the data load for the companies a write just ADDED to a card (``new_ids``), AFTER that write is
+    committed: the ONE lane every basket writer that adds companies uses (the promote, ``POST /radar/funds/attach``
+    and ``POST /radar/spac/attach``, V2 W7b). Returns the fast-lane job (``ingest``) or the onboarding queue
+    (``onboarding``), never both; ``(None, None)`` when nothing was added or the kick itself failed open.
+
+    In order: plan the lane (cold names are queued for the staged onboarding job; a few, outside the nightly
+    window, take the fast lane), the global ingest cap, the plain user's allowance (one ``price_pull`` unit per new
+    name: "new names loaded at once"; a steward is not counted), then the kick. Never raises over the load: the
+    card is already saved, and the onboarding job and the nightly are the backstop.
+    """
+    ingest_ref: PromoteIngestRef | None = None
+    onboarding_ref: PromoteOnboardingRef | None = None
+    if not new_ids:
+        return ingest_ref, onboarding_ref
+    # X1 — THE LANE: the new names no other live basket holds are COLD (their history was never loaded) and
+    # are queued for the staged onboarding job; at most `Settings.onboard_fast_lane_max` of them, outside
+    # the nightly window, still ingest at once in the background (the fast lane — a 3-name promote stays
+    # instant). Fail-open toward the pre-X1 kick: a queue fault never costs the write or its names.
+    plan = _plan_lane(conn, thesis_id, DATA_TENANT_ID, new_ids)
+    # THE GLOBAL INGEST CAP (security hardening PR 2): with `Settings.ingest_jobs_max_running` ingests running
+    # across all theses, no new one starts (each holds a connection); the names wait for the staged onboarding
+    # job and the nightly, the same fallback as a spent allowance. Checked before the allowance is spent.
+    if plan.fast and not ingest_jobs.has_room(thesis_id):
+        plan = onboarding.PromotePlan(plan.cold, False, INGEST_AT_CAPACITY)
+    # BOUNDED (security hardening PR 1b): a plain user's fast lane loads every new name at once, so it spends one
+    # `price_pull` unit per name; when today's allowance cannot cover them all, it takes none and the names wait
+    # for the staged onboarding job (cold ones are already queued by the plan) and the nightly. The write itself
+    # never fails over the allowance. A steward is not counted.
+    if plan.fast and not (
+        allowance.exempt(user) or allowance.consume(conn, user.id, "price_pull", n=len(new_ids))
+    ):
+        plan = onboarding.PromotePlan(plan.cold, False, FAST_LANE_ALLOWANCE_SPENT)
+    if plan.fast:
+        try:
+            job = _kick_member_ingest(thesis_id, new_ids, tenant_id=DATA_TENANT_ID)
+        except ingest_jobs.IngestCapReached:  # the last slot went between the check and the kick
+            job = None
+            plan = onboarding.PromotePlan(plan.cold, False, INGEST_AT_CAPACITY)
+        if job is not None:
+            ingest_ref = PromoteIngestRef(job_id=job.job_id, new_members=len(new_ids))
+    if not plan.fast:
+        onboarding_ref = PromoteOnboardingRef(
+            queued=len(plan.cold), new_members=len(new_ids), reason=plan.reason or ""
+        )
+    return ingest_ref, onboarding_ref
 
 
 def _plan_lane(
@@ -1406,10 +1466,29 @@ def produce_terms(
     re-promoted). New ``req.seeds`` are added as fresh SIGNAL. Returns the thesis so the operator can INSPECT the
     stored SIGNAL/BROAD split. Fail-open: no key / blank narrative + no seeds → an empty set is stored (the draft
     then 503s "term set is empty" — surfaced, never a silent recall fallback). It sources NO number (#3) — terms
-    only — and writes ONLY ``term_set`` (the narrow ``set_term_set``)."""
+    only — and writes ONLY ``term_set`` (the narrow ``set_term_set``). Workspace caps (V2 W7c): when the operator's
+    own terms and the seeds alone would raise the card past its term cap, 409 before the model runs; when the
+    generated set would, 409 and nothing is stored (the ``term_run`` unit stays spent either way).
+    """
     operator_terms = [
         e for e in thesis.term_set if e.authored_by is not Authorship.SYSTEM_DRAFTED
     ]  # operator_set ∪ operator_edited — preserved verbatim; only system_drafted re-rolls
+    seeds = req.seeds if req else []
+    # WORKSPACE CAPS (V2 W7c), before the model runs: the operator's own terms and the new seeds always survive a
+    # re-roll, so when they alone would raise the card past its term cap, refuse now (the ``term_run`` unit stays
+    # spent, as for any fetch that then fails). The rollback below releases the caps lock.
+    floor = {e.term.strip().lower() for e in operator_terms} | {
+        s.strip().lower() for s in seeds if s.strip()
+    }
+    floor.discard("")
+    workspace_caps.check(
+        conn,
+        thesis.tenant_id,
+        thesis_id=thesis.id,
+        adding=workspace_caps.Adding.TERMS,
+        terms_after=len(floor),
+        at_least=True,
+    )
     # END THE READ before calling out (security hardening PR 2): only reads ran on this transaction since the gate's
     # and the allowance's commits, so the rollback loses nothing, and no request sits idle in a transaction across
     # the network (the request connection's idle-in-transaction timeout, db.session.connect_request).
@@ -1417,12 +1496,23 @@ def produce_terms(
     entries = produce_term_set(
         keyword_llm,
         thesis.narrative,
-        seeds=(req.seeds if req else []),
+        seeds=seeds,
         operator_terms=operator_terms,
+    )
+    # and after it: the whole generated set is refused (nothing stored) when it would raise the card past its cap
+    workspace_caps.check(
+        conn,
+        thesis.tenant_id,
+        thesis_id=thesis.id,
+        adding=workspace_caps.Adding.TERMS,
+        terms_after=len(entries),
     )
     thesis_repo.set_term_set(conn, thesis.id, entries)
     conn.commit()
-    return ThesisDetail.from_thesis(thesis.model_copy(update={"term_set": entries}))
+    return ThesisDetail.from_thesis(
+        thesis.model_copy(update={"term_set": entries}),
+        thesis_catalyst_repo.current(conn, thesis.id),
+    )
 
 
 @router.put("/theses/{thesis_id}/terms/edit", response_model=ThesisDetail)
@@ -1440,14 +1530,26 @@ def edit_terms(
     ``set_term_set`` (the SOLE writer; ``upsert`` never names ``term_set`` — the structural wipe-guard stays
     intact). Sources NO number (#3) — structure/config only. 422 on an empty term or a case-insensitive
     duplicate. An empty ``terms`` clears the set (a visible operator choice; the draft then 503s "term set is
-    empty")."""
+    empty"). 409 (nothing saved) when the set would raise the card past its workspace's term cap (V2 W7c); a save
+    that keeps or shrinks the count always passes."""
     try:
         entries = stamp_edited_term_set(thesis.term_set, [(t.term, t.tier) for t in req.terms])
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    # WORKSPACE CAPS (V2 W7c): refused whole only when the saved set would raise the card past its term cap
+    workspace_caps.check(
+        conn,
+        thesis.tenant_id,
+        thesis_id=thesis.id,
+        adding=workspace_caps.Adding.TERMS,
+        terms_after=len(entries),
+    )
     thesis_repo.set_term_set(conn, thesis.id, entries)
     conn.commit()
-    return ThesisDetail.from_thesis(thesis.model_copy(update={"term_set": entries}))
+    return ThesisDetail.from_thesis(
+        thesis.model_copy(update={"term_set": entries}),
+        thesis_catalyst_repo.current(conn, thesis.id),
+    )
 
 
 @router.post(
@@ -1902,115 +2004,6 @@ def _vouched(estimate: float | None, value: float) -> str | None:
     )
 
 
-def _has_shares_fact(conn: psycopg.Connection, security_id: UUID, tenant_id: UUID) -> bool:
-    """Does ANY shares fact exist for this security? The auto-confirm's idempotency + no-clobber gate.
-
-    Deliberately existence-of-ANY-row, not "the latest is auto": once the operator has OVERRIDDEN an
-    auto-applied count, a later get-data must not re-apply the machine value over their decision. Cheap
-    (append-only table, indexed by tenant+security); the read never needs the value.
-    """
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT 1 FROM fact_shares_outstanding "
-            "WHERE tenant_id = ANY(%s) AND security_id = %s LIMIT 1",
-            ([DATA_TENANT_ID, tenant_id], security_id),
-        )
-        return cur.fetchone() is not None
-
-
-@router.post(
-    "/facts/auto-confirm",
-    response_model=AutoConfirmOut,
-    dependencies=[Depends(allowance.charge("auto_confirm"))],
-)
-def auto_confirm_fact(
-    req: AutoConfirmRequest,
-    conn: psycopg.Connection = Depends(get_conn),
-    tenant_id: UUID = Depends(get_workspace),
-    user: CurrentUser = Depends(require_user),
-) -> AutoConfirmOut:
-    """Auto-apply a security's AUTO-tier shares count on get-data — REMOVING a ceremonial confirm, not a real one.
-
-    The AUTO shares confirm was never a human verification: the operator has no independent knowledge of a
-    share count and does not look one up, so clicking "Confirm" on a machine-reproduced cover figure rubber-
-    stamped it while recording ``ratified_by="operator"`` — provenance claiming a check that never happened.
-    This applies the value directly and stamps it ``ratified_by="auto"``, which is what actually occurred. The
-    REAL human check is downstream and unchanged: the operator reads the resulting MARKET CAP, a figure they do
-    have intuition for, and overrides the shares if it looks wrong.
-
-    WHY THIS IS NOT A #1/#3 VIOLATION: the written number is the extractor's deterministic reproduction of
-    filed companyfacts (the market-cap trust class) — never a model output, never a computed/``llm_proposed``
-    estimate. Estimates remain computed-on-read and MUST NOT become ``fact_*`` rows (see WORKBENCH_EXTRACTION.md);
-    nothing here touches that. The AUTO tier is exactly the unambiguous single-class, current-cover case —
-    anything ambiguous trips a FLAG and is excluded below.
-
-    THE STRUCTURAL BOUND: the request carries NO value. The server re-extracts (cache-first — get-data just
-    warmed it) and writes its OWN parse, so no caller can inject a figure under the ``auto`` provenance.
-
-    Four gates, each an honest ``applied=False`` rather than an error:
-    - the security must be in this tenant's master (fail-closed, like ``/facts``);
-    - ``already_on_file`` — ANY existing shares fact (auto or an operator override) -> no-op. This is the
-      idempotency guarantee (a re-run appends ZERO rows) AND the no-clobber guarantee;
-    - ``not_auto`` — a FLAGged candidate is the operator's to ratify; the machine never resolves a dual-class
-      sum or a stale cover;
-    - ``no_candidate`` / ``no_value`` — nothing to apply.
-
-    BOUNDED (security hardening PR 1b): a plain user may auto-confirm only a company on one of their own cards
-    (else 404, "This company is not on any of your cards. Add it to a card first.") and within their daily
-    auto-confirm allowance (``Settings.allowance_auto_confirm_per_day``, else 429 naming the reset; the security
-    rides in the body, so this route counts the request before the card check). A steward is neither checked nor
-    counted.
-    """
-    _require_own_security(conn, user, tenant_id, req.security_id)
-    # the master is DATA (domain.scopes); the fact below is written under the caller's tenant
-    if not master.exists(conn, req.security_id, tenant_id=DATA_TENANT_ID):
-        raise HTTPException(status_code=404, detail="security not in this tenant's master")
-    # the idempotency + no-clobber gate FIRST: cheapest, and it short-circuits before any SEC traffic
-    if _has_shares_fact(conn, req.security_id, tenant_id):
-        return AutoConfirmOut(applied=False, reason="already_on_file")
-    cik = master.ciks_for(conn, {req.security_id}, tenant_id=DATA_TENANT_ID).get(req.security_id)
-    if not cik:
-        raise HTTPException(status_code=404, detail="no CIK for this security — resolve it first")
-    # END THE READ before calling out (security hardening PR 2): only reads ran on this transaction since the gate's
-    # and the allowance's commits, so the rollback loses nothing, and no request sits idle in a transaction across
-    # the network (the request connection's idle-in-transaction timeout, db.session.connect_request).
-    conn.rollback()
-    client = EdgarClient(allow_live=True)
-    try:
-        cands = extract_for_security(client, cik)
-    except (
-        Exception
-    ) as exc:  # noqa: BLE001 — SEC unreachable / no UA / parse hiccup -> 502, not a 500
-        raise fail(502, SEC_FILINGS_UNREADABLE, exc, user=user) from exc
-    cand = next((c for c in cands if c.fact_type == "shares_outstanding"), None)
-    if cand is None:
-        return AutoConfirmOut(applied=False, reason="no_candidate")
-    if cand.tier != Tier.AUTO:
-        return AutoConfirmOut(applied=False, reason="not_auto")
-    if cand.value is None:
-        return AutoConfirmOut(applied=False, reason="no_value")
-    # F9: the filing whose cover carries this count, and its acceptance — the count's public instant (cache only)
-    accession, accepted = shares_publication(
-        getattr(client, "cache_dir", None), cik, cand.value, cand.event_date
-    )
-    fid = ingest_shares_outstanding(
-        conn,
-        req.security_id,
-        shares=cand.value,  # the SERVER's parse — never a client-supplied figure
-        source=cand.source,
-        source_ref=cand.source_ref,
-        event_date=cand.event_date,
-        note=cand.note,
-        ratified_by="auto",  # honest provenance: applied by the machine, NOT confirmed by a human
-        vouched=None,  # no estimate was shown to anyone -> no confirm/override to record
-        tenant_id=tenant_id,
-        filing_accession=accession,
-        filing_accepted=accepted,
-    )
-    conn.commit()
-    return AutoConfirmOut(applied=True, reason="applied", fact_id=fid)
-
-
 @router.post("/facts", response_model=RatifiedFactOut)
 def ratify_fact(
     req: RatifyFactRequest,
@@ -2025,24 +2018,32 @@ def ratify_fact(
     WRITE-SIDE TENANT DISCIPLINE: the security must be in the CURRENT tenant's master (fail-closed) — the
     tenant is the deployment resolver's, but the ``security_id`` is caller-supplied, so a foreign/unknown id
     must not write a junk fact. ``source`` is preserved (the candidate's basis, e.g. ``10-k-segment``);
-    ``ratified_by`` is stamped with the signed-in user's email; the fact lands in the caller's WORKSPACE (a
-    ratified fact is private research, docs/TENANT_SCOPES.md) and is append-only (a re-ratify is a new row,
-    latest-wins).
+    ``ratified_by`` is stamped with the signed-in user's email; the write is append-only (a re-ratify is a new
+    row, latest-wins).
+
+    THE TWO SCOPES (V2, docs/TENANT_SCOPES.md): **purity** (``revenue_mix``) is the caller's own judgment — any
+    signed-in user may write it, and it lands in the caller's WORKSPACE. A **share count** or **cash/burn** value
+    is platform data — it lands in the DATA tenant, read by every workspace — so only a STEWARD may set one by
+    hand: a plain user gets **403** and nothing is written. A **company catalyst** answers **409**: the form is
+    retired on the v2 branch (company catalysts move to the thesis's catalyst list).
 
     ``vouched`` records whether the operator confirmed the shown ``estimate`` as-is or overrode it — PROVENANCE
     for the drift-cron + the agree/disagree signal, NEVER a scoring input (all vouched states score identically).
+
+    THE STEWARD'S CONFIRM (V2 W2c, approved decision D4 (a)): a share count or cash/burn value goes through the
+    steward's ``correct`` write (``platform_values.steward``): the company write lock, the correction rule, and a
+    ``correct`` decision beside the fact (so ``/admin/platform-values`` can undo it). A value that would not be
+    shown is refused with the date that blocks it: **409** dated before the value shown (or the company is busy),
+    **422** dated after today or an ADS ratio without the status ``known``. The candidate's basis (``source``) is
+    kept.
     """
-    # the master is DATA (domain.scopes); the ratified fact is written under the caller's tenant (``common``)
+    if req.fact_type == "catalyst":  # V2: retired on this branch, before any read or write
+        raise HTTPException(status_code=409, detail=CATALYST_FORM_RETIRED)
+    if req.fact_type in ("shares_outstanding", "cash_burn") and not user.is_super_admin:
+        # the steward rule (``app.auth.require_super_admin``), checked here because the route also serves purity
+        raise HTTPException(status_code=403, detail=STEWARD_SETS_PLATFORM_VALUE)
     if not master.exists(conn, req.security_id, tenant_id=DATA_TENANT_ID):
         raise HTTPException(status_code=404, detail="security not in this tenant's master")
-    common = dict(
-        source=req.source,
-        source_ref=req.source_ref,
-        event_date=req.event_date,
-        note=req.note,
-        ratified_by=user.email,  # the human ratify path — the signed-in user, never taken from the body
-        tenant_id=tenant_id,
-    )
     if req.fact_type == "revenue_mix":
         fid = ingest_revenue_mix(
             conn,
@@ -2050,62 +2051,58 @@ def ratify_fact(
             segment_label=req.segment_label,
             mix_pct=req.mix_pct,
             vouched=_vouched(req.estimate, req.mix_pct),
-            **common,
-        )
-    elif req.fact_type == "shares_outstanding":
-        # F9: the filing whose cover carries the ratified count (cache only; none = the ratification stands)
-        cik = master.ciks_for(conn, {req.security_id}, tenant_id=DATA_TENANT_ID).get(
-            req.security_id
-        )
-        accession, accepted = shares_publication(
-            EdgarClient(allow_live=False).cache_dir,
-            cik or cik_of_source_ref(req.source_ref),
-            req.shares,
-            req.event_date,
-        )
-        fid = ingest_shares_outstanding(
-            conn,
-            req.security_id,
-            shares=req.shares,
-            vouched=_vouched(req.estimate, req.shares),
-            filing_accession=accession,
-            filing_accepted=accepted,
-            # ADS-ratio derivation metadata from the annual-cover candidate (spec §10) — None/None on
-            # every 10-Q / hand-authored ratify, so the scorer's 1:1 path is byte-identical for them.
-            ads_ratio=req.ads_ratio,
-            ads_ratio_status=req.ads_ratio_status,
-            **common,
-        )
-    elif req.fact_type == "catalyst":
-        # a hand-authored conviction fact (the Key-1 arming path) — no extractor candidate exists,
-        # so the CITATION is the provenance (#6): an empty source_ref would be a bare operator claim
-        if not req.source_ref.strip():
-            raise HTTPException(
-                status_code=422,
-                detail="a catalyst fact needs its citation (source_ref) — the press release / "
-                "8-K / IR page it traces to",
-            )
-        fid = ingest_catalyst(
-            conn,
-            req.security_id,
-            catalyst_type=req.catalyst_type,
-            grade=req.grade,
-            label=req.label,
+            tenant_id=tenant_id,  # purity: the caller's workspace
             source=req.source,
             source_ref=req.source_ref,
             event_date=req.event_date,
-            horizon_end=req.horizon_end,
-            ratified_by=user.email,
-            tenant_id=tenant_id,
+            note=req.note,
+            ratified_by=user.email,  # the human ratify path — the signed-in user, never taken from the body
         )
+        conn.commit()
+        return RatifiedFactOut(fact_id=fid, fact_type=req.fact_type)
+    if req.fact_type == "shares_outstanding":
+        values: dict = {
+            "shares": req.shares,
+            # ADS-ratio derivation metadata from the annual-cover candidate (spec §10) — None/None on every 10-Q /
+            # hand-authored confirm, so the scorer's 1:1 path is byte-identical for them.
+            "ads_ratio": req.ads_ratio,
+            "ads_ratio_status": req.ads_ratio_status,
+        }
+        vouched = _vouched(req.estimate, req.shares)
     else:  # cash_burn
-        fid = ingest_cash_burn(
+        values = {
+            "cash_usd": req.cash_usd,
+            "quarterly_burn_usd": req.quarterly_burn_usd,
+            "currency": req.currency,  # the statement's ISO code (0208); None = not recorded
+            "investments_usd": req.investments_usd,
+            # the candidate's year-to-date pace (0209); None = not recorded
+            "ytd_quarterly_burn_usd": req.ytd_quarterly_burn_usd,
+            "ytd_burn_days": req.ytd_burn_days,
+        }
+        vouched = _vouched(req.estimate, req.quarterly_burn_usd)
+    # END THE READ: the steward write owns its transaction and starts it after the company lock (only the master
+    # read above ran on this one)
+    conn.commit()
+    try:
+        out = steward.correct(
             conn,
             req.security_id,
-            cash_usd=req.cash_usd,
-            quarterly_burn_usd=req.quarterly_burn_usd,
-            vouched=_vouched(req.estimate, req.quarterly_burn_usd),
-            **common,
+            req.fact_type,
+            values,
+            source_ref=req.source_ref,
+            event_date=req.event_date,
+            note=req.note,
+            source=req.source,  # the candidate's basis, preserved
+            vouched=vouched,
+            by=user.email,  # the signed-in steward, never taken from the body
         )
-    conn.commit()
-    return RatifiedFactOut(fact_id=fid, fact_type=req.fact_type)
+    except LookupError as exc:
+        raise fail(404, PLATFORM_VALUE_NOT_FOUND, exc, user=user) from exc
+    except PlatformValueConflict as exc:
+        raise fail(409, PLATFORM_VALUE_SENTENCES[exc.kind], exc, user=user) from exc
+    except PlatformValueInvalid as exc:
+        raise fail(422, PLATFORM_VALUE_SENTENCES[exc.kind], exc, user=user) from exc
+    except CompanyLockBusy as exc:
+        raise fail(409, COMPANY_BUSY, exc, user=user) from exc
+    assert out.fact_id is not None  # a correct always writes its fact
+    return RatifiedFactOut(fact_id=out.fact_id, fact_type=req.fact_type)

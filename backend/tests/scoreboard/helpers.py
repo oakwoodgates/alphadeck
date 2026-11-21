@@ -82,7 +82,7 @@ def record_day(
     immutable (the ``no_update`` trigger), so the stamp must be supplied at insert time — the
     ``tests/repositories/test_calls_repo._insert_call_at`` precedent."""
     card = assemble_call(thesis, events, asof, DEFAULT_CONFIG)
-    row = call_to_row(card, DEFAULT_TENANT_ID)
+    row = call_to_row(card, thesis.tenant_id or DEFAULT_TENANT_ID)  # the thesis's own workspace
     with db.cursor() as cur:
         cur.execute(
             """INSERT INTO calls

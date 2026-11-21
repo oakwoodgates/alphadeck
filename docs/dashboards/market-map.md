@@ -93,8 +93,8 @@ values for the window in force. A relative return (a benchmark set) uses the sam
   10,000 shares. A company that stopped tagging the cover count keeps its last, old value forever (Visa's and
   Mastercard's latest are from 2010, FOXA's from 2019 with the value 1, MOBX's from 2023); some tag a placeholder of 1.
   A refused count leaves the gap and the info box says why ("the filing cover's count is from 2010-11-02, too old to
-  stand in", "the filing cover's count (1) is not a share count"). The info box names the source: "share count
-  ratified in the Workbench" or "share count from the filing cover (not ratified)". A company with neither is drawn at
+  stand in", "the filing cover's count (1) is not a share count"). The info box names the source: "shared share
+  count" or "share count from the filing cover (not a shared value)". A company with neither is drawn at
   the smallest weight in view with a dashed edge; its info box says "no market cap: drawn at the smallest size".
   MEASURED on dev (prod copy, 2026-10-30) BEFORE the gate: caps 870 Workbench / 173 cover / 416 none of 1,459 drawn
   (about 71% with a cap). AFTER the gate: 870 Workbench / 131 cover / 458 none of 1,459 drawn (about 69% with a cap;

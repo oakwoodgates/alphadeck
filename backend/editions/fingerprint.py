@@ -68,6 +68,8 @@ ENGINE_SOURCES: tuple[str, ...] = (
     "repositories/thesis_repo.py",
     "repositories/decisions_repo.py",
     "repositories/mappers.py",
+    # V2 W6c: the call imports this store's pure ``counting`` / ``members_of`` (``signals/thesis_catalyst.py``)
+    "repositories/thesis_catalyst_repo.py",
 )
 
 # inside ENGINE_SOURCES but not logic (the module docstring): their VALUES or their entries are what matter

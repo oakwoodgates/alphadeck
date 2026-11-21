@@ -52,7 +52,7 @@ from uuid import UUID
 
 import psycopg
 
-from db.bitemporal import fact_exists, fact_exists_thesis
+from db.bitemporal import fact_exists
 from db.change_stamp import mark_changed
 from db.session import DEFAULT_TENANT_ID, connect
 from domain.enums import CatalystType, Grade
@@ -68,8 +68,8 @@ from ingest.edgar.form4 import existing_accessions, ingest_form4
 from ingest.prices.eod_loader import ingest_prices, parse_yahoo_chart, stored_bars
 from ingest.revenue_mix import ingest_revenue_mix
 from ingest.shares import ingest_shares_outstanding
-from ingest.theme_conviction import ingest_theme_conviction
 from repositories import thesis_repo
+from repositories.thesis_catalyst_repo import theme_entry_id
 from securities import master
 
 # Fixed ids -> re-running the seed is idempotent and the curl URL is stable.
@@ -85,6 +85,16 @@ SMR_ID = UUID("2c1ea400-0000-0000-0000-0000000000a1")
 OKLO_ID = UUID("2c1ea400-0000-0000-0000-0000000000a2")
 NNE_ID = UUID("2c1ea400-0000-0000-0000-0000000000a3")
 LEU_ID = UUID("2c1ea400-0000-0000-0000-0000000000a4")
+# V2 W6c: the nuclear theme conviction is a whole-card counting entry on the card's catalyst list; its calendar row
+# carries migration 0213's deterministic id, so a boot's list write keeps it (thesis_repo.set_catalysts refuses to
+# drop the row of a counting entry)
+NUCLEAR_THEME_SOURCE_REF = "https://www.congress.gov/bill/118th-congress/senate-bill/1111"
+NUCLEAR_THEME_LABEL = (
+    "Structural small-scale-nuclear tailwind — the ADVANCE Act (2024) streamlines NRC "
+    "licensing, DOE HALEU / reactor-pilot programs fund the build-out, and AI / datacenter "
+    "power demand is surging (operator-ratified theme conviction)"
+)
+NUCLEAR_THEME_ENTRY_ID = theme_entry_id(NUCLEAR_THESIS_ID, NUCLEAR_THEME_SOURCE_REF)
 # (security_id, cik, ticker, company) — the basket members
 _NUCLEAR_SECURITIES = [
     (SMR_ID, "0001822966", "SMR", "NuScale Power"),
@@ -312,6 +322,11 @@ def _nuclear_thesis(*, workspace: UUID) -> Thesis:
                 signed_off=True,  # the seed's curated names are endorsed (the 0035 reset shape)
             ),
         ],
+        # V2 W6c: the theme conviction's calendar row (undated, so the catalyst surface never shows it); it counts
+        # only through its entry (seed_nuclear_theme_conviction), so a card seeded without it reads as before
+        catalysts=[
+            Catalyst(id=NUCLEAR_THEME_ENTRY_ID, label=NUCLEAR_THEME_LABEL, kind="theme"),
+        ],
         kill_criteria=[
             KillCriterion(
                 id=UUID("2c1ea400-0000-0000-0000-0000000000d1"),
@@ -343,12 +358,14 @@ def seed_nuclear(conn: psycopg.Connection, *, workspace: UUID = DEFAULT_TENANT_I
     return thesis.id
 
 
-def seed_nuclear_catalyst(conn: psycopg.Connection, *, workspace: UUID = DEFAULT_TENANT_ID) -> None:
+def seed_nuclear_catalyst(conn: psycopg.Connection) -> None:
     """Operator-ratify OKLO's catalyst (#10 demo, the PROVISIONAL one) — the DOE Reactor Pilot Program OTA
     (DENE0009589), graded FLIP (a signed but $0-DOE-obligation authorization pathway: a real, not-yet-binding
     commitment -> small entry) with the agreement term (-> 2029-07-01) as its liveness horizon. Co-located
     with OKLO's 2026-06-02 breakout it arms OKLO as a disciplined STARTER. Paired with seed_leu_catalyst (the
     BINDING one); kept OUT of seed_nuclear, and separate from LEU, so each path tests in isolation.
+
+    A company catalyst is platform data (V2, ``domain.scopes``): written under the DATA tenant.
 
     Idempotent: ``fact_catalyst``'s natural key is ``source_ref``, so a re-run of this fixture appends
     nothing. (Not reached by ``main()`` — ``seed_doe_catalysts`` supersedes it — but it is a live test
@@ -359,7 +376,7 @@ def seed_nuclear_catalyst(conn: psycopg.Connection, *, workspace: UUID = DEFAULT
         conn,
         "fact_catalyst",
         security_id=OKLO_ID,
-        tenant_id=workspace,
+        tenant_id=DATA_TENANT_ID,
         source_ref=source_ref,
     ):
         return
@@ -378,11 +395,11 @@ def seed_nuclear_catalyst(conn: psycopg.Connection, *, workspace: UUID = DEFAULT
         event_date=date(2026, 5, 18),
         horizon_end=date(2029, 7, 1),
         ratified_by="operator",
-        tenant_id=workspace,
+        tenant_id=DATA_TENANT_ID,
     )
 
 
-def seed_leu_catalyst(conn: psycopg.Connection, *, workspace: UUID = DEFAULT_TENANT_ID) -> None:
+def seed_leu_catalyst(conn: psycopg.Connection) -> None:
     """Operator-ratify LEU's catalyst (the BINDING one) — Centrus's DOE HALEU production contract
     (89243223CNE000030), graded CORE (a binding, multi-year federal production contract: ~$317M obligated
     AND exercised on USAspending = real contracted revenue -> build the position). Liveness = the contract's
@@ -405,7 +422,7 @@ def seed_leu_catalyst(conn: psycopg.Connection, *, workspace: UUID = DEFAULT_TEN
         conn,
         "fact_catalyst",
         security_id=LEU_ID,
-        tenant_id=workspace,
+        tenant_id=DATA_TENANT_ID,
         source_ref=source_ref,
     ):
         return
@@ -423,7 +440,7 @@ def seed_leu_catalyst(conn: psycopg.Connection, *, workspace: UUID = DEFAULT_TEN
         event_date=date(2022, 11, 30),
         horizon_end=date(2026, 6, 30),
         ratified_by="operator",
-        tenant_id=workspace,
+        tenant_id=DATA_TENANT_ID,
     )
 
 
@@ -439,36 +456,38 @@ def seed_nuclear_theme_conviction(
     name, the volume gate working. Kept OUT of seed_nuclear and separate from the catalysts so each path
     tests in isolation; ranks beneath OKLO (own flip) and LEU (own core) — own-above-theme + freshness.
 
-    Idempotent: ``fact_theme_conviction`` is THESIS-scoped and keyed on ``source_ref``, so a re-run of this
-    fixture appends nothing.
+    **V2 W6c: written as a whole-card counting entry** on the card's catalyst list (``fact_thesis_catalyst``), in
+    exactly the shape migration 0213 gives the row it converts (operator decision N4 (a)): no member, flip, the
+    same label, the congress.gov citation, relevant until 2027-01-15, source ``ratified`` and NO entry time, so it
+    counts from 06:00 ET of its stated date 2026-01-15 (the one named exception to R5; every operator entry counts
+    from the night it was saved). Its calendar row (``NUCLEAR_THEME_ENTRY_ID``) is in the nuclear fixture. A
+    direct insert, sanctioned by name in ``tests/repositories/test_thesis_catalyst_writers.py``: the sole
+    writer's ``append_version`` stamps the database's now and cannot make this shape.
+
+    Idempotent: the entry is keyed on its deterministic id, so a re-run of this fixture appends nothing.
     """
-    source_ref = "https://www.congress.gov/bill/118th-congress/senate-bill/1111"
-    if fact_exists_thesis(
-        conn,
-        "fact_theme_conviction",
-        thesis_id=NUCLEAR_THESIS_ID,
-        tenant_id=workspace,
-        source_ref=source_ref,
-    ):
-        return
-    ingest_theme_conviction(
-        conn,
-        NUCLEAR_THESIS_ID,
-        grade=Grade.FLIP,
-        label=(
-            "Structural small-scale-nuclear tailwind — the ADVANCE Act (2024) streamlines NRC "
-            "licensing, DOE HALEU / reactor-pilot programs fund the build-out, and AI / datacenter "
-            "power demand is surging (operator-ratified theme conviction)"
-        ),
-        source="ratified",
-        source_ref=source_ref,
-        event_date=date(2026, 1, 15),
-        horizon_end=date(
-            2027, 1, 15
-        ),  # ~12-month operator horizon (live at the 2026-06-05 demo asof)
-        ratified_by="operator",
-        tenant_id=workspace,
-    )
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT 1 FROM fact_thesis_catalyst WHERE tenant_id = %s AND thesis_id = %s AND entry_id = %s",
+            (workspace, NUCLEAR_THESIS_ID, NUCLEAR_THEME_ENTRY_ID),
+        )
+        if cur.fetchone() is not None:
+            return
+        cur.execute(
+            """INSERT INTO fact_thesis_catalyst
+                   (tenant_id, thesis_id, entry_id, counts, security_ids, grade, label, citation,
+                    relevant_until, source, entered_at, entered_by, valid_from)
+               VALUES (%s, %s, %s, true, '{}', 'flip', %s, %s, %s, 'ratified', NULL, NULL, %s)""",
+            (
+                workspace,
+                NUCLEAR_THESIS_ID,
+                NUCLEAR_THEME_ENTRY_ID,
+                NUCLEAR_THEME_LABEL,
+                NUCLEAR_THEME_SOURCE_REF,
+                date(2027, 1, 15),  # ~12-month operator horizon (live at the 2026-06-05 demo asof)
+                date(2026, 1, 15),
+            ),
+        )
 
 
 def seed_doe_catalysts(conn: psycopg.Connection) -> list:
@@ -654,8 +673,10 @@ def seed_nuclear_revenue_mix(
         )
 
 
-def seed_nuclear_shares(conn: psycopg.Connection, *, workspace: UUID = DEFAULT_TENANT_ID) -> None:
-    """Operator-ratified shares-outstanding facts (the Workbench market-cap basis) — latest 10-Q covers."""
+def seed_nuclear_shares(conn: psycopg.Connection) -> None:
+    """Operator-ratified shares-outstanding facts (the Workbench market-cap basis) — latest 10-Q covers. Platform
+    data (V2, ``domain.scopes``): written under the DATA tenant, whatever workspace holds the demo cards.
+    """
     rows = [
         (
             LEU_ID,
@@ -687,7 +708,7 @@ def seed_nuclear_shares(conn: psycopg.Connection, *, workspace: UUID = DEFAULT_T
             conn,
             "fact_shares_outstanding",
             security_id=sid,
-            tenant_id=workspace,
+            tenant_id=DATA_TENANT_ID,
             source_ref=ref,
         ):
             continue
@@ -700,14 +721,13 @@ def seed_nuclear_shares(conn: psycopg.Connection, *, workspace: UUID = DEFAULT_T
             event_date=event_date,
             note=note,
             ratified_by="operator",
-            tenant_id=workspace,
+            tenant_id=DATA_TENANT_ID,
         )
 
 
-def seed_nuclear_cash_burn(
-    conn: psycopg.Connection, *, workspace: UUID = DEFAULT_TENANT_ID
-) -> None:
-    """Operator-ratified cash + quarterly-burn facts (the Workbench runway basis) — latest 10-Qs.
+def seed_nuclear_cash_burn(conn: psycopg.Connection) -> None:
+    """Operator-ratified cash + quarterly-burn facts (the Workbench runway basis) — latest 10-Qs. Platform data
+    (V2, ``domain.scopes``): written under the DATA tenant, whatever workspace holds the demo cards.
 
     ``cash_usd`` is the UNIFORM runway numerator: cash + equivalents + ALL marketable securities (current
     AND noncurrent) — they are liquid Treasuries regardless of balance-sheet classification. NuScale's burn
@@ -753,7 +773,7 @@ def seed_nuclear_cash_burn(
     for sid, cash, burn, ref, note in rows:
         # natural key = source_ref (the 10-Q) — a stored fixture is a no-op
         if fact_exists(
-            conn, "fact_cash_burn", security_id=sid, tenant_id=workspace, source_ref=ref
+            conn, "fact_cash_burn", security_id=sid, tenant_id=DATA_TENANT_ID, source_ref=ref
         ):
             continue
         ingest_cash_burn(
@@ -766,7 +786,7 @@ def seed_nuclear_cash_burn(
             event_date=date(2026, 3, 31),
             note=note,
             ratified_by="operator",
-            tenant_id=workspace,
+            tenant_id=DATA_TENANT_ID,
         )
 
 
@@ -781,8 +801,9 @@ def seed_on_boot() -> bool:
 
 
 def main(*, workspace: UUID = FOUNDING_WORKSPACE_ID) -> None:
-    """Seed the demo cards into ``workspace`` (the founding workspace, ``...0002``) and their DATA facts into the
-    data tenant. A no-op (exit 0) unless ``ALPHADECK_SEED_ON_BOOT`` is true."""
+    """Seed the demo cards into ``workspace`` (the founding workspace, ``...0002``) and their DATA facts (the
+    feed's, plus the share counts, cash/burn and company catalysts: platform data since V2) into the data
+    tenant. A no-op (exit 0) unless ``ALPHADECK_SEED_ON_BOOT`` is true."""
     if not seed_on_boot():
         print(f"seed skipped: {SEED_ON_BOOT_ENV} is not true")
         return
@@ -799,10 +820,8 @@ def main(*, workspace: UUID = FOUNDING_WORKSPACE_ID) -> None:
         seed_nuclear_revenue_mix(
             conn, workspace=workspace
         )  # Workbench purity facts (ratified, real 10-K)
-        seed_nuclear_shares(
-            conn, workspace=workspace
-        )  # Workbench market-cap basis (real 10-Q covers)
-        seed_nuclear_cash_burn(conn, workspace=workspace)  # Workbench runway basis (real 10-Q)
+        seed_nuclear_shares(conn)  # Workbench market-cap basis (real 10-Q covers; DATA)
+        seed_nuclear_cash_burn(conn)  # Workbench runway basis (real 10-Q; DATA)
         unh_id = seed_unh(conn, workspace=workspace)
         conn.commit()
         print(f"seeded HIMS thesis:    {hims_id}")

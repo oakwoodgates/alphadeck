@@ -966,3 +966,545 @@ def test_mark_from_results_checkpoints_the_FILING_INDEX_only_when_it_succeeded(d
     bad = _row(db, b)
     assert "filing_index" not in bad.legs_done and "form4" in bad.legs_done
     assert "filing_index: index exploded" in bad.last_error
+
+
+# --- 9. the new-company extraction step (V2 W3e) -------------------------------------------------------------
+#
+# After the queue's batch (approved B5 (a), plan correction 5): the job extracts the platform values of every
+# NEVER-extracted company on a live card, wherever it came from: a queued cold name the batch just loaded, a
+# FAST-LANED promote (marked done without the job running a leg), or a company that joined from another card.
+# A company already extracted (a new filing, a retry) is the NIGHTLY's. No SEC request: the extraction is faked at
+# ``platform_values.extraction`` and the client serves an empty submissions index.
+
+
+class _ExtractClient(_FakeClient):
+    """The batch's ONE client: the Form 4 sample for the legs, an empty submissions index for the extraction step
+    (counted, so \"no fetch\" is measured)."""
+
+    def __init__(self, **kwargs):
+        self.json_reads: list[str] = []
+        self.live_fetches = 0
+
+    def get_json(self, url: str, cache_key: str, **_):
+        self.json_reads.append(cache_key)
+        self.live_fetches += 1
+        return {"filings": {"recent": {}}}
+
+
+class _FakeExtract:
+    """Stands in for ``extract_with_annual_fallback`` (``facts=[]``: nothing found). Records the CIK, the client,
+    the order against the batch's legs, and whether ANY session held ANY company lock while it 'fetched'.
+    """
+
+    def __init__(self, events: list, *, on_call=None):
+        from domain.extraction import ExtractionResult
+
+        self.events = events
+        self.calls: list[int] = []
+        self.clients: list = []
+        self.company_locks_held: list[int] = []
+        self.on_call = on_call
+        self._result = ExtractionResult(facts=[])
+
+    def __call__(self, client, cik, *, values_only=False, **_):
+        from db.write_lock import COMPANY_LOCK_NAMESPACE
+
+        self.calls.append(int(cik))
+        self.clients.append(client)
+        self.events.append(("extract", int(cik)))
+        probe = connect()
+        try:
+            n = probe.execute(
+                # pg_locks is SERVER-wide: count THIS database's locks only, or another xdist worker's
+                # company lock (its own database, the same server) is counted as ours.
+                "SELECT count(*) AS n FROM pg_locks WHERE locktype = 'advisory' AND classid = %s "
+                "AND database = (SELECT oid FROM pg_database WHERE datname = current_database())",
+                (COMPANY_LOCK_NAMESPACE,),
+            ).fetchone()["n"]
+        finally:
+            probe.close()
+        self.company_locks_held.append(int(n))
+        if self.on_call is not None:
+            self.on_call(int(cik))
+        return self._result
+
+
+@pytest.fixture
+def extraction(monkeypatch):
+    """``extraction()`` installs the fake extractor (and records the batch's names in the same event list)."""
+    from platform_values import extraction as ex
+
+    events: list = []
+    real_one = onboarding.onboard_one
+
+    def recording_one(conn, row, **k):
+        out = real_one(conn, row, **k)
+        events.append(("name", row.ticker))
+        return out
+
+    monkeypatch.setattr(onboarding, "onboard_one", recording_one)
+
+    def install(on_call=None) -> _FakeExtract:
+        fake = _FakeExtract(events, on_call=on_call)
+        monkeypatch.setattr(ex, "extract_with_annual_fallback", fake)
+        return fake
+
+    return install
+
+
+def _backfill_applied(db) -> uuid.UUID:
+    """Approved B4 (a): the steps take never-extracted companies only once a ``done`` backfill attempt exists."""
+    from repositories import platform_extraction_repo as repo
+
+    decoy = _add_master(db, ticker="BKFL", cik="0009999999")
+    repo.append_attempt(
+        db, security_id=decoy, run_kind="backfill", inputs_key="9999999||||", status="done"
+    )
+    db.commit()
+    return decoy
+
+
+def _attempts(db, sid) -> list[dict]:
+    from repositories import platform_extraction_repo as repo
+
+    db.rollback()
+    out = repo.latest_attempts(db, [sid], per_company=50).get(sid, [])
+    db.rollback()
+    return out
+
+
+def _all_attempts(db) -> int:
+    db.rollback()
+    n = db.execute("SELECT count(*) AS n FROM platform_extraction_attempt").fetchone()["n"]
+    db.rollback()
+    return n
+
+
+def _queue_state(db) -> list[tuple]:
+    db.rollback()
+    out = [
+        tuple(r.values())
+        for r in db.execute(
+            "SELECT security_id, status, legs_done, attempts, last_error, finished_at "
+            "FROM security_onboarding ORDER BY security_id"
+        ).fetchall()
+    ]
+    db.rollback()
+    return out
+
+
+def _thesis_state(db) -> list[tuple]:
+    db.rollback()
+    out = [tuple(r.values()) for r in db.execute("SELECT * FROM thesis ORDER BY id").fetchall()]
+    db.rollback()
+    return out
+
+
+def _fast_lane(db, *pairs: tuple[str, uuid.UUID], name: str = "promoted") -> uuid.UUID:
+    """A Workbench promote of a FEW new names: the fast lane ingests them at once and marks them done from the
+    run's results, so the job never runs a leg for them (correction 5)."""
+    tid = _thesis(db, list(pairs), name)
+    sids = [s for _, s in pairs]
+    plan = onboarding.plan_promote(db, sids, tenant_id=DEFAULT_TENANT_ID, thesis_id=tid, now=_NOON)
+    db.commit()
+    assert plan.fast and plan.cold == frozenset(sids)
+    onboarding.mark_from_results(
+        db,
+        [IT.NameResult(t, s, 2, 2) for t, s in pairs],
+        tenant_id=DEFAULT_TENANT_ID,
+        security_ids=set(sids),
+    )
+    db.commit()
+    assert {_row(db, s).status for s in sids} == {"done"}
+    return tid
+
+
+def test_a_FAST_LANED_promote_is_extracted_by_the_next_batch_with_nothing_queued(db, extraction):
+    """Correction 5: a promote of five or fewer new names is fast-laned (no leg of the job runs for them). The
+    job's step after the queue still extracts them on its next run (within ~30 minutes), even though nothing is
+    queued; the queue and the batch's own refusal are untouched."""
+    a = _add_master(db, ticker="FAST1", cik="0001000001")
+    b = _add_master(db, ticker="FAST2", cik="0001000002")
+    _fast_lane(db, ("FAST1", a), ("FAST2", b))
+    _backfill_applied(db)
+    queue_before, theses_before = _queue_state(db), _thesis_state(db)
+    fake = extraction()
+    client = _ExtractClient()
+
+    out = _batch(edgar_client=client)
+
+    assert out.refused and out.stopped == "nothing_queued"  # the batch's own result, as before
+    assert sorted(fake.calls) == [1000001, 1000002], out.platform_extraction
+    assert all(
+        c is client for c in fake.clients
+    )  # the batch's ONE recurring client (the SEC budget lane)
+    for sid in (a, b):
+        [att] = _attempts(db, sid)
+        assert att["run_kind"] == "onboarding" and att["status"] == "done", att
+    assert _queue_state(db) == queue_before and _thesis_state(db) == theses_before
+    pe = out.platform_extraction
+    assert pe["status"] == "ran" and pe["attempted"] == 2 and pe["extracted"] == 2
+    assert "2 extracted" in out.platform_extraction_line
+    # a second batch: they are no longer never-extracted, so nothing is fetched again (the nightly owns new filings)
+    again = _batch(edgar_client=client)
+    assert sorted(fake.calls) == [1000001, 1000002], out.platform_extraction
+    assert again.platform_extraction["attempted"] == 0
+
+
+def test_the_step_runs_AFTER_the_batch_with_every_company_lock_released(db, offline, extraction):
+    """A queued cold name: the batch loads it first (under its company lock), and only then, with every company
+    free, does the step fetch its values (correction 6: never fetch while holding a company lock).
+    """
+    q = _add_master(db, ticker="QUEUED", cik="0001000001")
+    f = _add_master(db, ticker="FAST", cik="0001000002")
+    _thesis(db, [("QUEUED", q)], "big promote")
+    _queue(db, q)
+    _fast_lane(db, ("FAST", f))
+    _backfill_applied(db)
+    fake = extraction()
+
+    out = _batch(edgar_client=_ExtractClient())
+
+    assert [(n.ticker, n.outcome) for n in out.names] == [("QUEUED", "done")]
+    assert fake.events[0] == ("name", "QUEUED")  # the batch's names first ...
+    assert sorted(fake.events[1:]) == [("extract", 1000001), ("extract", 1000002)]
+    assert fake.company_locks_held == [
+        0,
+        0,
+    ]  # ... then every fetch with NO company lock held anywhere
+    assert out.platform_extraction["attempted"] == 2
+    assert _row(db, q).status == "done" and _row(db, f).status == "done"
+
+
+def test_a_company_already_on_ANOTHER_card(db, extraction):
+    """Correction 5: a company already on another live card is never queued. Never extracted (it joined before
+    any extraction reached it): THIS step extracts it. Already extracted: it is not new; its newer filing is the
+    NIGHTLY's (this step takes only never-extracted companies), and nothing is fetched for it here.
+    """
+    from platform_values.extraction import inputs_key
+    from repositories import platform_extraction_repo as repo
+
+    never = _add_master(db, ticker="NEVER", cik="0001000001")
+    known = _add_master(db, ticker="KNOWN", cik="0001000002")
+    _thesis(db, [("NEVER", never), ("KNOWN", known)], "the first card")
+    repo.append_attempt(
+        db,
+        security_id=known,
+        run_kind="backfill",
+        inputs_key=inputs_key("0001000002", []),
+        status="done",
+    )
+    accepted = _NOON - timedelta(
+        hours=30
+    )  # a 10-Q public for 30 h at the batch's clock: a NEW FILING
+    db.execute(
+        "INSERT INTO fact_filing_index (tenant_id, security_id, form, accession, filed, primary_doc, accepted, "
+        "source_ref, valid_from) VALUES (%s, %s, '10-Q', 'ACC-Q', %s, 'q.htm', %s, 'https://x', %s)",
+        (DEFAULT_TENANT_ID, known, accepted.date(), accepted, accepted.date()),
+    )
+    db.commit()
+    # the operator adds both to a second card: neither is cold, so neither is queued
+    second = _thesis(db, [("NEVER", never), ("KNOWN", known)], "the second card")
+    plan = onboarding.plan_promote(
+        db, [never, known], tenant_id=DEFAULT_TENANT_ID, thesis_id=second, now=_NOON
+    )
+    db.commit()
+    assert plan.cold == frozenset() and _queue_rows(db) == 0
+    fake = extraction()
+
+    out = _batch(edgar_client=_ExtractClient())
+
+    assert fake.calls == [1000001]  # NEVER: this step; KNOWN: not fetched here
+    assert [a["run_kind"] for a in _attempts(db, never)] == ["onboarding"]
+    assert [a["run_kind"] for a in _attempts(db, known)] == ["backfill"]
+    assert (
+        out.platform_extraction["left_for_nightly"] == 1
+    )  # KNOWN's new filing waits for the nightly
+    assert _queue_rows(db) == 0  # the step never queues anything
+
+
+def test_before_any_BACKFILL_the_step_counts_new_companies_and_fetches_nothing(db, extraction):
+    """Approved B4 (a): until one ``done`` backfill attempt exists, never-extracted companies are held back:
+    counted, not fetched, no attempt written, nothing in data/extraction_runs/."""
+    from pipeline import extraction_run_log
+
+    a = _add_master(db, ticker="FAST1", cik="0001000001")
+    b = _add_master(db, ticker="FAST2", cik="0001000002")
+    _fast_lane(db, ("FAST1", a), ("FAST2", b))
+    fake = extraction()
+    client = _ExtractClient()
+
+    out = _batch(edgar_client=client)
+
+    assert fake.calls == [] and client.json_reads == [] and _all_attempts(db) == 0
+    pe = out.platform_extraction
+    assert pe["status"] == "ran" and pe["attempted"] == 0 and pe["withheld_never"] == 2
+    assert "2 held back until a backfill extracts a company" in out.platform_extraction_line
+    assert extraction_run_log.latest_extraction_run() is None  # an idle step writes no artifact
+
+
+def _world(db, queued: int = 0, fast: int = 0) -> list[uuid.UUID]:
+    sids = []
+    if queued:
+        qs = [
+            (f"Q{i}", _add_master(db, ticker=f"Q{i}", cik=f"000100010{i}")) for i in range(queued)
+        ]
+        _thesis(db, qs, "queued promote")
+        for _, s in qs:
+            _queue(db, s)
+        sids += [s for _, s in qs]
+    if fast:
+        fs = [(f"F{i}", _add_master(db, ticker=f"F{i}", cik=f"000100020{i}")) for i in range(fast)]
+        _fast_lane(db, *fs)
+        sids += [s for _, s in fs]
+    _backfill_applied(db)
+    return sids
+
+
+def _snapshot(db, out: onboarding.BatchOutcome) -> dict:
+    """The batch's OWN result, made comparable across two runs (ids, instants and timings dropped)."""
+    doc = onboarding.list_runs(runs_dir=out.log_path.parent)[0] if out.log_path else None
+    if doc is not None:
+        doc = {
+            k: v
+            for k, v in doc.items()
+            if k not in ("started_at", "finished_at", "duration_s", "timings")
+        }
+        doc["names"] = [
+            {k: v for k, v in n.items() if k not in ("security_id", "seconds")}
+            for n in doc["names"]
+        ]
+    db.rollback()
+    queue = [
+        tuple(r.values())
+        for r in db.execute(
+            "SELECT sm.ticker, so.status, so.legs_done, so.attempts, so.last_error, so.source "
+            "FROM security_onboarding so JOIN security_master sm ON sm.id = so.security_id "
+            "ORDER BY sm.ticker"
+        ).fetchall()
+    ]
+    theses = [
+        tuple(r.values())
+        for r in db.execute("SELECT name, archived_at FROM thesis ORDER BY name").fetchall()
+    ]
+    db.rollback()
+    return {
+        "refused": out.refused,
+        "stopped": out.stopped,
+        "detail": out.detail,
+        "queued_at_start": out.queued_at_start,
+        "names": [(n.ticker, n.outcome, n.legs_run, n.legs_failed, n.appended) for n in out.names],
+        "counts": out.counts(),
+        "artifact": doc,
+        "queue": queue,
+        "theses": theses,
+    }
+
+
+def _reset(db) -> None:
+    """The ``db`` fixture's own clean slate, again, inside one test."""
+    db.rollback()
+    db.execute(
+        "TRUNCATE thesis, fact_insider_txn, fact_price_eod, security_master, edition, data_repair, "
+        "security_change CASCADE"
+    )
+    db.commit()
+
+
+def test_the_step_RAISING_leaves_the_batch_its_exit_and_its_queue_exactly_as_without_it(
+    db, offline, extraction, monkeypatch, capsys
+):
+    """Fail-open: the same world run once with the step ABSENT and once with it RAISING gives the same batch
+    (names, counts, stop reason, artifact), the same queue and theses, and ``main`` returns normally (exit 0)
+    both times; the raising run only adds the step's one FAILED line."""
+    import re
+    from functools import partial
+
+    from platform_values import extraction as ex
+
+    real_batch = onboarding.run_batch
+    real_step = onboarding._extraction_step
+    real_work_list = ex.work_list
+    extraction()
+
+    def boom(*a, **k):
+        raise RuntimeError("the step blew up")
+
+    def run(mode: str) -> tuple[dict, str, onboarding.BatchOutcome]:
+        _reset(db)
+        _world(db, queued=2, fast=1)
+        if mode == "absent":
+            monkeypatch.setattr(onboarding, "_extraction_step", lambda *a, **k: None)
+            monkeypatch.setattr(ex, "work_list", real_work_list)
+        else:
+            monkeypatch.setattr(onboarding, "_extraction_step", real_step)
+            monkeypatch.setattr(ex, "work_list", boom)
+        seen: list[onboarding.BatchOutcome] = []
+
+        def recording_batch(**kw):
+            out = partial(
+                real_batch,
+                now=lambda: _NOON,
+                edgar_client=_ExtractClient(),
+                price_source=_FakePrices(),
+                split_source=None,
+            )(**kw)
+            seen.append(out)
+            return out
+
+        monkeypatch.setattr(onboarding, "run_batch", recording_batch)
+        capsys.readouterr()
+        assert onboarding.main([]) is None  # no SystemExit: exit status 0
+        printed = capsys.readouterr().out
+        monkeypatch.setattr(onboarding, "run_batch", real_batch)
+        return _snapshot(db, seen[0]), printed, seen[0]
+
+    absent, printed_absent, out_absent = run("absent")
+    raising, printed_raising, out_raising = run("raising")
+
+    assert raising == absent
+    assert [n[:2] for n in absent["names"]] == [("Q0", "done"), ("Q1", "done")]
+    assert out_absent.platform_extraction is None
+    assert out_raising.platform_extraction["status"] == "error"
+    assert "the step blew up" in out_raising.platform_extraction["detail"]
+
+    def lines(text: str) -> list[str]:
+        # durations vary, and the timings line also ORDERS its legs by duration, so its text differs run to run
+        return [
+            re.sub(r"\d+(\.\d+)?", "N", ln)
+            for ln in text.splitlines()
+            if not ln.startswith("timings:")
+        ]
+
+    extra = [ln for ln in lines(printed_raising) if ln not in lines(printed_absent)]
+    assert len(extra) == 1 and extra[0].startswith("Shared facts, new companies: FAILED")
+    assert [ln for ln in lines(printed_raising) if ln not in extra] == lines(printed_absent)
+    assert _all_attempts(db) == 1  # only the B4 marker: the raising step wrote nothing
+
+
+def test_the_step_gets_ONLY_what_is_left_of_the_batch_budget(db, offline, extraction, monkeypatch):
+    """The batch's name spends 90 of its 100 s: the step has 10 s, takes one company (8 s) and never starts one
+    it cannot afford. A batch whose names spend the whole budget leaves the step nothing: not run, no fetch.
+    """
+    _world(db, queued=1, fast=2)
+    t = {"now": 0.0}
+    recording_one = onboarding.onboard_one
+
+    def slow_one(conn, row, **k):
+        out = recording_one(conn, row, **k)
+        t["now"] += 90.0
+        return out
+
+    monkeypatch.setattr(onboarding, "onboard_one", slow_one)
+    fake = extraction(on_call=lambda cik: t.__setitem__("now", t["now"] + 8.0))
+
+    out = _batch(edgar_client=_ExtractClient(), budget_s=100.0, clock=lambda: t["now"])
+
+    pe = out.platform_extraction
+    assert pe["budget_s"] == pytest.approx(10.0)
+    assert len(fake.calls) == 1 and pe["attempted"] == 1
+    assert pe["stopped_by"] == "budget" and pe["deferred"] == 2
+
+    late = _add_master(db, ticker="LATE", cik="0001000301")
+    _thesis(db, [("LATE", late)], "a later promote")
+    _queue(db, late)
+    spent = _batch(edgar_client=_ExtractClient(), budget_s=80.0, clock=lambda: t["now"])
+
+    assert [(n.ticker, n.outcome) for n in spent.names] == [("LATE", "done")]
+    assert spent.platform_extraction["status"] == "skipped"
+    assert "time budget is spent" in spent.platform_extraction_line
+    assert len(fake.calls) == 1  # nothing more fetched
+
+
+def test_the_step_takes_the_ONBOARDING_cap_and_the_KILL_SWITCH_turns_it_off(
+    db, extraction, settings_env
+):
+    _world(db, fast=3)
+    settings_env(platform_extraction_max_names=0)
+    fake = extraction()
+    client = _ExtractClient()
+
+    off = _batch(edgar_client=client)
+
+    assert off.platform_extraction["status"] == "off" and fake.calls == []
+    assert client.json_reads == [] and _all_attempts(db) == 1
+    assert "kill switch" in off.platform_extraction_line
+
+    settings_env(platform_extraction_max_names=300, platform_extraction_onboard_max_names=2)
+    capped = _batch(edgar_client=client)
+
+    pe = capped.platform_extraction
+    assert len(fake.calls) == 2 and pe["attempted"] == 2
+    assert pe["stopped_by"] == "cap" and pe["deferred"] == 1 and pe["max_names"] == 2
+
+
+def test_the_step_yields_to_a_PASS_and_to_the_NIGHTLY_WINDOW_between_companies(
+    db, extraction, settings_env
+):
+    from pipeline.run_lock import acquire_pass_lock
+
+    _world(db, fast=3)
+    held: list = []
+
+    def pass_starts(cik):
+        if not held:
+            held.append(
+                acquire_pass_lock(holder="manual")
+            )  # never refused: the job does not hold it
+
+    fake = extraction(on_call=pass_starts)
+    try:
+        out = _batch(edgar_client=_ExtractClient())
+    finally:
+        for lk in held:
+            lk.release()
+    assert len(fake.calls) == 1
+    assert (
+        out.platform_extraction["stopped_by"] == "stop" and out.platform_extraction["deferred"] == 2
+    )
+
+    settings_env(onboard_window_before_min=60, onboard_window_after_min=60)
+    clock = {"now": datetime(2026, 6, 10, 21, 20, tzinfo=_NY)}
+    fake = extraction(
+        on_call=lambda cik: clock.__setitem__("now", datetime(2026, 6, 10, 21, 31, tzinfo=_NY))
+    )
+    out = _batch(edgar_client=_ExtractClient(), now=lambda: clock["now"])
+    assert len(fake.calls) == 1 and out.platform_extraction["stopped_by"] == "stop"
+
+    # inside the window the job refuses before the queue: the step never runs, nothing is fetched
+    fake = extraction()
+    refused = _batch(edgar_client=_ExtractClient(), now=lambda: clock["now"])
+    assert refused.refused and refused.stopped == "window"
+    assert refused.platform_extraction is None and fake.calls == []
+
+
+def test_the_step_is_ONE_line_in_the_jobs_output_and_its_status(
+    db, extraction, monkeypatch, capsys
+):
+    """Its summary is written through ``pipeline/extraction_run_log.py`` (run kind ``onboarding``) and shows as
+    one line in the batch's output and in ``python -m pipeline.onboarding --status``."""
+    from functools import partial
+
+    from pipeline import extraction_run_log
+
+    _world(db, fast=1)
+    extraction()
+    onboarding.main(["--status"])
+    assert "Shared facts, new companies: no extraction run yet" in capsys.readouterr().out
+
+    real = onboarding.run_batch
+    monkeypatch.setattr(
+        onboarding,
+        "run_batch",
+        partial(real, now=lambda: _NOON, edgar_client=_ExtractClient(), split_source=None),
+    )
+    onboarding.main([])
+    printed = [ln for ln in capsys.readouterr().out.splitlines() if ln.startswith("Shared facts")]
+    assert len(printed) == 1 and "1 extracted" in printed[0]
+
+    doc = extraction_run_log.latest_extraction_run(run_kind="onboarding")
+    assert doc is not None and doc["admin_line"] == printed[0] and doc["attempted"] == 1
+
+    onboarding.main(["--status"])
+    status = [ln for ln in capsys.readouterr().out.splitlines() if ln.startswith("Shared facts")]
+    assert len(status) == 1 and status[0].startswith(printed[0])

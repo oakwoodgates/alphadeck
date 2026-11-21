@@ -32,7 +32,7 @@ which only the company's submissions index holds — read from the EDGAR cache, 
 no SEC request, ever): the very document the nightly Form 4 / 4/A legs fetched. A security with no cached index
 is listed and not judged.
 
-SAFETY (the ``repair_benchmark_bars`` / ``annotate_phantom_arms`` shape):
+SAFETY (the ``repair_benchmark_bars`` shape):
 - **Dry-run is the DEFAULT** — a READ ONLY connection (it physically cannot write), no lock, prints the plan.
 - ``--apply`` holds the call-of-record advisory lock (``pipeline/run_lock.py`` — exit 75 if a nightly pass or a
   backfill holds it), appends everything in ONE transaction and COUNTS THE TABLES before commit (link and

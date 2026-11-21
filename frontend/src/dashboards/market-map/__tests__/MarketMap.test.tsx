@@ -216,7 +216,7 @@ describe("hover, click and pin", () => {
     expect(box).toHaveTextContent("no 1d reading: no price bars at the as-of");
     expect(box).toHaveTextContent("no 90d reading: 61 of 91 bars");
     expect(box).toHaveTextContent("no market cap: drawn at the smallest size");
-    expect(box).toHaveTextContent("awaiting a share count");
+    expect(box).toHaveTextContent("no shared share count yet");
     expect(box).toHaveTextContent("Fuel · Core");
     fireEvent.mouseLeave(container.querySelector(".mm-map")!);
     expect(screen.queryByRole("status")).toBeNull();
@@ -225,7 +225,7 @@ describe("hover, click and pin", () => {
     const b = screen.getByRole("status");
     expect(b).toHaveTextContent("BBB Inc");
     expect(b).toHaveTextContent("~$4.00B");
-    expect(b).toHaveTextContent("share count ratified in the Workbench");
+    expect(b).toHaveTextContent("shared share count");
     expect(b).toHaveTextContent("Energy & Utilities · utilities");
   });
 
@@ -234,7 +234,7 @@ describe("hover, click and pin", () => {
     data.companies.find((c) => c.security_id === "bbb")!.cap_source = "cover";
     const { container } = renderMap(data);
     fireEvent.mouseMove(tile(container, "/card:t-grid/link:Turbines/co:bbb"), { clientX: 10, clientY: 10 });
-    expect(screen.getByRole("status")).toHaveTextContent("share count from the filing cover (not ratified)");
+    expect(screen.getByRole("status")).toHaveTextContent("share count from the filing cover (not a shared value)");
   });
 
   it("with a benchmark set, the box shows the relative figure with the raw one beside it", async () => {
@@ -339,7 +339,7 @@ describe("the page's quiet lines", () => {
     expect(line).toContain("5 companies");
     expect(line).toContain("7 tiles drawn");
     expect(line).toContain("4 priced for 1d");
-    expect(line).toContain("caps: 4 Workbench / 0 filing cover / 1 none");
+    expect(line).toContain("caps: 4 shared count / 0 filing cover / 1 none");
     expect(line).toContain("1 company drawn dashed at the smallest size");
     expect(line).toContain("scale ±3% for 1d");
     expect(line).toContain("returns raw");

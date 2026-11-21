@@ -1,0 +1,5 @@
+The accompanying notes form an integral part of these consolidated financial statements. F-4 ALCON INC. CONSOLIDATED BALANCE SHEET at December 31, 2025 and 2024 (USD millions unless indicated otherwise) Note 2025 2024 Assets Non-current assets Property, plant and equipment 10 4,610 4,420 Intangible assets other than goodwill 11 9,100 9,500 Total non-current assets 30,900 30,600 Current assets Inventories 13 2,700 2,500 Trade receivables 14 2,050 1,950 Time deposits 17 80 153 Cash and cash equivalents 1,527 1,684 Other current assets 500 470 Total current assets 6,857 6,757
+
+[… trimmed …]
+
+The accompanying notes form an integral part of these consolidated financial statements. F-6 ALCON INC. CONSOLIDATED CASH FLOW STATEMENT for the years ended December 31, 2025 and 2024 (USD millions unless indicated otherwise) Note 2025 2024 Net income 1,100 1,020 Depreciation of property, plant and equipment 400 380 Net cash flows from operating activities 2,271 2,050 Purchase of property, plant and equipment ( 900 ) ( 850 )

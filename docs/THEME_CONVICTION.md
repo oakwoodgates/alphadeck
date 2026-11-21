@@ -35,7 +35,10 @@ together at the as-of.** Nothing else about arming changes.
 
 1. **First-class ratified fact.** `fact_theme_conviction` (bitemporal, append-only, provenanced), ratified
    via `ingest/theme_conviction.py` (mirrors `ingest_catalyst`), keyed by **thesis**, not security. Arming
-   re-derives from it on read.
+   re-derives from it on read. **Since V2 W6** the fact is a whole-card counting entry on the card's catalyst
+   list (`fact_thesis_catalyst`, no member named, flip only; `docs/CALL_LOGIC.md` §3c): migration 0213 converted
+   the one stored row (keeping its stated date, operator decision N4 (a)), `ingest/theme_conviction.py` is
+   deleted and `fact_theme_conviction` is read by nothing. Rules 2 to 7 below are unchanged.
 2. **Grade capped at starter.** The broadcast emits the conviction event at **`flip`** → `entry_grade =
    weaker_grade(flip, core) = flip` → the existing setup-strength cap (`starter_confidence_cap`) applies.
    **Belief can never mint a core call-strength class** — the load-bearing discipline. Neither label sizes

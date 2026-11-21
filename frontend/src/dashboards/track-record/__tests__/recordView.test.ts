@@ -388,11 +388,11 @@ describe("the words", () => {
     expect(CAP_SOURCE_WORDS.workbench).toBe(capSourceWords({ cap_source: "workbench" }));
     expect(CAP_SOURCE_WORDS.cover).toBe(capSourceWords({ cap_source: "cover" }));
     expect(capWords(row()).title).toBe(
-      "Approximate: the as-traded close of 2026-06-02 ($14.40) times the 40,000,000 shares dated 2026-05-12 (share count ratified in the Workbench).",
+      "Approximate: the as-traded close of 2026-06-02 ($14.40) times the 40,000,000 shares dated 2026-05-12 (shared share count).",
     );
     const cover = capWords(row({ cap: cap({ source: "cover", shares_date: "2026-04-30", split_factor: 2 }) }));
     expect(cover.title).toBe(
-      "Approximate: the as-traded close of 2026-06-02 ($14.40) times the 40,000,000 shares dated 2026-04-30 (share count from the filing cover (not ratified)), the count put on the close's scale by a split (×2).",
+      "Approximate: the as-traded close of 2026-06-02 ($14.40) times the 40,000,000 shares dated 2026-04-30 (share count from the filing cover (not a shared value)), the count put on the close's scale by a split (×2).",
     );
   });
 
@@ -416,7 +416,7 @@ describe("the words", () => {
     const c = { ...SERVER.counts, counted: 240, unpinned_cap: 35, cap_from_cover: 37 };
     const lines = workLines(payload({ counts: c }), "arm_night", "iwm");
     expect(lines[2]).toBe(
-      "caps at the event: 168 on a share count ratified in the Workbench · 37 on a share count from the filing cover (not ratified)",
+      "caps at the event: 168 on a shared share count · 37 on a share count from the filing cover (not a shared value)",
     );
     expect(lines[3]).toBe("35 with an unpinned cap · 1 with unpinned liquidity (counted, never dropped)");
   });
@@ -432,7 +432,7 @@ describe("the words", () => {
   it("states the work: the as-of, the clock, the edition, what is in the cells and what is left out", () => {
     const lines = workLines(SERVER, "arm_night", "iwm");
     expect(lines[0]).toBe(
-      "as of 2026-07-24 · public clock: only what was public by the end of that date · edition 0: the original record (the default; editions are paused) · annotated nights excluded · late nights excluded",
+      "as of 2026-07-24 · public clock: only what was public by the end of that date · edition 0: the original record · late nights excluded",
     );
     expect(lines[1]).toBe(
       "20 arm episodes on 2 cards · 17 in the cells · left out: 1 flagged price history, 1 censored start, 1 ingest flagged",
@@ -447,20 +447,20 @@ describe("the words", () => {
     expect(lines.at(-1)).toBe("computed · 1,234 ms");
   });
 
-  it("names the edition in force, and for the record says why it is the default", () => {
-    expect(editionWords(SERVER)).toBe("edition 0: the original record (the default; editions are paused)");
+  it("names the edition in force: the record and a stored edition read alike, with no word about a default or a pause", () => {
+    expect(editionWords(SERVER)).toBe("edition 0: the original record");
     const stored = payload({ edition: { number: 1, label: "first re-run" } });
     expect(editionWords(stored)).toBe("edition 1: first re-run");
-    expect(workLines(stored, "arm_night", "iwm")[0]).toContain("· edition 1: first re-run · annotated");
+    expect(workLines(stored, "arm_night", "iwm")[0]).toContain("· edition 1: first re-run · late nights");
   });
 
   it("states the entry rule and the comparison in force, a missing benchmark and a live read", () => {
     const lines = workLines(
-      payload({ clock: "record", benchmarks_missing: ["IWM"], market_source: null, annotated_policy: "n/a", late_policy: "n/a", cache: "hit" }),
+      payload({ clock: "record", benchmarks_missing: ["IWM"], market_source: null, late_policy: "n/a", cache: "hit" }),
       "next_session",
       "raw",
     );
-    expect(lines[0]).toBe("as of 2026-07-24 · live read · edition 0: the original record (the default; editions are paused)");
+    expect(lines[0]).toBe("as of 2026-07-24 · live read · edition 0: the original record");
     expect(lines[3]).toContain("by horizon (next-session close entry)");
     expect(lines[4]).toContain("the next session's close");
     expect(lines[5]).toBe("Comparison: none shown (the raw return). IWM has no bar at this as-of, so its comparison is blank.");

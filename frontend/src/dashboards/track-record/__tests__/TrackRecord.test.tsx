@@ -1,6 +1,7 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { setRecordStart } from "../../__tests__/recordStart";
 
 import TrackRecord from "../TrackRecord";
 import type { TrackRecordOut } from "../useTrackRecord";
@@ -118,7 +119,8 @@ describe("TrackRecord — the toggles re-table the page with no request", () => 
     expect(tableKeys()).toEqual(["under_1m", "1m_10m", "10m_plus", "unpinned", "pooled"]);
     expect(screen.getAllByRole("columnheader")[0].textContent).toBe("Liquidity at the event");
     expect(screen.getAllByTestId("tr-table-row").at(-1)?.querySelector("th")?.textContent).toBe("all liquidity bands (pooled)");
-    expect(h.hook).toHaveBeenCalledWith("2026-07-24", 0); // the same read: the toggle is not a parameter
+    // the same read (the default's, no edition named): the toggle is not a parameter
+    expect(h.hook.mock.calls.every((c) => c[0] === "2026-07-24" && c[1] === undefined)).toBe(true);
   });
 
   it("switches the comparison to SPY and to the raw return", async () => {
@@ -346,14 +348,14 @@ describe("TrackRecord — what is left out is counted and kept visible", () => {
         .find((r) => r.querySelector(".tr-tk")?.textContent === ticker)
         ?.querySelector(".tr-cap")
         ?.getAttribute("title");
-    expect(capTitle("WBK")).toContain("(share count ratified in the Workbench)");
-    expect(capTitle("CVRCO")).toContain("(share count from the filing cover (not ratified))");
+    expect(capTitle("WBK")).toContain("(shared share count)");
+    expect(capTitle("CVRCO")).toContain("(share count from the filing cover (not a shared value))");
     expect(capTitle("FYO")).toBe(
       "Cap unpinned: no share count public before the arm date. The filing cover's count is not used: not a 10-Q filer.",
     );
     expect(
       screen.getByText(
-        "caps at the event: 1 on a share count ratified in the Workbench · 1 on a share count from the filing cover (not ratified)",
+        "caps at the event: 1 on a shared share count · 1 on a share count from the filing cover (not a shared value)",
       ),
     ).toBeInTheDocument();
   });
@@ -361,11 +363,32 @@ describe("TrackRecord — what is left out is counted and kept visible", () => {
 
 describe("TrackRecord — the edition", () => {
   const withNewest = () => payload({ newest_edition: { number: 1, label: "first re-run" } });
+  // the newest published edition, served as the default (a stored edition has no late rows: the policy is n/a)
+  const servedNewest = () =>
+    payload({ edition: { number: 1, label: "first re-run" }, newest_edition: { number: 1, label: "first re-run" }, late_policy: "n/a" });
 
-  it("reads the record by default and says why it is the default", () => {
-    setup();
-    expect(h.hook).toHaveBeenLastCalledWith("2026-07-24", 0);
-    expect(screen.getByText(/edition 0: the original record \(the default; editions are paused\)/)).toBeInTheDocument();
+  it("asks for the server's default edition, naming none, and shows the edition it served", () => {
+    setup(); // the server fixture serves the record (nothing published)
+    expect(h.hook).toHaveBeenLastCalledWith("2026-07-24", undefined);
+    expect(screen.getByText(/edition 0: the original record · late nights excluded/)).toBeInTheDocument();
+    expect(screen.queryByText(/paused/)).toBeNull();
+    expect(screen.queryByText(/\(the default/)).toBeNull();
+  });
+
+  it("shows the stored edition the server served as the default, and presses it in the selector", () => {
+    setup(servedNewest());
+    expect(h.hook).toHaveBeenLastCalledWith("2026-07-24", undefined);
+    expect(screen.getByText(/edition 1: first re-run/)).toBeInTheDocument();
+    const group = screen.getByRole("group", { name: "Edition" });
+    expect(within(group).getByRole("button", { name: "Edition 1 (newest published)" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(group).getByRole("button", { name: "The record" })).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("presses neither button when the server's default is an edition that is neither the record nor the newest", () => {
+    setup(payload({ edition: { number: 1, label: "first re-run" }, newest_edition: { number: 3, label: "third re-run" } }));
+    const group = screen.getByRole("group", { name: "Edition" });
+    expect(within(group).getAllByRole("button").map((b) => b.getAttribute("aria-pressed"))).toEqual(["false", "false"]);
+    expect(screen.getByText(/edition 1: first re-run/)).toBeInTheDocument(); // the work line still names it
   });
 
   it("draws no edition control while no edition is published (it could not discriminate)", () => {
@@ -373,28 +396,33 @@ describe("TrackRecord — the edition", () => {
     expect(screen.queryByRole("group", { name: "Edition" })).toBeNull();
   });
 
-  it("offers the record and the newest published edition, and a pick refetches with that edition", async () => {
-    setup(withNewest());
+  it("offers the record and the newest published edition, and a pick refetches with that edition and can be undone", async () => {
+    // the server's default is the newest published edition; naming 0 reads the record
+    h.hook.mockImplementation((_asof: string, edition?: number) => ok(edition === 0 ? withNewest() : servedNewest()));
+    render(<TrackRecord asof="2026-07-24" onSelectThesis={vi.fn()} />);
+    expect(h.hook).toHaveBeenLastCalledWith("2026-07-24", undefined);
     const group = screen.getByRole("group", { name: "Edition" });
     expect(within(group).getAllByRole("button").map((b) => b.textContent)).toEqual([
       "The record",
       "Edition 1 (newest published)",
     ]);
+    expect(within(group).getByRole("button", { name: "Edition 1 (newest published)" })).toHaveAttribute("aria-pressed", "true");
+
+    await userEvent.click(within(group).getByRole("button", { name: "The record" }));
+    expect(h.hook).toHaveBeenLastCalledWith("2026-07-24", 0);
     expect(within(group).getByRole("button", { name: "The record" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(group).getByRole("button", { name: "Edition 1 (newest published)" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByText(/edition 0: the original record/)).toBeInTheDocument();
 
     await userEvent.click(within(group).getByRole("button", { name: "Edition 1 (newest published)" }));
     expect(h.hook).toHaveBeenLastCalledWith("2026-07-24", 1);
     expect(within(group).getByRole("button", { name: "Edition 1 (newest published)" })).toHaveAttribute("aria-pressed", "true");
-    expect(within(group).getByRole("button", { name: "The record" })).toHaveAttribute("aria-pressed", "false");
-
-    await userEvent.click(within(group).getByRole("button", { name: "The record" }));
-    expect(h.hook).toHaveBeenLastCalledWith("2026-07-24", 0);
   });
 
   it("states the edition in force on the work line when a stored edition is read", () => {
     setup(payload({ edition: { number: 1, label: "first re-run" }, newest_edition: { number: 1, label: "first re-run" } }));
-    expect(screen.getByText(/edition 1: first re-run · annotated nights excluded/)).toBeInTheDocument();
-    expect(screen.queryByText(/editions are paused/)).toBeNull();
+    expect(screen.getByText(/edition 1: first re-run · late nights excluded/)).toBeInTheDocument();
+    expect(screen.queryByText(/paused/)).toBeNull();
   });
 
   it("clears a picked cell when the edition changes under it", async () => {
@@ -411,7 +439,7 @@ describe("TrackRecord — the quiet work lines and the states", () => {
     setup();
     for (const text of [
       /as of 2026-07-24 · public clock/,
-      /edition 0: the original record \(the default; editions are paused\) · annotated nights excluded · late nights excluded/,
+      /edition 0: the original record · late nights excluded/,
       /20 arm episodes on 2 cards · 17 in the cells · left out: 1 flagged price history, 1 censored start, 1 ingest flagged/,
       /1 with an unpinned cap · 1 with unpinned liquidity \(counted, never dropped\)/,
       /10 sessions 9 counted, 8 maturing/,
@@ -457,5 +485,23 @@ describe("TrackRecord — the quiet work lines and the states", () => {
     setup(SERVER, { isFetching: true });
     expect(screen.getByText("updating…")).toBeInTheDocument();
     expect(screen.getAllByTestId("tr-table-row")).toHaveLength(7);
+  });
+});
+
+vi.mock("../../../api/hooks", async (orig) =>
+  (await import("../../__tests__/recordStart")).withRecordStartStub(await orig<typeof import("../../../api/hooks")>()),
+);
+
+describe("Track Record — the record-start note", () => {
+  it("says when the record starts on a page with no history", () => {
+    setRecordStart("2026-12-03");
+    setup({ ...SERVER, counts: { ...SERVER.counts, episodes: 0 }, rows: [] });
+    expect(screen.getByTestId("record-start-note")).toHaveTextContent("The record starts on Dec 3, 2026.");
+  });
+
+  it("is absent on a page with history", () => {
+    setRecordStart("2026-12-03");
+    setup();
+    expect(screen.queryByTestId("record-start-note")).toBeNull();
   });
 });

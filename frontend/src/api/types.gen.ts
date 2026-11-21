@@ -367,6 +367,10 @@ export interface paths {
         /**
          * Unarchive Thesis
          * @description Restore an archived thesis whole — back onto the Board and into the cron's nightly walk.
+         *
+         *     Workspace caps (V2 W7c): a restore that would raise the live cards or the distinct companies on live cards past
+         *     the workspace's cap answers 409 with a sentence naming the count and the limit, and restores nothing. Restoring
+         *     a card that is already live changes no count and always passes.
          */
         post: operations["unarchive_thesis_theses__thesis_id__unarchive_post"];
         delete?: never;
@@ -479,8 +483,47 @@ export interface paths {
          *     Full-list replace via the sole writer (``set_catalysts`` — the structural wipe-guard: a promote
          *     never touches this table). Operator authority (#4: the operator authors the events; the platform
          *     times them).
+         *
+         *     Ids (V2 W6b): a row sent with the ``id`` it was read with keeps it; a row without one is a new row; an id that
+         *     is not on this card is never adopted (the row gets a fresh one). An id sent twice is a 422.
+         *
+         *     The wipe guard (V2 W6b): a list that leaves out a row whose entry counts toward the call is refused with 409
+         *     and a sentence naming the entry, and nothing is written; turn the entry off first
+         *     (``PUT /theses/{id}/catalysts/{entry_id}/counting``), then remove the row. A label edit on a counting row
+         *     records a new version of its entry with the new label (it keeps the night it counts from).
          */
         put: operations["put_catalysts_theses__thesis_id__catalysts_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/theses/{thesis_id}/catalysts/{entry_id}/counting": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Put Catalyst Counting
+         * @description Make one calendar row count toward the call, change what it says, or stop it counting (V2 W6b; the signed
+         *     rule R2). ``entry_id`` is the calendar row's ``id``. Each change is one new version in the card's append-only
+         *     counting store; a request that changes nothing writes nothing. Answers the saved card with
+         *     ``catalyst_counting`` filled.
+         *
+         *     Switching on needs a grade (core or flip) and a citation (an http(s) link or an SEC accession number;
+         *     recorded, not verified); the names must be companies on this card (none = the whole card, Flip only); an
+         *     optional "relevant until" date must be after the night it would count from. The entry counts from the night it
+         *     is saved, never from the date typed on the calendar: no time is accepted from the request. A switch-off keeps
+         *     the last statement so it can be switched on again. Refusals: 404 (no such card or row), 422 with a sentence.
+         *
+         *     Advisory only: this records the operator's own statement. Until a later release no call reads it.
+         */
+        put: operations["put_catalyst_counting_theses__thesis_id__catalysts__entry_id__counting_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -737,7 +780,16 @@ export interface paths {
         /**
          * Extract Scoring Facts
          * @description Auto-EXTRACT candidate scoring facts for a security from its latest SEC filings (Slice hybrid-1 +
-         *     Retrieval Slices 1/A/A-2). A 10-Q/10-K filer gets the three-tier hybrid: AUTO pre-fills the clean
+         *     Retrieval Slices 1/A/A-2).
+         *
+         *     WHO GETS WHAT (W7a, ``docs/PLATFORM_VALUES.md``): a share count and cash/burn are PLATFORM VALUES, decided by
+         *     the steward; a plain user never sees an unverified extracted number. So a PLAIN USER gets the purity candidate
+         *     ONLY (``extract_purity_for_security``): the request reads the submissions index, companyfacts and one 10-K
+         *     (else 10-Q), never the values filing, an annual document or an exhibit; a company that files annual reports on
+         *     Form 20-F or 40-F answers ``empty_reason="purity-not-covered"`` after the submissions read alone. The STEWARD
+         *     gets the full extract described below (all three candidates, the annual path, the exhibit hunt).
+         *
+         *     THE FULL EXTRACT (the steward's). A 10-Q/10-K filer gets the three-tier hybrid: AUTO pre-fills the clean
          *     facts, FLAG carries the raw value + a detected risk + the located passage (the operator ratifies the
          *     composition), HUMAN (purity) is LOCATED only and never auto-valued. An issuer with NO 10-K/10-Q (a
          *     foreign private issuer) reads its latest annual filing (20-F/40-F) ONCE and gets — ALWAYS tier FLAG —
@@ -800,13 +852,12 @@ export interface paths {
          *     cron, not this endpoint, owns force-refresh). No-lookahead: ``recorded_at`` = now, never backdated.
          *     Shares ONE implementation with ``pipeline.ingest_thesis`` (``ingest_bars_for_security``).
          *
-         *     BOUNDED (security hardening PR 1b): a plain user may pull prices only for a company on one of their own cards
-         *     (else 404, "This company is not on any of your cards. Add it to a card first.") and within their daily
-         *     price-pull allowance (``Settings.allowance_price_pull_per_day``, else 429 naming the reset). The bars are
-         *     FETCHED before the company write lock is taken, and the lock is held only for the compare-and-append, so a slow
-         *     vendor never holds up the nightly. The automatic OTC price-symbol resolve (a write to the SHARED master) runs on
-         *     a steward's pull only; a plain user's OTC pull is priced under the canonical ticker, and the name is left for
-         *     the steward's price-feed panel or the backfill sweep.
+         *     STEWARD ONLY (V2 W7b): prices are platform data, so a plain user never pulls them on demand (the steward-only
+         *     403); a company a user adds gets its prices from the promote's lane (``start_member_load``, which a fund or
+         *     SPAC attach also starts), the staged onboarding job, or the nightly. Not counted against any allowance. The
+         *     bars are FETCHED before the company write lock is taken, and the lock is held only for the compare-and-append,
+         *     so a slow vendor never holds up the nightly. An unresolved OTC name has its vendor price symbol resolved first
+         *     (a write to the SHARED master).
          */
         post: operations["ingest_security_prices_workbench_securities__security_id__ingest_prices_post"];
         delete?: never;
@@ -855,11 +906,12 @@ export interface paths {
          *     seam (M4b). A DISPLAY aid shown ALONGSIDE the raw passage; it NEVER becomes a fact.
          *
          *     The body is the candidate the extract endpoint returned, sent back as is, held to the request limits (at most
-         *     10 passages of at most 4,000 characters, at most 20 flags; security hardening PR 3). A plain user's call
-         *     spends one unit of the daily extract allowance (it is an LLM call a click can repeat).
+         *     10 passages of at most 4,000 characters, at most 20 flags; security hardening PR 3). STEWARD ONLY (W7a): a
+         *     FLAG candidate is a share count or cash/burn, a platform value the steward decides; a plain user's extract
+         *     carries purity only, so a user has no candidate to explain and gets the steward-only 403. No allowance (the
+         *     steward is never counted).
          *
-         *     Note what is absent: no tenant, no fact write (the one write is that allowance count). The explanation rides a
-         *     separate rail that
+         *     Note what is absent: no tenant, no fact write. The explanation rides a separate rail that
          *     dead-ends at the screen — the ratified number can only ever come from the operator's typed field on
          *     ``/facts`` (INVARIANT #3). The prompt asks the model not to state the final value; this missing
          *     connection is what guarantees it can't become one.
@@ -936,10 +988,16 @@ export interface paths {
          *     cost); a brand-new thesis is all-new (the full starter-basket ingest); no new members → no job and
          *     ``ingest`` null. The job never blocks or fails the promote.
          *
-         *     For a plain user that fast-lane ingest spends one unit of the daily price-pull allowance per new name
-         *     (``Settings.allowance_price_pull_per_day``, security hardening PR 1b); when today's allowance cannot cover them
-         *     all, no job is kicked and ``onboarding`` says the names load outside the nightly window instead (the staged
-         *     onboarding job, then the nightly). A steward is not counted.
+         *     For a plain user that fast-lane ingest spends one unit of the daily allowance of new names loaded at once per
+         *     new name (``Settings.allowance_price_pull_per_day``, security hardening PR 1b); when today's allowance cannot
+         *     cover them all, no job is kicked and ``onboarding`` says the names load outside the nightly window instead (the
+         *     staged onboarding job, then the nightly). A steward is not counted. The lane is ``start_member_load``, shared
+         *     with the fund and SPAC attaches (V2 W7b).
+         *
+         *     WORKSPACE CAPS (V2 W7c, ``app.workspace_caps``): a new card that would raise the workspace's live cards past its
+         *     cap, or a basket that would raise the distinct companies on its live cards past its cap, is refused whole with a
+         *     409 whose sentence names the count and the limit; nothing is written and no name is dropped. A save that keeps
+         *     or shrinks the count is never refused, even on a workspace already over a cap.
          */
         post: operations["promote_workbench_theses_post"];
         delete?: never;
@@ -1024,7 +1082,9 @@ export interface paths {
          *     re-promoted). New ``req.seeds`` are added as fresh SIGNAL. Returns the thesis so the operator can INSPECT the
          *     stored SIGNAL/BROAD split. Fail-open: no key / blank narrative + no seeds → an empty set is stored (the draft
          *     then 503s "term set is empty" — surfaced, never a silent recall fallback). It sources NO number (#3) — terms
-         *     only — and writes ONLY ``term_set`` (the narrow ``set_term_set``).
+         *     only — and writes ONLY ``term_set`` (the narrow ``set_term_set``). Workspace caps (V2 W7c): when the operator's
+         *     own terms and the seeds alone would raise the card past its term cap, 409 before the model runs; when the
+         *     generated set would, 409 and nothing is stored (the ``term_run`` unit stays spent either way).
          */
         post: operations["produce_terms_workbench_theses__thesis_id__terms_post"];
         delete?: never;
@@ -1052,7 +1112,8 @@ export interface paths {
          *     ``set_term_set`` (the SOLE writer; ``upsert`` never names ``term_set`` — the structural wipe-guard stays
          *     intact). Sources NO number (#3) — structure/config only. 422 on an empty term or a case-insensitive
          *     duplicate. An empty ``terms`` clears the set (a visible operator choice; the draft then 503s "term set is
-         *     empty").
+         *     empty"). 409 (nothing saved) when the set would raise the card past its workspace's term cap (V2 W7c); a save
+         *     that keeps or shrinks the count always passes.
          */
         put: operations["edit_terms_workbench_theses__thesis_id__terms_edit_put"];
         post?: never;
@@ -1238,56 +1299,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/workbench/facts/auto-confirm": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Auto Confirm Fact
-         * @description Auto-apply a security's AUTO-tier shares count on get-data — REMOVING a ceremonial confirm, not a real one.
-         *
-         *     The AUTO shares confirm was never a human verification: the operator has no independent knowledge of a
-         *     share count and does not look one up, so clicking "Confirm" on a machine-reproduced cover figure rubber-
-         *     stamped it while recording ``ratified_by="operator"`` — provenance claiming a check that never happened.
-         *     This applies the value directly and stamps it ``ratified_by="auto"``, which is what actually occurred. The
-         *     REAL human check is downstream and unchanged: the operator reads the resulting MARKET CAP, a figure they do
-         *     have intuition for, and overrides the shares if it looks wrong.
-         *
-         *     WHY THIS IS NOT A #1/#3 VIOLATION: the written number is the extractor's deterministic reproduction of
-         *     filed companyfacts (the market-cap trust class) — never a model output, never a computed/``llm_proposed``
-         *     estimate. Estimates remain computed-on-read and MUST NOT become ``fact_*`` rows (see WORKBENCH_EXTRACTION.md);
-         *     nothing here touches that. The AUTO tier is exactly the unambiguous single-class, current-cover case —
-         *     anything ambiguous trips a FLAG and is excluded below.
-         *
-         *     THE STRUCTURAL BOUND: the request carries NO value. The server re-extracts (cache-first — get-data just
-         *     warmed it) and writes its OWN parse, so no caller can inject a figure under the ``auto`` provenance.
-         *
-         *     Four gates, each an honest ``applied=False`` rather than an error:
-         *     - the security must be in this tenant's master (fail-closed, like ``/facts``);
-         *     - ``already_on_file`` — ANY existing shares fact (auto or an operator override) -> no-op. This is the
-         *       idempotency guarantee (a re-run appends ZERO rows) AND the no-clobber guarantee;
-         *     - ``not_auto`` — a FLAGged candidate is the operator's to ratify; the machine never resolves a dual-class
-         *       sum or a stale cover;
-         *     - ``no_candidate`` / ``no_value`` — nothing to apply.
-         *
-         *     BOUNDED (security hardening PR 1b): a plain user may auto-confirm only a company on one of their own cards
-         *     (else 404, "This company is not on any of your cards. Add it to a card first.") and within their daily
-         *     auto-confirm allowance (``Settings.allowance_auto_confirm_per_day``, else 429 naming the reset; the security
-         *     rides in the body, so this route counts the request before the card check). A steward is neither checked nor
-         *     counted.
-         */
-        post: operations["auto_confirm_fact_workbench_facts_auto_confirm_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/workbench/facts": {
         parameters: {
             query?: never;
@@ -1306,12 +1317,24 @@ export interface paths {
          *     WRITE-SIDE TENANT DISCIPLINE: the security must be in the CURRENT tenant's master (fail-closed) — the
          *     tenant is the deployment resolver's, but the ``security_id`` is caller-supplied, so a foreign/unknown id
          *     must not write a junk fact. ``source`` is preserved (the candidate's basis, e.g. ``10-k-segment``);
-         *     ``ratified_by`` is stamped with the signed-in user's email; the fact lands in the caller's WORKSPACE (a
-         *     ratified fact is private research, docs/TENANT_SCOPES.md) and is append-only (a re-ratify is a new row,
-         *     latest-wins).
+         *     ``ratified_by`` is stamped with the signed-in user's email; the write is append-only (a re-ratify is a new
+         *     row, latest-wins).
+         *
+         *     THE TWO SCOPES (V2, docs/TENANT_SCOPES.md): **purity** (``revenue_mix``) is the caller's own judgment — any
+         *     signed-in user may write it, and it lands in the caller's WORKSPACE. A **share count** or **cash/burn** value
+         *     is platform data — it lands in the DATA tenant, read by every workspace — so only a STEWARD may set one by
+         *     hand: a plain user gets **403** and nothing is written. A **company catalyst** answers **409**: the form is
+         *     retired on the v2 branch (company catalysts move to the thesis's catalyst list).
          *
          *     ``vouched`` records whether the operator confirmed the shown ``estimate`` as-is or overrode it — PROVENANCE
          *     for the drift-cron + the agree/disagree signal, NEVER a scoring input (all vouched states score identically).
+         *
+         *     THE STEWARD'S CONFIRM (V2 W2c, approved decision D4 (a)): a share count or cash/burn value goes through the
+         *     steward's ``correct`` write (``platform_values.steward``): the company write lock, the correction rule, and a
+         *     ``correct`` decision beside the fact (so ``/admin/platform-values`` can undo it). A value that would not be
+         *     shown is refused with the date that blocks it: **409** dated before the value shown (or the company is busy),
+         *     **422** dated after today or an ADS ratio without the status ``known``. The candidate's basis (``source``) is
+         *     kept.
          */
         post: operations["ratify_fact_workbench_facts_post"];
         delete?: never;
@@ -1338,13 +1361,10 @@ export interface paths {
          *     Aggregate metrics judge only matured, non-censored episodes and gate below ``min_n`` — an
          *     instrument, not a claim, until n accrues.
          *
-         *     On Edition 0 three kinds of recorded row are set aside before scoring: reconstructed rows
-         *     (always), rows annotated ``exclude`` (phantom arms, and rows dated a day with no market session;
-         *     by the annotated-night policy, which ``include_annotated`` overrides per request), and rows
-         *     recorded after their night's next EDGAR
-         *     open (by the late-night policy, which ``include_late`` overrides per request). Every reading is
-         *     available; nothing is deleted. An edition has none of those rows: its lists come back empty and
-         *     both policies read ``n/a``.
+         *     On Edition 0 two kinds of recorded row are set aside before scoring: reconstructed rows
+         *     (always) and rows recorded after their night's next EDGAR open (by the late-night policy, which
+         *     ``include_late`` overrides per request). Every reading is available; nothing is deleted. An
+         *     edition has none of those rows: its lists come back empty and the policy reads ``n/a``.
          */
         get: operations["get_scoreboard_scoreboard_get"];
         put?: never;
@@ -1393,7 +1413,7 @@ export interface paths {
          *     read-only. Every thesis is compared on the nights BOTH editions cover, through the earlier of the two
          *     editions' last nights (the earlier edition's last night once the later one has reached it), so a night
          *     neither could disagree about is never a change. Edition 0 is read the way the default Scoreboard reads
-         *     it: reconstructed rows never, annotated and late rows under the server's default policies.
+         *     it: reconstructed rows never, late rows under the server's default policy.
          *
          *     Per company-night: armed or not in each edition, and — on a night both arm the company — its verdict,
          *     entry grade, conviction grade and exit-by; a night with no page reads that edition's last page before
@@ -1471,6 +1491,26 @@ export interface paths {
          *     ``start``/``end``/``security_id`` ride as bound params — the SQL range fragment stays a trusted literal.
          */
         get: operations["get_price_window_scoreboard_price_window_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/record/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Record Start
+         * @description The first night on the caller's workspace's record (``null`` before its first nightly call).
+         */
+        get: operations["get_record_start_record_start_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2390,6 +2430,395 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/platform-values/awaiting": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Awaiting
+         * @description The flagged candidates waiting for the steward, newest first: a company-and-type whose newest candidate is
+         *     an undecided flag, with no value shown (``awaiting_steward``) or dated after the value shown (``value``).
+         *     Decided candidates and flags older than the value shown are not listed. ``total`` counts all. Read-only.
+         */
+        get: operations["list_awaiting_admin_platform_values_awaiting_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/platform-values/queue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Queue
+         * @description THE STEWARD'S QUEUE: one row per company with a share count or cash/burn waiting for you (the same open
+         *     flagged candidates as ``/awaiting``) or with an open user flag (``open_flags``, a number only; W5c), with how
+         *     many live cards hold it across every workspace (a number only). Order: companies only in a Discovered pen last,
+         *     then most cards first, then the longest wait first (the oldest waiting candidate or open user flag). ``pen``:
+         *     ``after`` (default) lists the pen-only companies after the rest, ``only`` lists only them, ``exclude`` leaves
+         *     them out. ``offset`` / ``limit`` cut the page (``limit`` 1-200, ``offset`` 0-100,000); ``total`` and
+         *     ``pen_only_total`` count every company waiting, whatever the page. **422** a parameter out of bounds.
+         *     Read-only.
+         */
+        get: operations["list_queue_admin_platform_values_queue_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/platform-values/flags/{flag_id}/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Close Flag
+         * @description CLOSE a user's open flag, stamped with your email. ``fixed``: name the approve or correct that fixed it
+         *     (``decision_id``: this company's, this value's, not undone; checked under the company write lock, so an undo
+         *     cannot slip in between); ``kept``: the value stands, and ``note`` (required) tells the user why. The user reads
+         *     the outcome and the note on their own flag; no Slack message. Undo with ``POST .../flags/{id}/reopen``.
+         *     Answers the company's new state. **404** unknown flag; **409** already closed (or withdrawn), a decision that
+         *     is not a standing approve or correct of this company's value, or the company is busy; **422** ``kept`` with a
+         *     blank note or a decision, ``fixed`` with no decision, a note over 2,000 characters.
+         */
+        post: operations["close_flag_admin_platform_values_flags__flag_id__close_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/platform-values/flags/{flag_id}/reopen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reopen Flag
+         * @description REOPEN a flag you closed (the close's inverse, decision B3 (a)): a NEW open flag naming it, with the same
+         *     user, value, note and what was current, stamped with your email; the closed one stays in the history as it
+         *     was. No body. No Slack message; the user's allowance is untouched. Answers the company's new state. **404**
+         *     unknown flag; **409** the flag is open, already reopened, withdrawn by its user, or the user has a newer open
+         *     flag on the value.
+         */
+        post: operations["reopen_flag_admin_platform_values_flags__flag_id__reopen_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/platform-values/{security_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Company Values
+         * @description The company's share count and cash/burn: each value's state, every stored version (with ``set_aside``),
+         *     the newest candidates and decisions, the pin, and its users' flags (``flags``: every open one, and the page of
+         *     closed ones that ``flags_offset`` (0-100,000) / ``flags_limit`` (1-100, default 20) cut, newest closed first).
+         *     **404** unknown company; **422** a parameter out of bounds. Read-only.
+         */
+        get: operations["get_company_values_admin_platform_values__security_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/platform-values/candidates/{candidate_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve Candidate
+         * @description APPROVE a flagged candidate: its own value (filing, date, ADS fields) becomes the company's value, stamped
+         *     with your email, and the candidate is closed. Undo with ``POST .../decisions/{id}/undo``. **404** unknown
+         *     candidate; **409** already decided, a value with a later date is shown (the detail names it), or the company
+         *     is busy; **422** a "nothing" candidate, a flag without a complete value, or a date after today.
+         */
+        post: operations["approve_candidate_admin_platform_values_candidates__candidate_id__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/platform-values/{security_id}/correct": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Correct Value
+         * @description CORRECT the company's value by hand, citing the filing (``source_ref``) and its date (``event_date``),
+         *     stamped with your email (``source`` ``ratified``). It is written only when it will be shown: dated on or after
+         *     the value shown and not after today (approved decision D1 (a)). With ``candidate_id`` it also closes that
+         *     candidate. Undo with ``POST .../decisions/{id}/undo``. **404** unknown company or candidate; **409** a value
+         *     with a later date is shown (the detail names its date and filing), the candidate is decided or not this
+         *     company's, or the company is busy; **422** a date after today, an ADS ratio without the status ``known``, a
+         *     currency that is not an ISO code, or an investment part below zero or above the cash.
+         */
+        post: operations["correct_value_admin_platform_values__security_id__correct_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/platform-values/candidates/{candidate_id}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dismiss Candidate
+         * @description DISMISS a candidate with a reason (required): it is closed; the value is unchanged. Undo with
+         *     ``POST .../decisions/{id}/undo``. **404** unknown candidate; **409** already decided, or the company is busy;
+         *     **422** a blank reason.
+         */
+        post: operations["dismiss_candidate_admin_platform_values_candidates__candidate_id__dismiss_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/platform-values/decisions/{decision_id}/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Undo Decision
+         * @description UNDO an approve, correct or dismiss: the value it wrote is set aside (every read falls back to the value
+         *     before) and its candidate is open again. Nothing is deleted. **404** unknown decision; **409** the decision is
+         *     itself an undo (make a new decision), it is already undone, or the company is busy.
+         */
+        post: operations["undo_decision_admin_platform_values_decisions__decision_id__undo_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/platform-values/{security_id}/pin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pin Value
+         * @description PIN a value: from now on a newer clean filing value waits for you as a flagged candidate instead of being
+         *     applied. Undo with ``/unpin``. **404** unknown company; **409** already pinned, or the company is busy.
+         */
+        post: operations["pin_value_admin_platform_values__security_id__pin_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/platform-values/{security_id}/unpin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unpin Value
+         * @description UNPIN a value (the pin's inverse): a newer clean filing value is applied again. **404** unknown company;
+         *     **409** not pinned, or the company is busy.
+         */
+        post: operations["unpin_value_admin_platform_values__security_id__unpin_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/platform-values/{security_id}/extract": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Extract Now
+         * @description EXTRACT NOW: read this company's latest SEC filings and hand the result to the machine writer, through
+         *     background extraction's own per-company step (``platform_values.extraction.extract_one``, ``run_kind``
+         *     ``steward``). No body. The step fetches FIRST with the company free (the submissions index, then the
+         *     extraction, cache first, on the recurring client), only then takes the company lock to write, and appends
+         *     exactly one attempt row (``platform_extraction_attempt``), whatever the outcome.
+         *
+         *     Per value type, the machine writer's usual rule: a clean value from a filing newer than the value shown is
+         *     applied (even over a verified value, unless the company is pinned: then it waits for you); a flagged value and
+         *     a "nothing found" are recorded as candidates; a value already on file writes nothing. ``attempt`` says what
+         *     happened per type; ``company`` is the company's values after it, with the new attempt first in ``attempts``.
+         *
+         *     **An extraction failure is not an error status**: SEC unreachable, a document missing, no SEC User-Agent set:
+         *     the answer is 200 with ``attempt.status`` ``error`` and its one-line reason (the attempt row is the record;
+         *     nothing else is written, so a value awaiting you still waits). **404** unknown company, or a company with no
+         *     CIK (nothing fetched); **409** another writer held the company for the whole wait (one ``busy`` attempt row,
+         *     no value written); **422** a fund (its share count is not extracted). Steward only.
+         */
+        post: operations["extract_now_admin_platform_values__security_id__extract_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform-values/theses/{thesis_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Thesis Values
+         * @description The share count and cash/burn of every company on one of your cards, in basket order, each with its state
+         *     and your own flag. Current: no as-of. Another workspace's card is 404.
+         */
+        get: operations["get_thesis_values_platform_values_theses__thesis_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/platform-values/{security_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Company Values
+         * @description A company's share count and cash/burn with their state, shared by every user, and your own flag on each.
+         *     Current: no as-of. A value awaiting the steward carries its filing and passages, never its number.
+         */
+        get: operations["get_company_values_platform_values__security_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/value-flags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List My Flags
+         * @description Your own flags on shared values: the open ones first (newest first), then the closed ones (newest closed
+         *     first), with the steward's outcome and note. Nobody else's flags are ever listed or counted. ``offset`` /
+         *     ``limit`` cut the page (``limit`` 1-100, ``offset`` 0-100,000); ``total`` counts all of yours. **422** a
+         *     parameter out of bounds. Read-only.
+         */
+        get: operations["list_my_flags_value_flags_get"];
+        put?: never;
+        /**
+         * Raise Flag
+         * @description Tell the steward that one of a company's shared values (its share count, or its cash and burn) looks wrong
+         *     or is missing. It never changes the value. The company must be on one of your own cards. The server records
+         *     what was current: the value shown, a value awaiting the steward, or no value yet. One open flag per value;
+         *     each flag spends one unit of your daily flag allowance (a withdrawal does not give it back). **403** for the
+         *     steward; **404** a company that is not on any of your cards (or no such company); **409** you already have an
+         *     open flag on this value; **422** a value type other than a share count or cash/burn, or a note over 2,000
+         *     characters; **429** the day's flags are spent. Answers the new flag (201).
+         */
+        post: operations["raise_flag_value_flags_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/value-flags/{flag_id}/withdraw": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Withdraw Flag
+         * @description Withdraw your own open flag. The allowance unit it spent is not given back; you may flag the value again
+         *     (one more unit). **403** for the steward; **404** no flag of yours has this id; **409** it is already closed.
+         *     Answers the withdrawn flag.
+         */
+        post: operations["withdraw_flag_value_flags__flag_id__withdraw_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/theses/{thesis_id}/data-flags": {
         parameters: {
             query?: never;
@@ -2473,7 +2902,11 @@ export interface paths {
          *     radar recommended, the operator decided). The member lands uncharacterized (role "—", no
          *     segment — the finalize rail characterizes it, item F), with ``surfaced_terms`` frozen from
          *     the stored term matches (factual provenance, never client-supplied). Idempotent:
-         *     already-in-basket returns ``already`` and writes nothing. Reversible via detach (#1).
+         *     already-in-basket returns ``already`` and writes nothing. A company it ADDS has its data load started after
+         *     the commit exactly as a promote's new name does (``start_member_load``, V2 W7b): the fast-lane job or the
+         *     onboarding queue, carried in ``ingest`` / ``onboarding``. Reversible via detach (#1). A company that would
+         *     raise the distinct companies on the workspace's live cards past its cap answers 409 with a sentence naming the
+         *     count and the limit, and adds nothing (V2 W7c).
          */
         post: operations["spac_attach_radar_spac_attach_post"];
         delete?: never;
@@ -2577,8 +3010,12 @@ export interface paths {
          *     off, no conviction) and the card is re-written whole from the stored copy, so nothing it carries (context
          *     roles, catalysts, kill criteria...) is wiped. The write goes through the promote's own rules
          *     (``silent_conflicts`` / ``fund_conflicts``), so a fund can never land outside ETFs. Idempotent: already in
-         *     ETFs returns ``already`` and writes nothing. Prices are NOT pulled here (the screen does, as Surface an ETF
-         *     does). Reversible via detach (#1).
+         *     ETFs returns ``already`` and writes nothing, and starts nothing. A fund it ADDS has its data load started
+         *     after the commit exactly as a promote's new name does (``start_member_load``, V2 W7b): the fast-lane job
+         *     (``ingest``) or the onboarding queue (``onboarding``), bounded by the global ingest cap and, for a plain user,
+         *     one unit of today's ``price_pull`` allowance. The screen pulls no prices itself. Reversible via detach (#1).
+         *     A fund that would raise the distinct companies on the workspace's live cards past its cap answers 409 with a
+         *     sentence naming the count and the limit, and adds nothing (V2 W7c).
          */
         post: operations["fund_attach_radar_funds_attach_post"];
         delete?: never;
@@ -3470,9 +3907,9 @@ export interface paths {
          *     filing cover's (``cap.source``). The Scoreboard's own episodes and honesty filters: a censored start, an
          *     ingest-flagged episode and a company whose price history carries a data flag are left out of every cell and counted, apart
          *     from one whose only flag is a stopped feed and whose company ended: that is counted until its bars stop (a
-         *     later horizon reads path ended). Reads the record
-         *     (Edition 0) unless an edition is named. Display only; a past as-of reads what was public by the end of that
-         *     date, and a horizon that has not arrived by then is not counted.
+         *     later horizon reads path ended). Reads the Scoreboard's default edition (the newest published; the record,
+         *     Edition 0, when none is published) unless an edition is named. Display only; a past as-of reads what was
+         *     public by the end of that date, and a horizon that has not arrived by then is not counted.
          */
         get: operations["track_record_dashboards_track_record_get"];
         put?: never;
@@ -4802,6 +5239,32 @@ export interface components {
             late: number;
         };
         /**
+         * AdminPlatformExtractionOut
+         * @description Background extraction of the shared share counts and cash/burn (V2 W3), as ONE plain-English line: the
+         *     newer of the nightly pass's ``platform_extraction`` block (``data/cron_runs``) and the newest backfill,
+         *     onboarding or by-hand run (``data/extraction_runs``) — e.g. "Shared facts · Nov 14: 42 extracted: 31 applied,
+         *     6 to the steward, 5 nothing found · 2 failed (ACME: SEC unreachable) · 118 still due · 84 SEC requests ·
+         *     3m 12s". Backend-authored copy (the FE renders, never composes). ``attention`` is true only when a company
+         *     failed, the run itself failed, a company waits after repeated failures, or never-extracted companies are held
+         *     back until the first backfill: the cases worth a louder line. ``run_kind`` says which run it is.
+         */
+        AdminPlatformExtractionOut: {
+            /** Line */
+            line: string;
+            /**
+             * Ran At
+             * Format: date-time
+             */
+            ran_at: string;
+            /** Run Kind */
+            run_kind: string;
+            /**
+             * Attention
+             * @default false
+             */
+            attention: boolean;
+        };
+        /**
          * AdminPriceFeedAckOut
          * @description One operator acknowledgment of an unpriceable name (``price_feed_ack``): "keep it, unpriced". Active
          *     = no revoke references it; an active one makes the name QUIET (no page, a quiet count) and its vendor
@@ -5875,10 +6338,18 @@ export interface components {
          *     newest edition (a DB read of that edition); ``null`` otherwise. Never a cron verdict.
          *     ``master_refresh`` is the weekly company-list refresh's one line, from its newest applied run artifact
          *     (``data/master_runs``; a directory read — no DB); ``null`` until it has run. Never a cron verdict.
+         *     ``platform_extraction`` (V2 W3c) is background extraction's one line: the newer of the nightly pass's block
+         *     and the newest backfill / onboarding / by-hand run (directory reads — no DB); ``null`` until one has run.
+         *     Never a cron verdict.
          *
          *     ``data_tenant_theses`` (auth PR 2) is how many ``thesis`` rows sit under the DATA tenant ``...0001``. It
          *     should be 0: a card belongs to a workspace (migration 0078 moved the founding operator's cards out), and a
          *     card left on the data tenant is read by no workspace. The Admin page shows one loud line when it is not 0.
+         *
+         *     ``platform_rows_in_workspaces`` (V2 W0b) is how many ``fact_shares_outstanding`` plus ``fact_cash_burn`` rows
+         *     sit under any tenant but the data tenant. V2 reads both from the data tenant only, so it should be 0 once
+         *     ``python -m pipeline.v2_cutover move-platform-facts --apply`` has run; the Admin page shows one loud line
+         *     naming that command when it is not. Fail-open (0 when the count could not be read).
          *
          *     ``oauth_clients`` (migration 0080) counts the registered OAuth clients, static and self-registered; ``null``
          *     when the count could not be read. Read-only, never a cron verdict.
@@ -5910,11 +6381,17 @@ export interface components {
             missing_closes?: components["schemas"]["AdminMissingClosesOut"] | null;
             editions_cut?: components["schemas"]["AdminEditionsCutOut"] | null;
             master_refresh?: components["schemas"]["AdminMasterRefreshOut"] | null;
+            platform_extraction?: components["schemas"]["AdminPlatformExtractionOut"] | null;
             /**
              * Data Tenant Theses
              * @default 0
              */
             data_tenant_theses: number;
+            /**
+             * Platform Rows In Workspaces
+             * @default 0
+             */
+            platform_rows_in_workspaces: number;
             oauth_clients?: components["schemas"]["AdminOAuthClientsOut"] | null;
         };
         /**
@@ -6455,44 +6932,6 @@ export interface components {
             oauth: boolean;
         };
         /**
-         * AnnotatedNightOut
-         * @description One annotated night (D3b, F10): a (thesis, as-of) whose recorded row carries an ACTIVE ``exclude``
-         *     annotation — a phantom arm, or a row dated a day with no market session — under the default reading it
-         *     is set aside like a reconstructed night; under the ``include_annotated`` reading it is scored.
-         *     ``reasons`` are the annotation tokens (e.g. ``stale_comparative_revenue``, ``no_session_day``), ``rules``
-         *     the code identities that judged it (``d3a-first-knowability@<sha>``, ``no-session-night@<sha>``),
-         *     ``n_rows`` the annotated rows on the night.
-         */
-        AnnotatedNightOut: {
-            /**
-             * Thesis Id
-             * Format: uuid
-             */
-            thesis_id: string;
-            /** Thesis Name */
-            thesis_name: string;
-            /**
-             * Asof
-             * Format: date
-             */
-            asof: string;
-            /**
-             * Reasons
-             * @default []
-             */
-            reasons: string[];
-            /**
-             * Rules
-             * @default []
-             */
-            rules: string[];
-            /**
-             * N Rows
-             * @default 1
-             */
-            n_rows: number;
-        };
-        /**
          * AuthMeOut
          * @description The signed-in caller. For a bearer, `token` says which kind and its scopes (and an app's `role` is
          *     `super_admin` only when the user is one AND granted it `steward`); omitted for a browser session.
@@ -6528,50 +6967,6 @@ export interface components {
          * @enum {string}
          */
         Authorship: "system_drafted" | "operator_set" | "operator_edited";
-        /**
-         * AutoConfirmOut
-         * @description The outcome of an auto-confirm — honest about WHY nothing was written.
-         *
-         *     ``applied=False`` is a normal, expected result (a FLAGged name, a name already on file), never an error:
-         *     the caller fires this optimistically after get-data and the server decides. ``reason`` names which gate
-         *     stopped it so the UI (and a test) can tell "we declined to auto-apply" from "it failed".
-         */
-        AutoConfirmOut: {
-            /** Applied */
-            applied: boolean;
-            /**
-             * Reason
-             * @enum {string}
-             */
-            reason: "applied" | "already_on_file" | "not_auto" | "no_candidate" | "no_value";
-            /** Fact Id */
-            fact_id?: string | null;
-        };
-        /**
-         * AutoConfirmRequest
-         * @description Ask the server to auto-apply a security's AUTO-tier shares count (the get-data path).
-         *
-         *     NOTE WHAT IS **NOT** HERE: a value. The client cannot supply the number — it names a security and a
-         *     fact type, and the SERVER re-extracts and writes its OWN deterministic parse. That is the structural
-         *     bound (INVARIANT #3): an auto-applied fact can only ever be the extractor's reproduction of filed
-         *     companyfacts, so no client bug or caller can inject a figure under the ``auto`` provenance.
-         *
-         *     ``fact_type`` is deliberately a ONE-value Literal: only the AUTO shares count is eligible. Purity is the
-         *     operator's edge (HUMAN, never auto-valued) and cash_burn stays a manual ratify — extending this is a
-         *     decision, not a parameter.
-         */
-        AutoConfirmRequest: {
-            /**
-             * Security Id
-             * Format: uuid
-             */
-            security_id: string;
-            /**
-             * Fact Type
-             * @constant
-             */
-            fact_type: "shares_outstanding";
-        };
         /**
          * BacktestLedgerOut
          * @description The run's episode ledger — the PER-THESIS drill-down, in the Scoreboard's own wire vocabulary.
@@ -7338,12 +7733,86 @@ export interface components {
             when_label: string | null;
         };
         /**
+         * CatalystCountingIn
+         * @description Make one calendar row count toward the call, edit what it says, or stop it counting (V2 W6b, the signed
+         *     rule R2). ``counts`` true needs a ``grade`` and a ``citation`` (an http(s) link or an SEC accession number);
+         *     ``security_ids`` names companies on this card (empty = the whole card, Flip only); ``relevant_until`` is
+         *     optional (empty = the 365-day default). ``counts`` false stops it counting; the other fields are then ignored.
+         *
+         *     There is deliberately NO time field: the entry counts from the night it is saved, set by the database (R5).
+         *     Unknown keys are refused (422), so a body that carries ``entered_at``, ``recorded_at``, ``valid_from`` or
+         *     ``when_date`` writes nothing. The label is the calendar row's own, never taken from here.
+         */
+        CatalystCountingIn: {
+            /** Counts */
+            counts: boolean;
+            /** Grade */
+            grade?: ("core" | "flip") | null;
+            /**
+             * Security Ids
+             * @default []
+             */
+            security_ids: string[];
+            /** Citation */
+            citation?: string | null;
+            /** Relevant Until */
+            relevant_until?: string | null;
+        };
+        /**
+         * CatalystCountingOut
+         * @description The CURRENT counting state of one calendar row (V2 W6b): the newest version of its entry in
+         *     ``fact_thesis_catalyst``, switched on or off. Response-only, never recorded. ``entry_id`` is the calendar row's
+         *     ``id``; a row with no entry has no item here (an ordinary calendar item). ``members`` empty = the whole card.
+         *     ``counts_from`` is the night the entry counts from (the night it was switched on or its grade or names last
+         *     changed; never the typed calendar date); ``saved_at`` is when this version was saved. Off (``counts`` false):
+         *     the last statement, kept so the form re-opens filled.
+         */
+        CatalystCountingOut: {
+            /**
+             * Entry Id
+             * Format: uuid
+             */
+            entry_id: string;
+            /** Counts */
+            counts: boolean;
+            /**
+             * Grade
+             * @enum {string}
+             */
+            grade: "core" | "flip";
+            /** Label */
+            label: string;
+            /**
+             * Members
+             * @default []
+             */
+            members: components["schemas"]["CountingMemberOut"][];
+            /** Citation */
+            citation: string;
+            /** Relevant Until */
+            relevant_until?: string | null;
+            /**
+             * Counts From
+             * Format: date
+             */
+            counts_from: string;
+            /**
+             * Saved At
+             * Format: date-time
+             */
+            saved_at: string;
+        };
+        /**
          * CatalystIn
          * @description One catalyst-surface entry (a narrative binary event the card's surface renders between entry
-         *     and exit-by) — display objects, distinct from the conviction FACTS (``RatifyCatalyst``). Server
-         *     generates the id; the list is replaced whole (the operator edits it as a list).
+         *     and exit-by) — display objects, distinct from the conviction FACTS (``RatifyCatalyst``). The list is
+         *     replaced whole (the operator edits it as a list). ``id`` (V2 W6b): send back the id each row was read with so
+         *     it keeps its identity (a counting entry is keyed by it); a row without one is a new row, and an id that is not
+         *     on this card is never adopted (the row gets a fresh one).
          */
         CatalystIn: {
+            /** Id */
+            id?: string | null;
             /** Label */
             label: string;
             /** Kind */
@@ -7935,6 +8404,28 @@ export interface components {
             market_tz: string;
         };
         /**
+         * CompanyValuesOut
+         * @description A company's two platform values (the steward's company page). ``attempts``: the company's newest
+         *     background-extraction attempts (at most 10, newest first; W4d), whoever ran them. ``flags``: its users' flags
+         *     (W5c).
+         */
+        CompanyValuesOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker?: string | null;
+            /** Name */
+            name?: string | null;
+            shares: components["schemas"]["PlatformValueOut"];
+            cash_burn: components["schemas"]["PlatformValueOut"];
+            /** Attempts */
+            attempts?: components["schemas"]["PlatformExtractionAttemptOut"][];
+            flags?: components["schemas"]["PlatformUserFlagsOut"];
+        };
+        /**
          * ConnectionListOut
          * @description The apps connected to my account: live ones first, then disconnected ones, newest first within each.
          */
@@ -8061,6 +8552,19 @@ export interface components {
              * Format: date
              */
             ingested: string;
+        };
+        /**
+         * CountingMemberOut
+         * @description One company a counting catalyst entry names: its id and the ticker its basket row on this card carries.
+         */
+        CountingMemberOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker?: string | null;
         };
         /**
          * CrossCardOut
@@ -10886,13 +11390,16 @@ export interface components {
         };
         /**
          * EvidenceLedgerRowOut
-         * @description One piece of evidence. ``authority`` = WHO put it there, never a judgment of it: ``operator`` (a person
-         *     ratified or set it), ``system`` (a computation on public data), ``automatic`` (an ingest leg stored it, nobody
-         *     ratified it), ``card`` (an entry the operator maintains on the card). ``kind``: ``trigger`` | ``risk_signal``
+         * @description One piece of evidence. ``authority`` = WHO put it there, never a judgment of it: ``operator`` (you ratified
+         *     or set it: your purity, a context role), ``steward`` (the steward verified it: a shared share count or cash
+         *     value, or a company catalyst; a value carried over from V1 too), ``system`` (a computation on public data),
+         *     ``automatic`` (an ingest leg stored it, nobody ratified it), ``card`` (an entry the operator maintains on the
+         *     card). ``kind``: ``trigger`` | ``risk_signal``
          *     (the recorded card's) | ``ratified`` (a ratified or stored fact) | ``catalyst_fact`` | ``card_catalyst`` |
          *     ``kill`` | ``evidence`` | ``role``. ``date`` = the day it counts under (``null`` = standing). ``form`` = the
          *     row's own kind word. ``silent`` = Context / Bench when its company sits there. ``role`` = the context role
-         *     (a role row). ``by`` / ``on`` = who ratified or set it and the day. ``edgar`` = a source links to EDGAR.
+         *     (a role row). ``by`` / ``on`` = who ratified or set it, as a kind (``you``, ``steward``, ``carried``, a role's
+         *     ``operator``; never an email), and the day. ``edgar`` = a source links to EDGAR.
          *     ``reconstructed`` = from a night ``pipeline.backfill`` wrote (reported, never scored).
          */
         EvidenceLedgerRowOut: {
@@ -10902,7 +11409,7 @@ export interface components {
              * Authority
              * @enum {string}
              */
-            authority: "operator" | "system" | "automatic" | "card";
+            authority: "operator" | "steward" | "system" | "automatic" | "card";
             /**
              * Kind
              * @enum {string}
@@ -10954,7 +11461,8 @@ export interface components {
          * EvidenceLedgerTalliesOut
          * @description Every row, whatever the page's filters. ``trace_*`` = how the fired signals (triggers and risk signals)
          *     trace: an EDGAR accession, a price reference only, another source, or no source stated. ``facts_ratified`` /
-         *     ``facts_stored`` = the fact rows a person ratified / nobody did.
+         *     ``facts_verified`` / ``facts_stored`` = the fact rows you ratified (your purity) / the steward verified / nobody
+         *     did.
          */
         EvidenceLedgerTalliesOut: {
             /** Rows */
@@ -10975,6 +11483,8 @@ export interface components {
             trace_none: number;
             /** Facts Ratified */
             facts_ratified: number;
+            /** Facts Verified */
+            facts_verified: number;
             /** Facts Stored */
             facts_stored: number;
             /** Catalysts Dated */
@@ -11050,6 +11560,8 @@ export interface components {
             quarterly_burn_usd?: number | null;
             /** Statement Currency */
             statement_currency?: string | null;
+            /** Investments Usd */
+            investments_usd?: number | null;
             /** Flags */
             flags?: string[];
             /** Located Passages */
@@ -11060,6 +11572,12 @@ export interface components {
             ads_ratio?: number | null;
             /** Ads Ratio Status */
             ads_ratio_status?: string | null;
+            /** Ytd Quarterly Burn Usd */
+            ytd_quarterly_burn_usd?: number | null;
+            /** Ytd Burn Days */
+            ytd_burn_days?: number | null;
+            /** Pace Caveat */
+            pace_caveat?: string | null;
         };
         /**
          * ExtractedFactIn
@@ -11094,6 +11612,8 @@ export interface components {
             quarterly_burn_usd?: number | null;
             /** Statement Currency */
             statement_currency?: string | null;
+            /** Investments Usd */
+            investments_usd?: number | null;
             /** Flags */
             flags?: string[];
             /** Located Passages */
@@ -11104,6 +11624,12 @@ export interface components {
             ads_ratio?: number | null;
             /** Ads Ratio Status */
             ads_ratio_status?: string | null;
+            /** Ytd Quarterly Burn Usd */
+            ytd_quarterly_burn_usd?: number | null;
+            /** Ytd Burn Days */
+            ytd_burn_days?: number | null;
+            /** Pace Caveat */
+            pace_caveat?: string | null;
         };
         /**
          * ExtractionResult
@@ -11366,8 +11892,9 @@ export interface components {
          * FilingStreamRowOut
          * @description One filing-derived fact. ``kind``: ``8k`` | ``form4`` | ``form4a`` | ``stake`` | ``revenue`` | ``filing``
          *     (any other form in the company's EDGAR index, shown as its form and primary document) | ``split`` |
-         *     ``dilution`` | ``catalyst`` | ``ratified`` (a ratified fact, ``form`` "ratified fact", or a stored fact nobody
-         *     ratified, ``form`` "stored fact"). ``form`` = the form as filed or the row's own label; ``date`` = the
+         *     ``dilution`` | ``catalyst`` | ``ratified`` (a shared value the steward set, ``form`` "verified value"; your own
+         *     purity, ``form`` "ratified fact"; or a stored fact nobody set, ``form`` "stored fact"; who set a row is said in
+         *     its detail as a kind, never an email). ``form`` = the form as filed or the row's own label; ``date`` = the
          *     public date it counts from; ``headline`` = one neutral line; ``detail`` = the lines the expanded row shows;
          *     ``url`` = the filing's EDGAR index or the stored source (``null`` = none known); ``tags`` = quiet field
          *     predicates; ``routine`` = a fold candidate; ``fold`` = its fold group (``form4``: a Form 4 holding no code-P
@@ -11880,6 +12407,8 @@ export interface components {
              * @default false
              */
             removed: boolean;
+            ingest?: components["schemas"]["PromoteIngestRef"] | null;
+            onboarding?: components["schemas"]["PromoteOnboardingRef"] | null;
         };
         /**
          * FundAttachRequest
@@ -12207,7 +12736,7 @@ export interface components {
             value: number | null;
             tier: components["schemas"]["CapTier"] | null;
             /** Gap */
-            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
+            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "not_applicable" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
             /** Note */
             note: string | null;
             /** Close */
@@ -12473,16 +13002,15 @@ export interface components {
         };
         /**
          * IdeaTimelineHatchOut
-         * @description A stretch of a segment whose nights' winning rows are ``reconstructed`` (reported, never scored) or
-         *     carry an active ``exclude`` annotation (``excluded``: set aside on the Scoreboard, ``reason`` its
-         *     reason). ``end`` is exclusive.
+         * @description A stretch of a segment whose nights' winning rows are ``reconstructed`` (reported, never scored).
+         *     ``end`` is exclusive.
          */
         IdeaTimelineHatchOut: {
             /**
              * Kind
-             * @enum {string}
+             * @constant
              */
-            kind: "reconstructed" | "excluded";
+            kind: "reconstructed";
             /**
              * Start
              * Format: date
@@ -12495,8 +13023,6 @@ export interface components {
             end: string;
             /** Nights */
             nights: number;
-            /** Reason */
-            reason: string | null;
         };
         /** IdeaTimelineMultiRowNightOut */
         IdeaTimelineMultiRowNightOut: {
@@ -12546,8 +13072,6 @@ export interface components {
             multi_row_nights: number;
             /** Reconstructed Nights */
             reconstructed_nights: number;
-            /** Excluded Nights */
-            excluded_nights: number;
             /** First Recorded */
             first_recorded: string | null;
             /** Last Recorded */
@@ -13971,8 +14495,8 @@ export interface components {
          * @description One company's readings at the as-of. ``returns`` holds the six windows (``ret_1d`` ... ``ret_90d``, ``ytd``,
          *     ``ret_1y``; percent, trading bars for the trailing ones), ``null`` where there is no reading, with the reason
          *     in ``gaps``. ``cap`` = the approximate market cap in USD with its band (``cap_tier``) and the share count it
-         *     rests on (``cap_source``: ``workbench`` = ratified in the Workbench, ``cover`` = the latest count from a
-         *     filing's cover page, not ratified: used only when filed within 200 days of the as-of and at least 10,000
+         *     rests on (``cap_source``: ``workbench`` = the shared share count (the platform value), ``cover`` = the latest
+         *     count from a filing's cover page, not a shared value: used only when filed within 200 days of the as-of and at least 10,000
          *     shares); ``null`` with ``cap_gap`` / ``cap_note`` when there is none (``cap_note`` says why a cover count
          *     that exists was refused).
          *     ``dollar_volume`` = the mean of close x volume over the last 20 sessions. ``business_type`` / ``supersector``
@@ -14591,6 +15115,31 @@ export interface components {
             median: components["schemas"]["MultiplesMedianOut"] | null;
         };
         /**
+         * MyFlagOut
+         * @description The caller's own flag on this value: their open flag, else their newest closed one. ``outcome`` ``fixed`` /
+         *     ``kept`` / ``withdrawn`` once closed, with the steward's ``outcome_note``.
+         */
+        MyFlagOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Note */
+            note?: string | null;
+            /**
+             * Opened At
+             * Format: date-time
+             */
+            opened_at: string;
+            /** Closed At */
+            closed_at?: string | null;
+            /** Outcome */
+            outcome?: string | null;
+            /** Outcome Note */
+            outcome_note?: string | null;
+        };
+        /**
          * NarrativeBenchmarkOut
          * @description A benchmark over the window's sessions, rebased to 100 at the window start. ``available`` false = no
          *     line, and ``reason`` says why. ``sessions_flat`` = window sessions it had no bar for (carried flat).
@@ -15103,7 +15652,7 @@ export interface components {
              * Gap
              * @enum {string}
              */
-            gap: "flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ";
+            gap: "flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "not_applicable" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ";
             /** N */
             n: number;
         };
@@ -15119,7 +15668,7 @@ export interface components {
             value: number | null;
             tier: components["schemas"]["CapTier"] | null;
             /** Gap */
-            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
+            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "not_applicable" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
             /** Note */
             note: string | null;
             /** Close */
@@ -15187,7 +15736,7 @@ export interface components {
             /** Value */
             value: number | null;
             /** Gap */
-            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
+            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "not_applicable" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
             /** Note */
             note: string | null;
         };
@@ -15332,7 +15881,7 @@ export interface components {
             /** Buyers */
             buyers: number | null;
             /** Gap */
-            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
+            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "not_applicable" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
             /** Note */
             note: string | null;
         };
@@ -15367,7 +15916,7 @@ export interface components {
             /** Segment */
             segment: string | null;
             /** Gap */
-            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
+            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "not_applicable" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
         };
         /**
          * PeerRevenueOut
@@ -15379,12 +15928,16 @@ export interface components {
             /** Period End */
             period_end: string | null;
             /** Gap */
-            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
+            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "not_applicable" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
         };
         /**
          * PeerRunwayOut
-         * @description Months of cash at the current burn (cash / (quarterly burn / 3)); ``cash_positive`` when the burn is zero or
-         *     negative (no finite figure). ``as_of`` = the fact's date.
+         * @description Months of cash at LAST QUARTER'S burn (cash / (quarterly burn / 3)); ``cash_positive`` when the burn is zero
+         *     or negative (no finite figure). ``as_of`` = the fact's date. The year-to-date pace beside it (V2 extractor
+         *     correctness PR 3): ``ytd_quarterly_burn_usd`` (burn sign), ``ytd_months`` (None when that pace generates cash)
+         *     and ``pace_caveat`` (only when last quarter is far off that pace); all None when the fact's note has no pace.
+         *     Gap ``not_applicable`` (V2 C1): a runway means nothing for this kind of company (a bank, insurer, broker,
+         *     exchange, asset manager, lender or fund trust); ``note`` says so, the stored cash and burn stay, no months or pace.
          */
         PeerRunwayOut: {
             /** Months */
@@ -15398,7 +15951,21 @@ export interface components {
             /** As Of */
             as_of: string | null;
             /** Gap */
-            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
+            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "not_applicable" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
+            /** Ytd Quarterly Burn Usd */
+            ytd_quarterly_burn_usd: number | null;
+            /** Ytd Months */
+            ytd_months: number | null;
+            /** Pace Caveat */
+            pace_caveat: string | null;
+            /** Currency */
+            currency?: string | null;
+            /** Source */
+            source?: string | null;
+            /** Investments Usd */
+            investments_usd?: number | null;
+            /** Note */
+            note?: string | null;
         };
         /**
          * PeerScopesOut
@@ -15467,7 +16034,7 @@ export interface components {
             /** Last Close */
             last_close: string | null;
             /** Gap */
-            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
+            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "not_applicable" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
             /** Note */
             note: string | null;
         };
@@ -15582,13 +16149,705 @@ export interface components {
             /** Prior Period End */
             prior_period_end: string | null;
             /** Gap */
-            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
+            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "not_applicable" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
         };
         /**
          * PlacementStatus
          * @enum {string}
          */
         PlacementStatus: "placed" | "verify" | "ambiguous" | "absent";
+        /**
+         * PlatformAppliedValueOut
+         * @description One stored fact version: ``valid_from`` the filing's date, ``ratified_by`` who set it (``auto``, an email,
+         *     or ``operator`` for a carried V1 row), ``vouched`` confirm/override provenance. ``source_ref`` is ``None`` on
+         *     the wire unless it is a plain http(s) URL (``domain.links``). A cash/burn version's ``currency`` is its
+         *     statement's ISO code (the ``*_usd`` figures are in it) and ``investments_usd`` the investment part inside
+         *     ``cash_usd`` (0208); None = not recorded, never "USD" or 0 (a V1 row carries neither).
+         */
+        PlatformAppliedValueOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Source */
+            source?: string | null;
+            /** Source Ref */
+            source_ref?: string | null;
+            /**
+             * Valid From
+             * Format: date
+             */
+            valid_from: string;
+            /**
+             * Recorded At
+             * Format: date-time
+             */
+            recorded_at: string;
+            /** Ratified By */
+            ratified_by?: string | null;
+            /** Vouched */
+            vouched?: string | null;
+            /** Note */
+            note?: string | null;
+            pace?: components["schemas"]["PlatformPaceOut"] | null;
+            /** Shares */
+            shares?: number | null;
+            /** Ads Ratio */
+            ads_ratio?: number | null;
+            /** Ads Ratio Status */
+            ads_ratio_status?: string | null;
+            /** Filing Accession */
+            filing_accession?: string | null;
+            /** Filing Accepted */
+            filing_accepted?: string | null;
+            /** Cash Usd */
+            cash_usd?: number | null;
+            /** Quarterly Burn Usd */
+            quarterly_burn_usd?: number | null;
+            /** Currency */
+            currency?: string | null;
+            /** Investments Usd */
+            investments_usd?: number | null;
+        };
+        /**
+         * PlatformApproveIn
+         * @description Optional ``note`` (stored on the fact and the decision; else the candidate's own note is kept).
+         */
+        PlatformApproveIn: {
+            /** Note */
+            note?: string | null;
+        };
+        /**
+         * PlatformAwaitingItemOut
+         * @description One company-and-type with a flagged candidate waiting for the steward: no value shown (``state``
+         *     ``awaiting_steward``), or the candidate is newer than the value shown (``value``).
+         */
+        PlatformAwaitingItemOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker?: string | null;
+            /** Name */
+            name?: string | null;
+            /** Fact Type */
+            fact_type: string;
+            /** State */
+            state: string;
+            candidate: components["schemas"]["PlatformCandidateOut"];
+            value?: components["schemas"]["PlatformAppliedValueOut"] | null;
+        };
+        /**
+         * PlatformAwaitingOut
+         * @description The steward's queue, newest candidate first: ``items`` (at most ``limit``) and ``total`` (all waiting).
+         */
+        PlatformAwaitingOut: {
+            /** Items */
+            items?: components["schemas"]["PlatformAwaitingItemOut"][];
+            /**
+             * Total
+             * @default 0
+             */
+            total: number;
+        };
+        /**
+         * PlatformCandidateOut
+         * @description One extractor candidate (``extraction_candidate``): ``outcome`` ``flag`` (a value awaiting the steward,
+         *     with its ``flags``) or ``nothing`` (no value found; ``reason`` says why). ``decision`` = the standing decision
+         *     that closes it, or None (open). ``located_passages`` = the filing excerpts behind it; a stored passage that
+         *     does not read as one is counted in ``passages_unreadable``, never dropped silently.
+         */
+        PlatformCandidateOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Fact Type */
+            fact_type: string;
+            /** Outcome */
+            outcome: string;
+            /** Reason */
+            reason?: string | null;
+            /** Flags */
+            flags?: string[];
+            /** Source */
+            source?: string | null;
+            /** Source Ref */
+            source_ref?: string | null;
+            /** Event Date */
+            event_date?: string | null;
+            /** Shares */
+            shares?: number | null;
+            /** Cash Usd */
+            cash_usd?: number | null;
+            /** Quarterly Burn Usd */
+            quarterly_burn_usd?: number | null;
+            /** Statement Currency */
+            statement_currency?: string | null;
+            /** Investments Usd */
+            investments_usd?: number | null;
+            /** Ads Ratio */
+            ads_ratio?: number | null;
+            /** Ads Ratio Status */
+            ads_ratio_status?: string | null;
+            /** Filing Accession */
+            filing_accession?: string | null;
+            /** Filing Accepted */
+            filing_accepted?: string | null;
+            /** Note */
+            note?: string | null;
+            pace?: components["schemas"]["PlatformPaceOut"] | null;
+            /** Located Passages */
+            located_passages?: components["schemas"]["LocatedPassage"][];
+            /**
+             * Passages Unreadable
+             * @default 0
+             */
+            passages_unreadable: number;
+            /**
+             * Recorded At
+             * Format: date-time
+             */
+            recorded_at: string;
+            decision?: components["schemas"]["PlatformDecisionOut"] | null;
+        };
+        /**
+         * PlatformCorrectCashBurnIn
+         * @description Cash on hand and the quarterly burn (positive = cash used; zero or negative = cash-generative), in the
+         *     statement's ``currency`` (an ISO code; omitted = not recorded), and the ``investments_usd`` part of the cash
+         *     (short-term investments; never negative, never above the cash; omitted = no split recorded).
+         */
+        PlatformCorrectCashBurnIn: {
+            /** Source Ref */
+            source_ref: string;
+            /**
+             * Event Date
+             * Format: date
+             */
+            event_date: string;
+            /** Note */
+            note?: string | null;
+            /** Candidate Id */
+            candidate_id?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            fact_type: "cash_burn";
+            /** Cash Usd */
+            cash_usd: number;
+            /** Quarterly Burn Usd */
+            quarterly_burn_usd: number;
+            /** Currency */
+            currency?: string | null;
+            /** Investments Usd */
+            investments_usd?: number | null;
+            /** Ytd Quarterly Burn Usd */
+            ytd_quarterly_burn_usd?: number | null;
+            /** Ytd Burn Days */
+            ytd_burn_days?: number | null;
+        };
+        /**
+         * PlatformCorrectSharesIn
+         * @description A share count: the ordinary count from the cover, and for an ADS name the ratio (``known``) or ``unread``.
+         */
+        PlatformCorrectSharesIn: {
+            /** Source Ref */
+            source_ref: string;
+            /**
+             * Event Date
+             * Format: date
+             */
+            event_date: string;
+            /** Note */
+            note?: string | null;
+            /** Candidate Id */
+            candidate_id?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            fact_type: "shares_outstanding";
+            /** Shares */
+            shares: number;
+            /** Ads Ratio */
+            ads_ratio?: number | null;
+            /** Ads Ratio Status */
+            ads_ratio_status?: ("known" | "unread") | null;
+        };
+        /**
+         * PlatformDecisionOut
+         * @description One steward decision: ``action`` ``approve`` / ``correct`` / ``dismiss`` / ``undo``; ``candidate_id`` the
+         *     candidate it closes (approve, dismiss; a correct may name one); ``fact_id`` the fact version it wrote (approve,
+         *     correct); ``revokes`` the decision an undo undoes; ``decided_by`` the steward's email; ``undone`` = a later undo
+         *     names it.
+         */
+        PlatformDecisionOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Action */
+            action: string;
+            /** Candidate Id */
+            candidate_id?: string | null;
+            /** Fact Id */
+            fact_id?: string | null;
+            /** Revokes */
+            revokes?: string | null;
+            /** Reason */
+            reason?: string | null;
+            /** Decided By */
+            decided_by: string;
+            /**
+             * Recorded At
+             * Format: date-time
+             */
+            recorded_at: string;
+            /**
+             * Undone
+             * @default false
+             */
+            undone: boolean;
+        };
+        /**
+         * PlatformDismissIn
+         * @description Why the candidate is dismissed (required, not blank).
+         */
+        PlatformDismissIn: {
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * PlatformExtractAttemptOut
+         * @description The attempt one "Extract now" recorded (one ``platform_extraction_attempt`` row, ``run_kind`` ``steward``):
+         *     ``status`` ``done`` / ``error`` / ``skipped`` (a busy company answers 409 instead), ``error`` its one line,
+         *     ``live_fetches`` the SEC requests it made, and the outcome per value type.
+         */
+        PlatformExtractAttemptOut: {
+            /** Attempt Id */
+            attempt_id?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "done" | "error" | "skipped";
+            /** Error */
+            error?: string | null;
+            /** Detail */
+            detail?: string | null;
+            /** Live Fetches */
+            live_fetches?: number | null;
+            shares: components["schemas"]["PlatformExtractValueOut"];
+            cash_burn: components["schemas"]["PlatformExtractValueOut"];
+        };
+        /**
+         * PlatformExtractOut
+         * @description The answer of "Extract now": what the attempt did (``attempt``) and the company's values after it
+         *     (``company``, the same shape every steward write answers).
+         */
+        PlatformExtractOut: {
+            attempt: components["schemas"]["PlatformExtractAttemptOut"];
+            company: components["schemas"]["CompanyValuesOut"];
+        };
+        /**
+         * PlatformExtractValueOut
+         * @description What one "Extract now" did for ONE value type. ``outcome`` (above); ``reason`` the extractor's reason for a
+         *     ``nothing_found``, the attempt's one-line error for ``failed``, the detail for ``skipped``; ``written`` = a row
+         *     was appended for this type now; ``fact_id`` / ``candidate_id`` the fact or candidate that stands for it.
+         */
+        PlatformExtractValueOut: {
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "applied" | "flagged" | "pinned" | "nothing_found" | "already_on_file" | "older_than_on_file" | "after_today" | "failed" | "skipped";
+            /** Reason */
+            reason?: string | null;
+            /**
+             * Written
+             * @default false
+             */
+            written: boolean;
+            /** Fact Id */
+            fact_id?: string | null;
+            /** Candidate Id */
+            candidate_id?: string | null;
+        };
+        /**
+         * PlatformExtractionAttemptOut
+         * @description One background-extraction attempt of the company (``platform_extraction_attempt``): ``run_kind`` who ran it
+         *     (``nightly``, ``onboarding``, ``backfill``, ``steward``, ``get_data``); ``status`` ``done`` (the machine writer
+         *     ran: ``shares_reason`` / ``cash_reason`` its reason per value type), ``error`` (``error``: one line, why),
+         *     ``busy`` (another writer held the company; nothing written) or ``skipped`` (``detail``, e.g. no CIK).
+         */
+        PlatformExtractionAttemptOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Recorded At
+             * Format: date-time
+             */
+            recorded_at: string;
+            /** Run Kind */
+            run_kind: string;
+            /** Status */
+            status: string;
+            /** Shares Reason */
+            shares_reason?: string | null;
+            /** Cash Reason */
+            cash_reason?: string | null;
+            /** Error */
+            error?: string | null;
+            /** Detail */
+            detail?: string | null;
+        };
+        /**
+         * PlatformFlagCloseIn
+         * @description Close a user's flag (W5c). ``outcome`` ``fixed``: ``decision_id`` names the steward's approve or correct of
+         *     the SAME company and value type that fixed it, still standing; ``note`` optional. ``kept``: the value stands;
+         *     ``note`` (required, not blank) tells the user why; no ``decision_id``.
+         */
+        PlatformFlagCloseIn: {
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "fixed" | "kept";
+            /** Note */
+            note?: string | null;
+            /** Decision Id */
+            decision_id?: string | null;
+        };
+        /**
+         * PlatformPaceOut
+         * @description A cash-and-burn value's year-to-date pace (V2 extractor correctness PR 3, ``domain.burn_pace``), read from its
+         *     pace columns (0209; else, before 0209, its note): the pace per quarter (burn sign: positive = burning), its span in days, the months of runway that pace
+         *     implies (None when it generates cash or no cash is on file), and the caveat sentence when last quarter is far off
+         *     that pace (None on a steady reading). Display only.
+         */
+        PlatformPaceOut: {
+            /** Ytd Quarterly Burn Usd */
+            ytd_quarterly_burn_usd: number;
+            /** Ytd Days */
+            ytd_days: number;
+            /** Ytd Runway Months */
+            ytd_runway_months?: number | null;
+            /** Caveat */
+            caveat?: string | null;
+        };
+        /**
+         * PlatformPinEventOut
+         * @description The newest pin event of a value: ``action`` ``pin`` or ``unpin``, ``decided_by`` the steward's email,
+         *     ``note`` why (optional), ``recorded_at`` when.
+         */
+        PlatformPinEventOut: {
+            /** Action */
+            action: string;
+            /** Decided By */
+            decided_by: string;
+            /** Note */
+            note?: string | null;
+            /**
+             * Recorded At
+             * Format: date-time
+             */
+            recorded_at: string;
+        };
+        /**
+         * PlatformPinIn
+         * @description Which value (``fact_type``) and why (optional).
+         */
+        PlatformPinIn: {
+            /**
+             * Fact Type
+             * @enum {string}
+             */
+            fact_type: "shares_outstanding" | "cash_burn";
+            /** Note */
+            note?: string | null;
+        };
+        /**
+         * PlatformQueueItemOut
+         * @description One company with anything waiting (one row per company): ``cards`` how many live cards hold it, across every
+         *     workspace (a number only, never whose); ``pen_only`` every row it sits in is a Discovered pen; ``waiting_since``
+         *     the oldest of its waiting candidates and its open user flags; ``shares`` / ``cash_burn`` the candidate that
+         *     waits (None = none for that value); ``open_flags`` how many open user flags it has (W5c; a number only, never
+         *     whose or what note). A company with open user flags and no waiting candidate has both values None.
+         */
+        PlatformQueueItemOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker?: string | null;
+            /** Name */
+            name?: string | null;
+            /**
+             * Cards
+             * @default 0
+             */
+            cards: number;
+            /**
+             * Pen Only
+             * @default false
+             */
+            pen_only: boolean;
+            /**
+             * Waiting Since
+             * Format: date-time
+             */
+            waiting_since: string;
+            shares?: components["schemas"]["PlatformQueueValueOut"] | null;
+            cash_burn?: components["schemas"]["PlatformQueueValueOut"] | null;
+            /**
+             * Open Flags
+             * @default 0
+             */
+            open_flags: number;
+        };
+        /**
+         * PlatformQueueOut
+         * @description The steward's queue page: ``items`` in queue order (pen-only last, then most cards, then the longest wait,
+         *     then the id); ``total`` every company waiting and ``pen_only_total`` the pen-only ones, whatever the page and
+         *     ``pen``.
+         */
+        PlatformQueueOut: {
+            /** Items */
+            items?: components["schemas"]["PlatformQueueItemOut"][];
+            /**
+             * Total
+             * @default 0
+             */
+            total: number;
+            /**
+             * Pen Only Total
+             * @default 0
+             */
+            pen_only_total: number;
+        };
+        /**
+         * PlatformQueueValueOut
+         * @description One value of a queue row that waits for the steward: ``state`` (``awaiting_steward``, or the state of the
+         *     value shown when a newer flag is pending beside it), the flagged ``candidate``, and ``value`` the value shown
+         *     (set only when the candidate is pending beside it).
+         */
+        PlatformQueueValueOut: {
+            /** State */
+            state: string;
+            candidate: components["schemas"]["PlatformCandidateOut"];
+            value?: components["schemas"]["PlatformAppliedValueOut"] | null;
+        };
+        /**
+         * PlatformUndoIn
+         * @description Why (optional).
+         */
+        PlatformUndoIn: {
+            /** Reason */
+            reason?: string | null;
+        };
+        /**
+         * PlatformUserFlagOut
+         * @description One user's flag on a value of this company, as the steward reads it (W5c). Steward routes only: it names
+         *     the user (``user_email``, decision B4 (a)).
+         *
+         *     - ``value_type`` ``shares_outstanding`` / ``cash_burn``; ``note`` the user's words, plain text as stored;
+         *       ``opened_at`` when it was raised (for a reopen row: when the steward reopened it).
+         *     - ``current_when_flagged``: what the server recorded as current when it was raised: ``value`` (``seen_value``,
+         *       the stored version, ``set_aside`` if an undo has since set it aside), ``awaiting`` (``seen_candidate``, the
+         *       candidate that was awaiting the steward) or ``none`` (no value yet). None of the two when the row is gone.
+         *     - ``reopens`` the closed flag this row reopens and ``reopened_by`` the steward who reopened it (0211);
+         *       ``reopened_as`` the row that later reopened THIS one.
+         *     - Closed: ``closed_at``, ``closed_by`` (a steward's email, or ``user`` for the user's own withdrawal),
+         *       ``outcome`` ``fixed`` / ``kept`` / ``withdrawn``, ``outcome_note`` (the steward's note to the user, plain
+         *       text). ``fixed_decision`` the approve or correct a ``fixed`` close names; ``fixed_decision_undone`` = that
+         *       decision has since been undone (the closed row is never rewritten: reopen the flag if the fix no longer
+         *       stands).
+         *     - ``can_reopen``; ``reopen_refusal`` the fixed sentence the reopen route would answer (None when it can).
+         */
+        PlatformUserFlagOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Value Type */
+            value_type: string;
+            /** User Email */
+            user_email?: string | null;
+            /** Note */
+            note?: string | null;
+            /**
+             * Opened At
+             * Format: date-time
+             */
+            opened_at: string;
+            /**
+             * Current When Flagged
+             * @enum {string}
+             */
+            current_when_flagged: "value" | "awaiting" | "none";
+            seen_value?: components["schemas"]["PlatformVersionOut"] | null;
+            seen_candidate?: components["schemas"]["PlatformCandidateOut"] | null;
+            /** Reopens */
+            reopens?: string | null;
+            /** Reopened By */
+            reopened_by?: string | null;
+            /** Reopened As */
+            reopened_as?: string | null;
+            /** Closed At */
+            closed_at?: string | null;
+            /** Closed By */
+            closed_by?: string | null;
+            /** Outcome */
+            outcome?: string | null;
+            /** Outcome Note */
+            outcome_note?: string | null;
+            fixed_decision?: components["schemas"]["PlatformDecisionOut"] | null;
+            /**
+             * Fixed Decision Undone
+             * @default false
+             */
+            fixed_decision_undone: boolean;
+            /**
+             * Can Reopen
+             * @default false
+             */
+            can_reopen: boolean;
+            /** Reopen Refusal */
+            reopen_refusal?: string | null;
+        };
+        /**
+         * PlatformUserFlagsOut
+         * @description The company's users' flags: every ``open`` one (oldest first) and one page of ``closed`` ones (newest closed
+         *     first, ``closed_offset`` / ``closed_limit``); ``closed_total`` counts every closed one, so an old closed flag
+         *     (and its Reopen) stays reachable by paging.
+         */
+        PlatformUserFlagsOut: {
+            /** Open */
+            open?: components["schemas"]["PlatformUserFlagOut"][];
+            /** Closed */
+            closed?: components["schemas"]["PlatformUserFlagOut"][];
+            /**
+             * Closed Total
+             * @default 0
+             */
+            closed_total: number;
+            /**
+             * Closed Offset
+             * @default 0
+             */
+            closed_offset: number;
+            /**
+             * Closed Limit
+             * @default 20
+             */
+            closed_limit: number;
+        };
+        /**
+         * PlatformValueOut
+         * @description One value of a company. ``state``: ``no_value`` (``reason`` says why) / ``from_filing`` / ``awaiting_steward``
+         *     / ``verified``; ``ratifier`` ``machine`` / ``carried`` / ``steward``; ``value`` the value the meters show;
+         *     ``awaiting`` the flag waiting when there is no value; ``pending`` a newer flag beside a shown value; ``pinned``
+         *     the steward reviews every future filing value by hand; ``pin`` the newest pin event (who pinned or unpinned,
+         *     when and why; None = never pinned). ``candidates`` (newest 20) and ``decisions`` (newest 50) are newest first.
+         */
+        PlatformValueOut: {
+            /** Fact Type */
+            fact_type: string;
+            /** State */
+            state: string;
+            /** Reason */
+            reason?: string | null;
+            /** Ratifier */
+            ratifier?: string | null;
+            /**
+             * Pinned
+             * @default false
+             */
+            pinned: boolean;
+            value?: components["schemas"]["PlatformAppliedValueOut"] | null;
+            awaiting?: components["schemas"]["PlatformCandidateOut"] | null;
+            pending?: components["schemas"]["PlatformCandidateOut"] | null;
+            /** Versions */
+            versions?: components["schemas"]["PlatformVersionOut"][];
+            /** Candidates */
+            candidates?: components["schemas"]["PlatformCandidateOut"][];
+            /** Decisions */
+            decisions?: components["schemas"]["PlatformDecisionOut"][];
+            pin?: components["schemas"]["PlatformPinEventOut"] | null;
+        };
+        /**
+         * PlatformVersionOut
+         * @description Every stored version, oldest first; ``set_aside`` = an undone approve or correct wrote it, so every read
+         *     skips it.
+         */
+        PlatformVersionOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Source */
+            source?: string | null;
+            /** Source Ref */
+            source_ref?: string | null;
+            /**
+             * Valid From
+             * Format: date
+             */
+            valid_from: string;
+            /**
+             * Recorded At
+             * Format: date-time
+             */
+            recorded_at: string;
+            /** Ratified By */
+            ratified_by?: string | null;
+            /** Vouched */
+            vouched?: string | null;
+            /** Note */
+            note?: string | null;
+            pace?: components["schemas"]["PlatformPaceOut"] | null;
+            /** Shares */
+            shares?: number | null;
+            /** Ads Ratio */
+            ads_ratio?: number | null;
+            /** Ads Ratio Status */
+            ads_ratio_status?: string | null;
+            /** Filing Accession */
+            filing_accession?: string | null;
+            /** Filing Accepted */
+            filing_accepted?: string | null;
+            /** Cash Usd */
+            cash_usd?: number | null;
+            /** Quarterly Burn Usd */
+            quarterly_burn_usd?: number | null;
+            /** Currency */
+            currency?: string | null;
+            /** Investments Usd */
+            investments_usd?: number | null;
+            /**
+             * Set Aside
+             * @default false
+             */
+            set_aside: boolean;
+        };
         /**
          * PooledReport
          * @description The whole pooled view. Deliberately carries NO thesis identifier of any kind — see the module
@@ -15826,6 +17085,11 @@ export interface components {
              * @default false
              */
             meta_index: boolean;
+            /**
+             * Catalyst Counting
+             * @default []
+             */
+            catalyst_counting: components["schemas"]["CatalystCountingOut"][];
             ingest?: components["schemas"]["PromoteIngestRef"] | null;
             onboarding?: components["schemas"]["PromoteOnboardingRef"] | null;
         };
@@ -16065,6 +17329,14 @@ export interface components {
             cash_usd: number;
             /** Quarterly Burn Usd */
             quarterly_burn_usd: number;
+            /** Currency */
+            currency?: string | null;
+            /** Investments Usd */
+            investments_usd?: number | null;
+            /** Ytd Quarterly Burn Usd */
+            ytd_quarterly_burn_usd?: number | null;
+            /** Ytd Burn Days */
+            ytd_burn_days?: number | null;
         };
         /**
          * RatifyCatalyst
@@ -16414,6 +17686,15 @@ export interface components {
             gap: ("flagged" | "no_tape" | "no_spy" | "ends_differ") | null;
             /** Reason */
             reason: string | null;
+        };
+        /**
+         * RecordStartOut
+         * @description ``first_night`` = the first night the caller's workspace holds an honest (non-reconstructed) call of
+         *     record; ``null`` = no record yet (it starts with the first nightly call), never an error or a zero date.
+         */
+        RecordStartOut: {
+            /** First Night */
+            first_night: string | null;
         };
         /**
          * RecordedCallSummary
@@ -17064,8 +18345,6 @@ export interface components {
             arm_run_kind?: string | null;
             /** Run Identity Note */
             run_identity_note?: string | null;
-            /** Annotation Note */
-            annotation_note?: string | null;
             verdict?: components["schemas"]["Verdict"] | null;
             entry_grade?: components["schemas"]["Grade"] | null;
             conviction_grade?: components["schemas"]["Grade"] | null;
@@ -17374,17 +18653,6 @@ export interface components {
              */
             reconstructed_nights: string[];
             /**
-             * Annotated Policy
-             * @default excluded
-             * @enum {string}
-             */
-            annotated_policy: "excluded" | "included" | "n/a";
-            /**
-             * Annotated Nights
-             * @default []
-             */
-            annotated_nights: components["schemas"]["AnnotatedNightOut"][];
-            /**
              * Late Policy
              * @default excluded
              * @enum {string}
@@ -17526,11 +18794,6 @@ export interface components {
             market_cap: components["schemas"]["ScoredFigureOut"];
             /** Fit */
             fit: string;
-            /**
-             * Unconfirmed Estimates
-             * @default 0
-             */
-            unconfirmed_estimates: number;
             /**
              * Thin Price History
              * @default false
@@ -17790,6 +19053,8 @@ export interface components {
              * @default false
              */
             removed: boolean;
+            ingest?: components["schemas"]["PromoteIngestRef"] | null;
+            onboarding?: components["schemas"]["PromoteOnboardingRef"] | null;
         };
         /**
          * SpacAttachRequest
@@ -18042,6 +19307,11 @@ export interface components {
              * @default false
              */
             meta_index: boolean;
+            /**
+             * Catalyst Counting
+             * @default []
+             */
+            catalyst_counting: components["schemas"]["CatalystCountingOut"][];
         };
         /**
          * ThesisEntry
@@ -18315,7 +19585,9 @@ export interface components {
         };
         /**
          * TickerLookupFilingOut
-         * @description One filing-derived row in the shared reader's shape (``dashboards/filings.py``).
+         * @description One filing-derived row in the shared reader's shape (``dashboards/filings.py``). ``set_by`` / ``ratified_on``
+         *     = who set a row a person set, as a kind (``you``: your own purity; ``steward``: the steward verified a shared
+         *     value or catalyst; ``carried``: verified in V1 and carried over), never an email, and the day it was set.
          */
         TickerLookupFilingOut: {
             /**
@@ -18346,8 +19618,8 @@ export interface components {
             fold: ("form4" | "prospectus" | "ownership") | null;
             /** Usd */
             usd: number | null;
-            /** Ratifier */
-            ratifier: string | null;
+            /** Set By */
+            set_by: ("you" | "steward" | "carried") | null;
             /** Ratified On */
             ratified_on: string | null;
         };
@@ -18755,8 +20027,8 @@ export interface components {
          *     arm date times the share count PUBLIC before it (``close_date`` / ``shares_date`` are the close's date and the
          *     count's own date), ``ads_ratio`` applied when known, ``split_factor`` = the multiplier put on the count when a
          *     split in force sits between the count's date and the close's. ``source`` = which count made the cap:
-         *     ``workbench`` (the newest count ratified in the Workbench that was public before the arm date) or ``cover`` (none
-         *     was, so the filing cover's count the nightly stores, not ratified: a 10-Q filer's, filed within 200 days before
+         *     ``workbench`` (the newest shared share count that was public before the arm date) or ``cover`` (none was, so the
+         *     filing cover's count the nightly stores, not a shared value: a 10-Q filer's, filed within 200 days before
          *     the arm date, at least 10,000 shares); ``null`` when there is no cap. ``gap`` says why a cap could not be pinned
          *     (``null`` when it is); ``tier`` is ``null`` then, and ``note`` says why a filing-cover count was refused when
          *     one was.
@@ -18766,7 +20038,7 @@ export interface components {
             value: number | null;
             tier: components["schemas"]["CapTier"] | null;
             /** Gap */
-            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
+            gap: ("flagged" | "no_price" | "no_reading" | "no_shares" | "ads_unread" | "no_cap" | "no_revenue" | "no_prior_year" | "no_burn" | "not_applicable" | "no_convert" | "no_mix" | "no_form4" | "no_spy" | "ends_differ") | null;
             /** Note */
             note: string | null;
             /** Close */
@@ -18821,7 +20093,7 @@ export interface components {
          *     liquidity band; ``counted_feed_stopped`` = counted episodes whose price feed stopped because the company
          *     ended (a subset of ``counted``); ``left_out_feed_stopped`` / ``left_out_no_longer_priced`` = the other
          *     stopped feeds, left out (on a live card / off every live card); ``cap_from_cover`` = counted episodes whose cap
-         *     rests on the filing cover's share count (not ratified); ``arm_night`` / ``next_session`` = per horizon, how the
+         *     rests on the filing cover's share count (not a shared value); ``arm_night`` / ``next_session`` = per horizon, how the
          *     counted episodes read.
          */
         TrackCountsOut: {
@@ -18919,8 +20191,8 @@ export interface components {
          * TrackRecordOut
          * @description The Track Record at the as-of: every episode's row (newest arm first), the counts, the companies with a price-reaching
          *     flag and the opening table (IWM, the next-session entry, by cap tier, every armed member; the page
-         *     recomputes any other reading from ``rows`` with the same arithmetic). ``edition`` and the two policies are the
-         *     Scoreboard's own (``annotated_policy`` / ``late_policy``: ``included`` | ``excluded`` | ``n/a`` for a stored
+         *     recomputes any other reading from ``rows`` with the same arithmetic). ``edition`` and the late policy is the
+         *     Scoreboard's own (``late_policy``: ``included`` | ``excluded`` | ``n/a`` for a stored
          *     edition, which has no such rows). ``edition`` is the one READ (the record when the request named none);
          *     ``newest_edition`` is the newest PUBLISHED edition (``null`` when none is), which the page offers beside the
          *     record. ``market_source`` = whose bar dates are the market's session clock;
@@ -18943,11 +20215,6 @@ export interface components {
             clock: "record" | "public";
             edition: components["schemas"]["TrackEditionOut"];
             newest_edition: components["schemas"]["TrackEditionOut"] | null;
-            /**
-             * Annotated Policy
-             * @enum {string}
-             */
-            annotated_policy: "included" | "excluded" | "n/a";
             /**
              * Late Policy
              * @enum {string}
@@ -19414,6 +20681,183 @@ export interface components {
              * @default []
              */
             sources: components["schemas"]["ProvenanceOut"][];
+            /** Origin */
+            origin?: ("platform" | "operator") | null;
+        };
+        /**
+         * UserAppliedValueOut
+         * @description The value the meters show. ``source_url`` the filing (None unless a safe http(s) URL); ``valid_from`` its
+         *     date; ``set_at`` when it was set. A share count: ``shares`` (and the ADS ratio). Cash and burn: ``cash_usd``
+         *     (of which ``investments_usd`` short-term investments), ``quarterly_burn_usd`` (positive = burning), in the
+         *     stored ``currency`` (an ISO code; None = not recorded), labeled ``currency_symbol`` by the one rule, and the
+         *     stored ``pace``. The ``*_usd`` names are historical: the figures are in ``currency``, never converted.
+         */
+        UserAppliedValueOut: {
+            /** Source */
+            source?: string | null;
+            /** Source Url */
+            source_url?: string | null;
+            /**
+             * Valid From
+             * Format: date
+             */
+            valid_from: string;
+            /** Filing Accepted */
+            filing_accepted?: string | null;
+            /** Set At */
+            set_at?: string | null;
+            /** Shares */
+            shares?: number | null;
+            /** Ads Ratio */
+            ads_ratio?: number | null;
+            /** Ads Ratio Status */
+            ads_ratio_status?: string | null;
+            /** Cash Usd */
+            cash_usd?: number | null;
+            /** Quarterly Burn Usd */
+            quarterly_burn_usd?: number | null;
+            /** Investments Usd */
+            investments_usd?: number | null;
+            /** Currency */
+            currency?: string | null;
+            /** Currency Symbol */
+            currency_symbol?: string | null;
+            pace?: components["schemas"]["UserPaceOut"] | null;
+        };
+        /**
+         * UserAwaitingOut
+         * @description A value awaiting the steward, with nothing shown (approved B1 (b)): the filing's date, acceptance and link,
+         *     the line to show and the located passages; no figure. ``passages_unreadable`` counts stored passages that do
+         *     not read as one (never dropped silently).
+         */
+        UserAwaitingOut: {
+            /** Event Date */
+            event_date?: string | null;
+            /** Filing Accepted */
+            filing_accepted?: string | null;
+            /** Source Url */
+            source_url?: string | null;
+            /** Line */
+            line: string;
+            /** Located Passages */
+            located_passages?: components["schemas"]["UserPassageOut"][];
+            /**
+             * Passages Unreadable
+             * @default 0
+             */
+            passages_unreadable: number;
+        };
+        /**
+         * UserCompanyValuesOut
+         * @description A company's two platform values, current (no as-of). ``runway_not_applicable``: the sentence when a runway
+         *     means nothing for this kind of company (a bank, insurer, broker, exchange, asset manager, lender or fund trust;
+         *     V2 C1); its cash value then carries no ``pace``. None when runway applies.
+         */
+        UserCompanyValuesOut: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker?: string | null;
+            /** Name */
+            name?: string | null;
+            shares: components["schemas"]["UserValueOut"];
+            cash_burn: components["schemas"]["UserValueOut"];
+            /** Runway Not Applicable */
+            runway_not_applicable?: string | null;
+        };
+        /**
+         * UserPaceOut
+         * @description A cash-and-burn value's year-to-date pace: per quarter (burn sign: positive = burning), its span in days, the
+         *     months of runway it implies (None when it generates cash or no cash is on file), and the caveat sentence when
+         *     last quarter is far off that pace. Display only.
+         */
+        UserPaceOut: {
+            /** Ytd Quarterly Burn Usd */
+            ytd_quarterly_burn_usd: number;
+            /** Ytd Days */
+            ytd_days: number;
+            /** Ytd Runway Months */
+            ytd_runway_months?: number | null;
+            /** Caveat */
+            caveat?: string | null;
+        };
+        /**
+         * UserPassageOut
+         * @description A located passage: the filing's own words around the match (``excerpt``), what matched (``anchor``), the
+         *     section kind and the filing's link.
+         */
+        UserPassageOut: {
+            /** Kind */
+            kind: string;
+            /** Anchor */
+            anchor: string;
+            /** Excerpt */
+            excerpt: string;
+            /** Url */
+            url?: string | null;
+        };
+        /**
+         * UserPendingOut
+         * @description A newer filing's value awaits the steward beside the value shown: that filing's date, acceptance and link,
+         *     and the line to show. Never its figures.
+         */
+        UserPendingOut: {
+            /** Event Date */
+            event_date?: string | null;
+            /** Filing Accepted */
+            filing_accepted?: string | null;
+            /** Source Url */
+            source_url?: string | null;
+            /** Line */
+            line: string;
+        };
+        /**
+         * UserThesisValuesOut
+         * @description Both values of every company on the card, in basket order (each company once).
+         */
+        UserThesisValuesOut: {
+            /**
+             * Thesis Id
+             * Format: uuid
+             */
+            thesis_id: string;
+            /** Members */
+            members?: components["schemas"]["UserCompanyValuesOut"][];
+        };
+        /**
+         * UserValueOut
+         * @description One value of a company as a user reads it. ``state``: ``no_value`` (``reason`` says why) / ``from_filing`` /
+         *     ``awaiting_steward`` / ``verified``; ``label`` its words; ``set_by`` who set the value shown (``machine`` /
+         *     ``steward`` / ``carried``; None with no value); ``value`` the value shown; ``annual_line`` for an annual cover
+         *     count; ``pending`` a newer filing awaiting the steward beside the value shown; ``awaiting`` the filing awaiting
+         *     the steward when nothing is shown; ``my_flag`` the caller's own flag.
+         */
+        UserValueOut: {
+            /**
+             * Fact Type
+             * @enum {string}
+             */
+            fact_type: "shares_outstanding" | "cash_burn";
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "no_value" | "from_filing" | "awaiting_steward" | "verified";
+            /** Reason */
+            reason?: string | null;
+            /** Label */
+            label: string;
+            /** Set By */
+            set_by?: ("machine" | "steward" | "carried") | null;
+            value?: components["schemas"]["UserAppliedValueOut"] | null;
+            /** Annual Line */
+            annual_line?: string | null;
+            pending?: components["schemas"]["UserPendingOut"] | null;
+            awaiting?: components["schemas"]["UserAwaitingOut"] | null;
+            my_flag?: components["schemas"]["MyFlagOut"] | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -19427,6 +20871,81 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /**
+         * ValueFlagIn
+         * @description Raise a flag. Only these three fields are read: the user, what was current and the state of the flag are
+         *     the server's (any other field in the body is ignored).
+         */
+        ValueFlagIn: {
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /**
+             * Value Type
+             * @enum {string}
+             */
+            value_type: "shares_outstanding" | "cash_burn";
+            /** Note */
+            note?: string | null;
+        };
+        /**
+         * ValueFlagListOut
+         * @description One page of the caller's own flags; ``total`` counts all of them.
+         */
+        ValueFlagListOut: {
+            /** Items */
+            items: components["schemas"]["ValueFlagOut"][];
+            /** Total */
+            total: number;
+        };
+        /**
+         * ValueFlagOut
+         * @description One of the caller's flags, from the stored row. ``current_when_flagged``: what the server recorded as current
+         *     when it was raised (``value`` = the value shown, ``awaiting`` = a value awaiting the steward, ``none`` = no value
+         *     yet). ``outcome``: ``fixed`` / ``kept`` (the steward, with ``outcome_note`` for the user) or ``withdrawn``
+         *     (the user); null while open. ``reopens``: the closed flag of yours the steward reopened as this one. Never who
+         *     closed it. ``note`` and ``outcome_note`` are plain text, exactly as stored.
+         */
+        ValueFlagOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Security Id
+             * Format: uuid
+             */
+            security_id: string;
+            /** Ticker */
+            ticker: string | null;
+            /** Name */
+            name: string | null;
+            /** Value Type */
+            value_type: string;
+            /** Note */
+            note: string | null;
+            /**
+             * Opened At
+             * Format: date-time
+             */
+            opened_at: string;
+            /** Closed At */
+            closed_at: string | null;
+            /** Outcome */
+            outcome: string | null;
+            /** Outcome Note */
+            outcome_note: string | null;
+            /**
+             * Current When Flagged
+             * @enum {string}
+             */
+            current_when_flagged: "value" | "awaiting" | "none";
+            /** Reopens */
+            reopens: string | null;
         };
         /**
          * Verdict
@@ -20240,6 +21759,42 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["CatalystIn"][];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThesisDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_catalyst_counting_theses__thesis_id__catalysts__entry_id__counting_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+                thesis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CatalystCountingIn"];
             };
         };
         responses: {
@@ -21110,39 +22665,6 @@ export interface operations {
             };
         };
     };
-    auto_confirm_fact_workbench_facts_auto_confirm_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AutoConfirmRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AutoConfirmOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     ratify_fact_workbench_facts_post: {
         parameters: {
             query?: never;
@@ -21183,8 +22705,6 @@ export interface operations {
                 asof: string;
                 /** @description archived theses ride the record by default (archiving stops accrual, never erases the record); false is the explicit, reversible filter */
                 include_archived?: boolean;
-                /** @description the annotated-night reading: true = score rows annotated `exclude` (phantom arms, and rows dated a day with no market session) as before; false = set them aside like reconstructed rows; omitted = the server setting (ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED, default: set aside). One reading covers every `exclude` whatever its rule. The response's summary.annotated_policy names the reading used */
-                include_annotated?: boolean | null;
                 /** @description the late-night reading: true = score rows recorded after their night's next EDGAR open (06:00 ET the next weekday) as before; false = set them aside, so an on-time row for the night wins and a late-only night reads like a cron gap; omitted = the server setting (ALPHADECK_SCOREBOARD_EXCLUDE_LATE, default: set aside). The response's summary.late_policy names the reading used */
                 include_late?: boolean | null;
                 /** @description which EDITION to score: 0 = the original record (the calls log); N >= 1 = the stored re-run Edition N (404 if it does not exist); omitted = the NEWEST published edition (0 when nothing is published; ALPHADECK_SCOREBOARD_DEFAULT_EDITION, unset by default, overrides it, and an unpublished override falls back to the newest). The response's `edition` block names the edition served */
@@ -21307,6 +22827,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_record_start_record_start_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordStartOut"];
                 };
             };
         };
@@ -22414,6 +23954,569 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OnboardingReadoutOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_awaiting_admin_platform_values_awaiting_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformAwaitingOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_queue_admin_platform_values_queue_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+                pen?: "after" | "only" | "exclude";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformQueueOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    close_flag_admin_platform_values_flags__flag_id__close_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                flag_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlatformFlagCloseIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyValuesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reopen_flag_admin_platform_values_flags__flag_id__reopen_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                flag_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyValuesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_company_values_admin_platform_values__security_id__get: {
+        parameters: {
+            query?: {
+                flags_offset?: number;
+                flags_limit?: number;
+            };
+            header?: never;
+            path: {
+                security_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyValuesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_candidate_admin_platform_values_candidates__candidate_id__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                candidate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PlatformApproveIn"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyValuesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    correct_value_admin_platform_values__security_id__correct_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                security_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlatformCorrectSharesIn"] | components["schemas"]["PlatformCorrectCashBurnIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyValuesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    dismiss_candidate_admin_platform_values_candidates__candidate_id__dismiss_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                candidate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlatformDismissIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyValuesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    undo_decision_admin_platform_values_decisions__decision_id__undo_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                decision_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PlatformUndoIn"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyValuesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    pin_value_admin_platform_values__security_id__pin_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                security_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlatformPinIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyValuesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unpin_value_admin_platform_values__security_id__unpin_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                security_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlatformPinIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyValuesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    extract_now_admin_platform_values__security_id__extract_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                security_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformExtractOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_thesis_values_platform_values_theses__thesis_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                thesis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserThesisValuesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_company_values_platform_values__security_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                security_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserCompanyValuesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_my_flags_value_flags_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValueFlagListOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    raise_flag_value_flags_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ValueFlagIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValueFlagOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    withdraw_flag_value_flags__flag_id__withdraw_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                flag_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValueFlagOut"];
                 };
             };
             /** @description Validation Error */
@@ -23930,10 +26033,8 @@ export interface operations {
             query: {
                 /** @description as-of date; nothing published after it is read */
                 asof: string;
-                /** @description which Scoreboard EDITION to read: 0 (the default) = the original record (the calls log); N >= 1 = the stored re-run Edition N (404 if it does not exist). Unlike the Scoreboard, a request that names no edition reads the record, not the newest published edition, while the editions nightly is paused; the response's `newest_edition` names the newest published one */
-                edition?: number;
-                /** @description the Scoreboard's annotated-night reading: true = keep rows annotated `exclude` (phantom arms, and rows dated a day with no market session); false = set them aside; omitted = the server setting. The response names the reading used */
-                include_annotated?: boolean | null;
+                /** @description which Scoreboard EDITION to read: omitted = the Scoreboard's default (the newest published edition, or the original record when none is published; the server's optional default-edition setting can pin another); 0 = the original record (the calls log); N >= 1 = the stored re-run Edition N (404 if it does not exist). The response's `edition` names the edition served and `newest_edition` the newest published one */
+                edition?: number | null;
                 /** @description the Scoreboard's late-night reading: true = keep rows recorded after their night's next EDGAR open; false = set them aside; omitted = the server setting. The response names the reading used */
                 include_late?: boolean | null;
             };

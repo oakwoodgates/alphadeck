@@ -108,11 +108,14 @@ def test_akam_keeps_the_balance_sheet_cash_and_includes_its_current_securities()
         "CashAndCashEquivalentsAtCarryingValue",
     )
     assert ex._latest_instant(facts, ex._STI) == (1_875_130_000.0, "2026-06-30")
-    assert ex._latest_instant(facts, ex._LTI) == (1_260_918_000.0, "2026-06-30")
+    # the long-term list is MARKETABLE securities only since 2026-11-15 (D2: ``LongTermInvestments`` left it;
+    # AKAM's stopped in 2011, so the reading is the same)
+    assert ex._latest_instant(facts, ex._LT_MARKETABLE) == (1_260_918_000.0, "2026-06-30")
     cb = _cb("AKAM")
     assert cb.cash_usd == 1_480_257_000.0 + 1_875_130_000.0 + 1_260_918_000.0
+    assert cb.investments_usd == 1_875_130_000.0 + 1_260_918_000.0
     assert cb.tier is Tier.AUTO and cb.flags == []
-    assert "marketable as of 2026-06-30" in cb.note and "(tagged" not in cb.note
+    assert "investments as of 2026-06-30" in cb.note and "(tagged" not in cb.note
 
 
 def test_stt_reads_cash_only_reported_as_the_restricted_cash_total():
@@ -202,6 +205,7 @@ def test_the_one_reader_of_the_stored_cash_fact_is_the_runway_meter():
         r for r in paths if r.startswith(("dashboards/", "app/routers/dashboards/"))
     ]  # a dashboard's compute and its router are both leaves (test_isolation.py)
     assert [r for r in paths if r not in display_only] == [
+        "platform_values/state.py",  # V2 W2a: the state read, through the meters' own accessor
         "signals/base.py",  # the accessor's own definition on the concrete point-in-time view
         "workbench/scoring.py",  # _runway — the runway meter
     ]

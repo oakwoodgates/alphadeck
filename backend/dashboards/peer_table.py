@@ -74,8 +74,11 @@ from dashboards.market_cap import (
     float_of,
     metric_of,
 )
+from domain.burn_pace import stored_pace
+from domain.cash_currency import currency_symbol
 from domain.enums import ContextRole
 from domain.thesis import SILENT_LABELS
+from platform_values import words
 from signals.dilution_clock import overhang_pct
 from signals.display.base import DisplaySignal
 
@@ -131,6 +134,9 @@ class Identity:
     business_type: str | None
     supersector: str | None
     royalty: bool = False
+    # does a runway mean anything for it (V2 C1: ``securities.business_type.runway_applies``, derived in
+    # ``master.identity_for``); unknown = it applies
+    runway_applies: bool = True
 
 
 def identities(raw: Mapping[UUID, Mapping[str, object]]) -> dict[UUID, Identity]:
@@ -143,6 +149,7 @@ def identities(raw: Mapping[UUID, Mapping[str, object]]) -> dict[UUID, Identity]
             business_type=str(bt) if bt else None,
             supersector=str(ss) if ss else None,
             royalty=bool(row.get("royalty")),
+            runway_applies=bool(row.get("runway_applies", True)),
         )
     return out
 
@@ -212,6 +219,20 @@ class RunwayCell:
     burn_usd: float | None = None  # the quarterly burn
     as_of: date | None = None  # the fact's date
     gap: Gap | None = None
+    # the year-to-date pace (V2 extractor correctness PR 3, ``domain.burn_pace``), read from the fact's note: the
+    # pace per quarter (burn sign), the months of runway it implies (None when that pace generates cash), and the
+    # caveat sentence when last quarter is far off that pace. All None when the note carries no pace.
+    ytd_quarterly_burn_usd: float | None = None
+    ytd_months: float | None = None
+    pace_caveat: str | None = None
+    # the figures' own currency (D4, 0208; never converted): the stored ISO code (None = not recorded) and the
+    # fact's source, which decide the label (``domain.cash_currency``: "?" only for an annual-statements value with
+    # none), and the investment part inside the cash (None = no split recorded)
+    currency: str | None = None
+    source: str | None = None
+    investments_usd: float | None = None
+    # gap ``not_applicable`` (V2 C1): the sentence why a runway means nothing for this company
+    note: str | None = None
 
 
 @dataclass(frozen=True)
@@ -285,13 +306,48 @@ def revenue_cells(rows: Sequence[Mapping[str, Any]]) -> tuple[RevenueCell, YoyCe
     )
 
 
-def runway_cell(fact: Mapping[str, Any] | None) -> RunwayCell:
-    """Months of cash at the current burn from the latest cash/burn fact (``_runway``'s figure, not its pips):
-    cash / (quarterly burn / 3); ``cash_positive`` when the burn is zero or negative."""
+def runway_cell(fact: Mapping[str, Any] | None, *, applies: bool = True) -> RunwayCell:
+    """Months of cash at LAST QUARTER'S burn from the latest cash/burn fact (``_runway``'s figure, not its pips):
+    cash / (quarterly burn / 3); ``cash_positive`` when the burn is zero or negative. The year-to-date pace and its
+    caveat ride beside it when the fact carries one (``domain.burn_pace.stored_pace``); they never move the
+    months or the sort.
+
+    ``applies=False`` (V2 C1, the runway rule ``securities.business_type.runway_applies``): gap ``not_applicable``
+    with the sentence in ``note``; the stored cash and burn stay on the cell, no months, no pace."""
+    if not applies:
+        if fact is None:
+            return RunwayCell(gap="not_applicable", note=words.RUNWAY_NOT_APPLICABLE)
+        part = fact.get("investments_usd")
+        return RunwayCell(
+            gap="not_applicable",
+            note=words.RUNWAY_NOT_APPLICABLE,
+            cash_usd=float(fact["cash_usd"]),
+            burn_usd=float(fact["quarterly_burn_usd"]),
+            as_of=day_of(fact.get("valid_from")),
+            currency=fact.get("currency"),
+            source=fact.get("source"),
+            investments_usd=None if part is None else float(part),
+        )
     if fact is None:
         return RunwayCell(gap="no_burn")
     cash, burn = float(fact["cash_usd"]), float(fact["quarterly_burn_usd"])
-    base = dict(cash_usd=cash, burn_usd=burn, as_of=day_of(fact.get("valid_from")))
+    currency, source = fact.get("currency"), fact.get("source")
+    pace = stored_pace(fact, symbol=currency_symbol(currency, source=source))
+    part = fact.get("investments_usd")
+    base: dict[str, Any] = dict(
+        cash_usd=cash,
+        burn_usd=burn,
+        as_of=day_of(fact.get("valid_from")),
+        currency=currency,
+        source=source,
+        investments_usd=None if part is None else float(part),
+    )
+    if pace is not None:
+        base.update(
+            ytd_quarterly_burn_usd=pace.ytd_quarterly_burn_usd,
+            ytd_months=pace.ytd_runway_months,
+            pace_caveat=pace.caveat,
+        )
     if burn <= 0:
         return RunwayCell(cash_positive=True, **base)
     return RunwayCell(months=round(cash / (burn / 3.0), 1), **base)
@@ -479,7 +535,7 @@ def company_row(
         cap=cap_cell(r),
         revenue=revenue,
         yoy=yoy,
-        runway=runway_cell(r.cash_burn),
+        runway=runway_cell(r.cash_burn, applies=identity.runway_applies if identity else True),
         overhang=overhang_cell(r.dilution, asof),
         purity=purity_cell(r.mix),
         off_high=metric_cell(r.range_52w, "pct_off_52w_high", flag),

@@ -1,0 +1,39 @@
+{
+ "_fixture": "RECONSTRUCTED from the 2026-11-15 annual audit and plan, not copied from EDGAR. ifrs-full, JPY only, ending 2025-03-31 (the plan: 'companyfacts ends 2025-03-31'). Recorded by the audit's stored note: operating cash flow 3,696,934,000,000 for 2024-04-01 -> 2025-03-31. Reconstructed: the 2025-03-31 cash 8,982,404,000,000, the accession and filed date.",
+ "entityName": "TM",
+ "facts": {
+  "ifrs-full": {
+   "CashAndCashEquivalents": {
+    "units": {
+     "JPY": [
+      {
+       "end": "2025-03-31",
+       "val": 8982404000000,
+       "accn": "0001193125-25-140000",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2025-06-18"
+      }
+     ]
+    }
+   },
+   "CashFlowsFromUsedInOperatingActivities": {
+    "units": {
+     "JPY": [
+      {
+       "start": "2024-04-01",
+       "end": "2025-03-31",
+       "val": 3696934000000,
+       "accn": "0001193125-25-140000",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2025-06-18"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

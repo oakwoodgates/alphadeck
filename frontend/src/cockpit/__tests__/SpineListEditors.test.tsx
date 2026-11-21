@@ -61,9 +61,36 @@ describe("SpineListEditors — the Cockpit's authored lists", () => {
     expect(screen.getByLabelText("catalyst label 1")).toHaveValue("NRC decision");
     await user.click(screen.getByRole("button", { name: "remove catalyst 2" }));
     await user.click(screen.getByRole("button", { name: "Save calendar" }));
+    // V2 W6b: an existing row goes back WITH its id (a counting entry is keyed by it)
     expect(h.putCats.mock.calls[0][0]).toEqual([
-      { label: "NRC decision", kind: "regulatory", when_date: null, when_label: "~Q3" },
+      { id: "c1", label: "NRC decision", kind: "regulatory", when_date: null, when_label: "~Q3" },
     ]);
+  });
+
+  it("keeps each row's id across an edit, and a row added in the editor goes without one", async () => {
+    const user = userEvent.setup();
+    render(
+      <CatalystEditor
+        thesisId="t1"
+        catalysts={[
+          { id: "c1", label: "NRC decision", kind: null, when_date: null, when_label: null },
+          { id: "c2", label: "DOE loan", kind: null, when_date: null, when_label: null },
+        ]}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: /edit the calendar/ }));
+    await user.clear(screen.getByLabelText("catalyst label 2"));
+    await user.type(screen.getByLabelText("catalyst label 2"), "DOE loan guarantee");
+    await user.click(screen.getByRole("button", { name: "+ row" }));
+    await user.type(screen.getByLabelText("catalyst label 3"), "a new event");
+    await user.click(screen.getByRole("button", { name: "Save calendar" }));
+    const body = h.putCats.mock.calls[0][0];
+    expect(body.map((r: { id?: string; label: string }) => [r.id, r.label])).toEqual([
+      ["c1", "NRC decision"],
+      ["c2", "DOE loan guarantee"],
+      [undefined, "a new event"],
+    ]);
+    expect(body[2]).not.toHaveProperty("id");
   });
 
   it("kill criteria: authors, trims, and drops blanks", async () => {

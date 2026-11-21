@@ -12,5 +12,6 @@ export const entry: DashboardEntry = {
   description: "Each Armed card's entry window and hold horizon on one date axis, where the as-of sits in them, and what the armed names have done since the arm night.",
   status: "experimental",
   asofAware: true,
+  readsRecord: true,
   component: lazy(() => import("./EntryWindows")),
 };

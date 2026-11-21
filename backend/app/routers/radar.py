@@ -10,7 +10,10 @@ from uuid import UUID
 import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from app import workspace_caps
+from app.auth import CurrentUser, require_user
 from app.deps import get_conn, get_workspace
+from app.routers.workbench import start_member_load
 from app.schemas_api import (
     RadarSpacOut,
     SpacAttachOut,
@@ -134,12 +137,17 @@ def spac_attach(
     req: SpacAttachRequest,
     conn: psycopg.Connection = Depends(get_conn),
     workspace: UUID = Depends(get_workspace),
+    user: CurrentUser = Depends(require_user),
 ) -> SpacAttachOut:
     """Add a radar name to a thesis basket — the operator's click, so ``operator_set`` (#10: the
     radar recommended, the operator decided). The member lands uncharacterized (role "—", no
     segment — the finalize rail characterizes it, item F), with ``surfaced_terms`` frozen from
     the stored term matches (factual provenance, never client-supplied). Idempotent:
-    already-in-basket returns ``already`` and writes nothing. Reversible via detach (#1)."""
+    already-in-basket returns ``already`` and writes nothing. A company it ADDS has its data load started after
+    the commit exactly as a promote's new name does (``start_member_load``, V2 W7b): the fast-lane job or the
+    onboarding queue, carried in ``ingest`` / ``onboarding``. Reversible via detach (#1). A company that would
+    raise the distinct companies on the workspace's live cards past its cap answers 409 with a sentence naming the
+    count and the limit, and adds nothing (V2 W7c)."""
     thesis, sid, ticker = _resolve_attach_target(conn, req, workspace=workspace)
     if any(m.security_id == sid for m in thesis.basket):
         return SpacAttachOut(thesis_id=thesis.id, security_id=sid, ticker=ticker, already=True)
@@ -152,9 +160,25 @@ def spac_attach(
         ),
         authored_by=Authorship.OPERATOR_SET,
     )
-    thesis_repo.upsert(conn, thesis.model_copy(update={"basket": [*thesis.basket, member]}))
+    updated = thesis.model_copy(update={"basket": [*thesis.basket, member]})
+    workspace_caps.check(
+        conn,
+        workspace,
+        thesis_id=thesis.id,
+        adding=workspace_caps.Adding.COMPANY,
+        company_ids_after={m.security_id for m in updated.basket if m.security_id},
+    )
+    thesis_repo.upsert(conn, updated)
     conn.commit()
-    return SpacAttachOut(thesis_id=thesis.id, security_id=sid, ticker=ticker, added=True)
+    ingest, onboarding = start_member_load(conn, user, thesis.id, {sid})
+    return SpacAttachOut(
+        thesis_id=thesis.id,
+        security_id=sid,
+        ticker=ticker,
+        added=True,
+        ingest=ingest,
+        onboarding=onboarding,
+    )
 
 
 @router.post("/spac/detach", response_model=SpacAttachOut)

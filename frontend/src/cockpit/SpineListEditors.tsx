@@ -19,7 +19,9 @@ import { LIMITS } from "../api/limits";
  *  per-name conviction FACTS (the arming path) are authored on the Workbench rail, not here.
  */
 
-type CatDraft = { label: string; kind: string; when_date: string; when_label: string };
+// V2 W6b: `id` = the row's id as read (absent on a row added in the editor), sent back on save so the row keeps
+// its identity: a counting entry is keyed by it, and the server refuses to drop a row whose entry still counts.
+type CatDraft = { id?: string; label: string; kind: string; when_date: string; when_label: string };
 const blankCat: CatDraft = { label: "", kind: "", when_date: "", when_label: "" };
 
 export function CatalystEditor({
@@ -37,6 +39,7 @@ export function CatalystEditor({
     setRows(
       catalysts.length
         ? catalysts.map((c) => ({
+            id: c.id,
             label: c.label,
             kind: c.kind ?? "",
             when_date: c.when_date ?? "",
@@ -52,6 +55,7 @@ export function CatalystEditor({
       rows
         .filter((r) => r.label.trim())
         .map((r) => ({
+          ...(r.id ? { id: r.id } : {}),
           label: r.label.trim(),
           kind: r.kind.trim() || null,
           when_date: r.when_date || null,
@@ -125,6 +129,9 @@ export function CatalystEditor({
           cancel
         </button>
       </div>
+      {rows.some((r) => !r.id) && (
+        <div className="cc-hint">Save the calendar to make an entry count toward the call.</div>
+      )}
       {put.isError && <div className="note err">Couldn't save — {errText(put.error)}.</div>}
     </div>
   );

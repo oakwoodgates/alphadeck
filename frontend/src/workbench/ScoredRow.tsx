@@ -1,29 +1,32 @@
-import type { ContextRole, ScoredMemberOut } from "../api/hooks";
-import { useAutoConfirmShares, useExtract, useIngestPrices } from "../api/hooks";
-import { refusalText } from "../api/refusals";
+import type { ContextRole, ScoredMemberOut, UserCompanyValuesOut } from "../api/hooks";
 import { Meter } from "./Meter";
 import {
   CONTEXT_ROLE_DESCRIPTION,
+  annualSharesTitle,
   contextRoleTag,
-  errText,
   formatMarketCap,
-  memberHasFundamentals,
-  onFileValues,
+  runwayNotApplicable,
+  runwayPaceWords,
+  runwayTitle,
   sharesAsof,
+  sharesSource,
   sleevePriceLabel,
   staleSharesMonths,
 } from "./format";
+
+/** The hover on a market cap or runway left blank because the value awaits the steward (nothing applied). */
+const AWAITING_HOVER = "awaiting the steward";
 
 interface Props {
   member: ScoredMemberOut;
   selected: boolean;
   onSelect: () => void;
-  // the active thesis — threaded to the extract so the row's "get data" and the rail's FactsPanel share ONE
-  // query (same key, same grounded-purity behavior). Optional: an un-wired/test render omits it.
-  thesisId?: string;
-  // the scored as-of — used only to age the ratified share count behind the market cap (the ENDV stale-shares
-  // flag). Optional: an un-wired/test render omits it (then no age check runs).
+  // the scored as-of — used only to age the share count behind the market cap (the ENDV stale-shares flag).
+  // Optional: an un-wired/test render omits it (then no age check runs).
   asof?: string;
+  // this company's shared values as the user reads them (V2 W5e), joined by the parent off the card's one read:
+  // used ONLY for the quiet "awaiting the steward" hover on a blank cap / runway. Optional: absent = no hover.
+  values?: UserCompanyValuesOut | null;
   // the operator's context role for this company, passed by the parent off the thesis spine by security_id
   // (`ScoredMemberOut` itself carries none). Shown as a quiet lowercase tag ONLY when set — never a "—"
   // placeholder (WB#3). Display metadata only, never a call input (#4).
@@ -34,57 +37,25 @@ interface Props {
  *  runway / catalysts cluster as the "goodness" group; dilution sits after a faint separator as the
  *  ember RISK axis (the pressure meter), so it can't be misread as a fourth goodness meter.
  *
- *  GATE 2 of the three-gate TRIAGE flow — "mark for data": the ⇣ get-data control fires THIS ONE name's
- *  extraction (the existing per-name endpoint; 2–4 EDGAR requests, cache-first). The mark and the spend
- *  collapse into one deliberate click — cost is the operator's to spend, never ambient. It shares the
- *  FactsPanel's query (same key), so a fetched row's candidates render in the rail instantly. The control
- *  then tracks what is LEFT to ratify and disappears only when nothing remains. Failures are per-name +
- *  retryable.
- *
- *  Get-data also AUTO-APPLIES an AUTO (unflagged) shares count — removing a ceremonial confirm, not a real
- *  one: nobody knows a share count by heart, so confirming the extractor's cover figure only rubber-stamped
- *  it. The server owns the number and the AUTO gate (see `useAutoConfirmShares`); a FLAGged count still goes
- *  to the operator, and the market cap is the real check. */
-export function ScoredRow({ member, selected, onSelect, thesisId, asof, contextRole }: Props) {
-  const extract = useExtract(member.security_id, thesisId);
-  // ENDV finding (display-only): a ratified share count from a stale cover (an old/delinquent filer) yields a
+ *  V2 W5e: there is NO get-data chore here (and no "data ready" / "retry get data"): a share count and cash are the
+ *  platform's, shared by every user, and read (with their state) in the rail's Shared values block; purity is the
+ *  user's own, set in the rail. The row stays quiet: a cap or runway left blank because its value awaits the steward
+ *  carries that in its hover, and nothing more. */
+export function ScoredRow({ member, selected, onSelect, asof, contextRole, values }: Props) {
+  // ENDV finding (display-only): a share count from a stale cover (an old/delinquent filer) yields a
   // plausible-but-wrong market cap with no age signal. Light a WARM flag ONLY when the count is > ~6 months
-  // old (honest loudness — the common current count shows nothing). No signal touched; just the eye's catch.
-  const staleMonths = asof ? staleSharesMonths(sharesAsof(member), asof) : null;
-  // the surgical get-data pulls the FULL per-name set: extraction candidates + EOD price bars (the
-  // decoupled price leg) — same completeness as the section button, one name at a time
-  const ingestPx = useIngestPrices();
-  const autoShares = useAutoConfirmShares();
-  const loaded = memberHasFundamentals(member);
-  // "data ready" means there are CANDIDATES to ratify. An empty extract now says WHICH nothing
-  // (Retrieval Slice 1 — the three empty states): `no-annual-filing` = genuinely nothing on EDGAR
-  // (the only case where the old "no filings" read was true); `cover-not-located` = an annual filing
-  // exists but its cover couldn't be read — the name is UNREAD, not empty, and stays a visible
-  // candidate for the next pass (interaction #2). A foreign 20-F/40-F filer with a readable cover now
-  // yields a FLAG shares candidate like any other name.
-  const facts = extract.data?.facts;
-  const hasCandidates = (facts?.length ?? 0) > 0;
-  const emptyReason = extract.data !== undefined && !hasCandidates ? extract.data.empty_reason : null;
-  // The candidates STILL needing the operator, i.e. fetched but with no ratified fact of that type yet. This
-  // is the control's real subject. It used to key off `loaded` (ANY confirmed fact), which was already a bug —
-  // ratifying one fact hid the control while purity/cash were still outstanding — and auto-applying shares
-  // would have INDUSTRIALIZED it: every clean name would self-confirm its shares and instantly go quiet with
-  // two facts unratified. Counting what's left keeps the name honestly surfaced until it's actually done.
-  // the API's fixed refusal on this name's get data (own cards only / the daily allowance), shown as it is worded
-  const refusal = refusalText(extract.error) ?? refusalText(ingestPx.isError ? ingestPx.error : null);
-  const onFile = onFileValues(member);
-  const remaining = (facts ?? []).filter((f) => !onFile[f.fact_type]);
-  const getData = async () => {
-    ingestPx.mutate(member.security_id);
-    const res = await extract.refetch();
-    // Auto-apply the AUTO shares count — bound to THIS explicit get-data, never a render (the query cache can
-    // already hold candidates, and a fact must never be written just by looking at a name). We gate on the
-    // candidate's tier to skip a pointless call; the SERVER re-verifies AUTO and owns the number. `mutate`
-    // (not mutateAsync) is non-throwing: a failed auto-apply leaves today's manual confirm exactly as it is.
-    // An annual-cover shares candidate is ALWAYS "flag", so a dark name can never take this branch.
-    const shares = res?.data?.facts?.find((f) => f.fact_type === "shares_outstanding");
-    if (shares?.tier === "auto") autoShares.mutate(member.security_id);
-  };
+  // old (honest loudness — the common current count shows nothing). An ANNUAL figure (a 20-F/40-F cover) is always
+  // months old and is quiet inside its 400-day cap; its date rides the hover instead. No signal touched.
+  const staleMonths = asof ? staleSharesMonths(sharesAsof(member), asof, sharesSource(member)) : null;
+  const annualTitle = asof ? annualSharesTitle(member, asof) : null;
+  // a blank cap / runway because the value waits on the steward (nothing applied): "—" with the hover. An applied
+  // value with a newer filing waiting keeps its figure (the rail's block carries the pending line).
+  const capAwaiting = member.market_cap.value == null && values?.shares.state === "awaiting_steward";
+  // a company a runway means nothing for (V2 C1): a plain "n/a", the sentence on hover, ahead of any other state
+  const runwayNa = runwayNotApplicable(member.runway);
+  const runwayAwaiting =
+    runwayNa == null && member.runway.pips == null && values?.cash_burn.state === "awaiting_steward";
+  const runwayPace = runwayPaceWords(member.runway);
 
   // the quiet context-role tag (set only; the hover is the role's description) — beside the name in both rows
   const roleTag = contextRole ? (
@@ -94,12 +65,10 @@ export function ScoredRow({ member, selected, onSelect, thesisId, asof, contextR
   ) : null;
 
   // A `fund` sleeve is an EXPRESSION, not a scored equity (ETF Sleeve; #4/#6). It has no insider / dilution
-  // / purity / runway data, so the four equity meters would be all-blank noise and "get data" would 404 on
-  // extraction (a fund's cik is None). Render the row honestly: ticker + "ETF sleeve" label + its PRICE
-  // (context, never a signal) — no meters, no get-data, no stale-shares flag. Selecting it drives the DD
-  // rail (SleeveRail) exactly like a scored name: its N-PORT holdings + basket overlap live THERE now, not
-  // in an inline drawer that shoved the basket down. (All hooks above run regardless — they're inert here —
-  // so rules-of-hooks hold.)
+  // / purity / runway data, so the four equity meters would be all-blank noise. Render the row honestly: ticker
+  // + "ETF sleeve" label + its PRICE (context, never a signal) — no meters, no stale-shares flag. Selecting it
+  // drives the DD rail (SleeveRail) exactly like a scored name: its N-PORT holdings + basket overlap live THERE
+  // now, not in an inline drawer that shoved the basket down.
   if (member.instrument_kind === "etf") {
     return (
       <div className={`nmrow fund${selected ? " sel" : ""}`} onClick={onSelect}>
@@ -140,7 +109,9 @@ export function ScoredRow({ member, selected, onSelect, thesisId, asof, contextR
         </button>
         <span className="cap">
           <small>mkt cap</small>
-          {formatMarketCap(member.market_cap.value)}
+          <span title={capAwaiting ? AWAITING_HOVER : (annualTitle ?? undefined)}>
+            {formatMarketCap(member.market_cap.value)}
+          </span>
           {staleMonths != null && (
             <span
               className="wb-stale-shares"
@@ -150,91 +121,21 @@ export function ScoredRow({ member, selected, onSelect, thesisId, asof, contextR
             </span>
           )}
         </span>
-        {/* gate 2 — per-name, opt-in, visible cost. The control now tracks what's LEFT to ratify (not merely
-            "any fact confirmed"), so an auto-applied shares count can't silence a name whose purity/cash are
-            still outstanding. Hidden only when nothing remains: fully ratified, or never fetched + loaded. */}
-        {extract.isFetching ? (
-          <span className="wb-getdata busy">extracting…</span>
-        ) : remaining.length > 0 ? (
-          <button
-            type="button"
-            className="wb-getdata ready"
-            aria-label={`data ready for ${member.ticker ?? "name"} — open to ratify`}
-            title={`${remaining.length} candidate${remaining.length > 1 ? "s" : ""} still to ratify (${remaining
-              .map((f) => f.fact_type)
-              .join(" · ")}) — open the name and ratify them in the rail`}
-            onClick={(e) => {
-              e.stopPropagation();
-              onSelect();
-            }}
-          >
-            ✓ data ready — ratify {remaining.length}
-          </button>
-        ) : loaded ? null : (
-          <>
-            {emptyReason === "no-annual-filing" ? (
-            // honest-loudness: fetched and GENUINELY empty — no 10-K/10-Q and no 20-F/40-F either
-            // (a brand-new or non-reporting listing); retrying won't help — say why, quietly
-            <span
-              className="wb-getdata none"
-              title="nothing on EDGAR the extractor can read — no 10-K/10-Q and no annual foreign filing (20-F/40-F) on file for this issuer"
-            >
-              — nothing on EDGAR
-            </span>
-          ) : emptyReason === "cover-not-located" ? (
-            // DISTINCT from genuinely-empty (interaction #2): the annual filing EXISTS but its cover
-            // couldn't be read this pass — the name is UNREAD, not empty; it stays a visible candidate
-            <span
-              className="wb-getdata unread"
-              title="this issuer's annual filing (20-F/40-F) is on file, but its cover share count couldn't be read this pass — unread, not empty; it stays a candidate for a future extractor pass"
-            >
-              ◌ annual filing unread
-            </span>
-          ) : extract.error ? (
-            <button
-              type="button"
-              className="wb-getdata err"
-              aria-label={`retry get data for ${member.ticker ?? "name"}`}
-              title={`couldn't extract — ${errText(extract.error)}; click to retry`}
-              onClick={(e) => {
-                e.stopPropagation();
-                getData();
-              }}
-            >
-              ⚠ retry get data
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="wb-getdata"
-              aria-label={`get data for ${member.ticker ?? "name"}`}
-              title="pull this name's latest SEC filings (10-Q/10-K; a foreign filer's 20-F/40-F cover for shares + statements for cash/runway) + its EOD price bars — cache-first, 2–4 EDGAR requests; the candidates land in the rail for you to ratify"
-              onClick={(e) => {
-                e.stopPropagation();
-                getData();
-              }}
-            >
-              ⇣ get data
-            </button>
-            )}
-          </>
-        )}
-        {/* the price leg's own failure — visible per name, non-blocking (extraction may still be fine) */}
-        {ingestPx.isError && (
-          <span
-            className="wb-getdata err"
-            title={`price pull failed — ${errText(ingestPx.error)}; get data again to retry`}
-          >
-            ⚠ price
-          </span>
-        )}
       </div>
-      {/* the API's own refusal on get data (security hardening PR 1b: not on your cards, or today's allowance
-          spent) — an answer, not a breakage, so it reads plainly instead of hiding in a hover */}
-      {refusal && <div className="note err">{refusal}</div>}
       <div className="wb-meters">
         <Meter label="purity" figure={member.purity} />
-        <Meter label="runway" figure={member.runway} />
+        <Meter
+          label="runway"
+          figure={member.runway}
+          title={runwayAwaiting ? AWAITING_HOVER : runwayTitle(member.runway)}
+          notApplicable={runwayNa != null ? "n/a" : undefined}
+        />
+        {runwayPace?.caveat && (
+          // a quiet mark ONLY where last quarter is far off the year-to-date pace (honest loudness), the caveat on hover
+          <span className="wb-pace" data-testid="wb-runway-pace" title={runwayPace.caveat}>
+            uneven quarter
+          </span>
+        )}
         <Meter label="catalysts" figure={member.catalysts} />
         <span className="wb-meter-sep" aria-hidden="true" />
         <Meter label="dilution" figure={member.dilution} risk />

@@ -93,7 +93,7 @@ describe("the words", () => {
     expect(capWords(R3.cap)).toBe("—");
     expect(capTitle(R3.cap)).toContain("withheld, a data flag reaches its price");
     expect(capTitle(R3.cap)).toContain(R3.cap.note!);
-    expect(capTitle(R4.cap)).toContain("awaiting shares");
+    expect(capTitle(R4.cap)).toContain("no shared share count yet");
     expect(capTitle(R1.cap)).toContain("Approximate");
   });
 

@@ -1,0 +1,73 @@
+{
+ "cik": "",
+ "entityName": "GKOS (reconstructed from the 2026-11-16 quarterly cash re-audit)",
+ "facts": {
+  "us-gaap": {
+   "CashAndCashEquivalentsAtCarryingValue": {
+    "units": {
+     "USD": [
+      {
+       "end": "2026-09-30",
+       "val": 162327000,
+       "accn": "reconstructed",
+       "fy": 2026,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2026-11-05"
+      }
+     ]
+    }
+   },
+   "AvailableForSaleSecuritiesDebtSecurities": {
+    "units": {
+     "USD": [
+      {
+       "end": "2026-06-30",
+       "val": 171741000,
+       "accn": "reconstructed",
+       "fy": 2026,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-08-06"
+      },
+      {
+       "end": "2026-09-30",
+       "val": 174372000,
+       "accn": "reconstructed",
+       "fy": 2026,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2026-11-05"
+      }
+     ]
+    }
+   },
+   "NetCashProvidedByUsedInOperatingActivities": {
+    "units": {
+     "USD": [
+      {
+       "start": "2026-01-01",
+       "end": "2026-06-30",
+       "val": 2297000,
+       "accn": "reconstructed",
+       "fy": 2026,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-08-06"
+      },
+      {
+       "start": "2026-01-01",
+       "end": "2026-09-30",
+       "val": 40867000,
+       "accn": "reconstructed",
+       "fy": 2026,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2026-11-05"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

@@ -24,10 +24,10 @@ tier. Display only: it never feeds a call, never writes, never calls the LLM, an
   `armed_members`, keyed (thesis, security, `arm_date`); a re-arm is a new episode. The page imports ONLY what
   `app/routers/scoreboard.py` already imports (the lean prod image has no `duckdb`; the Scoreboard route proves
   these modules load without it).
-- **Honesty filters are the Scoreboard's**, with the same query parameters: `include_annotated` and `include_late`
-  (defaults from `scoreboard_exclude_annotated` / `scoreboard_exclude_late`), `edition` (**omitted = 0, the calls
-  log** while the editions nightly is paused; N = a stored edition; unlike the Scoreboard, which defaults to the
-  newest published one). Reconstructed nights are never events. The Scoreboard's eligibility rule
+- **Honesty filters are the Scoreboard's**, with the same query parameter: `include_late`
+  (default from `scoreboard_exclude_late`), `edition` (**omitted = the
+  Scoreboard's own default**: the newest published edition, the record when none is published, and the optional
+  `scoreboard_default_edition` override honored; 0 = the calls log; N = a stored edition). Reconstructed nights are never events. The Scoreboard's eligibility rule
   holds too: a `censored_start` episode (armed on the card's first recorded night) and an `ingest_flagged` one are
   counted on the work line and left out of every cell.
 - **The as-of caps everything** (invariant #1): an episode with `arm_date` after the as-of is not an event; a
@@ -70,7 +70,7 @@ tier. Display only: it never feeds a call, never writes, never calls the LLM, an
      acceptance, else 06:00 ET on its filing date: `db/public_clock.py`'s rule for `fact_fundamentals`, on a night
      before the arm date); the company must be a 10-Q filer among those rows; the newest row must be filed within
      200 days of the event (never of today) and hold at least 10,000 shares. Its date is the cover's own, so the split
-     list scales it from the day it was true. Source `cover` (not ratified).
+     list scales it from the day it was true. Source `cover` (not a shared value).
   3. **Else none:** the cap is **unpinned**. No balance-sheet count is read (the operator kept the rule unchanged).
 - **Unpinned** (counted in the "unpinned" row, never dropped, never guessed): `no_price` (no close before the event),
   `no_shares` (no share count public before it), `ads_unread` (an unread ADS ratio on a Workbench count; the cover
@@ -104,7 +104,7 @@ readable.
 
 One row per counted episode: ticker (opens the Cockpit on the name, `onSelectThesis(thesisId, ticker)`), card
 chip, `arm_date`, tier and approximate cap (hover: close date, share count date and its source in the Market Map's
-words, "share count ratified in the Workbench" or "share count from the filing cover (not ratified)", ADS ratio,
+words, "shared share count" or "share count from the filing cover (not a shared value)", ADS ratio,
 split factor; an unpinned cap's hover says why, with the refused cover count's reason when there is one), the
 liquidity band, `key1_source`, grade, then the five horizons' excess (or "maturing" / "path ended"), sorted by
 `arm_date` newest first. Clicking a table cell filters the list to that cell's episodes. The unpinned episodes
@@ -120,8 +120,8 @@ on the page judges a result: the wording is "median excess vs IWM over 20 sessio
 ## The quiet "show the work" line
 
 The as-of; the clock; the edition and the honesty policies in force; episodes total / matured per horizon /
-maturing; which share count the caps rest on, once any rests on a filing cover's ("caps at the event: N on a share
-count ratified in the Workbench · N on a share count from the filing cover (not ratified)", from
+maturing; which share count the caps rest on, once any rests on a filing cover's ("caps at the event: N on a shared
+share count · N on a share count from the filing cover (not a shared value)", from
 `counts.cap_from_cover`); unpinned caps; names left out for a flagged price history, a stopped feed on a live card, or no longer priced (each counted apart, opens to the tickers), episodes counted although the company ended, censored starts, ingest
 flagged, paths ended; the entry rule in force; the comparison in force; the cache state and `compute_ms`. Below it,
 fixed: "the entry is a close, not a fill" (the default is the next session's close); "cap is approximate and measured
@@ -131,7 +131,7 @@ the session before the arm date" (with the share count public before it: the Wor
 
 ## Cache
 
-`dashboards.cache.cached(conn, "track-record", (edition, include_annotated, include_late, clock), asof, ...)` holds
+`dashboards.cache.cached(conn, "track-record", (edition, include_late, clock), asof, ...)` holds
 every episode's row with all five horizons, both benchmarks' spans, the raw return, the cap and the liquidity
 figure. Tiering, slicing, filtering and the entry toggle derive from that one read (the toggle needs both entry
 closes, so the row carries both and both sets of horizon returns). The cache clears on
@@ -145,8 +145,7 @@ a new run or a basket edit (rule 7).
   the cell statistics with the n < 10 rule, the counts.
 - `backend/dashboards/market_cap.py`, pure and shared: `cap_cell`, the share-count rule (`cover_shares`,
   `pick_shares`, the Market Map's) and `shares_at_event` (the same rule judged at an event's date, Track Record's).
-- `backend/app/routers/dashboards/track_record.py`: `GET /dashboards/track-record?asof=&edition=&include_annotated=
-  &include_late=` (every episode row + the counts; the client builds the table). `known_at, clock = serve_view(asof)`
+- `backend/app/routers/dashboards/track_record.py`: `GET /dashboards/track-record?asof=&edition=&include_late=` (every episode row + the counts; the client builds the table). `known_at, clock = serve_view(asof)`
   threads into the Scoreboard read, every `PointInTimeData` and the benchmark read. Wire models in the module (rule 8).
 - `backend/tests/dashboards/test_track_record.py`: horizons count SESSIONS (a weekend and a holiday gap do not shift
   the Nth bar); a path that ends before the Nth bar reads "path ended" and is not counted; excess against a benchmark
@@ -191,8 +190,8 @@ Any "works" verdict or score; any cross-tabulation of two slice dimensions; posi
 
 The build lists here every choice it made that this plan does not spell out, each the operator's to confirm or
 change. Pre-decided here for the operator's review: the Scoreboard's episodes and honesty filters as the events;
-the record (edition 0) as the default view while the editions nightly is paused, with a selector to the newest
-published edition (2026-10-29); sessions 5 / 10 / 20 / 60 plus exit_by as the horizons; IWM as the default comparison with SPY and raw selectable;
+the record (edition 0) as the default view while the editions nightly was on hold, with a selector to the newest
+published edition (2026-10-29; the hold was lifted at the V2 go-live, so the default is the Scoreboard's again, below); sessions 5 / 10 / 20 / 60 plus exit_by as the horizons; IWM as the default comparison with SPY and raw selectable;
 the next session's close as the default entry with an arm-night toggle (2026-10-30; the first build defaulted to the
 arm night); the three PROPOSED liquidity bands; n < 10
 prints n only; the pooled row last.
@@ -242,8 +241,8 @@ date (a bar with no volume is skipped, not read as zero). A value on a band's bo
 dollars is "under $1M" (a real measurement); under 20 volume-bearing bars is unpinned.
 
 **Which episodes.**
-- Archived cards are included (the Scoreboard's default). The route takes the Scoreboard's `edition`,
-  `include_annotated` and `include_late` and resolves the edition with the Scoreboard's own function (404 on an
+- Archived cards are included (the Scoreboard's default). The route takes the Scoreboard's `edition`
+  and `include_late` and resolves the edition with the Scoreboard's own function (404 on an
   unknown one). The page has a selector for the edition only (below); its first work line states the reading in force.
 - An episode left out is counted once, in this order: flagged price history (or a stopped feed, below), censored
   start, ingest flag. A left-out
@@ -284,27 +283,32 @@ dollars is "under $1M" (a real measurement); under 20 volume-bearing bars is unp
   draw it, but the frontend test reproduces it cell by cell from `rows`, so the two cannot drift apart.
 - The plan's `horizon_closes` is named `horizon_close` (it returns one bar). Price reads are unbounded in time and
   chunked 40 companies per point-in-time view (an episode can sit anywhere in a name's history).
-- The cache key is the plan's tuple with the RESOLVED values: the edition number, then whether annotated and late
+- The cache key is the plan's tuple with the RESOLVED values: the edition number, then whether late
   nights are included (fixed for a stored edition, which has none of those rows), then the clock.
 
-**The edition: the record by default while the editions nightly is paused (2026-10-29, after the dev walk below).**
-- **The route's `edition` defaults to 0**, the calls log, when the caller passes nothing (`Query(0, ge=0)`). It is
-  the Scoreboard's own resolver (`_resolve_edition`) that still answers a named N, with its 404. The Scoreboard route
-  itself is unchanged: it still defaults to the newest published edition.
+**The edition: the Scoreboard's default, the newest published (the record was the default while the editions nightly
+was on hold, 2026-10-29 to the V2 go-live).**
+- **The route's `edition` is optional** (`Query(None, ge=0)`): none named is the Scoreboard's own resolver
+  (`_resolve_edition` over `_default_edition`, one rule for both routes): the newest published edition, the record
+  (Edition 0) when none is published, and `scoreboard_default_edition` honored (0 pins the record, a published N pins
+  that edition, an unpublished N falls back to the newest). An explicit `edition=0` reads the record and a named N that
+  is not published is the same 404 as the Scoreboard's. The response's `edition` says which one was served.
 - **The response carries `newest_edition`** (`{number, label}`, `null` when nothing is published): the newest
   PUBLISHED edition by `editions_repo.newest`, one small read outside the cache. It is deliberately not the
   Scoreboard's `_default_edition`, which a server setting (`scoreboard_default_edition`) can pin to another edition:
   the page's selector says "newest published", and this is that. With no override set the two are the same edition.
-- **The page's selector** "Edition: The record · Edition N (newest published)" refetches with `edition=`. The record
-  is pressed by default; the control renders only when an edition is published (one option cannot discriminate,
-  WB#3). Picking an edition clears a picked cell; the slice, comparison, entry and filter choices stay. Each edition
+- **The page's selector** "Edition: The record · Edition N (newest published)" refetches with `edition=`. The page
+  opens by naming no edition and presses the button for the edition the server served (the newest by default); when
+  a pinned default is an edition that is neither the record nor the newest, neither is pressed and the work line names
+  it. The control renders only when an edition is published (one option cannot discriminate, WB#3). Picking an edition clears a picked cell; the slice, comparison, entry and filter choices stay. Each edition
   is its own server read and its own cache entry.
-- **The work line says which is in force.** For the record it reads "edition 0: the original record (the default;
-  editions are paused)"; for a stored edition "edition N: <label>". "Editions are paused" is the operator's hold on
-  the editions nightly (2026-10-26), stated as a fact about the system and not computed from the data: **when the
-  editions nightly resumes, flip the route's default back to the Scoreboard's resolver and drop that clause in
-  `recordView.ts::editionWords` in the same change.**
-- `include_annotated` and `include_late` are unchanged.
+- **The work line says which is in force:** "edition N: <label>" for a stored edition, "edition 0: the original
+  record" for the record, whichever the server served (the "(the default; editions are paused)" clause is gone with
+  the hold, which the operator lifted at the V2 go-live: Edition 2 is cut by hand, then the editions nightly runs).
+- **The warm-up** (`pipeline/warm_dashboards.py`) names no edition, as the page does: both reach the cache key the
+  RESOLVED edition makes (the first visit after a pass is a hit, and the key follows the default when an edition is
+  cut); a pick of the record is its own read.
+- `include_late` is unchanged.
 
 **The entry: the next session's close by default (2026-10-30, the operator's decision).**
 - **The page opens on "Next session"** (`TrackRecord.tsx`'s entry state), the toggle lists it first, and "Arm night" is
@@ -340,11 +344,14 @@ build re-measured nothing.
 - `edition=1`: cards 11 · episodes 501 · counted 439
 - cold compute 16,909 to 17,069 ms · cache hit 50 to 100 ms · payload 574 KB
 
+(Superseded at the V2 go-live: the hold was lifted and a request that names no edition reads the Scoreboard's
+default again, the newest published edition; the figures above are the 2026-10-29 record-default reading.)
+
 ### The cap from the filing cover's count (2026-11-04), MEASURED
 
 The build's own read on the DEV database (a prod copy, newest night 2026-10-29), read-only: the router's
 `read_record` at as-of 2026-10-29 through `serve_view(asof)` (the public clock), Edition 0, the default honesty
-policies (annotated and late nights set aside), with the dev backend's own run artifacts for the price flags. Once on
+policies (late nights set aside), with the dev backend's own run artifacts for the price flags. Once on
 the base commit's code (BEFORE), once on this change's (AFTER). 469 episodes, 240 counted, both times.
 
 | | BEFORE | AFTER |

@@ -21,7 +21,7 @@ from domain.enums import Grade, Kind, Role
 from domain.scopes import WORKSPACE_ANY
 from pipeline.seed import NUCLEAR_THESIS_ID, SMR_ID
 from repositories import thesis_repo
-from signals import laggard, registered_detectors, split_hold, theme_conviction
+from signals import laggard, registered_detectors, split_hold, theme_conviction, thesis_catalyst
 from signals.base import Detector, PointInTimeData
 from signals.common import fired_signal, source_provenance
 from signals.display import (
@@ -76,7 +76,7 @@ JUSTIFIED_BARE_READS = {
 def _thesis_level_declarations() -> dict[str, Mapping[str, int | None]]:
     return {
         "laggard": laggard.HORIZONS(DEFAULT_CONFIG),
-        "theme_conviction": theme_conviction.HORIZONS(DEFAULT_CONFIG),
+        "thesis_catalyst": thesis_catalyst.HORIZONS(DEFAULT_CONFIG),
         "split_hold": split_hold.HORIZONS(DEFAULT_CONFIG),
         "theme_breadth": theme_breadth.HORIZONS,
         "sector_rs": relative_strength.SECTOR_RS_HORIZONS,
@@ -207,7 +207,7 @@ class _RecordingPIT:
         "cash_burn_facts": "fact_cash_burn",
         "fund_shares": "fact_fund_shares",
         "filing_index": "fact_filing_index",
-        "theme_conviction_facts": "fact_theme_conviction",
+        "thesis_catalyst_facts": "fact_thesis_catalyst",
         "term_mentions": "fact_term_mentions",
     }
 
@@ -314,7 +314,9 @@ def test_every_reader_touches_only_the_tables_it_declared(db):
 
     rec = fresh()
     theme_conviction.detect_fact(rec, NUCLEAR_THESIS_ID, asof, ALL_ON)
-    _check("theme_conviction", theme_conviction.HORIZONS(ALL_ON), rec.touched)
+    _check(
+        "thesis_catalyst", thesis_catalyst.HORIZONS(ALL_ON), rec.touched
+    )  # the theme reads it (W6c)
     touched_by_call |= {t for t, _ in rec.touched}
 
     rec = fresh()

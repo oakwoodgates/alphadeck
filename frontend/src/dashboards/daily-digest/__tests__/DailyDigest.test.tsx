@@ -6,6 +6,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { setRecordStart } from "../../__tests__/recordStart";
 
 import { ClockProvider } from "../../../clock";
 import { todayISO } from "../../../util/format";
@@ -610,5 +611,23 @@ describe("DailyDigest — loudness (invariant #7)", () => {
     const { container } = setup();
     for (const e of container.querySelectorAll(".dd-pos, .dd-neg")) expect(e.textContent).toMatch(/^[+-]\d/);
     expect(container.querySelectorAll(".dd-pos").length).toBeGreaterThan(0);
+  });
+});
+
+vi.mock("../../../api/hooks", async (orig) =>
+  (await import("../../__tests__/recordStart")).withRecordStartStub(await orig<typeof import("../../../api/hooks")>()),
+);
+
+describe("Daily Digest — the record-start note", () => {
+  it("says when the record starts on a page with no history", () => {
+    setRecordStart("2026-12-03");
+    setup(payload({ nights: { ...payload().nights, latest: null, previous: null } }));
+    expect(screen.getByTestId("record-start-note")).toHaveTextContent("The record starts on Dec 3, 2026.");
+  });
+
+  it("is absent on a page with history", () => {
+    setRecordStart("2026-12-03");
+    setup();
+    expect(screen.queryByTestId("record-start-note")).toBeNull();
   });
 });

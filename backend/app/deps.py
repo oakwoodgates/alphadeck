@@ -9,7 +9,7 @@ from app.auth import CurrentUser, require_user
 from app.db_conn import get_conn  # re-exported: the one connection dependency (app/db_conn.py)
 from domain.settings import get_settings
 from domain.thesis import Thesis
-from ingest.edgar.client import EdgarClient
+from ingest.edgar.client import RECURRING_CACHE_TTL_S, EdgarClient
 from llm.client import LLMClient
 from repositories import thesis_repo
 
@@ -99,6 +99,18 @@ def get_edgar_client() -> EdgarClient:
     Discovery is fail-open: any EFTS trouble degrades to an empty universe inside ``run_discovery`` — the draft
     then falls back to the recall-only decompose, never a 5xx."""
     return EdgarClient(allow_live=True)
+
+
+def get_platform_sec_client() -> EdgarClient:
+    """The SEC client for the steward's "Extract now" (``POST /admin/platform-values/{id}/extract``, V2 W4d).
+
+    Built on the RECURRING dial (``RECURRING_CACHE_TTL_S``, the same client background extraction uses), so the
+    large companyfacts file is a filing-gated key: a click re-reads the cached copy unless the company filed
+    something since, instead of re-downloading it each time (the interactive 12-hour dial would refetch it once
+    its copy is half a day old). Its live requests ride the recurring lane of the one global SEC budget. Live,
+    cache-first, polite, with the declared User-Agent; overridden in tests with a fake (no network).
+    """
+    return EdgarClient(allow_live=True, cache_ttl_s=RECURRING_CACHE_TTL_S)
 
 
 def get_keyword_client() -> LLMClient:

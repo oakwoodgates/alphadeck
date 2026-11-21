@@ -12,5 +12,6 @@ export const entry: DashboardEntry = {
   description: "Every dated catalyst and card deadline across your cards, with passed ones to prune and undated ones to date.",
   status: "experimental",
   asofAware: false,
+  readsRecord: true,
   component: lazy(() => import("./CatalystCalendar")),
 };

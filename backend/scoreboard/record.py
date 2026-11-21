@@ -12,19 +12,16 @@ from domain.config import short_hash
 from domain.enums import Kind, State
 from domain.market_time import market_tz
 from domain.scopes import DATA_TENANT_ID, WorkspaceScope
-from domain.settings import get_settings
 from domain.thesis import Thesis
 from replay.episodes import derive_episodes
 from replay.schema import CallSnapshot, Episode, MemberRow, Outcome
 from replay.scoring import score_episode
 from repositories import (
-    call_annotations_repo,
     calls_repo,
     decisions_repo,
     editions_repo,
     thesis_repo,
 )
-from repositories.call_annotations_repo import CallAnnotation
 from repositories.editions_repo import Edition, InkedOutcome, JoinDate
 from scoreboard import provenance
 from scoreboard.decisions import attach_operator_track
@@ -60,40 +57,16 @@ from scoreboard.schema import (
 # thesis did not exist). A gap left by the exclusion reads exactly like a cron gap: the record last
 # spoke on the prior HONEST row.
 #
-# ANNOTATED ROWS — the SECOND filter, and a POLICY rather than a fact (D3b, migration 0045). An honest row
-# can still be WRONG: before D3a the fundamentals read dated a re-reported comparative quarter at its later
-# filing, so some nightly arms rested only on a year-old revenue inflection (phantom arms). The operator
-# decided (Q2) to set them aside REVERSIBLY: ``pipeline.annotate_phantom_arms`` appends an ``exclude``
-# annotation beside each such row (``call_annotation`` — the row itself is never touched), and under the
-# policy (``Settings.scoreboard_exclude_annotated``, default on; the request's ``include_annotated``
-# overrides it) every record read below ALSO drops rows carrying an active ``exclude`` — at the same place
-# and the same way as the reconstructed filter: inside the WHERE, BEFORE the per-as-of dedup, applied to
-# ``latest_for_thesis`` AND the ingest-health and run-identity peer reads so all three still describe ONE
-# winning row. Consequences, identical to the reconstructed rule: an excluded night reads like a cron gap
-# (the record last spoke on the prior row), and a night with an excluded row and another honest row scores
-# the other row. Flipping the policy (or revoking the annotation) re-scores the record exactly as before
-# D3b; nothing is deleted. ``note`` annotations never filter — they ride the episode drawer as a caption.
-#
-# LATE ROWS — the THIRD filter, a POLICY over a DERIVED fact (L1, operator Q5 = A; ``scoreboard/late.py``).
+# LATE ROWS — the SECOND filter, a POLICY over a DERIVED fact (L1, operator Q5 = A; ``scoreboard/late.py``).
 # A non-reconstructed row recorded at/after its night's on-time window closed (the next weekday's 06:00 ET
 # EDGAR open, ``pipeline.night_coverage.is_late``) can have read a filing SEC accepted after the night —
 # MEASURED on the 2026-10-12 boot catch-up. Under the policy (``Settings.scoreboard_exclude_late``, default
 # on; the request's ``include_late`` overrides it) every record read below ALSO drops the thesis's late rows
-# — once more at the same place and the same way: inside the WHERE, BEFORE the per-as-of dedup, on all four
+# — once more at the same place and the same way: inside the WHERE, BEFORE the per-as-of dedup, on all three
 # peer reads. So an on-time row for the night wins over a later late re-version, and a late-only night reads
-# like a cron gap. The three filters compose by AND: a row is scored only if it is not reconstructed, not
-# annotated `exclude` (under that policy), and not late (under this one). Lateness is derived from
+# like a cron gap. The two filters compose by AND: a row is scored only if it is not reconstructed and not late
+# (under this policy). Lateness is derived from
 # ``recorded_at`` on every read — nothing is stored, so flipping the policy re-scores exactly as before L1.
-
-
-def resolve_exclude_annotated(exclude_annotated: bool | None = None) -> bool:
-    """The Scoreboard's annotated-night read policy for ONE read (D3b): an explicit bool wins (the
-    request's ``include_annotated`` override, inverted by the router), ``None`` = the configured
-    ``Settings.scoreboard_exclude_annotated``. One resolution per request, threaded down, so every read in
-    that request applies the same policy."""
-    if exclude_annotated is None:
-        return get_settings().scoreboard_exclude_annotated
-    return exclude_annotated
 
 
 def thesis_timeline(
@@ -101,7 +74,6 @@ def thesis_timeline(
     thesis_id: UUID,
     asof: date,
     *,
-    exclude_annotated: bool | None = None,
     exclude_late: bool | None = None,
     late_ids: frozenset[UUID] | None = None,
     drop_card_keys: Sequence[str] = (),
@@ -109,10 +81,9 @@ def thesis_timeline(
     """The thesis's HONEST call-of-record timeline up to ``asof``, ascending, plus the cards by as-of
     (for trigger enrichment). ``latest_for_thesis`` dedups to the final card per as-of — its own
     docstring: the read a scoreboard wants — with reconstructed rows EXCLUDED before that dedup (the
-    header rule: a reconstructed row never defines an episode boundary), and — under the annotated-night
-    policy (``resolve_exclude_annotated``) — rows carrying an active ``exclude`` annotation too, and — under
+    header rule: a reconstructed row never defines an episode boundary), and — under
     the late-night policy (``resolve_exclude_late``) — the thesis's LATE rows too. ``late_ids`` = the late
-    rows already judged by the caller (``derive_thesis_record`` reads them once for all four peer reads);
+    rows already judged by the caller (``derive_thesis_record`` reads them once for all three peer reads);
     ``None`` = judge them here when the policy excludes. ``drop_card_keys`` (default none) thins the cards
     for a caller that only needs the snapshots (``SNAPSHOT_UNREAD_CARD_KEYS``); the rows are the same.
     """
@@ -126,7 +97,6 @@ def thesis_timeline(
             conn,
             thesis_id,
             include_reconstructed=False,
-            exclude_annotated=resolve_exclude_annotated(exclude_annotated),
             exclude_call_ids=late_ids,
             drop_card_keys=drop_card_keys,
         )
@@ -142,10 +112,10 @@ def thesis_timeline(
 # track — is the same for every source. A source decides only what is source-specific:
 #
 # - ``RecordSource`` = EDITION 0, the original record: ``thesis_timeline`` over the calls log under the
-#   request's annotated / late policies, plus the record's own provenance (ingest stamps, run identity,
-#   annotations, thaw lags). Byte-for-byte the pre-editions read (a golden pins it).
+#   request's late policy, plus the record's own provenance (ingest stamps, run identity,
+#   thaw lags). Byte-for-byte the pre-editions read (a golden pins it).
 # - ``EditionSource`` = a stored edition >= 1: its frozen ``edition_call`` pages, ascending — never a
-#   ``calls`` row. A re-run has no reconstructed, annotated or late rows and no ingest history (every page is
+#   ``calls`` row. A re-run has no reconstructed or late rows and no ingest history (every page is
 #   computed the same way, on the PUBLIC clock), so those readings do not apply. Its provenance is the
 #   edition itself (the engine fingerprint caption), and its censoring rule is G12's: an arm on the
 #   company's own ESTIMATED join night has an unknowable true arm date.
@@ -175,10 +145,7 @@ class RecordSource:
     number = 0
     provenance = True
 
-    def __init__(
-        self, *, exclude_annotated: bool | None = None, exclude_late: bool | None = None
-    ) -> None:
-        self.exclude_annotated = resolve_exclude_annotated(exclude_annotated)
+    def __init__(self, *, exclude_late: bool | None = None) -> None:
         self.exclude_late = resolve_exclude_late(exclude_late)
 
     def read(
@@ -194,7 +161,6 @@ class RecordSource:
             conn,
             thesis_id,
             asof,
-            exclude_annotated=self.exclude_annotated,
             late_ids=late,
             drop_card_keys=drop_card_keys,
         )
@@ -205,7 +171,6 @@ class EditionSource:
     """A stored EDITION >= 1 — its frozen pages (``editions_repo.pages_for_thesis``), never the calls log."""
 
     provenance = False
-    exclude_annotated = False  # nothing to set aside: the readings are "n/a" for a re-run
     exclude_late = False
 
     def __init__(self, edition: Edition) -> None:
@@ -437,68 +402,6 @@ def _transitions(snaps: list[CallSnapshot], ep: Episode) -> list[Transition]:
     return out
 
 
-# the reason tokens the annotator writes -> the caption's words (an unknown token reads as itself)
-_REASON_WORDS = {"stale_comparative_revenue": "a stale-dated comparative revenue quarter"}
-
-# What the drawer calls a night an `exclude` annotation sets aside, by the RULE FAMILY that judged it (F10). One
-# `include_annotated` reading covers every `exclude`, so the caption must say WHICH kind of night this episode
-# leans on: a no-session row labeled a "phantom arm" would be a false statement. Ordered (the caption's part
-# order); a family not named here reads as the generic `set-aside night(s)`.
-_EXCLUDE_NIGHT_WORDS = {
-    call_annotations_repo.RULE_FAMILY_D3A: "phantom-arm night(s)",
-    call_annotations_repo.RULE_FAMILY_NO_SESSION: "no-session night(s)",
-}
-_EXCLUDE_NIGHT_GENERIC = "set-aside night(s)"
-
-
-def _annotation_note(
-    by_asof: dict[date, list[CallAnnotation]], ep: Episode, *, exclude_annotated: bool
-) -> str | None:
-    """The episode drawer's QUIET annotation caption (D3b) — composed from the ACTIVE annotations on the
-    WINNING rows across the run ``[arm_date, dearm_date or last_armed_date]`` (``_risk_events``' closed
-    interval), filtered to the ones that touch THIS member (``detail.affected_security_ids``; a row without
-    that list is shown rather than guessed away). ``None`` when nothing applies — a clean episode carries
-    no line (honest loudness). Two shapes:
-
-    - a ``note``: the arm stands and is scored; the rule only changed its composition on that night.
-    - an ``exclude`` on a reading that INCLUDES annotated nights: the night is one the default reading sets
-      aside — said so the operator knows this episode's number depends on the reading. The caption names the
-      KIND of night by the rule family that judged it (``_EXCLUDE_NIGHT_WORDS``): a phantom arm (D3a), a night
-      dated a day with no market session (F10), or the generic ``set-aside night(s)`` for any other rule.
-
-    Backend-authored copy, one authority (the ``ingest_note`` / ``run_identity_note`` precedent)."""
-    walk_end = ep.dearm_date or ep.last_armed_date
-    notes: list[tuple[date, CallAnnotation]] = []
-    excluded: dict[str, list[date]] = {}  # the caption's words for the rule family -> the nights
-    for d in sorted(x for x in by_asof if ep.arm_date <= x <= walk_end):
-        for a in by_asof[d]:
-            affected = (a.detail or {}).get("affected_security_ids")
-            if isinstance(affected, list) and str(ep.security_id) not in {str(x) for x in affected}:
-                continue
-            if a.action == "exclude" and not exclude_annotated:
-                words = _EXCLUDE_NIGHT_WORDS.get(
-                    call_annotations_repo.rule_family(a.rule), _EXCLUDE_NIGHT_GENERIC
-                )
-                excluded.setdefault(words, []).append(d)
-            elif a.action == "note":
-                notes.append((d, a))
-    parts: list[str] = []
-    for words in (*_EXCLUDE_NIGHT_WORDS.values(), _EXCLUDE_NIGHT_GENERIC):
-        if words in excluded:
-            days = ", ".join(str(d) for d in sorted(set(excluded[words])))
-            parts.append(
-                f"{words} {days} — annotated exclude; scored here only because this reading "
-                "includes annotated nights"
-            )
-    for d, a in notes:
-        summary = (a.detail or {}).get("summary")
-        why = _REASON_WORDS.get(a.reason, a.reason.replace("_", " "))
-        parts.append(f"{d}: {summary or 'composition changed'} ({why}; still scored)")
-    if not parts:
-        return None
-    return "annotated · " + " · ".join(parts)
-
-
 def _warming_since(snaps: list[CallSnapshot]) -> date | None:
     """The start of the OPEN warming-with-conviction run at the record edge — the withheld window
     accruing right now (the honest launch-state signal for a thesis with zero episodes)."""
@@ -519,7 +422,6 @@ def derive_thesis_record(
     known_at: datetime | None = None,
     market_edge: date | None = None,
     basket_size: int | None = None,
-    exclude_annotated: bool | None = None,
     exclude_late: bool | None = None,
     source: TimelineSource | None = None,
 ) -> tuple[ThesisRecord, list[CallSnapshot]]:
@@ -527,16 +429,15 @@ def derive_thesis_record(
     plus the record-honesty flags. Returns the snapshots too (SB2 feeds them to the metric set).
 
     ``source`` (editions S4) is WHERE the timeline comes from: ``None`` = Edition 0, the calls log under the
-    two read policies below (``RecordSource`` — exactly the pre-editions read); an ``EditionSource`` = a
+    read policy below (``RecordSource`` — exactly the pre-editions read); an ``EditionSource`` = a
     stored edition's frozen pages. Every step below is the same for both, except the three source-specific
     ones: the record provenance (Edition 0 only), ``censored_start`` (an edition censors an arm on the
     company's own ESTIMATED join night, G12) and the run-identity caption (an edition's names the edition
     and its engine fingerprint).
-    ``exclude_annotated`` is the D3b read policy (``resolve_exclude_annotated``: None = the setting),
-    resolved ONCE here and applied to every record read below, so the timeline, the ingest stamps, the run
-    identity and the annotation caption all describe the same winning rows. ``exclude_late`` is the L1 read
-    policy (``resolve_exclude_late``), resolved the same way; under it the thesis's late rows are judged
-    ONCE here (``late_call_ids``) and the same ids are dropped from all four reads.
+    ``exclude_late`` is the L1 read policy (``resolve_exclude_late``), resolved ONCE here and applied to every
+    record read below, so the timeline, the ingest stamps and the run identity all describe the same winning
+    rows; under it the thesis's late rows are judged ONCE here (``late_call_ids``) and the same ids are
+    dropped from all three reads.
 
     - ``status``: open iff the run reached the record edge un-dearmed (``dearm_date is None``).
     - ``matured``: the episode's own ``exit_by`` elapsed (<= asof) — judged only at its deadline.
@@ -547,12 +448,7 @@ def derive_thesis_record(
       falls back to the LIVE ``thesis`` count (the direct-call default, e.g. unit tests). The live
       roster would misreport a past-as-of.
     """
-    src: TimelineSource = (
-        source
-        if source is not None
-        else RecordSource(exclude_annotated=exclude_annotated, exclude_late=exclude_late)
-    )
-    exclude = src.exclude_annotated
+    src: TimelineSource = source if source is not None else RecordSource(exclude_late=exclude_late)
     timeline = src.read(conn, thesis.id, asof)
     snaps, cards_by_asof, late = timeline.snaps, timeline.cards_by_asof, timeline.late_ids
     record = ThesisRecord(
@@ -587,7 +483,7 @@ def derive_thesis_record(
             _triggers_at_arm(cards_by_asof.get(ep.arm_date), ep.security_id) for ep in episodes
         ]
         # The record's own provenance exists only for Edition 0 (``src.provenance``): an edition's pages
-        # have no ingest stamps, run rows, annotations or thaw lags — they were all computed by one re-run.
+        # have no ingest stamps, run rows or thaw lags — they were all computed by one re-run.
         recorded = src.provenance and bool(episodes)
         # Record-provenance (2d) — composed AFTER scoring, from reads the scoring path never sees:
         # the winning arm-date rows' R2b stamps + ONE batched thaw-lag query over every cited form4
@@ -598,7 +494,6 @@ def derive_thesis_record(
                 conn,
                 thesis.id,
                 include_reconstructed=False,
-                exclude_annotated=exclude,
                 exclude_call_ids=late,
             )
             if recorded
@@ -612,20 +507,6 @@ def derive_thesis_record(
                 conn,
                 thesis.id,
                 include_reconstructed=False,
-                exclude_annotated=exclude,
-                exclude_call_ids=late,
-            )
-            if recorded
-            else {}
-        )
-        # D3b — the ACTIVE annotations on the SAME winning rows (the third peer read on the one rule),
-        # for the drawer's quiet caption only; nothing scored reads it.
-        annotations = (
-            calls_repo.annotations_for_thesis(
-                conn,
-                thesis.id,
-                include_reconstructed=False,
-                exclude_annotated=exclude,
                 exclude_call_ids=late,
             )
             if recorded
@@ -679,7 +560,6 @@ def derive_thesis_record(
                     arm_code_sha=ident.code_sha if ident else None,
                     arm_run_kind=ident.run_kind if ident else None,
                     run_identity_note=provenance.run_identity_note(ident),
-                    annotation_note=_annotation_note(annotations, ep, exclude_annotated=exclude),
                 )
             inked = inked_outcome(inks.get((ep.security_id, ep.arm_date)), ep, asof)
             record.episodes.append(
@@ -723,7 +603,6 @@ def scoreboard_records(
     *,
     include_archived: bool = True,
     known_at: datetime | None = None,
-    exclude_annotated: bool | None = None,
     exclude_late: bool | None = None,
     edition: Edition | None = None,
     workspace: WorkspaceScope,
@@ -737,25 +616,22 @@ def scoreboard_records(
     resolved member's security_id (replay's ``_single_name_security`` shape, computed here where the
     loaded theses are in scope), the unit the withheld-arm metric can price.
 
-    ``exclude_annotated`` (D3b): the annotated-night policy, resolved ONCE for the whole request
-    (``resolve_exclude_annotated``) and stamped on the result (``exclude_annotated``), so every thesis is
-    read under the same reading and the response can say which one it is. ``exclude_late`` (L1): the
-    late-night policy, resolved once and stamped (``exclude_late``) the same way.
+    ``exclude_late`` (L1): the late-night policy, resolved ONCE for the whole request and stamped on the
+    result (``exclude_late``), so every thesis is read under the same reading and the response can say which
+    one it is.
 
-    ``edition`` (editions S4): ``None`` = Edition 0, the record (the two policies above apply); a stored
-    edition = its frozen pages for every thesis (``EditionSource``) — the two policies do not apply to a
-    re-run and are stamped False (the summary reports them ``n/a``)."""
+    ``edition`` (editions S4): ``None`` = Edition 0, the record (the late policy above applies); a stored
+    edition = its frozen pages for every thesis (``EditionSource``) — the policy does not apply to a
+    re-run and is stamped False (the summary reports it ``n/a``)."""
     source: TimelineSource
     if edition is None:
-        exclude = resolve_exclude_annotated(exclude_annotated)
         exclude_late = resolve_exclude_late(exclude_late)
-        source = RecordSource(exclude_annotated=exclude, exclude_late=exclude_late)
+        source = RecordSource(exclude_late=exclude_late)
     else:
-        exclude, exclude_late = False, False
+        exclude_late = False
         source = EditionSource(edition)
     result = ScoreboardResult(
         asof=asof,
-        exclude_annotated=exclude,
         exclude_late=exclude_late,
         edition_number=source.number,
     )
@@ -792,7 +668,6 @@ def scoreboard_records(
                 known_at=known_at,
                 market_edge=market_edges[DATA_TENANT_ID],
                 basket_size=pit_basket_size,
-                exclude_annotated=exclude,
                 exclude_late=exclude_late,
                 source=source,
             )

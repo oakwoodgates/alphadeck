@@ -1,16 +1,16 @@
 """The poison-row isolation proof for the TWO TENANT SCOPES (docs/TENANT_SCOPES.md, INVARIANTS §5).
 
 Every table carries ``tenant_id``, and ``domain.scopes`` names which scope each one lives in: the shared DATA tenant
-(the master + every ingested fact) or a user's WORKSPACE (the thesis spine, the record, the ratified judgments of
-the four MIXED scoring-fact tables). These DB-backed tests certify — structurally, the same discipline-plus-test
-posture as the harness's lookahead boundary — that:
+(the master, every ingested fact, and since V2 the share counts, cash/burn and company catalysts) or a user's
+WORKSPACE (the thesis spine, the record, the thesis-scoped facts and purity). These DB-backed tests certify —
+structurally, the same discipline-plus-test posture as the harness's lookahead boundary — that:
 
-- (a) a workspace's ratified fact is INVISIBLE to another workspace, while a DATA fact is visible to both;
-- (b) an empty workspace re-derives to an honest ``Incubating`` from DATA facts alone (never a crash), and another
-  workspace's ratified rows never reach it;
-- (c) a workspace thesis arms off DATA facts + its own ratified rows and cites only accessions it can see — a
-  second workspace naming the same company shares the arm the DATA facts produce, never the first workspace's
-  ratified rows;
+- (a) a workspace's own fact (purity, a thesis-scoped fact) is INVISIBLE to another workspace, while a DATA fact is
+  visible to both;
+- (b) an empty workspace re-derives to an honest ``Incubating`` from DATA facts alone (never a crash), and a
+  company catalyst stored under a workspace reaches no card at all (V2: catalysts are platform data);
+- (c) a workspace thesis arms off DATA facts and cites only accessions it can see — a second workspace naming the
+  same company shares the arm the DATA facts produce, and a catalyst stored under a workspace rides neither card;
 - (d) the call of record lands in the thesis's workspace; the smoke runs the whole cut on the identical path;
 - every DATA read surface (the master, the 8-K / 13D tapes, the prefetch, the split list, the onboarding queue,
   the worklists) reads the data tenant and never a stray row stored under a workspace — the tenant filter stays
@@ -37,7 +37,6 @@ from domain.enums import CatalystType, Grade, State, Verdict
 from domain.scopes import DATA_TENANT_ID
 from domain.thesis import BasketMember, Thesis
 from ingest.cash_burn import ingest_cash_burn
-from ingest.catalyst import ingest_catalyst
 from ingest.edgar.form4 import ingest_form4
 from ingest.prices.eod_loader import ingest_prices, parse_yahoo_chart
 from ingest.revenue_mix import ingest_revenue_mix
@@ -47,6 +46,7 @@ from repositories import thesis_repo
 from securities import master
 from signals.base import PointInTimeData
 from signals.horizons import call_bounds
+from tests.thesis_catalyst_fixtures import insert_version
 from tests.workspaces import new_workspace
 from workbench.chain_draft import (
     PlacementStatus,
@@ -118,18 +118,23 @@ def _thesis(security_id: uuid.UUID, workspace: uuid.UUID, name: str) -> Thesis:
 
 
 def _ratified_catalyst(db, security_id, workspace, ref: str) -> None:
-    """A workspace's own ratified catalyst (a MIXED-table judgment, written under the workspace)."""
-    ingest_catalyst(
+    """A company catalyst a V1 ratify wrote under a workspace — a POISON row since V2 (``fact_catalyst`` is
+    platform data; ``ingest_catalyst`` refuses a workspace), planted raw to prove no read reaches it.
+    """
+    append_fact(
         db,
-        security_id,
-        catalyst_type=CatalystType.CONTRACT,
-        grade=Grade.CORE,
-        label=f"a contract {workspace} ratified",
-        source="ratified",
-        source_ref=ref,
-        event_date=date(2026, 5, 1),
-        ratified_by="operator",
-        tenant_id=workspace,
+        "fact_catalyst",
+        {
+            "tenant_id": workspace,
+            "security_id": security_id,
+            "catalyst_type": CatalystType.CONTRACT.value,
+            "grade": Grade.CORE.value,
+            "label": f"a contract {workspace} ratified",
+            "source": "ratified",
+            "source_ref": ref,
+            "ratified_by": "operator",
+            "valid_from": date(2026, 5, 1),
+        },
     )
 
 
@@ -162,8 +167,8 @@ def _insider(db, tenant_id, security_id, accession) -> None:
 # (a) Read isolation, both scope axes.
 # ---------------------------------------------------------------------------------------------------------
 def test_read_isolation_both_axes(db):
-    """A DATA fact is visible to every workspace; a workspace's own rows — a thesis-scoped fact, a ratified
-    MIXED fact — are visible to that workspace ONLY, and a row stored under a workspace never enters a DATA
+    """A DATA fact is visible to every workspace; a workspace's own rows — a thesis-scoped fact, a purity
+    fact — are visible to that workspace ONLY, and a row stored under a workspace never enters a DATA
     read. Proves the tenant filter is load-bearing on ``as_of`` AND ``as_of_thesis`` AND the PIT, not just the
     scope id."""
     _workspaces(db)
@@ -180,31 +185,26 @@ def test_read_isolation_both_axes(db):
         )
     ] == ["DATA-0001"]
 
-    # thesis-scoped WORKSPACE axis: W's theme conviction is W's only
+    # thesis-scoped WORKSPACE axis: W's counting catalyst entries are W's only (V2 W6c: the thesis-scoped call
+    # read, which replaced the theme conviction's)
     w_thesis = _thesis(sid, W, "W theme")
     thesis_repo.upsert(db, w_thesis)
-    append_fact(
+    insert_version(
         db,
-        "fact_theme_conviction",
-        {
-            "tenant_id": W,
-            "thesis_id": w_thesis.id,
-            "grade": "flip",
-            "label": "W theme conviction",
-            "source": "ratified",
-            "source_ref": "W-THEME-0001",
-            "valid_from": date(2026, 5, 1),
-        },
+        w_thesis.id,
+        uuid.uuid4(),
+        at=datetime(2026, 5, 1, 15, tzinfo=timezone.utc),
+        valid_from=date(2026, 5, 1),
+        tenant_id=W,
+        label="W-ENTRY-0001",
     )
-    assert [r["source_ref"] for r in _pit(db, W).theme_conviction_facts(w_thesis.id)] == [
-        "W-THEME-0001"
-    ]
-    assert _pit(db, V).theme_conviction_facts(w_thesis.id) == []
+    assert [r["label"] for r in _pit(db, W).thesis_catalyst_facts(w_thesis.id)] == ["W-ENTRY-0001"]
+    assert _pit(db, V).thesis_catalyst_facts(w_thesis.id) == []
     for other in (V, DATA):
         assert (
             as_of_thesis(
                 db,
-                "fact_theme_conviction",
+                "fact_thesis_catalyst",
                 thesis_id=w_thesis.id,
                 asof=_ARM_ASOF,
                 known_at=_KNOWN,
@@ -213,7 +213,7 @@ def test_read_isolation_both_axes(db):
             == []
         )
 
-    # the MIXED axis: W's ratified purity is invisible to V
+    # purity (WORKSPACE): W's ratified purity is invisible to V
     ingest_revenue_mix(
         db,
         sid,
@@ -233,9 +233,9 @@ def test_read_isolation_both_axes(db):
 # (b) An empty workspace -> honest Incubating off DATA facts alone (never a crash, never another's rows).
 # ---------------------------------------------------------------------------------------------------------
 def test_empty_workspace_is_honest_incubating(db):
-    """W holds a card on a company with NO data facts; V ratified a core catalyst on the SAME company. W's call
-    re-derives to ``Incubating`` with no triggers — V's ratified judgment never reaches W's card — while V's
-    own read sees it (the poison row is real)."""
+    """W and V hold cards on a company with NO data facts; a core catalyst sits under V (a V1 ratify's row).
+    V2: company catalysts are platform data, so that row reaches NO card — both re-derive to ``Incubating`` with
+    no triggers, V's included — and V's own read does not see it."""
     _workspaces(db)
     sid = _security(db)
     _ratified_catalyst(db, sid, V, "CAT-V-0001")
@@ -244,13 +244,11 @@ def test_empty_workspace_is_honest_incubating(db):
     thesis_repo.upsert(db, v_thesis)
     thesis_repo.upsert(db, w_thesis)
 
-    assert [r["source_ref"] for r in _pit(db, V).catalyst_facts(sid)] == ["CAT-V-0001"]
-    assert "CAT-V-0001" in _refs(
-        call_for_thesis(db, v_thesis.id, _ARM_ASOF, known_at=_KNOWN, record=False)
-    )
-    card = call_for_thesis(db, w_thesis.id, _ARM_ASOF, known_at=_KNOWN, record=False)
-    assert card.state is State.INCUBATING
-    assert card.triggers_fired == []
+    assert _pit(db, V).catalyst_facts(sid) == []
+    for thesis in (v_thesis, w_thesis):
+        card = call_for_thesis(db, thesis.id, _ARM_ASOF, known_at=_KNOWN, record=False)
+        assert card.state is State.INCUBATING
+        assert card.triggers_fired == []
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -258,8 +256,9 @@ def test_empty_workspace_is_honest_incubating(db):
 # ---------------------------------------------------------------------------------------------------------
 def test_workspace_call_arms_off_data_and_cites_only_what_it_sees(db):
     """The DATA facts (the Wells cluster buy + the breakout) arm BOTH workspaces' cards on the same company —
-    shared data, one arm — and each cites the data accession. V's ratified catalyst rides V's card and never
-    W's: the card-level isolation proof, not just the row-level one."""
+    shared data, one arm — and each cites the data accession. A catalyst stored under V rides NEITHER card
+    (V2: a company catalyst is read from the platform only): the card-level proof, not just the row-level one.
+    """
     _workspaces(db)
     sid = _security(db)
     _arm_facts(db, sid, "DATA-WELLS-0001")
@@ -274,8 +273,10 @@ def test_workspace_call_arms_off_data_and_cites_only_what_it_sees(db):
     assert w_card.state is State.ARMED and v_card.state is State.ARMED
     assert w_card.armed_security_id == sid and v_card.armed_security_id == sid
     assert "DATA-WELLS-0001" in _refs(w_card) and "DATA-WELLS-0001" in _refs(v_card)
-    assert "CAT-V-0001" in _refs(v_card)
-    assert "CAT-V-0001" not in _refs(w_card)  # V's ratified row never leaks into W's call
+    assert "CAT-V-0001" not in _refs(
+        v_card
+    )  # a workspace's catalyst row no longer arms its own card
+    assert "CAT-V-0001" not in _refs(w_card)
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -331,12 +332,12 @@ def test_workspace_cut_smoke(db):
 
 
 # ---------------------------------------------------------------------------------------------------------
-# The MIXED scoring facts — a workspace's ratified rows are its own; the DATA row is everyone's.
+# The scoring facts — share counts and cash/burn are platform data (everyone reads DATA); purity is per workspace.
 # ---------------------------------------------------------------------------------------------------------
 def test_scoring_facts_read_isolation(db):
-    """The three scoring-fact accessors (revenue_mix / shares_outstanding / cash_burn) read DATA + the caller's
-    workspace: W's ratified row and V's ratified row are each visible ONLY to their own workspace, while a
-    DATA-scope row (a feed row) is visible to both."""
+    """V2: the share-count and cash/burn accessors read the DATA tenant ONLY — the same rows for W and V, and no
+    row stored under a workspace (a V1 ratify's row: a poison row now), not even the reader's own. Purity reads
+    the caller's workspace only: W's for W, V's for V."""
     _workspaces(db)
     sid = _security(db)
     common = dict(event_date=date(2026, 1, 1), source="ratified", ratified_by="operator")
@@ -344,25 +345,40 @@ def test_scoring_facts_read_isolation(db):
         ingest_revenue_mix(
             db, sid, segment_label="x", mix_pct=90, source_ref=f"{tag}-MIX", tenant_id=ws, **common
         )
-        ingest_shares_outstanding(
-            db, sid, shares=228_000_000, source_ref=f"{tag}-SH", tenant_id=ws, **common
-        )
-        ingest_cash_burn(
-            db,
-            sid,
-            cash_usd=1_000_000_000,
-            quarterly_burn_usd=0,
-            source_ref=f"{tag}-CB",
-            tenant_id=ws,
-            **common,
-        )
-    # a DATA-scope row (no ratifier — the feed's shape)
+        for table, values in (
+            ("fact_shares_outstanding", {"shares": 228_000_000}),
+            ("fact_cash_burn", {"cash_usd": 1_000_000_000, "quarterly_burn_usd": 0}),
+        ):
+            append_fact(
+                db,
+                table,
+                {
+                    "tenant_id": ws,
+                    "security_id": sid,
+                    "source": "ratified",
+                    "source_ref": f"{tag}-{table}",
+                    "ratified_by": "operator",
+                    "valid_from": date(2026, 1, 1),
+                    **values,
+                },
+            )
+    # the DATA rows (the platform's)
     ingest_shares_outstanding(
         db,
         sid,
         shares=141_000_000,
         source="10-q-cover",
         source_ref="DATA-SH",
+        event_date=date(2026, 1, 1),
+        tenant_id=DATA,
+    )
+    ingest_cash_burn(
+        db,
+        sid,
+        cash_usd=5_000_000,
+        quarterly_burn_usd=1_000_000,
+        source="10-q",
+        source_ref="DATA-CB",
         event_date=date(2026, 1, 1),
         tenant_id=DATA,
     )
@@ -373,10 +389,9 @@ def test_scoring_facts_read_isolation(db):
 
     assert refs(w_pit, "revenue_mix_facts") == ["W-MIX"]
     assert refs(v_pit, "revenue_mix_facts") == ["V-MIX"]
-    assert refs(w_pit, "shares_outstanding_facts") == ["DATA-SH", "W-SH"]
-    assert refs(v_pit, "shares_outstanding_facts") == ["DATA-SH", "V-SH"]
-    assert refs(w_pit, "cash_burn_facts") == ["W-CB"]
-    assert refs(v_pit, "cash_burn_facts") == ["V-CB"]
+    for pit in (w_pit, v_pit):
+        assert refs(pit, "shares_outstanding_facts") == ["DATA-SH"]
+        assert refs(pit, "cash_burn_facts") == ["DATA-CB"]
 
 
 def test_corporate_event_read_isolation(db):

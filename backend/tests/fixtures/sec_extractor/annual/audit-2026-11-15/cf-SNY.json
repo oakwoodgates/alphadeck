@@ -1,0 +1,39 @@
+{
+ "_fixture": "RECONSTRUCTED from the 2026-11-15 annual audit and plan, not copied from EDGAR. ifrs-full, EUR. Recorded by the audit: cash 7,657,000,000 and operating cash flow 10,750,000,000 euros (companyfacts agreed). Reconstructed: the accession and filed date.",
+ "entityName": "SNY",
+ "facts": {
+  "ifrs-full": {
+   "CashAndCashEquivalents": {
+    "units": {
+     "EUR": [
+      {
+       "end": "2025-12-31",
+       "val": 7657000000,
+       "accn": "0001628280-26-008403",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-02-20"
+      }
+     ]
+    }
+   },
+   "CashFlowsFromUsedInOperatingActivities": {
+    "units": {
+     "EUR": [
+      {
+       "start": "2025-01-01",
+       "end": "2025-12-31",
+       "val": 10750000000,
+       "accn": "0001628280-26-008403",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-02-20"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

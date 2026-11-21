@@ -12,13 +12,18 @@ operational thesis columns.
 from __future__ import annotations
 
 from typing import Any
+from uuid import UUID
 
+from domain.burn_pace import stored_pace
+from domain.cash_currency import currency_symbol
 from domain.config import DEFAULT_CONFIG, CallConfig
 from domain.enums import Grade
+from domain.platform_values import pick_current, ratifier_kind
 from domain.signal import Provenance
 from domain.splits import applicable, listed_from_row, scale_after
 from domain.thesis import BasketMember, Thesis
 from domain.workbench import ScoredFigure, ScoredMember
+from platform_values import words
 from signals import catalyst_conviction, dilution_clock
 from signals.base import PointInTimeData
 from signals.common import entry_signal_is_live
@@ -43,7 +48,7 @@ def _bucket(value: float, cutoffs: tuple[float, ...]) -> int:
     return sum(1 for c in cutoffs if value >= c)
 
 
-def _prov(fact: dict[str, Any], **figures: Any) -> Provenance:
+def _prov(fact: dict[str, Any], *, own: bool = False, **figures: Any) -> Provenance:
     """Provenance from a scoring fact (revenue_mix / shares / cash_burn): the ``source`` (the BASIS — e.g.
     ``10-k-segment`` vs ``10-k-business-description``), the ``source_ref`` (the filing), and the ``note``.
     The extra ``figures`` are the fact's OWN ratified values (shares / cash_usd / mix_pct / …), threaded
@@ -51,18 +56,20 @@ def _prov(fact: dict[str, Any], **figures: Any) -> Provenance:
     candidate — the DB-free extract endpoint can't know a ratify happened; the scored read is the only
     DB-backed surface the panel sees. Display-only (#2): these ride provenance, they never make a number.
 
-    ``ratified_by`` rides ``detail`` too, so the panel can say "auto-applied — confirm or override" for a
-    machine-applied AUTO shares count. The panel branches ONLY on ``"auto"``: legacy rows are stamped
-    ``"operator"`` but ~108 of them were the old ceremonial AUTO confirm, so claiming "operator confirmed"
-    off this column would assert a check that never happened. Everything not-``auto`` stays a neutral
-    "on file", which is true of every row. PROVENANCE, never a scoring input — the as-of read still never
-    branches on it (this is the FIRST reader of the column, and it's display-only).
+    WHO set the fact rides ``detail`` as ``set_by``, a KIND and never the stored ``ratified_by`` (V2 W5d: the
+    steward's email must not reach a user or an agent). A shared value (shares, cash/burn): ``machine`` /
+    ``steward`` / ``carried`` (``domain.platform_values.ratifier_kind``, the one vocabulary). The reader's own
+    purity (``own``, their workspace's row): ``you`` when a person ratified it (nothing when the machine or a feed
+    stored it). PROVENANCE, never a scoring input — the as-of read never branches on it (display-only).
     """
     detail: dict[str, Any] = {k: v for k, v in figures.items() if v is not None}
     if fact.get("note"):
         detail["note"] = fact["note"]
-    if fact.get("ratified_by"):
-        detail["ratified_by"] = fact["ratified_by"]
+    by = fact.get("ratified_by")
+    if not own:
+        detail["set_by"] = ratifier_kind(by)
+    elif ratifier_kind(by) != "machine":
+        detail["set_by"] = "you"
     return Provenance(source=fact["source"], ref=fact["source_ref"], detail=detail)
 
 
@@ -93,18 +100,50 @@ def _purity(pit: PointInTimeData, sid, cfg: CallConfig) -> ScoredFigure:
         return ScoredFigure()  # "—": no purity data
     best = max(facts, key=lambda f: float(f["mix_pct"]))
     pct = float(best["mix_pct"])
-    prov = _prov(best, mix_pct=pct, segment_label=best["segment_label"])
+    prov = _prov(best, own=True, mix_pct=pct, segment_label=best["segment_label"])
     return ScoredFigure(pips=_bucket(pct, cfg.purity_pip_pct), value=pct, provenance=[prov])
 
 
-def _runway(pit: PointInTimeData, sid, cfg: CallConfig) -> ScoredFigure:
-    """Months of funding at the current burn (cash / monthly burn); cash-generative reads max (top pip)."""
+def _runway(pit: PointInTimeData, sid, cfg: CallConfig, *, applies: bool = True) -> ScoredFigure:
+    """Months of funding at LAST QUARTER'S burn (cash / monthly burn); cash-generative reads max (top pip).
+
+    The year-to-date pace (V2 extractor correctness PR 3, ``domain.burn_pace``) rides the provenance DETAIL only,
+    read from the stored pace columns (else, before 0209, the note): ``ytd_quarterly_burn_usd``, ``ytd_burn_days``, ``ytd_runway_months`` (when that pace
+    burns) and ``pace_caveat`` (only when the quarter is far off that pace). The pips and the value never read it.
+
+    ``applies=False`` (V2 C1: ``securities.business_type.runway_applies`` said a runway means nothing for this
+    company, a bank, insurer, broker, exchange, asset manager, lender or fund trust): no pips and no months, the
+    stored cash and burn kept on the fact's provenance (numbers with their source) WITHOUT the pace (its months and
+    caveat are runway readings), and a ``runway:not-applicable`` entry carrying the sentence (``_runway_not_applicable``).
+    """
     facts = pit.cash_burn_facts(sid)
     if not facts:
+        if not applies:
+            return _runway_not_applicable([])
         return ScoredFigure()  # "—": no cash/burn data
-    best = max(facts, key=lambda f: f["valid_from"])
+    best = pick_current(facts)  # THE one pick (domain.platform_values, D1 a)
     cash, burn = float(best["cash_usd"]), float(best["quarterly_burn_usd"])
-    prov = _prov(best, cash_usd=cash, quarterly_burn_usd=burn)
+    # the figures' own currency (D4): the caveat sentence speaks it; the detail carries the stored code and the
+    # investment split so every screen labels the cash (``domain.cash_currency``; the front end's twin)
+    pace = (
+        stored_pace(best, symbol=currency_symbol(best.get("currency"), source=best.get("source")))
+        if applies
+        else None
+    )
+    part = best.get("investments_usd")
+    prov = _prov(
+        best,
+        cash_usd=cash,
+        quarterly_burn_usd=burn,
+        currency=best.get("currency"),  # None = not recorded: _prov drops it
+        investments_usd=None if part is None else float(part),
+        ytd_quarterly_burn_usd=None if pace is None else pace.ytd_quarterly_burn_usd,
+        ytd_burn_days=None if pace is None else pace.ytd_days,
+        ytd_runway_months=None if pace is None else pace.ytd_runway_months,
+        pace_caveat=None if pace is None else pace.caveat,
+    )
+    if not applies:
+        return _runway_not_applicable([prov])
     if burn <= 0:  # cash-generative: no burn-funding risk -> the top pip, no finite months figure
         return ScoredFigure(pips=len(cfg.runway_pip_months), value=None, provenance=[prov])
     months = cash / (burn / _MONTHS_PER_QUARTER)
@@ -113,6 +152,18 @@ def _runway(pit: PointInTimeData, sid, cfg: CallConfig) -> ScoredFigure:
         value=round(months, 1),
         provenance=[prov],
     )
+
+
+def _runway_not_applicable(facts: list[Provenance]) -> ScoredFigure:
+    """The runway of a company it means nothing for: no pips, no value (so ``_fit`` adds no "funding risk"), the
+    cash fact's provenance when one is on file, then the ``runway:not-applicable`` entry with the sentence (the
+    ``market-cap:awaiting-price`` shape)."""
+    na = Provenance(
+        source="computed",
+        ref="runway:not-applicable",
+        detail={"note": words.RUNWAY_NOT_APPLICABLE},
+    )
+    return ScoredFigure(pips=None, value=None, provenance=[*facts, na])
 
 
 def _catalysts(pit: PointInTimeData, sid, cfg: CallConfig) -> ScoredFigure:
@@ -167,7 +218,7 @@ def _shares_prov(sh: dict[str, Any]) -> Provenance:
 
 def _market_cap(pit: PointInTimeData, sid) -> ScoredFigure:
     """A FIGURE, not a meter: latest close x latest shares (total-economic). One input alone can't
-    compute a cap — but a RATIFIED input must stay VISIBLE (value None + its provenance + a note naming
+    compute a cap — but a share count on file must stay VISIBLE (value None + its provenance + a note naming
     the missing half). A bare "—" here made a confirm on a price-less fresh name read as a silent no-op
     (the gate-3 finding: the operator ratified MU's shares three times looking for ANY change — the
     fact was on file all along; the other input, price, comes from the per-thesis back-half ingest).
@@ -186,14 +237,11 @@ def _market_cap(pit: PointInTimeData, sid) -> ScoredFigure:
     if not shares_facts and not prices:
         return ScoredFigure()  # "—": nothing on file
     if not prices:
-        sh = max(shares_facts, key=lambda f: f["valid_from"])
+        sh = pick_current(shares_facts)  # THE one pick (domain.platform_values, D1 a)
         awaiting = Provenance(
             source="computed",
             ref="market-cap:awaiting-price",
-            detail={
-                "note": "No price bars for this name yet — market cap = shares × price; the "
-                "per-thesis ingest (the back half) pulls prices. The ratified shares fact IS on file."
-            },
+            detail={"note": words.CAP_NO_PRICE},
         )
         return ScoredFigure(pips=None, value=None, provenance=[_shares_prov(sh), awaiting])
     if not shares_facts:
@@ -203,12 +251,11 @@ def _market_cap(pit: PointInTimeData, sid) -> ScoredFigure:
             ref=f"price:{latest['d']}",
             detail={
                 "close": float(latest["close"]),
-                "note": "Price on file but NO ratified shares yet — extract → ratify the cover count "
-                "to compute the cap.",
+                "note": words.CAP_NO_SHARES,
             },
         )
         return ScoredFigure(pips=None, value=None, provenance=[awaiting])
-    sh = max(shares_facts, key=lambda f: f["valid_from"])
+    sh = pick_current(shares_facts)  # THE one pick (domain.platform_values, D1 a)
     latest = prices[-1]  # price_history is sorted ascending by date
     price_prov = Provenance(
         source="price", ref=f"price:{latest['d']}", detail={"close": float(latest["close"])}
@@ -221,12 +268,7 @@ def _market_cap(pit: PointInTimeData, sid) -> ScoredFigure:
         withheld = Provenance(
             source="computed",
             ref="market-cap:ads-ratio-unread",
-            detail={
-                "note": "This name trades as an ADR/ADS but the ordinary-shares-per-ADS ratio could "
-                "not be read from its filing — the cap is WITHHELD rather than guessed at 1:1 (a "
-                "wrong ratio is a silent multiplicative error). The ratified ordinary count IS on "
-                "file; ratify a count with a known ratio (or 1:1 evidence) to light the cap."
-            },
+            detail={"note": words.CAP_ADS_UNREAD},
         )
         return ScoredFigure(
             pips=None, value=None, provenance=[_shares_prov(sh), price_prov, withheld]
@@ -276,21 +318,25 @@ def _fit(purity_pips: int | None, runway_pips: int | None, dilution_pips: int | 
 
 
 def score_member(
-    pit: PointInTimeData, member: BasketMember, cfg: CallConfig = DEFAULT_CONFIG
+    pit: PointInTimeData,
+    member: BasketMember,
+    cfg: CallConfig = DEFAULT_CONFIG,
+    *,
+    runway_applies: bool = True,
 ) -> ScoredMember:
     """Score one basket member from the point-in-time facts. The member MUST have a ``security_id`` (no
-    facts to read otherwise — ``score_thesis`` filters)."""
+    facts to read otherwise — ``score_thesis`` filters). ``runway_applies`` is the runway rule's answer for it
+    (``securities.business_type.runway_applies``, asked by the caller from the master; default: it applies).
+    """
     sid = member.security_id
     purity = _purity(pit, sid, cfg)
-    runway = _runway(pit, sid, cfg)
+    runway = _runway(pit, sid, cfg, applies=runway_applies)
     catalysts = _catalysts(pit, sid, cfg)
     dilution = _dilution(pit, sid, cfg)
     market_cap = _market_cap(pit, sid)
-    # The fact-backed meters (purity / runway / market cap) each rest on an extract->ratify scoring fact; a BLANK
-    # one (no pip AND no value) has no operator-confirmed fact yet — an unconfirmed estimate the operator can
-    # confirm. Count the blanks so the surface flags "rests on N unconfirmed" honestly. Confidence signal only;
-    # the score is unchanged (still confirmed-only). (catalysts/dilution ride other feeds, not this loop.)
-    unconfirmed = sum(1 for f in (purity, runway, market_cap) if f.pips is None and f.value is None)
+    # (V2 W5d, the plan's Q8) no "unconfirmed estimates" count: a blank runway or cap is a SHARED value's state
+    # (awaiting the steward, no value yet), read with its words from ``GET /platform-values/...``, never a task
+    # the user confirms; a blank purity is the user's own to set.
     return ScoredMember(
         security_id=sid,
         segment=member.segment,
@@ -300,12 +346,21 @@ def score_member(
         dilution=dilution,
         market_cap=market_cap,
         fit=_fit(purity.pips, runway.pips, dilution.pips),
-        unconfirmed_estimates=unconfirmed,
     )
 
 
 def score_thesis(
-    pit: PointInTimeData, thesis: Thesis, cfg: CallConfig = DEFAULT_CONFIG
+    pit: PointInTimeData,
+    thesis: Thesis,
+    cfg: CallConfig = DEFAULT_CONFIG,
+    *,
+    runway_na: frozenset[UUID] = frozenset(),
 ) -> list[ScoredMember]:
-    """Score every basket member that has a resolved security (re-derived on read; nothing persisted)."""
-    return [score_member(pit, m, cfg) for m in thesis.basket if m.security_id is not None]
+    """Score every basket member that has a resolved security (re-derived on read; nothing persisted).
+    ``runway_na`` = the ids the runway rule says a runway means nothing for (V2 C1; the caller reads the master).
+    """
+    return [
+        score_member(pit, m, cfg, runway_applies=m.security_id not in runway_na)
+        for m in thesis.basket
+        if m.security_id is not None
+    ]

@@ -1,6 +1,7 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { setRecordStart } from "../../__tests__/recordStart";
 
 import IdeaTimeline from "../IdeaTimeline";
 import type {
@@ -72,7 +73,7 @@ const GRID = row({
       days: 36,
       nights: 20,
       hatches: [
-        { kind: "reconstructed", start: "2026-09-08", end: "2026-09-10", nights: 2, reason: null },
+        { kind: "reconstructed", start: "2026-09-08", end: "2026-09-10", nights: 2 },
       ],
     }),
     seg({
@@ -83,15 +84,6 @@ const GRID = row({
       days: 22,
       current: true,
       nights: 8,
-      hatches: [
-        {
-          kind: "excluded",
-          start: "2026-10-07",
-          end: "2026-10-08",
-          nights: 1,
-          reason: "stale_comparative_revenue",
-        },
-      ],
       multi_row_nights: [{ asof: "2026-10-09", rows: 3 }],
     }),
   ],
@@ -189,7 +181,6 @@ const DATA: IdeaTimelineOut = {
   nights: 880,
   multi_row_nights: 12,
   reconstructed_nights: 8,
-  excluded_nights: 3,
   first_recorded: "2026-07-10",
   last_recorded: "2026-10-28",
   // the payload's order (by name); the page sorts
@@ -245,16 +236,12 @@ describe("Idea Timeline — rows and segments", () => {
     expect(armed.getAttribute("title")).toContain(
       "Oct 9, 2026: 3 rows that night (the last one is read)",
     );
-    expect(armed.getAttribute("title")).toContain(
-      "set aside on the Scoreboard: stale_comparative_revenue",
-    );
     const warming = within(grid).getByTitle(/^Warming · verdict at start: Not yet/);
     expect(warming.getAttribute("title")).toContain("Sep 1, 2026 → Oct 7, 2026 · 36 days");
     expect(warming.getAttribute("title")).toContain("reconstructed: reported, never scored");
 
-    // the hatches lie over their nights: reconstructed and set-aside are distinct classes
+    // the hatch lies over its nights
     expect(grid.querySelectorAll(".it-hatch.reconstructed")).toHaveLength(1);
-    expect(grid.querySelectorAll(".it-hatch.excluded")).toHaveLength(1);
   });
 
   it("fills the left columns from the payload", () => {
@@ -291,7 +278,6 @@ describe("Idea Timeline — rows and segments", () => {
     expect(line.textContent).toContain("a state holds from its night until the card's next row");
     expect(line.textContent).toContain("a night with several rows reads its last one (12 nights)");
     expect(line.textContent).toContain("reconstructed, reported, never scored (8 nights)");
-    expect(line.textContent).toContain("set aside on the Scoreboard (3 nights)");
   });
 });
 
@@ -426,5 +412,24 @@ describe("Idea Timeline — states of the read", () => {
     );
     rerender(<IdeaTimeline asof="2026-10-29" onSelectThesis={onSelectThesis} />);
     expect(screen.getByText("No live cards.")).toBeInTheDocument();
+  });
+});
+
+vi.mock("../../../api/hooks", async (orig) =>
+  (await import("../../__tests__/recordStart")).withRecordStartStub(await orig<typeof import("../../../api/hooks")>()),
+);
+
+describe("Idea Timeline — the record-start note", () => {
+  it("says when the record starts on a page with no history", () => {
+    setRecordStart("2026-12-03");
+    h.useIdeaTimeline.mockReturnValue(query({ ...DATA, recorded_calls: 0, rows: [] }));
+    renderPage();
+    expect(screen.getByTestId("record-start-note")).toHaveTextContent("The record starts on Dec 3, 2026.");
+  });
+
+  it("is absent on a page with history", () => {
+    setRecordStart("2026-12-03");
+    renderPage();
+    expect(screen.queryByTestId("record-start-note")).toBeNull();
   });
 });

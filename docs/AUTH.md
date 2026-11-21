@@ -126,12 +126,16 @@ state.
 | | `user` | `super_admin` (the data steward) |
 |---|---|---|
 | Board, Cockpit, Workbench, Scoreboard, dashboards, radar, decisions | yes | yes |
-| Admin page and every `/admin/*` route (cron status, backups, run-daily, splits, price-feed repairs, insider amendments, onboarding) | 403; the nav entry is hidden; typing `/admin` shows "stewards only" | yes |
+| Admin page and every `/admin/*` route (cron status, backups, run-daily, splits, price-feed repairs, insider amendments, onboarding, the shared share counts and cash/burn under `/admin/platform-values`: the queue, a company's values, the six steward actions, Extract now, closing and reopening users' flags) | 403; the nav entry is hidden; typing `/admin` shows "stewards only" | yes |
+| A flag on a shared share count or cash/burn (`/value-flags`: raise, list your own, withdraw) | yes, for a company on one of their own cards (else 404), one open flag per value (409), within the daily flag allowance (429); they see only their own flags | 403 on raise and withdraw ("The steward corrects values on the company page. A flag is for users."); reads every user's flags (with the user's email) on the steward's company page and closes (fixed or kept) or reopens them; the queue shows only how many are open (W5c) |
 | Backtest page and `/backtest/*` | 403; hidden likewise | yes |
 | The business-type re-tag (`POST /workbench/securities/{id}/business-type`), a write to the SHARED company master | 403; the control is hidden | yes |
 | Surface an ETF (`POST /workbench/securities/resolve-etf`): adds a fund to the SHARED company master or marks an existing row a fund | 403; the Workbench control is hidden | yes |
-| Live fetches on a click: extract, auto-confirm, holdings, the price pull, the chain draft, terms and tier runs (see "User-triggered fetches" below) | yes, for a company on one of their own cards (else 404) and within a daily allowance per action (else 429) | yes, for any company, unlimited |
-| Add a fund to a card's ETFs link (`POST /radar/funds/attach`) | yes, for a fund already in the company list; any other symbol is a 404 ("This fund is not in the company list yet. A steward can add it.") and nothing is written | yes, and may add the fund to the company list (the same lookup-or-create as Surface an ETF) |
+| Live fetches on a click: extract, holdings, the chain draft, terms and tier runs (see "User-triggered fetches" below) | yes, for a company on one of their own cards (else 404) and within a daily allowance per action (else 429); the extract is the PURITY candidate only (W7a: no share-count or cash document is fetched; a 20-F/40-F filer answers `purity-not-covered`) | yes, for any company, unlimited; the extract carries all three candidates |
+| The price pull (`POST /workbench/securities/{id}/ingest-prices`) | 403 (V2 W7b: prices are platform data; a company a user adds gets them from the promote's lane, the onboarding job or the nightly) | yes, unlimited and not counted; an unresolved OTC name's price symbol is resolved first |
+| The get-data auto-confirm (`POST /workbench/facts/auto-confirm`) | deleted in V2 W7b (404 for everyone); shared values come from background extraction and the steward | deleted |
+| The flag explainer (`POST /workbench/facts/explain`, an LLM call on a share-count or cash FLAG candidate) | 403 (W7a: a user's extract holds no FLAG candidate) | yes, unlimited |
+| Add a fund to a card's ETFs link (`POST /radar/funds/attach`) | yes, for a fund already in the company list; any other symbol is a 404 ("This fund is not in the company list yet. A steward can add it.") and nothing is written. An add starts the fund's data load the way a promote does (V2 W7b, below) | yes, and may add the fund to the company list (the same lookup-or-create as Surface an ETF) |
 | User and token management | own name, email, password and Slack webhook, and own API tokens on the Agents tab (`/settings`) | the CLI, plus their own on `/settings` |
 | The Agents tab (`/settings/agents`) | yes: the connector URL, their own tokens and their connected apps | yes, plus one sentence on the steward scope |
 | The OAuth consent page (`/oauth/consent/<id>`) | yes: grants `read` only (`steward` shown struck, "not available to your account") | yes: may grant `read` and `steward` |
@@ -144,7 +148,7 @@ changes one. A ticker typed into either fund route above is stripped, uppercased
 becomes an OpenFIGI request or a cache filename. `backend/tests/app/test_shared_master_writes.py` pins it: a
 plain user's attempts change no master row, and a grep guard allows a call to a `securities.master` writer under
 `app/routers/` only at a listed site that is steward-gated or inside a steward branch (the automatic OTC
-price-symbol resolve in `POST /workbench/securities/{id}/ingest-prices`), and follows one hop into
+price-symbol resolve in the steward-only `POST /workbench/securities/{id}/ingest-prices`), and follows one hop into
 `backend/workbench/`: a master writer there (the draft's identity enrichment, `workbench.enrichment.enrich_for_ciks`)
 is reached from a router only inside a steward branch (`execute_draft(steward=...)`).
 
@@ -153,28 +157,33 @@ is reached from a router only inside a steward branch (`execute_draft(steward=..
 A plain user's click may still start a live fetch of server-sourced data (SEC, the price vendor, the LLM seams),
 because the Workbench is unusable without it. Each fetch is bounded (security hardening PR 1b):
 
-- **Own cards only.** Extract (`GET /workbench/securities/{id}/extract`), auto-confirm
-  (`POST /workbench/facts/auto-confirm`), holdings (`GET /workbench/securities/{id}/etf-holdings`) and the price
-  pull (`POST /workbench/securities/{id}/ingest-prices`) answer **404** "This company is not on any of your cards.
-  Add it to a card first." for a company that is not a member of one of the caller's own cards. Every screen that
-  fetches works on a saved card's members (the scored rows, the facts panel, the section runner, the sleeve rail,
-  the fund-launch attach); the triage session's saved draft is not consulted, because the user writes it. The
-  three path-routed checks run before anything is counted; auto-confirm names its company in the body, so it is
-  counted first.
+- **Own cards only.** Extract (`GET /workbench/securities/{id}/extract`; for a plain user the purity candidate only,
+  W7a) and holdings (`GET /workbench/securities/{id}/etf-holdings`) answer **404** "This company is not on any of
+  your cards. Add it to a card first." for a company that is not a member of one of the caller's own cards. Every
+  screen that fetches works on a saved card's members (the scored rows, the facts panel, the sleeve rail); the
+  triage session's saved draft is not consulted, because the user writes it. Both checks run before anything is
+  counted.
+- **No on-demand price pull, no get-data (V2 W7b).** The price pull is the steward's (403 for a plain user) and the
+  auto-confirm route is deleted. A company a user adds, by a promote, `POST /radar/funds/attach` or
+  `POST /radar/spac/attach`, has its data load started by ONE shared helper
+  (`app.routers.workbench.start_member_load`): the promote's lane (cold names queued for the onboarding job; up to
+  five, outside the nightly window, loaded at once), then the global ingest cap, then the allowance below. The
+  attach answers carry the same `ingest` / `onboarding` fields as the promote.
 - **A daily allowance per user.** Each fetch path counts one unit for the caller in `user_action_count` (migration
   0084; keyed on the user, no tenant scope), per market day (midnight to midnight in `ALPHADECK_MARKET_TZ`). Over
   the day's allowance the route answers **429** "Daily allowance reached: N <actions> a day. It resets at midnight
-  <zone> time." The count is one upsert statement, so racing requests never pass the limit. The settings, set high
-  on purpose (a ceiling against a runaway loop, not a rationing tool; 0 = no limit on that action):
+  <zone> time." The count is one upsert statement, so racing requests never pass the limit. The settings (V2 W7b
+  reviewed them down to one person's real day: the platform pays for every fetch; 0 = no limit on that action;
+  `docker-compose.yml` passes each with the same fallback, checked by `tests/domain/test_settings.py`):
 
   | Setting | Default | Counts |
   |---|---|---|
-  | `ALPHADECK_ALLOWANCE_EXTRACT_PER_DAY` | 5000 | extract |
-  | `ALPHADECK_ALLOWANCE_PRICE_PULL_PER_DAY` | 5000 | the price pull, plus one per new name a promote's fast lane ingests (when today's units cannot cover them, the names go to the onboarding queue instead and the promote says so) |
-  | `ALPHADECK_ALLOWANCE_AUTO_CONFIRM_PER_DAY` | 2000 | auto-confirm |
-  | `ALPHADECK_ALLOWANCE_HOLDINGS_PER_DAY` | 1000 | holdings |
-  | `ALPHADECK_ALLOWANCE_CHAIN_DRAFT_PER_DAY` | 100 | `POST /workbench/theses/{id}/draft-chain` |
-  | `ALPHADECK_ALLOWANCE_TERM_RUN_PER_DAY` | 200 | `POST .../terms` and `POST .../recommend-tiers`, one shared count |
+  | `ALPHADECK_ALLOWANCE_EXTRACT_PER_DAY` | 300 | extract (purity only for a user) |
+  | `ALPHADECK_ALLOWANCE_PRICE_PULL_PER_DAY` | 200 | new names loaded at once: one per new name a promote's or a fund/SPAC attach's fast lane loads (when today's units cannot cover them, the names go to the onboarding queue instead and the answer says so). The key keeps its old name |
+  | `ALPHADECK_ALLOWANCE_HOLDINGS_PER_DAY` | 200 | holdings |
+  | `ALPHADECK_ALLOWANCE_CHAIN_DRAFT_PER_DAY` | 20 | `POST /workbench/theses/{id}/draft-chain` |
+  | `ALPHADECK_ALLOWANCE_TERM_RUN_PER_DAY` | 50 | `POST .../terms` and `POST .../recommend-tiers`, one shared count |
+  | `ALPHADECK_ALLOWANCE_FLAG_PER_DAY` | 50 | a user's flag on a shared value (`POST /value-flags`, V2 W5b): not a fetch, it bounds the steward's Slack messages. Counted in the flag's own transaction after the own-card check (404) and the open-flag check (409), so a refused flag spends nothing; a withdrawal never refunds (`docs/PLATFORM_VALUES.md` §Flags) |
 
 - **No shared-master write.** The automatic OTC price-symbol resolve runs on a steward's pull only (a plain user's
   OTC pull is priced under the canonical ticker; the steward's price-feed panel or the backfill sweep resolves it).
@@ -186,6 +195,52 @@ because the Workbench is unusable without it. Each fetch is bounded (security ha
 
 The steward is neither checked nor counted. The screens show the 404 and the 429 as worded, on their own line.
 `backend/tests/app/test_user_fetches.py` pins all of it with a real plain user and a real steward.
+
+## Workspace caps
+
+The platform ingests data for every company on any live card, so what a workspace holds is a platform cost (V2 W7c).
+Three caps on the workspace's `tenant` row (migration 0203), each NULL = no cap, zero a real cap:
+
+| Cap | Counts | A new workspace gets |
+|---|---|---|
+| `cap_live_cards` | live (non-archived) cards | `ALPHADECK_WORKSPACE_CAP_LIVE_CARDS_DEFAULT`, 25 |
+| `cap_companies` | distinct companies over every basket row of the live cards (silent links and the Discovered pen included; a company on two cards counts once) | `ALPHADECK_WORKSPACE_CAP_COMPANIES_DEFAULT`, 500 |
+| `cap_terms_per_card` | search terms on one card | `ALPHADECK_WORKSPACE_CAP_TERMS_PER_CARD_DEFAULT`, 200 |
+
+`python -m pipeline.users create` writes the defaults into a NEW workspace (a default of 0 = no cap; `docker-compose.yml`
+passes each with the same fallback). Attaching a user to an existing workspace leaves its caps alone, and no existing
+workspace was changed: the founding and steward workspaces keep NULL until the operator sets them. The steward sets
+one workspace's caps from the shell (no route):
+
+```bash
+python -m pipeline.users caps --workspace <uuid>                                  # print the caps and the counts
+python -m pipeline.users caps --workspace <uuid> --live-cards 40 --companies 800  # set one or more (0 = nothing more)
+python -m pipeline.users caps --workspace <uuid> --clear                          # no cap on anything
+```
+
+**The rule (one module, `backend/app/workspace_caps.py`):** a request is refused only when a count would end ABOVE its
+cap AND above the count before the request. A workspace already over a cap still reads, edits, removes, archives and
+re-promotes; a save that keeps or shrinks a card is never refused. Enforced at every route that adds: the promote
+(`POST /workbench/theses`: a new card, the final basket's companies), `POST /theses/{id}/unarchive`,
+`POST /radar/funds/attach`, `POST /radar/spac/attach`, `PUT /workbench/theses/{id}/terms/edit` and
+`POST /workbench/theses/{id}/terms` (before the model, on the operator's own terms and the seeds; after it, on the
+generated set; the `term_run` unit stays spent). The check takes a per-workspace advisory transaction lock and the
+route writes and commits in that transaction, so two racing adds cannot both take the last slot. Caps belong to the
+workspace, not the caller: the steward is not exempt.
+
+A refusal is **409** with one sentence naming the count and the limit, before any write (nothing is
+written and no name is dropped: the whole request is refused). The screens show it as worded:
+
+- "This workspace can have at most 25 live cards and has 25. Archive a card to start another."
+- "Saving would put 512 companies on your live cards; this workspace's limit is 500. Remove 12 or archive a card."
+- "Restoring this card would make 26 live cards; this workspace's limit is 25. Archive another card first."
+- "Restoring this card would put 530 companies on your live cards; this workspace's limit is 500."
+- "Adding this fund would put 501 companies on your live cards; this workspace's limit is 500." ("this company" for
+  a SPAC)
+- "A card can carry at most 200 search terms; this one would have 215. Remove 15." ("would have at least" before the
+  model runs)
+
+`backend/tests/app/test_workspace_caps.py` pins all of it, including two racing promotes for the last slot.
 
 ## Errors
 
@@ -267,6 +322,7 @@ route) and query parameters.
 | The flag explainer (`POST /workbench/facts/explain`) | at most 10 passages, each excerpt at most 4,000 characters (prose rules), at most 20 flags; the rest per the classes above |
 | Numbers | finite only (no NaN, no Infinity); `mix_pct` 0 to 100; ratify `shares` above 0 and at most 1e13; `ads_ratio` 1 to 1,000,000; `cash_usd`, `quarterly_burn_usd` and `estimate` within ±1e15; a decision's `shares` and `price` 0 to 1e13 |
 | Dates on a request body | 1990-01-01 to 366 days after today's market date (`decision_date` also keeps "not after today") |
+| A catalyst calendar row (`label`, `when_date`) | label at most 500 characters (`CATALYST_LABEL_MAX`); date 1990-01-01 to 3,660 days after today (`CATALYST_DATE_AHEAD_DAYS`): the list is re-sent whole on every save and a calendar holds events years out |
 | `asof` (and the price window's `start` / `end`) on every read | 2000-01-01 to 7 days after today's market date |
 | The triage-session autosave | `state` stays opaque (its strings are never inspected); the request body at most 25 MB (**413**), nesting at most 32 levels |
 
@@ -279,7 +335,8 @@ the same limits as `maxLength` (`frontend/src/api/limits.ts`). Nothing is ever c
 
 - **Sign-in** checks the email and password limits in the request model, so an over-long password is refused before
   any hash is computed, on the unknown-email branch too.
-- **The flag explainer** also spends one unit of the extract allowance (it is an LLM call a click can repeat).
+- **The flag explainer** is steward-only (W7a; it spent one unit of the extract allowance before): a plain user's
+  extract carries purity only, so a user has no FLAG candidate to explain and gets the steward-only 403.
 - **Resending old data.** A promote is a full replace: the editor resends the whole card. If a stored card ever holds
   a value over a limit, its next save is refused with a 422 naming the field, and the stored card is left exactly as
   it was; there is no bypass. On the data measured on 2026-11-12 no stored value is over any limit.
@@ -318,6 +375,7 @@ python -m pipeline.users token revoke --id <token uuid>
 python -m pipeline.users oauth-client list                       # the OAuth clients, static + self-registered; never a secret
 python -m pipeline.users oauth-client disable --client-id <id>   # refused everywhere; its connections stop at once
 python -m pipeline.users oauth-client add --client-id desk --name "Research Desk" --redirect-uri https://desk.example.com/cb [--redirect-uri ...] [--confidential]
+python -m pipeline.users caps --workspace <uuid> [--live-cards N] [--companies N] [--terms N] [--clear]   # a workspace's caps (§Workspace caps)
 ```
 
 `oauth-client add` registers an app the steward vetted (self-registration is off by default, `docs/CONNECTORS.md`):

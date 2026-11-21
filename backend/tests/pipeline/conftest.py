@@ -28,3 +28,18 @@ def _onboard_runs_home(tmp_path, monkeypatch):
     d = tmp_path / "onboard_runs_home"
     monkeypatch.setattr(onboarding, "_DEFAULT_RUNS_DIR", d)
     return d
+
+
+@pytest.fixture(autouse=True)
+def _extraction_runs_home(request, tmp_path, monkeypatch):
+    """V2 W3: the same redirect for the background extraction's run artifacts (``pipeline/extraction_run_log``):
+    the onboarding job's new-company step writes ``data/extraction_runs/<started>.json``, which a test must
+    never litter (or read back). The run log's own tests are left alone: they pin the real default and pass
+    their own tmp directory everywhere else."""
+    from pipeline import extraction_run_log
+
+    if request.module.__name__.rsplit(".", 1)[-1] == "test_extraction_run_log":
+        return None
+    d = tmp_path / "extraction_runs_home"
+    monkeypatch.setattr(extraction_run_log, "EXTRACTION_RUNS_DIR", d)
+    return d

@@ -229,8 +229,7 @@ written. Each is the operator's to confirm or change.
     it would not exist.
 13. **IWM "over the same span"** is IWM's first close on or after the arm night to IWM's last close on or before the
     as-of, independent of the name's own dates (they differ only when the name's tape is stale).
-14. **A reconstructed arm night** shows an "R" and is counted on the work line; the Idea Timeline's `exclude`
-    annotations are not applied (they bear on the Scoreboard).
+14. **A reconstructed arm night** shows an "R" and is counted on the work line.
 
 **Flagged names**
 

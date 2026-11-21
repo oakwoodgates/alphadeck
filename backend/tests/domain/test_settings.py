@@ -204,10 +204,14 @@ _BACKEND_PASSED_THROUGH = {
     "ALPHADECK_LOGIN_LOCKOUT_S": "login_lockout_s",
     "ALPHADECK_ALLOWANCE_EXTRACT_PER_DAY": "allowance_extract_per_day",
     "ALPHADECK_ALLOWANCE_PRICE_PULL_PER_DAY": "allowance_price_pull_per_day",
-    "ALPHADECK_ALLOWANCE_AUTO_CONFIRM_PER_DAY": "allowance_auto_confirm_per_day",
     "ALPHADECK_ALLOWANCE_HOLDINGS_PER_DAY": "allowance_holdings_per_day",
     "ALPHADECK_ALLOWANCE_CHAIN_DRAFT_PER_DAY": "allowance_chain_draft_per_day",
     "ALPHADECK_ALLOWANCE_TERM_RUN_PER_DAY": "allowance_term_run_per_day",
+    "ALPHADECK_ALLOWANCE_FLAG_PER_DAY": "allowance_flag_per_day",  # V2 W5b
+    # V2 W7c: the caps a new workspace gets (pipeline.users create runs in the backend container)
+    "ALPHADECK_WORKSPACE_CAP_LIVE_CARDS_DEFAULT": "workspace_cap_live_cards_default",
+    "ALPHADECK_WORKSPACE_CAP_COMPANIES_DEFAULT": "workspace_cap_companies_default",
+    "ALPHADECK_WORKSPACE_CAP_TERMS_PER_CARD_DEFAULT": "workspace_cap_terms_per_card_default",
     # security PR 5: the sign-in surface
     "ALPHADECK_OAUTH_AUTHORIZE_PER_ADDRESS_HOUR": "oauth_authorize_per_address_hour",
     "ALPHADECK_OAUTH_AUTHORIZE_PER_HOUR": "oauth_authorize_per_hour",
@@ -280,6 +284,23 @@ def test_compose_passes_dynamic_registration_off_by_default():
     )
     assert m is not None, "ALPHADECK_OAUTH_DYNAMIC_REGISTRATION is not passed to the backend"
     assert m.group(1) == "false"
+
+
+def test_compose_passes_the_stewards_flag_webhook_to_the_backend_blank_by_default(monkeypatch):
+    """V2 W5b (decision W-c): the backend raises users' flags, so it reads the steward's flag webhook; compose
+    passes it with an EMPTY fallback, which the setting reads as unset (the flags then fall back to
+    SLACK_WEBHOOK_URL)."""
+    from pathlib import Path
+
+    compose = (Path(__file__).resolve().parents[3] / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+    backend = _compose_service_block(compose, "backend")
+    assert (
+        "ALPHADECK_STEWARD_SLACK_WEBHOOK_URL: ${ALPHADECK_STEWARD_SLACK_WEBHOOK_URL:-}" in backend
+    )
+    monkeypatch.setenv("ALPHADECK_STEWARD_SLACK_WEBHOOK_URL", "")
+    assert Settings().steward_slack_webhook_url is None
 
 
 def _compose_service_block(compose: str, service: str) -> str:
@@ -525,3 +546,50 @@ def test_public_origin_refuses_anything_but_a_bare_origin(monkeypatch, raw):
     monkeypatch.setenv("ALPHADECK_PUBLIC_ORIGIN", raw)
     with pytest.raises(ValidationError, match="ALPHADECK_PUBLIC_ORIGIN"):
         Settings(_env_file=None)
+
+
+# --- V2 W3a: the background extraction's dials -------------------------------------------------------------------
+
+_EXTRACTION_DIALS = {
+    "ALPHADECK_PLATFORM_EXTRACTION_MAX_NAMES": "platform_extraction_max_names",
+    "ALPHADECK_PLATFORM_EXTRACTION_BUDGET_S": "platform_extraction_budget_s",
+    "ALPHADECK_PLATFORM_EXTRACTION_ONBOARD_MAX_NAMES": "platform_extraction_onboard_max_names",
+    "ALPHADECK_PLATFORM_EXTRACTION_HOLD_H": "platform_extraction_hold_h",
+    "ALPHADECK_PLATFORM_EXTRACTION_RETRY_MAX": "platform_extraction_retry_max",
+}
+
+
+def test_the_extraction_dials_have_the_planned_defaults(monkeypatch):
+    for var in _EXTRACTION_DIALS:
+        monkeypatch.delenv(var, raising=False)
+    s = Settings()
+    assert {f: getattr(s, f) for f in _EXTRACTION_DIALS.values()} == {
+        "platform_extraction_max_names": 300,
+        "platform_extraction_budget_s": 900.0,
+        "platform_extraction_onboard_max_names": 25,
+        "platform_extraction_hold_h": 24.0,
+        "platform_extraction_retry_max": 3,
+    }
+    monkeypatch.setenv("ALPHADECK_PLATFORM_EXTRACTION_MAX_NAMES", "0")  # the kill switch
+    assert Settings().platform_extraction_max_names == 0
+
+
+def test_compose_injects_the_extraction_dials_into_BOTH_services_at_the_settings_defaults(
+    monkeypatch,
+):
+    """Compose lists the environment explicitly (no ``env_file``): the kill switch
+    ``ALPHADECK_PLATFORM_EXTRACTION_MAX_NAMES=0`` reaches the nightly (cron) and the onboarding job (backend) only
+    if each dial is listed for both, with a fallback equal to the Settings default."""
+    import re
+    from pathlib import Path
+
+    compose = (Path(__file__).resolve().parents[3] / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+    for var in _EXTRACTION_DIALS:
+        monkeypatch.delenv(var, raising=False)
+    s = Settings()
+    for var, field in _EXTRACTION_DIALS.items():
+        found = re.findall(rf"{var}: \$\{{{var}:-([0-9.]+)\}}", compose)
+        assert len(found) == 2, f"{var} must be injected into backend AND cron, found {len(found)}"
+        assert all(float(v) == getattr(s, field) for v in found), f"{var}: {found}"

@@ -617,6 +617,19 @@ carries its **one line**, `master_refresh` — the newest APPLIED run's own word
   (`Company list · refresh FAILED Oct 25 — …`; nothing was written, one transaction). The artifact (and the cron
   log) names each conflict with both companies; the repair is by hand.
 
+## Shared facts — "does a share count or cash/burn await me?" (V2)
+
+The card right after Record freshness. A company's share count and cash/burn are shared by every user and approved by the steward; this card is the steward's way in. It reads `GET /admin/platform-values/queue` and writes nothing (the six actions live on the company page, `/admin/facts/<company>`, and refresh this card).
+
+- **The line.** "N companies await you" in the loud style when N is above zero; otherwise one gray line, "Nothing awaits you", and no list.
+- **The search box.** "Find a company (ticker or name)": up to ten matches, a click opens that company's page. It is always there, queue or no queue.
+- **The queue.** One row per company, in the server's order (never re-sorted here): ticker and name, "on N cards" (a number, never whose), what waits (a flagged share count or cash/burn with its date and flags, or "a newer filing (date) waits beside the value shown"), and how long it has waited. A row opens the company page. Fifty to a page, Previous and Next.
+- **Discovered-pen-only companies.** Companies whose every card row is a Discovered pen are not counted as waiting. A gray "N more are only in a Discovered pen: show" opens them below the rest, quieter; "hide" folds them back. They are not requested until opened.
+- **One gray line of other work.** "Other work below: 2 splits to review · 1 held insider row · ...", each count a button that scrolls to its panel. Only the counts this page already reads (splits needing review, held insider rows owed, insider amendments owed), only those above zero.
+- **States.** Loading says "Reading the queue…"; a failed read shows the server's sentence in place and the search stays.
+
+**Extract now (on the company page, W4d).** A quiet "Extract now" button with the note "Reads this company's latest SEC filings. A clean value from a newer filing replaces the one shown, unless that value is pinned; a flagged value waits for you; anything else changes nothing." It runs only on a click (`POST /admin/platform-values/{id}/extract`, background extraction's own per-company step, recorded as a `steward` attempt), says "Extracting…" and holds the page's other actions while it runs, then shows one line per value ("Share count: a newer value from the filing was applied", "Cash and burn: the filings gave no value (cash-generative)", ...) and the company's new values. A failed extraction shows "The extraction failed: " and the attempt's one-line reason as the server gives it (for example `no SEC User-Agent set` on a stack without one); a busy company shows the server's busy sentence in place. It is not a steward decision, so there is no Undo: the way back from an applied value is Correct, and Pin keeps later filings waiting. Each value's History lists the company's recent extraction attempts (when, who ran it: nightly run, onboarding, backfill, Extract now or get-data, and what happened to that value).
+
 ## Cron health — "did last night's run work?"
 
 The one-word `cron.status` verdict, plus the last run's counts and any problems:

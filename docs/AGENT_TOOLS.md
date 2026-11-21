@@ -11,7 +11,7 @@ SURFACE and TRIAGE (Phase 5). Code: `backend/agent_tools/`.
 
 A read-only MCP server that lets an agent (Claude Code, or any MCP client) ask the operator's MONITOR
 questions: what is armed and why, explain this call, what is this company on; and, since Phase 5, the research
-stages' questions: what did discovery find, what is left to ratify on this card. Its tools return the platform's
+stages' questions: what did discovery find, what is left to set on this card. Its tools return the platform's
 own objects, shaped from the API's JSON: no browser, no DOM, no snapshots. Every reply is bounded, states the
 `asof` it was judged at and its `source` (`record` = the nightly calls log; `live` = the API recomputed or read
 it now), and carries the platform's wording: `exit_by` is a signal-validity horizon, not a trade exit; setup
@@ -95,20 +95,22 @@ copying the row list.
 ## Research-stage reads (Phase 5)
 
 Four more tools read the Workbench's stages as bounded views over its existing GETs, so "what did discovery find" and
-"what is still to ratify on this card" cost a few calls instead of a 1.2 MB run file and an 86 KB scored view. They are
-read-only: ratify, sign-off, include and exclude stay in the Workbench. Views are under `backend/agent_tools/views/research/`
+"what is still to set on this card" cost a few calls instead of a 1.2 MB run file and an 86 KB scored view. They are
+read-only: purity, sign-off, include and exclude stay in the Workbench. A share count or cash value is a SHARED value
+set by the platform and the steward (`docs/PLATFORM_VALUES.md`): no tool or prompt tells anyone to ratify one; a user
+who thinks one is wrong flags it in the Workbench. Views are under `backend/agent_tools/views/research/`
 (pure, like the others) and each tool's contract is declared in `views/research/__init__.py`. Every reply starts
 `thesis`, `asof` (null on an undated tool), `source: live` and ends with `sections` (each section and what it needs),
 `next_cursor`, `next_cursor_for`. The API's row order is the UI's: nothing here sorts, scores or derives.
 
 | Tool | Reads | Default reply | Budget |
 |---|---|---|---|
-| `get_triage(thesis, asof?, section?, segment?, t?)` | `/workbench/theses/{id}/scored?asof=` (recomputed on the API, about 1.5 s for 80 names) | the funnel per segment (`members_total`, `confirmed`, `unconfirmed`; the three silent links marked `silent`), `counts`, then the member rows: the five meters (pips, market cap as the figure), `unconfirmed_estimates`, the distinct provenance `sources`, the two data flags only when set. The funnel and the counts ride the first page; 79 members walk in 4 pages. `section=member` (needs `t`) reads one name with every meter's provenance (`detail` strings cut at 200); `segment` (needs `segment`; the API's own link list is matched first, so an empty link answers an empty page), `unconfirmed` and `silent` page the matching rows. A meter is never a call input | 8,000 |
+| `get_triage(thesis, asof?, section?, segment?, t?)` | `/workbench/theses/{id}/scored?asof=` (recomputed on the API, about 1.5 s for 80 names) and `/platform-values/theses/{id}` (the user's read of the shared values, current) | the funnel per segment (`members_total`, `awaiting` = a shared value awaiting the steward or missing, `needs_purity`; the three silent links marked `silent`), `counts`, `values_asof` (the values are today's, not the asof's), then the member rows: the five meters (pips, market cap as the figure), `values` (the share count's and the cash's `state` and `words`, plus `pending` when a newer filing awaits the steward; never a figure the steward has not checked, never who set it beyond a kind), the distinct provenance `sources`, the two data flags only when set, and `runway_not_applicable` (the sentence) only on a row whose runway does not apply to its kind of company (V2 C1). The funnel and the counts ride the first page; 79 members walk in 5 pages. `section=member` (needs `t`) reads one name with every meter's provenance (`detail` strings cut at 200; who set a fact is `set_by`, a kind, never an email); `segment` (needs `segment`; the API's own link list is matched first, so an empty link answers an empty page), `awaiting`, `needs_purity` and `silent` page the matching rows. A meter is never a call input | 8,000 |
 | `get_discovery(thesis, run?, section?, status?, segment?, t?)` | `/workbench/theses/{id}/runs`, then `/runs/{run_id}` (the newest unless `run` names one); `section=terms` also reads the thesis | the run's report (pages, `failed_terms`, `capped_terms`, `empty_terms` whole: a capped term means the hits past the cap were not read), counts by status, source and segment, then the placements in the run's order (`status` and `segment` narrow: a slice's first page carries the run's `run_id`, `written_at` and the slice's own counts instead of the whole report, which `section=report` reads; an unknown `run` id is refused naming the card's run ids). `section=placement` (needs `t`, a ticker or a name), `ambiguous` (the names waiting for an explicit pick, with their candidates), `report` (adds the placements behind each flagged term), `terms` (the term set joined with the run; a term in no placement stays, with 0). A card with no saved run answers with `runs: []` and a note; the run loader's 404 and an unknown `run` reach the caller as `api_rejected` with the API's detail. VERIFY and off-thesis are recommendations, never deletions | 8,000 |
-| `get_extract(t, thesis?, section?, fact?)` | `/workbench/securities/{id}/extract` (`?thesis_id=` only when `thesis` is given) | the three scoring-fact candidates (AUTO / FLAG / HUMAN) with at most two passages each, every excerpt cut at 300 characters with `excerpt_total_chars`. `section=passages` with `fact` reads one fact's passages in full. A fact with more passages than shown carries `more: "section=passages fact=<type>"`. The extract is DB-free: it does not know whether a fact is already on file (`get_triage` section=member does). Sign of `quarterly_burn_usd`: *quarterly_burn_usd is positive when the company consumed cash in operations over the quarter; zero or negative means cash-generative* (`domain.extraction.QUARTERLY_BURN_SIGN`, the one definition) | 8,000 |
+| `get_extract(t, thesis?, section?, fact?)` | `/workbench/securities/{id}/extract` (`?thesis_id=` only when `thesis` is given) | a plain user's token: the purity candidate only (HUMAN; the route fetches no share-count or cash document, and a 20-F/40-F filer answers `empty_reason: "purity-not-covered"`); a steward's token: the three scoring-fact candidates (AUTO / FLAG / HUMAN). At most two passages each, every excerpt cut at 300 characters with `excerpt_total_chars`. `section=passages` with `fact` reads one fact's passages in full. A fact with more passages than shown carries `more: "section=passages fact=<type>"`. The extract is DB-free: it does not know whether a fact is already on file (`get_triage` section=member does). Sign of `quarterly_burn_usd`: *quarterly_burn_usd is positive when the company consumed cash in operations over the quarter; zero or negative means cash-generative* (`domain.extraction.QUARTERLY_BURN_SIGN`, the one definition) | 8,000 |
 | `get_onboarding(thesis, section?)` | `/workbench/theses/{id}/onboarding` | `counts`, `window`, `stalled`, `paused`, `history_legs`, `last_run`, the first 10 pending names and the latest 5 finished ones; `section=pending` or `recent_done` pages the full list. A name still onboarding is why a card is `ingest_fresh: false`; a card member absent from the queue never needed a cold walk | 8,000 |
 
-**Cost is the operator's to spend.** `get_extract` makes up to 4 EDGAR requests when the filings are not cached and, with
+**Cost is the operator's to spend.** `get_extract` makes up to 3 EDGAR requests for a user's token (4 for a steward's) when the filings are not cached and, with
 `thesis`, ONE LLM call (the grounded purity proposal) when a key is set; the prompts call it only when the operator names the
 company, and it passes `thesis` only when the operator asks for the on-thesis purity proposal. `get_triage` recomputes the
 scored view on every read (about 1.5 s for 80 names), so it is read once per review. The three undated tools
@@ -152,7 +154,7 @@ arguments. The agent's own reading goes under a separate heading and it says wha
 | `morning-brief` | `asof?` | `what-changed`, `daily-digest`, then up to three more calls in order of need: the digest's `due`, `insider` and `tape` sections where the default cut them, or in place of one a what-changed section or `forming-quietly` | at most 5 calls / 36,000 (5 / 32,236) |
 | `ticker-check` | `t`, `asof?` | `lookup_ticker`, `get_call detail=brief` for at most 2 cards (armed or warming first), `get_display_signals` for the first | at most 4 calls / 24,000 (4 / 15,218) |
 | `compare-rotation` | `start`, `end`, `group_by=business_type`, `group?` | `read_dashboard("rotation-map")` at both dates, matched by group `key` | default at most 4 calls / 32,000 (4 / 22,042); with `group` at most 2 / 4,000 (2 / 2,920) |
-| `ratify-queue` | `thesis`, `asof?` | `get_triage` once (the funnel, the unconfirmed names and the meters without a value), `get_thesis` once (not signed off, model drafts, no conviction or context role), `get_discovery(section="ambiguous")` only when the card has a saved run; `get_extract` only when the operator names the company | at most 3 calls / 24,000 (3 / 23,486) |
+| `card-data-check` (was `ratify-queue`) | `thesis`, `asof?` | `get_triage` once (the funnel, the names with no purity yet, the shared values awaiting the steward or missing, in the API's words), `get_thesis` once (not signed off, model drafts, no conviction or context role), `get_discovery(section="ambiguous")` only when the card has a saved run; `get_extract` only when the operator names the company. Ends "To dispute a shared value, flag it in the Workbench." | at most 3 calls / 24,000 (3 / 23,618) |
 | `splits-review` | `t?` | steward only: `get_splits` once (counts, `needs_review_by_reason` and the needs-review rows), `section=needs_review` with `reason=sources_differ` then `reason=extractor_abstained` (only when the loud list was cut or no ticker was named), `section=one` for at most 3 names (fewer when both reason reads ran), `section=jumps` only when the default counted an unlisted jump; the report ends "confirm or reject each on Admin > Splits" | at most 5 calls / 24,000 (see the test's printed cost) |
 | `discovery-review` | `thesis` | `get_discovery` once (report, capped and empty terms, counts), `section="terms"`, `section="ambiguous"` when any, at most one slice (`status`, `segment` or one `placement`) | at most 4 calls / 32,000 (4 / 27,114) |
 
@@ -318,7 +320,7 @@ workspace: the API's login door signs each request in.
 An MCP client keeps the tool schemas it loaded when it connected. After this server's tools change (a new
 argument, a renamed field, a new tool), reconnect the server in the client (in Claude Code: `/mcp`, then
 reconnect, or restart the session); otherwise the model keeps calling the old contract. The server's advertised
-version (`alphadeck` `2.6.0`) changes with its contract: a tool or prompt added or removed, or a description
+version (`alphadeck` `2.9.0`) changes with its contract: a tool or prompt added or removed, or a description
 whose meaning changes, bumps the MINOR. A client sees the version at `initialize`; a running Claude Code session keeps
 the schemas it loaded, and a fresh session reads the new ones.
 
@@ -330,7 +332,7 @@ stdio subprocess against a loopback fake API: 14 tools, 7 prompts for a plain ca
 sizes, cursor walks, narrowing, rejections, the wire-key guard, purity), `test_contract.py` (every registered contract),
 `dump_contract.py` (prints the sha256 of the tools and prompts listing: the proof a refactor changed no contract),
 `test_resolve.py`, `test_client.py`, and the prompt call plans through the real stdio client: `test_morning_brief.py`,
-`test_board_review.py`, `test_explain_call.py`, `test_ticker_check.py`, `test_ratify_queue.py`, `test_discovery_review.py`,
+`test_board_review.py`, `test_explain_call.py`, `test_ticker_check.py`, `test_card_data_check.py` (with the guard that no prompt says to ratify a share count or cash), `test_discovery_review.py`,
 `test_compare_rotation.py` (with the
 argument-rule rejections), `test_splits_review.py` (the steward's call plan, and a plain stdio caller not offered the prompt), `test_admin_views.py` (the two steward tools: default replies, every section, the rejections, the budget), plus
 `test_skill.py` (the skill equals the prompt files; its size and frontmatter bars), `test_principal.py` (every tool read-only with a scope, the scope gate, the stdio principal, the window, the grep guards: no tenant, no `db` or `repositories` import) and `test_hosted.py` (the hosted endpoint against the real API and database: two users and a steward, the 401 shapes, the RFC 9728 document, 50 interleaved calls, the steward reads against a seeded split, no redirect). The route the list reads is tested against the database in
@@ -349,3 +351,14 @@ mapping.
 Version 2.6.0 (the tuning pass) made a card with no record explicit (`no_record`), added `basket_size` to every
 card, `counts` to `get_thesis`, a review reason to the split list, the nightly-window note to every output
 schema, and sharpened the clock's, triage's, discovery's and extract's words.
+Version 2.7.0 (V2 W5d) renamed the `ratify-queue` prompt `card-data-check` (what is the operator's to set; which shared
+values await the steward or are missing; "To dispute a shared value, flag it in the Workbench."), replaced `get_triage`'s
+`unconfirmed_estimates`, `confirmed` / `unconfirmed` and section `unconfirmed` with each member's `values` (the shared
+values' state in words, current) and the sections `awaiting` and `needs_purity`, and reworded `get_extract`: its share
+count and cash are a fresh parse, not the shared values. No reply carries the steward's email.
+Version 2.8.0 (V2 W7a) narrowed `get_extract` for a plain user's token to the purity candidate (the route no longer
+fetches or returns a share count or cash for a user; a 20-F/40-F filer answers `purity-not-covered`); a steward's token
+still reads all three. The `card-data-check` prompt says so.
+Version 2.9.0 (V2 C1) says on a `get_triage` row when a runway does not apply to the company's kind (a bank, insurer,
+broker, exchange, asset manager, lender or fund trust: `runway_not_applicable`, the sentence, only on those rows); its
+runway pip is then empty by rule, not for want of data. The scored read itself follows the one runway rule.

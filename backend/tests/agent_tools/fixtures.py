@@ -483,7 +483,7 @@ def _filing_row(r: int) -> dict[str, Any]:
         "routine": r % 4 == 2,
         "fold": None,
         "usd": None,
-        "ratifier": None,
+        "set_by": None,
         "ratified_on": None,
     }
 

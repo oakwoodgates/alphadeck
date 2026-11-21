@@ -72,13 +72,22 @@ class ExtractedFact(DomainModel):
     quarterly_burn_usd: float | None = (
         None  # cash_burn; sign: see QUARTERLY_BURN_SIGN (positive = cash consumed)
     )
-    # The statement's own ISO currency (Retrieval Slice A follow-up), set ONLY by the IFRS annual-
-    # statements runway path — an IFRS filer reports in its native currency (TWD/EUR/CAD/…) and the
-    # ``*_usd`` fields then carry native-currency values (the runway RATIO stays currency-correct). This
-    # rides through DISPLAY-ONLY so the FE can label cash/burn honestly (``cash NT$`` — never a misread
-    # ``$2.77T``); it is NEVER converted to USD and NEVER a scoring input. None for every domestic/us-gaap
-    # filer (the periodic ``_cash_burn`` path leaves it unset) → the FE defaults the label to ``$``.
-    statement_currency: str | None = None  # cash_burn (annual-statements path only)
+    # The statement's own ISO currency. On the annual-statements runway path a foreign filer
+    # reports in its own currency (CNY/JPY/TWD/EUR/CAD/…) and the ``*_usd`` fields then carry those values
+    # (the runway RATIO stays currency-correct). Since PR 4 (2026-11-15) it is ESTABLISHED, never guessed:
+    # the companyfacts unit that reproduces the statement's figures exactly, else the header's explicit
+    # markers (a bare "$" is not USD); None = UNREAD and flagged ``currency-unread`` (the FE renders "?",
+    # never "$"). It rides through DISPLAY-ONLY; it is NEVER converted to USD and NEVER a scoring input. The
+    # periodic 10-Q/10-K path (``_cash_burn``) reads companyfacts' USD unit only, so a value it read says "USD"
+    # (since the extractor follow-up to PR 6); its nothing-read result says none.
+    statement_currency: str | None = None  # cash_burn
+    # The INVESTMENT part already inside ``cash_usd`` (operator decision D1, 2026-11-15: one "cash and
+    # short-term investments" number, the investment part carried on its own so a screen can show the split):
+    # the short-term investments plus the long-term MARKETABLE securities counted, on the cash date. None =
+    # no investment tag on the cash date (never a fake 0). The annual-statements path sets it to the
+    # short-term deposits/investments rows it added (PR 4). Stated in the note and stored on the candidate and
+    # the fact (``investments_usd``, migration 0208).
+    investments_usd: float | None = None  # cash_burn
     # One OBSERVED condition, one label (a flag is evidence, #6 — never a catch-all). A flag marks an
     # EXCEPTION needing judgment; COMPOSITION (a cleanly-derived quarter, the marketable-securities
     # basis) rides the note as provenance, never a flag — a flag true of ~every filer carries no
@@ -87,7 +96,39 @@ class ExtractedFact(DomainModel):
     #           | "cover-after-filing" (a companyfacts cover row dated after its own filing was refused;
     #             it rides beside the condition label, on any tier — the note names the row)
     # cash   -> "ytd-raw" | "possible-one-time" | "stale-cash"
+    #           | "cash-tags-disagree" (two balance-sheet cash tags of one date contradict each other: a
+    #             narrower line exceeds a wider one, SOAR's zero cash-and-equivalents beside 8.4M of cash)
+    #           | "investments-unreconciled" (cash + short-term investments miss the same-dated combined
+    #             ``CashCashEquivalentsAndShortTermInvestments`` beyond the tolerance; or an unsplit debt-securities
+    #             total is smaller than its own current + noncurrent parts; or such a total is the only investment
+    #             tag and no combined line confirms it: quoted in the note, NOT counted — it may be partly
+    #             cash equivalents or restricted; the steward adds the eligible part)
+    #           | "investments-off-date" (an investment tag sits on a NEWER balance sheet than the cash and
+    #             not on the cash date: the composition at one date is not established)
+    #           | "burn-span" (the burn covers fewer than quarterly_span_min_days or more than
+    #             quarterly_span_max_days, native or derived: not established as one quarter; offered as found)
+    #           | "burn-off-period" (the burn does not end on the cited filing's period of report)
+    #           | "cash-after-period" (the cash is dated after the cited filing's period of report; an older
+    #             cash date is "stale-cash")
     #           | "no-companyfacts" | "no-cashflow-column" | "no-cash-instant"  (missing-data: value None)
+    # annual cash (``annual-statements``, always FLAG; PR 4 adds the last six):
+    #           "annual-statements" | "unit-scale-unread" | "column-ambiguous" | "stale-runway"
+    #           | "currency-unread" (the currency could not be established: a bare "$", headers that
+    #             disagree, and no companyfacts unit reproducing the figures; statement_currency None)
+    #           | "currency-mismatch" (companyfacts reproduces the figures in one currency, the header names
+    #             another; the reproducing unit is used and both are stated)
+    #           | "convenience-column" (a translated US$ column is printed beside the figure and
+    #             companyfacts did not confirm which column was read)
+    #           | "figures-disagree" (companyfacts has a row on the statement's date and none reproduces the
+    #             statement figure at its printed precision; both numbers in the note. Was
+    #             ``source-disagreement`` on this path, which compared only the guessed currency at 1%)
+    #           | "table-unverified" (every candidate table looked like a parent-only, subsidiary or
+    #             segment breakdown and companyfacts reproduced none)
+    #           | "cash-unread" (the balance-sheet cash row was located but its value could not be read)
+    #           | "investments-unconfirmed" (a short-term deposits/investments row was seen beside the cash
+    #             row but NOT counted: the cash row is not on the balance-sheet statement, or the row is a
+    #             component/total/summary line, reads other column headers, or its current cell is blank
+    #             beside a note reference; the row is quoted in the note)
     flags: list[str] = Field(default_factory=list)
     located_passages: list[LocatedPassage] = Field(default_factory=list)
     # How an UNVERIFIED value estimate was produced, when one is present (SURFACE 1b): "llm_proposed" (the
@@ -106,6 +147,16 @@ class ExtractedFact(DomainModel):
     # 10-Q candidate). Rides the ratify body into ``fact_shares_outstanding`` as derivation metadata.
     ads_ratio: int | None = None
     ads_ratio_status: str | None = None
+    # THE BURN PACE (V2 extractor correctness PR 3; operator decision D3, ``domain.burn_pace``) — cash_burn, the
+    # quarterly path only. ``ytd_quarterly_burn_usd`` = the year to date ending on the burn's end, scaled to one
+    # quarter (burn sign: positive = burning); ``ytd_burn_days`` its span. None when there is no separate year to
+    # date (a first fiscal quarter, an annual filer, a burn outside the quarter window). ``pace_caveat`` = one plain
+    # sentence when the quarter is far off that pace (``pace_divergence``), else None. A CAVEAT, never a flag: it
+    # never changes the tier. Carried here, stated in the note, and stored on the candidate and the fact
+    # (``ytd_quarterly_burn_usd`` / ``ytd_burn_days``, migration 0209); the caveat sentence is never stored.
+    ytd_quarterly_burn_usd: float | None = None
+    ytd_burn_days: int | None = None
+    pace_caveat: str | None = None
 
 
 class ExtractionResult(DomainModel):

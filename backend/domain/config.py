@@ -1013,6 +1013,11 @@ class ExtractorConfig(DomainModel):
     # YTD detector: a cash-flow period whose span exceeds this is a year-to-date column, not a quarter, so
     # the quarter must be DERIVED (YTD - prior period). A clean fiscal quarter is ~89-92 days. (NNE.)
     quarterly_span_max_days: int = 100
+    # the quarter's lower bound (V2 extractor correctness PR 2, plan condition 4): a burn is AUTO only when it
+    # spans quarterly_span_min_days..quarterly_span_max_days (inclusive), native or derived; outside it the value
+    # is offered flagged ``burn-span``. The 2026-11-15 audit's short spans were 54 and 61 days (AIAI, ZEOX), its
+    # long ones 183-275 (a missing prior year to date). A proposed dial (decision D5 can tune it), not measured.
+    quarterly_span_min_days: int = 80
     # one-time detector: a NON-ROUTINE operating line (accrued/settlement — NOT routine working capital like
     # inventory/AR/trade-AP, and NOT a non-cash add-back) whose magnitude is at least this fraction of
     # |operating cash use| is anomalous -> flag for ratification (the operator decides whether to back it
@@ -1030,6 +1035,21 @@ class ExtractorConfig(DomainModel):
         "one-time",
         "contribution",
     )
+    # cash composition (V2 extractor correctness PR 1): when a filer also reports the combined
+    # ``CashCashEquivalentsAndShortTermInvestments`` on the cash date, cash + the short-term investments read
+    # must equal it within this fraction, else the value is flagged ``investments-unreconciled``. Two tags of
+    # ONE balance sheet differ only by rounding; 0.5% is the plan's proposed bound, not a measured one.
+    investments_reconcile_tolerance: float = 0.005
+    # the burn PACE CHECK (V2 extractor correctness PR 3, ``domain.burn_pace.pace_divergence``; operator decision D3:
+    # a visible caveat on the applied value, never a flag, never a tier change). The latest quarter's burn is
+    # "divergent" from the year-to-date quarterly pace when it is under pace_ratio_low or over pace_ratio_high times
+    # the pace's (the plan's 0.5x-2x; the 2026-11-15 audit: 39 of 200 burners outside it, UP's 17.1M quarter against a
+    # 69.9M-a-quarter nine months). Opposite signs are their own reading. Proposed dials (decision D5 can tune them).
+    pace_ratio_low: float = 0.5
+    pace_ratio_high: float = 2.0
+    # the longest span a year to date can have and still be a FISCAL year to date (52-53-week years run to 371
+    # days): a longer row (a development-stage company's inception-to-date column) is never read as a pace.
+    pace_ytd_max_days: int = 371
 
     # --- annual-cover shares (the dark names, Retrieval Slice 1 — ingest/edgar/annual_shares.py) ---
     # The window AFTER the located cover instruction searched for the count. The instruction sentence
@@ -1049,6 +1069,12 @@ class ExtractorConfig(DomainModel):
     # can genuinely reach several hundred (a 400:1 was measured mid-conflict), so the ceiling sits an
     # order above the observed range rather than hugging it.
     annual_ads_ratio_max: int = 1000
+    # The annual share-count rule (the extractor plan's PR 5, ``domain.platform_values.annual_shares_auto_eligible``):
+    # the machine writer APPLIES an annual-cover count whose only flags are the annual ones (`annual-cover`,
+    # `stale-cover`) when its own as-of date is at most this many days before today (market clock); an older one
+    # still waits for the steward. 400 ≈ one annual cycle plus the 20-F filing lag (an audit of 30 such counts
+    # found all 30 right; measured ages: median 319 days, 125 of 130 at 400 or less). Operator-approved "about 400".
+    annual_shares_auto_max_age_days: int = 400
 
     # --- annual-statements runway (Retrieval Slice A — ingest/edgar/annual_runway.py) ---
     # Stale-runway threshold: an annual filer's burn reading is inherently up to ~a year old between

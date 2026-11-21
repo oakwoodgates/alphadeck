@@ -127,7 +127,7 @@ class _ProbePIT:
     def activist_stake_facts(self, security_id):
         return []
 
-    def theme_conviction_facts(self, thesis_id):
+    def thesis_catalyst_facts(self, thesis_id):
         return []
 
     def security_name(self, security_id):

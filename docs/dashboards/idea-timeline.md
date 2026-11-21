@@ -46,11 +46,7 @@ recorded call yet keeps its row (no segments, "no call yet"), never dropped.
   their row counts.
 - **Reconstructed rows** (`calls.reconstructed = true`, a missed night rebuilt later by `pipeline.backfill`)
   draw **hatched**, hover "reconstructed: reported, never scored".
-- **Set aside rows**: a row carrying an ACTIVE `exclude` annotation (`call_annotation`: `action = 'exclude'`
-  and no `revoke` row whose `revokes` names it, the rule `call_annotations_repo.ACTIVE_SQL` states) draws
-  with a **distinct (opposite-angle) hatch**, hover "set aside on the Scoreboard: <reason>". Under the
-  Scoreboard's default policy (`scoreboard_exclude_annotated = true`) those rows are what it sets aside.
-- Both flags are read off each night's winning (last) row.
+- The flag is read off each night's winning (last) row.
 
 ### Markers on each row
 
@@ -103,7 +99,7 @@ reconstructed, or are set aside.
 ## Where it lives
 
 - Compute (pure): `backend/dashboards/idea_timeline.py`,
-  `idea_timeline(theses, calls, annotations, decisions, clocks, today=...)`.
+  `idea_timeline(theses, calls, decisions, clocks, today=...)`.
 - Router + reads + wire models: `backend/app/routers/dashboards/idea_timeline.py`,
   `GET /dashboards/idea-timeline`. `today` is `domain.market_time.market_today()`, never an ambient clock.
 - Tests: `backend/tests/dashboards/test_idea_timeline.py`; `frontend/src/dashboards/idea-timeline/__tests__/`.

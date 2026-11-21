@@ -2,10 +2,11 @@
 
 The Workbench's purity meter re-derives from this fact; the number is a SOURCED fact (the 10-K segment
 that reports it), never a typed guess. The LLM may later propose the source; the operator ratifies the
-real figure here.
+real figure here. Purity is a workspace's own judgment (V2, docs/TENANT_SCOPES.md): ``--workspace`` is required
+and has no default (a purity row under the data tenant is read by no workspace).
 
     python -m pipeline.ratify_revenue_mix --ticker LEU --segment enrichment --pct 100 \
-        --source-url "https://www.sec.gov/...10-K...#segments" --date 2026-01-01
+        --source-url "https://www.sec.gov/...10-K...#segments" --date 2026-01-01 --workspace <uuid>
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ import argparse
 from datetime import date
 from uuid import UUID
 
-from db.session import DEFAULT_TENANT_ID, connect
+from db.session import connect
 from domain.scopes import DATA_TENANT_ID
 from ingest.revenue_mix import ingest_revenue_mix
 from pipeline.ratify_common import resolve_security
@@ -38,18 +39,19 @@ def main(argv: list[str] | None = None) -> None:
         "--note", default=None, help="free-text provenance note (basis / composition / caveat)"
     )
     p.add_argument(
-        "--tenant-id",
-        default=str(DEFAULT_TENANT_ID),
-        help="the workspace tenant the fact is written under (the company resolves in the shared DATA master); defaults to the demo tenant",
+        "--workspace",
+        required=True,
+        help="the workspace the purity fact is written under (the company resolves in the shared DATA master) -- "
+        "the workspace id from `pipeline.users list`",
     )
     a = p.parse_args(argv)
 
-    tenant_id = UUID(a.tenant_id)
+    tenant_id = UUID(a.workspace)
     conn = connect()
     try:
         sid = resolve_security(
             conn, a.ticker, DATA_TENANT_ID
-        )  # the master is DATA; the fact: --tenant-id
+        )  # the master is DATA; the fact: --workspace
         fid = ingest_revenue_mix(
             conn,
             sid,

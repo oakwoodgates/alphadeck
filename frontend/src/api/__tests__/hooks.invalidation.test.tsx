@@ -13,7 +13,6 @@ import {
   invalidateDashboards,
   useAdoptPriceSymbol,
   useApplyAmendment,
-  useAutoConfirmShares,
   useConfirmSplit,
   usePutCatalysts,
   usePutExclusions,
@@ -29,7 +28,6 @@ import {
   useIngestPrices,
   usePromoteThesis,
   useResolveEtf,
-  useSectionData,
   useSetBusinessType,
   useSpacAttach,
 } from "../hooks";
@@ -104,17 +102,6 @@ describe("new bars re-derive everything that reads prices", () => {
     const { result } = renderHook(() => useIngestPrices(), { wrapper });
     await act(async () => {
       await result.current.mutateAsync("sec-1");
-    });
-    has(keys(), ["call"]);
-    has(keys(), ["display-signals"]);
-    has(keys(), ["workbench-scored"]);
-  });
-
-  it("useSectionData's post-run re-derive covers the call + the tape too", async () => {
-    const { wrapper, keys } = harness();
-    const { result } = renderHook(() => useSectionData("t1"), { wrapper });
-    await act(async () => {
-      await result.current.run([{ security_id: "sec-1", ticker: "AAA" }]);
     });
     has(keys(), ["call"]);
     has(keys(), ["display-signals"]);
@@ -209,7 +196,6 @@ describe("a write that can change a dashboard marks dashboard queries stale", ()
     ["useIngestPrices", () => useIngestPrices(), "sec-1"],
     ["useSetBusinessType", () => useSetBusinessType(), { securityId: "sec-1", businessType: "miner" }],
     ["useRatifyFact", () => useRatifyFact(), {}],
-    ["useAutoConfirmShares (applied)", () => useAutoConfirmShares(), "sec-1"],
     ["a price-feed repair (useAdoptPriceSymbol)", () => useAdoptPriceSymbol(), { securityId: "sec-1", symbol: "TSTX" }],
     ["an insider-amendment decision (useApplyAmendment)", () => useApplyAmendment(), { securityId: "sec-1", accession: "a-1" }],
     ["a split action (useConfirmSplit)", () => useConfirmSplit(), { versionId: "v1", source: "sec" }],
@@ -229,28 +215,6 @@ describe("a write that can change a dashboard marks dashboard queries stale", ()
       expect(stale(OTHER_KEY)).toBe(false);
     });
   }
-
-  it("useAutoConfirmShares: a declined apply moved nothing, so dashboards stay fresh", async () => {
-    h.post.mockResolvedValue({ data: { applied: false }, error: null });
-    const { qc, wrapper } = harness();
-    const stale = seeded(qc);
-    const { result } = renderHook(() => useAutoConfirmShares(), { wrapper });
-    await act(async () => {
-      await result.current.mutateAsync("sec-1");
-    });
-    expect(stale(DASH_KEY)).toBe(false);
-  });
-
-  it("useSectionData: the post-run re-derive marks dashboards stale", async () => {
-    const { qc, wrapper } = harness();
-    const stale = seeded(qc);
-    const { result } = renderHook(() => useSectionData("t1"), { wrapper });
-    await act(async () => {
-      await result.current.run([{ security_id: "sec-1", ticker: "AAA" }]);
-    });
-    expect(stale(DASH_KEY)).toBe(true);
-    expect(stale(OTHER_KEY)).toBe(false);
-  });
 });
 
 describe("a finished background job marks dashboard queries stale, once", () => {

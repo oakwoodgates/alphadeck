@@ -8,18 +8,25 @@ interface Props {
    *  left-to-right (we do NOT invert: an inverted severe meter would render empty, colliding with the
    *  "—" no-data state and lying about the pip count). */
   risk?: boolean;
+  /** The hover words (the runway's "at last quarter's pace" and its year-to-date pace); none by default. */
+  title?: string;
+  /** Plain words in place of the "—" no-data mark when the meter does not apply to this company (the runway of a
+   *  bank or a fund trust: "n/a", V2 C1); its reason is the `title`. Quiet, never a warning. */
+  notApplicable?: string;
 }
 
 const SLOTS = [0, 1, 2, 3];
 
 /** A 0-4 pip meter. `pips == null` is NO DATA — a bare "—", structurally distinct (no pip track) from
  *  a measured zero (four empty slots). That distinction is the no-fake-zeros rule made visual. */
-export function Meter({ label, figure, risk }: Props) {
+export function Meter({ label, figure, risk, title, notApplicable }: Props) {
   const pips = figure.pips;
   return (
-    <div className={`wb-meter${risk ? " risk" : ""}`}>
+    <div className={`wb-meter${risk ? " risk" : ""}`} title={title} data-testid={`wb-meter-${label}`}>
       <span className="ml">{label}</span>
-      {pips == null ? (
+      {pips == null && notApplicable ? (
+        <span className="wb-nodata">{notApplicable}</span>
+      ) : pips == null ? (
         <span className="wb-nodata" title="no data">
           —
         </span>

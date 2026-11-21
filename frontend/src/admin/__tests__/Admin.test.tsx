@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Admin } from "../Admin";
@@ -315,6 +316,7 @@ const h = vi.hoisted(() => ({
   createBackup: {} as Record<string, unknown>,
   backupJob: {} as Record<string, unknown>,
   repair: {} as Record<string, unknown>,
+  queue: {} as Record<string, unknown>,
 }));
 
 vi.mock("../../api/hooks", () => ({
@@ -382,6 +384,9 @@ vi.mock("../../api/hooks", () => ({
     error: null,
   }),
   useRetryOnboarding: () => h.repair,
+  // V2 W4c — the Shared facts card (its own behavior is in SharedFacts.test.tsx): an empty queue here
+  usePlatformQueue: () => h.queue,
+  useResolveSecurities: () => ({ data: undefined, isFetching: false, isError: false, error: null }),
 }));
 
 beforeEach(() => {
@@ -408,10 +413,20 @@ beforeEach(() => {
   h.createBackup = { mutate: vi.fn(), isPending: false, isError: false, error: null };
   h.backupJob = { data: undefined, isError: false };
   h.repair = { mutate: vi.fn(), isPending: false, isError: false, error: null };
+  h.queue = {
+    data: { items: [], total: 0, pen_only_total: 0 },
+    isLoading: false,
+    isError: false,
+    error: null,
+  };
 });
 
 function renderAdmin() {
-  render(<Admin />);
+  render(
+    <MemoryRouter>
+      <Admin />
+    </MemoryRouter>,
+  );
 }
 
 describe("Admin — loading + guards", () => {
@@ -1186,6 +1201,28 @@ describe("Admin — the fundamentals set-aside count (migration 0062)", () => {
   });
 });
 
+describe("Admin — share counts and cash/burn left in a workspace (V2 W0b)", () => {
+  it("is one loud line naming the move only when such rows exist", () => {
+    h.status = { ...h.status, data: { ...STATUS_CURRENT, platform_rows_in_workspaces: 2 } };
+    renderAdmin();
+    const line = screen.getByTestId("adm-platform-rows-in-workspaces");
+    expect(line.textContent).toContain(
+      "2 share-count or cash/burn row(s) sit in a workspace; V2 reads none of them.",
+    );
+    expect(line.textContent).toContain("python -m pipeline.v2_cutover move-platform-facts --apply");
+    expect(line.className).toContain("adm-loud");
+  });
+
+  it("renders nothing at zero, or from an older backend without the field", () => {
+    h.status = { ...h.status, data: { ...STATUS_CURRENT, platform_rows_in_workspaces: 0 } };
+    renderAdmin();
+    expect(screen.queryByTestId("adm-platform-rows-in-workspaces")).toBeNull();
+    h.status = { ...h.status, data: { ...STATUS_CURRENT } };
+    renderAdmin();
+    expect(screen.queryByTestId("adm-platform-rows-in-workspaces")).toBeNull();
+  });
+});
+
 describe("Admin — cards left on the data tenant (auth PR 2)", () => {
   it("is one loud line only when a card sits on the data tenant", () => {
     h.status = { ...h.status, data: { ...STATUS_CURRENT, data_tenant_theses: 2 } };
@@ -1276,6 +1313,45 @@ describe("Admin — the company-list line (the weekly master refresh)", () => {
     h.status = { ...h.status, data: { ...STATUS_CURRENT, master_refresh: null } };
     renderAdmin();
     expect(screen.queryByTestId("adm-master-refresh")).toBeNull();
+  });
+});
+
+describe("Admin — the shared-facts line (V2 W3c background extraction)", () => {
+  const LINE =
+    "Shared facts · Nov 13: 3 extracted: 2 applied, 1 to the steward, 0 nothing found · 9 SEC requests · 41s";
+
+  it("renders the backend's line quietly, loud only on attention, nothing before a run", () => {
+    h.status = {
+      ...h.status,
+      data: {
+        ...STATUS_CURRENT,
+        platform_extraction: { line: LINE, ran_at: "2026-11-14T03:43:12Z", run_kind: "nightly", attention: false },
+      },
+    };
+    renderAdmin();
+    const line = screen.getByTestId("adm-platform-extraction");
+    expect(line.textContent).toBe(LINE);
+    expect(line.className).toContain("adm-quiet");
+    h.status = {
+      ...h.status,
+      data: {
+        ...STATUS_CURRENT,
+        platform_extraction: {
+          line: "Shared facts · Nov 13: 0 extracted · 1 failed (ACME: SEC unreachable)",
+          ran_at: "2026-11-14T03:43:12Z",
+          run_kind: "nightly",
+          attention: true,
+        },
+      },
+    };
+    renderAdmin();
+    expect(screen.getAllByTestId("adm-platform-extraction").at(-1)?.className).toContain("adm-loud");
+  });
+
+  it("renders nothing before a run, or from an older backend", () => {
+    h.status = { ...h.status, data: { ...STATUS_CURRENT, platform_extraction: null } };
+    renderAdmin();
+    expect(screen.queryByTestId("adm-platform-extraction")).toBeNull();
   });
 });
 
@@ -1433,5 +1509,55 @@ describe("Admin — the automatic cut's line (editions S7)", () => {
     };
     renderAdmin();
     expect(screen.getByTestId("adm-editions-cut").className).toContain("adm-loud");
+  });
+});
+
+describe("Admin — the Shared facts card (V2 W4c)", () => {
+  it("mounts, quiet, with the queue empty", () => {
+    renderAdmin();
+    const card = screen.getByTestId("adm-shared-facts");
+    expect(card).toHaveTextContent("Nothing awaits you");
+    expect(screen.getByLabelText("Find a company (ticker or name)")).toBeInTheDocument();
+    expect(screen.queryByTestId("sf-queue")).toBeNull();
+    // it follows the record-freshness card
+    const fresh = screen.getByTestId("adm-fresh");
+    expect(fresh.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("names a waiting company loudly and links the other work with a count", () => {
+    h.queue = {
+      data: {
+        items: [
+          {
+            security_id: "00000000-0000-4000-8000-000000000001",
+            ticker: "ACME",
+            name: "Acme Corp",
+            cards: 2,
+            pen_only: false,
+            waiting_since: "2026-07-10T00:00:00Z",
+            shares: null,
+            cash_burn: null,
+          },
+        ],
+        total: 1,
+        pen_only_total: 0,
+      },
+      isLoading: false,
+      isError: false,
+      error: null,
+    };
+    h.status = {
+      ...(h.status as Record<string, unknown>),
+      data: { ...STATUS_CURRENT, splits_needs_review: 2 },
+    };
+    renderAdmin();
+    expect(screen.getByTestId("sf-count")).toHaveTextContent("1 company awaits you");
+    expect(screen.getByTestId("sf-other")).toHaveTextContent("2 splits to review");
+  });
+
+  it("is not shown while the status is unavailable", () => {
+    h.status = { data: undefined, isLoading: false, error: new Error("boom"), refetch: vi.fn() };
+    renderAdmin();
+    expect(screen.queryByTestId("adm-shared-facts")).toBeNull();
   });
 });

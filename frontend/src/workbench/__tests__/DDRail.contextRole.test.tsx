@@ -13,8 +13,8 @@ import { CONTEXT_ROLES, CONTEXT_ROLE_DESCRIPTION, CONTEXT_ROLE_LABEL } from "../
 // authored display metadata — the rail never touches the call.
 
 // the hook-using child panels aren't under test here — stub them so this stays a focused unit
-vi.mock("../CatalystFactForm", () => ({ CatalystFactForm: () => null }));
 vi.mock("../FactsPanel", () => ({ FactsPanel: () => null }));
+vi.mock("../SharedValues", () => ({ SharedValues: () => null }));
 // the sleeve dossier pulls holdings/flow through hooks; stub it to the one thing under test here — its slot
 vi.mock("../SleeveRail", () => ({
   SleeveRail: ({ roleControl }: { roleControl?: ReactNode }) => (

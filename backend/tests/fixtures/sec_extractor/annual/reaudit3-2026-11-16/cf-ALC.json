@@ -1,0 +1,39 @@
+{
+ "_fixture": "RECONSTRUCTED from the 2026-11-16 third annual re-audit (reaudit3-annual-cash-2026-11-16.md), not copied from EDGAR. Recorded: USD millions, cash 1,527, the separate 'Time deposits' row printing note 17 then 80 (2025) and 153 (2024); the stored candidate (USD 1,527,000,000, no investment part, OCF 2,271,000,000 over 364 days, flags annual-statements and investments-unconfirmed). The ifrs-full USD cash and operating-cash-flow rows are INFERRED from the stored candidate (no figures-disagree; a 364-day span means an exact companyfacts duration row). The accession is the re-audit's filing URL's; the filed date is a placeholder. No time-deposit concept row was recorded, so none is included.",
+ "entityName": "ALC",
+ "facts": {
+  "ifrs-full": {
+   "CashAndCashEquivalents": {
+    "units": {
+     "USD": [
+      {
+       "end": "2025-12-31",
+       "val": 1527000000,
+       "accn": "0001167379-26-000014",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-02-25"
+      }
+     ]
+    }
+   },
+   "CashFlowsFromUsedInOperatingActivities": {
+    "units": {
+     "USD": [
+      {
+       "start": "2025-01-01",
+       "end": "2025-12-31",
+       "val": 2271000000,
+       "accn": "0001167379-26-000014",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-02-25"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

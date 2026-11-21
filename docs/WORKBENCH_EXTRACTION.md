@@ -25,6 +25,24 @@ that — how the facts get into the store. The loop is **extract → ratify → 
 
 1. **Extract** `[BUILT #55]` — from the name's latest 10-Q/10-K + companyfacts, produce *candidate* facts
    (`domain.extraction.ExtractedFact`). Cache-first; an EXPLICIT operator action (never fired on a render).
+   **Who may extract what (V2 W7a):** a plain user's extract is the PURITY candidate only
+   (`extract_purity_for_security`: submissions, companyfacts and one 10-K, else 10-Q; never the values filing,
+   an annual document or an exhibit; a 20-F/40-F filer answers `purity-not-covered` after the submissions read).
+   The share count and cash/burn are platform values the steward decides (`docs/PLATFORM_VALUES.md`); the
+   steward's extract carries all three, and the FLAG explainer (`POST /workbench/facts/explain`) is steward-only.
+   **Which filing each fact cites (V2 decision B1, 2026-11-14):** the share count and cash/burn cite the NEWER
+   of the latest 10-Q and the latest 10-K, by when each became public (its trusted SEC acceptance, else its filing
+   date — never its period of report), so the link, period and located passages are that filing's; purity keeps
+   preferring the 10-K. Each document is read once, only when a role needs it (`values_only` skips the purity
+   document). Before B1 the values always cited the 10-Q, so after a 10-K they showed the 10-K's companyfacts
+   number under the older 10-Q's link.
+   **Which path a company takes (V2 extractor correctness PR 2, 2026-11-15):** the 10-Q/10-K path when the
+   company's NEWEST periodic filing — the latest 10-Q, 10-K, 20-F and 40-F compared by when each became public —
+   is a 10-Q or 10-K; the annual path (below) when it is a 20-F or 40-F, or when there is no 10-Q/10-K at all
+   (`_takes_annual_path`). A tie on public time keeps the 10-Q/10-K path. Before, any company that had EVER filed a
+   10-Q took the quarterly path: the audit's five form switchers (EUDA, CURR, SCNI, CHR, BTCT) had the 20-F's
+   companyfacts numbers applied AUTO under a 2020-2025 10-Q's link. A company that filed a 20-F years ago and files
+   10-Qs now stays quarterly.
 2. **Ratify** `[BUILT #56/#57]` — the operator confirms or edits each candidate; their value is written via
    the existing `ingest_*` bridges. The DD-rail facts panel is the surface.
 3. **Score** — the meters re-derive on the next read (`WORKBENCH_SCORING.md`, Option B).
@@ -105,23 +123,97 @@ most needs to make:
   **generic — it never branches on a named item** ("ENTRA1" appears only in a clarifying comment in
   `extract.py`, never in the logic); it locates the flagged AMOUNT (or a corroborating one-time keyword) in
   the cash-flow statement and lets the operator decide whether to back it out. → flag `possible-one-time`.
+- **Operating cash flow is read under its most current label** (V2 extractor correctness PR 2):
+  `NetCashProvidedByUsedInOperatingActivities` or `…ContinuingOperations`, the one whose newest column ends
+  latest; when both reach the same period the plain tag (the statement's total, continuing plus discontinued)
+  wins. The 2026-11-15 audit found 8 of 460 burns stale because the filer had moved to the continuing-operations
+  tag (EHC's burn was from 2023, QXL's and T's from 2025). A derivation subtracts within one tag only: a total
+  minus a continuing-operations part is not a quarter (it goes out `ytd-raw` instead).
 - **YTD derivation — a clean derivation is AUTO; only the raw-YTD case flags.** companyfacts' cash-flow
   column is often year-to-date. When the latest span exceeds `quarterly_span_max_days` (100) and a same-start
   prior exists, the extractor DERIVES the quarter (YTD − prior YTD) — **reproducible arithmetic on two filed
-  columns (the market-cap trust class), stated in the note (`derived (YTD − prior YTD)`), never a flag.**
+  columns (the market-cap trust class), stated in the note (`derived (YTD − prior YTD)`), never a flag** — as
+  long as the result covers about one quarter (the period rule below).
   When there is **no prior to subtract**, the value goes out as the **raw YTD → flag `ytd-raw`** with a
   passage saying it is NOT a quarter (the runway audit: the old single label claimed a derivation that never
   happened — runway would have read ~3–4× too short, believed). The one-time detector runs on the derived
   quarter too — a clean basis never bypasses the anomaly check.
-- **Cash includes marketable securities — same balance sheet only; the composition is a note, not an alarm.**
-  `cash_usd = cash + equivalents + marketable securities` (the uniform cash rule, `WORKBENCH_SCORING.md`) —
-  but **a balance sheet is ONE date**: a marketable instant dated differently from cash is a *different*
+- **Cash includes short-term investments and long-term marketable securities — same balance sheet only;
+  the composition is a note, and a composition that cannot be established is a flag** (operator decisions D1
+  and D2, 2026-11-15). `cash_usd` = cash + equivalents + short-term investments + long-term MARKETABLE
+  securities: ONE "cash and short-term investments" number (the uniform cash rule, `WORKBENCH_SCORING.md`),
+  with the investment part also carried on its own on the candidate (`investments_usd`; None = no investment
+  tagged on the cash date, never a fake 0). It is stored on the candidate and on the fact
+  (`investments_usd`, migration 0208; NULL = no split recorded). The tag lists (`ingest/edgar/extract.py`):
+  - **cash** — `CashAndCashEquivalentsAtCarryingValue`, `…IncludingDiscontinuedOperations`, `Cash`, then the
+    restricted-cash total (the newest label wins, the order breaks a tie; the note says when it includes
+    restricted cash).
+  - **short-term investments** — `ShortTermInvestments`, `MarketableSecuritiesCurrent`,
+    `AvailableForSaleSecuritiesCurrent`, `AvailableForSaleSecuritiesDebtSecuritiesCurrent`,
+    `DebtSecuritiesAvailableForSaleExcludingAccruedInterestCurrent`, `HeldToMaturitySecuritiesCurrent`,
+    `OtherShortTermInvestments`, `CertificatesOfDepositAtCarryingValue`, `TimeDepositsAtCarryingValue`.
+  - **long-term marketable securities** — `MarketableSecuritiesNoncurrent`,
+    `AvailableForSaleSecuritiesNoncurrent`, `AvailableForSaleSecuritiesDebtSecuritiesNoncurrent`,
+    `DebtSecuritiesAvailableForSaleExcludingAccruedInterestNoncurrent` (the noncurrent sibling of the
+    short-term tag; the 2026-11-16 re-audit: Cirrus Logic's 324.4M), `HeldToMaturitySecuritiesNoncurrent`.
+  - **unsplit debt-securities totals** — `AvailableForSaleSecuritiesDebtSecurities` and
+    `DebtSecuritiesAvailableForSaleExcludingAccruedInterest`, with no Current/Noncurrent suffix (the
+    2026-11-16 re-audit: Glaukos keeps 174.4M of short-term investments only under the first). Debt only:
+    `AvailableForSaleSecurities` and `MarketableSecurities` can hold equity stakes and are never read. A total
+    is **not a plain addend**: it may restate the parts already read, and filers often tag securities classed
+    as cash equivalents into it (GM's and Netskope's totals hold amounts already inside cash) or restricted
+    holdings (NHC). A total is read only on the cash date (one on another date, OKLO's 2024 one, is ignored).
+    So, on the cash date:
+    - beside **its own** current/noncurrent parts (`…Current`/`…Noncurrent` of the same family) it is only a
+      **check**: within the tolerance it is stated as reconciling; **smaller** than the parts it contradicts
+      them → `investments-unreconciled` (the parts are offered as read); **larger**, the excess is named and
+      NOT counted (it may be cash equivalents, already in cash: the conservative direction);
+    - beside **other** investment tags (no part of its own) it is named as not counted (it may restate them);
+    - **alone** (no current or noncurrent investment tag on the cash date) it is **counted only when the
+      same-dated combined `CashCashEquivalentsAndShortTermInvestments` equals cash + the total** (the largest
+      if both are tagged, never the sum): it is then established as the short-term investments, AUTO, and the
+      note says it is a total not split into current and noncurrent. **Otherwise it is quoted, NOT added**
+      (operator decision after the third re-audit, 2026-11-16: of 17 such offers 10 were overstated — Nvidia's
+      46.9bn total already includes cash equivalents, a 12.8bn double count; Encompass Health's, National
+      HealthCare's and Tutor Perini's securities are restricted — and 6 were right, Glaukos's 174.4M among
+      them). Tags alone cannot tell it apart from securities already inside cash equivalents (Biomarin's
+      same-shaped tag is not an addable amount), and a steward's approve stores the offered number, so the
+      offer is the conservative one: cash and equivalents (plus any parts established by suffixed tags),
+      `investments_usd` without the total, a FLAG, `investments-unreconciled`, and the note names the tag and
+      amount, says it was not counted because tags cannot tell whether it is already inside cash equivalents
+      or restricted, and asks the steward to add the eligible part from the balance sheet (Glaukos reads
+      162.3M with the 174.4M quoted; Nvidia 22,443M with the 46,900M quoted).
+    - `DepositsAssetsCurrent` is not read: the concept also carries security, utility and vendor deposits paid
+      to others, so a short-term bank deposit cannot be told apart from tags (ODYS's 333k is left out, the
+      conservative direction).
+  - **never cash** — `LongTermInvestments`, `EquityMethodInvestments`, `OtherLongTermInvestments`,
+    `LongTermInvestmentsAndReceivablesNet` (the generic long-term investments line is often stakes in other
+    companies: Disney stored 12.8bn against 5.2bn of cash, Kinder Morgan 8.8bn against 0.9bn). A same-dated
+    one is NAMED in the note as not counted. Equity securities and restricted investments are never read.
+    The cost: a Treasury holder that uses the generic line (SMR's 118.6M) reads lower, the conservative
+    direction, and the note says why.
+
+  Each investment tag is read **at the cash date**, and per role the **largest** same-dated value is taken,
+  never the sum (the tags often restate one another); every tag seen is named with its amount. A missing
+  component is said missing ("no short-term investments tagged on the cash date"), never "$0.0M".
+  **A balance sheet is ONE date**: an investment tag that stopped before the cash date is a *different*
   balance sheet (usually a discontinued tag — MU's `AvailableForSaleSecurities*` last reported **2018**, and
   the old composer silently added those balances into current cash) and is **EXCLUDED from the sum**, named
-  in the note ("verify where current investments live"). Included-or-excluded, the basis rides the note's
-  as-ofs; **no flag** — same-dated inclusion is the textbook liquidity composition, and the off-date
-  exclusion errs CONSERVATIVE (understated cash → runway reads *shorter*; a funding-risk gauge that
-  over-warns, never under-warns). The alarm, when it matters, is the runway meter reading short.
+  in the note with its date — no flag (it errs CONSERVATIVE: understated cash → runway reads *shorter*).
+  **What the extractor cannot establish is a FLAG, never a silent AUTO:**
+  - `cash-tags-disagree` — two balance-sheet cash tags of the cash date contradict their nesting (`Cash` ≤
+    cash and equivalents ≤ the restricted-cash total): SOAR's cash and equivalents read 0 beside `Cash` 8.4M.
+    Both are stated. `Cash` BELOW cash and equivalents is its cash part (OKLO), consistent, no flag.
+  - `investments-unreconciled` — the filer also reports the combined `CashCashEquivalentsAndShortTermInvestments`
+    on the cash date and cash + the short-term investments read miss it by more than
+    `investments_reconcile_tolerance` (0.5%). The combined line is a check, never an addend, and the gap is
+    never filled by subtraction (the extractor locates, it never invents). Cash read from the restricted-cash
+    total overshoots the combined line, so it flags too: never a silent double count. The same flag marks an
+    unsplit debt-securities total that is smaller than its own current + noncurrent parts, and one standing
+    alone that no combined line confirms (quoted, not counted; see the tag lists above).
+  - `investments-off-date` — an investment tag sits only on a NEWER balance sheet than the cash.
+- **The cash candidate's `source` names the cited form:** `10-q`, or `10-k` when the values filing is a 10-K
+  (since B1 the newer of the two by public time; before 2026-11-15 every value said `10-q`).
 - **Missing inputs are their own labels with None values — never a fake $0.** No cash instant *and* no
   OCF column → `no-companyfacts` (located-only; the old `or 0.0` coercions sent such filers out AUTO / $0 /
   $0 / "Clean quarter" — a confirmable fake zero). Cash without an OCF column → `no-cashflow-column` (burn
@@ -129,8 +221,32 @@ most needs to make:
   instant → `no-cash-instant`. The ratify UI gates Confirm on blank fields (`Number("")` is 0) and renders
   the missing-data labels **gray (∅), not warm (⚠)** — a data gap is an authoring state, not an alarm; the
   warm glyph is reserved for the judgment exceptions (one-time / stale / raw-YTD / dual-class).
-- **Every input's as-of date rides the note** ("cash as of … · burn over … → …"), and a cash balance sheet
-  older than the filing's period end flags `stale-cash` (the shares `stale-cover` rule, applied here).
+- **The period and citation rule — AUTO only for one quarter of the cited filing** (V2 extractor correctness
+  PR 2, 2026-11-15). The burn must span `quarterly_span_min_days`–`quarterly_span_max_days` (80–100, inclusive;
+  native, or derived as the prior year to date's end → the period end), else `burn-span`: with the prior
+  same-start year to date missing, the latest earlier one is subtracted (URI: nine months minus the first
+  quarter, 183 days, stored AUTO at 2× before), and a native column under 80 days is short (AIAI, 54). The burn
+  must end on the cited filing's period of report, else `burn-off-period`. The cash must be dated that period:
+  older is `stale-cash`, newer is `cash-after-period` (RMIX's cash was 31 days after the period). Each failure
+  offers the value as found, with its flag and a sentence in the note saying what was observed; nothing here
+  ever turns a flag into AUTO. A raw year to date keeps its own `ytd-raw` (one condition, one label).
+- **The pace check — a caveat, never a flag** (V2 extractor correctness PR 3; operator decision D3, 2026-11-15;
+  `domain/burn_pace.py`). For a burn that passed the quarter window, the year to date of the same tag ending on
+  the burn's end (the longest span above `quarterly_span_max_days` and at most `pace_ytd_max_days` = 371; the
+  earliest-filed row, so never a later restatement) gives the year-to-date quarterly pace = value ÷ (days ÷
+  91.3125). A first fiscal quarter has none. `pace_divergence`: **opposite** when the quarter and the pace have
+  opposite signs, **divergent** when the quarter's burn is under `pace_ratio_low` (0.5) or over
+  `pace_ratio_high` (2.0) times the pace's, and nothing when neither burns (no runway, no runway caveat). The
+  pace rides `ExtractedFact.ytd_quarterly_burn_usd`/`ytd_burn_days` and the note's segment "year-to-date pace:
+  burn N over S → E (D days) = Q a quarter"; a firing rule adds `pace_caveat` and "pace caveat: <sentence>" to
+  the note. **It never adds a flag and never changes the tier** (the audit: the arithmetic was right on every
+  one of the 39 burners; the steward could only approve). Since migration 0209 the machine stores the pace
+  as figures on the fact and the candidate (`ytd_quarterly_burn_usd`, `ytd_burn_days`; never the caveat sentence),
+  and every runway reader reads it with `stored_pace`: the columns, else the note's segment for a row written
+  before 0209 (see `docs/PLATFORM_VALUES.md` and `docs/WORKBENCH_SCORING.md`).
+- **Every input's as-of date rides the note** ("cash as of … · burn over S → E (N days, tagged <tag>) · cited
+  filing: the 10-Q for the period ending P (<link>)"), and a cash balance sheet older than the filing's period
+  end flags `stale-cash` (the shares `stale-cover` rule, applied here).
   `event_date` = the burn period's own end (else the cash as-of) — the value's own valid-time, never the
   filing date.
 - **Shares (market cap): three honest FLAG labels, one per OBSERVED condition.** A single-class, **current**
@@ -160,7 +276,12 @@ most needs to make:
 
 When no flag trips, `cash_burn` / `shares_outstanding` are AUTO; `revenue_mix` is always HUMAN.
 
-## The AUTO-shares auto-confirm — removing a FAKE gate, not relaxing a real one `[BUILT]`
+## The AUTO-shares auto-confirm — removing a FAKE gate, not relaxing a real one `[RETIRED in V2 W7b]`
+
+> **Retired.** `POST /workbench/facts/auto-confirm` is deleted (V2 W7b), with its schemas and its `auto_confirm`
+> allowance. A share count and cash/burn are platform values: background extraction applies AUTO values through
+> the machine writer and the steward decides the rest (`docs/PLATFORM_VALUES.md`). The section below is the
+> history of why an AUTO value is applied without a ceremonial confirm; that rule lives on in the machine writer.
 
 The AUTO shares confirm was **never a verification**. The operator has no independent knowledge of a share
 count and is not going to look one up — clicking "Confirm" on the extractor's single-class cover figure
@@ -206,6 +327,9 @@ FactsPanel does.
 
 ## The annual-cover path — shares for a filer with NO 10-K/10-Q `[BUILT]`
 
+(Also for a filer whose newest periodic filing is a 20-F or 40-F although it once filed 10-Qs: the routing rule
+in "Where the scored facts come from".)
+
 A **foreign private issuer** files a **20-F** (or **40-F** under the Canadian MJDS) instead of a 10-K/10-Q,
 so `extract_for_security` had nothing to read and returned `[]` — no shares, therefore no market cap, for
 roughly a fifth of a real basket. `annual_shares.py` reads the **annual cover** instead. Ground truth is
@@ -219,6 +343,14 @@ gate passes **trivially, always**, while the value is a fiscal year old (measure
 annual filer through it would pre-fill a year-old share count at the *lowest-friction* tier. The annual path
 therefore lives in its own module and emits **FLAG only** — enforced by both a behavioral test and a
 source-scan asserting the token `AUTO` never appears in it.
+
+**The platform still applies a clean annual count (V2, the annual share-count rule).** The extractor's tier stays
+FLAG; the decision to apply is the machine writer's, not the extractor's. A count whose only flags are
+`annual-cover` / `stale-cover`, with its ADS ratio read or not applicable, no older than
+`ExtractorConfig.annual_shares_auto_max_age_days` (400) on the market date, is applied as a platform value stamped
+`auto` with its real as-of date, `source='annual-cover'` and its ADS ratio, and the note says it is an annual figure
+(`docs/PLATFORM_VALUES.md`, "The annual share-count rule"). Every other flag, an older count and a pinned company
+still wait for the steward. Annual cash and burn (the annual-statements path below) is never applied.
 
 **Locating the cover = matching the SEC form instruction, not a keyword.** Three arms, each load-bearing:
 
@@ -256,7 +388,10 @@ floor that **flags rather than drops** (#9: never silently discard).
 "there is nothing"): `no-annual-filing` (nothing on EDGAR — the only case where "nothing to extract" is
 true) · `cover-not-located` (a filing exists but its cover is unread — still a live candidate) · covered
 (shares emitted; **purity remains uncovered for these names** — cash/runway is now covered by the
-annual-statements path below — and the UI says so rather than letting a `—` imply zero).
+annual-statements path below — and the UI says so rather than letting a `—` imply zero). A plain user's
+purity-only extract of such a name answers a fourth reason, `purity-not-covered` (V2 W7a), shown as "Purity is
+not read automatically for a company that files annual reports on Form 20-F or 40-F. Set it by hand from its
+annual report."
 
 **The ADS ratio — apply where READ, SUPPRESS where not.** The annual cover states **ordinary** shares,
 but the price feed carries the **ADR/ADS** price — they only multiply at 1:1, and real ratios run 1:1 to
@@ -324,23 +459,122 @@ flag `unit-scale-unread` — stated, never guessed.
 
 **The current column is picked, never assumed.** Statements print 2–3 fiscal years side by side —
 ascending or descending, sometimes with a convenience second-currency column — and the report year is
-matched against the column-year headers located above the row. An ambiguous mapping (a duplicated
-report-year header) withholds the value with flag `column-ambiguous`; when every column shares one
-sign, the generative/burning **state** still reads (a state is sign-only).
+matched against the column-year headers **of the row's own table header** (the year tokens between the
+table's heading and its first figure; 2026-11-16 guard). Year tokens printed later, inside a row label
+("Share-based payment (2024 and 2025 plans)") or a second summary table's header, are not the row's
+columns (WAVE's operating cash flow came from the 2023 column that way). Only when the header alone cannot
+map the current column is the older read (every year token above the row) tried. Cash, the deposits part
+and the operating cash flow all take the report year's column, whichever side it is printed on. An
+ambiguous mapping (a duplicated report-year header) withholds the value with flag `column-ambiguous`; when
+every column shares one sign, the generative/burning **state** still reads (a state is sign-only).
 
-**Currency discipline.** IFRS filers report in native currency. Runway is a ratio — months are
-currency-independent **if** cash and burn share a currency — so companyfacts is consulted only in the
-unit matching the statement's own detected currency (a mixed-currency ratio is unrepresentable). The
-stored `*_usd` fields carry statement-currency values for a native-currency filer; the note names the
-currency, and the meter's months stay honest. (A cross-currency absolute-$ display is a known,
-documented limitation.)
+**Currency is established, never guessed** (the extractor correctness plan's PR 4, 2026-11-15). Foreign
+filers report in their own currency (CNY, JPY, TWD, EUR, CAD, SGD, ...), often with a translated US$
+convenience column beside it. Runway is a ratio — months are currency-independent **if** cash and burn
+share a currency — so the currency is settled in this order: (1) **companyfacts reproduces the
+figures**: a same-date row in us-gaap **or** ifrs-full, in **any** unit, equal to the statement's
+figure at its printed precision; that unit **is** the currency, and a header naming another one is
+flagged `currency-mismatch` (both stated). (2) **The header's explicit markers** above the row: US$,
+NT$, HK$, S$, C$/CDN$/CAD, A$, R$, RMB/Renminbi/yuan, ¥/yen, ₩, €, ₹, CHF, NIS/₪, £, ZAR (one marker →
+it; a home currency beside US$ on a row with more value columns than fiscal years → the home currency,
+and when companyfacts did not confirm it, `convenience-column`). **A bare `$` (or "dollars") names no
+currency** — a Canadian filer prints `$` too. (2b) When the headers name none, **the filing's own
+presentation-currency statement**, read anywhere in the document: "presented in United States Dollars",
+"expressed in U.S. dollars", "(in thousands of US dollars)", "Figures in million - SA rand", "USD 000"
+(ARQQ, SBSW in the 2026-11-16 re-audit). Only an explicit marker right after the phrase counts (never a
+bare `$` or `$000s`); "denominated in" is not read (a lease note's "denominated in euros" is not the
+statements' currency); two statements naming different currencies settle nothing. (3) Otherwise
+**`currency-unread`**: the fact carries no
+currency (never a blank-as-USD), and the front end renders `?`, never `$`. When the two statements'
+headers name different currencies and companyfacts does not settle it, that is `currency-unread` too.
+A fresher companyfacts reading is used only in the established currency (a mixed-currency ratio is
+unrepresentable). The stored `*_usd` fields carry statement-currency values; the note names the
+currency and how it was determined. The fact stores the currency (`fact_cash_burn.currency`, migration
+0208): the steward's approve carries the candidate's, a correction states its own, the Workbench facts panel's
+confirm sends the candidate's (with its investment part, and its year-to-date pace while the burn is unedited),
+and NULL means not recorded (never USD). Every screen labels the figures in that currency
+(`domain/cash_currency.py`, `frontend/src/components/currency.ts`); nothing converts them.
+
+**The consolidated statement, not a breakdown** (PR 4). A 20-F often prints a parent-only, condensed
+consolidating (VIE / subsidiaries / eliminations) or segment balance sheet BEFORE the consolidated
+statements (EH, ZEPP, TM in the 2026-11-15 audit). Every cash-row site is collected and picked in this
+order: the one whose current-column figure companyfacts reproduces on the statement date; else the first
+whose heading window (a little before the heading and its first ~400 characters) carries no breakdown
+cue ("parent", "condensed", "consolidating", "Schedule I", "VIE", "subsidiaries" — not "XYZ Ltd. and
+its subsidiaries" —, "eliminations", "segment", "financial services businesses"); else the first site,
+flagged `table-unverified`. The operating cash flow takes the same order and comes from the **same
+statement set**: the first qualifying cash-flow total after the chosen balance sheet, else the last. A
+**notes line is never the total**: an operating-activities label whose own row carries "included in",
+"paid for" or "operating leases" (QGEN's "Cash paid for operating leases included in cash flows from
+operating activities $ 31,741") is rejected. A cash row that is located but unreadable is flagged
+`cash-unread` (it used to add nothing, silently). The note names each table and what was passed over.
+
+**Cash is a closing balance, never a flow** (2026-11-16 guard). A cash row whose own row names a movement,
+an exchange-rate effect or an opening balance ("Net increase/(decrease) in cash and cash equivalents",
+"Effect of exchange rate changes on cash and cash equivalents", "at beginning of period") is located but
+never valued (ARQQ's and SBSW's stored cash was the net increase). The cash-flow statement's closing line
+("Cash and cash equivalents at end of period/year") is a balance: it is the fallback when no readable
+balance-sheet cash row was located, the note says so, and the operating cash flow then comes from that
+same cash-flow statement. Among rows companyfacts reproduces, and again among the rest, a balance-sheet
+**statement** row (a title heading such as "CONSOLIDATED BALANCE SHEETS" or "Statement of Financial
+Position", with no breakdown cue) is preferred over a note, MD&A table or summary that happens to print the
+same figure (QGEN's cash-composition note, CGNT's MD&A table).
+
+**Cash is cash plus short-term deposits and investments** (operator decision D1; PR 4). A "short-term
+(bank) deposits", "short-term investments" or "time deposits" row on the SAME balance sheet as the cash
+row (near it, no "Total current assets" between them, not restricted or long-term, not a combined
+"cash ... and short-term ..." line) is added; each part is named in the note with the row it came from,
+rides as its own passage, is carried on `investments_usd`, and is cross-checked against companyfacts'
+short-term deposit and investment concepts. Marketable securities and the generic long-term investments
+line are not read here (D2). When companyfacts carries same-date short-term investments that no row was
+located for, the note says so and they are not counted.
+
+**The addition is only ever from the same statement** (2026-11-16 guard; the re-audit found three of
+four remaining wrong-and-unflagged candidates caused by the D1 rule). A deposits/investments row is
+counted only when ALL hold: (1) the cash row is a balance-sheet **statement** row (a title heading, no
+breakdown cue) — never a note (QGEN's Note 3, whose "deposits 54,653" are already inside cash), an MD&A
+table or summary (CGNT, whose "113,100" was last year's total of cash, restricted cash and deposits), a
+breakdown, or the cash-flow statement's closing line; (2) the row is its own line, not a component,
+total or summary ("of which", "including", "comprising", "consisting of", "Total", or a label naming
+cash); (3) it reads the same column headers as the cash row; (4) its report-year cell holds a value: a
+**dash** is an empty cell (nothing added, the note says so — WAVE's "note 5, 2025 a dash, 2024 1,254"
+added 5,000 from the note number before), and a **blank** cell beside a note reference (a table with a
+Note column whose row prints only "5 1,254") is never the note number. A row that prints its note reference
+and then **one figure per column of the cash row** is read in the cash value's own column (the third
+re-audit, 2026-11-16: ALC's "Time deposits 17 80 153" under "at December 31, 2025 and 2024 … Note 2025 2024"
+was called blank because its three figures were compared with the header's four year tokens; the cash row's
+figure count is the table's real column grid, and "17 — 153" there is still an empty cell). A row that fails (1)–(3), is blank
+beside its note reference, or cannot be read is **seen and not counted**: nothing is added, the row is
+quoted in the note with the reason, and the candidate carries **`investments-unconfirmed`**. In a table
+whose header prints a Note column, a bare parenthesized "(3)" right after a label is that note reference,
+never a negative first column.
+
+**The part comes from the cash value's own currency column, never the convenience translation** (the
+third re-audit, 2026-11-16: VNET's statements are in RMB thousands with a US$ convenience column; its
+short-term investments row printed 379,198 and 54,225 with the 2024 cell blank, the two figures were mapped
+onto the two year headers, and the US$ 54,225 was stored as CNY). When the cash row prints more figures than
+year headers (a convenience-translation column), a deposits row must print as many figures as the cash row
+(after a note reference) to be read in the cash row's column; one that prints fewer cannot be placed on that
+grid and is seen, quoted and NOT counted (`investments-unconfirmed`), never mapped onto the year headers.
 
 **Later-as-of-wins per quantity** (the shares rule): companyfacts usually **lags** the filing by up to
 a year (annual XBRL ingests slowly — the reason the filing is read at all) and is sometimes
 **fresher** (a 6-K interim landing after the last annual — the interim then wins and is normalized by
-its own exact span). `source-disagreement` fires only on a **same-date** value contradiction —
-deliberately quieter than the shares flag, because cross-date lag is the *rule* for annual filers and
-a flag true of every name carries no information. The cross-date lag is stated in the note instead.
+its own exact span). **The cross-check** (PR 4) reads us-gaap and ifrs-full in every unit on the
+statement's own date and requires an **exact** match at the printed precision (a 1% tolerance passed
+EH's wrong column, 0.4% off): an agreement is named with its concept and unit; a same-date row that
+reproduces nothing is `figures-disagree` with both numbers (this replaced `source-disagreement` on this
+path); **no same-date row is a stated condition ("not cross-checked"), never a pass**. A deposits or
+investments figure is agreed only by a row in the **statement's own currency unit**: a row that reproduces
+it only in another unit (VNET's USD 54,225,000 against a CNY candidate) is `figures-disagree`, the note giving
+both numbers and both units (a translated figure is not the statement's). A deposits or
+investments row is compared only within its concept family (a "deposits" row never meets a
+marketable-securities concept, an "investments" row never meets a time-deposit concept) and never with a
+concept that reproduces ANOTHER counted row of the same balance sheet (NTES: "Short-term investments"
+owns `ShortTermInvestments`, so the separate "Time deposits" row is "not cross-checked", not
+`figures-disagree`; the note says which row owns the concept). A cross-date lag
+is stated in the note, not flagged — lag is the *rule* for annual filers and a flag true of every name
+carries no information. Every annual cash and burn candidate stays a FLAG whatever the cross-check says.
 
 **The statement-source seam — WHERE the statements come from is an ordered chain, not a nested if**
 (Retrieval Slice A-2; `backend/ingest/edgar/statement_sources.py`). The runway extractor consumes

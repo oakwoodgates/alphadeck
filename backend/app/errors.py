@@ -67,8 +67,74 @@ SENTENCES: dict[str, str] = {
 }
 
 
+# V2 W1a (docs/TENANT_SCOPES.md): the Workbench's company-catalyst form is retired on the v2 branch (409; company
+# catalysts are platform data and move to the thesis's catalyst list), and only a steward sets a share count or a
+# cash/burn value by hand (403; the value is the platform's, for every workspace). Complete sentences: shown as is.
+CATALYST_FORM_RETIRED = "Company catalysts move to the thesis's catalyst list in V2; this form is retired on this branch."
+STEWARD_SETS_PLATFORM_VALUE = (
+    "Only a steward can set a share count or cash/burn value. It is shared by every workspace."
+)
+
+
+# V2 W2c (docs/PLATFORM_VALUES.md): the steward's platform-value actions (``platform_values.steward``). One fixed
+# sentence per refusal ``kind``; the status comes from the exception's class (``PlatformValueConflict`` 409,
+# ``PlatformValueInvalid`` 422). The detail a steward sees after the sentence names the dates and the filing (a
+# correction's refusal names the date that blocks it). Complete sentences: shown as is.
+PLATFORM_VALUE_NOT_FOUND = "There is no such company, candidate or decision."
+PLATFORM_VALUE_SENTENCES: dict[str, str] = {
+    # 422: the request cannot be stored
+    "after_today": "The value is dated after today, so it would never be shown. Nothing was saved.",
+    "nothing": "This candidate records that no value was found, so there is nothing to approve.",
+    "no_value": "This candidate does not carry a complete value. Correct the value instead.",
+    "bad_ads": (
+        "The ADS ratio and its status do not match: a ratio needs the status known, and unread carries no "
+        "ratio. Nothing was saved."
+    ),
+    "bad_values": "The value is incomplete, so nothing was saved. Check it and try again.",
+    "blank_reason": "A dismissal needs a reason. Nothing was saved.",
+    # 409: the value's state refuses it
+    "older_than_shown": (
+        "A value with a later date is shown, so this one would not be. Nothing was saved."
+    ),
+    "not_shown": "This value would not be shown, so nothing was saved.",
+    "already_decided": "This candidate already has a decision. Undo that decision first.",
+    "wrong_candidate": "That candidate belongs to another company or value type. Nothing was saved.",
+    "undo_of_undo": "An undo cannot be undone. Make a new decision instead.",
+    "already_undone": "That decision is already undone.",
+    "already_pinned": "This value is already pinned.",
+    "not_pinned": "This value is not pinned.",
+}
+# V2 W4d: "Extract now" refusals, before anything is fetched or written.
+PLATFORM_VALUE_NO_CIK = "This company has no CIK, so its SEC filings cannot be read. Resolve its CIK first. Nothing was fetched."
+PLATFORM_VALUE_FUND = "This is a fund: its share count comes from the fund's own filings, not this extraction. Nothing was fetched."
+
+
 # A malformed ALPHADECK_CRON_AT, wherever a route reads the schedule (the value itself: a steward only, and the log).
 SCHEDULE_SETTING_MALFORMED = "The server's nightly schedule setting is malformed, so the schedule cannot be read. A steward needs to fix it."
+
+
+# V2 W5b (docs/PLATFORM_VALUES.md §Flags): a user's flag on a platform value (``platform_values.flags``). One fixed
+# sentence per refusal ``kind``; the status comes from the exception's class (``FlagConflict`` 409, ``FlagInvalid``
+# 422, ``FlagNotFound`` 404). Another user's flag is "no such flag", exactly like an unknown id. The steward's kinds
+# (close / reopen) are W5c's routes. Complete sentences: shown as is.
+VALUE_FLAG_STEWARD = "The steward corrects values on the company page. A flag is for users."
+VALUE_FLAG_NOT_FOUND = "There is no such flag."
+VALUE_FLAG_SENTENCES: dict[str, str] = {
+    # 409: the flag's state refuses it
+    "already_open": "You already have an open flag on this value. The steward will look at it.",
+    "already_closed": "This flag is already closed.",
+    "not_closed": "This flag is still open, so there is nothing to reopen.",
+    "already_reopened": "This flag was already reopened. Reopen its newest closed flag instead.",
+    "withdrawn_by_user": "The user withdrew this flag. Only a flag you closed can be reopened.",
+    "user_has_open_flag": "The user has a newer open flag on this value, so this one is not reopened.",
+    "wrong_decision": (
+        "That decision is not a standing approve or correct of this company's value. Nothing was saved."
+    ),
+    # 422: the request cannot be stored
+    "fixed_needs_decision": "Closing a flag as fixed needs the decision that fixed it. Nothing was saved.",
+    "decision_on_kept": "A flag closed as kept names no decision. Nothing was saved.",
+    "blank_note": "Closing a flag as kept needs a note for the user. Nothing was saved.",
+}
 
 
 def new_reference() -> str:
@@ -212,6 +278,8 @@ def install(app: FastAPI) -> None:
 
 
 __all__ = [
+    "PLATFORM_VALUE_NOT_FOUND",
+    "PLATFORM_VALUE_SENTENCES",
     "RETRY_AFTER_S",
     "SCHEDULE_SETTING_MALFORMED",
     "SENTENCES",

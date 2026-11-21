@@ -4,8 +4,8 @@ import type {
   ScoredFigureOut,
   ScoredMemberOut,
 } from "../api/hooks";
-import { CatalystFactForm } from "./CatalystFactForm";
 import { FactsPanel } from "./FactsPanel";
+import { SharedValues } from "./SharedValues";
 import { SleeveRail } from "./SleeveRail";
 import { silentLinkOptions, toggleMemberLink } from "./chainOps";
 import { ETFS, SILENT_DESCRIPTORS, isSilentLink } from "./useChainDraft";
@@ -20,6 +20,8 @@ import {
   onFileValues,
   provChip,
   provNotes,
+  runwayCashWords,
+  runwayPaceWords,
   supersectorLabel,
 } from "./format";
 import { ExternalLink } from "../components/ExternalLink";
@@ -34,12 +36,32 @@ const METERS: { key: string; figure: (m: ScoredMemberOut) => ScoredFigureOut }[]
 
 function MeterProvenance({ meter, figure }: { meter: string; figure: ScoredFigureOut }) {
   const notes = provNotes(figure.provenance);
+  // the runway's year-to-date pace beside last quarter's (V2 extractor correctness PR 3): quiet, the caveat only
+  // when last quarter is far off that pace
+  const pace = meter === "runway" ? runwayPaceWords(figure) : null;
+  // the runway's cash and burn in the value's own currency, with the short-term investment part when stored (GAP 3)
+  const cash = meter === "runway" ? runwayCashWords(figure) : null;
   return (
     <div className="dd-meter">
       <div className="dd-meter-h">
         <span className="k">{meter}</span>
         <span className="v">{meterValueLabel(meter, figure)}</span>
       </div>
+      {cash && (
+        <div className="dd-pace" data-testid="dd-runway-cash">
+          {cash}
+        </div>
+      )}
+      {pace && (
+        <div className="dd-pace" data-testid="dd-runway-pace">
+          {pace.ytd}
+        </div>
+      )}
+      {pace?.caveat && (
+        <div className="dd-pace" data-testid="dd-runway-caveat">
+          {pace.caveat}
+        </div>
+      )}
       {figure.provenance.length > 0 && (
         <div className="prov">
           {figure.provenance.map((p, i) => {
@@ -268,9 +290,9 @@ function ContextRoleControl({
 
 /** The DD rail — "behind the scores" for the selected name. Deterministic provenance ONLY: every chip
  *  traces to a fact or a computation, and the notes (the recurring-vs-one-time burn composition, the
- *  cash-runway basis) are the payoff — the operator seeing WHY the number is what it is. The facts panel
- *  closes the extract → ratify → re-score loop in place of the old "stored company facts" marker. Only the
- *  auto-drafted thesis-fit prose stays deferred — marked, not faked (the LLM drafter, S5). */
+ *  cash-runway basis) are the payoff — the operator seeing WHY the number is what it is. Then the platform's
+ *  shared values (read-only, with a Flag), and purity — the one fact the user sets. Only the auto-drafted
+ *  thesis-fit prose stays deferred — marked, not faked (the LLM drafter, S5). */
 export function DDRail({
   member,
   thesisFit,
@@ -427,11 +449,15 @@ export function DDRail({
           <MeterProvenance key={key} meter={key} figure={figure(member)} />
         ))}
 
-        {/* the hand-authored conviction fact (Key-1) — the one meter input that has no extractor:
-            the operator logs a CITED verifiable event; the catalysts meter + the call consume it */}
-        <CatalystFactForm securityId={member.security_id} />
+        {/* V2: the company-catalyst form is retired on this branch (the route answers 409) — company catalysts
+            move to the thesis's catalyst list (W6). An honest line instead of a control that would be refused. */}
+        <div className="note">Company catalysts move to the thesis&apos;s catalyst list in V2.</div>
 
-        <div className="dd-sub">Extract &amp; ratify the facts</div>
+        {/* V2 W5e: the share count and cash are the PLATFORM'S, shared by every user: read here with their state
+            (read-only; a Flag tells the steward a value looks wrong). Purity stays the user's own. */}
+        <SharedValues securityId={member.security_id} asof={asof} />
+
+        <div className="dd-sub">Purity (yours to set)</div>
         <FactsPanel
           securityId={member.security_id}
           thesisId={thesisId}

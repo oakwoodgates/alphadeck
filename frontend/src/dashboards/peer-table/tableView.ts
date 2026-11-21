@@ -1,3 +1,5 @@
+import { cashSymbol, storedCurrency } from "../../components/currency";
+import { NO_SHARED_SHARES, NO_SHARED_CASH, FLAG_IT_WORDS } from "../../components/valueWords";
 import { businessTypeLabel, supersectorLabel } from "../../util/format";
 import { formatMarketCap } from "../../workbench/format";
 import type {
@@ -42,16 +44,17 @@ export function fmtSigned(v: number | null | undefined): string {
 export const fmtPct = (v: number | null | undefined) => (v == null ? "—" : `${fmtSigned(v)}%`);
 export const fmtPp = (v: number | null | undefined) => (v == null ? "—" : `${fmtSigned(v)} pp`);
 
-/** A dollar amount, compact: "$13.5M", "$1.20B", "$412K", "$950". A blank is "—". */
-export function fmtUsd(v: number | null | undefined): string {
+/** A dollar amount, compact: "$13.5M", "$1.20B", "$412K", "$950". A blank is "—". `sym` labels a cash/burn
+ *  figure in its own currency ("CN¥1.20B"; `components/currency.ts`), never converted. */
+export function fmtUsd(v: number | null | undefined, sym = "$"): string {
   if (v == null) return "—";
   const sign = v < 0 ? "-" : "";
   const a = Math.abs(v);
-  if (a >= 1e12) return `${sign}$${(a / 1e12).toFixed(2)}T`;
-  if (a >= 1e9) return `${sign}$${(a / 1e9).toFixed(2)}B`;
-  if (a >= 1e6) return `${sign}$${(a / 1e6).toFixed(1)}M`;
-  if (a >= 1e3) return `${sign}$${Math.round(a / 1e3).toLocaleString("en-US")}K`;
-  return `${sign}$${Math.round(a)}`;
+  if (a >= 1e12) return `${sign}${sym}${(a / 1e12).toFixed(2)}T`;
+  if (a >= 1e9) return `${sign}${sym}${(a / 1e9).toFixed(2)}B`;
+  if (a >= 1e6) return `${sign}${sym}${(a / 1e6).toFixed(1)}M`;
+  if (a >= 1e3) return `${sign}${sym}${Math.round(a / 1e3).toLocaleString("en-US")}K`;
+  return `${sign}${sym}${Math.round(a)}`;
 }
 
 /** A share count, compact: "10.0M", "1.20B". */
@@ -146,14 +149,15 @@ export const GAP_WORDS: Record<Gap, string> = {
   flagged: "its data flags reach its price readings, so the Cockpit grays this cell too",
   no_price: "no price history is stored for this company at the as-of",
   no_reading: "the reading needs more history than is stored",
-  no_shares: "awaiting shares: no shares-outstanding fact is on file (mark the name for data)",
+  no_shares: `${NO_SHARED_SHARES} (it comes from a filing or the steward; ${FLAG_IT_WORDS})`,
   ads_unread: "ADS ratio unread: the cap is withheld rather than guessed at one ordinary share per ADS",
   no_cap: "the share count or the close is not positive",
   no_revenue: "no revenue facts are stored for this company",
   no_prior_year: "no row for the same period a year earlier in the stored series",
-  no_burn: "no cash and burn fact is on file (mark the name for data)",
+  no_burn: `${NO_SHARED_CASH} (it comes from a filing or the steward; ${FLAG_IT_WORDS})`,
+  not_applicable: "runway does not apply to this kind of company",
   no_convert: "no live convertible-note overhang is on file",
-  no_mix: "no revenue-mix fact is on file (mark the name for data)",
+  no_mix: "no revenue-mix fact is on file",
   no_form4: "no Form 4 is ingested for this company",
   no_spy: "SPY has no price history at the as-of, so there is nothing to subtract",
   ends_differ: "its last close is not SPY's last close, so the two returns would end on different days",
@@ -164,12 +168,13 @@ export const GAP_SHORT: Record<Gap, string> = {
   flagged: "flagged",
   no_price: "awaiting price",
   no_reading: "short history",
-  no_shares: "awaiting shares",
+  no_shares: NO_SHARED_SHARES,
   ads_unread: "ADS ratio unread",
   no_cap: "not positive",
   no_revenue: "no revenue",
   no_prior_year: "no prior year",
   no_burn: "no cash/burn fact",
+  not_applicable: "runway does not apply",
   no_convert: "no live convert",
   no_mix: "no revenue-mix fact",
   no_form4: "no Form 4",
@@ -211,7 +216,7 @@ export function capTitle(c: PeerCapOut): string {
 
 export function capCell(c: PeerCapOut): Cell {
   if (c.gap) {
-    // the cap's blank reasons are the operator's to-do list ("awaiting shares"), so they ride in the cell
+    // the cap's blank reasons are the cap's own reason ("no shared share count yet"), so they ride in the cell
     return { ...blank(c.gap, c.note, GAP_SHORT[c.gap]), gray: c.gap === "flagged" };
   }
   return plain(`${c.tier ?? ""} · ${formatMarketCap(c.value)}`, capTitle(c));
@@ -236,6 +241,11 @@ export function yoyCell(y: {
   );
 }
 
+/** The runway cell: months of cash at LAST QUARTER'S pace (V2 extractor correctness PR 3). The hover adds the
+ *  year-to-date pace and the runway it implies when the fact carries one; a quiet asterisk marks ONLY a row whose
+ *  pace caveat applies (honest loudness), the caveat sentence in the hover. The months and the sort never change.
+ *  The figures read in the fact's own currency and the hover names the short-term investment part when one is
+ *  stored (GAP 3; `components/currency.ts`); the months are a ratio and need none. */
 export function runwayCell(r: {
   months: number | null;
   cash_positive: boolean;
@@ -243,11 +253,37 @@ export function runwayCell(r: {
   burn_usd: number | null;
   as_of: string | null;
   gap: Gap | null;
+  ytd_quarterly_burn_usd?: number | null;
+  ytd_months?: number | null;
+  pace_caveat?: string | null;
+  currency?: string | null;
+  source?: string | null;
+  investments_usd?: number | null;
+  note?: string | null;
 }): Cell {
+  const sym = cashSymbol(storedCurrency(r));
+  const split =
+    r.investments_usd != null ? ` (of which short-term investments ${fmtUsd(r.investments_usd, sym)})` : "";
+  const fact = `cash ${fmtUsd(r.cash_usd, sym)}${split}, burn ${fmtUsd(r.burn_usd, sym)} per quarter, from the fact dated ${fmtDay(r.as_of)}`;
+  // V2 C1: a company a runway means nothing for (a bank, insurer, broker, exchange, asset manager, lender or fund
+  // trust): a plain "n/a", the sentence and the stored cash on hover; never gray, never a warning
+  if (r.gap === "not_applicable") {
+    const why = r.note ?? "Runway does not apply to this kind of company.";
+    return plain("n/a", r.cash_usd != null ? `${why} Stored: ${fact}.` : why);
+  }
   if (r.gap) return blank(r.gap, null);
-  const fact = `cash ${fmtUsd(r.cash_usd)}, burn ${fmtUsd(r.burn_usd)} per quarter, from the fact dated ${fmtDay(r.as_of)}`;
-  if (r.cash_positive) return plain("cash-positive", `The burn is zero or negative: no finite runway (${fact})`);
-  return plain(`${(r.months ?? 0).toFixed(1)} mo`, `Months of cash at the current burn: ${fact}`);
+  const ytd = r.ytd_quarterly_burn_usd;
+  const pace =
+    ytd == null
+      ? ""
+      : ytd > 0
+        ? `. Year-to-date pace: burn ${fmtUsd(ytd, sym)} per quarter${r.ytd_months != null ? `, ${r.ytd_months.toFixed(1)} months of runway` : ""}.`
+        : `. Year-to-date pace: cash-generative, ${fmtUsd(-ytd, sym)} per quarter.`;
+  const caveat = r.pace_caveat ? ` ${r.pace_caveat}` : "";
+  const mark = r.pace_caveat ? "*" : "";
+  if (r.cash_positive)
+    return plain(`cash-positive${mark}`, `The burn last quarter is zero or negative: no finite runway (${fact})${pace}${caveat}`);
+  return plain(`${(r.months ?? 0).toFixed(1)} mo${mark}`, `Months of cash at last quarter's pace: ${fact}${pace}${caveat}`);
 }
 
 export function numberCell(
@@ -378,7 +414,7 @@ export const COLUMNS: readonly ColumnDef[] = [
   {
     key: "runway",
     label: "Runway",
-    title: "Months of cash at the current burn from the latest cash and burn fact; cash-positive when the burn is zero or negative. Sorts shortest first.",
+    title: "Months of cash at last quarter's pace from the latest cash and burn fact; the year-to-date pace is on hover, and * marks a quarter far off it; cash-positive when the burn is zero or negative. Sorts shortest first.",
     coverage: "runway",
     num: true,
     first: "asc",
@@ -742,7 +778,7 @@ export function rosterWords(n: number): string | null {
 /** The page's honest notes and known limits, stated on the page (docs/dashboards/peer-table.md). */
 export const LIMITS: readonly string[] = [
   "Approximate market cap: the latest close × the latest shares fact (the ADS ratio applied when known and the cap withheld when unread; a split in force between the count and the close puts the count on the close's scale). An ADR with an unread ratio shows no cap by design.",
-  "Workbench facts (shares, cash and burn, revenue mix, convertible notes) exist only where a name was marked for data or an automated leg reached it; the blanks are the to-do list, counted per column.",
+  "Stored facts (shares, cash and burn, revenue mix, convertible notes) exist only where the platform applied one from a filing, the steward verified one, or an automated leg reached the name; the blanks are counted per column.",
   "Revenue is the XBRL series only (companyfacts); a name with no revenue facts shows blank, not zero. Short interest is not stored, so there is no column for it.",
   "Insider buys are shown as the Cockpit's column screens them: open-market purchases only, offer-price subscriptions and transfers between linked filers set aside.",
   "A company whose data flags reach its price readings keeps its row; its price-derived cells (cap, 52w, 50d, 200d, RVOL, dollar volume, vs SPY) are blank with the reason and it is named above.",

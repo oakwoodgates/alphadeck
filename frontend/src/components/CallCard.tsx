@@ -287,6 +287,12 @@ function Key({
   );
 }
 
+// "From your catalyst list, counted since <night>." — the night rides the entry's first source (detail.counts_from).
+function yourEntryTitle(sources: TriggerLike["sources"]): string {
+  const from = sources?.[0]?.detail?.counts_from;
+  return typeof from === "string" ? `From your catalyst list, counted since ${fmtDate(from)}.` : "From your catalyst list.";
+}
+
 // One trigger / risk-signal row: ticker chip · label · (optional grade) · (optional source link). Triggers
 // pass showGrade + the hit variant (◉); risk signals don't (warn variant, ▲). The single source for the row
 // — exported so the Cockpit's per-name panel renders member triggers with the same markup.
@@ -301,7 +307,9 @@ export function TriggerRow({
   variant: "hit" | "warn";
   showGrade: boolean;
 }) {
-  const url = (item.sources ?? []).find((s) => safeHttpUrl(s.url))?.url;
+  // the other origin's live catalyst, shown but not counted (V2 W6d); never the link row's own "source"
+  const alsoLive = (item.sources ?? []).filter((s) => s.detail?.also_live === true);
+  const url = (item.sources ?? []).find((s) => !alsoLive.includes(s) && safeHttpUrl(s.url))?.url;
   return (
     <div className={`trg-item ${variant}`}>
       <span className="ic">{icon}</span>
@@ -319,7 +327,23 @@ export function TriggerRow({
             <ExternalLink href={url}>↗ source</ExternalLink>
           </>
         )}
+        {item.origin === "operator" && (
+          <span className="origin-chip" title={yourEntryTitle(item.sources ?? [])}>
+            your entry
+          </span>
+        )}
         <ProvenanceSources sources={item.sources ?? []} />
+        {alsoLive.map((s, i) => (
+          <div className="also-live" key={i}>
+            {`Also live, not counted: ${String(s.detail.label ?? "")} (${item.origin === "operator" ? "platform data" : "your entry"})`}
+            {s.url && (
+              <>
+                {" "}
+                <ExternalLink href={s.url}>↗ source</ExternalLink>
+              </>
+            )}
+          </div>
+        ))}
       </div>
       {/* the fire/event date — muted, pinned top-right (timestamp idiom); omitted when absent */}
       {item.event_date && <span className="trg-date">{fmtDate(item.event_date)}</span>}

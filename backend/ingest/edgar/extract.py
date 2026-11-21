@@ -11,10 +11,14 @@ Given a company's SEC ``companyfacts`` + its latest 10-Q/10-K text, produce cand
   ``no-companyfacts`` (nothing observed — located-only). One condition, one label; never a catch-all.
   A cover row dated after its own filing is refused first (``cover_after_filing``) and named by the
   ``cover-after-filing`` flag + the note.
-- **cash_burn** (runway): cash = cash+equiv (+ same-dated marketable securities), each read under its most
-  current label (the restricted-cash total says so in the note); a clean ~quarter of operating cash
-  flow -> ``AUTO``; a year-to-date column -> ``FLAG`` (derive the quarter); a large one-time reconciliation
-  line, or marketable-securities present (filer-specific tag basis) -> ``FLAG`` (raw + locate).
+- **cash_burn** (runway): cash = cash+equiv + the same-dated short-term investments + long-term MARKETABLE
+  securities (never the generic long-term investments line), the cash read under its most current label (the
+  restricted-cash total says so in the note) and every component named in the note; a clean ~quarter of
+  operating cash flow (read under its most current label, plain or continuing operations) ending on the cited
+  filing's period, with cash of that date -> ``AUTO``; a burn spanning more or less than about a quarter, a burn
+  or cash dated off the cited period, an underivable year-to-date column, a large one-time reconciliation line,
+  or a composition that cannot be established (cash tags that disagree, a combined line that does not
+  reconcile, investments only on a later balance sheet) -> ``FLAG`` (raw + locate).
 - **revenue_mix** (purity): ALWAYS ``HUMAN`` — locate the segment footnote (revenue names) or Item-1
   (pre-revenue); NEVER auto-valued (purity is the operator's exposure-concentration edge).
 
@@ -28,13 +32,19 @@ dimensions, filer-specific marketable-securities tags), so the located passages 
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
-from datetime import date
+from dataclasses import dataclass, field
+from datetime import date, datetime, timezone
 from typing import Any
 
+from domain.burn_pace import YtdPace, pace_caveat, pace_segment
 from domain.config import DEFAULT_EXTRACTOR_CONFIG, ExtractorConfig
 from domain.extraction import ExtractedFact, ExtractionResult, LocatedPassage, Tier
 from domain.settings import get_settings
+from ingest.edgar.acceptance import (
+    filing_date_bound,
+    parse_filing_date,
+    resolve_public_acceptance,
+)
 from ingest.edgar.client import EdgarClient
 from ingest.edgar.converts import clean_filing_text
 from ingest.edgar.submissions import fetch_submissions, filings_of
@@ -389,17 +399,90 @@ _CASH = [
 ]
 # The cash concept whose value INCLUDES restricted cash — stated in the note whenever it is the source.
 _RESTRICTED = "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents"
+# THE CASH COMPOSITION (V2 extractor correctness PR 1, operator decisions D1 + D2, 2026-11-15). The written rule
+# (``docs/WORKBENCH_SCORING.md``, the uniform cash rule) is cash + equivalents + ALL marketable securities, current
+# and noncurrent. The investment lists below are NOT read through ``_pick_instant``: every tag is read AT the cash
+# date (a balance sheet is one date), and among the tags present there the LARGEST value is taken, never the sum,
+# because they often restate one another (an AFS tag can equal ``ShortTermInvestments``). Every tag seen is named.
+# Short-term investments (current). The first three are the old list; the rest held 1.3bn at RBRK and 362M at
+# LMAT that the old reader left out while its note claimed "marketable securities ($0.0M)" (the 2026-11-15 audit:
+# 37 companies with more than half their cash in uncounted investments).
 _STI = [
     ("us-gaap", "ShortTermInvestments"),
     ("us-gaap", "MarketableSecuritiesCurrent"),
     ("us-gaap", "AvailableForSaleSecuritiesCurrent"),
+    ("us-gaap", "AvailableForSaleSecuritiesDebtSecuritiesCurrent"),
+    ("us-gaap", "DebtSecuritiesAvailableForSaleExcludingAccruedInterestCurrent"),
+    ("us-gaap", "HeldToMaturitySecuritiesCurrent"),
+    ("us-gaap", "OtherShortTermInvestments"),
+    ("us-gaap", "CertificatesOfDepositAtCarryingValue"),
+    ("us-gaap", "TimeDepositsAtCarryingValue"),
 ]
-_LTI = [
-    ("us-gaap", "LongTermInvestments"),
+# Long-term MARKETABLE securities: noncurrent lines that are explicitly debt securities, which the written rule
+# counts (D2 keeps them: CRSP's long-dated Treasuries).
+_LT_MARKETABLE = [
     ("us-gaap", "MarketableSecuritiesNoncurrent"),
     ("us-gaap", "AvailableForSaleSecuritiesNoncurrent"),
+    ("us-gaap", "AvailableForSaleSecuritiesDebtSecuritiesNoncurrent"),
+    # the noncurrent sibling of the short-term ex-accrued-interest tag (the 2026-11-16 re-audit: CRUS's 324.4M)
+    ("us-gaap", "DebtSecuritiesAvailableForSaleExcludingAccruedInterestNoncurrent"),
+    ("us-gaap", "HeldToMaturitySecuritiesNoncurrent"),
 ]
+# UNSPLIT debt-security TOTALS (the 2026-11-16 re-audit: GKOS keeps 174.4M of short-term investments only under
+# ``AvailableForSaleSecuritiesDebtSecurities``), each mapped to its own (current, noncurrent) parts. Debt only:
+# ``AvailableForSaleSecurities`` and ``MarketableSecurities`` can hold equity stakes and are never read. A total
+# is not a plain addend: it may restate parts already read, and filers often tag securities classed as CASH
+# EQUIVALENTS into it (GM's and NTSK's totals hold amounts already inside cash) or restricted holdings (NHC).
+# So (``_compose``): beside its own parts it is only a CHECK (parts above it -> ``investments-unreconciled``; a
+# total above them leaves the excess uncounted, named); beside other investment tags it is named, not counted;
+# ALONE on the cash date it is counted only when the same-dated combined line confirms cash + it (AUTO).
+# Otherwise it is QUOTED, NOT ADDED, and FLAGGED ``investments-unreconciled`` (the third re-audit, operator
+# decision: of 17 such offers 10 were overstated — NVDA's 46.9bn total already holds cash equivalents, EHC's,
+# NHC's and TPC's securities are restricted — and a steward's approve stores the offered number, so the offer
+# is the conservative one; tags alone cannot tell it apart from cash equivalents: BMRN's same-shaped tag is not
+# an addable amount).
+_DEBT_TOTALS: dict[str, tuple[str, str]] = {
+    "AvailableForSaleSecuritiesDebtSecurities": (
+        "AvailableForSaleSecuritiesDebtSecuritiesCurrent",
+        "AvailableForSaleSecuritiesDebtSecuritiesNoncurrent",
+    ),
+    "DebtSecuritiesAvailableForSaleExcludingAccruedInterest": (
+        "DebtSecuritiesAvailableForSaleExcludingAccruedInterestCurrent",
+        "DebtSecuritiesAvailableForSaleExcludingAccruedInterestNoncurrent",
+    ),
+}
+# NEVER cash (D2): the generic long-term investments line and its kin, often stakes in other companies (DIS stored
+# 12.8bn against 5.2bn of cash, KMI 8.8bn against 0.9bn). Read only to NAME a same-dated one in the note as not
+# counted. Equity securities and restricted investments are never read at all.
+_NOT_CASH = [
+    ("us-gaap", "LongTermInvestments"),
+    ("us-gaap", "EquityMethodInvestments"),
+    ("us-gaap", "OtherLongTermInvestments"),
+    ("us-gaap", "LongTermInvestmentsAndReceivablesNet"),
+]
+# The combined line: never an addend, only the check that cash + short-term investments reconcile to it.
+_COMBINED = "CashCashEquivalentsAndShortTermInvestments"
+# Balance-sheet nesting (narrower, wider): on one date the narrower line can never exceed the wider one. ``Cash``
+# below cash-and-equivalents is its cash part (OKLO: 15.6M beside 1,594.1M), consistent; ``Cash`` ABOVE it is a
+# contradiction (SOAR: cash-and-equivalents 0 beside ``Cash`` 8.4M) -> ``cash-tags-disagree``.
+_CASH_NESTING = (
+    ("Cash", "CashAndCashEquivalentsAtCarryingValue"),
+    ("Cash", "CashAndCashEquivalentsAtCarryingValueIncludingDiscontinuedOperations"),
+    ("Cash", _RESTRICTED),
+    (
+        "CashAndCashEquivalentsAtCarryingValue",
+        "CashAndCashEquivalentsAtCarryingValueIncludingDiscontinuedOperations",
+    ),
+    ("CashAndCashEquivalentsAtCarryingValue", _RESTRICTED),
+)
+# Operating cash flow, read like cash under its most CURRENT label (``_newest``; V2 extractor correctness PR 2,
+# 2026-11-15). The 2026-11-15 audit found 8 of 460 auto-applied burns stale (EHC's from 2023; QXL's and T's from
+# 2025): those filers moved their operating total to the continuing-operations tag, which the reader did not
+# know, so it kept the plain tag's last period. When both tags reach the same newest period, the plain tag (the
+# statement's total, continuing plus discontinued) is listed first and wins the tie. The note names the tag.
 _OCF = "NetCashProvidedByUsedInOperatingActivities"
+_OCF_CONTINUING = "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations"
+_OCF_TAGS = [("us-gaap", _OCF), ("us-gaap", _OCF_CONTINUING)]
 # routine working-capital changes — NORMAL operations, never a one-time item (inventory swings, trade
 # receivables/payables, deferred revenue, prepaids, leases). These can be LARGE relative to a small burn
 # (LEU's inventory swing is 139% of its op-cash-use) yet are not one-time — excluded by CATEGORY, not size.
@@ -430,17 +513,47 @@ def _is_one_time_candidate(concept: str) -> bool:
     return concept.startswith("IncreaseDecreaseIn") and not _is_routine_wc(concept)
 
 
-def _quarter(facts: dict, cfg: ExtractorConfig) -> tuple[float, tuple[str, str], str] | None:
-    """The latest ~quarter of operating cash flow: (value, (start, end), basis). ``basis`` names what the
-    value IS — one condition, one label (the runway audit: the old bool lumped "derived" together with
-    "couldn't derive", so a RAW year-to-date figure went out wearing the ytd-derived label and a passage
-    claiming a derivation that never happened — runway would read ~3-4x too short):
+@dataclass(frozen=True)
+class _Quarter:
+    """The latest ~quarter of operating cash flow, with what it covers and where it came from.
+
+    ``start`` is the native column's start, or the subtracted prior year to date's END for a derived quarter (what
+    the note prints, ``burn over start → end``); ``days`` is the span between the two, the figure the
+    ``quarterly_span_*_days`` window judges (a calendar quarter reads 90 native, 91 or 92 derived).
+    """
+
+    value: float
+    start: str
+    end: str
+    basis: str
+    concept: str
+
+    @property
+    def days(self) -> int:
+        return (date.fromisoformat(self.end) - date.fromisoformat(self.start)).days
+
+
+def _quarter(facts: dict, cfg: ExtractorConfig) -> _Quarter | None:
+    """The latest ~quarter of operating cash flow, read under the most current operating-cash-flow label
+    (``_OCF_TAGS``). ``basis`` names what the value IS — one condition, one label (the runway audit: the old
+    bool lumped "derived" together with "couldn't derive", so a RAW year-to-date figure went out wearing the
+    ytd-derived label and a passage claiming a derivation that never happened — runway would read ~3-4x too
+    short):
 
     - ``"quarter"`` — a native quarterly column (span <= quarterly_span_max_days).
     - ``"derived"`` — the quarter computed as YTD − the prior same-start YTD.
     - ``"ytd-raw"`` — a long-span column with NO prior to subtract: the value IS the raw YTD, not a quarter.
+
+    The derivation subtracts within ONE tag: a total minus a continuing-operations part is not a quarter of
+    anything. Whether the result covers about one quarter is judged by the caller (``burn-span``): when the
+    prior same-start YTD is missing, the latest earlier one is subtracted (URI: nine months minus the first
+    quarter, 183 days), and that value is offered flagged, never AUTO.
     """
-    durations = [r for r in _rows(facts, "us-gaap", _OCF, "USD") if r.get("start")]
+    picked = _newest(facts, _OCF_TAGS, "USD")
+    if picked is None:
+        return None
+    concept, rows = picked
+    durations = [r for r in rows if r.get("start")]
     if not durations:
         return None
     latest_end = max(r["end"] for r in durations)
@@ -448,15 +561,46 @@ def _quarter(facts: dict, cfg: ExtractorConfig) -> tuple[float, tuple[str, str],
         (r for r in durations if r["end"] == latest_end), key=_days
     )  # shortest span at latest end
     if _days(row) <= cfg.quarterly_span_max_days:
-        return float(row["val"]), (row["start"], row["end"]), "quarter"
+        return _Quarter(float(row["val"]), row["start"], row["end"], "quarter", concept)
     prior = max(
         (r for r in durations if r["start"] == row["start"] and r["end"] < row["end"]),
         key=lambda r: r["end"],
         default=None,
     )
     if prior is None:
-        return float(row["val"]), (row["start"], row["end"]), "ytd-raw"
-    return float(row["val"]) - float(prior["val"]), (prior["end"], row["end"]), "derived"
+        return _Quarter(float(row["val"]), row["start"], row["end"], "ytd-raw", concept)
+    return _Quarter(
+        float(row["val"]) - float(prior["val"]), prior["end"], row["end"], "derived", concept
+    )
+
+
+def _ytd_pace(facts: dict, q: _Quarter, cfg: ExtractorConfig) -> YtdPace | None:
+    """The year to date behind a quarter's burn, for the PACE CHECK (V2 extractor correctness PR 3, plan Q5): the
+    operating-cash-flow row of the quarter's own tag that ends on the quarter's end and has the LONGEST span, when
+    that span covers more than one quarter (above ``quarterly_span_max_days``: a first fiscal quarter has no separate
+    pace) and no more than a fiscal year (``pace_ytd_max_days``: never an inception-to-date column). Only a burn
+    that passed the quarter window gets a pace (a ``burn-span`` or ``ytd-raw`` value is not a quarter to compare).
+
+    No lookahead: among rows for that one period, the EARLIEST filed is read, the figure as first published; a later
+    filing's restated comparative column was not public on the cited filing."""
+    if q.basis == "ytd-raw" or not (
+        cfg.quarterly_span_min_days <= q.days <= cfg.quarterly_span_max_days
+    ):
+        return None
+    rows = [
+        r
+        for r in _rows(facts, "us-gaap", q.concept, "USD")
+        if r.get("start")
+        and r["end"] == q.end
+        and cfg.quarterly_span_max_days < _days(r) <= cfg.pace_ytd_max_days
+    ]
+    if not rows:
+        return None
+    longest = max(_days(r) for r in rows)
+    first = min(
+        (r for r in rows if _days(r) == longest), key=lambda r: r.get("filed", "")
+    )  # the original publication
+    return YtdPace(burn_usd=-float(first["val"]), start=first["start"], end=first["end"])
 
 
 def _detect_one_time(
@@ -496,8 +640,269 @@ def _detect_one_time(
     )
 
 
+def _at(facts: dict, concept: str, end: str) -> float | None:
+    """A us-gaap USD balance (instant) dated exactly ``end``: the latest-filed row, else None (never 0)."""
+    at = [
+        r for r in _rows(facts, "us-gaap", concept, "USD") if r["end"] == end and not r.get("start")
+    ]
+    return None if not at else float(max(at, key=lambda r: r.get("filed", ""))["val"])
+
+
+def _m(v: float) -> str:
+    return f"${v / 1e6:.1f}M"
+
+
+@dataclass(frozen=True)
+class _Composition:
+    """What the cash date's balance sheet says, every part named (the note is built from this)."""
+
+    cash: float
+    sti: list[tuple[str, float]]  # every short-term investment tag on the cash date, list order
+    lt_marketable: list[tuple[str, float]]  # every long-term marketable tag on the cash date
+    not_counted: list[tuple[str, float]]  # same-dated never-cash lines, named only
+    older: list[
+        tuple[str, str]
+    ]  # (tag, its newest date) — an investment tag that stopped before the cash date
+    newer: list[
+        tuple[str, str]
+    ]  # (tag, its newest date) — an investment tag only on a later balance sheet
+    cash_tags: list[
+        tuple[str, float]
+    ]  # every balance-sheet cash tag on the cash date (for a disagreement)
+    disagree: bool
+    combined: float | None
+    reconciled: bool  # cash + the current investments meet the combined line (or there is none)
+    # every unsplit debt total on the cash date (``_DEBT_TOTALS``); counted only when nothing else is tagged
+    # and the combined line confirms cash + it (``counted_unsplit``), else quoted (``quoted_unsplit``)
+    totals: list[tuple[str, float]] = field(default_factory=list)
+    # (total tag, total, its own current + noncurrent parts on the cash date, "reconciles" | "short" | "exceeds")
+    total_checks: list[tuple[str, float, float, str]] = field(default_factory=list)
+
+    @staticmethod
+    def _largest(seen: list[tuple[str, float]]) -> tuple[str, float] | None:
+        return max(seen, key=lambda x: x[1]) if seen else None  # a tie keeps the first listed
+
+    @property
+    def sti_value(self) -> float | None:
+        best = self._largest(self.sti)
+        return None if best is None else best[1]
+
+    @property
+    def lt_value(self) -> float | None:
+        best = self._largest(self.lt_marketable)
+        return None if best is None else best[1]
+
+    @property
+    def unsplit(self) -> list[tuple[str, float]]:
+        """The unsplit debt totals standing ALONE: no current or noncurrent investment tag is on the cash date
+        (beside one, a total may restate it — a check or a name, never an addend)."""
+        return [] if self.sti or self.lt_marketable else self.totals
+
+    @property
+    def unsplit_value(self) -> float | None:
+        best = self._largest(self.unsplit)
+        return None if best is None else best[1]
+
+    @property
+    def counted_unsplit(self) -> list[tuple[str, float]]:
+        """A lone total COUNTS only when the same-dated combined line confirms cash + it (established as the
+        short-term investments, none of it inside cash)."""
+        return self.unsplit if self.combined is not None and self.reconciled else []
+
+    @property
+    def quoted_unsplit(self) -> list[tuple[str, float]]:
+        """A lone total nothing confirms: QUOTED in the note, never added (it may already be inside cash
+        equivalents, NVDA, or restricted, EHC/NHC/TPC); the steward adds the eligible part."""
+        return [] if self.counted_unsplit else self.unsplit
+
+    @property
+    def uncounted_totals(self) -> list[tuple[str, float]]:
+        """Totals beside other investment tags with no part of their own to check against: named, not counted."""
+        checked = {t for t, _, _, _ in self.total_checks}
+        return [(t, v) for t, v in self.totals if not self.unsplit and t not in checked]
+
+    @property
+    def established(self) -> bool:
+        """False -> ``investments-unreconciled``: the combined line is missed, a total is smaller than its own
+        parts, or a counted unsplit total is not confirmed by the combined line (it may hold cash equivalents).
+        """
+        if not self.reconciled or any(s == "short" for _, _, _, s in self.total_checks):
+            return False
+        return not self.unsplit or self.combined is not None
+
+    @property
+    def investments(self) -> float | None:
+        if not self.sti and not self.lt_marketable and not self.counted_unsplit:
+            return None  # nothing counted on the cash date — None, never a fake 0
+        counted = self.unsplit_value if self.counted_unsplit else None
+        return (self.sti_value or 0.0) + (self.lt_value or 0.0) + (counted or 0.0)
+
+
+def _compose(facts: dict, cash: float, end: str, cfg: ExtractorConfig) -> _Composition:
+    """The cash composition on ONE balance-sheet date (``end``, the cash instant's): the investments read AT that
+    date (the largest per role, never a sum of overlapping tags), the never-cash lines named, the cash tags'
+    nesting checked, and the combined line used only as a reconciliation."""
+
+    def seen(lst: list[tuple[str, str]]) -> list[tuple[str, float]]:
+        out = [(c, _at(facts, c, end)) for _, c in lst]
+        return [(c, v) for c, v in out if v is not None]
+
+    older: list[tuple[str, str]] = []
+    newer: list[tuple[str, str]] = []
+    for _, c in _STI + _LT_MARKETABLE:
+        rows = _rows(facts, "us-gaap", c, "USD")
+        if rows and _at(facts, c, end) is None:
+            newest = max(r["end"] for r in rows)
+            (newer if newest > end else older).append((c, newest))
+    cash_tags = seen(_CASH)
+    vals = dict(cash_tags)
+    disagree = any(n in vals and w in vals and vals[n] > vals[w] for n, w in _CASH_NESTING)
+    sti = seen(_STI)
+    lt_marketable = seen(_LT_MARKETABLE)
+    totals = seen([("us-gaap", t) for t in _DEBT_TOTALS])
+    tol = cfg.investments_reconcile_tolerance
+
+    def within(a: float, b: float) -> bool:
+        return abs(a - b) <= tol * max(abs(a), abs(b))
+
+    # a total beside its OWN current/noncurrent parts is a check: it holds them, so it can never be smaller
+    # (``short``); a larger total holds something more (securities classed as cash equivalents, already in cash,
+    # or an untagged part) that tags cannot place — the excess is named, never added (conservative).
+    total_checks: list[tuple[str, float, float, str]] = []
+    for t, v in totals:
+        own = [x for x in (_at(facts, p, end) for p in _DEBT_TOTALS[t]) if x is not None]
+        if own:
+            parts_sum = sum(own)
+            status = (
+                "reconciles" if within(v, parts_sum) else ("short" if v < parts_sum else "exceeds")
+            )
+            total_checks.append((t, v, parts_sum, status))
+    combined = _at(facts, _COMBINED, end)
+    reconciled = True
+    if combined is not None:
+        if sti:
+            current = max(v for _, v in sti)
+        elif not lt_marketable and totals:
+            current = max(
+                v for _, v in totals
+            )  # a counted unsplit total, confirmed only by this line
+        else:
+            current = 0.0
+        reconciled = within(cash + current, combined)
+    return _Composition(
+        cash=cash,
+        sti=sti,
+        lt_marketable=lt_marketable,
+        not_counted=seen(_NOT_CASH),
+        older=older,
+        newer=newer,
+        cash_tags=cash_tags,
+        disagree=disagree,
+        combined=combined,
+        reconciled=reconciled,
+        totals=totals,
+        total_checks=total_checks,
+    )
+
+
+def _composition_note(c: _Composition, cash_label: str) -> str:
+    """The note's cash part: every component with its amount, a missing one SAID missing (the old note printed
+    "marketable securities ($0.0M)" for tags it never read), the never-cash lines named as not counted.
+    """
+
+    def tags(seen: list[tuple[str, float]]) -> str:
+        best = _Composition._largest(seen)
+        assert best is not None
+        if len(seen) == 1:
+            return best[0]
+        listed = ", ".join(f"{t} {_m(v)}" for t, v in seen)
+        return f"{best[0]}, the largest of {listed}; overlapping tags are never summed"
+
+    total = c.cash + (c.investments or 0.0)
+    parts = [f"{cash_label} {_m(c.cash)}"]
+    missing: list[str] = []
+    if c.sti:
+        parts.append(f"short-term investments {_m(c.sti_value or 0.0)} ({tags(c.sti)})")
+    else:
+        missing.append("no short-term investments tagged on the cash date")
+    if c.lt_marketable:
+        parts.append(
+            f"long-term marketable securities {_m(c.lt_value or 0.0)} ({tags(c.lt_marketable)})"
+        )
+    else:
+        missing.append("no long-term marketable securities tagged on the cash date")
+    if c.counted_unsplit:
+        # the only investment tag on the cash date is an unsplit debt total the combined line confirms: counted
+        parts.append(
+            f"debt securities {_m(c.unsplit_value or 0.0)} ({tags(c.unsplit)}), a total not split into"
+            " current and noncurrent"
+        )
+    if c.unsplit:
+        missing = []  # a total IS tagged: "no investments tagged" would be false
+    out = f"cash_usd {_m(total)} = " + " + ".join(parts)
+    if missing:
+        out += "; " + "; ".join(missing)
+    if c.quoted_unsplit:
+        confirm = (
+            f"no same-dated {_COMBINED} line confirms it"
+            if c.combined is None
+            else f"the same-dated {_COMBINED} line does not confirm it"
+        )
+        out += (
+            f"; not counted: a debt-securities total of {_m(c.unsplit_value or 0.0)}"
+            f" ({tags(c.quoted_unsplit)}) was reported on the cash date, a total not split into current and"
+            f" noncurrent; {confirm}, and tags cannot tell whether it is already inside cash equivalents or"
+            " restricted; the steward should add the eligible part from the balance sheet"
+        )
+    for t, v, own, status in c.total_checks:
+        if status == "reconciles":
+            out += f"; {t} {_m(v)} reconciles to its current + noncurrent parts {_m(own)}"
+        elif status == "short":
+            out += (
+                f"; {t} {_m(v)} ≠ its current + noncurrent parts {_m(own)} (a total smaller than its"
+                " own parts: the composition is contradicted)"
+            )
+        else:
+            out += (
+                f"; {t} {_m(v)} exceeds its current + noncurrent parts {_m(own)}; the {_m(v - own)}"
+                " more is not counted (it may be securities classed as cash equivalents, already inside"
+                " cash)"
+            )
+    if c.uncounted_totals:
+        out += (
+            "; not counted: "
+            + ", ".join(f"{t} {_m(v)}" for t, v in c.uncounted_totals)
+            + " (an unsplit debt-securities total beside the investment tags read; it may restate them)"
+        )
+    if c.not_counted:
+        out += (
+            "; not counted as cash: "
+            + ", ".join(f"{t} {_m(v)}" for t, v in c.not_counted)
+            + " (a long-term investments line, often stakes in other companies, never cash)"
+        )
+    if c.combined is not None:
+        what = "the debt-securities total" if c.unsplit else "short-term investments"
+        parts_sum = c.cash + (c.sti_value or c.unsplit_value or 0.0)
+        out += (
+            f"; cash + {what} reconciles to {_COMBINED} {_m(c.combined)}"
+            if c.reconciled
+            else f"; {_COMBINED} {_m(c.combined)} ≠ cash + {what} {_m(parts_sum)}"
+            " (investments may sit under a tag not read)"
+        )
+    if c.disagree:
+        out += "; cash tags disagree on the cash date: " + ", ".join(
+            f"{t} {_m(v)}" for t, v in c.cash_tags
+        )
+    return out
+
+
 def _cash_burn(
-    facts: dict, tenq_text: str, ref: str, period_end: date, cfg: ExtractorConfig
+    facts: dict,
+    tenq_text: str,
+    ref: str,
+    period_end: date,
+    cfg: ExtractorConfig,
+    source: str = "10-q",
 ) -> ExtractedFact:
     """Cash + quarterly burn. A FLAG marks an EXCEPTION needing judgment (the re-tier — honest loudness:
     ``ytd-derived`` fired on ~3 of 4 filings [GAAP 10-Q cash-flow statements are YTD] and
@@ -507,18 +912,27 @@ def _cash_burn(
     a missing input is its own flag with a **None** value — never a fake $0 cash or a fake $0 burn (which
     ratified into a fake "cash-generative"). COMPOSITION is provenance, not an alarm: a cleanly-derived
     quarter (YTD − prior YTD — reproducible arithmetic on two filed columns, the market-cap trust class)
-    and the marketable-securities basis (same-dated included / off-date excluded, which errs CONSERVATIVE —
+    and the investment basis (same-dated included / an older off-date tag excluded, which errs CONSERVATIVE —
     understated cash reads runway shorter) ride the NOTE and stay AUTO. Every input's as-of rides the note.
+    A composition the extractor cannot establish is a FLAG (``_compose``: ``cash-tags-disagree``,
+    ``investments-unreconciled``, ``investments-off-date``), never a silent AUTO.
 
-    Each input reads its most CURRENT label (``_pick_instant``), so a filer that moved its cash to plain
-    ``Cash`` or the restricted-cash total, or its securities to a newer tag, is read where it reports today;
-    the note names a non-default cash tag and says when the value includes restricted cash.
+    The cash reads its most CURRENT label (``_pick_instant``), so a filer that moved its cash to plain
+    ``Cash`` or the restricted-cash total is read where it reports today; the note names a non-default cash
+    tag and says when the value includes restricted cash. The investments are read AT the cash date, every
+    known tag (``_STI``, ``_LT_MARKETABLE``), the largest per role; ``investments_usd`` carries their part.
+    ``source`` is the cited form's provenance kind (``10-q``, or ``10-k`` when the values filing is a 10-K).
+
+    THE PERIOD AND CITATION RULE (V2 extractor correctness PR 2, 2026-11-15): operating cash flow is read under
+    its most current label (``_OCF_TAGS``: plain or continuing operations), and the burn is AUTO only when it
+    spans ``quarterly_span_min_days``-``quarterly_span_max_days`` (``burn-span``), ends on the cited filing's
+    period of report (``burn-off-period``), and the cash is dated that period (older: ``stale-cash``; newer:
+    ``cash-after-period``). A failure offers the value as found with its flag; it never turns a flag into AUTO.
+    The note states the burn's start, end, days and tag, and the filing it is cited to.
     """
     cash_pick = _pick_instant(facts, _CASH)
     cash_at = None if cash_pick is None else (cash_pick[0], cash_pick[1])
     restricted = cash_pick is not None and cash_pick[2] == _RESTRICTED
-    sti_at = _latest_instant(facts, _STI)
-    lti_at = _latest_instant(facts, _LTI)
     q = _quarter(facts, cfg)
 
     # nothing observed anywhere -> a located-only FLAG (the shares no-companyfacts treatment). The old
@@ -539,7 +953,7 @@ def _cash_burn(
             tier=Tier.FLAG,
             cash_usd=None,
             quarterly_burn_usd=None,
-            source="10-q",
+            source=source,
             source_ref=ref,
             event_date=period_end,
             flags=["no-companyfacts"],
@@ -550,31 +964,40 @@ def _cash_burn(
 
     flags: list[str] = []
     passages: list[LocatedPassage] = []
-    # A balance sheet is ONE date: marketable instants join the sum ONLY when they carry the SAME as-of
-    # as cash. An off-date instant is not "stale, confirm it" — it's a DIFFERENT balance sheet (usually a
-    # discontinued tag: MU's AvailableForSaleSecurities* last reported 2018 — the old bare-value composer
-    # silently added those eight-year-old balances into current cash). Excluded + named, never summed.
-    mk_included = [x for x in (sti_at, lti_at) if x and cash_at and x[1] == cash_at[1]]
-    mk_offdate = [x for x in (sti_at, lti_at) if x and (not cash_at or x[1] != cash_at[1])]
-    marketable = sum(x[0] for x in mk_included)
-    cash_usd = (cash_at[0] + marketable) if cash_at else None
+    # A balance sheet is ONE date: investments join the sum ONLY when tagged on the SAME date as cash. An
+    # off-date instant is not "stale, confirm it" — it's a DIFFERENT balance sheet (usually a discontinued tag:
+    # MU's AvailableForSaleSecurities* last reported 2018 — the old bare-value composer silently added those
+    # eight-year-old balances into current cash). An OLDER one is excluded + named, never summed (conservative:
+    # runway reads shorter); one only on a NEWER balance sheet means the composition at one date is not
+    # established — ``investments-off-date``.
+    comp = _compose(facts, cash_at[0], cash_at[1], cfg) if cash_at else None
+    investments = comp.investments if comp else None
+    cash_usd = (cash_at[0] + (investments or 0.0)) if cash_at else None
     asofs: list[str] = []
     if cash_pick is not None:
         # the label is named whenever it is not the plain balance-sheet cash line (show the work: which tag
         # the number came from — the reader now follows a filer that switched labels)
         tag = "" if cash_pick[2] == _CASH[0][1] else f" (tagged {cash_pick[2]})"
         asofs.append(f"cash as of {cash_pick[1]}{tag}")
-    if mk_included:
-        asofs.append(f"marketable as of {mk_included[0][1]}")
-    if mk_offdate:
+    if cash_at and investments is not None:
+        asofs.append(f"investments as of {cash_at[1]}")
+    if comp and comp.older:
         asofs.append(
-            "marketable tags dated "
-            + ", ".join(sorted({x[1] for x in mk_offdate}))
-            + " ≠ the cash date — EXCLUDED from the sum (likely discontinued tags; verify where "
-            "current investments live)"
+            "investment tags not on the cash date — EXCLUDED from the sum (likely discontinued tags): "
+            + ", ".join(f"{t} ({d})" for t, d in comp.older)
+        )
+    if comp and comp.newer:
+        asofs.append(
+            "investment tags dated AFTER the cash date and not on it: "
+            + ", ".join(f"{t} ({d})" for t, d in comp.newer)
         )
 
     burn: float | None = None
+    ytd: YtdPace | None = (
+        None  # the year-to-date pace behind the burn (PR 3); None = no separate year to date
+    )
+    caveat: str | None = None  # the pace caveat, only when the quarter is far off that pace (D3)
+    checks: list[str] = []  # each period/citation flag's own sentence, stated in the note
     basis_suffix = (
         ""  # the derivation basis, stated in the note (composition = provenance, not a flag)
     )
@@ -586,9 +1009,10 @@ def _cash_burn(
         if cf:
             passages.append(cf)
     else:
-        qval, (start, end), basis = q
+        qval, start, end, basis = q.value, q.start, q.end, q.basis
         burn = -qval  # quarterly_burn_usd is POSITIVE when burning (op-cash-use is negative)
-        asofs.append(f"burn over {start} → {end}")
+        # the burn's period, its length and its tag, always (show the work: which column, over which days)
+        asofs.append(f"burn over {start} → {end} ({q.days} days, tagged {q.concept})")
         if basis == "derived":
             # a clean derivation (both YTD columns on file, quarter = YTD − prior YTD) is reproducible
             # arithmetic, not a judgment fork — stated, never alarmed. As a FLAG it fired on ~3 of 4
@@ -607,10 +1031,35 @@ def _cash_burn(
                     "quarter. Derive the quarter manually (or enter the YTD basis deliberately) …",
                 )
             )
+        # THE PERIOD RULE (V2 extractor correctness PR 2): AUTO only when the burn covers about one quarter
+        # (``quarterly_span_min_days``-``quarterly_span_max_days``, native or derived) AND ends on the cited
+        # filing's period of report. The audit's 460: 7 "quarters" spanned 6-9 months (a missing prior year to
+        # date: URI stored two quarters as one), 2 under 80 days, 14 ended off the cited period (a stale tag or a
+        # 20-F's numbers under an old 10-Q). The value is still offered, as found, with the flag and its span.
+        # A raw year to date already says it is not a quarter (``ytd-raw``): one condition, one label.
+        if basis != "ytd-raw" and not (
+            cfg.quarterly_span_min_days <= q.days <= cfg.quarterly_span_max_days
+        ):
+            flags.append("burn-span")
+            checks.append(
+                f"the burn spans {q.days} days, outside the {cfg.quarterly_span_min_days}-"
+                f"{cfg.quarterly_span_max_days}-day quarter window, so it is not established as one quarter"
+            )
+        if end != period_end.isoformat():
+            flags.append("burn-off-period")
+            checks.append(
+                f"the burn ends {end}, not on the cited filing's period of report {period_end.isoformat()}"
+            )
         ot = _detect_one_time(facts, tenq_text, ref, start, end, qval, cfg)
         if ot:
             flags.append("possible-one-time")
             passages.append(ot)
+        # THE PACE CHECK (V2 extractor correctness PR 3, operator decision D3): the year-to-date quarterly pace
+        # rides the fact and the note, and a quarter far off it carries a CAVEAT. Never a flag, never the tier.
+        ytd = _ytd_pace(facts, q, cfg)
+        if ytd is not None:
+            asofs.append(pace_segment(ytd))
+            caveat = pace_caveat(cash_usd, burn, ytd.quarterly_burn_usd, cfg)
     if cash_at is None:
         # a burn column but NO cash instant — runway can't compute; offer the burn, name the miss
         flags.append("no-cash-instant")
@@ -621,9 +1070,41 @@ def _cash_burn(
     # cash — included marketable share cash's date by construction)
     if cash_at and date.fromisoformat(cash_at[1]) < period_end:
         flags.append("stale-cash")
-    # NO marketable-securities flag (the re-tier): same-dated inclusion is the textbook liquidity
-    # composition and off-date exclusion errs conservative (cash understated -> runway reads SHORTER) —
-    # both are stated in the note's as-ofs above; the alarm, when it matters, is the meter reading short.
+    # ... and the other direction (V2 extractor correctness PR 2): cash dated AFTER the cited filing's period
+    # is a later balance sheet than the filing cited (the audit: RMIX +31 days, EXYN the filing day, and every
+    # 20-F number read under an old 10-Q) — the old check passed it silently.
+    if cash_at and date.fromisoformat(cash_at[1]) > period_end:
+        flags.append("cash-after-period")
+        checks.append(
+            f"cash is dated {cash_at[1]}, after the cited filing's period of report "
+            f"{period_end.isoformat()}"
+        )
+    # NO flag for the ordinary composition (the re-tier): same-dated inclusion is the textbook liquidity
+    # composition and an older off-date exclusion errs conservative (cash understated -> runway reads SHORTER)
+    # — both are stated in the note. A composition the extractor CANNOT establish is a flag, never a silent
+    # AUTO: cash tags of one date that contradict each other, cash + short-term investments that miss the
+    # same-dated combined line, investments only on a later balance sheet.
+    if comp is not None:
+        if comp.disagree:
+            flags.append("cash-tags-disagree")
+        if not comp.established:
+            flags.append("investments-unreconciled")
+        if comp.newer:
+            flags.append("investments-off-date")
+
+    # a period or citation flag points at the statement it concerns (located, never interpreted)
+    for kind, keys, raised in (
+        (
+            "cash-flow",
+            ["operating activities", "cash flows"],
+            {"burn-span", "burn-off-period"} & set(flags),
+        ),
+        ("balance-sheet", ["cash and cash equivalents"], {"cash-after-period"} & set(flags)),
+    ):
+        if raised and not any(p.kind == kind for p in passages):
+            p = _locate(tenq_text, ref, kind, keys)
+            if p:
+                passages.append(p)
 
     if not flags:
         # show-the-work on AUTO: attach the same deterministic locates the FLAG paths carry, so the
@@ -638,11 +1119,10 @@ def _cash_burn(
                 passages.append(p)
 
     tier = Tier.FLAG if flags else Tier.AUTO
-    cash_label = "cash+equivalents, includes restricted cash" if restricted else "cash+equivalents"
+    cash_label = "cash+equivalents (includes restricted cash)" if restricted else "cash+equivalents"
     cash_part = (
-        f"cash_usd = {cash_label} (${cash_at[0] / 1e6:.1f}M) + marketable securities "
-        f"(${marketable / 1e6:.1f}M)"
-        if cash_at
+        _composition_note(comp, cash_label)
+        if comp
         else "cash: NOT FOUND in companyfacts (author it from the located balance sheet)"
     )
     burn_part = (
@@ -650,9 +1130,14 @@ def _cash_burn(
         if burn is not None
         else "burn: NOT FOUND (no operating-cash-flow column)"
     )
+    # the filing the value is cited to, then each period/citation flag's sentence (V2 extractor correctness PR 2)
+    cited = (
+        f"cited filing: the {source.upper()} for the period ending {period_end.isoformat()} ({ref})"
+    )
+    stated = [*asofs, cited, *checks, *([f"pace caveat: {caveat}"] if caveat else [])]
     note = (
         f"{cash_part}; {burn_part}"
-        + (f" [{'; '.join(asofs)}]" if asofs else "")
+        + f" [{'; '.join(stated)}]"
         + ". "
         + (
             "FLAGS: " + ", ".join(flags) + " — confirm against the filing."
@@ -662,7 +1147,7 @@ def _cash_burn(
     )
     # the value's OWN as-of (the #132 event-date rule): the burn period end, else the cash instant's end
     evt = (
-        date.fromisoformat(q[1][1])
+        date.fromisoformat(q.end)
         if q is not None
         else (date.fromisoformat(cash_at[1]) if cash_at else period_end)
     )
@@ -671,7 +1156,15 @@ def _cash_burn(
         tier=tier,
         cash_usd=cash_usd,
         quarterly_burn_usd=burn,
-        source="10-q",
+        # every figure on this value was read from companyfacts' USD unit (``_pick_instant``, ``_compose``,
+        # ``_quarter`` and ``_ytd_pace`` read no other unit), so the value says so explicitly (D4); the
+        # nothing-read return above claims no currency
+        statement_currency="USD",
+        investments_usd=investments,
+        ytd_quarterly_burn_usd=None if ytd is None else round(ytd.quarterly_burn_usd),
+        ytd_burn_days=None if ytd is None else ytd.days,
+        pace_caveat=caveat,
+        source=source,
         source_ref=ref,
         event_date=evt,
         flags=flags,
@@ -781,14 +1274,20 @@ def extract_facts(
     tenq_date: date,
     tenk_date: date,
     cfg: ExtractorConfig = DEFAULT_EXTRACTOR_CONFIG,
+    values_form: str = "10-Q",
 ) -> list[ExtractedFact]:
     """Pure, deterministic: (companyfacts + the two filing texts) -> the three candidate facts. Testable
-    offline against cached fixtures (the form4-parser precedent — the caller owns fetching)."""
+    offline against cached fixtures (the form4-parser precedent — the caller owns fetching).
+
+    ``values_form`` is the form of the VALUES filing (the ``tenq_*`` arguments, which since B1 can be a 10-K):
+    the cash candidate's stored provenance kind names it (``10-k`` for a 10-K; it said ``10-q`` for every
+    value, the 18 audited 10-K citations included)."""
     facts = companyfacts["facts"]
+    cash_source = "10-k" if values_form == "10-K" else "10-q"
     return [
         _purity(facts, tenk_text, tenk_ref, tenk_date),
         _shares(facts, tenq_text, tenq_ref, tenq_date),
-        _cash_burn(facts, tenq_text, tenq_ref, tenq_date, cfg),
+        _cash_burn(facts, tenq_text, tenq_ref, tenq_date, cfg, source=cash_source),
     ]
 
 
@@ -802,12 +1301,9 @@ def companyfacts_url(cik: str | int) -> str:
     return f"{get_settings().sec_data_base}/api/xbrl/companyfacts/CIK{int(cik):010d}.json"
 
 
-def _latest_filing(client: EdgarClient, cik: int, form: str) -> tuple[str, str, date] | None:
-    subs = fetch_submissions(client, cik)
-    hits = filings_of(subs, form)
-    if not hits:
-        return None
-    f = hits[0]
+def _read_filing(client: EdgarClient, cik: int, f: dict[str, str]) -> tuple[str, str, date]:
+    """One submissions row (``filings_of``'s shape) -> (document URL, cleaned text, period of report). The ONE
+    document request of a filing (cache-first, ``forms/`` = cached forever)."""
     url = _doc_url(cik, f["accession"], f["primary_doc"])
     text = clean_filing_text(
         client.get_text(url, f"forms/{f['accession']}/{f['primary_doc'].rsplit('/', 1)[-1]}")
@@ -820,11 +1316,69 @@ def _latest_filing(client: EdgarClient, cik: int, form: str) -> tuple[str, str, 
     return url, text, date.fromisoformat(f.get("report_date") or f["filed"])
 
 
+def _latest_filing(client: EdgarClient, cik: int, form: str) -> tuple[str, str, date] | None:
+    hits = filings_of(fetch_submissions(client, cik), form)
+    return _read_filing(client, cik, hits[0]) if hits else None
+
+
+def _public_at(f: dict[str, str]) -> datetime:
+    """When a 10-Q / 10-K / 20-F / 40-F became PUBLIC (CLAUDE.md invariant #1; the F7 rule for forms whose
+    filing date rolls): its listed acceptance when ``resolve_public_acceptance`` trusts it, else the END of its
+    filing date in ET — late, never early. Request-free (no header read). Orders the latest 10-Q against the latest 10-K (``_newer``) and
+    the four periodic forms against one another (``_takes_annual_path``).
+    """
+    accepted = resolve_public_acceptance(f.get("accepted"), f.get("filed")).at
+    if accepted is not None:
+        return accepted
+    filed = parse_filing_date(f.get("filed"))
+    # no readable filing date (never seen on EDGAR): order it oldest rather than guess a public time
+    return (
+        filing_date_bound(filed) if filed is not None else datetime.min.replace(tzinfo=timezone.utc)
+    )
+
+
+# The forms the router weighs (V2 extractor correctness PR 2): the periodic path's and the annual path's. Exact
+# match, as everywhere: an amendment or a current report (8-K, 6-K) never decides the path.
+_PERIODIC_FORMS = ("10-Q", "10-K")
+_ANNUAL_FORMS = ("20-F", "40-F")
+
+
+def _takes_annual_path(subs: dict[str, Any]) -> bool:
+    """Whether a company goes down the annual (20-F/40-F) path: its NEWEST periodic filing — the latest 10-Q,
+    10-K, 20-F and 40-F compared by when each became public (``_public_at``; no lookahead, never by period of
+    report) — is a 20-F or 40-F, or it has no 10-Q/10-K at all (unchanged).
+
+    Before 2026-11-15 any company that had EVER filed a 10-Q or 10-K took the quarterly path. The audit's five
+    form switchers (EUDA, CURR, SCNI, CHR, BTCT) now file 20-F/6-K: the quarterly path read the 20-F's numbers
+    from companyfacts and cited the old 10-Q, AUTO. A company that filed a 20-F years ago and files 10-Qs now
+    stays quarterly. A tie on public time keeps the quarterly path (the earlier-listed form; the quarterly path's
+    own period checks still flag numbers that are not the cited filing's)."""
+    newest: tuple[datetime, str] | None = None
+    for form in _PERIODIC_FORMS + _ANNUAL_FORMS:
+        row = next(iter(filings_of(subs, form)), None)
+        if row is None:
+            continue
+        at = _public_at(row)
+        if newest is None or at > newest[0]:  # strictly newer: a tie keeps the earlier-listed form
+            newest = (at, form)
+    return newest is None or newest[1] in _ANNUAL_FORMS
+
+
+def _newer(tenq: dict[str, str] | None, tenk: dict[str, str] | None) -> dict[str, str] | None:
+    """The values filing (operator decision B1, 2026-11-14): the NEWER of the latest 10-Q and the latest 10-K by
+    when each became public — never by period of report. A tie keeps the 10-Q (the old preference).
+    """
+    if tenq is None or tenk is None:
+        return tenq or tenk
+    return tenk if _public_at(tenk) > _public_at(tenq) else tenq
+
+
 def extract_for_security(
     client: EdgarClient,
     cik: str | int,
     *,
     cfg: ExtractorConfig = DEFAULT_EXTRACTOR_CONFIG,
+    values_only: bool = False,
 ) -> list[ExtractedFact]:
     """Live (cache-first) wrapper: CIK -> companyfacts + the latest 10-Q and/or 10-K -> candidates.
     An EXPLICIT operator action (the extract endpoint), never auto-fired on a render.
@@ -835,34 +1389,51 @@ def extract_for_security(
     with an honest, distinct empty reason when even that has nothing to read. THIS function stays
     10-Q/10-K-only (the auto-confirm path keys off it — annual candidates are FLAG, never applied).
 
-    BOTH-FORMS RELAXATION: it no longer requires BOTH forms. Each role falls back to whichever exists —
-    a 10-K carries a cover-share count (shares) + a cash-flow statement (burn); a 10-Q carries interim
-    segment notes (purity) — so a domestic filer with only one recent form still yields candidates. The
-    both-present case is UNCHANGED (q=10-Q, k=10-K). A fallen-back annual cash-flow column stays honest:
-    a derivable YTD is stated as derived in the note (reproducible arithmetic — AUTO, the re-tier); an
-    underivable one FLAGs ``ytd-raw`` rather than mislabel a clean quarter."""
+    WHICH FILING EACH ROLE CITES (operator decision B1, 2026-11-14). The share count and cash/burn cite the
+    NEWER of the latest 10-Q and the latest 10-K, by when each became PUBLIC (``_newer``): their numbers are
+    companyfacts' newest rows, which after a 10-K are the 10-K's, so the link, the period of report and the
+    located passages must be the 10-K's too (before B1 they cited the older 10-Q: a 10-K's number under a
+    10-Q's link, and the machine writer skipped it as already on file). Purity keeps preferring the 10-K
+    (the segment note), falling back to the 10-Q. Each role falls back to whichever form exists. An annual
+    cash-flow column stays honest: a derivable quarter is stated as derived in the note (reproducible
+    arithmetic — AUTO, the re-tier); an underivable one FLAGs ``ytd-raw`` rather than mislabel a clean quarter.
+
+    FETCHES. Each document is read at most once, and only when a role needs it: the values filing, plus the
+    purity filing when it is a different one. ``values_only=True`` (the platform-value runs, whose machine
+    writer ignores purity) never reads a second document: the purity candidate is then built from the values
+    filing."""
     cik = int(cik)
     cf = client.get_json(
         companyfacts_url(cik),
         f"companyfacts/CIK{cik:010d}.json",
     )
-    tenq = _latest_filing(client, cik, "10-Q")
-    tenk = _latest_filing(client, cik, "10-K")
-    if tenq is None and tenk is None:
+    subs = fetch_submissions(client, cik)
+    tenq = next(iter(filings_of(subs, "10-Q")), None)
+    tenk = next(iter(filings_of(subs, "10-K")), None)
+    values_row = _newer(tenq, tenk)
+    if values_row is None:
         return (
             []
         )  # no domestic periodic filing (foreign 20-F/6-K issuer) — nothing the extractor covers
-    q = tenq or tenk  # shares + cash_burn source (prefer the 10-Q; fall back to the 10-K)
-    k = tenk or tenq  # purity / segment source (prefer the 10-K; fall back to the 10-Q)
+    purity_row = tenk or tenq  # purity / segment source (prefer the 10-K; fall back to the 10-Q)
+    if values_only:
+        purity_row = values_row
+    v = _read_filing(client, cik, values_row)
+    p = (
+        v
+        if purity_row["accession"] == values_row["accession"]
+        else _read_filing(client, cik, purity_row)
+    )
     return extract_facts(
         cf,
-        q[1],
-        k[1],
-        tenq_ref=q[0],
-        tenk_ref=k[0],
-        tenq_date=q[2],
-        tenk_date=k[2],
+        v[1],
+        p[1],
+        tenq_ref=v[0],
+        tenk_ref=p[0],
+        tenq_date=v[2],
+        tenk_date=p[2],
         cfg=cfg,
+        values_form="10-K" if values_row is tenk else "10-Q",
     )
 
 
@@ -871,21 +1442,27 @@ def extract_with_annual_fallback(
     cik: str | int,
     *,
     cfg: ExtractorConfig = DEFAULT_EXTRACTOR_CONFIG,
+    values_only: bool = False,
 ) -> ExtractionResult:
-    """The extract ROUTE's entry (Retrieval Slices 1 + A): the existing 10-Q/10-K path whenever a
-    domestic periodic filing exists — UNCHANGED — else the annual path (20-F/40-F, FLAG-only): the
-    cover SHARES candidate (Slice 1) plus the statements CASH/RUNWAY candidate or its honest
-    ``runway_empty_reason`` (Slice A), with the DISTINCT empty reasons on ``ExtractionResult``.
+    """The extract ROUTE's entry (Retrieval Slices 1 + A): the 10-Q/10-K path when the company's newest
+    periodic filing is a 10-Q or 10-K, else the annual path (20-F/40-F, FLAG-only): the cover SHARES candidate
+    (Slice 1) plus the statements CASH/RUNWAY candidate or its honest ``runway_empty_reason`` (Slice A), with
+    the DISTINCT empty reasons on ``ExtractionResult``. The decision is ``_takes_annual_path`` (V2 extractor
+    correctness PR 2): a company that moved from 10-Q to 20-F goes annual even though it once filed 10-Qs.
 
-    The dark-name trigger is the SAME condition the periodic path bails on (no 10-Q AND no 10-K), but
-    it is checked FIRST from submissions because the periodic path fetches companyfacts up front and
-    fails loudly for the no-companyfacts names (GLAS/CRLBF/TRSG — data.sec.gov serves 404 there) that
+    The dark-name trigger (no 10-Q AND no 10-K, or a newer 20-F/40-F) is checked FIRST from submissions because
+    the periodic path fetches companyfacts up front and fails loudly for the no-companyfacts names (GLAS/CRLBF/TRSG — data.sec.gov serves 404 there) that
     the annual path must still serve cover-only.
+
+    ``values_only`` is handed to the periodic path (``extract_for_security``: no second document for purity).
+    The annual path already reads one document for both value types, so it has nothing to skip.
     """
     cik = int(cik)
     subs = fetch_submissions(client, cik)
-    if filings_of(subs, "10-Q") or filings_of(subs, "10-K"):
-        return ExtractionResult(facts=extract_for_security(client, cik, cfg=cfg))
+    if not _takes_annual_path(subs):
+        return ExtractionResult(
+            facts=extract_for_security(client, cik, cfg=cfg, values_only=values_only)
+        )
     # Lazy import keeps the module DAG acyclic: the annual modules import this module's URL helpers.
     # annual_facts_for_security fetches the annual document ONCE and feeds BOTH the cover-shares and
     # the statements-runway extractors from that one text (never a second multi-MB pull).
@@ -894,12 +1471,38 @@ def extract_with_annual_fallback(
     return annual_facts_for_security(client, cik, cfg=cfg)
 
 
+def extract_purity_for_security(client: EdgarClient, cik: str | int) -> ExtractionResult:
+    """A plain user's extract (W7a): the purity candidate ALONE, fetching only what it needs.
+
+    A share count and cash/burn are platform values (``docs/PLATFORM_VALUES.md``): extracted in the background,
+    decided by the steward, and never shown to a plain user unverified. So this entry never reads the values
+    filing, an annual (20-F/40-F) document or an exhibit. It reads the submissions index; for a company whose
+    newest periodic filing is a 20-F or 40-F (``_takes_annual_path``) it stops there with the
+    ``purity-not-covered`` empty reason (the annual path never covered purity), or ``no-annual-filing`` when the
+    company has no periodic or annual filing at all (unchanged words). Otherwise it reads companyfacts (the
+    revenue test choosing the segment table or the Item-1 passage) and ONE document: the latest 10-K, else the
+    latest 10-Q. The candidate is the same HUMAN purity candidate the full extract builds (located, never valued).
+    """
+    cik = int(cik)
+    subs = fetch_submissions(client, cik)
+    if _takes_annual_path(subs):
+        has_annual = any(filings_of(subs, form) for form in _ANNUAL_FORMS)
+        return ExtractionResult(
+            facts=[], empty_reason="purity-not-covered" if has_annual else "no-annual-filing"
+        )
+    row = next(iter(filings_of(subs, "10-K")), None) or next(iter(filings_of(subs, "10-Q")))
+    cf = client.get_json(companyfacts_url(cik), f"companyfacts/CIK{cik:010d}.json")
+    ref, text, period_end = _read_filing(client, cik, row)
+    return ExtractionResult(facts=[_purity(cf["facts"], text, ref, period_end)])
+
+
 __all__ = [
     "COVER_AFTER_FILING",
     "RefusedCover",
     "cover_after_filing",
     "extract_facts",
     "extract_for_security",
+    "extract_purity_for_security",
     "extract_with_annual_fallback",
     "ExtractedFact",
     "refused_cover_note",

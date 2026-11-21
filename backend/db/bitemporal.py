@@ -64,6 +64,9 @@ _FACT_IDENTITY: dict[str, list[str]] = {
         "term",
         "month",
     ],  # one EDGAR full-text count per (term, month) within the THESIS scope — a re-count is a new version (0071)
+    "fact_thesis_catalyst": [
+        "entry_id"
+    ],  # one counting statement per catalyst entry within the THESIS scope — an edit is a new version (V2 W6a, 0212)
 }
 
 # The fact tables NO detector reads — DISPLAY data only (the research dashboards), kept OUT of the replay mirror.
@@ -318,11 +321,10 @@ def _as_of(
     """Shared bitemporal point-in-time read, scoped by ``scope_col`` — no lookahead on either axis.
 
     ``tenant_id`` is ONE tenant or SEVERAL (``domain.scopes.as_tenants``; the caller names them through
-    ``domain.scopes.tenants_for`` — the data tenant for a DATA table, the workspace for a WORKSPACE table, both
-    for a MIXED one). The read is ``tenant_id = ANY(...)``, and the SAME latest-version pick below
+    ``domain.scopes.tenants_for`` — the data tenant for a DATA table, the workspace for a WORKSPACE table: one
+    tenant per table since V2). The read is ``tenant_id = ANY(...)``; the latest-version pick below
     (``DISTINCT ON (natural key) ... ORDER BY recorded_at DESC, id DESC`` — the natural key carries no tenant)
-    resolves a union across two tenants: a workspace's later ratification overrides the feed row for that
-    workspace's read only. One tenant reads exactly as before.
+    would span every tenant named, which only a caller passing several ids by hand can ask for.
 
     ``clock="public"`` (a HISTORY view — the past-asof serve path, the backfill) judges the transaction axis on
     each version's PUBLIC instant instead of ``recorded_at`` (``_public_read``; ``db.public_clock``). The

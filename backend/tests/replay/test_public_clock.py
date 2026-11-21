@@ -475,7 +475,7 @@ def test_every_call_path_table_has_a_declared_clock():
         "fact_insider_txn",
         "fact_catalyst",
         "fact_dilution",
-        "fact_theme_conviction",
+        "fact_thesis_catalyst",  # V2 W6c: the thesis-scoped call read
     }
     assert call_path <= set(_PUBLIC_CLOCK)
 
@@ -756,7 +756,7 @@ def test_the_public_mirror_is_row_for_row_the_live_public_read(db, tmp_path, bas
     ``clock="public"`` mirror, row for row — including ``recorded_at`` (the public instant) and
     ``ingested_at`` (the honest one). The two engines run ONE definition (``db.public_clock``)."""
     from pipeline.seed import HIMS_THESIS_ID, NUCLEAR_THESIS_ID, UNH_THESIS_ID
-    from tests.replay.test_pit_parity import _match
+    from tests.replay.test_pit_parity import _match, _members
 
     secs = _seed_public_parity(db)
     export_snapshot(db, tmp_path, clock="public", workspace=DEFAULT_TENANT_ID)
@@ -802,10 +802,10 @@ def test_the_public_mirror_is_row_for_row_the_live_public_read(db, tmp_path, bas
                     assert len(lr) == len(rr)
                     checked += len(lr)
             for tid in (HIMS_THESIS_ID, UNH_THESIS_ID, NUCLEAR_THESIS_ID):
-                _match(
-                    live.theme_conviction_facts(tid),
-                    rep.theme_conviction_facts(tid),
-                    _FACT_IDENTITY["fact_theme_conviction"],
+                _match(  # V2 W6c: the thesis-scoped call read (it replaced theme_conviction_facts)
+                    _members(live.thesis_catalyst_facts(tid)),
+                    _members(rep.thesis_catalyst_facts(tid)),
+                    _FACT_IDENTITY["fact_thesis_catalyst"],
                 )
     finally:
         con.close()

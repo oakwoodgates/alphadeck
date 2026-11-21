@@ -1,0 +1,5 @@
+The accompanying notes are an integral part of these consolidated financial statements. F-3 NETEASE, INC. CONSOLIDATED BALANCE SHEETS (in thousands, except share and per share data) December 31, 2024 2025 2025 RMB RMB USD (Note 2(e)) Assets Current assets: Cash and cash equivalents 51,000,000 47,167,904 6,744,921 Time deposits 70,000,000 92,639,378 13,247,365 Short-term investments 20,000,000 22,803,503 3,260,858 Accounts receivable, net 6,100,000 6,200,000 886,600 Total current assets 160,000,000 175,000,000 25,025,000
+
+[… trimmed …]
+
+The accompanying notes are an integral part of these consolidated financial statements. F-7 NETEASE, INC. CONSOLIDATED STATEMENTS OF CASH FLOWS (in thousands) Year Ended December 31, 2023 2024 2025 2025 RMB RMB RMB USD (Note 2(e)) Cash flows from operating activities: Net income 29,700,000 30,200,000 34,000,000 4,862,000 Depreciation and amortization 2,000,000 2,100,000 2,200,000 314,600 Net cash provided by operating activities 37,000,000 39,700,000 50,739,800 7,255,695 Cash flows from investing activities: Purchase of property, equipment and software ( 1,500,000 ) ( 1,600,000 ) ( 1,700,000 ) ( 243,100 )

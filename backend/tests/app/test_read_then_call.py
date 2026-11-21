@@ -94,25 +94,6 @@ def test_etf_holdings_ends_the_read_before_sec(client, db, seen, monkeypatch):
     assert seen.statuses == [IDLE]
 
 
-def test_auto_confirm_ends_the_read_before_sec(client, db, seen, monkeypatch):
-    from app.routers import workbench as wb
-
-    sid = _security(db, "RTC")
-
-    def fake(client_, cik):
-        seen.mark()
-        return []
-
-    monkeypatch.setattr(wb, "extract_for_security", fake)
-    r = client.post(
-        "/workbench/facts/auto-confirm",
-        json={"security_id": str(sid), "fact_type": "shares_outstanding"},
-    )
-    assert r.status_code == 200, r.text
-    assert r.json()["reason"] == "no_candidate"
-    assert seen.statuses == [IDLE]
-
-
 def test_ingest_prices_ends_the_read_before_the_resolver_and_the_vendor(
     client, db, seen, monkeypatch
 ):

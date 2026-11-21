@@ -59,10 +59,8 @@ table.it-table .it-line { width: 100%; min-width: 380px; padding-right: 0; }
 /* the hatches lie over the segment's nights; the segment's own hover carries their notes */
 .it-hatch { position: absolute; top: 8px; height: 8px; pointer-events: none; z-index: 2; }
 .it-hatch.reconstructed { background: repeating-linear-gradient(45deg, var(--bg) 0 1.5px, transparent 1.5px 4px); }
-.it-hatch.excluded { background: repeating-linear-gradient(-45deg, var(--bg) 0 1.5px, transparent 1.5px 4px), repeating-linear-gradient(45deg, var(--bg) 0 1px, transparent 1px 6px); }
 .it-sw-hatch { position: relative; }
 .it-sw-hatch.reconstructed { background: repeating-linear-gradient(45deg, var(--bg) 0 1.5px, transparent 1.5px 4px), var(--st); }
-.it-sw-hatch.excluded { background: repeating-linear-gradient(-45deg, var(--bg) 0 1.5px, transparent 1.5px 4px), repeating-linear-gradient(45deg, var(--bg) 0 1px, transparent 1px 6px), var(--st); }
 
 /* markers: quiet grays, above the bars */
 .it-cat { position: absolute; top: 5px; height: 14px; width: 1.5px; transform: translateX(-50%); background: var(--txt-2); cursor: help; z-index: 3; }

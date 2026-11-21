@@ -63,6 +63,9 @@ export const runway = (over: Partial<PeerRunwayOut> = {}): PeerRunwayOut => ({
   burn_usd: 3_000_000,
   as_of: "2026-05-10",
   gap: null,
+  ytd_quarterly_burn_usd: null,
+  ytd_months: null,
+  pace_caveat: null,
   ...over,
 });
 export const purity = (value: number | null, segment: string | null = null, gap: Gap | null = null): PeerPurityOut => ({

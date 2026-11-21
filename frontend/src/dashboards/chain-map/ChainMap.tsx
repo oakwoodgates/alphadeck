@@ -447,7 +447,7 @@ export default function ChainMap({ asof, onSelectThesis }: DashboardProps) {
             <li>
               The 50-day side and the filing age are display context and never feed a call. The filing age counts
               every form in the company's EDGAR index (its recent window: at least a year, or the last 1,000
-              filings); a split, a catalyst or a ratified or stored fact is never counted as one.
+              filings); a split, a catalyst or a shared value, your purity or a stored fact is never counted as one.
             </li>
           </ul>
         </>

@@ -45,6 +45,7 @@ from app.schemas_api import (
     AdminMissingClosesOut,
     AdminOAuthClientsOut,
     AdminPartialNightOut,
+    AdminPlatformExtractionOut,
     AdminReconstructedNightOut,
     AdminRecordOut,
     AdminRunEnvOut,
@@ -72,7 +73,7 @@ from domain.market_time import market_now, market_tz
 from domain.scopes import DATA_TENANT_ID
 from domain.settings import get_settings
 from notify import HealthEvent
-from pipeline import edition_run_log
+from pipeline import edition_run_log, extraction_run_log
 from pipeline.backup import BackupInfo, list_backups, run_backup
 from pipeline.backup_job import BackupRunInFlight, start_backup_job
 from pipeline.backup_job import get_job as get_backup_job
@@ -82,6 +83,7 @@ from pipeline.cron_run_log import (
     RUN_STATUS_RUNNING,
     carried_inventory,
     is_finished,
+    latest_run_block,
     list_run_logs,
     run_status,
 )
@@ -1269,6 +1271,23 @@ def get_admin_status(
             "data-tenant thesis count failed (fail-open — the status read is unaffected)"
         )
 
+    # V2 W0b — share counts and cash/burn under any workspace (should be 0 once the V2 move has run: V2 reads
+    # both from the data tenant only). Both tables are small. Fail-open like its neighbors.
+    platform_rows_in_workspaces = 0
+    try:
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT (SELECT count(*) FROM fact_shares_outstanding WHERE tenant_id <> %s) "
+                    "+ (SELECT count(*) FROM fact_cash_burn WHERE tenant_id <> %s) AS n",
+                    (DATA_TENANT_ID, DATA_TENANT_ID),
+                )
+                platform_rows_in_workspaces = int(cur.fetchone()["n"])
+    except Exception:  # noqa: BLE001 — the count is a passenger on the status read
+        _log.exception(
+            "platform-rows-in-workspaces count failed (fail-open — the status read is unaffected)"
+        )
+
     # 0080 — the registered OAuth clients, static and self-registered (a count only). Fail-open.
     oauth_clients = None
     try:
@@ -1299,6 +1318,17 @@ def get_admin_status(
         master_refresh = _master_refresh_out(latest_master_run())
     except Exception:  # noqa: BLE001 — the line is a passenger on the status read
         _log.exception("company-list line failed (fail-open — the status read is unaffected)")
+
+    # V2 W3c — background extraction's one line: the newer of the nightly pass's block and the newest backfill /
+    # onboarding / by-hand run (two directory reads; no DB). Fail-open like the lines above.
+    platform_extraction = None
+    try:
+        platform_extraction = _platform_extraction_out(
+            latest_run_block("platform_extraction"),
+            extraction_run_log.latest_extraction_run(),
+        )
+    except Exception:  # noqa: BLE001 — the line is a passenger on the status read
+        _log.exception("shared-facts line failed (fail-open — the status read is unaffected)")
 
     return AdminStatusOut(
         record=AdminRecordOut(
@@ -1359,7 +1389,9 @@ def get_admin_status(
         missing_closes=missing_closes,
         editions_cut=editions_cut,
         master_refresh=master_refresh,
+        platform_extraction=platform_extraction,
         data_tenant_theses=data_tenant_theses,
+        platform_rows_in_workspaces=platform_rows_in_workspaces,
         oauth_clients=oauth_clients,
     )
 
@@ -1373,6 +1405,28 @@ def _master_refresh_out(doc: Mapping | None) -> AdminMasterRefreshOut | None:
     return AdminMasterRefreshOut(
         line=str(doc["admin_line"]),
         ran_at=datetime.fromisoformat(str(doc.get("finished_at") or doc["started_at"])),
+        attention=bool(doc.get("attention")),
+    )
+
+
+def _platform_extraction_out(*docs: Mapping | None) -> AdminPlatformExtractionOut | None:
+    """Background extraction's run summaries (the nightly block, the newest extraction-run file) -> the NEWER
+    one's line (``None`` until one has run). The line is the run's own (``ExtractionRun.admin_line``, plus the
+    nightly's additions) — composed once, where the run's facts are."""
+    best: tuple[datetime, Mapping] | None = None
+    for doc in docs:
+        if not doc or not doc.get("admin_line") or not doc.get("started_at"):
+            continue
+        at = datetime.fromisoformat(str(doc.get("finished_at") or doc["started_at"]))
+        if best is None or at > best[0]:
+            best = (at, doc)
+    if best is None:
+        return None
+    at, doc = best
+    return AdminPlatformExtractionOut(
+        line=str(doc["admin_line"]),
+        ran_at=at,
+        run_kind=str(doc.get("run_kind") or "nightly"),
         attention=bool(doc.get("attention")),
     )
 

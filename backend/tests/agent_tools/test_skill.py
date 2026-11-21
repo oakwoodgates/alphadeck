@@ -93,7 +93,7 @@ def test_the_frontmatter_names_the_skill_and_each_recipe_and_fits_1000_character
         "explain this call",
         "ticker check",
         "compare the rotation map",
-        "ratify queue",
+        "card data check",
         "discovery review",
         "splits review",
         "review the splits",

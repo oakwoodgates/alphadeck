@@ -397,6 +397,7 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .np-thinflag { margin-top: 9px; font-size: 10.5px; color: var(--warn, #b8860b); }
 /* 0056 — a KNOWN FEED LIMITATION the operator marked: a quiet gray note (an explained, ratified condition) */
 .np-feednote { margin-top: 9px; font-size: 10.5px; color: var(--txt-3); cursor: help; }
+.np-pace { font-size: 10.5px; line-height: 1.45; color: var(--txt-3); margin: 2px 0 4px; }
 /* the board-table thin marker — a quiet amber caret beside the ticker, only on a starved row */
 .thin-mark { color: var(--warn, #b8860b); font-size: 10px; margin-left: 5px; cursor: help; }
 /* S3 — the shared "is this real?" data flag. The ROW mark: a small hollow diamond after the ticker, only
@@ -430,7 +431,8 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .np-meters { border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; background: var(--panel); }
 .np-meter-row { display: flex; align-items: center; gap: 10px; padding: 3px 0; }
 .np-meter-row .val { margin-left: auto; font-family: var(--mono); font-size: 10.5px; color: var(--txt-2); }
-.np-unconf { margin-top: 6px; font-size: 10px; color: var(--warm); }
+/* the name panel's quiet lines about a blank meter (V2 W5e): gray text, never an alert — "no value yet" is the common case */
+.np-shared { margin-top: 6px; font-size: 10.5px; line-height: 1.5; color: var(--txt-3); }
 /* Indicators · this name — quiet by design (#7): chips in the panel idiom, muted event lines, fine-print basis */
 .np-ind { margin-bottom: 10px; }
 .np-ind-label { font-size: 10.5px; color: var(--txt-3); margin-bottom: 6px; }
@@ -927,23 +929,12 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .nmrow .cap { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--txt-2); }
 .nmrow .cap small { color: var(--txt-4); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; margin-right: 5px; }
 /* PR-C — the scored row's split: the row is a DIV (whole-surface click), the ticker block is the real
-   button (no nested buttons), and ⇣ get data is gate 2's per-name opt-in (mark = the click). */
+   button (no nested buttons). */
 .nmrow .nmrow-sel { border: none; background: transparent; font: inherit; color: inherit; display: inline-flex; align-items: center; gap: 9px; padding: 0; cursor: pointer; min-width: 0; }
 /* the company name on the scored row — a ticker-only list is a memory quiz over four-letter codes */
 .nmrow .co { font-size: 11px; color: var(--txt-3); max-width: 34ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.nmrow .wb-getdata { margin-left: 10px; font-size: 9px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--txt-3); background: transparent; border: 1px solid var(--line-2); border-radius: 5px; padding: 3px 8px; cursor: pointer; white-space: nowrap; }
-.nmrow button.wb-getdata:hover { color: var(--txt-2); border-color: var(--txt-4); }
-.nmrow .wb-getdata.ready { color: var(--manage); border-color: rgba(52, 194, 160, 0.4); }
-.nmrow .wb-getdata.err { color: var(--warm); border-color: rgba(224, 162, 60, 0.4); }
-.nmrow span.wb-getdata.busy { border-style: dashed; cursor: default; }
 /* ENDV finding: a stale-cover share count behind the market cap — warm, only shown when >~6mo old (honest loudness) */
 .nmrow .cap .wb-stale-shares { margin-left: 6px; font-size: 9px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--warm); background: rgba(224, 162, 60, 0.1); border: 1px solid rgba(224, 162, 60, 0.28); border-radius: 5px; padding: 1px 5px; white-space: nowrap; cursor: help; }
-/* the honest empty-extract states (Retrieval Slice 1 — the three empty reasons are DISTINCT):
-   `.none` = genuinely nothing on EDGAR (no 10-K/10-Q and no 20-F/40-F) — muted, non-actionable;
-   `.unread` = an annual filing EXISTS but its cover couldn't be read — the name is unread, not empty,
-   so it reads a shade warmer (dotted, help cursor) and never masquerades as absence. */
-.nmrow span.wb-getdata.none { color: var(--txt-4); border-style: dashed; border-color: var(--line); cursor: default; }
-.nmrow span.wb-getdata.unread { color: var(--txt-3); border-style: dotted; border-color: var(--line-2); cursor: help; }
 
 /* the fund-flow chip (ETF net flow, F3) — the sleeve's inflow/outflow read, beside the AUM strip:
    quiet vitals-strip styling; the glyph alone carries the tint (the shared .dirg rule, #7) */
@@ -987,6 +978,7 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .wb-meters { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
 .wb-meter { display: flex; align-items: center; gap: 7px; }
 .wb-meter .ml { font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--txt-4); }
+.wb-pace { font-size: 9.5px; color: var(--txt-4); cursor: help; margin-left: -2px; }
 .wb-meter.risk .ml { color: color-mix(in srgb, var(--armed) 75%, var(--txt-3)); }
 .wb-meter-sep { width: 1px; align-self: stretch; min-height: 16px; background: var(--line-2); margin: 0 1px; }
 .wb-pips { display: flex; gap: 3px; }
@@ -1061,7 +1053,26 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .dd-meter-h .k { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--txt-3); }
 .dd-meter-h .v { font-family: var(--mono); font-size: 11px; color: var(--txt-2); }
 .dd-why { font-size: 11px; line-height: 1.5; color: var(--txt-2); margin-top: 6px; padding-left: 9px; border-left: 2px solid var(--line-2); }
-.prov { display: flex; flex-wrap: wrap; gap: 6px; }
+/* the runway's year-to-date pace and its caveat (V2 extractor correctness PR 3): quiet text, never an alert */
+.dd-pace { font-size: 11px; line-height: 1.5; color: var(--txt-3); margin-top: 4px; }
+/* the Shared values block (V2 W5e): one small quiet block per value; the Flag is a quiet link; the steward's outcome is
+   warm only while it is loud (14 days after the close), then gray like the rest */
+.sv { margin-bottom: 14px; }
+.sv-block { margin: 0 0 8px; padding: 6px 9px; border-left: 2px solid var(--line-2); font-size: 11px; line-height: 1.5; color: var(--txt-2); }
+.sv-h { color: var(--txt-2); font-weight: 600; }
+.sv-sep { color: var(--txt-4); }
+.sv-sub { font-size: 10.5px; line-height: 1.5; color: var(--txt-3); margin-top: 3px; }
+.sv-link { color: var(--txt-2); }
+.sv-flag { margin-top: 4px; }
+.sv-flaglink { border: none; background: transparent; padding: 0; font: inherit; font-size: 10.5px; color: var(--txt-3); text-decoration: underline; cursor: pointer; }
+.sv-flaglink:hover { color: var(--txt-2); }
+.sv-flagform { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.sv-flagform input { flex: 1 1 200px; font: inherit; font-size: 11px; color: inherit; background: var(--bg-2); border: 1px solid var(--line-2); border-radius: 5px; padding: 3px 7px; }
+.sv-flagform .sv-sub, .sv-flagform .note { flex-basis: 100%; margin: 0; }
+.sv-outcome { font-size: 10.5px; line-height: 1.5; color: var(--txt-3); margin-bottom: 3px; }
+.sv-outcome.loud { color: var(--warm); }
+.sv-steward { font-size: 10.5px; }
+.sv-steward a { color: var(--txt-3); }.prov { display: flex; flex-wrap: wrap; gap: 6px; }
 .prov .chip { font-family: var(--mono); font-size: 9.5px; color: var(--txt-3); background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 5px; padding: 3px 7px; text-decoration: none; display: inline-block; }
 .prov .chip::before { content: "◇ "; color: var(--txt-4); }
 .prov a.chip:hover { color: var(--txt-2); border-color: var(--txt-4); }
@@ -1495,10 +1506,6 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .located .excerpt { font-size: 11px; line-height: 1.5; color: var(--txt-2); }
 /* the ratify note as a growable textarea (a truncated single line hid the basis being ratified) */
 .ratify-row .rf .rf-note { width: 100%; font: inherit; color: inherit; background: var(--bg-2); border: 1px solid var(--line-2); border-radius: 5px; padding: 4px 7px; resize: none; line-height: 1.45; }
-/* the section get-data bar — one deliberate click covers the active section; failures stay loud */
-.wb-section-data { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 2px 0 10px; }
-.wb-section-data .note { margin: 0; }
-.wb-section-data .flag { margin: 0; }
 /* the passage clamp — evidence stays scannable, not a wall; expand is explicit (one click) */
 .located .excerpt.clamped { max-height: 9.5em; overflow: hidden; -webkit-mask-image: linear-gradient(180deg, #000 72%, transparent); mask-image: linear-gradient(180deg, #000 72%, transparent); }
 /* "a ratified value is already on file" — quiet, green-ish; a re-confirm appends a new version */
@@ -1558,9 +1565,8 @@ tr.bkt.sel td:first-child { box-shadow: inset 2px 0 0 var(--gc); }
 .sb-fresh { color: var(--txt-3); }
 .sb-fresh b { color: var(--txt-2); }
 .sb-stale, .sb-stale b { color: var(--warm); }
-/* D3b: the phantom-arm (annotated) nights line + its reading toggle — the reconstructed line's quiet voice;
-   the toggle borrows the filter-clear button, and reads "on" while the view INCLUDES annotated nights.
-   L1's late-recorded nights line reuses both classes (the same reading toggle, the same quiet voice). */
+/* L1: the late-recorded nights line + its reading toggle — the reconstructed line's quiet voice;
+   the toggle borrows the filter-clear button, and reads "on" while the view INCLUDES late nights. */
 .sb-annotline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 /* the EDITION switcher (editions S4) — the view toggle's segmented control, in sentence case (an edition's
    label is a name, not a mode) and no louder than it; a plain list picker past five editions. Quiet by
@@ -1850,7 +1856,7 @@ tr.sb-row .tk { font-family: var(--mono); font-weight: 700; letter-spacing: 0.04
 /* F1: the run-identity line — which policy + code recorded this arm. Deliberately QUIETER than the ingest
    line above (dim, not warm): it flags nothing, it captions. Same size so the two read as one block. */
 .sc-runid { margin-top: 4px; font-size: 10.5px; color: var(--txt-3); font-family: var(--mono); }
-/* D3b: the annotation caption — as quiet as the run-identity line (a caption, never a flag). */
+/* a caption (the join-date note) — as quiet as the run-identity line (a caption, never a flag). */
 .sc-annot { margin-top: 4px; font-size: 10.5px; color: var(--txt-3); font-family: var(--mono); }
 
 /* Slice A: the numbered-chip event overlay — a positioned DOM layer over the canvas (lightweight-charts'
@@ -2296,3 +2302,60 @@ tr.adm-row-bad td { background: color-mix(in srgb, var(--warm) 5%, transparent);
 .dash-tile:hover .dash-tile-thumb { border-color: var(--line-2); }
 .dash-tile-head { display: flex; align-items: center; gap: 9px; }
 .dash-tile-label { font-size: 13px; font-weight: 600; }
+
+/* The steward's company page (V2 W4b, admin/CompanyFacts.tsx): quiet by default, loud only where the steward owes a decision */
+.cf-page { min-height: 100vh; }
+.cf-wrap { max-width: 920px; margin: 0 auto; padding: 18px 20px 60px; display: flex; flex-direction: column; gap: 14px; }
+.cf-head { display: flex; flex-direction: column; gap: 8px; }
+.cf-title { font-size: 18px; font-weight: 600; margin: 0; }
+.cf-ticker { font-family: var(--mono); }
+.cf-name { color: var(--txt-3); font-weight: 400; }
+.cf-block { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: 13px 15px; display: flex; flex-direction: column; gap: 9px; }
+.cf-h { font-size: 13px; font-weight: 600; margin: 0; color: var(--txt-2); }
+.cf-h3 { font-size: 11px; font-weight: 600; margin: 8px 0 2px; color: var(--txt-3); text-transform: uppercase; letter-spacing: 0.04em; }
+.cf-status { font-size: 12.5px; line-height: 1.5; color: var(--txt-2); }
+.cf-loud { color: var(--warm); font-weight: 600; }
+.cf-status.cf-loud b, .cf-pending.cf-loud { color: var(--warm); }
+.cf-pending { font-size: 12.5px; }
+.cf-quiet { font-size: 11.5px; color: var(--txt-3); line-height: 1.5; }
+.cf-chip { font-size: 10.5px; color: var(--txt-2); border: 1px solid var(--line-2); border-radius: 999px; padding: 1px 8px; background: var(--panel-2); }
+.cf-candidate { display: flex; flex-direction: column; gap: 8px; padding-left: 10px; border-left: 2px solid var(--warm); }
+.cf-evidence { display: flex; flex-direction: column; gap: 5px; font-size: 12px; }
+.cf-row { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+.cf-quiet-row { opacity: 0.9; }
+.cf-note { font: inherit; font-size: 11.5px; min-width: 200px; flex: 1; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 6px; color: var(--txt); padding: 3px 8px; }
+.cf-form { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: flex-end; padding: 8px 0; }
+.cf-field { display: flex; flex-direction: column; gap: 3px; font-size: 10.5px; color: var(--txt-3); }
+.cf-field.wide { flex: 1 1 100%; }
+.cf-field input, .cf-field select { font: inherit; font-size: 12px; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 6px; color: var(--txt); padding: 4px 8px; }
+.cf-history ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--txt-2); }
+.cf-undone { color: var(--txt-4); opacity: 0.7; }
+.cf-search { display: flex; flex-direction: column; gap: 5px; max-width: 420px; }
+.cf-matches { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.cf-fund { color: var(--txt-3); font-size: 10px; }
+
+/* Shared facts card (V2 W4c): the steward's queue rows; a pen-only row is quieter than the rest */
+.sf-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.sf-link { display: grid; grid-template-columns: minmax(140px, 1.2fr) 70px 3fr 130px; gap: 10px; align-items: baseline; padding: 5px 6px; border-radius: 6px; font-size: 12.5px; color: var(--txt); text-decoration: none; }
+.sf-link:hover { background: var(--panel-2); }
+.sf-link:focus-visible { outline: 2px solid var(--leader); outline-offset: 2px; }
+.sf-cards, .sf-wait { font-size: 11px; color: var(--txt-3); }
+.sf-what { font-size: 11.5px; color: var(--txt-2); }
+.sf-pen .sf-link { color: var(--txt-3); }
+.sf-pen .sf-what { color: var(--txt-3); }
+.sf-pager { display: flex; align-items: center; gap: 10px; }
+.sf-pen-block { display: flex; flex-direction: column; gap: 4px; }
+@media (max-width: 720px) { .sf-link { grid-template-columns: 1fr; gap: 2px; } }
+
+/* V2 W6d: the calendar's counting control + the call card's origin chip / also-live line — all quiet (inverse loudness) */
+.cc-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: -3px 0 8px 11px; font-size: 11px; color: var(--txt-4); }
+.cc-state { color: var(--txt-3); }
+.cc-hint { font-size: 10.5px; color: var(--txt-4); }
+.cc-form { display: flex; flex-direction: column; gap: 6px; margin: -3px 0 8px 11px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); font-size: 11.5px; color: var(--txt-2); }
+.cc-title { font-weight: 700; }
+.cc-for { color: var(--txt-4); font-size: 10.5px; }
+.cc-field { display: flex; flex-direction: column; gap: 3px; border: 0; padding: 0; margin: 0; }
+.cc-field legend { padding: 0; font-weight: 600; }
+.cc-names { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.origin-chip { margin-left: 6px; padding: 0 6px; border: 1px solid var(--line); border-radius: 999px; font-size: 9.5px; color: var(--txt-4); white-space: nowrap; }
+.also-live { margin-top: 2px; font-size: 10.5px; color: var(--txt-4); }

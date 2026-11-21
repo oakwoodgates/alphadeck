@@ -1,0 +1,79 @@
+{
+ "cik": "",
+ "entityName": "DIS (reconstructed from the 2026-11-15 quarterly cash audit)",
+ "facts": {
+  "us-gaap": {
+   "CashAndCashEquivalentsAtCarryingValue": {
+    "units": {
+     "USD": [
+      {
+       "end": "2026-06-27",
+       "val": 5185000000,
+       "accn": "reconstructed",
+       "fy": 2026,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2026-08-06"
+      }
+     ]
+    }
+   },
+   "LongTermInvestments": {
+    "units": {
+     "USD": [
+      {
+       "end": "2026-06-27",
+       "val": 7627000000,
+       "accn": "reconstructed",
+       "fy": 2026,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2026-08-06"
+      }
+     ]
+    }
+   },
+   "EquityMethodInvestments": {
+    "units": {
+     "USD": [
+      {
+       "end": "2025-09-27",
+       "val": 6319000000,
+       "accn": "reconstructed",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "10-K",
+       "filed": "2025-11-13"
+      }
+     ]
+    }
+   },
+   "NetCashProvidedByUsedInOperatingActivities": {
+    "units": {
+     "USD": [
+      {
+       "start": "2025-09-28",
+       "end": "2026-03-28",
+       "val": 6000000000,
+       "accn": "reconstructed",
+       "fy": 2026,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-05-07"
+      },
+      {
+       "start": "2025-09-28",
+       "end": "2026-06-27",
+       "val": 10000000000,
+       "accn": "reconstructed",
+       "fy": 2026,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2026-08-06"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

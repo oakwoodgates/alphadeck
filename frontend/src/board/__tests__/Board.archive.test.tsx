@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const h = vi.hoisted(() => ({
   theses: [] as unknown[],
   setArchived: vi.fn(),
+  archiveError: null as unknown,
 }));
 
 vi.mock("../../api/hooks", () => ({
@@ -25,7 +26,7 @@ vi.mock("../../api/hooks", () => ({
       },
       isLoading: false,
     })),
-  useSetArchived: () => ({ mutate: h.setArchived, isPending: false }),
+  useSetArchived: () => ({ mutate: h.setArchived, isPending: false, error: h.archiveError }),
   useSetMetaIndex: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
@@ -35,6 +36,7 @@ const noop = () => {};
 
 beforeEach(() => {
   h.setArchived.mockReset();
+  h.archiveError = null;
   h.theses = [
     { id: "t-live", name: "live one", ticker: null, basket_size: 3, narrative: "n", archived: false },
     { id: "t-park", name: "parked one", ticker: null, basket_size: 9, narrative: "n", archived: true },
@@ -59,6 +61,14 @@ describe("Board — archive (hygiene, never delete)", () => {
 
     await user.click(screen.getByLabelText("restore parked one"));
     expect(h.setArchived).toHaveBeenCalledWith({ thesisId: "t-park", archived: false });
+  });
+
+  it("a refused restore (the workspace's caps, 409) shows the server's sentence as worded", () => {
+    const sentence =
+      "Restoring this card would make 26 live cards; this workspace's limit is 25. Archive another card first.";
+    h.archiveError = { detail: sentence };
+    render(<Board asof="2026-07-11" onAsofChange={noop} onSelect={noop} onOpenWorkbench={noop} />);
+    expect(screen.getByRole("alert")).toHaveTextContent(sentence);
   });
 
   it("archived theses get NO call computation (their ids never reach useCalls)", () => {

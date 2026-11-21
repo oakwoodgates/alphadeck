@@ -17,14 +17,17 @@ import pytest
 from domain.enums import BusinessSupersector, BusinessType
 from securities.business_type import (
     ROYALTY_SICS,
+    RUNWAY_NA_SICS,
     SUB_TYPE_BY_SIC,
     SUPER_BY_SUB,
     load_overrides,
     load_royalty_patterns,
+    load_runway_not_meaningful,
     load_sic_map,
     load_supersectors,
     norm_sic,
     resolve_business_type,
+    runway_applies,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -232,3 +235,80 @@ def test_overrides_reject_an_unknown_kind(tmp_path):
 def test_supersector_map_is_total_and_the_map_is_loaded():
     assert set(SUPER_BY_SUB) == set(BusinessType)
     assert len(SUB_TYPE_BY_SIC) >= 300  # the full live corpus (grows as new strings get mapped)
+
+
+# --- "runway does not apply" (V2 C1): runway_not_meaningful.csv + runway_applies ------------------
+
+
+def test_every_runway_sic_entry_is_a_live_sic_string():
+    """Every SIC row of the file names a string the live master carries (a typo or a stale string would match
+    nothing, quietly): used, or this test reports it."""
+    live = {norm_sic(s) for s in _live_sics()}
+    unused = sorted(s for s in RUNWAY_NA_SICS if s not in live)
+    assert not unused, f"runway_not_meaningful.csv rows that match no live SIC string: {unused}"
+    assert (
+        len(RUNWAY_NA_SICS) == 21
+    )  # the plan's Q6 list (banks, brokers, exchanges, insurers, lenders, trusts)
+
+
+def test_the_operator_decisions_stay_out_of_the_runway_list():
+    """Section 5 N3: miners and crypto-treasury companies (Finance Services) and insurance agents keep runway."""
+    for kept in ("Finance Services", "Insurance Agents, Brokers & Service"):
+        assert norm_sic(kept) not in RUNWAY_NA_SICS
+
+
+@pytest.mark.parametrize(
+    ("sector", "ticker", "kind", "applies"),
+    [
+        ("National Commercial Banks", "BANK", "equity", False),  # a bank
+        ("Security Brokers, Dealers & Flotation Companies", "SNEX", "equity", False),  # a broker
+        ("Security & Commodity Brokers, Dealers, Exchanges & Services", "CME", "equity", False),
+        ("Commodity Contracts Brokers & Dealers", "FBTC", "equity", False),  # a bitcoin ETF trust
+        ("Investment  advice", "BLK", "equity", False),  # the SEC's spacing and case, normalized
+        ("Fire, Marine & Casualty Insurance", "AGO", "equity", False),  # an insurer
+        ("Mortgage Bankers & Loan Correspondents", "RKT", "equity", False),  # a lender
+        ("Investors, NEC", "X", "equity", False),
+        (None, "LIT", "etf", False),  # a fund: no SIC, keyed on its kind
+        ("Finance Services", "MARA", "equity", True),  # a crypto miner (SIC 6199)
+        ("Finance Services", "MSTR", "equity", True),  # a crypto-treasury operating company
+        ("Insurance Agents, Brokers & Service", "EHTH", "equity", True),  # an insurance agent
+        ("Pharmaceutical Preparations", "BIO", "equity", True),  # a biotech
+        (
+            None,
+            "NOSIC",
+            "equity",
+            True,
+        ),  # no SIC on file: runway APPLIES (nothing disappears by accident)
+        (None, None, None, True),  # nothing known at all
+        ("Some String EDGAR Grows Tomorrow", "NEW", "equity", True),  # unmapped: applies
+    ],
+)
+def test_runway_applies_truth_table(sector, ticker, kind, applies):
+    assert runway_applies(sector=sector, ticker=ticker, instrument_kind=kind) is applies
+
+
+def test_a_ticker_row_turns_runway_off_for_one_company(tmp_path):
+    p = _write(
+        tmp_path,
+        "runway_not_meaningful.csv",
+        '# a comment\nkind,key,note\nticker,abcd,"one company"\nsic,Loan  Brokers,"lenders"\n',
+    )
+    tickers, sics = load_runway_not_meaningful(p)
+    assert tickers == frozenset({"ABCD"}) and sics == frozenset({"loan brokers"})
+
+
+@pytest.mark.parametrize(
+    ("body", "match"),
+    [
+        ('kind,key,note\ncusip,037833100,"nope"\n', "kind must be 'ticker' or 'sic'"),
+        ("kind,key,note\nsic,Loan Brokers,a\nsic,loan  brokers,b\n", "empty or duplicate"),
+        ("kind,key,note\nticker,ABCD,a\nticker,abcd,b\n", "empty or duplicate"),
+        ("kind,key,note\nsic,,a\n", "empty or duplicate"),
+        ("kind,key\nsic,Loan Brokers\n", "expected header"),
+        ("kind,key,note\nsic,Loan Brokers\n", "expected 3 columns"),
+    ],
+)
+def test_the_runway_list_fails_loudly_on_a_bad_row(tmp_path, body, match):
+    p = _write(tmp_path, "runway_not_meaningful.csv", body)
+    with pytest.raises(ValueError, match=match):
+        load_runway_not_meaningful(p)

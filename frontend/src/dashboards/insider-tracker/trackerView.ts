@@ -1,3 +1,4 @@
+import { NO_SHARED_SHARES } from "../../components/valueWords";
 import { fmtDate } from "../../util/format";
 import type {
   InsiderTrackerCapOut,
@@ -326,7 +327,7 @@ export function tone(frac: number | null | undefined): Tone {
 export const CAP_GAP_WORDS: Record<string, string> = {
   flagged: "withheld, a data flag reaches its price",
   no_price: "awaiting price",
-  no_shares: "awaiting shares",
+  no_shares: NO_SHARED_SHARES,
   ads_unread: "ADS ratio not read",
   no_cap: "share count or close not positive",
 };

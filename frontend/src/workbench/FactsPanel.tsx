@@ -1,58 +1,21 @@
 import { useState } from "react";
 
-import { apiErrorText } from "../api/errorText";
-import { useExplainFlag, useExtract, useRatifyFact, type ExtractedFact } from "../api/hooks";
+import { useExtract, useRatifyFact, type ExtractedFact } from "../api/hooks";
 import { refusalText } from "../api/refusals";
 import { AutoTextarea } from "./AutoTextarea";
 import { errText, type OnFileFact, type OnFileMap } from "./format";
-import { ExternalLink } from "../components/ExternalLink";
+import { LocatedPassages, MISSING_FLAGS } from "../components/LocatedPassages";
 import { LIMITS } from "../api/limits";
 
-const METER_LABEL: Record<string, string> = {
-  revenue_mix: "purity",
-  shares_outstanding: "market cap · shares",
-  cash_burn: "runway · cash + burn",
-};
-
-/** Missing-data flags — "can't compute" is a gray AUTHORING state (the value is None by design; the
- *  operator writes it from the located statements), not a warm alarm. The loud ⚠ is reserved for the
- *  judgment exceptions (one-time, stale, raw-YTD, dual-class) — honest loudness: a flag that alarms
- *  on a mere data gap drowns the flags that mark real composition risk. */
-const MISSING_FLAGS = new Set(["no-companyfacts", "no-cashflow-column", "no-cash-instant"]);
-
-/** The cash/burn LABEL currency (Retrieval Slice A follow-up). The IFRS annual-statements runway path
- *  reports in the filer's NATIVE currency (TWD/EUR/CAD/…), so the raw value is New Taiwan Dollars, not
- *  USD — labeling it a bare `$` read `$2.77T` for what is really ~US$88B. The value is NEVER converted
- *  (runway is a ratio — the months are currency-correct as-is); only the LABEL names the currency. A
- *  small static ISO→symbol map, falling back to the raw ISO code (honest, never an invented symbol). */
-const CURRENCY_SYMBOL: Record<string, string> = {
-  TWD: "NT$",
-  EUR: "€",
-  CAD: "C$",
-  CHF: "CHF",
-  GBP: "£",
-  INR: "₹",
-};
-/** `$` for a domestic/us-gaap filer (statement_currency null or "USD" — the periodic path never sets it);
- *  the native symbol (or raw ISO fallback) for an IFRS annual filer. */
-function cashSymbol(currency: string | null | undefined): string {
-  if (!currency || currency === "USD") return "$";
-  return CURRENCY_SYMBOL[currency] ?? currency;
-}
-
-/** The " — {detail}" suffix for an explain transport error: the server's own words when it sent a FastAPI
- *  `{detail}` string, else nothing. Deliberately NOT the shared `errText`: its "the request was rejected"
- *  fallback is wrong here — a network/proxy failure was never rejected, it simply never got an answer. */
-function explainErrSuffix(e: unknown): string {
-  const d = apiErrorText(e);
-  return d ? ` — ${d}` : "";
-}
-
-/** The facts panel (hybrid-2b) — extract the scoring facts from the latest filings and RATIFY them, closing
- *  the extract → ratify → re-score loop in the UI. The operator confirms each candidate (AUTO as-is, FLAG
- *  the composition, HUMAN purity authored); on confirm the fact is written and the meter re-derives. The
- *  extract is an EXPLICIT click (cache-first), never on a render. The LOCATED PASSAGE is the evidence —
- *  shown readable inline (not a tooltip), because reading it IS the FLAG ratification decision. */
+/** The purity panel (V2 W5e) — "Purity (yours to set)". Purity is the user's own judgment of how much of a company's
+ *  business is on the thesis: they extract the located filing passage, read the model's proposal (an unverified
+ *  estimate, never the value), and CONFIRM or override it; on confirm the fact is written and the meter re-derives.
+ *  The extract is an EXPLICIT click (cache-first), never on a render. The LOCATED PASSAGE is the evidence, shown
+ *  readable inline (not a tooltip), because reading it IS the decision.
+ *
+ *  A share count and cash/burn are NOT here: they are the platform's, shared by every user, and read in the Shared
+ *  values block (read-only, with a Flag) — no field, no Confirm, for anyone. Since W7a the extract returns only the
+ *  purity candidate to a plain user (the steward's still carries all three); this panel shows only `revenue_mix`. */
 export function FactsPanel({
   securityId,
   thesisId,
@@ -63,25 +26,14 @@ export function FactsPanel({
   // per fact-type: the RATIFIED value(s) already on file (recovered by the parent from the meters'
   // provenance detail). The extract endpoint is deliberately DB-free, so its candidates can't know —
   // without this, re-opening a ratified name re-offered the stale candidate as if the save never
-  // happened (the gate-3 "no save?" confusion, then the purity value visibly REVERTING to the original
-  // LLM rec; the store is append-only, latest wins on read). Presence = on file; the row seeds its
-  // inputs from these values.
+  // happened (then the purity value visibly REVERTING to the original LLM rec; the store is append-only,
+  // latest wins on read). Presence = on file; the row seeds its inputs from these values.
   onFile?: OnFileMap;
 }) {
   // thesisId (optional) turns on the GROUNDED purity ESTIMATE (SURFACE 1b) for the revenue_mix candidate.
   const extract = useExtract(securityId, thesisId);
-  const facts = extract.data?.facts ?? [];
-  // an annual-filer name (20-F/40-F): shares (Slice 1) and now cash/runway (Slice A) come through, but
-  // PURITY is still not covered — say so, or the "—" meter implies the data doesn't exist (spec §5.3)
-  const annualOnly =
-    facts.length > 0 &&
-    facts.every((f) => f.source === "annual-cover" || f.source === "annual-statements");
-  // the RUNWAY leg's own honest state for an annual filer with no cash_burn candidate (Slices A +
-  // A-2): "cash-generative" (a STATE — no runway applies) · "financials-in-exhibit" (deferred —
-  // statements in neither the main doc nor any exhibit the bounded scan read) · "exhibit-ambiguous"
-  // (more than one exhibit reads as the statements — deferred, never guessed) ·
-  // "statements-not-located" (unread, not empty)
-  const runwayReason = extract.data?.runway_empty_reason ?? null;
+  // purity only: the other candidates the endpoint returns are the platform's values (shared), not this panel's
+  const facts = (extract.data?.facts ?? []).filter((f) => f.fact_type === "revenue_mix");
   const settled = extract.data !== undefined && !extract.isFetching && !extract.error;
   return (
     <div className="facts-panel">
@@ -94,9 +46,9 @@ export function FactsPanel({
         {extract.isFetching ? "Extracting…" : "↻ Extract from filings"}
       </button>
       <div className="note">
-        Auto-extract the scoring facts from the latest SEC filings — 10-Q/10-K, or a foreign filer's
-        20-F/40-F cover (shares only, always FLAG) — you confirm each (AUTO as-is, FLAG the composition,
-        purity you author). An explicit call (cache-first); the operator ratifies, the model never does.
+        Read the passage of the latest SEC filing that shows how much of this company is on the thesis. A model may
+        propose a percent; it is never the value. Nothing is saved until you confirm. The share count and cash are
+        shared values, shown above.
       </div>
       {extract.error &&
         // the API's fixed refusal (security hardening PR 1b: not on your cards, or today's allowance spent) is an
@@ -113,8 +65,7 @@ export function FactsPanel({
         // Key by securityId TOO (not fact_type alone): RatifyRow seeds its editable inputs from `candidate`
         // via useState (once, on mount). The rail stays mounted when the operator clicks name→name (only
         // `securityId` changes), so a fact_type-only key made React REUSE the row and keep the PRIOR name's
-        // values — every name in a section then showed the first-opened name's shares (a wrong-value ratify
-        // risk). The composite key remounts the row per member, re-seeding from the new candidate.
+        // values. The composite key remounts the row per member, re-seeding from the new candidate.
         // On-file state is IN the key too: when a confirm lands and the scored read refreshes, the row
         // remounts into the on-file state showing the just-ratified value — the save visibly took.
         <RatifyRow
@@ -125,61 +76,19 @@ export function FactsPanel({
           estimateAttempted={thesisId != null}
         />
       ))}
-      {/* the coverage note for an annual-filer name: PURITY — means NOT COVERED, not zero */}
-      {annualOnly && (
-        <div className="note">
-          Annual-filer coverage is <b>shares + cash/runway</b> — purity isn't extracted from a
-          20-F/40-F yet, so that meter stays "—" (not covered), never a judged zero.
-        </div>
-      )}
-      {/* the runway leg's own states (Slices A + A-2) — DISTINCT non-fact outcomes, each named
-          honestly (interaction #2): a STATE (cash-generative), the two DEFERRALS (exhibit not
-          found / exhibit ambiguous), an UNREAD. */}
-      {settled && runwayReason === "cash-generative" && (
-        <div className="note">
-          <b>Cash-generative</b> — this filer's operating cash flow is positive, so no runway applies
-          (and none is computed; a finite number here would be bogus). Shown as a state, not a fact:
-          its financial statements aren't in the main filing document, so there is no passage to
-          ratify a cash/burn fact against.
-        </div>
-      )}
-      {settled && runwayReason === "financials-in-exhibit" && (
-        <div className="note">
-          This filer <b>burns cash</b>, but its financial statements were found in{" "}
-          <b>neither the main annual document nor any EX-99 exhibit</b> the bounded scan read (the
-          40-F/MJDS shape; the exhibit hunt identifies the statements by their actual statement
-          rows). <b>Deferred, not judged</b>: the RUNWAY meter stays "—" rather than carrying a
-          number without its statement passage.
-        </div>
-      )}
-      {settled && runwayReason === "exhibit-ambiguous" && (
-        <div className="note">
-          <b>More than one exhibit</b> in this filer's annual filing reads as the financial
-          statements — the extractor <b>defers rather than guesses</b> between them (a wrong
-          statement source would be a confidently wrong runway). The RUNWAY meter stays "—"; read
-          the filing's EX-99 exhibits directly if you need the number now.
-        </div>
-      )}
-      {settled && runwayReason === "statements-not-located" && (
-        <div className="note">
-          The financial statements couldn't be located in this filer's annual document this pass —
-          the runway is <b>unread, not empty</b>; it stays a candidate for a future extractor pass.
-        </div>
-      )}
-      {/* honest-loudness: an extract that came back EMPTY isn't a silent blank rail — and the TWO empty
-          reasons are DISTINCT (interaction #2): "nothing on EDGAR" is true absence; "cover unread" is a
-          retrieval gap that must not masquerade as absence (the name stays a candidate). */}
+      {/* honest-loudness: an extract that came back EMPTY isn't a silent blank rail. "Nothing on EDGAR" is true
+          absence: no filing to read a purity from. */}
       {settled && facts.length === 0 && extract.data?.empty_reason === "no-annual-filing" && (
         <div className="note">
           Nothing on EDGAR the extractor can read — no 10-K/10-Q and no annual foreign filing
-          (20-F/40-F) on file for this issuer. Nothing to extract or ratify here.
+          (20-F/40-F) on file for this issuer. Nothing to extract here.
         </div>
       )}
-      {settled && facts.length === 0 && extract.data?.empty_reason === "cover-not-located" && (
+      {/* W7a: a plain user's extract is purity only, and the annual (20-F/40-F) path never reads purity */}
+      {settled && facts.length === 0 && extract.data?.empty_reason === "purity-not-covered" && (
         <div className="note">
-          This issuer's annual filing (<b>20-F/40-F</b>) is on file, but its cover share count couldn't
-          be read this pass — the name is <b>unread, not empty</b>. A count without its located cover
-          passage is deliberately not offered; author the count from the filing if you need it now.
+          Purity is not read automatically for a company that files annual reports on Form 20-F or 40-F. Set it by
+          hand from its annual report.
         </div>
       )}
     </div>
@@ -200,47 +109,16 @@ function RatifyRow({
   estimateAttempted?: boolean;
 }) {
   const ratify = useRatifyFact();
-  const explain = useExplainFlag(candidate); // the LLM seam — FLAG only, an aid to the ratify (below)
-  const auto = candidate.tier === "auto";
-  const isFlag = candidate.tier === "flag";
-  // The value was APPLIED by the machine (get-data auto-confirm) and no human vouched for it. This flips the
-  // AUTO field from read-only to EDITABLE — the label promises "confirm or override", and an override the
-  // operator can't type is not an override (#1 reversibility). Confirming as-is is still meaningful here: it
-  // appends an `operator` fact, upgrading a machine-applied count to one a human vouched for.
-  const autoApplied = onFile?.ratified_by === "auto";
   // SURFACE 1b — the GROUNDED purity estimate (llm-proposed, UNVERIFIED): pre-fill the % + the proposed
   // segment (parsed from the note the endpoint wrote) so "confirm as-is" is one action; the operator can
   // override either. Sending the estimate on ratify lets the server stamp `vouched` (confirmed vs overridden).
   // ON FILE SUPPRESSES IT: once the operator ratified, the stale rec must not displace THEIR value (the
   // re-entry reversion bug) — and a re-confirm from file is not a vouch on the old estimate.
   const purityEstimate =
-    candidate.fact_type === "revenue_mix" && candidate.estimate_source === "llm_proposed" && !onFile
-      ? candidate.value
-      : null;
+    candidate.estimate_source === "llm_proposed" && !onFile ? candidate.value : null;
   const proposedSegment = (candidate.note ?? "").match(/on-thesis segment:\s*(.+?)\s*\]/)?.[1] ?? "";
   // seed each input from what's ON FILE first (the operator's ratified value — the panel must show their
   // decision, not the stale candidate), then the candidate, then blank
-  const [shares, setShares] = useState(
-    onFile?.shares != null
-      ? String(onFile.shares)
-      : candidate.value != null
-        ? String(candidate.value)
-        : "",
-  );
-  const [cash, setCash] = useState(
-    onFile?.cash_usd != null
-      ? String(onFile.cash_usd)
-      : candidate.cash_usd != null
-        ? String(candidate.cash_usd)
-        : "",
-  );
-  const [burn, setBurn] = useState(
-    onFile?.quarterly_burn_usd != null
-      ? String(onFile.quarterly_burn_usd)
-      : candidate.quarterly_burn_usd != null
-        ? String(candidate.quarterly_burn_usd)
-        : "",
-  );
   const [segment, setSegment] = useState(
     onFile?.segment_label ?? (purityEstimate != null ? proposedSegment : ""),
   );
@@ -253,70 +131,24 @@ function RatifyRow({
   );
   // on file, the note shows what was RATIFIED (empty if none was) — never the candidate's note over it
   const [note, setNote] = useState(onFile ? (onFile.note ?? "") : (candidate.note ?? ""));
-  // the located passage is EVIDENCE and must be readable — but a segment table arrives as a wall of
-  // collapsed text, so it renders CLAMPED (a scannable window + fade) with an explicit expand
-  const [expanded, setExpanded] = useState(false);
-  // AUTO's source is on-demand (feel-of-control): collapsed by default — AUTO doesn't demand reading —
-  // one click to see the located passage behind the pre-filled value. FLAG/HUMAN stay inline (reading
-  // the passage IS that decision).
-  const [srcOpen, setSrcOpen] = useState(false);
   const passages = candidate.located_passages ?? [];
-  const showPassages = passages.length > 0 && (!auto || srcOpen);
 
-  const label = METER_LABEL[candidate.fact_type] ?? candidate.fact_type;
-  // the cash/burn label currency (Slice A) — native for an IFRS annual filer, `$` for a domestic name
-  const cashSym = cashSymbol(candidate.statement_currency);
-  const common = {
-    security_id: securityId,
-    source: candidate.source, // the candidate's BASIS, carried through (not retyped)
-    source_ref: candidate.source_ref,
-    event_date: candidate.event_date,
-    note,
-  };
+  const onConfirm = () =>
+    ratify.mutate({
+      security_id: securityId,
+      source: candidate.source, // the candidate's BASIS, carried through (not retyped)
+      source_ref: candidate.source_ref,
+      event_date: candidate.event_date,
+      note,
+      fact_type: "revenue_mix",
+      segment_label: segment,
+      mix_pct: Number(pct),
+      // the shown estimate (if any) → the server stamps vouched confirmed (unchanged) / overridden (changed)
+      estimate: purityEstimate ?? undefined,
+    });
 
-  const onConfirm = () => {
-    if (candidate.fact_type === "revenue_mix")
-      ratify.mutate({
-        ...common,
-        fact_type: "revenue_mix",
-        segment_label: segment,
-        mix_pct: Number(pct),
-        // the shown estimate (if any) → the server stamps vouched confirmed (unchanged) / overridden (changed)
-        estimate: purityEstimate ?? undefined,
-      });
-    else if (candidate.fact_type === "shares_outstanding")
-      ratify.mutate({
-        ...common,
-        fact_type: "shares_outstanding",
-        shares: Number(shares),
-        // the ADS-ratio derivation metadata rides through from the candidate (spec §10) — like
-        // `source`, carried, never retyped: "known" divides the cap, "unread" withholds it, absent
-        // (every 10-Q name) computes 1:1. The note above states which; the operator ratifies it all.
-        // (The write accepts only the two meaningful stamps — anything else stays off the wire.)
-        ads_ratio: candidate.ads_ratio ?? undefined,
-        ads_ratio_status:
-          candidate.ads_ratio_status === "known" || candidate.ads_ratio_status === "unread"
-            ? candidate.ads_ratio_status
-            : undefined,
-      });
-    else
-      ratify.mutate({
-        ...common,
-        fact_type: "cash_burn",
-        cash_usd: Number(cash),
-        quarterly_burn_usd: Number(burn),
-      });
-  };
-
-  // purity needs a segment + a %: with an estimate both pre-fill (confirm as-is), else the operator
-  // authors them. The OTHER types gate on their fields too — `Number("")` is 0, so an empty field must
-  // never confirm (the None-valued candidates — dual-class without a cover sum, no-companyfacts,
-  // no-cashflow-column — leave fields blank BY DESIGN; a blank confirm would ratify a fake zero).
-  const confirmDisabled =
-    ratify.isPending ||
-    (candidate.fact_type === "revenue_mix" && (!pct || !segment)) ||
-    (candidate.fact_type === "shares_outstanding" && !shares) ||
-    (candidate.fact_type === "cash_burn" && (!cash || !burn));
+  // purity needs a segment + a %: with an estimate both pre-fill (confirm as-is), else the operator authors them
+  const confirmDisabled = ratify.isPending || !pct || !segment;
 
   if (ratify.isSuccess) {
     // show the vouched outcome for a purity estimate: confirmed-as-is vs overridden (client-derived from the %)
@@ -328,7 +160,7 @@ function RatifyRow({
           : ` (overridden from ${purityEstimate}%)`;
     return (
       <div className="ratify-row done">
-        ✓ {label} ratified{vouched} — the meter re-derives.
+        ✓ purity ratified{vouched} — the meter re-derives.
       </div>
     );
   }
@@ -336,31 +168,18 @@ function RatifyRow({
   return (
     <div className={`ratify-row ${candidate.tier}`}>
       <div className="ratify-rh">
-        <span className="rk">{label}</span>
+        <span className="rk">purity</span>
         <span className={`rtier ${candidate.tier}`}>{candidate.tier}</span>
         {/* a ratified value already exists — confirming APPENDS a new version (latest wins on read);
             without this tag a re-open read as "the first save never happened" */}
-        {/* AUTO-APPLIED vs merely ON FILE. We assert "auto-applied" ONLY for `ratified_by === "auto"` — a
-            count the machine applied that no human vouched for, so the operator knows to sanity-check it
-            against the market cap. Every other fact keeps the neutral "✓ on file", which is true of all of
-            them. Deliberately NOT "operator confirmed": ~108 legacy rows carry ratified_by="operator" from
-            the OLD ceremonial AUTO confirm, so that label would claim a check that never happened. */}
-        {onFile &&
-          (onFile.ratified_by === "auto" ? (
-            <span
-              className="ronfile auto"
-              title="applied automatically from the filing's cover count (single-class, current) — nobody verified this number. It scores like any ratified fact; sanity-check it against the market cap and override here if it looks wrong."
-            >
-              ✦ auto-applied — confirm or override
-            </span>
-          ) : (
-            <span
-              className="ronfile"
-              title="a ratified value for this fact is already on file (see Behind the scores) — confirming appends a NEW version; latest wins on read"
-            >
-              ✓ on file
-            </span>
-          ))}
+        {onFile && (
+          <span
+            className="ronfile"
+            title="a ratified value for this fact is already on file (see Behind the scores) — confirming appends a NEW version; latest wins on read"
+          >
+            ✓ on file
+          </span>
+        )}
         {(candidate.flags ?? []).map((fl) => (
           <span className={MISSING_FLAGS.has(fl) ? "rflag missing" : "rflag"} key={fl}>
             {MISSING_FLAGS.has(fl) ? "∅" : "⚠"} {fl}
@@ -368,169 +187,62 @@ function RatifyRow({
         ))}
       </div>
 
-      {/* the located passage — EVIDENCE. FLAG/HUMAN render it inline (reading it IS the decision);
-          AUTO renders it BEHIND the toggle above (collapsed by default — the pre-filled value doesn't
-          demand reading, but its source is one click away, so approving it reads as the operator's
-          decision, never a black box). Clamped to a scannable window (a raw segment table arrives as
-          a wall of collapsed text); the expand is one click, the filing link one more. */}
-      {auto && passages.length > 0 && (
-        <button type="button" className="wb-mini ghost" onClick={() => setSrcOpen((v) => !v)}>
-          {srcOpen
-            ? "− hide the source"
-            : `▸ show the source (${[...new Set(passages.map((p) => p.kind))].join(" · ")})`}
-        </button>
-      )}
-      {showPassages &&
-        passages.map((p, i) => (
-          <div className="located" key={i}>
-            <ExternalLink className="chip" href={p.source_ref} title={p.source_ref}>
-              {p.kind} · {p.anchor} ↗
-            </ExternalLink>
-            {/* clamp only what's actually long — the fade must never eat a short passage */}
-            <div className={`excerpt${!expanded && p.excerpt.length > 420 ? " clamped" : ""}`}>
-              {p.excerpt}
-            </div>
-          </div>
-        ))}
-      {showPassages && passages.some((p) => p.excerpt.length > 420) && (
-        <button type="button" className="wb-mini ghost" onClick={() => setExpanded((v) => !v)}>
-          {expanded ? "− collapse the passage" : "+ show the full passage"}
-        </button>
-      )}
+      {/* the located passage — EVIDENCE, rendered inline (reading it IS the decision). Clamped to a scannable
+          window (a raw segment table arrives as a wall of collapsed text); the expand is one click, the filing
+          link one more. */}
+      <LocatedPassages passages={passages} />
 
-      {/* the LLM seam (M4b) — a plain-English read GROUNDED in the passage above; an aid to the ratify, never
-          the value (it never touches the inputs). FLAG only; explicit (a click); fail-open (no block when the
-          model is unavailable or declines — the raw passage + manual ratify stay exactly as today). */}
-      {isFlag && (
-        <div className="drafted-wrap">
-          <button
-            type="button"
-            className="wb-mini ghost"
-            aria-label="Explain in plain English"
-            onClick={() => explain.refetch()}
-            disabled={explain.isFetching}
-          >
-            {explain.isFetching ? "Explaining…" : "✦ Explain in plain English"}
-          </button>
-          {explain.data?.grounded && (
-            <div className="drafted">
-              <span className="wb-author">drafted</span>
-              <span className="drafted-text">{explain.data.explanation}</span>
-            </div>
-          )}
-          {explain.data && !explain.data.grounded && !explain.isFetching && (
-            <div className="drafted muted">
-              No plain-English read grounded in the passage — read the excerpt above.
-            </div>
-          )}
-          {/* a TRANSPORT failure (network, proxy, an nginx 5xx) — the endpoint itself fails open with
-              {grounded:false}, so an error here means the request never got an answer. Said plainly
-              (a silent re-enabled button reads as "nothing to say"), never as an explanation: no
-              `drafted` tag, no value. Hidden while a retry is in flight; the button stays the retry. */}
-          {explain.isError && !explain.isFetching && (
-            <div className="drafted muted">
-              {/* the daily-allowance 429 (security hardening PR 3) is an answer, worded by the API */}
-              {refusalText(explain.error) ??
-                `Couldn't reach the explainer${explainErrSuffix(explain.error)}. Click Explain to try again.`}
-            </div>
-          )}
+      {purityEstimate != null && (
+        <div className="est-tag">
+          ✦ estimate {purityEstimate}% · llm-proposed · unverified — confirm as-is, or override
         </div>
       )}
-
-      {candidate.fact_type === "shares_outstanding" && (
-        <label className="rf">
-          shares
-          <input
-            type="number"
-            aria-label="shares"
-            value={shares}
-            readOnly={auto && !autoApplied}
-            onChange={(e) => setShares(e.target.value)}
-          />
-        </label>
+      {/* missing ≠ blank: an empty purity says WHY it's empty. Pre-revenue names have no segment revenue to read;
+          a thesis-scoped extract that stayed empty means the grounded estimate declined (fail-open) — different
+          authoring starts, named honestly. Quiet on file (the ratified value is showing). */}
+      {purityEstimate == null && !onFile && (
+        <div className="rf-reason">
+          {candidate.source === "10-k-business-description"
+            ? "no revenue data on file — pre-revenue: author the % from the business description"
+            : estimateAttempted
+              ? "couldn't ground a purity estimate in the passage — author the % from it"
+              : "author the % from the segment passage"}
+        </div>
       )}
-      {candidate.fact_type === "cash_burn" && (
-        <>
-          <label className="rf">
-            cash {cashSym}
-            <input
-              type="number"
-              aria-label="cash"
-              value={cash}
-              readOnly={auto}
-              onChange={(e) => setCash(e.target.value)}
-            />
-          </label>
-          <label className="rf">
-            burn {cashSym}/qtr
-            <input
-              type="number"
-              aria-label="quarterly burn"
-              value={burn}
-              readOnly={auto}
-              onChange={(e) => setBurn(e.target.value)}
-            />
-          </label>
-        </>
-      )}
-      {candidate.fact_type === "revenue_mix" && (
-        <>
-          {purityEstimate != null && (
-            <div className="est-tag">
-              ✦ estimate {purityEstimate}% · llm-proposed · unverified — confirm as-is, or override
-            </div>
-          )}
-          {/* missing ≠ blank: an empty purity says WHY it's empty (the market-cap "needs price" rule,
-              applied here). Pre-revenue names have no segment revenue to read; a thesis-scoped extract
-              that stayed empty means the grounded estimate declined (fail-open) — different authoring
-              starts, named honestly. Quiet on file (the ratified value is showing). */}
-          {purityEstimate == null && !onFile && (
-            <div className="rf-reason">
-              {candidate.source === "10-k-business-description"
-                ? "no revenue data on file — pre-revenue: author the % from the business description"
-                : estimateAttempted
-                  ? "couldn't ground a purity estimate in the passage — author the % from it"
-                  : "author the % from the segment passage"}
-            </div>
-          )}
-          <label className="rf">
-            segment
-            <input
-              aria-label="segment"
-              maxLength={LIMITS.line}
-              value={segment}
-              placeholder="e.g. nuclear"
-              onChange={(e) => setSegment(e.target.value)}
-            />
-          </label>
-          <label className="rf">
-            theme %
-            <input
-              type="number"
-              aria-label="purity percent"
-              value={pct}
-              placeholder={purityEstimate != null ? "" : "you author it"}
-              onChange={(e) => setPct(e.target.value)}
-            />
-          </label>
-        </>
-      )}
-      {!auto && (
-        <label className="rf wide">
-          note
-          {/* a textarea, not an input — the pre-filled composition/basis notes run long and a
-              single truncated line hid what the operator was about to ratify */}
-          <AutoTextarea
-            ariaLabel="note"
-            maxLength={LIMITS.prose}
-            className="rf-note"
-            value={note}
-            placeholder="the composition / basis"
-            maxRows={6}
-            onChange={setNote}
-          />
-        </label>
-      )}
+      <label className="rf">
+        segment
+        <input
+          aria-label="segment"
+          maxLength={LIMITS.line}
+          value={segment}
+          placeholder="e.g. nuclear"
+          onChange={(e) => setSegment(e.target.value)}
+        />
+      </label>
+      <label className="rf">
+        theme %
+        <input
+          type="number"
+          aria-label="purity percent"
+          value={pct}
+          placeholder={purityEstimate != null ? "" : "you author it"}
+          onChange={(e) => setPct(e.target.value)}
+        />
+      </label>
+      <label className="rf wide">
+        note
+        {/* a textarea, not an input — the pre-filled basis notes run long and a single truncated line hid what
+            the operator was about to ratify */}
+        <AutoTextarea
+          ariaLabel="note"
+          maxLength={LIMITS.prose}
+          className="rf-note"
+          value={note}
+          placeholder="the composition / basis"
+          maxRows={6}
+          onChange={setNote}
+        />
+      </label>
 
       {ratify.isError && <div className="note err">Couldn't ratify — {errText(ratify.error)}.</div>}
       <button type="button" className="wb-mini" onClick={onConfirm} disabled={confirmDisabled}>

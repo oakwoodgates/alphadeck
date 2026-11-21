@@ -55,7 +55,7 @@ describe("edition labels", () => {
     expect(editionNote(RECORD)).toBeNull();
     expect(editionNote(null)).toBeNull();
     expect(editionNote(ONE)).toBe(
-      "nights Jun 10 – Oct 21 · 727 of 727 join dates estimated · no reconstructed, annotated or late nights in a re-run",
+      "nights Jun 10 – Oct 21 · 727 of 727 join dates estimated · no reconstructed or late nights in a re-run",
     );
   });
 

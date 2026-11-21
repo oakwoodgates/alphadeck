@@ -42,6 +42,7 @@ import {
 } from "./quietView";
 import { useFormingQuietly, type FormingNameOut, type FormingRowOut, type RowState } from "./useFormingQuietly";
 import { ExternalLink } from "../../components/ExternalLink";
+import { RecordStartNote } from "../RecordStartNote";
 
 // Forming Quietly (docs/dashboards/forming-quietly.md): the cards where a key has turned or signals are gathering but
 // nothing is Armed yet. The quietest page in the app (invariant #7): the tape look at its lowest energy, every figure
@@ -304,6 +305,7 @@ export default function FormingQuietly({ asof, onSelectThesis }: DashboardProps)
 
   return (
     <div className="fq">
+      <RecordStartNote empty={data.rows.length === 0} />
       <p className="fq-framing" data-testid="fq-framing">
         {FRAMING}
       </p>

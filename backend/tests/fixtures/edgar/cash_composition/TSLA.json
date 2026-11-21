@@ -1,0 +1,64 @@
+{
+ "cik": "",
+ "entityName": "TSLA (reconstructed from the 2026-11-15 quarterly cash audit)",
+ "facts": {
+  "us-gaap": {
+   "CashAndCashEquivalentsAtCarryingValue": {
+    "units": {
+     "USD": [
+      {
+       "end": "2026-09-30",
+       "val": 17853000000,
+       "accn": "reconstructed",
+       "fy": 2026,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2026-10-23"
+      }
+     ]
+    }
+   },
+   "ShortTermInvestments": {
+    "units": {
+     "USD": [
+      {
+       "end": "2026-09-30",
+       "val": 27594000000,
+       "accn": "reconstructed",
+       "fy": 2026,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2026-10-23"
+      }
+     ]
+    }
+   },
+   "NetCashProvidedByUsedInOperatingActivities": {
+    "units": {
+     "USD": [
+      {
+       "start": "2026-01-01",
+       "end": "2026-06-30",
+       "val": 8634000000,
+       "accn": "reconstructed",
+       "fy": 2026,
+       "fp": "Q2",
+       "form": "10-Q",
+       "filed": "2026-07-24"
+      },
+      {
+       "start": "2026-01-01",
+       "end": "2026-09-30",
+       "val": 14897000000,
+       "accn": "reconstructed",
+       "fy": 2026,
+       "fp": "Q3",
+       "form": "10-Q",
+       "filed": "2026-10-23"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

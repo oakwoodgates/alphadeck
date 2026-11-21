@@ -7,9 +7,12 @@ from uuid import UUID, uuid4
 import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from app import workspace_caps
+from app.auth import CurrentUser, require_user
 from app.deps import get_conn, get_thesis_or_404, get_workspace
 from app.schemas_api import (
     CallCardResponse,
+    CatalystCountingIn,
     CatalystList,
     DecisionIn,
     DecisionOut,
@@ -33,7 +36,7 @@ from domain.scopes import DATA_TENANT_ID
 from domain.text_types import AsofDate
 from domain.thesis import Catalyst, ExcludedName, KillCriterion, Thesis
 from pipeline.call_for_thesis import call_for_thesis
-from repositories import calls_repo, decisions_repo, thesis_repo
+from repositories import calls_repo, decisions_repo, thesis_catalyst_repo, thesis_repo
 from securities import master
 from signals.base import PointInTimeData
 from signals.display import registered_display_members, relative_strength, theme_breadth
@@ -131,7 +134,18 @@ def unarchive_thesis(
     conn: psycopg.Connection = Depends(get_conn),
     thesis: Thesis = Depends(get_thesis_or_404),
 ) -> ThesisSummary:
-    """Restore an archived thesis whole — back onto the Board and into the cron's nightly walk."""
+    """Restore an archived thesis whole — back onto the Board and into the cron's nightly walk.
+
+    Workspace caps (V2 W7c): a restore that would raise the live cards or the distinct companies on live cards past
+    the workspace's cap answers 409 with a sentence naming the count and the limit, and restores nothing. Restoring
+    a card that is already live changes no count and always passes."""
+    workspace_caps.check(
+        conn,
+        thesis.tenant_id,
+        thesis_id=thesis.id,
+        adding=workspace_caps.Adding.RESTORE,
+        live_after=True,
+    )
     thesis_repo.set_archived(conn, thesis.id, False)
     conn.commit()
     return ThesisSummary.from_thesis(thesis_repo.get(conn, thesis.id, workspace=thesis.tenant_id))
@@ -174,7 +188,16 @@ def read_thesis_detail(conn: psycopg.Connection, thesis: Thesis, *, today: date)
     # so nothing regresses; ``known_at=None`` reads decisions as of current knowledge (no-lookahead
     # #1 holds — a fill can't be dated in the future).
     position = decisions_repo.effective_position(conn, thesis, asof=today, known_at=None)
-    return ThesisDetail.from_thesis(thesis.model_copy(update={"position": position}))
+    return ThesisDetail.from_thesis(
+        thesis.model_copy(update={"position": position}),
+        thesis_catalyst_repo.current(conn, thesis.id),
+    )
+
+
+def _detail(conn: psycopg.Connection, thesis: Thesis) -> ThesisDetail:
+    """The saved card after a list write: reloaded, with each calendar row's current counting state."""
+    saved = thesis_repo.get(conn, thesis.id, workspace=thesis.tenant_id)
+    return ThesisDetail.from_thesis(saved, thesis_catalyst_repo.current(conn, thesis.id))
 
 
 @router.get("/{thesis_id}/call", response_model=CallCardResponse)
@@ -321,21 +344,97 @@ def put_catalysts(
     body: CatalystList,
     conn: psycopg.Connection = Depends(get_conn),
     thesis: Thesis = Depends(get_thesis_or_404),
+    user: CurrentUser = Depends(require_user),
 ) -> ThesisDetail:
     """Author the thesis's catalyst SURFACE — the upcoming binary events the card renders between
     entry and exit-by (display objects; the per-name conviction FACTS go through the ratify path).
     Full-list replace via the sole writer (``set_catalysts`` — the structural wipe-guard: a promote
     never touches this table). Operator authority (#4: the operator authors the events; the platform
-    times them)."""
+    times them).
+
+    Ids (V2 W6b): a row sent with the ``id`` it was read with keeps it; a row without one is a new row; an id that
+    is not on this card is never adopted (the row gets a fresh one). An id sent twice is a 422.
+
+    The wipe guard (V2 W6b): a list that leaves out a row whose entry counts toward the call is refused with 409
+    and a sentence naming the entry, and nothing is written; turn the entry off first
+    (``PUT /theses/{id}/catalysts/{entry_id}/counting``), then remove the row. A label edit on a counting row
+    records a new version of its entry with the new label (it keeps the night it counts from)."""
+    sent = [c.id for c in body if c.id is not None]
+    if len(set(sent)) != len(sent):
+        raise HTTPException(
+            status_code=422, detail="A catalyst row appears more than once in the list."
+        )
+    on_card = {c.id for c in thesis.catalysts}
     cats = [
         Catalyst(
-            id=uuid4(), label=c.label, kind=c.kind, when_date=c.when_date, when_label=c.when_label
+            id=c.id if c.id in on_card else uuid4(),
+            label=c.label,
+            kind=c.kind,
+            when_date=c.when_date,
+            when_label=c.when_label,
         )
         for c in body
     ]
-    thesis_repo.set_catalysts(conn, thesis.id, cats, tenant_id=thesis.tenant_id)
+    try:
+        thesis_repo.set_catalysts(
+            conn, thesis.id, cats, tenant_id=thesis.tenant_id, user_id=user.id
+        )
+    except thesis_repo.CountingCatalystRemoval as e:
+        raise HTTPException(status_code=409, detail=str(e)) from None
+    except thesis_catalyst_repo.CountingEntryError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
     conn.commit()
-    return ThesisDetail.from_thesis(thesis_repo.get(conn, thesis.id, workspace=thesis.tenant_id))
+    return _detail(conn, thesis)
+
+
+@router.put("/{thesis_id}/catalysts/{entry_id}/counting", response_model=ThesisDetail)
+def put_catalyst_counting(
+    entry_id: UUID,
+    body: CatalystCountingIn,
+    conn: psycopg.Connection = Depends(get_conn),
+    thesis: Thesis = Depends(get_thesis_or_404),
+    user: CurrentUser = Depends(require_user),
+) -> ThesisDetail:
+    """Make one calendar row count toward the call, change what it says, or stop it counting (V2 W6b; the signed
+    rule R2). ``entry_id`` is the calendar row's ``id``. Each change is one new version in the card's append-only
+    counting store; a request that changes nothing writes nothing. Answers the saved card with
+    ``catalyst_counting`` filled.
+
+    Switching on needs a grade (core or flip) and a citation (an http(s) link or an SEC accession number;
+    recorded, not verified); the names must be companies on this card (none = the whole card, Flip only); an
+    optional "relevant until" date must be after the night it would count from. The entry counts from the night it
+    is saved, never from the date typed on the calendar: no time is accepted from the request. A switch-off keeps
+    the last statement so it can be switched on again. Refusals: 404 (no such card or row), 422 with a sentence.
+
+    Advisory only: this records the operator's own statement. Until a later release no call reads it.
+    """
+    row = next((c for c in thesis.catalysts if c.id == entry_id), None)
+    if row is None:
+        raise HTTPException(status_code=404, detail="catalyst entry not found")
+    if body.counts:
+        if body.grade is None:
+            raise HTTPException(status_code=422, detail="Pick a grade.")
+        if body.citation is None or not thesis_catalyst_repo.is_citation(body.citation):
+            raise HTTPException(status_code=422, detail=thesis_catalyst_repo.CITATION_NEEDED)
+    try:
+        thesis_catalyst_repo.append_version(
+            conn,
+            thesis.id,
+            entry_id,
+            counts=body.counts,
+            grade=body.grade or "flip",
+            security_ids=body.security_ids,
+            citation=body.citation or "",
+            relevant_until=body.relevant_until,
+            label=row.label,
+            user_id=user.id,
+        )
+    except thesis_catalyst_repo.UnknownEntry:
+        raise HTTPException(status_code=404, detail="catalyst entry not found") from None
+    except thesis_catalyst_repo.CountingEntryError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
+    conn.commit()
+    return _detail(conn, thesis)
 
 
 @router.put("/{thesis_id}/kill-criteria", response_model=ThesisDetail)
@@ -350,7 +449,7 @@ def put_kill_criteria(
     kills = [KillCriterion(id=uuid4(), text=k.text) for k in body]
     thesis_repo.set_kill_criteria(conn, thesis.id, kills, tenant_id=thesis.tenant_id)
     conn.commit()
-    return ThesisDetail.from_thesis(thesis_repo.get(conn, thesis.id, workspace=thesis.tenant_id))
+    return _detail(conn, thesis)
 
 
 @router.put("/{thesis_id}/exclusions", response_model=ThesisDetail)
@@ -376,7 +475,7 @@ def put_exclusions(
     excl = [ExcludedName(security_id=e.security_id, ticker=e.ticker, reason=e.reason) for e in body]
     thesis_repo.set_exclusions(conn, thesis.id, excl, tenant_id=thesis.tenant_id)
     conn.commit()
-    return ThesisDetail.from_thesis(thesis_repo.get(conn, thesis.id, workspace=thesis.tenant_id))
+    return _detail(conn, thesis)
 
 
 def _decision_out(row: dict[str, Any], *, voided: bool) -> DecisionOut:

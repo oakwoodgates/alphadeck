@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { setRecordStart } from "../../__tests__/recordStart";
 
 import EntryWindows from "../EntryWindows";
 import type { EntryWindowsOut } from "../useEntryWindows";
@@ -299,5 +300,23 @@ describe("EntryWindows — the quiet lines and the states", () => {
 
   it("draws the rows of the CLOSING and CLOSED fixtures from the same payload shape (guards the fixtures)", () => {
     expect([CLOSING.state, CLOSED.state, NO_CLOCKS.state]).toEqual(["armed", "armed", "armed"]);
+  });
+});
+
+vi.mock("../../../api/hooks", async (orig) =>
+  (await import("../../__tests__/recordStart")).withRecordStartStub(await orig<typeof import("../../../api/hooks")>()),
+);
+
+describe("Entry Windows — the record-start note", () => {
+  it("says when the record starts on a page with no history", () => {
+    setRecordStart("2026-12-03");
+    setup(payload({ rows: [] }));
+    expect(screen.getByTestId("record-start-note")).toHaveTextContent("The record starts on Dec 3, 2026.");
+  });
+
+  it("is absent on a page with history", () => {
+    setRecordStart("2026-12-03");
+    setup();
+    expect(screen.queryByTestId("record-start-note")).toBeNull();
   });
 });

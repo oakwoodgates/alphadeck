@@ -124,8 +124,8 @@ interface Props {
 }
 
 // "Fundamentals loaded" = the name carries a confirmed SURFACE-extractable scoring fact — the shared
-// `memberHasFundamentals` rule (one rule across the badge, the scored row's get-data control, and the
-// funnel line). This badge answers "does this survivor still need an extract → ratify?", nothing more.
+// `memberHasFundamentals` rule (one rule across the badge and the funnel line). This badge answers "does this
+// survivor still have its purity to set?", nothing more: a share count and cash arrive from the platform.
 const hasFundamentals = (
   sid: string | null | undefined,
   scoredById?: Record<string, ScoredMemberOut>,
@@ -356,7 +356,7 @@ function LinkLabelInput({
  *  control and rides Save untouched). A name the drafter couldn't resolve uniquely (AMBIGUOUS) enters
  *  the basket ONLY by an explicit operator pick
  *  (ticker + CIK disambiguate); one with no master row (ABSENT) is shown, never placed. A drafted name
- *  is UNSCORED until the operator extract→ratifies it. Nothing persists until SAVE (the full-replace
+ *  is UNSCORED until its purity is set. Nothing persists until SAVE (the full-replace
  *  promote, which honors authorship and persists every membership row). */
 export function ChainEditor({
   thesis,
@@ -1793,7 +1793,7 @@ export function ChainEditor({
                     ✓ fundamentals
                   </span>
                 ) : (
-                  <span className="fund-badge" title="no confirmed fundamentals yet — extract → ratify in the facts panel">
+                  <span className="fund-badge" title="no confirmed fundamentals yet — set its purity in the rail (the share count and cash arrive from the platform)">
                     needs SURFACE
                   </span>
                 ))}
@@ -2319,7 +2319,7 @@ export function ChainEditor({
         <span className="note">
           Pre-fill the chain from your narrative — the drafter proposes the links, the names in each, and
           thesis-fit prose; you accept / edit / drop each. Names resolve against the master (exact membership
-          decides); a placed name is <b>unscored</b> until you extract → ratify it. Nothing is sent until Save.
+          decides); a placed name is <b>unscored</b> until its purity is set. Nothing is sent until Save.
         </span>
       </div>
       {/* The run-loader picker (a dev/test cost-saver): load a SAVED draft run into this editor instead of
@@ -2634,8 +2634,8 @@ export function ChainEditor({
           {/* Item 1: the clean pre-surfacing state — one quiet hint instead of "needs SURFACE" on every row. */}
           {nameCount > 0 && !anyFundamentals && (
             <div className="note">
-              Surface your shortlist — hit <b>⇣ get data</b> on a name in the scored view, then ratify the
-              candidates in its rail — confirmed fundamentals show here.
+              Surface your shortlist — open a name in the scored view and set its purity in the rail; its
+              share count and cash arrive from the platform. Confirmed fundamentals show here.
             </div>
           )}
           {/* TRIAGE PR-2 (the find) — sort + filter the placed list. VIEW-ONLY: it never changes what Save

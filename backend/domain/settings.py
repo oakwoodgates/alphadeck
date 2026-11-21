@@ -396,17 +396,6 @@ class Settings(BaseSettings):
     # The default MUST equal the sidecar's (compose + daily_cron.sh both default 5400 s = 90 min).
     cron_run_timeout_s: float = 5400.0
 
-    # --- D3b — the Scoreboard's ANNOTATED-NIGHT read policy (operator decision Q2, 2026-10-16) ---
-    # `call_annotation` (migration 0045) holds append-only judgments about recorded `calls` rows; an ACTIVE
-    # `exclude` marks a PHANTOM ARM (an arm that rested only on a stale-dated comparative revenue quarter,
-    # the bug D3a fixed) or, since F10, a row dated a day with no market session. True = the Scoreboard's record read drops those rows BEFORE the per-as-of dedup
-    # (the `calls.reconstructed` precedent) and the banner names the nights; False = they are scored again,
-    # exactly as before D3b. A READ policy, never a write: flipping it re-scores the record and deletes
-    # nothing, so the operator can go back and forth. `GET /scoreboard?include_annotated=` overrides it per
-    # request (true = include, false = exclude), so both readings can be compared without a restart. An
-    # externally quoted Scoreboard number should name the reading it came from. ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED.
-    scoreboard_exclude_annotated: bool = True
-
     # --- L1 — the Scoreboard's LATE-NIGHT read policy (operator decision Q5 = A, 2026-10-16) ---
     # A LATE row = a non-reconstructed call-of-record recorded at/after the END of its night's on-time window,
     # the next weekday's 06:00 ET EDGAR open (`pipeline.night_coverage.is_late`, M1's shared helper): it can
@@ -606,6 +595,24 @@ class Settings(BaseSettings):
     # ALPHADECK_INGEST_FETCH_CONCURRENCY.
     ingest_fetch_concurrency: int = 8
 
+    # --- V2 W3a — BACKGROUND EXTRACTION of platform values (``platform_values/extraction.py``; docs/PLATFORM_VALUES.md)
+    # THE KILL SWITCH: ``platform_extraction_max_names = 0`` turns the nightly leg AND the onboarding step off (no
+    # company is fetched, no attempt is written); the backfill CLI still runs by hand. Otherwise it is how many
+    # companies one nightly leg may extract. ALPHADECK_PLATFORM_EXTRACTION_MAX_NAMES.
+    platform_extraction_max_names: int = 300
+    # The nightly leg's wall-time budget (seconds); the leg also stops before the pass's own timeout. It checks
+    # between companies and never starts one it cannot afford. ALPHADECK_PLATFORM_EXTRACTION_BUDGET_S.
+    platform_extraction_budget_s: float = 900.0
+    # Never-extracted companies per onboarding batch. ALPHADECK_PLATFORM_EXTRACTION_ONBOARD_MAX_NAMES.
+    platform_extraction_onboard_max_names: int = 25
+    # Hours after a new periodic filing's SEC acceptance before it makes its company due: companyfacts lags
+    # acceptance by ~5-6 h and is reliably re-pulled the following night, so extracting the same night risks a
+    # spurious stale FLAG. ALPHADECK_PLATFORM_EXTRACTION_HOLD_H.
+    platform_extraction_hold_h: float = 24.0
+    # Failed attempts in a row on the same filings before a company waits for a new filing (or the steward).
+    # ALPHADECK_PLATFORM_EXTRACTION_RETRY_MAX.
+    platform_extraction_retry_max: int = 3
+
     # --- Secrets / deploy values: DECLARED here as the typed inventory; READ LATE at the edge (D5) ---
     # These two are toggled by the test suite AFTER import (the `db` fixture sets DATABASE_URL; an LLM
     # test delenv's ANTHROPIC_API_KEY), so their RUNTIME read stays a fresh,
@@ -732,17 +739,46 @@ class Settings(BaseSettings):
     # --- the per-user DAILY ALLOWANCE on user-triggered fetches (security hardening PR 1b, app/allowance.py,
     # docs/AUTH.md §User-triggered fetches) ---
     # How many of each action ONE plain user may trigger per market day (midnight to midnight in market_tz); over it
-    # the route answers 429 naming the reset. A ceiling against a runaway loop, set high on purpose, not a rationing
-    # tool. 0 = no limit on that action. A steward is never limited. ALPHADECK_ALLOWANCE_<ACTION>_PER_DAY.
-    allowance_extract_per_day: int = 5000  # GET /workbench/securities/{id}/extract
-    # POST /workbench/securities/{id}/ingest-prices, plus each new name a promote's fast lane pulls (when spent,
-    # the promote's new names go to the onboarding queue instead)
-    allowance_price_pull_per_day: int = 5000
-    allowance_auto_confirm_per_day: int = 2000  # POST /workbench/facts/auto-confirm
-    allowance_holdings_per_day: int = 1000  # GET /workbench/securities/{id}/etf-holdings
-    allowance_chain_draft_per_day: int = 100  # POST /workbench/theses/{id}/draft-chain
+    # the route answers 429 naming the reset. A ceiling on what one person's real day needs (the platform pays for
+    # every fetch). 0 = no limit on that action. A steward is never limited. ALPHADECK_ALLOWANCE_<ACTION>_PER_DAY.
+    # V2 W7b reviewed the defaults down to one person's real day (docker-compose.yml passes each with the SAME
+    # fallback: tests/domain/test_settings.py checks they agree).
+    allowance_extract_per_day: int = (
+        300  # GET /workbench/securities/{id}/extract (purity only for a user, W7a)
+    )
+    # each new name a promote's or a fund/SPAC attach's fast lane loads at once ("new names loaded at once"; when
+    # spent, the new names go to the onboarding queue instead). The key keeps its name; no user route pulls prices.
+    allowance_price_pull_per_day: int = 200
+    allowance_holdings_per_day: int = 200  # GET /workbench/securities/{id}/etf-holdings
+    allowance_chain_draft_per_day: int = 20  # POST /workbench/theses/{id}/draft-chain
     # POST /workbench/theses/{id}/terms and .../recommend-tiers, one shared count
-    allowance_term_run_per_day: int = 200
+    allowance_term_run_per_day: int = 50
+    # V2 W5b: POST /value-flags, a user's flag on a share count or cash/burn (each flag sends the steward one Slack
+    # message). A withdrawal never refunds; a flag raised again spends a unit. ALPHADECK_ALLOWANCE_FLAG_PER_DAY.
+    allowance_flag_per_day: int = 50
+
+    # --- V2 W7c: the WORKSPACE CAPS a NEW workspace gets (app/workspace_caps.py, docs/AUTH.md §Workspace caps) ---
+    # Written into ``tenant.cap_*`` (migration 0203) when ``python -m pipeline.users create`` makes a workspace; an
+    # existing workspace keeps its own caps (NULL = no cap), changed per workspace by ``python -m pipeline.users
+    # caps``. 0 here = the new workspace gets NO cap (NULL). docker-compose.yml passes each with the SAME fallback
+    # (tests/domain/test_settings.py checks they agree). ALPHADECK_WORKSPACE_CAP_<CAP>_DEFAULT.
+    workspace_cap_live_cards_default: int = Field(default=25, ge=0)  # live (non-archived) cards
+    workspace_cap_companies_default: int = Field(
+        default=500, ge=0
+    )  # distinct companies on live cards
+    workspace_cap_terms_per_card_default: int = Field(default=200, ge=0)  # search terms on one card
+
+    # V2 W5b (decision W-c): the steward's Slack incoming webhook for users' flags
+    # (ALPHADECK_STEWARD_SLACK_WEBHOOK_URL). Unset or blank = the env webhook (SLACK_WEBHOOK_URL); neither = one log
+    # line per flag. A flag's note is private to its user and the steward, so every reader of this channel must be
+    # a steward. A webhook URL is a credential: it is never logged.
+    steward_slack_webhook_url: str | None = None
+
+    @field_validator("steward_slack_webhook_url", mode="before")
+    @classmethod
+    def _blank_steward_webhook_is_unset(cls, v: object) -> object:
+        # compose passes `${ALPHADECK_STEWARD_SLACK_WEBHOOK_URL:-}` = "" when unset: that is "no steward webhook"
+        return None if isinstance(v, str) and not v.strip() else v
 
     # The app's PUBLIC origin (ALPHADECK_PUBLIC_ORIGIN), e.g. https://deck.example.com. Set = the agent tools server
     # is mounted in this API at /mcp and the connector URL is advertised; UNSET (the default) = no /mcp, no

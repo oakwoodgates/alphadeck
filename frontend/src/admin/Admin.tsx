@@ -16,6 +16,8 @@ import {
   useBackups,
   useCreateBackup,
   useDailyRunJob,
+  useInsiderAmendments,
+  useInsiderHolds,
   useStartDailyRun,
 } from "../api/hooks";
 import { scoreboardPath } from "../nav";
@@ -26,6 +28,7 @@ import { InsiderHolds } from "./InsiderHolds";
 import { Onboarding } from "./Onboarding";
 import { PriceFeedRepairs, repairHandledIds } from "./PriceFeedRepairs";
 import { DataFlagList } from "./DataFlagList";
+import { SharedFacts, type OtherWork } from "./SharedFacts";
 import { SplitList } from "./SplitList";
 
 interface Props {
@@ -458,6 +461,31 @@ export function Admin({ header }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [backupJobStatus]);
 
+  // The one line of other work under Shared facts: only counts this page already reads (the status card's splits,
+  // and the held-rows and amendments panels' own reads, cached under the same keys), only those above zero.
+  const holdsQ = useInsiderHolds();
+  const amendsQ = useInsiderAmendments();
+  const otherWork: OtherWork[] = [
+    {
+      one: "split to review",
+      many: "splits to review",
+      target: "adm-splits",
+      count: statusQ.data?.splits_needs_review ?? 0,
+    },
+    {
+      one: "held insider row",
+      many: "held insider rows",
+      target: "adm-insider-holds",
+      count: holdsQ.data?.counts?.owed ?? holdsQ.data?.owed?.length ?? 0,
+    },
+    {
+      one: "insider amendment owed",
+      many: "insider amendments owed",
+      target: "adm-insider-amendments",
+      count: amendsQ.data?.owed?.length ?? 0,
+    },
+  ];
+
   const status = statusQ.data;
   const runs = runsQ.data?.runs ?? [];
   const backups = backupsQ.data?.backups ?? [];
@@ -597,6 +625,15 @@ export function Admin({ header }: Props) {
                 user can open them; move or archive them
               </div>
             )}
+            {/* V2 W0b — share counts and cash/burn left in a workspace. V2 reads both from the data tenant only,
+                so the count should be 0 once the V2 move has run; LOUD only when it is not. Rendered only then;
+                an older backend omits the field. */}
+            {(status.platform_rows_in_workspaces ?? 0) > 0 && (
+              <div className="adm-line adm-loud" data-testid="adm-platform-rows-in-workspaces">
+                {status.platform_rows_in_workspaces} share-count or cash/burn row(s) sit in a workspace; V2
+                reads none of them. Run <code>python -m pipeline.v2_cutover move-platform-facts --apply</code>.
+              </div>
+            )}
             {/* editions S5 — the Scoreboard editions' nightly page job, as the backend's one line (which
                 edition, which night, held theses, the self-check). QUIET — the normal night is not news —
                 and louder only when the self-check found a real mismatch or the job crashed (attention).
@@ -629,6 +666,17 @@ export function Admin({ header }: Props) {
                 data-testid="adm-master-refresh"
               >
                 {status.master_refresh.line}
+              </div>
+            )}
+            {/* V2 W3c — background extraction of the shared share counts and cash/burn, as the backend's one line
+                (the nightly step or the newest backfill). Quiet; louder only when a company failed or a backlog is
+                held back until the first backfill. Rendered once a run exists; an older backend omits the field. */}
+            {status.platform_extraction && (
+              <div
+                className={`adm-line ${status.platform_extraction.attention ? "adm-loud" : "adm-quiet"}`}
+                data-testid="adm-platform-extraction"
+              >
+                {status.platform_extraction.line}
               </div>
             )}
             <div className="adm-sub">
@@ -714,6 +762,11 @@ export function Admin({ header }: Props) {
               </div>
             )}
           </section>
+
+          {/* 1a — SHARED FACTS (V2 W4c): the steward's queue of share counts and cash/burn awaiting a decision, and
+              the company search. Quiet when nothing waits; the whole Admin page is steward-only, so a plain user
+              never mounts it and fires no request. Read-only. */}
+          <SharedFacts other={otherWork} />
 
           {/* 1b — the PRICE FEED REPAIRS (T2 + Q8 + T3): renamed names with their splice-verified
               successors to Adopt, never-priced names to Set / Acknowledge / Remove, the quiet closed and

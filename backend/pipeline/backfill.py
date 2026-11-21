@@ -115,8 +115,7 @@ class BackfillResult:
 
 def thesis_existed_on(created_at: datetime, asof: date, tz: tzinfo) -> bool:
     """Did a thesis created at ``created_at`` exist on the night of ``asof``? PURE, and the ONE rule both
-    the backfill's existence gate and ``pipeline.repair_reconstructed_precreation`` apply, so the two
-    tools cannot disagree. Market time, by the calendar day: a thesis created at any point DURING the
+    the backfill's existence gate applies. Market time, by the calendar day: a thesis created at any point DURING the
     as-of day was in that night's cron (the cron fires at 22:30 market time, after the day's work), so
     it existed; one created 00:00:00 the next market day did not. ``created_at`` must be aware (the
     column is ``timestamptz``); a naive instant is refused — the same discipline as the pin."""

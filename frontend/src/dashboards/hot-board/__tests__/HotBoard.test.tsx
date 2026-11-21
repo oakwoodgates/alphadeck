@@ -1,6 +1,7 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { setRecordStart } from "../../__tests__/recordStart";
 
 import HotBoard from "../HotBoard";
 import type { HotBoardOut } from "../useHotBoard";
@@ -415,5 +416,23 @@ describe("HotBoard — a lone row", () => {
       ]),
     );
     expect(lines()[0].querySelector(".hb-heat-n")?.textContent).toBe("50");
+  });
+});
+
+vi.mock("../../../api/hooks", async (orig) =>
+  (await import("../../__tests__/recordStart")).withRecordStartStub(await orig<typeof import("../../../api/hooks")>()),
+);
+
+describe("Hot Board — the record-start note", () => {
+  it("says when the record starts on a page with no history", () => {
+    setRecordStart("2026-12-03");
+    setup(payload([]));
+    expect(screen.getByTestId("record-start-note")).toHaveTextContent("The record starts on Dec 3, 2026.");
+  });
+
+  it("is absent on a page with history", () => {
+    setRecordStart("2026-12-03");
+    setup();
+    expect(screen.queryByTestId("record-start-note")).toBeNull();
   });
 });

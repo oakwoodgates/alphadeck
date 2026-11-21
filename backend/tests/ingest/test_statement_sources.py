@@ -140,15 +140,19 @@ def test_drug_runway_from_exhibit():
 def test_help_runway_from_exhibit():
     """HELP's EX-99.2 (``cybn-20260331_d2.htm``): the bare "Cash" row label (the HYFT shape) reads
     157,258 THOUSAND USD → $157,258,000; OCF −133,271K → ≈14.2 months. companyfacts serves CAD only
-    (the filer changed presentation currency to USD) — the mixed-currency rule keeps it OUT: no
-    cross-check, no lag note, the statement stands alone."""
+    (the filer changed presentation currency to USD) and nothing on the statement's date — no
+    agreement, no lag note in another currency, the statement stands alone. MOVED (PR 4): the note now
+    SAYS so ("not cross-checked"), where it used to stay silent about companyfacts; no data is a stated
+    condition, never a pass."""
     f, reason = _extract("HELP-40f-ex99-fin.txt", cf=_cf("HELP"), report_date=date(2026, 3, 31))
     assert reason is None and f is not None
     assert f.cash_usd == 157_258_000.0  # thousands applied; current column, not 93,922
     assert f.quarterly_burn_usd == pytest.approx(133_271_000 / 365 * (365.25 / 4))
     assert 13.7 < _months(f) < 14.7  # ≈ 14.2 months
     assert f.statement_currency == "USD"
-    assert "companyfacts" not in f.note  # CAD-only cf is unrepresentable against USD statements
+    assert "agrees" not in f.note and "behind the filing" not in f.note  # CAD is never compared
+    assert "CAD" not in f.note
+    assert "not cross-checked" in f.note
     text = _text("HELP-40f-ex99-fin.txt")
     assert "Cash 157,258 93,922" in text  # the bare-label row stays pinned
     assert "thousands of United States dollars" in text

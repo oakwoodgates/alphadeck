@@ -384,6 +384,11 @@ confirmed on K of N" (the `memberHasFundamentals` rule, shared with the badge). 
 per-click flow proves annoying at real shortlist sizes: a mark-checkbox state, a "run marked (N)" batch runner,
 marks persistence (the named fallback is checkbox + runner).
 
+**On `v2` the cost thread is bounded per workspace** (V2 W7c, `docs/AUTH.md` §Workspace caps): live cards, distinct
+companies on live cards, and search terms per card each have a cap (`tenant.cap_*`, NULL = none). A save, restore,
+attach or term edit that would RAISE a count past its cap is refused whole with a sentence naming the count and the
+limit (409; nothing written, no name dropped, recall is sacred); a save that keeps or shrinks a card always passes.
+
 **Get-data also applies the AUTO shares count** (`WORKBENCH_EXTRACTION.md`) — a confirm nobody could actually
 perform. A FLAGged count still goes to the operator; the market cap is the real check.
 

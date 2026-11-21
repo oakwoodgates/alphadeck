@@ -1,0 +1,5 @@
+The accompanying notes are an integral part of these consolidated financial statements. F-3 ECO WAVE POWER GLOBAL AB (PUBL) CONSOLIDATED STATEMENTS OF FINANCIAL POSITION December 31 Note 2025 2024 in USD thousands Current assets Cash and cash equivalents 4 6,022 2,400 Short-term bank deposits 5 — 1,254 Other receivables 310 290 Total current assets 6,332 3,944
+
+[… trimmed …]
+
+The accompanying notes are an integral part of these consolidated financial statements. F-6 ECO WAVE POWER GLOBAL AB (PUBL) CONSOLIDATED STATEMENTS OF CASH FLOWS Year ended December 31 2025 2024 2023 in USD thousands Cash flows from operating activities: Loss for the year ( 3,600 ) ( 2,400 ) ( 3,100 ) Adjustments to reconcile loss to net cash used in operating activities: Depreciation 120 100 90 Share-based payment (2024 and 2025 plans) 260 230 180 Changes in other receivables ( 20 ) 30 ( 10 ) Net cash used in operating activities ( 3,040 ) ( 1,817 ) ( 2,601 ) Cash flows from investing activities: Withdrawal of short-term bank deposits 1,254 — —

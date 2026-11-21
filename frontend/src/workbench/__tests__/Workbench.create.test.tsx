@@ -11,6 +11,11 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock("../../api/hooks", () => ({
+  // V2 W5e: the user's reads of the shared values + the flag mutations (inert here; their own suites cover them)
+  useUserCompanyValues: () => ({ data: undefined, isLoading: false, error: null }),
+  useUserThesisValues: () => ({ data: undefined, isLoading: false, error: null }),
+  useRaiseFlag: () => ({ mutate: () => {}, reset: () => {}, isPending: false, isError: false, error: null }),
+  useWithdrawFlag: () => ({ mutate: () => {}, reset: () => {}, isPending: false, isError: false, error: null }),
   // the business-type re-tag hook (Business-Type M1) — inert unless a test drives it
   useSetBusinessType: () => ({ mutate: () => {}, isPending: false }),
   useTriageSession: () => ({ data: { session: null }, isSuccess: true, isLoading: false, isError: false, error: null, refetch: vi.fn() }),

@@ -9,6 +9,7 @@ from app.main import app
 from app.routers import workbench as workbench_router
 from db.session import DEFAULT_TENANT_ID
 from domain.enums import TermTier
+from domain.extraction import ExtractionResult
 from domain.market_time import known_at_for_asof, market_today
 from domain.scopes import WORKSPACE_ANY
 from domain.thesis import BasketMember, Segment, TermSetEntry, Thesis
@@ -944,7 +945,7 @@ def test_extract_endpoint_serves_candidates(client, security_id, monkeypatch):
     the wire shape — now the ExtractionResult ENVELOPE: facts + the honest empty_reason). The live SEC
     fetch is monkeypatched so the test stays offline."""
     from app.routers import workbench as wb
-    from domain.extraction import ExtractedFact, ExtractionResult, LocatedPassage, Tier
+    from domain.extraction import ExtractedFact, LocatedPassage, Tier
 
     fake = ExtractionResult(
         facts=[
@@ -985,7 +986,6 @@ def test_extract_endpoint_serves_the_distinct_empty_reasons(client, security_id,
     The runway leg's own state (Slice A) rides `runway_empty_reason` — distinct from both, and
     passed through verbatim (a shares-covered name can still carry a runway deferral)."""
     from app.routers import workbench as wb
-    from domain.extraction import ExtractionResult
 
     for reason in ("no-annual-filing", "cover-not-located"):
         monkeypatch.setattr(
@@ -1011,7 +1011,7 @@ def test_extract_endpoint_attaches_grounded_purity_estimate(client, db, security
     HUMAN (located, no value). The estimate never persists (the endpoint writes nothing)."""
     from app.deps import get_purity_client
     from app.routers import workbench as wb
-    from domain.extraction import ExtractedFact, ExtractionResult, LocatedPassage, Tier
+    from domain.extraction import ExtractedFact, LocatedPassage, Tier
 
     purity = ExtractedFact(
         fact_type="revenue_mix",
@@ -1556,6 +1556,74 @@ def test_ratify_cash_burn_writes_and_rederives_runway(client, db, security_id):
     )  # stamped + basis preserved
 
 
+def _ratify_cash(client, security_id, **over):
+    return client.post(
+        "/workbench/facts",
+        json={
+            "fact_type": "cash_burn",
+            "security_id": str(security_id),
+            "source": "20-f",
+            "source_ref": "https://www.sec.gov/foreign-20f.htm",
+            "event_date": "2025-12-31",
+            "cash_usd": 1_000_000_000,
+            "quarterly_burn_usd": 50_000_000,
+            **over,
+        },
+    )
+
+
+def test_ratify_cash_burn_stores_the_currency_and_investment_part(client, db, security_id):
+    """The steward's Workbench confirm (``steward.correct``) carries the statement currency and the investment
+    part into the stored version (0208); without them it records none."""
+    r = _ratify_cash(client, security_id, currency="CNY", investments_usd=300_000_000)
+    assert r.status_code == 200, r.text
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT currency, investments_usd FROM fact_cash_burn WHERE id = %s",
+            (r.json()["fact_id"],),
+        )
+        row = cur.fetchone()
+    assert (row["currency"], float(row["investments_usd"])) == ("CNY", 300_000_000)
+
+
+def test_ratify_cash_burn_refuses_a_bad_currency_or_part(client, db, security_id):
+    for over in ({"currency": "yen"}, {"investments_usd": 1_000_000_001}):
+        r = _ratify_cash(client, security_id, **over)
+        assert r.status_code == 422, r.text
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT count(*) AS n FROM fact_cash_burn WHERE security_id = %s", (security_id,)
+        )
+        assert cur.fetchone()["n"] == 0
+
+
+def test_ratify_cash_burn_stores_a_confirmed_annual_candidates_parts(client, db, security_id):
+    """GAP 4: the Workbench confirm of an annual candidate sends its currency, its investment part and (when it has
+    one) its year-to-date pace; the stored version carries all of them (0208, 0209)."""
+    r = _ratify_cash(
+        client,
+        security_id,
+        currency="CNY",
+        investments_usd=300_000_000,
+        ytd_quarterly_burn_usd=60_000_000,
+        ytd_burn_days=272,
+    )
+    assert r.status_code == 200, r.text
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT currency, investments_usd, ytd_quarterly_burn_usd, ytd_burn_days FROM fact_cash_burn "
+            "WHERE id = %s",
+            (r.json()["fact_id"],),
+        )
+        row = cur.fetchone()
+    assert (
+        row["currency"],
+        float(row["investments_usd"]),
+        float(row["ytd_quarterly_burn_usd"]),
+        row["ytd_burn_days"],
+    ) == ("CNY", 300_000_000, 60_000_000, 272)
+
+
 def test_ratify_revenue_mix_preserves_the_basis_source(client, db, security_id):
     """`source` is the candidate's BASIS (10-k-segment), NOT flattened to 'ratified' — the DD-rail basis
     provenance (the chip) stays honest."""
@@ -1666,174 +1734,6 @@ def test_ratify_stamps_vouched_confirmed_overridden_or_null(client, db, security
         "ref-override": "overridden",
         "ref-manual": None,
     }
-
-
-# --- auto-confirm: the AUTO shares count applied on get-data (removing the ceremonial confirm) ---
-
-
-def _auto_shares_candidate(shares: float = 52_083_294.0):
-    """An AUTO-tier shares candidate — the clean single-class current cover the extractor reproduces."""
-    from domain.extraction import ExtractedFact, Tier
-
-    return ExtractedFact(
-        fact_type="shares_outstanding",
-        tier=Tier.AUTO,
-        source="10-q-cover",
-        source_ref="https://www.sec.gov/nne-10q.htm",
-        event_date=date(2026, 5, 12),
-        value=shares,
-        note="Cover-page shares outstanding as of 2026-05-12 (single class).",
-    )
-
-
-def _count(db, table: str, sid) -> int:
-    with db.cursor() as cur:
-        cur.execute(f"SELECT count(*) AS n FROM {table} WHERE security_id=%s", (sid,))  # noqa: S608
-        return cur.fetchone()["n"]
-
-
-def _auto_confirm(client, sid, **extra):
-    return client.post(
-        "/workbench/facts/auto-confirm",
-        json={"security_id": str(sid), "fact_type": "shares_outstanding", **extra},
-    )
-
-
-def test_auto_confirm_applies_the_auto_shares_with_auto_provenance(client, db, monkeypatch):
-    """The core: an AUTO (unflagged) shares count is applied on get-data WITHOUT a ceremonial confirm, and is
-    stamped ``ratified_by="auto"`` — honest provenance for what actually happened (no human verified a share
-    count). The VALUE is the extractor's deterministic companyfacts parse, never a model output (#1/#3).
-    """
-    from app.routers import workbench as wb
-
-    sid = _insert_security(db, "NNE", name="Nano Nuclear Energy", cik="0001923891")
-    monkeypatch.setattr(wb, "extract_for_security", lambda c, cik: [_auto_shares_candidate()])
-
-    r = _auto_confirm(client, sid)
-    assert r.status_code == 200
-    assert r.json()["applied"] is True and r.json()["reason"] == "applied"
-
-    with db.cursor() as cur:
-        cur.execute(
-            "SELECT shares, ratified_by, vouched, source, note FROM fact_shares_outstanding "
-            "WHERE security_id=%s",
-            (sid,),
-        )
-        row = cur.fetchone()
-    assert float(row["shares"]) == 52_083_294.0
-    assert row["ratified_by"] == "auto"  # NOT "operator" — nobody confirmed it
-    assert row["vouched"] is None  # no estimate was shown to anyone
-    assert row["source"] == "10-q-cover"  # the candidate's BASIS, preserved
-
-
-def test_auto_confirm_is_idempotent_a_rerun_appends_zero_rows(client, db, monkeypatch):
-    """COUNT THE TABLE, not the read: the as-of read dedups, so a duplicate append would hide behind a correct
-    read while the table silently grew. Get-data is re-clickable (and the section runner re-runs), so the
-    second call MUST write nothing."""
-    from app.routers import workbench as wb
-
-    sid = _insert_security(db, "NNE", name="Nano Nuclear Energy", cik="0001923891")
-    monkeypatch.setattr(wb, "extract_for_security", lambda c, cik: [_auto_shares_candidate()])
-
-    assert _auto_confirm(client, sid).json()["applied"] is True
-    after_first = _count(db, "fact_shares_outstanding", sid)
-    assert after_first == 1
-
-    second = _auto_confirm(client, sid)
-    assert second.json() == {"applied": False, "reason": "already_on_file", "fact_id": None}
-    assert _count(db, "fact_shares_outstanding", sid) == after_first  # ZERO new rows
-
-
-def test_auto_confirm_declines_a_flagged_candidate(client, db, monkeypatch):
-    """THE GATE: a FLAG (dual-class / stale-cover / no-companyfacts) is the OPERATOR's to ratify — the machine
-    never resolves a class sum or judges cover currency. Declining is a normal 200, and writes NOTHING.
-    """
-    from app.routers import workbench as wb
-    from domain.extraction import ExtractedFact, Tier
-
-    sid = _insert_security(db, "LEU", name="Centrus Energy Corp.", cik="0001065059")
-    flagged = ExtractedFact(
-        fact_type="shares_outstanding",
-        tier=Tier.FLAG,
-        source="10-q-cover",
-        source_ref="https://www.sec.gov/leu-10q.htm",
-        event_date=date(2026, 3, 31),
-        value=19_672_794.0,  # a best-effort A+B sum — offered to the operator, NEVER auto-applied
-        flags=["dual-class"],
-    )
-    monkeypatch.setattr(wb, "extract_for_security", lambda c, cik: [flagged])
-
-    r = _auto_confirm(client, sid)
-    assert r.json()["applied"] is False and r.json()["reason"] == "not_auto"
-    assert _count(db, "fact_shares_outstanding", sid) == 0
-
-
-def test_auto_confirm_never_clobbers_an_operator_override(client, db, monkeypatch):
-    """Reversibility (#1): once the operator OVERRIDES an auto-applied count, a later get-data must not
-    re-apply the machine value over their decision. The no-clobber guarantee is the same on-file gate.
-    """
-    from app.routers import workbench as wb
-
-    sid = _insert_security(db, "NNE", name="Nano Nuclear Energy", cik="0001923891")
-    # the operator's own ratify lands first (their judgment, ratified_by = the signed-in user)
-    assert (
-        client.post(
-            "/workbench/facts",
-            json={
-                "fact_type": "shares_outstanding",
-                "security_id": str(sid),
-                "source": "10-q-cover",
-                "source_ref": "https://www.sec.gov/nne-10q.htm",
-                "event_date": "2026-05-12",
-                "shares": 99_000_000,
-            },
-        ).status_code
-        == 200
-    )
-    monkeypatch.setattr(wb, "extract_for_security", lambda c, cik: [_auto_shares_candidate()])
-
-    assert _auto_confirm(client, sid).json()["reason"] == "already_on_file"
-    with db.cursor() as cur:
-        cur.execute(
-            "SELECT shares, ratified_by FROM fact_shares_outstanding WHERE security_id=%s", (sid,)
-        )
-        rows = cur.fetchall()
-    assert len(rows) == 1  # the auto path appended nothing
-    assert float(rows[0]["shares"]) == 99_000_000.0  # the OPERATOR's value stands
-    assert rows[0]["ratified_by"] == TEST_STEWARD.email
-
-
-def test_auto_confirm_ignores_any_client_supplied_value(client, db, monkeypatch):
-    """THE STRUCTURAL BOUND (#3): the request carries no value field, so a caller CANNOT inject a figure under
-    the ``auto`` provenance. Even when a rogue body smuggles one, the written number is the SERVER's parse.
-    """
-    from app.routers import workbench as wb
-
-    sid = _insert_security(db, "NNE", name="Nano Nuclear Energy", cik="0001923891")
-    monkeypatch.setattr(wb, "extract_for_security", lambda c, cik: [_auto_shares_candidate()])
-
-    assert _auto_confirm(client, sid, shares=1, value=1).json()["applied"] is True
-    with db.cursor() as cur:
-        cur.execute("SELECT shares FROM fact_shares_outstanding WHERE security_id=%s", (sid,))
-        assert float(cur.fetchone()["shares"]) == 52_083_294.0  # the server's, not the body's 1
-
-
-def test_auto_confirm_with_no_shares_candidate_writes_nothing(client, db, monkeypatch):
-    """A foreign 20-F/6-K filer extracts to nothing the extractor covers — an honest decline, not an error."""
-    from app.routers import workbench as wb
-
-    sid = _insert_security(db, "SIMO", name="Silicon Motion", cik="0001novel")
-    monkeypatch.setattr(wb, "extract_for_security", lambda c, cik: [])
-
-    r = _auto_confirm(client, sid)
-    assert r.json()["applied"] is False and r.json()["reason"] == "no_candidate"
-    assert _count(db, "fact_shares_outstanding", sid) == 0
-
-
-def test_auto_confirm_rejects_security_not_in_tenant(client):
-    """Write-side tenant discipline, same as /facts: a foreign security_id fails closed (no junk fact)."""
-    r = _auto_confirm(client, uuid.uuid4())
-    assert r.status_code == 404
 
 
 def test_ratify_shares_persists_ads_ratio_metadata(client, db, security_id):
@@ -4031,19 +3931,14 @@ def _stamp(db, sid):
     return got
 
 
-def test_ratify_and_auto_confirm_and_the_retag_each_move_the_companys_change_stamp(
-    client, db, monkeypatch
-):
-    """``POST /workbench/facts``, ``POST /workbench/facts/auto-confirm`` and the business-type re-tag write a
-    company's stored data outside the company write lock, so each moves its change stamp, committed with the
-    write (``db.change_stamp``: the dashboards' cache drops that company's pieces)."""
-    from app.routers import workbench as wb
-
+def test_ratify_and_the_retag_each_move_the_companys_change_stamp(client, db):
+    """``POST /workbench/facts`` and the business-type re-tag write a company's stored data outside the company
+    write lock, so each moves its change stamp, committed with the write (``db.change_stamp``: the dashboards'
+    cache drops that company's pieces). (The machine writer's own stamp is tested in ``tests/platform_values``.)
+    """
     sid = _insert_security(db, "NNE", name="Nano Nuclear Energy", cik="0001923891")
     assert _stamp(db, sid) is None
-    monkeypatch.setattr(wb, "extract_for_security", lambda c, cik: [_auto_shares_candidate()])
-    assert _auto_confirm(client, sid).json()["applied"] is True
-    seen = [_stamp(db, sid)]
+    seen: list = []
     r = client.post(
         "/workbench/facts",
         json={
@@ -4064,3 +3959,45 @@ def test_ratify_and_auto_confirm_and_the_retag_each_move_the_companys_change_sta
     assert r.status_code == 200
     seen.append(_stamp(db, sid))
     assert None not in seen and seen == sorted(set(seen))  # each write drew a new, later seq
+
+
+# --- "runway does not apply" (V2 C1) ------------------------------------------------------------------------------
+
+
+def _set_sector(db, security_id, sector) -> None:
+    with db.cursor() as cur:
+        cur.execute("UPDATE security_master SET sector=%s WHERE id=%s", (sector, security_id))
+    db.commit()
+
+
+def test_scored_runway_does_not_apply_to_an_investment_adviser(client, db, security_id):
+    """An "Investment Advice" company: no runway pips or months, the not-applicable provenance with the sentence,
+    its cash and burn still on the figure; the fit carries no funding risk."""
+    from platform_values import words
+
+    _set_sector(db, security_id, "Investment Advice")
+    tid = _scored_thesis(db, security_id)
+    m = client.get(f"/workbench/theses/{tid}/scored", params={"asof": "2026-06-02"}).json()[
+        "members"
+    ][0]
+    assert m["runway"]["pips"] is None and m["runway"]["value"] is None
+    fact, na = m["runway"]["provenance"]
+    assert (
+        fact["detail"]["cash_usd"] == 500_000_000
+        and fact["detail"]["quarterly_burn_usd"] == 25_000_000
+    )
+    assert (na["ref"], na["detail"]["note"]) == (
+        "runway:not-applicable",
+        words.RUNWAY_NOT_APPLICABLE,
+    )
+    assert m["fit"] == "pure-play"
+
+
+def test_scored_runway_is_unchanged_for_a_crypto_miner(client, db, security_id):
+    _set_sector(db, security_id, "Finance Services")
+    tid = _scored_thesis(db, security_id)
+    m = client.get(f"/workbench/theses/{tid}/scored", params={"asof": "2026-06-02"}).json()[
+        "members"
+    ][0]
+    assert m["runway"]["pips"] == 4 and m["runway"]["value"] == 60.0
+    assert [p["ref"] for p in m["runway"]["provenance"]] == ["10-Q"]

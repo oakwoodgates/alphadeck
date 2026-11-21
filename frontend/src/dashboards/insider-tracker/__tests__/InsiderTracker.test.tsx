@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { setRecordStart } from "../../__tests__/recordStart";
 
 import InsiderTracker from "../InsiderTracker";
 import type { InsiderTrackerOut } from "../useInsiderTracker";
@@ -151,7 +152,7 @@ describe("the tape", () => {
     const usd = cy.getAllByText("—").find((el) => el.closest(".ins-c-usd"));
     expect(usd).toBeTruthy();
     const capCell = cy.getAllByText("—").find((el) => el.closest(".ins-c-cap"))?.closest(".ins-c-cap");
-    expect(capCell).toHaveAttribute("title", expect.stringContaining("awaiting shares"));
+    expect(capCell).toHaveAttribute("title", expect.stringContaining("no shared share count yet"));
   });
 
   it("says when a filing names no filer", () => {
@@ -439,5 +440,23 @@ describe("the sheet", () => {
 describe("the fixtures", () => {
   it("are the four rows the tests above rest on", () => {
     expect(ROWS).toEqual([R1, R3, R2, R4]);
+  });
+});
+
+vi.mock("../../../api/hooks", async (orig) =>
+  (await import("../../__tests__/recordStart")).withRecordStartStub(await orig<typeof import("../../../api/hooks")>()),
+);
+
+describe("Insider Tracker — the record-start note", () => {
+  it("says when the record starts on a page with no history", () => {
+    setRecordStart("2026-12-03");
+    show(page([]));
+    expect(screen.getByTestId("record-start-note")).toHaveTextContent("The record starts on Dec 3, 2026.");
+  });
+
+  it("is absent on a page with history", () => {
+    setRecordStart("2026-12-03");
+    show();
+    expect(screen.queryByTestId("record-start-note")).toBeNull();
   });
 });

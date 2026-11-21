@@ -15,7 +15,7 @@ const fx: { data: unknown; isLoading: boolean; error: unknown } = {
   data: null,
 };
 
-// every useScoreboard call's arguments, so a test can see which annotated-night READING was asked for
+// every useScoreboard call's arguments, so a test can see which late-night READING was asked for
 const scoreboardCalls: unknown[][] = [];
 // every drawer price-window call's arguments (editions S4: the edition rides it)
 const windowCalls: unknown[][] = [];
@@ -129,9 +129,6 @@ const PAYLOAD = {
     projected_min_n_date: null,
     // no backfill-reconstructed nights on this ledger (the quiet default)
     reconstructed_nights: [],
-    // D3b — no phantom-arm (annotated) nights either; the server's default reading
-    annotated_policy: "excluded",
-    annotated_nights: [],
     // L1 — no late-recorded nights either; the server's default reading
     late_policy: "excluded",
     late_nights: [],
@@ -480,89 +477,6 @@ describe("Scoreboard", () => {
     expect(screen.getByText(/1 night reconstructed by a backfill · not scored/)).toBeInTheDocument();
   });
 
-  it("the phantom-arm line renders only when a night is annotated, names the nights, and toggles the reading", () => {
-    renderBoard(); // no annotated nights: no line, no toggle (a control that can't discriminate)
-    expect(screen.queryByText(/phantom-arm/)).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "include annotated nights" })).not.toBeInTheDocument();
-
-    const night = (asof: string) => ({
-      thesis_id: "t1",
-      thesis_name: "Nuclear Buildout",
-      asof,
-      reasons: ["stale_comparative_revenue"],
-      rules: ["d3a-first-knowability@abc"],
-      n_rows: 1,
-    });
-    const nights = [night("2026-10-14"), night("2026-10-15")];
-    scoreboardCalls.length = 0;
-    renderBoard({ data: { ...PAYLOAD, summary: { ...PAYLOAD.summary, annotated_nights: nights } } });
-    const line = screen.getByText(/2 phantom-arm nights set aside · not scored/);
-    expect(line.closest("div")).toHaveAttribute(
-      "title",
-      expect.stringContaining("Nuclear Buildout 2026-10-14, Nuclear Buildout 2026-10-15"),
-    );
-    // the first render asks for the server's default readings (no override sent: annotated, late)
-    expect(scoreboardCalls[0]).toEqual(["2026-07-11", true, null, null, null]);
-    const toggle = screen.getByRole("button", { name: "include annotated nights" });
-    expect(toggle).toHaveAttribute("aria-pressed", "false");
-    fireEvent.click(toggle);
-    // one click asks for the INCLUDE reading (the late reading stays the server's)
-    expect(scoreboardCalls[scoreboardCalls.length - 1]).toEqual(["2026-07-11", true, true, null, null]);
-
-    // the include reading says so, and the toggle reads pressed
-    renderBoard({
-      data: {
-        ...PAYLOAD,
-        summary: { ...PAYLOAD.summary, annotated_nights: [nights[0]], annotated_policy: "included" },
-      },
-    });
-    expect(screen.getByText(/1 phantom-arm night included in this reading · scored/)).toBeInTheDocument();
-  });
-
-  it("the annotated line names the KIND of night — a no-session night is never called a phantom arm (F10)", () => {
-    const night = (asof: string, reasons: string[], rules: string[]) => ({
-      thesis_id: "t1",
-      thesis_name: "Nuclear Buildout",
-      asof,
-      reasons,
-      rules,
-      n_rows: 1,
-    });
-    const noSession = (asof: string) => night(asof, ["no_session_day"], ["no-session-night@abc"]);
-    const phantom = night("2026-10-14", ["stale_comparative_revenue"], ["d3a-first-knowability@abc"]);
-
-    // only no-session nights: named as such, the hover says why, and nothing claims a phantom arm
-    renderBoard({
-      data: {
-        ...PAYLOAD,
-        summary: { ...PAYLOAD.summary, annotated_nights: [noSession("2026-08-15"), noSession("2026-08-16")] },
-      },
-    });
-    const line = screen.getByText(/2 no-session nights set aside · not scored/);
-    expect(line.closest("div")).toHaveAttribute(
-      "title",
-      expect.stringContaining("dated a day with no market session: Nuclear Buildout 2026-08-15"),
-    );
-    expect(screen.queryByText(/phantom-arm/)).not.toBeInTheDocument();
-    // the ONE toggle covers them (no second control)
-    expect(screen.getAllByRole("button", { name: "include annotated nights" })).toHaveLength(1);
-
-    // both kinds: the line breaks them out
-    renderBoard({
-      data: {
-        ...PAYLOAD,
-        summary: {
-          ...PAYLOAD.summary,
-          annotated_nights: [phantom, noSession("2026-08-15")],
-          annotated_policy: "included",
-        },
-      },
-    });
-    expect(
-      screen.getByText(/2 annotated nights \(1 phantom-arm, 1 no-session\) included in this reading · scored/),
-    ).toBeInTheDocument();
-  });
-
   it("the late-recorded line renders only when a night was recorded late, names the nights, and toggles the reading", () => {
     renderBoard(); // no late nights: no line, no toggle (a control that can't discriminate)
     expect(screen.queryByText(/late-recorded/)).not.toBeInTheDocument();
@@ -587,12 +501,12 @@ describe("Scoreboard", () => {
     const title = line.closest("div")?.getAttribute("title") ?? "";
     expect(title).toContain("AI Memory & Storage 2026-10-12 (+11 h; an earlier row scored instead)");
     expect(title).toContain("Modern Defense 2026-10-12 (+11 h; no earlier row: a gap)");
-    expect(scoreboardCalls[0]).toEqual(["2026-07-11", true, null, null, null]);
+    expect(scoreboardCalls[0]).toEqual(["2026-07-11", true, null, null]);
     const toggle = screen.getByRole("button", { name: "include late nights" });
     expect(toggle).toHaveAttribute("aria-pressed", "false");
     fireEvent.click(toggle);
-    // one click asks for the INCLUDE-late reading (the annotated reading stays the server's)
-    expect(scoreboardCalls[scoreboardCalls.length - 1]).toEqual(["2026-07-11", true, null, true, null]);
+    // one click asks for the INCLUDE-late reading
+    expect(scoreboardCalls[scoreboardCalls.length - 1]).toEqual(["2026-07-11", true, true, null]);
 
     // the include reading says so, and the toggle reads pressed
     renderBoard({
@@ -1169,10 +1083,6 @@ const RERUN_PAYLOAD = {
     banner: "EDITION 1 · FIRST RE-RUN — today's rules re-run from each company's join date…",
     n_ingest_flagged: 1,
     reconstructed_nights: ["2026-07-10"],
-    annotated_policy: "n/a",
-    annotated_nights: [
-      { thesis_id: "t-hims", thesis_name: "HIMS", asof: "2026-07-10", reasons: ["x"], rules: ["r"], n_rows: 1 },
-    ],
     late_policy: "n/a",
     late_nights: [
       {
@@ -1253,23 +1163,21 @@ describe("Scoreboard — editions", () => {
   it("the edition asked for rides the Scoreboard read (null = the server's default is not sent)", () => {
     scoreboardCalls.length = 0;
     renderEditions(RERUN_PAYLOAD, { edition: 1 });
-    expect(scoreboardCalls[0]).toEqual(["2026-07-11", true, null, null, 1]);
+    expect(scoreboardCalls[0]).toEqual(["2026-07-11", true, null, 1]);
     cleanup();
     scoreboardCalls.length = 0;
     renderEditions({ ...PAYLOAD, edition: RECORD_EDITION });
-    expect(scoreboardCalls[0]).toEqual(["2026-07-11", true, null, null, null]);
+    expect(scoreboardCalls[0]).toEqual(["2026-07-11", true, null, null]);
   });
 
-  it("Edition 1 hides the reconstructed, annotated and late lines, their toggles, and the INGEST badge", () => {
+  it("Edition 1 hides the reconstructed and late lines, their toggles, and the INGEST badge", () => {
     renderEditions(RERUN_PAYLOAD, { edition: 1 });
     const group = screen.getByRole("group", { name: "edition" });
     expect(within(group).getByRole("button", { name: /Edition 1/ })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText(/EDITION 1 · FIRST RE-RUN/)).toBeInTheDocument();
-    expect(screen.getByText(/no reconstructed, annotated or late nights in a re-run/)).toBeInTheDocument();
+    expect(screen.getByText(/no reconstructed or late nights in a re-run/)).toBeInTheDocument();
     expect(screen.queryByText(/reconstructed by a backfill/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/phantom-arm/)).not.toBeInTheDocument();
     expect(screen.queryByText(/late-recorded/)).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "include annotated nights" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "include late nights" })).not.toBeInTheDocument();
     expect(screen.queryByText("INGEST")).not.toBeInTheDocument();
     expect(screen.queryByText(/ingest-flagged/)).not.toBeInTheDocument();
@@ -1282,10 +1190,9 @@ describe("Scoreboard — editions", () => {
     renderEditions({
       ...RERUN_PAYLOAD,
       edition: RECORD_EDITION,
-      summary: { ...RERUN_PAYLOAD.summary, annotated_policy: "excluded", late_policy: "excluded" },
+      summary: { ...RERUN_PAYLOAD.summary, late_policy: "excluded" },
     });
     expect(screen.getByText(/reconstructed by a backfill/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "include annotated nights" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "include late nights" })).toBeInTheDocument();
     expect(screen.getAllByText("INGEST").length).toBeGreaterThan(0);
   });

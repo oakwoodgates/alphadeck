@@ -27,10 +27,23 @@ from db.clock import db_now
 from db.session import DEFAULT_TENANT_ID
 from domain import rule_log
 from domain.rule_log import RuleEntry
+from domain.thesis import BasketMember
 from editions.nightly import run_nightly
+from editions.run import run_publish
+from pipeline.call_for_thesis import call_for_thesis
 from repositories import data_repair_repo, editions_repo, thesis_repo
-from tests.editions.fixtures import seed_big_buy
-from tests.editions.test_nightly import END, _counts, _published
+from tests.calls.factories import make_thesis
+from tests.editions.fixtures import seed_big_buy, seed_tape
+from tests.editions.test_engine import _entry, real_roster
+from tests.editions.test_nightly import (
+    BUY_STORED,
+    CUT_NIGHT,
+    END,
+    JOIN,
+    _counts,
+    _fake_derive,
+    _published,
+)
 
 _REAL_ONE_PER_NIGHT = cut.one_per_night_refusal  # kept before the autouse fixture replaces it
 
@@ -454,6 +467,121 @@ def test_a_repair_that_changes_no_history_cuts_nothing_and_is_not_retried(
     assert again.cut["status"] == "no_event" and trials == ["new"]
 
 
+# --- the V2 cutover's journal row, after Edition 1 (keep-history plan, PR K1: characterization) -----------------
+# The cutover keeps V1's history (operator decision 2026-11-19), so prod goes live with Edition 1 kept, a new
+# engine fingerprint (V2's rules) AND the cutover's own journal row pending (tool ``v2_cutover``, under the data
+# tenant, applied after Edition 1's cut, rows changed by the platform-facts move). These two tests pin what the
+# automatic cut then does, with NO editions code change: the label's order and the stored cause depend only on
+# whether that row ``deletes`` (``--orphan-purity delete``, K7).
+
+_CUTOVER_SUMMARY = "V2 cutover: moved 4 share-count, cash/burn and purity row(s) to their V2 tenants; V1 history kept"
+
+
+def _arms_from_06_22(monkeypatch, security_id) -> None:
+    """A declared rule change that ARMS the company from 06-22 on, so P proves company-nights and stores a cause
+    for each (the twin of ``test_the_trial_stores_what_it_proved_and_what_changed_reads_it_back``).
+    """
+    from domain.call import MemberCall
+    from domain.enums import Grade, State, Verdict
+
+    real = engine.assemble_from_pit
+
+    def arms(pit, thesis, night, cfg):
+        card = real(pit, thesis, night, cfg)
+        if night < date(2026, 6, 22):
+            return card
+        member = MemberCall(
+            security_id=security_id,
+            verdict=Verdict.CORE_ENTRY,
+            conviction_grade=Grade.CORE,
+            entry_grade=Grade.CORE,
+            exit_by=date(2026, 9, 1),
+        )
+        return card.model_copy(
+            update={"armed_members": [member], "state": State.ARMED, "verdict": Verdict.CORE_ENTRY}
+        )
+
+    monkeypatch.setattr(engine, "assemble_from_pit", arms)
+
+
+def _cutover_journal_row(db, *, deletes: bool) -> str:
+    """The cutover's journal row as the keep-history cutover writes it: the data tenant (``DEFAULT_TENANT_ID``),
+    after Edition 1's cut, the move's rows changed; ``deletes`` only with ``--orphan-purity delete``.
+    """
+    summary = _CUTOVER_SUMMARY + ("; deleted 1 unratified orphan purity row(s)" if deletes else "")
+    data_repair_repo.journal(
+        db, tool="v2_cutover", summary=summary, rows_changed=4 + int(deletes), deletes=deletes
+    )
+    return summary
+
+
+def _stored_causes(db, edition_id) -> list[str]:
+    with db.cursor() as cur:
+        cur.execute("SELECT cause FROM edition_cause WHERE edition_id = %s", (edition_id,))
+        out = [r["cause"] for r in cur.fetchall()]
+    db.commit()
+    return out
+
+
+def test_a_non_deleting_cutover_row_after_edition_1_with_a_new_fingerprint_cuts_edition_2_labeled_rule_change_first(
+    db, security_id, tmp_path, monkeypatch
+):
+    """``--orphan-purity leave``: both trials run; Edition 2 (parent Edition 1) is labeled rule change FIRST, then
+    the cutover's summary as the data repair; caused by both; every company-night P proved is ``rule_change``;
+    one quiet line, no page."""
+    _, _, _, ed = _published(db, security_id, monkeypatch, tmp_path)
+    _new_fingerprint(monkeypatch)
+    _arms_from_06_22(monkeypatch, security_id)
+    monkeypatch.setattr(rule_log, "RULE_LOG", (RULE,))
+    summary = _cutover_journal_row(db, deletes=False)
+    trials = _spy_trials(monkeypatch)
+    pager = _Pager()
+    r = _nightly(db, tmp_path, notifier=pager)
+    assert r.cut["status"] == "cut", r.cut
+    assert trials == ["rules", "new"] and r.cut["unexplained"] is False
+    two = editions_repo.newest(db, tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+    assert two.number == 2 and two.parent_id == ed.id
+    assert two.causes == ("rule_change", "data_repair")
+    assert two.label == (
+        "rule change: insider window widened · data repair: "
+        + summary
+        + " · includes data that arrived since Edition 1"
+    )
+    causes = _stored_causes(db, two.id)
+    assert causes and set(causes) == {"rule_change"}
+    assert pager.health == [] and len(pager.editions) == 1  # one quiet line, no page
+    assert editions_repo.get_by_number(db, tenant_id=DEFAULT_TENANT_ID, number=1).closed_at
+    db.commit()
+
+
+def test_a_deleting_cutover_row_makes_the_rule_change_not_separated(
+    db, security_id, tmp_path, monkeypatch
+):
+    """``--orphan-purity delete`` makes the cutover's row a DELETING repair riding the same trial: P's differences
+    cannot be told apart from it, so the label leads with the data repair and every proven company-night is
+    ``not_separated`` (why K7 keeps ``leave``). Still no page: the rule is declared."""
+    _published(db, security_id, monkeypatch, tmp_path)
+    _new_fingerprint(monkeypatch)
+    _arms_from_06_22(monkeypatch, security_id)
+    monkeypatch.setattr(rule_log, "RULE_LOG", (RULE,))
+    summary = _cutover_journal_row(db, deletes=True)
+    pager = _Pager()
+    r = _nightly(db, tmp_path, notifier=pager)
+    assert r.cut["status"] == "cut", r.cut
+    two = editions_repo.newest(db, tenant_id=DEFAULT_TENANT_ID)
+    db.commit()
+    assert two.number == 2 and two.causes == ("rule_change", "data_repair")
+    assert two.label == (
+        "data repair: "
+        + summary
+        + " · rule change: insider window widened · includes data that arrived since Edition 1"
+    )
+    causes = _stored_causes(db, two.id)
+    assert causes and set(causes) == {"not_separated"}
+    assert pager.health == [] and len(pager.editions) == 1
+
+
 # --- the guards -----------------------------------------------------------------------------------------------
 
 
@@ -679,3 +807,132 @@ def test_the_manual_cli_is_a_dry_run_by_default(db, security_id, tmp_path, monke
     out = capsys.readouterr().out
     assert "trial (dry run): the rules changed no page" in out
     assert _counts(db) == before
+
+
+# --- a workspace's own record: the platform's repairs, an empty store, a one-night store (W8a) -----------------
+
+
+def _workspace(db, label: str) -> uuid.UUID:
+    wid = uuid.uuid4()
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO tenant (id, name, kind) VALUES (%s, %s, 'workspace')", (wid, label)
+        )
+    db.commit()
+    return wid
+
+
+def _card_in(db, workspace: uuid.UUID, security_id: uuid.UUID) -> uuid.UUID:
+    card = make_thesis(
+        id=uuid.uuid4(),
+        tenant_id=workspace,
+        basket=[BasketMember(ticker="DEVCO", role="Lead developer", security_id=security_id)],
+    )
+    thesis_repo.upsert(db, card)
+    db.commit()
+    return card.id
+
+
+def _publish_for(db, workspace, thesis_id, security_id, monkeypatch, tmp_path, **kw) -> None:
+    roster = real_roster(db, thesis_id)
+    _fake_derive(
+        monkeypatch, [roster], {thesis_id: {security_id: _entry(thesis_id, security_id, JOIN)}}
+    )
+    run_publish(db, tmp_path / "publish", apply=True, tenant_id=workspace, **kw)
+
+
+def test_a_platform_repair_journaled_under_the_data_tenant_starts_a_trial_for_a_workspace_edition(
+    db, security_id, tmp_path, monkeypatch
+):
+    """Finding 14: every repair CLI journals under the DATA tenant (the data every workspace reads), but the
+    cut read the journal under the workspace only, so a workspace's edition never saw a repair. The cut now
+    reads the workspace's rows AND the data tenant's — and never another workspace's."""
+    w = _workspace(db, "repair reader")
+    other = _workspace(db, "someone else")
+    tid = _card_in(db, w, security_id)
+    seed_tape(db, security_id)
+    seed_big_buy(db, security_id, recorded_at=BUY_STORED)
+    db.commit()
+    _publish_for(db, w, tid, security_id, monkeypatch, tmp_path, end=CUT_NIGHT)
+    ed = editions_repo.current_edition(db, tenant_id=w)
+    db.commit()
+    assert ed is not None and ed.number == 1
+
+    data_repair_repo.journal(db, tool="repair_test", summary="a platform repair", rows_changed=3)
+    data_repair_repo.journal(
+        db,
+        tool="repair_test",
+        summary="another workspace's repair",
+        rows_changed=2,
+        tenant_id=other,
+    )
+    events = cut.detect(db, ed, tenant_id=w)
+    db.commit()
+    assert [r.summary for r in events.repairs] == ["a platform repair"]
+    assert [r.summary for r in events.seen] == ["a platform repair"]
+    assert events.any and not events.rules
+
+
+def test_the_nightly_and_the_cut_on_an_empty_store_do_nothing_and_say_so(
+    db, security_id, tmp_path, monkeypatch, capsys
+):
+    """A workspace with a live card and no record yet: no call on record, no edition. The
+    nightly adds no page, the cut tries nothing, each says so in one line, the CLIs return (exit 0), and no
+    row is written anywhere."""
+    from editions.run import main
+
+    w = _workspace(db, "empty store")
+    _card_in(db, w, security_id)
+    before = _counts(db)
+    assert before["calls"] == 0 and before["edition"] == 0
+
+    r = _nightly(db, tmp_path, tenant_id=w)
+    assert r.status == "done" and r.edition is None and r.n_pages == 0
+    assert r.admin_line() == "Editions · no open edition to add pages to"
+    c = cut.run_cut(
+        db,
+        apply=True,
+        known_by=db_now(db),
+        end=None,
+        tenant_id=w,
+        work_dir=tmp_path / "cut",
+        workers=1,
+    )
+    assert (
+        c.status == "no_edition" and c.line() == "Editions · nothing published yet, nothing to try"
+    )
+
+    monkeypatch.chdir(tmp_path)
+    main(["cut", "--workers", "1", "--workspace", str(w)])
+    main(["nightly", "--end", END.isoformat(), "--workspace", str(w)])
+    out = capsys.readouterr().out.splitlines()
+    assert out == [
+        "Editions · nothing published yet, nothing to try",
+        "Editions · no open edition to add pages to",
+    ]
+    assert _counts(db) == before
+
+
+def test_a_one_night_store_publishes_through_its_night_and_the_nightly_adds_nothing_before_it(
+    db, security_id, tmp_path, monkeypatch
+):
+    """The workspace's record holds ONE night. Edition 1 publishes through that night (its own, found without
+    ``--end``); the nightly then appends no page (the edition already holds the night) and the cut finds no
+    event — no page is added for any night before the record's start."""
+    w = _workspace(db, "one night")
+    tid = _card_in(db, w, security_id)
+    seed_tape(db, security_id)
+    seed_big_buy(db, security_id, recorded_at=BUY_STORED)
+    db.commit()
+    call_for_thesis(db, tid, END, record=True, run_kind="cron", workspace=w)
+    db.commit()
+    _publish_for(db, w, tid, security_id, monkeypatch, tmp_path)
+    ed = editions_repo.current_edition(db, tenant_id=w)
+    db.commit()
+    assert ed.number == 1 and ed.last_night == END
+    pages = _pages_of(db, ed.id)
+
+    r = _nightly(db, tmp_path, tenant_id=w)
+    assert r.cut["status"] == "no_event" and r.n_pages == 0
+    assert "up to date through Jul 10" in r.admin_line()
+    assert _pages_of(db, ed.id) == pages  # nothing appended, before the start or after it

@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { setRecordStart } from "../../__tests__/recordStart";
 
 import EvidenceLedger from "../EvidenceLedger";
 import type {
@@ -74,14 +75,14 @@ const RISK = row("d2", {
   detail: ["Risk signal (feeds the counter-case, never turns a key)"],
 });
 const FACT = row("d4", {
-  authority: "operator",
+  authority: "steward",
   kind: "ratified",
   label: "cash $41.2M · burn $8.1M/qtr",
-  form: "ratified fact",
-  by: "operator",
+  form: "verified value",
+  by: "steward",
   on: "2026-10-20",
-  sources: [{ source: "ratified fact", ref: "0000876543-26-000010", url: EDGAR, detail: [] }],
-  detail: ["Period or cover date: 2026-06-30", "Source: ratified, ratified by operator"],
+  sources: [{ source: "verified value", ref: "0000876543-26-000010", url: EDGAR, detail: [] }],
+  detail: ["Period or cover date: 2026-06-30", "Source: ratified", "Verified by the steward on Oct 20, 2026"],
 });
 const STORED = row("d5", {
   authority: "automatic",
@@ -93,7 +94,7 @@ const STORED = row("d5", {
   form: "stored fact",
   silent: "Context",
   sources: [],
-  detail: ["Stored on 2026-10-27", "Applied automatically, not operator-ratified"],
+  detail: ["Stored on 2026-10-27", "From the filing (applied automatically)"],
   edgar: false,
 });
 const VOTE = row("d0", {
@@ -170,7 +171,8 @@ const DAYS = [
 const TALLIES: EvidenceLedgerOut["tallies"] = {
   rows: 10,
   by_authority: [
-    { key: "operator", rows: 2 },
+    { key: "operator", rows: 1 },
+    { key: "steward", rows: 1 },
     { key: "system", rows: 3 },
     { key: "automatic", rows: 1 },
     { key: "card", rows: 4 },
@@ -190,7 +192,8 @@ const TALLIES: EvidenceLedgerOut["tallies"] = {
   trace_price: 1,
   trace_other: 0,
   trace_none: 0,
-  facts_ratified: 1,
+  facts_ratified: 0,
+  facts_verified: 1,
   facts_stored: 1,
   catalysts_dated: 1,
   catalysts_undated: 1,
@@ -289,14 +292,21 @@ describe("EvidenceLedger", () => {
     setup();
     const tag = (r: HTMLElement) => [...r.querySelectorAll(".el-tag")].map((t) => t.textContent);
     expect(tag(rowOf("3 insiders bought"))).toEqual(["computed"]);
-    expect(tag(rowOf("cash $41.2M"))).toEqual(["your"]);
+    expect(tag(rowOf("cash $41.2M"))).toEqual(["steward"]);
     expect(tag(rowOf("shares outstanding 540.6M"))).toEqual(["stored", "Context"]);
     expect(tag(rowOf("next vote"))).toEqual(["card"]);
     expect(tag(rowOf("OKLO is tagged payer"))).toEqual(["your"]);
     // the word carries what it means on hover, as a label of who and never a judgment
     const word = rowOf("3 insiders bought").querySelector(".el-tag")!;
     expect(word).toHaveAttribute("title", "Computed: a computation on public data (a trigger or a risk signal)");
-    expect(rowOf("cash $41.2M").querySelector(".el-tag")).toHaveAttribute("title", "Your: a person ratified or set it");
+    expect(rowOf("cash $41.2M").querySelector(".el-tag")).toHaveAttribute(
+      "title",
+      "Steward: the steward set it (a shared value or a company catalyst; a value carried over from V1 too)",
+    );
+    expect(rowOf("OKLO is tagged payer").querySelector(".el-tag")).toHaveAttribute(
+      "title",
+      "Your: you ratified or set it (your purity, a context role)",
+    );
     // no color or badge by class: the rows carry the class as data, not as a style
     expect(rowOf("next vote")).toHaveAttribute("data-authority", "card");
   });
@@ -348,7 +358,8 @@ describe("EvidenceLedger", () => {
   it("opens an operator row to who and when, and a role to its approved description and the day it lacks", async () => {
     setup();
     await userEvent.click(headOf("cash $41.2M"));
-    expect(within(rowOf("cash $41.2M")).getByText("ratified by operator · Oct 20, 2026")).toBeInTheDocument();
+    expect(within(rowOf("cash $41.2M")).getByText("set by the steward · Oct 20, 2026")).toBeInTheDocument();
+    expect(rowOf("cash $41.2M")).not.toHaveTextContent("@");
     await userEvent.click(headOf("OKLO is tagged payer"));
     const roleDetail = within(rowOf("OKLO is tagged payer")).getByTestId("el-detail");
     expect(within(roleDetail).getByText("set by operator · day not recorded")).toBeInTheDocument();
@@ -377,7 +388,8 @@ describe("EvidenceLedger", () => {
     setup();
     const classes = screen.getByRole("group", { name: "Classes" });
     expect(within(classes).getAllByRole("button").map((b) => b.textContent?.replace(/\s+/g, " ").trim())).toEqual([
-      "Your 2",
+      "Your 1",
+      "Steward 1",
       "Computed 3",
       "Stored 1",
       "Card 4",
@@ -397,7 +409,7 @@ describe("EvidenceLedger", () => {
     expect(within(kinds).getAllByRole("button").map((b) => b.textContent?.replace(/\s+/g, " ").trim())).toEqual([
       "Triggers 2",
       "Risk signals 1",
-      "Ratified and stored facts 2",
+      "Shared values and your purity 2",
       "Card catalysts 2",
       "Kill criteria 1",
       "Evidence links 1",
@@ -507,8 +519,8 @@ describe("EvidenceLedger", () => {
   it("states the work, the roster note, what is not evidence and the limits", () => {
     setup(payload({ unresolved: ["ZZZ"], roster_fallback: true }));
     expect(screen.getByText(/as of Oct 28, 2026 · as it was public by Oct 28, 2026 · triggers from the call recorded for Oct 27, 2026 · cached/, { selector: ".el-work" })).toBeInTheDocument();
-    expect(screen.getByText("10 rows: 2 your · 3 computed · 1 stored · 4 card")).toBeInTheDocument();
-    expect(screen.getByText(/1 ratified fact and 1 stored fact \(the last 365 days\) · 1 catalyst dated, 1 undated · 1 kill criterion · 1 evidence link · 1 context role \(1 undated\)/)).toBeInTheDocument();
+    expect(screen.getByText("10 rows: 1 your · 1 steward · 3 computed · 1 stored · 4 card")).toBeInTheDocument();
+    expect(screen.getByText(/0 facts you ratified, 1 verified value and 1 stored fact \(the last 365 days\) · 1 catalyst dated, 1 undated · 1 kill criterion · 1 evidence link · 1 context role \(1 undated\)/)).toBeInTheDocument();
     expect(screen.getByText(/4 roster rows · 4 companies resolved · 1 without a resolved security · 1 in Context or Bench/)).toBeInTheDocument();
     expect(screen.getByText("1 roster name has no resolved security, so no stored fact can be attached to it: ZZZ.")).toBeInTheDocument();
     expect(screen.getByText(/Today's roster stands in for this card: rosters are point-in-time only from Sep 15, 2026/)).toBeInTheDocument();
@@ -564,5 +576,23 @@ describe("EvidenceLedger", () => {
     expect(css).not.toMatch(/data-authority|\.el-tag\.|\.el-row\[/);
     expect(css).not.toMatch(/--(pos|neg|armed|warm|manage|incub|leader|activist)\b/);
     expect(css).not.toMatch(/#[0-9a-f]{3,8}\b|rgba?\(|\bred\b/i);
+  });
+});
+
+vi.mock("../../../api/hooks", async (orig) =>
+  (await import("../../__tests__/recordStart")).withRecordStartStub(await orig<typeof import("../../../api/hooks")>()),
+);
+
+describe("Evidence Ledger — the record-start note", () => {
+  it("says when the record starts on a page with no history", () => {
+    setRecordStart("2026-12-03");
+    setup(payload({ standing: [], groups: [] }));
+    expect(screen.getByTestId("record-start-note")).toHaveTextContent("The record starts on Dec 3, 2026.");
+  });
+
+  it("is absent on a page with history", () => {
+    setRecordStart("2026-12-03");
+    setup();
+    expect(screen.queryByTestId("record-start-note")).toBeNull();
   });
 });

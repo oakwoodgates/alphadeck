@@ -56,6 +56,7 @@ from dashboards.ticker_lookup import (
 from domain.call import CallCard
 from domain.links import HttpUrlOut
 from domain.market_time import countdown_origin, market_clock, market_tz, serve_view
+from domain.platform_values import pick_current
 from domain.scopes import DATA_TENANT_ID
 from domain.splits import ListedSplit, listed_from_row
 from domain.text_types import AsofDate
@@ -246,7 +247,7 @@ def read_company(pit: PointInTimeData, sid: UUID, asof: date, is_etf: bool) -> C
     facts = pit.shares_outstanding_facts(sid)
     shares = None
     if facts:
-        best = max(facts, key=lambda f: f["valid_from"])
+        best = pick_current(facts)  # THE one pick (domain.platform_values)
         shares = {k: best.get(k) for k in ("shares", "valid_from", "ads_ratio", "ads_ratio_status")}
     return CompanyRead(
         signals=signals,
@@ -618,7 +619,10 @@ class TickerLookupTapeOut(_Wire):
 
 
 class TickerLookupFilingOut(_Wire):
-    """One filing-derived row in the shared reader's shape (``dashboards/filings.py``)."""
+    """One filing-derived row in the shared reader's shape (``dashboards/filings.py``). ``set_by`` / ``ratified_on``
+    = who set a row a person set, as a kind (``you``: your own purity; ``steward``: the steward verified a shared
+    value or catalyst; ``carried``: verified in V1 and carried over), never an email, and the day it was set.
+    """
 
     kind: FilingKind
     form: str
@@ -631,7 +635,7 @@ class TickerLookupFilingOut(_Wire):
     routine: bool
     fold: FoldGroup | None
     usd: float | None
-    ratifier: str | None
+    set_by: Literal["you", "steward", "carried"] | None
     ratified_on: date | None
 
 

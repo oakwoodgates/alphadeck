@@ -182,6 +182,31 @@ RULE_LOG: tuple[RuleEntry, ...] = (
             "kept counting from when we held it and could not be dated."
         ),
     ),
+    RuleEntry(
+        id="2026-11-v2-company-catalysts-from-the-platform-only",
+        date=date(2026, 11, 14),
+        label="company catalysts are read from the platform only",
+        description=(
+            "V2: company catalysts are read from the platform only; a catalyst stored under a workspace no "
+            "longer arms. A card that a workspace's own company catalyst used to arm or strengthen now reads "
+            "only the platform's catalysts for that company."
+        ),
+    ),
+    RuleEntry(
+        id="2026-11-v2-thesis-catalysts-count",
+        date=date(2026, 11, 18),
+        label="a catalyst on a card's list counts toward that card's call when the operator switches it on",
+        description=(
+            "V2: an entry on a card's catalyst list counts toward that card's call only when the operator gives "
+            "it a grade and a citation and turns on 'counts toward the call', from the night it was saved and "
+            "never from its typed date; an entry naming members is a catalyst conviction on each of them on this "
+            "card only, and where a platform catalyst is live on the same name the stronger of the two counts (a "
+            "full tie goes to the platform) and the other is shown as also live, not counted; an entry naming "
+            "none is the card's theme conviction, which moves onto the list unchanged, its one existing row "
+            "keeping its stated date 2026-01-15 as the single named exception to counting from the night it was "
+            "saved."
+        ),
+    ),
 )
 
 

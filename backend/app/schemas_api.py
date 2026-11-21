@@ -5,7 +5,7 @@ from datetime import date, datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from backtest.manifest import BacktestManifest
 from backtest.pooled import PooledReport
@@ -38,7 +38,11 @@ from domain.text_types import (
     SURFACED_TERMS_MAX,
     TERMS_MAX,
     AdsRatio,
+    BurnDays,
+    CatalystDate,
+    CatalystLabel,
     CikIn,
+    CurrencyCode,
     DecisionAmount,
     EmailIn,
     Excerpt,
@@ -46,6 +50,7 @@ from domain.text_types import (
     Line,
     MixPct,
     Money,
+    MoneyPart,
     Narrative,
     OpaqueState,
     PasswordIn,
@@ -116,16 +121,48 @@ class TriggerRefOut(BaseModel):
     # the name this trigger fired on — attributes it in a multi-name basket
     ticker: str | None = None
     sources: list[ProvenanceOut] = []
+    # V2 W6c (R9, operator decision N8 (a)): where a catalyst trigger came from, COMPUTED for the response from the
+    # recorded provenance (never stored on the card): "operator" = the card's own counting catalyst entry (a
+    # member entry, or the theme conviction = a whole-card entry), "platform" = platform data; None = not a catalyst
+    origin: Literal["platform", "operator"] | None = None
+
+
+# the provenance source of a card's own counting catalyst entry (``signals.thesis_catalyst.OPERATOR_SOURCE``)
+_OPERATOR_SOURCE = "thesis_catalyst"
+
+
+def trigger_origin(t: TriggerRef) -> Literal["platform", "operator"] | None:
+    """Where a trigger came from (V2 W6c, R9), derived from what the card records: a theme conviction is the card's
+    whole-card entry (operator); a catalyst is the operator's when its FIRST source (the one that counted) is a
+    thesis-catalyst entry, else platform data (a muted "also live" source never decides it); any other kind:
+    None."""
+    if t.kind is Kind.THEME_CONVICTION:
+        return "operator"
+    if t.kind is Kind.CATALYST:
+        if t.sources and t.sources[0].source == _OPERATOR_SOURCE:
+            return "operator"
+        return "platform"
+    return None
 
 
 def _provenance_out(p: Provenance, cik: str | None) -> ProvenanceOut:
     """One provenance ref -> its wire form, resolving the clickable EDGAR URL from the issuer ``cik``. The
     single place ProvenanceOut is built (reused by the trigger/risk-signal + scored-figure mappers).
+
+    A card's own catalyst entry (``thesis_catalyst``, V2 W6c) cites a link or an SEC accession: a link goes out as
+    is (``HttpUrlOut`` drops anything that is not a safe http(s) URL), an accession resolves to its EDGAR filing
+    index like a Form 4's.
     """
+    url = edgar_url(p.source, p.ref, cik)
+    if p.source == _OPERATOR_SOURCE:
+        if _is_accession(p.ref):
+            url = edgar_url("8-k", p.ref, cik)
+        else:
+            url = p.ref
     return ProvenanceOut(
         source=p.source,
         ref=p.ref,
-        url=edgar_url(p.source, p.ref, cik),
+        url=url,
         detail=p.detail,
     )
 
@@ -140,6 +177,7 @@ def _trigger_out(
         event_date=t.event_date,
         ticker=tickers.get(t.security_id),
         sources=[_provenance_out(p, ciks.get(t.security_id)) for p in t.sources],
+        origin=trigger_origin(t),
     )
 
 
@@ -359,6 +397,65 @@ class ThesisSummary(BaseModel):
         )
 
 
+class CountingMemberOut(BaseModel):
+    """One company a counting catalyst entry names: its id and the ticker its basket row on this card carries."""
+
+    security_id: UUID
+    ticker: str | None = None
+
+
+class CatalystCountingOut(BaseModel):
+    """The CURRENT counting state of one calendar row (V2 W6b): the newest version of its entry in
+    ``fact_thesis_catalyst``, switched on or off. Response-only, never recorded. ``entry_id`` is the calendar row's
+    ``id``; a row with no entry has no item here (an ordinary calendar item). ``members`` empty = the whole card.
+    ``counts_from`` is the night the entry counts from (the night it was switched on or its grade or names last
+    changed; never the typed calendar date); ``saved_at`` is when this version was saved. Off (``counts`` false):
+    the last statement, kept so the form re-opens filled."""
+
+    entry_id: UUID
+    counts: bool
+    grade: Literal["core", "flip"]
+    label: str
+    members: list[CountingMemberOut] = []
+    citation: str
+    relevant_until: date | None = None
+    counts_from: date
+    saved_at: datetime
+
+
+def catalyst_counting_out(t: Thesis, rows: list[dict[str, Any]]) -> list[CatalystCountingOut]:
+    """The counting state of each calendar row on ``t``, in the calendar's order, from the store's newest versions
+    (``thesis_catalyst_repo.current``). Entries whose row is no longer on the calendar (switched off, then removed)
+    are left out: their versions stay in the store as history."""
+    by_entry = {r["entry_id"]: r for r in rows}
+    ticker_of: dict[UUID, str] = {}
+    for m in t.basket:
+        if m.security_id is not None:
+            ticker_of.setdefault(m.security_id, m.ticker)
+    out: list[CatalystCountingOut] = []
+    for c in t.catalysts:
+        r = by_entry.get(c.id)
+        if r is None:
+            continue
+        out.append(
+            CatalystCountingOut(
+                entry_id=c.id,
+                counts=r["counts"],
+                grade=r["grade"],
+                label=r["label"],
+                members=[
+                    CountingMemberOut(security_id=sid, ticker=ticker_of.get(sid))
+                    for sid in sorted(r["security_ids"] or [], key=str)
+                ],
+                citation=r["citation"],
+                relevant_until=r["relevant_until"],
+                counts_from=r["valid_from"],
+                saved_at=r["recorded_at"],
+            )
+        )
+    return out
+
+
 class ThesisDetail(BaseModel):
     """The full thesis for the Cockpit — a wire model (no tenant_id) so generated FE types never bind
     to the domain Thesis. Sub-objects reuse the domain value types (no transform needed, like the
@@ -380,9 +477,14 @@ class ThesisDetail(BaseModel):
     exclusions: list[ExcludedName] = []
     # a meta index card: none of its names count toward the call (written only by PUT /meta-index)
     meta_index: bool = False
+    # V2 W6b: the current counting state of each calendar row that has one, keyed by ``entry_id`` = the row's
+    # ``id``; additive, response-only, never recorded
+    catalyst_counting: list[CatalystCountingOut] = []
 
     @classmethod
-    def from_thesis(cls, t: Thesis) -> "ThesisDetail":
+    def from_thesis(cls, t: Thesis, counting: list[dict[str, Any]] | None = None) -> "ThesisDetail":
+        """``counting`` = the store's newest versions for ``t`` (``thesis_catalyst_repo.current``); every route
+        that answers a ``ThesisDetail`` passes them."""
         return cls(
             id=t.id,
             parent_id=t.parent_id,
@@ -398,6 +500,7 @@ class ThesisDetail(BaseModel):
             position=t.position,
             exclusions=list(t.exclusions),
             meta_index=t.meta_index,
+            catalyst_counting=catalyst_counting_out(t, counting or []),
         )
 
 
@@ -467,9 +570,6 @@ class ScoredMemberOut(BaseModel):
     dilution: ScoredFigureOut
     market_cap: ScoredFigureOut
     fit: str
-    # HONEST CONFIDENCE (SURFACE Slice 1a): how many fact-backed meters (purity/runway/market cap) have no
-    # operator-confirmed value yet. A "rests on N unconfirmed" readiness signal; never a scoring input.
-    unconfirmed_estimates: int = 0
     # DATA-HEALTH (#1 thin-history flag) — the name's stored EOD bar-dates in the trailing year fall below the
     # longest active price-history lookback (``THIN_HISTORY_BARS`` = 200), so the history-window reads may be
     # STARVED. A derive-on-read bar COUNT (from ``recent_distinct_bar_counts``), NEVER persisted and NEVER a
@@ -530,7 +630,6 @@ class ScoredMemberOut(BaseModel):
             dilution=fig(m.dilution),
             market_cap=fig(m.market_cap),
             fit=m.fit,
-            unconfirmed_estimates=m.unconfirmed_estimates,
             thin_price_history=bool((thin_history or {}).get(m.security_id, False)),
             price_feed_limitation=(limitations or {}).get(m.security_id),
         )
@@ -909,6 +1008,15 @@ class RatifyCashBurn(_RatifyBase):
     fact_type: Literal["cash_burn"]
     cash_usd: Money
     quarterly_burn_usd: Money
+    # the statement's ISO currency (the extractor's ``statement_currency``) and the short-term-investment part
+    # inside ``cash_usd`` (0208); omitted = not recorded (never assumed "USD" or 0). The steward checks the part
+    # is not above the cash (422).
+    currency: CurrencyCode | None = None
+    investments_usd: MoneyPart | None = None
+    # the burn's year-to-date pace scaled to a quarter (burn sign) and its span, as the candidate carried them (0209);
+    # both or neither (else 422), omitted = not recorded: a confirm that does not send them stores none
+    ytd_quarterly_burn_usd: Money | None = None
+    ytd_burn_days: BurnDays | None = None
 
 
 class RatifyCatalyst(_RatifyBase):
@@ -937,44 +1045,6 @@ RatifyFactRequest = Annotated[
 class RatifiedFactOut(BaseModel):
     fact_id: UUID
     fact_type: str
-
-
-# --- Auto-confirm — the AUTO-tier shares fact, applied without a ceremonial confirm ---
-
-
-class AutoConfirmRequest(BaseModel):
-    """Ask the server to auto-apply a security's AUTO-tier shares count (the get-data path).
-
-    NOTE WHAT IS **NOT** HERE: a value. The client cannot supply the number — it names a security and a
-    fact type, and the SERVER re-extracts and writes its OWN deterministic parse. That is the structural
-    bound (INVARIANT #3): an auto-applied fact can only ever be the extractor's reproduction of filed
-    companyfacts, so no client bug or caller can inject a figure under the ``auto`` provenance.
-
-    ``fact_type`` is deliberately a ONE-value Literal: only the AUTO shares count is eligible. Purity is the
-    operator's edge (HUMAN, never auto-valued) and cash_burn stays a manual ratify — extending this is a
-    decision, not a parameter.
-    """
-
-    security_id: UUID
-    fact_type: Literal["shares_outstanding"]
-
-
-class AutoConfirmOut(BaseModel):
-    """The outcome of an auto-confirm — honest about WHY nothing was written.
-
-    ``applied=False`` is a normal, expected result (a FLAGged name, a name already on file), never an error:
-    the caller fires this optimistically after get-data and the server decides. ``reason`` names which gate
-    stopped it so the UI (and a test) can tell "we declined to auto-apply" from "it failed".
-    """
-
-    applied: bool
-    # applied        — the AUTO parse was written (ratified_by="auto")
-    # already_on_file — a shares fact exists (auto OR an operator override); never re-stamped, never clobbered
-    # not_auto       — the candidate FLAGged (dual-class / stale-cover / no-companyfacts) -> the operator ratifies
-    # no_candidate   — no shares candidate (e.g. a foreign 20-F/6-K filer)
-    # no_value       — AUTO with no parsed figure (defensive; a FLAG never anchors a wrong number)
-    reason: Literal["applied", "already_on_file", "not_auto", "no_candidate", "no_value"]
-    fact_id: UUID | None = None
 
 
 # --- FLAG-explanation drafter (M4b — the LLM seam) — a DISPLAY aid, NOT a fact ---
@@ -1006,6 +1076,7 @@ class ExtractedFactIn(ExtractedFact):
     cash_usd: FiniteFloat | None = None
     quarterly_burn_usd: FiniteFloat | None = None
     statement_currency: Line | None = None
+    investments_usd: FiniteFloat | None = None
     flags: list[Line] = Field(default_factory=list, max_length=EXPLAIN_FLAGS_MAX)
     located_passages: list[LocatedPassageIn] = Field(
         default_factory=list, max_length=EXPLAIN_PASSAGES_MAX
@@ -1013,6 +1084,9 @@ class ExtractedFactIn(ExtractedFact):
     estimate_source: Line | None = None
     ads_ratio: AdsRatio | None = None
     ads_ratio_status: Line | None = None
+    # the burn pace (V2 extractor correctness PR 3), sent back as the extract returned it; display only
+    ytd_quarterly_burn_usd: FiniteFloat | None = None
+    pace_caveat: Prose | None = None
 
 
 class FlagExplanationOut(BaseModel):
@@ -1166,12 +1240,15 @@ class TriageSessionGet(BaseModel):
 
 class CatalystIn(BaseModel):
     """One catalyst-surface entry (a narrative binary event the card's surface renders between entry
-    and exit-by) — display objects, distinct from the conviction FACTS (``RatifyCatalyst``). Server
-    generates the id; the list is replaced whole (the operator edits it as a list)."""
+    and exit-by) — display objects, distinct from the conviction FACTS (``RatifyCatalyst``). The list is
+    replaced whole (the operator edits it as a list). ``id`` (V2 W6b): send back the id each row was read with so
+    it keeps its identity (a counting entry is keyed by it); a row without one is a new row, and an id that is not
+    on this card is never adopted (the row gets a fresh one)."""
 
-    label: Line
+    id: UUID | None = None
+    label: CatalystLabel
     kind: Line | None = None  # display kind e.g. "earnings", "regulatory"
-    when_date: RequestDate | None = (
+    when_date: CatalystDate | None = (
         None  # dated -> enters the catalyst_surface filter; None = fuzzy
     )
     when_label: Line | None = None  # display string e.g. "~3wk", "Q3"
@@ -1197,6 +1274,25 @@ class ExclusionIn(BaseModel):
 CatalystList = Annotated[list[CatalystIn], Field(max_length=CATALYSTS_MAX)]
 KillCriterionList = Annotated[list[KillCriterionIn], Field(max_length=KILL_CRITERIA_MAX)]
 ExclusionList = Annotated[list[ExclusionIn], Field(max_length=EXCLUSIONS_MAX)]
+
+
+class CatalystCountingIn(BaseModel):
+    """Make one calendar row count toward the call, edit what it says, or stop it counting (V2 W6b, the signed
+    rule R2). ``counts`` true needs a ``grade`` and a ``citation`` (an http(s) link or an SEC accession number);
+    ``security_ids`` names companies on this card (empty = the whole card, Flip only); ``relevant_until`` is
+    optional (empty = the 365-day default). ``counts`` false stops it counting; the other fields are then ignored.
+
+    There is deliberately NO time field: the entry counts from the night it is saved, set by the database (R5).
+    Unknown keys are refused (422), so a body that carries ``entered_at``, ``recorded_at``, ``valid_from`` or
+    ``when_date`` writes nothing. The label is the calendar row's own, never taken from here."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    counts: bool
+    grade: Literal["core", "flip"] | None = None
+    security_ids: Annotated[list[UUID], Field(max_length=BASKET_MAX)] = []
+    citation: UrlText | None = None
+    relevant_until: RequestDate | None = None
 
 
 class MetaIndexIn(BaseModel):
@@ -1318,11 +1414,6 @@ class ScoreboardEpisodeOut(BaseModel):
     arm_code_sha: str | None = None
     arm_run_kind: str | None = None  # 'cron' | 'manual' | 'backfill'
     run_identity_note: str | None = None
-    # D3b (migration 0045) — a QUIET, backend-authored caption from the active annotations on this run's
-    # winning rows that touch this member: a `note` (the arm stands, still scored; the rule changed its
-    # composition) or an `exclude` scored only because the reading INCLUDES annotated nights. Null when
-    # nothing applies — a clean episode renders no line. Never a flag, never a metric input.
-    annotation_note: str | None = None
     verdict: Verdict | None = None
     entry_grade: Grade | None = None
     conviction_grade: Grade | None = None
@@ -1413,7 +1504,6 @@ def _scoreboard_episode_out(
         arm_code_sha=e.arm_code_sha,
         arm_run_kind=e.arm_run_kind,
         run_identity_note=e.run_identity_note,
-        annotation_note=e.annotation_note,
         verdict=ep.verdict,
         entry_grade=ep.entry_grade,
         conviction_grade=ep.conviction_grade,
@@ -1516,22 +1606,6 @@ class ScoreboardMetricOut(BaseModel):
     note: str = ""
 
 
-class AnnotatedNightOut(BaseModel):
-    """One annotated night (D3b, F10): a (thesis, as-of) whose recorded row carries an ACTIVE ``exclude``
-    annotation — a phantom arm, or a row dated a day with no market session — under the default reading it
-    is set aside like a reconstructed night; under the ``include_annotated`` reading it is scored.
-    ``reasons`` are the annotation tokens (e.g. ``stale_comparative_revenue``, ``no_session_day``), ``rules``
-    the code identities that judged it (``d3a-first-knowability@<sha>``, ``no-session-night@<sha>``),
-    ``n_rows`` the annotated rows on the night."""
-
-    thesis_id: UUID
-    thesis_name: str
-    asof: date
-    reasons: list[str] = []
-    rules: list[str] = []
-    n_rows: int = 1
-
-
 class LateNightOut(BaseModel):
     """One late night (L1, operator Q5 = A): a (thesis, as-of) holding a call-of-record recorded at/after
     its night's on-time window closed — the next weekday's 06:00 ET EDGAR open — so it can have read a
@@ -1582,19 +1656,11 @@ class ScoreboardSummaryOut(BaseModel):
     # night that also carries an honest row is scored from it and is NOT listed; the ones here are
     # named once and quietly, never as a per-row chip. Empty = every night has an honest row.
     reconstructed_nights: list[date] = []
-    # D3b — the annotated-night READ POLICY this response was computed under: "excluded" = annotated rows (phantom
-    # arms, no-session nights; an active `exclude` annotation, migration 0045) were dropped before the per-as-of dedup, exactly like
-    # reconstructed rows; "included" = they were scored, as before D3b. Default = the server setting
-    # (ALPHADECK_SCOREBOARD_EXCLUDE_ANNOTATED); `?include_annotated=` overrides per request. A number quoted
-    # from this response should name this reading. `annotated_nights` lists the nights either way. "n/a" on an
-    # edition >= 1: a re-run has no annotated rows (the list comes back empty).
-    annotated_policy: Literal["excluded", "included", "n/a"] = "excluded"
-    annotated_nights: list[AnnotatedNightOut] = []
     # L1 — the late-night READ POLICY this response was computed under: "excluded" = rows recorded after
     # their night's next EDGAR open were dropped before the per-as-of dedup (an on-time row for the night
     # wins; a late-only night reads like a cron gap); "included" = they were scored, as before L1. Default =
     # the server setting (ALPHADECK_SCOREBOARD_EXCLUDE_LATE); `?include_late=` overrides per request.
-    # `late_nights` lists the nights either way. Composes with the two filters above by AND. "n/a" on an
+    # `late_nights` lists the nights either way. Composes with the reconstructed filter above by AND. "n/a" on an
     # edition >= 1: every page of a re-run is computed the same way, none is late (the list comes back empty,
     # as does `reconstructed_nights`).
     late_policy: Literal["excluded", "included", "n/a"] = "excluded"
@@ -2900,6 +2966,22 @@ class AdminMasterRefreshOut(BaseModel):
     attention: bool = False
 
 
+class AdminPlatformExtractionOut(BaseModel):
+    """Background extraction of the shared share counts and cash/burn (V2 W3), as ONE plain-English line: the
+    newer of the nightly pass's ``platform_extraction`` block (``data/cron_runs``) and the newest backfill,
+    onboarding or by-hand run (``data/extraction_runs``) — e.g. "Shared facts · Nov 14: 42 extracted: 31 applied,
+    6 to the steward, 5 nothing found · 2 failed (ACME: SEC unreachable) · 118 still due · 84 SEC requests ·
+    3m 12s". Backend-authored copy (the FE renders, never composes). ``attention`` is true only when a company
+    failed, the run itself failed, a company waits after repeated failures, or never-extracted companies are held
+    back until the first backfill: the cases worth a louder line. ``run_kind`` says which run it is.
+    """
+
+    line: str
+    ran_at: datetime
+    run_kind: str
+    attention: bool = False
+
+
 class AdminMissingCloseOut(BaseModel):
     """One company with no stored close for ``session`` (``pipeline/missing_closes.py``) — on the night's quiet
     list, or (``loud``) an older session's close still missing after a later session's pass. ``edge`` is its
@@ -3018,10 +3100,18 @@ class AdminStatusOut(BaseModel):
     newest edition (a DB read of that edition); ``null`` otherwise. Never a cron verdict.
     ``master_refresh`` is the weekly company-list refresh's one line, from its newest applied run artifact
     (``data/master_runs``; a directory read — no DB); ``null`` until it has run. Never a cron verdict.
+    ``platform_extraction`` (V2 W3c) is background extraction's one line: the newer of the nightly pass's block
+    and the newest backfill / onboarding / by-hand run (directory reads — no DB); ``null`` until one has run.
+    Never a cron verdict.
 
     ``data_tenant_theses`` (auth PR 2) is how many ``thesis`` rows sit under the DATA tenant ``...0001``. It
     should be 0: a card belongs to a workspace (migration 0078 moved the founding operator's cards out), and a
     card left on the data tenant is read by no workspace. The Admin page shows one loud line when it is not 0.
+
+    ``platform_rows_in_workspaces`` (V2 W0b) is how many ``fact_shares_outstanding`` plus ``fact_cash_burn`` rows
+    sit under any tenant but the data tenant. V2 reads both from the data tenant only, so it should be 0 once
+    ``python -m pipeline.v2_cutover move-platform-facts --apply`` has run; the Admin page shows one loud line
+    naming that command when it is not. Fail-open (0 when the count could not be read).
 
     ``oauth_clients`` (migration 0080) counts the registered OAuth clients, static and self-registered; ``null``
     when the count could not be read. Read-only, never a cron verdict.
@@ -3048,7 +3138,9 @@ class AdminStatusOut(BaseModel):
     missing_closes: AdminMissingClosesOut | None = None
     editions_cut: AdminEditionsCutOut | None = None
     master_refresh: AdminMasterRefreshOut | None = None
+    platform_extraction: AdminPlatformExtractionOut | None = None
     data_tenant_theses: int = 0
+    platform_rows_in_workspaces: int = 0
     oauth_clients: AdminOAuthClientsOut | None = None
 
 
@@ -3147,6 +3239,11 @@ class SpacAttachOut(BaseModel):
     added: bool = False
     already: bool = False
     removed: bool = False
+    # V2 W7b: an attach that ADDED the company starts its data load the way a promote does
+    # (``app.routers.workbench.start_member_load``): the fast-lane job, or the onboarding queue and why. Both null on
+    # an idempotent attach, a detach, or when the kick failed open.
+    ingest: PromoteIngestRef | None = None
+    onboarding: PromoteOnboardingRef | None = None
 
 
 # --- the fund launch radar (docs/FUND_RADAR.md) — display only, never a call input -------------------
@@ -3282,6 +3379,11 @@ class FundAttachOut(BaseModel):
     added: bool = False
     already: bool = False
     removed: bool = False
+    # V2 W7b: an attach that ADDED the company starts its data load the way a promote does
+    # (``app.routers.workbench.start_member_load``): the fast-lane job, or the onboarding queue and why. Both null on
+    # an idempotent attach, a detach, or when the kick failed open.
+    ingest: PromoteIngestRef | None = None
+    onboarding: PromoteOnboardingRef | None = None
 
 
 # --- /backtest (B6) — the research surface's wire shapes --------------------------------------------

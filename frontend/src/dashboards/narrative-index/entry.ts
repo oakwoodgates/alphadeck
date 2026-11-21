@@ -12,5 +12,6 @@ export const entry: DashboardEntry = {
   description: "Each card's basket as one equal-weighted line against SPY and IWM, with the day the card was created marked.",
   status: "experimental",
   asofAware: true,
+  readsRecord: true,
   component: lazy(() => import("./NarrativeIndex")),
 };

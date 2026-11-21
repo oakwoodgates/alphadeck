@@ -52,6 +52,7 @@ from dashboards.peer_table import peer_table as compute_peer_table
 from domain.enums import ContextRole
 from domain.market_cap import CapTier
 from domain.market_time import serve_view
+from domain.platform_values import pick_current
 from domain.scopes import DATA_TENANT_ID
 from domain.splits import listed_from_row
 from domain.text_types import AsofDate, Line
@@ -182,8 +183,13 @@ class PeerYoyOut(_Wire):
 
 
 class PeerRunwayOut(_Wire):
-    """Months of cash at the current burn (cash / (quarterly burn / 3)); ``cash_positive`` when the burn is zero or
-    negative (no finite figure). ``as_of`` = the fact's date."""
+    """Months of cash at LAST QUARTER'S burn (cash / (quarterly burn / 3)); ``cash_positive`` when the burn is zero
+    or negative (no finite figure). ``as_of`` = the fact's date. The year-to-date pace beside it (V2 extractor
+    correctness PR 3): ``ytd_quarterly_burn_usd`` (burn sign), ``ytd_months`` (None when that pace generates cash)
+    and ``pace_caveat`` (only when last quarter is far off that pace); all None when the fact's note has no pace.
+    Gap ``not_applicable`` (V2 C1): a runway means nothing for this kind of company (a bank, insurer, broker,
+    exchange, asset manager, lender or fund trust); ``note`` says so, the stored cash and burn stay, no months or pace.
+    """
 
     months: float | None
     cash_positive: bool
@@ -191,6 +197,17 @@ class PeerRunwayOut(_Wire):
     burn_usd: float | None
     as_of: date | None
     gap: Gap | None
+    ytd_quarterly_burn_usd: float | None
+    ytd_months: float | None
+    pace_caveat: str | None
+    # the figures' own currency (never converted): the stored ISO code (None = not recorded) and the fact's source
+    # (an ``annual-statements`` value with no currency is labeled "?", any other "$"), and the short-term investment
+    # part inside the cash (None = no split recorded)
+    currency: str | None = None
+    source: str | None = None
+    investments_usd: float | None = None
+    # gap ``not_applicable`` only: the sentence why a runway does not apply (``platform_values.words``)
+    note: str | None = None
 
 
 class PeerPurityOut(_Wire):
@@ -441,7 +458,7 @@ def read_company(
     shares_facts = pit.shares_outstanding_facts(sid)
     shares = None
     if shares_facts:
-        best = max(shares_facts, key=lambda f: f["valid_from"])
+        best = pick_current(shares_facts)  # THE one pick (domain.platform_values)
         shares = {k: best.get(k) for k in ("shares", "valid_from", "ads_ratio", "ads_ratio_status")}
     cash_facts = pit.cash_burn_facts(sid)
     price = flag is None
@@ -468,7 +485,7 @@ def read_company(
             for r in pit.fundamentals_facts(sid)
             if r["metric_key"] == "revenue"
         ),
-        cash_burn=max(cash_facts, key=lambda f: f["valid_from"]) if cash_facts else None,
+        cash_burn=pick_current(cash_facts),  # THE one pick (domain.platform_values)
         dilution=tuple(pit.dilution_facts(sid)),
         mix=tuple(pit.revenue_mix_facts(sid)),
         range_52w=read(range52w.MEMBER_NAME) if price else None,

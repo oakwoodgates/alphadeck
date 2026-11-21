@@ -2,8 +2,11 @@
 
 A plain user's click may still pull server-sourced data (SEC, the price vendor), but only:
 
-- for a company on one of their OWN cards: extract, auto-confirm, etf-holdings and ingest-prices answer 404 with a
-  fixed message for any other security, before any fetch;
+- for a company on one of their OWN cards: extract and etf-holdings answer 404 with a fixed message for any other
+  security, before any fetch;
+- never pulling prices on demand (V2 W7b): the price pull is the steward's (403 for a plain user, nothing counted or
+  fetched), and the old get-data auto-confirm route is gone; a new company's prices arrive through the promote's lane,
+  which a fund or SPAC attach now starts too (``start_member_load``);
 - within a per-user DAILY ALLOWANCE (``app/allowance.py``, table ``user_action_count``): over it is 429 with a
   fixed message naming the reset; it resets on the next market day; a steward is not limited; 0 = no limit; the
   count is one atomic upsert, so racing requests cannot pass the limit;
@@ -36,7 +39,6 @@ from domain.market_time import market_now
 from domain.settings import get_settings
 from repositories import thesis_repo
 from tests.app.test_workbench_api import (
-    _auto_shares_candidate,
     _decomp,
     _efts_page,
     _FakeEfts,
@@ -44,6 +46,8 @@ from tests.app.test_workbench_api import (
     _subs,
 )
 from tests.auth_fixtures import sign_out
+from tests.ingest.test_extract_newest_filing import OKLO, FakeClient, _companyfacts, _text
+from tests.ingest.test_extract_newest_filing import _subs as _efsubs
 from tests.thread_support import BARRIER_TIMEOUT_S, join_all
 
 PASSWORD = "correct horse battery"
@@ -130,7 +134,7 @@ def fakes(monkeypatch):
     from app.routers import workbench as wb
     from ingest.prices import ingest_security as price_leg
 
-    calls: dict[str, list] = {"extract": [], "auto": [], "resolve": [], "fund": []}
+    calls: dict[str, list] = {"extract": [], "resolve": [], "fund": []}
 
     def boom(*a, **kw):
         raise AssertionError("a vendor was called")
@@ -142,16 +146,13 @@ def fakes(monkeypatch):
         calls["extract"].append(cik)
         return ExtractionResult(facts=[])
 
-    def fake_auto(client, cik):
-        calls["auto"].append(cik)
-        return [_auto_shares_candidate()]
-
     def fake_fund(ticker, **kw):
         calls["fund"].append(ticker)
         return None  # "not in the SEC fund file": a 404 after the checks, with no SEC traffic
 
     monkeypatch.setattr(wb, "extract_with_annual_fallback", fake_extract)
-    monkeypatch.setattr(wb, "extract_for_security", fake_auto)
+    # a plain user's extract (W7a): purity only, through its own entry
+    monkeypatch.setattr(wb, "extract_purity_for_security", fake_extract, raising=False)
     monkeypatch.setattr(wb.fund_tickers, "resolve", fake_fund)
     _FakeSource.requested = []
     monkeypatch.setattr(price_leg, "YahooPriceSource", _FakeSource)
@@ -235,18 +236,11 @@ def _pull(c, sid):
     return c.post(f"/workbench/securities/{sid}/ingest-prices")
 
 
-def _auto(c, sid):
-    return c.post(
-        "/workbench/facts/auto-confirm",
-        json={"security_id": str(sid), "fact_type": "shares_outstanding"},
-    )
-
-
 def _holdings(c, sid):
     return c.get(f"/workbench/securities/{sid}/etf-holdings")
 
 
-FETCHES = {"extract": _extract, "price_pull": _pull, "auto_confirm": _auto, "holdings": _holdings}
+FETCHES = {"extract": _extract, "holdings": _holdings}
 
 
 # --- own cards only ----------------------------------------------------------------------------------------------
@@ -258,12 +252,10 @@ def test_a_plain_users_fetch_of_a_security_on_none_of_their_cards_is_404(people,
     r = FETCHES[action](people["p"], people["other"])
     assert r.status_code == 404, r.text
     assert r.json()["detail"] == NOT_ON_YOUR_CARDS
-    assert people["calls"] == {"extract": [], "auto": [], "resolve": [], "fund": []}
+    assert people["calls"] == {"extract": [], "resolve": [], "fund": []}
     assert _FakeSource.requested == []  # nothing fetched
     assert _master_rows(db) == before
-    # a refused request spends nothing; auto-confirm names its security in the BODY, so it is counted before the
-    # card check (the route dependency cannot read the body)
-    assert allowance.used(db, people["p_id"], action) == (1 if action == "auto_confirm" else 0)
+    assert allowance.used(db, people["p_id"], action) == 0  # a refused request spends nothing
 
 
 def test_a_security_on_another_users_card_is_404_to_a_plain_user(people, db):
@@ -288,6 +280,146 @@ def test_a_steward_may_fetch_any_security(people):
     assert _pull(people["s"], people["other"]).status_code == 200
 
 
+# --- a plain user's extract is purity only (W7a, docs/PLATFORM_VALUES.md) ------------------------------------------
+#
+# A share count and cash/burn are platform values the steward decides; a plain user never sees an unverified
+# extracted number. These run the REAL extractor entries over a recording fake SEC client serving the repo's
+# extractor fixtures, so the response AND every request it made are checked.
+
+
+class _RecordingSec(FakeClient):
+    """``FakeClient`` that records every request URL and answers an unknown read with an empty one (so today's
+    annual path runs to its end instead of failing on a missing fixture)."""
+
+    urls: list[str] = []
+
+    def get_json(self, url: str, cache_key: str, **kw):
+        _RecordingSec.urls.append(url)
+        if cache_key.startswith(("companyfacts/", "submissions/")):
+            return super().get_json(url, cache_key, **kw)
+        return {}
+
+    def get_text(self, url: str, cache_key: str, **kw):
+        _RecordingSec.urls.append(url)
+        return self._docs.get(cache_key.split("/")[1], "")
+
+
+@pytest.fixture
+def sec(monkeypatch):
+    """Point the extract route at the real extractor entries and a recording fake SEC client. Call it with the
+    submissions rows to serve; returns the list of request URLs."""
+    from app.routers import workbench as wb
+    from ingest.edgar import extract as ex
+
+    monkeypatch.setattr(wb, "extract_with_annual_fallback", ex.extract_with_annual_fallback)
+    if hasattr(ex, "extract_purity_for_security"):
+        monkeypatch.setattr(wb, "extract_purity_for_security", ex.extract_purity_for_security)
+
+    def serve(*rows) -> list[str]:
+        docs = {
+            OKLO["new_tenq"][1]: _text(OKLO["new_tenq_text"]),
+            OKLO["tenk"][1]: _text(OKLO["tenk_text"]),
+        }
+        client = _RecordingSec(_companyfacts(OKLO["cik"]), _efsubs(*rows), docs)
+        _RecordingSec.urls = []
+        monkeypatch.setattr(wb, "EdgarClient", lambda **kw: client)
+        return _RecordingSec.urls
+
+    return serve
+
+
+_SHARE_OR_CASH = ("share", "cash", "burn", "investments")
+
+
+def _share_or_cash_figures(body, path: str = "") -> list[str]:
+    """Every place in a JSON body that carries a share-count or cash figure: a candidate of any type but purity,
+    or a number under a share / cash / burn key. Walks the whole body, not only ``facts``."""
+    found: list[str] = []
+    if isinstance(body, dict):
+        if "fact_type" in body and body["fact_type"] != "revenue_mix":
+            found.append(f"{path} is a {body['fact_type']} candidate")
+        for k, v in body.items():
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                if any(w in k.lower() for w in _SHARE_OR_CASH):
+                    found.append(f"{path}.{k}={v}")
+            found += _share_or_cash_figures(v, f"{path}.{k}")
+    elif isinstance(body, list):
+        for i, v in enumerate(body):
+            found += _share_or_cash_figures(v, f"{path}[{i}]")
+    return found
+
+
+def _doc_requested(urls: list[str], row) -> bool:
+    return any(row[1].replace("-", "") in u for u in urls)
+
+
+def test_a_plain_users_extract_is_purity_only_and_never_reads_the_values_filing(people, sec):
+    urls = sec(OKLO["new_tenq"], OKLO["tenk"])  # the newer 10-Q is the values filing
+    r = _extract(people["p"], people["own"])
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert [f["fact_type"] for f in body["facts"]] == ["revenue_mix"]
+    assert body["facts"][0]["value"] is None
+    assert _share_or_cash_figures(body) == []
+    assert not _doc_requested(
+        urls, OKLO["new_tenq"]
+    )  # the share-count / cash document is never fetched
+    assert _doc_requested(urls, OKLO["tenk"])  # purity's own document is
+
+
+def test_a_plain_users_extract_of_an_annual_filer_reads_purity_not_covered_and_fetches_only_submissions(
+    people, sec
+):
+    twenty_f = ("20-F", "0001628280-26-099001", "x-20f.htm", "2026-04-20", "2025-12-31")
+    urls = sec(twenty_f, OKLO["old_tenq"])
+    r = _extract(people["p"], people["own"])
+    assert r.status_code == 200, r.text
+    assert r.json() == {
+        "facts": [],
+        "empty_reason": "purity-not-covered",
+        "runway_empty_reason": None,
+    }
+    assert len(urls) == 1 and "/submissions/" in urls[0], urls
+
+
+def test_a_stewards_extract_still_returns_all_three(people, sec):
+    urls = sec(OKLO["new_tenq"], OKLO["tenk"])
+    r = _extract(people["s"], people["own"])
+    assert r.status_code == 200, r.text
+    assert sorted(f["fact_type"] for f in r.json()["facts"]) == [
+        "cash_burn",
+        "revenue_mix",
+        "shares_outstanding",
+    ]
+    assert _doc_requested(urls, OKLO["new_tenq"]) and _doc_requested(urls, OKLO["tenk"])
+
+
+def test_a_plain_users_purity_estimate_still_attaches(people, db, sec):
+    """The thesis-aware purity estimate (SURFACE 1b) still runs on a plain user's purity-only extract."""
+    from app.deps import get_purity_client
+    from llm.purity_estimate import PurityProposal
+
+    sec(OKLO["new_tenq"], OKLO["tenk"])
+    app.dependency_overrides[get_purity_client] = lambda: object()
+    from app.routers import workbench as wb
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(
+            wb,
+            "propose_purity",
+            lambda llm, narrative, c: PurityProposal(pct=0.4, reason="r", segment="seg"),
+        )
+        r = people["p"].get(
+            f"/workbench/securities/{people['own']}/extract",
+            params={"thesis_id": str(people["p_card"])},
+        )
+    assert r.status_code == 200, r.text
+    (pu,) = r.json()["facts"]
+    assert pu["fact_type"] == "revenue_mix" and pu["value"] == 0.4
+    assert pu["estimate_source"] == "llm_proposed"
+    assert _share_or_cash_figures(r.json()) == []
+
+
 # --- no shared-master write on a plain user's click ---------------------------------------------------------------
 
 
@@ -302,16 +434,16 @@ def _auto_resolver(monkeypatch, calls):
     monkeypatch.setattr(wb, "resolve_price_symbol", fake)
 
 
-def test_a_plain_users_otc_pull_never_resolves_or_writes_the_price_symbol(people, db, monkeypatch):
+def test_a_plain_users_otc_pull_is_refused_and_never_resolves_or_writes_the_price_symbol(
+    people, db, monkeypatch
+):
     calls: list[str] = []
     _auto_resolver(monkeypatch, calls)
     before = _master_rows(db)
     r = _pull(people["p"], people["otc"])
-    assert r.status_code == 200, r.text
+    assert r.status_code == 403, r.text  # the price pull is the steward's (W7b)
     assert calls == []  # the resolver never ran for a plain user
-    assert _FakeSource.requested == [
-        "OTCX"
-    ]  # priced under the canonical ticker (the fail-open path)
+    assert _FakeSource.requested == []  # nothing fetched
     assert _master_rows(db) == before
 
 
@@ -425,13 +557,13 @@ def test_the_allowance_answers_429_at_the_limit_with_a_fixed_message(people, db,
 
 
 def test_each_action_has_its_own_allowance(people, limits):
-    limits(extract=1, price_pull=1, auto_confirm=1)
+    limits(extract=1, holdings=1)
     assert _extract(people["p"], people["own"]).status_code == 200
     assert _extract(people["p"], people["own"]).status_code == 429
-    assert _pull(people["p"], people["own"]).status_code == 200
-    assert _pull(people["p"], people["own"]).status_code == 429
-    assert _auto(people["p"], people["own"]).status_code == 200
-    assert _auto(people["p"], people["own"]).status_code == 429
+    assert (
+        _holdings(people["p"], people["own"]).status_code == 404
+    )  # the faked fund file, after the count
+    assert _holdings(people["p"], people["own"]).status_code == 429
 
 
 def test_the_holdings_allowance(people, limits):
@@ -542,16 +674,25 @@ def test_consume_refuses_a_batch_larger_than_what_is_left(people, db, limits):
     assert allowance.consume(db, people["p_id"], "price_pull", n=5) is False
 
 
-def test_the_settings_defaults():
+def test_the_settings_defaults(monkeypatch):
+    """The reviewed defaults (V2 W7b): ceilings sized to one person's real day. ``price_pull`` now counts only the
+    new names a promote's or an attach's fast lane loads at once. The auto-confirm allowance is retired with its
+    route."""
+    for action in ("EXTRACT", "PRICE_PULL", "HOLDINGS", "CHAIN_DRAFT", "TERM_RUN", "FLAG"):
+        monkeypatch.delenv(f"ALPHADECK_ALLOWANCE_{action}_PER_DAY", raising=False)
+    get_settings.cache_clear()
     s = get_settings()
     assert (
         s.allowance_extract_per_day,
         s.allowance_price_pull_per_day,
-        s.allowance_auto_confirm_per_day,
         s.allowance_holdings_per_day,
         s.allowance_chain_draft_per_day,
         s.allowance_term_run_per_day,
-    ) == (5000, 5000, 2000, 1000, 100, 200)
+        s.allowance_flag_per_day,
+    ) == (300, 200, 200, 20, 50, 50)
+    assert not hasattr(s, "allowance_auto_confirm_per_day")
+    assert "auto_confirm" not in allowance.LABELS
+    get_settings.cache_clear()
 
 
 # --- the promote's fast lane spends price pulls -------------------------------------------------------------------
@@ -617,7 +758,7 @@ def test_a_spent_allowance_sends_the_fast_lane_to_the_queue(people, db, limits, 
     body = r.json()
     assert body["ingest"] is None
     assert body["onboarding"]["new_members"] == 2
-    assert "price pull allowance" in body["onboarding"]["reason"]
+    assert "today's limit on loading new names at once is used up" in body["onboarding"]["reason"]
 
 
 def test_a_stewards_fast_lane_is_not_counted(people, db, limits, lane):
@@ -631,12 +772,6 @@ def test_a_stewards_fast_lane_is_not_counted(people, db, limits, lane):
 
 _CHARGED = {
     ("GET", "/workbench/securities/{security_id}/extract"): "extract",
-    (
-        "POST",
-        "/workbench/facts/explain",
-    ): "extract",  # an LLM call a click can repeat (security hardening PR 3)
-    ("POST", "/workbench/securities/{security_id}/ingest-prices"): "price_pull",
-    ("POST", "/workbench/facts/auto-confirm"): "auto_confirm",
     ("GET", "/workbench/securities/{security_id}/etf-holdings"): "holdings",
     ("POST", "/workbench/theses/{thesis_id}/draft-chain"): "chain_draft",
     ("POST", "/workbench/theses/{thesis_id}/terms"): "term_run",
@@ -657,29 +792,211 @@ def test_each_fetch_route_carries_its_allowance_dependency():
     assert seen == _CHARGED
 
 
-def test_the_flag_explainer_spends_the_extract_allowance(people, db, limits, monkeypatch):
-    """``POST /workbench/facts/explain`` is an LLM call a plain user can fire in a loop: it spends one unit of the
-    extract allowance and answers the fixed 429 once the day's is spent (security hardening PR 3). A steward is
-    never counted."""
+def test_the_flag_explainer_is_steward_only(people, db, monkeypatch):
+    """``POST /workbench/facts/explain`` is steward-only (W7a): a plain user never holds a FLAG candidate (a share
+    count and cash are the steward's), so a user's call is the steward-only 403 and counts nothing; the steward's
+    is answered and never counted."""
     from app.deps import get_llm_client
     from tests.app.test_workbench_api import _flag_candidate
 
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     app.dependency_overrides[get_llm_client] = lambda: _FakeLLM(returns=None)
-    limits(extract=2)
     p, s = people["p"], people["s"]
-    assert p.post("/workbench/facts/explain", json=_flag_candidate()).status_code == 200
-    assert allowance.used(db, people["p_id"], "extract") == 1
-    assert p.post("/workbench/facts/explain", json=_flag_candidate()).status_code == 200
     r = p.post("/workbench/facts/explain", json=_flag_candidate())
-    assert r.status_code == 429 and r.json()["detail"].startswith("Daily allowance reached:")
+    assert r.status_code == 403, r.text
+    assert allowance.used(db, people["p_id"], "extract") == 0
     assert s.post("/workbench/facts/explain", json=_flag_candidate()).status_code == 200
     db.rollback()
     with db.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM user_action_count")
+        assert cur.fetchone()["n"] == 0  # nobody spent anything
+
+
+# --- the price pull is the steward's; the auto-confirm route is gone (V2 W7b) ----------------------------------
+
+
+def test_the_auto_confirm_route_is_gone():
+    paths = {r.path for r in app.routes if isinstance(r, APIRoute)}
+    assert "/workbench/facts/auto-confirm" not in paths
+    assert not any("auto-confirm" in p for p in app.openapi()["paths"])
+
+
+def test_the_price_pull_is_steward_only(people, db, limits):
+    """A plain user's pull on a company on their own card is the steward-only 403: nothing fetched, nothing
+    counted. The steward's pull still runs (and is never counted)."""
+    limits(price_pull=10)
+    r = _pull(people["p"], people["own"])
+    assert r.status_code == 403, r.text
+    assert _FakeSource.requested == []
+    assert allowance.used(db, people["p_id"], "price_pull") == 0
+    s = _pull(people["s"], people["own"])
+    assert s.status_code == 200, s.text
+    assert _FakeSource.requested == ["DEVCO"]
+    db.rollback()
+    with db.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM user_action_count")
+        assert cur.fetchone()["n"] == 0
+
+
+# --- a fund or SPAC attach loads its new company the way a promote does (V2 W7b) --------------------------------
+
+
+class _Job:
+    def __init__(self, job_id: str) -> None:
+        self.job_id = job_id
+
+
+@pytest.fixture
+def kicked(monkeypatch):
+    """The fast lane taken (outside the window, few cold names); every kick recorded and answered with a job."""
+    from app.routers import workbench as wb
+    from pipeline import onboarding
+
+    kicks: list[set] = []
+    monkeypatch.setattr(
+        wb,
+        "_plan_lane",
+        lambda conn, tid, tenant, ids: onboarding.PromotePlan(frozenset(ids), True),
+    )
+
+    def kick(tid, ids, tenant_id=None):
+        kicks.append(set(ids))
+        return _Job(f"job-{len(kicks)}")
+
+    monkeypatch.setattr(wb, "_kick_member_ingest", kick)
+    return kicks
+
+
+def _fund(db, ticker: str = "FNDX") -> uuid.UUID:
+    sid = uuid.uuid4()
+    with db.cursor() as cur:
         cur.execute(
-            "SELECT count(*) AS n FROM user_action_count WHERE user_id <> %s", (people["p_id"],)
+            "INSERT INTO security_master (id, tenant_id, ticker, name, instrument_kind, valid_from) "
+            "VALUES (%s, %s, %s, %s, 'etf', '2026-01-01')",
+            (sid, DATA, ticker, f"{ticker} Test ETF"),
         )
-        assert cur.fetchone()["n"] == 0  # the steward spent nothing
+    db.commit()
+    return sid
+
+
+def _attach_fund(c: TestClient, card: uuid.UUID, symbol: str = "FNDX"):
+    return c.post("/radar/funds/attach", json={"thesis_id": str(card), "symbol": symbol})
+
+
+def _attach_spac(c: TestClient, card: uuid.UUID, cik: str):
+    return c.post("/radar/spac/attach", json={"thesis_id": str(card), "cik": cik})
+
+
+def test_a_plain_users_fund_attach_starts_the_new_member_load(people, db, limits, kicked):
+    limits(price_pull=10)
+    fund = _fund(db)
+    r = _attach_fund(people["p"], people["p_card"])
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["added"] is True
+    assert kicked == [{fund}]  # the promote's fast lane, for the one new company
+    assert body["ingest"] == {"job_id": "job-1", "new_members": 1}
+    assert body["onboarding"] is None
+    assert (
+        allowance.used(db, people["p_id"], "price_pull") == 1
+    )  # one unit per new name, as a promote
+
+
+def test_a_plain_users_spac_attach_starts_the_new_member_load(people, db, limits, kicked):
+    limits(price_pull=10)
+    sid = _security(db, "SPCX", cik="0004440001")
+    r = _attach_spac(people["p"], people["p_card"], "0004440001")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["added"] is True
+    assert kicked == [{sid}]
+    assert body["ingest"] == {"job_id": "job-1", "new_members": 1}
+    assert body["onboarding"] is None
+    assert allowance.used(db, people["p_id"], "price_pull") == 1
+
+
+def test_a_cold_attached_fund_is_queued_for_onboarding(people, db):
+    """The REAL lane (no plan stub): a company no live card held is queued for the staged onboarding job, and the
+    answer carries the fast-lane job or the queue (which one depends on the clock: inside the nightly window the
+    lane queues)."""
+    fund = _fund(db)
+    r = _attach_fund(people["p"], people["p_card"])
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert (body["ingest"] is None) != (body["onboarding"] is None)
+    db.rollback()
+    with db.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM security_onboarding WHERE security_id = %s", (fund,))
+        assert cur.fetchone()["n"] == 1
+
+
+def test_a_spent_allowance_sends_an_attach_to_the_queue(people, db, limits, kicked):
+    from app.routers.workbench import FAST_LANE_ALLOWANCE_SPENT
+
+    limits(price_pull=1)
+    assert allowance.consume(db, people["p_id"], "price_pull")  # today's one unit is gone
+    _fund(db)
+    body = _attach_fund(people["p"], people["p_card"]).json()
+    assert kicked == []
+    assert body["ingest"] is None
+    assert body["onboarding"] == {
+        "queued": 1,
+        "new_members": 1,
+        "reason": FAST_LANE_ALLOWANCE_SPENT,
+    }
+    assert allowance.used(db, people["p_id"], "price_pull") == 1
+
+
+def test_an_attach_at_the_global_ingest_cap_queues_and_spends_nothing(
+    people, db, limits, kicked, monkeypatch
+):
+    from app.routers.workbench import INGEST_AT_CAPACITY
+    from workbench import ingest_jobs
+
+    limits(price_pull=10)
+    monkeypatch.setattr(ingest_jobs, "has_room", lambda thesis_id: False)
+    _fund(db)
+    body = _attach_fund(people["p"], people["p_card"]).json()
+    assert kicked == []
+    assert body["onboarding"]["reason"] == INGEST_AT_CAPACITY
+    assert (
+        allowance.used(db, people["p_id"], "price_pull") == 0
+    )  # the cap is checked before the allowance
+
+
+def test_an_already_attached_fund_starts_nothing(people, db, limits, kicked):
+    limits(price_pull=10)
+    _fund(db)
+    assert _attach_fund(people["p"], people["p_card"]).json()["added"] is True
+    kicked.clear()
+    again = _attach_fund(people["p"], people["p_card"]).json()
+    assert again["already"] is True
+    assert kicked == []
+    assert again["ingest"] is None and again["onboarding"] is None
+    assert allowance.used(db, people["p_id"], "price_pull") == 1  # only the first attach spent
+
+
+def test_an_already_attached_spac_starts_nothing(people, db, limits, kicked):
+    limits(price_pull=10)
+    _security(db, "SPCX", cik="0004440001")
+    assert _attach_spac(people["p"], people["p_card"], "0004440001").json()["added"] is True
+    kicked.clear()
+    again = _attach_spac(people["p"], people["p_card"], "0004440001").json()
+    assert again["already"] is True and kicked == []
+    assert again["ingest"] is None and again["onboarding"] is None
+
+
+def test_a_stewards_attach_is_not_counted(people, db, limits, kicked):
+    limits(price_pull=1)
+    s_card = _promote(people["s"], db, people["own"])
+    kicked.clear()
+    fund = _fund(db)
+    body = _attach_fund(people["s"], s_card).json()
+    assert kicked == [{fund}] and body["ingest"] is not None
+    db.rollback()
+    with db.cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM user_action_count")
+        assert cur.fetchone()["n"] == 0
 
 
 def test_the_day_is_the_market_day(monkeypatch):

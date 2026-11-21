@@ -83,6 +83,10 @@ _OID_ARROW: dict[int, pa.DataType] = {
     701: pa.float64(),  # float8
     1700: pa.float64(),  # numeric (close/usd/shares/... -> float)
     2950: pa.string(),  # uuid
+    # uuid[] (fact_thesis_catalyst.security_ids, V2 W6a): ``_coerce`` writes the list as a JSON array of uuid
+    # strings in its STORED order (the writer stores it sorted), and the mirror reader decodes it
+    # (``replay.pit._JSON_COLS``); named here so the type is explicit, not the unknown-OID fallback
+    2951: pa.string(),
     114: pa.string(),  # json
     3802: pa.string(),  # jsonb (terms -> JSON string; the accessor json.loads it back)
 }
@@ -240,14 +244,9 @@ def _read_table_public(
     the tape edge and the split list behind a bar's scale) computed from the rows held then. Not a history
     gate: the public instant still decides what a view at ``T`` sees.
     """
-    part_cols = partition_cols(table)
-    if len(as_tenants(tenants)) > 1:
-        # A MIXED union (domain.scopes): the collapse spans the tenants, exactly as the live public read's pick
-        # does (``db.bitemporal._public_read``: the natural key carries no tenant, then ``public DESC,
-        # recorded_at DESC``). Partitioning per tenant would keep one row per tenant at the SAME rewritten
-        # instant and leave the reader's ``id`` tiebreak to choose between a feed row and a workspace's later
-        # ratification at random. One tenant: unchanged (the dropped column is a constant).
-        part_cols = [c for c in part_cols if c != "tenant_id"]
+    part_cols = partition_cols(
+        table
+    )  # one tenant per table (domain.scopes.tenants_for, V2): no union
     part = sql.SQL(", ").join(sql.Identifier(c) for c in part_cols)
     versions = public_versions_sql(
         table,
@@ -565,8 +564,7 @@ def export_snapshot(
 
     **The two tenant scopes** (``domain.scopes``, docs/TENANT_SCOPES.md): each fact table is exported for
     ``tenants_for(table, data=data_tenant, workspace=workspace)`` — a DATA table the data tenant's rows, a
-    WORKSPACE table the workspace's, a MIXED table both (the reader resolves the union exactly as the live as-of
-    read does). The aux tables, the split list and the identity aux are DATA. ``workspace`` is REQUIRED. The
+    WORKSPACE table the workspace's (V2: one tenant per table, never a union). The aux tables, the split list and the identity aux are DATA. ``workspace`` is REQUIRED. The
     manifest's ``tenant_id`` is the workspace; a
     ``data_tenant`` key is added only when the two differ, so today's manifest is byte-identical.
     """

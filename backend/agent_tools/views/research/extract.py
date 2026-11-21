@@ -1,9 +1,15 @@
-"""``get_extract``: the extractor's three candidate scoring facts for one company (``GET /workbench/securities/{id}/extract``,
+"""``get_extract``: the extractor's candidate scoring facts for one company (``GET /workbench/securities/{id}/extract``,
 undated; ``?thesis_id=`` only when the caller gave a card).
 
-The read SPENDS: up to 4 EDGAR requests when the filings are not cached and, with a card, one LLM call (the grounded
-purity proposal). The candidates are the extractor's LOCATIONS, not facts: the operator ratifies in the Workbench. The
-extract is DB-free, so a candidate does not know whether its fact is already on file. The default reply keeps each
+WHO GETS WHAT (W7a): a plain user's token gets the PURITY candidate only (the route never fetches the share-count or
+cash documents for a user; an annual 20-F/40-F filer answers ``empty_reason="purity-not-covered"``); a steward's token
+also gets the share count and cash. The view copies whatever the API returned, so ``FACTS`` keeps all three types.
+
+The read SPENDS: up to 3 EDGAR requests for a user's token (4 for a steward's) when the filings are not cached and,
+with a card, one LLM call (the grounded purity proposal). The candidates are the extractor's LOCATIONS, not facts:
+only purity is the user's to ratify in the Workbench; a steward's share count and cash here are a fresh parse, not the
+SHARED values the platform and the steward set (a user who thinks one is wrong flags it in the Workbench;
+``get_triage`` reads their state). The extract is DB-free, so a candidate does not know whether its fact is already on file. The default reply keeps each
 fact with at most two passages, every excerpt cut at 300 characters with its full length beside it; ``section="passages"``
 with ``fact`` reads one fact's passages in full. Every value is copied from the API's JSON.
 """
@@ -30,6 +36,9 @@ FACT_KEYS = (
     "cash_usd",
     "quarterly_burn_usd",
     "statement_currency",
+    "investments_usd",
+    "ytd_quarterly_burn_usd",
+    "ytd_burn_days",
     "flags",
     "located_passages",
     "estimate_source",
@@ -45,7 +54,15 @@ ANCHOR_CUT = 80
 EXCERPT_CUT = 300
 PASSAGES_SHOWN = 2
 # present only when the extractor set them
-OPTIONAL = ("statement_currency", "estimate_source", "ads_ratio", "ads_ratio_status")
+OPTIONAL = (
+    "statement_currency",
+    "investments_usd",
+    "ytd_quarterly_burn_usd",
+    "ytd_burn_days",
+    "estimate_source",
+    "ads_ratio",
+    "ads_ratio_status",
+)
 
 
 def _passage(p: dict[str, Any], *, full: bool) -> dict[str, Any]:

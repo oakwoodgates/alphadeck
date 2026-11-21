@@ -15,12 +15,13 @@ import type {
 export type Authority = EvidenceLedgerRowOut["authority"];
 export type LedgerKind = EvidenceLedgerRowOut["kind"];
 
-/** The classes in the server's order (`AUTHORITY_ORDER`): a person's rows first. */
-export const AUTHORITY_ORDER: readonly Authority[] = ["operator", "system", "automatic", "card"];
+/** The classes in the server's order (`AUTHORITY_ORDER`): a person's rows first (yours, then the steward's). */
+export const AUTHORITY_ORDER: readonly Authority[] = ["operator", "steward", "system", "automatic", "card"];
 
 /** The quiet word on a row. A label of WHO put the row there, never a judgment of it. */
 export const AUTHORITY_TAG: Record<Authority, string> = {
   operator: "your",
+  steward: "steward",
   system: "computed",
   automatic: "stored",
   card: "card",
@@ -30,6 +31,7 @@ export const AUTHORITY_TAG: Record<Authority, string> = {
  *  the build here instead of rendering blank. */
 export const AUTHORITY_LABEL: Record<Authority, string> = {
   operator: "Your",
+  steward: "Steward",
   system: "Computed",
   automatic: "Stored",
   card: "Card",
@@ -37,9 +39,10 @@ export const AUTHORITY_LABEL: Record<Authority, string> = {
 
 /** What each class means (the plan's table), shown on hover and as the first line of an expanded row. */
 export const AUTHORITY_MEANS: Record<Authority, string> = {
-  operator: "a person ratified or set it",
+  operator: "you ratified or set it (your purity, a context role)",
+  steward: "the steward set it (a shared value or a company catalyst; a value carried over from V1 too)",
   system: "a computation on public data (a trigger or a risk signal)",
-  automatic: "an ingest leg stored it; no person ratified it",
+  automatic: "applied automatically from a filing, or stored by an ingest leg; no person set it",
   card: "an entry the operator maintains on the card",
 };
 
@@ -58,7 +61,7 @@ export const KIND_ORDER: readonly LedgerKind[] = [
 export const KIND_LABEL: Record<LedgerKind, string> = {
   trigger: "Triggers",
   risk_signal: "Risk signals",
-  ratified: "Ratified and stored facts",
+  ratified: "Shared values and your purity",
   catalyst_fact: "Catalyst facts",
   card_catalyst: "Card catalysts",
   kill: "Kill criteria",
@@ -190,12 +193,20 @@ export const countRows = (days: readonly EvidenceLedgerDayOut[]) => days.reduce(
 export const countOf = (list: readonly { key: string; rows: number }[], key: string) =>
   list.find((c) => c.key === key)?.rows ?? 0;
 
-/** An operator row's byline: who and when ("ratified by operator · Oct 20, 2026"; a role is "set by"). A row
- *  with no recorded day says so rather than leaving it out. */
+/** A person's row's byline: who and when. The server's `by` is a kind, never an email: `you` ("ratified by
+ *  you · Oct 20, 2026"), `steward` ("set by the steward · Nov 18, 2026"), `carried` ("verified (carried over
+ *  from V1) · …"); a role is "set by". A row with no recorded day says so rather than leaving it out. */
 export function byWords(r: Pick<EvidenceLedgerRowOut, "kind" | "by" | "on">): string | null {
   if (!r.by) return null;
-  const verb = r.kind === "role" ? "set by" : "ratified by";
-  return r.on ? `${verb} ${r.by} · ${fmtDay(r.on)}` : `${verb} ${r.by} · day not recorded`;
+  const who =
+    r.kind === "role"
+      ? `set by ${r.by}`
+      : r.by === "steward"
+        ? "set by the steward"
+        : r.by === "carried"
+          ? "verified (carried over from V1)"
+          : `ratified by ${r.by}`;
+  return r.on ? `${who} · ${fmtDay(r.on)}` : `${who} · day not recorded`;
 }
 
 /** How the fired signals trace, for the header: an accession, a price reference only, another source, none. */
@@ -232,7 +243,7 @@ export function workLines(d: EvidenceLedgerOut, shown: number, filtering: boolea
   const resolved = d.names.filter((n) => n.security_id != null).length;
   const byClass = AUTHORITY_ORDER.map((a) => `${countOf(t.by_authority, a).toLocaleString("en-US")} ${AUTHORITY_TAG[a]}`);
   const kinds = [
-    `${plural(t.facts_ratified, "ratified fact", "ratified facts")} and ${plural(t.facts_stored, "stored fact", "stored facts")} (the last ${d.facts_days} days)`,
+    `${plural(t.facts_ratified, "fact you ratified", "facts you ratified")}, ${plural(t.facts_verified, "verified value", "verified values")} and ${plural(t.facts_stored, "stored fact", "stored facts")} (the last ${d.facts_days} days)`,
     `${plural(t.catalysts_dated, "catalyst", "catalysts")} dated, ${t.catalysts_undated} undated`,
     plural(countOf(t.by_kind, "kill"), "kill criterion", "kill criteria"),
     plural(countOf(t.by_kind, "evidence"), "evidence link", "evidence links"),
@@ -278,7 +289,7 @@ export const NOT_EVIDENCE =
 /** The page's known limits, stated on the page (docs/dashboards/evidence-ledger.md). */
 export const LIMITS: readonly string[] = [
   "The card's own entries (catalysts, kill criteria, evidence links) load live: they are not snapshotted, so they show as they are today whatever the as-of. The triggers, the facts and the roster are as of the as-of.",
-  "The evidence table is nearly unused today: the ledger's substance is the recorded call's triggers, the stored and ratified facts, and the card's catalysts and kill criteria.",
-  "A trigger's inputs are the computation's own, shown as stored; the page does not re-derive them. Located passages are not stored, so a ratified FLAG links to its filing, not its passage.",
-  "The class is a label of who put a row there, never a judgment of it. The stored and ratified facts are read for the last 365 days only; a catalyst fact counts under its event date, a ratified fact under the day it was ratified.",
+  "The evidence table is nearly unused today: the ledger's substance is the recorded call's triggers, the shared values, your ratified purity and the stored facts, and the card's catalysts and kill criteria.",
+  "A trigger's inputs are the computation's own, shown as stored; the page does not re-derive them. Located passages are not stored, so a fact links to its filing, not its passage.",
+  "The class is a label of who put a row there, never a judgment of it. The shared values, your purity and the stored facts are read for the last 365 days only; a catalyst fact counts under its event date, a value or purity fact under the day it was applied, verified or ratified.",
 ];

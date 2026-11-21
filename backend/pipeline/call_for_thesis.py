@@ -53,7 +53,7 @@ def call_for_thesis(
 
     It is exactly ``assemble_from_pit(pit, thesis, asof, cfg)`` over ``load_call_inputs(...)`` plus the
     optional record — the input half is its own function so a DIAGNOSTIC caller can assemble twice over ONE
-    prefetched view (``pipeline.annotate_phantom_arms``); this funnel's behavior is unchanged by that split.
+    prefetched view; this funnel's behavior is unchanged by that split.
 
     ``decisions_asof`` (F1, the SERVE path's live view only — ``domain.market_time.serve_decisions_asof``): read
     the operator's decisions log up to that day instead of ``asof``. ``None`` (every other caller: the nightly,
@@ -102,7 +102,7 @@ def load_call_inputs(
     ``(thesis, pit)``; ``assemble_from_pit(pit, thesis, asof, cfg)`` over them IS the call. Raises
     ``LookupError`` for an unknown thesis.
 
-    Split out (D3b) so ``pipeline.annotate_phantom_arms`` can run its D3a-off and D3a-on re-assemblies over
+    Split out (D3b) so a diagnostic can run two re-assemblies over
     ONE view — the PIT memo makes the second assembly cost no further DB reads — while still reading
     through exactly this funnel. The live callers (serve, the cron, the backfill, ``pipeline.run``) go
     through ``call_for_thesis`` and are unchanged.
@@ -136,7 +136,7 @@ def load_call_inputs(
     # THE TWO TENANT SCOPES (docs/TENANT_SCOPES.md): a thesis lives in exactly one WORKSPACE (its tenant_id),
     # and the facts it calls on live in the shared DATA tenant. The pit reads each table through the one map
     # (``domain.scopes.tenants_for``): a DATA table from ``DATA_TENANT_ID``, a WORKSPACE table from the thesis's
-    # workspace, a MIXED table (the ratified scoring facts) from both. The call-of-record write stays the
+    # workspace (one tenant per table since V2: no union). The call-of-record write stays the
     # thesis's workspace (``call_for_thesis`` above). Pass the workspace explicitly: the column is NOT NULL, so a
     # loaded thesis's tenant_id is non-None; never `or DEFAULT` here, so a None surfaces as a bug.
     # The resolved basket is the PIT's PREFETCH scope (one query per fact table for the whole thesis)

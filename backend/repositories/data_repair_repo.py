@@ -15,8 +15,7 @@ Hooked (each tool's ``main`` journals its ``--apply`` / ``--revoke``; ``--execut
 ``repair_adr_insider_misattribution``, ``repair_impossible_txn_dates`` (deletes), ``repair_catalyst_dates``
 (deletes), ``backfill_accepted``, ``backfill_aff10b5_1``, ``backfill_insider_holds`` (it writes held rows
 to ``insider_txn_hold`` and changes no fact, so the trial it starts should find no change). Not hooked: what only
-touches ``calls`` (``annotate_phantom_arms``, ``annotate_no_session_rows``,
-``repair_reconstructed_precreation``, ``pipeline.backfill``),
+touches ``calls`` (``pipeline.backfill``),
 ordinary nightly data flow (``detect_splits``), and ``split_repair`` (a pure module, no CLI — its writer is
 ``repair_split_basis``).
 
@@ -25,7 +24,7 @@ Self-contained: psycopg only, so a repair CLI in the lean image can journal with
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -139,13 +138,22 @@ def _jsonable(x: Any) -> Any:
 
 
 def pending(
-    conn: psycopg.Connection, *, tenant_id: UUID, after: datetime, through: datetime | None = None
+    conn: psycopg.Connection,
+    *,
+    tenant_ids: Sequence[UUID],
+    after: datetime,
+    through: datetime | None = None,
 ) -> list[RepairRow]:
-    """The tenant's journaled repairs applied after ``after`` (and at or before ``through`` when given),
-    oldest first — every row, a zero-change one included (the caller decides what starts a trial).
+    """The journaled repairs under any of ``tenant_ids`` applied after ``after`` (and at or before ``through``
+    when given), oldest first — every row, a zero-change one included (the caller decides what starts a
+    trial). The editions cut passes its workspace AND the data tenant: every repair CLI journals under the data
+    tenant (the data every workspace reads), so a workspace-only read would never see one (V2 W8a).
     """
-    sql = "SELECT * FROM data_repair WHERE tenant_id = %s AND applied_at > %s"
-    params: list[Any] = [tenant_id, after]
+    ids = list(dict.fromkeys(UUID(str(t)) for t in tenant_ids))
+    if not ids:
+        raise ValueError("pending needs at least one tenant")
+    sql = "SELECT * FROM data_repair WHERE tenant_id = ANY(%s) AND applied_at > %s"
+    params: list[Any] = [ids, after]
     if through is not None:
         sql += " AND applied_at <= %s"
         params.append(through)

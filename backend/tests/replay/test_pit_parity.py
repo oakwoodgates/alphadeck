@@ -51,6 +51,13 @@ def _canon(v):
     return v
 
 
+def _members(rows):
+    """``security_ids`` on one footing (a Postgres ``uuid[]`` live, a decoded JSON list of str in the mirror)."""
+    from repositories.thesis_catalyst_repo import members_of
+
+    return [{**r, "security_ids": members_of(r["security_ids"])} for r in rows]
+
+
 def _match(live_rows, replay_rows, identity):
     """Assert the live and replay accessor returns are equal: same identity set, the live row's keys are a
     SUBSET of the replay row's (a dropped column FAILS the gate), and every shared key matches normalized.
@@ -328,10 +335,10 @@ def test_replay_pit_matches_postgres_as_of(db, tmp_path):
                     _FACT_IDENTITY["fact_activist_stake"],
                 )
             for tid in theses:
-                _match(
-                    live.theme_conviction_facts(tid),
-                    rep.theme_conviction_facts(tid),
-                    _FACT_IDENTITY["fact_theme_conviction"],
+                _match(  # V2 W6c: the thesis-scoped call read (it replaced theme_conviction_facts)
+                    _members(live.thesis_catalyst_facts(tid)),
+                    _members(rep.thesis_catalyst_facts(tid)),
+                    _FACT_IDENTITY["fact_thesis_catalyst"],
                 )
     finally:
         con.close()

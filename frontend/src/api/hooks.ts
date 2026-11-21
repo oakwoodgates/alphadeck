@@ -6,11 +6,10 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 
 import { api } from "./client";
 import { MONITOR_STALE_MS } from "./queryClient";
-import { refusalText } from "./refusals";
 import type { components } from "./types.gen";
 
 // Refresh every cross-card dashboard read after a write that can change what one shows. A PREFIX
@@ -53,7 +52,6 @@ export type ExtractedFact = components["schemas"]["ExtractedFact"];
 // states are distinct ("no-annual-filing" = genuinely nothing on EDGAR; "cover-not-located" = an
 // annual filing exists but its cover couldn't be read: UNREAD, not empty)
 export type ExtractionResult = components["schemas"]["ExtractionResult"];
-export type AutoConfirmOut = components["schemas"]["AutoConfirmOut"];
 export type LocatedPassage = components["schemas"]["LocatedPassage"];
 export type FlagExplanationOut = components["schemas"]["FlagExplanationOut"];
 // the ratify body is a discriminated union (one variant per fact type)
@@ -613,7 +611,6 @@ export type ScoreboardThesisOut = components["schemas"]["ScoreboardThesisOut"];
 export type ScoreboardEpisodeOut = components["schemas"]["ScoreboardEpisodeOut"];
 export type TransitionOut = components["schemas"]["TransitionOut"];
 export type ScoreboardMetricOut = components["schemas"]["ScoreboardMetricOut"];
-export type AnnotatedNightOut = components["schemas"]["AnnotatedNightOut"];
 export type LateNightOut = components["schemas"]["LateNightOut"];
 export type EpisodeOperatorOut = components["schemas"]["EpisodeOperatorOut"];
 export type OperatorSpanOut = components["schemas"]["OperatorSpanOut"];
@@ -635,22 +632,20 @@ export type ActivistStakeOut = components["schemas"]["ActivistStakeOut"];
 
 // ONE aggregate GET (cross-thesis is the Scoreboard's nature — deliberately not a useCalls-style
 // fan-out). Read-only on the server; archived theses ride by default (the record is not erased).
-// `includeAnnotated` (D3b) picks the annotated-night READING: null = the server's policy (the param is
-// not sent at all), true = score the phantom-arm nights, false = set them aside. It is part of the key,
-// so both readings cache side by side and flipping back is instant. `includeLate` (L1) is the same
-// tri-state for the late-night reading (rows recorded after their night's next EDGAR open).
+// `includeLate` (L1) picks the late-night READING (rows recorded after their night's next EDGAR open):
+// null = the server's policy (the param is not sent at all), true = score them, false = set them aside.
+// It is part of the key, so both readings cache side by side and flipping back is instant.
 // `edition` (editions S4) picks WHICH edition is scored: null = the server's default edition (the param is
 // not sent), 0 = the original record (the calls log), N >= 1 = the stored re-run Edition N. Part of the key,
 // so switching editions back and forth is instant once each has loaded.
 export function useScoreboard(
   asof: string,
   includeArchived = true,
-  includeAnnotated: boolean | null = null,
   includeLate: boolean | null = null,
   edition: number | null = null,
 ) {
   return useQuery({
-    queryKey: ["scoreboard", asof, includeArchived, includeAnnotated, includeLate, edition] as const,
+    queryKey: ["scoreboard", asof, includeArchived, includeLate, edition] as const,
     enabled: Boolean(asof),
     // the record changes at the nightly pass (the daily-run job invalidates ["scoreboard"]) and on a logged decision (now invalidated too)
     staleTime: MONITOR_STALE_MS,
@@ -660,7 +655,6 @@ export function useScoreboard(
           query: {
             asof,
             include_archived: includeArchived,
-            ...(includeAnnotated === null ? {} : { include_annotated: includeAnnotated }),
             ...(includeLate === null ? {} : { include_late: includeLate }),
             ...(edition === null ? {} : { edition }),
           },
@@ -1097,108 +1091,6 @@ export function useSetBusinessType() {
   });
 }
 
-// Ask the server to auto-apply ONE name's AUTO shares count. No value crosses the wire — the server
-// re-extracts, gates on tier===AUTO, and writes its own parse (the #3 structural bound). Shared by the
-// per-name get-data (`useAutoConfirmShares`) and the section runner, so "get data" means the same thing
-// from both entry points.
-async function postAutoConfirmShares(securityId: string): Promise<AutoConfirmOut> {
-  const { data, error } = await api.POST("/workbench/facts/auto-confirm", {
-    body: { security_id: securityId, fact_type: "shares_outstanding" as const },
-  });
-  if (error) throw error;
-  return data;
-}
-
-export interface SectionDataReport {
-  total: number;
-  pricesOk: number;
-  extractsOk: number;
-  // how many names had their AUTO shares count applied by the machine this run — surfaced in the report so a
-  // fact the operator didn't type is never written silently (#6)
-  sharesAuto: number;
-  failures: { ticker: string; what: string }[];
-  // the API's own refusal when a leg was refused (security hardening PR 1b: a name not on your cards, or today's
-  // allowance spent), worded as the API words it, so the screen shows WHY rather than only "failed"; absent else
-  refusal?: string;
-}
-
-// The SECTION runner — gate 2 at value-chain-section granularity: for every member the caller passes
-// (the ACTIVE section — a slice of the saved shortlist, never the draft), pull prices (incremental,
-// cache-first server-side) and prefetch the extract into the SAME query the rows + rail observe. An
-// already-fetched extract is not re-spent (client cache checked).
-//
-// It EXTRACTS-AND-PROPOSES, with ONE exception: an AUTO (unflagged) shares count is auto-applied, the same
-// as the per-name get-data (see `useAutoConfirmShares`) — that confirm was ceremonial, never a verification.
-// Everything that needs judgment still stages for the operator: purity stays HUMAN, cash_burn is a manual
-// ratify, and a FLAGged shares count (dual-class / stale-cover) is declined by the server.
-export function useSectionData(thesisId: string) {
-  const qc = useQueryClient();
-  const [running, setRunning] = useState(false);
-  const [report, setReport] = useState<SectionDataReport | null>(null);
-
-  const run = async (members: { security_id: string; ticker?: string | null }[]) => {
-    setRunning(true);
-    setReport(null);
-    const outcomes = await Promise.all(
-      members.map(async (m) => {
-        const [px, ex] = await Promise.allSettled([
-          postIngestPrices(m.security_id),
-          qc.getQueryData(["workbench-extract", m.security_id, thesisId ?? null]) !== undefined
-            ? Promise.resolve("cached" as const) // cache-first client-side too — never re-spend a fetch
-            : qc.fetchQuery(extractQueryOptions(m.security_id, thesisId)),
-        ]);
-        // Auto-apply the AUTO shares count. Read the candidates from the cache so this covers the fetched
-        // AND the already-cached member alike; a rejected extract leaves it undefined -> we skip. The tier
-        // check just avoids a pointless call (the server re-verifies and owns the number), and a failure is
-        // swallowed: the section run must never break because a convenience write didn't land. An
-        // annual-cover name can never take this branch — its shares candidate is ALWAYS "flag".
-        let sharesAuto = false;
-        const cands = qc.getQueryData<ExtractionResult>([
-          "workbench-extract",
-          m.security_id,
-          thesisId ?? null,
-        ]);
-        if (cands?.facts?.find((f) => f.fact_type === "shares_outstanding")?.tier === "auto") {
-          try {
-            sharesAuto = (await postAutoConfirmShares(m.security_id)).applied;
-          } catch {
-            sharesAuto = false;
-          }
-        }
-        return { ticker: m.ticker ?? m.security_id.slice(0, 8), px, ex, sharesAuto };
-      }),
-    );
-    const failures: SectionDataReport["failures"] = [];
-    let refusal: string | null = null;
-    for (const o of outcomes) {
-      if (o.px.status === "rejected") failures.push({ ticker: o.ticker, what: "price" });
-      if (o.ex.status === "rejected") failures.push({ ticker: o.ticker, what: "extract" });
-      for (const leg of [o.px, o.ex]) {
-        if (leg.status === "rejected") refusal = refusal ?? refusalText(leg.reason);
-      }
-    }
-    setReport({
-      total: members.length,
-      pricesOk: outcomes.filter((o) => o.px.status === "fulfilled").length,
-      extractsOk: outcomes.filter((o) => o.ex.status === "fulfilled").length,
-      sharesAuto: outcomes.filter((o) => o.sharesAuto).length,
-      failures,
-      ...(refusal ? { refusal } : {}),
-    });
-    setRunning(false);
-    // ONE re-derive after the whole section lands (caps compute where shares are already ratified).
-    // The run pulls PRICES for every member, so it is the same write class as useIngestPrices — the
-    // call and the display tape re-derive too, or the MONITOR window would serve a card computed
-    // before the section's bars landed (PR-1a invalidation audit).
-    qc.invalidateQueries({ queryKey: ["workbench-scored"] });
-    qc.invalidateQueries({ queryKey: ["call"] });
-    qc.invalidateQueries({ queryKey: ["display-signals"] });
-    invalidateDashboards(qc);
-  };
-
-  return { run, running, report, reset: () => setReport(null) };
-}
-
 // The narrative -> chain drafter (S5, the SECOND LLM seam) — now a KICK-OFF + POLL job (the draft takes minutes;
 // held open as one request it 504'd at the proxy while the backend kept billing). `useStartDraft` POSTs and gets
 // a job_id back (202); `useDraftJobStatus` polls for the result. Response-only: the job returns a draft and
@@ -1481,30 +1373,6 @@ export function useRatifyFact() {
   });
 }
 
-// Auto-apply a name's AUTO (unflagged) shares count — fired after get-data, for ONE name. It REMOVES a
-// ceremonial confirm: nobody independently knows a share count, so clicking "Confirm" on the extractor's
-// single-class cover figure only rubber-stamped it (while recording `ratified_by="operator"`). The server
-// re-extracts, gates on tier===AUTO, writes its OWN parse as `ratified_by="auto"`, and no-ops if any shares
-// fact is already on file (idempotent + never clobbers an operator override). We send NO value — the client
-// cannot inject a number under the auto provenance. A FLAGged name declines (`applied:false`) and stays the
-// operator's to ratify. `retry:false` + non-throwing at the call sites: a failed auto-apply is a missing
-// convenience, never a blocked get-data.
-export function useAutoConfirmShares() {
-  const qc = useQueryClient();
-  return useMutation({
-    retry: false,
-    mutationFn: postAutoConfirmShares,
-    onSuccess: (d) => {
-      if (!d?.applied) return; // declined (flagged / already on file) — nothing moved, nothing to refresh
-      qc.invalidateQueries({ queryKey: ["workbench-scored"] }); // the cap + funnel re-derive
-      qc.invalidateQueries({ queryKey: ["call"] }); // a shares fact can complete a cap -> the call
-      // NOT display-signals — same reason as useRatifyFact: `fact_shares_outstanding` feeds no
-      // display member (`etf_flow` reads the separate `fact_fund_shares` table).
-      invalidateDashboards(qc);
-    },
-  });
-}
-
 // --- spine-list authoring: the catalyst SURFACE + kill criteria (sole-writer endpoints) ---
 
 export function usePutCatalysts(thesisId: string) {
@@ -1525,6 +1393,33 @@ export function usePutCatalysts(thesisId: string) {
     },
   });
 }
+
+// --- V2 W6d: make a calendar row COUNT toward the call (the counting route) ---
+// One PUT per statement: switch on / change / switch off. The server answers the saved ThesisDetail, which replaces
+// the cached one; the card's call read is invalidated so it re-renders. The body is exactly CatalystCountingIn
+// (the server refuses any other key).
+export type CatalystCountingIn = components["schemas"]["CatalystCountingIn"];
+export type CatalystCountingOut = components["schemas"]["CatalystCountingOut"];
+
+export function useCatalystCounting(thesisId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (v: { entryId: string; body: CatalystCountingIn }) => {
+      const { data, error } = await api.PUT("/theses/{thesis_id}/catalysts/{entry_id}/counting", {
+        params: { path: { thesis_id: thesisId, entry_id: v.entryId } },
+        body: v.body,
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (data) => {
+      qc.setQueryData(["thesis", thesisId], data); // the server's answer IS the saved card
+      qc.invalidateQueries({ queryKey: ["call", thesisId] }); // the call re-reads
+      invalidateDashboards(qc);
+    },
+  });
+}
+// --- end V2 W6d ---
 
 // --- the SPAC Radar (slices 1+2): the tape read + the reversible act-ons ---
 
@@ -1622,8 +1517,9 @@ export function useFundLaunches(thesisId: string, asof: string, days = 90) {
 }
 
 // add to ETFs ⇄ remove: the operator's click on the radar's recommendation (#10), reversible (#1).
-// The server files the fund in the card's ETFs link (a silent link: it never counts toward the call); the
-// caller pulls prices afterwards with useIngestPrices on the returned security_id, as Surface an ETF does.
+// The server files the fund in the card's ETFs link (a silent link: it never counts toward the call) and, on an
+// add, starts the fund's data load the way a promote does (V2 W7b): the answer's `ingest` (loading now) or
+// `onboarding` (queued). The caller pulls no prices (the price pull is the steward's).
 export function useFundAttach() {
   const qc = useQueryClient();
   return useMutation({
@@ -1659,6 +1555,7 @@ export function useSpacCatalyst() {
       });
       if (detail.error) throw detail.error;
       const current: CatalystIn[] = (detail.data?.catalysts ?? []).map((c) => ({
+        id: c.id, // V2 W6b: keep each row's identity (a counting entry is keyed by it)
         label: c.label,
         kind: c.kind ?? null,
         when_date: c.when_date ?? null,
@@ -2135,6 +2032,382 @@ export function useRevokeHoldDecision() {
   });
 }
 
+// --- Shared facts (V2 W4b): the steward's company page — a company's share count and cash/burn ---
+// One read per company (the two values, their evidence, versions, candidates and decisions) and the six writes. Each
+// write is fired ONLY by an explicit click with a visible way back on the page (Approve / Correct / Dismiss ⇄ Undo,
+// Pin ⇄ Unpin), retry:false — a decision is never auto-retried. Every write answers the company's NEW values, which
+// replace the cached read at once; a refusal (404 / 409 / 422) re-reads the company instead, so the page shows where
+// the server has it, never an optimistic guess. A write can change every meter, so the scored reads and the
+// dashboards refresh too, and so does the queue (PR 3) and the status card.
+export type CompanyValuesOut = components["schemas"]["CompanyValuesOut"];
+export type PlatformValueOut = components["schemas"]["PlatformValueOut"];
+export type PlatformCandidateOut = components["schemas"]["PlatformCandidateOut"];
+export type PlatformDecisionOut = components["schemas"]["PlatformDecisionOut"];
+// --- the user's read of the shared values, and the flag (V2 W5e) -------------------------------------------------
+// A company's share count and cash/burn are PLATFORM values: shared, set by the platform or approved by the steward.
+// A plain user reads them with a state (GET /platform-values/...) and never writes them; one that looks wrong is
+// FLAGGED to the steward (POST /value-flags), which changes nothing but tells the steward.
+
+export type UserValueOut = components["schemas"]["UserValueOut"];
+export type UserCompanyValuesOut = components["schemas"]["UserCompanyValuesOut"];
+export type UserThesisValuesOut = components["schemas"]["UserThesisValuesOut"];
+export type MyFlagOut = components["schemas"]["MyFlagOut"];
+export type ValueFlagIn = components["schemas"]["ValueFlagIn"];
+export type ValueFlagOut = components["schemas"]["ValueFlagOut"];
+export type ValueFlagListOut = components["schemas"]["ValueFlagListOut"];
+
+/** The prefix of every user read of the shared values (company and thesis): one key to refresh or clear. */
+export const PLATFORM_VALUES_KEY = "platform-values";
+/** The prefix of the user's own flag list. */
+export const VALUE_FLAGS_KEY = "value-flags";
+
+/** One company's two shared values as the signed-in user reads them (state, who set it, the filing, their own flag).
+ *  CURRENT: there is no as-of. Not `useCompanyValues`, which is the steward's admin read. */
+export function useUserCompanyValues(securityId: string | undefined) {
+  return useQuery({
+    queryKey: [PLATFORM_VALUES_KEY, "company", securityId ?? ""] as const,
+    enabled: !!securityId,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/platform-values/{security_id}", {
+        params: { path: { security_id: securityId as string } },
+      });
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+/** Both values of every company on one of the user's cards, in basket order (one read for the whole card). */
+export function useUserThesisValues(thesisId: string | undefined) {
+  return useQuery({
+    queryKey: [PLATFORM_VALUES_KEY, "thesis", thesisId ?? ""] as const,
+    enabled: !!thesisId,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/platform-values/theses/{thesis_id}", {
+        params: { path: { thesis_id: thesisId as string } },
+      });
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+/** The user's own flags, open first then the newest closed, paged (limit 1-100, offset 0-100,000). */
+export function useMyFlags(limit = 50, offset = 0) {
+  return useQuery({
+    queryKey: [VALUE_FLAGS_KEY, limit, offset] as const,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/value-flags", { params: { query: { limit, offset } } });
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+// A flag changes no value; it changes what the user's own read says (`my_flag`) and their flag list. A refusal (409:
+// the state moved) re-reads too, so the screen shows where the server is. The error body is thrown as it came: its
+// `detail` is the server's sentence (403, 404, 409, 429) and the screen shows it.
+function useFlagInvalidation() {
+  const qc = useQueryClient();
+  return () => {
+    qc.invalidateQueries({ queryKey: [PLATFORM_VALUES_KEY] });
+    qc.invalidateQueries({ queryKey: [VALUE_FLAGS_KEY] });
+  };
+}
+
+/** Raise a flag on one value of a company on one of the user's cards (never for the steward: 403). */
+export function useRaiseFlag() {
+  const refresh = useFlagInvalidation();
+  return useMutation({
+    retry: false,
+    mutationFn: async (body: ValueFlagIn) => {
+      const { data, error } = await api.POST("/value-flags", { body });
+      if (error) throw error;
+      return data;
+    },
+    onSettled: refresh,
+  });
+}
+
+/** Withdraw the user's own open flag (the inverse of raising it; the allowance unit is not given back). */
+export function useWithdrawFlag() {
+  const refresh = useFlagInvalidation();
+  return useMutation({
+    retry: false,
+    mutationFn: async (vars: { flagId: string }) => {
+      const { data, error } = await api.POST("/value-flags/{flag_id}/withdraw", {
+        params: { path: { flag_id: vars.flagId } },
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSettled: refresh,
+  });
+}
+
+export type PlatformVersionOut = components["schemas"]["PlatformVersionOut"];
+export type PlatformAppliedValueOut = components["schemas"]["PlatformAppliedValueOut"];
+export type PlatformCorrectIn =
+  | components["schemas"]["PlatformCorrectSharesIn"]
+  | components["schemas"]["PlatformCorrectCashBurnIn"];
+export type PlatformFactType = "shares_outstanding" | "cash_burn";
+
+const companyValuesKey = (securityId: string) => ["admin-platform-values", securityId] as const;
+
+export function useCompanyValues(securityId: string | undefined) {
+  return useQuery({
+    queryKey: companyValuesKey(securityId ?? "") as readonly unknown[],
+    enabled: !!securityId,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/admin/platform-values/{security_id}", {
+        params: { path: { security_id: securityId as string } },
+      });
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+export type PlatformQueueOut = components["schemas"]["PlatformQueueOut"];
+export type PlatformQueueItemOut = components["schemas"]["PlatformQueueItemOut"];
+export type PlatformQueueValueOut = components["schemas"]["PlatformQueueValueOut"];
+export type PlatformQueuePen = "after" | "only" | "exclude";
+const PLATFORM_QUEUE_PAGE = 50;
+
+// The steward's queue (the Shared facts card on Admin): the companies with a share count or cash/burn awaiting a
+// decision, in the server's order, fifty to a page. A READ only, steward-only (the card is mounted for a steward
+// alone, so a plain user fires no request). `pen`: "exclude" the companies that sit only in a Discovered pen, "only"
+// those, "after" all with the pen-only ones last. `enabled` lets the quiet pen-only list wait until it is opened.
+// The company page's writes invalidate ["admin-platform-queue"], so every page and pen setting refreshes together.
+export function usePlatformQueue(offset: number, pen: PlatformQueuePen, enabled = true) {
+  return useQuery({
+    queryKey: ["admin-platform-queue", offset, pen] as const,
+    enabled,
+    placeholderData: keepPreviousData,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/admin/platform-values/queue", {
+        params: { query: { limit: PLATFORM_QUEUE_PAGE, offset, pen } },
+      });
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+function usePlatformAction<TVars extends { securityId: string }, TOut = CompanyValuesOut>(
+  fn: (vars: TVars) => Promise<TOut | undefined>,
+  companyOf: (out: TOut) => CompanyValuesOut = (out) => out as unknown as CompanyValuesOut,
+) {
+  const qc = useQueryClient();
+  return useMutation({
+    retry: false,
+    mutationFn: fn,
+    onSuccess: (data, vars) => {
+      if (data) qc.setQueryData(companyValuesKey(vars.securityId), companyOf(data));
+      qc.invalidateQueries({ queryKey: ["admin-platform-queue"] });
+      qc.invalidateQueries({ queryKey: ["admin-status"] });
+      qc.invalidateQueries({ queryKey: ["workbench-scored"] });
+      // the user's read of the same value (the steward sees it in the Workbench block too)
+      qc.invalidateQueries({ queryKey: [PLATFORM_VALUES_KEY] });
+      invalidateDashboards(qc);
+    },
+    // a 409 means the server's state moved: re-read the company to where the server has it
+    onError: (_e, vars) => {
+      qc.invalidateQueries({ queryKey: companyValuesKey(vars.securityId) });
+    },
+  });
+}
+
+type ActionVars = { securityId: string; factType: PlatformFactType };
+const noteBody = (note?: string) => (note?.trim() ? { note: note.trim() } : {});
+
+// APPROVE a flagged candidate: its own stored value becomes the company's value (the optional note rides along).
+export function useApproveCandidate() {
+  return usePlatformAction(async (vars: ActionVars & { candidateId: string; note?: string }) => {
+    const { data, error } = await api.POST("/admin/platform-values/candidates/{candidate_id}/approve", {
+      params: { path: { candidate_id: vars.candidateId } },
+      body: noteBody(vars.note),
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
+// CORRECT: the steward's own value, typed (the body's `fact_type` picks the shares or the cash/burn shape).
+export function useCorrectValue() {
+  return usePlatformAction(async (vars: { securityId: string; body: PlatformCorrectIn }) => {
+    const { data, error } = await api.POST("/admin/platform-values/{security_id}/correct", {
+      params: { path: { security_id: vars.securityId } },
+      body: vars.body,
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
+// DISMISS a candidate (a reason is required — the server 422s a blank one).
+export function useDismissCandidate() {
+  return usePlatformAction(async (vars: ActionVars & { candidateId: string; reason: string }) => {
+    const { data, error } = await api.POST("/admin/platform-values/candidates/{candidate_id}/dismiss", {
+      params: { path: { candidate_id: vars.candidateId } },
+      body: { reason: vars.reason.trim() },
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
+// UNDO a standing decision. An undo cannot itself be undone (the server says so); the way back is to decide again.
+export function useUndoDecision() {
+  return usePlatformAction(async (vars: ActionVars & { decisionId: string; reason?: string }) => {
+    const { data, error } = await api.POST("/admin/platform-values/decisions/{decision_id}/undo", {
+      params: { path: { decision_id: vars.decisionId } },
+      body: reasonBody(vars.reason),
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
+// PIN: new filings for this value wait for the steward instead of being applied. UNPIN is its way back.
+export function usePinValue() {
+  return usePlatformAction(async (vars: ActionVars & { note?: string }) => {
+    const { data, error } = await api.POST("/admin/platform-values/{security_id}/pin", {
+      params: { path: { security_id: vars.securityId } },
+      body: { fact_type: vars.factType, ...noteBody(vars.note) },
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
+export function useUnpinValue() {
+  return usePlatformAction(async (vars: ActionVars & { note?: string }) => {
+    const { data, error } = await api.POST("/admin/platform-values/{security_id}/unpin", {
+      params: { path: { security_id: vars.securityId } },
+      body: { fact_type: vars.factType, ...noteBody(vars.note) },
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
+// EXTRACT NOW (W4d): read the company's latest SEC filings through background extraction's own per-company step
+// (the server records one attempt). Fired ONLY by a click, retry:false (each click costs SEC requests). It is not a
+// steward decision, so it has no Undo: a value it applies is the machine's, the same one the nightly would apply, and
+// the way back is Correct (Pin keeps later filings waiting); a flagged value waits for Approve / Dismiss. The answer
+// carries what happened per value type (`attempt`) and the company's new values (`company`), which replace the
+// cached read; the same refreshes as every steward write.
+export type PlatformExtractOut = components["schemas"]["PlatformExtractOut"];
+export type PlatformExtractAttemptOut = components["schemas"]["PlatformExtractAttemptOut"];
+export type PlatformExtractValueOut = components["schemas"]["PlatformExtractValueOut"];
+export type PlatformExtractionAttemptOut = components["schemas"]["PlatformExtractionAttemptOut"];
+
+export function useExtractNow() {
+  return usePlatformAction(
+    async (vars: { securityId: string }) => {
+      const { data, error } = await api.POST("/admin/platform-values/{security_id}/extract", {
+        params: { path: { security_id: vars.securityId } },
+      });
+      if (error) throw error;
+      return data;
+    },
+    (out: PlatformExtractOut) => out.company,
+  );
+}
+
+// --- User flags on a platform value (W5f): the steward closes a flag and reopens one it closed ---
+// CLOSE: `fixed` names the steward's own standing approve or correct (`decisionId`), `kept` needs a note the user
+// reads (the server refuses a blank one). REOPEN is its inverse: a NEW open flag naming the closed one. Both answer
+// the company's new state (CompanyValuesOut), which REPLACES the cached company read; the paged older closed flags
+// (their own reads) and the queue (its open-flag count), the status and the user-side value reads are re-read. A 409
+// means the server's state moved: the company is re-read to where the server has it. retry:false: never auto-retried.
+export type PlatformUserFlagOut = components["schemas"]["PlatformUserFlagOut"];
+export type PlatformUserFlagsOut = components["schemas"]["PlatformUserFlagsOut"];
+
+function useFlagAction<TVars extends { securityId: string }>(fn: (vars: TVars) => Promise<CompanyValuesOut | undefined>) {
+  const qc = useQueryClient();
+  return useMutation({
+    retry: false,
+    mutationFn: fn,
+    onSuccess: (data, vars) => {
+      // the older closed pages are stale (a close or reopen moves flags between the lists): drop them first, then
+      // put the answer where the company read lives
+      qc.invalidateQueries({ queryKey: [...companyValuesKey(vars.securityId), "closed-flags"] });
+      if (data) qc.setQueryData(companyValuesKey(vars.securityId), data);
+      qc.invalidateQueries({ queryKey: ["admin-platform-queue"] });
+      qc.invalidateQueries({ queryKey: ["admin-status"] });
+      qc.invalidateQueries({ queryKey: [PLATFORM_VALUES_KEY] });
+    },
+    onError: (_e, vars) => {
+      qc.invalidateQueries({ queryKey: companyValuesKey(vars.securityId) });
+    },
+  });
+}
+
+export function useCloseFlag() {
+  return useFlagAction(
+    async (vars: {
+      securityId: string;
+      flagId: string;
+      outcome: "fixed" | "kept";
+      note?: string;
+      decisionId?: string;
+    }) => {
+      const { data, error } = await api.POST("/admin/platform-values/flags/{flag_id}/close", {
+        params: { path: { flag_id: vars.flagId } },
+        body: {
+          outcome: vars.outcome,
+          ...noteBody(vars.note),
+          ...(vars.decisionId ? { decision_id: vars.decisionId } : {}),
+        },
+      });
+      if (error) throw error;
+      return data;
+    },
+  );
+}
+
+export function useReopenFlag() {
+  return useFlagAction(async (vars: { securityId: string; flagId: string }) => {
+    const { data, error } = await api.POST("/admin/platform-values/flags/{flag_id}/reopen", {
+      params: { path: { flag_id: vars.flagId } },
+    });
+    if (error) throw error;
+    return data;
+  });
+}
+
+// The closed flags past the first page, for "Show older": `extraPages` more pages of `limit` each, read through the
+// company read's `flags_offset` / `flags_limit` (page 0 is the company read itself). Rows come back newest closed
+// first, page after page; a page the server could not answer sets `isError`/`error` and the rest still show.
+export function useClosedFlagPages(securityId: string, extraPages: number, limit: number) {
+  const pages = Array.from({ length: Math.max(0, extraPages) }, (_, i) => (i + 1) * limit);
+  const results = useQueries({
+    queries: pages.map((offset) => ({
+      queryKey: [...companyValuesKey(securityId), "closed-flags", offset, limit] as readonly unknown[],
+      queryFn: async () => {
+        const { data, error } = await api.GET("/admin/platform-values/{security_id}", {
+          params: {
+            path: { security_id: securityId },
+            query: { flags_offset: offset, flags_limit: limit },
+          },
+        });
+        if (error) throw error;
+        return data?.flags?.closed ?? [];
+      },
+    })),
+  });
+  const rows: PlatformUserFlagOut[] = results.flatMap((r) => r.data ?? []);
+  const failed = results.find((r) => r.isError);
+  return {
+    rows,
+    isFetching: results.some((r) => r.isFetching),
+    isError: failed != null,
+    error: failed?.error ?? null,
+  };
+}
+
 // --- Splits (split plan S1): the operator's ratification of the split list ---
 // Its own read (the split list, live) and its WRITES, each fired ONLY by an explicit click with a visible
 // inverse (Confirm ⇄ Revoke, Reject / Revoke ⇄ Restore). Every write names the version it acts on, so a stale
@@ -2404,6 +2677,25 @@ export function useBacktestSweep(
       });
       if (error) throw error;
       return data;
+    },
+  });
+}
+
+// --- the record's start (W8c) ---------------------------------------------------------------------------------
+/** The first night on the signed-in workspace's record (GET /record/start): a YYYY-MM-DD date, or `null` before
+ *  its first nightly call. A newer workspace's record starts with that call, so a history dashboard says so on an empty page
+ *  (the shared `RecordStartNote`). The value changes at most once (when the first night is recorded), so it
+ *  keeps the monitor reads' stale time; sign-out clears it with the rest of the cache. */
+export const RECORD_START_KEY = ["record-start"] as const;
+
+export function useRecordStart() {
+  return useQuery({
+    queryKey: RECORD_START_KEY,
+    staleTime: MONITOR_STALE_MS,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/record/start");
+      if (error) throw error;
+      return data.first_night;
     },
   });
 }

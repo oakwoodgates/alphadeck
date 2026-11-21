@@ -1,0 +1,62 @@
+{
+ "_fixture": "RECONSTRUCTED from the 2026-11-15 annual audit and plan, not copied from EDGAR. us-gaap, CNY plus the USD convenience unit. Recorded by the plan (finding 6): CNY cash 47,167,904,000 and USD cash 6,744,921,000 at 2025-12-31; the audit records operating cash flow 50,739,800,000 (yuan). Reconstructed: the USD operating cash flow 7,255,695,000 (the audit says 'about 7.26B'), the accession and filed date.",
+ "entityName": "NTES",
+ "facts": {
+  "us-gaap": {
+   "CashAndCashEquivalentsAtCarryingValue": {
+    "units": {
+     "CNY": [
+      {
+       "end": "2025-12-31",
+       "val": 47167904000,
+       "accn": "0001104659-26-043468",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-04-20"
+      }
+     ],
+     "USD": [
+      {
+       "end": "2025-12-31",
+       "val": 6744921000,
+       "accn": "0001104659-26-043468",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-04-20"
+      }
+     ]
+    }
+   },
+   "NetCashProvidedByUsedInOperatingActivities": {
+    "units": {
+     "CNY": [
+      {
+       "start": "2025-01-01",
+       "end": "2025-12-31",
+       "val": 50739800000,
+       "accn": "0001104659-26-043468",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-04-20"
+      }
+     ],
+     "USD": [
+      {
+       "start": "2025-01-01",
+       "end": "2025-12-31",
+       "val": 7255695000,
+       "accn": "0001104659-26-043468",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-04-20"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

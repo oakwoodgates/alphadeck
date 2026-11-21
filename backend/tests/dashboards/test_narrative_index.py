@@ -628,3 +628,33 @@ def test_a_price_published_after_a_past_asof_stays_invisible(db, monkeypatch):
     assert live_detail["card"]["flagged"] == lc["flagged"]
     (uc,) = [x for x in unflagged["cards"] if x["thesis_id"] == str(thesis.id)]
     assert uc["points"][-1] / uc["points"][-2] == pytest.approx(31.8 / 15.8, rel=1e-4)
+
+
+def test_db_an_empty_log_is_an_honest_empty_page(db):
+    """After the reset: a live card on a name with no bar and no call on the record. The card keeps its row
+    with no state and no return (never a flat 0%), and the page answers 200 (W8a, the empty-log check).
+    """
+    sid = _security(db, "NEMP")
+    thesis = Thesis(
+        id=uuid.uuid4(),
+        tenant_id=DEFAULT_TENANT_ID,
+        name="Empty log fixture",
+        narrative="x",
+        segments=[Segment(label="Core")],
+        basket=[BasketMember(ticker="NEMP", role="the name", security_id=sid, segment="Core")],
+    )
+    thesis_repo.upsert(db, thesis)
+    db.commit()
+    CACHE.clear()
+    app.dependency_overrides[get_conn] = lambda: db
+    try:
+        r = TestClient(app).get(
+            "/dashboards/narrative-index",
+            params={"asof": market_today().isoformat(), "window": "30d"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+        CACHE.clear()
+    assert r.status_code == 200, r.text
+    (c,) = [x for x in r.json()["cards"] if x["thesis_id"] == str(thesis.id)]
+    assert c["state"] is None and c["ret"] is None and c["priced"] == 0 and c["names"] == 1

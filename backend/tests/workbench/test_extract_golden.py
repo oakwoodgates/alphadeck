@@ -314,8 +314,10 @@ def test_cash_samedate_marketable_sums_quietly_into_the_composition():
     )
     cb = _cb(f)
     assert cb.cash_usd == 150e6
+    assert cb.investments_usd == 50e6  # the investment part, carried on its own (D1)
     assert cb.tier is Tier.AUTO and cb.flags == []
-    assert "marketable as of 2026-05-28" in cb.note  # the composition stated where ratified
+    assert "investments as of 2026-05-28" in cb.note  # the composition stated where ratified
+    assert "short-term investments $50.0M (ShortTermInvestments)" in cb.note
 
 
 def test_cash_clean_native_quarter_is_auto_with_asofs_in_the_note():
@@ -329,16 +331,15 @@ def test_cash_clean_native_quarter_is_auto_with_asofs_in_the_note():
     assert {p.kind for p in cb.located_passages} == {"balance-sheet", "cash-flow"}
 
 
-def test_us_gaap_cash_burn_never_sets_statement_currency():
-    """The domestic-default regression guard for the native-currency LABEL (Slice A follow-up): the
-    us-gaap ``_cash_burn`` path is a domestic USD filer, so it must leave ``statement_currency`` None —
-    the FE then renders the plain ``$``. Only the IFRS annual-statements path (native TWD/EUR/…) ever
-    sets a currency; nothing here changed. Pinned across the composed AND the no-data (located-only)
-    shapes so a stray currency can never leak onto a us-gaap fact."""
+def test_us_gaap_cash_burn_states_usd_only_when_it_read_a_value():
+    """The domestic currency LABEL (Slice A follow-up; since the PR 6 follow-up, explicit): the us-gaap
+    ``_cash_burn`` path reads companyfacts' USD unit only, so a value it read says ``statement_currency``
+    "USD" (the FE renders the plain ``$``, as for None). The no-data (located-only) shape read nothing
+    from any unit and claims no currency: USD is never written as a guess."""
     clean = _cb(
         _facts(ocf=[_dur("2026-03-01", "2026-05-28", -5e6)], cash=[_inst("2026-05-28", 100e6)])
     )
-    assert clean.statement_currency is None
+    assert clean.statement_currency == "USD"
     empty = _cb(_facts())  # no cash instant, no OCF column — the located-only FLAG
     assert empty.statement_currency is None
 
@@ -353,17 +354,32 @@ def test_cash_auto_when_no_marketable_securities():
 
 def test_cash_marketable_composition_is_a_note_never_an_alarm():
     """THE RE-TIER on the seed fixtures. SMR still FLAGs — via the one-time detector (the real
-    exception), never verify-marketable. OKLO goes AUTO; its companyfacts tag sum UNDERCOUNTS the true
-    balance-sheet cash — the deliberate trade of retiring the flag: the error direction is CONSERVATIVE
-    (understated cash -> runway reads SHORTER; a funding-risk gauge that over-warns, never under-warns),
-    and the note states the exact composition where the operator ratifies."""
+    exception), never verify-marketable. OKLO goes AUTO with cash and equivalents only: this fixture's
+    companyfacts carries OKLO's marketable securities only to 2024-06-30, so on the 2026-03-31 balance sheet
+    there is no investment tag to count (the seed's 2,536.9M includes securities the fixture does not tag).
+    The value is not under-read by the reader: the note says no investments are tagged on the cash date and
+    names the 2024 tags as excluded, so the steward sees the gap (the old docstring called this undercount a
+    deliberate "conservative" trade; the 2026-11-15 composition work reads every investment tag on the cash
+    date instead)."""
     smr = _extract("SMR")["cash_burn"]
     assert "verify-marketable-securities" not in smr.flags
     assert smr.flags == ["possible-one-time"]  # the surviving flag marks the exception
+    # D2's cost, pinned (2026-11-15): SMR's 118.6M ``LongTermInvestments`` (Treasuries here) is no longer
+    # counted, so the candidate reads 341.1M + 549.0M against the seed's hand-ratified 1,008.8M — the
+    # conservative direction, and the note says why.
+    assert smr.cash_usd == 341_129_000 + 549_000_000
+    assert "not counted as cash: LongTermInvestments $118.6M" in smr.note
     oklo = _extract("OKLO")["cash_burn"]
     assert oklo.tier is Tier.AUTO and oklo.flags == []
-    assert oklo.cash_usd != SEED["OKLO"]["cash"]  # the undercount — conservative by direction
-    assert "marketable" in oklo.note  # the composition stated where the operator ratifies
+    assert (
+        oklo.cash_usd == 1_594_103_000
+    )  # cash and equivalents alone: nothing tagged on 2026-03-31
+    assert oklo.cash_usd != SEED["OKLO"]["cash"]
+    assert oklo.investments_usd is None
+    assert "no short-term investments tagged on the cash date" in oklo.note
+    assert (
+        "MarketableSecuritiesCurrent (2024-06-30)" in oklo.note
+    )  # the stopped tag, named as excluded
 
 
 # ---------------------------------------------------------------------------------------------------------

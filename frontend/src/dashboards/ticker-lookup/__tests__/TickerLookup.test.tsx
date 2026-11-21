@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { setRecordStart } from "../../__tests__/recordStart";
 
 import TickerLookup from "../TickerLookup";
 import type { TickerLookupOut } from "../useTickerLookup";
@@ -26,7 +27,9 @@ vi.mock("../useTickerLookup", () => ({
   useTickerLookup: h.lookup,
   fetchResolve: h.fetchResolve,
 }));
-vi.mock("../../../api/hooks", () => ({ useResolveSecurities: h.suggest }));
+vi.mock("../../../api/hooks", async () =>
+  (await import("../../__tests__/recordStart")).withRecordStartStub({ useResolveSecurities: h.suggest }),
+);
 
 const ok = (data: unknown, extra: Record<string, unknown> = {}) => ({
   data,
@@ -310,7 +313,8 @@ describe("TickerLookup — the sections", () => {
     expect(items[1]).not.toHaveClass("passed");
     const fact = screen.getByTestId("tl-catalyst-fact");
     expect(fact).toHaveTextContent("catalyst: license decision expected");
-    expect(fact).toHaveTextContent("ratified by operator on Oct 16, 2026");
+    expect(fact).toHaveTextContent("verified by the steward on Oct 16, 2026");
+    expect(fact).not.toHaveTextContent("@");
   });
 
   it("lists the decisions with the operator's fills and a voided row struck through, never hidden", () => {
@@ -490,5 +494,20 @@ describe("TickerLookup — loading and failing", () => {
     setup(payload({ cards: { ...base.cards, rows: [silentRow()] } }));
     expect(screen.getAllByTestId("tl-card")).toHaveLength(1);
     expect(screen.getByText("not counted")).toBeInTheDocument();
+  });
+});
+
+describe("Ticker Lookup — the record-start note", () => {
+  it("says when the record starts on a page with no history", () => {
+    setRecordStart("2026-12-03");
+    const p = payload();
+    setup({ ...p, triggers: { ...p.triggers, nights_read: 0, events: [] } });
+    expect(screen.getByTestId("record-start-note")).toHaveTextContent("The record starts on Dec 3, 2026.");
+  });
+
+  it("is absent on a page with history", () => {
+    setRecordStart("2026-12-03");
+    setup();
+    expect(screen.queryByTestId("record-start-note")).toBeNull();
   });
 });

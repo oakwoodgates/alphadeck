@@ -16,6 +16,7 @@ from app.routers import (
     admin_insider_amendments,
     admin_insider_holds,
     admin_onboarding,
+    admin_platform_values,
     admin_price_feed,
     admin_splits,
     auth,
@@ -25,9 +26,12 @@ from app.routers import (
     data_flags,
     fund_radar,
     oauth_consent,
+    platform_values,
     radar,
+    record,
     scoreboard,
     theses,
+    value_flags,
     workbench,
 )
 from domain.settings import get_settings
@@ -97,6 +101,7 @@ app.include_router(theses.router, dependencies=_USER)
 app.include_router(clock.router, dependencies=_USER)
 app.include_router(workbench.router, dependencies=_USER)
 app.include_router(scoreboard.router, dependencies=_USER)
+app.include_router(record.router, dependencies=_USER)  # V2 W8a: the workspace's record start
 app.include_router(admin.router, dependencies=_STEWARD)
 # T2 + Q8 — the operator's price-feed repairs (Adopt / Set / Acknowledge, each with its exact inverse)
 app.include_router(admin_price_feed.router, dependencies=_STEWARD)
@@ -107,6 +112,12 @@ app.include_router(admin_insider_holds.router, dependencies=_STEWARD)
 app.include_router(admin_splits.router, dependencies=_STEWARD)
 # X1 — the staged cold-ingest queue
 app.include_router(admin_onboarding.router, dependencies=_STEWARD)
+# V2 W2c — the platform values (share count, cash/burn): the steward's queue, company read and six actions
+app.include_router(admin_platform_values.router, dependencies=_STEWARD)
+# V2 W5a — the user's read of the platform values (state, words, the caller's own flag); any signed-in user
+app.include_router(platform_values.router, dependencies=_USER)
+# V2 W5b — a user's flag on a platform value (/value-flags: raise, list your own, withdraw); plain users
+app.include_router(value_flags.router, dependencies=_USER)
 # split plan S3 — the shared "is this real?" data flags (compute-on-read, display-only)
 app.include_router(data_flags.router, dependencies=_USER)
 app.include_router(radar.router, dependencies=_USER)

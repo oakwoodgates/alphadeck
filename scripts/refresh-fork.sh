@@ -28,7 +28,7 @@
 # exit-code-clean (0 = ok, non-zero = fail), greppable (--> progress + a terminal OK:/FAIL: line).
 #
 # Usage:
-#   scripts/refresh-fork.sh --reset [--from-latest | --fresh] [--no-cache | --with-cache] [--dry-run] [--help]
+#   scripts/refresh-fork.sh --reset [--from-latest | --fresh] [--no-cache | --with-cache] [--v1-state] [--dry-run] [--help]
 #
 #   --reset         REQUIRED: drop + re-clone the fork DB from prod (wipes the fork's own app data; see
 #                   RESET-ONLY above). There is deliberately no default mode.
@@ -39,6 +39,8 @@
 #                   ON (a fork wants prod's caches — they are what a UA-less fork reads instead of the
 #                   live SEC); this flag is the explicit form of the default
 #   --no-cache      DB-only: SKIP the appdata cache copy
+#   --v1-state      SKIP the V2 move (move-platform-facts) after migrate, so the fork keeps prod's V1-shaped
+#                   data: a V2 cutover rehearsal starts from here. Default: the move runs (other V2 work)
 #   --dry-run       print the resolved plan and exit; touches NO Docker (safe anywhere, incl. worktrees)
 #   --help          this help
 #
@@ -79,6 +81,7 @@ envkey() { sed -n "s/^$1=//p" "$ENV_FORK" | tail -1 | tr -d '\r'; }
 RESET=0
 SOURCE="from-latest"   # from-latest | fresh
 WITH_CACHE=1           # DEFAULT ON for forks (prod's caches stand in for the live SEC); --no-cache disables
+V1_STATE=0             # 1 = skip the V2 move (a cutover rehearsal starts from V1-shaped data)
 DRY_RUN=0
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -87,6 +90,7 @@ while [ $# -gt 0 ]; do
     --fresh)       SOURCE="fresh" ;;
     --with-cache)  WITH_CACHE=1 ;;   # explicit on (already the default) — kept for muscle memory / symmetry
     --no-cache)    WITH_CACHE=0 ;;
+    --v1-state)    V1_STATE=1 ;;
     --dry-run)     DRY_RUN=1 ;;
     --help|-h)     usage; exit 0 ;;
     *)             echo "FAIL: unknown argument: $1" >&2; echo; usage; exit 2 ;;
@@ -156,6 +160,11 @@ if [ "$DRY_RUN" -eq 1 ]; then
   echo "  step (create) : docker exec <fork pg> psql -U $PGUSER -d postgres -c 'CREATE DATABASE $FORK_DB'"
   echo "  step (restore): docker exec -i <fork pg> psql -U $PGUSER -d $FORK_DB -f - < <dump>"
   echo "  step (migrate): docker exec <fork backend> python -m db.migrate   (the fork branch may be ahead of the dump)"
+  if [ "$V1_STATE" -eq 1 ]; then
+    echo "  step (v2 move): SKIPPED (--v1-state: a cutover rehearsal)"
+  else
+    echo "  step (v2 move): docker exec <fork backend> python -m pipeline.v2_cutover move-platform-facts --apply   (V2: fails the refresh if it refuses)"
+  fi
   if [ "$WITH_CACHE" -eq 1 ]; then
     echo "  step (cache)  : copy volume $PROD_APPDATA_VOL -> $FORK_APPDATA_VOL (read-only from prod) [DEFAULT ON]"
   else
@@ -219,6 +228,21 @@ docker exec -i "$FORK_PG" psql -U "$PGUSER" -d "$FORK_DB" -v ON_ERROR_STOP=1 -f 
 say "applying migrations forward (db.migrate) in the fork backend"
 docker exec "$FORK_BACKEND" python -m db.migrate || fail "db.migrate failed"
 
+# V2 (branch v2 only): move the founding workspace's share counts and cash/burn to the data tenant (and data-tenant
+# ratified purity to the founding workspace), the same relabel the V2 cutover runs on prod, so every re-seed
+# rehearses it. It refuses any database that is not a fork or test database, and fails this refresh when it
+# refuses. A stale fork image without the module fails here too: rebuild with `fork.sh up`. Remove in W10.
+# --v1-state skips it: a cutover rehearsal needs prod's V1-shaped data, and the cutover itself runs the move.
+V1_NOTE=""
+if [ "$V1_STATE" -eq 1 ]; then
+  say "V2 move SKIPPED (--v1-state): the fork keeps prod's V1-shaped data for a cutover rehearsal"
+  V1_NOTE=" (V1 state: run the cutover next)"
+else
+  say "V2: moving share counts and cash/burn to the data tenant (pipeline.v2_cutover move-platform-facts --apply)"
+  docker exec "$FORK_BACKEND" python -m pipeline.v2_cutover move-platform-facts --apply \
+    || fail "the V2 move refused - this fork is NOT usable for V2 work until it runs clean (read its output above)"
+fi
+
 # Optional: copy prod's appdata cache (EDGAR/price/draft_runs) into the fork. Read-only mount of prod's
 # volume. DEFAULT ON (the caches are what a UA-less fork reads instead of the live SEC); --no-cache skips.
 if [ "$WITH_CACHE" -eq 1 ]; then
@@ -231,4 +255,4 @@ fi
 theses="$(docker exec "$FORK_PG" psql -U "$PGUSER" -d "$FORK_DB" -tAc 'SELECT count(*) FROM thesis' | tr -d '[:space:]')"
 calls="$(docker exec "$FORK_PG" psql -U "$PGUSER" -d "$FORK_DB" -tAc 'SELECT count(*) FROM calls' | tr -d '[:space:]')"
 
-echo "OK: fork '$FORK_NAME' reset from $(basename "$dump") (${theses:-?} theses, ${calls:-?} calls)"
+echo "OK: fork '$FORK_NAME' reset from $(basename "$dump") (${theses:-?} theses, ${calls:-?} calls)${V1_NOTE}"
