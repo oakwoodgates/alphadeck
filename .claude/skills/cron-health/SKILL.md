@@ -36,7 +36,14 @@ surfaces) + `docs/POSTMORTEM_CRON_FREEZE_2026-07.md` (what a freeze looks like).
   the names ingested yourself (`FEED_LOOP.md` "Known gaps").
 
 ## Steps
-1. **The verdict first:** `curl http://localhost:8000/admin/status`:
+1. **The verdict first:** `curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/admin/status`.
+   `/admin/*` is steward-only, so a bare curl answers 401. `$TOKEN` is the prod ops token,
+   `ALPHADECK_OPS_TOKEN` in `.env`; read it as one line, the way `scripts/deploy.sh:192-206` does, and
+   never print it (from the main checkout):
+   `TOKEN=$(sed -n 's/^[[:space:]]*ALPHADECK_OPS_TOKEN=//p' .env | tail -n 1 | tr -d "\r\"'")`.
+   Nothing there yet: the operator mints one once
+   (`docker exec -it alphadeck-backend-1 python -m pipeline.users token create --email <admin> --name ops`).
+   Read:
    - `cron.status`: `healthy` / `stale` / `unhealthy` / `gappy` / `running`;
    - `cron.alarms`, which covers code-sha unknown or a cron↔backend mismatch, notifier=log, UA unset, backup age, and a pass that did not finish or crashed;
    - the **record edge**: calls-log `MAX(asof)` vs the schedule-aware expected edge, so weekends don't cry wolf;
@@ -46,12 +53,15 @@ surfaces) + `docs/POSTMORTEM_CRON_FREEZE_2026-07.md` (what a freeze looks like).
    - `record.partial_nights`: a night is covered only when EVERY thesis that existed then has an on-time row, so "4 of 12" shows here;
    - `record.reconstructed_nights`: backfilled nights, deliberately QUIET;
    - `unfinished_run`;
-   - `last_run.audit`: the V1 self-audit, one entry per check — `on_time_rows`,
-     `code_sha_known`, `every_thesis_finished`, `split_defects_flagged`, and
-     `no_unsettled_bars` (no EOD bar recorded before its 18:00 ET settle instant,
-     benchmarks included, over the rows written since the last judging pass; a
+   - `last_run.audit`: the self-audit (`DEFAULT_CHECKS` in `pipeline/self_audit.py`), one entry per
+     check, six in all — `on_time_rows`, `code_sha_known`, `every_thesis_finished`,
+     `split_defects_flagged`, `no_unsettled_bars` (no EOD bar recorded before its 18:00 ET settle
+     instant, benchmarks included, over the rows written since the last judging pass; a
      failure names `TICKER d @ recorded` — an in-progress value stored as a close, so
-     find the writer that bypassed `ingest/prices/settle.py`);
+     find the writer that bypassed `ingest/prices/settle.py`), and `splits_applied` (every split in
+     force is applied to its stored tape: a recent split that is not applied FAILS; an older one is
+     named and passes, the repair tool's backlog; a split the tape cannot judge is named NOT
+     VERIFIED, never counted as applied);
    - `last_run.edgar_fetches` / `edgar_fetches_completed`: attempted vs completed
      EDGAR pulls (the freeze verdict reads the completed count; `null` before O5) —
      the per-company coverage the ratio floor reads is on the run artifact (step 2);
