@@ -1,5 +1,5 @@
-"""The post-nightly dashboard cache warm-up (``pipeline/warm_dashboards.py``, ``docs/FEED_LOOP.md`` §the dashboards'
-cache warm-up, ``docs/DASHBOARDS.md`` rule 7).
+"""The post-nightly dashboard cache warm-up (``pipeline/warm_dashboards.py``, ``docs/DASHBOARDS.md`` rule 7;
+``docs/CRON_SIDECAR.md`` §The nightly wake order).
 
 What is pinned here, and where it is real:
 
@@ -13,7 +13,7 @@ What is pinned here, and where it is real:
   request for a page, then the query the frontend's hook sends on that page's default view at the same as-of, is a
   cache ``hit`` (for the current night, today and a past day); and a warm-up of the day AFTER the night (the
   pre-F1 rule) misses the next morning's default read;
-- the WORKSPACES (docs/FEED_LOOP.md): the job walks every workspace and sends ``X-Alphadeck-Workspace`` per request
+- the WORKSPACES (docs/DASHBOARDS.md rule 7): the job walks every workspace and sends ``X-Alphadeck-Workspace`` per request
   beside the system token, under the one budget, and ``--workspace`` scopes a hand run;
 - the WIRING: ``warm_dashboards`` is the last thing in the nightly wake, fail-open and always 0 (so it can never
   change the pass's status or exit code), and the compose service carries the env it reads.

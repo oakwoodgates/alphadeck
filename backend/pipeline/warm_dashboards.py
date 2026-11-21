@@ -18,7 +18,7 @@ write, no fact, no call. The one thing it reads from the database is the WORKSPA
 The cache it fills lives in the API process, so it must go through HTTP; it imports nothing from ``dashboards``
 or the API (the dashboards leaf scan, ``tests/dashboards/test_isolation.py``).
 
-PER WORKSPACE (docs/FEED_LOOP.md). A dashboard read is a workspace read (the cache keys on the workspace), so the
+PER WORKSPACE (docs/DASHBOARDS.md rule 7). A dashboard read is a workspace read (the cache keys on the workspace), so the
 job walks every workspace in turn and sends ``X-Alphadeck-Workspace: <id>`` beside the system token on each GET;
 the API honors that header for the system principal only. The whole walk runs under the ONE ``--budget-s``: each
 workspace gets what the earlier ones left, and a request the budget never reached is listed skipped.

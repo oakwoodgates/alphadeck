@@ -311,7 +311,7 @@ services:
       HEARTBEAT_BACKUP_URL: ${HEARTBEAT_BACKUP_URL:-}
       # X1 — the sidecar's SECOND schedule: the staged cold-ingest job (`python -m pipeline.onboarding`), fired
       # this many seconds after its previous run ends (0 = OFF), each run bounded by ONBOARD_TIMEOUT_S. The job
-      # refuses inside the nightly window and yields to a running pass on its own (docs/FEED_LOOP.md). Numeric
+      # refuses inside the nightly window and yields to a running pass on its own (docs/INGEST.md). Numeric
       # fallbacks, the same reason as RETRY_DELAY_S above.
       ONBOARD_EVERY_S: ${ALPHADECK_ONBOARD_EVERY_S:-1800}
       ONBOARD_TIMEOUT_S: ${ALPHADECK_ONBOARD_TIMEOUT_S:-2700}
@@ -331,7 +331,7 @@ services:
       # The sidecar's THIRD schedule: the weekly company-list refresh (`python -m pipeline.populate_master --live
       # --apply`; daily_cron.sh `master_refresh_loop`): its kill switch (0 = off, an env-only cron deploy), the day
       # (`date +%u`, 6 = Saturday) and time (market TZ) it fires, and the hard timeout around one run. The job
-      # refuses inside the nightly window, holds its own lock and yields to a running pass (docs/FEED_LOOP.md).
+      # refuses inside the nightly window, holds its own lock and yields to a running pass (docs/CRON_SIDECAR.md).
       MASTER_REFRESH: ${ALPHADECK_MASTER_REFRESH:-1}
       MASTER_REFRESH_DOW: ${ALPHADECK_MASTER_REFRESH_DOW:-6}
       MASTER_REFRESH_AT: ${ALPHADECK_MASTER_REFRESH_AT:-09:00}
@@ -341,7 +341,7 @@ services:
       # dashboard: its kill switch (0 = off, an env-only cron deploy), the day (`date +%u`, 6 = Saturday) and time
       # (market TZ; 10:00, after the 09:00 company-list refresh) it fires, and the hard timeout around one run. A
       # no-op until the operator's first backfill; it refuses inside the nightly window, holds its own lock and
-      # yields to a running pass (docs/FEED_LOOP.md). Numeric fallbacks, the same reason as RETRY_DELAY_S above.
+      # yields to a running pass (docs/CRON_SIDECAR.md). Numeric fallbacks, the same reason as RETRY_DELAY_S above.
       TERM_MENTIONS: ${ALPHADECK_TERM_MENTIONS:-1}
       TERM_MENTIONS_DOW: ${ALPHADECK_TERM_MENTIONS_DOW:-6}
       TERM_MENTIONS_AT: ${ALPHADECK_TERM_MENTIONS_AT:-10:00}

@@ -56,7 +56,7 @@ bash scripts/deploy.sh --label pre-v2-cutover --hold-cron backend frontend  # bu
   cron caveat below. A build needs `--label`, which names the pre-deploy backup. Labeled dumps are deleted
   only when BOTH older than `ALPHADECK_BACKUP_LABELED_MAX_AGE_DAYS` (default **90**) AND outside the newest
   `ALPHADECK_BACKUP_LABELED_KEEP` (default **20**); either dial `<= 0` disables labeled pruning. See
-  [`FEED_LOOP.md`](FEED_LOOP.md#backups--restore-slice-4--built) for retention and the read-only
+  [`CRON_SIDECAR.md`](CRON_SIDECAR.md#backups) for retention and the read-only
   `python -m pipeline.backup --prune-dry-run` inspection (in the backend container; no dump or deletion).
 - **It refuses, changing nothing (exit 3),** on any of these:
   - a linked worktree, or no `.env` at the checkout root;
@@ -429,11 +429,11 @@ default, pinned by `backend/tests/domain/test_settings.py`):
   one host var `ALPHADECK_CRON_AT`), **`RETRY_DELAY_S`** (`ALPHADECK_CRON_RETRY_DELAY_S`, default
   1200 s — the wait before the one retry of a failed scheduled run or boot catch-up), **`DB_WAIT_S`**
   (`ALPHADECK_CRON_DB_WAIT_S`, default 300 s — the most the boot catch-up and each scheduled run wait for
-  Postgres to accept a connection before firing anyway; see `FEED_LOOP.md` §catch-up on boot),
+  Postgres to accept a connection before firing anyway; see `CRON_SIDECAR.md` §Getting the right night),
   **`RUN_TIMEOUT_S`** (`ALPHADECK_CRON_RUN_TIMEOUT_S`, default 5400 s — the most one `pipeline.daily` pass
   may run before the script's `timeout` stops it; a timed-out pass is retried, then paged), the two
   optional external-heartbeat URLs **`HEARTBEAT_URL`** / **`HEARTBEAT_BACKUP_URL`** (same names in `.env`,
-  empty by default = a silent no-op; see `FEED_LOOP.md` §the scheduling sidecar), and the **second
+  empty by default = a silent no-op; see `CRON_SIDECAR.md` §Failure handling), and the **second
   schedule** (X1): **`ONBOARD_EVERY_S`** (`ALPHADECK_ONBOARD_EVERY_S`, default 1800 s — how long after one
   run of the staged onboarding job ends the next fires; **0 turns it off**) and **`ONBOARD_TIMEOUT_S`**
   (`ALPHADECK_ONBOARD_TIMEOUT_S`, default 2700 s — the hard bound on one run; the job's own 1500 s budget is

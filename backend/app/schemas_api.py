@@ -2989,7 +2989,7 @@ class AdminMissingCloseOut(BaseModel):
     yet), ``fetch_error`` (the leg failed; ``error`` keeps its message) or ``not_ingested`` (another writer held
     the company). ``usual_late`` marks a company late at the night's run on most of its recent sessions
     (``late_nights`` of ``judged_nights``); ``otc`` a company the master lists on the OTC venue — a KNOWN vendor
-    issue (``FEED_LOOP.md`` §Known feed limitations). ``ticker`` may be null; the row renders by id (#9).
+    issue (OTC closes often arrive a night late). ``ticker`` may be null; the row renders by id (#9).
     """
 
     security_id: UUID

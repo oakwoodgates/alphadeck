@@ -10,7 +10,7 @@
 > "dark"-name Retrieval slices #222–#226; the Scoreboard drill-down #227–#231; the dev/prod split #232; the
 > ETF sleeve + net-flow #233–#237; the origin chip #238):** both halves are built, the **sixth stage (SCORE)
 > shipped**, and the platform **feeds itself** (literally true only after #196 — the EDGAR cache froze insider
-> data ~11 days until the key-classed 12h TTL; `POSTMORTEM_CRON_FREEZE_2026-07.md`). Back half — the bitemporal
+> data ~11 days until the key-classed 12h TTL; `docs/archive/POSTMORTEM_CRON_FREEZE_2026-07.md`). Back half — the bitemporal
 > store, two-key arming, the pure call-assembler, the catalyst subsystem + the DOE feed, the M5 per-member menu
 > + theme arming, the replay harness + recalibration + the production-tenant cut. Front half (the Workbench) —
 > scoring, authoring, the extract → ratify hybrid, the SEC-universe broadener, **the two LLM seams**
@@ -44,7 +44,7 @@ alphadeck/
 │   ├── BOARD.md (the MONITOR surface) · CALL_LOGIC.md (the brain) · FEED_LOOP.md (the rhythm) · ADMIN.md (the ops surface)   # the back half
 │   ├── SCOREBOARD.md · DISPLAY_SIGNALS.md   # SCORE (the forward record) · the read-only tape indicators
 │   ├── CATALYST_CONVICTION.md · THEME_CONVICTION.md · TENANT_SCOPES.md · REPLAY.md · DEV_PROD.md   # + the local dev/prod split
-│   ├── RECALIBRATION.md · POSTMORTEM_CRON_FREEZE_2026-07.md   # the tuning agenda · the ~11-day cache-freeze postmortem
+│   ├── RECALIBRATION.md · archive/POSTMORTEM_CRON_FREEZE_2026-07.md   # the tuning agenda · the ~11-day cache-freeze postmortem
 │   └── mockups/ · PROJECT_LAYOUT.md (this file)   # the visual targets · the file map
 ├── frontend/                       # React + Vite + Tailwind + TanStack Query (SPA)
 │   └── src/
@@ -236,7 +236,7 @@ alphadeck/
   its **episode drill-down** (the drawer, four timing lenses, the Summary|Timing toggle, the price sparkline +
   the on-demand `price-window` endpoint — #227–#231, `SCOREBOARD.md`); the read-only **display-signal tape**
   (SMA / 52-week / volume / insider-flow / ETF-flow context — #192–#206 + #237, `DISPLAY_SIGNALS.md`); the
-  **cron-freeze remediation** (#196–#203, `POSTMORTEM_CRON_FREEZE_2026-07.md`); the **Slices 1–4 + Board fixes +
+  **cron-freeze remediation** (#196–#203, `docs/archive/POSTMORTEM_CRON_FREEZE_2026-07.md`); the **Slices 1–4 + Board fixes +
   test-DB isolation** batch (#207–#217) — the admin **ops surface** (`ADMIN.md`), clock honesty, the insider
   open-market + issuer-self screens, Scoreboard record-provenance + maturity, the **DB-snapshot button + nightly
   backup**, and the per-worktree test-DB fix; the **"dark"-name Retrieval slices** (honest current shares +

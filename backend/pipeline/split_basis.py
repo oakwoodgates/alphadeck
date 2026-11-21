@@ -76,7 +76,7 @@ the detectors above already flag get the per-night check (``settle_split_defects
 findings ON the newest tape, so they never settle.
 
 The thresholds, and the measured set they were checked against, are documented at each constant below;
-``docs/FEED_LOOP.md`` (tape monitor) carries the prose and the precision table.
+``docs/FEED_MONITORS.md`` carries the rule; the precision table: ``git show 8094406a:docs/FEED_LOOP.md``.
 """
 
 from __future__ import annotations
@@ -1090,7 +1090,7 @@ def report_lines(scan: SplitScan) -> list[str]:
     if scan.new:
         lines.append(
             "SPLIT-BASIS DEFECTS — NEW since the last pass (a price tape mixes split bases; flag only, the "
-            "call is unchanged — see docs/FEED_LOOP.md, tape monitor):"
+            "call is unchanged — see docs/FEED_MONITORS.md):"
         )
         for d in scan.new:
             more = f" (+{d.events - len(d.dates)} more)" if d.events > len(d.dates) else ""

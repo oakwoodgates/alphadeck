@@ -5,7 +5,7 @@ freeze did not look like zero: MEASURED on prod's stored artifacts, eleven live 
 attempts across 255–494 basket names (0.2–1.6%) — a cache served stale, nothing errored, almost no request
 left the box — and neither rule paged them. The operator's decision (2026-10-21): page when FEWER THAN
 ``Settings.freeze_completed_floor`` (50%) of the EDGAR-eligible companies a pass ingested got a completed
-SEC fetch. ``docs/FEED_LOOP.md`` "Known gaps" holds the measured separation.
+SEC fetch. The measured separation: ``git show 8094406a:docs/FEED_LOOP.md`` "Known gaps".
 
 THE RATIO, exactly (``EdgarCoverage``):
 

@@ -14,7 +14,7 @@ a UI gate — does not by itself make the platform "validated forward."
 > production), but the cron's insider data was **frozen** on a cache-first-forever EDGAR cache until R1's
 > key-classed 12h TTL (#196, 2026-07-17). So "feeds itself" became true as a *record* at M2 but as *fresh
 > insider data* only at #196 — the earliest cards were built on stale insider indexes. Full account:
-> `POSTMORTEM_CRON_FREEZE_2026-07.md`. **Now marked per-episode (Slice 3):** the record-provenance flags
+> `docs/archive/POSTMORTEM_CRON_FREEZE_2026-07.md`. **Now marked per-episode (Slice 3):** the record-provenance flags
 > below carry this caveat onto each episode (`ingest_flagged` + the INGEST badge) — freeze-era and
 > thawed/partial-ingest arms stay ledger-visible but are excluded from the aggregate metrics.
 
@@ -63,7 +63,7 @@ for an edition, and only this:
 
 The CURRENT edition grows nightly: the cron sidecar appends tonight's page (and a catch-up page for any session it
 missed) per live thesis after the nightly backup, so new theses and new companies join it from their own first
-night (`FEED_LOOP.md` §the editions nightly page).
+night (`CRON_SIDECAR.md` §The nightly wake order).
 
 ### After the V2 cutover: the history kept, a workspace's own record  `[BUILT V2 W8a]`
 
@@ -110,7 +110,7 @@ Edition N, and an override naming an unpublished edition falls back to the newes
 
 An edition is never edited. It is REPLACED by a new one only when one of two things happened since its cut —
 **late data alone never starts anything** (it simply reaches the next edition): `editions/cut.py` has the
-whole contract; it runs inside the nightly page job, before tonight's page (`FEED_LOOP.md`), and by hand as
+whole contract; it runs inside the nightly page job, before tonight's page (`CRON_SIDECAR.md`), and by hand as
 `python -m editions.run cut [--apply]` (dry-run by default) — e.g. right after a repair.
 
 - **(a) The rules changed.** The running engine's fingerprint (`editions/fingerprint.py`, version 2: the

@@ -170,7 +170,7 @@ and the free proxy is demonstrably inadequate. Default to free + derive.
   backdated `recorded_at` to `filed 00:00 UTC` (MEASURED on prod 2026-10-21: all 120,876 rows, a median ~6.2
   years before the row was actually written, because companyfacts hands over a name's whole history in one
   pull). Those rows are kept as written; under the public clock the old stamp is moot. Detail:
-  `FEED_LOOP.md` §Honest stamps — the fundamentals write path.
+  `INGEST.md` §The price write path.
 - **The cache PERSISTS across container rebuilds** — the compose stack mounts a named volume (`appdata:/data`,
   backend + the cron sidecar) over the runtime-data home, so `data/edgar_cache/` (and the price/DOE/FIGI/SEC
   caches beside it) survives `docker compose up --build`. Before the volume, every rebuild wiped the cache and
@@ -302,7 +302,7 @@ Two SEC capabilities feed the Workbench's per-name scoring facts (`docs/WORKBENC
   flag beside the new one, and the next Workbench Save re-pointed the member to the new, empty row — every fact
   left behind; MEASURED 2026-10-24: 23 live basket companies re-tickered since the 2026-08-16 load). Now
   `pipeline.populate_master` (DRY-RUN by default; `--live --apply` writes; weekly in the cron sidecar, Saturday
-  09:00 ET — `FEED_LOOP.md` §the company list) plans against the master first (`securities/master_refresh.py`):
+  09:00 ET — `CRON_SIDECAR.md` §Schedules) plans against the master first (`securities/master_refresh.py`):
   a CIK whose current PRIMARY row's ticker SEC no longer lists has that row RENAMED IN PLACE to the file's
   primary ticker (the id stays; the old -> new pair goes to the append-only `security_ticker_history`, migration
   0066) — also over an EMPTY same-CIK placeholder row already holding it; other new tickers on the CIK are
@@ -331,7 +331,7 @@ Two SEC capabilities feed the Workbench's per-name scoring facts (`docs/WORKBENC
   prod's copy dated 2026-07-27). A company that re-registers under a SUCCESSOR CIK and keeps its ticker (Rule 12g-3: an 8-K12B
   on the new CIK, a 15-12G on the old) leaves the member on a dead CIK, and every filing leg goes quiet
   (MEASURED: UROY 0001711570 → 0002143673, REAX 0001862461 → 0002136387). The nightly successor-CIK detector
-  (`pipeline/successor_cik.py`, `FEED_LOOP.md` §the identity monitor) reads the SAME map fresh each night
+  (`pipeline/successor_cik.py`, `FEED_MONITORS.md` §The monitors) reads the SAME map fresh each night
   through the polite `EdgarClient` (key `files/company_tickers_exchange.json`, the recurring five-minute TTL)
   and flags a member whose stored CIK lists no tickers while the map assigns its symbol to another CIK. The
   re-point is the operator's (Adopt on Admin → `master.set_cik`, in place, with an exact Undo — migration
@@ -368,8 +368,8 @@ The EOD price source feeds `volume_breakout` (Key 2) and the Workbench market-ca
   market time, `ingest/prices/settle.py` — the evidence for the hour is on the setting), and post-settle
   revisions are re-versioned by the restatement compare (thesis names: exactly inside the pull's newest 3
   sessions, and an OLDER bar only when its close moved >= 0.5% or its volume >= 5% — Q11; SPY/IWM: exactly,
-  the newest `Settings.benchmark_restate_window` = 5 sessions). Detail: `FEED_LOOP.md` §Settled closes and
-  §Price restatements.
+  the newest `Settings.benchmark_restate_window` = 5 sessions). Detail: `INGEST.md` §The price write path
+  (settle guard and restatements).
 - **The benchmark tape's stamp (D1).** The nightly SPY/IWM leg stamps `recorded_at = now` like every other
   live price bar, and since 2026-10-21 so does the one-shot CLI (`python -m pipeline.ingest_benchmarks`),
   which used to backdate first versions to their bar date. Before 2026-10-16 the nightly leg backdated too
@@ -400,7 +400,7 @@ The EOD price source feeds `volume_breakout` (Key 2) and the Workbench market-ca
   not a rewrite. The contract is "a source of EOD bars", not "Yahoo's adjusted bars" — a future raw-prices +
   corporate-actions adapter isn't boxed out. (Still no `get_splits` on the seam: since S2 the price leg owns
   the adjustment for every split on Alpha Deck's own list and puts each vendor bar on its scale —
-  `FEED_LOOP.md` §The split list.)
+  `INGEST.md` §The price write path.)
 
 > **RESOLVED — the re-version pass `[BUILT]` (was: mixed-basis bars across a FUTURE split).** Because the
 > adjustment happens *outside* our bitemporal store (in a source that re-bases on a split) and our ingest is
@@ -421,7 +421,7 @@ The EOD price source feeds `volume_breakout` (Key 2) and the Workbench market-ca
 > sessions) re-versions only beyond 0.5% close / 5% volume (T6), and a pass whose older restated bars ALL go
 > back to values the store held before (a revert) holds them, whole, until a pull on a later night agrees
 > (T5; the pending state is `price_restatement_hold`, migration 0047). A first-time re-base — a genuine split
-> — still lands the same pass. Rule, replay numbers and the residuals: `FEED_LOOP.md` §Price restatements.
+> — still lands the same pass. Rule, replay numbers and the residuals: `INGEST.md` §The price write path.
 > Option (b) — a **raw + splits** source owning the adjustment at read time — stays the endgame if a paid
 > data tier arrives; the `PriceSource` seam deliberately doesn't box it out.
 
@@ -473,7 +473,7 @@ the ingest cannot tell that from "this name had a quiet year". Two classes, one 
   another class filed within weeks of a stop — is closed by the **Form 25 class check** `[BUILT, Q6
   2026-10-17]` (`ingest/edgar/form25.py`): for a stale name only, each window Form 25's primary document is
   read (one immutable `forms/*` fetch, polite client) and one naming warrants / units / rights / notes /
-  preferred stops counting; an unreadable class still counts. See `FEED_LOOP.md`.
+  preferred stops counting; an unreadable class still counts. See `FEED_MONITORS.md` §Stopped price tapes.
 - **The rename repair is now RATIFIABLE `[BUILT, T2 2026-10-17]` — still never automatic.** Every night a
   renamed tape's EDGAR-listed symbols are **spliced** against our stored tape (`pipeline/rename_probe.py`):
   ONE Yahoo fetch per candidate symbol, into a throwaway temp dir (the shared `data/price_cache` is never
@@ -504,7 +504,7 @@ the ingest cannot tell that from "this name had a quiet year". Two classes, one 
   `price_feed_ack` `limited_history` row with a reason, evidenced by one vendor pull of ≤ 5 bars; Undo-able).
   The mark only changes wording where the missing history alone would be loud (the bar repair, the name
   panel note) — it never quiets a stopped tape or excuses a 404. The alternative, a second price source for
-  such names, was considered and not chosen (2026-10-21). See `FEED_LOOP.md` §Known feed limitations.
+  such names, was considered and not chosen (2026-10-21). See `FEED_MONITORS.md` §Known feed limitations.
 
 ### The ETF fund-shares sampler stops the same silent way `[MONITORED, F1; repair is manual]`
 
@@ -567,7 +567,7 @@ after the acceptance's market date and after the filing's last signature date is
 (acceptance 0..5 days after its own period of report, `CallConfig.insider_hold_on_time_days`) from the night
 the filing became public, honors a steward's decision (`insider_txn_hold_decision`), lets the filer's own
 applied 4/A win, and leaves a late filing's row out until a steward decides (rule log
-`2026-11-insider-rows-dated-after-filing`; `docs/CALL_LOGIC.md` §6, `docs/FEED_LOOP.md`). The acceptance this
+`2026-11-insider-rows-dated-after-filing`; `docs/CALL_LOGIC.md` §6, `docs/INGEST.md`). The acceptance this
 rule judges on is the stored one below, so a wrong stored time would mis-judge a row: the drift repair keeps it
 right. MEASURED examples behind the signature test and the on-time window are the committed fixtures in
 `backend/tests/fixtures/edgar/held/`.
@@ -675,10 +675,10 @@ Depth: the submissions `recent` window, the same accepted depth as Form 4.
   acceptance instants read from the SAME submissions index — `acceptanceDateTime` — else the filing dates; the
   stored rows' `accepted` column is not that clock), and an ambiguous set is settled when exactly one candidate
   holds a row the amendment accounts for by exact shape. Rule, measurement and the re-link of the stored links:
-  `FEED_LOOP.md` §the R8 linker fix. **Held rows (2026-11-12, rule `2026-11-amendment-linker-sees-held-rows`):**
+  `domain/insider_amendments.py` (`sole_match`). **Held rows (2026-11-12, rule `2026-11-amendment-linker-sees-held-rows`):**
   the cascade reads an original's HELD Form 4 rows (`insider_txn_hold`) as rows of that filing, with no date, so
   a 4/A correcting only a held row replaces that row alone and a filing whose every row is held is still found
-  (`FEED_LOOP.md` §the linker sees held rows).
+  (`domain/rule_log.py`).
 - **The dispositions** and what each does to the read are in `CALL_LOGIC.md` §3 (insider) and
   `domain/insider_amendments.py`: correction, void, duplicates, partial / consolidation / addition /
   restatement, **field change** (Table I identical but a signal row's owner role / name / 10b5-1 flag moved —
@@ -695,7 +695,7 @@ Depth: the submissions `recent` window, the same accepted depth as Form 4.
   a recode, a same-day sum), and the leftovers of one owner and code are settled by the filer's own words — FIX
   replaces them, ADD keeps every original and adds; a zero-row 4/A retracts its original only with explicit
   retraction words AND a single-`P`/`S`-trade original (the phrase lists and the measured outcome:
-  `FEED_LOOP.md` §R8-B). A Form 4/A is the filer's legal correction of their own filing — deterministic data,
+  `domain/insider_amendments.py`). A Form 4/A is the filer's legal correction of their own filing — deterministic data,
   not a model's recommendation — so the operator rules only on what the system cannot resolve: an
   **ambiguous** link, an **unresolved row match** (its words neither fix nor add), or a **held void**
   (retraction words against several trades), that touches a `P`/`S` row a live call or an edition page reads
@@ -706,7 +706,7 @@ Depth: the submissions `recent` window, the same accepted depth as Form 4.
   the system (rule 2b), undoable. MEASURED 2026-10-21 on prod, asof 2026-10-20
   (2,988 linked pairs — the live leg pulled the full history back to 2003, not the two-year research corpus),
   after the first sweep: **6 owed** (4 ambiguous, 1 unresolved match, 1 held void), **60 historical**, **1,693
-  resolved by the system**, **1,229 inert** (`FEED_LOOP.md` §R8-B). (R8-A's figures, 2026-10-18, two-year
+  resolved by the system**, **1,229 inert**. (R8-A's figures, 2026-10-18, two-year
   window: 67 owed / 121 applied by the system.)
 - **The other-issuer screen.** A company's own submissions feed lists every ownership filing it is a party to —
   including the ones it filed as the REPORTING OWNER of another company's stock (147 such rows across 11
@@ -824,7 +824,7 @@ READ, so items outside the cut stay stored (#9) and a policy retune needs no re-
 
 ## SEC split filings — the split list's company-side source `[BUILT — S1 / S4; Items 8.01 / 7.01 since 2026-10-23; the restatement screen + the wide-form reader since 2026-10-24]`
 
-The split list (`security_split`, `FEED_LOOP.md` §The split list) confirms a split only when two independent
+The split list (`security_split`, `domain/splits.py`) confirms a split only when two independent
 sources agree; the company's own filing is one of them, Massive.com's split reference the other (the Massive.com row
 above). The filings read (`pipeline/backfill_splits.py` `SPLIT_8K_ITEMS` / `SEC_FORMS`, the nightly's
 `pipeline/detect_splits.py` too): **8-Ks under Item 3.03 / 5.03** (the charter amendment), **8-Ks under Item
@@ -876,7 +876,7 @@ submission (`forms/*`, immutable, cached forever) and read by the deterministic 
   32 splits on 29 such companies missing. `pipeline/split_history.py` (run by the staged onboarding job, outside
   the nightly window) runs the S1 backfill scoped to every live basket member without a
   `security_split_history` row (migration 0067), on ONE market-wide Massive.com pull per day (the day's cache).
-  `FEED_LOOP.md` §The split list.
+  `INGEST.md` §Cold names.
 
 ## SC 13D/G — the activist-stake ownership tape `[BUILT — Band 03 S5, INERT]`
 
