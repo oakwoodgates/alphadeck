@@ -312,4 +312,4 @@ narrative is now built (M1, the last front-half gap). The whole loop runs from t
 
 With these, the front-half loop is complete from a blank narrative: **create → (edit) → draft → ratify →
 extract → score → promote.** After promote, the back half feeds the thesis its call-engine facts — see
-`FEED_LOOP.md`.
+`INGEST.md`.
