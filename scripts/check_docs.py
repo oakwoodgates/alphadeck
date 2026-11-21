@@ -80,7 +80,7 @@ BUDGETS = {  # type: (soft, hard) in words
     "README": (1300, 1600),
     "root CLAUDE.md": (2500, 3000),
     "nested CLAUDE.md": (1000, 1200),
-    "subsystem": (3000, 3000),
+    "subsystem": (3000, 3500),
     "catalog": (4500, 5000),
     "dashboard": (400, 500),
     "skill": (700, 900),

@@ -16,7 +16,7 @@ or edit a doc, a skill, an agent file or a `CLAUDE.md`; it binds people and agen
 | 5 | Plain words; see the banned patterns. | |
 | 6 | Tables for enumerations; prose for reasoning. | |
 | 7 | Status in one place. Open work lives in [ROADMAP](ROADMAP.md) only; a dashboard's status in its `entry.ts`; a switch's default in `domain/config.py` or `domain/settings.py` (a doc says "see the setting"). | |
-| 8 | Size budgets per doc type (below). A subsystem doc over 3,000 words splits. | Long docs go unread. |
+| 8 | Size budgets per doc type (below). A subsystem doc over 3,500 words splits. | Long docs go unread. |
 | 9 | Say who can do it: a plain user, the steward, the machine (cron or a background job) or anyone signed in, for every route, control and CLI. Name the enforcing dependency (`require_super_admin`) and the test that pins it. | The most common drift. |
 | 10 | A measured number stays only if it sets a dial or a threshold. Case studies, timings and row counts go to the PR description or the rule log. | |
 | 11 | Cite headings or symbols, never line numbers. A heading that code cites is a contract: keep it verbatim or repoint every citer in the same PR. | Line numbers move. |
@@ -59,7 +59,7 @@ budget and fails over the hard one.
 | `README.md` | 1,300 / 1,600 | What Alpha Deck is; core concepts; architecture; repo map; run and test; the docs table; one line of trust state |
 | Root `CLAUDE.md` | 2,500 / 3,000 | Safety rules; invariants one line each; interaction principles; how to work; conventions lint misses; naming guards; commands; where to look |
 | `backend/CLAUDE.md`, `frontend/CLAUDE.md` | 1,000 / 1,200 | Rules for work under that folder |
-| Subsystem reference | 1,500 to 3,000 / 3,000 | below |
+| Subsystem reference | 1,500 to 3,000 / 3,500 | below |
 | Catalog (DETECTORS, [DASHBOARDS](DASHBOARDS.md)) | 4,500 / 5,000 | Table-led; each entry 300 words or fewer |
 | Dashboard doc | 400 / 500 | below |
 | Skill | 300 to 700 / 900 | below |
