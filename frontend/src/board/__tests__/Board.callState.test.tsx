@@ -203,7 +203,7 @@ describe("Board — Decision Queue act-by clock", () => {
   });
 });
 
-// The queue wraps instead of clipping (BOARD.md "Known gaps", closed): past two rows it folds the rest behind an
+// The queue wraps instead of clipping (BOARD.md "The Decision Queue": no armed item is clipped): past two rows it folds the rest behind an
 // always-visible "+N more" that shows every item, and it never reorders or ranks the theses to do it (#4). jsdom
 // does no layout, so these tests lay the strip out themselves — `perRow` items to a row — and the real wrap is
 // checked by eye in the browser.
