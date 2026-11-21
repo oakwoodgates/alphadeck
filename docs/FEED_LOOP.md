@@ -2635,7 +2635,7 @@ The CLI is the **unit of work**; the sidecar is a **dumb trigger**.
 
 ### The Scoreboard editions' nightly page — `editions.nightly` (S5, 2026-10-23)  `[BUILT]`
 
-A Scoreboard edition (`SCOREBOARD.md` §Editions) is published once and then **grows**: every night the
+A Scoreboard edition (`EDITIONS.md` §Editions) is published once and then **grows**: every night the
 CURRENT edition (the newest, not closed) gains one page per live thesis for every market session it has no page
 for. `python -m editions.run nightly [--apply]` (dry-run by default: read-only, no page, a `dry_run` artifact the
 Admin ignores) is that job; `editions/nightly.py` has the whole contract.
@@ -2675,7 +2675,7 @@ Admin ignores) is that job; `editions/nightly.py` has the whole contract.
   ended still scores on read. `ink_running_at_close(edition)` inks the rest when an edition closes (the automatic
   cut, below, in the same transaction as the new edition).
 - **The automatic cut (S7)** runs first, right after the locks and before the read (`editions/cut.py`;
-  `SCOREBOARD.md` §The automatic cut). Only two things start its trial: the engine fingerprint changed since
+  `EDITIONS.md` §The automatic cut). Only two things start its trial: the engine fingerprint changed since
   the edition's last check, or a **data repair** was journaled (`data_repair`, migration 0065 — every repair CLI
   that rewrites fact history writes one row per `--apply` / `--revoke` in its own write transaction, right after
   its repair committed and still under its repair lock; a run that changed nothing is journaled and starts

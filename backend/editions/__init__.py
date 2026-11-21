@@ -6,5 +6,5 @@ EDITION clock (``replay.export``: a disclosed fact counts from the moment it bec
 operator-entered fact from the day it was entered), stored in its own tables and never written to ``calls``.
 
 Nothing on the call-of-record path imports this package (an import-graph test pins it). Design and the
-operator's decisions: ``docs/SCOREBOARD.md`` §Editions.
+operator's decisions: ``docs/EDITIONS.md`` §Editions.
 """

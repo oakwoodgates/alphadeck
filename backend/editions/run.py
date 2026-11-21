@@ -236,7 +236,7 @@ class PublishRefused(Exception):
     re-run yet); nothing ran and nothing was written. The CLI prints the sentence and exits 2."""
 
 
-# V2 W8a: the two honest refusals of a FIRST publish after the reset (the words: docs/SCOREBOARD.md)
+# V2 W8a: the two honest refusals of a workspace's FIRST publish (the rule: docs/EDITIONS.md)
 NO_LIVE_CARDS = "REFUSED: this workspace has no live cards; there is nothing to re-run. Nothing was run or written."
 NO_RECORDED_NIGHT = (
     "REFUSED: this workspace has no nightly call on record yet; publish Edition 1 after its first nightly "

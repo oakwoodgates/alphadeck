@@ -596,7 +596,7 @@ newest edition, `GET /admin/status` carries one more quiet line read from that e
 `Edition 2 · data repair: re-scaled 40 stored price bar(s) onto the split list's scale · includes data that arrived
 since Edition 1 · 12 company-nights changed`. LOUD only for an "unexplained change" (no declared rule in
 `domain/rule_log.py` explains the change; it also paged through `notify_health`). The Scoreboard shows the same
-line with a "see what changed" link (`SCOREBOARD.md` §The automatic cut). `null` after seven days, or when the
+line with a "see what changed" link (`EDITIONS.md` §The automatic cut). `null` after seven days, or when the
 newest edition was published by hand (Edition 1). To cut right after a repair instead of waiting for the night:
 `python -m editions.run cut --apply` (dry-run without `--apply`).
 

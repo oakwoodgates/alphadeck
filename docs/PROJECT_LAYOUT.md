@@ -182,7 +182,7 @@ alphadeck/
     │   └── replay_snapshot.py      #   the pure replay-snapshot builder the /backtest ledger borrows (the replay panel + its CLI were retired, S8)
     ├── replay/                     # the backtest harness — DuckDB + Parquet, point-in-time (REPLAY.md)
     │   └── harness.py · episodes.py · pit.py · export.py · compare.py · metrics.py · scoring.py · schema.py · run.py
-    ├── editions/                   # Scoreboard EDITIONS (SCOREBOARD.md §Editions): today's rules re-run over history on the public clock, published as frozen editions (never writes `calls`)
+    ├── editions/                   # Scoreboard EDITIONS (EDITIONS.md §Editions): today's rules re-run over history on the public clock, published as frozen editions (never writes `calls`)
     │   └── engine.py · entry.py · fingerprint.py · run.py · cut.py · nightly.py · preview.py · selfcheck.py   #   the re-run engine · join dates · the rules fingerprint · the `python -m editions.run` CLI · the automatic new-edition cut · the nightly page · the preview vs Edition 0 · the live-edge self-check
     ├── seed_data/                  # committed REAL inputs (HIMS demo, DOE fixtures) — read by seed + tests
     └── tests/                      # 1,100+ tests; DB-backed ones skip if Postgres is unreachable
