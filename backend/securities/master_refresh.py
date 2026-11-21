@@ -44,7 +44,7 @@ THE PRICE FEED FOLLOWS A RENAME ONLY WHEN SAFE (the price leg reads ``price_symb
   automatically (``pipeline/rename_probe.run_auto_adopt``, author ``system:auto-adopt``, undoable);
 - **a price symbol already set** (the operator's, or the resolver's) -> never touched.
 
-IDENTITY, never a fact (#1/#3): the master is UPDATE-in-place identity (nothing reads it as-of); no fact table is
+IDENTITY, never a fact (#3): the master is UPDATE-in-place identity (nothing reads it as-of); no fact table is
 written, and no call input changes. The plan is PURE over what it read; ``apply_plan`` writes it in the CALLER's
 transaction (the caller commits).
 """
