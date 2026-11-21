@@ -1,17 +1,13 @@
 # Post-mortem — the 11-day EDGAR cache freeze (2026-07)
 
 > **This is a POINT-IN-TIME record. Do NOT maintain it.** It captures what happened and what was true
-> **as of 2026-07-17**. Do not edit it to reflect later state — that would rebuild, in miniature, the exact
-> doc/code divergence this whole episode was about. When an open item below is resolved or a fact changes,
-> update the **living homes**, never this file:
-> - **What the cron IS** → `FEED_LOOP.md`, `DATA_SOURCES.md:45–58`, `DATA_FLOW.md`.
-> - **The open correctness items** → `FEED_LOOP.md` ("Known gaps"), `INVARIANTS.md`.
-> - **The conventions/lessons** → `CLAUDE.md`, `INVARIANTS.md`.
+> **as of 2026-07-17**. Later state lives in the reference docs (`FEED_LOOP.md`, `FEED_MONITORS.md`,
+> `CRON_SIDECAR.md`, `DATA_SOURCES.md` "Cache freshness", `INVARIANTS.md`), never here.
 >
 > This file exists so the *evidence trail* survives in git — because the sentence that started this
 > investigation was "unfalsifiable — indistinguishable from *we stopped looking*," and the numbers below are
-> what killed that. The forensics were derived in the (gitignored) working notes
-> `docs/temp/cron-research-2026-07-17.md` + `docs/temp/thaw-boundary-2026-07-17.md`; this is the durable distillation.
+> what killed that. The forensics were derived in working notes that were never committed; this is the
+> durable distillation.
 
 ---
 
@@ -53,7 +49,7 @@ invisible. Every night's run therefore recorded a call built on frozen insider d
 ## What the cron now is (R1–R6 — details in the living docs)
 
 - **R1 — key-classed EDGAR cache TTL** (#196). `forms/` immutable; `submissions`/`companyfacts`/`efts` on a
-  12h TTL when `allow_live`. → `DATA_SOURCES.md:45–58`, `client.py`.
+  12h TTL when `allow_live`. → `DATA_SOURCES.md` ("Cache freshness"), `client.py`.
 - **R2 — recording gate** (#198). A run **withholds** the call-of-record on total ingest failure or a
   `--no-live` run, and stamps `ingest_fresh`/`ingest_errors` on the `calls` row. → `FEED_LOOP.md`.
 - **R3 — run-of-record log** (#197). One JSON per run under `data/cron_runs/*.json` (incl. the per-thesis
