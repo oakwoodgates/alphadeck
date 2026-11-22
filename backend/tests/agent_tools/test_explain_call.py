@@ -1,4 +1,4 @@
-"""The ``explain-call`` prompt's call plan, run through the REAL stdio client against a loopback fake API: the default
+"""The ``explain-call`` prompt's call plan, run through the in-process MCP SDK client against a fake API: the default
 ``get_call``, its ``section=triggers`` and one ``get_thesis`` for the spine. The risk signals come from the default's
 ``risk_signals.by_kind`` and the catalysts from its ``catalyst_surface`` (``section=risk_signals`` only if the operator
 asks). At most 4 tool calls and 32,000 characters in all, on the synthetic card ``Thesis 01``.
@@ -6,19 +6,15 @@ asks). At most 4 tool calls and 32,000 characters in all, on the synthetic card 
 
 from __future__ import annotations
 
-import asyncio
-import sys
 from pathlib import Path
 
 import pytest
 
 pytest.importorskip("mcp")
 
-from mcp import ClientSession, StdioServerParameters  # noqa: E402
-from mcp.client.stdio import stdio_client  # noqa: E402
-
 from tests.agent_tools import fixtures as fx  # noqa: E402
-from tests.agent_tools.fake_api import FakeApi, LoopbackServer  # noqa: E402
+from tests.agent_tools.fake_api import FakeApi  # noqa: E402
+from tests.agent_tools.mcp_session import run_in_process  # noqa: E402
 
 MAX_CALLS = 4
 MAX_CHARS = 32_000
@@ -29,36 +25,21 @@ PROMPT_FILE = Path(__file__).resolve().parents[2] / "agent_tools" / "prompts" / 
 def test_the_explain_call_plan_costs_at_most_four_calls_and_32000_characters():
     spent: list[tuple[str, int]] = []
 
-    async def go(base: str):
-        params = StdioServerParameters(
-            command=sys.executable,
-            args=["-m", "agent_tools", "--backend-base", base],
-            cwd=Path(__file__).resolve().parents[2],
-        )
-        async with stdio_client(params) as (read_stream, write_stream):
-            async with ClientSession(read_stream, write_stream, read_timeout_seconds=30) as session:
-                await session.initialize()
-                prompt = await session.get_prompt(
-                    "explain-call", {"thesis": THESIS_ID, "asof": fx.ASOF}
-                )
+    async def steps(session):
+        prompt = await session.get_prompt("explain-call", {"thesis": THESIS_ID, "asof": fx.ASOF})
 
-                async def read(tool: str, **args):
-                    result = await session.call_tool(tool, args)
-                    assert not result.is_error, result.content[0].text
-                    spent.append(
-                        (tool + "/" + args.get("section", "default"), len(result.content[0].text))
-                    )
-                    return result.structured_content
+        async def read(tool: str, **args):
+            result = await session.call_tool(tool, args)
+            assert not result.is_error, result.content[0].text
+            spent.append((tool + "/" + args.get("section", "default"), len(result.content[0].text)))
+            return result.structured_content
 
-                call = await read("get_call", thesis=THESIS_ID, asof=fx.ASOF)  # 1
-                triggers = await read(  # 2
-                    "get_call", thesis=THESIS_ID, asof=fx.ASOF, section="triggers"
-                )
-                spine = await read("get_thesis", thesis=THESIS_ID)  # 3
-                return prompt.messages[0].content.text, call, triggers, spine
+        call = await read("get_call", thesis=THESIS_ID, asof=fx.ASOF)  # 1
+        triggers = await read("get_call", thesis=THESIS_ID, asof=fx.ASOF, section="triggers")  # 2
+        spine = await read("get_thesis", thesis=THESIS_ID)  # 3
+        return prompt.messages[0].content.text, call, triggers, spine
 
-    with LoopbackServer(FakeApi()) as fake:
-        prompt, call, triggers, spine = asyncio.run(go(fake.base))
+    prompt, call, triggers, spine = run_in_process(FakeApi(), steps)
     assert THESIS_ID in prompt and fx.ASOF in prompt and len(prompt) <= 1_500
     assert len(spent) <= MAX_CALLS, spent
     assert sum(chars for _, chars in spent) <= MAX_CHARS, spent

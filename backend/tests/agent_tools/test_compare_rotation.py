@@ -1,4 +1,4 @@
-"""The ``compare-rotation`` prompt: its call plan through the REAL stdio client against a loopback fake API (default
+"""The ``compare-rotation`` prompt: its call plan through the in-process MCP SDK client against a fake API (default
 ``business_type``: at most 4 calls and 32,000 characters; with ``group``: at most 2 calls and 4,000), the matching rules
 on the two payloads (a start-only key, an end-only key, a null median) and the argument rules through ``get_prompt``.
 """
@@ -6,40 +6,22 @@ on the two payloads (a start-only key, an end-only key, a null median) and the a
 from __future__ import annotations
 
 import ast
-import asyncio
-import sys
 from pathlib import Path
 
 import pytest
 
 pytest.importorskip("mcp")
 
-from mcp import ClientSession, StdioServerParameters  # noqa: E402
-from mcp.client.stdio import stdio_client  # noqa: E402
 from mcp.shared.exceptions import MCPError  # noqa: E402
 
 from agent_tools import prompt_args  # noqa: E402
 from tests.agent_tools import dashboard_fixtures as dfx  # noqa: E402
-from tests.agent_tools.fake_api import FakeApi, LoopbackServer  # noqa: E402
+from tests.agent_tools.fake_api import FakeApi  # noqa: E402
+from tests.agent_tools.mcp_session import run_in_process  # noqa: E402
 
 START, END = dfx.ASOF, dfx.ASOF_END
 BACKEND = Path(__file__).resolve().parents[2]
 PROMPT_FILE = BACKEND / "agent_tools" / "prompts" / "compare-rotation.md"
-
-
-def _session_run(base: str, steps):
-    async def go():
-        params = StdioServerParameters(
-            command=sys.executable,
-            args=["-m", "agent_tools", "--backend-base", base],
-            cwd=BACKEND,
-        )
-        async with stdio_client(params) as (read_stream, write_stream):
-            async with ClientSession(read_stream, write_stream, read_timeout_seconds=30) as session:
-                await session.initialize()
-                return await steps(session)
-
-    return asyncio.run(go())
 
 
 async def _read_all(session, spent, asof, **settings):
@@ -78,8 +60,7 @@ def _plan(**settings):
         second, b = await _read_all(session, spent, END, **read_settings)
         return prompt.messages[0].content.text, (first, a), (second, b)
 
-    with LoopbackServer(FakeApi()) as fake:
-        text, start, end = _session_run(fake.base, steps)
+    text, start, end = run_in_process(FakeApi(), steps)
     return text, start, end, spent
 
 
@@ -176,8 +157,7 @@ def test_a_broken_rule_fails_the_prompt_call_naming_the_rule(args, rule):
             await session.get_prompt("compare-rotation", args)
         return str(caught.value)
 
-    with LoopbackServer(FakeApi()) as fake:
-        message = _session_run(fake.base, steps)
+    message = run_in_process(FakeApi(), steps)
     assert rule in message, message
 
 

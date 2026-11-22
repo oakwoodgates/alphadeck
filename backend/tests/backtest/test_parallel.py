@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ProcessPoolExecutor
 from datetime import date, datetime, timezone
 
 import pytest
@@ -7,19 +8,24 @@ import pytest
 pytest.importorskip("duckdb")
 pytest.importorskip("pyarrow")
 
+import backtest.parallel as parallel_mod  # noqa: E402
 from backtest.parallel import default_workers, replay_all_parallel  # noqa: E402
 from db.session import DEFAULT_TENANT_ID
 from domain.config import DEFAULT_CONFIG  # noqa: E402
-from pipeline.seed import seed_unh  # noqa: E402
+from domain.enums import State  # noqa: E402
+from pipeline.seed import seed_hims, seed_unh  # noqa: E402
 from replay.export import export_snapshot  # noqa: E402
+from replay.harness import replay_all  # noqa: E402
+from replay.pit import connect_mirror  # noqa: E402
 
 # B5b — PER-THESIS PARALLELISM. The acceptance test is DETERMINISM, not speed: a run is an addressable
-# artifact that a promotion cites, so `--workers N` must produce byte-identical timelines to `--workers 1`.
-# Speed is measured on the dev copy, not asserted here -- a timing assertion on a shared CI box is a flake
-# waiting to happen, and a wrong-but-fast answer is worse than a slow one.
+# artifact that a promotion cites, so `--workers N` must produce byte-identical timelines and roster
+# provenance to `--workers 1`. Two theses (UNH + HIMS) are required because `replay_all_parallel` falls
+# back to the serial harness when `len(theses) <= 1`; a short window covering HIMS's warm -> arm arc
+# keeps the multiprocess round-trip non-vacuous and fast.
 
 _PIN = datetime(2100, 1, 1, tzinfo=timezone.utc)
-_START, _END = date(2025, 4, 1), date(2026, 6, 1)
+_START, _END = date(2026, 5, 25), date(2026, 6, 10)
 
 
 def _dump(result):
@@ -29,65 +35,50 @@ def _dump(result):
     }
 
 
-@pytest.mark.slow
-@pytest.mark.timeout(300)
-def test_parallel_is_byte_identical_to_serial(db, tmp_path):
-    """The whole claim. Same mirror, same window, same cfg -- the only difference is how many processes
-    did it, and that must not reach the output."""
+def test_parallel_workers_match_serial_timelines_and_roster_provenance(db, tmp_path, monkeypatch):
+    """Two theses over one frozen mirror: `workers=2` actually executes via `ProcessPoolExecutor` and
+    produces byte-identical per-day `CallSnapshot` timelines and `RosterSource` provenance to both
+    `workers=1` and the direct serial `replay_all` harness."""
     seed_unh(db)
+    seed_hims(db)
     db.commit()
     export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
 
-    serial = replay_all_parallel(
-        db, tmp_path, start=_START, end=_END, known_at=_PIN, cfg=DEFAULT_CONFIG, workers=1
-    )
-    parallel = replay_all_parallel(
-        db, tmp_path, start=_START, end=_END, known_at=_PIN, cfg=DEFAULT_CONFIG, workers=2
-    )
-    assert _dump(serial) == _dump(parallel)
+    pool_uses = {"n": 0}
 
+    class _CountingPool(ProcessPoolExecutor):
+        def __init__(self, *args, **kwargs):
+            pool_uses["n"] += 1
+            super().__init__(*args, **kwargs)
 
-@pytest.mark.slow
-@pytest.mark.timeout(300)
-def test_the_roster_provenance_survives_the_round_trip(db, tmp_path):
-    """`RosterSource` is the label behind every replayed episode and it crosses a process boundary as
-    primitives. If it were dropped or defaulted, the artifact would claim a point-in-time roster it never
-    read -- exactly what F4 added the field to prevent."""
-    seed_unh(db)
-    db.commit()
-    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
-
-    serial = replay_all_parallel(
-        db, tmp_path, start=_START, end=_END, known_at=_PIN, cfg=DEFAULT_CONFIG, workers=1
-    )
-    parallel = replay_all_parallel(
-        db, tmp_path, start=_START, end=_END, known_at=_PIN, cfg=DEFAULT_CONFIG, workers=2
-    )
-    assert serial.roster_sources == parallel.roster_sources
-    assert serial.note() == parallel.note()
-
-
-@pytest.mark.slow
-@pytest.mark.timeout(300)
-def test_one_worker_takes_the_serial_path_untouched(db, tmp_path):
-    """`workers <= 1` runs the harness that is already proven, rather than a one-worker special case of a
-    new code path. Asserted by equality with the harness's own output."""
-    from replay.harness import replay_all
-    from replay.pit import connect_mirror
-
-    seed_unh(db)
-    db.commit()
-    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
+    monkeypatch.setattr(parallel_mod, "ProcessPoolExecutor", _CountingPool)
 
     con = connect_mirror(tmp_path)
     try:
         direct = replay_all(db, con, start=_START, end=_END, known_at=_PIN, cfg=DEFAULT_CONFIG)
     finally:
         con.close()
-    via = replay_all_parallel(
+
+    serial = replay_all_parallel(
         db, tmp_path, start=_START, end=_END, known_at=_PIN, cfg=DEFAULT_CONFIG, workers=1
     )
-    assert _dump(direct) == _dump(via)
+    assert pool_uses["n"] == 0, "workers=1 must stay on the serial harness"
+
+    parallel = replay_all_parallel(
+        db, tmp_path, start=_START, end=_END, known_at=_PIN, cfg=DEFAULT_CONFIG, workers=2
+    )
+    assert pool_uses["n"] == 1, "workers=2 with two theses must enter ProcessPoolExecutor"
+
+    # Non-vacuity: both theses replayed real sessions and HIMS armed inside the window.
+    assert len(serial.timelines) == 2
+    assert all(len(snaps) > 0 for snaps in serial.timelines.values())
+    assert any(
+        s.state is State.ARMED for snaps in serial.timelines.values() for s in snaps
+    ), "window should include a real Armed snapshot"
+
+    assert _dump(direct) == _dump(serial) == _dump(parallel)
+    assert serial.roster_sources == parallel.roster_sources
+    assert serial.note() == parallel.note()
 
 
 def test_the_default_worker_count_is_bounded(monkeypatch):

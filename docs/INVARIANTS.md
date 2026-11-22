@@ -115,7 +115,7 @@ Why: a user acts on a call only if they can check it.
 
 Enforced by: `domain/signal.SignalEvent` refuses a fired signal without provenance
 (`tests/domain/test_signal.py::test_fired_signal_requires_provenance`); `tests/ingest/test_doe_feed.py` and
-`tests/calls/test_hims_armed_call.py` assert the award and accession references.
+`tests/pipeline/test_call_for_thesis.py` assert the award and accession references.
 
 ## 7. Inverse loudness
 

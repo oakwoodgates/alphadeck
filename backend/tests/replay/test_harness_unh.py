@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
+from math import isfinite
 
 import pytest
 
@@ -8,9 +9,11 @@ from db.session import DEFAULT_TENANT_ID
 from domain.enums import State, Verdict
 from domain.scopes import WORKSPACE_ANY
 from pipeline.seed import UNH_SECURITY_ID, UNH_THESIS_ID, seed_unh
+from replay.episodes import derive_episodes
 from replay.export import export_snapshot
 from replay.harness import replay_thesis
 from replay.pit import connect_mirror
+from replay.scoring import RealizedPrices, score_episodes
 from repositories import thesis_repo
 
 _PIN = datetime(2100, 1, 1, tzinfo=timezone.utc)
@@ -52,5 +55,18 @@ def test_unh_arc_replays_warm_to_arm_to_ageout(db, tmp_path):
 
         # no forward knowledge ever entered a call: every snapshot's hold clock is on/after its as-of
         assert all(s.exit_by is None or s.exit_by >= s.asof for s in armed)
+
+        # end-to-end through the scoring pass on the same timeline: the August-2025 arm scores a finite,
+        # correctly-shaped realized forward return to its own exit_by
+        episodes = derive_episodes(snaps)
+        assert episodes, "UNH should produce at least one arm episode"
+        outs = score_episodes(episodes, RealizedPrices(con))
+        first = min(outs, key=lambda o: o.arm_date)
+        assert first.is_headline and first.security_id == UNH_SECURITY_ID
+        assert not first.insufficient_prices
+        assert first.entry_close and first.exit_close
+        assert first.forward_return is not None and isfinite(first.forward_return)
+        # the realized peak within the hold window is never below the exit return (peak = max close)
+        assert first.peak_return is not None and first.peak_return >= first.forward_return - 1e-9
     finally:
         con.close()

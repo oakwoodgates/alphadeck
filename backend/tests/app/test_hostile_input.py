@@ -7,10 +7,6 @@ field, as a real signed-in plain user on their own workspace, and asserts:
 - a status below 500 (``app.errors`` maps what reaches the database; a 5xx would be a crash, not an answer), and
 - no row written: a checksum over every table these routes write is unchanged.
 
-Cases that only REQUEST-MODEL BOUNDS can make pass (a length limit, no control characters, finite numbers, a date
-range: security hardening PR 3) are marked expected-fail (strict) with the reason, so PR 3 turns them on by
-deleting their entry in ``NEEDS_BOUNDS``.
-
 Not covered here: the OAuth ``/authorize`` and ``/register`` routes (mounted only with ALPHADECK_PUBLIC_ORIGIN, and
 the SDK's handler is not ours): their bounds (field lengths, the 64 KB body cap, the per-address and hourly limits on
 ``/authorize``, the redirect-URI limits on ``/register``) are tested in ``tests/app/test_oauth.py`` sections 10b and
@@ -31,9 +27,11 @@ from fastapi.testclient import TestClient
 from app import auth
 from app.deps import get_conn
 from app.main import app
+from db.session import connect
 from domain.settings import get_settings
 from tests.auth_fixtures import sign_out
 from tests.workspaces import new_workspace
+from workbench import ingest_jobs
 
 PASSWORD = "correct horse battery"
 DATA = "00000000-0000-0000-0000-000000000001"
@@ -306,23 +304,11 @@ def _values(kind: str) -> dict[str, object]:
     raise AssertionError(kind)
 
 
-# Cases only request-model bounds could make pass were marked expected-fail here until security hardening PR 3 put
-# those bounds on the request models (``domain/text_types.py``); every case now passes. A case that cannot pass yet
-# goes back in this map with its reason (strict: it fails the run the moment it starts passing).
-NEEDS_BOUNDS: dict[str, str] = {}
-
-
 def _cases():
     for route in ROUTES:
         for kind in route.kinds:
             for vid, value in _values(kind).items():
-                case_id = f"{route.name}-{vid}"
-                marks = (
-                    [pytest.mark.xfail(reason=NEEDS_BOUNDS[case_id], strict=True)]
-                    if case_id in NEEDS_BOUNDS
-                    else []
-                )
-                yield pytest.param(route, value, id=case_id, marks=marks)
+                yield pytest.param(route, value, id=f"{route.name}-{vid}")
 
 
 # --- the caller and the before/after proof ----------------------------------------------------------------------------
@@ -361,52 +347,74 @@ def _snapshot(db) -> list[str]:
     return out
 
 
-@pytest.fixture
-def ctx(db):
+@pytest.fixture(autouse=True)
+def _signed_in_as_steward():
+    """Override tests/app/conftest.py's per-test steward login: this module signs in once as a real plain user."""
+    auth.reset_throttle()
+    yield
+    auth.reset_throttle()
+
+
+@pytest.fixture(scope="module")
+def ctx(_migrated):
+    """Module-scoped plain-user client and DB connection: every case asserts zero rows written
+    (``_snapshot(ctx.db) == before``), so one truncate + one Argon2id login serves all 74 cases."""
+    conn = connect()
     sign_out(app)
-    app.dependency_overrides[get_conn] = lambda: db
+    app.dependency_overrides[get_conn] = lambda: conn
     auth.reset_throttle()
     get_settings.cache_clear()
-    with db.cursor() as cur:
-        cur.execute("TRUNCATE app_user CASCADE")
+    with conn.cursor() as cur:
+        cur.execute(
+            "TRUNCATE thesis, fact_insider_txn, fact_price_eod, security_master, edition, "
+            "data_repair, security_change, app_user CASCADE"
+        )
         cur.execute(
             "DELETE FROM tenant t WHERE t.name LIKE %s AND NOT EXISTS (SELECT 1 FROM thesis WHERE tenant_id = t.id)",
             (_WS + "%",),
         )
-    db.commit()
-    ws = new_workspace(db, _WS + EMAIL)
-    auth.create_user(db, email=EMAIL, display_name="Hostile", password=PASSWORD, workspace_id=ws)
+    conn.commit()
+    ws = new_workspace(conn, _WS + EMAIL)
+    auth.create_user(conn, email=EMAIL, display_name="Hostile", password=PASSWORD, workspace_id=ws)
     sid = uuid.uuid4()
-    with db.cursor() as cur:
+    with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO security_master (id, tenant_id, ticker, name, cik, valid_from) "
             "VALUES (%s, %s, 'HSTL', 'Hostile Test Inc', '0000999777', '2026-01-01')",
             (sid, DATA),
         )
-    db.commit()
+    conn.commit()
     client = TestClient(app, base_url="https://testserver", raise_server_exceptions=False)
     r = client.post("/auth/login", json={"email": EMAIL, "password": PASSWORD})
     assert r.status_code == 200, r.text
-    r = client.post(
-        "/workbench/theses",
-        json={
-            "name": "Hostile card",
-            "narrative": "a narrative",
-            "basket": [{"ticker": "HSTL", "role": "r", "security_id": str(sid)}],
-            "segments": [],
-        },
-    )
-    assert r.status_code == 200, r.text
-    yield Ctx(client=client, db=db, thesis_id=r.json()["id"], security_id=str(sid))
-    app.dependency_overrides.clear()
-    db.rollback()
-    with db.cursor() as cur:
-        cur.execute(
-            "TRUNCATE app_user CASCADE"
-        )  # the workspace's own rows go with the next test's truncate
-    db.commit()
-    auth.reset_throttle()
-    get_settings.cache_clear()
+    orig_exec = ingest_jobs._DEFAULT_EXECUTOR
+    ingest_jobs.reset_state()
+    ingest_jobs._DEFAULT_EXECUTOR = lambda job: None
+    try:
+        r = client.post(
+            "/workbench/theses",
+            json={
+                "name": "Hostile card",
+                "narrative": "a narrative",
+                "basket": [{"ticker": "HSTL", "role": "r", "security_id": str(sid)}],
+                "segments": [],
+            },
+        )
+        assert r.status_code == 200, r.text
+    finally:
+        ingest_jobs._DEFAULT_EXECUTOR = orig_exec
+        ingest_jobs.reset_state()
+    try:
+        yield Ctx(client=client, db=conn, thesis_id=r.json()["id"], security_id=str(sid))
+    finally:
+        app.dependency_overrides.clear()
+        conn.rollback()
+        with conn.cursor() as cur:
+            cur.execute("TRUNCATE app_user CASCADE")
+        conn.commit()
+        conn.close()
+        auth.reset_throttle()
+        get_settings.cache_clear()
 
 
 @pytest.mark.parametrize(("route", "value"), list(_cases()))

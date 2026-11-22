@@ -2,24 +2,9 @@ from __future__ import annotations
 
 import ast
 import inspect
-from datetime import date, datetime, timezone
-from math import isfinite
-
-import pytest
 
 import replay.harness
 import replay.scoring
-from db.session import DEFAULT_TENANT_ID
-from domain.scopes import WORKSPACE_ANY
-from pipeline.seed import UNH_SECURITY_ID, UNH_THESIS_ID, seed_unh
-from replay.episodes import derive_episodes
-from replay.export import export_snapshot
-from replay.harness import replay_thesis
-from replay.pit import connect_mirror
-from replay.scoring import RealizedPrices, score_episodes
-from repositories import thesis_repo
-
-_PIN = datetime(2100, 1, 1, tzinfo=timezone.utc)
 
 
 def _import_modules(module) -> set[str]:
@@ -47,33 +32,3 @@ def test_lookahead_boundary_is_structural():
     as a CI-checkable import-graph fact)."""
     assert "replay.pit" not in _import_modules(replay.scoring)
     assert "RealizedPrices" not in _imported_names(replay.harness)
-
-
-@pytest.mark.slow  # ~21 s serial with the pandas sentinel (was 113 s before it)
-@pytest.mark.timeout(300)  # overrides the 120 s ini guard: no measured margin under -n 6
-def test_unh_arm_scores_a_finite_forward_outcome(db, tmp_path):
-    """End-to-end through the scoring pass: the UNH August-2025 arm scores a finite, correctly-shaped
-    realized forward return to its own ``exit_by`` (the conviction hold horizon, within the data).
-    """
-    seed_unh(db)
-    db.commit()
-    export_snapshot(db, tmp_path, workspace=DEFAULT_TENANT_ID)
-    con = connect_mirror(tmp_path)
-    try:
-        thesis = thesis_repo.get(db, UNH_THESIS_ID, workspace=WORKSPACE_ANY)
-        snaps = replay_thesis(
-            con, thesis, start=date(2025, 4, 1), end=date(2026, 6, 1), known_at=_PIN
-        )
-        episodes = derive_episodes(snaps)
-        assert episodes, "UNH should produce at least one arm episode"
-
-        outs = score_episodes(episodes, RealizedPrices(con))
-        first = min(outs, key=lambda o: o.arm_date)
-        assert first.is_headline and first.security_id == UNH_SECURITY_ID
-        assert not first.insufficient_prices
-        assert first.entry_close and first.exit_close
-        assert first.forward_return is not None and isfinite(first.forward_return)
-        # the realized peak within the hold window is never below the exit return (peak = max close)
-        assert first.peak_return is not None and first.peak_return >= first.forward_return - 1e-9
-    finally:
-        con.close()

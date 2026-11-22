@@ -38,11 +38,10 @@ FORBIDDEN = (
     "exclude_" + "annotated",
 )
 
-# the table stays (its V1 rows kept, unread): its migrations, its schema test, its scope entry and the cutover's
+# the table stays (its V1 rows kept, unread): its migrations, its scope entry and the cutover's
 # keep entry name it
 ALLOWED = (
     "db/migrations/",
-    "tests/db/test_migration_0045_call_annotation.py",
     "domain/scopes.py",
     "pipeline/v2_cutover.py",
     "pipeline/v2_reset.py",  # W10a: the cutover keeps the table's rows (archived and counted, never deleted)
