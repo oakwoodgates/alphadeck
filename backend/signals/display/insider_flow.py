@@ -7,7 +7,7 @@ counts, distinct buyers, dollar totals, and the dates of the last buy/sell. Beca
 (``backend/signals/insider_conviction.py``): an offer-price IPO/PIPE/placement subscription files as
 code P yet transacts below the public tape, so it drops out of the buy total — and the set-aside
 subscription $ is NAMED in the basis, never silently dropped (recall-safe, #9). See
-``_is_open_market_buy`` and ``docs/CALL_LOGIC.md`` §3. Zero rows in the window is honestly zero
+``_is_open_market_buy`` and ``docs/DETECTORS.md`` (insider_conviction). Zero rows in the window is honestly zero
 *ingested* filings, never a proof of no filings — the basis says so.
 
 It also emits a **30-day sub-window** (``buy_count_30d`` / ``distinct_buyers_30d``): the subset of
@@ -191,7 +191,7 @@ def _is_open_market_buy(
     locally — the display seam can't import ``signals.insider_conviction`` / ``CallConfig``; see ``base.py``).
 
     A thin composition of the SAME predicates ``_screen`` orders (one source of truth each), matching
-    ``backend/signals/insider_conviction.py`` / ``docs/CALL_LOGIC.md`` §3: below the day's low
+    ``backend/signals/insider_conviction.py`` / ``docs/DETECTORS.md`` (insider_conviction): below the day's low
     (``_is_below_day_low``) → an offer-price subscription; above the $ ceiling (``_is_implausible``) →
     bad source data. **Deliberately identity-blind** — the panel's 90d net-flow counts a self-filing as
     a buy today (the tape and the call disagree on that class; the re-base is DEFERRED — operator

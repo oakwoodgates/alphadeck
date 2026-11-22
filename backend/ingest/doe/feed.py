@@ -136,7 +136,7 @@ def _derive_grade(category: str, obligation: float, cfg: CallConfig) -> Grade:
     LEU's $317M HALEU production CONTRACT → core; OKLO's $0 reactor-pilot OTA (assistance) → flip. **Grade is
     the NATURE of the commitment, never its size:** a large *assistance* award (e.g. a $148M cooperative
     agreement) stays ``flip`` — its size flows through CONFIDENCE within the flip grade, not a grade bump
-    (a recalibration item; see docs/RECALIBRATION.md). NB the loans award-type group isn't *queried* yet
+    (a tuning item; see docs/DETECTORS.md, catalyst_conviction). NB the loans award-type group isn't *queried* yet
     (the feed iterates contracts/grants/direct-payments/other) — the rule is here so the first loan that
     surfaces grades core, not flip; wiring the loans query is on the recalibration list.
     """

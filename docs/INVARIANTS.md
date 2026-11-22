@@ -179,7 +179,7 @@ a ratified fact records who ratified it, a basket sign-off sets `signed_off` and
 A filer's own Form 4/A is not a recommendation. The system applies an amendment that the deterministic linker
 resolves to the filing it amends, as an append-only system decision shown on Admin with its evidence and an
 Undo; the filer's words are read by a fixed phrase list, never by a model. A person rules only on what the
-system cannot resolve (`docs/CALL_LOGIC.md` section 3).
+system cannot resolve ([FILINGS](FILINGS.md), "Form 4/A: stored apart, resolved at read").
 
 Why: the danger was never the recommendation; it was a recommendation applied without anyone seeing it.
 

@@ -231,7 +231,8 @@ class CallConfig(DomainModel):
     # An operator-ratified, thesis-level theme conviction expires on its operator-set horizon (the
     # belief must be re-ratified to stay live — no zombie narratives). When the ratification carries no
     # explicit horizon_end, liveness runs to this default. ~12 months: a structural sector narrative is
-    # slower than a single catalyst but should be re-ratified yearly. RECALIBRATION dial (upper bound /
+    # slower than a single catalyst but should be re-ratified yearly. A tunable dial (docs/DETECTORS.md,
+    # theme_conviction; it is the upper bound /
     # default / re-ratification cadence). Liveness is decoupled from grade, exactly like a catalyst.
     theme_conviction_default_horizon_days: int = 365
 
@@ -254,7 +255,7 @@ class CallConfig(DomainModel):
     # DECOUPLED from grade (R8 — like a catalyst, unlike insider). 180d ≈ two quarters: the edge persists into
     # the next print, and a co-located breakout within ~6 months still arms on it. STARTING calibration.
     revenue_accel_alpha_liveness_days: int = 180
-    # RULE (c) — the CITED QUARTER's maximum age at knowability (operator sign-off 2026-10-22, CALL_LOGIC §3):
+    # RULE (c) — the CITED QUARTER's maximum age at knowability (operator sign-off 2026-10-22, docs/DETECTORS.md):
     # revenue acceleration may NOT fire on a quarter whose period ended more than this many days before the
     # date its number first became knowable (``knowable_from``, D3a). A 10-Q/10-K that RESTATES a year-old
     # comparative makes that old quarter's number new knowledge at the later filing (D3a rule (a): exact
@@ -270,7 +271,7 @@ class CallConfig(DomainModel):
     # **DORMANT — backtest hypothesis dial (H1 leg 1); the default IS today.** The call-strength class the
     # revenue re-acceleration detector emits. R6 fixed it at CORE inline; this lifts that choice onto the
     # config so H1 can ask whether a COMPUTED fundamentals screen should supply a CORE Key 1 at all.
-    # Motivating measurement (``docs/RECALIBRATION.md`` item 8, dev copy at the 2026-09-14 record edge, before
+    # Motivating measurement (the H1 hypothesis, ``docs/BACKTEST.md``; dev copy at the 2026-09-14 record edge, before
     # D3a): revenue re-acceleration was the single largest source of arms — 465 of 969 armed member-nights,
     # ahead of the insider buy's 403 — because a fundamentals screen is broad by nature (13-27% of each big
     # basket).
@@ -377,7 +378,7 @@ class CallConfig(DomainModel):
     # ``arm_until`` and "sessions left" agree by construction. The FLIP BREAKDOWN reads this family's window
     # too (it searches the SAME breakouts the arm cleared — ``signals/breakdown._recent_flip_base``), so it is
     # not given a pair of its own: a breakdown counted on another clock than its breakout would watch a
-    # different set of arms. The numbers come from the pre-registered sweep (``docs/RECALIBRATION.md``), never
+    # different set of arms. The numbers come from the pre-registered sweep (``docs/BACKTEST.md``), never
     # from an average; flip only on a pass that meets its decision rule plus the operator's sign-off.
     # DETECTOR dials (read in ``signals/common.breakout_window``).
     breakout_alpha_liveness_unit: Literal["calendar", "sessions"] = "calendar"
@@ -535,7 +536,7 @@ class CallConfig(DomainModel):
     # never a veto, never a de-arm (operator decision 1, 2026-08-16). Every numeric default in this
     # block is a [PROPOSED] STARTING PRIOR — a shape argument, NOT a measurement: the sig-lab
     # distribution pass (Band 03 spec §6, a separate later step) finalizes the real values before the
-    # operator flips the master switch. See docs/RECALIBRATION.md for the dial rows.
+    # operator flips the master switch. See docs/DETECTORS.md (insider_sell) for the dials.
     #
     # MASTER SWITCH — DEFAULT ON (operator flip, 2026-08-19, the sig-lab pass; the corporate_risk
     # precedent): MEASURED safe on real prod data before the flip. The sig-lab off-vs-on pass (asof
@@ -589,7 +590,7 @@ class CallConfig(DomainModel):
     # adding/retuning an item is a config edit that re-derives every call — zero re-ingest, zero
     # data repair. Every value below is a [PROPOSED] STARTING PRIOR — a shape argument, NOT a
     # measurement: the sig-lab distribution pass finalizes them before either switch flips. See
-    # docs/CORPORATE_EVENTS.md + docs/RECALIBRATION.md for the dial rows.
+    # docs/DETECTORS.md (corporate_catalyst and corporate_risk) for the dials.
     #
     # MASTER SWITCHES — ONE PER SIDE because the blast radii differ: the trigger side extends the
     # LIVE catalyst family (it can warm/arm), the risk side can withhold an arm on timing. Each
@@ -604,7 +605,7 @@ class CallConfig(DomainModel):
     corporate_catalyst_enabled: bool = False
     corporate_risk_enabled: bool = True
     # The v1 item cut (operator decisions 2026-08-17 + the "1.01 decision" 2026-08-20; full record in
-    # docs/CORPORATE_EVENTS.md).
+    # docs/DETECTORS.md, corporate_catalyst and corporate_risk).
     # TRIGGERS (kind=CATALYST — Key-1 conviction, co-location arming + own-conviction ranking ride
     # the existing conviction_kinds membership) — corporate_catalyst is now 5.02-ONLY and stays
     # PARKED (its switch below is OFF):
@@ -663,7 +664,7 @@ class CallConfig(DomainModel):
     # dearm_grade — not a de-arm); freshness DETECTOR-enforced (the assembler never ages risks). Every
     # numeric default below is a [PROPOSED] STARTING PRIOR — a shape argument, NOT a measurement: the
     # sig-lab distribution pass finalizes the real values before the operator flips the master switch.
-    # See docs/RECALIBRATION.md for the dial rows.
+    # See docs/DETECTORS.md (share_creep) for the dials.
     #
     # MASTER SWITCH — DEFAULT ON (operator flip, 2026-08-19, the sig-lab pass; the corporate_risk /
     # insider_sell precedent): MEASURED safe on real prod data. The sig-lab off-vs-on pass (asof
@@ -718,7 +719,7 @@ class CallConfig(DomainModel):
     # (measured: 1 per 6 years on the richest real subject), so it cannot flood. Every numeric
     # default below is a [PROPOSED] STARTING PRIOR — a shape argument, NOT a measurement: the
     # sig-lab distribution pass finalizes the real values before the operator flips the master
-    # switch. See docs/ACTIVIST_STAKE.md + docs/RECALIBRATION.md for the dial rows.
+    # switch. See docs/DETECTORS.md (activist_stake) for the dials.
     #
     # MASTER SWITCH — DEFAULT ON (operator flip, 2026-08-20, the clean re-measure; the corporate_risk /
     # insider_sell / share_creep precedent): MEASURED safe on real prod data before the flip. The
@@ -825,7 +826,7 @@ class CallConfig(DomainModel):
     # --- Workbench scoring — pip-bucketing cutoffs (Slice 3) — PRE-REGISTERED, not fit to the seed ---
     # The 0-4 "pip" meters score each basket name from the point-in-time facts (re-derived on read). Every
     # cutoff is grounded in what the metric MEANS in absolute terms (the discipline the recalibration pass
-    # holds) — NEVER reverse-engineered from the (n=4, clustered) seed names. See docs/RECALIBRATION.md.
+    # holds) — NEVER reverse-engineered from the (n=4, clustered) seed names. See docs/WORKBENCH_SCORING.md.
     # Each tuple is the inclusive lower bound for the 1/2/3/4-pip bars.
     #
     # PURITY = % of revenue/business that IS the theme (exposure CONCENTRATION). 80 = the conventional
@@ -839,7 +840,7 @@ class CallConfig(DomainModel):
     # Grounded in the financing cycle: raises typically land ~12-18mo out; < 6mo signals distress; >= 24mo
     # is ~two raise cycles of cushion. A cash-generative name (burn <= 0) reads max. For a revenue name a
     # single quarter's operating cash use is working-capital noise; the >=24mo -> 4-pip cap keeps the pip
-    # honest now (LEU's 160mo -> 4), and the structural revenue-vs-burn refinement is filed (RECALIBRATION).
+    # honest now (LEU's 160mo -> 4), and the structural revenue-vs-burn refinement is filed (docs/WORKBENCH_SCORING.md).
     runway_pip_months: tuple[float, float, float, float] = (6.0, 12.0, 18.0, 24.0)
     #
     # CATALYSTS = density of LIVE catalysts (live = valid_from within the catalyst's liveness horizon — the

@@ -109,7 +109,7 @@ def test_the_unused_set_is_workbench_and_ingest_dials():
         "cash_runway_basis",
         # read at the insider read seam from DEFAULT_CONFIG (`domain.insider_amendments.ResolutionInputs`),
         # which takes no config: a `--config` overlay or a sweep of it does not reach the read
-        # (docs/RECALIBRATION.md)
+        # (docs/FILINGS.md, "Held rows: a date that cannot be true")
         "insider_hold_on_time_days",
     }
 

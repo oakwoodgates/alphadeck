@@ -376,7 +376,7 @@ def score(
     # (w == 0.0 is a FULL screen — the buy leaves the survivor set here, so the anchor moves). At the
     # 1.0 default this hook is byte-identity (`x * 1.0` is IEEE-exact; the fold order is unchanged) —
     # flipping the dial is a measured config decision, never a code change. Tri-state: only an
-    # explicit `aff_10b5_1 is True` weighs; None/False weigh 1.0 (#9). See docs/CALL_LOGIC.md §3.
+    # explicit `aff_10b5_1 is True` weighs; None/False weigh 1.0 (#9). See docs/DETECTORS.md (insider_conviction).
     w = cfg.insider_10b5_1_buy_weight
     # an INTERNAL TRANSFER (a buy matched to a sale between linked filers — domain.insider_internal_transfers,
     # tagged in the read) is no purchase at all: kept on the read, left out here, NAMED in the label below (#6)
@@ -410,7 +410,7 @@ def score(
     # an older, still-live CORE. Stamping the event at the CHOSEN cluster's public night (F8 — not the query
     # asof, and no longer its trade date) anchors exit_by/liveness to when the market could first read that
     # conviction; that night is ALSO the date shown on the call-card trigger row (event_date). See
-    # docs/CALL_LOGIC.md §6.
+    # docs/DETECTORS.md (insider_conviction).
     # The walk stops once an anchor (a TRADE date) is older than the LONGEST configured horizon. Before F8 no
     # older candidate could be live; since F8 one filed late could be, and the stop deliberately keeps it out
     # (a trade that old is stale however late its filing — the docstring), which keeps horizons() exact.

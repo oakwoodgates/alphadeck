@@ -43,7 +43,7 @@ alphadeck/
 │   ├── DISCOVERY.md · WORKBENCH.md · EXTRACTOR.md · WORKBENCH_SCORING.md   # the front half, in stage order
 │   ├── BOARD.md (the MONITOR surface) · CALL_LOGIC.md (the brain) · FEED_LOOP.md (the rhythm) · ADMIN.md (the ops surface)   # the back half
 │   ├── SCOREBOARD.md · DISPLAY_SIGNALS.md   # SCORE (the forward record) · the read-only tape indicators
-│   ├── CATALYST_CONVICTION.md · THEME_CONVICTION.md · TENANT_SCOPES.md · REPLAY.md · OPERATIONS.md   # + the local dev/prod split
+│   ├── DETECTORS.md · TENANT_SCOPES.md · REPLAY.md · OPERATIONS.md   # + the local dev/prod split
 │   ├── RECALIBRATION.md · archive/POSTMORTEM_CRON_FREEZE_2026-07.md   # the tuning agenda · the ~11-day cache-freeze postmortem
 │   └── mockups/ · PROJECT_LAYOUT.md (this file)   # the visual targets · the file map
 ├── frontend/                       # React + Vite + Tailwind + TanStack Query (SPA)

@@ -16,7 +16,7 @@ A separate module on purpose: ``submissions.py`` is shared with other in-flight 
 changes what any existing leg reads. The succession FORM SET itself lives in ``domain/edgar_forms.py``
 (``SUCCESSION_8K_FORMS``), shared with the 8-K tape: since 2026-10-17 (operator decision)
 ``form8k_filings`` STORES these reports on the corporate-event tape too, and the event detectors skip them
-by form — their items describe the succession itself (``docs/CORPORATE_EVENTS.md`` §succession reports).
+by form — their items describe the succession itself (``docs/DETECTORS.md`` corporate_catalyst and corporate_risk).
 """
 
 from __future__ import annotations
