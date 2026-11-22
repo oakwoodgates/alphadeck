@@ -17,7 +17,8 @@ a run, and separate processes were the only way to parallelize it; after the tap
 ~7 s and the replay dominates, and the replay already fans out over its own workers. Running two window
 jobs at once still helps a little — one job's wall clock is its LARGEST thesis, so its workers idle near
 the end and a second job fills that tail — but the box is ~2.8 usable cores either way, so expect a
-fraction, not a factor. The history of that reversal, with the numbers, is in `docs/BACKTEST.md`.
+fraction, not a factor. The measurements behind that reversal are in git history
+(`git show 8094406a:docs/BACKTEST.md`, its cost section).
 
 One thing the split costs nothing in: the mirror is the whole tape regardless of window
 (``export_snapshot`` takes no date bound), so ONE export serves every window of every point.

@@ -291,8 +291,9 @@ def replay_all(
     (F4 — see the block comment above). Returns the per-thesis timelines PLUS the roster provenance.
     ``cfg`` is a parameter so the recalibration pass (step 2) can sweep the dials.
 
-    Thesis DEFINITIONS other than the roster (narrative, catalysts, kill criteria) are still read from the
-    current SoR, as is ``security_master`` — that half of ``docs/REPLAY.md``'s KNOWN LIMITATION stands.
+    The counting catalysts are a mirrored fact table (``fact_thesis_catalyst``) and replay point-in-time.
+    The rest of the thesis DEFINITION (narrative, ``Thesis.catalysts``, kill criteria) is still read from
+    the current SoR, as is ``security_master`` (``docs/REPLAY.md`` "Known limitation").
     """
     timelines: dict[UUID, list[CallSnapshot]] = {}
     roster_sources: dict[UUID, RosterSource] = {}

@@ -1,940 +1,300 @@
-# BACKTEST.md — the research surface: runs, the public clock, the nulls, and `/backtest`
+# Backtest
 
-> Repo path: `docs/BACKTEST.md`. Code: `backend/backtest/` (the RUN — identity, overlays, nulls, pooling,
-> sweeps, the ledger) over `backend/replay/` (the ENGINE — the as-of harness, episodes, the forward scorer);
-> `backend/app/routers/backtest.py` + `frontend/src/backtest/` (the surface). Install with
-> `pip install -e ".[replay]"` (duckdb + pyarrow) — the lean prod image deliberately lacks it, which is why
-> a run is written by a CLI and only READ by the app.
->
-> `REPLAY.md` is the instrument. This is what we do with it, and what we are allowed to claim from it.
+The backtest re-runs today's call rules, or a dial overlay on them, over a frozen point-in-time mirror of
+history and scores the arm episodes against realized prices. It answers one question: does the timing
+algorithm behave sensibly across the whole book? It is not a P&L simulator, a strategy, a promotion
+mechanism or a leaderboard. A CLI writes each run to its own directory; the steward reads runs and sweep
+curves on the `/backtest` page. Read this doc before you change `backend/backtest/`, read a run, or quote a
+number from one. The procedure for running a pass and writing it up is the `backtest` skill; the engine
+underneath is [REPLAY](REPLAY.md).
 
----
+## Code
 
-## What this is, and what it is not
+Paths are under `backend/` unless they start with `frontend/`.
 
-Replaying the call algorithm over history, with editable dials, to answer ONE question: **globally, does the
-timing algorithm behave sensibly?**
-
-It is **not** a P&L simulator, not a strategy, not a promotion mechanism, and not a leaderboard. Nothing on
-this surface ranks a thesis, and no dial moves in `domain/config.py` because of a run. Promotion is a
-separate operator call made against run ids (the evidence/policy seam).
-
-**The forward record is never tuned against.** No dial is fitted to the calls log the platform is writing
-from here on; a sweep reads sub-period sign agreement as its stand-in for a hold-out at this n
-(`backend/backtest/sweep.py`).
-
-**No simulated row ever reaches `calls`.** A backtest writes only into its own run directory. The container's
-mount of that directory is read-only; the route is structurally read-only (a test reads its import graph).
-
-## The five permanent labels
-
-Every response from `/backtest` carries these, backend-authored (`backtest/manifest.py::LABELS`), rendered
-**verbatim** by the front end — it composes nothing, so the caveat on the page and the caveat in the artifact
-cannot drift:
-
-1. **Public clock** — facts enter when they became public, not when this system ingested them.
-2. **Counterfactual universe** — the baskets were authored in 2026 over names that had already moved.
-3. **Survivorship** — the roster is today's, not history's, wherever no `basket_snapshot` reaches back.
-4. **Adjusted closes** — the tape is split/dividend adjusted.
-5. **A recompute, never the record** — and, explicitly, an operator-ratified fact is modeled as public on its
-   ANNOUNCEMENT date (for a DOE award: the date it was recorded, which can be later than its
-   announcement), so the ratification itself is hindsight (FLAG-H, below).
-
-### FLAG-H — the ratification is hindsight, and the label says so
-
-MEASURED (before rule `2026-11-catalysts-dated-by-record-date`): `fact_catalyst.valid_from` spanned 2010-03-23 …
-2026-02-09 while every row's `recorded_at` was 2026-06-10. A catalyst the operator ratified in 2026 is
-therefore modeled as knowable in 2010. The DATA axis is meant to be right — `valid_from` is the date the
-catalyst became public — but the DECISION to record it is hindsight. Eight rows total, so the impact is
-negligible; it is labeled rather than corrected because the honest fix (a ratification clock) does not exist
-and pretending otherwise would be worse than saying it.
-
-**The data axis had its own error, fixed 2026-11-11.** 3 of the 6 DOE feed rows were dated at the award's
-work-period START, which is before the award was recorded: work period from 2026-02-09, recorded
-2026-05-18; from 2012-06-01, recorded 2012-11-30; from 2010-03-23, recorded 2010-12-21 (both ends of the
-span above are such start dates). A DOE catalyst now counts from **the date the award was recorded**
-(USAspending `date_signed`, its first action date in the federal record;
-`ingest/doe/feed.py::_event_date`; the work period's start only when the record carries no such date),
-and `python -m pipeline.repair_catalyst_dates` re-dates the stored rows. Under the rule the six feed rows
-span 2010-12-21 … 2026-05-18 (derived from the committed payloads, not yet re-measured on the store: do
-that after the repair is applied). A run made before the repair read the three early dates. FLAG-H's own
-point is unchanged: the ratification is hindsight.
-
-**KNOWN LIMITATION: the record date is late.** For the one award checked against public sources
-(DENE0009589, 2026-11-11): the agreement was executed in February 2026 (its work period starts
-2026-02-09), it was announced publicly on 2026-03-17, and DOE recorded it on 2026-05-18. The old date was
-36 days BEFORE the public knew, so a run read the catalyst too early (a lookahead). The record date is 62
-days AFTER the announcement, so a run now reads this catalyst 62 days later than the public could: late
-by design, because USAspending does not carry the announcement date. It is not proven that the record
-date can never come too early: a record can appear on USAspending some days after its action date (not
-measured), so for an award nobody announced, the record date may be a few days before the public could
-see it.
-
-## A run is an immutable, addressable artifact
-
-```
-data/backtest/
-  index.json                     the registry: one summary row per run, newest first
-  sweep.json                     the latest sweep curve (see the asymmetry below)
-  runs/<run_id>/
-    manifest.json                what this run IS — code, dials, clock, pin, the ROSTERS THEMSELVES, exclusions
-    episodes.parquet             the arm episodes           } analysis
-    outcomes.parquet             those episodes scored      }
-    metrics.json                 the engine's claim-tied metric set, over ALL outcomes
-    pooled.json                  the algorithm-level view with its two nulls
-    episodes.json                the serving copy of the episodes (JSON: the lean image has no pyarrow)
-    ledger.json                  the per-thesis drill-down, in the Scoreboard's own vocabulary
-    *.parquet                    the frozen fact mirror (absent when a sweep SHARES one)
-```
-
-A run id is `<utc timestamp>-<clock>-<hypothesis slug>-<config short hash>` — sortable first (a directory
-listing is a timeline), then legible (which axis, which experiment), then precise (which dials).
-
-Two rules are the whole design. **A run directory is created fresh and never reused** (`mkdir(exist_ok=False)`),
-so a run id in a PR description means exactly one set of numbers, forever. A collision raises `RunDirExists`
-naming the id, the path, every component that had to agree for it to happen, and what to change. **The registry is rewritten
-atomically**, because a listing truncated mid-write reads as "runs vanished" — the worst failure for an
-artifact whose job is to count trials.
-
-```bash
-python -m backtest.run --start 2025-09-01 --end 2026-09-14
-python -m backtest.run --start ... --end ... --config overlays/h5-horizon-090.json \
-    --hypothesis "H5: the exit_by horizon is the timing lever" \
-    --decision-rule "adopt only on a plateau with sign agreement in 2+ disjoint sub-windows"
-```
-
-`--config` REQUIRES both `--hypothesis` and `--decision-rule`. A dial moved without a pre-registered
-hypothesis and decision rule is not a measurement, and the CLI refuses it.
-
-### Count your trials
-
-`index.json` carries `dials_moved` per run, and `/backtest/runs` derives `dial_trials` from it: how many runs
-have touched each dial. A result read without knowing how many times its dial was swept is a result read
-without its multiple-comparisons context, so the count sits on the manifest card beside the dial.
-
-## The public clock
-
-Three clocks exist: **event time** (`valid_from`), **public time** (when anyone could have known —
-`accepted` / `filed` / the settled session), **system time** (`recorded_at`, when THIS system learned it).
-Since the operator's 2026-10-21 rule (`INVARIANTS.md` §1) the public clock judges ALL history, not just the
-backtest: the past-asof Board / Cockpit / Workbench recompute, the Scoreboard drawer, the missed-night
-backfill. So the per-table definition lives ONCE in `db/public_clock.py` (`PUBLIC_TIME`) and
-`clock=public` in `replay/export.py` runs the SAME SQL the live history read runs (`public_versions_sql`):
-the exported `recorded_at` is each version's public instant (the honest ingest instant beside it as
-`ingested_at`), the mirror's reader and gate are unchanged, and a public mirror read is row-for-row the live
-`PointInTimeData(clock="public")` read (`tests/replay/test_public_clock.py`). The live nightly stays on the
-record clock, where the two coincide.
-
-The registry (since 2026-10-21; the NULL rates below were MEASURED on `alphadeck_dev` under the earlier
-registry and still describe the columns):
-
-| PIT accessor | fact table | a version's public instant | NULLs (raw rows) | NULLs (latest-version grain) |
-|---|---|---|---|---|
-| `price_history` | `fact_price_eod` | FIRST version: the session settle (`d` at `Settings.price_settle_time`, market tz); a RE-version: its own `recorded_at` (never before the settle) | 0 / 369,039 | 0 |
-| `fundamentals_facts` | `fact_fundamentals` | `valid_from` (= the 10-Q/10-K `filed` date), start of that market day | 0 / 120,626 | 0 |
-| `corporate_event_facts` | `fact_corporate_event` | `filed`, start of that market day | 0 / 62,046 | 0 |
-| `activist_stake_facts` | `fact_activist_stake` | `filed`, start of that market day | 0 / 24,090 | 0 |
-| `insider_txns` | `fact_insider_txn` | `accepted` — the FACT's, on every version: its newest stored statement (a re-parse shares it; a re-dated mis-captured time, `backfill_accepted --drift`, moves the older versions with it — 2026-10-24) | **280,578 / 595,376 = 47.13 %** | **2,128 / 316,374 = 0.67 %** (prod 2026-10-21: 2,120 / 320,080 facts) |
-| `catalyst_facts` | `fact_catalyst` | `valid_from` (the announcement date — operator decision) | 0 / 6 | 0 |
-| `dilution_facts` | `fact_dilution` | `valid_from` | 0 / 1 | 0 |
-| `theme_conviction_facts` | `fact_theme_conviction` | `valid_from` | 0 / 1 | 0 |
-| `revenue_mix_facts` / `shares_outstanding_facts` / `cash_burn_facts` | the Workbench-ratified tables | `recorded_at` — the ratification (their `valid_from` is a period / cover date, before the filing was public) | — | — |
-| `fund_shares` | `fact_fund_shares` | `recorded_at` — a scraped page states an as-of `d`, no publication time | — | — |
-
-The Form 4/A aux tables carry every row with its honest `recorded_at` (the order the resolver reads) plus
-`public_at`: the 4/A and its link at the amendment's SEC acceptance (else its filing date), a SYSTEM decision
-at that same publication, an OPERATOR decision when the operator made it.
-
-Since rule `2026-11-insider-rows-dated-after-filing` (2026-11-12) every export also writes the HELD insider rows
-(`insider_txn_hold`, public at the filing's acceptance, else when held) and the steward's decisions about them
-(`insider_txn_hold_decision`, public when made) as their own all-or-none pair (`replay.export.HOLD_TABLES`,
-recorded in the manifest as `hold_tables`), and the mirror resolves them with the same pure step as the live read
-(`domain.insider_holds.resolve_holds`): an on-time filing's held row counts from its filing night. A mirror
-exported before the pair opens unchanged and reads no holds — the stored after-filing rows it holds then read
-at their written date, exactly what that export held; re-export to read under the rule.
-
-**What 2026-10-21 changed in a public mirror** (re-export rather than compare across that line — a mirror's
-manifest does not record which registry built it): (1) a bar's re-version used to collapse onto the bar's date —
-a vendor correction back-dated to the day; it now counts from its own publication, and the first version from
-the settle; (2) the four Workbench / fund tables were excluded WHOLE and are now in; (3) the 4/A tables used to
-carry only the decisions STANDING at export, all stamped at the acceptance (the named hindsight on the decision
-axis); they now carry every row, an operator decision at its own time. (4) A Form 4 with no acceptance on any
-version is still excluded + COUNTED here — the ONE named asymmetry with the live history read, which shows it
-from the first time we held it (an upper bound on its publication: never early, never dropped).
-
-A table with no declared clock is **excluded WHOLE** and named in the manifest together with the detectors it
-thereby blinds. A ROW whose clock column is NULL is excluded and COUNTED. Both counts ride the manifest and
-the surface renders them under "what this run could not see" — the size of the hole is part of the result.
-
-Supporting measurements worth keeping: `accepted` never precedes `recorded_at` (0 of 314,798 non-null rows;
-prod 2026-10-21: 0, and 0 facts carry two different acceptances);
-insider disclosure lag on the latest grain since 2024 is p50 **2 d**, p90 **5 d**, p99 **83 d**, max 474 d;
-`recorded_at::date > d` for 98.6 % of price rows, so the public clock does real work on the price axis; and
-`clock=public` is a **no-op for fundamentals** (`recorded_at == valid_from == filed` on all 120,626 rows),
-which matters because H1 is a fundamentals screen.
-
-**The version pile-up, and the random tiebreak it used to hide (FLAG-A/B).** Under the pre-2026-10-21 registry,
-for insider and price EVERY re-version of a fact carried the SAME public clock (our own repairs and refetches,
-not new filings — for insider it still does; a price re-version now counts from its own publication):
-`fact_insider_txn` 44,982 identity-groups tie on `(identity, clock)`, `fact_price_eod` 17,373 — and 8,947 of
-the price ties **differ on `close`**. Under a naive public-clock rewrite the reader's
-`ORDER BY recorded_at DESC, id DESC` would have been decided by a random UUID. The export therefore resolves
-versions at export time, partitioned by `(identity, clock_value)`: every distinct public-clock version
-survives (a restatement appears at its own `filed`) while pure re-parses collapse to our best one, chosen by
-the honest system clock. After that, no tie is left for `id DESC` to break.
-
-## The two nulls, and why an absolute return is not evidence
-
-The baskets were authored in 2026 over names that had already moved. Forward returns on that universe are
-biased upward by selection and **no clock fixes that**. So every pooled metric reports three things beside it:
-
-- **Excess over basket, TWO WAYS over one priced population** — the same window measured against the
-  thesis basket's own close-to-close move, from the same mirror, as an equal-weight **mean** (`excess` —
-  what an equal-weight basket position earned) and as a **median** (`excess_vs_basket_median` — what the
-  TYPICAL member did). The theme's own drift, removed; the question is which drift. See below.
-- **The timing null** — the SAME name entered on a randomly drawn session from the run's own session list.
-  Isolates timing.
-- **The name-selection null** — a randomly drawn OTHER member of the same roster on the same day. Isolates
-  name selection.
-
-`K = --null-draws` (default 50) draws per episode per null. The **seed defaults to the run_id**, so a run
-reproduces its own draws and two runs never share them; both ride the manifest. When fewer than K candidates
-exist the whole population is used — reporting three peers of a four-name basket is honest where resampling
-to K would manufacture confidence.
-
-**The short-window trap, surfaced rather than left silent — and six-week windows sit ON the boundary.**
-A 42-day window holds roughly 30 trading sessions, which is exactly where the caveat's threshold is. Any
-write-up of a windowed pass must carry the sentence whether or not the caveat fired: **a `vs_timing` close
-to `actual` on a ~30-session window means there was no comparison, NOT that there is no edge.** The
-threshold is deliberately left where it is rather than tuned so that it always fires — moving a threshold
-to make a caveat appear is fitting the instrument to the answer. `timing_candidate_sessions` rides the firing
-diagnostics: on a four-session run there is roughly one alternative entry date per episode, every draw prices
-a near-empty forward window, and `vs_timing` comes back on top of the actual — which READS like "the
-algorithm ties with chance" and MEANS "there was no chance to compare against". Under 30 sessions the surface
-says so in words.
-
-**K=20 changes what `vs_timing` means on these windows.** The timing draws are taken WITHOUT replacement, so 20
-draws from the roughly 29 candidate sessions of a six-week window cover about two thirds of every available
-alternative entry date. `vs_timing` is then close to the median return of entering on ANY other day in the
-window, not of a small random handful: a tighter comparison, not a looser one. The caveat above still holds
-for a window under 30 sessions.
-
-### Two excess figures, and why the median is the headline (B)
-
-A thematic basket is right-skewed BY CONSTRUCTION: the operator assembles names around a narrative and a
-minority carry it. One moonshot in a twenty-name basket lifts the equal-weight MEAN by a twentieth of its
-own move and leaves the TYPICAL member exactly where it was. So the same run can read two ways, and the
-difference is not a rounding:
-
-- against the **mean** — *what an equal-weight basket position earned*. A real portfolio answer, and the
-  one every pre-B run carries. It can also say "the algorithm lost to the basket" when what happened is
-  "the algorithm beat every name except the one that ran".
-- against the **median** — *what the typical member did*. The same question the name-selection null asks,
-  and the one a timing platform has to answer to. **The headline since B** (`pooled.HEADLINE_EXCESS`, one
-  constant; the report carries `headline_excess` so a stored artifact says how it was meant to be read,
-  and the surface reads that field rather than deciding for itself).
-
-**MEASURED on the finished phase-1 pass** (the production baseline point, 9 windows, 2,605 scored
-episodes, recomputed 2026-09-18T17:17Z): excess vs the basket **median = -0.470%**, excess vs the
-equal-weight **mean = -5.128%**. The same episodes, the same tape, a 4.66 pp gap — the armed windows were
-level with the typical basket name and well behind an equal-weight position in it. Neither figure is the
-truth on its own, which is why both ride every draw and both render.
-
-**Re-read after D3a (2026-10-17, MEASURED; see "Re-reading a pass after a correction" below).** The same
-episodes' tape, re-drawn under D3a's first-knowability dating, gives median **-0.45%** and mean **-5.02%**.
-On the tape exported 2026-10-17 it gives **-0.81%** and **-7.28%**. That later move is mostly the forward tape
-growing a month (re-measured horizons), not a changed decision.
-
-Both statistics are taken over the SAME priced members (a name with no tape is in neither, and `n` is the
-denominator both used), so a difference between them is always skew and never a change of arithmetic — the
-symmetric-basket test pins exactly that. **The median costs nothing**: both come off the one list of
-returns the benchmark already prices, so B added no priced window to any run.
-
-### Rebenching a finished run — `backtest.rebench`
-
-A run from before B carries only the mean, and re-running a four-hour pass for a statistic that costs
-nothing new would be absurd. `python -m backtest.rebench --pass-id <id>` recomputes both figures from the
-run's own artifacts and its own frozen mirror. **It is a recompute, not a re-run**: nothing re-opens a
-point-in-time view, re-decides anything, or writes into a run directory.
-
-Three things are therefore CHECKED rather than assumed, and any run that fails one is reported and
-excluded rather than folded in:
-
-1. **The mirror is the run's own**, by content hash — the path a mirror sits at says nothing about what is
-   in it.
-2. **The roster is still the one the run replayed on.** Every phase-1-era run reads `live_fallback`
-   (`basket_snapshot` history begins 2026-09-15), so its benchmark was taken over the live basket as it
-   stood at run time; if a basket has been edited since, that benchmark cannot be rebuilt and the tool
-   refuses. A run whose roster genuinely MOVED during its window (real snapshot days) is refused too —
-   rebuilding that is the harness's job, not a recompute's.
-3. **The recompute reproduces the stored numbers.** `forward_return`, `exit_date` and the mean-based
-   excess are re-derived and compared to the artifacts. The new figure is only worth what the old one
-   reproduces.
-
-That third check earned itself immediately: the first recompute disagreed with 4 of 9 stored windows by up
-to 0.5 pp, because `draw_nulls` skips an episode with no horizon and the recompute did not — 3 episodes in
-a 324-episode window. With the run's own population rule the mean-based figure reproduces on all nine
-windows and on all 2,605 episodes exactly (`forward_return` mismatches: 0, `exit_date` mismatches: 0).
-
-**And the durable fix**: `ThesisEntry.member_ids` now records the ROSTER ITSELF on every manifest, in the
-order `roster_hash` hashes it. The hash says WHETHER a roster changed; the ids say WHAT it was, so a run
-written from B on can be rebenched months later from its own bytes with no database at all (`--no-db`). An
-older manifest carries an empty list — that is "not recorded", not "empty basket", and `basket_size` beside
-it says which.
-
-**Episodes are not independent.** MEASURED on the record: 82 % of arm episodes arrived alongside a co-member
-the same thesis-session. The co-arm slice is what makes that visible rather than assumed, and the effective n
-is far below the episode count. Two counts ride every episode, because one cannot tell the cases apart:
-`co_arm_count` (how many OTHERS newly armed — the decision made that night) and `armed_count_that_night`
-(how many were armed in total, new and sticky alike — the loudness the operator saw).
-
-## Pooled, never per thesis — the no-leaderboard rule
-
-The unit is the **ALGORITHM**. Pooling across theses tests the algorithm; slicing outcomes by thesis tests the
-IDEA, which is the leaderboard trap and an invariant #4 violation (opinionated on timing, deferential on
-thesis).
-
-This is enforced structurally, not by convention:
-
-- `PooledReport` has **no thesis field of any kind**; the slices are algorithm-only (Key-1 source ×
-  confirmation grade × co-arm bucket × close reason).
-- A backend test walks the serialized payload looking for any thesis identifier, and a route test walks the
-  same payload on the WIRE.
-- The per-thesis view exists in exactly one place — the run's own LEDGER, a drill-down that opens collapsed,
-  below the pooled panel, ordered by NAME. A drill-down is how a reader checks a pooled number against its
-  rows; an outcome-ordered one would be a ranking. The order is fixed by the writer and a test pins it.
-
-## Sliced by market cap: what an event does depends on company size
-
-**The rule (operator, 2026-10-20):** every report on what an event did to companies is broken down by
-**market-cap tier at the event**. A pooled number never stands alone. The rule covers:
-- a backtest slice;
-- the signal report card;
-- a research study (e.g. price moves around splits);
-- the daily "what happened" reports.
-
-In the operator's words: "different things happen to different companies at different market caps,
-sometimes shady dealings and dilutions happen with micro caps where majors and those coming up price/vol
-differently."
-
-**Why this does not break the no-leaderboard rule above.** A tier is a property of the COMPANY at the event, not
-of the thesis. Slicing by tier still pools across theses, so no thesis is ranked, and invariant #4 is untouched.
-A tier is never a call input, never sizing, and never a return of the retired size-tier "archetype".
-
-### The bands
-
-| Tier | Market cap at the event |
+| Piece | Module |
 |---|---|
-| nano | < $50M |
-| micro | $50M – $300M |
-| small | $300M – $2B |
-| mid | $2B – $10B |
-| large | ≥ $10B |
+| One run: export, replay, episodes, nulls, pooled report, ledger, manifest | `backtest/run.py` |
+| Run identity, the five labels, the mirror hash | `backtest/manifest.py` (`LABELS`, `RUN_ID_PARTS`, `mirror_hash`) |
+| Run directories and the registry | `backtest/store.py` |
+| Timing and name-selection nulls | `backtest/nulls.py` |
+| Pooled report | `backtest/pooled.py` (`SLICE_KEYS`, `HEADLINE_EXCESS`) |
+| Sweeps, ladders, windows, agreement | `backtest/sweep.py`, `backtest/windows.py`, `backtest/config_overlay.py`, overlay files in `backtest/overlays/` |
+| Parallel replay workers | `backtest/parallel.py` |
+| Per-thesis ledger | `backtest/ledger.py` (built by `scoreboard/replay_snapshot.build_snapshot`) |
+| Re-reads of finished runs | `backtest/rebench.py`, `backtest/pair.py`, `backtest/slice_nulls.py` |
+| Which dials change the event stream | `backtest/dials.py` |
+| Artifact reader for the routes | `backtest/artifact.py` |
+| Routes and page | `app/routers/backtest.py`; `frontend/src/backtest/` |
+| Engine and public clock | `backend/replay/`; `db/public_clock.py` |
 
-Where it helps, add a **liquidity cut** by 20-day average dollar volume before the event, and say which bands
-were used. Thin names behave differently even at the same market cap.
+Runs need the `.[replay]` extra (duckdb, pyarrow). The lean prod image lacks it, which is why a CLI writes
+runs and the app only reads them.
 
-### Measuring market cap at the event
+## How it works
 
-- **Formula:** the **as-traded close** on the session before the event × the **last share count reported before
-  the event** (the shares fact as known then, or the filing's cover-page / `dei` count with both the period end
-  and the filed date before the event).
-- **Same basis on both sides.** Never multiply a split-adjusted price by a pre-split share count. After a 1-for-16
-  reverse split, that overstates the cap 16×. It is the same trap as the live market-cap figure (`workbench/scoring.py`
-  `_market_cap`) after a split.
-- **ADRs:** divide the ordinary-share count by the ADS ratio (the `ads_ratio_status` rule in `_market_cap`).
-- **Label every value approximate.** When it cannot be pinned down, leave it blank and **count the blanks**.
-  Never guess.
+### What a run may claim
 
-### How results are reported, per tier
+- No simulated row reaches `calls`. A run writes only its own directory; the routes read JSON artifacts and
+  never write.
+- The forward record is never tuned against. A sweep reads cross-window sign agreement as its stand-in for a
+  hold-out.
+- No dial moves in `domain/config.py` because of a run. Promotion is the operator's decision against run
+  ids, by the rule in [CALL_LOGIC](CALL_LOGIC.md) for how a dial changes.
+- A run replays one workspace's theses (`--workspace`, default the founding workspace) over the platform's
+  facts.
 
-- **Every number carries four things:**
-  - its **horizon** (e.g. +1 day, +5, +21, +63 sessions);
-  - its **comparison** (minus IWM or SPY, or the random-day / same-basket nulls in §"The two nulls");
-  - **n**;
-  - **how often it held** (% rose, or the hit rate).
-- **Name any tier with n < 10 as too small to read.** Don't draw a conclusion from it.
-- **Keep the pooled table below the tiered one**, labeled as pooled, so a reader can see what pooling hid.
-- **Never write "X works" or "X doesn't work".** Describe what happened, with the numbers.
+### A run is an immutable artifact
 
-### Status
+The store layout is in the `backtest/store.py` docstring; a run directory also holds `pooled.json`,
+`episodes.json` and `ledger.json` (JSON, because the lean image has no pyarrow), and the store root holds
+`sweep.json` and `sweeps/`. The run id joins the parts named in `manifest.RUN_ID_PARTS` (timestamp, clock,
+hypothesis slug, config hash, window start).
 
-- **The rule is DECIDED.** `PooledReport` does not yet carry a market-cap slice.
-- **When code adds one:**
-  - define the bands **once** (a `domain/` constant mirroring the table above);
-  - compute the cap with the as-of rules above;
-  - add the tier to every outcome CSV as a column.
-- **First applied** in the 2026-10-20 split-move study. Its pooled result (100 reverse splits, mostly micro
-  caps with listing-deficiency notices) is exactly the kind of number that needs the tier cut.
+- A run directory is created fresh and never reused (`mkdir(exist_ok=False)`; a collision raises
+  `RunDirExists`). Why: a run id in a write-up must mean one set of numbers forever.
+- The registry (`index.json`) is rewritten atomically under a cross-process lock. Why: its job is counting
+  trials, and a lost row reads as a run that never happened.
+- `--config` (a dial overlay) requires `--hypothesis` and `--decision-rule`; the CLI refuses a dial moved
+  without a pre-registered hypothesis.
+- `GET /backtest/runs` derives `dial_trials` (how many runs touched each dial) from each row's
+  `dials_moved`, and the manifest card shows it beside the dial: a result read without its trial count has
+  lost its multiple-comparisons context.
+- The manifest records the code sha, the dial blob and its hash, the clock, the pin, each thesis's roster
+  (`ThesisEntry.member_ids`), what the export excluded, and timings.
 
-## `/backtest` — the surface
+### The clocks
 
-Four read-only routes, artifact-served: `GET /backtest/runs` (the registry + `dial_trials`),
-`GET /backtest/runs/{run_id}` (manifest, pooled, episodes, ledger, labels), `GET /backtest/sweeps` (every
-KEPT curve as a header) and `GET /backtest/sweep` (one curve — the latest, or a named one).
-**`available: false` is a legitimate 200**, never a 500 and never a 404 page: a missing store, a missing
-run, a half-written directory, an unreadable file and a selection that matches nothing all collapse to it.
+`backtest.run` and `backtest.sweep` default to the record clock. Pass `--clock public` for any run you
+intend to quote. The clock is a property of the mirror: a run given `--mirror-dir` inherits the mirror's
+clock and refuses a `--clock` that disagrees (`MirrorClockMismatch`, raised before the run directory
+exists). `known_at_mode` is derived from the clock, never a flag: `lockstep` on public (facts and roster
+capped at each session's night), `pin` on record (facts capped at the run's one pin).
 
-**The latest-only gap is closed (D).** `sweep.json` still holds the last curve a pass wrote and an
-unselected `GET /backtest/sweep` still serves exactly it, so a link made before this resolves to what it
-always did. But a pass writes ONE CURVE PER DIAL, so five of six were unreachable from the page the
-instant the sixth landed — the runs survived (each point cites its own run_id), the curves did not.
-`GET /backtest/sweeps` lists the kept copies as HEADERS (never their points, so the page's cost does not
-grow with the store's history), and `GET /backtest/sweep?pass_id=&dial=&metric_slice=` serves one.
+- A record mirror holds every row and version with `recorded_at` untouched, written in `(recorded_at, id)`
+  order.
+- A public mirror runs the same SQL as the live history read (`db/public_clock.public_versions_sql`,
+  through `replay/export.export_snapshot(clock="public")`). Each table's public instant is defined once in
+  `PUBLIC_TIME`, and the `db/public_clock.py` module docstring is its table; invariant 1 states the rule.
+  The exported `recorded_at` is the public instant, with the ingest instant as `ingested_at`.
+  `tests/replay/test_public_clock.py::test_the_public_mirror_is_row_for_row_the_live_public_read` pins the
+  parity.
+- A public export resolves versions per `(identity, public instant)`: a restatement survives at its own
+  instant, and re-parses of one filing collapse to one row, chosen by `recorded_at`.
+- The Form 4/A tables (`replay.export.AUX_TABLES`) and the held insider rows with the steward's decisions
+  (`HOLD_TABLES`) export whole; on a public mirror their rows carry the `public_at` the reader gates on. A
+  mirror exported before such a table existed reads none of it; re-export to read under the newer rule.
+- A table with no declared clock is excluded whole and named in the manifest with the detectors it
+  blinds. A row whose clock is NULL is excluded and counted (`manifest.TableCounts`). A Form 4 with no
+  acceptance on any version is excluded and counted, the one difference from the live history read, which
+  counts it from when we first held it. The page shows these counts; a caveat about the swept population is
+  counted on the mirror, never on the source database.
+- A mirror's manifest does not record which public-clock definition built it. Re-export rather than compare
+  runs across a change to `db/public_clock.py`.
 
-The selection takes THREE parts because one pass may carry the same dial twice — read pooled and read on
-one algorithm family — and those are two different measurements that must never resolve to each other.
-A header carries what a reader picks BY (pass, dial, slice, window, pre-registration) plus the two facts
-that decide whether two curves may be read together at all: the CLOCK they were swept on and the MIRROR
-they were swept over.
+### Episodes and rosters
 
-**The registry and the switcher group by PASS, and grouping is never filtering.** A windowed pass writes
-dozens of runs — 225 for the first real one — so a flat list stopped being readable the moment one landed,
-with the smoke runs scattered through it. The newest REAL pass opens; every other group collapses with its
-count still on screen and expands in one click. Smoke and calibration passes are recognized by their own
-pre-registration text, which is a DISPLAY heuristic and is allowed to be one precisely because a miss
-renders the pass in the main list rather than hiding it. Nothing is ever dropped: the registry's job is
-counting trials, and an experiment you cannot see is one you cannot count against yourself.
+The unit is the arm episode ([REPLAY](REPLAY.md) owns it). Episodes are not independent: members of one
+basket arm together, so the effective n is below the episode count. Each episode carries `co_arm_count`
+(others newly armed that night) and `armed_count_that_night` (all armed, new and sticky), and
+`co_arm_bucket` is a pooled slice.
 
-**Available BY DATA AVAILABILITY, with no build flag.** Where no store directory is mounted (a base stack
-without an overlay), the page renders one quiet line. Dev and sig mount the live store; prod mounts a FROZEN
-archive read-only (below). There is no environment variable anyone can get wrong. The nav tab always
-renders — the `available:false` idiom hides SECTIONS, not tabs, and gating the tab would cost a request on
-every page load to answer a question the page answers itself.
+The roster is point-in-time from 2026-09-15, when `basket_snapshot` history begins. Earlier sessions replay
+today's basket; the manifest reports each thesis's fallback days (`harness.RosterSource`), and both nulls
+draw from that same roster.
 
-The page's reading order IS the design: the five labels, then the run picker and the manifest card (what
-produced these numbers), then the POOLED panel, then — folded away — the per-thesis ledger, then the sweep.
-The ledger renders through the Scoreboard's own components (`LedgerHead`, `EpisodeRow`, `EpisodeScorecard`,
-`MetricsStrip`) because its rows genuinely are replayed, scored arm episodes and the backend serves them in
-that exact wire shape; `ledger.json` is built by `scoreboard/replay_snapshot.build_snapshot`, so the two
-surfaces cannot disagree about which episodes are eligible. The drawer mounts the scorecard **without an
-as-of**, which is what keeps today's live price window, display signals and scored members out of a run that
-swept a frozen mirror.
+### The two nulls and the headline
 
-**Nothing links into it.** Board, Cockpit and Scoreboard do not know it exists, and it never notifies.
+The baskets were authored in 2026 over names that had already moved, so an absolute forward return is
+biased upward and no clock fixes that. Every pooled metric therefore carries three comparisons:
 
-Compose gives sig and dev a READ-ONLY bind of `./data/backtest` at `/data/backtest` (the idiom of the
-Scoreboard's old replay-panel bind, retired with the panel in editions S8). Prod's base file does not carry
-it at all; prod's frozen archive rides `docker-compose.prod.yml`'s read-only bind of `./data/backtest_prod`.
+- Excess over the thesis basket in the same window, two ways over one priced population: the equal-weight
+  mean (`excess`, what a basket position earned) and the median (`excess_vs_basket_median`, what the
+  typical member did). The median is the headline (`pooled.HEADLINE_EXCESS`, stored on the report as
+  `headline_excess`). Why: a thematic basket is right-skewed by construction; one runner moves the mean
+  and leaves the typical member where it was.
+- The timing null: the same name entered on a randomly drawn session of the run.
+- The name-selection null: another member of the same roster on the same day.
 
-### Two metric sets, deliberately not merged
+`--null-draws` sets K (`nulls.DEFAULT_DRAWS`). K is part of a pass's pre-registration; changing it breaks
+comparability. Draws are without replacement, or the whole population when it is smaller than K. The seed
+defaults to the run id and is the pass id in a sweep; each episode's sub-seed comes from its identity
+(`nulls.episode_seed`), so adding an episode never reshuffles another's draws. The null phase runs serially;
+`--workers` parallelizes the replay only.
 
-`metrics.json` scores EVERY outcome; the ledger's own metric set scores the ELIGIBLE ones (matured +
-non-censored — the Scoreboard's rule) and is the set whose rows are on screen beside it. Only the ledger's is
-served, because putting two differently-gated numbers on one page with nothing to tell them apart is how a
-reader quotes the wrong one. `metrics.json` stays in the run directory for analysis.
+The short-window trap: on a window under about 30 sessions, a `vs_timing` close to `actual` means there was
+no comparison, not that there is no edge. The page says so (`timingNullCaveat` in `PooledPanel.tsx`). The
+threshold is not tuned to make the caveat fire: that would fit the instrument to the answer.
 
-## Cost — MEASURED, and the follow-ups in measured order
+### Pooled, never per thesis
 
-The full-run cost was `>5.5 h and still running`. The investigation found it was **query count**, not query
-complexity: 14,676 DuckDB queries over 5 sessions = 14.98 per member-session, `price_history` alone called
-~7× per member-session and re-reading each security's entire history unbounded.
+The unit is the algorithm. Slicing outcomes by thesis ranks ideas, which invariant 4 forbids.
 
-| leg | s/session (196-name basket) | queries (3 sessions) | rows materialized | identical to baseline |
-|---|---|---|---|---|
-| A — baseline | **42.12** | 8,805 | 2,666,554 | — |
-| B — + per-PIT memo | 16.27–22.91 | 3,993 | 664,699 | yes |
-| D — + registry bounds | 15.25–24.10 | 3,993 | 337,540 | yes |
-| E — + basket prefetch | **1.65** | **8/session** | 337,540 | yes |
+- `PooledReport` has no thesis field. Its slices are `SLICE_KEYS` only (key-1 source, confirmation grade,
+  co-arm bucket, close reason). `tests/backtest/test_pooled.py` walks the payload for a thesis identifier,
+  and `tests/app/test_backtest_routes.py` walks the wire payload.
+- The per-thesis view exists only as the run's ledger: a drill-down that opens collapsed below the pooled
+  panel, in name order fixed by the writer (`tests/backtest/test_ledger.py`). It reuses the Scoreboard's
+  wire shape (`ScoreboardReplayThesisOut`) and components; nothing flows back to the Scoreboard.
+- The ledger serves the Scoreboard's eligible metric set (matured, uncensored). `metrics.json`, which scores
+  every outcome, stays in the run directory unserved, so the page never shows two differently gated numbers.
 
-**25.5× MEASURED, byte-identical** (leg E over 20 sessions, last 3 sessions' snapshots compared against leg
-A's). That is B5a: a port of the live PIT's memo + basket prefetch + bounds, an already-argued mechanism
-rather than a new one.
+### Sweeps: a curve, never a winner
 
-**The follow-ups, in the order the measurements put them:**
+`backtest.sweep` runs one point per dial setting over one frozen mirror exported once for the pass, so a
+delta is the dial's and not the tape's. It reports a curve, a plateau band and per-window agreement; it
+never names a best point, and the points render in dial order.
 
-1. **The PIT's basket prefetch first.** 2,935 queries/session → 8, MEASURED 25.5×. Done (B5a).
-2. **The `RealizedPrices` TAPE MEMO second** — done (M1). This was recorded here as "the benchmark memo",
-   and that name was wrong against the code: `_BasketBenchmark` *already* memoizes on
-   `(thesis, entry, exit)`, and it can never hit under the timing null, because that null draws a
-   **different random entry date on every draw** — so every call is a fresh key and a fresh miss. The cost
-   was one level down, in `RealizedPrices`, which had no cache at all and issued **two DuckDB queries per
-   priced window**. A null draw prices the name once and then its whole basket for the benchmark, so the
-   per-episode count is `2·K·M + 4K + 2M` (K draws, basket size M) — about **2,374 queries for one
-   episode** at K=5 on a 196-name basket, which is why the nulls took **658 s at K=5 on a two-week run**
-   against seconds of scoring. Caching each security's tape once and slicing it by bisect makes a whole
-   pass cost **one query per security touched**. MEASURED on the M1 fixture: **662 → 8 tape reads, 83×
-   fewer** at 6 episodes, K=5, basket 8 — and the ratio grows with M, so that is a floor. Byte-identical
-   artifacts by test, against the pre-memo reader kept verbatim as the oracle.
-3. **The event-layer cache third, and it is still SECOND-ORDER.** At 8.3 ms per member-session the detector
-   pass is cheap enough that a full re-run is minutes. The cache earns its keep on multi-variant sweeps
-   rather than on the base run. Re-measure after M1 before building it — the term it would attack was
-   never the dominant one.
+- A pass tiles its span into disjoint, gapless windows (`windows.DEFAULT_WINDOW_DAYS`) and runs every point
+  once per window; the point's metric pools across them. The `backtest/windows.py` docstring gives the
+  reasons: windows are separate measurements to agree across, a dead job costs one window, and memory stays
+  bounded. `--concurrency` buys a fraction, not a factor.
+- Each point carries `window_deltas`, `window_status` (`moved_up`, `moved_down`, `unchanged`,
+  `unmeasurable`) and three agreement fields. `sign_agreement` is the original rule, read as registered
+  and never rewritten. `strict_sign_agreement` needs every window to move strictly the same way.
+  `strict_measurable_agreement` asks the same of the windows that held an episode the dial could touch (at
+  least two), and reports `n_unmeasurable`. An unchanged window withholds agreement; an unmeasurable one is
+  excluded and counted. The band keys on `--plateau-rule` (`sweep.DEFAULT_PLATEAU_RULE`); a pass may
+  pre-register another rule before launch, never after.
+- The baseline runs once per window and is shared: variants deduplicate by `config_hash` across every
+  curve of the pass, and shared points carry `runs_shared`.
+- `--ladder dial=v1,v2` gives one curve per dial in one pass; `--grid` gives one cartesian curve, and the
+  two are refused together. `--overlay-ladder FILE` gives one curve of overlays for dials that move
+  together; `config_overlay.load_overlay_ladder` validates every point before the export.
+- Runs carry the pass's `--hypothesis` and `--decision-rule`; each curve carries its own, overridable with
+  `--ladder-hypothesis` and `--ladder-decision-rule`. An override naming a dial with no ladder is refused.
+- Every run carries the `pass_id`. Each curve is kept at `sweeps/<pass_id>-<dials>[-<slice>].json`;
+  `sweep.json` holds the last curve written.
+- A record sweep and a public sweep are two experiments, never one curve. The mirror directory and the run
+  id both carry the clock, so the two tapes sit side by side.
 
-### MEASURED end to end, on real data — one six-week point, before and after the memo
+**Slices.** A dial that touches a small family cannot move a median over the whole pool; a flat pooled curve
+for it is arithmetic, not evidence. `--metric-slice ATTR=VALUE` (or `--ladder-metric-slice` per curve)
+reads a curve on one family, and then every figure on that curve is the slice's. Only `SLICE_KEYS` may be
+sliced; the guard is on `Ladder` (`MetricSliceError`), so a library caller cannot skip it. A slice that
+cannot be computed raises instead of returning an empty, flat-looking curve. `--metric-slice` with
+`--ladder` is refused. A sliced curve is a new pre-registered hypothesis; re-reading a finished pass on a
+slice is a labeled diagnostic.
 
-12 theses, public clock / lockstep, 6 workers, K=5, window 2026-08-03 → 2026-09-14, **386 episodes**, on
-the dev copy. The two runs were given the SAME `--null-seed` so their draws are identical and the
-comparison is about the reader alone:
+**Pairing.** `backtest.pair` pairs a point's episodes with the baseline's on `(thesis_id, security_id,
+arm_date)` and reports the shared set, how many the dial moved (`n_changed`), the median change among those
+and what the dropped and added episodes were worth. The same fields ride every curve point. Read
+`n_changed` beside the paired median: an untouched majority can hold the median at zero while the dial moved
+many episodes. Pairing fixes the entry, not the horizon: a liveness dial also moves `exit_by`, so a shared
+episode can be measured over different forward windows. The paired block is a diagnostic; the decision rule
+keys on the pooled delta and its agreement.
 
-| | pre-memo `20260917T224817Z-public-default-f6bfc4cd` | post-memo `20260917T234923Z-public-default-f6bfc4cd` |
+**Which dials a horizon sweep touches.** `exit_by` comes from the conviction events' liveness horizons, and
+`arm_until` from the confirmation events' (`calls/assembler.py`; the dials are in `domain/config.py`). Sweep
+them as two families. A short horizon can stop a known arm from happening, so a sweep whose low end asserts
+that episodes exist may fail for a correct reason.
+
+### Mirror reuse and resume
+
+- A fresh pass refuses to export over an existing mirror (`MirrorExists`) before writing anything. Why: the
+  mirror path derives from pin, window and clock, and a second export would leave the first pass's runs
+  citing a hash their directory no longer has.
+- `--mirror-dir` sweeps an existing mirror: no export, the clock comes from the tape, the hash is recorded
+  on every run and curve, and the report says `mirror_reused`. A directory without a mirror manifest is
+  refused.
+- `--resume PASS_ID` skips every `(config, window)` already registered with readable outcomes, re-runs the
+  rest and assembles the curves from the union. It never re-exports. It refuses when a completed run cites
+  another mirror hash, when the mirror vanished after anything completed, when the requested windows do not
+  cover the windows already run, or when the clock differs. The completed runs of a dead pass already count
+  as trials.
+- One pass runs from one venv. The Parquet writer stamps its pyarrow build into every file, so rows that
+  are identical can hash differently across venvs.
+
+### Rebench and slice nulls
+
+- `backtest.rebench` recomputes both excess figures from a run's own artifacts and mirror. It writes
+  nothing, and refuses a run whose mirror hash differs, whose roster cannot be rebuilt, or whose recompute
+  does not reproduce the stored numbers. `--no-db` works for manifests that carry `member_ids`.
+- `backtest.slice_nulls` re-draws one family's timing and name nulls off the frozen mirror and refuses any
+  run whose whole-pool re-draw does not reproduce its stored `pooled.json`. It reads no database.
+
+### Re-reading a pass after a correction
+
+A data or code correction leaves every earlier conclusion measured on the uncorrected inputs. The re-read
+re-runs the same pre-registered measurement (tiling, pin, clock, K, seed, dials); it is a re-measurement,
+not a new trial. Separate the correction from a growing tape by crossing old and new code with old and new
+mirrors, and quote the two effects separately. A recent window is a current reading: episodes whose
+`exit_by` runs past the tape's edge are re-measured as the tape grows.
+
+## Sliced by market cap
+
+`PooledReport` carries no market-cap slice (`SLICE_KEYS`). A market-cap tier is a property of the company
+at the event, so a report sliced by it still pools across theses and ranks no thesis (invariant 4).
+Event-outcome reports follow the rule and the bands in `CLAUDE.md` (`domain/market_cap.py` defines the
+bands), with presentation in [DASHBOARDS](DASHBOARDS.md) rule 6.
+
+## What the mirror hash promises
+
+`mirror_hash` is a sha256 over the sorted `(file name, size, sha256)` of every `*.parquet` in the mirror
+folder (`backtest/manifest.py`).
+
+- The same stored rows written by the same pyarrow build give the same hash, whatever plan Postgres picks.
+  Every export file is written in a total order: record files by `replay/export.py::_EXPORT_ORDER`, public
+  fact files one row per `(identity, public instant)` sorted on it
+  (`tests/replay/test_export_determinism.py`). The same hash on another machine is not promised: pyarrow is
+  not pinned.
+- Record mirrors exported before 2026-11-13 do not re-export to the same hash: their files came out in
+  plan order. Their stored hashes still verify their stored files, so `rebench`, `slice_nulls` and a
+  resume accept them. Do not re-export or re-hash an old mirror, and do not read a record curve from before
+  that date and one from after it as one tape. Public mirrors were already ordered and did not change.
+- When a run exports its own mirror, the mirror folder is the run folder and the hash is taken after
+  `episodes.parquet` and `outcomes.parquet` are written, so it covers the results too. A shared mirror
+  (a sweep, `--mirror-dir`) holds no such files, so its hash covers the facts alone. This stays as built:
+  changing what is hashed would make `rebench` and `slice_nulls` refuse every existing self-exported run.
+
+## Contracts
+
+- A run directory never changes after it is written.
+- The five labels are backend-authored (`manifest.LABELS`), ride every `/backtest` response and render
+  verbatim (`BacktestLabels.tsx`); the page composes no caveat of its own.
+- A missing store, a missing run, a half-written directory, an unreadable file and a selection that matches
+  nothing all answer `available: false` with a 200, never a 404 or a 500.
+- The router writes nothing and imports no writer
+  (`tests/app/test_backtest_routes.py::test_the_backtest_router_never_writes`), and it imports without the
+  replay extra (`test_the_backtest_serving_path_imports_without_the_replay_extra`).
+- The scorecard drawer mounts without an as-of, so no live price window or display signal enters a run.
+- Board, Cockpit and Scoreboard do not link to `/backtest`, and it never notifies.
+- Wire shapes: the `Backtest*` models in `backend/openapi.json`.
+
+## Who can do what
+
+| Route, control or CLI | Who | Enforced by |
 |---|---|---|
-| **wall** | **59 m 59 s** | **2 m 26 s** |
-| `nulls_s` | **3,456.34** (96% of the run) | **7.36** — a **470×** collapse |
-| `score_s` | 9.55 | 1.74 |
-| `replay_s` (6 workers) | 74.1 | 76.03 |
-| `export_s` | 55.59 | 57.33 |
+| `GET /backtest/runs`, `/runs/{run_id}`, `/sweeps`, `/sweep` | steward; a plain user gets 403 | `require_super_admin` on the router (`_STEWARD`, `app/main.py`); `tests/app/test_auth_gate.py::test_steward_routes_carry_require_super_admin` |
+| The `/backtest` page and nav tab | steward; a plain user sees one line | `BacktestRoute` in `frontend/src/App.tsx`; the `steward` nav entry in `AppHeader.tsx` |
+| `backtest.run`, `backtest.sweep` | whoever runs the CLI with the replay extra; reads the database in `DATABASE_URL`, writes only the store | nothing in the app; `db/session.py` defaults to prod, so name dev. Agents: the `backtest` skill |
+| `backtest.rebench` | same; the database only for manifests without `member_ids` | `--no-db` refuses those |
+| `backtest.pair`, `backtest.slice_nulls` | anyone with the store; artifacts only | none needed |
 
-**The identity check, on 386 real episodes rather than a fixture.** `pooled.json`, `episodes.json` and
-`metrics.json` are byte-identical. `episodes.parquet` and `outcomes.parquet` are identical ROW FOR ROW in
-order with equal schemas; their file bytes differ only in the Parquet writer's `created_by` string,
-because the two runs were launched from venvs carrying different pyarrow builds. `ledger.json` differs
-only at `generated_at` and `code_sha`, and the manifest at `run_id`, `created_at`, `code_sha`, `timings`
-and the mirror hash (a fresh export, same writer-string reason). **Nothing the memo touches differs.**
+## Settings
 
-That writer string is also a rule for any pass: **run every window and every point of one pass from ONE
-venv**, or artifacts that are identical row for row will differ byte for byte and the mirror hash with
-them, for no reason anybody can see later. It is stated in the launcher's docstring.
-
-**What the mirror hash promises.** `mirror.hash` is a sha256 over the sorted `(file name, size, sha256)` of
-every `*.parquet` file in the mirror folder (`backtest/manifest.py::mirror_hash`).
-
-- **Same stored rows plus the same pyarrow build give the same hash, whatever plan Postgres picks.** Every
-  export file is written in a total order: record-clock files in `(recorded_at, id)` order since 2026-11-13
-  (`replay/export.py::_EXPORT_ORDER`), public-clock fact files one row per `(identity, public instant)`, sorted
-  on exactly that. "Whatever machine" is NOT promised: the Parquet writer stamps its pyarrow build into every
-  file, and pyarrow is not pinned, so two venvs can write different bytes for the same rows (the one-venv rule
-  above).
-- **Record mirrors exported before 2026-11-13 cannot be reproduced by a re-export.** Their fact files came out
-  in whatever order the plan returned, so a fresh record export of unchanged data quotes a different hash,
-  once. Their stored hashes still verify their stored files, so `rebench`, `slice_nulls` and a sweep resume
-  keep accepting them. Do not re-export, re-hash or rewrite an old mirror for this, and do not read a pre- and
-  a post-2026-11-13 record curve as one tape because the data did not change. Public mirrors (the archive's
-  keeper and every editions mirror) did not change at all.
-- **A self-exported run's hash also covers its results.** When a run exports its own mirror, the mirror folder
-  IS the run folder, and the hash is taken after `episodes.parquet` and `outcomes.parquet` are written there.
-  So two self-exported runs over the same facts with different dials quote different mirror hashes. A shared
-  mirror (a sweep, `--mirror-dir`) has no such files in it, so its hash covers the facts alone. Left as is on
-  purpose: changing what is hashed would make `rebench` and `slice_nulls` refuse every existing self-exported
-  run.
-
-**The dominant term moved.** After the memo a six-week run is replay (76 s at 6 workers) plus a one-time
-export (57 s, paid ONCE per pass under a shared mirror); the nulls are noise. That inverts the reason the
-window split existed — see below.
-
-**The null phase is SERIAL, and `--workers` does not touch it.** MEASURED on the live six-week run's
-process tree — the mirror export finished at 22:49:12Z and what remained was ONE python process with no
-pool children, the `ProcessPoolExecutor` in `backtest/parallel.py` having already come and gone — and
-confirmed by reading `backtest/run.py` (the `draw_nulls` call is on the main process, with no pool and no
-workers argument). The year run is INFERRED to have behaved the same way, from the same code rather than
-from its own process tree. So the wall clock of one run is `export + replay/workers + nulls(serial)`, and before M1 the last
-term dominated. Parallelizing the nulls is possible — the seed is already derived per episode from
-`(seed, thesis, security, arm_date)` precisely so that adding an episode cannot reshuffle another's draws —
-but it should partition **by thesis**, not by episode, or each worker re-pays `_BasketBenchmark`'s
-per-member cost. It is the second lever and bounded by cores (MEASURED ~2.8 usable on this box); the memo
-was worth more than an order of magnitude more.
-
-**An honesty note on a discarded number.** The first prefetch leg reported *35×* and a snapshot mismatch. The
-cause was the probe, not the design: `replay/export.py` writes `uuid` columns as VARCHAR, so the prefetch
-keyed its memo by `str` while lookups used `UUID` — every lookup hit an empty list and the leg was measuring
-"read nothing". Fixed with a `{str(sid): sid}` map, re-measured at 25.5× with byte-identical output. The
-lesson is now a build rule: **an equivalence test asserts row COUNTS per security, not that it ran.**
-
-Projected wall clocks (PROPOSED, arithmetic from the MEASURED per-member-session costs; ~185,000
-member-sessions): baseline ≈ 11.0 h · memo only ≈ 4.5 h · memo+bounds+prefetch ≈ **26 min** · + 6-way
-per-thesis parallelism over one frozen mirror ≈ **8–10 min** · + member-sharding the two biggest theses ≈
-5–6 min.
-
-## Sweeps — a curve, never a winner
-
-`python -m backtest.sweep` runs one point per dial setting over ONE shared frozen mirror (so a metric delta is
-attributable to the dial rather than to the tape moving underneath it), and reports:
-
-- the **plateau** — the widest contiguous band of settings that behave alike, as indices into the points. A
-  band one point wide is the sweep finding NOTHING, and the surface says exactly that rather than
-  highlighting a high point. **Which agreement the band is keyed on is a parameter and rides the report**
-  (`plateau_rule`); since 2026-09-18 the default is the STRICT rule below.
-- **cross-window sign agreement** — the same delta recomputed on each disjoint window. A pooled number that
-  cannot survive being recomputed on each window separately has not found anything. TWO fields are reported
-  on every point, `sign_agreement` (pre-registered) and `strict_sign_agreement` (the rule from 2026-09-18),
-  and neither is ever rewritten.
-- Never an argmax, never a sort by outcome, never a "best". The points render in dial order.
-
-### The window is the unit of work (S1)
-
-A pass no longer runs one long window. `[start, end]` is tiled into **disjoint, gapless six-week windows**
-(`backtest/windows.py`), every point is run once per window, and the point's metric is the POOLED read
-across them. `backtest.sweep` exports ONE mirror for the whole pass and every job inherits it — the mirror
-is the whole tape regardless of window (`export_snapshot` takes no date bound), so one export serves every
-window of every point, which is also what keeps a delta attributable to the dial rather than to a second
-snapshot of a moving database.
-
-**The per-window deltas replaced the sub-window split of one run, and they ask a stronger question.** The
-windows are separate measurements, not slices of one, so a dial that helps in one six-week window and
-hurts in the next is visibly unstable. One window reports NO agreement rather than a vacuous yes: a single
-window has nothing to agree with.
-
-**The baseline is run once per window and shared.** Variants are deduplicated by `config_hash` before
-anything launches, so every ladder containing the production default cites the same baseline runs instead
-of re-measuring them. Points that share runs are marked `runs_shared` on the curve — one measurement cited
-twice is not two.
-
-**Why the split, honestly.** It was designed when the null phase was serial and 96% of a run, and separate
-window PROCESSES were the only way to parallelize it. After the tape memo that reason is gone. What
-remains, and is why it stays: cross-window agreement between genuinely separate measurements (the
-scientific point all along), a blast radius of ~90 s rather than an hour when a job dies, and bounded
-memory per job. **Concurrency now buys a fraction, not a factor** — one job's wall clock is its LARGEST
-thesis so its workers idle near the end and a second job fills that tail, but the box is ~2.8 usable cores
-either way. The default is 2, never 6.
-
-**Two things the split forced, and both were latent bugs.** The run id gained the WINDOW START, because a
-point's window runs launch concurrently and otherwise differ only by a second-resolution timestamp. And
-`store.register_run`'s read-modify-write is now under a cross-process lock: `_write_index` was already
-atomic, so no reader ever saw a truncated file, but two concurrent runs could each read the index, each
-append their own row, and each write — silently losing one. The registry's whole job is counting trials.
-
-**A pass id groups a curve.** Every run of one sweep carries the same `pass_id` on its manifest and its
-registry row, so the grouping survives without `sweep.json` — which is latest-only. The sweep runner also
-copies each curve to `sweeps/<pass_id>-<dials>.json` on the way out.
-
-**ONE TAPE, MANY PASSES — `--mirror-dir`, and the overwrite that is now refused (A2b).** A pass's mirror
-path is DERIVED from `(pin, window, clock)`, so two passes registered on the same experiment resolve to
-the same directory — and the second used to silently re-export over the first. Nothing about the second
-pass looks wrong; the damage lands on the FIRST, whose run manifests then cite a hash the directory no
-longer has, leaving its numbers un-rederivable and its runs unrebenchable. Caught the day before phase 1b
-would have done exactly that to phase 1's 225 runs.
-
-Both halves now hold:
-
-- **A fresh pass REFUSES to overwrite an existing mirror** (`MirrorExists`), before anything is written,
-  and the message names both ways out — reuse the tape, or pick a different pin/window.
-- **`--mirror-dir <dir>` sweeps an existing frozen mirror**: the export is skipped, the CLOCK is inherited
-  from the tape (an explicit `--clock` that disagrees is refused — CW's rule, a record sweep and a public
-  sweep are never one curve), the hash is recorded on every run and every curve, and the report carries
-  `mirror_reused: true`. A directory with no mirror manifest is refused rather than exported into.
-
-Reuse is also the better experiment. Phase 1b runs on phase 1's exact bytes, so the two passes are
-comparable **artifact for artifact** rather than merely through a shared pin — and a second export of a
-database that has moved since would have been a different tape wearing the same name.
-
-### One pass, many ladders (S2)
-
-A phase is six dials, and running it as six separate sweeps re-ran the production baseline six times:
-**MEASURED, 45 redundant runs and five redundant exports — about 1.1 h of a 6.5 h pass.** `backtest.sweep`
-therefore takes a repeatable **`--ladder dial=v1,v2,...`**: one curve per ladder, ONE mirror export, one
-`pass_id`, and variants deduplicated by `config_hash` **across** ladders — so the production default, which
-every ladder contains, is measured once per window and cited by all six curves. Points that share runs
-carry `runs_shared`, because one measurement cited six times is not six.
-
-`--ladder` is distinct from `--grid`, which stays a **cartesian** variant set producing ONE curve — H3's
-three arms live on two dials and need exactly that. Passing both is refused rather than resolved.
-
-**`--overlay-ladder PATH` (F4, 2026-10-31)** is one more curve per file, in the same pass as any `--ladder`:
-the file is a JSON array of flat overlays (the `--config` format), one per point, for dials that move
-TOGETHER. F4's unit and session count are refused one without the other, so `dial=v1,v2` cannot express a
-point and a cartesian grid would include the refused halves. Every point is validated before the export
-(`backtest.config_overlay.load_overlay_ladder`: an unknown dial, a refused value, or two points resolving to
-the same config fail naming the point). The curve's dials are the union of the points' keys, and the
-per-ladder `--ladder-*` overrides key on the first of them. The baseline is the point equal to the
-production config, deduplicated across curves as above. The F4 pass is registered in
-`docs/RECALIBRATION.md` §A.
-
-**Pre-registration.** The RUNS carry the pass's `--hypothesis` / `--decision-rule`, and they have to: the
-baseline run belongs to every curve at once and cannot carry six different texts. Each CURVE carries its
-own on its report, overridable per ladder with `--ladder-hypothesis dial=…` / `--ladder-decision-rule
-dial=…`, and the curve file is the artifact a dial's result is quoted from. A per-ladder override naming a
-dial with no `--ladder` is refused — a typo must not silently substitute the pass's text.
-
-Each curve is kept at `sweeps/<pass_id>-<dial>[-<slice>].json`; `sweep.json` keeps its shape and holds
-the last curve of the pass, so an unselected sweep view renders unchanged. Every report lists the pass's
-other curves in `pass_curves`, and since D the surface reaches every kept curve through
-`GET /backtest/sweeps` rather than only the last one.
-
-### Separating timing from composition — `backtest.pair`
-
-A point's `delta_vs_baseline` answers two questions at once. Moving a liveness dial re-times the episodes
-the baseline also armed (TIMING) and changes which episodes arm at all (COMPOSITION), and a pooled median
-cannot tell them apart. `python -m backtest.pair --pass-id … --dial … --values 60,90` pairs a point against
-its curve's baseline on the episode's own identity — `(thesis_id, security_id, arm_date)` — and reports,
-per window and pooled: the shared set and how many of it the dial actually MOVED, the median change among
-those, and what the dropped and added episodes were worth. It reads **artifacts only**, so a finished pass
-can be re-interrogated for the cost of reading its own bytes. The same fields ride every curve point
-(`paired_delta_vs_baseline`, `n_shared`, `n_changed`, …) through the same implementation, so the CLI and the
-curve cannot drift.
-
-**The reading trap it exists to prevent, MEASURED on phase 1.** `revenue_accel` at 60 d has a paired median
-of exactly **+0.00%** — and moved **561 of 1931** shared episodes by a median **+8.35%**. The paired median
-is zero because the untouched 70% majority decides it; reporting it alone would say "the dial does nothing
-to shared episodes", which is the opposite of what happened. **Always read `n_changed` beside it.**
-
-**The caveat the paired table carries: pairing fixes the ENTRY, not the HORIZON.** The key is
-`(thesis_id, security_id, arm_date)`, so a shared episode is the same name entered on the same day — but a
-liveness dial also sets `exit_by`, so the two sides can measure that same entry over DIFFERENT forward
-windows. MEASURED on phase 1, `revenue_accel` 60 d against the 180 d baseline: of 1,932 shared episodes,
-**647 (33.5%) carry a different `exit_by`** — one arm on 2025-09-04 is measured to 2026-01-31 at 180 d and
-to 2025-10-03 at 60 d, and its return moves -43.7% -> +9.2% on that alone. So "same episodes, re-timed" is
-loose: read it as *the same entries, measured over the horizon each setting gives them*. That is the
-question a horizon dial is being asked, but it is not a pure re-timing and a write-up must not call it one.
-
-The paired block is a reported **diagnostic**. The decision rule still keys on the pooled delta and its
-cross-window sign agreement, and the curve's banner says so.
-
-### Reading a curve on ONE algorithm family (A1)
-
-**A dial that touches a small family cannot move a median over the whole pool, and that is arithmetic
-rather than a finding.** MEASURED on phase 1 (2,615 episodes, 2,614 scoreable, pooled median -4.209%), the
-order statistic gives each family a hard ceiling — the most the pooled median could move if every episode in
-that family went to +infinity:
-
-| `key1_source` | episodes | ceiling on the pooled median |
+| Knob | Owner | Passed by compose? |
 |---|---|---|
-| `theme` | 2 | **0.073 pp** |
-| `ratified_catalyst` | 46 | **0.995 pp** |
-| `activist` | 457 | 9.686 pp |
-| `insider` | 864 | 18.921 pp |
-| `revenue_accel` | 1,246 | 29.453 pp |
+| Store root | `backtest.store.DEFAULT_ROOT`; `--out-root` (run, sweep, pair), `--root` (rebench, slice_nulls) | not a setting; the backend sees a store only through a read-only bind: `./data/backtest` (dev, sig overlays), the frozen archive `./data/backtest_prod` (`docker-compose.prod.yml`), none in the base file |
+| Code sha on the manifest | `Settings.image_sha`, else the checkout's git HEAD (`manifest.resolve_code_sha`) | set `ALPHADECK_IMAGE_SHA` in the shell that runs the CLI |
 
-These are phase 1's counts, from before D3a. On the same tape, D3a's first-knowability dating takes
-`revenue_accel` to **858** and leaves `insider` at **864**. The widest family flips, so the ceilings above
-would shrink for `revenue_accel` and were not recomputed (MEASURED counts; see "Re-reading a pass after a
-correction").
+## Known limits
 
-A flat catalyst curve over the pool is therefore not evidence about the catalyst dial; it is evidence about
-the pool. `--metric-slice ATTR=VALUE` (one curve) and `--ladder-metric-slice DIAL=ATTR=VALUE` (per curve in
-a pass) read a curve on one family, and then **every figure on that curve is the slice's** — `n_episodes`,
-`n_scored`, the metric, the deltas and the paired block. The curve file carries `metric_slice` and the
-surface says so loudly, because read against the pool every one of those numbers would be wrong.
+- Every run is labeled "public clock" (`LABELS[0]` is fixed) even on the record clock, the CLI default.
+  The manifest card shows the run's real clock. Listed for the operator.
+- Rosters are point-in-time only from 2026-09-15; the rest of the thesis definition and the security master
+  are read as they are now ([REPLAY](REPLAY.md)).
+- A ratified catalyst counts from its `valid_from`; the decision to record it is hindsight (the second
+  label). A DOE award counts from its record date (`ingest/doe/feed.py`), late by design: the source
+  carries no announcement date.
+- The mirror manifest and the run manifest share the name `manifest.json`; when a run exports its own
+  mirror both land in one folder, and `replay.export.read_mirror_manifest` reads either shape.
 
-Three rules keep it honest:
+## Related
 
-- **A sliced curve is a NEW pre-registered hypothesis, never a re-read of an old one.** The slice is named on
-  the report and the pass's `--hypothesis` has to say so. Re-reading a finished pass on a slice is a
-  post-hoc DIAGNOSTIC and is labeled as one.
-- **Only ALGORITHM dimensions may be sliced** — `pooled.SLICE_KEYS` (`key1_source`, `confirmation_grade`,
-  `co_arm_bucket`, `close_reason`), the same set the pooled report uses. `episodes.parquet` carries
-  `thesis_id`, so without the check a sweep could report a dial's effect on ONE thesis: a per-thesis ranking
-  wearing a dial's clothes, and an invariant #4 violation. The guard lives on the `Ladder`, so a library
-  caller cannot skip it by not using the CLI.
-- **A slice that cannot be computed RAISES** rather than returning an empty family: a mistyped field
-  (`key1_sources` is a real one), a run with no `episodes.parquet`, outcomes written without identity. The
-  quiet version of each of those is a flat curve that reads as "this dial does nothing".
-
-`--metric-slice` with `--ladder` is refused: the family a dial can touch is the dial's own, and one slice
-over six curves would measure five dials on episodes they cannot reach.
-
-### Agreement — what a window DID, and what it could not have done (A1)
-
-The pre-registered rule was `all(d >= 0) or all(d <= 0)`, so a window whose delta is exactly 0.0 satisfies
-BOTH tests and counted as agreeing. That collapses two opposite things:
-
-- **`unchanged`** — the dial was able to move this window and did not.
-- **`unmeasurable`** — the window held no episode the dial could touch, so it was INCAPABLE of disagreeing.
-
-MEASURED, and not hypothetical: on phase 1's `ratified_catalyst` slice the nine windows hold
-`2 3 7 6 0 18 6 0 4` catalyst-keyed episodes — **two of nine hold none at all**, and the baseline point
-"agrees" across all nine windows purely because every delta is 0.0 by construction.
-
-So every point now carries `window_status` (`moved_up | moved_down | unchanged | unmeasurable`, one per
-window, a validated vocabulary) beside `window_deltas`, and two agreement fields:
-
-- `sign_agreement` — **the pre-registered field, semantics untouched.** A pass already run keeps reading the
-  way it was read, and nothing is ever rewritten to claim it was registered under a rule it was not.
-- `strict_sign_agreement` — **the rule from 2026-09-18**: every window strictly the same non-zero direction,
-  none unchanged and none unmeasurable.
-
-**The band keys on the strict rule for every pass registered from 2026-09-18 on** (`--plateau-rule`, default
-`strict_sign_agreement`; `sign_agreement` re-reads an older pass under its own rule). The report records
-which rule its band used and the curve view names it in words, because a band is meaningless without it.
-
-#### A third field, and when it is the right criterion (A2b)
-
-**Strict-over-all is unsatisfiable BY CONSTRUCTION on a small family.** Two of phase 1's nine windows hold
-no catalyst-keyed episode, so no point on a catalyst-sliced curve can agree across ALL windows: the band
-is empty before any data arrives, and a pre-registered criterion that cannot be met is not a criterion.
-
-`strict_measurable_agreement` asks the same question of the windows that could answer it — every
-MEASURABLE window strictly the same non-zero direction, with a floor of at least two — and reports
-`n_unmeasurable` beside it. The distinction it keeps is the load-bearing one:
-
-- an **unchanged** window still WITHHOLDS agreement (episodes existed; the dial had its chance and did not
-  move them),
-- an **unmeasurable** window is EXCLUDED and COUNTED (nothing was in play; there was nothing to ask).
-
-All three fields ride every point, whichever rule the band uses, and none is ever rewritten. **The default
-stays `strict_sign_agreement`** until the operator rules on the variant; a pass may pre-register a
-different rule in its own text, which is legitimate BEFORE launch and never after. The surface names the
-rule on the band and, when the count is non-zero, says how many windows the band could not see — because
-"agrees across the seven windows that had episodes" and "agrees across nine" are different claims.
-
-#### Writing up a SLICED pass
-
-A sliced write-up carries six things a pooled one does not, all of them there to stop a sliced figure
-being read as a pooled one:
-
-1. **A slice header above everything** — `SLICE: key1_source=… · n = 46 of 2,615 (1.8%)` — and the
-   sentence that every n, level, delta and paired figure below is the SLICE's.
-2. **The ceiling, stated before the result**: the most the pooled median could move if every episode in
-   the family went to infinity. It is why the pass is sliced, and saying it first stops the slice reading
-   as a post-hoc rescue of a flat pooled curve.
-3. **A per-window n beside the per-window deltas**, plus the window-status row. On a pooled pass n is
-   roughly constant and can be a footnote; on a slice it varies by an order of magnitude and is the
-   difference between a finding and a coincidence.
-4. **The unmeasurable windows NAMED, with the date they were pre-registered** — not "two windows show no
-   change" but "windows 5 and 8 held no catalyst-keyed episode, registered before launch".
-5. **All three agreement fields and which one the band used**, with the `n_unmeasurable` count.
-6. **A composition line from the paired block** — `n_shared / n_changed / median change when changed` —
-   because the phase-1 lesson was that a paired median of +0.00% with 561 of 1,931 episodes moved by
-   +8.35% reads as "nothing happened" if `n_changed` is not printed beside it. On a horizon dial, watch
-   the slice's own n falling across the ladder: that is composition, not timing.
-
-One phrase is BANNED from a horizon-dial write-up: "same episodes, re-timed". Pairing fixes the entry, not
-the horizon — MEASURED, 33.5% of shared episodes carry a different `exit_by` — so it is the same entries
-measured over the horizon each setting gives them.
-
-### `--resume <pass_id>` — the recovery path
-
-A window job that dies takes the pass down (deliberately: a curve missing a point it believes it measured
-is worse than a pass that stopped), and the runs that finished stay registered. `--resume` skips every
-`(config, window)` already registered under that pass id **with readable outcomes**, re-runs the rest, and
-assembles the curves from the union. Registration alone does not count as done — a job killed mid-write can
-leave a row and a directory, and reusing it would pool a point over a truncated run.
-
-**The nulls draw identically on a resume, by construction: the seed IS the pass id.** A resumed pass
-continues the same pass rather than minting a new one, and a test pins that the assembled curve equals the
-one an uninterrupted pass produces.
-
-**A resume does NOT re-export, and refuses rather than guesses.** A second export is a second snapshot of a
-database a human may well have touched in between — and a resume is exactly when that is likely — so the
-re-run jobs would sweep a different tape from the completed ones while the curve reported a single
-`mirror_hash`. Three rules, each checked BEFORE any job launches, because by the time a job has run the
-damage is on disk:
-
-- the existing mirror is REUSED, and any completed run whose manifest cites a different mirror hash
-  refuses the pass (the tape changed underneath it);
-- a mirror that has vanished refuses when anything completed — there is nothing left to re-run the
-  survivors against — but is simply exported when nothing has, which is a fresh pass wearing an old id;
-- the requested WINDOWS must contain every window the pass already ran, and the requested CLOCK must be
-  the one it ran on. Nothing about a pass id says what it measured: without these, a resume with different
-  windows finds no matching pairs and runs everything under the old id, and a resume on a different clock
-  would put two fact axes inside one curve.
-
-**The trials caveat.** A dead pass's completed runs already count as trials in the registry — `dial_trials`
-includes them, and nothing retracts a measurement that was really made. Resume does not mint new ones,
-which is exactly why it is the cheaper recovery; re-running from scratch would double-count that dial.
-Record a dead pass id in the write-up so the trial count can be read correctly.
-
-**A record sweep and a public sweep are two curves, never one.** They are different experiments: the clock
-is exported into the one shared mirror, every point inherits it, and `SweepReport.clock` records it. The
-mirror directory is named for the clock too, so the same window at the same pin on both axes exports two
-tapes side by side rather than one over the other — otherwise the earlier sweep's points would go on citing
-a mirror hash that no longer described the tape they swept. The run id carries the clock for the same
-reason: on a short window a point finishes inside the timestamp's one-second resolution, so without it the
-second pass collides with the first.
-
-**Known asymmetry — CLOSED (D, "The latest-only gap is closed" above).** Runs were immutable and
-addressable but sweeps were not: `backtest.sweep` wrote ONE `sweep.json` at the store root, so a second
-sweep overwrote the first. Each point cites its own `run_id`, so the underlying evidence survived — it was
-the curve that did not. Every curve is now kept at `sweeps/<pass_id>-<dial>[-<slice>].json`.
-
-## H5 — the `exit_by` dial set, and the second family the spec omitted
-
-`calls/assembler.py` computes `exit_by = _clock(conviction_events)`, so the dials that move it are exactly the
-conviction-side liveness horizons:
-
-| dial | default | detector |
-|---|---|---|
-| `insider_core_alpha_liveness_days` | 180 | `insider_conviction` |
-| `insider_flip_alpha_liveness_days` | 18 | `insider_conviction` |
-| `revenue_accel_alpha_liveness_days` | 180 | `revenue_acceleration` |
-| `catalyst_default_horizon_days` | 365 | `catalyst_conviction` (the no-term FALLBACK — MEASURED inert on phase 1: every catalyst fact on the tape publishes a term) |
-| `catalyst_max_horizon_days` | `None` | `catalyst_conviction` (A2 — a CAP on the PUBLISHED term; `None` = no cap = today) |
-| `theme_conviction_default_horizon_days` | 365 | `theme_conviction` |
-| `activist_13d_liveness_days` | 180 | `activist_stake` |
-| `corporate_event_items["5.02"].liveness_days` | 90 | `corporate_catalyst` |
-
-**There is a SECOND family**, and it was not in the spec's list: `arm_until = _clock(confirmation_events)`
-moves episode LENGTH and therefore the `arm_until_lapsed` close reason —
-`breakout_alpha_liveness_days` (10), `breakout_52w_alpha_liveness_days`, `laggard_alpha_liveness_days`, plus
-`conviction_hold_threshold_days` (90) on the policy side. Sweep the conviction family first (it is `exit_by`
-proper) and report the confirmation family as a second grid. A pinning test should derive this set
-mechanically — perturb each dial on a fixture and record which ones change `exit_by` — so a new horizon dial
-is review-visible rather than trusted to this table.
-
-One measured trap for anyone shortening a horizon: at 90 days UNH legitimately fails to arm, so a sweep whose
-low end asserts "episodes exist" will fail for a correct reason.
-
-## Re-reading a pass after a correction — the D3a re-read (2026-10-17)
-
-A correction to the data or the code (here D3a, #390: fundamentals dated at FIRST knowability, which removed
-"phantom" revenue re-accelerations where a re-reported comparative quarter read as new) leaves every earlier
-conclusion measured on the uncorrected inputs. The re-read re-runs the **same pre-registered measurement**,
-with the same window tiling, pin, clock, K, null seed and production dials (`config_hash 83f0bf5f`). **It is
-a re-measurement, not a new trial:** no dial moves, so `dial_trials` is unchanged. Nothing is promoted.
-
-**The reference.** #384's slice-null tool refuses phase 1 (`20260918T032952Z-public-h5-phase-1-the-convictio`):
-its manifests predate `ThesisEntry.member_ids` (#377), so the null roster cannot be rebuilt. The reference is
-therefore the **baseline point of the H1/H3 pass**, `20260919T015210Z-public-h1-h3-co-first-measureme` (code
-`e339eb9`, mirror `ad8bd98a`, K=20, nine 42-day windows 2025-09-01 → 2026-09-14, pin 2026-09-15T00Z), which
-reproduces phase 1's episodes. Before anything was compared, its nulls were re-drawn and reproduced the
-stored `pooled.json` on 9/9 runs.
-
-**Why four runs, not one.** A fresh re-run mixes three changes: the correction, newer facts, and a forward
-tape that now runs further. A 2×2 of **code** (pre-D3a vs D3a) × **tape** (the reference mirror vs a fresh
-export) separates them, with rosters identical (12/12) in all four:
-
-| run | pass id | code | tape |
-|---|---|---|---|
-| A, the reference | `20260919T015210Z-public-h1-h3-co-first-measureme` | `e339eb9` | `ad8bd98a` |
-| B, D3a only | `20261017T175600Z-public-d3a-reread-old-mirror` | `1c7e3a6` | `ad8bd98a` |
-| C, the re-measurement | `20261017T181800Z-public-d3a-reread-new-mirror` | `1c7e3a6` | `0cef70c9` (prod, 2026-10-17T18:01Z) |
-| D, control | `20261017T183200Z-public-d3a-reread-oldcode-new-mirror` | `e339eb9` | `0cef70c9` |
-
-**A → B is the comparison to quote for D3a's effect,** because D3a is the only thing that changed. D ran
-in a separate store, because the pre-D3a `RunSummary` has no `dial_values` and rewriting the shared
-`index.json` with it would have silently dropped that field from every row. That store was deleted after
-the read; D's figures survive only in the operator's write-up.
-
-**The verdicts (MEASURED, pooled, the `slice_nulls` population):**
-
-| conclusion | verdict | the numbers |
-|---|---|---|
-| `revenue_accel` is the widest family, and revenue re-acceleration × broad breakouts drove basket-wide arming | **WEAKENED** | A → B: **408 episodes disappear, every one carrying a revenue trigger** (406 revenue-keyed); 20 re-timed counterparts appear; 91 shared episodes get a shorter `exit_by`. Revenue-keyed 1,246 → **858**, so it is no longer the widest family (insider **864**). Revenue's share of members in 8+ bursts goes 55.7% → **47.1%** (bursts 45 → 35). Co-arming persists (81.6% → 78.9%). The family still loses to both of its nulls (B: **−2.25 pp** vs timing, **−0.22 pp** vs name). |
-| the book loses to its nulls | **UPHELD** | A → B: actual −4.40% → −3.80%. The gap to the timing null narrows −2.97 → **−2.48 pp**, and to the name null −0.81 → **−0.43 pp**. Per window it beats timing in 2/9 (was 0/9). C (fresh tape): −6.74% vs −4.03% (timing) / −5.43% (name). |
-| insider·core is the only live pocket (scope: `key1_source` × grade) | **UPHELD** | It is the only such family that beats both nulls in all four runs. A +1.59% vs +1.21% / −2.00%; B +2.26% vs +1.55% / −1.86%; C +1.01% vs +0.55% / −3.16%. D3a barely touches it (228 → 229 episodes). It beats the timing null in only **3 of 9** windows in every run, so the edge is name selection, with timing unproven. |
-
-**What the re-read taught:**
-
-- **A correction is a DECISION change, and the tape growing is a MEASUREMENT change.**
-  - D3a reproduced almost exactly on both tapes: −388 vs −385 net episodes, and the same 30 re-timed.
-  - The tape drift changed fewer than 0.5% of episode identities, but it re-measured every episode whose `exit_by` ran past the old edge: 741 of A's 2,615. The scorer reads forward without the pin, because no-lookahead binds the decision, not its measurement.
-  - Quote the two separately.
-- **A pass keeps moving until its horizons mature.** On C, 524 of 2,227 episodes (23.5%) still have `exit_by` beyond the tape's edge, mostly in the last three windows, so a later re-run will differ for that reason alone. C is a current reading, not a final one.
-- **Read a slice's caveat by the 2×2, too.** On the fresh tape the `co_arm_bucket=8+` slice also beats both nulls. It does so under both codes, and never with D3a alone, so that is drift. That slice was never part of the claim; reading it as a new pocket would be a new hypothesis.
-- **The record is not the backtest.** The live record's phantom nights are not part of it. This section re-reads only the backtest.
-- **D3a is rule (a) only.** Rule (c), a freshness cap on the cited quarter (a quarter whose period ended more than 135 days before its number became knowable cannot fire), was a separate policy call; it shipped on 2026-10-22 (#442, `CALL_LOGIC.md` §3), after this re-read, so none of the figures above include it.
-
-## Known gaps
-
-- **Both honest-clock axes are wired (CW).** `backtest.run --clock {record,public}` exports its own mirror
-  in that mode; `backtest.sweep --clock` exports the ONE shared mirror and every point inherits; a run given
-  a mirror inherits its clock and refuses loudly (`MirrorClockMismatch`, before the run directory exists) if
-  handed one that disagrees. `known_at_mode` is DERIVED from the clock (`lockstep` on public, `pin` on
-  record), never a second flag that could disagree with it. The run manifest records the axis and the
-  mirror's own counts and exclusions.
-- **The mirror manifest and the run manifest share a filename** — both are `manifest.json`, and a run that
-  exports its own mirror writes them into one directory, run-manifest last. `replay.export
-  .read_mirror_manifest` reads both shapes (a run manifest is recognized by its `run_id` and carries the
-  same exclusion list under `mirror`), so `connect_mirror` on a FINISHED public-clock run still knows what
-  was left out instead of silently seeing nothing excluded and then failing on a missing file. Accepted as
-  handled rather than renamed: the two names are load-bearing in B2's tests and in the store's own layout.
-- **The event-layer cache is unbuilt** (above) — deliberately, and the measurement order is recorded so the
-  decision can be revisited with numbers rather than re-argued. The nulls pool is likewise unbuilt, and
-  deliberately second: see the note under the cost follow-ups.
-- **A 1-year, 12-thesis, public-clock run at 6 workers / K=5 did not finish in 3h40m** (MEASURED, before
-  M1 — a lower bound, not a timing; the run was killed, not crashed). The six-week point that replaced it
-  measured **60 minutes** pre-memo and **2 m 26 s** post-memo, so the cost model
-  (`export + replay/workers + nulls`) is confirmed and the nulls are no longer its dominant term.
-- **Caveats are counted on the MIRROR, not on the source database.** The public clock drops every row it
-  cannot date, so the population a pass actually swept is the exported Parquet and nothing else. The worked
-  example: a count of impossible-date insider facts taken from dev returned 14, but one of them (GS-PA
-  `0001900188-25-000010`) had no `accepted` date on any of its 16 source rows, so the export dropped it as
-  one of the 2,162 null-clock drops and it never reached the mirror. The pass's caveat is 13.
-- **`K` was 5 for the first pass and is 20 for later passes (an operator decision made after it).** K=5 was
-  the right call for comparability while the nulls cost an hour a run; at 7 s they cost nothing, and K=20
-  makes the timing null far less coarse over a window of ~30 sessions. K is part of the pre-registration,
-  so changing it again breaks comparability with runs already made: an operator decision, not a build one.
-- **Baskets are only partially point-in-time.** `basket_snapshot` history begins 2026-09-15; earlier windows
-  replay on today's basket. The manifest reports this per thesis and QUANTITATIVELY (fallback days out of
-  total days), because a thesis that fell back for 2 sessions of 300 is a different artifact from one that
-  fell back for all 300. The nulls draw from the SAME counterfactual roster the real arm drew from, which is
-  the symmetric and honest choice.
+- [REPLAY](REPLAY.md): the engine, the mirror and the episode unit.
+- [INVARIANTS](INVARIANTS.md): 1 (the public clock) and 4 (no thesis ranking).
+- [CALL_LOGIC](CALL_LOGIC.md): how a dial changes.
+- [SCOREBOARD](SCOREBOARD.md): the record and the shared ledger components.
+- [DASHBOARDS](DASHBOARDS.md) rule 6: how event-outcome reports are presented.
+- The `backtest` skill: run, resume, reuse a mirror, write up a pass.

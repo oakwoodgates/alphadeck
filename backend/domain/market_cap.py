@@ -22,7 +22,8 @@ imports this module; it exists so every report and view that slices by size draw
 
 **This module bands a number, it does not measure one.** How a cap is measured belongs to the reader: for an event
 report it is the as-traded close before the event times the last share count reported before it, on the same split
-basis, divided by the ADS ratio for an ADR (``docs/BACKTEST.md``); for a live view it is the Workbench's
+basis, divided by the ADS ratio for an ADR (``CLAUDE.md``; the implemented measurement is
+``docs/dashboards/track-record.md``); for a live view it is the Workbench's
 ``_market_cap`` rule. A cap that cannot be pinned down is passed in as ``None`` and gets no tier: leave it blank and
 count the blank, never guess.
 """
