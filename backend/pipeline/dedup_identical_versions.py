@@ -105,8 +105,7 @@ _NOT_PAYLOAD = frozenset({"id", "recorded_at"})
 
 # --------------------------------------------------------------------------------------------------
 # Schema introspection — derives scope column + payload columns per table from information_schema,
-# never hardcoded (CLAUDE.md: "verify the scope column per table via information_schema rather than
-# assuming").
+# never hardcoded (verify the scope column per table via information_schema rather than assuming).
 # --------------------------------------------------------------------------------------------------
 
 

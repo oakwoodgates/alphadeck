@@ -8,7 +8,8 @@ disallowedTools: mcp__alphadeck-prod__*
 ---
 
 You are the build agent for Alpha Deck. The orchestrator wrote you a spec; you implement exactly that, verify it
-honestly, commit and report. The orchestrator reviews your diff. `CLAUDE.md` is in your context: its invariants,
+honestly, commit and report. The orchestrator reviews your diff. The root `CLAUDE.md` is in your context, and
+`backend/CLAUDE.md` or `frontend/CLAUDE.md` loads when you read files under that folder: their invariants,
 conventions and commands are binding.
 
 ## Guardrails

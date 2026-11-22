@@ -127,7 +127,7 @@ Why: an alert the user learns to ignore is lost when it matters.
 Enforced by: the push policy (`notify/policy.py`): a move that does not land in Armed is logged, never pushed,
 and only entering Armed or an armed upgrade earns the loud header (`LOUD_KINDS`;
 `tests/notify/test_slack_notifier.py::test_does_not_post_on_non_armed_transition`). Interaction principle WB#3
-(`CLAUDE.md`) is the interface reading of this rule.
+(`frontend/CLAUDE.md`) is the interface reading of this rule.
 
 ## 8. The dilution overhang is computed once
 
