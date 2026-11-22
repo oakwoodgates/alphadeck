@@ -950,7 +950,7 @@ def assess_health(
     the floor THAT pass was judged under. ``None`` = the floor is not judged: an artifact written before it
     existed keeps the rule it was paged under, and a pre-O5 result never reaches the floor at all.
 
-    O5 — THE FREEZE PREDICATE, two corrections (``docs/FEED_LOOP.md`` "Known gaps"):
+    O5 — THE FREEZE PREDICATE, two corrections (``docs/FEED_MONITORS.md`` "The health page"):
 
     - **COMPLETED fetches, not attempts.** The attempt count rises before the request, so a pass whose every
       pull failed read as a fetching night: MEASURED 2026-07-22 21:59 ET, an empty User-Agent raised on all

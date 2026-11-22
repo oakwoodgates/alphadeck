@@ -20,7 +20,7 @@
 > trust-loop instrument) is built; its forward record is still accruing — from the nightly log's honest rows (a
 > missed night reconstructed by a backfill is reported, never scored). *Freshness caveat:* "feeds itself" was
 > literally true only after #196 — the EDGAR cache froze insider data ~11 days until the key-classed 12h TTL
-> (`POSTMORTEM_CRON_FREEZE_2026-07.md`). See `ROADMAP.md`.
+> (`docs/archive/POSTMORTEM_CRON_FREEZE_2026-07.md`). See `ROADMAP.md`.
 
 ---
 

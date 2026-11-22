@@ -53,7 +53,7 @@ framework** (SMA / 52-week / volume-regime / insider-flow tape context beside th
 #192–#194, #204–#206, `DISPLAY_SIGNALS.md`); the **cron-freeze remediation** (R1–R8 — the ~11-day insider
 freeze that made "feeds itself" only *literally* true at #196: the key-classed EDGAR TTL + a recording gate
 + a run-of-record log + a health pager + catch-up-on-boot + the backend TZ pin; #196–#203,
-`POSTMORTEM_CRON_FREEZE_2026-07.md`); and the recent **ops + honesty batch (Slices 1–4)** — the operator
+`docs/archive/POSTMORTEM_CRON_FREEZE_2026-07.md`); and the recent **ops + honesty batch (Slices 1–4)** — the operator
 **admin ops surface** (freshness/health readout + Run-daily-now; `ADMIN.md`); **clock honesty** (the Cockpit
 entry-window `arm_until` clock, the Scoreboard "awaiting forward bar" over a misleading 0.0%, and a record
 staleness line); the **insider open-market + issuer-self screens** (SEC code-`P` primary-market subscriptions
@@ -82,7 +82,7 @@ insider `Ins 30d`/`Ins 90d`, three lenses (call-state · business-type · value-
 
 > **Keep the trust state honest (the load-bearing recalibration caveat).** "The platform feeds itself daily"
 > is TRUE (literally so only after #196 — the EDGAR cache silently froze insider data ~11 days until the
-> key-classed 12h TTL; `POSTMORTEM_CRON_FREEZE_2026-07.md`); **"the forward trust loop is closed" is NOT** —
+> key-classed 12h TTL; `docs/archive/POSTMORTEM_CRON_FREEZE_2026-07.md`); **"the forward trust loop is closed" is NOT** —
 > the **Scoreboard v1** now stands as its instrument,
 > but evidence arrives only as matured forward outcomes accrue (nothing is validated at n=0, and no small
 > threshold closes the loop). The `n ≥ 5` aggregate-metric gate is a UI safeguard against over-reading early
@@ -144,7 +144,7 @@ insider `Ins 30d`/`Ins 90d`, three lenses (call-state · business-type · value-
 | Ops/UX round: Slack notify adapter · cron-on-by-default · URL routing + name deep-links · seed rename · the ID-misbind (canonical-primary) fix | #165–#175 | `DISCOVERY.md`, `BOARD.md` |
 | Signal + Workbench cleanup: detector-seam formalize + dilution parity · triage polish (junk tells, include filter, exports, prune-session persistence, Placed-from-master) | #176–#191 | `TRIAGE.md` |
 | Display-signal framework: read-only NamePanel indicators (SMA / 52-week / volume / insider-flow) + the SMA posture headline/column + the insider-flow headline | #192–#194, #204–#206 | `DISPLAY_SIGNALS.md` |
-| Cron-freeze remediation (R1–R8): key-classed EDGAR TTL · recording gate · run-of-record log · health pager · catch-up-on-boot · backend TZ pin | #196–#203 | `FEED_LOOP.md`, `POSTMORTEM_CRON_FREEZE_2026-07.md` |
+| Cron-freeze remediation (R1–R8): key-classed EDGAR TTL · recording gate · run-of-record log · health pager · catch-up-on-boot · backend TZ pin | #196–#203 | `FEED_LOOP.md`, `CRON_SIDECAR.md` |
 | Form 4 ingest: strip the tz-offset `transactionDate` suffix (49 open-market buys were silently dropped) | #207 | `FEED_LOOP.md` |
 | **Ops surface (Slice 1)** + **clock honesty (Slice 2)**: the admin freshness/health readout + Run-daily-now · the Cockpit entry-window (`arm_until`) clock, "awaiting forward bar", the record staleness line | #208, #209 | `ADMIN.md`, `BOARD.md`, `SCOREBOARD.md` |
 | Insider honesty screens (preventive, latent): code-`P` open-market (call #210 + display #211) · issuer-self exclusion (#213) · discovery-walk audit — delete `scan.py`, harden convert-scan (#212) | #210–#213 | `CALL_LOGIC.md`, `DISPLAY_SIGNALS.md`, `DISCOVERY.md` |
@@ -202,7 +202,7 @@ insider `Ins 30d`/`Ins 90d`, three lenses (call-state · business-type · value-
    recompute reaching further back (the Board/Cockpit scrub-back, replay) stays a labeled counterfactual.
 2. **Notify DELIVERY** — BUILT: the Slack adapter (#165–#175) behind `get_notifier()`, under the Q13 push
    policy (loud = a real arm; quiet = a weaker / mixed move while armed + the nightly newly-armed digest; one
-   SPAC push per announcement — `FEED_LOOP.md` §"The push policy"). Another channel (email / Telegram) is one
+   SPAC push per announcement — `FEED_LOOP.md` §Notifications). Another channel (email / Telegram) is one
    more same-shape adapter.
 3. **Cron scaling refinement** — decouple "record ALL theses" (cheap, keep daily) from "ingest ALL theses
    daily" (live pulls): ingest active theses daily, dormant less often. Fine at today's scale; jotted.
@@ -226,8 +226,8 @@ insider `Ins 30d`/`Ins 90d`, three lenses (call-state · business-type · value-
    the run logged `255 EDGAR fetches`), and the `--catch-up` exemption is narrowed to the theses a catch-up
    SKIPPED (G1's five-minute TTL removed the reason it was wholesale). The zero threshold itself is
    **CLOSED by the ratio floor (2026-10-21)**: a live pass also pages FROZEN when fewer than 50% of its
-   EDGAR-eligible companies got fresh SEC data (`Settings.freeze_completed_floor`; `FEED_LOOP.md` "Known
-   gaps" — measured: it flags twelve stored passes, all pre-G1, none since). Still open: the **R4 0-fetch
+   EDGAR-eligible companies got fresh SEC data (`Settings.freeze_completed_floor`; `FEED_MONITORS.md` "The health
+   page" — measured: it flags twelve stored passes, all pre-G1, none since). Still open: the **R4 0-fetch
    false-positive** for a second pass within five minutes of another (page on 0 only when the cache was
    outside its TTL). The **external dead-man's-switch heartbeat is CLOSED (H2, 2026-10-16)**: a run that
    never happens produces no page from inside the box (the sidecar can't alert about its own absence, which
@@ -235,7 +235,7 @@ insider `Ins 30d`/`Ins 90d`, three lenses (call-state · business-type · value-
    unseen), so the shell pings an outside service once the last expected night is recorded and that service
    alerts when the ping does not come; active on prod since 2026-10-16. The **`RUN_AT` choice is DECIDED
    (Q19, 2026-10-17)**: it stays 22:30 ET and the ~3% late-bar residual is accepted (`FEED_LOOP.md`).
-   Full account: `POSTMORTEM_CRON_FREEZE_2026-07.md`,
+   Full account: `docs/archive/POSTMORTEM_CRON_FREEZE_2026-07.md`,
    `FEED_LOOP.md` "Known gaps".
 7. **Insider honesty backlog** (extending the #210–#213 screens): insider **Class B** — 10%-owner
    fund/affiliate blocks (Baker Bros / Paulson-style) that are portfolio moves, not conviction, screened

@@ -93,7 +93,7 @@ kept here for the record. Row O1 is open.
 | K5 | Edition 0 now scores V1's annotated phantom arms (V2 removed the set-aside) | (a) accept: Edition 0 is what the system said, and the Scoreboard defaults to Edition 2; (b) restore a V1-only set-aside (code; not built) | none | (a) | (a) | Decided 2026-11-19: (a) accept |
 | K6 | The `--confirm "reset NAME"` phrase | (a) keep it; (b) rename it | the guard in `v2_reset.py` | (a): the phrase is unchanged though nothing is reset | (a) | Decided 2026-11-19: (a) keep |
 | K7 | The orphan purity row under keep-history | `leave` or `delete` | `--orphan-purity` on `run` | `leave`. `delete` makes the journal row a deleting repair | `leave` | Decided 2026-11-19: `leave` |
-| O1 | OPEN: the editions nightly job on production. It is off: production's cron log says `EDITIONS_NIGHTLY=0`. The compose default, `ALPHADECK_EDITIONS_NIGHTLY`, is 1. Decide before go-live | (a) turn it on; (b) leave it off | `ALPHADECK_EDITIONS_NIGHTLY` in production's `.env`, read when the cron starts (`docs/FEED_LOOP.md` calls it an env-only cron deploy) | leave it as it is (off) | none: the operator has not decided. The read-only review of the cron's first start (`docs/temp/v2-cron-first-start-review-2026-11-20.md` in the main checkout) found no technical reason for it being off, and suggests turning it on only after Edition 2 is cut and verified (step 11b). Keep it at 0 until then (Part 3) | OPEN |
+| O1 | OPEN: the editions nightly job on production. It is off: production's cron log says `EDITIONS_NIGHTLY=0`. The compose default, `ALPHADECK_EDITIONS_NIGHTLY`, is 1. Decide before go-live | (a) turn it on; (b) leave it off | `ALPHADECK_EDITIONS_NIGHTLY` in production's `.env`, read when the cron starts (`docs/CRON_SIDECAR.md` calls it an env-only cron deploy) | leave it as it is (off) | none: the operator has not decided. The read-only review of the cron's first start (`docs/temp/v2-cron-first-start-review-2026-11-20.md` in the main checkout) found no technical reason for it being off, and suggests turning it on only after Edition 2 is cut and verified (step 11b). Keep it at 0 until then (Part 3) | OPEN |
 
 **What O1 means.** `ALPHADECK_EDITIONS_NIGHTLY=0` turns off the whole `editions.run nightly` call in the cron
 (`backend/scripts/daily_cron.sh`): tonight's page, catch-up pages, a new card's join row, the ink, the self-check
@@ -946,7 +946,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-build
 
 `alphadeck-<ts>-pre-v2-cutover.sql` is the dump `deploy.sh` took in step 4 (V1 schema, V1 data). `docs/DEPLOY.md`
 says never to `DROP DATABASE alphadeck`. The restore needs it, because the dump replays only into an empty
-database (`docs/FEED_LOOP.md`, "RESTORE is CLI-only"). This is the only place this runbook drops anything. Run
+database (the `backup-restore` skill). This is the only place this runbook drops anything. Run
 it only to roll back.
 
 Afterward, open a pull request into `main` with `git revert -m 1 <the merge commit from step 3>`, so `main`
@@ -1007,7 +1007,7 @@ tables, as they stood at step 7: a frozen snapshot, for reading V1's record, not
 - **The V1 history archive and the V1 rollback dump.** `alphadeck-<ts>-v1-history.sql`,
   `alphadeck-<ts>-pre-v2-reset.sql`, `alphadeck-<ts>-pre-v2-cutover.sql` and `alphadeck-<ts>-pre-edition-2.sql` are
   labeled dumps. They are removed only when both older than 90 days and outside the newest 20 labeled dumps
-  (`docs/FEED_LOOP.md`). To remove them sooner, delete the single files by hand. The plan sets no date. A
+  (`docs/CRON_SIDECAR.md`). To remove them sooner, delete the single files by hand. The plan sets no date. A
   reasonable rule, which is yours to change: keep the rollback dumps and the V1 image tags until Edition 2 is cut
   and a week of V2 nights has passed, and keep the archive as long as you want a frozen copy of V1's record. Then
   remove the `v1-pre-v2` image tags with `docker rmi`.
@@ -1443,6 +1443,6 @@ published, so it refuses.
   `backend/pipeline/v2_move.py` (the move), `backend/pipeline/v2_verify.py` (the verify stages),
   `backend/editions/run.py` and `backend/editions/cut.py` (the cut), `backend/pipeline/backup.py`,
   `scripts/deploy.sh`, `scripts/refresh-fork.sh`.
-- Related pages: `docs/DEPLOY.md`, `docs/FORKS.md`, `docs/V2_BRANCH.md`, `docs/FEED_LOOP.md` (backups and restore),
+- Related pages: `docs/DEPLOY.md`, `docs/FORKS.md`, `docs/V2_BRANCH.md`, `docs/CRON_SIDECAR.md` (backups),
   `docs/PLATFORM_EXTRACTION.md` (the backfill and decision B4), `docs/SCOREBOARD.md` ("After the V2 cutover: the history
   kept, a workspace's own record").

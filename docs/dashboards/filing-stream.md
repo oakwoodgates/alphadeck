@@ -20,7 +20,7 @@ the LLM. At a past as-of it shows what was readable by the end of that night, on
 convertible-note dilution, catalysts and the ratified or stored facts. Since 2026-10-29 it also stores each basket
 company's whole EDGAR filing index (`fact_filing_index`, migration 0070: every form `filings.recent` lists, written by
 the nightly's filing-index leg off the submissions document it already reads, zero extra requests,
-`docs/FEED_LOOP.md`). Every other form (an S-1, a 424B5, a DEF 14A, a 10-Q beyond its revenue print, ...) is one
+`docs/INGEST.md`). Every other form (an S-1, a 424B5, a DEF 14A, a 10-Q beyond its revenue print, ...) is one
 `filing` row ("Other forms"): its form and primary document, nothing read from inside it. The index is EDGAR's
 `recent` window: at least a year, or the last 1,000 filings, whichever reaches further; older filings are not stored.
 Each filing shows once, as its richest row: an index row whose accession another row carries is dropped.

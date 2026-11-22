@@ -93,7 +93,7 @@ its term table and its index line. The cache clears on a new run or a basket edi
   env kill switch, the `PointInTimeData.term_mentions` accessor, `backend/tests/pipeline/test_term_mentions.py` (the
   form grouping on a recorded EFTS response fixture, the filer rule exact vs sampled, new filers, idempotency by
   COUNTING the table, a failed month left unstored and reported, the accessor's two-clock gate), and a
-  `docs/FEED_LOOP.md` paragraph. The first backfill runs on prod with the operator's go (the cost thread: cost is the
+  schedule row in `docs/CRON_SIDECAR.md`. The first backfill runs on prod with the operator's go (the cost thread: cost is the
   operator's to spend, never ambient); the numbers it measured are in the request budget above.
 - Page: `backend/dashboards/narrative_adoption.py` (pure: the monthly axis, the group stacking, the filer and new-filer
   lines, the term table, the overlay alignment), `backend/app/routers/dashboards/narrative_adoption.py`

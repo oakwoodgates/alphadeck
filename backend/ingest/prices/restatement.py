@@ -30,7 +30,7 @@ false cliff for the breakout detector. So the OLDER restated bars are classified
   pulls. The trailing-window bars are not part of the decision: they always apply.
 
 Why "every" bar, not "any" or "most" (MEASURED, replaying prod's member price history 2026-09-01..10-16;
-``docs/FEED_LOOP.md``, price restatements): a set mixing reverts with never-seen values was as often a
+``git show 8094406a:docs/FEED_LOOP.md``, price restatements): a set mixing reverts with never-seen values was as often a
 GENUINE first re-base carrying a coincidental match (ARTL / BURU 09-05: 1 of 492 bars; REAX 09-05: 2 of
 493) as a flip whose odd bars are cent-rounding (BURU 2025-04-22 stored 0.8059, re-served 0.81 = 0.51%).
 "Any" would hold those genuine re-bases — on REAX it adds a cliff night; "most" (0.5 / 0.9) holds more bars
