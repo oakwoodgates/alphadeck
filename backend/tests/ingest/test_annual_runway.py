@@ -2,7 +2,7 @@
 
 THIS MODULE IS THE ORACLE. Expected values were verified against the filings themselves (and
 cross-checked against companyfacts where the two share a date) on 2026-07-23; the rules they encode
-are canon in ``docs/WORKBENCH_EXTRACTION.md`` ("The annual-statements runway path"). The fixtures
+are canon in ``docs/EXTRACTOR.md`` ("The annual-statements runway path"). The fixtures
 under ``fixtures/sec_extractor/annual/`` are REAL filing text, trimmed with every trim VERIFIED to
 reproduce the full-document extraction result (values, flags, note, passages) before commit; the
 ``cf-runway-*.json`` fixtures are the real companyfacts ifrs-full rows as served on the measurement

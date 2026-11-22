@@ -994,7 +994,7 @@ tables, as they stood at step 7: a frozen snapshot, for reading V1's record, not
   ```
   The numbers in the second line are placeholders, not recommendations.
 - **Companies that switched between quarterly and annual filings.** For a company whose newest periodic filing
-  is of a different kind than its older ones (`docs/WORKBENCH_EXTRACTION.md` names EUDA, CURR, SCNI, CHR and BTCT
+  is of a different kind than its older ones (`docs/EXTRACTOR.md` names EUDA, CURR, SCNI, CHR and BTCT
   as the audit's examples), the backfill can leave an older value on file and mark the attempt done, so the
   nightly does not retake it until a new periodic filing. In the Admin page, open each such company's page under
   platform values and press **Extract now** (`docs/ADMIN.md`, `docs/PLATFORM_VALUES.md`). Not yet rehearsed:

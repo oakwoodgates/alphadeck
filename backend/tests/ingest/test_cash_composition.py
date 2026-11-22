@@ -1,6 +1,6 @@
 """The quarterly cash COMPOSITION (V2 extractor correctness, PR 1; operator decisions D1 and D2, 2026-11-15).
 
-The written cash rule (``docs/WORKBENCH_SCORING.md``, "The uniform cash rule") is cash + equivalents + ALL
+The written cash rule (``docs/EXTRACTOR.md``, "The uniform cash rule") is cash + equivalents + ALL
 marketable securities, current and noncurrent. An audit of 460 auto-applied quarterly cash values found the
 reader applying it only partly:
 
@@ -282,7 +282,7 @@ def test_restricted_investments_and_equity_securities_are_never_read():
 
 
 def test_the_tag_lists_as_built():
-    """The lists the docs state (``docs/WORKBENCH_EXTRACTION.md``): pinned so a change is deliberate."""
+    """The lists ``docs/EXTRACTOR.md`` ("The uniform cash rule") names: pinned so a change is deliberate."""
     names = lambda lst: [c for _, c in lst]  # noqa: E731
     assert names(ex._STI) == [
         "ShortTermInvestments",

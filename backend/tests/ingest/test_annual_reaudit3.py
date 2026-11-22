@@ -10,7 +10,7 @@ reaudit3-annual-cash-2026-11-16.md).
   1,607,000,000): its blank-cell test compared the row's three figures with the count of YEAR TOKENS in the
   header, which the heading's own dates inflate ("at December 31, 2025 and 2024 ... Note 2025 2024").
 
-The rules (docs/WORKBENCH_EXTRACTION.md, "The annual-statements runway path"): the deposits/investments part is
+The rules (docs/EXTRACTOR.md, "The annual-statements runway path"): the deposits/investments part is
 read from the SAME currency column as the cash value, never the convenience translation; a deposits row that
 prints fewer figures than the cash row cannot be placed on that grid and is seen, quoted and NOT counted
 (``investments-unconfirmed``). A companyfacts row that reproduces a deposits/investments figure only in a
