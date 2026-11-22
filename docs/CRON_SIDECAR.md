@@ -45,7 +45,7 @@ On a session, or a wake whose catch-up covered a session:
 3. Catch-ups for every session strictly after the target up to the last expected night when the run finished.
 4. One database snapshot (`pipeline.backup`), unconditional.
 5. The editions nightly (`editions.run nightly --apply`, bounded by `EDITIONS_TIMEOUT_S`; owner:
-   [SCOREBOARD](SCOREBOARD.md)).
+   [EDITIONS](EDITIONS.md)).
 6. The sign-in housekeeping prune (`db.housekeeping --prune`; [AUTH](AUTH.md), "Housekeeping").
 7. The dashboards' change-log prune (`db.change_stamp --prune`).
 8. The dashboard cache warm-up (`pipeline.warm_dashboards --night <last expected night>`; owner:

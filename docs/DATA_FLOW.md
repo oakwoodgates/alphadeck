@@ -42,7 +42,7 @@ invariant 12):
 |---|---|---|
 | Recompute | `GET /theses/{id}/call?asof=` | Re-derives signals and assembles the card. Writes no call or fact row |
 | Record | `GET /theses?with_call=true&asof=` | Returns the call of record in effect at that date (greatest `(asof, seq)` on or before it); `null` means no record. Never reassembles |
-| Edition | The Scoreboard | Reads stored re-runs; the newest published edition by default ([SCOREBOARD](SCOREBOARD.md)) |
+| Edition | The Scoreboard | Reads stored re-runs; the newest published edition by default ([EDITIONS](EDITIONS.md)) |
 | History | Any past as-of | The public clock, as above |
 
 There is no separate signal-firing store: signals are recomputed on every read, and a recorded card keeps what
