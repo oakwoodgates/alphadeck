@@ -63,8 +63,6 @@
     {"file": "CLAUDE.md", "check": "banned", "severity": "warn", "key": "codename: W1", "count": 1},
     {"file": "CLAUDE.md", "check": "banned", "severity": "warn", "key": "codename: X1", "count": 1},
     {"file": "CLAUDE.md", "check": "banned", "severity": "warn", "key": "codename: X2", "count": 1},
-    {"file": "CLAUDE.md", "check": "banned", "severity": "fail", "key": "curl-noauth: /theses/<id", "count": 1},
-    {"file": "CLAUDE.md", "check": "banned", "severity": "fail", "key": "curl-noauth: /workbench/theses/<id", "count": 1},
     {"file": "CLAUDE.md", "check": "banned", "severity": "warn", "key": "emphasis: stacked bold or CAPS", "count": 1},
     {"file": "CLAUDE.md", "check": "banned", "severity": "fail", "key": "pr-ref: #135", "count": 1},
     {"file": "CLAUDE.md", "check": "banned", "severity": "fail", "key": "pr-ref: #136", "count": 1},
