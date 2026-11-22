@@ -1,50 +1,73 @@
 ---
 name: prune-stale
 description: >-
-  Prune stale git worktrees + branches + per-worktree test DBs that accrue from
-  agent builds and past sessions. Trigger on "prune stale worktrees", "clean up
-  branches", "drop stale test DBs", "tidy the repo". Read-only survey first;
-  dropping alphadeck_test_* never touches the demo/prod DB (separate databases).
+  Use when asked to prune stale worktrees, branches or test databases, or to tidy the repo. Surveys read-only
+  first, then removes merged and superseded ones; the real databases are never dropped.
 ---
 
-# Prune stale worktrees, branches & test DBs
+# Prune stale worktrees, branches and test databases
 
-Survey first (read-only), then remove. The one irreversible action is a `DROP DATABASE`
-— and it's safe ONLY because test DBs are SEPARATE databases from the live data.
+Agent builds and old sessions leave worktrees, branches and per-worktree test databases behind. Survey first
+(read-only), then remove. The one irreversible step is `DROP DATABASE`.
 
-## Guardrails (never violate)
-- **`DROP DATABASE alphadeck_test_*` is safe; `alphadeck` / `alphadeck_dev` is the real
-  data — NEVER drop those.** Test DBs are distinct databases on the SAME Postgres
-  container; dropping one never touches the demo/prod data.
-- **Never remove the worktree you're RUNNING IN** (breaks the session), and **never
-  delete a CHECKED-OUT branch** (git refuses anyway).
-- Keep the LIVE worktrees' test DBs — compute the live hashes before dropping.
+## Guardrails
 
-## Survey (read-only)
-- `git worktree list` — the worktrees + their branches.
-- Merged? per branch: `git merge-base --is-ancestor <branch> origin/main && echo MERGED`
-  (after `git fetch origin --prune`). Merged = safe; unmerged may be superseded (a
-  re-cut branch, e.g. a stale-base recovery) or genuinely stale — check before -D.
-- Test DBs live on BOTH Postgres containers — check each:
-  `docker exec alphadeck-postgres-1 psql -U alphadeck -d postgres -tAc "SELECT datname FROM pg_database WHERE datname LIKE 'alphadeck_test%'"`
-  and the same on `alphadeck_dev-postgres-1`.
+- Drop only test databases: `alphadeck_test_` plus 8 hex characters and an optional `_gw<N>` (`db/testdb.py`).
+  Never drop `alphadeck`, `alphadeck_dev`, `alphadeck_sig` or a fork's `alphadeck_<name>`. Why the exact pattern:
+  `scripts/fork.sh` reserves only the name `test`, so a fork named `testbed` owns a real database
+  `alphadeck_testbed` that `LIKE 'alphadeck_test%'` also matches.
+- Plain `DROP DATABASE`, never `WITH (FORCE)`; check `pg_stat_activity` first. A database in use belongs to a
+  live run.
+- Keep the live worktrees' databases: compute their names before dropping.
+- Never remove the worktree you run in or the main checkout, never delete a checked-out branch, never `--force` a
+  worktree removal.
+- A `fork-<name>` or sig worktree with a live stack: tear the stack down first (the `fork` skill,
+  `scripts/fork.sh destroy --yes`), or its containers and volumes stay behind.
+- Merged means an ancestor of `origin/main`. A branch that is only inside an open integration branch is not
+  merged yet.
 
-## Remove
-1. **Test DBs** — the live per-worktree names to KEEP are `alphadeck_test_` +
-   `sha1(<worktree-root>)[:8]` (per `backend/db/testdb.py`; or an `ALPHADECK_TEST_DB`
-   pin), plus any xdist `_gw*` suffixes. Drop the ORPHANS (plain `DROP DATABASE`, no
-   FORCE; confirm no active connections first via `pg_stat_activity`). Feature-named
-   test DBs from old runs (e.g. `alphadeck_test_p4calib`) are orphans.
-2. **Worktrees** — `git worktree remove <path>` for the stale ones (needs a clean tree;
-   NOT the one you're in). Then `git worktree prune -v`. **Traps:** the auto-mode
-   classifier may BLOCK `git worktree remove` → surface to the operator for approval (or
-   they run it); on Windows a "filename too long" can stop the file delete but git still
-   deregisters the worktree (leftover files on disk are harmless, deletable manually).
-3. **Branches** — delete merged + superseded/stale with `git branch -D <list>` (force,
-   since superseded branches read "unmerged"), EXCEPT `main` and any checked-out branch.
-   Leftover remote branches (rare — most `--delete-branch` on merge):
-   `git push origin --delete <branch>`.
+## Steps
 
-## After
-`git worktree list` shows only the live worktrees; `git branch` only `main` + live
-feature branches; the test-DB lists show only the live per-worktree names.
+Survey, read-only:
+
+1. `git fetch origin --prune`, then `git worktree list` and `git branch -vv`.
+2. Per branch: `git merge-base --is-ancestor <branch> origin/main && echo MERGED`. An unmerged one may be
+   superseded (a re-cut branch) or stale: read its commits before deleting.
+3. Per running Postgres container (prod, dev, sig and every fork hold their own):
+   ```
+   for c in $(docker ps --filter name=postgres --format '{{.Names}}'); do echo "$c"; docker exec "$c" psql -U alphadeck -d postgres -tAc "SELECT datname FROM pg_database WHERE datname LIKE 'alphadeck_test%'"; done
+   ```
+
+Remove:
+
+4. Test databases. A live name is `alphadeck_test_` plus the first 8 hex characters of the sha1 of that worktree's
+   `git rev-parse --show-toplevel` output, with `_gw<N>` suffixes (or an `ALPHADECK_TEST_DB` pin):
+   `printf %s "$(git -C <worktree> rev-parse --show-toplevel)" | sha1sum | cut -c1-8`. `db/testdb.py` hashes the
+   `backend/` path instead when git cannot run; `resolve_test_db_name()` in that worktree's venv prints the exact
+   name and opens no connection. Drop the other names that fit the pattern:
+   `docker exec <container> psql -U alphadeck -d postgres -c 'DROP DATABASE "<name>"'`. A feature-named leftover
+   from an old pin (`alphadeck_test_<word>`) is the operator's call. For the server on 5544 the operator can run
+   `python -m db.drop_test_dbs --dry-run`, then without the flag: it drops every idle `alphadeck_test%` database,
+   live worktrees' included (recreated on their next run), and skips any in use.
+5. Worktrees: `git worktree remove <path>` (needs a clean tree), then `git worktree prune -v`. A permission prompt
+   on it goes to the operator. On Windows a "filename too long" error can stop the file deletion while git still
+   deregisters the worktree; the leftover files are harmless and can be deleted by hand.
+6. Branches: `git branch -d` for merged ones, `git branch -D` for superseded ones once read. Merged leftovers on
+   the remote: `git push origin --delete <branch>`.
+
+## Checks
+
+- `git worktree list` shows only live worktrees; `git branch` shows `main` and live feature branches.
+- The database survey lists only live names, and every database dropped matched the pattern.
+
+## Stop and ask when
+
+- A branch is unmerged and not clearly superseded.
+- A worktree has uncommitted changes or a running stack, or a prompt asks for `--force`.
+- A database has active connections or its name does not fit the pattern.
+
+## Model
+
+[OPERATIONS], "Forks" and "The stacks".
+
+[OPERATIONS]: ../../../docs/OPERATIONS.md

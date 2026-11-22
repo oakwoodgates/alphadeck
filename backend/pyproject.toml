@@ -104,11 +104,11 @@ addopts = "-p no:cacheprovider"  # the sandboxed working dir denies .pytest_cach
 # NOT in addopts: `-n` — a single-test run would spawn workers. Parallelism is opt-in (`pytest -n 6`: the full
 # suite ~6 min here vs ~31 min serial; the testdb hook gives each worker its own alphadeck_test_<hash>_gwN).
 markers = [
-    "slow: the six long replay-lab sweeps (~90 s each with the pandas sentinel); skip with -m 'not slow' for scoped iteration, NEVER when touching the PIT / replay / signal path",
+    "slow: the replay, backtest and editions sweeps (~90 s each with the pandas sentinel); skip with -m 'not slow' for scoped iteration, NEVER when touching the PIT / replay / signal path",
 ]
 # pytest-timeout, the hang guard. `thread` is the ONLY method that can kill a hung NATIVE call (it dumps every
 # stack and os._exit(1)s the process; under xdist that worker dies, the hung test is reported FAILED and the
 # other workers continue). The Linux default `signal` cannot interrupt a native hang — pinned here so CI gets
-# `thread` too. The six `slow` sweeps carry a per-test `@pytest.mark.timeout(300)` override.
+# `thread` too. The replay, backtest and editions `slow` sweeps carry a per-test `@pytest.mark.timeout(300)` override.
 timeout = 120
 timeout_method = "thread"

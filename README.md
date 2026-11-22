@@ -1,178 +1,126 @@
 # Alpha Deck
 
-**A research cockpit for hunting, validating, timing, and monitoring equity theses.**
-A "DD engine" that helps a discretionary trader turn early narrative convictions into *well-timed* trades — decision-support, not execution.
+Alpha Deck is a research and timing platform for discretionary equity traders. A user writes down a thesis, finds
+the companies that express it, and gets a nightly, evidence-linked call on whether the setup is forming, ready or
+over. The data is SEC filings, end-of-day prices and a few other public feeds; every call shows the filings and
+computations behind it. It is advisory only: the firm's order, sizing and risk systems own the trade. Platform data
+(filings, prices, share counts) is shared and curated by a steward; theses, baskets and decisions live in each
+user's private workspace.
+It is built for one pattern: a trader who reads narratives early and times entries badly. It keeps the early read and
+adds name selection and timing discipline, so it is opinionated about when and deferential about whether the idea
+is good.
 
-**Boundary:** Alpha Deck hands its research and timing output to the firm's existing OMS, execution,
-position-sizing, and portfolio-risk systems. It does not route orders, size positions, set risk limits, or
-manage the portfolio; after an operator-entered position is logged, it keeps monitoring the thesis.
+## Core concepts
 
-> Working codename: **Alpha Deck**. US equities first; commodities / crypto / prediction markets later.
-> **The organizing frame — the pipeline of stages (SEED → DISCOVER → SURFACE → TRIAGE → MONITOR → SCORE): [`docs/STAGE_MODEL.md`](docs/STAGE_MODEL.md) (read first).**
-> The live plan: [`docs/ROADMAP.md`](docs/ROADMAP.md). Design rationale: [`docs/PROJECT_OVERVIEW.md`](docs/PROJECT_OVERVIEW.md). Agent working-agreements: [`CLAUDE.md`](CLAUDE.md). The decision logic: [`docs/CALL_LOGIC.md`](docs/CALL_LOGIC.md). What each detector fires: [`docs/DETECTORS.md`](docs/DETECTORS.md). Data sourcing: [`docs/DATA_SOURCES.md`](docs/DATA_SOURCES.md). Implementation invariants: [`docs/INVARIANTS.md`](docs/INVARIANTS.md). The post-MVP tuning agenda: [`docs/RECALIBRATION.md`](docs/RECALIBRATION.md). UI mockups in [`docs/mockups/`](docs/mockups/).
+- **Thesis (a card).** A narrative, a basket of companies grouped into value-chain links, catalysts, kill criteria
+  and the user's logged decisions. Three fixed silent links (Context, ETFs, Bench) hold names that are on the card
+  but never count toward its call. Every feature attaches to a thesis.
+- **The six stages.** Each hands the user a decision:
 
----
+| Stage | What happens | Who leads | Read |
+|---|---|---|---|
+| SEED | A user banks a narrative in their own words | User | [WORKBENCH](docs/WORKBENCH.md) |
+| DISCOVER | Theme to companies: EDGAR full-text search over the card's term set; a model organizes and narrates, never recalls names | Deterministic code | [DISCOVERY](docs/DISCOVERY.md) |
+| SURFACE | Each name is filled in: identity, business type, share count, cash and burn from filings, a purity estimate to confirm | System recommends | [EXTRACTOR](docs/EXTRACTOR.md), [PLATFORM_VALUES](docs/PLATFORM_VALUES.md) |
+| TRIAGE | The user cuts the draft to a basket: include or exclude, sign off, arrange links, save | User | [WORKBENCH](docs/WORKBENCH.md) |
+| MONITOR | The saved card is graded every night | Machine times, user decides | [BOARD](docs/BOARD.md), [CALL_LOGIC](docs/CALL_LOGIC.md), [FEED_LOOP](docs/FEED_LOOP.md) |
+| SCORE | The platform's calls and the user's decisions are scored over the nightly record | Machine judges | [SCOREBOARD](docs/SCOREBOARD.md), [EDITIONS](docs/EDITIONS.md) |
 
-## The problem it solves
+- **Lifecycle and the call card.** A card loops through Incubating (banked, quiet), Warming (triggers live, no name
+  actionable yet), Armed (a conviction trigger and a confirmation live together on one name) and Managing (the
+  user logged a position; the platform monitors the thesis and does not manage risk). The call card shows the verdict, the grade (`flip`: fast and
+  attention-driven; `core`: structural and more durable), `exit_by` (where the signal's validity window ends, not
+  a sell date), the triggers with source links, what is missing, a counter-case and setup strength (wire field
+  `confidence`; experimental, not a probability). An override of the platform's go-signal is a logged bet against
+  documented evidence.
+- **Platform data and workspace data.** Share counts, cash and burn, filings and prices are one shared layer
+  ([PLATFORM_VALUES](docs/PLATFORM_VALUES.md)). The steward, a super admin, approves what the machine cannot.
+  Cards, purity, decisions and calls are private to a user's workspace ([TENANT_SCOPES](docs/TENANT_SCOPES.md)). The
+  operator is whoever runs the deployment.
+- **Ground rules** ([INVARIANTS](docs/INVARIANTS.md), fourteen in all): history is judged on the public clock, so
+  no lookahead; a model augments and never sources a number or a firing; the platform is opinionated on timing,
+  deferential on the thesis, and advisory only. Terms: [GLOSSARY](docs/GLOSSARY.md).
 
-Alpha Deck is built around one operator pattern:
-
-- **Edge:** spotting macro narratives early — reading the *narrative clock*. Strong at "what comes next."
-- **Flaw:** timing ("terrible at dates") and translating a narrative into the *specific* names that best express it (defaults to broad ETFs).
-
-So the whole system follows two rules:
-
-1. **Preserve the edge, patch the flaw.** Capture early convictions so they're never lost or forgotten (the vault); supply name selection, DD, and timing discipline on top.
-2. **Opinionated about timing, deferential about thesis.** The platform never votes on whether an idea is good — that's the operator's strength. It gets loud only on *when* and on the call's evidence-backed strength — the operator's weak spot.
-
-## What it does
-
-Maps the operator's six hunts onto capabilities:
-
-| Goal | Capability |
-|---|---|
-| Picks-and-shovels | Value-chain decomposition; supply/manufacturing/distribution/downstream layers |
-| Obvious next plays | Laggard scanner (beta-adjusted residual vs a theme leader) |
-| Early to emerging / gray-area sectors | Emergence detector (regulatory + personnel + attention rate-of-change + first institutional footprint) |
-| SEC filing / insider alpha | EDGAR firehose, insider-conviction scoring, dilution clock |
-| Short squeezes | Squeeze radar (SI / DTC / borrow / gamma, gated on a catalyst) |
-| Sector tracking | Sector dashboard with "section headline" lenses |
-| Low-risk thematic exposure | **ETF radar** — availability + coming launches (SEC N-1A/485) + holdings/flows; the safe-exposure expression of a thesis |
-
-## How it works — two halves on one spine
-
-- **Front (hunt + research):** narrative → decompose into the value chain → surface & score specific names by exposure purity, risk, cash runway, catalyst density → auto-draft DD per name.
-- **Back (park + time):** chosen names become a parked **thesis** → incubate → graded trigger → monitor the entered thesis through its live signal window.
-- **Spine:** the **thesis is a first-class object** (narrative, basket, evidence, catalysts, signals, kill criteria, expression). Everything attaches to it; no orphan screeners.
-
-**Thesis lifecycle** (a loop, not a ratchet): `Incubating → Warming → Armed → Managing`; Managing means an
-operator-entered position is being monitored, not that Alpha Deck manages its risk.
-**Trigger grading:** every fire is assigned a categorical call-strength class — *flip* for a fast,
-sentiment/attention-driven setup, *core* for a structural, more durable setup — and a type (regulatory,
-promoter/attention, technical breakout, clinical readout, squeeze, personnel). Grade never determines
-position size, instrument, or expression.
-**The call layer is opinionated and auditable:** the platform *makes the call and shows its work* — verdict +
-advisory research context + the `exit_by` signal-validity horizon (not a sell-by date), the triggers that fired
-(with source links), what's missing, the counter-case, experimental **setup strength** (wire field
-`confidence`, not a probability), and logged `act / override / snooze` decisions. An override is a logged bet
-against documented evidence, then scored.
-
-See `docs/PROJECT_OVERVIEW.md` for the lifecycle, grading, sector dashboard lenses, and analytic components (momentum-health classifier, personality-backed attention proxy, dilution clock, laggard scanner, insider-conviction scoring, ETF radar) in full.
-
-## Surfaces (UI)
-
-Four decision surfaces (plus an operator ops page); clickable mockups live in `docs/mockups/` (Board+Cockpit, the 2025 umbrella board, a segment cockpit, the Workbench, and the Cockpit per-name build).
-
-- **Board** — pipeline of theses as cards flowing through the four lifecycle states. Home base.
-- **Cockpit** — thesis detail: narrative + conviction notes (preserved), the basket grouped by each name's **own** call state (collapsible per-name buckets, Managing → Quiet) with a read-only **per-name panel** (its call, its own triggers, its slice of the operator record), evidence, catalyst calendar, and the live **call card** ([`docs/BOARD.md`](docs/BOARD.md)).
-- **Workbench** — the front half: drop in a narrative, draft the value chain, ratify the names + facts, promote a thesis to the Board. **Built** — the create → draft → ratify → score → promote loop ([`docs/WORKBENCH.md`](docs/WORKBENCH.md)).
-- **Scoreboard** — review/calibration: the episode ledger over the forward record — the platform's calls (scored on their own `exit_by` signal-validity yardstick) vs your logged decisions, overrides with their outcomes, gated aggregate metrics. Setup strength remains experimental until this forward record supports calibration; the `n ≥ 5` aggregate-metric gate is a UI safeguard against over-reading a tiny sample, not an evidence threshold. Every row opens a **per-episode drill-down** — timing lenses, a price chart with a numbered insider/trigger/lifecycle overlay, and an event ledger sharing the chart's numbering; the ledger's **Timing** view carries the MAE/MFE excursion pair (close and wick) and each episode's path sparkline. Edition 0 scores the nightly log's honest rows — a night reconstructed by a backfill is reported, never scored. Stored editions ≥ 1 are frozen public-clock re-runs; the default is the newest published edition (0 if none, unless configured otherwise). *(v1 built — `docs/SCOREBOARD.md`; the follow-blindly counterfactual + deltas are v2; editions replaced the replay-history-alongside panel, and the drill-down is built.)*
-- **Admin** — the operator ops page (no as-of dial): record freshness (hole-aware — a night with no call-of-record reads `gappy`, by date) + a cron-health verdict, a **Run daily now** trigger, and the **DB-snapshot** button (create / list / keep-last-7 / nightly; restore stays CLI-only). A read surface over the cron's own instrumentation plus two explicit triggers ([`docs/ADMIN.md`](docs/ADMIN.md)).
-
-**Signature design principle — inverse loudness:** Incubating is dormant and quiet (the vault — nothing to react to); Warming is subdued; Armed is prominent in both visuals and notifications; Managing is a calm thesis-monitoring panel for a position the operator entered. The UI *is* the gate.
-
-## Architecture & stack
-
-Local agents read the platform through a read-only MCP server (`agent_tools`): typed, data-first tools over
-the API's own JSON (the nightly record and Decision Queue, a call with its evidence, the thesis spine, data
-flags, display signals, decisions, a ticker lookup, the eight MONITOR dashboards, and the research stages: what
-discovery found, what is left to ratify, one name's scoring-fact candidates, the onboarding queue), each reply
-bounded and stating its as-of and source, plus seven prompts and, for this repository's Claude Code sessions, the
-`alphadeck-agent` skill. A steward (a super admin) also reads the Admin split list and status through two more tools and an eighth prompt (`splits-review`); a plain user never lists them. The server signs in with a bearer token from `ALPHADECK_MCP_TOKEN` (minted by
-`python -m pipeline.users token create`). With `ALPHADECK_PUBLIC_ORIGIN` set, the same server also answers inside
-the API at `/mcp`, where each user signs in with their own token from Settings > Agents, or with an OAuth sign-in
-on our own consent page ([`docs/CONNECTORS.md`](docs/CONNECTORS.md)), and reads only their own workspace. Setup, the tool table and the error codes are in [`docs/AGENT_TOOLS.md`](docs/AGENT_TOOLS.md).
-
-Three load-bearing decisions drive the shape:
-
-1. **EOD cadence → no streaming infra.** Scheduled batch + on-demand pulls. No Kafka, no event bus. A nightly pipeline and a job queue is the runtime.
-2. **Point-in-time is the moat → Postgres + DuckDB/Parquet.** Postgres is the operational, bitemporal system of record; historical research/replay data lives as Parquet snapshots read through DuckDB. The replay harness makes "would this have flagged X without lookahead?" answerable.
-3. **The LLM augments, never sources, signals.** Signals fire deterministically from code; the model reads filings, drafts DD, and explains calls — every trigger traces to a computation, never to the model's say-so.
-
-| Layer | Choice |
-|---|---|
-| Operational DB | PostgreSQL — bitemporal system of record + relationship graph (adjacency tables + recursive CTEs; no Neo4j yet) |
-| Research / replay | DuckDB + Parquet (point-in-time snapshots, embedded, file-based) |
-| Backend | Python · FastAPI · Pydantic (core schemas) · Polars (+ Arrow) |
-| Ingestion | Thin custom EDGAR client over SEC JSON APIs · OpenFIGI for CIK↔ticker↔FIGI · FINRA short interest (planned, not built) |
-| Orchestration | Scheduled scripts → Dagster when the DAG earns it |
-| LLM | Anthropic API behind a model-agnostic interface; structured/tool-use outputs with source citations |
-| Frontend | TypeScript · React (Vite SPA) · Tailwind · TanStack Query |
-| Charts | lightweight-charts (price/volume/breakout) · visx/Recharts (analytics) |
-| Ops | Docker Compose → single VPS / Fly / Railway. Monolith. `tenant_id` on every table, in two scopes: the shared DATA tenant and one private WORKSPACE per user (`docs/TENANT_SCOPES.md`); login, roles and per-user workspaces ([`docs/AUTH.md`](docs/AUTH.md)) |
-
-## Repo layout (proposed)
+## Architecture at a glance
 
 ```
-alpha-deck/
-├── README.md
-├── CLAUDE.md
-├── docs/PROJECT_OVERVIEW.md
-├── backend/
-│   ├── app/          # FastAPI app + routes
-│   ├── domain/       # thesis / signal / call schemas (Pydantic) — the spine
-│   ├── securities/   # security master, entity resolution, corporate actions
-│   ├── ingest/       # EDGAR, price/fundamentals, FIGI (FINRA SI is planned)
-│   ├── signals/      # composable detectors (insider, laggard, squeeze, momentum-health…)
-│   ├── llm/          # model-agnostic interface, DD drafting, call explanation
-│   ├── pipeline/     # scheduled jobs / orchestration
-│   ├── replay/       # point-in-time backtest harness (DuckDB/Parquet)
-│   └── db/           # Postgres schema + migrations (bitemporal)
-├── data/             # Parquet snapshots, DuckDB file (gitignored)
-├── frontend/src/
-│   ├── surfaces/     # board, cockpit, workbench, scoreboard
-│   ├── api/          # TanStack Query hooks
-│   ├── components/
-│   └── lib/
-└── infra/            # docker-compose, deploy
+SEC EDGAR, Yahoo, Massive.com, USASpending, Nasdaq Trader, OpenFIGI
+        | nightly pass after the close (cron sidecar)
+        v
+ingest --> Postgres: append-only, bitemporal facts --> call assembler (pure) --> calls log
+                |                                              |
+                v                                              v
+     DuckDB/Parquet mirror                    FastAPI --> React app, MCP agent tools
+     (replay, backtests, editions)
 ```
 
-## v1 scope
+| Layer | What is used |
+|---|---|
+| Database | PostgreSQL 16 through psycopg 3; migrations in `backend/db/migrations/` |
+| Replay and backtests | DuckDB over Parquet mirrors (the `replay` extra) |
+| Backend | Python 3.11+, FastAPI, Pydantic, httpx; one API worker |
+| LLM | Anthropic API through `backend/llm` (five modules); never sources a number |
+| Agent tools | MCP server `backend/agent_tools`: local stdio, and `/mcp` in the API when `ALPHADECK_PUBLIC_ORIGIN` is set; 7 prompts for any user plus the steward's `splits-review`; `read_dashboard` covers 8 dashboards |
+| Frontend | TypeScript, React 18, Vite, Tailwind, TanStack Query, `lightweight-charts`; API types generated from `backend/openapi.json` |
+| Ops | Docker Compose: nginx serves the app and proxies the API, a cron sidecar runs the nightly |
 
-**In:** the Board + Cockpit surfaces; the thesis object + lifecycle; the SEC/filing intelligence brick (insider-conviction, dilution clock, 8-K classification) feeding both halves; the laggard scanner; the opinionated call layer with override logging; the point-in-time data foundation.
+Prod is the local Compose stack on the operator's machine; the server move has not happened. Other stacks run beside
+it ([OPERATIONS](docs/OPERATIONS.md)). Longer path: [DATA_FLOW](docs/DATA_FLOW.md).
 
-**Built since (the MVP):** the **Workbench** (the full front half — scoring, authoring, the extract → ratify hybrid, the two LLM seams, and the create-thesis front door) + the **M2 feed loop** (per-thesis back-half ingest + the daily call-of-record cron) + the **Scoreboard v1** (the forward trust-loop instrument; its record is still accruing). See `docs/ROADMAP.md`.
+| Stack | App / API / Postgres | Nightly cron |
+|---|---|---|
+| prod | 8080 / 8000 / 5544 | on |
+| dev | 8081 / 8001 / 5545 | off |
+| fork (one per experiment) | slot N: 808N / 800N / 554(4+N) | off |
+| sig (replay lab) | 8082 / 8002 / 5546 | off |
 
-**Out** (see CLAUDE.md): trade execution / brokerage writes, position sizing, and portfolio-risk management
-(all handed off to the firm's OMS / execution / risk stack); intraday/streaming; options-gamma & paid borrow
-data; crypto / commodities / prediction markets; shared/team workspaces, user-login SSO and row-level security.
-Authenticated private workspaces are built (`docs/AUTH.md`, `docs/TENANT_SCOPES.md`); hosted connector OAuth is
-available when `ALPHADECK_PUBLIC_ORIGIN` is set (`docs/CONNECTORS.md`).
+## Repo map
 
-## Build order
+- `backend/`: `app/` API and wire contract; `domain/` typed core and `CallConfig`; `calls/` the assembler;
+  `signals/` detectors; `ingest/`, `securities/`, `platform_values/` data in; `db/` store and migrations;
+  `pipeline/` nightly pass and repair CLIs; `scoreboard/`, `editions/`, `backtest/`, `replay/` scoring;
+  `dashboards/`, `workbench/`, `radar/`, `notify/`, `llm/`, `agent_tools/`; `tests/`.
+- `frontend/src/`: `board/`, `cockpit/`, `workbench/`, `scoreboard/`, `dashboards/`, `admin/`, `backtest/`, `radar/`,
+  `settings/`, `auth/`, `oauth/`, `api/`.
+- `docs/`: below, with `docs/dashboards/` (one doc per dashboard). `scripts/`: deploy, forks, venv, docs checker.
+  `infra/`: prod's database-only compose file. `.claude/`: skills and the builder agent. Root: `docker-compose*.yml`,
+  `Makefile`, `.env*.example`, [CLAUDE.md](CLAUDE.md) (agent rules).
+- Local only, gitignored: `.env*`, `backend/.venv/`, `data/`.
 
-1. **Foundation** — security master + point-in-time (bitemporal) data layer. Done first; expensive to retrofit.
-2. **SEC / filing intelligence brick** — biggest operator gap, cheapest to build (EDGAR is free), feeds both halves.
-3. **Thesis object + workspace** — the spine: evidence linking, catalyst calendar, kill criteria, the call card.
-4. **Laggard scanner + theme taxonomy** — over EOD price.
-5. **Squeeze radar / options-gamma** — phase in once paying for borrow + options data.
+## Run and test
+
+- **Dev stack** (an isolated database beside prod; from the main checkout, never a worktree): `make dev-up`, or the
+  compose form in [OPERATIONS](docs/OPERATIONS.md); steps in the `dev-stack` skill.
+- **Backend:** `bash scripts/ensure-venv.sh` once per checkout. From `backend/`, with that venv:
+  `python -m pytest tests/<area> -n 6 -m "not slow"`, `python -m ruff check .`, `python -m black --check .`. Run
+  the full suite for work on the point-in-time path (`test-verify` skill). Under pytest, `db/testdb.py` selects a
+  per-worktree `alphadeck_test_*` database; DB tests skip when Postgres is unreachable.
+- **Frontend:** from `frontend/`: `npm ci`, `npm run dev` (proxies `/api` to 127.0.0.1:8000), `npm test`,
+  `npm run build`, `npm run gen:api` after a contract change.
+- **Warning:** `backend/db/session.py` defaults to the prod database (localhost:5544). A host command without an
+  explicit `DATABASE_URL` reads and writes prod. Prod changes go through `scripts/deploy.sh`, never a bare
+  `docker compose up`.
+
+## Docs
+
+| Doc | Owns |
+|---|---|
+| [ROADMAP](docs/ROADMAP.md), [INVARIANTS](docs/INVARIANTS.md) | Open work and the trust state; the fourteen rules |
+| [GLOSSARY](docs/GLOSSARY.md), [CLI](docs/CLI.md), [DOCS_STANDARD](docs/DOCS_STANDARD.md) | Terms; every `python -m` entry point; how to write docs |
+| [DISCOVERY](docs/DISCOVERY.md), [WORKBENCH](docs/WORKBENCH.md), [WORKBENCH_SCORING](docs/WORKBENCH_SCORING.md), [EXTRACTOR](docs/EXTRACTOR.md) | Finding names; the user's flow; scoring a member; reading filings |
+| [BOARD](docs/BOARD.md), [DASHBOARDS](docs/DASHBOARDS.md) | Board, Cockpit, call card; dashboard rules (each dashboard: `docs/dashboards/`) |
+| [CALL_LOGIC](docs/CALL_LOGIC.md), [DETECTORS](docs/DETECTORS.md), [DISPLAY_SIGNALS](docs/DISPLAY_SIGNALS.md) | Verdict, grade, `exit_by`; each detector; read-only indicators |
+| [FILINGS](docs/FILINGS.md), [DATA_SOURCES](docs/DATA_SOURCES.md), [DATA_FLOW](docs/DATA_FLOW.md) | Stored filing families; vendors and caches; a fact's path |
+| [FEED_LOOP](docs/FEED_LOOP.md), [INGEST](docs/INGEST.md), [FEED_MONITORS](docs/FEED_MONITORS.md), [CRON_SIDECAR](docs/CRON_SIDECAR.md) | The nightly pass; ingest legs; monitors; schedules and backups |
+| [PLATFORM_VALUES](docs/PLATFORM_VALUES.md), [PLATFORM_EXTRACTION](docs/PLATFORM_EXTRACTION.md), [VALUE_FLAGS](docs/VALUE_FLAGS.md), [FUND_RADAR](docs/FUND_RADAR.md) | Shared values; background extraction; user flags; fund launches |
+| [SCOREBOARD](docs/SCOREBOARD.md), [EDITIONS](docs/EDITIONS.md), [BACKTEST](docs/BACKTEST.md), [REPLAY](docs/REPLAY.md) | The record and its scoring; frozen re-runs; backtests; the replay engine |
+| [OPERATIONS](docs/OPERATIONS.md), [ADMIN](docs/ADMIN.md) | Stacks, deploys, first run; the steward's Admin page |
+| [AUTH](docs/AUTH.md), [SECURITY](docs/SECURITY.md), [TENANT_SCOPES](docs/TENANT_SCOPES.md), [CONNECTORS](docs/CONNECTORS.md), [AGENT_TOOLS](docs/AGENT_TOOLS.md) | Sign-in and allowances; output rules and limits; the two scopes; OAuth for agents; MCP tools |
+
+`docs/archive/` holds records of one-time runs (the 2026-07 cache-freeze postmortem, the backtest pass verdicts);
+they are never updated. After editing any Markdown, run `python scripts/check_docs.py` from the repo root.
 
 ## Status
 
-**The MVP is complete** — both halves on one spine are built and the platform feeds itself. A thesis flows
-end to end on real data: **create from a new narrative → draft the value chain (the LLM seam) → ratify the
-names + facts → promote → the back half ingests insider + price → it WARMS/ARMS → the daily cron logs the
-call-of-record.** *(Freshness caveat: "feeds itself" was literally true only after #196 — the EDGAR cache
-froze insider data for ~11 days until the key-classed 12h TTL; see `docs/archive/POSTMORTEM_CRON_FREEZE_2026-07.md`.)*
-
-Built: the domain spine + the bitemporal Postgres foundation; the SEC brick + the detectors + the
-golden-tested call-assembler (`GET /theses/{id}/call?asof=` → computed, evidence-linked Armed calls); the
-catalyst subsystem + the automated DOE feed; the M5 per-member menu + theme arming; Phase 1 (the replay
-harness + recalibration + the production-tenant cut); the Board + Cockpit UI; and the **Workbench** — scoring
-(the four meters), authoring, the extract → ratify hybrid, the SEC-universe broadener, the two LLM seams
-(FLAG-explanation + the narrative → chain drafter), and the create-thesis front door. The **M2 feed loop** —
-the per-thesis back-half ingest + the daily call-of-record cron + the price-source seam + the scheduling
-sidecar — makes it feed itself. On top, the **front half is now framed as stages** (the Workbench = three of
-them): **SURFACE** (recommended-until-confirmed facts + identity enrichment + the derived business type +
-the grounded purity estimate) and **TRIAGE** (basket crafting — include-controls, sort/filter, the conviction
-weight) shipped, plus EDGAR-first **DISCOVER** and the off-thesis flag — see [`docs/STAGE_MODEL.md`](docs/STAGE_MODEL.md).
-Sequencing: [`docs/ROADMAP.md`](docs/ROADMAP.md); how it feeds itself:
-[`docs/FEED_LOOP.md`](docs/FEED_LOOP.md). Build/run/test commands: [`CLAUDE.md`](CLAUDE.md).
-
-**Trust state (kept honest):** the calls are tuned **in-sample** (n=19; see `docs/ROADMAP.md`'s trust box).
-"The platform feeds itself daily" is the **data loop — not forward validation.** The **Scoreboard v1**
-(the forward trust loop's instrument: the platform's calls vs the operator's decisions, scored over the
-call-of-record) is **built** — forward evidence now accrues with the record itself. The setup-strength value
-remains experimental until those outcomes support calibration; the UI hides early aggregates below `n=5`
-only to discourage over-reading, and crossing that gate does not establish evidence. The follow-blindly
-counterfactual + deltas are v2.
+The nightly record has accrued since 2026-07-10. No dial has been fitted to outcomes, and setup strength is
+experimental. The full trust state, open work and known defects: [ROADMAP](docs/ROADMAP.md).

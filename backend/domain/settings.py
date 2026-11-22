@@ -1,10 +1,10 @@
 """The typed home for operational, env-overridable configuration.
 
 This is the env-mutable sibling of ``CallConfig`` (``domain/config.py``), kept in a SEPARATE file on purpose:
-``CallConfig`` holds the trust-validated (n=19) call-engine dials that must NEVER be silently env-overridden
-(an env override of a validated threshold would change the calls); ``Settings`` holds the operational knobs —
+``CallConfig`` holds the call-engine dials that must NEVER be silently env-overridden
+(an env override of a dial would change the calls); ``Settings`` holds the operational knobs —
 LLM model dials, base URLs, throttle — that an operator SHOULD be able to change with a ``.env`` / environment
-edit, not a code edit. The file boundary IS the "don't env-override a validated threshold" boundary.
+edit, not a code edit. The file boundary IS the "don't env-override a call dial" boundary.
 
 Access rule (LOAD-BEARING — D5 of the refactor plan):
 - ``get_settings()`` is a cached singleton — use it for STABLE config (LLM dials, base URLs, throttle, the
