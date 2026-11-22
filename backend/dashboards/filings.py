@@ -1,4 +1,4 @@
-"""The shared FILING reader (``docs/dashboards/filing-stream.md``): "what did this company file, and what did the
+"""The shared FILING reader (``docs/DASHBOARDS.md`` rule 7): "what did this company file, and what did the
 system store of it", normalized to ONE row shape so every page that shows it reads the same rows. Built with the
 Filing Stream, shared since the Read-Throughs table.
 

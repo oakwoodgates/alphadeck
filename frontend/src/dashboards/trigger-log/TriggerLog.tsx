@@ -61,7 +61,7 @@ import { RecordStartNote } from "../RecordStartNote";
 // first night the record shows it), with its source, the card's state that night beside the night before, whether
 // it is still live, and what the name's tape did since. Display only, and no aggregate: the Track Record page
 // slices outcomes by market-cap tier. Every row and count is computed server-side; this page groups (week, kind,
-// card), filters and words them. The trading set's tape look (docs/dashboards/hot-board.md §Look): dense rows,
+// card), filters and words them. The trading set's tape look (docs/DASHBOARDS.md §Looks): dense rows,
 // mono figures, one accent, the sign tone only on the signed since-values.
 
 const SLOW = "Reading the recorded calls — the first load after a run or a basket edit can take a moment.";
