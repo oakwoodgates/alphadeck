@@ -15,7 +15,7 @@ Checks and severities:
 
 - ``links`` (fail): every relative link resolves to a file or folder in the walk; every ``#anchor``
   matches a heading slug in the target (GitHub slug rules) or an HTML id.
-- ``pointers`` (fail; report-only under ``backend/db/migrations/`` and ``docs/archive/``): every
+- ``pointers`` (fail; report-only under ``REPORT_ONLY_PREFIXES``): every
   ``docs/<path>.md`` named in a code file or in a doc's text exists (a bare upper-case ``<NAME>.md``
   means ``docs/<NAME>.md``); a cited heading (section sign, ``("Heading")`` or a quoted name after the
   path) matches a heading in the target by case-insensitive prefix, slug or leading number; a
@@ -31,14 +31,19 @@ Checks and severities:
   description is at most 60 words.
 - ``archive`` (fail): no doc outside ``docs/archive/`` links into it.
 
-The baseline (``scripts/check_docs_baseline.json``) holds today's findings, keyed on (file, check, key)
-with a count; keys never carry line numbers, so an unrelated edit does not make an old finding new.
+No baseline ships with the repo: every finding counts, and any fail finding exits 1.
 
-    python scripts/check_docs.py                   # exit 1 only on a fail finding not in the baseline
-    python scripts/check_docs.py --all             # print every finding, baselined or not
-    python scripts/check_docs.py --write-baseline  # record the current findings as the baseline
+    python scripts/check_docs.py                  # print every finding; exit 1 on a fail finding
 
-Exit codes: 0 no new fail finding; 1 at least one; 2 a bad argument or an unreadable baseline.
+An opt-in baseline (a throwaway file named with ``--baseline``, never committed) tolerates known findings while
+a large edit is in flight. It is keyed on (file, check, key) with a count, and keys never carry line numbers.
+A missing baseline file means an empty one.
+
+    python scripts/check_docs.py --baseline FILE --write-baseline   # record the current findings
+    python scripts/check_docs.py --baseline FILE                    # exit 1 only on a fail finding not in FILE
+    python scripts/check_docs.py --baseline FILE --all              # print the tolerated findings too
+
+Exit codes: 0 no fail finding (beyond the baseline); 1 at least one; 2 a bad argument or an unreadable baseline.
 """
 
 from __future__ import annotations
@@ -57,21 +62,13 @@ from urllib.parse import unquote
 
 CHECKS = ("links", "pointers", "banned", "budgets", "parity", "frontmatter", "archive")
 SEVERITIES = ("fail", "warn", "report")
-DEFAULT_BASELINE = "scripts/check_docs_baseline.json"
 
 # --- the walk ------------------------------------------------------------------------------------------
 
 ALWAYS_SKIP_NAMES = frozenset({".git", "node_modules", ".venv", "venv", "__pycache__"})
 ALWAYS_SKIP_PATHS = frozenset({"docs/temp", ".claude/worktrees"})
-# The checker, its baseline and its tests quote the patterns they look for; scanning them would report
-# their own examples, and the baseline would report itself.
-SELF_FILES = frozenset(
-    {
-        "scripts/check_docs.py",
-        "scripts/check_docs_baseline.json",
-        "backend/tests/ops/test_check_docs.py",
-    }
-)
+# The checker and its tests quote the patterns they look for; scanning them would report their own examples.
+SELF_FILES = frozenset({"scripts/check_docs.py", "backend/tests/ops/test_check_docs.py"})
 MAX_SCAN_BYTES = 8_000_000
 
 # --- doc types and budgets -----------------------------------------------------------------------------
@@ -103,7 +100,16 @@ DASHBOARD_HEADINGS = (
     "Known limits",
 )
 DASHBOARD_RULES = range(1, 10)
-REPORT_ONLY_PREFIXES = ("backend/db/migrations/", "docs/archive/")
+# A missing-doc pointer under these paths is reported, never failed. Applied migrations are never edited and
+# the archive is a record. The split-evidence file is the one accepted exception in live code: the repair tool
+# hashes its bytes into each repair's provenance record (``spot_file_sha256`` in
+# ``pipeline/repair_split_basis.py``), so its ``_provenance`` text stays as the evidence was written, scratch
+# paths included.
+REPORT_ONLY_PREFIXES = (
+    "backend/db/migrations/",
+    "docs/archive/",
+    "backend/pipeline/split_evidence/polygon_raw_2026-10.json",
+)
 BARE_NAMES_NOT_DOCS = frozenset(
     {"README", "CLAUDE", "SKILL", "AGENTS", "CHANGELOG", "LICENSE", "CONTRIBUTING"}
 )
@@ -1061,7 +1067,7 @@ def check_parity(repo: Repo) -> list[Finding]:
 
 
 def run_checks(root: Path, skip: frozenset[str] = frozenset()) -> list[Finding]:
-    """Every finding under ``root``; ``skip`` names extra files to leave out (the baseline in use)."""
+    """Every finding under ``root``; ``skip`` names extra files to leave out (an opt-in baseline file)."""
     repo = Repo(Path(root), walk_files(Path(root)))
     findings: list[Finding] = []
     descriptions: list[str] = []
@@ -1155,13 +1161,17 @@ def split_new(
     return new, sum(remaining.values())
 
 
-def summary(findings: list[Finding], new: list[Finding], stale: int | None) -> str:
+def summary(findings: list[Finding], new: list[Finding] | None, stale: int | None) -> str:
+    """One line of counts. ``new`` is None when no baseline is in use (every finding counts)."""
     sev = Counter(f.severity for f in findings)
-    new_sev = Counter(f.severity for f in new)
-    parts = [
+    head = (
         f"check_docs: {len(findings)} findings (fail {sev['fail']}, warn {sev['warn']}, "
-        f"report {sev['report']}); not in baseline: {len(new)} (fail {new_sev['fail']})"
-    ]
+        f"report {sev['report']})"
+    )
+    if new is not None:
+        new_sev = Counter(f.severity for f in new)
+        head += f"; not in baseline: {len(new)} (fail {new_sev['fail']})"
+    parts = [head]
     for check in CHECKS:
         per = Counter(f.severity for f in findings if f.check == check)
         total = sum(per.values())
@@ -1175,46 +1185,61 @@ def summary(findings: list[Finding], new: list[Finding], stale: int | None) -> s
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Check the repo's Markdown against DOCS_STANDARD.")
     parser.add_argument("--root", help="repo root (default: the folder above scripts/)")
-    parser.add_argument("--baseline", help=f"baseline file (default: <root>/{DEFAULT_BASELINE})")
-    parser.add_argument("--write-baseline", action="store_true", help="record the current findings")
-    parser.add_argument("--all", action="store_true", help="print every finding, baselined or not")
+    parser.add_argument(
+        "--baseline",
+        help="opt-in file of known findings to tolerate (none ships with the repo; a missing file is empty)",
+    )
+    parser.add_argument(
+        "--write-baseline",
+        action="store_true",
+        help="record the current findings in --baseline FILE",
+    )
+    parser.add_argument(
+        "--all", action="store_true", help="with --baseline, print the tolerated findings too"
+    )
     args = parser.parse_args(argv)
+    if args.write_baseline and not args.baseline:
+        parser.error("--write-baseline needs --baseline FILE")
 
     reconfigure = getattr(sys.stdout, "reconfigure", None)
     if reconfigure is not None:
         reconfigure(errors="backslashreplace")
 
     root = Path(args.root).resolve() if args.root else Path(__file__).resolve().parents[1]
-    baseline_path = Path(args.baseline).resolve() if args.baseline else root / DEFAULT_BASELINE
-    try:
-        skip = frozenset({baseline_path.relative_to(root).as_posix()})
-    except ValueError:
-        skip = frozenset()
+    baseline_path = Path(args.baseline).resolve() if args.baseline else None
+    skip: frozenset[str] = frozenset()
+    if baseline_path is not None:
+        try:
+            skip = frozenset({baseline_path.relative_to(root).as_posix()})
+        except ValueError:
+            pass
     findings = run_checks(root, skip)
 
     if args.write_baseline:
+        # parser.error above refuses --write-baseline without --baseline
+        assert baseline_path is not None
         rows = write_baseline(baseline_path, findings)
         print(summary(findings, [], None))
         print(f"OK: wrote {rows} baseline entries ({len(findings)} findings) to {baseline_path}")
         return 0
 
-    try:
-        baseline = load_baseline(baseline_path)
-    except (OSError, ValueError, KeyError, TypeError) as exc:
-        print(f"ERROR: cannot read the baseline {baseline_path}: {exc}")
-        return 2
+    baseline: Counter[tuple[str, str, str]] = Counter()
+    if baseline_path is not None:
+        try:
+            baseline = load_baseline(baseline_path)
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            print(f"ERROR: cannot read the baseline {baseline_path}: {exc}")
+            return 2
     new, stale = split_new(findings, baseline)
     for finding in findings if args.all else new:
         print(finding.render())
-    print(summary(findings, new, stale))
+    print(summary(findings, new if baseline_path is not None else None, stale))
     new_fails = [f for f in new if f.severity == "fail"]
+    where = " outside the baseline" if baseline_path is not None else ""
     if new_fails:
-        print(
-            f"FAIL: {len(new_fails)} fail findings are not in the baseline. Fix them; a forward link to a "
-            "doc that a later change adds may go in the baseline (--write-baseline), named in the PR."
-        )
+        print(f"FAIL: {len(new_fails)} fail findings{where}. Fix them (docs/DOCS_STANDARD.md).")
         return 1
-    print("OK: no fail finding outside the baseline")
+    print(f"OK: no fail finding{where}")
     return 0
 
 

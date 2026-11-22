@@ -19,8 +19,8 @@ time is a 20-F or 40-F takes the annual path.
 
 The fixtures in ``tests/fixtures/edgar/burn_period/`` are RECONSTRUCTED, not copied: the fork's EDGAR cache was not
 readable for this work. Each holds only the nodes the reader uses, with the values the audit files record
-(``docs/temp/v2-extractor-audits-2026-11-15/quarterly-cash-FINDINGS.md`` and ``quarterly-cash-verdicts.txt``, and the
-build plan's findings 3 and 4). Every row is marked ``"accn": "reconstructed"``. Recorded: QXL's cash 2,435,000,
+(the 2026-11-15 quarterly-cash audit's findings and verdicts, and the build plan's findings 3 and 4; none of these
+notes is kept in the repo). Every row is marked ``"accn": "reconstructed"``. Recorded: QXL's cash 2,435,000,
 continuing-ops six months -1,666,000 and quarter -1,062,000, and the stored stale burn 1,715,000 (Jul-Sep 2025);
 EHC's continuing-ops nine months 957.7m and the stored burn's Apr-Jun 2023 span; T's continuing-ops nine months
 28,915m and the stored burn's Q4 2025 span; URI's nine months 4,934m and first quarter 1,514m; EUDA's cited 10-Q

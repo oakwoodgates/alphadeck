@@ -11,7 +11,7 @@ year-to-date pace ride the extracted fact and its stored note (``domain/burn_pac
 
 The fixtures in ``tests/fixtures/edgar/burn_pace/`` are RECONSTRUCTED, not copied: the fork's EDGAR cache was not
 readable for this work. Each holds only the nodes the reader uses, with the values the audit files record
-(``docs/temp/v2-extractor-audits-2026-11-15/quarterly-cash-FINDINGS.md``): UP's cash 51,811,000, nine months
+(the 2026-11-15 quarterly-cash audit's findings, a working note not kept in the repo): UP's cash 51,811,000, nine months
 -208,345,000 and six months -191,260,000; RCEL's cash 10,500,000, nine months -14,278,000 and six months -13,568,000;
 RXRX's cash 549,853,000, nine months -264,454,000 and six months -187,048,000; AAL's cash 1,124m and short-term
 investments 7,163m, nine months generating 4,541m and a third quarter burning 153m. Synthetic, marked

@@ -24,7 +24,7 @@ description: >-
 
 ## Steps
 
-1. Provision this checkout's venv (`bash scripts/ensure-venv.sh` from the root); run the commands below
+1. Provision the venv (`bash scripts/ensure-venv.sh` from the root); run the commands below
    from `backend/` with its `python`. Export `DATABASE_URL` naming the dev database (port 5545) from your
    env file without printing it, and `ALPHADECK_IMAGE_SHA="$(git rev-parse HEAD)"`.
 2. Runs land in this checkout's `data/backtest`; `--out-root` naming the main checkout's puts them on
@@ -34,22 +34,22 @@ description: >-
    `--config <overlay.json> --hypothesis "<text>" --decision-rule "<text>"` for an overlay.
 5. A pass: `python -u -m backtest.sweep --start <date> --end <date> --pin <ISO> --clock public
    --ladder <dial>=<v1>,<v2> --hypothesis "<text>" --decision-rule "<text>"`, with `--overlay-ladder`,
-   `--null-draws`, `--workers`, `--concurrency`, `--plateau-rule` as registered. Record the pass id.
+   `--null-draws`, `--workers`, `--concurrency`, `--plateau-rule` as registered.
 6. Same tape, new pass: add `--mirror-dir <mirror>` and drop `--clock` (inherited). On `MirrorExists`,
    reuse the tape this way or pick another pin or window.
-7. A window job died: rerun the same command with `--resume <pass_id>`, the same windows and clock. Name
-   the dead pass id in the write-up; its finished runs already count as trials.
-8. Re-read: `python -m backtest.pair --pass-id <id> --dial <dial> --values <a>,<b>` (timing versus
-   composition); `python -m backtest.rebench --pass-id <id> --no-db` (both excess figures).
+7. A window job died: rerun the same command with `--resume <pass_id>` (same windows and clock). Name
+   the dead pass id in the write-up; its finished runs count as trials.
+8. Re-read: `python -m backtest.pair --pass-id <id> --dial <dial> --values <a>,<b>`;
+   `python -m backtest.rebench --pass-id <id> --no-db`.
 9. One family against its own nulls: `python -m backtest.slice_nulls --pass-id <id> --slice
    key1_source=<value>` (two keys comma-separated; `pooled.SLICE_KEYS` only). `--config-hash` picks the
    point (default: today's production config).
 
 ## Checks
 
-- Numbers, never verdicts: not "X works" or "X doesn't work"; describe what happened.
-- Each figure states its horizon, comparison (a null, the basket, an index), n and how often it held.
-  Headline: the median excess over the basket, the mean beside it.
+- Numbers, never verdicts ("X works"): describe what happened.
+- Each figure states its horizon, comparison, n and how often it held. Headline: median excess over the
+  basket, mean beside it.
 - Quote the pass id, clock, pin, windows, K, config and mirror hashes, plateau rule and trial count; the
   plateau band (empty or not), the agreement field it used and `n_unmeasurable`.
 - On windows near 30 sessions, carry: "a `vs_timing` close to `actual` on a window of about 30 sessions
@@ -62,8 +62,8 @@ description: >-
   slice n is composition, not timing.
 - Slice nulls: keep `vs_name` (selection) and `vs_timing` (timing) apart; give the effective n and each
   null's "beat X of M"; on a SHORT WINDOW flag, lean on the name null.
-- Event-outcome reports follow the market-cap rule in `CLAUDE.md`: tiered table first, the pooled table
-  below it labeled pooled, tiers with n < 10 too small to read, the liquidity cut labeled.
+- Event-outcome reports follow the market-cap rule in `CLAUDE.md`: tiered table first, pooled below it
+  and labeled, tiers with n < 10 too small to read, the liquidity cut labeled.
 - A re-read after a correction quotes the correction and the tape's growth separately; it is no new trial.
 
 ## Stop and ask when

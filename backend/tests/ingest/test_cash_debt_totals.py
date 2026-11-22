@@ -20,8 +20,8 @@ EHC's, NHC's and TPC's securities are restricted), and a steward's approve store
 offer is the conservative one: cash and equivalents (plus any suffixed parts), a FLAG
 (``investments-unreconciled``), and the note asks the steward to add the eligible part from the balance sheet.
 
-``GKOS.json`` and ``CRUS.json`` in ``tests/fixtures/edgar/cash_composition/`` are RECONSTRUCTED from the re-audit
-(``docs/temp/v2-extractor-audits-2026-11-15/reaudit-quarterly-cash-2026-11-16.md``): GKOS's cash, its two
+``GKOS.json`` and ``CRUS.json`` in ``tests/fixtures/edgar/cash_composition/`` are RECONSTRUCTED from the 2026-11-16 re-audit
+of the quarterly cash candidates (a working note, not kept in the repo): GKOS's cash, its two
 ``AvailableForSaleSecuritiesDebtSecurities`` values (2026-06-30 171,741,000 and 2026-09-30 174,372,000) and its
 operating cash flow (40,867,000 less 2,297,000) are the re-audit's; CRUS's 324,387,000 is the re-audit's, and its
 stored 752,047,000 is put on the cash tag alone because the real cash/short-term split was not recorded. What is
@@ -30,7 +30,7 @@ CRUS's balance-sheet date and operating cash flow. Fed through the old reader ea
 (GKOS 162,327,000; CRUS 752,047,000). The rule of the second re-audit offered GKOS 336,699,000.
 
 ``NVDA.json`` is RECONSTRUCTED from the third re-audit
-(``docs/temp/v2-extractor-audits-2026-11-15/reaudit3-quarterly-cash-2026-11-16.md``): cash and equivalents
+(2026-11-16; a working note, not kept in the repo): cash and equivalents
 22,443,000,000 and the 46,900,000,000 debt total on the balance sheet of the cited 10-Q (nvda-20260726) are the
 re-audit's; the total's tag name (the re-audit says only "debt-total tag"), the operating cash flow, accession,
 filed date and fiscal label are synthetic (``"accn": "reconstructed"``). The second re-audit's rule offered
