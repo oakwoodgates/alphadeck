@@ -1,375 +1,62 @@
 # Track Record by Cap Tier
 
-> Slug `track-record` · status `experimental` · follows the **as-of dial** (`asofAware: true`) · menu `order: 230`.
-> The operator approved the TRADING set and this page in it (2026-10-29: "write the plans"); the choices the build
-> makes that this plan does not spell out go under "Choices to confirm" for the operator's review. The rules every
-> dashboard follows: `docs/DASHBOARDS.md`; rule 6 (event-outcome views slice by the fixed market-cap bands) is this
-> page's whole reason to exist. The fifth page of the TRADING set.
+`track-record` · follows the as-of dial · rules: [DASHBOARDS](../DASHBOARDS.md)
 
-**Label:** Track Record. **Description:** "What happened after each Armed call, by market-cap tier at the event:
-fixed horizons, against SPY and IWM, with n and the hit rate in every cell."
+## What it shows
 
-It answers the trader's question the Scoreboard does not: "after the platform armed a name, what did the tape do
-over the next week, month, quarter, for names of THIS size?" The Scoreboard (`scoreboard/`) scores each arm
-episode over ONE horizon (its own `exit_by`), with no benchmark, no fixed horizon and no size slice. The operator's
-rule (`CLAUDE.md`, "Event-outcome reports are sliced by MARKET-CAP TIER; a pooled number never stands alone") is
-that different things happen to different companies at different market caps. This page is the tiered reading of
-the Scoreboard's own episodes: every number states its horizon, its comparison, its n and how often it held, per
-tier. Display only: it never feeds a call, never writes, never calls the LLM, and it never says a signal "works".
+What the tape did after each arm episode the Scoreboard records, by market-cap tier at the event: per cell the
+horizon, comparison (IWM, SPY or raw), n and how often it held. It implements rule 6: what happened, never that a
+signal works.
 
-## The events: the Scoreboard's arm episodes, unchanged
+## Who counts
 
-- **An event** is an arm episode exactly as the Scoreboard derives it (`replay/episodes.py::derive_episodes` over the
-  honest timeline `scoreboard/record.py::thesis_timeline`): the first night a member appears in a card's
-  `armed_members`, keyed (thesis, security, `arm_date`); a re-arm is a new episode. The page imports ONLY what
-  `app/routers/scoreboard.py` already imports (the lean prod image has no `duckdb`; the Scoreboard route proves
-  these modules load without it).
-- **Honesty filters are the Scoreboard's**, with the same query parameter: `include_late`
-  (default from `scoreboard_exclude_late`), `edition` (**omitted = the
-  Scoreboard's own default**: the newest published edition, the record when none is published, and the optional
-  `scoreboard_default_edition` override honored; 0 = the calls log; N = a stored edition). Reconstructed nights are never events. The Scoreboard's eligibility rule
-  holds too: a `censored_start` episode (armed on the card's first recorded night) and an `ingest_flagged` one are
-  counted on the work line and left out of every cell.
-- **The as-of caps everything** (invariant #1): an episode with `arm_date` after the as-of is not an event; a
-  horizon that has not matured by the as-of is not counted (its episode shows as "maturing"); every bar read is on
-  or before the as-of through the request's one `serve_view(asof)` pair.
-- **Episode facts carried onto each row:** `is_headline`, `key1_source`, `entry_grade`, `confirmation_grade`,
-  `co_arm_bucket`, `exit_by`, `arm_until`, `close_reason` (the Scoreboard's `Episode` fields) for the filter chips.
+- Episodes are the Scoreboard's, unchanged (`derive_episodes`): the first night a member is in `armed_members`, keyed
+  (card, name, `arm_date`). Archived cards count; reconstructed nights and episodes armed after the as-of do not.
+- Left out of every cell and counted: `censored_start`, `ingest_flagged`, a flagged price history, a stopped feed on
+  a company still trading. A company that ended (`tape_health.classify_stop` holds a `closed_at` by the as-of) with a
+  stopped feed as its only flag is counted; horizons past its last bar read path ended.
+- `edition` omitted is the Scoreboard's default (`_resolve_edition`, [SCOREBOARD](../SCOREBOARD.md)): the newest
+  published edition, the record when none is published, `scoreboard_default_edition` honored. `newest_edition` in
+  the reply is `editions_repo.newest`, not that pick: the selector offers "newest published".
 
-## The measurement (per episode)
+## Data and code
 
-- **Entry** (default) = the **next session's close**: the first close strictly after `arm_date`, the first session
-  the operator could have acted on a call recorded at 22:30 ET (operator decision 2026-10-30). The toggle's other
-  choice, **"Entry: arm night"**, is the Scoreboard's own entry close: the first close on or after `arm_date`
-  (`first_close_on_or_after`), so the "to exit_by" column on that entry reconciles with the Scoreboard's
-  `forward_return` to the cent. The page says which is on.
-- **Horizons, in SESSIONS of the security's own bars, not calendar days:** 5, 10, 20, 60 sessions after the entry
-  bar, plus **"to exit_by"** (the Scoreboard's horizon: the last bar on or before `exit_by`). A horizon's close is
-  the as-traded close of the Nth bar after the entry bar; if the security's bars end before the Nth bar (a
-  delisting, a halt, a stale tape), that horizon reads "path ended" and is not counted (listed on the work line).
-  A name on the flagged-price list (`baskets.price_flags`, rule 5) is left out of every cell and counted, except a company that ended with a stopped feed as its only flag (see "Which episodes").
-- **Return** = horizon close / entry close − 1, as traded (no dividends).
-- **Comparison** = the same span on **IWM** (the default: most armed names are small) and on **SPY**, each
-  benchmark's close on the entry bar's date and the horizon bar's date (`securities/benchmarks.py`, the Relative
-  Strength member's reference rows). **Excess** = the name's return minus the benchmark's. A selector switches the
-  table between IWM, SPY and "raw" (no comparison; the column header says so).
-- **Market cap AT THE EVENT** (`CLAUDE.md`'s formula; `docs/BACKTEST.md` §"Sliced by market cap"): the as-traded
-  close of the session BEFORE `arm_date` × the share count PUBLIC before `arm_date`, both on the same split basis
-  (`domain/splits.py::scale_after` from the count's own date through the close's date), divided by the ADS ratio
-  when known. It reuses the shared pure `cap_cell(CompanyReads(...))` (`dashboards/market_cap.py`, the Peer Table's
-  rule) with the inputs chosen at the event instead of at the as-of, so the pages cannot disagree on the arithmetic.
-  The tier is `domain/market_cap.py::cap_tier`. Every cap is labeled approximate.
-- **Which share count** (`dashboards/market_cap.py::shares_at_event`; operator sign-off 2026-11-04, "build as
-  planned"):
-  1. **The Workbench count** (`pit.shares_outstanding_facts(sid)`): the newest by cover date (`valid_from`) dated
-     before `arm_date` AND public before it (F9: its filing's acceptance, else its ratification, on a night before
-     the arm date). Source `workbench`.
-  2. **Else the filing cover's count** the nightly already stores (`pit.fundamentals_facts(sid)`, `metric_key =
-     'shares_out_cover_xbrl'`), by the Market Map's rule (`cover_shares`, moved beside `cap_cell` unchanged, so the
-     two pages cannot drift apart) judged AT THE EVENT: only the cover rows public before `arm_date` (a row's
-     acceptance, else 06:00 ET on its filing date: `db/public_clock.py`'s rule for `fact_fundamentals`, on a night
-     before the arm date); the company must be a 10-Q filer among those rows; the newest row must be filed within
-     200 days of the event (never of today) and hold at least 10,000 shares. Its date is the cover's own, so the split
-     list scales it from the day it was true. Source `cover` (not a shared value).
-  3. **Else none:** the cap is **unpinned**. No balance-sheet count is read (the operator kept the rule unchanged).
-- **Unpinned** (counted in the "unpinned" row, never dropped, never guessed): `no_price` (no close before the event),
-  `no_shares` (no share count public before it), `ads_unread` (an unread ADS ratio on a Workbench count; the cover
-  never replaces it), `no_cap` (a count or close that is not positive). A `no_shares` cap whose filing-cover count
-  was refused carries the reason in `note`, in the Market Map's own words: "the filing cover's count is from
-  YYYY-MM-DD, too old to stand in", "the filing cover's count (N) is not a share count", or, when every cover row
-  public before the event is a 10-K's, "the filing cover's count is not used: not a 10-Q filer" (the Market Map is
-  silent there).
-- **Liquidity at the event:** the mean close × volume over the 20 sessions before `arm_date` (the Volume Regime
-  member's arithmetic, `signals/display/volume_regime.py`, applied at the event date), in three bands (PROPOSED):
-  under $1M · $1M to $10M · $10M and over; "unpinned" when fewer than 20 volume-bearing bars precede the event.
+| Piece | Where |
+|---|---|
+| Compute | `backend/dashboards/track_record.py` |
+| Route | `GET /dashboards/track-record` (`edition`, `include_late`) |
+| Shared readers | `market_cap`, `baskets` price flags, `scoreboard_records` |
+| Cache key | `(edition number, not exclude_late, clock)`; the warm-up names no edition |
+| Frontend | `frontend/src/dashboards/track-record/` |
+| Tests | `backend/tests/dashboards/test_track_record.py`, frontend `__tests__/` |
 
-## The table
+It reads the caller's workspace and imports only what the Scoreboard route imports (the lean prod image has no
+`duckdb`).
 
-Rows = the five tiers in size order (nano · micro · small · mid · large), then **unpinned**, then **all tiers
-(pooled)** LAST and labeled pooled, never first, never bold. Columns = the five horizons. A cell holds, for the
-episodes of that tier matured at that horizon: **n**, the **median excess** (or median raw return under "raw"),
-the **hit rate** (the share with excess > 0; raw return > 0 under "raw"), and the interquartile range on hover.
-A cell with **n < 10 prints only its n and "too small to read"**; a toggle "show thin cells" draws its numbers
-grayed. A cell with n = 0 is blank with "no matured episodes". Every cell's hover states the horizon in sessions,
-the comparison, n, the hit rate and the medians of the name's and the benchmark's raw returns, so the four things
-the rule demands are never apart.
+## As-of behavior
 
-**Slice selector:** by cap tier (default) or by liquidity band (the same table, rows swapped). **Filter chips**
-(each narrows every cell and restates n): headline names only / every armed member; `key1_source` (insider ·
-activist · ratified catalyst · corporate catalyst · revenue acceleration · theme); `entry_grade` (flip · core);
-`co_arm_bucket`. Chips never cross-tabulate: one table, one slice dimension, the rest filters, so thin data stays
-readable.
+Bars, share counts and flags read on the public clock (`serve_view`). A horizon not matured by the as-of is not
+counted.
 
-## The episode list (below the table)
+## Rules not visible in code
 
-One row per counted episode: ticker (opens the Cockpit on the name, `onSelectThesis(thesisId, ticker)`), card
-chip, `arm_date`, tier and approximate cap (hover: close date, share count date and its source in the Market Map's
-words, "shared share count" or "share count from the filing cover (not a shared value)", ADS ratio,
-split factor; an unpinned cap's hover says why, with the refused cover count's reason when there is one), the
-liquidity band, `key1_source`, grade, then the five horizons' excess (or "maturing" / "path ended"), sorted by
-`arm_date` newest first. Clicking a table cell filters the list to that cell's episodes. The unpinned episodes
-and the left-out ones (flagged, censored start, ingest flagged) have their own folded sections, each counted.
+- Entry is the next session's close, not a fill (`entry_index`). Why: a night's call is first actionable next session. The
+  arm-night toggle is the Scoreboard's entry, so `exit_by` reconciles with its `forward_return`.
+- Horizons are `SESSION_HORIZONS` bars of the name's own tape, plus the last bar on or before `exit_by`; as traded,
+  no dividends. Excess is the return minus the benchmark's over the same two dates, never a nearby bar. A hit is
+  strictly above zero.
+- A missing bar reads path ended only when the market has had that many sessions and the tape stops over
+  `stale_days` behind; else maturing.
+- Cap at the event: the as-traded close before `arm_date` times the share count public before it, on one split
+  basis (`cap_cell`; bands in `domain/market_cap.py`). The count is the Workbench's, else the filing cover's
+  (`shares_at_event`: 10-Q filers, within `COVER_MAX_AGE_DAYS`, over `COVER_MIN_SHARES`), else unpinned: counted,
+  never guessed. Why: a later filing is lookahead.
+- Liquidity: 20-session mean close times volume before `arm_date` (`LIQUIDITY_BANDS`); under 20 bars is unpinned.
+- Rows: five tiers, unpinned, then pooled last (all counted, so rows add up). A cell under `MIN_N` prints n only.
+- `cell_stats` and its mirror in `recordView.ts` run the same vectors. Why: the page re-tables with no request.
 
-## Loudness
+## Known limits
 
-The trading set's **tape look** (dense rows about 26 px, tabular numerals in the mono font, a sticky header, no
-cards or chrome): the sign tone (the app's positive and negative mixed into gray, the Rotation Quadrant's recipe)
-only on signed excess values; nothing bolded, no badges. The pooled row is visually the quietest row. No sentence
-on the page judges a result: the wording is "median excess vs IWM over 20 sessions, n = 14, held 9 of 14".
-
-## The quiet "show the work" line
-
-The as-of; the clock; the edition and the honesty policies in force; episodes total / matured per horizon /
-maturing; which share count the caps rest on, once any rests on a filing cover's ("caps at the event: N on a shared
-share count · N on a share count from the filing cover (not a shared value)", from
-`counts.cap_from_cover`); unpinned caps; names left out for a flagged price history, a stopped feed on a live card, or no longer priced (each counted apart, opens to the tickers), episodes counted although the company ended, censored starts, ingest
-flagged, paths ended; the entry rule in force; the comparison in force; the cache state and `compute_ms`. Below it,
-fixed: "the entry is a close, not a fill" (the default is the next session's close); "cap is approximate and measured
-the session before the arm date" (with the share count public before it: the Workbench's, else the filing cover's);
-"horizons are sessions of the name's own bars"; "as-traded closes, no dividends";
-"a cell under 10 episodes is too small to read".
-
-## Cache
-
-`dashboards.cache.cached(conn, "track-record", (edition, include_late, clock), asof, ...)` holds
-every episode's row with all five horizons, both benchmarks' spans, the raw return, the cap and the liquidity
-figure. Tiering, slicing, filtering and the entry toggle derive from that one read (the toggle needs both entry
-closes, so the row carries both and both sets of horizon returns). The cache clears on
-a new run or a basket edit (rule 7).
-
-## Backend and frontend
-
-- `backend/dashboards/track_record.py`, pure: `horizon_closes(bars, entry_index, sessions)`, the excess and hit
-  arithmetic, `event_cap(...)` (chooses the inputs at the event through `market_cap.shares_at_event` and calls
-  `cap_cell`; returns an `EventCap`, the cell plus its `source`), `event_adv(...)`, the tier and liquidity bucketing,
-  the cell statistics with the n < 10 rule, the counts.
-- `backend/dashboards/market_cap.py`, pure and shared: `cap_cell`, the share-count rule (`cover_shares`,
-  `pick_shares`, the Market Map's) and `shares_at_event` (the same rule judged at an event's date, Track Record's).
-- `backend/app/routers/dashboards/track_record.py`: `GET /dashboards/track-record?asof=&edition=&include_late=` (every episode row + the counts; the client builds the table). `known_at, clock = serve_view(asof)`
-  threads into the Scoreboard read, every `PointInTimeData` and the benchmark read. Wire models in the module (rule 8).
-- `backend/tests/dashboards/test_track_record.py`: horizons count SESSIONS (a weekend and a holiday gap do not shift
-  the Nth bar); a path that ends before the Nth bar reads "path ended" and is not counted; excess against a benchmark
-  on hand-built bars; median, hit rate and the n < 10 rule; the cap at the event uses the close BEFORE the arm date
-  and the share count public BEFORE it (a share fact filed after the arm date is never used); the filing cover's
-  count by the Market Map's rule at the event (an acceptance on the arm date, one before 06:00 ET, none at all; 200
-  and 201 days; a 10-K-only filer; a placeholder; a Workbench count public before the event wins, one public only
-  after it falls through; a split between the cover count's date and the close); an unread ADS ratio lands in
-  "unpinned"; real filing-cover counts read through the router (DB); the liquidity bands; the entry toggle (the two entry closes on one row); and, DB-backed, **an
-  episode armed after the as-of is not an event** and **a horizon not matured by the as-of is not counted** (the same
-  episode at two as-ofs), plus a flagged price history left out and counted; the router off one cached read.
-- `frontend/src/dashboards/track-record/`: `entry.ts` (slug `track-record`, order 230, `asofAware: true`),
-  `TrackRecord.tsx` (the table, the selectors and chips, the list; a pure `recordView.ts` for the cell statistics
-  and the filtering), `useTrackRecord.ts`, `track-record.css`, tests.
-- **Layout:** the tape look; the table first, the work line above it, the list below; on a phone the table
-  scrolls sideways and the list stacks its horizons under each row.
-
-## Known limits (stated on the page too)
-
-- **The record is young.** Most cards are weeks old; the 60-session and exit_by columns are mostly maturing. The
-  page shows that as n and "maturing", never as a result.
-- **The entry is a close, not a fill.** The default is the next session's close, the first one after the arm night,
-  which a call recorded at 22:30 ET could be acted on at; the "arm night" toggle shows the Scoreboard's own entry (the
-  arm night's close), which no one could have taken but which reconciles with its `forward_return`. Stated on the
-  page as a fixed note and in the "Entry:" work line.
-- **Cap and liquidity are approximate** and measured the session before the arm date. A cap from the filing cover's
-  count is not ratified (the hover says so), and a restated cover count is seen only from its restatement: never
-  early, occasionally missing.
-- **As-traded closes, no dividends.** A delisted name's path ends and is counted as such (a stopped feed of a company that ended counts until it stops, then reads path ended); a stopped feed on a company that still trades is left out and named, never read as ended.
-- **No null comparison here.** The timing null and the name null live in the backtest's pooled report
-  (`backtest/nulls.py`), vs the thesis basket; this page compares to IWM and SPY only.
-
-## Out of scope
-
-Any "works" verdict or score; any cross-tabulation of two slice dimensions; position sizing or instrument choice
-(#4, #5); nulls; options or intraday data; any change to the Scoreboard or the editions; any write.
-
-## Choices to confirm
-
-**Confirmed by the operator, 2026-11-04:** every choice in this section, as built, including the changes marked
-"(operator decision 2026-11-04)". Nothing in it stays open.
-
-The build lists here every choice it made that this plan does not spell out, each the operator's to confirm or
-change. Pre-decided here for the operator's review: the Scoreboard's episodes and honesty filters as the events;
-the record (edition 0) as the default view while the editions nightly was on hold, with a selector to the newest
-published edition (2026-10-29; the hold was lifted at the V2 go-live, so the default is the Scoreboard's again, below); sessions 5 / 10 / 20 / 60 plus exit_by as the horizons; IWM as the default comparison with SPY and raw selectable;
-the next session's close as the default entry with an arm-night toggle (2026-10-30; the first build defaulted to the
-arm night); the three PROPOSED liquidity bands; n < 10
-prints n only; the pooled row last.
-
-### Built choices to confirm
-
-The build (2026-10-29) followed the plan above. These are the choices it had to make that the plan does not spell out,
-each the operator's to confirm or change. Nothing here was measured on a prod copy; the compute and the wire shape are
-pinned by tests on hand-built numbers, and the first real read is the orchestrator's.
-
-**Maturing against path ended (the plan names both and not the line between them).**
-- A horizon's bar is the Nth bar after the entry bar in the name's own bars. When it is not there the span reads
-  **path ended** only if BOTH hold: the market has had that many sessions since the entry, and the name's tape stops
-  more than `stale_days` calendar days behind the market's last bar. Otherwise it reads **maturing**. A name that is
-  current but short (a vendor gap) is maturing, never path ended.
-- "The market" is SPY's bar dates (IWM's when SPY has none), the Narrative Index's session calendar. With no market
-  tape at all nothing can read path ended.
-- `stale_days` is `Settings.tape_stale_days` (the recency monitor's threshold, 5); `0` disables that monitor, so the
-  page keeps 5. The comparison is strict: 5 days behind is not behind, 6 is.
-- No entry bar yet (no bar on or after the arm date): path ended if the tape is behind the market, else maturing
-  (tonight's bar is not in).
-- **to exit_by**: not counted before `exit_by` has arrived (maturing); no `exit_by`, or no bar between the entry and
-  `exit_by` for that entry rule, reads **none** (a fourth status, "nothing to measure"); the tape stopping short of
-  `exit_by` while behind the market is path ended. Otherwise it is the last bar on or before `exit_by`, so it equals
-  the Scoreboard's `forward_return` to the cent (a DB test pins that on the arm-night entry).
-
-**The comparison.**
-- A benchmark's return uses its close on exactly the entry bar's date and the horizon bar's date. A missing benchmark
-  bar leaves that comparison blank for that span, never a nearby stand-in; the cell counts those spans apart
-  ("1 more had no IWM bar") and a raw cell needs no benchmark.
-- A hit is strictly above zero (an excess of exactly 0.00 did not hold). The interquartile range is linear
-  interpolation between order statistics (the median of an even n is the mean of the two middle values).
-
-**The cap at the event.**
-- The share count is the one PUBLIC before the arm date (F9 replaced the first build's "newest `valid_from` before
-  it", which let a count filed after the event in by its earlier cover date). Workbench counts date from mid-2026, so
-  after F9 many past events had none public before them (72 of 240 counted episodes on dev, 2026-10-29); the cap
-  now falls back to the filing cover's count by the Market Map's rule (2026-11-04, "Which share count" above;
-  MEASURED below).
-- The close is the last session before the arm date, put back to the price as traded that day (the bars are on the
-  view's split scale) before the Peer Table's `cap_cell` puts the count on the close's scale. A reverse split after the
-  event does not inflate the cap, and a test pins it.
-- A tier boundary belongs to the higher band (`domain/market_cap.py`'s own rule).
-
-**Liquidity.** The Volume Regime member's `compute` run over the last 20 volume-bearing bars strictly before the arm
-date (a bar with no volume is skipped, not read as zero). A value on a band's bound is in the higher band; a day of zero
-dollars is "under $1M" (a real measurement); under 20 volume-bearing bars is unpinned.
-
-**Which episodes.**
-- Archived cards are included (the Scoreboard's default). The route takes the Scoreboard's `edition`
-  and `include_late` and resolves the edition with the Scoreboard's own function (404 on an
-  unknown one). The page has a selector for the edition only (below); its first work line states the reading in force.
-- An episode left out is counted once, in this order: flagged price history (or a stopped feed, below), censored
-  start, ingest flag. A left-out
-  row carries identity only (nothing is read for it).
-- **A stopped price feed (operator decision 2026-11-04, revised the same day).** A `price_feed_stopped` flag
-  (`baskets.price_flags` reaches every price cell with it) used to leave the episode out, which is a survivorship
-  fix not made. MEASURED on prod the same night: 152 names carried it; 150 were on no live card any more (the roster
-  cleanup stopped the nightly fetching their prices; the companies still trade) and 2 were still on a card with a
-  feed that really stopped. So "stopped" alone does not mean "ended", and the rule is:
-  1. A name whose ONLY price flag is `price_feed_stopped` AND whose company really ENDED is COUNTED: its bars are read
-     up to where they stop, a horizon whose bar exists is measured as usual, a horizon past the stop reads "path
-     ended" (the page's existing rule: the market has had the sessions and the tape is more than `stale_days` behind),
-     and the episode stays in every denominator. "Ended" = the nightly's closed classifier
-     (`tape_health.classify_stop`, carried on the run artifact as the data flags read it) holds a `closed_at` on or
-     before the as-of for THIS stop (an SEC delisting form). Nothing else ends a company: the security master's `status` is a
-     listing-presence heuristic, never a delisting verdict (and NULL on many rows); a company with no nightly reading (off every live card) cannot be told, so it stays "no longer priced".
-     The row is tagged "feed ended" (hover names the flag) and the work line counts it.
-  2. Every other stopped feed stays LEFT OUT, with an honest reason, counted apart: `no longer priced: off every live
-     card since <last bar>` (the company is on no live card; we stopped looking, the path did not end) and
-     `price feed stopped` (still on a card: a data fault).
-  3. Any other price flag, alone or beside a stopped feed, leaves the episode out as ever (`flagged`).
-- Reads use the authenticated caller's workspace through `get_workspace`; shared DATA facts follow the two-scope model (`../AUTH.md`, `../TENANT_SCOPES.md`).
-
-**The table and the page.**
-- The pooled row is every counted episode, unpinned ones included, so the rows add up to it. A left-out episode is in
-  no row. A tier with no episode is still a row (n = 0, "no matured episodes" in its hover).
-- A cell under 10 episodes prints `n 4` and "too small to read"; "show thin cells" draws its numbers grayed with no sign
-  tone. An empty cell is an em dash.
-- Filters default to every armed member. Within one chip group any picked value passes, across groups all must; a
-  group with a single value has no chips (WB#3). A null Key-1 source or entry grade is its own "none stated" chip.
-- A cell click lists exactly the episodes the cell rests on (a counted span at that horizon, and the comparison's
-  return unless raw); changing the slice, comparison, entry or filters clears the pick. The main list holds the
-  counted episodes whose slice row is pinned (the unpinned ones are in their own fold), newest arm first, 150 at a
-  time.
-- Cell statistics are written twice, a Python reference (`track_record.cell_stats`) and its mirror in `recordView.ts`,
-  with the same hand-computed vectors pinned in both test files. The response also carries `opening`, the table at the
-  opening choices (IWM, next-session entry, by cap tier, every armed member) computed by the server; the page does not
-  draw it, but the frontend test reproduces it cell by cell from `rows`, so the two cannot drift apart.
-- The plan's `horizon_closes` is named `horizon_close` (it returns one bar). Price reads are unbounded in time and
-  chunked 40 companies per point-in-time view (an episode can sit anywhere in a name's history).
-- The cache key is the plan's tuple with the RESOLVED values: the edition number, then whether late
-  nights are included (fixed for a stored edition, which has none of those rows), then the clock.
-
-**The edition: the Scoreboard's default, the newest published (the record was the default while the editions nightly
-was on hold, 2026-10-29 to the V2 go-live).**
-- **The route's `edition` is optional** (`Query(None, ge=0)`): none named is the Scoreboard's own resolver
-  (`_resolve_edition` over `_default_edition`, one rule for both routes): the newest published edition, the record
-  (Edition 0) when none is published, and `scoreboard_default_edition` honored (0 pins the record, a published N pins
-  that edition, an unpublished N falls back to the newest). An explicit `edition=0` reads the record and a named N that
-  is not published is the same 404 as the Scoreboard's. The response's `edition` says which one was served.
-- **The response carries `newest_edition`** (`{number, label}`, `null` when nothing is published): the newest
-  PUBLISHED edition by `editions_repo.newest`, one small read outside the cache. It is deliberately not the
-  Scoreboard's `_default_edition`, which a server setting (`scoreboard_default_edition`) can pin to another edition:
-  the page's selector says "newest published", and this is that. With no override set the two are the same edition.
-- **The page's selector** "Edition: The record · Edition N (newest published)" refetches with `edition=`. The page
-  opens by naming no edition and presses the button for the edition the server served (the newest by default); when
-  a pinned default is an edition that is neither the record nor the newest, neither is pressed and the work line names
-  it. The control renders only when an edition is published (one option cannot discriminate, WB#3). Picking an edition clears a picked cell; the slice, comparison, entry and filter choices stay. Each edition
-  is its own server read and its own cache entry.
-- **The work line says which is in force:** "edition N: <label>" for a stored edition, "edition 0: the original
-  record" for the record, whichever the server served (the "(the default; editions are paused)" clause is gone with
-  the hold, which the operator lifted at the V2 go-live: Edition 2 is cut by hand, then the editions nightly runs).
-- **The warm-up** (`pipeline/warm_dashboards.py`) names no edition, as the page does: both reach the cache key the
-  RESOLVED edition makes (the first visit after a pass is a hit, and the key follows the default when an edition is
-  cut); a pick of the record is its own read.
-- `include_late` is unchanged.
-
-**The entry: the next session's close by default (2026-10-30, the operator's decision).**
-- **The page opens on "Next session"** (`TrackRecord.tsx`'s entry state), the toggle lists it first, and "Arm night" is
-  the other choice. The row already carried both entry reads and all ten horizon sets, so the request and the cache
-  key are unchanged and the toggle still re-tables the page with no request.
-- **The server's `opening` table follows the default:** `table_rows` takes `entry="next_session"` unless told
-  otherwise, so `opening` is the next-session reading. The wire shape is unchanged (only the `TrackRecordOut`
-  description names the new entry, so the contract pair is regenerated). The frontend's fixture payload
-  (`server-payload.json`) keeps its rows and has its `opening` rebuilt from them by the backend's own `table_rows`; the
-  test that reproduces it cell by cell now reads the next-session entry.
-- **The page's words:** the "Entry:" work line names the entry in force and that the other is one toggle away, and a
-  fixed note under the table states the limit (a close, not a fill; the arm night's close was not actionable).
-- **Not changed:** the Scoreboard's entry rule, the horizons, the cap and liquidity measurement, and the DB test that
-  pins "to exit_by" to the Scoreboard's `forward_return` (it reads the arm-night entry, which is where that
-  reconciliation holds).
-
-### MEASURED (dev, prod copy, 2026-10-29)
-
-The orchestrator's walk on the dev stack (a prod data copy), as-of 2026-10-29, BEFORE this change (the page defaulted
-to the newest published edition). These numbers are the orchestrator's, recorded here as the brief gave them; the
-build re-measured nothing.
-
-- **Edition 1** (cut 2026-10-23; the editions nightly is OFF by the operator's hold, so it is also the newest): 11
-  cards, 501 episodes, 439 counted.
-- **The record** (`edition=0`, the calls log): 46 cards, 469 episodes, 240 counted, h20 148 counted.
-- **Cost:** cold compute 12.0 s (Edition 1) and 14.8 s (the record); a cache hit 50 ms; payload 884 KB.
-- **Why the change:** the default view covered 11 of the 46 cards the record covers, from a frozen cut, so a
-  reader opening the page saw the older and smaller picture without asking for it.
-
-**AFTER (the orchestrator fills these in from the dev stack, same as-of 2026-10-29):**
-
-- no `edition` (now the record): cards 46 · episodes 469 · counted 240 · h20 counted 148 · `newest_edition` {number 1, "first re-run"}
-- `edition=1`: cards 11 · episodes 501 · counted 439
-- cold compute 16,909 to 17,069 ms · cache hit 50 to 100 ms · payload 574 KB
-
-(Superseded at the V2 go-live: the hold was lifted and a request that names no edition reads the Scoreboard's
-default again, the newest published edition; the figures above are the 2026-10-29 record-default reading.)
-
-### The cap from the filing cover's count (2026-11-04), MEASURED
-
-The build's own read on the DEV database (a prod copy, newest night 2026-10-29), read-only: the router's
-`read_record` at as-of 2026-10-29 through `serve_view(asof)` (the public clock), Edition 0, the default honesty
-policies (late nights set aside), with the dev backend's own run artifacts for the price flags. Once on
-the base commit's code (BEFORE), once on this change's (AFTER). 469 episodes, 240 counted, both times.
-
-| | BEFORE | AFTER |
-|---|---|---|
-| Counted episodes with an unpinned cap (`counts.unpinned_cap`) | 72 | 35 |
-| Caps from a Workbench count (unchanged, value for value) | 168 | 168 |
-| Caps from the filing cover's count (`counts.cap_from_cover`) | 0 | 37 (23 companies) |
-| `read_record` wall time, two runs each | 17.0 s, 15.3 s | 16.1 s, 16.1 s |
-
-- **The 37 new caps by tier:** nano 5 · micro 18 · small 9 · mid 2 · large 3. None crosses a split between the
-  cover count's date and the close.
-- **Why the 35 stay unpinned:** 19 have no cover row public before the event (`no_shares`, no note); 14 are not
-  10-Q filers ("the filing cover's count is not used: not a 10-Q filer"); 2 have a newest cover count too old to
-  stand in (filed 2010 and 2023). This is the plan's own breakdown (37 / 19 / 14 / 2).
-- **No dev cover row carries an acceptance** (0 of 52,148), so every cover count here counts from 06:00 ET on its
-  filing date.
-- **Three caps checked by hand** against the stored rows (cover count × the stored close before the arm date, no
-  split on the list for any of the three): a small cap from a 10-Q cover filed 71 days before the arm (the company's
-  Workbench count, accepted after the arm, fell through); a small cap from a 10-K cover filed 154 days before it (a
-  10-Q filer); a nano cap from a 10-Q cover filed a week before it. Each matched the page to the dollar.
-
+- The record is young: long horizons mostly read maturing.
+- Cap and liquidity are approximate (a cover-count cap is not ratified); the bands are a first cut.
+- No null comparison: IWM and SPY only.

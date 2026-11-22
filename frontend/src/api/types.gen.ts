@@ -20191,11 +20191,13 @@ export interface components {
          * TrackRecordOut
          * @description The Track Record at the as-of: every episode's row (newest arm first), the counts, the companies with a price-reaching
          *     flag and the opening table (IWM, the next-session entry, by cap tier, every armed member; the page
-         *     recomputes any other reading from ``rows`` with the same arithmetic). ``edition`` and the late policy is the
+         *     recomputes any other reading from ``rows`` with the same arithmetic). ``edition`` and the late policy are the
          *     Scoreboard's own (``late_policy``: ``included`` | ``excluded`` | ``n/a`` for a stored
-         *     edition, which has no such rows). ``edition`` is the one READ (the record when the request named none);
-         *     ``newest_edition`` is the newest PUBLISHED edition (``null`` when none is), which the page offers beside the
-         *     record. ``market_source`` = whose bar dates are the market's session clock;
+         *     edition, which has no such rows). ``edition`` is the one READ: the one the request named, else the Scoreboard's
+         *     default (the newest published edition, the record when none is published, unless the server's
+         *     ``scoreboard_default_edition`` pins another). ``newest_edition`` is the newest PUBLISHED edition (``null`` when
+         *     none is), which the page offers beside the record. ``market_source`` = whose bar dates are the market's session
+         *     clock;
          *     ``benchmarks_missing`` = a benchmark with no bar at the as-of; ``stale_days`` = how far a name's tape may sit
          *     behind the market before an unreached horizon reads path ended; ``min_n`` = the smallest n a cell may be read
          *     at. ``cards`` = cards with a recorded call, ``cards_unreadable`` = cards whose record could not be read.
