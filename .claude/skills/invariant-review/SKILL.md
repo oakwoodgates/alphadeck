@@ -1,81 +1,91 @@
 ---
 name: invariant-review
 description: >-
-  Review a diff against Alpha Deck's OWN rules — the trust invariants
-  (docs/INVARIANTS.md), the Workbench interaction principles, and the cost thread —
-  the project-specific overlay a generic code review can't do. Trigger on "review
-  against the invariants", "invariant check", or before merging anything touching
-  signals, calls, discovery, the Workbench, or backend/llm. Reports findings as
-  proposals; it never auto-fixes.
+  Use when reviewing a diff against Alpha Deck's own rules (invariants 1 to 14, the Workbench interaction
+  principles, the cost rule), or before merging changes to signals, calls, discovery, tenancy, the Workbench or
+  `backend/llm`. Findings are proposals.
 ---
 
-# Invariant review — the Alpha Deck overlay
+# Invariant review
 
-Authoritative sources: `docs/INVARIANTS.md` (invariants 1-14 in full — READ the
-relevant sections during the review, don't work from memory of them; its "Former
-numbers" table decodes an old cite) + `CLAUDE.md` (the same numbers in one line each,
-interaction principles, cost thread). This complements /code-review (bugs); it does
-not replace it.
+The project-specific overlay a generic code review cannot do; it complements `/code-review` (bugs) and does not
+replace it. Read the relevant sections of `docs/INVARIANTS.md` during the review rather than working from memory;
+its "Former numbers" table decodes an old cite. The interaction principles WB#1 to WB#3 are in `CLAUDE.md`.
 
-## Guardrails (never violate)
-- **Findings are proposals.** Report VIOLATION / PASS / N-A with file:line and the
-  invariant by number; propose the fix, don't apply it unasked (propose-don't-assume).
-- **Label MEASURED vs PROPOSED.** A claim you verified by running something is
-  MEASURED; a judgment from reading is PROPOSED. Never blur them.
+## Guardrails
 
-## Checks — trust invariants (backend / call path)
-- **No lookahead (invariant 1):** every historical read via the as-of accessors, a
-  fact counted from when it became public (`db/public_clock.py`); writers stamp
-  `now()`, never a backdated time.
-- **Everything attaches to a thesis (invariant 2):** no orphan screener or tool.
-- **LLM never sources (invariant 3):** any new LLM touchpoint goes through
-  `backend/llm`, response-only, no write rail, no value field in its schema.
-- **Timing, not judgment (invariant 4):** nothing ranks or vetoes a thesis; the user's
-  conviction on a member is a displayed weight and never touches the call machinery.
-- **Advisory only (invariant 5):** nothing sizes, routes or executes a trade.
-- **Provenance (invariant 6):** every new trigger carries a checkable source.
-- **Inverse loudness (invariant 7):** only a move into Armed is loud.
-- **Dilution overhang (invariant 8):** one raw computation, never backed out of severity.
-- **Recall (invariant 9):** ANY change to discovery/classify/filters/caps/term tiers
-  triggers the five rules of invariant 9 — require the `recall-rescore` skill's
-  re-score as the gate.
-- **Recommend→confirm (invariant 10):** nothing model-suggested auto-applies;
-  authorship transfers only on an operator edit.
-- **Exact-membership resolution (invariant 11):** fuzzy may discover, never decide.
-- **Tenant isolation (invariant 12):** new read paths use the tenant-filtered
-  accessors, and the poison-row test GROWS to cover them; nothing deletes from
-  `calls` or the editions store.
-- **Pure assembler (invariant 13) + property-factoring (invariant 14):** no
-  clock/DB/network in the call path; no bare `date.today()` / no-arg `datetime.now()`
-  (the AST scans in `tests/domain/test_market_time.py` enforce — new code must pass
-  them); behavior keys on the driving property, never `if kind ==`.
-- **Display signals stay display:** no import path into `calls/`, never persisted.
+- Findings are proposals. Report VIOLATION, PASS or N/A with the file, the line and the invariant by number;
+  propose the fix, never apply it unasked.
+- Label each finding run (you executed something) or read (a judgment from the diff). Never blur them.
+- A rule that seems to need breaking, or a call-logic rule `docs/CALL_LOGIC.md` does not specify, goes to the
+  operator, not into the review's own fix.
 
-## Checks — frontend / workflow
-- **Reversibility:** every new operator action has a visible inverse.
-- **Hide, never vanish:** pruning grays and keeps the row; hiding is an explicit,
-  reversible filter, never a delete or a default.
-- **Honest loudness:** a badge true of every row is noise; loudness marks the
-  exception. A control that doesn't discriminate shouldn't render.
-- **Cost is the operator's to spend:** no new ambient API/data spend; expensive
-  operations stay behind an explicit per-name/per-section opt-in.
+## Steps
 
-## Checks — mechanical gates
-- **Contract:** FastAPI-schema-touching diff carries the regenerated pair
-  (`contract-sync` skill, same PR).
-- **Bitemporal writes:** insert-a-new-version, never UPDATE-in-place on temporal facts.
-- **Idempotency tests count the table**, not the read.
+1. Read the diff and the invariants its areas own, then walk the checks below.
+2. Report per invariant, then the mechanical gates, then the live-seam check when it applies.
 
-## Conditional — the live-seam check (diff touches `backend/llm/*` or a seam's prompt/schema)
-Fake-client tests prove WIRING only. Before claiming the seam works, confirm against
-live Anthropic (needs `ANTHROPIC_API_KEY`; run on DEV, never prod) — e.g.
-`curl -X POST -H "Authorization: Bearer $TOKEN" http://localhost:8001/workbench/theses/<id>/draft-chain`
-for the chain seam, or `POST /workbench/facts/explain` (steward-only) for the flag seam — and report
-the live result as MEASURED. Every route except `/health` needs a sign-in: `$TOKEN` is a dev-stack
-user's token for the thesis's workspace (a steward's for the explain route), minted in the dev backend
-and kept out of the transcript:
-```
-TOKEN=$(docker compose -f docker-compose.yml -f docker-compose.dev.yml -p alphadeck_dev --env-file .env.dev exec -T backend python -m pipeline.users token create --email <dev user> --name review | sed -n 's/^token (shown once): //p' | tr -d '\r')
-```
-No key available → say the live confirmation is OUTSTANDING; never imply it
-happened.
+## Checks
+
+Trust invariants (backend and call path):
+
+- 1 No lookahead: every historical read goes through the as-of accessors and counts a fact from when it became
+  public (`db/public_clock.py`); writers stamp the database's `now()`, never a backdated time.
+- 2 Everything attaches to a thesis: no orphan screener or tool.
+- 3 The model never sources a number or a firing: a new model call goes through `backend/llm`, response only,
+  with no write path and no value field in its schema.
+- 4 Timing, not judgment: nothing ranks or vetoes a thesis; a user's conviction on a member is a displayed weight
+  and never reaches the call.
+- 5 Advisory only: nothing sizes, routes or executes a trade.
+- 6 Explainability: every new trigger carries a checkable source.
+- 7 Inverse loudness: only entering Armed or an armed upgrade is loud (`notify/policy.py`).
+- 8 Dilution overhang: one raw computation, never backed out of severity.
+- 9 Recall: any change to discovery, classification, filters, caps or term tiers triggers its five rules; the
+  `recall-rescore` skill's re-score is the gate.
+- 10 The model recommends, a person decides: nothing model-suggested auto-applies; authorship transfers only when
+  a person edits.
+- 11 Exact membership: fuzzy search may discover, never decide a mapping.
+- 12 Two tenant scopes: a new table is named in `domain/scopes.py` (`SCOPE_OF` or `UNSCOPED_TABLES`); reads use
+  the tenant-filtered accessors and the poison-row test grows to cover them; `WORKSPACE_ANY` stays out of `app/`
+  and `dashboards/`; a dashboard cache key carries the workspace; nothing deletes from `calls` or the editions
+  store.
+- 13 Pure assembler: no clock, database or network in the call path. No bare `date.today()` or argument-less
+  `datetime.now()`; the scans in `tests/domain/test_market_time.py` fail a violation.
+- 14 Property factoring: behavior keys on the property that drives it, never `if kind == ...`.
+- Display signals stay display: no import path into `calls/`, never persisted.
+
+Workflow (frontend):
+
+- Reversibility (WB#1): every new user action has a visible inverse.
+- Hide, never vanish (WB#2): pruning grays and keeps the row; hiding is an explicit, reversible filter.
+- Honest loudness (WB#3): a badge true of every row is noise; a control that does not discriminate does not
+  render.
+- Cost: no new ambient spend. A fetch a user triggers stays behind an explicit action, bounded by an allowance
+  (`app/allowance.py`) and the workspace caps (`app/workspace_caps.py`); see `docs/WORKBENCH.md`, "Cost and
+  limits".
+
+Mechanical gates:
+
+- A diff that touches the FastAPI schema carries the regenerated contract pair (`contract-sync`, same PR).
+- Temporal facts append a new version, never `UPDATE` in place.
+- Idempotency tests count the table, not the read.
+
+## The live-seam check
+
+When the diff touches `backend/llm/` or a seam's prompt or schema: fake-client tests prove wiring only. Confirm
+against live Anthropic on dev, never prod (it needs `ANTHROPIC_API_KEY`), and report what the call returned. Use
+`POST /workbench/theses/<id>/draft-chain` for the chain seam (a plain user's token for the thesis's workspace; it
+spends a `chain_draft` allowance) or `POST /workbench/facts/explain` for the flag seam (a steward's token). Mint
+the token and call the route as `recall-rescore` steps 2 and 3 do, keeping the token out of the transcript.
+
+## Stop and ask when
+
+- A change needs an invariant broken, or a call-logic rule that is not specified.
+- The live check needs a key or a dev stack you do not have: report the confirmation as outstanding, never imply
+  it happened.
+
+## Model
+
+[INVARIANTS].
+
+[INVARIANTS]: ../../../docs/INVARIANTS.md

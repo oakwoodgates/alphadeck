@@ -1,60 +1,71 @@
 ---
 name: recall-rescore
 description: >-
-  Run INVARIANT #9's recall gate — a LIVE discovery run against the psychedelic
-  thesis, scored at CIK level against the committed answer key (hard bar 30/30
-  on ANSWER, plus a report of whether the PRTG and ATAI canaries surfaced, any
-  status). REQUIRED after any change touching discovery,
-  classify, filters, caps, or term tiers; also trigger on "re-score recall",
-  "run the answer key". Runs on DEV, never prod; a silent drop is a system
-  failure, never waved through.
+  Use when a change touches discovery, classification, filters, caps or term tiers, or when asked to re-score
+  recall or run the answer key. Runs a live draft on dev for the psychedelic thesis and scores it at CIK level.
 ---
 
-# Recall re-score — prove no name was silently dropped
+# Recall re-score
 
-Authoritative sources: `docs/INVARIANTS.md` §9 + `docs/DISCOVERY.md`. The ground
-truth is the committed fixture `backend/tests/fixtures/recall_answer_key.py` —
-READ ITS HEADER before scoring; it carries the procedure, the current result, and
-the operator rulings. This is NOT an automated pytest — it is a live procedure,
-and this skill is its executable home.
+Invariant 9 forbids a silently dropped name. This is its gate: a live discovery draft scored against the committed
+answer key, `backend/tests/fixtures/recall_answer_key.py`. Read the fixture's header first: it carries the
+procedure, the current bar and the operator's rulings. This is a live procedure, not a pytest.
 
-## Guardrails (never violate)
-- **Full recall, never trimmed.** Never cap, sample, or shorten the run for
-  latency/cost — a capped run cannot prove #9. Fail visibly instead.
-- **Never edit the fixture to make a score pass.** It changes only when the
-  ground truth genuinely changes (delist, rename, a real omission) — an operator
-  decision, on the record in its header.
-- **A degraded run is not a score.** If the draft's coverage report shows failed
-  terms/pages or `capped_terms`, retry to a clean run before scoring — a gap
-  scored as truth is exactly the silent-drop failure #9 exists to catch.
-- **Any miss is investigated, never waved through.** "The dropped name is probably
-  noise" is the exact wording that preceded all five historical violations.
+## Guardrails
+
+- Dev only, never prod. The draft spends the model and EDGAR budget, and a steward's draft writes company identity
+  onto the shared master.
+- Full recall, never trimmed. Never cap, sample or shorten the run for latency or cost: a capped run cannot prove
+  invariant 9. Fail visibly instead.
+- Never edit the fixture to make a score pass. It changes only when the ground truth does (a delisting, a rename,
+  a real omission), an operator ruling recorded in its header.
+- A degraded run is not a score. If the draft's `report` shows `coverage.failed_terms`, `coverage.pages_ok` below
+  `pages_attempted`, any `capped_terms`, or a `scope` other than `full`, retry until it is clean. A gap scored as
+  truth is the silent-drop failure the gate exists to catch.
+- A miss is investigated, never waved through. "The dropped name is probably noise" is how past recall losses
+  passed their own tests.
 
 ## Steps
-1. **Run on DEV** (the `dev-stack` skill; live EFTS needs the UA, the tail-sweep
-   needs `ANTHROPIC_API_KEY` — without it PRTG-class surfaced-only names can't
-   surface, so the run under-counts). Find the psychedelic thesis id on dev.
-2. **Trigger the draft** (a background job — 202, then poll):
-   ```
-   curl -X POST -H "Authorization: Bearer $TOKEN" http://localhost:8001/workbench/theses/<id>/draft-chain
-   ```
-   Every route except `/health` needs a sign-in. `$TOKEN` is a dev-stack token for the user whose
-   workspace holds the psychedelic thesis (another workspace's thesis answers 404). Mint one in the
-   dev backend, keeping it out of the transcript (run it in the container: on the host the default
-   database URL is PROD):
+
+1. Bring up dev (the `dev-stack` skill) with `ALPHADECK_USER_AGENT` (live EFTS needs it) and `ANTHROPIC_API_KEY`
+   (without it the model steps fail open and the run under-counts) in `.env.dev`. Find the psychedelic thesis id
+   in its owner's workspace.
+2. Mint `$TOKEN` for the user whose workspace holds that thesis (another workspace's thesis answers 404) and keep
+   it out of the transcript. Run the mint in the dev backend container: on the host the default database URL is
+   prod.
    ```
    TOKEN=$(docker compose -f docker-compose.yml -f docker-compose.dev.yml -p alphadeck_dev --env-file .env.dev exec -T backend python -m pipeline.users token create --email <owner> --name rescore | sed -n 's/^token (shown once): //p' | tr -d '\r')
    ```
-   A plain user's kick-off spends one daily `chain_draft` allowance unit (429 once it is spent; a
-   steward is never counted). Poll `GET .../draft-chain/jobs/<job_id>` with the same header.
-   Collect the finished `ChainDraftOut`: PLACED + VERIFY placements, the
-   surfaced-not-placed context, and the coverage report.
-3. **Score at CIK level** — write a scratch scorer (scratchpad, not the repo)
-   importing `SEEDS`/`ANSWER` from the fixture. A company counts recalled if ANY
-   ticker in its group matches ANY ticker of a surfaced CIK (a CIK carries several
-   ticker rows — common + warrants; ticker-string equality miscounts). The
-   delisted canaries (`SURFACED_ONLY_CANARY`: PRTG, ATAI) are not counted —
-   check and report whether each surfaced (any status), don't assume.
-4. **Verdict:** recall holds at the fixture's current bar (30/30 on ANSWER, plus
-   the PRTG / ATAI canary report). Report the MEASURED score, the coverage report, and — on any miss —
-   which company, and the investigation, before any change lands.
+3. Start the draft (a background job: 202, then poll):
+   ```
+   curl -X POST -H "Authorization: Bearer $TOKEN" http://localhost:8001/workbench/theses/<id>/draft-chain
+   ```
+   A plain user's kick-off spends one daily `chain_draft` allowance (429 once spent, or while the global draft cap
+   is full); a steward is never counted. Poll `GET .../draft-chain/jobs/<job_id>` with the same header until
+   `status` is `done` (`failed` carries an `error`). The result is `ChainDraftOut`: PLACED and VERIFY placements,
+   and `report`.
+4. Score at CIK level with a scratch scorer outside the repo that imports `SEEDS` and `ANSWER` from the fixture. A
+   company counts as recalled when any ticker in its group matches any ticker of a surfaced CIK: one CIK carries
+   several ticker rows (common stock, warrants), so ticker-string equality miscounts.
+5. `SURFACED_ONLY_CANARY` names are not counted. Check whether each appears anywhere on the draft, any status, and
+   report it. A tail sweep that is not `ran` makes that report unreliable: say so.
+6. Verdict: every `ANSWER` name surfaced (the fixture header names the bar). On a miss, name the company and
+   the investigation before the change lands.
+
+## Checks
+
+- The report states the draft's `scope`, pages ok of attempted, `capped_terms`, `tail_sweep`, the count recalled
+  of `ANSWER` and the canary result, all from the run.
+- The diff leaves `tests/fixtures/recall_answer_key.py` alone unless the operator ruled the ground truth changed.
+
+## Stop and ask when
+
+- Dev is down, or it lacks the key or the User-Agent.
+- A clean run cannot be had after retries, or any name in `ANSWER` is missing.
+- The operator has not said the fixture's ground truth changed.
+
+## Model
+
+[INVARIANTS], 9 "Recall is sacred".
+
+[INVARIANTS]: ../../../docs/INVARIANTS.md
